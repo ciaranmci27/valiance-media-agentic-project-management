@@ -7189,10 +7189,14 @@ CREATE TABLE communications.sender_rules (
   disabled_at timestamptz,
   disabled_by uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now()
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  -- NULL: mail to any address. Set: only mail sent (To or Cc) to this one, such
+  -- as Gemini's notes to the account the meeting script already covers.
+  recipient text CONSTRAINT sender_rules_recipient_check
+    CHECK (recipient IS NULL OR (recipient = lower(btrim(recipient)) AND length(recipient) BETWEEN 3 AND 320 AND position('@' in recipient) > 1))
 );
 CREATE UNIQUE INDEX email_sender_rules_live_key
-  ON communications.sender_rules (match_kind, match_value, COALESCE(topic, '')) WHERE disabled_at IS NULL;
+  ON communications.sender_rules (match_kind, match_value, COALESCE(topic, ''), COALESCE(recipient, '')) WHERE disabled_at IS NULL;
 
 CREATE TRIGGER set_email_sender_rules_updated_at
   BEFORE UPDATE ON communications.sender_rules

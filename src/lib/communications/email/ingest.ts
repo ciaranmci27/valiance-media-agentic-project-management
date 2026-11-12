@@ -487,7 +487,7 @@ async function finalize(
     comms(supabase).from('inboxes').select('address, routing_address'),
     comms(supabase).from('endpoints').select('id, routing_address, public_address, owner_member_id'),
     supabase.from('team_members').select('id, email, role, status'),
-    comms(supabase).from('sender_rules').select('id, match_kind, match_value, topic, action').is('disabled_at', null),
+    comms(supabase).from('sender_rules').select('id, match_kind, match_value, topic, action, recipient').is('disabled_at', null),
     comms(supabase).from('own_domains').select('domain'),
   ]);
   if (messageError) throw messageError;
@@ -657,6 +657,7 @@ async function finalize(
     knownPerson: senderContactIds.length > 0 || projectIdsOf(senderProjects).length > 0,
     filterAutoMail: inbox.filter_auto_mail,
     rules: (ruleRows.data ?? []) as SenderRule[],
+    recipients: [...writtenTo],
   });
   const status = sorted.action === 'ignore' ? 'ignored' : 'new';
   // How it reached us, recorded before the message is filed so its first

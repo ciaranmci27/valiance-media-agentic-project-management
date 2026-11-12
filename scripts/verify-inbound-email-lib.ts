@@ -183,6 +183,16 @@ async function main() {
   check(sort('no-reply@okendo.io', 'Plan Limit is at 90%', '', { rules }), ['always', 'notification', 'usage'], 'sort: a topic rule overrides the default');
   check(sort('upwork@t.upwork.com', 'New proposal', '', { rules }), ['ignore', 'notification', 'update'], 'sort: a domain rule covers subdomains');
   check(sort('no-reply@upwork.com', 'Shortlist ready', '', { rules }), ['fyi', 'notification', 'update'], 'sort: an exact address beats its domain');
+  // A rule scoped to one recipient: Gemini's notes to the account the meeting script covers.
+  const geminiRule = { id: 'r-gemini', match_kind: 'address' as const, match_value: 'gemini-notes@google.com', topic: null, action: 'ignore' as const, recipient: 'ciaran@valiancemedia.com' };
+  const notes = (to: string) => sortEmail({ fromAddress: 'gemini-notes@google.com', subject: 'Notes: “Weekly sync” Nov 11, 2026', text: '', autoMailReason: null,
+    fromTeam: false, knownPerson: false, filterAutoMail: true, rules: [geminiRule], recipients: [to] });
+  check([notes('ciaran@valiancemedia.com').action, notes('ciaran@valiancemedia.com').reason],
+    ['ignore', 'Filtered by the rule for mail from gemini-notes@google.com to ciaran@valiancemedia.com.'], 'sorting: a recipient rule filters notes to the covered account');
+  check([notes('ciaran@happyinnovations.com').action, notes('ciaran@happyinnovations.com').kind], ['triage', 'meeting_notes'], 'sorting: notes to another account still reach the agent');
+  check(sortEmail({ fromAddress: 'gemini-notes@google.com', subject: 'Notes: x', text: '', autoMailReason: null, fromTeam: false, knownPerson: false, filterAutoMail: true,
+    rules: [geminiRule, { ...geminiRule, id: 'r-any', recipient: null, action: 'always' as const }], recipients: ['ciaran@valiancemedia.com'] }).rule_id, 'r-gemini',
+    'sorting: the recipient rule wins over the same sender\'s rule for any address');
   check(sortEmail({ fromAddress: 'no-reply@okendo.io', subject: 'Plan Limit is at 90%', text: '', autoMailReason: null, fromTeam: false, knownPerson: false, filterAutoMail: true, rules }).reason,
     'Always triaged by the rule for a usage alert from okendo.io.', 'sort: the reason names the rule');
   check(sort('updates@tool.example', 'Your weekly activity', '', { autoMailReason: 'list: list-unsubscribe' }), ['ignore', 'notification', 'update'], 'sort: bulk mail stays filtered');

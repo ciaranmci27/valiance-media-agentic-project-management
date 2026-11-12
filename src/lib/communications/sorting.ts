@@ -41,6 +41,8 @@ export interface SenderRule {
   match_value: string;
   topic: MailTopic | null;
   action: RuleAction;
+  /** Only mail sent (To or Cc) to this address; null or absent for any. */
+  recipient?: string | null;
 }
 
 export interface SortInput {
@@ -58,6 +60,8 @@ export interface SortInput {
   /** The inbox filters bulk mail its headers mark (communications.inboxes.filter_auto_mail). */
   filterAutoMail: boolean;
   rules: readonly SenderRule[];
+  /** The addresses it was sent to (To and Cc), for rules scoped to one. */
+  recipients?: readonly string[];
 }
 
 export interface SortResult {
@@ -158,17 +162,23 @@ export function topicOf(subject: string, text: string): MailTopic {
   return 'update';
 }
 
-/** The rule for this sender and topic: an exact address over a domain, this topic over any topic. */
-export function matchRule(rules: readonly SenderRule[], fromAddress: string | null, topic: MailTopic | null): SenderRule | null {
+/**
+ * The rule for this sender and topic: one scoped to an address the mail was
+ * sent to over any other, then an exact address over a domain, then this
+ * topic over any topic. A scoped rule never matches mail to other addresses.
+ */
+export function matchRule(rules: readonly SenderRule[], fromAddress: string | null, topic: MailTopic | null, recipients: readonly string[] = []): SenderRule | null {
   if (!fromAddress) return null;
   const domain = domainOf(fromAddress);
   const org = organizationalDomain(domain);
+  const sentTo = new Set(recipients.map((address) => address.toLowerCase()));
   const score = (rule: SenderRule): number => {
     if (rule.topic && rule.topic !== topic) return -1;
+    if (rule.recipient && !sentTo.has(rule.recipient)) return -1;
     const exact = rule.match_kind === 'address' && rule.match_value === fromAddress;
     const byDomain = rule.match_kind === 'domain' && (rule.match_value === domain || rule.match_value === org || domain.endsWith(`.${rule.match_value}`));
     if (!exact && !byDomain) return -1;
-    return (exact ? 2 : 0) + (rule.topic ? 1 : 0);
+    return (rule.recipient ? 4 : 0) + (exact ? 2 : 0) + (rule.topic ? 1 : 0);
   };
   let best: SenderRule | null = null;
   let bestScore = -1;
@@ -234,9 +244,10 @@ export function sortEmail(input: SortInput): SortResult {
   const machine = kind === 'notification' || kind === 'marketing';
   const topic = machine ? machineTopic : null;
 
-  const rule = matchRule(input.rules, input.fromAddress, topic);
+  const rule = matchRule(input.rules, input.fromAddress, topic, input.recipients);
   if (rule) {
-    const scope = rule.topic ? `${topicLabel(rule.topic)} from ${rule.match_value}` : `mail from ${rule.match_value}`;
+    const scope = (rule.topic ? `${topicLabel(rule.topic)} from ${rule.match_value}` : `mail from ${rule.match_value}`)
+      + (rule.recipient ? ` to ${rule.recipient}` : '');
     const reason = rule.action === 'ignore' ? `Filtered by the rule for ${scope}.`
       : rule.action === 'fyi' ? `FYI by the rule for ${scope}.`
         : `Always triaged by the rule for ${scope}.`;

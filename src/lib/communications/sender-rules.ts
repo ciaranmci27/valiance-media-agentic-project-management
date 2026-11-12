@@ -20,6 +20,8 @@ export interface SenderRuleRow {
   topic: MailTopic | null;
   action: RuleAction;
   source: 'person' | 'agent';
+  /** Only mail sent to this address; null for any. */
+  recipient: string | null;
   reason: string;
   created_by: string | null;
   hit_count: number;
@@ -28,7 +30,7 @@ export interface SenderRuleRow {
   created_at: string;
 }
 
-export const RULE_COLUMNS = 'id, match_kind, match_value, topic, action, source, reason, created_by, hit_count, last_hit_at, disabled_at, created_at';
+export const RULE_COLUMNS = 'id, match_kind, match_value, topic, action, source, recipient, reason, created_by, hit_count, last_hit_at, disabled_at, created_at';
 
 export const senderRuleSchema = z.object({
   match_kind: z.enum(['address', 'domain']),
@@ -68,9 +70,9 @@ export const TOPIC_PLURALS: Record<MailTopic, string> = {
   code: 'One-time codes',
 };
 
-/** "Usage alerts from okendo.io" / "Mail from no-reply@upwork.com". */
-export function describeRule(rule: Pick<SenderRuleRow, 'match_value' | 'topic'>): string {
-  return `${rule.topic ? TOPIC_PLURALS[rule.topic] : 'Mail'} from ${rule.match_value}`;
+/** "Usage alerts from okendo.io" / "Mail from no-reply@upwork.com" / "... to ciaran@valiancemedia.com". */
+export function describeRule(rule: Pick<SenderRuleRow, 'match_value' | 'topic'> & { recipient?: string | null }): string {
+  return `${rule.topic ? TOPIC_PLURALS[rule.topic] : 'Mail'} from ${rule.match_value}${rule.recipient ? ` to ${rule.recipient}` : ''}`;
 }
 
 /** Topics no rule from the agent may name: Ciaran always sees this mail. */
@@ -85,8 +87,12 @@ function sameOrUnder(domain: string, parent: string): boolean {
  * address, or an address under the other's domain, or nested domains) and
  * their topics do (equal, or either covers every topic).
  */
-export function rulesOverlap(a: Pick<SenderRuleRow, 'match_kind' | 'match_value' | 'topic'>, b: Pick<SenderRuleRow, 'match_kind' | 'match_value' | 'topic'>): boolean {
+export function rulesOverlap(
+  a: Pick<SenderRuleRow, 'match_kind' | 'match_value' | 'topic'> & { recipient?: string | null },
+  b: Pick<SenderRuleRow, 'match_kind' | 'match_value' | 'topic'> & { recipient?: string | null },
+): boolean {
   if (a.topic && b.topic && a.topic !== b.topic) return false;
+  if (a.recipient && b.recipient && a.recipient !== b.recipient) return false;
   const domainOfAddress = (value: string) => value.split('@')[1] ?? '';
   if (a.match_kind === 'address' && b.match_kind === 'address') return a.match_value === b.match_value;
   if (a.match_kind === 'domain' && b.match_kind === 'domain') {
@@ -96,10 +102,10 @@ export function rulesOverlap(a: Pick<SenderRuleRow, 'match_kind' | 'match_value'
   return sameOrUnder(domainOfAddress(address), domain);
 }
 
-/** The live rule with the same sender and topic, if any. */
+/** The live rule with the same sender and topic, for mail to any address, if any. */
 export async function liveRuleFor(supabase: SupabaseClient, kind: string, value: string, topic: string | null): Promise<SenderRuleRow | null> {
   let query = comms(supabase).from('sender_rules').select(RULE_COLUMNS)
-    .eq('match_kind', kind).eq('match_value', value).is('disabled_at', null);
+    .eq('match_kind', kind).eq('match_value', value).is('recipient', null).is('disabled_at', null);
   query = topic ? query.eq('topic', topic) : query.is('topic', null);
   const { data, error } = await query.maybeSingle();
   if (error) throw error;
