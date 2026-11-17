@@ -172,7 +172,7 @@ export async function inboxModes(supabase: SupabaseClient, inboxIds: string[]): 
 /**
  * What a triage job works through, oldest first. plans: new messages in plan
  * inboxes whose conversation has been quiet for QUIET_MINUTES (urgent machine
- * mail at once), in conversations nobody muted. shadow: messages in shadow
+ * mail and meetings at once), in conversations nobody muted. shadow: messages in shadow
  * inboxes the old triage already handled, with no shadow plan yet, from the
  * last 14 days.
  */
@@ -184,7 +184,7 @@ export async function triageQueue(supabase: SupabaseClient, inboxIds: string[], 
     if (!inboxIds.length) return [];
     // Muted conversations are left out in the query, so they never fill the window.
     const muted = (await rows<{ id: string }>(comms(supabase).from('conversations').select('id').in('inbox_id', inboxIds).not('muted_at', 'is', null))).map((c) => c.id);
-    let query = comms(supabase).from('messages').select('id, inbox_id, thread_id, subject, received_at, kind, topic')
+    let query = comms(supabase).from('messages').select('id, inbox_id, thread_id, subject, received_at, kind, topic, channel')
       .in('inbox_id', inboxIds).eq('status', 'new')
       .or(wanted.length ? `channel.eq.meeting,inbox_id.in.(${wanted.join(',')})` : 'channel.eq.meeting');
     if (muted.length) query = query.not('thread_id', 'in', `(${muted.join(',')})`);
@@ -197,7 +197,8 @@ export async function triageQueue(supabase: SupabaseClient, inboxIds: string[], 
     return candidates.filter((m) => {
       const conversation = byId.get(m.thread_id as string);
       if (!conversation || conversation.muted_at) return false;
-      const urgent = m.kind === 'notification' && URGENT_TOPICS.includes(m.topic as string);
+      // A meeting arrives whole (one package), so it never waits for its conversation to go quiet.
+      const urgent = m.channel === 'meeting' || (m.kind === 'notification' && URGENT_TOPICS.includes(m.topic as string));
       return urgent || !conversation.last_message_at || Date.parse(conversation.last_message_at) <= quietBefore;
     }).slice(0, limit).map((m) => ({ id: m.id, inbox_id: m.inbox_id, conversation_id: m.thread_id, subject: m.subject, received_at: m.received_at }));
   }

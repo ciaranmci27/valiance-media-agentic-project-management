@@ -123,11 +123,9 @@ async function main() {
 
     // ---- Meetings are planned, whatever the inbox's mode -------------------
     const { triageQueue } = await import('../src/lib/communications/triage-context');
-    // Past the queue's quiet window, as a meeting is minutes after it is posted.
-    await db.query("UPDATE communications.conversations SET last_message_at = now() - interval '10 minutes' WHERE id = $1", [first.conversation_id]);
     const planned = await triageQueue(supabase, [ids.inbox], 'plans');
     const shadowed = await triageQueue(supabase, [ids.inbox], 'shadow');
-    check('a meeting in a legacy inbox waits in the plan queue, never the shadow one',
+    check('a meeting is ready to plan at once (no quiet wait), in a legacy inbox too, never in the shadow queue',
       planned.some((row) => row.id === first.message_id) && !shadowed.some((row) => row.id === first.message_id), { planned, shadowed });
 
     // ---- Refusals and links -----------------------------------------------
