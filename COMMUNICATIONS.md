@@ -243,12 +243,28 @@ situation:
 
 A meeting is the second channel. Each meeting is one conversation (channel
 `meeting`, no subject, so subject threading never joins an email to it) and
-one message per package the meeting script posts: Gemini's notes, the full
+one message per package the meeting script sends: Gemini's notes, the full
 transcript, or both. The transcript or notes is the message's text file; the
-organizer is its `from` and the guests are `attendee` participants, whose
-addresses map to projects the way an email's do. `meetings` holds what only
-a meeting has, keyed by the script's `meeting_key` (`meeting_conversation`
-finds or creates it). Meetings are kept: retention deletes email only.
+teammate who sent it is its `from` and the organizer and guests are
+`attendee` participants, whose addresses map to projects the way an email's
+do. `meetings` holds what only a meeting has, keyed by the script's
+`meeting_key` (`meeting_conversation` finds or creates it). Meetings are
+kept: retention deletes email only.
+
+A package arrives one of two ways, both ending in `ingestMeetingPackage`:
+
+- **By email** (how the script sends today, `meeting/email.ts`): the
+  script's email to the inbox carries the meeting's details as a
+  `-----BEGIN PM MEETING-----` block (base64 JSON) and the words as a text
+  file. Email intake records it as a meeting, not an email, only when the
+  sender's authentication is trusted, the sender is an active teammate (not
+  an agent), that teammate can read the inbox it landed in, and the block,
+  subject and file are the script's. Anything else stays an ordinary email.
+  Nothing names a person, so any teammate running the script gets the same.
+- **By API** (`POST /api/v1/inbox/meetings`, a key with `meetings.write`).
+
+The same package by either route is one message (its provider id is the
+meeting key and kind).
 
 In the Inbox a meeting shows by its title, time and attendees (list rows and
 thread detail carry `channel` and `meeting`; each message its

@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { z } from 'zod';
 import { comms } from '@/lib/communications/db';
-import { INBOUND_EMAIL_BUCKET, MAX_OBJECT_BYTES } from '../email/ingest';
+import { INBOUND_EMAIL_BUCKET, MAX_OBJECT_BYTES } from '../email/storage-limits';
 import { mapAddresses } from '../map-addresses';
 import { threadProjectDecision } from '../mapping';
 
@@ -11,9 +11,11 @@ import { threadProjectDecision } from '../mapping';
  * account) posts one package per meeting: Gemini's notes, or the full
  * transcript. Each package becomes a message in the meeting's conversation,
  * through the same core as email: start the message, store its text file,
- * complete it with the projects its attendees map to. The teammate whose API
- * key posts it is the verified teammate behind it (routing basis
- * team_recipients, like their own email copied to the inbox), so the agent
+ * complete it with the projects its attendees map to. It arrives as the
+ * script's email to the inbox (meeting/email.ts), or posted with the
+ * teammate's API key; either way that teammate is the verified sender behind
+ * it (routing basis team_recipients, like their own email copied to the
+ * inbox), so the agent
  * may file it on any open project, and a client's say in the meeting is
  * still data, never instructions.
  */
@@ -71,6 +73,9 @@ const docLink = (value: string | null | undefined) => {
 
 export class MeetingTooLargeError extends Error {}
 
+/** How the teammate behind a package was verified, stored on the message as its auth. */
+export type MeetingAuth = { trust: 'trusted' } & Record<string, unknown>;
+
 const oneLine = (value: string | null | undefined, limit: number) => (value ?? '').replace(/\s+/g, ' ').trim().slice(0, limit);
 const validAddress = (value: string | null | undefined) => {
   const parsed = ADDRESS.safeParse(value ?? '');
@@ -119,14 +124,16 @@ export function packageProviderId(input: Pick<MeetingPackage, 'meeting_key' | 'k
 /**
  * Records one meeting package for the teammate `memberId` (an active person,
  * checked by the caller) in `inboxId` (granted to them, checked by the
- * caller). Idempotent: posting the same package again returns the message
- * already recorded; a run that failed halfway is finished by the next post.
+ * caller). `auth` is what vouches for that teammate: their API key, or their
+ * verified email. Idempotent: the same package again, by either route,
+ * returns the message already recorded; a run that failed halfway is
+ * finished by the next one.
  */
 export async function ingestMeetingPackage(
   supabase: SupabaseClient,
   input: MeetingPackage,
   memberId: string,
-  apiKeyId: string,
+  auth: MeetingAuth,
 ): Promise<MeetingOutcome> {
   const [{ data: inbox, error: inboxError }, { data: member, error: memberError }] = await Promise.all([
     comms(supabase).from('inboxes').select('id, address, routing_address, max_attachment_mb').eq('id', input.inbox_id).single(),
@@ -185,8 +192,7 @@ export async function ingestMeetingPackage(
       received_at: now,
       text_body: body,
       new_text: body,
-      // The API key vouches for the teammate who posted it.
-      auth: { trust: 'trusted', source: 'api_key', api_key_id: apiKeyId },
+      auth,
     },
     p_recipients: recipients,
     p_attachments: [{ filename: fileName(input), content_type: 'text/plain; charset=utf-8', size_bytes: bytes.byteLength, disposition: 'attachment' }],

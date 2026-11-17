@@ -10,6 +10,10 @@ import { alertSeriesKey, sortEmail, type SenderRule } from '../sorting';
 import { chooseThread, referencedIds, THREAD_SUBJECT_WINDOW_DAYS, type SubjectThread } from './threading';
 import { trashedProjectIds } from '@/lib/supabase/trash';
 import { comms } from '@/lib/communications/db';
+import { INBOUND_EMAIL_BUCKET, MAX_OBJECT_BYTES } from './storage-limits';
+import { verifiedTeamSender, type TeamMemberRow } from './team-sender';
+import { ingestMeetingPackage } from '../meeting/ingest';
+import { meetingEmailOf, meetingPackageFromEmail, memberCanReadInbox, type MeetingEmail } from '../meeting/email';
 
 /**
  * The provider-agnostic ingestion core. A transport hands it one received
@@ -40,9 +44,7 @@ import { comms } from '@/lib/communications/db';
  * Nothing here sends email.
  */
 
-export const INBOUND_EMAIL_BUCKET = 'inbound-email';
-/** The bucket's per-object limit (50 MiB); a larger raw message is not stored. */
-export const MAX_OBJECT_BYTES = 52_428_800;
+export { INBOUND_EMAIL_BUCKET, MAX_OBJECT_BYTES } from './storage-limits';
 const MIB = 1024 * 1024;
 /**
  * Failed runs, or the age, after which a file that will not download or
@@ -189,16 +191,54 @@ export async function ingestInbound(supabase: SupabaseClient, email: InboundEmai
     console.warn(`[inbound-email] no enabled inbox or project address for ${prepared.deliveredTo.join(', ') || 'no recipients'}`);
     return { kind: 'no_inbox', delivered_to: prepared.deliveredTo };
   }
+  // The meeting script's email: a meeting in each inbox its teammate can read, an email elsewhere.
+  const meeting = await meetingEmailOf(supabase, email, prepared);
+  let meetingBytes: Promise<Buffer | null> | null = null;
   const outcomes: InboxOutcome[] = [];
   for (const { inbox, projectAddress, viaAddressIds } of targets) {
     try {
-      outcomes.push(await ingestIntoInbox(supabase, inbox, projectAddress, viaAddressIds, email, prepared));
+      const asMeeting = meeting && await memberCanReadInbox(supabase, meeting.member.id, inbox.id)
+        ? await ingestMeetingEmail(supabase, inbox, meeting, prepared, () => (meetingBytes ??= readMeetingFile(meeting)))
+        : null;
+      outcomes.push(asMeeting ?? await ingestIntoInbox(supabase, inbox, projectAddress, viaAddressIds, email, prepared));
     } catch (error) {
       await recordInboxError(supabase, inbox.id, `Could not take in ${email.provider} email ${email.provider_email_id}: ${(error as Error).message}`);
       throw error;
     }
   }
   return { kind: 'ingested', inboxes: outcomes };
+}
+
+/** The meeting file's bytes, once per email; null when larger than any inbox stores. */
+async function readMeetingFile(meeting: MeetingEmail): Promise<Buffer | null> {
+  const read = await readCapped(await fetchFile(meeting.file.source, `meeting file ${meeting.data.file}`), MAX_OBJECT_BYTES);
+  return read?.bytes ?? null;
+}
+
+/**
+ * The meeting script's email recorded as the meeting package it carries.
+ * Null, so it is taken in as an ordinary email instead, when its file is
+ * larger than this inbox stores or its words do not make a valid package.
+ */
+async function ingestMeetingEmail(
+  supabase: SupabaseClient,
+  inbox: InboxRow,
+  meeting: MeetingEmail,
+  prepared: PreparedEmail,
+  bytes: () => Promise<Buffer | null>,
+): Promise<InboxOutcome | null> {
+  const file = await bytes();
+  if (!file || file.byteLength > Math.min(inbox.max_attachment_mb * MIB, MAX_OBJECT_BYTES)) return null;
+  const meetingPackage = meetingPackageFromEmail(meeting.data, inbox.id, file.toString('utf8'));
+  if (!meetingPackage) return null;
+  const outcome = await ingestMeetingPackage(supabase, meetingPackage, meeting.member.id, {
+    ...prepared.message.auth,
+    trust: 'trusted',
+    delivered_as: 'meeting_email',
+  });
+  return outcome.already_complete
+    ? { inbox_id: inbox.id, email_id: outcome.message_id, outcome: 'already_complete', status: outcome.status }
+    : { inbox_id: inbox.id, email_id: outcome.message_id, outcome: 'completed', status: outcome.status, thread_id: outcome.conversation_id };
 }
 
 /**
@@ -463,13 +503,6 @@ async function attachedForwardSender(supabase: SupabaseClient, messageId: string
 
 type RoutingBasis = 'sender' | 'forwarded_original' | 'team_recipients';
 
-interface TeamMemberRow {
-  id: string;
-  email: string | null;
-  role: string;
-  status: string;
-}
-
 async function finalize(
   supabase: SupabaseClient,
   inbox: InboxRow,
@@ -528,10 +561,7 @@ async function finalize(
   // active person, not an agent, with trusted sender auth): then a forward
   // routes by its original sender (one layer deep), and anything else, a
   // teammate's own email copied to the inbox, by the client addresses it went to.
-  const teamSender = fromAddress && prepared.message.auth.trust === 'trusted'
-    ? members.find((member) => member.role !== 'agent' && member.status === 'active'
-      && ((member.email ?? '').trim().toLowerCase() === fromAddress || ownerOf(fromAddress) === member.id)) ?? null
-    : null;
+  const teamSender = verifiedTeamSender(members, fromAddress, prepared.message.auth.trust, ownerOf);
   let basis: RoutingBasis = 'sender';
   let original: ForwardedSender | null = null;
   let mappingAddresses: string[] = fromAddress && !isOurs(fromAddress) ? [fromAddress] : [];

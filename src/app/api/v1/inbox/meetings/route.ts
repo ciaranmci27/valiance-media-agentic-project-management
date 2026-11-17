@@ -20,7 +20,7 @@ export const POST = withApi<MeetingPackage>(async ({ supabase, body, teamMemberI
   }
   await inboxScope(supabase, teamMemberId, access, body.inbox_id);
   try {
-    const outcome = await ingestMeetingPackage(supabase, body, teamMemberId, apiKeyId);
+    const outcome = await ingestMeetingPackage(supabase, body, teamMemberId, { trust: 'trusted', source: 'api_key', api_key_id: apiKeyId });
     return outcome.already_complete ? success(outcome) : created(outcome);
   } catch (caught) {
     if (caught instanceof MeetingTooLargeError) throw new ApiError(413, 'meeting_too_large', caught.message);
