@@ -21339,6 +21339,7 @@
    "drafts_requested": 0,
    "waiting_count": 0,
    "plans_new_count": 0,
+   "plans_newest_received_at": null,
    "shadow_pending_count": 0
   }
  },

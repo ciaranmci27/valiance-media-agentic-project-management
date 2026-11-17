@@ -11,13 +11,15 @@ export const dynamic = 'force-dynamic';
  * worth a line in the batched summary (something done, or waiting on a
  * person), reply drafts people asked for and questions still waiting, across
  * the member's inboxes (or one). new_count covers the inboxes the old
- * triage runs (legacy and shadow); plans_new_count the plan inboxes' mail
- * ready to plan, and shadow_pending_count what a shadow triage has left.
+ * triage runs (legacy and shadow); plans_new_count the messages ready to
+ * plan (plan inboxes' mail, and every meeting) and plans_newest_received_at
+ * the newest of them, which wake the plan triage as new_count wakes the old;
+ * shadow_pending_count what a shadow triage has left.
  */
 export const GET = withApi(async ({ supabase, searchParams, teamMemberId, access }) => {
   const inboxIds = await inboxScope(supabase, teamMemberId, access, searchParams.get('inbox_id'));
   if (inboxIds.length === 0) {
-    return success({ new_count: 0, newest_received_at: null, unsummarized_count: 0, drafts_requested: 0, waiting_count: 0, plans_new_count: 0, shadow_pending_count: 0 });
+    return success({ new_count: 0, newest_received_at: null, unsummarized_count: 0, drafts_requested: 0, waiting_count: 0, plans_new_count: 0, plans_newest_received_at: null, shadow_pending_count: 0 });
   }
   const modes = await inboxModes(supabase, inboxIds);
   const legacy = inboxIds.filter((id) => (modes.get(id) ?? 'legacy') !== 'plans');

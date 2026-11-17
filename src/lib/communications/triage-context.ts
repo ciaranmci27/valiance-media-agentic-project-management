@@ -215,7 +215,16 @@ export async function triageQueue(supabase: SupabaseClient, inboxIds: string[], 
 }
 
 /** The plan counts the signal adds: ready new messages in plan inboxes, and shadow work waiting. */
-export async function planSignal(supabase: SupabaseClient, inboxIds: string[]): Promise<{ plans_new_count: number; shadow_pending_count: number }> {
+export async function planSignal(supabase: SupabaseClient, inboxIds: string[]): Promise<{
+  plans_new_count: number;
+  plans_newest_received_at: string | null;
+  shadow_pending_count: number;
+}> {
   const [ready, shadow] = await Promise.all([triageQueue(supabase, inboxIds, 'plans', 200), triageQueue(supabase, inboxIds, 'shadow', 200)]);
-  return { plans_new_count: ready.length, shadow_pending_count: shadow.length };
+  // The newest ready message, so the dispatcher wakes for one that arrives as another is planned.
+  const newest = ready.reduce<string | null>((latest, m) => {
+    const at = m.received_at as string | null;
+    return at && (!latest || Date.parse(at) > Date.parse(latest)) ? at : latest;
+  }, null);
+  return { plans_new_count: ready.length, plans_newest_received_at: newest, shadow_pending_count: shadow.length };
 }

@@ -337,8 +337,11 @@ async function main() {
     check('queue: a quiet conversation is ready; a busy or muted one is not',
       queued.includes(quiet.message) && !queued.includes(fresh.message) && !queued.includes(mutedNew.message), queue.body);
     const signal = await call(signalRoute.GET, 'GET', '/api/v1/inbox/signal');
-    check('signal: plan inboxes count apart from the old triage\'s new mail',
-      signal.body.data?.new_count === 0 && signal.body.data?.plans_new_count >= 1 && signal.body.data?.shadow_pending_count === 0, signal.body);
+    const newestReady = ((queue.body.data?.messages ?? []) as Row[]).map((m) => m.received_at as string)
+      .sort((x, y) => Date.parse(y) - Date.parse(x))[0];
+    check('signal: plan inboxes count apart from the old triage\'s new mail, with the newest ready time',
+      signal.body.data?.new_count === 0 && signal.body.data?.plans_new_count >= 1 && signal.body.data?.shadow_pending_count === 0
+        && !!newestReady && signal.body.data?.plans_newest_received_at === newestReady, signal.body);
 
     // ---- A person in the Inbox --------------------------------------------------------------
     const inboxPlans = await import('../src/lib/communications/inbox-plans');
