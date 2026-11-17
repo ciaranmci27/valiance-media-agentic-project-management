@@ -28,7 +28,7 @@ type Row = Record<string, unknown>;
 
 export async function messageFacts(supabase: SupabaseClient, messageId: string): Promise<MessageFacts> {
   const { data: message, error } = await comms(supabase).from('messages')
-    .select('id, inbox_id, thread_id, subject, text_body, new_text, auth, kind, auto_mail_reason, delivery, sender_member_id, routing_basis')
+    .select('id, inbox_id, thread_id, subject, text_body, new_text, auth, kind, auto_mail_reason, delivery, sender_member_id, routing_basis, channel')
     .eq('id', messageId).single();
   if (error) throw error;
   const row = message as Row;
@@ -80,6 +80,7 @@ export async function messageFacts(supabase: SupabaseClient, messageId: string):
     addressedToAshley,
     suspicious: false,
     ownerForwardWithoutNote: speaker === 'owner' && forwarded && (note ?? '').length < 3,
+    meeting: row.channel === 'meeting',
     fromAddress,
     senderMemberId,
   };

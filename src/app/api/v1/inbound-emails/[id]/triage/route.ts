@@ -271,7 +271,7 @@ export const POST = withApi<TriageRequest, { id: string }>(async ({ supabase, pa
 
   if (access.role === 'agent') {
     const projectIds = recorded.triage.project_ids ?? [];
-    const payload = { message_id: message.id, thread_id: message.thread_id, outcome: body.outcome, urgent: body.urgent, links: links.length };
+    const payload = { message_id: message.id, thread_id: message.thread_id, channel: message.channel === 'meeting' ? 'meeting' as const : 'email' as const, outcome: body.outcome, urgent: body.urgent, links: links.length };
     afterResponse('email.triaged activity', async () => {
       const { error: activityError } = await supabase.from('agent_activities').insert({
         agent_id: teamMemberId,
@@ -282,7 +282,7 @@ export const POST = withApi<TriageRequest, { id: string }>(async ({ supabase, pa
         description: '',
         reference_type: null,
         reference_id: null,
-        metadata: { ...payload, channel: 'email', project_ids: projectIds },
+        metadata: { ...payload, project_ids: projectIds },
       });
       if (activityError) throw activityError;
     });

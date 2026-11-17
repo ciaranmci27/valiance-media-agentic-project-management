@@ -66,6 +66,7 @@ export interface AccessibleMessage {
   inbox_id: string;
   thread_id: string;
   status: string;
+  channel: string;
 }
 
 export async function loadAccessibleMessage(
@@ -77,7 +78,7 @@ export async function loadAccessibleMessage(
   const id = assertUuid(messageId, 'id');
   const { data, error } = await comms(supabase)
     .from('messages')
-    .select('id, inbox_id, thread_id, status')
+    .select('id, inbox_id, thread_id, status, channel')
     .eq('id', id)
     .maybeSingle();
   if (error) throw error;

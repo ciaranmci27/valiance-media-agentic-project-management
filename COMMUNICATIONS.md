@@ -78,6 +78,7 @@ migration.
 | `triage` | The agent's read of a message: outcome, summary, question, `project_ids` it filed on. |
 | `task_links` | Message to task: created, updated or related. |
 | `answers` | A person's answer to the agent's question on a conversation. |
+| `meetings` | A meeting conversation's details: title, times, organizer, Doc, and the script's key that joins a late transcript to it. |
 | `reply_drafts`, `sender_rules`, `maintenance_runs` | Drafts on request, a person's sorting rules, retention bookkeeping. |
 
 ## Projects: one conversation, several projects
@@ -238,12 +239,23 @@ situation:
 2. Write one paragraph in the agent's triage instructions.
 3. Add one eval case and one row to `scripts/verify-triage-policy.ts`.
 
+## Meetings
+
+A meeting is the second channel. Each meeting is one conversation (channel
+`meeting`, no subject, so subject threading never joins an email to it) and
+one message per package the meeting script posts: Gemini's notes, the full
+transcript, or both. The transcript or notes is the message's text file; the
+organizer is its `from` and the guests are `attendee` participants, whose
+addresses map to projects the way an email's do. `meetings` holds what only
+a meeting has, keyed by the script's `meeting_key` (`meeting_conversation`
+finds or creates it). Meetings are kept: retention deletes email only.
+
 ## Adding a channel (SMS, Slack, ...)
 
 Every table and rule above is shared. A new channel needs:
 
 1. **Allow the channel.** One migration widens the `channel` checks on
-   `endpoints`, `conversations` and `messages` (today `IN ('email')`), and
+   `endpoints`, `conversations` and `messages` (today `IN ('email', 'meeting')`), and
    makes the email-only message columns nullable or moves them to an email
    detail table.
 2. **Map its senders.** SMS needs phone numbers mapped to projects (a

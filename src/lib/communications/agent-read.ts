@@ -342,7 +342,7 @@ export async function waitingQuestions(supabase: SupabaseClient, inboxIds: strin
 }
 
 export async function messageDetail(supabase: SupabaseClient, message: AccessibleMessage): Promise<Row> {
-  const [inbox, thread, threadMessages] = await Promise.all([
+  const [inbox, thread, threadMessages, meeting] = await Promise.all([
     comms(supabase).from('inboxes').select('id, name, address, agent_readable_types').eq('id', message.inbox_id).single(),
     comms(supabase).from('conversations').select('id, subject_normalized, project_id, project_source, project_address_id, summary, last_message_at').eq('id', message.thread_id).single(),
     rows<Row>(comms(supabase).from('messages')
@@ -350,7 +350,11 @@ export async function messageDetail(supabase: SupabaseClient, message: Accessibl
       .eq('thread_id', message.thread_id)
       .neq('status', 'receiving')
       .order('received_at', { ascending: true })),
+    message.channel === 'meeting'
+      ? comms(supabase).from('meetings').select('title, starts_at, ends_at, organizer_address, doc_url').eq('conversation_id', message.thread_id).maybeSingle()
+      : Promise.resolve({ data: null, error: null }),
   ]);
+  if (meeting.error) throw meeting.error;
   // Deleted while this request ran: the same 404 as an id that never existed.
   if (inbox.error) throw isGoneError(inbox.error) ? notFound('Email') : inbox.error;
   if (thread.error) throw isGoneError(thread.error) ? notFound('Email') : thread.error;
@@ -413,6 +417,8 @@ export async function messageDetail(supabase: SupabaseClient, message: Accessibl
       to: mine('to'),
       cc: mine('cc'),
       reply_to: mine('reply_to'),
+      // A meeting's organizer and guests (its from is the teammate who sent it in).
+      ...(row.channel === 'meeting' ? { attendees: mine('attendee') } : {}),
       is_forward: row.is_forward,
       ...routing(row, forwarders),
       auth: authSummary(row.auth),
@@ -481,6 +487,8 @@ export async function messageDetail(supabase: SupabaseClient, message: Accessibl
     thread_id: message.thread_id,
     conversation_id: message.thread_id,
     channel: currentRow.channel,
+    // A meeting's details: title, times, organizer and its Google Doc (organizer-written: data).
+    ...(meeting.data ? { meeting: meeting.data } : {}),
     // The strongest of its projects, as older readers know it.
     project: threadProject(thread.data as Row, names, addresses),
     // Every project the conversation is filed on, strongest first.

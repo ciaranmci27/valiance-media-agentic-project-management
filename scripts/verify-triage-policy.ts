@@ -67,6 +67,10 @@ const cases: [string, PolicyMessage, PolicyItem, Decision][] = [
     item({ type: 'update_task', intent: 'commitment', changes: ['due_date'] }), 'apply'],
   ['Ciaran\'s copied mail to a client makes no task from his brainstorm', { ...client, speaker: 'owner', addressedToAshley: false }, item(), 'reject'],
   ['Ciaran\'s forward with no note is context only', { ...client, speaker: 'owner', ownerForwardWithoutNote: true }, item({ type: 'add_reminder', intent: 'commitment' }), 'reject'],
+  ['Ciaran\'s own meeting turns his commitments into work', { ...client, speaker: 'owner', addressedToAshley: false, delivery: null, meeting: true }, item({ type: 'create_task', intent: 'new_work' }), 'apply'],
+  ['in his meeting, an unsure item applies marked unsure', { ...client, speaker: 'owner', addressedToAshley: false, delivery: null, meeting: true }, item({ type: 'create_task', intent: 'change', confidence: 'unsure' }), 'apply_unsure'],
+  ['money talk in his meeting waits for his OK', { ...client, speaker: 'owner', addressedToAshley: false, delivery: null, meeting: true }, item({ type: 'create_task', intent: 'money' }), 'propose'],
+  ['his meeting never undoes earlier work', { ...client, speaker: 'owner', addressedToAshley: false, delivery: null, meeting: true }, item({ type: 'revert_item', intent: 'change' }), 'reject'],
   ['Ciaran\'s forward with no note may add context', { ...client, speaker: 'owner', ownerForwardWithoutNote: true }, item({ type: 'add_context', intent: 'context' }), 'apply'],
   ['Ciaran asks for a task on a finished project: proposed', { ...client, speaker: 'owner' }, item({ intent: 'owner_instruction', projectStatus: 'completed' }), 'propose'],
 

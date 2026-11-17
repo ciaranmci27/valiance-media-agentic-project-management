@@ -58,6 +58,8 @@ export interface PolicyMessage {
   suspicious: boolean;
   /** Ciaran forwarded something without a note of his own. */
   ownerForwardWithoutNote?: boolean;
+  /** A meeting package (channel meeting): what was said in a meeting the sender ran or attended. */
+  meeting?: boolean;
 }
 
 export interface PolicyItem {
@@ -111,6 +113,12 @@ export function decideItem(message: PolicyMessage, item: PolicyItem): PolicyDeci
         return decided('propose', 'That project is finished, so a new task on it waits for your OK.');
       }
       return decided('apply', 'Ciaran asked for it.');
+    }
+    // His own meeting: what remains after the call is his work, and the agent
+    // has already judged what was settled on it. Money still waits for him.
+    if (message.meeting) {
+      if (SENSITIVE_INTENTS.includes(item.intent)) return decided('propose', 'Money or account matters from a meeting wait for your OK.');
+      return decided(item.confidence === 'unsure' ? 'apply_unsure' : 'apply', 'From Ciaran\'s own meeting.');
     }
     if (message.ownerForwardWithoutNote) {
       return [...FILING_TYPES, 'add_context'].includes(item.type)

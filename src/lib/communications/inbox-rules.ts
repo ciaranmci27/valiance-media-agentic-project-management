@@ -79,7 +79,8 @@ export async function createSenderRule(ctx: InboxContext, request: CreateSenderR
 /** The open mail in one thread from the rule's sender (and topic) is filtered now, as if it had just arrived. */
 async function filterThreadNow(ctx: InboxContext, threadId: string, rule: SenderRuleRow): Promise<number> {
   const messages = await many<{ id: string; topic: string | null; routing_basis: string; original_from_address: string | null }>(comms(ctx.service).from('messages')
-    .select('id, topic, routing_basis, original_from_address').eq('thread_id', threadId).in('status', ['new', 'needs_human']));
+    // Sender rules sort email; a meeting (sent in by a teammate) is never filtered by one.
+    .select('id, topic, routing_basis, original_from_address').eq('thread_id', threadId).eq('channel', 'email').in('status', ['new', 'needs_human']));
   if (messages.length === 0) return 0;
   const fromRows = await many<{ message_id: string; address: string }>(comms(ctx.service).from('participants')
     .select('message_id, address').eq('kind', 'from').in('message_id', messages.map((message) => message.id)));

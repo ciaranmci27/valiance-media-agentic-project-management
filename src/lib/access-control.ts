@@ -65,6 +65,7 @@ export const PERMISSIONS = [
   'suggestions.manage',
   'agent_activity.write',
   'fleet_alerts.write',
+  'meetings.write',
 ] as const;
 
 export type PermissionKey = typeof PERMISSIONS[number];
@@ -83,6 +84,7 @@ export const API_ENDPOINT_PERMISSIONS = [
   'invoices.read', 'invoices.manage', 'invoices.record_payments', 'billing.manage', 'agents.manage',
   'project_context.read', 'project_context.manage', 'goals.read', 'goals.manage',
   'suggestions.create', 'suggestions.manage', 'agent_activity.write', 'fleet_alerts.write',
+  'meetings.write',
 ] as const satisfies readonly PermissionKey[];
 
 export const API_ENDPOINT_PERMISSION_SET = new Set<PermissionKey>(API_ENDPOINT_PERMISSIONS);
@@ -272,6 +274,7 @@ export const PERMISSION_GROUPS: Array<{
       { key: 'suggestions.manage', label: 'Manage suggestions', description: 'Review and act on agent suggestions.' },
       { key: 'agent_activity.write', label: 'Log agent activity', description: 'Allow an AI agent to record its own activity through the API.' },
       { key: 'fleet_alerts.write', label: 'Post fleet alerts', description: 'Allow a host key to record fleet-wide alerts that name no agent. A key with this scope posts nothing else.' },
+      { key: 'meetings.write', label: 'Post meetings', description: 'Allow a teammate\'s meeting script to post each meeting (transcript or notes) into an inbox they can read. Never an agent\'s key.' },
     ],
   },
 ];

@@ -299,6 +299,31 @@ async function main() {
         && afterGiveUp.storage_path === null && releasedFailed.copies_released >= 1
         && (await rows(db, 'SELECT 1 FROM communications.files WHERE id=$1', [(claimedThenFailed.data as Row).file_id])).length === 0, { gaveUp: gaveUp.data, afterGiveUp, releasedFailed });
 
+    // ---- Meetings: one conversation per key, and kept past retention ----
+    const meetingKey = { meeting_key: 'event-1@2026-11-11T22:00:00Z', title: 'Calendar Review', doc_url: 'https://docs.google.com/document/d/abc' };
+    const firstMeeting = await supabase.schema('communications').rpc('meeting_conversation', { p_inbox_id: ids.inboxA, p_meeting: meetingKey });
+    const sameMeeting = await supabase.schema('communications').rpc('meeting_conversation', {
+      p_inbox_id: ids.inboxA, p_meeting: { ...meetingKey, title: 'Renamed later', starts_at: '2026-11-11T22:00:00Z', ends_at: '2026-11-11T23:15:00Z' },
+    });
+    const meetingRow = (await rows(db, 'SELECT m.*, c.channel, c.subject_normalized FROM communications.meetings m JOIN communications.conversations c ON c.id = m.conversation_id WHERE m.conversation_id = $1', [firstMeeting.data]))[0];
+    check('meetings: a key gives one conversation, and a later package fills the times it lacked',
+      !firstMeeting.error && firstMeeting.data === sameMeeting.data && meetingRow?.channel === 'meeting' && meetingRow.subject_normalized === ''
+        && meetingRow.title === 'Calendar Review' && meetingRow.ends_at !== null, { firstMeeting, sameMeeting, meetingRow });
+    const oddDetails = await supabase.schema('communications').rpc('meeting_conversation', {
+      p_inbox_id: ids.inboxA, p_meeting: { meeting_key: 'doc:odd', title: '', doc_url: 'https://drive.example/x', starts_at: '2026-11-11T22:00:00Z', ends_at: '2026-11-11T21:00:00Z' },
+    });
+    const oddRow = (await rows(db, 'SELECT title, doc_url, ends_at FROM communications.meetings WHERE conversation_id = $1', [oddDetails.data]))[0];
+    check('meetings: a detail that does not fit is left out, never a refused package',
+      !oddDetails.error && oddRow?.title === 'Meeting' && oddRow.doc_url === null && oddRow.ends_at === null, { oddDetails, oddRow });
+    const oldMeeting = await makeMessage(db, storage, { inbox: ids.inboxB, days: 400, attachments: 1, triage: true, task });
+    const oldMeetingThread = (await supabase.schema('communications').rpc('meeting_conversation', { p_inbox_id: ids.inboxB, p_meeting: { meeting_key: 'doc:old', title: 'Old meeting' } })).data;
+    await db.query("UPDATE communications.messages SET channel = 'meeting', thread_id = $2 WHERE id = $1", [oldMeeting.id, oldMeetingThread]);
+    await db.query("INSERT INTO communications.participants(message_id, kind, address) VALUES ($1, 'attendee', 'joe@client.example')", [oldMeeting.id]);
+    await runRetention(supabase);
+    check('meetings: retention keeps a meeting and its transcript however old',
+      await messageExists(oldMeeting.id) && oldMeeting.paths.every(exists)
+        && (await rows(db, 'SELECT 1 FROM communications.meetings WHERE conversation_id = $1', [oldMeetingThread])).length === 1);
+
     // Only the service role may run the database side.
     let refused = '';
     try { await db.query("SELECT communications.retention_delete($1::jsonb)", [JSON.stringify([keptA.id])]); } catch (error) { refused = (error as Error).message; }

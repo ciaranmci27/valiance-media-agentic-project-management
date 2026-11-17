@@ -10,17 +10,24 @@ import { accessAllowsProject, resolveMemberAccess } from '@/lib/api/access';
 export async function liveTaskIds(supabase: SupabaseClient, ids: string[]): Promise<Set<string>> {
   const unique = [...new Set(ids)];
   if (unique.length === 0) return new Set();
-  const { data, error } = await supabase.from('tasks').select('id, parent_task_id').in('id', unique).is('deleted_at', null);
-  if (error) throw error;
-  const rows = (data || []) as { id: string; parent_task_id: string | null }[];
+  const rows = await liveRowsByIds<{ id: string; parent_task_id: string | null }>(supabase, 'id, parent_task_id', unique);
   const parentIds = [...new Set(rows.flatMap((row) => (row.parent_task_id ? [row.parent_task_id] : [])))];
-  let liveParents = new Set<string>();
-  if (parentIds.length > 0) {
-    const { data: parents, error: parentError } = await supabase.from('tasks').select('id').in('id', parentIds).is('deleted_at', null);
-    if (parentError) throw parentError;
-    liveParents = new Set((parents || []).map((row: { id: string }) => row.id));
-  }
+  const liveParents = new Set((await liveRowsByIds<{ id: string }>(supabase, 'id', parentIds)).map((row) => row.id));
   return new Set(rows.filter((row) => !row.parent_task_id || liveParents.has(row.parent_task_id)).map((row) => row.id));
+}
+
+/** A uuid in a query string is 36 characters: this many keep each request well under URL limits. */
+const IDS_PER_QUERY = 150;
+
+/** Live tasks among `ids`, read in batches so a long list never makes one request too long to send. */
+async function liveRowsByIds<T>(supabase: SupabaseClient, columns: string, ids: string[]): Promise<T[]> {
+  const batches: string[][] = [];
+  for (let i = 0; i < ids.length; i += IDS_PER_QUERY) batches.push(ids.slice(i, i + IDS_PER_QUERY));
+  const results = await Promise.all(batches.map((batch) => supabase.from('tasks').select(columns).in('id', batch).is('deleted_at', null)));
+  return results.flatMap(({ data, error }) => {
+    if (error) throw error;
+    return (data || []) as T[];
+  });
 }
 
 /** Entries with task_ids narrowed to live tasks (links to a task in Trash wait for its restore). */

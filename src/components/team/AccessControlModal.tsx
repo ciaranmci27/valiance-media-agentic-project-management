@@ -284,6 +284,7 @@ export function AccessControlModal({
                       'suggestions.create',
                       'agent_activity.write',
                       'fleet_alerts.write',
+                      'meetings.write',
                     ].includes(permission.key),
               ),
             }))

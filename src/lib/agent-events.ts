@@ -287,6 +287,7 @@ export const AGENT_EVENT_SCHEMAS = {
     outcome: z.enum(['no_action', 'task', 'needs_reply', 'needs_human']),
     urgent: z.boolean(),
     links: z.number().int().min(0),
+    channel: z.enum(['email', 'meeting']).optional(),
   }),
 
   // -- bookkeeping (hidden from the live-floor feed by default) ------------
@@ -477,7 +478,7 @@ export function formatEventTitle(type: AgentEventType, payload: Record<string, u
         needs_human: 'flagged for review',
         needs_ciaran: 'flagged for review', // events stored before the needs_human rename
       };
-      return `${p.urgent ? 'Urgent: t' : 'T'}riaged email: ${outcomes[String(p.outcome)] ?? String(p.outcome)}`;
+      return `${p.urgent ? 'Urgent: t' : 'T'}riaged ${p.channel === 'meeting' ? 'meeting' : 'email'}: ${outcomes[String(p.outcome)] ?? String(p.outcome)}`;
     }
     case 'billing.started':
       return p.description ? `Billing started: ${p.description}` : 'Billing started';

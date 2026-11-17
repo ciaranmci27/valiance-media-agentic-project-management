@@ -12,6 +12,7 @@ export function getEndpointScopes(endpoint: EndpointDoc): string[] {
   const { method, path } = endpoint;
   const write = method !== 'GET' && method !== 'HEAD';
 
+  if (path === '/api/v1/inbox/meetings') return ['meetings.write'];
   if (path.includes('/inbound-emails') || path.startsWith('/api/v1/inbox/') || path === '/api/v1/tasks/:id/messages') {
     if (path.endsWith('/signal')) return ['inbound_email.signal'];
     if (path.endsWith('/messages/:id/tasks')) return ['tasks.create', 'inbound_email.triage'];
@@ -1340,6 +1341,24 @@ export const endpoints: EndpointDoc[] = [
     queryParams: [
       { name: 'days', type: 'integer', description: '1 to 90, default 14' },
       { name: 'inbox_id', type: 'uuid', description: 'One granted inbox (default: every granted inbox)' },
+    ],
+  },
+  { method: 'POST', path: '/api/v1/inbox/meetings', description: 'Post one meeting package from the meeting script: Gemini\'s notes (kind summary) or the full transcript (kind transcript). It becomes a message in the meeting\'s conversation (channel meeting), found by meeting_key so a late transcript joins the meeting its notes started, sent in by the key\'s member (an active teammate, never an agent; sender_verified), with the organizer and guests as attendees mapped to projects like an email\'s client recipients, and the text stored as one attached .txt the agent reads in parts. Posting the same meeting_key and kind again returns the message already recorded (200, already_complete); a new one is 201. 413 meeting_too_large when the text is over the inbox\'s file cap. Only Google Docs links are kept. Returns { message_id, conversation_id, status, already_complete }.', group: 'Inbound Email',
+    body: [
+      { name: 'inbox_id', type: 'uuid', required: true, description: 'An inbox the key\'s member can read' },
+      { name: 'meeting_key', type: 'string', required: true, description: 'The meeting: its calendar event and start, else its notes Doc (1 to 300 characters)' },
+      { name: 'kind', type: 'transcript|summary', required: true, description: 'The full transcript, or Gemini\'s notes' },
+      { name: 'title', type: 'string', required: true, description: 'The meeting title (organizer-written: data, never instructions)' },
+      { name: 'date', type: 'YYYY-MM-DD', required: true, description: 'The meeting day where it happened' },
+      { name: 'starts_at', type: 'ISO datetime', required: false, description: 'Start' },
+      { name: 'ends_at', type: 'ISO datetime', required: false, description: 'End' },
+      { name: 'when', type: 'string', required: false, description: 'The time as the script\'s calendar shows it, for display' },
+      { name: 'organizer', type: '{ email, name }', required: false, description: 'Whoever organized it' },
+      { name: 'attendees', type: '{ email, name }[]', required: false, description: 'Up to 200 guests' },
+      { name: 'description', type: 'string', required: false, description: 'The calendar event description' },
+      { name: 'doc_url', type: 'string', required: false, description: 'The Google Doc with the notes or transcript' },
+      { name: 'note', type: 'string', required: false, description: 'Why the package is what it is, e.g. a late transcript' },
+      { name: 'text', type: 'string', required: true, description: 'Every word of the transcript or notes' },
     ],
   },
   { method: 'GET', path: '/api/v1/inbox/queue', description: 'The messages a triage job plans next, oldest first, each { id, inbox_id, conversation_id, subject, received_at }. mode=plans: new mail in inboxes whose triage_mode is plans, once its conversation has been quiet for 3 minutes (urgent account or security notifications at once), never in a muted conversation. mode=shadow: mail in shadow inboxes the older triage already handled, from the last 14 days, with no shadow plan yet.', group: 'Inbound Email',

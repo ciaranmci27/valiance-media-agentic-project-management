@@ -35,7 +35,7 @@ export const POST = withApi<PlanRequest, { id: string }>(async ({ supabase, para
   if (access.role === 'agent' && result.plan.mode === 'live') {
     const count = (state: string) => result.items.filter((item) => item.state === state).length;
     const projectIds = [...new Set(result.items.map((item) => item.project_id as string | null).filter((id): id is string => !!id))];
-    const payload = { message_id: message.id, thread_id: message.thread_id, outcome: 'plan', urgent: body.urgent, links: result.items.filter((i) => i.type === 'link_task' || i.type === 'create_task').length };
+    const payload = { message_id: message.id, thread_id: message.thread_id, channel: accessible.channel === 'meeting' ? 'meeting' as const : 'email' as const, outcome: 'plan', urgent: body.urgent, links: result.items.filter((i) => i.type === 'link_task' || i.type === 'create_task').length };
     afterResponse('email.triaged activity', async () => {
       const { error: activityError } = await supabase.from('agent_activities').insert({
         agent_id: teamMemberId,
@@ -46,7 +46,7 @@ export const POST = withApi<PlanRequest, { id: string }>(async ({ supabase, para
         reference_type: null,
         reference_id: null,
         metadata: {
-          ...payload, channel: 'email', plan_id: result.plan.id, project_ids: projectIds,
+          ...payload, plan_id: result.plan.id, project_ids: projectIds,
           applied: count('done'), proposed: count('pending'), failed: count('failed'), rejected: count('skipped'),
         },
       });

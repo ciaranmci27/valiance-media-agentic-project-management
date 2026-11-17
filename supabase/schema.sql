@@ -7137,7 +7137,7 @@ CREATE TABLE communications.conversations (
   last_message_at timestamptz NOT NULL DEFAULT now(),
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
-  channel text NOT NULL DEFAULT 'email' CONSTRAINT conversations_channel_check CHECK (channel IN ('email')),
+  channel text NOT NULL DEFAULT 'email' CONSTRAINT conversations_channel_check CHECK (channel IN ('email', 'meeting')),
   -- A person asked to ignore it: no plans for its new messages.
   muted_at timestamptz,
   muted_by uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
@@ -7274,7 +7274,7 @@ CREATE TABLE communications.messages (
   superseded_by uuid REFERENCES communications.messages(id) ON DELETE SET NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
-  channel text NOT NULL DEFAULT 'email' CONSTRAINT messages_channel_check CHECK (channel IN ('email')),
+  channel text NOT NULL DEFAULT 'email' CONSTRAINT messages_channel_check CHECK (channel IN ('email', 'meeting')),
   -- The verified teammate behind the message: who wrote it, or who forwarded
   -- or copied it in (email: an active person, not an agent, whose From
   -- address passed DKIM). Null for everyone else.
@@ -7316,7 +7316,8 @@ CREATE TRIGGER set_email_messages_updated_at
 CREATE TABLE communications.participants (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   message_id uuid NOT NULL REFERENCES communications.messages(id) ON DELETE CASCADE,
-  kind text NOT NULL CHECK (kind IN ('from', 'to', 'cc', 'reply_to')),
+  -- attendee: a meeting's guest (the organizer is its 'from').
+  kind text NOT NULL CONSTRAINT participants_kind_check CHECK (kind IN ('from', 'to', 'cc', 'reply_to', 'attendee')),
   address text NOT NULL CHECK (address = lower(btrim(address)) AND length(address) BETWEEN 3 AND 320),
   name text NOT NULL DEFAULT '' CHECK (length(name) <= 300),
   contact_id uuid REFERENCES public.contacts(id) ON DELETE SET NULL,
@@ -7326,6 +7327,34 @@ CREATE TABLE communications.participants (
 CREATE UNIQUE INDEX email_message_recipients_one_from ON communications.participants (message_id) WHERE kind = 'from';
 CREATE INDEX idx_email_message_recipients_address ON communications.participants (address);
 CREATE INDEX idx_email_message_recipients_contact ON communications.participants (contact_id) WHERE contact_id IS NOT NULL;
+
+-- A meeting (20261112042424_meetings_channel.sql): one conversation with
+-- channel 'meeting', one message per package the meeting script posts (the
+-- transcript is the message's text file). What only a meeting has, and its
+-- key, so a late transcript joins its meeting. Meetings are kept: retention
+-- deletes email only.
+CREATE TABLE communications.meetings (
+  conversation_id uuid PRIMARY KEY REFERENCES communications.conversations(id) ON DELETE CASCADE,
+  inbox_id uuid NOT NULL REFERENCES communications.inboxes(id) ON DELETE RESTRICT,
+  -- The script's key for the meeting: its calendar event and start, else
+  -- its notes Doc. One meeting per key per inbox.
+  meeting_key text NOT NULL CONSTRAINT meetings_key_check CHECK (length(meeting_key) BETWEEN 1 AND 300),
+  title text NOT NULL CONSTRAINT meetings_title_check CHECK (length(title) BETWEEN 1 AND 500),
+  starts_at timestamptz,
+  ends_at timestamptz,
+  organizer_address text
+    CONSTRAINT meetings_organizer_check CHECK (organizer_address IS NULL OR (organizer_address = lower(btrim(organizer_address)) AND length(organizer_address) BETWEEN 3 AND 320)),
+  -- The Google Doc with the notes or the transcript.
+  doc_url text CONSTRAINT meetings_doc_url_check CHECK (doc_url IS NULL OR doc_url ~ '^https://docs\.google\.com/'),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT meetings_times_check CHECK (ends_at IS NULL OR starts_at IS NULL OR ends_at >= starts_at),
+  CONSTRAINT meetings_inbox_key UNIQUE (inbox_id, meeting_key)
+);
+
+CREATE TRIGGER set_meetings_updated_at
+  BEFORE UPDATE ON communications.meetings
+  FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
 
 -- Thread participants are derived, never stored.
 CREATE OR REPLACE VIEW communications.conversation_participants
@@ -7641,7 +7670,7 @@ BEGIN
     INSERT INTO communications.messages (
       inbox_id, provider, provider_email_id, internet_message_id, in_reply_to, reference_ids,
       subject, subject_normalized, sent_at, received_at, text_body, html_body, new_text, is_forward,
-      auth, auto_mail_reason
+      auth, auto_mail_reason, channel
     ) VALUES (
       p_inbox_id,
       p_message->>'provider',
@@ -7658,7 +7687,8 @@ BEGIN
       p_message->>'new_text',
       COALESCE((p_message->>'is_forward')::boolean, false),
       COALESCE(p_message->'auth', '{}'::jsonb),
-      p_message->>'auto_mail_reason'
+      p_message->>'auto_mail_reason',
+      COALESCE(p_message->>'channel', 'email')
     )
     ON CONFLICT (inbox_id, internet_message_id) DO NOTHING
     RETURNING id INTO v_id;
@@ -9110,6 +9140,69 @@ CREATE POLICY reply_points_select ON communications.reply_points FOR SELECT TO a
 REVOKE ALL ON communications.plans, communications.plan_items, communications.reply_points FROM PUBLIC, anon, authenticated;
 GRANT SELECT ON communications.plans, communications.plan_items, communications.reply_points TO authenticated;
 GRANT ALL ON communications.plans, communications.plan_items, communications.reply_points TO service_role;
+-- Meetings: read by whoever can read the inbox; written only by the server.
+ALTER TABLE communications.meetings ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON communications.meetings FROM PUBLIC, anon, authenticated;
+GRANT SELECT ON communications.meetings TO authenticated;
+GRANT ALL ON communications.meetings TO service_role;
+CREATE POLICY meetings_select ON communications.meetings FOR SELECT TO authenticated
+  USING (communications.can_read_inbox(inbox_id));
+
+-- The meeting's conversation: found by its key, or created with its
+-- details. A later package updates the details it knows (a transcript knows
+-- the times when the notes did not). Service role only.
+CREATE OR REPLACE FUNCTION communications.meeting_conversation(p_inbox_id uuid, p_meeting jsonb)
+RETURNS uuid
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = communications, public
+AS $$
+DECLARE
+  v_key text := btrim(COALESCE(p_meeting->>'meeting_key', ''));
+  -- A detail that does not fit is left out, never a reason to refuse the package.
+  v_title text := COALESCE(NULLIF(left(btrim(COALESCE(p_meeting->>'title', '')), 500), ''), 'Meeting');
+  v_starts timestamptz := (p_meeting->>'starts_at')::timestamptz;
+  v_ends timestamptz := (p_meeting->>'ends_at')::timestamptz;
+  v_organizer text := NULLIF(lower(btrim(COALESCE(p_meeting->>'organizer_address', ''))), '');
+  v_doc text := NULLIF(btrim(COALESCE(p_meeting->>'doc_url', '')), '');
+  v_conversation uuid;
+BEGIN
+  IF v_organizer IS NOT NULL AND (length(v_organizer) NOT BETWEEN 3 AND 320) THEN v_organizer := NULL; END IF;
+  IF v_doc IS NOT NULL AND v_doc !~ '^https://docs\.google\.com/' THEN v_doc := NULL; END IF;
+  IF COALESCE(auth.role(), '') <> 'service_role' THEN RAISE EXCEPTION 'Service role required' USING ERRCODE = '42501'; END IF;
+  IF v_key = '' THEN RAISE EXCEPTION 'meeting_conversation: meeting_key is required' USING ERRCODE = '22023'; END IF;
+
+  -- Two packages of one meeting arriving at once: one creates, one waits.
+  PERFORM pg_advisory_xact_lock(hashtextextended(p_inbox_id::text || ':' || v_key, 0));
+
+  SELECT conversation_id INTO v_conversation FROM communications.meetings
+  WHERE inbox_id = p_inbox_id AND meeting_key = v_key;
+
+  IF v_conversation IS NULL THEN
+    -- No subject: subject threading must never pull an email into a meeting.
+    INSERT INTO communications.conversations (inbox_id, subject_normalized, channel, last_message_at)
+    VALUES (p_inbox_id, '', 'meeting', COALESCE((p_meeting->>'starts_at')::timestamptz, now()))
+    RETURNING id INTO v_conversation;
+    INSERT INTO communications.meetings (conversation_id, inbox_id, meeting_key, title, starts_at, ends_at, organizer_address, doc_url)
+    VALUES (
+      v_conversation, p_inbox_id, v_key, v_title, v_starts,
+      CASE WHEN v_ends >= v_starts OR v_starts IS NULL THEN v_ends END,
+      v_organizer, v_doc
+    );
+  ELSE
+    UPDATE communications.meetings SET
+      starts_at = COALESCE(starts_at, v_starts),
+      ends_at = COALESCE(ends_at, CASE WHEN v_ends >= COALESCE(starts_at, v_starts) OR COALESCE(starts_at, v_starts) IS NULL THEN v_ends END),
+      organizer_address = COALESCE(organizer_address, v_organizer),
+      doc_url = COALESCE(doc_url, v_doc)
+    WHERE conversation_id = v_conversation;
+  END IF;
+  RETURN v_conversation;
+END;
+$$;
+REVOKE ALL ON FUNCTION communications.meeting_conversation(uuid, jsonb) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION communications.meeting_conversation(uuid, jsonb) TO service_role;
+
 -- Your domains and ignored addresses: written by the app's service role only.
 REVOKE ALL ON communications.own_domains, communications.ignored_addresses FROM PUBLIC, anon, authenticated;
 GRANT SELECT ON communications.own_domains, communications.ignored_addresses TO authenticated;
@@ -9117,8 +9210,8 @@ GRANT ALL ON communications.own_domains, communications.ignored_addresses TO ser
 
 -- The next batch of messages due for deletion, oldest first, with every file
 -- path they own: the raw .eml and attachments stored the old way. Shared
--- copies are released after the rows go (files_release). Due: past the inbox's retention_days (any status but
--- receiving), or stuck in receiving for over 24 hours. p_exclude skips
+-- copies are released after the rows go (files_release). Due: email past the inbox's retention_days (any status but
+-- receiving; meetings are kept), or stuck in receiving for over 24 hours. p_exclude skips
 -- messages whose files failed to delete earlier in the same run.
 CREATE OR REPLACE FUNCTION communications.retention_due(p_limit integer, p_exclude jsonb DEFAULT '[]'::jsonb)
 RETURNS jsonb
@@ -9138,7 +9231,7 @@ BEGIN
       FROM communications.messages m
       JOIN communications.inboxes i ON i.id = m.inbox_id
       WHERE (
-          (m.status <> 'receiving' AND m.received_at < now() - make_interval(days => i.retention_days))
+          (m.status <> 'receiving' AND m.channel = 'email' AND m.received_at < now() - make_interval(days => i.retention_days))
           OR (m.status = 'receiving' AND m.created_at < now() - interval '24 hours')
         )
         AND NOT EXISTS (SELECT 1 FROM excluded x WHERE x.id = m.id)
@@ -9163,8 +9256,9 @@ $$;
 -- Deletes the rows of messages whose files are already gone: attachments,
 -- task links, triage, recipients, candidates, then the message, then any of
 -- their threads left empty. Only messages still due are deleted (the rule of
--- retention_due; a stuck message that completed during this run still
--- goes, since its files are gone). Tasks are never touched.
+-- retention_due; a stuck email that completed during this run still
+-- goes, since its files are gone). Meetings and their conversations are
+-- kept. Tasks are never touched.
 CREATE OR REPLACE FUNCTION communications.retention_delete(p_message_ids jsonb)
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -9198,9 +9292,9 @@ BEGIN
   JOIN communications.inboxes i ON i.id = m.inbox_id
   WHERE m.id = ANY(v_requested)
     AND (
-      (m.status <> 'receiving' AND m.received_at < now() - make_interval(days => i.retention_days))
+      (m.status <> 'receiving' AND m.channel = 'email' AND m.received_at < now() - make_interval(days => i.retention_days))
       OR (m.created_at < now() - interval '24 hours'
-          AND (m.status = 'receiving' OR m.completed_at > now() - interval '15 minutes'))
+          AND (m.status = 'receiving' OR (m.channel = 'email' AND m.completed_at > now() - interval '15 minutes')))
     );
 
   DELETE FROM communications.attachments WHERE message_id = ANY(v_ids);
@@ -9214,7 +9308,8 @@ BEGIN
   FOREACH v_thread IN ARRAY v_threads LOOP
     BEGIN
       DELETE FROM communications.conversations t
-      WHERE t.id = v_thread AND NOT EXISTS (SELECT 1 FROM communications.messages m WHERE m.thread_id = t.id);
+      WHERE t.id = v_thread AND t.channel = 'email'
+        AND NOT EXISTS (SELECT 1 FROM communications.messages m WHERE m.thread_id = t.id);
       IF FOUND THEN v_threads_deleted := v_threads_deleted + 1; END IF;
     EXCEPTION WHEN foreign_key_violation THEN
       NULL; -- a new message joined the thread meanwhile; it stays
@@ -9410,7 +9505,7 @@ begin
   foreach t in array array[
     'inboxes', 'inbox_access', 'client_domains', 'client_addresses', 'endpoints',
     'conversations', 'conversation_projects', 'messages', 'participants', 'message_candidates',
-    'attachments', 'triage', 'task_links', 'plans', 'plan_items', 'reply_points'
+    'attachments', 'triage', 'task_links', 'plans', 'plan_items', 'reply_points', 'meetings'
   ] loop
     if not exists (
       select 1 from pg_publication_tables
