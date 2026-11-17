@@ -3614,6 +3614,19 @@ AS $$
   )
 $$;
 
+-- The fast path of the task read policies: someone with tasks.read and
+-- projects.read_all reads every task whose project is live, exactly what the
+-- full check returns for them, so it is checked once per statement.
+CREATE OR REPLACE FUNCTION public.can_read_all_tasks()
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT public.has_permission('tasks.read') AND public.has_permission('projects.read_all', 'app')
+$$;
+
 CREATE OR REPLACE FUNCTION public.can_access_credential(p_credential_id uuid)
 RETURNS boolean
 LANGUAGE sql
@@ -5794,6 +5807,7 @@ REVOKE ALL ON FUNCTION public.has_permission(text, text) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.can_access_project(uuid) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.can_access_lead(uuid) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.can_access_task(uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.can_read_all_tasks() FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.can_read_task_row(uuid, uuid, uuid) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.can_access_credential(uuid) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.get_my_access_context() FROM PUBLIC;
@@ -5813,6 +5827,7 @@ GRANT EXECUTE ON FUNCTION public.has_permission(text, text) TO authenticated, se
 GRANT EXECUTE ON FUNCTION public.can_access_project(uuid) TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.can_access_lead(uuid) TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.can_access_task(uuid) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.can_read_all_tasks() TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.can_read_task_row(uuid, uuid, uuid) TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.can_access_credential(uuid) TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.get_my_access_context() TO authenticated;
@@ -13794,6 +13809,31 @@ CREATE POLICY task_files_not_deleted ON public.task_files AS RESTRICTIVE FOR ALL
   USING (deleted_at IS NULL) WITH CHECK (deleted_at IS NULL);
 CREATE POLICY task_files_parent_live ON public.task_files AS RESTRICTIVE FOR ALL TO authenticated
   USING (public.task_is_live(task_id));
+
+-- Task reads fast path (20261117231500): someone with tasks.read and
+-- projects.read_all reads every task whose project is live, exactly what the
+-- full check returns for them. (SELECT ...) runs that check once per
+-- statement, so they pass on it plus one indexed lookup a row instead of the
+-- full check per task, comment, assignee, checklist item, review and blocker.
+DROP POLICY IF EXISTS tasks_select ON public.tasks;
+CREATE POLICY tasks_select ON public.tasks FOR SELECT TO authenticated
+  USING (((SELECT public.can_read_all_tasks()) AND public.project_is_live(project_id))
+    OR public.can_read_task_row(id, project_id, created_by));
+DROP POLICY IF EXISTS task_assignees_select ON public.task_assignees;
+CREATE POLICY task_assignees_select ON public.task_assignees FOR SELECT TO authenticated
+  USING (((SELECT public.can_read_all_tasks()) AND public.task_is_live(task_id)) OR public.can_access_task(task_id));
+DROP POLICY IF EXISTS task_acceptance_criteria_select ON public.task_acceptance_criteria;
+CREATE POLICY task_acceptance_criteria_select ON public.task_acceptance_criteria FOR SELECT TO authenticated
+  USING (((SELECT public.can_read_all_tasks()) AND public.task_is_live(task_id)) OR public.can_access_task(task_id));
+DROP POLICY IF EXISTS task_reviews_select ON public.task_reviews;
+CREATE POLICY task_reviews_select ON public.task_reviews FOR SELECT TO authenticated
+  USING (((SELECT public.can_read_all_tasks()) AND public.task_is_live(task_id)) OR public.can_access_task(task_id));
+DROP POLICY IF EXISTS task_dependencies_select ON public.task_dependencies;
+CREATE POLICY task_dependencies_select ON public.task_dependencies FOR SELECT TO authenticated
+  USING (((SELECT public.can_read_all_tasks()) AND public.task_is_live(task_id)) OR public.can_access_task(task_id));
+DROP POLICY IF EXISTS task_comments_select ON public.task_comments;
+CREATE POLICY task_comments_select ON public.task_comments FOR SELECT TO authenticated
+  USING (((SELECT public.can_read_all_tasks()) AND public.task_is_live(task_id)) OR public.can_access_task(task_id));
 REVOKE ALL ON public.task_files FROM anon, authenticated;
 GRANT SELECT ON public.task_files TO authenticated;
 GRANT ALL ON public.task_files TO service_role;
