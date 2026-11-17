@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { AlertTriangle, Bell, Flame, Inbox as InboxIcon, KeyRound, Mail, Paperclip, RefreshCw, Search, Sparkles, SquareCheck, X } from 'lucide-react';
+import { AlertTriangle, Bell, CircleSlash, Flame, Inbox as InboxIcon, KeyRound, Mail, MessageSquare, Paperclip, RefreshCw, Search, Sparkles, SquareCheck, Video, X } from 'lucide-react';
 import { useApp } from '@/lib/store';
 import { useDemo } from '@/lib/demo-context';
 import { useAuth } from '@/lib/auth-context';
@@ -14,7 +14,7 @@ import { INBOX_FILTERS, INBOX_TAB_LABELS, INBOX_TABS, INBOX_VIEWS, isAgentChoice
 import { CODE_PIN_MINUTES, isInboxTab } from '@/lib/communications/inbox-view';
 import { timeAgo } from '@/lib/task-times';
 import { CopyValueButton } from '@/components/settings/EmailConnectChecklist';
-import { ThreadStateBadge, TrustBadge, formatListTime, projectSourceHint } from './inbox-badges';
+import { ThreadStateBadge, TrustBadge, formatDay, formatListTime, formatMeetingTime, projectSourceHint } from './inbox-badges';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { ThreadView } from './ThreadView';
 import type { InboxLatestCode, InboxThreadList } from '@/lib/communications/inbox-types';
@@ -458,7 +458,12 @@ export function InboxView({ projectId, embedded = false, emptyState, searchQuery
                         <SenderLine thread={thread} strong={attention || thread.has_new} />
                         <span className="flex-shrink-0 text-xs tabular-nums text-zinc-400">{formatListTime(thread.last_message_at)}</span>
                       </span>
-                      <span className={`mt-0.5 block truncate text-[13px] ${attention ? 'text-zinc-100' : 'text-zinc-300'}`}>{thread.subject || '(no subject)'}</span>
+                      {/* A meeting's title leads its row; this line says when it ran. */}
+                      <span className={`mt-0.5 block truncate text-[13px] ${attention ? 'text-zinc-100' : 'text-zinc-300'}`}>
+                        {thread.meeting
+                          ? formatMeetingTime(thread.meeting.starts_at, thread.meeting.ends_at) ?? 'Meeting'
+                          : thread.subject || '(no subject)'}
+                      </span>
                       {/* Where the thread stands, when the agent has said; else the newest email's opening. */}
                       {thread.summary ? (
                         <span className="mt-0.5 line-clamp-1 text-xs text-zinc-300"><span className="sr-only">Where it stands: </span>{thread.summary}</span>
@@ -514,6 +519,14 @@ export function InboxView({ projectId, embedded = false, emptyState, searchQuery
                           <ThreadCount icon={SquareCheck} count={thread.task_count} one="task" many="tasks" hint="this thread created, changed or is about" />
                           <ThreadCount icon={Bell} count={thread.reminder_count} one="open reminder" many="open reminders" hint="set from this thread" />
                           <ThreadCount icon={Paperclip} count={thread.attachment_count} one="attachment" many="attachments" hint="in this thread" />
+                          {thread.meeting?.dismissed && (
+                            <Tooltip content={`Marked nothing to do by ${thread.meeting.dismissed.by?.name ?? 'someone'} on ${formatDay(thread.meeting.dismissed.at)}`}>
+                              <span className="inline-flex items-center gap-1 text-[11px] text-zinc-400">
+                                <CircleSlash size={11} aria-hidden="true" />
+                                Nothing to do
+                              </span>
+                            </Tooltip>
+                          )}
                           {!inboxId && inboxes.length > 1 && <span className="ml-auto text-[11px] text-zinc-400">{thread.inbox_name}</span>}
                         </span>
                       )}
@@ -576,15 +589,23 @@ export function InboxView({ projectId, embedded = false, emptyState, searchQuery
   );
 }
 
-/** Who the thread is with, and how many emails it holds. */
+/** Who the thread is with (or, for a meeting, which meeting), and how many messages it holds. */
 function SenderLine({ thread, strong }: { thread: InboxThreadSummary; strong: boolean }) {
+  const meeting = thread.meeting;
+  const Count = meeting ? MessageSquare : Mail;
   return (
     <span className={`flex min-w-0 items-center gap-1.5 text-sm ${strong ? 'font-semibold text-white' : 'font-medium text-zinc-200'}`}>
-      <span className="truncate">{thread.sender?.name || thread.sender?.address || 'Unknown sender'}</span>
+      {meeting && (
+        <>
+          <Video size={14} className="flex-shrink-0 text-zinc-400" aria-hidden="true" />
+          <span className="sr-only">Meeting: </span>
+        </>
+      )}
+      <span className="truncate">{meeting ? meeting.title : thread.sender?.name || thread.sender?.address || 'Unknown sender'}</span>
       {thread.message_count > 1 && (
         <span className="inline-flex flex-shrink-0 items-center gap-1 text-[11px] font-normal text-zinc-400">
-          <Mail size={11} aria-hidden="true" />
-          <span className="sr-only">{thread.message_count} emails</span>
+          <Count size={11} aria-hidden="true" />
+          <span className="sr-only">{thread.message_count} {meeting ? 'messages' : 'emails'}</span>
           <span aria-hidden="true">{thread.message_count}</span>
         </span>
       )}

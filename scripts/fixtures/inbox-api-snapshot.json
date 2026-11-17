@@ -21380,6 +21380,8 @@
     "id": "<thread:Ashley/attach-8-again@acme-roofing.example>",
     "inbox_id": "<ids.inboxA>",
     "inbox_name": "Ashley",
+    "channel": "email",
+    "meeting": null,
     "subject": "Photos and the signed quote",
     "project": null,
     "projects": [],
@@ -21405,6 +21407,8 @@
     "id": "<thread:Ashley/BN8PR11MB1234outlook@BN8PR11MB1234.namprd11.prod.outlook.example>",
     "inbox_id": "<ids.inboxA>",
     "inbox_name": "Ashley",
+    "channel": "email",
+    "meeting": null,
     "subject": "RE: Invoice question",
     "project": {
      "id": "<ids.birch>",
@@ -21440,6 +21444,8 @@
     "id": "<thread:Ashley/CAF2xGmail-reply-1@mail.gmail.com>",
     "inbox_id": "<ids.inboxA>",
     "inbox_name": "Ashley",
+    "channel": "email",
+    "meeting": null,
     "subject": "Re: Homepage banner",
     "project": {
      "id": "<ids.acme>",
@@ -21480,6 +21486,8 @@
     "id": "<thread:Ashley/cs-desk@gmail.example>",
     "inbox_id": "<ids.inboxA>",
     "inbox_name": "Ashley",
+    "channel": "email",
+    "meeting": null,
     "subject": "Through the desk",
     "project": {
      "id": "<project:Bob Desk>",
@@ -21515,6 +21523,8 @@
     "id": "<thread:Ashley/cs-one@gmail.example>",
     "inbox_id": "<ids.inboxA>",
     "inbox_name": "Ashley",
+    "channel": "email",
+    "meeting": null,
     "subject": "Leaky tap quote",
     "project": {
      "id": "<project:Bob Plumbing>",
@@ -21550,6 +21560,8 @@
     "id": "<thread:Ashley/cs-two@gmail.example>",
     "inbox_id": "<ids.inboxA>",
     "inbox_name": "Ashley",
+    "channel": "email",
+    "meeting": null,
     "subject": "Side gig invoice",
     "project": {
      "id": "<project:Bob Plumbing>",
@@ -21585,6 +21597,8 @@
     "id": "<thread:Ashley/fw-agent@agency.example>",
     "inbox_id": "<ids.inboxA>",
     "inbox_name": "Ashley",
+    "channel": "email",
+    "meeting": null,
     "subject": "Fwd: New homepage copy",
     "project": null,
     "projects": [],
@@ -21610,6 +21624,8 @@
     "id": "<thread:Ashley/fw-apple@agency.example>",
     "inbox_id": "<ids.inboxA>",
     "inbox_name": "Ashley",
+    "channel": "email",
+    "meeting": null,
     "subject": "Fwd: Logo feedback",
     "project": {
      "id": "<project:Vera Studio>",
@@ -21645,6 +21661,8 @@
     "id": "<thread:Ashley/fw-client@cliffbuilders.example>",
     "inbox_id": "<ids.inboxA>",
     "inbox_name": "Ashley",
+    "channel": "email",
+    "meeting": null,
     "subject": "Fwd: Hosting renewal",
     "project": {
      "id": "<project:Cliff Builders>",
@@ -21680,6 +21698,8 @@
     "id": "<thread:Ashley/fw-desk@agency.example>",
     "inbox_id": "<ids.inboxA>",
     "inbox_name": "Ashley",
+    "channel": "email",
+    "meeting": null,
     "subject": "Fwd: Desk copy",
     "project": {
      "id": "<project:Forward Desk>",
@@ -21715,6 +21735,8 @@
     "id": "<thread:Ashley/fw-eml@agency.example>",
     "inbox_id": "<ids.inboxA>",
     "inbox_name": "Ashley",
+    "channel": "email",
+    "meeting": null,
     "subject": "Fwd: Invoice question",
     "project": {
      "id": "<project:Vera Studio>",
@@ -21750,6 +21772,8 @@
     "id": "<thread:Ashley/fw-far@agency.example>",
     "inbox_id": "<ids.inboxA>",
     "inbox_name": "Ashley",
+    "channel": "email",
+    "meeting": null,
     "subject": "Fwd: Launch plan",
     "project": {
      "id": "<project:Vera Studio>",
@@ -21785,6 +21809,8 @@
     "id": "<thread:Ashley/fw-gmail@agency.example>",
     "inbox_id": "<ids.inboxA>",
     "inbox_name": "Ashley",
+    "channel": "email",
+    "meeting": null,
     "subject": "Fwd: New homepage copy",
     "project": {
      "id": "<project:Vera Studio>",
@@ -21820,6 +21846,8 @@
     "id": "<thread:Ashley/fw-html@agency.example>",
     "inbox_id": "<ids.inboxA>",
     "inbox_name": "Ashley",
+    "channel": "email",
+    "meeting": null,
     "subject": "Fwd: Photos",
     "project": {
      "id": "<project:Vera Studio>",
@@ -21855,6 +21883,8 @@
     "id": "<thread:Ashley/fw-outlook@agency.example>",
     "inbox_id": "<ids.inboxA>",
     "inbox_name": "Ashley",
+    "channel": "email",
+    "meeting": null,
     "subject": "FW: Kickoff notes",
     "project": {
      "id": "<project:Vera Studio>",
@@ -21890,6 +21920,8 @@
     "id": "<thread:Ashley/fw-suspended@agency.example>",
     "inbox_id": "<ids.inboxA>",
     "inbox_name": "Ashley",
+    "channel": "email",
+    "meeting": null,
     "subject": "Fwd: New homepage copy",
     "project": null,
     "projects": [],
@@ -21915,6 +21947,8 @@
     "id": "<thread:Ashley/fw-unknown@agency.example>",
     "inbox_id": "<ids.inboxA>",
     "inbox_name": "Ashley",
+    "channel": "email",
+    "meeting": null,
     "subject": "Fwd: Cold pitch",
     "project": {
      "id": "<project:Cliff Builders>",
@@ -21950,6 +21984,8 @@
     "id": "<thread:Ashley/fw-unverified@agency.example>",
     "inbox_id": "<ids.inboxA>",
     "inbox_name": "Ashley",
+    "channel": "email",
+    "meeting": null,
     "subject": "Fwd: New homepage copy",
     "project": null,
     "projects": [],
@@ -21975,6 +22011,8 @@
     "id": "<thread:Ashley/fwd-3@agency.example>",
     "inbox_id": "<ids.inboxA>",
     "inbox_name": "Ashley",
+    "channel": "email",
+    "meeting": null,
     "subject": "Fwd: Site down?",
     "project": null,
     "projects": [],
@@ -22000,6 +22038,8 @@
     "id": "<thread:Ashley/guess@agency.example>",
     "inbox_id": "<ids.inboxA>",
     "inbox_name": "Ashley",
+    "channel": "email",
+    "meeting": null,
     "subject": "Question about the site",
     "project": {
      "id": "<project:Vera Studio>",
@@ -22035,6 +22075,8 @@
     "id": "<thread:Ashley/html-only-4@mail.gmail.com>",
     "inbox_id": "<ids.inboxA>",
     "inbox_name": "Ashley",
+    "channel": "email",
+    "meeting": null,
     "subject": "New logo files",
     "project": null,
     "projects": [
@@ -22066,6 +22108,8 @@
     "id": "<thread:Ashley/oversized-10@birchpartners.example>",
     "inbox_id": "<ids.inboxA>",
     "inbox_name": "Ashley",
+    "channel": "email",
+    "meeting": null,
     "subject": "Drone footage for the site",
     "project": {
      "id": "<ids.birch>",
@@ -22101,6 +22145,8 @@
     "id": "<thread:Ashley/own-domain@acme-roofing.example>",
     "inbox_id": "<ids.inboxA>",
     "inbox_name": "Ashley",
+    "channel": "email",
+    "meeting": null,
     "subject": "Domain catch-all",
     "project": null,
     "projects": [],
@@ -22126,6 +22172,8 @@
     "id": "<thread:Ashley/pa-cross@oldco.example>",
     "inbox_id": "<ids.inboxA>",
     "inbox_name": "Ashley",
+    "channel": "email",
+    "meeting": null,
     "subject": "Across inboxes",
     "project": {
      "id": "<ids.birch>",
@@ -22161,6 +22209,8 @@
     "id": "<thread:Ashley/pa-new@acme-roofing.example>",
     "inbox_id": "<ids.inboxA>",
     "inbox_name": "Ashley",
+    "channel": "email",
+    "meeting": null,
     "subject": "Rebrand kickoff notes",
     "project": {
      "id": "<ids.birch>",
@@ -22206,6 +22256,8 @@
     "id": "<thread:Ashley/pa-shelved@oldco.example>",
     "inbox_id": "<ids.inboxA>",
     "inbox_name": "Ashley",
+    "channel": "email",
+    "meeting": null,
     "subject": "Are you still there?",
     "project": {
      "id": "<project:Old client>",
@@ -22241,6 +22293,8 @@
     "id": "<thread:Ashley/pa-two-a@oldco.example>",
     "inbox_id": "<ids.inboxA>",
     "inbox_name": "Ashley",
+    "channel": "email",
+    "meeting": null,
     "subject": "Two addresses A",
     "project": {
      "id": "<ids.birch>",
@@ -22276,6 +22330,8 @@
     "id": "<thread:Ashley/pa-two-b@oldco.example>",
     "inbox_id": "<ids.inboxA>",
     "inbox_name": "Ashley",
+    "channel": "email",
+    "meeting": null,
     "subject": "Two addresses B",
     "project": {
      "id": "<project:P4TF Rebrand>",
@@ -22311,6 +22367,8 @@
     "id": "<thread:Ashley/public-domain@acme-roofing.example>",
     "inbox_id": "<ids.inboxA>",
     "inbox_name": "Ashley",
+    "channel": "email",
+    "meeting": null,
     "subject": "Personal",
     "project": null,
     "projects": [],
@@ -22336,6 +22394,8 @@
     "id": "<thread:Ashley/quiet@agency.example>",
     "inbox_id": "<ids.inboxA>",
     "inbox_name": "Ashley",
+    "channel": "email",
+    "meeting": null,
     "subject": "Pitch decks for this week",
     "project": null,
     "projects": [],
@@ -22361,6 +22421,8 @@
     "id": "<thread:Ashley/related@agency.example>",
     "inbox_id": "<ids.inboxA>",
     "inbox_name": "Ashley",
+    "channel": "email",
+    "meeting": null,
     "subject": "Thanks for the copy",
     "project": {
      "id": "<project:Vera Studio>",
@@ -22396,6 +22458,8 @@
     "id": "<thread:Ashley/settle-1@agency.example>",
     "inbox_id": "<ids.inboxA>",
     "inbox_name": "Ashley",
+    "channel": "email",
+    "meeting": null,
     "subject": "Re: Which plan?",
     "project": null,
     "projects": [],
@@ -22421,6 +22485,8 @@
     "id": "<thread:Ashley/stranger@unknown-co.example>",
     "inbox_id": "<ids.inboxA>",
     "inbox_name": "Ashley",
+    "channel": "email",
+    "meeting": null,
     "subject": "Question about our site",
     "project": null,
     "projects": [],
@@ -22446,6 +22512,8 @@
     "id": "<thread:Ashley/team-cc-two@agency.example>",
     "inbox_id": "<ids.inboxA>",
     "inbox_name": "Ashley",
+    "channel": "email",
+    "meeting": null,
     "subject": "Joint call",
     "project": {
      "id": "<project:Cliff Builders>",
@@ -22481,6 +22549,8 @@
     "id": "<thread:Ashley/team-cc@agency.example>",
     "inbox_id": "<ids.inboxA>",
     "inbox_name": "Ashley",
+    "channel": "email",
+    "meeting": null,
     "subject": "Next steps on the site",
     "project": {
      "id": "<project:Vera Studio>",
@@ -22516,6 +22586,8 @@
     "id": "<thread:Ashley/tt-1@agency.example>",
     "inbox_id": "<ids.inboxA>",
     "inbox_name": "Ashley",
+    "channel": "email",
+    "meeting": null,
     "subject": "Re: Weekly update",
     "project": {
      "id": "<project:Vera Studio>",
@@ -22551,6 +22623,8 @@
     "id": "<thread:Ashley/tt-2@agency.example>",
     "inbox_id": "<ids.inboxA>",
     "inbox_name": "Ashley",
+    "channel": "email",
+    "meeting": null,
     "subject": "Weekly update",
     "project": {
      "id": "<project:Cliff Builders>",
@@ -22586,6 +22660,8 @@
     "id": "<thread:Ashley/unlisted@acme-roofing.example>",
     "inbox_id": "<ids.inboxA>",
     "inbox_name": "Ashley",
+    "channel": "email",
+    "meeting": null,
     "subject": "Invoice question",
     "project": null,
     "projects": [],
@@ -22611,6 +22687,8 @@
     "id": "<thread:Ashley/verify-10@agency.example>",
     "inbox_id": "<ids.inboxA>",
     "inbox_name": "Ashley",
+    "channel": "email",
+    "meeting": null,
     "subject": "Inbox check VM-7K2Q",
     "project": null,
     "projects": [],
@@ -22636,6 +22714,8 @@
     "id": "<thread:Ashley/your-address@acme-roofing.example>",
     "inbox_id": "<ids.inboxA>",
     "inbox_name": "Ashley",
+    "channel": "email",
+    "meeting": null,
     "subject": "Seminar banner",
     "project": null,
     "projects": [],
@@ -22661,6 +22741,8 @@
     "id": "<thread:Billing/pa-cross@oldco.example>",
     "inbox_id": "<ids.inboxB>",
     "inbox_name": "Billing",
+    "channel": "email",
+    "meeting": null,
     "subject": "Across inboxes",
     "project": {
      "id": "<project:P4TF Rebrand>",
@@ -22696,6 +22778,8 @@
     "id": "<thread:Billing/two-inboxes@agency.example>",
     "inbox_id": "<ids.inboxB>",
     "inbox_name": "Billing",
+    "channel": "email",
+    "meeting": null,
     "subject": "Homepage banner",
     "project": null,
     "projects": [],
@@ -22747,6 +22831,8 @@
      "name": "Ashley P."
     }
    },
+   "channel": "email",
+   "meeting": null,
    "subject": "Photos and the signed quote",
    "project": null,
    "projects": [],
@@ -22772,6 +22858,8 @@
    "messages": [
     {
      "id": "<message:Ashley/attach-8-again@acme-roofing.example>",
+     "channel": "email",
+     "meeting_package": null,
      "status": "new",
      "subject": "Photos and the signed quote",
      "received_at": "<time>",
@@ -22886,6 +22974,8 @@
     },
     {
      "id": "<message:Ashley/attach-8@acme-roofing.example>",
+     "channel": "email",
+     "meeting_package": null,
      "status": "new",
      "subject": "Photos and the signed quote",
      "received_at": "<time>",
@@ -23000,6 +23090,8 @@
     },
     {
      "id": "<message:Ashley/dead-file@acme-roofing.example>",
+     "channel": "email",
+     "meeting_package": null,
      "status": "new",
      "subject": "Photos and the signed quote",
      "received_at": "<time>",
@@ -23114,6 +23206,8 @@
     },
     {
      "id": "<message:Ashley/flaky@acme-roofing.example>",
+     "channel": "email",
+     "meeting_package": null,
      "status": "new",
      "subject": "Photos and the signed quote",
      "received_at": "<time>",
@@ -23204,6 +23298,8 @@
     },
     {
      "id": "<message:Ashley/old-file@acme-roofing.example>",
+     "channel": "email",
+     "meeting_package": null,
      "status": "new",
      "subject": "Photos and the signed quote",
      "received_at": "<time>",
@@ -23348,6 +23444,8 @@
      "name": "Ashley P."
     }
    },
+   "channel": "email",
+   "meeting": null,
    "subject": "RE: Invoice question",
    "project": {
     "id": "<ids.birch>",
@@ -23379,6 +23477,8 @@
    "messages": [
     {
      "id": "<message:Ashley/BN8PR11MB1234outlook@BN8PR11MB1234.namprd11.prod.outlook.example>",
+     "channel": "email",
+     "meeting_package": null,
      "status": "needs_human",
      "subject": "RE: Invoice question",
      "received_at": "<time>",
@@ -23477,6 +23577,8 @@
      "name": "Ashley P."
     }
    },
+   "channel": "email",
+   "meeting": null,
    "subject": "Re: Homepage banner",
    "project": {
     "id": "<ids.acme>",
@@ -23520,6 +23622,8 @@
    "messages": [
     {
      "id": "<message:Ashley/CAF2xGmail-reply-1@mail.gmail.com>",
+     "channel": "email",
+     "meeting_package": null,
      "status": "handled",
      "subject": "Re: Homepage banner",
      "received_at": "<time>",
@@ -23659,6 +23763,8 @@
     },
     {
      "id": "<message:Ashley/followup-2@acme-roofing.example>",
+     "channel": "email",
+     "meeting_package": null,
      "status": "handled",
      "subject": "RE: Re: [EXTERNAL] Homepage banner",
      "received_at": "<time>",
@@ -23729,6 +23835,8 @@
     },
     {
      "id": "<message:Ashley/forwarded@agency.example>",
+     "channel": "email",
+     "meeting_package": null,
      "status": "handled",
      "subject": "Homepage banner",
      "received_at": "<time>",
@@ -23791,6 +23899,8 @@
     },
     {
      "id": "<message:Ashley/orig-1@agency.example>",
+     "channel": "email",
+     "meeting_package": null,
      "status": "handled",
      "subject": "Homepage banner",
      "received_at": "<time>",
@@ -23867,6 +23977,8 @@
     },
     {
      "id": "<message:Ashley/pa-reply@acme-roofing.example>",
+     "channel": "email",
+     "meeting_package": null,
      "status": "handled",
      "subject": "Re: Homepage banner",
      "received_at": "<time>",
@@ -23923,6 +24035,8 @@
     },
     {
      "id": "<message:Ashley/two-inboxes@agency.example>",
+     "channel": "email",
+     "meeting_package": null,
      "status": "handled",
      "subject": "Homepage banner",
      "received_at": "<time>",
@@ -23985,6 +24099,8 @@
     },
     {
      "id": "<message:Ashley/upper@agency.example>",
+     "channel": "email",
+     "meeting_package": null,
      "status": "handled",
      "subject": "Homepage banner",
      "received_at": "<time>",
@@ -24077,6 +24193,8 @@
      "name": "Ashley P."
     }
    },
+   "channel": "email",
+   "meeting": null,
    "subject": "Through the desk",
    "project": {
     "id": "<project:Bob Desk>",
@@ -24114,6 +24232,8 @@
    "messages": [
     {
      "id": "<message:Ashley/cs-desk@gmail.example>",
+     "channel": "email",
+     "meeting_package": null,
      "status": "new",
      "subject": "Through the desk",
      "received_at": "<time>",
@@ -24197,6 +24317,8 @@
      "name": "Ashley P."
     }
    },
+   "channel": "email",
+   "meeting": null,
    "subject": "Leaky tap quote",
    "project": {
     "id": "<project:Bob Plumbing>",
@@ -24227,6 +24349,8 @@
    "messages": [
     {
      "id": "<message:Ashley/cs-one@gmail.example>",
+     "channel": "email",
+     "meeting_package": null,
      "status": "new",
      "subject": "Leaky tap quote",
      "received_at": "<time>",
@@ -24310,6 +24434,8 @@
      "name": "Ashley P."
     }
    },
+   "channel": "email",
+   "meeting": null,
    "subject": "Side gig invoice",
    "project": {
     "id": "<project:Bob Plumbing>",
@@ -24347,6 +24473,8 @@
    "messages": [
     {
      "id": "<message:Ashley/cs-two@gmail.example>",
+     "channel": "email",
+     "meeting_package": null,
      "status": "new",
      "subject": "Side gig invoice",
      "received_at": "<time>",
@@ -24430,6 +24558,8 @@
      "name": "Ashley P."
     }
    },
+   "channel": "email",
+   "meeting": null,
    "subject": "Fwd: New homepage copy",
    "project": null,
    "projects": [],
@@ -24440,6 +24570,8 @@
    "messages": [
     {
      "id": "<message:Ashley/fw-agent@agency.example>",
+     "channel": "email",
+     "meeting_package": null,
      "status": "new",
      "subject": "Fwd: New homepage copy",
      "received_at": "<time>",
@@ -24517,6 +24649,8 @@
      "name": "Ashley P."
     }
    },
+   "channel": "email",
+   "meeting": null,
    "subject": "Fwd: Logo feedback",
    "project": {
     "id": "<project:Vera Studio>",
@@ -24547,6 +24681,8 @@
    "messages": [
     {
      "id": "<message:Ashley/fw-apple@agency.example>",
+     "channel": "email",
+     "meeting_package": null,
      "status": "new",
      "subject": "Fwd: Logo feedback",
      "received_at": "<time>",
@@ -24634,6 +24770,8 @@
      "name": "Ashley P."
     }
    },
+   "channel": "email",
+   "meeting": null,
    "subject": "Fwd: Hosting renewal",
    "project": {
     "id": "<project:Cliff Builders>",
@@ -24664,6 +24802,8 @@
    "messages": [
     {
      "id": "<message:Ashley/fw-client@cliffbuilders.example>",
+     "channel": "email",
+     "meeting_package": null,
      "status": "new",
      "subject": "Fwd: Hosting renewal",
      "received_at": "<time>",
@@ -24745,6 +24885,8 @@
      "name": "Ashley P."
     }
    },
+   "channel": "email",
+   "meeting": null,
    "subject": "Fwd: Desk copy",
    "project": {
     "id": "<project:Forward Desk>",
@@ -24775,6 +24917,8 @@
    "messages": [
     {
      "id": "<message:Ashley/fw-desk@agency.example>",
+     "channel": "email",
+     "meeting_package": null,
      "status": "new",
      "subject": "Fwd: Desk copy",
      "received_at": "<time>",
@@ -24862,6 +25006,8 @@
      "name": "Ashley P."
     }
    },
+   "channel": "email",
+   "meeting": null,
    "subject": "Fwd: Invoice question",
    "project": {
     "id": "<project:Vera Studio>",
@@ -24892,6 +25038,8 @@
    "messages": [
     {
      "id": "<message:Ashley/fw-eml@agency.example>",
+     "channel": "email",
+     "meeting_package": null,
      "status": "new",
      "subject": "Fwd: Invoice question",
      "received_at": "<time>",
@@ -24992,6 +25140,8 @@
      "name": "Ashley P."
     }
    },
+   "channel": "email",
+   "meeting": null,
    "subject": "Fwd: Launch plan",
    "project": {
     "id": "<project:Vera Studio>",
@@ -25022,6 +25172,8 @@
    "messages": [
     {
      "id": "<message:Ashley/fw-far@agency.example>",
+     "channel": "email",
+     "meeting_package": null,
      "status": "new",
      "subject": "Fwd: Launch plan",
      "received_at": "<time>",
@@ -25098,6 +25250,8 @@
      "name": "Ashley P."
     }
    },
+   "channel": "email",
+   "meeting": null,
    "subject": "Fwd: New homepage copy",
    "project": {
     "id": "<project:Vera Studio>",
@@ -25128,6 +25282,8 @@
    "messages": [
     {
      "id": "<message:Ashley/fw-gmail@agency.example>",
+     "channel": "email",
+     "meeting_package": null,
      "status": "handled",
      "subject": "Fwd: New homepage copy",
      "received_at": "<time>",
@@ -25229,6 +25385,8 @@
      "name": "Ashley P."
     }
    },
+   "channel": "email",
+   "meeting": null,
    "subject": "Fwd: Photos",
    "project": {
     "id": "<project:Vera Studio>",
@@ -25259,6 +25417,8 @@
    "messages": [
     {
      "id": "<message:Ashley/fw-html@agency.example>",
+     "channel": "email",
+     "meeting_package": null,
      "status": "new",
      "subject": "Fwd: Photos",
      "received_at": "<time>",
@@ -25346,6 +25506,8 @@
      "name": "Ashley P."
     }
    },
+   "channel": "email",
+   "meeting": null,
    "subject": "FW: Kickoff notes",
    "project": {
     "id": "<project:Vera Studio>",
@@ -25376,6 +25538,8 @@
    "messages": [
     {
      "id": "<message:Ashley/fw-outlook@agency.example>",
+     "channel": "email",
+     "meeting_package": null,
      "status": "new",
      "subject": "FW: Kickoff notes",
      "received_at": "<time>",
@@ -25463,6 +25627,8 @@
      "name": "Ashley P."
     }
    },
+   "channel": "email",
+   "meeting": null,
    "subject": "Fwd: New homepage copy",
    "project": null,
    "projects": [],
@@ -25473,6 +25639,8 @@
    "messages": [
     {
      "id": "<message:Ashley/fw-suspended@agency.example>",
+     "channel": "email",
+     "meeting_package": null,
      "status": "new",
      "subject": "Fwd: New homepage copy",
      "received_at": "<time>",
@@ -25550,6 +25718,8 @@
      "name": "Ashley P."
     }
    },
+   "channel": "email",
+   "meeting": null,
    "subject": "Fwd: Cold pitch",
    "project": {
     "id": "<project:Cliff Builders>",
@@ -25572,6 +25742,8 @@
    "messages": [
     {
      "id": "<message:Ashley/fw-unknown@agency.example>",
+     "channel": "email",
+     "meeting_package": null,
      "status": "new",
      "subject": "Fwd: Cold pitch",
      "received_at": "<time>",
@@ -25659,6 +25831,8 @@
      "name": "Ashley P."
     }
    },
+   "channel": "email",
+   "meeting": null,
    "subject": "Fwd: New homepage copy",
    "project": null,
    "projects": [],
@@ -25669,6 +25843,8 @@
    "messages": [
     {
      "id": "<message:Ashley/fw-unverified@agency.example>",
+     "channel": "email",
+     "meeting_package": null,
      "status": "new",
      "subject": "Fwd: New homepage copy",
      "received_at": "<time>",
@@ -25736,6 +25912,8 @@
      "name": "Ashley P."
     }
    },
+   "channel": "email",
+   "meeting": null,
    "subject": "Fwd: Site down?",
    "project": null,
    "projects": [],
@@ -25746,6 +25924,8 @@
    "messages": [
     {
      "id": "<message:Ashley/fwd-3@agency.example>",
+     "channel": "email",
+     "meeting_package": null,
      "status": "handled",
      "subject": "Fwd: Site down?",
      "received_at": "<time>",
@@ -25845,6 +26025,8 @@
      "name": "Ashley P."
     }
    },
+   "channel": "email",
+   "meeting": null,
    "subject": "Question about the site",
    "project": {
     "id": "<project:Vera Studio>",
@@ -25867,6 +26049,8 @@
    "messages": [
     {
      "id": "<message:Ashley/guess@agency.example>",
+     "channel": "email",
+     "meeting_package": null,
      "status": "handled",
      "subject": "Question about the site",
      "received_at": "<time>",
@@ -25951,6 +26135,8 @@
      "name": "Ashley P."
     }
    },
+   "channel": "email",
+   "meeting": null,
    "subject": "New logo files",
    "project": null,
    "projects": [
@@ -25968,6 +26154,8 @@
    "messages": [
     {
      "id": "<message:Ashley/html-only-4@mail.gmail.com>",
+     "channel": "email",
+     "meeting_package": null,
      "status": "new",
      "subject": "New logo files",
      "received_at": "<time>",
@@ -26064,6 +26252,8 @@
      "name": "Ashley P."
     }
    },
+   "channel": "email",
+   "meeting": null,
    "subject": "Drone footage for the site",
    "project": {
     "id": "<ids.birch>",
@@ -26095,6 +26285,8 @@
    "messages": [
     {
      "id": "<message:Ashley/oversized-10@birchpartners.example>",
+     "channel": "email",
+     "meeting_package": null,
      "status": "new",
      "subject": "Drone footage for the site",
      "received_at": "<time>",
@@ -26173,6 +26365,8 @@
     },
     {
      "id": "<message:Ashley/oversized-10b@birchpartners.example>",
+     "channel": "email",
+     "meeting_package": null,
      "status": "new",
      "subject": "Drone footage for the site",
      "received_at": "<time>",
@@ -26282,6 +26476,8 @@
      "name": "Ashley P."
     }
    },
+   "channel": "email",
+   "meeting": null,
    "subject": "Domain catch-all",
    "project": null,
    "projects": [],
@@ -26307,6 +26503,8 @@
    "messages": [
     {
      "id": "<message:Ashley/own-domain@acme-roofing.example>",
+     "channel": "email",
+     "meeting_package": null,
      "status": "new",
      "subject": "Domain catch-all",
      "received_at": "<time>",
@@ -26390,6 +26588,8 @@
      "name": "Ashley P."
     }
    },
+   "channel": "email",
+   "meeting": null,
    "subject": "Across inboxes",
    "project": {
     "id": "<ids.birch>",
@@ -26412,6 +26612,8 @@
    "messages": [
     {
      "id": "<message:Ashley/pa-cross@oldco.example>",
+     "channel": "email",
+     "meeting_package": null,
      "status": "new",
      "subject": "Across inboxes",
      "received_at": "<time>",
@@ -26489,6 +26691,8 @@
      "name": "Ashley P."
     }
    },
+   "channel": "email",
+   "meeting": null,
    "subject": "Rebrand kickoff notes",
    "project": {
     "id": "<ids.birch>",
@@ -26538,6 +26742,8 @@
    "messages": [
     {
      "id": "<message:Ashley/pa-new@acme-roofing.example>",
+     "channel": "email",
+     "meeting_package": null,
      "status": "handled",
      "subject": "Rebrand kickoff notes",
      "received_at": "<time>",
@@ -26635,6 +26841,8 @@
      "name": "Ashley P."
     }
    },
+   "channel": "email",
+   "meeting": null,
    "subject": "Are you still there?",
    "project": {
     "id": "<project:Old client>",
@@ -26657,6 +26865,8 @@
    "messages": [
     {
      "id": "<message:Ashley/pa-shelved@oldco.example>",
+     "channel": "email",
+     "meeting_package": null,
      "status": "new",
      "subject": "Are you still there?",
      "received_at": "<time>",
@@ -26734,6 +26944,8 @@
      "name": "Ashley P."
     }
    },
+   "channel": "email",
+   "meeting": null,
    "subject": "Two addresses A",
    "project": {
     "id": "<ids.birch>",
@@ -26756,6 +26968,8 @@
    "messages": [
     {
      "id": "<message:Ashley/pa-two-a@oldco.example>",
+     "channel": "email",
+     "meeting_package": null,
      "status": "new",
      "subject": "Two addresses A",
      "received_at": "<time>",
@@ -26833,6 +27047,8 @@
      "name": "Ashley P."
     }
    },
+   "channel": "email",
+   "meeting": null,
    "subject": "Two addresses B",
    "project": {
     "id": "<project:P4TF Rebrand>",
@@ -26855,6 +27071,8 @@
    "messages": [
     {
      "id": "<message:Ashley/pa-two-b@oldco.example>",
+     "channel": "email",
+     "meeting_package": null,
      "status": "new",
      "subject": "Two addresses B",
      "received_at": "<time>",
@@ -26932,6 +27150,8 @@
      "name": "Ashley P."
     }
    },
+   "channel": "email",
+   "meeting": null,
    "subject": "Personal",
    "project": null,
    "projects": [],
@@ -26957,6 +27177,8 @@
    "messages": [
     {
      "id": "<message:Ashley/public-domain@acme-roofing.example>",
+     "channel": "email",
+     "meeting_package": null,
      "status": "new",
      "subject": "Personal",
      "received_at": "<time>",
@@ -27045,6 +27267,8 @@
      "name": "Ashley P."
     }
    },
+   "channel": "email",
+   "meeting": null,
    "subject": "Pitch decks for this week",
    "project": null,
    "projects": [],
@@ -27055,6 +27279,8 @@
    "messages": [
     {
      "id": "<message:Ashley/quiet@agency.example>",
+     "channel": "email",
+     "meeting_package": null,
      "status": "handled",
      "subject": "Pitch decks for this week",
      "received_at": "<time>",
@@ -27156,6 +27382,8 @@
      "name": "Ashley P."
     }
    },
+   "channel": "email",
+   "meeting": null,
    "subject": "Thanks for the copy",
    "project": {
     "id": "<project:Vera Studio>",
@@ -27178,6 +27406,8 @@
    "messages": [
     {
      "id": "<message:Ashley/related@agency.example>",
+     "channel": "email",
+     "meeting_package": null,
      "status": "handled",
      "subject": "Thanks for the copy",
      "received_at": "<time>",
@@ -27272,6 +27502,8 @@
      "name": "Ashley P."
     }
    },
+   "channel": "email",
+   "meeting": null,
    "subject": "Re: Which plan?",
    "project": null,
    "projects": [],
@@ -27282,6 +27514,8 @@
    "messages": [
     {
      "id": "<message:Ashley/settle-1@agency.example>",
+     "channel": "email",
+     "meeting_package": null,
      "status": "handled",
      "subject": "Which plan?",
      "received_at": "<time>",
@@ -27355,6 +27589,8 @@
     },
     {
      "id": "<message:Ashley/settle-2@agency.example>",
+     "channel": "email",
+     "meeting_package": null,
      "status": "new",
      "subject": "Re: Which plan?",
      "received_at": "<time>",
@@ -27446,6 +27682,8 @@
      "name": "Ashley P."
     }
    },
+   "channel": "email",
+   "meeting": null,
    "subject": "Question about our site",
    "project": null,
    "projects": [],
@@ -27456,6 +27694,8 @@
    "messages": [
     {
      "id": "<message:Ashley/stranger@unknown-co.example>",
+     "channel": "email",
+     "meeting_package": null,
      "status": "new",
      "subject": "Question about our site",
      "received_at": "<time>",
@@ -27533,6 +27773,8 @@
      "name": "Ashley P."
     }
    },
+   "channel": "email",
+   "meeting": null,
    "subject": "Joint call",
    "project": {
     "id": "<project:Cliff Builders>",
@@ -27570,6 +27812,8 @@
    "messages": [
     {
      "id": "<message:Ashley/team-cc-two@agency.example>",
+     "channel": "email",
+     "meeting_package": null,
      "status": "handled",
      "subject": "Joint call",
      "received_at": "<time>",
@@ -27665,6 +27909,8 @@
      "name": "Ashley P."
     }
    },
+   "channel": "email",
+   "meeting": null,
    "subject": "Next steps on the site",
    "project": {
     "id": "<project:Vera Studio>",
@@ -27695,6 +27941,8 @@
    "messages": [
     {
      "id": "<message:Ashley/team-cc@agency.example>",
+     "channel": "email",
+     "meeting_package": null,
      "status": "new",
      "subject": "Next steps on the site",
      "received_at": "<time>",
@@ -27776,6 +28024,8 @@
      "name": "Ashley P."
     }
    },
+   "channel": "email",
+   "meeting": null,
    "subject": "Re: Weekly update",
    "project": {
     "id": "<project:Vera Studio>",
@@ -27806,6 +28056,8 @@
    "messages": [
     {
      "id": "<message:Ashley/tt-1@agency.example>",
+     "channel": "email",
+     "meeting_package": null,
      "status": "new",
      "subject": "Weekly update",
      "received_at": "<time>",
@@ -27868,6 +28120,8 @@
     },
     {
      "id": "<message:Ashley/tt-3@verastudio.example>",
+     "channel": "email",
+     "meeting_package": null,
      "status": "new",
      "subject": "Re: Weekly update",
      "received_at": "<time>",
@@ -27955,6 +28209,8 @@
      "name": "Ashley P."
     }
    },
+   "channel": "email",
+   "meeting": null,
    "subject": "Weekly update",
    "project": {
     "id": "<project:Cliff Builders>",
@@ -27985,6 +28241,8 @@
    "messages": [
     {
      "id": "<message:Ashley/tt-2@agency.example>",
+     "channel": "email",
+     "meeting_package": null,
      "status": "new",
      "subject": "Weekly update",
      "received_at": "<time>",
@@ -28061,6 +28319,8 @@
      "name": "Ashley P."
     }
    },
+   "channel": "email",
+   "meeting": null,
    "subject": "Invoice question",
    "project": null,
    "projects": [],
@@ -28086,6 +28346,8 @@
    "messages": [
     {
      "id": "<message:Ashley/unlisted@acme-roofing.example>",
+     "channel": "email",
+     "meeting_package": null,
      "status": "new",
      "subject": "Invoice question",
      "received_at": "<time>",
@@ -28174,6 +28436,8 @@
      "name": "Ashley P."
     }
    },
+   "channel": "email",
+   "meeting": null,
    "subject": "Inbox check VM-7K2Q",
    "project": null,
    "projects": [],
@@ -28184,6 +28448,8 @@
    "messages": [
     {
      "id": "<message:Ashley/verify-10@agency.example>",
+     "channel": "email",
+     "meeting_package": null,
      "status": "new",
      "subject": "Inbox check VM-7K2Q",
      "received_at": "<time>",
@@ -28251,6 +28517,8 @@
      "name": "Ashley P."
     }
    },
+   "channel": "email",
+   "meeting": null,
    "subject": "Seminar banner",
    "project": null,
    "projects": [],
@@ -28276,6 +28544,8 @@
    "messages": [
     {
      "id": "<message:Ashley/your-address@acme-roofing.example>",
+     "channel": "email",
+     "meeting_package": null,
      "status": "new",
      "subject": "Seminar banner",
      "received_at": "<time>",
@@ -28359,6 +28629,8 @@
      "name": "Jeff"
     }
    },
+   "channel": "email",
+   "meeting": null,
    "subject": "Across inboxes",
    "project": {
     "id": "<project:P4TF Rebrand>",
@@ -28381,6 +28653,8 @@
    "messages": [
     {
      "id": "<message:Billing/pa-cross@oldco.example>",
+     "channel": "email",
+     "meeting_package": null,
      "status": "new",
      "subject": "Across inboxes",
      "received_at": "<time>",
@@ -28458,6 +28732,8 @@
      "name": "Jeff"
     }
    },
+   "channel": "email",
+   "meeting": null,
    "subject": "Homepage banner",
    "project": null,
    "projects": [],
@@ -28468,6 +28744,8 @@
    "messages": [
     {
      "id": "<message:Billing/two-inboxes@agency.example>",
+     "channel": "email",
+     "meeting_package": null,
      "status": "new",
      "subject": "Homepage banner",
      "received_at": "<time>",

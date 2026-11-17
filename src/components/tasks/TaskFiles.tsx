@@ -187,7 +187,7 @@ export function TaskFiles({ task, section, isNew }: {
         <MenuItem icon={Upload} label="Upload from device" onClick={() => { setMenuOpen(false); inputRef.current?.click(); }} />
         <MenuItem
           icon={Mail}
-          label="From this task's emails"
+          label="From emails and meetings"
           hint={shownCandidates ? String(shownCandidates.email_attachments.length) : undefined}
           disabled={shownCandidates?.email_attachments.length === 0}
           onClick={() => { setMenuOpen(false); setPicker('email'); }}
@@ -351,14 +351,15 @@ function MenuItem({ icon: Icon, label, hint, disabled = false, onClick }: { icon
 }
 
 /**
- * Where a linked file comes from, in a few words, with the email one click
+ * Where a linked file comes from, in a few words, with the email or meeting one click
  * away: in the project's Communication tab when the task is open there, as
  * the task's email list links it.
  */
 function sourceLabel(file: TaskFileView, emailHref: (threadId: string, messageId: string) => string): ReactNode {
   if (!file.available) return 'No longer available';
   if (file.source?.type === 'email') {
-    if (!file.source.thread_id || !file.source.message_id) return 'From an email';
+    // A meeting's file is its transcript or notes; its source is a message like an email's.
+    if (!file.source.thread_id || !file.source.message_id) return 'From a message';
     return (
       <Link
         href={emailHref(file.source.thread_id, file.source.message_id)}
@@ -570,15 +571,15 @@ function CandidatePicker({ kind, candidates, onClose, onAdd, onRemove }: {
   };
 
   return (
-    <Modal isOpen onClose={onClose} title={kind === 'email' ? "From this task's emails" : 'From project files'} size="2xl">
+    <Modal isOpen onClose={onClose} title={kind === 'email' ? "From this task's emails and meetings" : 'From project files'} size="2xl">
       <p className="sr-only">
-        {kind === 'email' ? 'Attachments of the emails linked to this task.' : "Files on this task's project."} Adding links the file; nothing is copied.
+        {kind === 'email' ? 'Files from the emails and meetings linked to this task.' : "Files on this task's project."} Adding links the file; nothing is copied.
       </p>
       {rows === null ? (
         <p className="py-6 text-center text-sm text-zinc-400" aria-busy="true">Loading files</p>
       ) : rows.length === 0 ? (
         <p className="py-6 text-center text-sm text-zinc-400">
-          {kind === 'email' ? 'The emails linked to this task have no attachments.' : 'This project has no files yet.'}
+          {kind === 'email' ? 'The emails and meetings linked to this task have no files.' : 'This project has no files yet.'}
         </p>
       ) : (
         <ul className="max-h-[65vh] space-y-2 overflow-y-auto">

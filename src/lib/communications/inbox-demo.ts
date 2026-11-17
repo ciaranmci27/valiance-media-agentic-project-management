@@ -48,6 +48,8 @@ type DemoMessage = Omit<Partial<InboxMessage>, 'linked_tasks'> & Pick<InboxMessa
 function message({ linked_tasks: links = [], ...partial }: DemoMessage): InboxMessage {
   return {
     id: id('9f9f9f9f'),
+    channel: 'email',
+    meeting_package: null,
     status: 'handled',
     repeat_pitch: false,
     sent_at: partial.received_at,
@@ -84,8 +86,8 @@ const triage = (partial: Omit<InboxMessage['triage'] & object, 'id' | 'member' |
 
 function buildThreads(): InboxThreadDetail[] {
   counter = 0;
-  const thread = (detail: Omit<InboxThreadDetail, 'id' | 'state' | 'urgent' | 'untrusted' | 'summary' | 'projects'> & { summary?: string | null; projects?: ThreadProject[] }): InboxThreadDetail => ({
-    id: id('9c9c9c9c'), state: 'handled', urgent: false, untrusted: false, summary: null, projects: detail.project ? [detail.project] : [], ...detail,
+  const thread = (detail: Omit<InboxThreadDetail, 'id' | 'state' | 'urgent' | 'untrusted' | 'summary' | 'projects' | 'channel' | 'meeting'> & { summary?: string | null; projects?: ThreadProject[] }): InboxThreadDetail => ({
+    id: id('9c9c9c9c'), channel: 'email', meeting: null, state: 'handled', urgent: false, untrusted: false, summary: null, projects: detail.project ? [detail.project] : [], ...detail,
   });
   return [
     thread({
@@ -385,7 +387,12 @@ function summary(detail: InboxThreadDetail): InboxThreadSummary {
     id: detail.id,
     inbox_id: detail.inbox.id,
     inbox_name: detail.inbox.name,
-    subject: latest.subject || detail.subject,
+    channel: detail.channel,
+    meeting: detail.meeting ? {
+      title: detail.meeting.title, starts_at: detail.meeting.starts_at, ends_at: detail.meeting.ends_at,
+      organizer: detail.meeting.organizer, doc_url: detail.meeting.doc_url, dismissed: detail.meeting.dismissed,
+    } : null,
+    subject: detail.meeting?.title || latest.subject || detail.subject,
     project: detail.project,
     projects: detail.projects.map(({ address: _address, ...project }) => project),
     last_message_at: latest.received_at,
@@ -559,6 +566,9 @@ export const demoInbox = {
         message_id: m.id,
         thread_id: t.id,
         inbox_id: t.inbox.id,
+        channel: t.channel,
+        meeting_title: t.meeting?.title ?? null,
+        meeting_starts_at: t.meeting?.starts_at ?? null,
         subject: m.subject,
         from: m.from ? { name: m.from.name, address: m.from.address } : null,
         received_at: m.received_at,

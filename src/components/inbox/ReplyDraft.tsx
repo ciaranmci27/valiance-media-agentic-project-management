@@ -9,12 +9,18 @@ import { toast } from '@/components/ui/Toast';
 import type { InboxReplyDraft } from '@/lib/communications/inbox-types';
 import { formatFullTime } from './inbox-badges';
 
-/** Ask the agent for a reply draft, optionally saying what it should say. */
-export function DraftRequestDialog({ isOpen, onClose, agentName, onAsk }: {
+/** What a draft is for: a reply to an email, or a follow-up email after a meeting. */
+export type DraftPurpose = 'reply' | 'follow_up';
+
+const DRAFT_TITLE: Record<DraftPurpose, string> = { reply: 'Reply draft', follow_up: 'Follow-up draft' };
+
+/** Ask the agent for a reply draft (or a meeting's follow-up email), optionally saying what it should say. */
+export function DraftRequestDialog({ isOpen, onClose, agentName, onAsk, purpose = 'reply' }: {
   isOpen: boolean;
   onClose: () => void;
   agentName: string;
   onAsk: (instructions: string) => Promise<void>;
+  purpose?: DraftPurpose;
 }) {
   const [instructions, setInstructions] = useState('');
   const [asking, setAsking] = useState(false);
@@ -28,9 +34,13 @@ export function DraftRequestDialog({ isOpen, onClose, agentName, onAsk }: {
     }
   };
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Draft a reply" size="lg">
+    <Modal isOpen={isOpen} onClose={onClose} title={purpose === 'follow_up' ? 'Draft a follow-up email' : 'Draft a reply'} size="lg">
       <div className="space-y-4">
-        <p className="text-sm text-zinc-300">{agentName} drafts a reply to the newest email in your voice. You copy it into your own mail; nothing is sent from here.</p>
+        <p className="text-sm text-zinc-300">
+          {purpose === 'follow_up'
+            ? `${agentName} drafts a recap email to the attendees in your voice, from the transcript and notes. You copy it into your own mail; nothing is sent from here.`
+            : `${agentName} drafts a reply to the newest email in your voice. You copy it into your own mail; nothing is sent from here.`}
+        </p>
         <Textarea
           label="What should it say? (optional)"
           value={instructions}
@@ -54,9 +64,10 @@ export function DraftRequestDialog({ isOpen, onClose, agentName, onAsk }: {
  * (copied, then the thread handled) or a newer email came in, it folds to one
  * line that opens again on request.
  */
-export function ReplyDraftCard({ draft, agentName, folded = null, onAskAgain, onCopied, onMarkHandled, closesReminder = false, busy = false }: {
+export function ReplyDraftCard({ draft, agentName, folded = null, onAskAgain, onCopied, onMarkHandled, closesReminder = false, busy = false, purpose = 'reply' }: {
   draft: InboxReplyDraft;
   agentName: string;
+  purpose?: DraftPurpose;
   /** used: copied and then the thread handled. outdated: a newer email came in after it. */
   folded?: 'used' | 'outdated' | null;
   onAskAgain?: () => void;
@@ -102,11 +113,11 @@ export function ReplyDraftCard({ draft, agentName, folded = null, onAskAgain, on
   if (folded && !open) {
     const note = folded === 'used'
       ? `Used${draft.copied_at ? `, copied ${formatFullTime(draft.copied_at)}` : ''}`
-      : 'Written before the newest email';
+      : purpose === 'follow_up' ? 'Written before the newest notes' : 'Written before the newest email';
     return (
-      <section aria-label="Reply draft" className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-xl border border-white/[0.07] bg-white/[0.02] px-4 py-2.5">
+      <section aria-label={DRAFT_TITLE[purpose]} className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-xl border border-white/[0.07] bg-white/[0.02] px-4 py-2.5">
         <PenLine size={13} className="text-zinc-400" aria-hidden="true" />
-        <h3 className="text-sm font-medium text-zinc-200">Reply draft</h3>
+        <h3 className="text-sm font-medium text-zinc-200">{DRAFT_TITLE[purpose]}</h3>
         <span className="min-w-0 text-[11px] text-zinc-400">{note}</span>
         <button
           ref={showRef}
@@ -123,10 +134,10 @@ export function ReplyDraftCard({ draft, agentName, folded = null, onAskAgain, on
   }
 
   return (
-    <section aria-label="Reply draft" className="rounded-xl border border-brand-400/20 bg-brand-500/[0.05] p-3 sm:p-4">
+    <section aria-label={DRAFT_TITLE[purpose]} className="rounded-xl border border-brand-400/20 bg-brand-500/[0.05] p-3 sm:p-4">
       <div className="flex flex-wrap items-center gap-2">
         <PenLine size={14} className="text-brand-300" aria-hidden="true" />
-        <h3 className="text-sm font-semibold text-white">Reply draft</h3>
+        <h3 className="text-sm font-semibold text-white">{DRAFT_TITLE[purpose]}</h3>
         {draft.status === 'ready' && draft.completed_at && (
           <span className="text-[11px] text-zinc-400">by {who}, {formatFullTime(draft.completed_at)}</span>
         )}

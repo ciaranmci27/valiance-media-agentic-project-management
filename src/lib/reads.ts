@@ -260,15 +260,13 @@ export function taskEmailsRead(taskId: string, isDemo: boolean): Read<TaskSource
   };
 }
 
-/** Count of rows per task_id, read in pages: one light read for every card. */
-async function countByTask(table: 'communications.task_links' | 'task_files', liveOnly: boolean): Promise<Map<string, number>> {
+/** Count of live rows per task_id, read in pages: one light read for every card. */
+async function countByTask(table: 'task_files'): Promise<Map<string, number>> {
   const supabase = createClient();
   const counts = new Map<string, number>();
   for (let from = 0; ; from += 1000) {
-    // trash-checked: task_files passes liveOnly (deleted_at is null); task links have no Trash.
-    let query = (table === 'task_files' ? supabase.from(table) : comms(supabase).from('task_links')).select('task_id');
-    if (liveOnly) query = query.is('deleted_at', null);
-    const { data, error } = await query.order('id').range(from, from + 999);
+    // trash-checked: live rows only (deleted_at is null).
+    const { data, error } = await supabase.from(table).select('task_id').is('deleted_at', null).order('id').range(from, from + 999);
     if (error) throw error;
     for (const row of (data ?? []) as { task_id: string }[]) counts.set(row.task_id, (counts.get(row.task_id) ?? 0) + 1);
     if (!data || data.length < 1000) break;
@@ -276,12 +274,42 @@ async function countByTask(table: 'communications.task_links' | 'task_files', li
   return counts;
 }
 
-/** How many emails each task is linked to (only links the person can read), for the cards. */
-export const taskEmailCountsRead: Read<Map<string, number>> = {
-  key: 'task-email-counts',
+/** How many emails and meetings a task is linked to: each email once, each meeting once however many of its packages link it. */
+export interface TaskLinkCounts {
+  emails: number;
+  meetings: number;
+}
+
+/**
+ * Every task's linked emails and meetings, for the cards and rows: one light
+ * paged read of the links with each message's channel embedded (RLS keeps
+ * it to messages the person can read).
+ */
+async function linkCountsByTask(): Promise<Map<string, TaskLinkCounts>> {
+  const supabase = createClient();
+  const seen = new Map<string, { emails: Set<string>; meetings: Set<string> }>();
+  for (let from = 0; ; from += 1000) {
+    // trash-checked: task links have no Trash.
+    const { data, error } = await comms(supabase).from('task_links')
+      .select('task_id, message_id, message:messages(channel, thread_id)').order('id').range(from, from + 999);
+    if (error) throw error;
+    for (const row of (data ?? []) as unknown as { task_id: string; message_id: string; message: { channel: string; thread_id: string } | null }[]) {
+      const sets = seen.get(row.task_id) ?? { emails: new Set<string>(), meetings: new Set<string>() };
+      if (row.message?.channel === 'meeting') sets.meetings.add(row.message.thread_id);
+      else sets.emails.add(row.message_id);
+      seen.set(row.task_id, sets);
+    }
+    if (!data || data.length < 1000) break;
+  }
+  return new Map([...seen].map(([taskId, sets]) => [taskId, { emails: sets.emails.size, meetings: sets.meetings.size }]));
+}
+
+/** How many emails and meetings each task is linked to (only what the person can read), for the cards and rows. */
+export const taskLinkCountsRead: Read<Map<string, TaskLinkCounts>> = {
+  key: 'task-link-counts',
   tables: ['communications.task_links'],
   ttlMs: 5 * 60_000,
-  load: () => countByTask('communications.task_links', false),
+  load: linkCountsByTask,
 };
 
 /** How many live files each task holds (RLS keeps it to what the person can see), for the cards. */
@@ -289,7 +317,7 @@ export const taskFileCountsRead: Read<Map<string, number>> = {
   key: 'task-file-counts',
   tables: ['task_files'],
   ttlMs: 5 * 60_000,
-  load: () => countByTask('task_files', true),
+  load: () => countByTask('task_files'),
 };
 
 /** A task's files: its uploads and the email attachments and project files linked to it. */
@@ -351,7 +379,8 @@ export interface TaskReadAccess {
  * wanted after a further click.
  */
 export function taskPanelReads(taskId: string, can: TaskReadAccess): Read<unknown>[] {
-  const emails = can.isDemo || (peekRead(taskEmailCountsRead)?.get(taskId) ?? 0) > 0;
+  const linked = peekRead(taskLinkCountsRead)?.get(taskId);
+  const emails = can.isDemo || (linked?.emails ?? 0) + (linked?.meetings ?? 0) > 0;
   return [
     ...(can.isDemo ? [] : [taskSourceRead(taskId)]),
     ...(emails ? [taskEmailsRead(taskId, can.isDemo)] : []),
@@ -474,6 +503,23 @@ export function inboxThreadRead(threadId: string, isDemo: boolean): Read<InboxTh
     key: `inbox-thread:${isDemo ? 'demo:' : ''}${threadId}`,
     tables: INBOX_TABLES,
     load: () => inboxClient(isDemo).threadDetail(threadId),
+  };
+}
+
+/**
+ * A stored text file's words (a meeting's transcript or notes), read through
+ * the Inbox's view link. Stored files never change, so it keeps for the
+ * session and no table makes it stale.
+ */
+export function inboxFileTextRead(attachmentId: string): Read<string> {
+  return {
+    key: `inbox-file-text:${attachmentId}`,
+    ttlMs: 12 * 60 * 60_000,
+    load: async () => {
+      const response = await fetch(`/api/workspace/inbox/attachments/${attachmentId}/view`);
+      if (!response.ok) throw new Error('Could not load the file');
+      return response.text();
+    },
   };
 }
 

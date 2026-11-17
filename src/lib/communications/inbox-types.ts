@@ -56,6 +56,53 @@ export type RoutingBasis = 'sender' | 'forwarded_original' | 'team_recipients';
 /** The one state a thread shows, most pressing first. */
 export type ThreadState = 'needs_you' | 'new' | 'needs_reply' | 'handled' | 'ignored';
 
+/** Where a conversation came in: an email thread, or a meeting (its transcript and notes). */
+export type InboxChannel = 'email' | 'meeting';
+
+/** Someone said a meeting asked for no new work. */
+export interface MeetingDismissal {
+  at: string;
+  by: { id: string; name: string } | null;
+}
+
+/** What only a meeting has, as a list row shows it. */
+export interface InboxMeetingSummary {
+  title: string;
+  starts_at: string | null;
+  ends_at: string | null;
+  /** Who organized it: their address, and their name when an attendee row carries one. */
+  organizer: { address: string; name: string } | null;
+  /** The Google Doc with the notes or the transcript. */
+  doc_url: string | null;
+  dismissed: MeetingDismissal | null;
+}
+
+/** A meeting in thread detail: the summary plus everyone who was invited. */
+export interface InboxMeeting extends InboxMeetingSummary {
+  /** The organizer and guests, once each, organizer first. */
+  attendees: { address: string; name: string }[];
+}
+
+/** Which package a meeting message is: the full transcript, or Gemini's notes. */
+export type MeetingPackageKind = 'transcript' | 'notes';
+
+/**
+ * Read from the subject the meeting script gives each package
+ * (meeting/ingest.ts meetingSubject): "Meeting transcript: ..." or
+ * "Meeting summary: ...". Null for anything else.
+ */
+export function meetingPackageOf(subject: string | null | undefined): MeetingPackageKind | null {
+  if (!subject) return null;
+  if (subject.startsWith('Meeting transcript:')) return 'transcript';
+  if (subject.startsWith('Meeting summary:')) return 'notes';
+  return null;
+}
+
+export const MEETING_PACKAGE_LABELS: Record<MeetingPackageKind, string> = {
+  transcript: 'Transcript',
+  notes: "Gemini's notes",
+};
+
 export interface InboxSummary {
   id: string;
   name: string;
@@ -76,6 +123,9 @@ export interface InboxThreadSummary {
   id: string;
   inbox_id: string;
   inbox_name: string;
+  channel: InboxChannel;
+  /** A meeting's own details; null for email. */
+  meeting: InboxMeetingSummary | null;
   subject: string;
   project: ThreadProject | null;
   /** Every project the thread is filed on, strongest first (project is the first of them). */
@@ -212,6 +262,9 @@ export interface InboxAnswer {
 
 export interface InboxMessage {
   id: string;
+  channel: InboxChannel;
+  /** A meeting message: which package it is. Null for email. */
+  meeting_package: MeetingPackageKind | null;
   status: MessageStatus;
   subject: string;
   received_at: string;
@@ -257,7 +310,7 @@ export interface InboxPlanItem {
   decision: 'apply' | 'apply_unsure' | 'propose' | 'reject';
   /** Why the app decided so. */
   decision_reason: string | null;
-  state: 'applying' | 'done' | 'failed' | 'pending' | 'accepted' | 'dismissed' | 'expired' | 'undone' | 'skipped';
+  state: 'applying' | 'done' | 'failed' | 'pending' | 'accepting' | 'accepted' | 'dismissed' | 'expired' | 'undone' | 'skipped';
   /** What it does, in a line: "New task: Add the size chart". */
   label: string;
   /** The words or attachment that justify it. */
@@ -266,6 +319,9 @@ export interface InboxPlanItem {
   project_name: string | null;
   task_id: string | null;
   error: string | null;
+  /** A suggested task or reminder's own title and a task's due date: what Change starts from. */
+  title?: string | null;
+  due_date?: string | null;
 }
 
 export interface InboxPlan {
@@ -318,6 +374,9 @@ export interface RememberableSender {
 export interface InboxThreadDetail {
   id: string;
   inbox: InboxSummary;
+  channel: InboxChannel;
+  /** A meeting's own details; null for email. */
+  meeting: InboxMeeting | null;
   subject: string;
   project: ThreadProject | null;
   /** Every project the thread is filed on, strongest first (project is the first of them). */
@@ -377,6 +436,10 @@ export interface TaskSourceEmail {
   message_id: string;
   thread_id: string;
   inbox_id: string;
+  channel: InboxChannel;
+  /** The meeting's title and start, for a meeting message; null for email. */
+  meeting_title: string | null;
+  meeting_starts_at: string | null;
   subject: string;
   from: { name: string; address: string } | null;
   received_at: string;
@@ -391,6 +454,39 @@ export interface TaskSourceEmails {
   /** Every link the task has, readable or not. */
   link_count: number;
   emails: TaskSourceEmail[];
+}
+
+/** "Add all" on a meeting: every waiting suggestion accepted, as the person's. */
+export interface MeetingAddAllResult {
+  /** The suggestions it added, in the order it added them (Undo goes in reverse). */
+  added: string[];
+  /** Ones that did not go through (a task gone since, no access): still waiting. */
+  failed: { id: string; label: string; error: string }[];
+}
+
+/** A message "Nothing to do" marked handled, and the state it had before, for Undo. */
+export interface MeetingHandledMessage {
+  id: string;
+  status: 'new' | 'needs_human' | 'handled';
+  /** It had not been reviewed yet: Undo clears the review again. */
+  unreviewed: boolean;
+}
+
+/**
+ * "Nothing to do" on a meeting: what it skipped and handled, and the mark.
+ * Nothing is created or trashed: the agent only suggests from a meeting.
+ */
+export interface MeetingDismissResult {
+  /** The waiting suggestions (and any open question) it skipped. */
+  skipped: string[];
+  handled: MeetingHandledMessage[];
+  dismissed: MeetingDismissal;
+}
+
+/** What Undo sends back: the same suggestions and messages, to put back as they were. */
+export interface MeetingDismissUndo {
+  skipped: string[];
+  handled: MeetingHandledMessage[];
 }
 
 // -- Settings ---------------------------------------------------------------
@@ -607,5 +703,7 @@ export const INBOX_TABLES = [
   'communications.inboxes', 'communications.inbox_access', 'communications.client_domains', 'communications.client_addresses',
   'communications.endpoints', 'communications.conversations', 'communications.conversation_projects',
   'communications.messages', 'communications.participants', 'communications.message_candidates', 'communications.attachments',
-  'communications.triage', 'communications.task_links',
+  'communications.triage', 'communications.task_links', 'communications.meetings',
+  // Suggestions and replies owed: an Add, Skip or undo anywhere updates an open thread.
+  'communications.plans', 'communications.plan_items', 'communications.reply_points',
 ] as const;

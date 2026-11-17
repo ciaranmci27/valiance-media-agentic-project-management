@@ -106,19 +106,22 @@ export function decideItem(message: PolicyMessage, item: PolicyItem): PolicyDeci
     return decided('reject', 'Only Ciaran or a teammate undoes earlier work; a client\'s cancel is a comment and a reply owed.');
   }
 
-  // 2. Ciaran.
+  // 2. A meeting suggests: new work, reminders and comments wait for a person to
+  // add them, so a catch-up never fills the board. Links to existing tasks,
+  // filing and context apply, since they create nothing.
+  if (message.meeting) {
+    return [...FILING_TYPES, 'add_context'].includes(item.type)
+      ? decided('apply', 'The meeting is linked and filed.')
+      : decided('propose', 'A meeting suggests; you add what you want.');
+  }
+
+  // 3. Ciaran.
   if (message.speaker === 'owner') {
     if (instruction) {
       if (item.projectStatus && item.projectStatus !== 'active' && item.type === 'create_task') {
         return decided('propose', 'That project is finished, so a new task on it waits for your OK.');
       }
       return decided('apply', 'Ciaran asked for it.');
-    }
-    // His own meeting: what remains after the call is his work, and the agent
-    // has already judged what was settled on it. Money still waits for him.
-    if (message.meeting) {
-      if (SENSITIVE_INTENTS.includes(item.intent)) return decided('propose', 'Money or account matters from a meeting wait for your OK.');
-      return decided(item.confidence === 'unsure' ? 'apply_unsure' : 'apply', 'From Ciaran\'s own meeting.');
     }
     if (message.ownerForwardWithoutNote) {
       return [...FILING_TYPES, 'add_context'].includes(item.type)

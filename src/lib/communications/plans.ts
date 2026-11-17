@@ -52,6 +52,17 @@ export interface PlanMessage {
   thread_id: string;
   inbox_id: string;
   subject: string | null;
+  /** 'meeting' for a meeting package (its subject is "Meeting transcript: <title> (<date>)"). */
+  channel?: string | null;
+}
+
+/** Where a task a plan added came from, in words the task shows. */
+function sourceNote(message: PlanMessage): string {
+  if (message.channel === 'meeting') {
+    const title = (message.subject ?? '').replace(/^Meeting (transcript|summary): /, '').trim();
+    return title ? `From the meeting "${title}"` : 'From a meeting';
+  }
+  return message.subject ? `From the email "${message.subject}"` : 'From an email';
 }
 
 export class PlanError extends ApiError {}
@@ -85,13 +96,14 @@ async function ownerId(db: SupabaseClient): Promise<string | null> {
 // Facts for the policy
 // ---------------------------------------------------------------------------
 
-interface TaskFacts { id: string; project_id: string; parent_task_id: string | null; status: string; due_date: string | null; priority: string; description: string; agentMade: boolean; personTouched: boolean; assignees: string[] }
+export interface TaskFacts { id: string; title: string; project_id: string; parent_task_id: string | null; status: string; due_date: string | null; priority: string; description: string; agentMade: boolean; personTouched: boolean; assignees: string[] }
 
-async function loadTasks(db: SupabaseClient, ids: string[]): Promise<Map<string, TaskFacts>> {
+/** What the policy, undo and a meeting's "Nothing to do" need to know about tasks: who made them, and whether a person touched them since. */
+export async function loadTasks(db: SupabaseClient, ids: string[]): Promise<Map<string, TaskFacts>> {
   const unique = [...new Set(ids)];
   if (!unique.length) return new Map();
   const [{ data: tasks, error }, { data: events, error: eventError }, { data: assignees, error: assigneeError }] = await Promise.all([
-    db.from('tasks').select('id, project_id, parent_task_id, status, due_date, priority, description, created_by').in('id', unique).is('deleted_at', null),
+    db.from('tasks').select('id, title, project_id, parent_task_id, status, due_date, priority, description, created_by').in('id', unique).is('deleted_at', null),
     db.from('task_events').select('task_id, member_id').in('task_id', unique).not('member_id', 'is', null),
     db.from('task_assignees').select('task_id, member_id').in('task_id', unique),
   ]);
@@ -111,6 +123,7 @@ async function loadTasks(db: SupabaseClient, ids: string[]): Promise<Map<string,
     .filter((event) => roleOf.get(event.member_id) !== 'agent').map((event) => event.task_id));
   return new Map(((tasks ?? []) as Row[]).map((task) => [task.id as string, {
     id: task.id as string,
+    title: (task.title as string) ?? '',
     project_id: task.project_id as string,
     parent_task_id: (task.parent_task_id as string | null) ?? null,
     status: task.status as string,
@@ -335,7 +348,7 @@ export async function applyItem(actor: PlanActor, message: PlanMessage, item: Pl
           ...(item.due_date !== undefined ? { due_date: item.due_date } : {}),
           ...(item.priority ? { priority: item.priority } : {}),
           ...(assignee ? { assignee_ids: assignee } : {}),
-          source_note: message.subject ? `From the email "${message.subject}"` : 'From an email',
+          source_note: sourceNote(message),
         });
         taskId = created.id as string;
         await save({ task_id: taskId });
@@ -691,7 +704,7 @@ export async function expireWaiting(db: SupabaseClient): Promise<{ proposals: nu
     ...((replies.data ?? []) as { message_id: string | null }[]).map((row) => row.message_id).filter((id): id is string => !!id),
   ])];
   if (messageIds.length) {
-    const { data: messages, error: messageError } = await comms(db).from('messages').select('id, thread_id, inbox_id, subject').in('id', messageIds);
+    const { data: messages, error: messageError } = await comms(db).from('messages').select('id, thread_id, inbox_id, subject, channel').in('id', messageIds);
     if (messageError) throw messageError;
     for (const message of (messages ?? []) as PlanMessage[]) await syncWaitingNotification(db, message, await inboxAgentName(db, message.inbox_id));
   }
@@ -706,7 +719,8 @@ export async function syncWaitingNotification(db: SupabaseClient, message: PlanM
   // A message no plan handled is the older triage's: its notifications are not ours to touch.
   if (!planIds.length) return;
   const [{ data: pending, error: pendingError }, { data: owed, error: owedError }] = await Promise.all([
-    planIds.length ? comms(db).from('plan_items').select('type, payload').in('plan_id', planIds).eq('state', 'pending') : Promise.resolve({ data: [], error: null }),
+    // Being accepted still waits until it is done.
+    planIds.length ? comms(db).from('plan_items').select('type, payload').in('plan_id', planIds).in('state', ['pending', 'accepting']) : Promise.resolve({ data: [], error: null }),
     comms(db).from('reply_points').select('what').eq('message_id', message.id).eq('state', 'open').eq('to_agent', false),
   ]);
   if (pendingError) throw pendingError;
@@ -764,7 +778,11 @@ export async function submitPlan(actor: PlanActor, message: PlanMessage, body: P
   // else (the older triage's inboxes, a shadow inbox) records it as shadow.
   const { data: inbox, error: inboxError } = await comms(db).from('inboxes').select('triage_mode').eq('id', message.inbox_id).single();
   if (inboxError) throw inboxError;
-  const mode: 'live' | 'shadow' = body.mode === 'live' && (inbox as { triage_mode: string }).triage_mode === 'plans' ? 'live' : 'shadow';
+  // A meeting is always planned live: its items wait as suggestions, whatever the inbox's mode.
+  const { data: channelRow, error: channelError } = await comms(db).from('messages').select('channel').eq('id', message.id).single();
+  if (channelError) throw channelError;
+  const planLive = (inbox as { triage_mode: string }).triage_mode === 'plans' || (channelRow as { channel: string }).channel === 'meeting';
+  const mode: 'live' | 'shadow' = body.mode === 'live' && planLive ? 'live' : 'shadow';
   const key = body.idempotency_key ?? null;
   const hash = planHash(body);
   if (key) {
@@ -897,7 +915,7 @@ export async function loadPlanItem(db: SupabaseClient, itemId: string): Promise<
   if (error) throw error;
   if (!data) throw notFound('Plan item');
   const row = data as unknown as Row & { plan: { message_id: string } };
-  const { data: message, error: messageError } = await comms(db).from('messages').select('id, thread_id, inbox_id, subject').eq('id', row.plan.message_id).single();
+  const { data: message, error: messageError } = await comms(db).from('messages').select('id, thread_id, inbox_id, subject, channel').eq('id', row.plan.message_id).single();
   if (messageError) throw messageError;
   return { item: row, message: message as PlanMessage };
 }
@@ -924,12 +942,43 @@ async function assertCanReach(actor: PlanActor, item: PlanItemRequest): Promise<
 }
 
 /** A person accepts a proposal (optionally edited): applied as theirs. */
+/**
+ * An accept that claimed an item and never finished (the server stopped mid
+ * apply) leaves it 'accepting'; after this long another accept may take it
+ * over. Applying again is safe: applyItem resumes from the result it saved.
+ */
+const STUCK_ACCEPT_MS = 5 * 60_000;
+
 export async function acceptItem(actor: PlanActor, itemId: string, edits: Partial<PlanItemRequest> = {}, agentName = ''): Promise<Row> {
   const { item, message } = await loadPlanItem(actor.db, itemId);
-  if (item.state !== 'pending' || item.type === 'ask') throw new PlanError(409, 'CONFLICT', 'Only a waiting proposal can be accepted', { reason: 'not_pending', state: item.state });
+  const stuckBefore = new Date(Date.now() - STUCK_ACCEPT_MS).toISOString();
+  const stuck = item.state === 'accepting' && typeof item.updated_at === 'string' && Date.parse(item.updated_at) < Date.parse(stuckBefore);
+  if ((item.state !== 'pending' && !stuck) || item.type === 'ask') {
+    throw new PlanError(409, 'CONFLICT', 'Only a waiting proposal can be accepted', { reason: 'not_pending', state: item.state });
+  }
   const payload = { ...(item.payload as Row), ...edits } as PlanItemRequest;
   await assertCanReach(actor, payload);
-  const result = await applyItem({ ...actor, asPerson: true }, message, payload, item);
+  // Claimed before it applies: of two accepts at once (two Adds, Add all twice),
+  // only the one that moves it off pending applies it; the other is told so.
+  // A stuck claim is taken over the same way: the takeover stamps updated_at,
+  // so a second takeover at the same moment finds it fresh and stops.
+  const claim = stuck
+    ? comms(actor.db).from('plan_items').update({ state: 'accepting' }).eq('id', itemId).eq('state', 'accepting').lt('updated_at', stuckBefore)
+    : comms(actor.db).from('plan_items').update({ state: 'accepting' }).eq('id', itemId).eq('state', 'pending');
+  const { data: claimed, error: claimError } = await claim.select('id');
+  if (claimError) throw claimError;
+  if (!(claimed ?? []).length) throw new PlanError(409, 'CONFLICT', 'Only a waiting proposal can be accepted', { reason: 'not_pending', state: 'accepting' });
+  let result: Row;
+  try {
+    result = await applyItem({ ...actor, asPerson: true }, message, payload, item);
+  } catch (applyError) {
+    // It waits again, as it was, for another try. Should that fail too, the
+    // person still hears why the apply failed; the claim goes stale and is
+    // taken over after STUCK_ACCEPT_MS.
+    const { error: releaseError } = await comms(actor.db).from('plan_items').update({ state: 'pending' }).eq('id', itemId).eq('state', 'accepting');
+    if (releaseError) console.error(`[plans] accept: item ${itemId} could not go back to waiting after a failed apply:`, releaseError);
+    throw applyError;
+  }
   const { error } = await comms(actor.db).from('plan_items').update({
     state: 'accepted', result, payload, error: null, task_id: (result.task_id as string | undefined) ?? (item.task_id as string | null) ?? null,
     resolved_by: actor.memberId, resolved_at: new Date().toISOString(),

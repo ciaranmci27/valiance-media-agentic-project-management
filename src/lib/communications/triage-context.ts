@@ -179,12 +179,14 @@ export async function inboxModes(supabase: SupabaseClient, inboxIds: string[]): 
 export async function triageQueue(supabase: SupabaseClient, inboxIds: string[], mode: 'plans' | 'shadow', limit = 50): Promise<Row[]> {
   const modes = await inboxModes(supabase, inboxIds);
   const wanted = inboxIds.filter((id) => modes.get(id) === mode);
-  if (!wanted.length) return [];
   if (mode === 'plans') {
+    // A meeting is always planned (its items wait as suggestions), whatever its inbox's mode.
+    if (!inboxIds.length) return [];
     // Muted conversations are left out in the query, so they never fill the window.
-    const muted = (await rows<{ id: string }>(comms(supabase).from('conversations').select('id').in('inbox_id', wanted).not('muted_at', 'is', null))).map((c) => c.id);
+    const muted = (await rows<{ id: string }>(comms(supabase).from('conversations').select('id').in('inbox_id', inboxIds).not('muted_at', 'is', null))).map((c) => c.id);
     let query = comms(supabase).from('messages').select('id, inbox_id, thread_id, subject, received_at, kind, topic')
-      .in('inbox_id', wanted).eq('status', 'new');
+      .in('inbox_id', inboxIds).eq('status', 'new')
+      .or(wanted.length ? `channel.eq.meeting,inbox_id.in.(${wanted.join(',')})` : 'channel.eq.meeting');
     if (muted.length) query = query.not('thread_id', 'in', `(${muted.join(',')})`);
     const candidates = await rows<Row>(query.order('received_at').limit(limit * 3));
     if (!candidates.length) return [];
@@ -199,12 +201,13 @@ export async function triageQueue(supabase: SupabaseClient, inboxIds: string[], 
       return urgent || !conversation.last_message_at || Date.parse(conversation.last_message_at) <= quietBefore;
     }).slice(0, limit).map((m) => ({ id: m.id, inbox_id: m.inbox_id, conversation_id: m.thread_id, subject: m.subject, received_at: m.received_at }));
   }
+  if (!wanted.length) return [];
   const since = new Date(Date.now() - 14 * 86_400_000).toISOString();
   // What shadow already planned is left out in the query, so the window never fills with it.
   const planned = [...new Set((await rows<{ message_id: string }>(comms(supabase).from('plans').select('message_id')
     .eq('mode', 'shadow').gte('created_at', since))).map((p) => p.message_id))];
   let query = comms(supabase).from('messages').select('id, inbox_id, thread_id, subject, received_at')
-    .in('inbox_id', wanted).in('status', ['handled', 'needs_human']).gte('received_at', since);
+    .in('inbox_id', wanted).eq('channel', 'email').in('status', ['handled', 'needs_human']).gte('received_at', since);
   if (planned.length) query = query.not('id', 'in', `(${planned.join(',')})`);
   const handled = await rows<Row>(query.order('received_at').limit(limit));
   return handled

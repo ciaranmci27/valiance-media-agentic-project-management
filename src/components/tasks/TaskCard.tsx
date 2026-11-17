@@ -6,7 +6,7 @@ import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
 import { PriorityBadge } from '@/components/ui/Badge';
 import { Avatar, AvatarGroup } from '@/components/ui/Avatar';
-import { Calendar, Check, ChevronDown, History, Mail, MessageSquare, Paperclip, Trash2, Lock, FileQuestion, ArrowRight, ClipboardCopy, Link2, Hash, PanelRight, BellRing, CornerLeftUp, Plus, CircleCheck } from 'lucide-react';
+import { Calendar, Check, ChevronDown, History, MessageSquare, Paperclip, Trash2, Lock, FileQuestion, ArrowRight, ClipboardCopy, Link2, Hash, PanelRight, BellRing, CornerLeftUp, Plus, CircleCheck } from 'lucide-react';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { TextInput } from '@/components/ui/inputs/TextInput';
 import { RowActionsMenu, type RowAction } from '@/components/ui/RowActionsMenu';
@@ -14,7 +14,7 @@ import { parseDateOnly, isDateOverdue } from '@/lib/date-utils';
 import { hasPermission, canEditTask, canManageAllTasks } from '@/lib/access-control';
 import { TASK_STATUS_LABELS, taskAsText, taskUrl, copyText } from '@/lib/task-copy';
 import { nextReminderFor, reminderGroup, whenLabel } from '@/lib/reminders';
-import { useTaskEmailCount } from '@/components/inbox/TaskSourceEmails';
+import { TaskLinkCountBadges, useTaskLinkCounts } from '@/components/inbox/TaskSourceEmails';
 import { useTaskFileCount } from './task-file-counts';
 import { useTaskWarmer } from '@/lib/reads';
 import { UnreadLabel, useCardUnread } from './TaskUnread';
@@ -109,7 +109,7 @@ export function TaskCard({ task, onView, onDelete, onMove }: TaskCardProps) {
     .filter((t): t is Task => !!t && t.status !== 'done');
   const unread = !!cardUnread(task);
   const hasBadges = unread || loudPriority || needsSpec;
-  const emailCount = useTaskEmailCount(task.id);
+  const linkCounts = useTaskLinkCounts(task.id);
   const fileCount = useTaskFileCount(task.id);
   const warmTask = useTaskWarmer();
 
@@ -369,15 +369,7 @@ export function TaskCard({ task, onView, onDelete, onMove }: TaskCardProps) {
                 </span>
               </Tooltip>
             )}
-            {emailCount > 0 && (
-              <Tooltip content={plural(emailCount, 'linked email')}>
-                <span className="flex items-center gap-1">
-                  <Mail size={14} aria-hidden="true" />
-                  <span className="sr-only">{plural(emailCount, 'linked email')}</span>
-                  <span aria-hidden="true">{emailCount}</span>
-                </span>
-              </Tooltip>
-            )}
+            <TaskLinkCountBadges counts={linkCounts} className="flex items-center gap-1" iconSize={14} />
             {fileCount > 0 && (
               <Tooltip content={plural(fileCount, 'file')}>
                 <span className="flex items-center gap-1">

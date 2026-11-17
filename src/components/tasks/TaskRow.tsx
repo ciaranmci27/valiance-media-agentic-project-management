@@ -5,10 +5,10 @@ import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
 import { StatusBadge, PriorityBadge, TaskTypeBadge } from '@/components/ui/Badge';
 import { AvatarGroup } from '@/components/ui/Avatar';
-import { Calendar, CheckSquare, Mail, MessageSquare, MoreVertical, Paperclip, Trash2, Clock, Lock, FileQuestion } from 'lucide-react';
+import { Calendar, CheckSquare, MessageSquare, MoreVertical, Paperclip, Trash2, Clock, Lock, FileQuestion } from 'lucide-react';
 import { useState, useRef } from 'react';
 import { Popover } from '@/components/ui/Popover';
-import { useTaskEmailCount } from '@/components/inbox/TaskSourceEmails';
+import { TaskLinkCountBadges, useTaskLinkCounts } from '@/components/inbox/TaskSourceEmails';
 import { UnreadLabel } from './TaskUnread';
 import { subtaskProgress } from '@/lib/subtasks';
 import { lastActivityAt, taskTimesTooltip, timeAgo } from '@/lib/task-times';
@@ -48,7 +48,7 @@ export function TaskRow({ task, onView, onDelete }: TaskRowProps) {
   const warmTask = useTaskWarmer();
   const { teamMemberId, access } = useAuth();
   const [showMenu, setShowMenu] = useState(false);
-  const emailCount = useTaskEmailCount(task.id);
+  const linkCounts = useTaskLinkCounts(task.id);
   const fileCount = useTaskFileCount(task.id);
   const menuBtnRef = useRef<HTMLButtonElement>(null);
 
@@ -180,13 +180,7 @@ export function TaskRow({ task, onView, onDelete }: TaskRowProps) {
               </span>
             )}
 
-            {emailCount > 0 && (
-              <span className="text-xs text-zinc-400 flex items-center gap-1">
-                <Mail size={12} aria-hidden="true" />
-                <span className="sr-only">{emailCount} linked email{emailCount === 1 ? '' : 's'}</span>
-                <span aria-hidden="true">{emailCount}</span>
-              </span>
-            )}
+            <TaskLinkCountBadges counts={linkCounts} className="text-xs text-zinc-400 flex items-center gap-1" iconSize={12} />
 
             {fileCount > 0 && (
               <span className="text-xs text-zinc-400 flex items-center gap-1">
@@ -237,7 +231,7 @@ export function TaskRowDesktop({ task, onView, onDelete, selected, onToggleSelec
   const warmTask = useTaskWarmer();
   const { teamMemberId, access } = useAuth();
   const [showMenu, setShowMenu] = useState(false);
-  const emailCount = useTaskEmailCount(task.id);
+  const linkCounts = useTaskLinkCounts(task.id);
   const fileCount = useTaskFileCount(task.id);
   const menuBtnRef = useRef<HTMLButtonElement>(null);
 
@@ -350,15 +344,7 @@ export function TaskRowDesktop({ task, onView, onDelete, selected, onToggleSelec
             </span>
           </Tooltip>
         )}
-        {emailCount > 0 && (
-          <Tooltip content={`${emailCount} linked email${emailCount === 1 ? '' : 's'}`}>
-            <span className="flex items-center gap-1 text-xs text-zinc-500 flex-shrink-0 cursor-default">
-              <Mail size={12} aria-hidden="true" />
-              <span className="sr-only">{emailCount} linked email{emailCount === 1 ? '' : 's'}</span>
-              <span aria-hidden="true">{emailCount}</span>
-            </span>
-          </Tooltip>
-        )}
+        <TaskLinkCountBadges counts={linkCounts} className="flex items-center gap-1 text-xs text-zinc-500 flex-shrink-0 cursor-default" iconSize={12} />
         {fileCount > 0 && (
           <Tooltip content={`${fileCount} file${fileCount === 1 ? '' : 's'}`}>
             <span className="flex items-center gap-1 text-xs text-zinc-500 flex-shrink-0 cursor-default">

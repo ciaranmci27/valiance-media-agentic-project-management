@@ -6,7 +6,7 @@ import { inboxThreadRead } from '@/lib/reads';
 import Link from 'next/link';
 import {
   AlertTriangle, ArrowDown, ArrowLeft, AlignLeft, Bell, Bot, Check, CheckCircle2, ChevronDown, Copy, Download, ExternalLink, Eye, FileText, Filter, Flame, Forward, Hash, HelpCircle, Image as ImageIcon, Inbox,
-  Loader2, MessageSquareReply, Paperclip, PenLine, Plus, RefreshCw, RotateCcw, ShieldOff, SquareCheck, Tag, Trash2, Undo2, X,
+  Loader2, MessageSquareReply, Paperclip, PenLine, Plus, RefreshCw, RotateCcw, ShieldOff, Sparkles, SquareCheck, Tag, Trash2, Undo2, Video, X,
 } from 'lucide-react';
 import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
@@ -20,7 +20,7 @@ import { RowActionsMenu, type RowAction } from '@/components/ui/RowActionsMenu';
 import { copyText } from '@/lib/task-copy';
 import { toast } from '@/components/ui/Toast';
 import { announceInboxChange, inboxClient } from '@/lib/communications/inbox-client';
-import { skippedReasonLabel, type InboxAnswer, type InboxAttachment, type InboxLinkedTask, type InboxMessage, type InboxPlan, type InboxPlanItem, type InboxReminder, type InboxReplyPoint, type InboxThreadDetail, type InboxTriage, type ThreadProject, type TriageOutcome } from '@/lib/communications/inbox-types';
+import { MEETING_PACKAGE_LABELS, skippedReasonLabel, type InboxAnswer, type MeetingDismissUndo, type InboxAttachment, type InboxLinkedTask, type InboxMessage, type InboxPlan, type InboxPlanItem, type InboxReminder, type InboxReplyPoint, type InboxThreadDetail, type InboxTriage, type ThreadProject, type TriageOutcome } from '@/lib/communications/inbox-types';
 import { hasQuotedHtml, inlineImageIds, linkParts, opensAsHtml } from '@/lib/communications/email/display';
 import { FilePreviewModal } from '@/components/ui/FilePreviewModal';
 import { Textarea } from '@/components/ui/inputs/Textarea';
@@ -31,6 +31,7 @@ import { ThreadProjectDialog } from './ThreadProjectDialog';
 import { LinkTaskDialog } from './LinkTaskDialog';
 import { SenderRuleDialog } from './SenderRuleDialog';
 import { DraftRequestDialog, ReplyDraftCard } from './ReplyDraft';
+import { MeetingDetails, meetingNoteLines, MeetingSuggestions, TranscriptReader, type MeetingSuggestion, type SuggestionEdits } from './MeetingParts';
 import { DecisionCard } from './DecisionCard';
 import { ThreadAttachmentsDialog, threadAttachments } from './ThreadAttachmentsDialog';
 import { useInboxUpdates } from './use-inbox-updates';
@@ -81,6 +82,8 @@ interface TaskUndo {
 const TaskUndoContext = createContext<TaskUndo>({ trashed: {}, undo: async () => {}, pending: null });
 /** True when the thread is filed on several projects: each linked task then names its own. */
 const ProjectLabelsContext = createContext(false);
+/** A meeting lists its waiting suggestions first, so a message's pills leave them out. */
+const SuggestionsListedContext = createContext(false);
 
 /**
  * What a person does with the agent's plan from the thread: accept or dismiss
@@ -121,6 +124,12 @@ export function ThreadView({ threadId, focusMessageId, onMissing, onBack }: Thre
   // Kept per thread: switching threads starts with nothing to undo.
   const [trashedIn, setTrashedIn] = useState<{ threadId: string; tasks: TaskUndo['trashed'] }>({ threadId, tasks: {} });
   const [taskPending, setTaskPending] = useState<string | null>(null);
+  // A meeting's suggestions settled at once: the line it leaves, with its Undo, while this meeting stays open.
+  const [bulk, setBulk] = useState<'add_all' | 'nothing' | null>(null);
+  const [outcome, setOutcome] = useState<
+    { threadId: string; text: string; added?: string[]; dismissed?: MeetingDismissUndo } | null
+  >(null);
+  const [undoingOutcome, setUndoingOutcome] = useState(false);
   const canTrashTasks = canTriage && (hasPermission(access, 'tasks.manage_all') || hasPermission(access, 'tasks.manage_assigned'));
   // Stable while open: the preview refetches whenever its file object changes.
   const previewFile = useMemo(
@@ -262,6 +271,100 @@ export function ThreadView({ threadId, focusMessageId, onMissing, onBack }: Thre
       }
     } : undefined,
   }), [canTriage, client, load, planPending, threadId]);
+
+  // Add all: every waiting suggestion, as yours; one Undo takes the set back, newest first.
+  const addAll = useCallback(async () => {
+    setBulk('add_all');
+    try {
+      const result = await client.addAllSuggestions(threadId);
+      const added = result.added.length;
+      const failed = result.failed.length;
+      if (failed) {
+        toast('error', added
+          ? `${failed} did not go through: ${result.failed.map((f) => f.label).join(', ')}. ${result.failed[0].error}`
+          : `None were added. ${result.failed[0].error}`);
+      }
+      // The line says what was added; with nothing added there is nothing to say or undo.
+      if (added) setOutcome({ threadId, text: `Added ${added} ${added === 1 ? 'suggestion' : 'suggestions'}`, added: result.added });
+      announceInboxChange({ threadId });
+      await load(true);
+    } catch (err) {
+      toast('error', err instanceof Error ? err.message : 'That did not go through');
+    } finally {
+      setBulk(null);
+    }
+  }, [client, threadId, load]);
+  // Nothing to do: every suggestion skipped, the meeting handled and marked.
+  const nothingToDo = useCallback(async () => {
+    setBulk('nothing');
+    try {
+      const result = await client.nothingToDo(threadId);
+      setOutcome({ threadId, text: 'Marked nothing to do', dismissed: { skipped: result.skipped, handled: result.handled } });
+      announceInboxChange({ threadId });
+      await load(true);
+    } catch (err) {
+      toast('error', err instanceof Error ? err.message : 'That did not go through');
+    } finally {
+      setBulk(null);
+    }
+  }, [client, threadId, load]);
+  const undoOutcome = useCallback(async () => {
+    if (!outcome || outcome.threadId !== threadId) return;
+    setUndoingOutcome(true);
+    try {
+      if (outcome.added) {
+        // Through the usual per-item undo: one a person changed since stays as it is.
+        let kept = 0;
+        const remaining = [...outcome.added];
+        while (remaining.length) {
+          const result = await client.undoPlanItem(remaining[remaining.length - 1]);
+          if (result.changed_since) kept++;
+          remaining.pop();
+          setOutcome({ ...outcome, added: [...remaining] });
+        }
+        toast(kept ? 'info' : 'success', kept ? `Undone. ${kept} changed since, so ${kept === 1 ? 'it stays' : 'they stay'}.` : 'Undone');
+      } else if (outcome.dismissed) {
+        await client.undoNothingToDo(threadId, outcome.dismissed);
+        toast('success', 'Undone');
+      }
+      setOutcome(null);
+      announceInboxChange({ threadId });
+      await load(true);
+    } catch (err) {
+      toast('error', err instanceof Error ? err.message : 'Could not undo');
+    } finally {
+      setUndoingOutcome(false);
+    }
+  }, [outcome, threadId, client, load]);
+  // One suggestion, added (as it is, or changed first) or skipped.
+  const addSuggestion = useCallback(async (item: MeetingSuggestion, edits: SuggestionEdits = {}): Promise<boolean> => {
+    setPlanPending(item.id);
+    try {
+      await client.acceptPlanItem(item.id, edits);
+      toast('success', 'Added');
+      announceInboxChange({ threadId });
+      await load(true);
+      return true;
+    } catch (err) {
+      toast('error', err instanceof Error ? err.message : 'That did not go through');
+      return false;
+    } finally {
+      setPlanPending(null);
+    }
+  }, [client, threadId, load]);
+  const skipSuggestion = useCallback(async (item: MeetingSuggestion) => {
+    setPlanPending(item.id);
+    try {
+      await client.dismissPlanItem(item.id);
+      toast('success', 'Skipped');
+      announceInboxChange({ threadId });
+      await load(true);
+    } catch (err) {
+      toast('error', err instanceof Error ? err.message : 'That did not go through');
+    } finally {
+      setPlanPending(null);
+    }
+  }, [client, threadId, load]);
 
   // While the agent writes a requested draft, look again every few seconds,
   // for ten minutes at most; the request closes itself after half an hour.
@@ -424,10 +527,22 @@ export function ThreadView({ threadId, focusMessageId, onMissing, onBack }: Thre
   const answered = !asking && canHandle
     ? [...detail.messages].reverse().find((m) => !!m.triage?.question_for_human && !!m.answer) ?? null
     : null;
+  // A meeting: no sender to filter or trust, no mail to reply to; a recap email to the attendees instead.
+  const meeting = detail.channel === 'meeting' ? detail.meeting : null;
+  const isMeeting = detail.channel === 'meeting';
+  // What the agent suggests from the meeting and nobody settled yet, first in the thread.
+  const suggestions: MeetingSuggestion[] = isMeeting
+    // One being accepted stays in the list (its row keeps its spinner and any Change edits) until it is done.
+    ? detail.messages.flatMap((m) => (m.plan?.items ?? []).filter((item) => item.state === 'pending' || item.state === 'accepting'))
+    : [];
+  // A dismissal stands until a newer package arrives.
+  const dismissedCurrent = !!meeting?.dismissed && !detail.messages.some((m) => Date.parse(m.received_at) > Date.parse(meeting.dismissed!.at));
+  const canSettle = isMeeting && canTriage && !isDemoMode;
+  const shownOutcome = outcome?.threadId === threadId ? outcome : null;
   const menu: RowAction[] = [
-    ...(canDraft && !drafting ? [{ label: 'Draft a reply', icon: <PenLine size={14} aria-hidden="true" />, onClick: () => setDraftDialog(true) }] : []),
+    ...(canDraft && !drafting ? [{ label: isMeeting ? 'Draft a follow-up email' : 'Draft a reply', icon: <PenLine size={14} aria-hidden="true" />, onClick: () => setDraftDialog(true) }] : []),
     ...(fileCount > 0 ? [{ label: `Attachments (${fileCount})`, icon: <Paperclip size={14} aria-hidden="true" />, onClick: () => setAttachmentsOpen(true) }] : []),
-    ...(canManageRules ? [{ label: 'Filter mail like this', icon: <Filter size={14} aria-hidden="true" />, onClick: () => setRuleFor(latest) }] : []),
+    ...(canManageRules && !isMeeting ? [{ label: 'Filter mail like this', icon: <Filter size={14} aria-hidden="true" />, onClick: () => setRuleFor(latest) }] : []),
     // The newest message's id: the API and pm-tasks read the whole conversation from any of its messages.
     { label: 'Copy thread ID', icon: <Hash size={14} aria-hidden="true" />, onClick: () => void copyText(latest.id, 'Thread ID') },
     ...(canSendBack ? [{ label: `Send back to ${agentName}`, icon: <RotateCcw size={14} aria-hidden="true" />, onClick: () => void after(() => client.sendBack(detail.id, null), `Sent back to ${agentName}`, 'send_back') }] : []),
@@ -443,7 +558,15 @@ export function ThreadView({ threadId, focusMessageId, onMissing, onBack }: Thre
           {backButton}
           <div className="order-3 flex min-w-0 basis-full flex-wrap items-center gap-x-3 gap-y-1.5 lg:order-1 lg:flex-1 lg:basis-0">
             {/* Phones: at most two lines of subject; the whole subject is its tooltip. */}
-            <h2 title={detail.subject || undefined} className="line-clamp-2 min-w-0 break-words text-base font-semibold leading-snug tracking-tight text-white sm:line-clamp-none sm:text-lg">{detail.subject || '(no subject)'}</h2>
+            <h2 title={detail.subject || undefined} className="line-clamp-2 min-w-0 break-words text-base font-semibold leading-snug tracking-tight text-white [overflow-wrap:anywhere] sm:line-clamp-none sm:text-lg">
+              {isMeeting && (
+                <>
+                  <Video size={17} className="mr-1.5 inline-block -translate-y-px align-middle text-zinc-400" aria-hidden="true" />
+                  <span className="sr-only">Meeting: </span>
+                </>
+              )}
+              {detail.subject || (isMeeting ? 'Untitled meeting' : '(no subject)')}
+            </h2>
             {/* Status, project and what the thread is tied to: one row that wraps as one. */}
             <span className="flex flex-wrap items-center gap-x-2 gap-y-1 sm:gap-x-3">
             {/* The status only speaks up when the thread waits on someone; handled and filtered stay quiet. */}
@@ -501,7 +624,7 @@ export function ThreadView({ threadId, focusMessageId, onMissing, onBack }: Thre
                   }
                 }}
               />
-              {detail.messages.length > 1 && <span>{detail.messages.length} emails</span>}
+              {detail.messages.length > 1 && <span>{detail.messages.length} {isMeeting ? 'messages' : 'emails'}</span>}
             </span>
             </span>
           </div>
@@ -539,6 +662,8 @@ export function ThreadView({ threadId, focusMessageId, onMissing, onBack }: Thre
           )}
         </div>
 
+        {meeting && <MeetingDetails meeting={meeting} />}
+
         {detail.summary && (
           <p className="mt-2.5 flex items-start gap-2 text-[13px] leading-snug text-zinc-300">
             <Avatar name={agentName} src={agentAvatar} size="xs" className="mt-px flex-shrink-0" />
@@ -549,9 +674,27 @@ export function ThreadView({ threadId, focusMessageId, onMissing, onBack }: Thre
 
       {/* Messages */}
       <div ref={scrollRef} data-thread-scroll className="relative min-h-0 flex-1 overflow-y-auto px-2 py-3 sm:px-5 sm:py-4">
+        {isMeeting && (
+          <MeetingSuggestions
+            items={suggestions}
+            agentName={agentName}
+            onAdd={canSettle ? addSuggestion : undefined}
+            onSkip={canSettle ? skipSuggestion : undefined}
+            pendingId={planPending}
+            onAddAll={canSettle ? () => void addAll() : undefined}
+            onNothingToDo={canSettle && !dismissedCurrent && (suggestions.length > 0 || canHandle) ? () => void nothingToDo() : undefined}
+            bulk={bulk}
+            outcome={shownOutcome ? {
+              text: shownOutcome.text,
+              onUndo: canSettle && (shownOutcome.added?.length || shownOutcome.dismissed) ? () => void undoOutcome() : undefined,
+              undoing: undoingOutcome,
+            } : null}
+          />
+        )}
         <TaskUndoContext.Provider value={taskUndo}>
         <PlanActionsContext.Provider value={planActions}>
         <ProjectLabelsContext.Provider value={detail.projects.length > 1}>
+        <SuggestionsListedContext.Provider value={isMeeting}>
         <ol className="space-y-3">
           {detail.messages.map((message) => {
             const day = dayLabel(message.received_at);
@@ -578,7 +721,7 @@ export function ThreadView({ threadId, focusMessageId, onMissing, onBack }: Thre
                   onAlwaysFilter={canManageRules ? (address) => void after(() => client.createSenderRule({
                     match_kind: 'address', match_value: address, topic: null, action: 'ignore', reason: 'Pitched more than once.',
                   }), `Mail from ${address} goes straight to Filtered from now on.`, 'send_back') : undefined}
-                  onRule={canManageRules ? () => setRuleFor(message) : undefined}
+                  onRule={canManageRules && message.channel !== 'meeting' ? () => setRuleFor(message) : undefined}
                   onAnswer={canTriage && !isDemoMode ? (text) => answerQuestion(message.id, text) : undefined}
                   questionInPanel={asking?.id === message.id}
                   busy={busy !== null}
@@ -588,6 +731,7 @@ export function ThreadView({ threadId, focusMessageId, onMissing, onBack }: Thre
             );
           })}
         </ol>
+        </SuggestionsListedContext.Provider>
         </ProjectLabelsContext.Provider>
         </PlanActionsContext.Provider>
         </TaskUndoContext.Provider>
@@ -604,6 +748,7 @@ export function ThreadView({ threadId, focusMessageId, onMissing, onBack }: Thre
               onMarkHandled={canTriage && canHandle ? () => { if (busy === null) void markHandled(); } : undefined}
               closesReminder={ownReplyReminder}
               busy={busy !== null}
+              purpose={isMeeting ? 'follow_up' : 'reply'}
             />
           </div>
         )}
@@ -665,7 +810,7 @@ export function ThreadView({ threadId, focusMessageId, onMissing, onBack }: Thre
         )}
         <p className="mt-5 flex items-center justify-center gap-1.5 text-center text-[11px] text-zinc-400">
           <ShieldOff size={11} aria-hidden="true" />
-          Read only. Reply from your own mail; {agentName} never sends email.
+          {isMeeting ? `Read only. ${agentName} never sends email.` : `Read only. Reply from your own mail; ${agentName} never sends email.`}
         </p>
       </div>
 
@@ -712,6 +857,7 @@ export function ThreadView({ threadId, focusMessageId, onMissing, onBack }: Thre
             isOpen={draftDialog}
             onClose={() => setDraftDialog(false)}
             agentName={agentName}
+            purpose={isMeeting ? 'follow_up' : 'reply'}
             onAsk={async (instructions) => {
               try {
                 await client.requestDraft(detail.id, instructions);
@@ -923,15 +1069,22 @@ function MessageCard({ message, agentName, focused, busy, viewUrl, onSendToAgent
     : message.attachments;
   // A teammate's forward shows the original sender; the teammate gets their own line.
   const shownFrom = message.original_sender ?? message.from;
-  const sender = shownFrom?.name || shownFrom?.address || 'Unknown sender';
+  // A meeting message is its package; its from is the teammate who sent it in.
+  const meetingPackage = message.channel === 'meeting' ? message.meeting_package ?? 'transcript' : null;
+  const sender = meetingPackage
+    ? MEETING_PACKAGE_LABELS[meetingPackage]
+    : shownFrom?.name || shownFrom?.address || 'Unknown sender';
+  const sentInBy = meetingPackage ? message.from?.name || message.from?.address || null : null;
+  const packageFile = meetingPackage ? message.attachments.find((attachment) => attachment.kind === 'text') ?? null : null;
+  const packageNotes = meetingPackage ? meetingNoteLines(message.text_body ?? message.new_text) : [];
   // A pitch the agent filtered (not a rule or bulk mail): it can go back to the Inbox.
   const pitch = message.triage?.category === 'outreach';
   const teammate = message.forwarded_by?.name || message.from?.name || message.from?.address || 'a teammate';
   const forwardedByTeam = message.routing_basis === 'forwarded_original';
-  const routedNote = forwardedByTeam
+  const routedNote = meetingPackage ? null : forwardedByTeam
     ? `Forwarded by ${teammate}`
     : message.routing_basis === 'team_recipients' ? `Sent by ${teammate}, CC'd to the inbox` : null;
-  const recipients = [
+  const recipients = meetingPackage ? '' : [
     message.to.length ? `To ${message.to.map((p) => p.name || p.address).join(', ')}` : '',
     message.cc.length ? `Cc ${message.cc.map((p) => p.name || p.address).join(', ')}` : '',
   ].filter(Boolean).join(' · ');
@@ -939,20 +1092,26 @@ function MessageCard({ message, agentName, focused, busy, viewUrl, onSendToAgent
   return (
     <article
       id={`email-${message.id}`}
-      aria-label={`Email from ${sender}`}
+      aria-label={meetingPackage === 'notes' ? "Meeting notes by Gemini" : meetingPackage ? 'Meeting transcript' : `Email from ${sender}`}
       className={`rounded-xl border bg-white/[0.02] ${focused ? 'border-brand-400/50 ring-1 ring-brand-400/30' : 'border-white/[0.07]'}`}
     >
       <header className="flex items-start gap-3 px-3 pt-3 sm:px-4 sm:pt-3.5">
-        <Avatar name={sender} size="sm" />
+        {meetingPackage ? (
+          // The package, not a person: a soft tile with what it is.
+          <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-white/[0.06] text-zinc-300" aria-hidden="true">
+            {meetingPackage === 'notes' ? <Sparkles size={15} /> : <FileText size={15} />}
+          </span>
+        ) : <Avatar name={sender} size="sm" />}
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-            <span className="text-sm font-semibold text-white">{sender}</span>
+            <span className="min-w-0 break-words text-sm font-semibold text-white [overflow-wrap:anywhere]">{sender}</span>
             {/* Phones: the time rides on the name line instead of taking a column. */}
             <time dateTime={message.received_at} className="ml-auto text-xs tabular-nums text-zinc-400 sm:hidden">{formatListTime(message.received_at)}</time>
-            {shownFrom?.name && <span className="min-w-0 max-w-full basis-full truncate text-xs text-zinc-400 sm:basis-auto">{shownFrom.address}</span>}
+            {sentInBy && <span className="min-w-0 max-w-full basis-full truncate text-xs text-zinc-400 sm:basis-auto">Sent in by {sentInBy}</span>}
+            {!meetingPackage && shownFrom?.name && <span className="min-w-0 max-w-full basis-full truncate text-xs text-zinc-400 sm:basis-auto">{shownFrom.address}</span>}
             {/* Trust is the verdict on the outer sender, so a teammate's forward shows it on their line. */}
-            {!forwardedByTeam && <TrustBadge level={message.trust.level} />}
-            {message.is_forward && !forwardedByTeam && (
+            {!forwardedByTeam && !meetingPackage && <TrustBadge level={message.trust.level} />}
+            {message.is_forward && !forwardedByTeam && !meetingPackage && (
               <span className="inline-flex items-center gap-1 rounded-full bg-white/[0.05] px-2 py-0.5 text-[11px] text-zinc-300">
                 <Forward size={11} aria-hidden="true" />
                 Forwarded
@@ -967,15 +1126,15 @@ function MessageCard({ message, agentName, focused, busy, viewUrl, onSendToAgent
             </p>
           )}
           {recipients && <p className="mt-0.5 truncate text-[11px] text-zinc-400 sm:whitespace-normal sm:break-words">{recipients}</p>}
-          <TrustNote level={message.trust.level} reason={message.trust.reason} />
+          {!meetingPackage && <TrustNote level={message.trust.level} reason={message.trust.reason} />}
         </div>
         <div className="flex flex-shrink-0 items-center gap-1">
           <time dateTime={message.received_at} className="hidden text-xs tabular-nums text-zinc-400 sm:block">{formatFullTime(message.received_at)}</time>
-          <Tooltip content="Copy email ID">
+          <Tooltip content={meetingPackage ? 'Copy meeting ID' : 'Copy email ID'}>
             <button
               type="button"
-              onClick={() => void copyText(message.id, 'Email ID')}
-              aria-label="Copy this email's ID"
+              onClick={() => void copyText(message.id, meetingPackage ? 'Meeting ID' : 'Email ID')}
+              aria-label={meetingPackage ? "Copy this meeting's ID" : "Copy this email's ID"}
               className="rounded-md p-1 text-zinc-400 transition-colors hover:bg-white/[0.06] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
             >
               <Hash size={14} aria-hidden="true" />
@@ -1011,7 +1170,17 @@ function MessageCard({ message, agentName, focused, busy, viewUrl, onSendToAgent
         </div>
       )}
 
-      <div className="px-2 py-3 sm:px-4">
+      {meetingPackage ? (
+        <div className="min-w-0 space-y-2.5 px-2 py-3 sm:px-4">
+          {packageNotes.length > 0 && (
+            <div className="space-y-1 text-xs leading-relaxed text-zinc-300">
+              {packageNotes.map((line, index) => <p key={index} className="break-words [overflow-wrap:anywhere]">{line}</p>)}
+            </div>
+          )}
+          {packageFile && <TranscriptReader attachment={packageFile} kind={meetingPackage} />}
+        </div>
+      ) : (
+      <div className="min-w-0 px-2 py-3 sm:px-4">
         {showingHtml ? (
           <EmailBodyFrame html={message.html_body!} inlineImages={inlineImages} hideQuoted={!full} title={`Email from ${sender}: ${message.subject || 'no subject'}`} />
         ) : (
@@ -1030,6 +1199,7 @@ function MessageCard({ message, agentName, focused, busy, viewUrl, onSendToAgent
           </button>
         )}
       </div>
+      )}
 
       {listed.length > 0 && <AttachmentList attachments={listed} agentName={agentName} viewUrl={viewUrl} onDownload={onDownload} onPreview={onPreview} />}
 
@@ -1063,13 +1233,13 @@ function AttachmentList({ attachments, agentName, viewUrl, onDownload, onPreview
         <Paperclip size={12} aria-hidden="true" />
         {attachments.length} {attachments.length === 1 ? 'attachment' : 'attachments'}
       </p>
-      <ul className="grid gap-2 sm:grid-cols-2">
+      <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2">
         {attachments.map((attachment) => {
           const Icon = attachment.kind === 'image' ? ImageIcon : FileText;
           const previewable = !!onPreview && attachment.available && attachment.kind !== 'other';
           const thumbnail = attachment.kind === 'image' && attachment.available && viewUrl;
           return (
-            <li key={attachment.id} className="flex items-start gap-2.5 rounded-lg border border-white/[0.07] bg-white/[0.02] px-3 py-2">
+            <li key={attachment.id} className="flex min-w-0 items-start gap-2.5 rounded-lg border border-white/[0.07] bg-white/[0.02] px-3 py-2">
               {thumbnail ? (
                 // eslint-disable-next-line @next/next/no-img-element -- a signed storage link, not a static asset
                 <img src={viewUrl(attachment.id)} alt="" loading="lazy" className="h-9 w-9 flex-shrink-0 rounded-md border border-white/[0.08] object-cover" />
@@ -1096,7 +1266,7 @@ function AttachmentList({ attachments, agentName, viewUrl, onDownload, onPreview
                 {attachment.agent_label && (
                   <p className="mt-1 flex items-start gap-1 text-[11px] text-zinc-300">
                     <Tag size={10} className="mt-[3px] flex-shrink-0 text-brand-300" aria-hidden="true" />
-                    <span><span className="sr-only">{agentName}&apos;s label: </span>{attachment.agent_label}</span>
+                    <span className="min-w-0 break-words [overflow-wrap:anywhere]"><span className="sr-only">{agentName}&apos;s label: </span>{attachment.agent_label}</span>
                   </p>
                 )}
               </div>
@@ -1468,8 +1638,10 @@ const spinner = <Loader2 size={12} className="animate-spin motion-reduce:animate
  */
 function PlanPills({ plan, points, who, avatar, at }: { plan: InboxPlan; points: InboxReplyPoint[]; who: string; avatar?: string; at: string }) {
   const { act, pending } = useContext(PlanActionsContext);
+  const listed = useContext(SuggestionsListedContext);
   const done = plan.items.filter((item) => ['done', 'accepted', 'undone', 'failed'].includes(item.state) && item.type !== 'reply_owed');
-  const proposals = plan.items.filter((item) => item.state === 'pending');
+  // A meeting lists what waits at the top of the thread instead.
+  const proposals = listed ? [] : plan.items.filter((item) => item.state === 'pending' || item.state === 'accepting');
   const owed = points.filter((point) => point.state === 'open');
   const unsure = done.filter((item) => item.decision === 'apply_unsure' && item.state === 'done').length;
   const undoable = done.some((item) => (item.state === 'done' || item.state === 'accepted') && UNDOABLE.has(item.type));

@@ -218,6 +218,33 @@ export function formatFullTime(value: string): string {
   return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }).format(new Date(value));
 }
 
+/** A day in a sentence: "Nov 17", with the year when it is not this one. */
+export function formatDay(value: string): string {
+  const date = new Date(value);
+  return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', ...(date.getFullYear() === new Date().getFullYear() ? {} : { year: 'numeric' }) }).format(date);
+}
+
+/**
+ * When a meeting ran, in the viewer's time: "Tue, Nov 11, 3:00 to 4:00 PM".
+ * A meeting past midnight names both days; one with no start says nothing.
+ */
+export function formatMeetingTime(startsAt: string | null, endsAt: string | null): string | null {
+  if (!startsAt) return null;
+  const start = new Date(startsAt);
+  const sameYear = start.getFullYear() === new Date().getFullYear();
+  const day = (date: Date) => new Intl.DateTimeFormat('en-US', { weekday: 'short', month: 'short', day: 'numeric', ...(sameYear ? {} : { year: 'numeric' }) }).format(date);
+  const time = (date: Date, period = true) => {
+    const text = new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }).format(date);
+    return period ? text : text.replace(/\s?[AP]M$/, '');
+  };
+  if (!endsAt) return `${day(start)}, ${time(start)}`;
+  const end = new Date(endsAt);
+  if (start.toDateString() !== end.toDateString()) return `${day(start)}, ${time(start)} to ${day(end)}, ${time(end)}`;
+  // "3:00 to 4:00 PM" when both share the half of the day, else "11:30 AM to 12:30 PM".
+  const samePeriod = (start.getHours() < 12) === (end.getHours() < 12);
+  return `${day(start)}, ${time(start, !samePeriod)} to ${time(end)}`;
+}
+
 export function formatBytes(bytes: number | null): string {
   if (bytes == null) return '';
   if (bytes < 1024) return `${bytes} B`;

@@ -38,7 +38,7 @@ export function taskCreator(source: Pick<TaskSourceData, 'via' | 'by' | 'key'>, 
 
 /**
  * The task's Source row: who made it, the reason it came with, and the email
- * behind it. Tasks from before tracking say only that.
+ * or meeting behind it. Tasks from before tracking say only that.
  */
 export function TaskSourceLine({ source }: { source: TaskSourceData | null }) {
   const { teamMemberId } = useAuth();
@@ -56,7 +56,7 @@ export function TaskSourceLine({ source }: { source: TaskSourceData | null }) {
             href={`/inbox?thread=${source.email.thread_id}&message=${source.email.message_id}`}
             className="rounded font-medium text-brand-300 hover:text-brand-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
           >
-            View email
+            {source.email.channel === 'meeting' ? 'View meeting' : 'View email'}
           </Link>
         </>
       )}

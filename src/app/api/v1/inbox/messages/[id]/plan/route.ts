@@ -25,7 +25,7 @@ export const POST = withApi<PlanRequest, { id: string }>(async ({ supabase, para
   const accessible = await loadAccessibleMessage(supabase, teamMemberId, access, params.id);
   const { data: row, error } = await comms(supabase).from('messages').select('subject').eq('id', accessible.id).single();
   if (error) throw isGoneError(error) ? notFound('Email') : error;
-  const message = { id: accessible.id, thread_id: accessible.thread_id, inbox_id: accessible.inbox_id, subject: (row as { subject: string | null }).subject };
+  const message = { id: accessible.id, thread_id: accessible.thread_id, inbox_id: accessible.inbox_id, subject: (row as { subject: string | null }).subject, channel: accessible.channel };
   const { data: member } = await supabase.from('team_members').select('name').eq('id', teamMemberId).maybeSingle();
   const agentName = ((member as { name?: string } | null)?.name ?? '').split(/\s+/)[0];
 

@@ -250,6 +250,33 @@ addresses map to projects the way an email's do. `meetings` holds what only
 a meeting has, keyed by the script's `meeting_key` (`meeting_conversation`
 finds or creates it). Meetings are kept: retention deletes email only.
 
+In the Inbox a meeting shows by its title, time and attendees (list rows and
+thread detail carry `channel` and `meeting`; each message its
+`meeting_package`, transcript or notes). Email-only controls (sender rules,
+trust, To and Cc, quoted history) are hidden; "Draft a reply" becomes a
+follow-up email to the attendees.
+
+From a meeting the agent only suggests: tasks, reminders and comments are
+plan items waiting for an OK; only links to existing tasks, filing and
+context apply on their own. The thread lists what waits first, as a
+checklist (Add, Change, Skip), with two actions for the whole meeting
+(`meeting/suggestions.ts`):
+
+- **Add all** (`POST /api/workspace/inbox/threads/:id/add-all`): accepts
+  every waiting suggestion of the newest live plan of each message, through
+  the same accept as the Add button. Questions wait for an answer. Every
+  accept claims its item first (state `accepting`, back to `pending` if it
+  fails), so a second call, or two at once, adds each item once. Undo is the
+  per-item undo, newest first.
+- **Nothing to do** (`POST .../nothing-to-do`): skips every waiting
+  suggestion and question as the person's, marks the messages handled and
+  records `meetings.dismissed_at` and `dismissed_by`. Nothing is created,
+  trashed or closed: unlike Mark handled, it leaves "Reply to" reminders
+  open. `DELETE` with what it returned puts the suggestions and messages back
+  and clears the mark.
+
+Email is refused by both: an email settles its suggestions one at a time.
+
 ## Adding a channel (SMS, Slack, ...)
 
 Every table and rule above is shared. A new channel needs:
@@ -291,4 +318,6 @@ Permission names stay `inbound_email.*`.
 ## Tests
 
 `npm run test:inbound-email` runs the library, ingest, retention, migration
-(applied twice, compared against `schema.sql`) and scope suites on PGlite.
+(applied twice, compared against `schema.sql`), scope, plans and meetings
+suites (ingest, and Add all and Nothing to do in `verify-meeting-suggestions.ts`) on
+PGlite.

@@ -1,0 +1,329 @@
+'use client';
+
+import { Fragment, useMemo, useState } from 'react';
+import { CalendarClock, Check, ChevronDown, CircleSlash, ExternalLink, ListChecks, Loader2, PenLine, Plus, RefreshCw, Undo2, Users, X } from 'lucide-react';
+import { Button } from '@/components/ui/Button';
+import { Tooltip } from '@/components/ui/Tooltip';
+import { TextInput } from '@/components/ui/inputs/TextInput';
+import { DateInput } from '@/components/ui/inputs/DateInput';
+import { useRead } from '@/lib/query-cache';
+import { inboxFileTextRead } from '@/lib/reads';
+import {
+  MEETING_PACKAGE_LABELS, type InboxAttachment, type InboxMeeting, type InboxPlanItem, type MeetingPackageKind,
+} from '@/lib/communications/inbox-types';
+import { formatDay, formatMeetingTime } from './inbox-badges';
+
+/** Guests shown before "Show all": a long list folds. */
+const ATTENDEES_SHOWN = 4;
+
+/**
+ * Under a meeting's title: when it ran, who organized it, who was invited
+ * (folded when long), its Google Doc, and, once someone said so, who marked
+ * it nothing to do.
+ */
+export function MeetingDetails({ meeting }: { meeting: InboxMeeting }) {
+  const [allAttendees, setAllAttendees] = useState(false);
+  const when = formatMeetingTime(meeting.starts_at, meeting.ends_at);
+  const organizer = meeting.organizer;
+  const guests = meeting.attendees;
+  const shown = allAttendees ? guests : guests.slice(0, ATTENDEES_SHOWN);
+  return (
+    <div className="mt-2 min-w-0 space-y-1.5 text-xs text-zinc-300">
+      <p className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+        {when && (
+          <span className="inline-flex min-w-0 items-center gap-1.5">
+            <CalendarClock size={13} className="flex-shrink-0 text-zinc-400" aria-hidden="true" />
+            <span><span className="sr-only">When: </span>{when}</span>
+          </span>
+        )}
+        {organizer && (
+          <span className="min-w-0 max-w-full break-words [overflow-wrap:anywhere]">
+            <span className="text-zinc-400">Organizer </span>
+            {organizer.name ? <>{organizer.name} <span className="text-zinc-400">{organizer.address}</span></> : organizer.address}
+          </span>
+        )}
+        {meeting.doc_url && (
+          <a
+            href={meeting.doc_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 rounded font-medium text-brand-300 hover:text-brand-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+          >
+            Open in Google Docs
+            <ExternalLink size={11} aria-hidden="true" />
+            <span className="sr-only">(opens in a new tab)</span>
+          </a>
+        )}
+      </p>
+      {guests.length > 0 && (
+        <div className="flex min-w-0 items-start gap-1.5">
+          <Users size={13} className="mt-px flex-shrink-0 text-zinc-400" aria-hidden="true" />
+          <div className="min-w-0 flex-1 break-words [overflow-wrap:anywhere]">
+            <span className="sr-only">{guests.length} {guests.length === 1 ? 'attendee' : 'attendees'}: </span>
+            <ul className="inline" aria-label="Attendees">
+              {shown.map((person, index) => (
+                <li key={person.address} className="inline">
+                  {person.name ? <>{person.name} <span className="text-zinc-400">{person.address}</span></> : person.address}
+                  {index < shown.length - 1 && <span aria-hidden="true">, </span>}
+                </li>
+              ))}
+            </ul>
+            {guests.length > ATTENDEES_SHOWN && (
+              <button
+                type="button"
+                onClick={() => setAllAttendees((value) => !value)}
+                aria-expanded={allAttendees}
+                className="ml-1.5 inline-flex items-center gap-0.5 rounded font-medium text-brand-300 hover:text-brand-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+              >
+                {allAttendees ? 'Show fewer' : `Show all ${guests.length}`}
+                <ChevronDown size={12} className={`transition-transform motion-reduce:transition-none ${allAttendees ? 'rotate-180' : ''}`} aria-hidden="true" />
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+      {meeting.dismissed && (
+        <p className="flex min-w-0 items-start gap-2 rounded-lg bg-white/[0.04] px-2.5 py-1.5" role="status">
+          <CircleSlash size={13} className="mt-px flex-shrink-0 text-zinc-400" aria-hidden="true" />
+          <span className="min-w-0 break-words">
+            Marked nothing to do by {meeting.dismissed.by?.name ?? 'someone'} on {formatDay(meeting.dismissed.at)}
+          </span>
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** A waiting suggestion as the checklist shows it: the plan item and the message it came from. */
+export type MeetingSuggestion = InboxPlanItem;
+
+/** What Change may edit before adding: a suggested task's title and due date, a reminder's title. */
+export interface SuggestionEdits {
+  title?: string;
+  due_date?: string | null;
+}
+
+/** The line after Add all or Nothing to do, with its Undo while it is in reach. */
+export interface SuggestionsOutcome {
+  text: string;
+  onUndo?: () => void;
+  undoing: boolean;
+}
+
+/**
+ * A meeting's waiting suggestions, first in the thread, as a checklist: each
+ * one can be added, changed then added, or skipped, and the whole set added
+ * or waved off with Nothing to do. From a meeting the agent only suggests,
+ * so nothing here exists until a person adds it.
+ */
+export function MeetingSuggestions({ items, agentName, onAdd, onSkip, pendingId, onAddAll, onNothingToDo, bulk, outcome }: {
+  items: MeetingSuggestion[];
+  agentName: string;
+  /** Absent for members who only view the inbox. Resolves true once it was added. */
+  onAdd?: (item: MeetingSuggestion, edits?: SuggestionEdits) => Promise<boolean>;
+  onSkip?: (item: MeetingSuggestion) => Promise<void>;
+  /** The suggestion whose action is running. */
+  pendingId: string | null;
+  onAddAll?: () => void;
+  /** Offered while the meeting still waits on someone and is not marked yet. */
+  onNothingToDo?: () => void;
+  bulk: 'add_all' | 'nothing' | null;
+  outcome: SuggestionsOutcome | null;
+}) {
+  const busy = bulk !== null || pendingId !== null;
+  if (!items.length && !outcome && !onNothingToDo) return null;
+  const spinner = <Loader2 size={13} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />;
+  return (
+    <section aria-labelledby="meeting-suggestions" className="mb-4 min-w-0 rounded-xl border border-white/[0.07] bg-white/[0.02] p-3 sm:p-4">
+      <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2">
+        <h3 id="meeting-suggestions" className="flex min-w-0 items-center gap-1.5 text-sm font-semibold text-white">
+          <ListChecks size={15} className="text-brand-300" aria-hidden="true" />
+          {items.length ? `${agentName} suggests (${items.length})` : 'Suggestions'}
+        </h3>
+        {(onNothingToDo || (onAddAll && items.length > 0)) && (
+          <span className="ml-auto flex flex-wrap items-center gap-1.5">
+            {onNothingToDo && (
+              <Tooltip content={items.length ? 'Skips every suggestion and marks the meeting handled. Undo puts them back.' : 'Marks the meeting handled, with no new work from it.'}>
+                <Button size="sm" variant="ghost" disabled={busy} onClick={onNothingToDo}
+                  icon={bulk === 'nothing' ? spinner : <CircleSlash size={13} aria-hidden="true" />}>
+                  Nothing to do
+                </Button>
+              </Tooltip>
+            )}
+            {onAddAll && items.length > 0 && (
+              <Button size="sm" disabled={busy} onClick={onAddAll} icon={bulk === 'add_all' ? spinner : <Plus size={13} aria-hidden="true" />}>
+                {items.length === 1 ? 'Add it' : `Add all ${items.length}`}
+              </Button>
+            )}
+          </span>
+        )}
+      </div>
+      {outcome && (
+        <p className="mt-2.5 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg bg-white/[0.04] px-2.5 py-1.5 text-xs text-zinc-200" role="status">
+          <Check size={13} className="flex-shrink-0 text-emerald-300" aria-hidden="true" />
+          <span className="min-w-0 flex-1 break-words">{outcome.text}</span>
+          {outcome.onUndo && (
+            <Button size="sm" variant="ghost" className="!rounded-md !px-2 !py-0.5" disabled={outcome.undoing || busy} onClick={outcome.onUndo}
+              icon={outcome.undoing ? spinner : <Undo2 size={12} aria-hidden="true" />}>
+              Undo
+            </Button>
+          )}
+        </p>
+      )}
+      {items.length > 0 ? (
+        <ul className="mt-3 space-y-2" aria-label="Suggestions waiting for you">
+          {items.map((item) => (
+            <SuggestionRow key={item.id} item={item} onAdd={onAdd} onSkip={onSkip} pending={pendingId === item.id} busy={busy} />
+          ))}
+        </ul>
+      ) : !outcome && (
+        <p className="mt-1.5 text-xs text-zinc-400">No suggestions are waiting.</p>
+      )}
+    </section>
+  );
+}
+
+function SuggestionRow({ item, onAdd, onSkip, pending, busy }: {
+  item: MeetingSuggestion;
+  onAdd?: (item: MeetingSuggestion, edits?: SuggestionEdits) => Promise<boolean>;
+  onSkip?: (item: MeetingSuggestion) => Promise<void>;
+  pending: boolean;
+  busy: boolean;
+}) {
+  const changeable = !!onAdd && (item.type === 'create_task' || item.type === 'add_reminder');
+  const [changing, setChanging] = useState(false);
+  const [title, setTitle] = useState(item.title ?? '');
+  const [due, setDue] = useState(item.due_date ?? '');
+  const spinner = <Loader2 size={12} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />;
+  const addChanged = () => {
+    const edits: SuggestionEdits = {};
+    if (title.trim() && title.trim() !== (item.title ?? '')) edits.title = title.trim();
+    if (item.type === 'create_task' && (due || null) !== (item.due_date ?? null)) edits.due_date = due || null;
+    // A failed add keeps the editor open with the edits, to try again.
+    void onAdd?.(item, edits).then((added) => { if (added) setChanging(false); });
+  };
+  return (
+    <li className="min-w-0 rounded-lg bg-white/[0.03] px-3 py-2.5">
+      <div className="flex flex-wrap items-start gap-x-3 gap-y-2">
+        {/* Phones: the text takes the whole row and the buttons wrap under it. */}
+        <div className="min-w-0 basis-full sm:flex-1 sm:basis-0">
+          <p className="break-words text-sm font-medium text-zinc-100 [overflow-wrap:anywhere]">{item.label}</p>
+          {item.project_name && <p className="mt-0.5 truncate text-[11px] text-zinc-400">{item.project_name}</p>}
+          {item.decision_reason && <p className="mt-1 break-words text-xs text-zinc-300 [overflow-wrap:anywhere]">{item.decision_reason}</p>}
+          {item.evidence && <p className="mt-1 break-words text-xs italic text-zinc-400 [overflow-wrap:anywhere]">&ldquo;{item.evidence}&rdquo;</p>}
+        </div>
+        {(onAdd || onSkip) && !changing && (
+          <span className="ml-auto flex flex-shrink-0 items-center gap-1">
+            {changeable && (
+              <Button size="sm" variant="ghost" disabled={busy} onClick={() => setChanging(true)} aria-label={`Change: ${item.label}`}
+                icon={<PenLine size={12} aria-hidden="true" />}>
+                Change
+              </Button>
+            )}
+            {onSkip && (
+              <Button size="sm" variant="ghost" disabled={busy} onClick={() => void onSkip(item)} aria-label={`Skip: ${item.label}`}
+                icon={<X size={12} aria-hidden="true" />}>
+                Skip
+              </Button>
+            )}
+            {onAdd && (
+              <Button size="sm" disabled={busy} onClick={() => void onAdd(item)} aria-label={`Add: ${item.label}`}
+                icon={pending ? spinner : <Plus size={12} aria-hidden="true" />}>
+                Add
+              </Button>
+            )}
+          </span>
+        )}
+      </div>
+      {changing && (
+        <div className="mt-2.5 space-y-2.5 border-t border-white/[0.06] pt-2.5">
+          <div className={`grid gap-2.5 ${item.type === 'create_task' ? 'sm:grid-cols-[minmax(0,1fr)_11rem]' : ''}`}>
+            <TextInput label="Title" size="sm" value={title} onChange={setTitle} maxLength={500} autoFocus />
+            {item.type === 'create_task' && <DateInput label="Due" size="sm" value={due} onChange={setDue} clearable />}
+          </div>
+          <div className="flex justify-end gap-1.5">
+            <Button size="sm" variant="ghost" disabled={busy} onClick={() => setChanging(false)}>Cancel</Button>
+            <Button size="sm" disabled={busy || !title.trim()} onClick={addChanged} icon={pending ? spinner : <Plus size={12} aria-hidden="true" />}>
+              Add
+            </Button>
+          </div>
+        </div>
+      )}
+    </li>
+  );
+}
+
+/** Speaker lines in a transcript: "Dana Lee: words" (a short name, then the words). */
+const SPEAKER_LINE = /^([^:\n]{1,60}?):\s+(.+)$/;
+/** Past this the reader shows the start and points at the file for the rest. */
+const READER_CHARS = 400_000;
+
+/**
+ * A meeting package's words, read in place: a scrolling panel in the app's
+ * own type (never monospace), each speaker's name set apart from what they
+ * said. The whole file stays a click away in the list under it.
+ */
+export function TranscriptReader({ attachment, kind }: { attachment: InboxAttachment; kind: MeetingPackageKind }) {
+  const read = useRead(attachment.available ? inboxFileTextRead(attachment.id) : null);
+  const label = MEETING_PACKAGE_LABELS[kind];
+  const lines = useMemo(() => {
+    const text = read.data ?? '';
+    return text.slice(0, READER_CHARS).replace(/\r\n?/g, '\n').split('\n');
+  }, [read.data]);
+  if (!attachment.available) return null;
+  if (read.failed) {
+    return (
+      <div role="alert" className="flex flex-wrap items-center gap-2 rounded-lg bg-white/[0.03] px-3 py-2.5 text-xs text-zinc-300">
+        <span className="min-w-0 flex-1">Could not load the {label.toLowerCase()}. The file is listed below.</span>
+        <Button size="sm" variant="ghost" onClick={read.reload} icon={<RefreshCw size={12} aria-hidden="true" />}>Try again</Button>
+      </div>
+    );
+  }
+  if (read.data === undefined) {
+    return (
+      <div className="space-y-2 rounded-lg bg-white/[0.03] p-3" aria-busy="true" aria-label={`Loading the ${label.toLowerCase()}`}>
+        {[0.9, 0.75, 0.85, 0.6].map((width, i) => (
+          <div key={i} className="h-3 animate-pulse rounded bg-white/[0.06] motion-reduce:animate-none" style={{ width: `${width * 100}%` }} />
+        ))}
+      </div>
+    );
+  }
+  const cut = (read.data?.length ?? 0) > READER_CHARS;
+  return (
+    <div
+      role="region"
+      aria-label={label}
+      // Focusable so the keyboard can scroll it.
+      tabIndex={0}
+      className="max-h-[28rem] overflow-y-auto rounded-lg bg-white/[0.03] px-3.5 py-3 text-sm leading-relaxed text-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+    >
+      {lines.map((line, index) => {
+        if (!line.trim()) return <div key={index} className="h-2" aria-hidden="true" />;
+        const speaker = SPEAKER_LINE.exec(line);
+        return (
+          <p key={index} className="break-words [overflow-wrap:anywhere]">
+            {speaker ? (
+              <Fragment>
+                <span className="font-semibold text-white">{speaker[1]}</span>
+                <span className="text-zinc-400">: </span>
+                {speaker[2]}
+              </Fragment>
+            ) : line}
+          </p>
+        );
+      })}
+      {cut && <p className="mt-3 text-xs text-zinc-400">That is the first part. Download the file below to read the rest.</p>}
+    </div>
+  );
+}
+
+/**
+ * The lines of a meeting message's text worth showing over the header: the
+ * script's note on the package and the organizer's description. The rest
+ * (subject, source, when, who, length, Doc) the header already shows.
+ */
+export function meetingNoteLines(text: string | null): string[] {
+  if (!text) return [];
+  const known = /^(Meeting transcript:|Meeting summary:|Source:|When:|Organizer:|Attendees:|Length:|Doc:)/;
+  return text.split(/\r?\n/).map((line) => line.trim()).filter((line) => line && !known.test(line));
+}

@@ -54,7 +54,7 @@ import { Tooltip } from '@/components/ui/Tooltip';
 import { Popover } from '@/components/ui/Popover';
 import { parseDateOnly, isDateOverdue } from '@/lib/date-utils';
 import { hasPermission, canEditTask, canManageAllTasks, canBeAssignedInProject } from '@/lib/access-control';
-import { TaskSourceEmailsSection, useKnownTaskEmailCount, useTaskSourceEmails } from '@/components/inbox/TaskSourceEmails';
+import { linkCountsOf, linkSectionTitle, TaskSourceEmailsSection, useKnownTaskLinkCounts, useTaskSourceEmails } from '@/components/inbox/TaskSourceEmails';
 import { RailCard, RailLayout } from '@/components/projects/TabLayout';
 import { TaskSourceLine, useTaskSource } from './TaskSource';
 import { NewSinceDivider, useLookedSince, useUnreadSubtasks } from './TaskUnread';
@@ -378,14 +378,15 @@ export function TaskDetailPanel({ task, onClose, onDelete, variant = 'panel' }: 
   }, [openedTaskId]);
 
   // Known from the board's counts, so the section is there from the first
-  // frame, and a task known to have no emails never asks for them.
-  const knownEmailCount = useKnownTaskEmailCount(task?.id ?? '');
+  // frame, and a task known to have no emails or meetings never asks for them.
+  const knownLinks = useKnownTaskLinkCounts(task?.id ?? '');
   // What arrived since the person last looked, fixed as the task opens.
   const isNewSince = useLookedSince(task?.id);
   const activityCount = useTaskActivityCount(task);
   const firstNewComment = task ? task.comments.findIndex((comment) => isNewSince(comment.created_at, comment.user_id)) : -1;
-  const sourceEmails = useTaskSourceEmails(task && knownEmailCount !== 0 ? task.id : null);
-  const emailCount = sourceEmails?.link_count ?? knownEmailCount ?? 0;
+  const sourceEmails = useTaskSourceEmails(task && (knownLinks === undefined || knownLinks.emails + knownLinks.meetings > 0) ? task.id : null);
+  const linkCounts = sourceEmails ? linkCountsOf(sourceEmails) : knownLinks ?? { emails: 0, meetings: 0 };
+  const linkCount = linkCounts.emails + linkCounts.meetings;
 
   // A half-written comment belongs to its task: switching tasks clears it.
   const [commentTaskId, setCommentTaskId] = useState(task?.id);
@@ -980,9 +981,9 @@ export function TaskDetailPanel({ task, onClose, onDelete, variant = 'panel' }: 
         </Section>
       )}
 
-      {emailCount > 0 && (
-        <Section variant={variant} title="Communication" icon={MessageSquare} count={String(emailCount)}>
-          <TaskSourceEmailsSection data={sourceEmails} taskId={task?.id ?? null} projectId={task?.project_id ?? null} heading={false} expected={emailCount}
+      {linkCount > 0 && (
+        <Section variant={variant} title={linkSectionTitle(linkCounts)} icon={MessageSquare} count={String(linkCount)}>
+          <TaskSourceEmailsSection data={sourceEmails} taskId={task?.id ?? null} projectId={task?.project_id ?? null} heading={false} expected={linkCount}
             isNew={(email) => isNewSince(email.linked_at, email.linked_by)} />
         </Section>
       )}

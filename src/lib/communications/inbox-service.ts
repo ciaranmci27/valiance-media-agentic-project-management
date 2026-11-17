@@ -12,8 +12,9 @@ import { isPublicEmailDomain, validateClientDomain } from './email/public-domain
 import type { CandidateReason } from './mapping';
 import { attentionCounts, CODE_PIN_MINUTES, codeIn, matchesSearch, snippetOf, tabCounts, threadFlags, threadInTab, type InboxAttention, type MessageState, type ThreadFlags } from './inbox-view';
 import type { MailKind, MailTopic } from './sorting';
+import { meetingPackageOf, MEETING_PACKAGE_LABELS } from './inbox-types';
 import type {
-  InboxAttachment, InboxCandidate, InboxReminder, InboxSorting, TaskLinkRelation, InboxLinkedTask, InboxMessage, InboxPerson, InboxSummary, InboxTab,
+  InboxAttachment, InboxCandidate, InboxChannel, InboxMeeting, InboxMeetingSummary, InboxReminder, InboxSorting, TaskLinkRelation, InboxLinkedTask, InboxMessage, InboxPerson, InboxSummary, InboxTab,
   InboxLatestCode, InboxThreadDetail, InboxThreadList, InboxThreadSummary, MessageStatus, ProjectSource, RememberableSender, RoutingBasis,
   SetThreadProjectRequest, SetThreadProjectResult, TaskSourceEmails, ThreadProject, TriageOutcome, TrustLevel,
   InboxPlan, InboxPlanItem, InboxReplyPoint, InboxQuestion,
@@ -215,6 +216,7 @@ function latestTriage<T extends { message_id: string; created_at: string; id: st
 export interface ThreadRow {
   id: string;
   inbox_id: string;
+  channel: InboxChannel;
   subject_normalized: string;
   project_id: string | null;
   project_source: ProjectSource | null;
@@ -255,8 +257,49 @@ function shownSender(
 
 interface TriageStateRow { id: string; message_id: string; outcome: TriageOutcome; urgent: boolean; category: TriageCategory | null; created_at: string }
 
+/** communications.meetings as the Inbox reads it. */
+interface MeetingRow {
+  title: string;
+  starts_at: string | null;
+  ends_at: string | null;
+  organizer_address: string | null;
+  doc_url: string | null;
+  dismissed_at: string | null;
+  dismissed_by: string | null;
+}
+
+const MEETING_COLUMNS = 'title, starts_at, ends_at, organizer_address, doc_url, dismissed_at, dismissed_by';
+
+/** An embedded meeting: an object from PostgREST (one to one), a one-row list from simpler readers. */
+function embeddedMeeting(value: unknown): MeetingRow | null {
+  const row = Array.isArray(value) ? value[0] : value;
+  return row && typeof row === 'object' ? row as MeetingRow : null;
+}
+
+/** A meeting as a list row and the thread header show it. */
+function meetingSummary(row: MeetingRow, names: Map<string, string>, organizerName = ''): InboxMeetingSummary {
+  return {
+    title: row.title,
+    starts_at: row.starts_at,
+    ends_at: row.ends_at,
+    organizer: row.organizer_address ? { address: row.organizer_address, name: organizerName } : null,
+    doc_url: row.doc_url,
+    dismissed: row.dismissed_at
+      ? { at: row.dismissed_at, by: row.dismissed_by ? { id: row.dismissed_by, name: names.get(row.dismissed_by) ?? 'Someone' } : null }
+      : null,
+  };
+}
+
+/** What a meeting holds, in a line: "Transcript and Gemini's notes". */
+function meetingPackagesLine(subjects: string[]): string {
+  const kinds = new Set(subjects.map(meetingPackageOf));
+  const labels = (['transcript', 'notes'] as const).filter((kind) => kinds.has(kind)).map((kind) => MEETING_PACKAGE_LABELS[kind]);
+  return labels.length ? labels.join(' and ') : 'Meeting notes';
+}
+
 interface ThreadEntry {
   thread: ThreadRow;
+  meeting: MeetingRow | null;
   messages: StateMessageRow[];
   flags: ThreadFlags;
   sender: { name: string; address: string } | null;
@@ -274,8 +317,9 @@ async function loadThreadEntries(service: SupabaseClient, inboxIds: string[], pr
       ? many<{ conversation_id: string }>(comms(service).from('conversation_projects').select('conversation_id').eq('project_id', projectId))
         .then((rows) => new Set(rows.map((row) => row.conversation_id)))
       : Promise.resolve(null),
-    readIn<ThreadRow & Row>(inboxIds, (chunk, from, to, count) =>
-      ctxSelect(comms(service), 'conversations', 'id, inbox_id, subject_normalized, project_id, project_source, summary, last_message_at', count)
+    // A meeting's own row rides along (one to one), so the list stays four rounds.
+    readIn<ThreadRow & Row & { meeting?: unknown }>(inboxIds, (chunk, from, to, count) =>
+      ctxSelect(comms(service), 'conversations', `id, inbox_id, channel, subject_normalized, project_id, project_source, summary, last_message_at, meeting:meetings(${MEETING_COLUMNS})`, count)
         .in('inbox_id', chunk).order('id').range(from, to)),
     readIn<StateMessageRow & Row & { triage: TriageStateRow[]; from_participant: { address: string; name: string }[] }>(inboxIds, (chunk, from, to, count) =>
       ctxSelect(comms(service), 'messages', `id, thread_id, status, subject, received_at, auth, reviewed_at, kind, topic, ${ROUTING_COLUMNS}, `
@@ -322,6 +366,7 @@ async function loadThreadEntries(service: SupabaseClient, inboxIds: string[], pr
       .filter((s): s is { name: string; address: string } => !!s);
     entries.push({
       thread,
+      meeting: thread.channel === 'meeting' ? embeddedMeeting((thread as { meeting?: unknown }).meeting) : null,
       messages: list,
       flags: threadFlags(states),
       sender: senderByMessage.get(list[list.length - 1].id) ?? null,
@@ -453,13 +498,14 @@ export async function listThreads(ctx: InboxContext, filters: ThreadListFilters)
   const inTab = searched.filter((entry) => threadInTab(entry.flags, entry.thread.project_id, filters.tab));
   const page = inTab.slice(filters.offset, filters.offset + filters.limit);
 
-  const [inboxes, names, filed, latestCode, { bodies, attachments, links, liveTaskIds, openReminders }] = await Promise.all([
+  const [inboxes, names, filed, latestCode, { bodies, attachments, links, liveTaskIds, openReminders }, dismissers] = await Promise.all([
     inboxesRead,
     projectNames(ctx, page.map((entry) => entry.thread.project_id)),
     searchFiled ?? threadProjects(ctx, page.map((entry) => entry.thread.id)),
     // A search or a task looks for something else; the pinned code is for the plain list.
     filters.search.trim() || filters.taskId ? null : freshCode(ctx, inTask),
     pageDetails(ctx, page),
+    memberNames(ctx.service, page.map((entry) => entry.meeting?.dismissed_by)),
   ]);
   const inboxNames = new Map(inboxes.map((inbox) => [inbox.id, inbox.name]));
   const bodyById = new Map(bodies.map((row) => [row.id, row]));
@@ -467,11 +513,15 @@ export async function listThreads(ctx: InboxContext, filters: ThreadListFilters)
     const latest = entry.messages[entry.messages.length - 1];
     const body = bodyById.get(latest.id);
     const ids = new Set(entry.messages.map((message) => message.id));
+    const meeting = entry.meeting ? meetingSummary(entry.meeting, dismissers) : null;
     return {
       id: entry.thread.id,
       inbox_id: entry.thread.inbox_id,
       inbox_name: inboxNames.get(entry.thread.inbox_id) ?? '',
-      subject: latest.subject || entry.thread.subject_normalized || '',
+      channel: entry.thread.channel ?? 'email',
+      meeting,
+      // A meeting is known by its title; its packages' subjects repeat it.
+      subject: meeting?.title || latest.subject || entry.thread.subject_normalized || '',
       project: entry.thread.project_id && entry.thread.project_source
         ? { id: entry.thread.project_id, name: projectLabel(ctx, names, entry.thread.project_id), source: entry.thread.project_source }
         : null,
@@ -479,7 +529,10 @@ export async function listThreads(ctx: InboxContext, filters: ThreadListFilters)
       last_message_at: entry.thread.last_message_at,
       message_count: entry.messages.length,
       sender: entry.sender,
-      snippet: snippetOf(body?.new_text || body?.text_body),
+      // A meeting's text describes its packages; what it holds says more.
+      snippet: entry.thread.channel === 'meeting'
+        ? meetingPackagesLine(entry.messages.map((message) => message.subject))
+        : snippetOf(body?.new_text || body?.text_body),
       state: entry.flags.state,
       needs_you: entry.flags.needs_you,
       needs_reply: entry.flags.needs_reply,
@@ -551,7 +604,7 @@ export async function loadReadableThread(ctx: InboxContext, threadId: string): P
   if (!canReadInbox(ctx.access)) throw new InboxError(403, 'Forbidden');
   const id = assertId(threadId, 'thread id');
   const thread = await one<ThreadRow & Row>(comms(ctx.service).from('conversations')
-    .select('id, inbox_id, subject_normalized, project_id, project_source, project_address_id, summary, last_message_at').eq('id', id).maybeSingle());
+    .select('id, inbox_id, channel, subject_normalized, project_id, project_source, project_address_id, summary, last_message_at').eq('id', id).maybeSingle());
   // An inbox the member cannot read looks like no thread at all.
   if (!thread || !(await readableInboxIds(ctx)).includes(thread.inbox_id)) throw new InboxError(404, 'Thread not found');
   return thread;
@@ -618,11 +671,11 @@ export async function threadDetail(ctx: InboxContext, threadId: string): Promise
   const thread = await loadReadableThread(ctx, threadId);
   const service = ctx.service;
   const messages = await many<Row>(comms(service).from('messages')
-    .select(`id, status, subject, received_at, sent_at, text_body, html_body, new_text, is_forward, auth, auto_mail_reason, kind, topic, sort_action, sort_reason, sender_rule_id, superseded_by, reviewed_at, reviewed_by, forwarded_by_member_id, ${ROUTING_COLUMNS}`)
+    .select(`id, channel, status, subject, received_at, sent_at, text_body, html_body, new_text, is_forward, auth, auto_mail_reason, kind, topic, sort_action, sort_reason, sender_rule_id, superseded_by, reviewed_at, reviewed_by, forwarded_by_member_id, ${ROUTING_COLUMNS}`)
     .eq('thread_id', thread.id).neq('status', 'receiving').order('received_at', { ascending: true }).order('id'));
   const ids = messages.map((message) => message.id as string);
   const [inbox] = await inboxSummaries(service, [thread.inbox_id]);
-  const [recipients, attachments, triageRows, links, candidates, reminderRows, answerRows] = await Promise.all([
+  const [recipients, attachments, triageRows, links, candidates, reminderRows, answerRows, meetingRow] = await Promise.all([
     readIn<Row & { message_id: string; kind: string; address: string; name: string; contact_id: string | null; position: number }>(ids, (chunk, from, to, count) =>
       ctxSelect(comms(service), 'participants', 'id, message_id, kind, address, name, contact_id, position', count).in('message_id', chunk).order('id').range(from, to)),
     readIn<Row>(ids, (chunk, from, to, count) =>
@@ -638,6 +691,9 @@ export async function threadDetail(ctx: InboxContext, threadId: string): Promise
     emailReminders(ctx, ids, false),
     readIn<{ id: string; message_id: string; triage_id: string; answer: string; answered_by: string | null; created_at: string }>(ids, (chunk, from, to, count) =>
       ctxSelect(comms(service), 'answers', 'id, message_id, triage_id, answer, answered_by, created_at', count).in('message_id', chunk).order('id').range(from, to)),
+    thread.channel === 'meeting'
+      ? one<MeetingRow & Row>(comms(service).from('meetings').select(MEETING_COLUMNS).eq('conversation_id', thread.id).maybeSingle())
+      : Promise.resolve(null),
   ]);
   const latest = latestTriage(triageRows);
   // Who sent each email, as sorting saw it: a teammate's forward by its original sender.
@@ -659,6 +715,7 @@ export async function threadDetail(ctx: InboxContext, threadId: string): Promise
       ...messages.map((row) => row.reviewed_by as string | null),
       ...messages.map((row) => row.forwarded_by_member_id as string | null),
       ...answerRows.map((row) => row.answered_by),
+      meetingRow?.dismissed_by,
     ]),
     thread.project_address_id
       ? one<{ routing_address: string; public_address: string | null }>(comms(service).from('endpoints')
@@ -692,8 +749,11 @@ export async function threadDetail(ctx: InboxContext, threadId: string): Promise
     const reviewedBy = (row.reviewed_by as string | null) ?? null;
     const forwardedBy = (row.forwarded_by_member_id as string | null) ?? null;
     const basis = ((row.routing_basis as RoutingBasis | null) ?? 'sender');
+    const channel = (row.channel as InboxChannel | null) ?? 'email';
     return {
       id,
+      channel,
+      meeting_package: channel === 'meeting' ? meetingPackageOf(row.subject as string) : null,
       status,
       subject: (row.subject as string) ?? '',
       received_at: row.received_at as string,
@@ -811,10 +871,24 @@ export async function threadDetail(ctx: InboxContext, threadId: string): Promise
   }));
   const flags = threadFlags(states);
   const latestMessage = presented[presented.length - 1];
+  // Everyone invited, once each, organizer first, named where any package names them.
+  let meeting: InboxMeeting | null = null;
+  if (meetingRow) {
+    const seen = new Map<string, string>();
+    for (const row of recipients.filter((r) => r.kind === 'attendee').sort((a, b) => a.position - b.position)) {
+      if (!seen.get(row.address)) seen.set(row.address, row.name ?? '');
+    }
+    const organizer = meetingRow.organizer_address;
+    const attendees = [...seen.entries()].map(([address, name]) => ({ address, name }))
+      .sort((a, b) => Number(b.address === organizer) - Number(a.address === organizer));
+    meeting = { ...meetingSummary(meetingRow, people, organizer ? seen.get(organizer) ?? '' : ''), attendees };
+  }
   return {
     id: thread.id,
     inbox: inbox ?? { id: thread.inbox_id, name: 'Inbox', address: '', enabled: true, handler: null },
-    subject: latestMessage?.subject || thread.subject_normalized || '',
+    channel: thread.channel ?? 'email',
+    meeting,
+    subject: meeting?.title || latestMessage?.subject || thread.subject_normalized || '',
     project: thread.project_id && thread.project_source
       ? {
           id: thread.project_id,
@@ -1006,8 +1080,14 @@ export async function removeThreadProject(ctx: InboxContext, threadId: string, p
  * reply). Auto-mail stays ignored. The replies it owed are done too: the
  * person's own open "Reply to ..." reminders its emails set close (as theirs,
  * in the team log); every other reminder stays, and so does anyone else's.
+ * `closeReplyReminders: false` changes the messages only (a meeting's
+ * "Nothing to do", whose Undo puts back exactly what it changed).
  */
-export async function markThreadHandled(ctx: InboxContext, threadId: string): Promise<{ handled: number; reviewed: number; closed_reminders: string[] }> {
+export async function markThreadHandled(
+  ctx: InboxContext,
+  threadId: string,
+  { closeReplyReminders = true }: { closeReplyReminders?: boolean } = {},
+): Promise<{ handled: number; reviewed: number; closed_reminders: string[] }> {
   assertCanTriage(ctx.access);
   const thread = await loadReadableThread(ctx, threadId);
   const now = new Date().toISOString();
@@ -1016,6 +1096,7 @@ export async function markThreadHandled(ctx: InboxContext, threadId: string): Pr
   const reviewed = await many<{ id: string }>(comms(ctx.service).from('messages')
     .update({ reviewed_at: now, reviewed_by: ctx.memberId })
     .eq('thread_id', thread.id).eq('status', 'handled').is('reviewed_at', null).select('id'));
+  if (!closeReplyReminders) return { handled: handled.length, reviewed: reviewed.length, closed_reminders: [] };
   // The same open reminders the thread shows (none on a task or project in Trash), read in batches.
   const messageIds = (await many<{ id: string }>(comms(ctx.service).from('messages').select('id').eq('thread_id', thread.id))).map((row) => row.id);
   const replies = (await emailReminders(ctx, messageIds, true))
@@ -1156,6 +1237,11 @@ async function threadPlans(ctx: InboxContext, threadId: string, messageIds: stri
           project_name: item.project_id ? project(item.project_id as string) : null,
           task_id: (item.task_id as string | null) ?? null,
           error: (item.error as string | null) ?? null,
+          // What Change edits before adding: a suggested task's title and due date, a reminder's title.
+          ...(item.type === 'create_task' || item.type === 'add_reminder' ? {
+            title: (((item.payload ?? {}) as Row).title as string | undefined) ?? null,
+            ...(item.type === 'create_task' ? { due_date: (((item.payload ?? {}) as Row).due_date as string | null | undefined) ?? null } : {}),
+          } : {}),
         })),
       };
     },
@@ -1172,13 +1258,20 @@ export async function taskSourceEmails(ctx: InboxContext, taskId: string): Promi
   if (links.length === 0 || !canReadInbox(ctx.access)) return { link_count: links.length, emails: [] };
   const readable = new Set(await readableInboxIds(ctx));
   const messageIds = [...new Set(links.map((link) => link.message_id))];
-  const messages = (await many<{ id: string; thread_id: string; inbox_id: string; subject: string; received_at: string; status: string }>(comms(ctx.service).from('messages')
-    .select('id, thread_id, inbox_id, subject, received_at, status').in('id', messageIds)))
+  const messages = (await many<{ id: string; thread_id: string; inbox_id: string; channel: InboxChannel | null; subject: string; received_at: string; status: string }>(comms(ctx.service).from('messages')
+    .select('id, thread_id, inbox_id, channel, subject, received_at, status').in('id', messageIds)))
     .filter((message) => readable.has(message.inbox_id) && message.status !== 'receiving');
-  const senders = messages.length
-    ? await many<{ message_id: string; address: string; name: string }>(comms(ctx.service).from('participants')
-        .select('message_id, address, name').eq('kind', 'from').in('message_id', messages.map((m) => m.id)))
-    : [];
+  const meetingThreads = [...new Set(messages.filter((m) => m.channel === 'meeting').map((m) => m.thread_id))];
+  const [senders, meetings] = await Promise.all([
+    messages.length
+      ? many<{ message_id: string; address: string; name: string }>(comms(ctx.service).from('participants')
+          .select('message_id, address, name').eq('kind', 'from').in('message_id', messages.map((m) => m.id)))
+      : Promise.resolve([]),
+    meetingThreads.length
+      ? many<{ conversation_id: string; title: string; starts_at: string | null }>(comms(ctx.service).from('meetings')
+          .select('conversation_id, title, starts_at').in('conversation_id', meetingThreads))
+      : Promise.resolve([]),
+  ]);
   const emails = links
     .map((link) => {
       const message = messages.find((m) => m.id === link.message_id);
@@ -1188,6 +1281,9 @@ export async function taskSourceEmails(ctx: InboxContext, taskId: string): Promi
         message_id: message.id,
         thread_id: message.thread_id,
         inbox_id: message.inbox_id,
+        channel: message.channel ?? 'email',
+        meeting_title: message.channel === 'meeting' ? meetings.find((m) => m.conversation_id === message.thread_id)?.title ?? 'Meeting' : null,
+        meeting_starts_at: message.channel === 'meeting' ? meetings.find((m) => m.conversation_id === message.thread_id)?.starts_at ?? null : null,
         subject: message.subject,
         from: sender ? { name: sender.name, address: sender.address } : null,
         received_at: message.received_at,

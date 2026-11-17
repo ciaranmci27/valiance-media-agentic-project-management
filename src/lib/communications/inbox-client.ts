@@ -2,7 +2,7 @@
 
 import { demoInbox, demoInboxSettings } from './inbox-demo';
 import type {
-  ClientEmailDomain, ClientSenderAddress, ClientSenderAddressList, InboxReplyDraft, InboxSettings, InboxSettingsInput, InboxSettingsList, InboxTab, InboxThreadDetail, InboxThreadList,
+  ClientEmailDomain, ClientSenderAddress, ClientSenderAddressList, InboxReplyDraft, MeetingAddAllResult, MeetingDismissResult, MeetingDismissUndo, InboxSettings, InboxSettingsInput, InboxSettingsList, InboxTab, InboxThreadDetail, InboxThreadList,
   MxStatus, ProjectEmailAddress, ProjectEmailAddressInput, ProjectEmailAddressList, SetThreadProjectRequest, SetThreadProjectResult,
   OwnDomain, TaskSourceEmails, YourAddress, YourAddressInput, YourAddressList, YourAddressPatchInput,
 } from './inbox-types';
@@ -116,6 +116,20 @@ export function inboxClient(isDemo: boolean) {
     },
     resolveReplyPoint(pointId: string): Promise<unknown> {
       return isDemo ? demoInbox.resolveReplyPoint(pointId) : post(`/api/workspace/inbox/reply-points/${pointId}/resolve`);
+    },
+    /** Every waiting suggestion of a meeting, added at once. */
+    async addAllSuggestions(threadId: string): Promise<MeetingAddAllResult> {
+      if (isDemo) throw new Error('Add all is off in demo mode');
+      return post(`/api/workspace/inbox/threads/${threadId}/add-all`);
+    },
+    async nothingToDo(threadId: string): Promise<MeetingDismissResult> {
+      if (isDemo) throw new Error('Nothing to do is off in demo mode');
+      return post(`/api/workspace/inbox/threads/${threadId}/nothing-to-do`);
+    },
+    /** Undo "Nothing to do": what it changed goes back. */
+    async undoNothingToDo(threadId: string, undo: MeetingDismissUndo): Promise<{ cleared: boolean }> {
+      if (isDemo) throw new Error('Nothing to do is off in demo mode');
+      return call(`/api/workspace/inbox/threads/${threadId}/nothing-to-do`, { method: 'DELETE', body: JSON.stringify(undo) });
     },
     async answerQuestion(threadId: string, messageId: string, answer: string): Promise<{ message_id: string }> {
       if (isDemo) throw new Error('Answers are off in demo mode');

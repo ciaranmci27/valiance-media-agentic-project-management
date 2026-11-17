@@ -21,18 +21,23 @@ export const GET = withApi(async ({ supabase, searchParams, teamMemberId, access
   }
   const modes = await inboxModes(supabase, inboxIds);
   const legacy = inboxIds.filter((id) => (modes.get(id) ?? 'legacy') !== 'plans');
-  const [all, old, plans] = await Promise.all([
+  const [all, old, plans, meetings] = await Promise.all([
     comms(supabase).rpc('signal', { p_inbox_ids: inboxIds }),
     legacy.length === inboxIds.length ? Promise.resolve(null) : comms(supabase).rpc('signal', { p_inbox_ids: legacy }),
     planSignal(supabase, inboxIds),
+    // A meeting is planned (plans_new_count), never worked by the old triage.
+    legacy.length
+      ? comms(supabase).from('messages').select('id', { count: 'exact', head: true }).in('inbox_id', legacy).eq('status', 'new').eq('channel', 'meeting')
+      : Promise.resolve({ count: 0, error: null }),
   ]);
   if (all.error) throw all.error;
   if (old?.error) throw old.error;
+  if (meetings.error) throw meetings.error;
   type Signal = { new_count?: number | string; newest_received_at?: string | null; unsummarized_count?: number | string; drafts_requested?: number | string; waiting_count?: number | string };
   const signal = (all.data ?? {}) as Signal;
   const oldSignal = (old ? old.data ?? {} : signal) as Signal;
   return success({
-    new_count: Number(oldSignal.new_count ?? 0),
+    new_count: Math.max(0, Number(oldSignal.new_count ?? 0) - (meetings.count ?? 0)),
     newest_received_at: oldSignal.newest_received_at ?? null,
     unsummarized_count: Number(signal.unsummarized_count ?? 0),
     drafts_requested: Number(signal.drafts_requested ?? 0),

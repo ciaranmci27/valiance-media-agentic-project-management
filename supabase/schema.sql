@@ -7348,8 +7348,13 @@ CREATE TABLE communications.meetings (
   doc_url text CONSTRAINT meetings_doc_url_check CHECK (doc_url IS NULL OR doc_url ~ '^https://docs\.google\.com/'),
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
+  -- "Nothing to do" (20261117161849_meeting_nothing_to_do.sql): who said the
+  -- meeting asked for no new work, and when. Cleared by Undo.
+  dismissed_at timestamptz,
+  dismissed_by uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
   CONSTRAINT meetings_times_check CHECK (ends_at IS NULL OR starts_at IS NULL OR ends_at >= starts_at),
-  CONSTRAINT meetings_inbox_key UNIQUE (inbox_id, meeting_key)
+  CONSTRAINT meetings_inbox_key UNIQUE (inbox_id, meeting_key),
+  CONSTRAINT meetings_dismissed_check CHECK (dismissed_by IS NULL OR dismissed_at IS NOT NULL)
 );
 
 CREATE TRIGGER set_meetings_updated_at
@@ -9069,8 +9074,9 @@ CREATE TABLE communications.plan_items (
   -- applying: being written; done: applied; failed: could not be applied;
   -- pending: a proposal waiting; accepted / dismissed / expired: a proposal
   -- resolved; undone: applied, then undone; skipped: shadow or rejected.
+  -- accepting: a person's accept claimed it and is applying it (20261117161849_meeting_nothing_to_do.sql).
   state text NOT NULL CONSTRAINT plan_items_state_check CHECK (state IN (
-    'applying', 'done', 'failed', 'pending', 'accepted', 'dismissed', 'expired', 'undone', 'skipped'
+    'applying', 'done', 'failed', 'pending', 'accepting', 'accepted', 'dismissed', 'expired', 'undone', 'skipped'
   )),
   -- What applying it did: ids it created, the values it replaced.
   result jsonb NOT NULL DEFAULT '{}'::jsonb,

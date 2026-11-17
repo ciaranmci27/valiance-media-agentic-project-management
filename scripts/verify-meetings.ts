@@ -116,6 +116,15 @@ async function main() {
       && (await rows(db, "SELECT 1 FROM communications.messages WHERE provider_email_id = (SELECT provider_email_id FROM communications.messages WHERE id = $1)", [retried.message_id])).length === 1,
       { failed, retried, retriedRow });
 
+    // ---- Meetings are planned, whatever the inbox's mode -------------------
+    const { triageQueue } = await import('../src/lib/communications/triage-context');
+    // Past the queue's quiet window, as a meeting is minutes after it is posted.
+    await db.query("UPDATE communications.conversations SET last_message_at = now() - interval '10 minutes' WHERE id = $1", [first.conversation_id]);
+    const planned = await triageQueue(supabase, [ids.inbox], 'plans');
+    const shadowed = await triageQueue(supabase, [ids.inbox], 'shadow');
+    check('a meeting in a legacy inbox waits in the plan queue, never the shadow one',
+      planned.some((row) => row.id === first.message_id) && !shadowed.some((row) => row.id === first.message_id), { planned, shadowed });
+
     // ---- Refusals and links -----------------------------------------------
     const before = (await rows(db, 'SELECT count(*)::int AS n FROM communications.messages'))[0].n;
     let tooLarge = false;

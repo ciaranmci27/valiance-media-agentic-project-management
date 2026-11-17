@@ -45,7 +45,8 @@ export async function taskSource(ctx: { service: SupabaseClient; access: AccessC
     email: fromEmail ? {
       message_id: fromEmail.message_id,
       thread_id: fromEmail.thread_id,
-      subject: fromEmail.subject,
+      channel: fromEmail.channel,
+      subject: fromEmail.meeting_title ?? fromEmail.subject,
       from: fromEmail.from?.name || fromEmail.from?.address || null,
     } : null,
   };

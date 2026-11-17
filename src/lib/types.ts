@@ -319,8 +319,8 @@ export interface TaskSource {
   /** The API key that made it, by its name. */
   key: { name: string } | null;
   note: string | null;
-  /** The email it was made from, when the person can open that email. */
-  email: { message_id: string; thread_id: string; subject: string; from: string | null } | null;
+  /** The email or meeting it was made from, when the person can open it. */
+  email: { message_id: string; thread_id: string; channel: 'email' | 'meeting'; subject: string; from: string | null } | null;
 }
 
 /** One record in Trash, as list_trash() returns it. */
