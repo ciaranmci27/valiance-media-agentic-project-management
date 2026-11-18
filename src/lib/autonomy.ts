@@ -182,9 +182,11 @@ export function computeNeedsYou(input: {
     }
   }
 
-  // Human work waiting on your review.
+  // Human work waiting on your review. A subtask in review is not one of
+  // these: it is a piece of its parent, which you are only waiting on, so it
+  // rolls up into the parent on My Tasks and never counts as a thing to do.
   for (const task of tasks) {
-    if (!oversight || task.status !== 'in_review' || !teamMemberId) continue;
+    if (!oversight || task.status !== 'in_review' || !teamMemberId || task.parent_task_id) continue;
     const lane = laneOf(task);
     if (lane === 'manual' && task.assignee_ids.includes(teamMemberId)) {
       items.push({ kind: 'review', task, lane });

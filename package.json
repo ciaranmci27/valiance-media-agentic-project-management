@@ -25,6 +25,7 @@
     "test:notification-clearing": "tsx --tsconfig tsconfig.mcp-test.json scripts/verify-notification-clearing.ts",
     "test:task-source": "tsx --tsconfig tsconfig.mcp-test.json scripts/verify-task-source.ts",
     "test:task-unread": "tsx --tsconfig tsconfig.mcp-test.json scripts/verify-task-unread.ts",
+    "test:needs-you": "tsx --tsconfig tsconfig.mcp-test.json scripts/verify-needs-you.ts",
     "test:subtasks": "tsx --tsconfig tsconfig.mcp-test.json scripts/verify-subtasks.ts && tsx --tsconfig tsconfig.mcp-test.json scripts/verify-subtasks-api.ts",
     "test:task-files": "tsx --tsconfig tsconfig.mcp-test.json scripts/verify-task-files.ts && tsx --tsconfig tsconfig.mcp-test.json scripts/verify-task-files-api.ts",
     "test:soft-delete-api": "tsx --tsconfig tsconfig.mcp-test.json scripts/verify-soft-delete-api.ts",

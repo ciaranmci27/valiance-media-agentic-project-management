@@ -24,6 +24,8 @@ import { MergeReviewModal } from '@/components/tasks/MergeReviewModal';
 import { ReminderRow } from '@/components/reminders/ReminderRow';
 import { ReminderComposer } from '@/components/reminders/ReminderComposer';
 import { compareReminders, reminderGroup } from '@/lib/reminders';
+import { UnreadLabel, useCardUnread } from '@/components/tasks/TaskUnread';
+import { MyTaskSubtasks, type SubtaskFlag } from '@/components/tasks/MyTaskSubtasks';
 
 /**
  * Radar: the owner's attention surface. Three bands, strictest first:
@@ -49,7 +51,25 @@ import { compareReminders, reminderGroup } from '@/lib/reminders';
  * meta) so nothing sits ragged; and a band never repeats its own meaning on
  * every row (the old version stamped "AUTO + YOUR MERGE" on all four rows
  * of the band whose title already said it).
+ *
+ * Subtasks never get rows of their own. Each parent appears once, in the
+ * first band it or any of its subtasks belongs to, with its subtasks grouped
+ * under it. A subtask in review is one you only wait on: it rolls up into
+ * its parent (an "In review" band when the parent is nowhere else) and never
+ * counts as a thing to do.
  */
+
+/** Why a task is in a band: its icon square, its context line, its action. */
+type Flag = SubtaskFlag & { icon: React.ReactNode };
+
+/** A parent on the page: why it is here itself, and which subtasks put it here. */
+interface Group {
+  root: Task;
+  self?: Flag;
+  subs: Map<string, Flag>;
+}
+
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
 export default function RadarPage() {
   // useSearchParams (the open task) needs a Suspense boundary on a static page.
@@ -61,8 +81,9 @@ export default function RadarPage() {
 }
 
 function RadarPageContent() {
-  const { tasks, projects, taskSuggestions, timeEntries, agentActivity, deleteTask, reminders, addReminder, getSubtasks } = useApp();
+  const { tasks, projects, taskSuggestions, timeEntries, agentActivity, deleteTask, reminders, addReminder } = useApp();
   const { teamMemberId, access } = useAuth();
+  const cardUnread = useCardUnread();
 
   // The open task is the URL's ?task=, so the address bar is a link to it.
   const { taskId: viewingTaskId, openTask: setViewingTaskId, closeTask: closeViewingTask } = useTaskUrlParam();
@@ -71,6 +92,8 @@ function RadarPageContent() {
   const [reviewingTaskId, setReviewingTaskId] = useState<string | null>(null);
   const [deletingTaskId, setDeletingTaskId] = useState<string | null>(null);
   const [showDoneReminders, setShowDoneReminders] = useState(false);
+  // Subtask trays the person opened or closed; the rest follow the default.
+  const [trayOpen, setTrayOpen] = useState<Map<string, boolean>>(() => new Map());
 
   const isAgentsEnabled = process.env.NEXT_PUBLIC_ENABLE_AGENTS === 'true';
   const canManageAgents = hasPermission(access, 'agents.manage');
@@ -80,6 +103,7 @@ function RadarPageContent() {
     [taskSuggestions],
   );
   const projectById = useMemo(() => new Map(projects.map(p => [p.id, p])), [projects]);
+  const taskById = useMemo(() => new Map(tasks.map(t => [t.id, t])), [tasks]);
 
   const laneOf = useMemo(() => {
     return (task: Task) =>
@@ -144,17 +168,16 @@ function RadarPageContent() {
     [tasks, laneOf, isAgentsEnabled, canManageAgents],
   );
 
-  // A member's full queue: everything assigned to them that is not done and
-  // not already on the page above. Soonest due first, undated last.
+  // A member's full queue: everything assigned to them that is not done.
+  // Grouping below drops what is already on the page above. Soonest due
+  // first, undated last.
   const assignedToYou = useMemo(() => {
     if (canManageAgents || !teamMemberId) return [];
-    const shown = new Set(needsYou.map(item => item.task?.id).filter(Boolean));
     const PRIORITY_RANK: Record<Task['priority'], number> = { urgent: 0, high: 1, medium: 2, low: 3 };
     return tasks
       .filter(t =>
         t.assignee_ids.includes(teamMemberId)
-        && (t.status === 'todo' || t.status === 'in_review')
-        && !shown.has(t.id))
+        && (t.status === 'todo' || t.status === 'in_review'))
       .sort((a, b) => {
         if (a.due_date !== b.due_date) {
           if (!a.due_date) return 1;
@@ -163,7 +186,18 @@ function RadarPageContent() {
         }
         return PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority];
       });
-  }, [tasks, needsYou, teamMemberId, canManageAgents]);
+  }, [tasks, teamMemberId, canManageAgents]);
+
+  // Your subtasks someone finished and put in review: the ones
+  // computeNeedsYou leaves out. A member's sit in "Assigned to you" instead.
+  const subtasksInReview = useMemo(
+    () => !canManageAgents || !teamMemberId ? [] : tasks.filter(t =>
+      !!t.parent_task_id
+      && t.status === 'in_review'
+      && t.assignee_ids.includes(teamMemberId)
+      && laneOf(t) === 'manual'),
+    [tasks, teamMemberId, canManageAgents, laneOf],
+  );
 
   // The latest milestone the agent logged for a building task: shows
   // "Verification started 14m ago" instead of a static "Building now".
@@ -187,9 +221,6 @@ function RadarPageContent() {
         timeEntries,
       )
     : null;
-  const allClear = needsYouCount === 0 && inProgress.length === 0 && comingYourWay.length === 0
-    && assignedToYou.length === 0 && pendingSuggestions === 0 && laterReminders.length === 0;
-
   // ── The one row anatomy every band uses ────────────────────────────────
   //    [icon square] [title / project · context]        [meta] [affordance]
 
@@ -225,13 +256,17 @@ function RadarPageContent() {
     onOpen?: () => void;
   }) => {
     const project = opts.projectId ? projectById.get(opts.projectId) : undefined;
-    // A subtask names the task it belongs to.
-    const parent = opts.task?.parent_task_id ? tasks.find(t => t.id === opts.task?.parent_task_id) : undefined;
     const inner = (
       <>
         {opts.icon}
         <span className="flex-1 min-w-0">
-          <span className="block text-sm font-medium text-white truncate">{opts.title}</span>
+          <span className="flex items-center gap-2 min-w-0">
+            <span className="text-sm font-medium text-white truncate">{opts.title}</span>
+            {/* What changed since you looked, its subtasks' changes included. */}
+            {opts.task && cardUnread(opts.task) && (
+              <span className="min-w-0 flex-shrink"><UnreadLabel task={opts.task} /></span>
+            )}
+          </span>
           <span className="flex items-center gap-1.5 mt-0.5 min-w-0 text-xs text-zinc-500">
             {project && (
               <>
@@ -239,14 +274,6 @@ function RadarPageContent() {
                   <span className="w-1.5 h-1.5 rounded-full inline-block flex-shrink-0" style={{ backgroundColor: project.color }} />
                 )}
                 <span className="truncate flex-shrink-0 max-w-[180px] text-zinc-400">{project.name}</span>
-                <span className="text-zinc-600" aria-hidden="true">·</span>
-              </>
-            )}
-            {parent && (
-              <>
-                <span className="truncate max-w-[180px] text-zinc-400">
-                  <span className="sr-only">Subtask of </span><span aria-hidden="true">in </span>{parent.title}
-                </span>
                 <span className="text-zinc-600" aria-hidden="true">·</span>
               </>
             )}
@@ -278,20 +305,16 @@ function RadarPageContent() {
     );
   };
 
-  const needsYouRow = (item: NeedsYouItem, index: number) => {
+  const needsYouFlag = (item: NeedsYouItem): Flag | null => {
     // Suggestions render in their own band; this band is task actions only.
     if (item.kind === 'suggestions' || !item.task) return null;
     const task = item.task;
     if (item.kind === 'blocked') {
-      return row({
-        key: `blocked-${task.id}`,
+      return {
         icon: iconSquare(MessageSquareWarning, 'bg-red-500/15 text-red-300'),
-        title: task.title,
-        projectId: task.project_id,
         context: `Blocked: ${item.question || 'waiting on your answer'}`,
-        task,
-        showChevron: true,
-      });
+        action: true,
+      };
     }
     // The reviewer verdict sets expectations: approved means your merge click
     // is genuinely the last step; anything else means John has not signed off
@@ -315,20 +338,97 @@ function RadarPageContent() {
         context: task.priority === 'urgent' ? 'Urgent and unstarted' : 'Due and unstarted',
       },
     }[item.kind];
-    return row({
-      key: `${item.kind}-${task.id}-${index}`,
+    return {
       icon: meta.icon,
-      title: task.title,
-      projectId: task.project_id,
       context: meta.context,
-      task,
-      showChevron: true,
+      action: true,
       // Action rows open the briefing modal (what kind of review, why held,
       // straight to the PR); the side panel stays the plain task overview.
       onOpen: item.kind === 'merge' || item.kind === 'review'
         ? () => setReviewingTaskId(task.id)
         : undefined,
-    });
+    };
+  };
+
+  // One row per parent. Bands claim parents in page priority order, so a
+  // parent shows once: in the first band where it, or a subtask of it, belongs.
+  const claimed = new Set<string>();
+  const groupByParent = (entries: { task: Task; flag: Flag }[]): Group[] => {
+    const groups = new Map<string, Group>();
+    for (const { task, flag } of entries) {
+      const root = (task.parent_task_id && taskById.get(task.parent_task_id)) || task;
+      if (claimed.has(root.id)) continue;
+      let group = groups.get(root.id);
+      if (!group) {
+        group = { root, subs: new Map() };
+        groups.set(root.id, group);
+      }
+      if (root.id === task.id) group.self ??= flag;
+      else if (!group.subs.has(task.id)) group.subs.set(task.id, flag);
+    }
+    for (const id of groups.keys()) claimed.add(id);
+    return [...groups.values()];
+  };
+
+  const needsGroups = groupByParent(needsYou.flatMap(item => {
+    const flag = needsYouFlag(item);
+    return flag && item.task ? [{ task: item.task, flag }] : [];
+  }));
+  const inProgressGroups = groupByParent(inProgress.map(task => ({
+    task,
+    flag: { icon: iconSquare(Activity, 'bg-brand-500/15 text-brand-300'), context: 'Started by you' },
+  })));
+  const assignedGroups = groupByParent(assignedToYou.map(task => ({
+    task,
+    flag: task.status === 'in_review'
+      ? { icon: iconSquare(Eye, 'bg-white/[0.06] text-zinc-400'), context: 'Waiting on review' }
+      : { icon: iconSquare(ClipboardList, 'bg-white/[0.06] text-zinc-400'), context: 'To do' },
+  })));
+  const inReviewGroups = groupByParent(subtasksInReview.map(task => ({
+    task,
+    flag: { icon: iconSquare(Eye, 'bg-white/[0.06] text-zinc-400'), context: 'In review' },
+  })));
+  const comingGroups = groupByParent(comingYourWay.map(task => ({
+    task,
+    flag: task.status === 'in_progress'
+      ? { icon: iconSquare(Hammer, 'bg-brand-500/15 text-brand-300'), context: buildPhase(task) }
+      : { icon: iconSquare(Hourglass, 'bg-white/[0.06] text-zinc-400'), context: 'Queued for the agent' },
+  })));
+
+  const allClear = needsYouCount === 0 && inProgressGroups.length === 0 && comingGroups.length === 0
+    && assignedGroups.length === 0 && inReviewGroups.length === 0 && pendingSuggestions === 0
+    && laterReminders.length === 0;
+
+  /**
+   * A parent's row, then its subtasks. When only subtasks put it here, its
+   * context line says how many. Trays start closed; the person opens them.
+   */
+  const groupRow = (group: Group, opts: { summarize: (count: number) => string; showPriority?: boolean; showChevron?: boolean }) => {
+    const { root, self, subs } = group;
+    const lead = self ?? [...subs.values()][0];
+    const open = trayOpen.get(root.id) ?? false;
+    return (
+      <div key={root.id}>
+        {row({
+          key: root.id,
+          icon: lead.icon,
+          title: root.title,
+          projectId: root.project_id,
+          context: self ? self.context : opts.summarize(subs.size),
+          task: root,
+          showPriority: opts.showPriority,
+          showChevron: opts.showChevron,
+          onOpen: self?.onOpen,
+        })}
+        <MyTaskSubtasks
+          parent={root}
+          flags={subs}
+          open={open}
+          onToggle={() => setTrayOpen(prev => new Map(prev).set(root.id, !open))}
+          onOpenTask={setViewingTaskId}
+        />
+      </div>
+    );
   };
 
   const band = (opts: {
@@ -439,7 +539,15 @@ function RadarPageContent() {
                 count: needsYouCount,
                 emphasis: true,
                 children: needsYouCount > 0
-                  ? <>{needsYou.map(needsYouRow)}{dueReminders.map(reminderRow)}</>
+                  ? (
+                    <>
+                      {needsGroups.map(group => groupRow(group, {
+                        summarize: n => `${plural(n, 'subtask')} need${n === 1 ? 's' : ''} you`,
+                        showChevron: true,
+                      }))}
+                      {dueReminders.map(reminderRow)}
+                    </>
+                  )
                   : (
                     <div className="flex items-center gap-3 px-4 py-4 text-sm text-zinc-400">
                       <span className="w-8 h-8 rounded-lg bg-emerald-500/10 text-emerald-300 flex items-center justify-center flex-shrink-0">
@@ -450,42 +558,40 @@ function RadarPageContent() {
                   ),
               })}
 
-              {inProgress.length > 0 &&
+              {inProgressGroups.length > 0 &&
                 band({
                   icon: Activity,
                   title: 'In progress',
                   hint: 'work you have started',
-                  count: inProgress.length,
-                  children: inProgress.map(task => row({
-                    key: task.id,
-                    icon: iconSquare(Activity, 'bg-brand-500/15 text-brand-300'),
-                    title: task.title,
-                    projectId: task.project_id,
-                    context: getSubtasks(task.id).length > 0
-                      ? `${getSubtasks(task.id).filter(s => s.status === 'done').length} of ${getSubtasks(task.id).length} subtasks done`
-                      : 'Started by you',
-                    task,
+                  count: inProgressGroups.length,
+                  children: inProgressGroups.map(group => groupRow(group, {
+                    summarize: n => `${plural(n, 'subtask')} started by you`,
                     showPriority: true,
                   })),
                 })}
 
               {remindersBand}
 
-              {assignedToYou.length > 0 &&
+              {assignedGroups.length > 0 &&
                 band({
                   icon: ClipboardList,
                   title: 'Assigned to you',
                   hint: 'everything else in your queue',
-                  count: assignedToYou.length,
-                  children: assignedToYou.map(task => row({
-                    key: task.id,
-                    icon: task.status === 'in_review'
-                      ? iconSquare(Eye, 'bg-white/[0.06] text-zinc-400')
-                      : iconSquare(ClipboardList, 'bg-white/[0.06] text-zinc-400'),
-                    title: task.title,
-                    projectId: task.project_id,
-                    context: task.status === 'in_review' ? 'Waiting on review' : 'To do',
-                    task,
+                  count: assignedGroups.length,
+                  children: assignedGroups.map(group => groupRow(group, {
+                    summarize: n => `${plural(n, 'subtask')} for you`,
+                    showPriority: true,
+                  })),
+                })}
+
+              {inReviewGroups.length > 0 &&
+                band({
+                  icon: Eye,
+                  title: 'In review',
+                  hint: 'subtasks you are waiting on',
+                  count: inReviewGroups.length,
+                  children: inReviewGroups.map(group => groupRow(group, {
+                    summarize: n => `${plural(n, 'subtask')} in review`,
                     showPriority: true,
                   })),
                 })}
@@ -506,21 +612,14 @@ function RadarPageContent() {
                   }),
                 })}
 
-              {comingYourWay.length > 0 &&
+              {comingGroups.length > 0 &&
                 band({
                   icon: Hourglass,
                   title: 'Coming your way',
                   hint: 'each will ask for one merge click when built',
-                  count: comingYourWay.length,
-                  children: comingYourWay.map(task => row({
-                    key: task.id,
-                    icon: task.status === 'in_progress'
-                      ? iconSquare(Hammer, 'bg-brand-500/15 text-brand-300')
-                      : iconSquare(Hourglass, 'bg-white/[0.06] text-zinc-400'),
-                    title: task.title,
-                    projectId: task.project_id,
-                    context: task.status === 'in_progress' ? buildPhase(task) : 'Queued for the agent',
-                    task,
+                  count: comingGroups.length,
+                  children: comingGroups.map(group => groupRow(group, {
+                    summarize: n => `${plural(n, 'subtask')} with the agent`,
                     showPriority: true,
                   })),
                 })}

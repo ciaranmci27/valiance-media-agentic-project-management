@@ -4,8 +4,9 @@ import type { Task } from '@/lib/types';
  * Subtasks are tasks with parent_task_id set, one level deep. Every screen
  * that lists tasks decides here which ones it shows, so they cannot drift:
  * project lists, the board, the calendar and progress show top-level tasks;
- * My Tasks, needs-you and workload counts include subtasks (they are
- * someone's work) and name the parent beside them.
+ * needs-you and workload counts include subtasks (they are someone's work),
+ * except a subtask in review, which you only wait on. My Tasks shows each
+ * parent once, with its subtasks grouped inside it.
  */
 
 export function isSubtask(task: Pick<Task, 'parent_task_id'>): boolean {

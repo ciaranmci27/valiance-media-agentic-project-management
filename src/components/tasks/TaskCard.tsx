@@ -21,7 +21,7 @@ import { UnreadLabel, useCardUnread } from './TaskUnread';
 import { subtaskProgress } from '@/lib/subtasks';
 import { createdLabel, lastActivityAt, taskTimesTooltip, timeAgo } from '@/lib/task-times';
 import { useSubtaskMenuActions } from './MakeSubtaskDialog';
-import { SubtaskRing } from './SubtaskRing';
+import { SubtaskRing, SUBTASK_STATUS_RING as STATUS_RING } from './SubtaskRing';
 
 interface TaskCardProps {
   task: Task;
@@ -35,16 +35,6 @@ const MOVE_ORDER: Task['status'][] = ['backlog', 'todo', 'in_progress', 'in_revi
 
 // One line in the card's panel: an icon, what it is, and its value on the right.
 const PANEL_ROW = 'grid w-full grid-cols-[18px_minmax(0,1fr)_auto] items-center gap-2 text-xs';
-
-// An open subtask's checkbox ring carries its status: blue in progress,
-// amber in review, grey to do, dashed backlog. Done fills it green.
-const STATUS_RING: Record<Task['status'], string> = {
-  done: '',
-  in_review: 'border-[1.5px] border-amber-400',
-  in_progress: 'border-[1.5px] border-brand-400',
-  todo: 'border-[1.5px] border-zinc-400',
-  backlog: 'border-[1.5px] border-dashed border-zinc-500',
-};
 
 const shortDate = (date: string) => parseDateOnly(date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 const longDate = (date: string) => parseDateOnly(date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
