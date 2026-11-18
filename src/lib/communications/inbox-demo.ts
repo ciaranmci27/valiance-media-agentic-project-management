@@ -408,6 +408,7 @@ function summary(detail: InboxThreadDetail): InboxThreadSummary {
     attachment_count: detail.messages.reduce((total, m) => total + m.attachments.length, 0),
     task_count: new Set(detail.messages.flatMap((m) => m.linked_tasks.map((task) => task.task_id))).size,
     reminder_count: 0,
+    suggestion_count: detail.messages.reduce((total, m) => total + (m.plan?.items ?? []).filter((item) => item.state === 'pending' || item.state === 'accepting').length, 0),
     summary: detail.summary,
   };
 }

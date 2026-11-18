@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { AlertTriangle, Bell, CircleSlash, Flame, Inbox as InboxIcon, KeyRound, Mail, MessageSquare, Paperclip, RefreshCw, Search, Sparkles, SquareCheck, Video, X } from 'lucide-react';
+import { AlertTriangle, Bell, CircleSlash, Flame, Inbox as InboxIcon, KeyRound, ListChecks, Mail, MessageSquare, Paperclip, RefreshCw, Search, Sparkles, SquareCheck, Video, X } from 'lucide-react';
 import { useApp } from '@/lib/store';
 import { useDemo } from '@/lib/demo-context';
 import { useAuth } from '@/lib/auth-context';
@@ -469,7 +469,7 @@ export function InboxView({ projectId, embedded = false, emptyState, searchQuery
                         <span className="mt-0.5 line-clamp-1 text-xs text-zinc-300"><span className="sr-only">Where it stands: </span>{thread.summary}</span>
                       ) : thread.snippet && <span className="mt-0.5 line-clamp-1 text-xs text-zinc-400">{thread.snippet}</span>}
                       {/* The project leads the details: which client, then what the thread led to. */}
-                      {(!lockedProject || thread.state === 'needs_you' || thread.state === 'needs_reply' || thread.urgent || thread.untrusted || thread.task_count > 0 || thread.reminder_count > 0 || thread.attachment_count > 0) && (
+                      {(!lockedProject || thread.state === 'needs_you' || thread.state === 'needs_reply' || thread.urgent || thread.untrusted || thread.task_count > 0 || thread.reminder_count > 0 || thread.attachment_count > 0 || thread.suggestion_count > 0) && (
                         <span className="mt-2 flex flex-wrap items-center gap-x-2.5 gap-y-1.5">
                           {/* Up to two projects, strongest first; the rest are counted. */}
                           {!lockedProject && (thread.projects.length > 0 ? (
@@ -502,7 +502,16 @@ export function InboxView({ projectId, embedded = false, emptyState, searchQuery
                               <span className="rounded-full border border-dashed border-white/[0.16] px-2 py-0.5 text-[11px] text-zinc-400">No project</span>
                             </Tooltip>
                           ))}
-                          {(thread.state === 'needs_you' || thread.state === 'needs_reply') && <ThreadStateBadge state={thread.state} />}
+                          {/* Suggestions waiting say what needs you, so they replace the Needs you badge. */}
+                          {(thread.state === 'needs_reply' || (thread.state === 'needs_you' && thread.suggestion_count === 0)) && <ThreadStateBadge state={thread.state} />}
+                          {thread.suggestion_count > 0 && (
+                            <Tooltip content={`${thread.suggestion_count} ${thread.suggestion_count === 1 ? 'suggestion' : 'suggestions'} from the agent waiting for you to add or skip`}>
+                              <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/[0.14] px-2 py-0.5 text-[11px] font-medium text-amber-200">
+                                <ListChecks size={11} aria-hidden="true" />
+                                {thread.suggestion_count} to review
+                              </span>
+                            </Tooltip>
+                          )}
                           {thread.urgent && (
                             <Tooltip content="The agent marked this urgent">
                               <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-red-300">

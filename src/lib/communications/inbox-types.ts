@@ -148,6 +148,8 @@ export interface InboxThreadSummary {
   task_count: number;
   /** Open reminders the thread's emails set. */
   reminder_count: number;
+  /** The agent's suggestions still waiting for a person to add or skip (a meeting's checklist, a plan's proposals). */
+  suggestion_count: number;
 }
 
 export type InboxTabCounts = Record<InboxTab, number>;

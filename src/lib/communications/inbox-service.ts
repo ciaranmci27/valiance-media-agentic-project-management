@@ -436,7 +436,7 @@ async function emailReminders(ctx: InboxContext, messageIds: string[], openOnly:
 async function pageDetails(ctx: InboxContext, page: ThreadEntry[]) {
   const latestIds = page.map((entry) => entry.messages[entry.messages.length - 1].id);
   const pageMessageIds = page.flatMap((entry) => entry.messages.map((message) => message.id));
-  const [bodies, attachments, { links, liveTaskIds }, openReminders] = await Promise.all([
+  const [bodies, attachments, { links, liveTaskIds }, openReminders, waiting] = await Promise.all([
     readIn<{ id: string; new_text: string | null; text_body: string | null }>(latestIds, (chunk, from, to, count) =>
       ctxSelect(comms(ctx.service), 'messages', 'id, new_text, text_body', count).in('id', chunk).order('id').range(from, to)),
     readIn<{ id: string; message_id: string; sha256: string | null }>(pageMessageIds, (chunk, from, to, count) =>
@@ -455,8 +455,14 @@ async function pageDetails(ctx: InboxContext, page: ThreadEntry[]) {
     })(),
     // The open reminders these emails set, the same ones the thread shows.
     emailReminders(ctx, pageMessageIds, true),
+    // Suggestions still waiting on a person, as the thread lists them (a question is not one).
+    readIn<{ id: string; conversation_id: string }>(page.map((entry) => entry.thread.id), (chunk, from, to, count) =>
+      ctxSelect(comms(ctx.service), 'plan_items', 'id, conversation_id', count).in('conversation_id', chunk)
+        .eq('mode', 'live').in('state', ['pending', 'accepting']).neq('type', 'ask').order('id').range(from, to)),
   ]);
-  return { bodies, attachments, links, liveTaskIds, openReminders };
+  const suggestions = new Map<string, number>();
+  for (const item of waiting) suggestions.set(item.conversation_id, (suggestions.get(item.conversation_id) ?? 0) + 1);
+  return { bodies, attachments, links, liveTaskIds, openReminders, suggestions };
 }
 
 export async function listThreads(ctx: InboxContext, filters: ThreadListFilters): Promise<InboxThreadList> {
@@ -498,7 +504,7 @@ export async function listThreads(ctx: InboxContext, filters: ThreadListFilters)
   const inTab = searched.filter((entry) => threadInTab(entry.flags, entry.thread.project_id, filters.tab));
   const page = inTab.slice(filters.offset, filters.offset + filters.limit);
 
-  const [inboxes, names, filed, latestCode, { bodies, attachments, links, liveTaskIds, openReminders }, dismissers] = await Promise.all([
+  const [inboxes, names, filed, latestCode, { bodies, attachments, links, liveTaskIds, openReminders, suggestions }, dismissers] = await Promise.all([
     inboxesRead,
     projectNames(ctx, page.map((entry) => entry.thread.project_id)),
     searchFiled ?? threadProjects(ctx, page.map((entry) => entry.thread.id)),
@@ -546,6 +552,7 @@ export async function listThreads(ctx: InboxContext, filters: ThreadListFilters)
         const taskIds = new Set(links.filter((link) => ids.has(link.message_id) && liveTaskIds.has(link.task_id)).map((link) => link.task_id));
         return { task_count: taskIds.size, reminder_count: openReminders.filter((reminder) => ids.has(reminder.source_message_id)).length };
       })(),
+      suggestion_count: suggestions.get(entry.thread.id) ?? 0,
     };
   });
   return { inboxes, threads, total: inTab.length, counts, latest_code: latestCode };

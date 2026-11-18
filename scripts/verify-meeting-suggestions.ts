@@ -168,6 +168,11 @@ async function main() {
     check('thread: the waiting suggestions are on the meeting, the question apart', waiting.length === 3
       && waiting.find((i) => i.id === ids.task)?.title === 'Send the proposal' && waiting.find((i) => i.id === ids.reminder)?.title === 'Chase Dana for the logo',
     waiting.map((i) => [i.id, i.type, i.title]));
+    const listed = await inbox.listThreads(owner, { inboxId: null, projectId: null, tab: 'everything', search: '', limit: 25, offset: 0 });
+    check('list: a row counts the suggestions waiting on it, not its question (a meeting checklist, an email proposal)',
+      listed.threads.find((thread) => thread.id === ids.weekly)?.suggestion_count === waiting.length
+        && listed.threads.find((thread) => thread.id === ids.email)?.suggestion_count === 1,
+      listed.threads.map((thread) => [thread.subject, thread.suggestion_count]));
 
     // ---- Email is refused by both -----------------------------------------------------------------
     const emailAdd = await refused(() => addAllSuggestions(owner, ids.email));
