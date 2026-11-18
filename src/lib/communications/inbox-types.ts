@@ -319,9 +319,13 @@ export interface InboxPlanItem {
   project_name: string | null;
   task_id: string | null;
   error: string | null;
+  /** What it would add, in full: a comment's text, a new task's description, a reminder's notes. */
+  body?: string | null;
   /** A suggested task or reminder's own title and a task's due date: what Change starts from. */
   title?: string | null;
   due_date?: string | null;
+  /** A suggested reminder's day (YYYY-MM-DD), when it has one. */
+  remind_on?: string | null;
 }
 
 export interface InboxPlan {

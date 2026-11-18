@@ -291,7 +291,7 @@ export interface Task {
 export type TaskCreatedVia = 'app' | 'api' | 'mcp' | 'system' | 'unknown';
 
 /** A change on a task, as task_events records it. */
-export type TaskEventKind = 'edit' | 'status' | 'comment' | 'email' | 'file' | 'subtask' | 'assignee' | 'review';
+export type TaskEventKind = 'edit' | 'status' | 'comment' | 'email' | 'meeting' | 'file' | 'subtask' | 'assignee' | 'review';
 
 /**
  * What changed on a task since the signed-in member last opened it, from

@@ -1164,6 +1164,16 @@ export async function answerAgentQuestion(ctx: InboxContext, threadId: string, m
 }
 
 /** What a plan item does, in a line. */
+/** What an item would add, in full, for a person deciding on it: null when it adds no words. */
+function planItemBody(item: Row): string | null {
+  const payload = (item.payload ?? {}) as Row;
+  const text = item.type === 'comment' ? payload.text
+    : item.type === 'create_task' ? payload.description
+    : item.type === 'add_reminder' ? payload.notes
+    : null;
+  return typeof text === 'string' && text.trim() ? text.trim() : null;
+}
+
 function planItemLabel(item: Row, project: (id: string) => string | null, task: (id: string) => string | null): string {
   const payload = (item.payload ?? {}) as Row;
   const taskName = item.task_id ? task(item.task_id as string) ?? 'a task' : 'a task';
@@ -1237,10 +1247,12 @@ async function threadPlans(ctx: InboxContext, threadId: string, messageIds: stri
           project_name: item.project_id ? project(item.project_id as string) : null,
           task_id: (item.task_id as string | null) ?? null,
           error: (item.error as string | null) ?? null,
+          body: planItemBody(item),
           // What Change edits before adding: a suggested task's title and due date, a reminder's title.
           ...(item.type === 'create_task' || item.type === 'add_reminder' ? {
             title: (((item.payload ?? {}) as Row).title as string | undefined) ?? null,
             ...(item.type === 'create_task' ? { due_date: (((item.payload ?? {}) as Row).due_date as string | null | undefined) ?? null } : {}),
+            ...(item.type === 'add_reminder' ? { remind_on: (((item.payload ?? {}) as Row).remind_on as string | null | undefined) ?? null } : {}),
           } : {}),
         })),
       };

@@ -13893,7 +13893,7 @@ END $$;
 -- Unread tasks
 -- ---------------------------------------------------------------------------
 -- task_events records each change worth knowing about on a task (edits,
--- status, comments, linked emails, files, subtasks, assignees, reviews), who
+-- status, comments, linked emails and meetings, files, subtasks, assignees, reviews), who
 -- made it and how (app, api, mcp, system, resolved like the task source
 -- stamp). Kept apart from tasks so it never moves updated_at, the team log or
 -- a webhook. A task is updated for a member when it has an event after their
@@ -13907,7 +13907,7 @@ CREATE TABLE public.task_events (
   member_id uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
   via text NOT NULL CONSTRAINT task_events_via_check CHECK (via IN ('app', 'api', 'mcp', 'system')),
   kind text NOT NULL CONSTRAINT task_events_kind_check
-    CHECK (kind IN ('edit', 'status', 'comment', 'email', 'file', 'subtask', 'assignee', 'review'))
+    CHECK (kind IN ('edit', 'status', 'comment', 'email', 'meeting', 'file', 'subtask', 'assignee', 'review'))
 );
 CREATE INDEX idx_task_events_task_at ON public.task_events (task_id, at DESC);
 
@@ -14031,8 +14031,24 @@ CREATE TRIGGER record_task_event AFTER UPDATE ON public.tasks
 CREATE TRIGGER record_task_event AFTER INSERT ON public.task_comments
   FOR EACH ROW EXECUTE FUNCTION public.record_task_child_event('comment');
 
+-- A linked email or meeting, said as which it is.
+CREATE OR REPLACE FUNCTION public.record_task_link_event()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  PERFORM public.record_task_event(NEW.task_id, CASE
+    WHEN EXISTS (SELECT 1 FROM communications.messages m WHERE m.id = NEW.message_id AND m.channel = 'meeting') THEN 'meeting'
+    ELSE 'email'
+  END);
+  RETURN NULL;
+END;
+$$;
+
 CREATE TRIGGER record_task_event AFTER INSERT ON communications.task_links
-  FOR EACH ROW EXECUTE FUNCTION public.record_task_child_event('email');
+  FOR EACH ROW EXECUTE FUNCTION public.record_task_link_event();
 
 CREATE TRIGGER record_task_event AFTER INSERT ON public.task_files
   FOR EACH ROW WHEN (NEW.deleted_at IS NULL)
@@ -14056,6 +14072,7 @@ CREATE TRIGGER record_task_event AFTER INSERT ON public.task_reviews
 REVOKE ALL ON FUNCTION public.record_task_event(uuid, text) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.record_task_row_event() FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.record_task_child_event() FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.record_task_link_event() FROM PUBLIC, anon, authenticated;
 
 -- Every live task the signed-in member can see with changes they have not
 -- seen: when they last looked (null if never), how many changes of each

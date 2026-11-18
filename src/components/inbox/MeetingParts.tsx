@@ -1,7 +1,8 @@
 'use client';
 
-import { Fragment, useMemo, useState } from 'react';
-import { CalendarClock, Check, ChevronDown, CircleSlash, ExternalLink, ListChecks, Loader2, PenLine, Plus, RefreshCw, Undo2, Users, X } from 'lucide-react';
+import { Fragment, useMemo, useState, type ReactNode } from 'react';
+import Link from 'next/link';
+import { Bell, CalendarClock, Check, ChevronDown, CircleSlash, ExternalLink, ListChecks, Loader2, MessageSquare, PenLine, Plus, RefreshCw, SquarePlus, Undo2, Users, X } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { TextInput } from '@/components/ui/inputs/TextInput';
@@ -111,7 +112,7 @@ export interface SuggestionsOutcome {
 }
 
 /**
- * A meeting's waiting suggestions, first in the thread, as a checklist: each
+ * A meeting's waiting suggestions, under its notes or transcript, as a checklist: each
  * one can be added, changed then added, or skipped, and the whole set added
  * or waved off with Nothing to do. From a meeting the agent only suggests,
  * so nothing here exists until a person adds it.
@@ -131,10 +132,12 @@ export function MeetingSuggestions({ items, agentName, onAdd, onSkip, pendingId,
   outcome: SuggestionsOutcome | null;
 }) {
   const busy = bulk !== null || pendingId !== null;
+  // The project shows on each row only when the suggestions span more than one.
+  const mixedProjects = new Set(items.map((item) => item.project_id)).size > 1;
   if (!items.length && !outcome && !onNothingToDo) return null;
   const spinner = <Loader2 size={13} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />;
   return (
-    <section aria-labelledby="meeting-suggestions" className="mb-4 min-w-0 rounded-xl border border-white/[0.07] bg-white/[0.02] p-3 sm:p-4">
+    <section aria-labelledby="meeting-suggestions" className="mt-4 min-w-0 rounded-xl border border-white/[0.07] bg-white/[0.02] p-3 sm:p-4">
       <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2">
         <h3 id="meeting-suggestions" className="flex min-w-0 items-center gap-1.5 text-sm font-semibold text-white">
           <ListChecks size={15} className="text-brand-300" aria-hidden="true" />
@@ -171,11 +174,26 @@ export function MeetingSuggestions({ items, agentName, onAdd, onSkip, pendingId,
         </p>
       )}
       {items.length > 0 ? (
-        <ul className="mt-3 space-y-2" aria-label="Suggestions waiting for you">
-          {items.map((item) => (
-            <SuggestionRow key={item.id} item={item} onAdd={onAdd} onSkip={onSkip} pending={pendingId === item.id} busy={busy} />
-          ))}
-        </ul>
+        <div className="mt-3 space-y-3">
+          {SUGGESTION_GROUPS.map((group) => {
+            const inGroup = items.filter((item) => groupOf(item) === group.key);
+            if (!inGroup.length) return null;
+            return (
+              <div key={group.key} className="min-w-0 space-y-1.5">
+                <p className="flex items-center gap-1.5 text-[11px] font-medium text-zinc-400">
+                  {group.icon}
+                  {inGroup.length === 1 ? group.one : group.many} ({inGroup.length})
+                </p>
+                <ul className="space-y-2" aria-label={group.many}>
+                  {inGroup.map((item) => (
+                    <SuggestionRow key={item.id} item={item} onAdd={onAdd} onSkip={onSkip} pending={pendingId === item.id} busy={busy}
+                      showProject={mixedProjects} />
+                  ))}
+                </ul>
+              </div>
+            );
+          })}
+        </div>
       ) : !outcome && (
         <p className="mt-1.5 text-xs text-zinc-400">No suggestions are waiting.</p>
       )}
@@ -183,15 +201,45 @@ export function MeetingSuggestions({ items, agentName, onAdd, onSkip, pendingId,
   );
 }
 
-function SuggestionRow({ item, onAdd, onSkip, pending, busy }: {
+type SuggestionGroup = 'task' | 'reminder' | 'comment' | 'other';
+
+/** The checklist in the order a person settles it: new work, then follow-ups, then notes on work that exists. */
+const SUGGESTION_GROUPS: { key: SuggestionGroup; one: string; many: string; icon: ReactNode }[] = [
+  { key: 'task', one: 'New task', many: 'New tasks', icon: <SquarePlus size={12} aria-hidden="true" /> },
+  { key: 'reminder', one: 'Reminder', many: 'Reminders', icon: <Bell size={12} aria-hidden="true" /> },
+  { key: 'comment', one: 'Comment on an existing task', many: 'Comments on existing tasks', icon: <MessageSquare size={12} aria-hidden="true" /> },
+  { key: 'other', one: 'Other change', many: 'Other changes', icon: <ListChecks size={12} aria-hidden="true" /> },
+];
+
+function groupOf(item: MeetingSuggestion): SuggestionGroup {
+  if (item.type === 'create_task') return 'task';
+  if (item.type === 'add_reminder') return 'reminder';
+  if (item.type === 'comment') return 'comment';
+  return 'other';
+}
+
+/** The row's headline under its group: the title alone, without the "New task:" a group heading already says. */
+function headline(item: MeetingSuggestion): string {
+  if (item.type === 'create_task' || item.type === 'add_reminder') return item.title || item.label;
+  // A task whose name is unknown keeps the whole label ("Comment on a task").
+  if (item.type === 'comment') return item.label === 'Comment on a task' ? item.label : item.label.replace(/^Comment on /, '');
+  return item.label;
+}
+
+/** A body longer than this folds to three lines with "Show more". */
+const BODY_FOLD = 220;
+
+function SuggestionRow({ item, onAdd, onSkip, pending, busy, showProject }: {
   item: MeetingSuggestion;
   onAdd?: (item: MeetingSuggestion, edits?: SuggestionEdits) => Promise<boolean>;
   onSkip?: (item: MeetingSuggestion) => Promise<void>;
   pending: boolean;
   busy: boolean;
+  showProject: boolean;
 }) {
   const changeable = !!onAdd && (item.type === 'create_task' || item.type === 'add_reminder');
   const [changing, setChanging] = useState(false);
+  const [open, setOpen] = useState(false);
   const [title, setTitle] = useState(item.title ?? '');
   const [due, setDue] = useState(item.due_date ?? '');
   const spinner = <Loader2 size={12} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />;
@@ -202,15 +250,53 @@ function SuggestionRow({ item, onAdd, onSkip, pending, busy }: {
     // A failed add keeps the editor open with the edits, to try again.
     void onAdd?.(item, edits).then((added) => { if (added) setChanging(false); });
   };
+  const name = headline(item);
+  // A comment's task opens where it lives, so the person can read it before adding to it.
+  const taskHref = item.type === 'comment' && item.task_id && item.project_id ? `/projects/${item.project_id}?task=${item.task_id}` : null;
+  const long = (item.body?.length ?? 0) > BODY_FOLD;
   return (
     <li className="min-w-0 rounded-lg bg-white/[0.03] px-3 py-2.5">
       <div className="flex flex-wrap items-start gap-x-3 gap-y-2">
         {/* Phones: the text takes the whole row and the buttons wrap under it. */}
         <div className="min-w-0 basis-full sm:flex-1 sm:basis-0">
-          <p className="break-words text-sm font-medium text-zinc-100 [overflow-wrap:anywhere]">{item.label}</p>
-          {item.project_name && <p className="mt-0.5 truncate text-[11px] text-zinc-400">{item.project_name}</p>}
-          {item.decision_reason && <p className="mt-1 break-words text-xs text-zinc-300 [overflow-wrap:anywhere]">{item.decision_reason}</p>}
-          {item.evidence && <p className="mt-1 break-words text-xs italic text-zinc-400 [overflow-wrap:anywhere]">&ldquo;{item.evidence}&rdquo;</p>}
+          <p className="break-words text-sm font-medium text-zinc-100 [overflow-wrap:anywhere]">
+            {taskHref ? (
+              <Link href={taskHref} className="rounded underline decoration-white/20 underline-offset-2 hover:text-brand-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500">
+                {name}
+              </Link>
+            ) : name}
+            {item.type === 'create_task' && item.due_date && (
+              <span className="ml-2 inline-flex items-center gap-1 whitespace-nowrap rounded-md bg-white/[0.06] px-1.5 py-px align-middle text-[11px] font-normal text-zinc-300">
+                <CalendarClock size={11} aria-hidden="true" />
+                Due {formatDay(`${item.due_date}T12:00:00`)}
+              </span>
+            )}
+            {item.type === 'add_reminder' && item.remind_on && (
+              <span className="ml-2 inline-flex items-center gap-1 whitespace-nowrap rounded-md bg-white/[0.06] px-1.5 py-px align-middle text-[11px] font-normal text-zinc-300">
+                <Bell size={11} aria-hidden="true" />
+                {formatDay(`${item.remind_on}T12:00:00`)}
+              </span>
+            )}
+          </p>
+          {showProject && item.project_name && <p className="mt-0.5 truncate text-[11px] text-zinc-400">{item.project_name}</p>}
+          {item.body && (
+            <div className="mt-1">
+              <p className={`whitespace-pre-line break-words text-xs leading-relaxed text-zinc-300 [overflow-wrap:anywhere] ${long && !open ? 'line-clamp-3' : ''}`}>
+                {item.body}
+              </p>
+              {long && (
+                <button type="button" onClick={() => setOpen((value) => !value)} aria-expanded={open}
+                  className="mt-0.5 rounded text-[11px] font-medium text-brand-300 hover:text-brand-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500">
+                  {open ? 'Show less' : 'Show more'}
+                </button>
+              )}
+            </div>
+          )}
+          {item.evidence && (
+            <p className="mt-1 break-words text-[11px] italic text-zinc-400 [overflow-wrap:anywhere]">
+              <span className="not-italic text-zinc-500">Said: </span>{item.evidence}
+            </p>
+          )}
         </div>
         {(onAdd || onSkip) && !changing && (
           <span className="ml-auto flex flex-shrink-0 items-center gap-1">
@@ -265,6 +351,8 @@ const READER_CHARS = 400_000;
  */
 export function TranscriptReader({ attachment, kind }: { attachment: InboxAttachment; kind: MeetingPackageKind }) {
   const read = useRead(attachment.available ? inboxFileTextRead(attachment.id) : null);
+  // Starts short so the suggestions under it stay in reach; opens to most of the screen to read it through.
+  const [tall, setTall] = useState(false);
   const label = MEETING_PACKAGE_LABELS[kind];
   const lines = useMemo(() => {
     const text = read.data ?? '';
@@ -290,12 +378,13 @@ export function TranscriptReader({ attachment, kind }: { attachment: InboxAttach
   }
   const cut = (read.data?.length ?? 0) > READER_CHARS;
   return (
+    <div className="min-w-0 space-y-1.5">
     <div
       role="region"
       aria-label={label}
       // Focusable so the keyboard can scroll it.
       tabIndex={0}
-      className="max-h-[28rem] overflow-y-auto rounded-lg bg-white/[0.03] px-3.5 py-3 text-sm leading-relaxed text-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+      className={`${tall ? 'max-h-[70vh]' : 'max-h-56'} overflow-y-auto rounded-lg bg-white/[0.03] px-3.5 py-3 text-sm leading-relaxed text-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500`}
     >
       {lines.map((line, index) => {
         if (!line.trim()) return <div key={index} className="h-2" aria-hidden="true" />;
@@ -313,6 +402,14 @@ export function TranscriptReader({ attachment, kind }: { attachment: InboxAttach
         );
       })}
       {cut && <p className="mt-3 text-xs text-zinc-400">That is the first part. Download the file below to read the rest.</p>}
+    </div>
+    {lines.length > 12 && (
+      <button type="button" onClick={() => setTall((value) => !value)} aria-expanded={tall}
+        className="inline-flex items-center gap-1 rounded text-xs font-medium text-brand-300 hover:text-brand-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500">
+        {tall ? 'Show less' : `Read the whole ${kind === 'transcript' ? 'transcript' : 'notes'}`}
+        <ChevronDown size={12} className={`transition-transform motion-reduce:transition-none ${tall ? 'rotate-180' : ''}`} aria-hidden="true" />
+      </button>
+    )}
     </div>
   );
 }

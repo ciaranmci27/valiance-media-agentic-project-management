@@ -382,14 +382,17 @@ export function ThreadView({ threadId, focusMessageId, onMissing, onBack }: Thre
     return () => window.clearInterval(timer);
   }, [draftAskedAt, load]);
 
-  // Land on the newest message (or the linked one) once per thread.
+  // Land on the newest message (or the linked one) once per thread. A
+  // meeting opens at the top, its details and words first, with its
+  // suggestions under them, unless a link names one of its packages.
   useEffect(() => {
     if (!detail || scrolledFor.current === detail.id) return;
     scrolledFor.current = detail.id;
-    const target = focusMessageId ?? detail.messages[detail.messages.length - 1]?.id;
+    const target = focusMessageId ?? (detail.channel === 'meeting' ? null : detail.messages[detail.messages.length - 1]?.id);
     requestAnimationFrame(() => {
+      if (!scrollRef.current) return;
       const node = target ? document.getElementById(`email-${target}`) : null;
-      if (node && scrollRef.current) scrollRef.current.scrollTop = Math.max(0, node.offsetTop - 12);
+      scrollRef.current.scrollTop = node ? Math.max(0, node.offsetTop - 12) : 0;
     });
   }, [detail, focusMessageId]);
 
@@ -530,7 +533,7 @@ export function ThreadView({ threadId, focusMessageId, onMissing, onBack }: Thre
   // A meeting: no sender to filter or trust, no mail to reply to; a recap email to the attendees instead.
   const meeting = detail.channel === 'meeting' ? detail.meeting : null;
   const isMeeting = detail.channel === 'meeting';
-  // What the agent suggests from the meeting and nobody settled yet, first in the thread.
+  // What the agent suggests from the meeting and nobody settled yet, under the meeting's own words.
   const suggestions: MeetingSuggestion[] = isMeeting
     // One being accepted stays in the list (its row keeps its spinner and any Change edits) until it is done.
     ? detail.messages.flatMap((m) => (m.plan?.items ?? []).filter((item) => item.state === 'pending' || item.state === 'accepting'))
@@ -674,23 +677,6 @@ export function ThreadView({ threadId, focusMessageId, onMissing, onBack }: Thre
 
       {/* Messages */}
       <div ref={scrollRef} data-thread-scroll className="relative min-h-0 flex-1 overflow-y-auto px-2 py-3 sm:px-5 sm:py-4">
-        {isMeeting && (
-          <MeetingSuggestions
-            items={suggestions}
-            agentName={agentName}
-            onAdd={canSettle ? addSuggestion : undefined}
-            onSkip={canSettle ? skipSuggestion : undefined}
-            pendingId={planPending}
-            onAddAll={canSettle ? () => void addAll() : undefined}
-            onNothingToDo={canSettle && !dismissedCurrent && (suggestions.length > 0 || canHandle) ? () => void nothingToDo() : undefined}
-            bulk={bulk}
-            outcome={shownOutcome ? {
-              text: shownOutcome.text,
-              onUndo: canSettle && (shownOutcome.added?.length || shownOutcome.dismissed) ? () => void undoOutcome() : undefined,
-              undoing: undoingOutcome,
-            } : null}
-          />
-        )}
         <TaskUndoContext.Provider value={taskUndo}>
         <PlanActionsContext.Provider value={planActions}>
         <ProjectLabelsContext.Provider value={detail.projects.length > 1}>
@@ -735,6 +721,24 @@ export function ThreadView({ threadId, focusMessageId, onMissing, onBack }: Thre
         </ProjectLabelsContext.Provider>
         </PlanActionsContext.Provider>
         </TaskUndoContext.Provider>
+        {/* A meeting reads first (its notes or transcript), then what the agent took from it. */}
+        {isMeeting && (
+          <MeetingSuggestions
+            items={suggestions}
+            agentName={agentName}
+            onAdd={canSettle ? addSuggestion : undefined}
+            onSkip={canSettle ? skipSuggestion : undefined}
+            pendingId={planPending}
+            onAddAll={canSettle ? () => void addAll() : undefined}
+            onNothingToDo={canSettle && !dismissedCurrent && (suggestions.length > 0 || canHandle) ? () => void nothingToDo() : undefined}
+            bulk={bulk}
+            outcome={shownOutcome ? {
+              text: shownOutcome.text,
+              onUndo: canSettle && (shownOutcome.added?.length || shownOutcome.dismissed) ? () => void undoOutcome() : undefined,
+              undoing: undoingOutcome,
+            } : null}
+          />
+        )}
         {/* The end of the thread reads, then acts: the draft to use, and last the decision that waits. */}
         {draft && (
           <div className="mt-4">
@@ -1630,6 +1634,31 @@ function AgentNote({ messageId, triage, agentName, linkedTasks, reminders, colla
 
 const spinner = <Loader2 size={12} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />;
 
+const DONE_PHRASES: Record<string, [string, string]> = {
+  link_task: ['Linked 1 task', 'Linked # tasks'],
+  create_task: ['Created 1 task', 'Created # tasks'],
+  update_task: ['Changed 1 task', 'Changed # tasks'],
+  comment: ['1 comment', '# comments'],
+  add_reminder: ['1 reminder', '# reminders'],
+  file_project: ['Filed on a project', 'Filed on # projects'],
+};
+
+/**
+ * What the agent did, said by kind ("Linked 8 tasks", "Created 2 tasks ·
+ * Linked 3 tasks"), so linking existing work never reads as making new
+ * work. Two kinds at most, then "+N more"; undone and failed count as done
+ * here as before, in the list behind the pill.
+ */
+function doneLabel(done: InboxPlanItem[]): string {
+  const counts = new Map<string, number>();
+  for (const item of done) counts.set(item.type, (counts.get(item.type) ?? 0) + 1);
+  const known = [...counts.entries()].filter(([type]) => DONE_PHRASES[type]).sort((a, b) => b[1] - a[1]);
+  if (!known.length) return `${done.length} done`;
+  const parts = known.slice(0, 2).map(([type, count]) => (count === 1 ? DONE_PHRASES[type][0] : DONE_PHRASES[type][1].replace('#', String(count))));
+  const rest = done.length - known.slice(0, 2).reduce((sum, [, count]) => sum + count, 0);
+  return rest > 0 ? `${parts.join(' · ')} · +${rest} more` : parts.join(' · ');
+}
+
 /**
  * A plan's items as pills beside the summary: what the agent did (each with
  * an "Unsure" mark when it applied it without being sure, and Undo), what
@@ -1649,7 +1678,7 @@ function PlanPills({ plan, points, who, avatar, at }: { plan: InboxPlan; points:
     <>
       {done.length > 0 && (
         <NotePill
-          label={unsure ? `${done.length} done · ${unsure} unsure` : `${done.length} done`}
+          label={unsure ? `${doneLabel(done)} · ${unsure} unsure` : doneLabel(done)}
           icon={<SquareCheck size={11} className="text-emerald-300" aria-hidden="true" />}
           width={460}
         >

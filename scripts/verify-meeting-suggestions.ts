@@ -143,6 +143,14 @@ async function main() {
   const count = async (sql: string, params: unknown[] = []) => (await q<{ n: number }>(sql, params))[0].n;
 
   try {
+    // ---- A linked meeting reads as a meeting on the task, an email as an email ----
+    const linkedTo = id(98);
+    await q(`INSERT INTO public.tasks (id, project_id, title, created_by) VALUES ($1, $2, 'Linked both ways', $3)`, [linkedTo, ids.acme, ids.owner]);
+    await q(`INSERT INTO communications.task_links (message_id, task_id, relation) VALUES ($1, $3, 'related'), ($2, $3, 'related')`,
+      [ids.kickoffTranscript, ids.emailMessage, linkedTo]);
+    const kinds = (await q<{ kind: string }>('SELECT kind FROM public.task_events WHERE task_id = $1 ORDER BY kind', [linkedTo])).map((row) => row.kind);
+    check('linking a meeting logs a meeting event and an email an email event', JSON.stringify(kinds) === JSON.stringify(['email', 'meeting']), kinds);
+
     const { addAllSuggestions, dismissMeeting, undoMeetingDismissal } = await import('../src/lib/communications/meeting/suggestions');
     const inbox = await import('../src/lib/communications/inbox-service');
     const inboxPlans = await import('../src/lib/communications/inbox-plans');

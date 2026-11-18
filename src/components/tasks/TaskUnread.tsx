@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useState } from 'react';
-import { CirclePlus, History, Mail, MessageSquare, Paperclip, type LucideIcon } from 'lucide-react';
+import { CirclePlus, History, Mail, MessageSquare, Paperclip, Video, type LucideIcon } from 'lucide-react';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
@@ -42,6 +42,7 @@ export function useUnreadSubtasks(): (task: Task) => Task[] {
 const DID: Record<TaskEventKind, string> = {
   comment: 'commented',
   email: 'linked an email',
+  meeting: 'linked a meeting',
   file: 'added a file',
   status: 'moved it',
   edit: 'edited it',
@@ -52,8 +53,8 @@ const DID: Record<TaskEventKind, string> = {
 
 /**
  * "2 comments, 1 email and 3 changes since you looked. Latest: Ashley
- * commented 20m ago." Comments, emails and files are counted by name; the
- * rest are changes.
+ * commented 20m ago." Comments, emails, meetings and files are counted by
+ * name; the rest are changes.
  */
 export function describeTaskUpdate(update: TaskUpdate, team: TeamMember[]): string {
   const k = update.kinds;
@@ -61,6 +62,7 @@ export function describeTaskUpdate(update: TaskUpdate, team: TeamMember[]): stri
   const parts = [
     k.comment ? plural(k.comment, 'comment') : null,
     k.email ? plural(k.email, 'email') : null,
+    k.meeting ? plural(k.meeting, 'meeting') : null,
     k.file ? plural(k.file, 'file') : null,
     changes ? plural(changes, 'change') : null,
   ].filter((part): part is string => !!part);
@@ -79,6 +81,7 @@ function updateAuthor(update: TaskUpdate, team: TeamMember[]): string {
 const KIND_ICON: Record<TaskEventKind, LucideIcon> = {
   comment: MessageSquare,
   email: Mail,
+  meeting: Video,
   file: Paperclip,
   status: History,
   edit: History,
