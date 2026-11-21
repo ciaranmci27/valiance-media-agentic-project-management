@@ -9,6 +9,21 @@ Each section starts with `## X.Y.Z (YYYY-MM-DD)` and uses these headings, leavin
 - `### Database`: the core migration files in the release, one per line. `npm run db:migrate` applies them.
 - `### Breaking`: what an install must do when it takes this release.
 
+## 1.7.0 (2026-11-21)
+
+### Added
+- Region, in Settings > Workspace (Owners): the workspace's currency, its number and date format, and the day weeks start on, with a live preview and Undo. Every amount and date in the app, the client portal, invoice PDFs and emails follows it. The setup wizard asks for the currency and format with the parts of the app, and makes sure a currency is chosen when Client invoicing or Team pay is on.
+- Invoices, retainers and billing plans keep the currency they were made in, so changing the workspace currency never relabels them. Retainers in different currencies on one project draft as separate invoices, and the invoice form only offers retainer months and tracked time in the invoice's own currency. Invoices in the public API carry a read-only `currency` (ISO 4217).
+
+### Changed
+- Money shows in the workspace currency and locale: no decimals from 1,000 up, the currency's decimals below only when there are any, and none ever for currencies such as JPY. Pay rates, payroll and earnings use the workspace currency. A single invoice always shows its exact amount; only totals round.
+- Totals over invoices count only the workspace currency and say how many invoices in other currencies they leave out, instead of adding different currencies together.
+- Calendars, date pickers, the timesheet and "this week" figures start on the workspace's first day of the week, Monday by default. Calendars and date pickers used to start on Sunday.
+- Activity lines, Trash labels and billing notices written by the database show amounts in the record's own currency, with their cents as before.
+
+### Database
+- 20261121070000_workspace_region.sql
+
 ## 1.6.1 (2026-11-21)
 
 ### Changed

@@ -16,6 +16,8 @@ import { Textarea } from '@/components/ui/inputs/Textarea';
 import { Edit, Mail, Phone, Building2, StickyNote, Plus, FolderKanban, Target, UserCircle, Receipt } from 'lucide-react';
 import { Project } from '@/lib/types';
 import { formatPhone } from '@/lib/format-phone';
+import { excludedNote, totalInCurrency } from '@/lib/format';
+import { useMoney } from '@/lib/region/context';
 import { toast } from '@/components/ui/Toast';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { useAuth } from '@/lib/auth-context';
@@ -32,6 +34,7 @@ export default function ContactDetailPage() {
   const canReadFiles = hasPermission(access, 'files.read');
   const canReadLeads = hasPermission(access, 'leads.read') || hasPermission(access, 'leads.read_all') || hasPermission(access, 'leads.manage');
   const canReadInvoices = hasPermission(access, 'invoices.read') || hasPermission(access, 'invoices.manage');
+  const money = useMoney();
 
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [isProjectFormOpen, setIsProjectFormOpen] = useState(false);
@@ -276,12 +279,12 @@ export default function ContactDetailPage() {
           };
           const fmtDate = (dateStr: string) => {
             const [y, m, d] = dateStr.split('-').map(Number);
-            const date = new Date(y, m - 1, d);
-            const month = date.toLocaleString('en-US', { month: 'short' });
-            return y !== new Date().getFullYear() ? `${month} ${d}, ${y}` : `${month} ${d}`;
+            return new Date(y, m - 1, d).toLocaleDateString(money.locale, { month: 'short', day: 'numeric', year: y !== new Date().getFullYear() ? 'numeric' : undefined });
           };
-          const totalPaid = contactInvoices.filter(i => i.status === 'paid').reduce((s, i) => s + i.amount, 0);
-          const totalOutstanding = contactInvoices.filter(i => i.status !== 'paid' && i.status !== 'cancelled' && i.status !== 'draft').reduce((s, i) => s + i.amount, 0);
+          // Totals in the workspace currency; an invoice in another currency is left out, never added.
+          const paid = totalInCurrency(contactInvoices.filter(i => i.status === 'paid'), i => i.amount, i => i.currency, money.currency);
+          const outstanding = totalInCurrency(contactInvoices.filter(i => i.status !== 'paid' && i.status !== 'cancelled' && i.status !== 'draft'), i => i.amount, i => i.currency, money.currency);
+          const leftOut = excludedNote(paid.excluded + outstanding.excluded);
           return (
             <div className="glass-card rounded-xl overflow-hidden flex flex-col">
               <div className="flex items-center justify-between px-5 py-4 border-b border-white/[0.08] flex-shrink-0">
@@ -292,14 +295,15 @@ export default function ContactDetailPage() {
                 <div className="flex items-center gap-4 text-xs">
                   <div>
                     <span className="text-zinc-500">Paid</span>
-                    <span className="ml-1.5 font-semibold text-emerald-400">${totalPaid.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+                    <span className="ml-1.5 font-semibold text-emerald-400">{money.exact(paid.total)}</span>
                   </div>
                   <div>
                     <span className="text-zinc-500">Outstanding</span>
-                    <span className="ml-1.5 font-semibold text-white">${totalOutstanding.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+                    <span className="ml-1.5 font-semibold text-white">{money.exact(outstanding.total)}</span>
                   </div>
                 </div>
               </div>
+              {leftOut && <p className="px-5 pt-3 text-xs text-zinc-500">{leftOut}</p>}
               {/* Invoice cards */}
               <div className="flex-1 overflow-y-auto p-4 space-y-2" style={{ maxHeight: '250px' }}>
                 {contactInvoices.map((invoice) => {
@@ -314,7 +318,7 @@ export default function ContactDetailPage() {
                           <span className="text-sm font-semibold text-white">{invoice.invoice_number}</span>
                         </div>
                         <span className="text-sm font-semibold text-white">
-                          ${invoice.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          {money.exact(invoice.amount, invoice.currency)}
                         </span>
                       </div>
                       <div className="flex items-center gap-3 text-xs text-zinc-400">

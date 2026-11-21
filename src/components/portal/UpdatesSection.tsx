@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react';
 import { ChevronDown, Download, Eye, Pin } from 'lucide-react';
 import type { PortalData, PortalUpdateType } from '@/lib/types';
 import { Tooltip } from '@/components/ui/Tooltip';
+import { useRegion } from '@/lib/region/context';
 import { SectionCard, SectionCount, SectionHeader } from './SectionHeader';
 import { FileTypeIcon, formatFileSize, relativeTime, type PreviewFile } from './format';
 
@@ -100,6 +101,7 @@ export function UpdatesSection({
   onDownload: (file: PreviewFile & { id: string }) => void;
 }) {
   const [showAll, setShowAll] = useState(false);
+  const { locale } = useRegion();
 
   // Pinned first, then newest. The glow marks the newest by date, which is
   // not always the first row once pins are hoisted.
@@ -128,7 +130,7 @@ export function UpdatesSection({
           const isLast = index === visible.length - 1;
           const isNewest = update.id === newestId;
           const chip = TYPE_CHIP[update.update_type];
-          const fullDate = new Date(update.created_at).toLocaleDateString('en-US', {
+          const fullDate = new Date(update.created_at).toLocaleDateString(locale, {
             weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
           });
 

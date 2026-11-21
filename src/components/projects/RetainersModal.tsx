@@ -26,6 +26,8 @@ import {
   type ProjectRetainerBundle,
 } from '@/lib/supabase/queries';
 import { ensureLineItems } from '@/lib/invoice-utils';
+import { formatMoneyExact, moneyAffix } from '@/lib/format';
+import { appLocale } from '@/lib/region';
 import type {
   ProjectInvoice,
   ProjectRetainer,
@@ -63,13 +65,20 @@ const TIMING_OPTIONS: Array<{ value: RetainerBillingTiming; label: string; detai
   { value: 'arrears', label: 'In arrears', detail: 'Billed after the month it covers' },
 ];
 
-function money(value: number): string {
-  return value.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
+/** An exact amount in a retainer's (or invoice's) own currency; left out, the workspace's. */
+function money(value: number, currency?: string | null): string {
+  return formatMoneyExact(value, { currency });
+}
+
+/** A money input's symbol, on the side its locale puts it. */
+function moneyAdornment(currency?: string | null): { prefix?: string; suffix?: string } {
+  const affix = moneyAffix({ currency });
+  return affix.position === 'prefix' ? { prefix: affix.symbol } : { suffix: affix.symbol };
 }
 
 function shortDate(value: string): string {
   const [year, month, day] = value.split('-').map(Number);
-  return new Date(year, month - 1, day).toLocaleDateString('en-US', {
+  return new Date(year, month - 1, day).toLocaleDateString(appLocale(), {
     month: 'short', day: 'numeric', year: 'numeric',
   });
 }
@@ -426,7 +435,7 @@ export default function RetainersModal({
           <li key={`due:${period.period_start}`} className="flex items-center justify-between gap-3 px-3 py-2">
             <div className="min-w-0">
               <p className="text-xs font-medium text-zinc-200">{periodLabel(period.period_start, period.period_end)}</p>
-              <p className="text-[11px] text-zinc-400">{money(period.amount)}{period.prorated ? ', prorated' : ''}</p>
+              <p className="text-[11px] text-zinc-400">{money(period.amount, retainer.currency)}{period.prorated ? ', prorated' : ''}</p>
             </div>
             <div className="flex items-center gap-2">
               <Badge variant="warning">Due</Badge>
@@ -477,7 +486,7 @@ export default function RetainersModal({
                       : <Badge variant="success">Active</Badge>}
                   </div>
                   <p className="mt-1 text-xs text-zinc-400">
-                    {money(currentAmount(retainer.id))} per month, billed {retainer.billing_timing === 'advance' ? 'in advance' : 'in arrears'}.
+                    {money(currentAmount(retainer.id), retainer.currency)} per month, billed {retainer.billing_timing === 'advance' ? 'in advance' : 'in arrears'}.
                     {' '}Started {shortDate(retainer.start_date)}{retainer.end_date ? `, ends ${shortDate(retainer.end_date)}` : ''}.
                   </p>
                   {canManageSplits && shares.length > 0 ? (
@@ -544,7 +553,7 @@ export default function RetainersModal({
             className="sm:col-span-2"
           />
           {editing ? null : (
-            <NumberInput label="Monthly amount" value={amount} onChange={setAmount} min={0} step={50} prefix="$" />
+            <NumberInput label="Monthly amount" value={amount} onChange={setAmount} min={0} step={50} {...moneyAdornment()} />
           )}
           <Select
             label="Billing"
@@ -648,7 +657,7 @@ export default function RetainersModal({
                     })
                   }
                   label={`${line.invoice.invoice_number}: ${line.label}`}
-                  description={`${money(line.amount)}, ${line.invoice.status}`}
+                  description={`${money(line.amount, line.invoice.currency)}, ${line.invoice.status}`}
                 />
               ))}
             </div>
@@ -681,7 +690,7 @@ export default function RetainersModal({
                   <p className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400">Amount history</p>
                   <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-end">
                     <DateInput label="Effective date" value={newAmountDate} onChange={setNewAmountDate} size="sm" className="flex-1" />
-                    <NumberInput label="Monthly amount" value={newAmount} onChange={setNewAmount} min={0} step={50} prefix="$" size="sm" className="flex-1" />
+                    <NumberInput label="Monthly amount" value={newAmount} onChange={setNewAmount} min={0} step={50} {...moneyAdornment(editing?.currency)} size="sm" className="flex-1" />
                     <Button size="sm" onClick={() => void scheduleAmount()} disabled={busy || newAmount === ''} icon={<Plus size={14} />}>
                       Schedule
                     </Button>
@@ -690,7 +699,7 @@ export default function RetainersModal({
                     {[...history].reverse().map((row) => (
                       <li key={row.id} className="flex items-center justify-between gap-3 px-3 py-2.5">
                         <div>
-                          <p className="text-sm font-semibold text-white">{money(row.amount)}</p>
+                          <p className="text-sm font-semibold text-white">{money(row.amount, editing?.currency)}</p>
                           <p className="text-xs text-zinc-400">
                             {row.effective_date > today ? 'Starts' : 'Effective'} {shortDate(row.effective_date)}
                           </p>

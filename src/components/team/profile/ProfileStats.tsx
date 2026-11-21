@@ -1,6 +1,7 @@
 import { AlertCircle, CalendarCheck, CheckCircle2, Clock, ListTodo, LogIn, MousePointerClick, Timer } from 'lucide-react';
 import { SectionHeader } from '@/components/ui/SectionHeader';
 import { StatStrip } from '@/components/ui/StatStrip';
+import { appLocale, weekStartDay } from '@/lib/region';
 import { timeAgo } from '@/lib/task-times';
 import type { ProfileTime as Time, ProfileUsage as Usage, ProfileWork as Work } from '@/lib/team/profile';
 import { formatDate, formatHours } from './format';
@@ -10,6 +11,8 @@ import { formatDate, formatHours } from './format';
  * overdue and recently done work, then hours this week and over the last
  * 30 days. Each part shows only when the viewer may see it.
  */
+const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
 export function ProfileNumbers({ work, time, shared }: { work?: Work; time?: Time; shared: boolean }) {
   if (!work && !time) return null;
   return (
@@ -29,7 +32,7 @@ export function ProfileNumbers({ work, time, shared }: { work?: Work; time?: Tim
           label: 'Hours this week',
           value: formatHours(time.week_hours),
           icon: time.running ? Timer : Clock,
-          context: time.running ? <span className="text-emerald-300">Timer running now</span> : 'Logged since Monday',
+          context: time.running ? <span className="text-emerald-300">Timer running now</span> : `Logged since ${WEEKDAYS[weekStartDay()]}`,
         },
         time && { label: 'Hours, last 30 days', value: formatHours(time.last_30_hours), icon: Clock, context: 'All logged time' },
       ]}
@@ -39,7 +42,7 @@ export function ProfileNumbers({ work, time, shared }: { work?: Work; time?: Tim
 
 /** How much the person uses the app: active days, actions this month, last sign-in. */
 export function ProfileUsage({ usage }: { usage: Usage }) {
-  const month = new Date().toLocaleDateString('en-US', { month: 'long' });
+  const month = new Date().toLocaleDateString(appLocale(), { month: 'long' });
   return (
     <section aria-labelledby="profile-usage">
       <SectionHeader label={<span id="profile-usage">Usage</span>} />

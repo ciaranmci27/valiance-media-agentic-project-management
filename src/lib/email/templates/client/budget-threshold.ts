@@ -5,7 +5,8 @@
 
 import type { Brand } from '@/lib/brand';
 import { ctaButton, escapeHtml, getSiteName, linkLine, paragraph, statGrid, withEmailBrand } from '../shared';
-import { clientEmailLayout, clientHeader, greeting, usageMeter } from './layout';
+import { formatMoneyExact } from '@/lib/format';
+import { clientEmailLayout, clientHeader, formatEmailHours, greeting, usageMeter, type EmailRegion } from './layout';
 
 export interface BudgetThresholdSlots {
   subject: string;
@@ -18,10 +19,10 @@ export function budgetThresholdDefaults(ctx: {
   thresholdPct: number;
   budgetType: 'hours' | 'amount';
 }): BudgetThresholdSlots {
-  const label = ctx.budgetType === 'hours' ? 'hours' : 'dollar';
+  const label = ctx.budgetType === 'hours' ? 'hours budget' : 'budget';
   return {
     subject: `${ctx.projectName} has reached ${ctx.thresholdPct}% of its budget`,
-    alert_paragraph: `A heads up: your project has reached ${ctx.thresholdPct}% of its ${label} budget. Here is where things stand.`,
+    alert_paragraph: `A heads up: your project has reached ${ctx.thresholdPct}% of its ${label}. Here is where things stand.`,
     closing_line: 'The full breakdown is in your project portal.',
   };
 }
@@ -36,13 +37,15 @@ interface BudgetThresholdParams {
   currentUsage: number;
   thresholdPct: number;
   slots: BudgetThresholdSlots;
+  /** The workspace region: a project budget is in the workspace currency. */
+  region: EmailRegion;
 }
 
-function formatValue(value: number, type: 'hours' | 'amount'): string {
+function formatValue(value: number, type: 'hours' | 'amount', region: EmailRegion): string {
   if (type === 'hours') {
-    return `${value.toFixed(1)} hrs`;
+    return formatEmailHours(value, region.locale);
   }
-  return `$${value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return formatMoneyExact(value, region);
 }
 
 /** Renders with the workspace's brand (getBrand), so the name, logo and colors are this workspace's. */
@@ -51,7 +54,7 @@ export function buildBudgetThresholdEmail(params: BudgetThresholdParams & { bran
 }
 
 function renderBudgetThresholdEmail(params: BudgetThresholdParams): { subject: string; html: string; text: string } {
-  const { projectName, clientName, portalUrl, logoUrl, budgetType, budgetValue, currentUsage, thresholdPct, slots } = params;
+  const { projectName, clientName, portalUrl, logoUrl, budgetType, budgetValue, currentUsage, thresholdPct, slots, region } = params;
   const name = getSiteName();
   const remaining = Math.max(0, budgetValue - currentUsage);
   // The bar shows real usage, which can sit a little past the threshold that
@@ -65,19 +68,19 @@ function renderBudgetThresholdEmail(params: BudgetThresholdParams): { subject: s
       logoUrl,
       title: `${thresholdPct}% of the budget is`,
       tail: 'used.',
-      meta: [projectName, 'Budget alert', `${formatValue(budgetValue, budgetType)} budget`],
+      meta: [projectName, 'Budget alert', `${formatValue(budgetValue, budgetType, region)} budget`],
     })}
     ${greeting(clientName)}
     ${paragraph(escapeHtml(slots.alert_paragraph))}
     ${usageMeter({
       percent: usedPct,
       left: `${usedPct}% used`,
-      right: `${formatValue(remaining, budgetType)} remaining`,
+      right: `${formatValue(remaining, budgetType, region)} remaining`,
     })}
     ${statGrid([
-      { label: 'Budget', value: formatValue(budgetValue, budgetType) },
-      { label: 'Used', value: formatValue(currentUsage, budgetType), tone: attention ? 'copper' : 'teal' },
-      { label: 'Remaining', value: formatValue(remaining, budgetType) },
+      { label: 'Budget', value: formatValue(budgetValue, budgetType, region) },
+      { label: 'Used', value: formatValue(currentUsage, budgetType, region), tone: attention ? 'copper' : 'teal' },
+      { label: 'Remaining', value: formatValue(remaining, budgetType, region) },
     ])}
     ${paragraph(escapeHtml(slots.closing_line))}
     ${ctaButton('View project details', portalUrl)}
@@ -95,9 +98,9 @@ function renderBudgetThresholdEmail(params: BudgetThresholdParams): { subject: s
     '',
     slots.alert_paragraph,
     '',
-    `Budget: ${formatValue(budgetValue, budgetType)}`,
-    `Used: ${formatValue(currentUsage, budgetType)} (${usedPct}%)`,
-    `Remaining: ${formatValue(remaining, budgetType)}`,
+    `Budget: ${formatValue(budgetValue, budgetType, region)}`,
+    `Used: ${formatValue(currentUsage, budgetType, region)} (${usedPct}%)`,
+    `Remaining: ${formatValue(remaining, budgetType, region)}`,
     '',
     slots.closing_line,
     portalUrl,

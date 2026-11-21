@@ -20,6 +20,20 @@ import {
   metaLine,
   progressBar,
 } from '../shared';
+import { formatNumber } from '@/lib/format';
+import type { Region } from '@/lib/region';
+
+/**
+ * The currency and locale a client email writes its amounts and dates in.
+ * The sender reads the workspace region (getRegion) and passes it, with an
+ * invoice's own currency in place of the workspace's where there is one.
+ */
+export type EmailRegion = Pick<Region, 'currency' | 'locale'>;
+
+/** "12.5 hrs" ("12,5 hrs" in de-DE): hours with one decimal, in the email's locale. */
+export function formatEmailHours(value: number, locale: string): string {
+  return `${formatNumber(value, { locale, minimumFractionDigits: 1, maximumFractionDigits: 1 })} hrs`;
+}
 
 interface ClientLayoutOptions {
   preheader?: string;

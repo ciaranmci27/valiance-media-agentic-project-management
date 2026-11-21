@@ -52,6 +52,7 @@ import { Button } from '@/components/ui/Button';
 import { SectionHeader } from '@/components/ui/SectionHeader';
 import { Bone, EmptyCard, NoMatches, RailCard, Skeleton, SubNav, TabToolbar, ToolbarButton } from '@/components/projects/TabLayout';
 import { hasPermission } from '@/lib/access-control';
+import { appLocale } from '@/lib/region';
 
 interface CredentialsPanelProps {
   projectId: string;
@@ -144,7 +145,7 @@ function timeAgo(dateStr: string): string {
   if (hours < 24) return `${hours}h ago`;
   const days = Math.floor(hours / 24);
   if (days < 30) return `${days}d ago`;
-  return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  return new Date(dateStr).toLocaleDateString(appLocale(), { month: 'short', day: 'numeric' });
 }
 
 // ── Revealed field row ──────────────────────────────

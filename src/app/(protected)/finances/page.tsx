@@ -13,6 +13,7 @@ import { ensureLineItems, spreadLineItem } from '@/lib/invoice-utils';
 import {
   computeFinanceData,
   computeFinanceAttribution,
+  invoiceInCurrency,
   projectTimeEntryForBilling,
   serviceAccrualLines,
 } from '@/lib/finance/summary';
@@ -42,7 +43,9 @@ import { useAuth } from '@/lib/auth-context';
 import { hasPermission, isModuleEnabled } from '@/lib/access-control';
 import type { EmployeeEarningsData } from '@/lib/types';
 import { toLocalDateKey } from '@/lib/date-utils';
-import { formatHours, formatMoney } from '@/lib/format';
+import { excludedNote, formatHours } from '@/lib/format';
+import { appLocale, startOfWeek, weekStartDay, type Region, type WeekStart } from '@/lib/region';
+import { useMoney, useRegion } from '@/lib/region/context';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -56,38 +59,22 @@ const EMPTY_EMPLOYEE_EARNINGS: EmployeeEarningsData = {
   allocations: [],
 };
 
-function fmt(value: number): string {
-  if (value >= 1000) {
-    return value.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
-  }
-  const hasCents = Math.round(value * 100) % 100 !== 0;
-  return value.toLocaleString('en-US', {
-    minimumFractionDigits: hasCents ? 2 : 0,
-    maximumFractionDigits: 2,
+/** "Apr 7", "Apr 7, 2025", "Mon, Apr 7" in en-US; the workspace locale's own order elsewhere. */
+function fmtDate(dateStr: string, withWeekday = false, locale = appLocale()): string {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const date = new Date(y, m - 1, d);
+  return date.toLocaleDateString(locale, {
+    ...(withWeekday ? { weekday: 'short' } : {}),
+    month: 'short',
+    day: 'numeric',
+    ...(y !== new Date().getFullYear() ? { year: 'numeric' } : {}),
   });
 }
 
-function fmtCurrency(value: number): string {
-  return formatMoney(value);
-}
 
-function fmtDate(dateStr: string, withWeekday = false): string {
-  const [y, m, d] = dateStr.split('-').map(Number);
-  const date = new Date(y, m - 1, d);
-  const now = new Date();
-  const month = date.toLocaleString('en-US', { month: 'short' });
-  const base = y !== now.getFullYear() ? `${month} ${d}, ${y}` : `${month} ${d}`;
-  if (!withWeekday) return base;
-  const weekday = date.toLocaleString('en-US', { weekday: 'short' });
-  return `${weekday}, ${base}`;
-}
-
-
-/** "12 AM" / "9 AM" / "12 PM" / "11 PM" - 12-hour clock label for an hour 0..23. */
-function fmtHourLabel(hour: number): string {
-  const period = hour < 12 ? 'AM' : 'PM';
-  const h12 = hour % 12 === 0 ? 12 : hour % 12;
-  return `${h12} ${period}`;
+/** "12 AM" / "9 AM" / "12 PM" / "11 PM" in en-US: an hour 0..23 on the workspace locale's clock. */
+function fmtHourLabel(hour: number, locale = appLocale()): string {
+  return new Date(2000, 0, 1, hour).toLocaleTimeString(locale, { hour: 'numeric' });
 }
 
 /** Return ~4 nicely rounded tick values from 0 to ceiling */
@@ -112,17 +99,6 @@ function niceAxisTicks(maxVal: number, count = 4): number[] {
   // Always include a top tick that covers the max
   if (ticks[ticks.length - 1] < maxVal) ticks.push(v);
   return ticks;
-}
-
-/** Format axis label: $0, $500, $1K, $2.5K, etc. */
-function fmtAxis(val: number): string {
-  if (val === 0) return '$0';
-  // Round to avoid floating-point artifacts like $0.600000000000001
-  const rounded = Math.round(val * 100) / 100;
-  const absolute = Math.abs(rounded);
-  const prefix = rounded < 0 ? '-$' : '$';
-  if (absolute >= 1000) return `${prefix}${(absolute / 1000).toFixed(absolute % 1000 === 0 ? 0 : 1)}K`;
-  return `${prefix}${absolute}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -199,18 +175,18 @@ function daysBetween(startKey: string, endKey: string): number {
 
 
 /** Format a date range for display: "Apr 1 - Apr 13, 2026" */
-function fmtRangeDisplay(startKey: string, endKey: string): string {
+function fmtRangeDisplay(startKey: string, endKey: string, locale = appLocale()): string {
   const [sy, sm, sd] = startKey.split('-').map(Number);
   const [ey, em, ed] = endKey.split('-').map(Number);
   const start = new Date(sy, sm - 1, sd);
   const end = new Date(ey, em - 1, ed);
   const now = new Date();
-  const sameYear = sy === ey;
-  const endYear = ey !== now.getFullYear() ? `, ${ey}` : '';
-  if (sameYear) {
-    return `${start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${end.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}${endYear}`;
+  const day = { month: 'short', day: 'numeric' } as const;
+  const dayYear = { month: 'short', day: 'numeric', year: 'numeric' } as const;
+  if (sy === ey) {
+    return `${start.toLocaleDateString(locale, day)} - ${end.toLocaleDateString(locale, ey !== now.getFullYear() ? dayYear : day)}`;
   }
-  return `${start.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} - ${end.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`;
+  return `${start.toLocaleDateString(locale, dayYear)} - ${end.toLocaleDateString(locale, dayYear)}`;
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -282,16 +258,12 @@ function pickGranularity(rangeDays: number): Granularity {
   return 'month';
 }
 
-/** Bucket-start key for a date at a given granularity. Weeks align to Monday. */
-function bucketStartKey(dateKey: string, gran: Granularity): string {
+/** Bucket-start key for a date at a given granularity. Weeks start on the workspace's first day. */
+function bucketStartKey(dateKey: string, gran: Granularity, firstDay: WeekStart = weekStartDay()): string {
   if (gran === 'day') return dateKey;
   const [y, m, d] = dateKey.split('-').map(Number);
   if (gran === 'month') return `${y}-${String(m).padStart(2, '0')}-01`;
-  const date = new Date(y, m - 1, d);
-  const dow = date.getDay(); // 0 = Sun
-  const back = dow === 0 ? 6 : dow - 1;
-  date.setDate(date.getDate() - back);
-  return toDateKey(date);
+  return toDateKey(startOfWeek(new Date(y, m - 1, d), firstDay));
 }
 
 /** Bucket-end key (last day in bucket). For 'week' = start + 6; for 'month' = last day of month. */
@@ -308,41 +280,39 @@ function bucketEndKey(startKey: string, gran: Granularity): string {
 }
 
 /** Short axis label for a bucket. */
-function bucketAxisLabel(startKey: string, gran: Granularity, todayKey: string): string {
+function bucketAxisLabel(startKey: string, gran: Granularity, todayKey: string, locale = appLocale()): string {
   const [y, m, d] = startKey.split('-').map(Number);
   const date = new Date(y, m - 1, d);
   if (gran === 'day') {
     if (startKey === todayKey) return 'Today';
-    return `${date.toLocaleDateString('en-US', { month: 'short' })} ${d}`;
+    return date.toLocaleDateString(locale, { month: 'short', day: 'numeric' });
   }
   if (gran === 'month') {
     const now = new Date();
-    const base = date.toLocaleDateString('en-US', { month: 'short' });
-    return y === now.getFullYear() ? base : `${base} ${String(y).slice(2)}`;
+    return date.toLocaleDateString(locale, y === now.getFullYear() ? { month: 'short' } : { month: 'short', year: '2-digit' });
   }
-  return `${date.toLocaleDateString('en-US', { month: 'short' })} ${d}`;
+  return date.toLocaleDateString(locale, { month: 'short', day: 'numeric' });
 }
 
-/** Tooltip header: "Mon, Apr 7" for day, "Apr 1 - Apr 7, 2026" for week, "April 2026" for month. */
-function bucketTooltipLabel(startKey: string, endKey: string, gran: Granularity): string {
+/** Tooltip header: "Mon, Apr 7" for day, "Apr 1 - 7, 2026" for week, "April 2026" for month. */
+function bucketTooltipLabel(startKey: string, endKey: string, gran: Granularity, locale = appLocale()): string {
   const [sy, sm, sd] = startKey.split('-').map(Number);
   const [ey, em, ed] = endKey.split('-').map(Number);
   const start = new Date(sy, sm - 1, sd);
   const end = new Date(ey, em - 1, ed);
   const now = new Date();
-  if (gran === 'day') return fmtDate(startKey, true);
+  if (gran === 'day') return fmtDate(startKey, true, locale);
   if (gran === 'month') {
-    const full = start.toLocaleDateString('en-US', { month: 'long' });
-    return sy === now.getFullYear() ? full : `${full} ${sy}`;
+    return start.toLocaleDateString(locale, sy === now.getFullYear() ? { month: 'long' } : { month: 'long', year: 'numeric' });
   }
   const sameYear = sy === ey;
   const sameMonth = sameYear && sm === em;
   const startStr = sameYear
-    ? start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-    : start.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    ? start.toLocaleDateString(locale, { month: 'short', day: 'numeric' })
+    : start.toLocaleDateString(locale, { month: 'short', day: 'numeric', year: 'numeric' });
   const endStr = sameMonth
-    ? `${ed}`
-    : end.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    ? end.toLocaleDateString(locale, { day: 'numeric' })
+    : end.toLocaleDateString(locale, { month: 'short', day: 'numeric' });
   const suffix = sameYear && ey !== now.getFullYear() ? `, ${ey}` : !sameYear ? `, ${ey}` : '';
   return `${startStr} - ${endStr}${suffix}`;
 }
@@ -398,6 +368,7 @@ function buildRangeBars(
   engine: ReturnType<typeof computeFinanceData>,
   range: { startKey: string; endKey: string },
   todayKey: string,
+  region: Region,
 ): { dailyBars: DayBar[]; maxBarTotal: number; granularity: Granularity } {
   const { workByDay, fixedByDayProject, recurringByDayProject, paymentsByDay, projectLookup } = engine;
   const { startKey, endKey } = range;
@@ -423,7 +394,7 @@ function buildRangeBars(
   }
   const buckets = new Map<string, BucketAgg>();
   const getBucket = (dk: string): BucketAgg => {
-    const bStart = bucketStartKey(dk, granularity);
+    const bStart = bucketStartKey(dk, granularity, region.weekStart);
     let b = buckets.get(bStart);
     if (!b) {
       // Clamp bucket end to range end so partial weeks/months don't overstate span
@@ -508,8 +479,8 @@ function buildRangeBars(
       return {
         dateKey: b.startKey,
         endKey: b.endKey,
-        label: bucketAxisLabel(b.startKey, granularity, todayKey),
-        tooltipDate: bucketTooltipLabel(b.startKey, b.endKey, granularity),
+        label: bucketAxisLabel(b.startKey, granularity, todayKey, region.locale),
+        tooltipDate: bucketTooltipLabel(b.startKey, b.endKey, granularity, region.locale),
         hourlyValue: b.hourly,
         hoursWorked: b.hours,
         fixedRevenue: b.fixed,
@@ -540,6 +511,8 @@ function buildRangeBars(
 function CompanyOverview() {
   const { projects, projectInvoices, timeEntries, team, agentActivity } = useApp();
   const { access, teamMemberId } = useAuth();
+  const region = useRegion();
+  const money = useMoney();
   const canReadCompanyFinance = hasPermission(access, 'finance.company.read');
   // Agent cost and the AI agents lens belong to the agents module.
   const isAgentsEnabled = isModuleEnabled(access, 'agents');
@@ -689,8 +662,9 @@ function CompanyOverview() {
       totalHours: engine.hours,
       totalPendingEarned: engine.pendingEarned,
       activeInvoicesCount: engine.activeInvoicesCount,
+      excludedInvoices: engine.excludedInvoices,
       // "Today" axis labels roll over at local midnight (nowDayKey is timezone-aware).
-      ...buildRangeBars(engine, range, nowDayKey),
+      ...buildRangeBars(engine, range, nowDayKey, region),
       projectBreakdown: engine.projectBreakdown, allInvoices,
       // Exposed for bucket drilldown (week/month → days). Each map is keyed by
       // YYYY-MM-DD and contains the per-day data already used to build
@@ -702,7 +676,7 @@ function CompanyOverview() {
       paymentsByDay: engine.paymentsByDay,
       projectLookup: engine.projectLookup,
     };
-  }, [projects, projectInvoices, timeEntries, team, rateByProject, range, now, nowDayKey, preferredTimezone, selectedProjectIds, lineSharePercent, accruingRetainerLines]);
+  }, [projects, projectInvoices, timeEntries, team, rateByProject, range, now, nowDayKey, preferredTimezone, selectedProjectIds, lineSharePercent, accruingRetainerLines, region]);
 
   // ── Earnings-source scoping ─────────────────────────────────
   // The source filter re-scopes the chart and the Overview strip through a
@@ -749,14 +723,14 @@ function CompanyOverview() {
     return {
       totalEarned: engine.earned,
       totalHours: engine.hours,
-      ...buildRangeBars(engine, range, nowDayKey),
+      ...buildRangeBars(engine, range, nowDayKey, region),
       workByDay: engine.workByDay,
       fixedByDayProject: engine.fixedByDayProject,
       recurringByDayProject: engine.recurringByDayProject,
       paymentsByDay: engine.paymentsByDay,
       projectLookup: engine.projectLookup,
     };
-  }, [sourceFilter, projects, effectiveInvoices, effectiveTimeEntries, team, rateByProject, now, nowDayKey, preferredTimezone, range, selectedProjectIds, lineSharePercent, effectiveAccruingLines]);
+  }, [sourceFilter, projects, effectiveInvoices, effectiveTimeEntries, team, rateByProject, now, nowDayKey, preferredTimezone, range, selectedProjectIds, lineSharePercent, effectiveAccruingLines, region]);
 
   // What the chart and drilldowns read from: the source-scoped pass when a
   // source is active, the company-wide pass otherwise.
@@ -950,8 +924,8 @@ function CompanyOverview() {
       bars.push({
         dateKey: dk,
         endKey: dk,
-        label: bucketAxisLabel(dk, 'day', todayKey),
-        tooltipDate: bucketTooltipLabel(dk, dk, 'day'),
+        label: bucketAxisLabel(dk, 'day', todayKey, region.locale),
+        tooltipDate: bucketTooltipLabel(dk, dk, 'day', region.locale),
         hourlyValue: hourly,
         hoursWorked: hours,
         fixedRevenue: fixed,
@@ -962,7 +936,7 @@ function CompanyOverview() {
       });
     }
     return bars;
-  }, [drilldownBucket, chartData, nowDayKey]);
+  }, [drilldownBucket, chartData, nowDayKey, region.locale]);
 
   // ── Hourly drilldown bars ──────────────────────────────────
   // When the user clicks a daily candle we surface a 24-bar view of that day,
@@ -1053,8 +1027,9 @@ function CompanyOverview() {
     // hours. paid_date carries no time-of-day so per-hour attribution is a
     // visual convenience, not a claim about when the money arrived.
     let paymentsToday = 0;
+    const inCurrency = invoiceInCurrency(region.currency);
     for (const inv of effectiveInvoices) {
-      if (!includeProject(inv.project_id)) continue;
+      if (!includeProject(inv.project_id) || !inCurrency(inv)) continue;
       if (inv.status === 'paid' && inv.paid_date === drilldownDay) paymentsToday += inv.amount;
     }
     if (paymentsToday > 0) {
@@ -1084,8 +1059,8 @@ function CompanyOverview() {
       return {
         dateKey: key,
         endKey: key,
-        label: fmtHourLabel(h),
-        tooltipDate: `${fmtHourLabel(h)} – ${fmtHourLabel((h + 1) % 24)}`,
+        label: fmtHourLabel(h, region.locale),
+        tooltipDate: `${fmtHourLabel(h, region.locale)} – ${fmtHourLabel((h + 1) % 24, region.locale)}`,
         hourlyValue: b.hourly,
         hoursWorked: b.hours,
         fixedRevenue: b.fixed,
@@ -1095,7 +1070,7 @@ function CompanyOverview() {
         projectWork,
       };
     });
-  }, [drilldownDay, effectiveTimeEntries, team, rateByProject, effectiveInvoices, projects, now, preferredTimezone, selectedProjectIds, lineSharePercent, effectiveAccruingLines]);
+  }, [drilldownDay, effectiveTimeEntries, team, rateByProject, effectiveInvoices, projects, now, preferredTimezone, selectedProjectIds, lineSharePercent, effectiveAccruingLines, region]);
 
   // What the chart actually renders, in priority order:
   //   hour drilldown → bucket drilldown → main range.
@@ -1463,16 +1438,16 @@ function CompanyOverview() {
               className="px-5 py-4"
               label="Contributor totals"
               stats={[
-                { label: 'Earned', value: fmtCurrency(sourceData.totalEarned), tone: sourceData.totalEarned >= 0 ? 'success' : 'danger' },
+                { label: 'Earned', value: money(sourceData.totalEarned), tone: sourceData.totalEarned >= 0 ? 'success' : 'danger' },
                 {
                   label: 'Recorded cost',
-                  value: attribution.recordedCost !== null ? fmtCurrency(attribution.recordedCost) : null,
+                  value: attribution.recordedCost !== null ? money(attribution.recordedCost) : null,
                   empty: <NotTrackedValue reason={costNotTrackedReason} />,
                   tone: attribution.recordedCost !== null && attribution.recordedCost > 0 ? 'warning' : 'default',
                 },
                 {
                   label: 'Contribution',
-                  value: attribution.contribution !== null ? fmtCurrency(attribution.contribution) : null,
+                  value: attribution.contribution !== null ? money(attribution.contribution) : null,
                   empty: <NotTrackedValue reason={costNotTrackedReason} />,
                   tone: attribution.contribution !== null && attribution.contribution < 0 ? 'danger' : 'success',
                 },
@@ -1485,7 +1460,7 @@ function CompanyOverview() {
               className="px-5 py-4"
               label="Totals"
               stats={[
-                { label: 'Earned', value: fmtCurrency(data.totalEarned), tone: data.totalEarned >= 0 ? 'success' : 'danger' },
+                { label: 'Earned', value: money(data.totalEarned), tone: data.totalEarned >= 0 ? 'success' : 'danger' },
                 // Worked but unapproved value. Shown rather than folded into
                 // Earned so reviewing a session can only ever move this number
                 // into Earned, never make Earned fall.
@@ -1496,19 +1471,21 @@ function CompanyOverview() {
                       <span className="cursor-help">Pending</span>
                     </Tooltip>
                   ),
-                  value: fmtCurrency(data.totalPendingEarned),
+                  value: money(data.totalPendingEarned),
                   context: 'Awaiting approval',
                 },
                 {
                   label: 'Outstanding',
-                  value: `$${fmt(data.totalOutstanding)}`,
+                  value: money(data.totalOutstanding),
                   tone: data.totalOutstanding > 0 ? 'warning' : 'default',
-                  context: data.totalOverdue > 0 ? <span className="text-red-300">${fmt(data.totalOverdue)} overdue</span> : undefined,
+                  context: data.totalOverdue > 0 ? <span className="text-red-300">{money(data.totalOverdue)} overdue</span> : undefined,
                 },
-                { label: 'Invoiced', value: `$${fmt(data.totalInvoiced)}` },
-                { label: 'Received', value: `$${fmt(data.totalPaymentsReceived)}`, tone: 'success' },
+                { label: 'Invoiced', value: money(data.totalInvoiced) },
+                { label: 'Received', value: money(data.totalPaymentsReceived), tone: 'success' },
                 { label: 'Total hours', value: formatHours(data.totalHours) },
-                { label: 'Invoices', value: data.activeInvoicesCount },
+                // Every currency counts here; the money totals add the workspace
+                // currency only, so this is where the strip says what they leave out.
+                { label: 'Invoices', value: data.activeInvoicesCount, context: excludedNote(data.excludedInvoices, 'invoice', true) || undefined },
               ]}
             />
           )}
@@ -1591,7 +1568,7 @@ function CompanyOverview() {
                           className="text-[10px] text-zinc-500 font-medium leading-none text-right"
                           style={{ minWidth: 36 }}
                         >
-                          {fmtAxis(tick)}
+                          {money.compact(tick)}
                         </span>
                       ))}
                     </div>
@@ -1842,7 +1819,7 @@ function CompanyOverview() {
                                           {row.hours !== undefined && row.hours > 0 && (
                                             <span className="text-zinc-300 flex-shrink-0">{formatHours(row.hours)}</span>
                                           )}
-                                          <span className={`font-semibold flex-shrink-0 ${row.amount < 0 ? 'text-rose-300' : ''}`}>{fmtCurrency(row.amount)}</span>
+                                          <span className={`font-semibold flex-shrink-0 ${row.amount < 0 ? 'text-rose-300' : ''}`}>{money(row.amount)}</span>
                                         </div>
                                       );
 
@@ -1857,7 +1834,7 @@ function CompanyOverview() {
                                                   <div className="flex items-baseline gap-1">
                                                     <span className="uppercase tracking-wider text-[9px] text-zinc-500 font-semibold">{section.label}</span>
                                                     {section.rows.length > 1 && (
-                                                      <span className="text-[9px] text-zinc-600">({fmtCurrency(section.totalAmount)})</span>
+                                                      <span className="text-[9px] text-zinc-600">({money(section.totalAmount)})</span>
                                                     )}
                                                   </div>
                                                 )}
@@ -1873,14 +1850,14 @@ function CompanyOverview() {
                                           {showGrandTotal && (
                                             <div className="mt-1.5 pt-1.5 border-t border-white/10 flex items-center justify-between gap-3 text-zinc-100 flex-shrink-0">
                                               <span className="uppercase tracking-wider text-[9px] text-zinc-500">Total earned</span>
-                                              <span className="font-semibold">{fmtCurrency(totalEarnedDay)}</span>
+                                              <span className="font-semibold">{money(totalEarnedDay)}</span>
                                             </div>
                                           )}
                                         </div>
                                       );
                                     })()}
                                     {visPaymentVal > 0 && (
-                                      <p className="text-emerald-300 mt-0.5 flex-shrink-0">Payments: <span className="font-semibold">${fmt(visPaymentVal)}</span></p>
+                                      <p className="text-emerald-300 mt-0.5 flex-shrink-0">Payments: <span className="font-semibold">{money(visPaymentVal)}</span></p>
                                     )}
                                   </div>
                                 </div>
@@ -2025,7 +2002,7 @@ function CompanyOverview() {
                         <p className="text-xs text-zinc-400 mt-0.5 truncate">{project?.name || 'Unknown project'}</p>
                       </div>
                       <div className="text-right flex-shrink-0">
-                        <p className="text-sm font-semibold text-white">${fmt(inv.amount)}</p>
+                        <p className="text-sm font-semibold text-white">{money.exact(inv.amount, inv.currency)}</p>
                         <p className="text-[11px] text-zinc-500">{fmtDate(inv.date)}</p>
                       </div>
                     </Link>
@@ -2095,16 +2072,16 @@ function CompanyOverview() {
                               />
                             </div>
                             {p.isHourly && p.hourlyRate && (
-                              <span className="text-[11px] text-zinc-500">${p.hourlyRate}/hr</span>
+                              <span className="text-[11px] text-zinc-500">{money(p.hourlyRate)}/hr</span>
                             )}
                           </div>
                         </div>
                       </div>
-                      <span className={`text-sm font-semibold text-right w-24 ${p.earned >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{fmtCurrency(p.earned)}</span>
-                      <span className="text-sm text-emerald-300 font-semibold text-right w-24">${fmt(p.received)}</span>
-                      <span className="text-sm text-zinc-300 font-medium text-right w-24">${fmt(p.invoiced)}</span>
+                      <span className={`text-sm font-semibold text-right w-24 ${p.earned >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{money(p.earned)}</span>
+                      <span className="text-sm text-emerald-300 font-semibold text-right w-24">{money(p.received)}</span>
+                      <span className="text-sm text-zinc-300 font-medium text-right w-24">{money(p.invoiced)}</span>
                       <span className={`text-sm font-medium text-right w-24 ${p.outstanding > 0 ? 'text-amber-400' : 'text-zinc-600'}`}>
-                        {p.outstanding > 0 ? `$${fmt(p.outstanding)}` : '-'}
+                        {p.outstanding > 0 ? money(p.outstanding) : '-'}
                       </span>
                       <span className={`text-sm text-right w-20 ${p.hours > 0 ? 'text-violet-400 font-medium' : 'text-zinc-600'}`}>
                         {p.hours > 0 ? formatHours(p.hours) : '-'}
@@ -2117,11 +2094,11 @@ function CompanyOverview() {
               {/* Totals */}
               <div className="grid grid-cols-[1fr_auto_auto_auto_auto_auto] gap-x-6 px-5 py-3.5 border-t border-white/[0.08] bg-white/[0.03]">
                 <span className="text-sm font-semibold text-zinc-300">Total</span>
-                <span className={`text-sm font-bold text-right w-24 ${data.totalEarned >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{fmtCurrency(data.totalEarned)}</span>
-                <span className="text-sm font-bold text-emerald-300 text-right w-24">${fmt(data.totalPaymentsReceived)}</span>
-                <span className="text-sm font-bold text-white text-right w-24">${fmt(data.totalInvoiced)}</span>
+                <span className={`text-sm font-bold text-right w-24 ${data.totalEarned >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{money(data.totalEarned)}</span>
+                <span className="text-sm font-bold text-emerald-300 text-right w-24">{money(data.totalPaymentsReceived)}</span>
+                <span className="text-sm font-bold text-white text-right w-24">{money(data.totalInvoiced)}</span>
                 <span className={`text-sm font-bold text-right w-24 ${data.totalOutstanding > 0 ? 'text-amber-400' : 'text-zinc-600'}`}>
-                  {data.totalOutstanding > 0 ? `$${fmt(data.totalOutstanding)}` : '-'}
+                  {data.totalOutstanding > 0 ? money(data.totalOutstanding) : '-'}
                 </span>
                 <span className="text-sm font-bold text-violet-400 text-right w-20">{formatHours(data.totalHours)}</span>
               </div>
@@ -2143,9 +2120,9 @@ function CompanyOverview() {
                     bare
                     label={`${p.name} totals`}
                     stats={[
-                      { label: 'Earned', value: fmtCurrency(p.earned), tone: p.earned >= 0 ? 'success' : 'danger' },
-                      { label: 'Received', value: `$${fmt(p.received)}`, tone: 'success' },
-                      { label: 'Outstanding', value: p.outstanding > 0 ? `$${fmt(p.outstanding)}` : null, empty: '-', tone: 'warning' },
+                      { label: 'Earned', value: money(p.earned), tone: p.earned >= 0 ? 'success' : 'danger' },
+                      { label: 'Received', value: money(p.received), tone: 'success' },
+                      { label: 'Outstanding', value: p.outstanding > 0 ? money(p.outstanding) : null, empty: '-', tone: 'warning' },
                       { label: 'Hours', value: p.hours > 0 ? formatHours(p.hours) : null, empty: '-' },
                     ]}
                   />

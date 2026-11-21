@@ -4,6 +4,7 @@ import { BellRing } from 'lucide-react';
 import { Sparkline } from '@/components/ui/Sparkline';
 import type { Attention } from '@/lib/agent-telemetry-analytics';
 import { Card, CardSkeleton, Disclosure, CardStats, Missing, fmtDuration, fmtPct } from './shared';
+import { formatNumber } from '@/lib/format';
 
 const KIND_LABELS: Record<string, string> = {
   telegram_reply: 'replies',
@@ -47,7 +48,7 @@ export function AttentionCard({ attention, measuring, rangeDays, taskTitle }: {
               {
                 label: 'Unsolicited a day',
                 hint: 'Messages nobody asked for (updates, notifications, questions, alerts), averaged over the days in range.',
-                value: (unsolicited / rangeDays).toFixed(1),
+                value: formatNumber(unsolicited / rangeDays, { minimumFractionDigits: 1, maximumFractionDigits: 1 }),
                 context: `${unsolicited} in range`,
               },
               {

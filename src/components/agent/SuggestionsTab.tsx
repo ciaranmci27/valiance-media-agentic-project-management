@@ -15,6 +15,7 @@ import {
   Ban, Check, X, HelpCircle, Lightbulb, Pencil,
 } from 'lucide-react';
 import { toast } from '@/components/ui/Toast';
+import { appLocale } from '@/lib/region';
 
 export type StatusFilter = '' | 'pending' | 'needs_info' | 'approved' | 'rejected' | 'declined';
 
@@ -242,7 +243,7 @@ export function SuggestionsTab({ filters }: { filters: SuggestionsFilters }) {
                     <span>{getAgentName(suggestion.proposed_by)}</span>
                   </div>
                   <span>&middot;</span>
-                  <span>{new Date(suggestion.created_at).toLocaleDateString()}</span>
+                  <span>{new Date(suggestion.created_at).toLocaleDateString(appLocale())}</span>
                 </div>
 
                 {/* Reasoning — most prominent */}

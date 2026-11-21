@@ -10,6 +10,7 @@ import { getWorkedHours, getWorkedHoursByDay, isApprovedTime } from '@/lib/time-
 import { ensureLineItems, spreadLineItem, invoicedTotalsByItemType, totalBillableAmount } from '@/lib/invoice-utils';
 import { dayVestingRatio } from '@/lib/finance/vesting';
 import { invoiceAmountPaid, invoiceAmountReceived } from '@/lib/invoice-payments';
+import { activeRegion } from '@/lib/region';
 
 export interface DateRange { startKey: string; endKey: string }
 
@@ -28,6 +29,18 @@ export interface FinanceEngineInput {
   lineSharePercent?: ReadonlyMap<string, number>;
   /** Retainer months covering today that have no invoice line yet. */
   accruingRetainerLines?: AccruingRetainerLine[];
+  /** ISO 4217 the totals are in. Left out, the workspace currency. */
+  currency?: string;
+}
+
+/**
+ * Whether an invoice counts toward totals in `currency` (the workspace's
+ * unless given). An invoice without a currency predates 1.7.0 and is in the
+ * workspace currency. Totals never add one currency to another.
+ */
+export function invoiceInCurrency(currency?: string): (invoice: Pick<ProjectInvoice, 'currency'>) => boolean {
+  const code = (currency || activeRegion().currency).toUpperCase();
+  return (invoice) => (invoice.currency || code).toUpperCase() === code;
 }
 
 /** One row of the retainer_accruing_lines() RPC. */
@@ -58,13 +71,14 @@ export interface ServiceAccrualLine {
  */
 export function serviceAccrualLines(
   invoices: ProjectInvoice[],
-  input: Pick<FinanceEngineInput, 'lineSharePercent' | 'accruingRetainerLines'>,
+  input: Pick<FinanceEngineInput, 'lineSharePercent' | 'accruingRetainerLines' | 'currency'>,
   projectIncluded: (projectId: string) => boolean = () => true,
 ): ServiceAccrualLine[] {
   const lines: ServiceAccrualLine[] = [];
   const ratio = (percent: number) => Math.min(1, Math.max(0, percent / 100));
+  const inCurrency = invoiceInCurrency(input.currency);
   for (const invoice of invoices) {
-    if (invoice.status === 'cancelled' || !projectIncluded(invoice.project_id)) continue;
+    if (invoice.status === 'cancelled' || !projectIncluded(invoice.project_id) || !inCurrency(invoice)) continue;
     for (const item of ensureLineItems(invoice)) {
       if (item.item_type !== 'fixed' && item.item_type !== 'recurring') continue;
       lines.push({
@@ -124,8 +138,11 @@ export interface FinanceData {
   /** Billable value of worked time still awaiting approval. Not in `earned`. */
   pendingEarned: number;
   activeInvoicesCount: number;
+  /** Open or in-range invoices in another currency, left out of every total. */
+  excludedInvoices: number;
   // Per-project rows (range-scoped earned/received/invoiced; all-time outstanding)
   projectBreakdown: ProjectFinanceRow[];
+  /** Every invoice dated in the range, in any currency, for listing. */
   invoicesInRange: ProjectInvoice[];
   // Per-day maps the chart/drilldown are built from (presentation lives in the page)
   workByDay: Map<string, Map<string, DayProjectWork>>;
@@ -172,12 +189,21 @@ export function computeFinanceData(input: FinanceEngineInput): FinanceData {
   const sel = input.selectedProjectIds;
   const filterActive = !!sel && sel.size > 0;
   const fProjects = filterActive ? projects.filter(p => sel!.has(p.id)) : projects;
-  const fInvoices = filterActive ? invoices.filter(i => sel!.has(i.project_id)) : invoices;
+  const projectInvoices = filterActive ? invoices.filter(i => sel!.has(i.project_id)) : invoices;
   const fTimeEntries = filterActive ? timeEntries.filter(t => sel!.has(t.project_id)) : timeEntries;
 
+  // Totals add only invoices in the workspace currency; the rest are counted
+  // so the page can say what it left out.
+  const inCurrency = invoiceInCurrency(input.currency);
+  const fInvoices = projectInvoices.filter(inCurrency);
+  const isInRange = (inv: ProjectInvoice) => inv.date >= startKey && inv.date <= endKey;
+  const excludedInvoices = projectInvoices.filter(inv =>
+    !inCurrency(inv) && inv.status !== 'cancelled' && (isInRange(inv) || inv.status !== 'paid'),
+  ).length;
+
   // ── Range-aware invoice / payment filters ──
-  const invoicesInRange = fInvoices.filter(inv => inv.date >= startKey && inv.date <= endKey);
-  const activeInvoices = invoicesInRange.filter(inv => inv.status !== 'cancelled');
+  const invoicesInRange = projectInvoices.filter(isInRange);
+  const activeInvoices = fInvoices.filter(inv => isInRange(inv) && inv.status !== 'cancelled');
   // Money received, by the day each payment arrived: a paid invoice counts its
   // whole amount, a part payment its share (lib/invoice-payments.ts).
   const taxRateByProject = new Map(projects.map(p => [p.id, p.tax_rate ?? null]));
@@ -192,7 +218,8 @@ export function computeFinanceData(input: FinanceEngineInput): FinanceData {
     .reduce((s, i) => s + i.amount - invoiceAmountPaid(i, taxRateByProject.get(i.project_id)), 0);
   const invoiced = activeInvoices.reduce((s, i) => s + i.amount, 0);
   const received = paymentsInRange.reduce((s, part) => s + part.amount, 0);
-  const activeInvoicesCount = activeInvoices.length;
+  // A count is not money: every currency counts.
+  const activeInvoicesCount = projectInvoices.filter(inv => isInRange(inv) && inv.status !== 'cancelled').length;
 
   // ── Hours fragmented by calendar day (chart, totals, per-project rows) ──
   const workByDay = new Map<string, Map<string, DayProjectWork>>();
@@ -327,7 +354,7 @@ export function computeFinanceData(input: FinanceEngineInput): FinanceData {
   const projectBreakdown: ProjectFinanceRow[] = fProjects
     .filter(p => p.status !== 'archived')
     .map(p => {
-      const pInvoices = invoicesInRange.filter(inv => inv.project_id === p.id && inv.status !== 'cancelled');
+      const pInvoices = activeInvoices.filter(inv => inv.project_id === p.id);
       const pPayments = paymentsInRange.filter(inv => inv.project_id === p.id);
       const pHours = hoursByProjectInRange.get(p.id) ?? 0;
       const pHourlyEarned = hourlyEarnedByProjectInRange.get(p.id) ?? 0;
@@ -351,7 +378,7 @@ export function computeFinanceData(input: FinanceEngineInput): FinanceData {
 
   return {
     earned, received, invoiced, outstanding, overdue, hours,
-    pendingEarned: pendingEarnedInRange, activeInvoicesCount,
+    pendingEarned: pendingEarnedInRange, activeInvoicesCount, excludedInvoices,
     projectBreakdown, invoicesInRange,
     workByDay, fixedByDayProject, recurringByDayProject, paymentsByDay, projectLookup,
   };
@@ -360,11 +387,13 @@ export function computeFinanceData(input: FinanceEngineInput): FinanceData {
 // ── Company summary (dashboard KPI cards) — thin view over the engine ──
 export interface CompanyFinanceSummary {
   earned: number; received: number; invoiced: number; outstanding: number; overdue: number; hours: number;
+  /** Invoices in another currency, left out of these totals (see excludedNote). */
+  excludedInvoices: number;
 }
 
 export function computeCompanyFinanceSummary(input: FinanceEngineInput): CompanyFinanceSummary {
   const d = computeFinanceData(input);
-  return { earned: d.earned, received: d.received, invoiced: d.invoiced, outstanding: d.outstanding, overdue: d.overdue, hours: d.hours };
+  return { earned: d.earned, received: d.received, invoiced: d.invoiced, outstanding: d.outstanding, overdue: d.overdue, hours: d.hours, excludedInvoices: d.excludedInvoices };
 }
 
 // Contributor attribution is additive to the established finance engine.

@@ -6,6 +6,7 @@ import { useState, useRef, useEffect, useCallback, useId, forwardRef } from 'rea
 import { createPortal } from 'react-dom';
 import { Calendar, ChevronLeft, ChevronRight, X } from 'lucide-react';
 import { mergeRefs, labelSizeClass } from './_shared';
+import { useRegion } from '@/lib/region/context';
 
 /** Accessible, token-based DateInput configuration. */
 export interface DateInputProps {
@@ -36,20 +37,6 @@ export interface DateInputProps {
 }
 
 const DAYS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
-const MONTHS = [
-  'January',
-  'February',
-  'March',
-  'April',
-  'May',
-  'June',
-  'July',
-  'August',
-  'September',
-  'October',
-  'November',
-  'December',
-];
 
 function parseDate(str: string | undefined): Date | null {
   if (!str) return null;
@@ -65,16 +52,16 @@ function toIso(date: Date): string {
   return `${y}-${m}-${d}`;
 }
 
-function toDisplay(date: Date): string {
-  return date.toLocaleDateString('en-US', {
+function toDisplay(date: Date, locale: string): string {
+  return date.toLocaleDateString(locale, {
     month: 'short',
     day: 'numeric',
     year: 'numeric',
   });
 }
 
-function toFullLabel(date: Date): string {
-  return date.toLocaleDateString('en-US', {
+function toFullLabel(date: Date, locale: string): string {
+  return date.toLocaleDateString(locale, {
     weekday: 'long',
     month: 'long',
     day: 'numeric',
@@ -94,8 +81,9 @@ function getDaysInMonth(year: number, month: number): number {
   return new Date(year, month + 1, 0).getDate();
 }
 
-function getFirstDayOfWeek(year: number, month: number): number {
-  return new Date(year, month, 1).getDay();
+/** Leading cells before the 1st, with columns starting on `weekStart`. */
+function getLeadingDays(year: number, month: number, weekStart: number): number {
+  return (new Date(year, month, 1).getDay() - weekStart + 7) % 7;
 }
 
 function addDays(date: Date, days: number): Date {
@@ -133,6 +121,7 @@ export const DateInput = forwardRef<HTMLButtonElement, DateInputProps>(function 
   },
   forwardedRef,
 ) {
+  const { locale, weekStart } = useRegion();
   const [uncontrolledValue, setUncontrolledValue] = useState(defaultValue);
   const value = controlledValue ?? uncontrolledValue;
   const onChange = (next: string) => {
@@ -342,7 +331,7 @@ export const DateInput = forwardRef<HTMLButtonElement, DateInputProps>(function 
     }
   };
 
-  const displayLabel = parsedValue ? toDisplay(parsedValue) : placeholder || 'Select date...';
+  const displayLabel = parsedValue ? toDisplay(parsedValue, locale) : placeholder || 'Select date...';
 
   const sizeClasses = `${fieldSize(size)} ${size === 'sm' ? 'px-2.5' : size === 'lg' ? 'px-3.5' : 'px-3'}`;
   const calIconSize = size === 'sm' ? 14 : size === 'lg' ? 20 : 16;
@@ -352,7 +341,7 @@ export const DateInput = forwardRef<HTMLButtonElement, DateInputProps>(function 
 
   // Build calendar grid
   const daysInMonth = getDaysInMonth(viewYear, viewMonth);
-  const firstDay = getFirstDayOfWeek(viewYear, viewMonth);
+  const firstDay = getLeadingDays(viewYear, viewMonth, weekStart);
   const prevMonthDays = getDaysInMonth(
     viewMonth === 0 ? viewYear - 1 : viewYear,
     viewMonth === 0 ? 11 : viewMonth - 1,
@@ -499,7 +488,7 @@ export const DateInput = forwardRef<HTMLButtonElement, DateInputProps>(function 
                 <ChevronLeft size={navIconSize} />
               </button>
               <span className={`${monthText} font-semibold text-input-text`}>
-                {MONTHS[viewMonth]} {viewYear}
+                {new Date(viewYear, viewMonth, 1).toLocaleDateString(locale, { month: 'long', year: 'numeric' })}
               </span>
               <button
                 type="button"
@@ -513,7 +502,7 @@ export const DateInput = forwardRef<HTMLButtonElement, DateInputProps>(function 
 
             {/* Day headers */}
             <div className="grid grid-cols-7 mb-1" role="row">
-              {DAYS.map((d) => (
+              {DAYS.map((_, i) => DAYS[(i + weekStart) % 7]).map((d) => (
                 <div
                   key={d}
                   role="columnheader"
@@ -543,7 +532,7 @@ export const DateInput = forwardRef<HTMLButtonElement, DateInputProps>(function 
                     tabIndex={isFocused ? 0 : -1}
                     onClick={() => cell.inMonth && handleSelect(cell.day)}
                     onKeyDown={(e) => handleGridKeyDown(e, cell.date)}
-                    aria-label={toFullLabel(cell.date)}
+                    aria-label={toFullLabel(cell.date, locale)}
                     aria-pressed={!!isSelected}
                     aria-current={isToday ? 'date' : undefined}
                     className={`relative ${cellHeight} w-full flex items-center justify-center ${cellText} rounded-input-sm outline-none transition-colors duration-150 ${

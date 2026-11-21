@@ -10,6 +10,9 @@ import { Select } from '@/components/ui/inputs/Select';
 import { TextInput } from '@/components/ui/inputs/TextInput';
 import { INVOICE_PAYMENT_METHODS, type InvoicePayment, type InvoicePaymentMethod, type ProjectInvoice } from '@/lib/types';
 import { invoiceOutstanding, invoicePaidTotal, invoiceTotal } from '@/lib/invoice-payments';
+import { moneyAffix } from '@/lib/format';
+import { appLocale } from '@/lib/region';
+import { useMoney } from '@/lib/region/context';
 
 const METHOD_LABELS: Record<InvoicePaymentMethod, string> = {
   ach: 'ACH',
@@ -20,12 +23,8 @@ const METHOD_LABELS: Record<InvoicePaymentMethod, string> = {
   other: 'Other',
 };
 
-export function formatMoney(value: number): string {
-  return value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
-
 function fmtDay(day: string): string {
-  return new Date(`${day.slice(0, 10)}T12:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  return new Date(`${day.slice(0, 10)}T12:00:00`).toLocaleDateString(appLocale(), { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
 function recordedBy(payment: InvoicePayment, keyNames: Map<string, string | null>): string {
@@ -47,6 +46,8 @@ interface InvoicePaymentsProps {
 
 /** The payments on one invoice, with Record payment and removal of hand-recorded ones. */
 export function InvoicePayments({ invoice, taxRate, keyNames, canRecord, today, onRecord, onRemove }: InvoicePaymentsProps) {
+  const money = useMoney();
+  const currency = invoice.currency;
   const payments = invoice.payments ?? [];
   const total = invoiceTotal(invoice, taxRate);
   const paid = invoicePaidTotal(invoice);
@@ -70,7 +71,7 @@ export function InvoicePayments({ invoice, taxRate, keyNames, canRecord, today, 
         <p className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
           Payments
           {total !== invoice.amount && (
-            <span className="normal-case tracking-normal text-zinc-400"> (total with tax ${formatMoney(total)})</span>
+            <span className="normal-case tracking-normal text-zinc-400"> (total with tax {money.exact(total, currency)})</span>
           )}
         </p>
         {canTakePayment && (
@@ -99,7 +100,7 @@ export function InvoicePayments({ invoice, taxRate, keyNames, canRecord, today, 
             >
               <div className="min-w-0 flex-1">
                 <p className="text-zinc-200">
-                  <span className="font-semibold text-white">${formatMoney(payment.amount)}</span>
+                  <span className="font-semibold text-white">{money.exact(payment.amount, currency)}</span>
                   {' on '}
                   {fmtDay(payment.paid_date)}
                   {payment.method ? ` by ${METHOD_LABELS[payment.method]}` : ''}
@@ -117,7 +118,7 @@ export function InvoicePayments({ invoice, taxRate, keyNames, canRecord, today, 
                     void remove(payment.id);
                   }}
                   disabled={removingId === payment.id}
-                  aria-label={`Remove the $${formatMoney(payment.amount)} payment on ${fmtDay(payment.paid_date)}`}
+                  aria-label={`Remove the ${money.exact(payment.amount, currency)} payment on ${fmtDay(payment.paid_date)}`}
                   className="p-1.5 text-zinc-400 hover:text-red-400 transition-colors rounded-md hover:bg-white/[0.03] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-300 disabled:opacity-50"
                 >
                   {removingId === payment.id
@@ -131,13 +132,14 @@ export function InvoicePayments({ invoice, taxRate, keyNames, canRecord, today, 
       )}
       {payments.length > 0 && outstanding > 0 && (
         <p className="mt-1.5 text-[11px] text-zinc-400">
-          ${formatMoney(paid)} paid, ${formatMoney(outstanding)} outstanding
+          {money.exact(paid, currency)} paid, {money.exact(outstanding, currency)} outstanding
         </p>
       )}
       {recording && (
         <RecordPaymentModal
           invoiceNumber={invoice.invoice_number}
           outstanding={outstanding}
+          currency={currency}
           today={today}
           onClose={() => setRecording(false)}
           onSubmit={async (payment) => {
@@ -154,12 +156,16 @@ export function InvoicePayments({ invoice, taxRate, keyNames, canRecord, today, 
 interface RecordPaymentModalProps {
   invoiceNumber: string;
   outstanding: number;
+  /** The invoice's currency; left out, the workspace's. */
+  currency?: string;
   today: string;
   onClose: () => void;
   onSubmit: (payment: { amount: number; paid_date: string; method: InvoicePaymentMethod | null; reference: string | null }) => Promise<boolean>;
 }
 
-function RecordPaymentModal({ invoiceNumber, outstanding, today, onClose, onSubmit }: RecordPaymentModalProps) {
+function RecordPaymentModal({ invoiceNumber, outstanding, currency, today, onClose, onSubmit }: RecordPaymentModalProps) {
+  const money = useMoney();
+  const affix = moneyAffix({ currency: currency || money.currency, locale: money.locale });
   const [amount, setAmount] = useState<number | ''>(outstanding);
   const [paidDate, setPaidDate] = useState(today);
   const [method, setMethod] = useState<InvoicePaymentMethod | ''>('');
@@ -169,9 +175,9 @@ function RecordPaymentModal({ invoiceNumber, outstanding, today, onClose, onSubm
   const amountError = amount === ''
     ? undefined
     : amount <= 0
-      ? 'Enter more than $0'
+      ? `Enter more than ${money(0, currency)}`
       : Math.round(amount * 100) > Math.round(outstanding * 100)
-        ? `At most the $${formatMoney(outstanding)} outstanding`
+        ? `At most the ${money.exact(outstanding, currency)} outstanding`
         : undefined;
   const canSave = amount !== '' && !amountError && Boolean(paidDate) && !saving;
 
@@ -206,9 +212,10 @@ function RecordPaymentModal({ invoiceNumber, outstanding, today, onClose, onSubm
           max={outstanding}
           step={0.01}
           precision={2}
-          prefix="$"
+          prefix={affix.position === 'prefix' ? affix.symbol : undefined}
+          suffix={affix.position === 'suffix' ? affix.symbol : undefined}
           error={amountError}
-          description={`Outstanding: $${formatMoney(outstanding)}`}
+          description={`Outstanding: ${money.exact(outstanding, currency)}`}
           required
           autoFocus
         />

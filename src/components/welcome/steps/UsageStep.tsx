@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Lock } from 'lucide-react';
 import {
@@ -21,6 +21,11 @@ import { OutcomeLine } from '@/components/settings/workspace/OutcomeLine';
 import { PresetCard } from '@/components/settings/workspace/PresetCard';
 import { moduleList, useModuleSwitch } from '@/components/settings/workspace/workspace-modules';
 import { saveSidebarProjects } from '@/components/settings/workspace/brand-settings';
+import { RegionFields } from '@/components/settings/workspace/RegionFields';
+import { saveRegion, workspaceRegionRead } from '@/components/settings/workspace/region-settings';
+import { useRead } from '@/lib/query-cache';
+import { cleanLocale, currencyName, localeCurrency, localeName, sameRegion, DEFAULT_REGION, type Region } from '@/lib/region';
+import { useRegion } from '@/lib/region/context';
 import { StepFrame, type WizardStepProps } from '../StepFrame';
 
 /**
@@ -28,6 +33,10 @@ import { StepFrame, type WizardStepProps } from '../StepFrame';
  * the switches below fine-tune, keeping dependencies whole and saying so in
  * place ("Client invoicing needs Time, so Time is on too"). Nothing saves
  * until Continue, so trying things here is free.
+ *
+ * Below them, the currency and format. With Client invoicing or Team pay on
+ * they are open and saved on Continue, so money never starts in a currency
+ * nobody chose; otherwise they fold into one line with Change.
  */
 export function UsageStep({ onNext, onSkip, onBack }: WizardStepProps) {
   const { enabled, save, saving } = useModuleSwitch();
@@ -35,11 +44,31 @@ export function UsageStep({ onNext, onSkip, onBack }: WizardStepProps) {
   const [selection, setSelection] = useState<ModuleId[] | null>(null);
   const [note, setNote] = useState<{ id: ModuleId; text: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const live = useRegion();
+  const regionRead = useRead(workspaceRegionRead);
+  const storedRegion = regionRead.data?.status === 'ready' ? regionRead.data.data.region : null;
+  const [region, setRegion] = useState<Region | null>(null);
+  const [regionOpen, setRegionOpen] = useState(false);
+  const [savingRegion, setSavingRegion] = useState(false);
+
+  // A workspace still on the defaults starts from this browser's language
+  // ("de-DE" suggests euros), after mount, since the server has no browser.
+  useEffect(() => {
+    if (!storedRegion || region || !sameRegion(storedRegion, DEFAULT_REGION)) return;
+    const locale = cleanLocale(navigator.language);
+    if (!locale || locale === DEFAULT_REGION.locale) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setRegion({ ...storedRegion, locale, currency: localeCurrency(locale) ?? storedRegion.currency });
+  }, [storedRegion, region]);
 
   const chosen = selection ?? enabled;
   const on = new Set(chosen);
   const current = presetFor(chosen);
   const changed = chosen.length !== enabled.length || chosen.some((id) => !enabled.includes(id));
+  const handlesMoney = on.has('billing') || on.has('team_pay');
+  const regionValue = region ?? storedRegion ?? live;
+  const regionShown = handlesMoney || regionOpen;
+  const regionChanged = !!storedRegion && !sameRegion(regionValue, storedRegion);
 
   const pickPreset = (id: PresetId) => {
     setSelection(MODULE_IDS.filter((mod) => PRESETS[id].modules.includes(mod)));
@@ -59,11 +88,22 @@ export function UsageStep({ onNext, onSkip, onBack }: WizardStepProps) {
   };
 
   const submit = async () => {
+    setError(null);
+    // The region first: with money on, Continue is the choice of currency.
+    if (storedRegion && regionChanged && regionShown) {
+      setSavingRegion(true);
+      const saved = await saveRegion(regionValue);
+      setSavingRegion(false);
+      if (!saved.ok) {
+        setError(`Currency not saved. ${saved.message}`);
+        return;
+      }
+      router.refresh();
+    }
     if (!changed) {
       onNext();
       return;
     }
-    setError(null);
     const result = await save(chosen);
     if (!result.ok) {
       setError(`Not saved, so nothing changed. ${result.message}`);
@@ -87,7 +127,7 @@ export function UsageStep({ onNext, onSkip, onBack }: WizardStepProps) {
       onSubmit={() => { void submit(); }}
       onBack={onBack}
       onSkip={onSkip}
-      busy={saving}
+      busy={saving || savingRegion}
       error={error}
     >
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
@@ -123,6 +163,30 @@ export function UsageStep({ onNext, onSkip, onBack }: WizardStepProps) {
           })}
         </div>
       </div>
+
+      {storedRegion && (
+        <div className="mt-10" role="group" aria-labelledby="welcome-region">
+          <h2 id="welcome-region" className="text-xs font-medium uppercase tracking-wide text-zinc-400">Currency and format</h2>
+          {regionShown ? (
+            <div className="mt-4">
+              <RegionFields
+                value={regionValue}
+                showWeekStart={false}
+                disabled={saving || savingRegion}
+                onChange={(patch) => setRegion({ ...regionValue, ...patch })}
+                currencyHint={handlesMoney ? 'Invoices and pay use it. You can change it later in Settings > Workspace.' : undefined}
+              />
+            </div>
+          ) : (
+            <p className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-zinc-300">
+              <span>Amounts in {currencyName(storedRegion.currency)}, dates in {localeName(storedRegion.locale)}.</span>
+              <button type="button" onClick={() => setRegionOpen(true)} className="rounded text-sm font-medium text-brand-300 hover:text-brand-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500">
+                Change
+              </button>
+            </p>
+          )}
+        </div>
+      )}
     </StepFrame>
   );
 }

@@ -1,4 +1,5 @@
 import type { Task, TaskUpdate } from '@/lib/types';
+import { appLocale } from '@/lib/region';
 
 /**
  * When anything last happened on a task. A task's own updated_at moves only
@@ -37,7 +38,7 @@ export function timeAgo(dateStr: string, now: Date = new Date()): string {
     return `${hours} ${hours === 1 ? 'hour' : 'hours'} ago`;
   }
   if (then.getTime() >= startOfToday - 86_400_000) return 'Yesterday';
-  return then.toLocaleDateString('en-US', {
+  return then.toLocaleDateString(appLocale(), {
     month: 'short',
     day: 'numeric',
     ...(then.getFullYear() === now.getFullYear() ? {} : { year: 'numeric' }),
@@ -46,7 +47,7 @@ export function timeAgo(dateStr: string, now: Date = new Date()): string {
 
 /** "Created Oct 12, 2026". */
 export function createdLabel(createdAt: string): string {
-  return `Created ${new Date(createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`;
+  return `Created ${new Date(createdAt).toLocaleDateString(appLocale(), { month: 'short', day: 'numeric', year: 'numeric' })}`;
 }
 
 /** Both times, for a tooltip: "Created Oct 12, 2026 · Updated 30 min ago". */

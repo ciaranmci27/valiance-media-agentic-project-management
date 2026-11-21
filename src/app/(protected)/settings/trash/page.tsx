@@ -15,6 +15,7 @@ import type { TrashItem } from '@/lib/types';
 import { useAuth } from '@/lib/auth-context';
 import { isModuleEnabled, type AccessContext } from '@/lib/access-control';
 import { TRASH_TABLE_MODULE, type TrashTable } from '@/lib/supabase/trash';
+import { appLocale } from '@/lib/region';
 
 type Group = 'all' | 'projects' | 'tasks' | 'billing' | 'clients' | 'files';
 
@@ -85,7 +86,7 @@ function timeAgo(dateStr: string): string {
   if (hours < 24) return `${hours}h ago`;
   const days = Math.floor(hours / 24);
   if (days < 7) return `${days}d ago`;
-  return new Date(dateStr).toLocaleDateString();
+  return new Date(dateStr).toLocaleDateString(appLocale());
 }
 
 export default function TrashPage() {

@@ -6,6 +6,8 @@ import { DM_Sans, DM_Mono } from 'next/font/google';
 import { ThemeProvider } from '@/components/ui/ThemeProvider';
 import { BrandProvider } from '@/lib/brand/context';
 import { getBrand } from '@/lib/brand/server';
+import { RegionProvider } from '@/lib/region/context';
+import { getRegion } from '@/lib/region/server';
 
 // Self-hosted via next/font and consumed by --font-sans / --font-mono in
 // globals.css. Do not load fonts with a Google Fonts @import url() there:
@@ -50,7 +52,7 @@ export default async function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const brand = await getBrand();
+  const [brand, region] = await Promise.all([getBrand(), getRegion()]);
   return (
     <html
       lang="en"
@@ -62,7 +64,9 @@ export default async function RootLayout({
       </head>
       <body className="antialiased bg-surface font-sans">
         <BrandProvider brand={brand}>
-          <ThemeProvider brand={brand}>{children}</ThemeProvider>
+          <RegionProvider region={region}>
+            <ThemeProvider brand={brand}>{children}</ThemeProvider>
+          </RegionProvider>
         </BrandProvider>
       </body>
     </html>

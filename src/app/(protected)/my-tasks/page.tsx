@@ -26,6 +26,7 @@ import { ReminderComposer } from '@/components/reminders/ReminderComposer';
 import { compareReminders, reminderGroup } from '@/lib/reminders';
 import { UnreadLabel, useCardUnread } from '@/components/tasks/TaskUnread';
 import { MyTaskSubtasks, type SubtaskFlag } from '@/components/tasks/MyTaskSubtasks';
+import { appLocale } from '@/lib/region';
 
 /**
  * Radar: the owner's attention surface. Three bands, strictest first:
@@ -238,7 +239,7 @@ function RadarPageContent() {
       <span className={`text-xs flex items-center gap-1 flex-shrink-0 tabular-nums ${overdue ? 'text-red-400 font-medium' : 'text-zinc-500'}`}>
         <CalendarClock size={12} aria-hidden="true" />
         {overdue ? 'Overdue ' : ''}
-        {d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+        {d.toLocaleDateString(appLocale(), { month: 'short', day: 'numeric' })}
       </span>
     );
   };

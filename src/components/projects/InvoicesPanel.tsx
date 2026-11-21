@@ -28,7 +28,7 @@ import { InvoicePreviewModal } from '@/components/projects/InvoicePreviewModal';
 import ClientEmailPreviewModal from '@/components/projects/ClientEmailPreviewModal';
 import BillingModal, { type BillingTab } from '@/components/projects/billing/BillingModal';
 import { InvoiceLineSplit, type LineSplit } from '@/components/projects/InvoiceLineSplit';
-import { InvoicePayments, formatMoney } from '@/components/projects/InvoicePayments';
+import { InvoicePayments } from '@/components/projects/InvoicePayments';
 import { invoiceOutstanding, invoicePaidTotal, invoiceTotal, isPartiallyPaid } from '@/lib/invoice-payments';
 import { Bone, CardAction, EmptyCard, NoMatches, RailCard, RailLayout, Skeleton, SubNav, TabToolbar, ToolbarButton } from '@/components/projects/TabLayout';
 import { StatStrip } from '@/components/ui/StatStrip';
@@ -53,7 +53,11 @@ import { TextInput } from '@/components/ui/inputs/TextInput';
 import { DateInput } from '@/components/ui/inputs/DateInput';
 import { Textarea } from '@/components/ui/inputs/Textarea';
 import { toLocalDateKey } from '@/lib/date-utils';
-import { formatHours as formatHoursShort, formatMoney as formatTotal } from '@/lib/format';
+import {
+  excludedNote, formatHours as formatHoursShort, formatMoney as formatTotal, formatMoneyExact, formatNumber, moneyAffix,
+} from '@/lib/format';
+import { appLocale } from '@/lib/region';
+import { useMoney } from '@/lib/region/context';
 import { invalidateTables, useRead, warmReads } from '@/lib/query-cache';
 import {
   billingModalReads, projectBillingRunsRead, projectForecastRead, projectPaymentsRead, refreshBilling, useBillingToday,
@@ -98,20 +102,17 @@ const statusColors: Record<string, string> = {
   cancelled: 'bg-white/[0.06] text-zinc-500',
 };
 
-function formatCurrency(value: number): string {
-  return value % 1 === 0
-    ? value.toLocaleString('en-US')
-    : value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
-
-/** "$1,000" or, for a discount, "-$1,000". */
-function signedCurrency(value: number): string {
-  return `${value < 0 ? '-' : ''}$${formatCurrency(Math.abs(value))}`;
+/**
+ * "$1,000" for a whole amount, "$1,234.50" with cents, "-$1,000" for a
+ * discount. Pass the invoice's own currency; left out, the workspace's.
+ */
+function invoiceMoney(value: number, currency?: string | null): string {
+  return value % 1 === 0 ? formatTotal(value, { currency }) : formatMoneyExact(value, { currency });
 }
 
 function formatHours(value: number): string {
-  if (value > 0 && value < 0.0001) return '<0.0001';
-  return value.toLocaleString('en-US', { maximumFractionDigits: 4 });
+  if (value > 0 && value < 0.0001) return `<${formatNumber(0.0001, { maximumFractionDigits: 4 })}`;
+  return formatNumber(value, { maximumFractionDigits: 4 });
 }
 
 function isMeaningfulTimeAllocation(allocation: InvoiceTimeEntryAllocation): boolean {
@@ -121,7 +122,7 @@ function isMeaningfulTimeAllocation(allocation: InvoiceTimeEntryAllocation): boo
 function fmtTrackedDate(value: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleDateString('en-US', {
+  return date.toLocaleDateString(appLocale(), {
     month: 'short',
     day: 'numeric',
     year: date.getFullYear() === new Date().getFullYear() ? undefined : 'numeric',
@@ -160,15 +161,18 @@ function removeExcludedAllocations(
 /** Format YYYY-MM-DD to "Mon D" or "Mon D, YYYY" if year differs from current */
 function fmtRetainerMonth(dateStr: string): string {
   const [year, month] = dateStr.split('-').map(Number);
-  return new Date(year, month - 1, 1).toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+  return new Date(year, month - 1, 1).toLocaleDateString(appLocale(), { month: 'short', year: 'numeric' });
 }
 
 function fmtDate(dateStr: string): string {
   const [y, m, d] = dateStr.split('-').map(Number);
   const date = new Date(y, m - 1, d);
   const now = new Date();
-  const month = date.toLocaleString('en-US', { month: 'short' });
-  return y !== now.getFullYear() ? `${month} ${d}, ${y}` : `${month} ${d}`;
+  return date.toLocaleDateString(appLocale(), {
+    month: 'short',
+    day: 'numeric',
+    year: y !== now.getFullYear() ? 'numeric' : undefined,
+  });
 }
 
 /** Render a service period: "Apr 1 - Apr 30" or "Apr 1, 2026" if a single date. */
@@ -224,6 +228,7 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
   // YYYY-MM-DD for "today" in the user's preferred zone. If the stored zone is
   // still the unset default, fall back to the browser's local day.
   const todayLocalDate = useBillingToday();
+  const money = useMoney();
   const invoices = getInvoicesByProject(projectId);
   const project = getProject(projectId);
   const primaryClient = getPrimaryClient(projectId);
@@ -244,6 +249,8 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
   const [invoiceQuery, setInvoiceQuery] = useState('');
   // Retainer periods that are due (or were skipped) and can be added as ready lines.
   const [dueRetainerPeriods, setDueRetainerPeriods] = useState<RetainerDuePeriod[]>([]);
+  // Each retainer's own currency: a period is only offered on an invoice in the same one.
+  const [retainerCurrencies, setRetainerCurrencies] = useState<Record<string, string>>({});
   // Revenue splits per line. Only lines touched in this form are written on
   // save, so a split inherited from a retainer is never wiped by accident.
   const [formLineShares, setFormLineShares] = useState<Record<string, LineSplit[]>>({});
@@ -327,6 +334,11 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
 
   // Calculate hours from time entries
   const timeEntries = getTimeEntriesByProject(projectId);
+  // Totals are in the workspace currency: an invoice in another one is left
+  // out and named, never added to them (the Overview counts the same way).
+  const totalsCurrency = money.currency.toUpperCase();
+  const totalsInvoices = invoices.filter((invoice) => (invoice.currency || totalsCurrency).toUpperCase() === totalsCurrency);
+  const otherCurrencyInvoices = invoices.length - totalsInvoices.length;
   const {
     isHourly,
     hourlyRate,
@@ -342,7 +354,7 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
     outstanding,
     budgetUsed,
     budgetPct,
-  } = computeInvoiceSummary(project, invoices, timeEntries);
+  } = computeInvoiceSummary(project, totalsInvoices, timeEntries);
 
   // Type options: non-hourly projects can't create hourly line items.
   const typeOptions = isHourly
@@ -539,6 +551,12 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
   };
 
   const formOpen = isAdding || Boolean(editingId);
+  // An invoice being edited keeps its own currency; a new one is in the
+  // workspace's (the database stamps it when it is saved).
+  const formCurrency = (editingId ? invoices.find((invoice) => invoice.id === editingId)?.currency : undefined) || money.currency;
+  const formAffix = moneyAffix({ currency: formCurrency, locale: money.locale });
+  const formMoneyPrefix = formAffix.position === 'prefix' ? formAffix.symbol : undefined;
+  const formMoneySuffix = formAffix.position === 'suffix' ? formAffix.symbol : undefined;
 
   // The next self-drafting invoice and each auto draft's left-out time. Reads
   // need invoices.read; refreshed when invoices change or Billing closes.
@@ -590,6 +608,16 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
     fetchRetainerDuePeriods(retainerClient, projectId)
       .then((periods) => { if (!cancelled) setDueRetainerPeriods(periods); })
       .catch(() => { if (!cancelled) setDueRetainerPeriods([]); });
+    // Every column, so a database without 1.7.0's currency still answers (all in the workspace currency).
+    void Promise.resolve(retainerClient.from('project_retainers').select('*').eq('project_id', projectId))
+      .then(({ data }) => {
+        if (cancelled) return;
+        const byId: Record<string, string> = {};
+        for (const row of (data ?? []) as { id: string; currency?: string | null }[]) {
+          if (row.currency) byId[row.id] = row.currency;
+        }
+        setRetainerCurrencies(byId);
+      }, () => { if (!cancelled) setRetainerCurrencies({}); });
     return () => { cancelled = true; };
   }, [formOpen, canManageInvoices, isDemoMode, projectId, retainerClient]);
 
@@ -614,7 +642,7 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
     [team],
   );
 
-  const offeredRetainerPeriods = dueRetainerPeriods.filter(
+  const openRetainerPeriods = dueRetainerPeriods.filter(
     (period) =>
       !formLineItems.some(
         (li) =>
@@ -622,6 +650,27 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
           li.service_start_date?.slice(0, 7) === period.period_start.slice(0, 7),
       ),
   );
+  // An invoice is in one currency. A retainer period joins only an invoice in
+  // its retainer's currency, and tracked time (billed at project rates, which
+  // are in the workspace currency) only one in the workspace currency.
+  const periodCurrency = (period: RetainerDuePeriod) => retainerCurrencies[period.retainer_id] || money.currency;
+  const offeredRetainerPeriods = openRetainerPeriods.filter((period) => periodCurrency(period) === formCurrency);
+  const otherCurrencyPeriods = openRetainerPeriods.length - offeredRetainerPeriods.length;
+  const trackedTimeFits = formCurrency === money.currency;
+  const unavailableNote = (() => {
+    const notes: string[] = [];
+    // A new invoice is in the workspace currency, so time fits there.
+    if (allUnpaidHoursDraft && !trackedTimeFits) {
+      notes.push(`Tracked time is in ${money.currency}, so it goes on a new invoice, not this ${formCurrency} one.`);
+    }
+    // Generate now drafts a period in its retainer's own currency.
+    if (otherCurrencyPeriods > 0) {
+      notes.push(otherCurrencyPeriods === 1
+        ? `1 retainer month is in another currency than ${formCurrency}. Generate it from Billing, Retainers.`
+        : `${otherCurrencyPeriods} retainer months are in another currency than ${formCurrency}. Generate them from Billing, Retainers.`);
+    }
+    return notes.length ? notes.join(' ') : null;
+  })();
 
   const insertRetainerLine = (period: RetainerDuePeriod) => {
     const id = newLineItemId();
@@ -1214,7 +1263,7 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
               <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
                 <p className="text-xs font-semibold text-white">Tracked time</p>
                 <p className="text-sm font-semibold tabular-nums text-white">
-                  ${formatCurrency(li.amount)}
+                  {invoiceMoney(li.amount, formCurrency)}
                 </p>
               </div>
               <p className="mt-0.5 text-[11px] text-zinc-400">
@@ -1275,7 +1324,8 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
               value={amountDrafts[li.id] ?? (li.amount === 0 ? '' : String(li.amount))}
               onChange={(v) => updateAmountDraft(li.id, v)}
               placeholder="0.00"
-              prefix="$"
+              prefix={formMoneyPrefix}
+              suffix={formMoneySuffix}
             />
           </div>
           <div className="basis-full sm:basis-0 sm:flex-1 min-w-0 order-last sm:order-none">
@@ -1336,6 +1386,7 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
         {canManageSplits && showServiceDates && !isDiscount && (
           <InvoiceLineSplit
             lineAmount={Number(li.amount) || 0}
+            currency={formCurrency}
             splits={formLineShares[li.id]}
             inheritsOnSave={Boolean(li.retainer_id)}
             members={splitMembers}
@@ -1386,7 +1437,7 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
         <div className="flex items-baseline justify-between">
           <span className="text-xs font-medium text-input-text-label">Line Items</span>
           <span className="text-xs font-medium text-input-text-label">
-            Total <span className="text-white">{signedCurrency(formTotal)}</span>
+            Total <span className="text-white">{invoiceMoney(formTotal, formCurrency)}</span>
           </span>
         </div>
         <div className="space-y-2">
@@ -1414,7 +1465,7 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
             <Minus size={12} strokeWidth={2.5} aria-hidden="true" />
             Add discount
           </button>
-          {allUnpaidHoursDraft && !unpaidPickerOpen && formTimeAllocations.length === 0 && (
+          {allUnpaidHoursDraft && trackedTimeFits && !unpaidPickerOpen && formTimeAllocations.length === 0 && (
             <button
               type="button"
               onClick={openUnpaidPicker}
@@ -1422,7 +1473,7 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
               className="inline-flex items-center gap-1 text-xs font-medium text-brand-300 hover:text-brand-300 transition-colors"
             >
               <Clock size={12} strokeWidth={2.5} />
-              Add tracked time (${formatCurrency(allUnpaidHoursDraft.amount)})
+              Add tracked time ({invoiceMoney(allUnpaidHoursDraft.amount, formCurrency)})
             </button>
           )}
           {offeredRetainerPeriods.map((period) => (
@@ -1434,10 +1485,11 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
               className="inline-flex items-center gap-1 text-xs font-medium text-brand-300 hover:text-brand-300 transition-colors"
             >
               <Repeat size={12} strokeWidth={2.5} aria-hidden="true" />
-              Add {period.retainer_name}, {fmtRetainerMonth(period.period_start)} (${formatCurrency(period.amount)})
+              Add {period.retainer_name}, {fmtRetainerMonth(period.period_start)} ({invoiceMoney(period.amount, formCurrency)})
             </button>
           ))}
         </div>
+        {unavailableNote && <p className="mt-1.5 text-[11px] text-zinc-400">{unavailableNote}</p>}
 
         {allUnpaidHoursDraft && unpaidPickerOpen && (
           <div className="mt-2 overflow-hidden rounded-lg border border-brand-500/30 bg-surface-raised shadow-sm">
@@ -1452,7 +1504,7 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
                 <p className="text-[11px] text-zinc-400">
                   Available{' '}
                   <span className="font-semibold tabular-nums text-white">
-                    ${formatCurrency(unpaidHoursDraft?.amount ?? 0)}
+                    {invoiceMoney(unpaidHoursDraft?.amount ?? 0, formCurrency)}
                   </span>
                   <span className="text-zinc-500">
                     {' '}
@@ -1540,7 +1592,8 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
                   size="sm"
                   label="Amount"
                   description={unpaidPickerMode === 'hours' ? 'Calculated' : undefined}
-                  prefix="$"
+                  prefix={formMoneyPrefix}
+                  suffix={formMoneySuffix}
                   value={unpaidPickerAmount}
                   onChange={handleUnpaidAmountChange}
                   readOnly={unpaidPickerMode !== 'amount'}
@@ -1595,7 +1648,7 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
                       )}
                     </div>
                     <p className="text-sm font-semibold tabular-nums text-white">
-                      ${formatCurrency(selectedUnpaidDraft?.amount ?? 0)}
+                      {invoiceMoney(selectedUnpaidDraft?.amount ?? 0, formCurrency)}
                     </p>
                   </div>
 
@@ -1680,7 +1733,7 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
                               {formatHours(allocation.allocated_hours)} hrs
                             </p>
                             <p className="whitespace-nowrap text-[11px] font-medium tabular-nums text-white">
-                              ${formatCurrency(allocation.allocated_amount)}
+                              {invoiceMoney(allocation.allocated_amount, formCurrency)}
                             </p>
                             <button
                               type="button"
@@ -1822,7 +1875,7 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
       (inv.description || '').toLowerCase().includes(invoiceNeedle) ||
       ensureLineItems(inv).some((li) => (li.description || '').toLowerCase().includes(invoiceNeedle))),
   );
-  const overdueTotal = invoices
+  const overdueTotal = totalsInvoices
     .filter((inv) => inv.status === 'overdue')
     .reduce((sum, inv) => sum + invoiceOutstanding(inv, taxRate), 0);
   const paidShare = totalInvoiced > 0 ? Math.round((totalPaid / totalInvoiced) * 100) : 0;
@@ -1870,7 +1923,7 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
       <>
         {isPartiallyPaid(invoice, taxRate) && (
           <span className="inline-flex items-center px-1.5 py-0.5 text-[10px] font-medium rounded bg-amber-500/15 text-amber-300">
-            Part paid ${formatMoney(invoicePaidTotal(invoice))} of ${formatMoney(invoiceTotal(invoice, taxRate))}
+            Part paid {formatMoneyExact(invoicePaidTotal(invoice), { currency: invoice.currency })} of {formatMoneyExact(invoiceTotal(invoice, taxRate), { currency: invoice.currency })}
           </span>
         )}
         {invoice.auto_generated && invoice.status === 'draft' && (
@@ -1946,7 +1999,7 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
                         {li.description && <p className="text-sm text-zinc-300 break-words">{li.description}</p>}
                       </div>
                       <span className="text-sm font-medium tabular-nums text-white flex-shrink-0">
-                        {signedCurrency(li.amount)}
+                        {invoiceMoney(li.amount, invoice.currency)}
                       </span>
                     </li>
                   );
@@ -1954,7 +2007,7 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
                 {items.length > 1 && (
                   <li className="flex items-center justify-between px-3 py-2.5 bg-white/[0.02]">
                     <span className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400">Total</span>
-                    <span className="text-sm font-semibold tabular-nums text-white">${formatCurrency(invoice.amount)}</span>
+                    <span className="text-sm font-semibold tabular-nums text-white">{invoiceMoney(invoice.amount, invoice.currency)}</span>
                   </li>
                 )}
               </ul>
@@ -2030,7 +2083,7 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
             <span className="text-sm tabular-nums text-emerald-400">
               {invoice.paid_date ? fmtDate(invoice.paid_date) : <span className="text-zinc-600">-</span>}
             </span>
-            <span className="text-sm font-semibold tabular-nums text-white text-right">${formatCurrency(invoice.amount)}</span>
+            <span className="text-sm font-semibold tabular-nums text-white text-right">{invoiceMoney(invoice.amount, invoice.currency)}</span>
             <div className="flex items-center justify-end gap-0.5">
               {invoiceActions(invoice)}
               {expandButton}
@@ -2041,7 +2094,7 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
             <div className="flex items-center gap-2">
               {statusControl(invoice)}
               <span className="text-sm font-semibold text-white">{invoice.invoice_number}</span>
-              <span className="ml-auto text-sm font-semibold tabular-nums text-white">${formatCurrency(invoice.amount)}</span>
+              <span className="ml-auto text-sm font-semibold tabular-nums text-white">{invoiceMoney(invoice.amount, invoice.currency)}</span>
             </div>
             <div className="flex items-center gap-x-3 gap-y-1 flex-wrap text-xs text-zinc-400">
               <span>Issued {fmtDate(invoice.date)}</span>
@@ -2112,7 +2165,7 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
               />
               <p className="mt-3 text-xs text-zinc-500">
                 {[
-                  isHourly ? `${formatHoursShort(totalHours)} at $${Math.round(hourlyRate)}/hr` : null,
+                  isHourly ? `${formatHoursShort(totalHours)} at ${formatTotal(Math.round(hourlyRate))}/hr` : null,
                   `${activeInvoiceCount} ${activeInvoiceCount === 1 ? 'invoice' : 'invoices'}`,
                   totalInvoiced > 0 ? `${paidShare}% of invoiced paid` : 'nothing invoiced yet',
                 ].filter(Boolean).join(' · ')}
@@ -2123,6 +2176,9 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
                     ? `${formatTotal(overdueTotal)} of it is overdue.`
                     : isHourly ? 'Outstanding includes hours not invoiced yet.' : 'Outstanding is invoiced and not yet paid.'}
                 </p>
+              )}
+              {otherCurrencyInvoices > 0 && (
+                <p className="mt-1 text-xs text-zinc-500">{excludedNote(otherCurrencyInvoices)}</p>
               )}
             </RailCard>
             <RailCard
@@ -2150,10 +2206,10 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
                     <li key={`${draft.date}-${draft.sources}`} className="min-w-0">
                       <div className="flex items-baseline justify-between gap-3">
                         <span className="text-sm font-medium text-zinc-200">
-                          {new Date(`${draft.date}T12:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                          {new Date(`${draft.date}T12:00:00`).toLocaleDateString(appLocale(), { month: 'short', day: 'numeric' })}
                         </span>
                         <span className="text-sm font-semibold tabular-nums text-white">
-                          {draft.estimated > 0 ? '~' : ''}${formatCurrency(Math.round((draft.exact + draft.estimated) * 100) / 100)}
+                          {draft.estimated > 0 ? '~' : ''}{invoiceMoney(Math.round((draft.exact + draft.estimated) * 100) / 100)}
                         </span>
                       </div>
                       <p className="text-xs text-zinc-500 truncate">
@@ -2180,7 +2236,7 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
                 }
               >
                 <p className="text-2xl font-bold tabular-nums text-white">
-                  ${formatCurrency(hourlyRate)}
+                  {invoiceMoney(hourlyRate)}
                   <span className="text-sm font-medium text-zinc-500">/hr</span>
                 </p>
                 {editingRate && (
@@ -2202,8 +2258,8 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
                   <p className="text-2xl font-bold tabular-nums text-white">{Math.round(budgetPct)}%</p>
                   <p className="text-xs text-zinc-500 tabular-nums">
                     {budgetType === 'hours'
-                      ? `${formatCurrency(Math.round(budgetUsed))} of ${formatCurrency(budgetValue)} hrs`
-                      : `$${formatCurrency(Math.round(budgetUsed))} of $${formatCurrency(budgetValue)}`}
+                      ? `${formatNumber(Math.round(budgetUsed))} of ${formatNumber(budgetValue)} hrs`
+                      : `${invoiceMoney(Math.round(budgetUsed))} of ${invoiceMoney(budgetValue)}`}
                   </p>
                 </div>
                 <div

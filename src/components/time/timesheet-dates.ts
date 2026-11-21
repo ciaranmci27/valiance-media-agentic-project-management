@@ -1,10 +1,12 @@
 import type { TimeEntry } from '@/lib/types';
 import { workedSegments } from '@/lib/time-entry-utils';
+import { appLocale } from '@/lib/region';
 
 export { workedSegments };
 /**
  * Calendar helpers for the timesheet, in the browser's local time: the same
- * day keys `getWorkedHoursByDay` produces. Weeks start on Monday.
+ * day keys `getWorkedHoursByDay` produces. Weeks start on the workspace's
+ * first day (Settings > Workspace > Region), dates read in its locale.
  */
 
 export function dayKey(date: Date): string {
@@ -18,33 +20,29 @@ export function addDays(date: Date, days: number): Date {
   return next;
 }
 
-/** Local midnight of the Monday on or before `date`. */
-export function startOfWeek(date: Date): Date {
-  const start = new Date(date);
-  start.setHours(0, 0, 0, 0);
-  const offset = (start.getDay() + 6) % 7; // Monday 0 .. Sunday 6
-  start.setDate(start.getDate() - offset);
-  return start;
-}
+/** Local midnight of the workspace's first day of the week on or before `date`. */
+export { startOfWeek } from '@/lib/region';
 
 export function weekDays(weekStart: Date): Date[] {
   return Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
 }
 
-/** "Nov 17", or "Nov 17, 2025" outside this year. */
+/** "Nov 17", or "Nov 17, 2025" outside this year (en-US; the workspace locale's order elsewhere). */
 export function fmtShortDate(date: Date): string {
-  const base = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  return date.getFullYear() === new Date().getFullYear() ? base : `${base}, ${date.getFullYear()}`;
+  return date.toLocaleDateString(appLocale(), {
+    month: 'short',
+    day: 'numeric',
+    ...(date.getFullYear() === new Date().getFullYear() ? {} : { year: 'numeric' }),
+  });
 }
 
 /** "Nov 17 to 23", "Dec 29 to Jan 4", with the year when it is not this one. */
 export function fmtWeekRange(weekStart: Date): string {
   const end = addDays(weekStart, 6);
-  const startMonth = weekStart.toLocaleDateString('en-US', { month: 'short' });
-  const endMonth = end.toLocaleDateString('en-US', { month: 'short' });
-  const range = startMonth === endMonth
-    ? `${startMonth} ${weekStart.getDate()} to ${end.getDate()}`
-    : `${startMonth} ${weekStart.getDate()} to ${endMonth} ${end.getDate()}`;
+  const locale = appLocale();
+  const sameMonth = weekStart.getMonth() === end.getMonth();
+  const range = `${weekStart.toLocaleDateString(locale, { month: 'short', day: 'numeric' })} to ${
+    end.toLocaleDateString(locale, sameMonth ? { day: 'numeric' } : { month: 'short', day: 'numeric' })}`;
   return end.getFullYear() === new Date().getFullYear() ? range : `${range}, ${end.getFullYear()}`;
 }
 

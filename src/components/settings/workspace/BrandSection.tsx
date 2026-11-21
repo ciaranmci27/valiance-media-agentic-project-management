@@ -623,7 +623,7 @@ function SwitchRow({ label, description, checked, onChange }: {
  * Pinned to the bottom of the screen while anything is unsaved: what is
  * pending, Discard and Save. After a save it is the one line that says so.
  */
-function SaveBar({ dirty, saving, blocked, outcome, onSave, onDiscard }: {
+export function SaveBar({ dirty, saving, blocked, outcome, onSave, onDiscard }: {
   dirty: boolean;
   saving: boolean;
   /** Why Save is off, when it is (a color still marked red, the database not ready). */

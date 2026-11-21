@@ -6,7 +6,8 @@
 
 import type { Brand } from '@/lib/brand';
 import { ctaButton, escapeHtml, getSiteName, linkLine, paragraph, statGrid, withEmailBrand } from '../shared';
-import { clientEmailLayout, clientHeader, greeting } from './layout';
+import { formatMoney } from '@/lib/format';
+import { clientEmailLayout, clientHeader, formatEmailHours, greeting, type EmailRegion } from './layout';
 
 export interface DollarIntervalSlots {
   subject: string;
@@ -17,8 +18,9 @@ export interface DollarIntervalSlots {
 export function dollarIntervalDefaults(ctx: {
   projectName: string;
   milestone: number;
+  region: EmailRegion;
 }): DollarIntervalSlots {
-  const label = fmtCurrency(ctx.milestone);
+  const label = formatMoney(ctx.milestone, ctx.region);
   return {
     subject: `${ctx.projectName}: ${label} of tracked work`,
     alert_paragraph: `A quick update on ${ctx.projectName}: tracked work on your project has reached ${label}. Here is where things stand.`,
@@ -36,10 +38,8 @@ interface DollarIntervalParams {
   hourlyRate: number;
   totalHours: number;
   slots: DollarIntervalSlots;
-}
-
-function fmtCurrency(value: number): string {
-  return `$${value.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
+  /** The workspace region: tracked work is in the workspace currency. */
+  region: EmailRegion;
 }
 
 /** Renders with the workspace's brand (getBrand), so the name, logo and colors are this workspace's. */
@@ -48,9 +48,10 @@ export function buildDollarIntervalEmail(params: DollarIntervalParams & { brand:
 }
 
 function renderDollarIntervalEmail(params: DollarIntervalParams): { subject: string; html: string; text: string } {
-  const { projectName, clientName, portalUrl, logoUrl, milestone, totalAccrued, totalHours, slots } = params;
+  const { projectName, clientName, portalUrl, logoUrl, milestone, totalAccrued, totalHours, slots, region } = params;
   const name = getSiteName();
-  const hoursLabel = `${totalHours.toFixed(1)} hrs`;
+  const hoursLabel = formatEmailHours(totalHours, region.locale);
+  const fmtCurrency = (value: number) => formatMoney(value, region);
 
   const body = `
     ${clientHeader({

@@ -1,5 +1,6 @@
 import { createElement, type CSSProperties } from 'react';
 import { Archive, File, FileText, Globe, Image as ImageIcon, type LucideIcon, type LucideProps } from 'lucide-react';
+import { appLocale } from '@/lib/region';
 
 /** What the shared FilePreviewModal needs to open a file. */
 export type PreviewFile = { id?: string; name: string; file_url: string; mime_type: string };
@@ -38,7 +39,7 @@ export function relativeTime(dateStr: string): string {
 
 /** "Aug 12, 2026" from an ISO timestamp. */
 export function formatDate(dateStr: string): string {
-  return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  return new Date(dateStr).toLocaleDateString(appLocale(), { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
 /** "Aug 12, 2026" from a YYYY-MM-DD date, read in local time so it never shifts a day. */
@@ -48,11 +49,11 @@ export function formatDay(ymd: string): string {
 
 /** "Aug 3" from a Date, for chart axes where the year is implied. */
 export function formatMonthDay(date: Date): string {
-  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  return date.toLocaleDateString(appLocale(), { month: 'short', day: 'numeric' });
 }
 
 export function formatTime(dateStr: string): string {
-  return new Date(dateStr).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  return new Date(dateStr).toLocaleTimeString(appLocale(), { hour: 'numeric', minute: '2-digit' });
 }
 
 export function formatBreakDuration(seconds: number): string {
@@ -74,12 +75,6 @@ export function formatHoursMinutes(hours: number): string {
   if (h === 0) return `${m}m`;
   if (m === 0) return `${h}h`;
   return `${h}h ${m}m`;
-}
-
-/** Whole dollars stay whole ("1,200"); anything with cents shows two decimals. */
-/** Whole dollars. Cents belong to invoice amounts only, which format themselves. */
-export function formatMoney(value: number): string {
-  return Math.round(value).toLocaleString('en-US');
 }
 
 export function getFileIcon(mimeType: string): LucideIcon {

@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { toast } from '@/components/ui/Toast';
 import { BundleApproveModal } from '@/components/agent/BundleApproveModal';
+import { appLocale } from '@/lib/region';
 
 type StatusFilter = '' | 'pending' | 'needs_info' | 'approved' | 'rejected' | 'declined';
 
@@ -253,7 +254,7 @@ export function ReviewQueue({ onApprove, onEdit }: ReviewQueueProps) {
     if (diffMins < 60) return `${diffMins}m`;
     if (diffHours < 24) return `${diffHours}h`;
     if (diffDays < 7) return `${diffDays}d`;
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    return date.toLocaleDateString(appLocale(), { month: 'short', day: 'numeric' });
   };
 
   const toggleProjectCollapse = (projectId: string) => {

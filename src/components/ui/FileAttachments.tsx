@@ -20,6 +20,7 @@ import {
   ShieldOff,
 } from 'lucide-react';
 import { useApp } from '@/lib/store';
+import { useRegion } from '@/lib/region/context';
 import { useAuth } from '@/lib/auth-context';
 import { useDemo } from '@/lib/demo-context';
 import { createClient } from '@/lib/supabase/client';
@@ -55,6 +56,7 @@ interface FileAttachmentsProps {
 }
 
 export function FileAttachments({ entityType, entityId, layout = 'list' }: FileAttachmentsProps) {
+  const { locale } = useRegion();
   const {
     getEntityFiles,
     addEntityFile,
@@ -470,7 +472,7 @@ export function FileAttachments({ entityType, entityId, layout = 'list' }: FileA
                     )}
                     <p className="text-xs text-zinc-500 mt-0.5">
                       {formatFileSize(file.file_size)} ·{' '}
-                      {new Date(file.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                      {new Date(file.created_at).toLocaleDateString(locale, { month: 'short', day: 'numeric', year: 'numeric' })}
                     </p>
                   </div>
                   {editingFileId !== file.id &&
@@ -536,7 +538,7 @@ export function FileAttachments({ entityType, entityId, layout = 'list' }: FileA
                     )}
                     <p className="text-xs text-zinc-500">
                       {formatFileSize(file.file_size)} &middot;{' '}
-                      {new Date(file.created_at).toLocaleDateString('en-US', {
+                      {new Date(file.created_at).toLocaleDateString(locale, {
                         month: 'short',
                         day: 'numeric',
                         year: 'numeric',

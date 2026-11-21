@@ -8,6 +8,8 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/inputs/Select';
 import { Textarea } from '@/components/ui/inputs/Textarea';
+import { moneyAffix } from '@/lib/format';
+import { useRegion } from '@/lib/region/context';
 
 interface LeadProposalFormProps {
   isOpen: boolean;
@@ -25,6 +27,8 @@ const statusOptions = [
 
 export function LeadProposalForm({ isOpen, onClose, leadId, proposal }: LeadProposalFormProps) {
   const { addLeadProposal, updateLeadProposal } = useApp();
+  const region = useRegion();
+  const currencySymbol = moneyAffix(region).symbol;
 
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -110,7 +114,7 @@ export function LeadProposalForm({ isOpen, onClose, leadId, proposal }: LeadProp
 
         <div className="grid grid-cols-2 gap-4">
           <Input
-            label="Estimated Value ($)"
+            label={`Estimated Value (${currencySymbol})`}
             type="number"
             value={estimatedValue}
             onChange={(e) => setEstimatedValue(e.target.value)}

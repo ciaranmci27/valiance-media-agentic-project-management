@@ -2,6 +2,9 @@
 
 import { CalendarClock, Infinity as Endless } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
+import { formatMoneyExact } from '@/lib/format';
+import { appLocale } from '@/lib/region';
+import { useMoney } from '@/lib/region/context';
 import type { BillingForecastItem } from '@/lib/types';
 
 /**
@@ -10,16 +13,17 @@ import type { BillingForecastItem } from '@/lib/types';
  * is already drafted. Used by the Billing window and the billing calendar.
  */
 
-export function money(value: number): string {
-  return value.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
+/** An exact amount in a billing plan's currency (left out, the workspace's). */
+export function money(value: number, currency?: string | null): string {
+  return formatMoneyExact(value, { currency });
 }
 
 function dayLabel(date: string): string {
-  return new Date(`${date}T12:00:00`).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  return new Date(`${date}T12:00:00`).toLocaleDateString(appLocale(), { weekday: 'short', month: 'short', day: 'numeric' });
 }
 
 function monthLabel(date: string): string {
-  return new Date(`${date}T12:00:00`).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  return new Date(`${date}T12:00:00`).toLocaleDateString(appLocale(), { month: 'long', year: 'numeric' });
 }
 
 const STATUS: Record<string, { label: string; variant: 'default' | 'success' | 'warning' | 'danger' | 'info' | 'purple'; hint: string }> = {
@@ -54,9 +58,13 @@ interface Props {
   onShowMore?: () => void;
   emptyText?: string;
   onOpenProject?: (projectId: string) => void;
+  /** The billing plan's currency; left out, the workspace's. */
+  currency?: string | null;
 }
 
-export function BillingForecastList({ items, showProject = false, continues = false, onShowMore, emptyText, onOpenProject }: Props) {
+export function BillingForecastList({ items, showProject = false, continues = false, onShowMore, emptyText, onOpenProject, currency }: Props) {
+  const format = useMoney().exact;
+  const amount = (value: number) => format(value, currency);
   if (items.length === 0) {
     return (
       <div className="rounded-lg border border-dashed border-white/[0.08] px-4 py-8 text-center">
@@ -86,8 +94,8 @@ export function BillingForecastList({ items, showProject = false, continues = fa
             <div className="flex items-baseline justify-between gap-3 mb-2">
               <h4 className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400">{monthLabel(monthItems[0].date)}</h4>
               <p className="text-xs text-zinc-400 tabular-nums">
-                {money(exact)}
-                {estimated > 0 && <span className="text-zinc-500"> + {money(estimated)} est.</span>}
+                {amount(exact)}
+                {estimated > 0 && <span className="text-zinc-500"> + {amount(estimated)} est.</span>}
               </p>
             </div>
             <ul className="space-y-2">
@@ -114,7 +122,7 @@ export function BillingForecastList({ items, showProject = false, continues = fa
                     <ForecastStatus status={item.status} />
                     {item.invoice_number && <span className="text-xs text-zinc-400">{item.invoice_number}</span>}
                     <span className="ml-auto text-sm font-semibold text-white tabular-nums">
-                      {money(item.exact + item.estimated)}
+                      {amount(item.exact + item.estimated)}
                       {item.estimated > 0 && <span className="ml-1 text-xs font-normal text-zinc-500">est.</span>}
                     </span>
                   </div>
@@ -126,7 +134,7 @@ export function BillingForecastList({ items, showProject = false, continues = fa
                           {line.note && <span className="block text-zinc-500">{line.note}</span>}
                         </div>
                         <span className={`tabular-nums flex-shrink-0 ${line.estimated ? 'text-zinc-400' : 'text-zinc-200'}`}>
-                          {line.estimated ? '~' : ''}{money(line.amount)}
+                          {line.estimated ? '~' : ''}{amount(line.amount)}
                         </span>
                       </li>
                     ))}

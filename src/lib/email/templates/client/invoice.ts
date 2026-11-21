@@ -22,6 +22,7 @@ import {
 } from '../shared';
 import { clientEmailLayout, clientHeader, greeting } from './layout';
 import type { InvoiceStatus } from '@/lib/types';
+import { formatMoneyExact } from '@/lib/format';
 
 export interface InvoiceEmailSlots {
   subject: string;
@@ -36,11 +37,16 @@ export function invoiceEmailDefaults(ctx: {
   dueDate: string | null;
   paidDate: string | null;
   status: InvoiceStatus;
+  /** The invoice's own currency (fallback the workspace's). */
+  currency: string;
+  /** The workspace locale, for the amount and the dates. */
+  locale: string;
 }): InvoiceEmailSlots {
+  const fmtDate = (value: string) => formatInvoiceDate(value, ctx.locale);
   const dueText = ctx.dueDate ? ` due ${fmtDate(ctx.dueDate)}` : '';
   const overdueText = ctx.dueDate ? `was due ${fmtDate(ctx.dueDate)} and is now past due` : 'is past due';
   const paidText = ctx.paidDate ? ` on ${fmtDate(ctx.paidDate)}` : '';
-  const amount = fmtCurrency(ctx.amount);
+  const amount = formatMoneyExact(ctx.amount, { currency: ctx.currency, locale: ctx.locale });
 
   switch (ctx.status) {
     case 'draft':
@@ -89,19 +95,19 @@ interface InvoiceEmailParams {
   paidDate: string | null;
   status: InvoiceStatus;
   slots: InvoiceEmailSlots;
+  /** The invoice's own currency (fallback the workspace's). */
+  currency: string;
+  /** The workspace locale, for the amount and the dates. */
+  locale: string;
 }
 
-function fmtCurrency(value: number): string {
-  return `$${value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-}
-
-function fmtDate(value: string): string {
+function formatInvoiceDate(value: string, locale: string): string {
   const [year, month, day] = value.split('-').map(Number);
   const date = Number.isFinite(year) && Number.isFinite(month) && Number.isFinite(day)
     ? new Date(year, month - 1, day)
     : new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleDateString('en-US', {
+  return date.toLocaleDateString(locale, {
     month: 'short',
     day: 'numeric',
     year: 'numeric',
@@ -220,11 +226,14 @@ function renderInvoiceEmail(params: InvoiceEmailParams): { subject: string; html
     paidDate,
     status,
     slots,
+    currency,
+    locale,
   } = params;
 
+  const fmtDate = (value: string) => formatInvoiceDate(value, locale);
   const siteName = getSiteName();
   const details = statusDetails(status);
-  const amount = fmtCurrency(invoiceAmount);
+  const amount = formatMoneyExact(invoiceAmount, { currency, locale });
 
   const heroTile = tile(
     `<table role="presentation" width="100%" cellpadding="0" cellspacing="0">

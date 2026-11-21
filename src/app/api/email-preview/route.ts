@@ -10,6 +10,9 @@ import { buildInvoiceEmail, invoiceEmailDefaults } from '@/lib/email/templates/c
 import type { InvoiceStatus } from '@/lib/types';
 import type { Brand } from '@/lib/brand';
 import { getBrand } from '@/lib/brand/server';
+import { getRegion } from '@/lib/region/server';
+import { formatMoney } from '@/lib/format';
+import type { EmailRegion } from '@/lib/email/templates/client/layout';
 
 export const dynamic = 'force-dynamic';
 
@@ -18,7 +21,7 @@ const portalUrl = 'https://example.com/portal/acme-rebrand';
 /** Dark placeholder mark so the logo variant previews on the dark card. */
 const sampleLogo = (initials: string) => `https://placehold.co/88x88/12141A/8DB3B3/png?text=${initials}`;
 
-function invoicePreview(brand: Brand, status: InvoiceStatus, options: { portal?: boolean; logo?: boolean } = {}): string {
+function invoicePreview(brand: Brand, region: EmailRegion, status: InvoiceStatus, options: { portal?: boolean; logo?: boolean } = {}): string {
   const project = 'Acme Corp Rebrand';
   const invoiceNumber = 'INV-1042';
   const amount = 1875;
@@ -39,6 +42,8 @@ function invoicePreview(brand: Brand, status: InvoiceStatus, options: { portal?:
     dueDate,
     paidDate,
     status,
+    currency: region.currency,
+    locale: region.locale,
     slots: invoiceEmailDefaults({
       projectName: project,
       invoiceNumber,
@@ -46,6 +51,8 @@ function invoicePreview(brand: Brand, status: InvoiceStatus, options: { portal?:
       dueDate,
       paidDate,
       status,
+      currency: region.currency,
+      locale: region.locale,
     }),
   }).html;
 }
@@ -54,6 +61,9 @@ export async function GET(req: NextRequest) {
   const template = req.nextUrl.searchParams.get('template') || 'portal-welcome';
   // Previews show this workspace's brand, as the real emails do.
   const brand = await getBrand();
+  // And this workspace's currency and locale.
+  const { currency, locale } = await getRegion();
+  const region: EmailRegion = { currency, locale };
 
   let html = '';
 
@@ -115,7 +125,7 @@ export async function GET(req: NextRequest) {
         link: '/projects/bloomwell-health-app',
         details: [
           { label: 'Client', value: 'Bloomwell Health' },
-          { label: 'Budget', value: '$42,000' },
+          { label: 'Budget', value: formatMoney(42000, region) },
           { label: 'Timeline', value: '12 weeks' },
         ],
       });
@@ -130,7 +140,7 @@ export async function GET(req: NextRequest) {
         message: 'Marcus converted the lead after the proposal was accepted.',
         link: '/leads/northbound-coffee',
         details: [
-          { label: 'Lead value', value: '$28,500' },
+          { label: 'Lead value', value: formatMoney(28500, region) },
           { label: 'Priority', value: 'Hot' },
           { label: 'Services', value: 'Branding, Web Design' },
         ],
@@ -213,6 +223,7 @@ export async function GET(req: NextRequest) {
         budgetValue: 80,
         currentUsage: 61.5,
         thresholdPct: 75,
+        region,
         slots: budgetThresholdDefaults({ projectName: 'Acme Corp Rebrand', thresholdPct: 75, budgetType: 'hours' }),
       });
       html = result.html;
@@ -230,6 +241,7 @@ export async function GET(req: NextRequest) {
         budgetValue: 18000,
         currentUsage: 16250,
         thresholdPct: 90,
+        region,
         slots: budgetThresholdDefaults({ projectName: 'NeoForge Website', thresholdPct: 90, budgetType: 'amount' }),
       });
       html = result.html;
@@ -246,7 +258,8 @@ export async function GET(req: NextRequest) {
         totalAccrued: 2150,
         hourlyRate: 150,
         totalHours: 14.3,
-        slots: dollarIntervalDefaults({ projectName: 'Acme Corp Rebrand', milestone: 2000 }),
+        region,
+        slots: dollarIntervalDefaults({ projectName: 'Acme Corp Rebrand', milestone: 2000, region }),
       });
       html = result.html;
       break;
@@ -263,12 +276,14 @@ export async function GET(req: NextRequest) {
         newBudget: 15000,
         newBudgetType: 'amount',
         currentUsage: 8200,
+        region,
         slots: budgetExtendedDefaults({
           projectName: 'Acme Corp Rebrand',
           oldBudget: 10000,
           oldBudgetType: 'amount',
           newBudget: 15000,
           newBudgetType: 'amount',
+          region,
         }),
       });
       html = result.html;
@@ -286,12 +301,14 @@ export async function GET(req: NextRequest) {
         newBudget: 18000,
         newBudgetType: 'amount',
         currentUsage: 16750,
+        region,
         slots: budgetExtendedDefaults({
           projectName: 'NeoForge Website',
           oldBudget: 120,
           oldBudgetType: 'hours',
           newBudget: 18000,
           newBudgetType: 'amount',
+          region,
         }),
       });
       html = result.html;
@@ -312,6 +329,7 @@ export async function GET(req: NextRequest) {
         budgetType: 'hours',
         budgetValue: 80,
         budgetUsed: 61.5,
+        region,
         slots: projectSummaryDefaults({ projectName: 'Acme Corp Rebrand' }),
       });
       html = result.html;
@@ -333,6 +351,7 @@ export async function GET(req: NextRequest) {
         budgetType: 'hours',
         budgetValue: 80,
         budgetUsed: 61.5,
+        region,
         slots: projectSummaryDefaults({ projectName: 'Acme Corp Rebrand' }),
       });
       html = result.html;
@@ -353,6 +372,7 @@ export async function GET(req: NextRequest) {
         budgetType: null,
         budgetValue: null,
         budgetUsed: null,
+        region,
         slots: projectSummaryDefaults({ projectName: 'Bloomwell Health App' }),
       });
       html = result.html;
@@ -360,27 +380,27 @@ export async function GET(req: NextRequest) {
     }
 
     case 'invoice-sent':
-      html = invoicePreview(brand, 'sent');
+      html = invoicePreview(brand, region, 'sent');
       break;
 
     case 'invoice-paid':
-      html = invoicePreview(brand, 'paid', { logo: true });
+      html = invoicePreview(brand, region, 'paid', { logo: true });
       break;
 
     case 'invoice-overdue':
-      html = invoicePreview(brand, 'overdue');
+      html = invoicePreview(brand, region, 'overdue');
       break;
 
     case 'invoice-cancelled':
-      html = invoicePreview(brand, 'cancelled');
+      html = invoicePreview(brand, region, 'cancelled');
       break;
 
     case 'invoice-draft':
-      html = invoicePreview(brand, 'draft');
+      html = invoicePreview(brand, region, 'draft');
       break;
 
     case 'invoice-no-portal':
-      html = invoicePreview(brand, 'sent', { portal: false });
+      html = invoicePreview(brand, region, 'sent', { portal: false });
       break;
 
     default:

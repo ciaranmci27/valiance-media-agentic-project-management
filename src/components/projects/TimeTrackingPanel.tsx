@@ -34,6 +34,9 @@ import { NumberInput } from '@/components/ui/inputs/NumberInput';
 import { TimeEntry, TimeSegment } from '@/lib/types';
 import { toLocalTimeString, toLocalDateString, toLocalDateKey } from '@/lib/date-utils';
 import { invoiceAmountReceived } from '@/lib/invoice-payments';
+import { excludedNote } from '@/lib/format';
+import { appLocale, startOfWeek } from '@/lib/region';
+import { useMoney } from '@/lib/region/context';
 import {
   getWorkedHours,
   getWorkedMs,
@@ -59,10 +62,6 @@ interface TimeTrackingPanelProps {
   projectColor?: string;
 }
 
-function formatRate(value: number): string {
-  return value.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
-}
-
 /* ── Helpers ── */
 
 function formatHM(decimal: number): string {
@@ -84,7 +83,7 @@ function liveSegMs(startIso: string): number {
 }
 
 function formatTime(iso: string, timezone?: string): string {
-  return new Date(iso).toLocaleTimeString('en-US', {
+  return new Date(iso).toLocaleTimeString(appLocale(), {
     hour: 'numeric',
     minute: '2-digit',
     ...(timezone ? { timeZone: timezone } : {}),
@@ -117,7 +116,7 @@ function calendarDayOffset(fromIso: string, toIso: string, timezone?: string): n
 
 function formatDateHeader(dateStr: string): string {
   const d = new Date(dateStr + 'T12:00:00');
-  return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  return d.toLocaleDateString(appLocale(), { weekday: 'short', month: 'short', day: 'numeric' });
 }
 
 function getStorageKey(projectId: string) {
@@ -128,6 +127,7 @@ function getStorageKey(projectId: string) {
 
 export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTrackingPanelProps) {
   const projectColor = rawColor || '#A1A1AA';
+  const currencyFormat = useMoney();
   const {
     getTimeEntriesByProject,
     team,
@@ -794,10 +794,11 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
   // card adds up the same ones.
   const sessionRangeStart = (() => {
     if (sessionRange === 'all') return 0;
+    // The workspace's first day of the week.
+    if (sessionRange === 'week') return startOfWeek(new Date(openedAt)).getTime();
     const start = new Date(openedAt);
     start.setHours(0, 0, 0, 0);
-    if (sessionRange === 'week') start.setDate(start.getDate() - ((start.getDay() + 6) % 7));
-    else start.setDate(1);
+    start.setDate(1);
     return start.getTime();
   })();
   const sessionNeedle = sessionQuery.trim().toLowerCase();
@@ -1270,6 +1271,12 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
   // by payment date, whichever hours it paid for, so a payment this month
   // shows this month even when it settled last month's work.
   const rangeStartKey = sessionRange === 'all' ? '' : toLocalDateKey(new Date(sessionRangeStart).toISOString(), tz);
+  // Received adds up payments in the workspace currency only; an invoice in
+  // another currency is left out and named.
+  const receivedCurrency = currencyFormat.currency.toUpperCase();
+  const liveInvoices = invoices.filter((invoice) => invoice.status !== 'cancelled');
+  const receivedInvoices = liveInvoices.filter((invoice) => (invoice.currency || receivedCurrency).toUpperCase() === receivedCurrency);
+  const receivedExcluded = liveInvoices.length - receivedInvoices.length;
   const shownMoney = canSeeClientBilling && isHourly
     ? {
         ...shownEntries.reduce((sum, entry) => {
@@ -1280,14 +1287,13 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
           }
           return sum;
         }, { billable: 0, unpaid: 0 }),
-        received: invoices
-          .filter((invoice) => invoice.status !== 'cancelled')
+        received: receivedInvoices
           .flatMap((invoice) => invoiceAmountReceived(invoice, project?.tax_rate))
           .filter((part) => part.date >= rangeStartKey)
           .reduce((sum, part) => sum + part.amount, 0),
       }
     : null;
-  const money = (value: number) => `$${formatRate(Math.round(value))}`;
+  const money = (value: number) => currencyFormat(Math.round(value));
   const rangeLabel = sessionRange === 'week' ? 'This week' : sessionRange === 'month' ? 'This month' : 'All time';
   const totalsCard = completedEntries.length > 0 && (
     <RailCard
@@ -1317,6 +1323,7 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
         <p className="mt-1 text-xs text-zinc-500">
           Received is payments that arrived {sessionRange === 'week' ? 'this week' : sessionRange === 'month' ? 'this month' : 'so far'}
           {sessionNeedle ? ' (the search does not narrow it)' : ''}. Unpaid is these hours not paid for yet, invoiced or not.
+          {receivedExcluded > 0 && ` ${excludedNote(receivedExcluded)}`}
         </p>
       )}
     </RailCard>
@@ -1446,8 +1453,8 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
       : null;
     const paymentAmounts = breakdown
       ? [
-          breakdown.paidAmount > 0 ? `$${formatRate(breakdown.paidAmount)} paid` : null,
-          breakdown.unpaidAmount > 0 ? `$${formatRate(breakdown.unpaidAmount)} unpaid` : null,
+          breakdown.paidAmount > 0 ? `${currencyFormat(breakdown.paidAmount)} paid` : null,
+          breakdown.unpaidAmount > 0 ? `${currencyFormat(breakdown.unpaidAmount)} unpaid` : null,
         ].filter((part): part is string => Boolean(part)).join(' · ')
       : '';
     // Descriptions here run long (a day's work joined with +): two lines by
@@ -1524,7 +1531,7 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
               </div>
               <div className="flex items-center gap-2 text-xs @4xl:mt-0.5 min-w-0">
                 {canSeeClientBilling && isHourly && (
-                  <span className="tabular-nums text-zinc-500">${formatRate(entry.hourly_rate ?? hourlyRate)}/hr</span>
+                  <span className="tabular-nums text-zinc-500">{currencyFormat(entry.hourly_rate ?? hourlyRate)}/hr</span>
                 )}
                 {payment && (
                   <Tooltip content={paymentAmounts || payment.label}>

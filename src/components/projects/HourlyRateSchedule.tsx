@@ -7,6 +7,9 @@ import { DateInput } from '@/components/ui/inputs/DateInput';
 import { NumberInput } from '@/components/ui/inputs/NumberInput';
 import { Button } from '@/components/ui/Button';
 import { toast } from '@/components/ui/Toast';
+import { moneyAffix } from '@/lib/format';
+import { appLocale } from '@/lib/region';
+import { useMoney } from '@/lib/region/context';
 import type { ProjectHourlyRate } from '@/lib/types';
 import { moveToTrash, TrashError } from '@/lib/supabase/trash';
 
@@ -23,6 +26,7 @@ function localMidnightIso(dateKey: string, timezone?: string): string {
   const [year, month, day] = dateKey.split('-').map(Number);
   if (timezone) {
     const guess = new Date(Date.UTC(year, month - 1, day));
+    // en-US parts are parsed back into an offset, not shown.
     const parts = new Intl.DateTimeFormat('en-US', {
       timeZone: timezone,
       year: 'numeric', month: '2-digit', day: '2-digit',
@@ -42,7 +46,7 @@ function localMidnightIso(dateKey: string, timezone?: string): string {
 }
 
 function displayDate(iso: string, timezone?: string): string {
-  return new Date(iso).toLocaleDateString('en-US', {
+  return new Date(iso).toLocaleDateString(appLocale(), {
     month: 'short', day: 'numeric', year: 'numeric',
     ...(timezone ? { timeZone: timezone } : {}),
   });
@@ -57,6 +61,8 @@ export function HourlyRateSchedule({
   onCurrentRateChange,
 }: HourlyRateScheduleProps) {
   const supabase = useMemo(() => createClient(), []);
+  const money = useMoney();
+  const affix = moneyAffix({ currency: money.currency, locale: money.locale });
   const [rates, setRates] = useState<ProjectHourlyRate[]>([]);
   const [effectiveDate, setEffectiveDate] = useState(today);
   const [rate, setRate] = useState<number | ''>(fallbackRate || '');
@@ -151,8 +157,8 @@ export function HourlyRateSchedule({
           onChange={setRate}
           min={0}
           step={5}
-          prefix="$"
-          suffix="/hr"
+          prefix={affix.position === 'prefix' ? affix.symbol : undefined}
+          suffix={affix.position === 'suffix' ? `${affix.symbol}/hr` : '/hr'}
           size="sm"
           className="flex-1"
         />
@@ -167,7 +173,7 @@ export function HourlyRateSchedule({
           return (
             <div key={item.id} className="flex items-center justify-between gap-3 px-3 py-2.5">
               <div>
-                <p className="text-sm font-semibold text-white">${Number(item.hourly_rate).toFixed(2)}/hr</p>
+                <p className="text-sm font-semibold text-white">{money.exact(Number(item.hourly_rate))}/hr</p>
                 <p className="text-xs text-zinc-400">
                   {isFuture ? 'Starts' : 'Effective'} {displayDate(item.effective_at, timezone)}
                 </p>
@@ -186,7 +192,7 @@ export function HourlyRateSchedule({
           );
         }) : (
           <p className="px-3 py-3 text-xs text-zinc-400">
-            The current ${fallbackRate.toFixed(2)}/hr rate will be used until a schedule is added.
+            The current {money.exact(fallbackRate)}/hr rate will be used until a schedule is added.
           </p>
         )}
       </div>

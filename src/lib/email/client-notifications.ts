@@ -14,6 +14,8 @@
  */
 
 import { getBrand } from '@/lib/brand/server';
+import { getRegion } from '@/lib/region/server';
+import { excludedNote, totalInCurrency } from '@/lib/format';
 import { getActorClient, getServiceClient } from '@/lib/api/supabase-service';
 import { currentActorVia } from '@/lib/api/request-context';
 import { sendTransactional } from './send-mail';
@@ -543,6 +545,7 @@ async function loadInvoicePdfData(
     portal,
     senderName,
     brand,
+    region,
   ] = await Promise.all([
     getProjectForInvoicePdf(projectId),
     getInvoiceWithAllocations(projectId, invoiceId),
@@ -554,6 +557,7 @@ async function loadInvoicePdfData(
     getPortalInfo(projectId),
     getSenderName(triggeredBy),
     getBrand(),
+    getRegion(),
   ]);
 
   if ('error' in project) return project;
@@ -576,6 +580,7 @@ async function loadInvoicePdfData(
       // The uploaded files' own URLs (.png or .jpg): react-pdf validates
       // images by URL extension, so the /api/logo route would be rejected.
       brand,
+      region,
       portalUrl: portalInvoiceUrl,
       timeEntries,
       projectInvoices,
@@ -671,11 +676,15 @@ async function getBudgetUsage(project: ProjectRow): Promise<BudgetUsage> {
     } else {
       const { data: invoices } = await supabase
         .from('project_invoices')
-        .select('id, amount, status, invoice_type, line_items')
+        .select('*')
         .eq('project_id', project.id)
         .neq('status', 'draft')
         .is('deleted_at', null);
-      const totals = invoicedTotalsByItemType((invoices || []) as ProjectInvoice[]);
+      // A budget is in the workspace currency: invoices in another one never count toward it.
+      const { currency } = await getRegion();
+      const inBudgetCurrency = ((invoices || []) as ProjectInvoice[])
+        .filter(inv => (inv.currency || currency).toUpperCase() === currency);
+      const totals = invoicedTotalsByItemType(inBudgetCurrency);
       currentUsage = totals.hourly + totals.fixed + totals.recurring;
     }
   }
@@ -732,6 +741,11 @@ export async function renderCommunication(
     Object.entries(slotOverrides).filter(([, v]) => typeof v === 'string' && v.trim().length > 0),
   );
 
+  // Amounts and dates in the workspace's currency and locale; an invoice
+  // email uses the invoice's own currency in place of the workspace's.
+  const workspaceRegion = await getRegion();
+  const region = { currency: workspaceRegion.currency, locale: workspaceRegion.locale };
+
   const common = {
     brand: await getBrand(),
     projectName: project.name,
@@ -780,6 +794,7 @@ export async function renderCommunication(
         budgetUsed: null,
         billing: false,
         slots,
+        region,
       });
       return {
         to: recipients.to,
@@ -803,7 +818,11 @@ export async function renderCommunication(
       .eq('project_id', projectId)
       .neq('status', 'draft')
       .is('deleted_at', null);
-    const activeInvoices = (invoices || []) as ProjectInvoice[];
+    const allInvoices = (invoices || []) as ProjectInvoice[];
+    // The balance and budget are in the workspace currency: an invoice in
+    // another currency is never added to them, and the email says so.
+    const { excluded } = totalInCurrency(allInvoices, inv => inv.amount, inv => inv.currency, region.currency);
+    const activeInvoices = allInvoices.filter(inv => (inv.currency || region.currency).toUpperCase() === region.currency);
 
     const { data: entries } = await supabase
       .from('project_time_entries')
@@ -842,7 +861,7 @@ export async function renderCommunication(
       );
     }
 
-    const paidInvoices = activeInvoices
+    const paidInvoices = allInvoices
       .filter((inv): inv is ProjectInvoice & { paid_date: string } => inv.status === 'paid' && !!inv.paid_date)
       .sort((a, b) => new Date(b.paid_date).getTime() - new Date(a.paid_date).getTime());
     const lastPaid = paidInvoices[0] || null;
@@ -863,10 +882,13 @@ export async function renderCommunication(
       currentBalance: outstanding,
       lastPaymentDate: lastPaid?.paid_date || null,
       lastPaymentAmount: lastPaid?.amount || null,
+      lastPaymentCurrency: lastPaid?.currency ?? null,
       budgetType: project.budget_type,
       budgetValue: project.budget_value,
       budgetUsed,
       slots,
+      region,
+      balanceNote: excludedNote(excluded),
     });
 
     return {
@@ -888,6 +910,8 @@ export async function renderCommunication(
     const invoicePortalUrl = portal
       ? `${portalUrl(portal.token)}?invoice=${encodeURIComponent(invoice.invoice_number)}`
       : null;
+    // The invoice's own currency, so a later workspace change never relabels it.
+    const invoiceCurrency = (invoice.currency || region.currency).toUpperCase();
     const defaults = invoiceEmailDefaults({
       projectName: project.name,
       invoiceNumber: invoice.invoice_number,
@@ -895,6 +919,8 @@ export async function renderCommunication(
       dueDate: invoice.due_date,
       paidDate: invoice.paid_date,
       status: invoice.status,
+      currency: invoiceCurrency,
+      locale: region.locale,
     });
     const slots: InvoiceEmailSlots = { ...defaults, ...(overrides as Partial<InvoiceEmailSlots>) };
     const attachmentFilename = invoicePdfFilename(invoice.invoice_number);
@@ -908,6 +934,8 @@ export async function renderCommunication(
       paidDate: invoice.paid_date,
       status: invoice.status,
       slots,
+      currency: invoiceCurrency,
+      locale: region.locale,
     });
 
     return {
@@ -923,6 +951,7 @@ export async function renderCommunication(
         invoiceId: invoice.id,
         invoiceNumber: invoice.invoice_number,
         invoiceAmount: invoice.amount,
+        invoiceCurrency,
         invoiceStatus: invoice.status,
         issueDate: invoice.date,
         dueDate: invoice.due_date,
@@ -963,6 +992,7 @@ export async function renderCommunication(
       currentUsage: usage.currentUsage,
       thresholdPct,
       slots,
+      region,
     });
     return {
       to: recipients.to,
@@ -986,7 +1016,7 @@ export async function renderCommunication(
       return { error: 'milestone required for dollar_interval' };
     }
     const usage = await getBudgetUsage(project);
-    const defaults = dollarIntervalDefaults({ projectName: project.name, milestone });
+    const defaults = dollarIntervalDefaults({ projectName: project.name, milestone, region });
     const slots: DollarIntervalSlots = { ...defaults, ...(overrides as Partial<DollarIntervalSlots>) };
     const { subject, html, text } = buildDollarIntervalEmail({
       ...common,
@@ -995,6 +1025,7 @@ export async function renderCommunication(
       hourlyRate: project.hourly_rate,
       totalHours: usage.totalHours,
       slots,
+      region,
     });
     return {
       to: recipients.to,
@@ -1027,6 +1058,7 @@ export async function renderCommunication(
       oldBudgetType,
       newBudget,
       newBudgetType,
+      region,
     });
     const slots: BudgetExtendedSlots = { ...defaults, ...(overrides as Partial<BudgetExtendedSlots>) };
     const { subject, html, text } = buildBudgetExtendedEmail({
@@ -1037,6 +1069,7 @@ export async function renderCommunication(
       newBudgetType,
       currentUsage: usage.currentUsage,
       slots,
+      region,
     });
     return {
       to: recipients.to,

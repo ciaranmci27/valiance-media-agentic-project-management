@@ -25,7 +25,8 @@ import {
   tile,
   withEmailBrand,
 } from '../shared';
-import { clientEmailLayout, clientHeader, greeting, usageMeter } from './layout';
+import { formatMoneyExact } from '@/lib/format';
+import { clientEmailLayout, clientHeader, formatEmailHours, greeting, usageMeter, type EmailRegion } from './layout';
 
 export interface ProjectSummarySlots {
   subject: string;
@@ -53,24 +54,22 @@ interface ProjectSummaryParams {
   currentBalance: number;
   lastPaymentDate: string | null;
   lastPaymentAmount: number | null;
+  /** The paid invoice's own currency; left out, the workspace's. */
+  lastPaymentCurrency?: string | null;
   budgetType: 'hours' | 'amount' | null;
   budgetValue: number | null;
   budgetUsed: number | null;
   /** False when Client invoicing is switched off: every money and budget line is left out. */
   billing?: boolean;
   slots: ProjectSummarySlots;
-}
-
-function fmtCurrency(value: number): string {
-  return `$${value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-}
-
-function fmtHours(value: number): string {
-  return `${value.toFixed(1)} hrs`;
+  /** The workspace region: the balance and budget are in the workspace currency. */
+  region: EmailRegion;
+  /** A short line under the balance when it leaves out invoices in another currency. */
+  balanceNote?: string;
 }
 
 /** Date-only strings (YYYY-MM-DD) are read as local dates so they never slip a day. */
-function fmtDate(value: string | Date): string {
+function formatSummaryDate(value: string | Date, locale: string): string {
   let date: Date;
   if (value instanceof Date) {
     date = value;
@@ -81,7 +80,7 @@ function fmtDate(value: string | Date): string {
       : new Date(value);
   }
   if (Number.isNaN(date.getTime())) return String(value);
-  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  return date.toLocaleDateString(locale, { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
 /** Renders with the workspace's brand (getBrand), so the name, logo and colors are this workspace's. */
@@ -93,11 +92,14 @@ function renderProjectSummaryEmail(params: ProjectSummaryParams): { subject: str
   const {
     projectName, clientName, portalUrl, logoUrl,
     unpaidHours, hourlyRate, currentBalance,
-    lastPaymentDate, lastPaymentAmount,
+    lastPaymentDate, lastPaymentAmount, lastPaymentCurrency,
     budgetType, budgetValue, budgetUsed,
-    slots,
+    slots, region, balanceNote,
   } = params;
   const name = getSiteName();
+  const fmtCurrency = (value: number, currency?: string | null) => formatMoneyExact(value, { currency: currency || region.currency, locale: region.locale });
+  const fmtHours = (value: number) => formatEmailHours(value, region.locale);
+  const fmtDate = (value: string | Date) => formatSummaryDate(value, region.locale);
   const teal = accentPalette();
   const billing = params.billing !== false;
 
@@ -122,6 +124,7 @@ function renderProjectSummaryEmail(params: ProjectSummaryParams): { subject: str
       stats.push({ label: 'Current balance', value: fmtCurrency(currentBalance) });
     }
     if (stats.length > 0) statsHtml = statGrid(stats);
+    if (currentBalance > 0 && balanceNote) statsHtml += paragraph(escapeHtml(balanceNote), { muted: true, size: 13 });
   }
 
   // Plain-text lines for the facts beneath the numbers. The HTML renders the
@@ -130,7 +133,7 @@ function renderProjectSummaryEmail(params: ProjectSummaryParams): { subject: str
 
   let paymentHtml = '';
   if (billing && lastPaymentDate && lastPaymentAmount && lastPaymentAmount > 0) {
-    const row = { label: 'Last payment', value: `${fmtCurrency(lastPaymentAmount)} on ${fmtDate(lastPaymentDate)}` };
+    const row = { label: 'Last payment', value: `${fmtCurrency(lastPaymentAmount, lastPaymentCurrency)} on ${fmtDate(lastPaymentDate)}` };
     detailRows.push(row);
     paymentHtml = kvRows([row]);
   }
@@ -138,7 +141,7 @@ function renderProjectSummaryEmail(params: ProjectSummaryParams): { subject: str
   let budgetHtml = '';
   if (billing && budgetType && budgetValue && budgetValue > 0 && budgetUsed !== null) {
     const pct = Math.min(100, Math.round((budgetUsed / budgetValue) * 100));
-    const fmt = budgetType === 'hours' ? fmtHours : fmtCurrency;
+    const fmt = budgetType === 'hours' ? fmtHours : (value: number) => fmtCurrency(value);
     detailRows.push({ label: 'Budget progress', value: `${pct}% of ${fmt(budgetValue)}` });
     budgetHtml = `
       ${label('Budget progress', { margin: '4px 0 10px 0' })}
@@ -187,6 +190,7 @@ function renderProjectSummaryEmail(params: ProjectSummaryParams): { subject: str
     }
     if (currentBalance > 0) {
       lines.push(`Current balance: ${fmtCurrency(currentBalance)}`);
+      if (balanceNote) lines.push(balanceNote);
     }
     lines.push('');
   }

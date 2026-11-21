@@ -5,6 +5,7 @@ import { Task } from '@/lib/types';
 import { ChevronLeft, ChevronRight, ChevronDown, AlertCircle, Plus } from 'lucide-react';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { parseDateOnly } from '@/lib/date-utils';
+import { useRegion } from '@/lib/region/context';
 
 interface CalendarViewProps {
   tasks: Task[];
@@ -12,6 +13,8 @@ interface CalendarViewProps {
   /** Clicking a day's empty space creates a task due that day. */
   onAddTask?: (date: string) => void;
 }
+
+const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 // Same philosophy as PriorityBadge: color only above medium, so red and
 // amber stay meaningful and the calendar never invents its own palette.
@@ -37,13 +40,16 @@ export function CalendarView({ tasks: allTasks, onViewTask, onAddTask }: Calenda
   // Folded by default: with an agent proposing work faster than it gets
   // scheduled, this section can outnumber the calendar itself and drown it.
   const [showUnscheduled, setShowUnscheduled] = useState(false);
+  const { locale, weekStart } = useRegion();
 
   const year = currentDate.getFullYear();
   const month = currentDate.getMonth();
 
   const firstDayOfMonth = new Date(year, month, 1);
   const lastDayOfMonth = new Date(year, month + 1, 0);
-  const startingDay = firstDayOfMonth.getDay();
+  const firstWeekday = firstDayOfMonth.getDay();
+  // Leading cells before the 1st: columns start on the workspace's first day of the week.
+  const startingDay = (firstWeekday - weekStart + 7) % 7;
   const daysInMonth = lastDayOfMonth.getDate();
 
   const prevMonth = () => {
@@ -61,7 +67,7 @@ export function CalendarView({ tasks: allTasks, onViewTask, onAddTask }: Calenda
     setExpandedDay(null);
   };
 
-  const monthName = currentDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  const monthName = currentDate.toLocaleDateString(locale, { month: 'long', year: 'numeric' });
 
   // Normalize due_date to YYYY-MM-DD for robust matching. Date-only strings
   // must be parsed as local time or the calendar shifts a day west of UTC.
@@ -158,7 +164,7 @@ export function CalendarView({ tasks: allTasks, onViewTask, onAddTask }: Calenda
 
   for (let day = 1; day <= daysInMonth; day++) {
     const dayTasks = tasksByDay[day] || [];
-    const dayOfWeek = (startingDay + day - 1) % 7;
+    const dayOfWeek = (firstWeekday + day - 1) % 7;
     const todayHighlight = isToday(day);
     const past = isPast(day);
     const overdue = hasOverdueTasks(day, dayTasks);
@@ -327,15 +333,15 @@ export function CalendarView({ tasks: allTasks, onViewTask, onAddTask }: Calenda
 
         {/* Day headers */}
         <div className="grid grid-cols-7 border-b border-white/[0.08]">
-          {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day, i) => (
+          {WEEKDAYS.map((_, i) => (i + weekStart) % 7).map((dow) => (
             <div
-              key={day}
+              key={dow}
               className={`p-2 text-center text-xs font-medium bg-white/[0.03] ${
-                isWeekend(i) ? 'text-zinc-500' : 'text-zinc-400'
+                isWeekend(dow) ? 'text-zinc-500' : 'text-zinc-400'
               }`}
             >
-              <span className="hidden lg:inline">{day}</span>
-              <span className="lg:hidden">{day.charAt(0)}</span>
+              <span className="hidden lg:inline">{WEEKDAYS[dow]}</span>
+              <span className="lg:hidden">{WEEKDAYS[dow].charAt(0)}</span>
             </div>
           ))}
         </div>

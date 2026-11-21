@@ -19,6 +19,7 @@ import { toast } from '@/components/ui/Toast';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { useAuth } from '@/lib/auth-context';
 import { hasPermission } from '@/lib/access-control';
+import { appLocale } from '@/lib/region';
 
 const PIPELINE_STAGES: { status: Lead['status']; label: string }[] = [
   { status: 'new', label: 'New' },
@@ -52,7 +53,7 @@ const formatTimeAgo = (dateStr: string) => {
   if (hours < 24) return `${hours}h ago`;
   const days = Math.floor(hours / 24);
   if (days < 7) return `${days}d ago`;
-  return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  return new Date(dateStr).toLocaleDateString(appLocale(), { month: 'short', day: 'numeric' });
 };
 
 export default function LeadsPage() {

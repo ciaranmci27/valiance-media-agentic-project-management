@@ -20,6 +20,7 @@ import { useTaskWarmer } from '@/lib/reads';
 import { UnreadLabel, useCardUnread } from './TaskUnread';
 import { subtaskProgress } from '@/lib/subtasks';
 import { createdLabel, lastActivityAt, taskTimesTooltip, timeAgo } from '@/lib/task-times';
+import { appLocale } from '@/lib/region';
 import { useSubtaskMenuActions } from './MakeSubtaskDialog';
 import { SubtaskRing, SUBTASK_STATUS_RING as STATUS_RING } from './SubtaskRing';
 
@@ -36,8 +37,8 @@ const MOVE_ORDER: Task['status'][] = ['backlog', 'todo', 'in_progress', 'in_revi
 // One line in the card's panel: an icon, what it is, and its value on the right.
 const PANEL_ROW = 'grid w-full grid-cols-[18px_minmax(0,1fr)_auto] items-center gap-2 text-xs';
 
-const shortDate = (date: string) => parseDateOnly(date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-const longDate = (date: string) => parseDateOnly(date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+const shortDate = (date: string) => parseDateOnly(date).toLocaleDateString(appLocale(), { month: 'short', day: 'numeric' });
+const longDate = (date: string) => parseDateOnly(date).toLocaleDateString(appLocale(), { weekday: 'short', month: 'short', day: 'numeric' });
 const daysOverdue = (date: string) => Math.max(1, Math.round((Date.now() - parseDateOnly(date).getTime()) / 86_400_000));
 const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? '' : 's'}`;
 

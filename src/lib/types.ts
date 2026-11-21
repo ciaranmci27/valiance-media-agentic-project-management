@@ -628,6 +628,8 @@ export interface ProjectInvoice {
   mime_type: string | null;
   /** True for drafts the retainer job created. */
   auto_generated?: boolean;
+  /** ISO 4217, stamped from the workspace when it was made. Missing before 1.7.0's migration: the workspace currency. */
+  currency?: string;
   created_by: string | null;
   created_at: string;
   updated_at: string;
@@ -674,6 +676,8 @@ export interface ProjectRetainer {
   end_date: string | null;
   status: RetainerStatus;
   lead_days: number;
+  /** ISO 4217, stamped from the workspace when it was made. Missing before 1.7.0's migration: the workspace currency. */
+  currency?: string;
   created_at: string;
   updated_at: string;
 }
@@ -730,6 +734,8 @@ export interface ProjectBillingPlan {
   paused: boolean;
   starts_on: string | null;
   ends_on: string | null;
+  /** ISO 4217, stamped from the workspace when the plan was made. Missing before 1.7.0's migration. */
+  currency?: string;
 }
 
 /** project_billing_runs: what one scheduled or amount run did. */
@@ -1452,6 +1458,8 @@ export interface PortalData {
     amount: number;
     status: string;
     invoice_type: string;
+    /** ISO 4217; null on rows stored before invoices had one (the workspace currency). */
+    currency?: string | null;
     line_items: InvoiceLineItem[];
     date: string;
     due_date: string | null;

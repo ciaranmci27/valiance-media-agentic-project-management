@@ -16,6 +16,7 @@ import { useTaskWarmer } from '@/lib/reads';
 import { useTaskFileCount } from './task-file-counts';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { parseDateOnly, isDateOverdue } from '@/lib/date-utils';
+import { useRegion } from '@/lib/region/context';
 import { hasPermission, canEditTask, canManageAllTasks, isModuleEnabled } from '@/lib/access-control';
 
 /**
@@ -47,6 +48,7 @@ export function TaskRow({ task, onView, onDelete }: TaskRowProps) {
   const { team, tasks, getProject, getSubtasks, getTaskUpdate } = useApp();
   const warmTask = useTaskWarmer();
   const { teamMemberId, access } = useAuth();
+  const { locale } = useRegion();
   const [showMenu, setShowMenu] = useState(false);
   const linkCounts = useTaskLinkCounts(task.id);
   const fileCount = useTaskFileCount(task.id);
@@ -66,7 +68,7 @@ export function TaskRow({ task, onView, onDelete }: TaskRowProps) {
     const d = parseDateOnly(date);
     const isOverdue = isDateOverdue(date) && task.status !== 'done' && task.status !== 'backlog';
     return {
-      text: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+      text: d.toLocaleDateString(locale, { month: 'short', day: 'numeric' }),
       isOverdue
     };
   };
@@ -230,6 +232,7 @@ export function TaskRowDesktop({ task, onView, onDelete, selected, onToggleSelec
   const { team, tasks, getProject, getSubtasks, getTaskUpdate } = useApp();
   const warmTask = useTaskWarmer();
   const { teamMemberId, access } = useAuth();
+  const { locale } = useRegion();
   const [showMenu, setShowMenu] = useState(false);
   const linkCounts = useTaskLinkCounts(task.id);
   const fileCount = useTaskFileCount(task.id);
@@ -249,7 +252,7 @@ export function TaskRowDesktop({ task, onView, onDelete, selected, onToggleSelec
     const d = parseDateOnly(date);
     const isOverdue = isDateOverdue(date) && task.status !== 'done' && task.status !== 'backlog';
     return {
-      text: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+      text: d.toLocaleDateString(locale, { month: 'short', day: 'numeric' }),
       isOverdue
     };
   };

@@ -22,9 +22,9 @@ import { isRunning } from '@/lib/time-entry-utils';
 import { activityAfterName, teamActivityHref } from '@/lib/team-activity';
 import { GettingStartedCard } from '@/components/welcome/GettingStartedCard';
 import { useCustomDashboardWidgets } from '@/lib/extensions/hooks';
-import { formatHours, formatMoney } from '@/lib/format';
-
-const fmtMoney = formatMoney;
+import { excludedNote, formatHours } from '@/lib/format';
+import { appLocale } from '@/lib/region';
+import { useMoney } from '@/lib/region/context';
 
 // Trend chip: percent change vs the prior 30-day window (▲ up is added by the card,
 // ▼ down is baked in). Falls back to a plain label when there's no prior baseline.
@@ -47,7 +47,7 @@ function getTimeAgo(dateStr: string): string {
   if (diffHours < 24) return `${diffHours}h ago`;
   const diffDays = Math.floor(diffHours / 24);
   if (diffDays < 7) return `${diffDays}d ago`;
-  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  return date.toLocaleDateString(appLocale(), { month: 'short', day: 'numeric' });
 }
 
 /**
@@ -94,6 +94,8 @@ export default function DashboardPage() {
   const [quickAddProjectId, setQuickAddProjectId] = useState<string | null>(null);
   const [financeNow, setFinanceNow] = useState(() => Date.now());
   const runningTimerCount = useMemo(() => timeEntries.filter(isRunning).length, [timeEntries]);
+  const money = useMoney();
+  const locale = money.locale;
 
   // Keep owner finance KPIs moving while any visible timer is actively accruing.
   // The interval is absent for other users and when every timer is stopped.
@@ -147,7 +149,7 @@ export default function DashboardPage() {
   const dayBuckets = Array.from({ length: 7 }, (_, i) => {
     const start = new Date(weekAgo.getTime() + i * 24 * 60 * 60 * 1000);
     const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
-    return { label: start.toLocaleDateString('en-US', { weekday: 'short' }), start, end };
+    return { label: start.toLocaleDateString(locale, { weekday: 'short' }), start, end };
   });
   const completedPerDay = dayBuckets.map(b =>
     doneTasks.filter(t => { const u = new Date(t.completed_at ?? t.updated_at); return u >= b.start && u < b.end; }).length
@@ -156,7 +158,7 @@ export default function DashboardPage() {
   const maxDay = Math.max(1, ...completedPerDay);
   const newLeadsThisWeek = leads.filter(l => l.created_at && new Date(l.created_at) >= weekAgo).length;
 
-  type Kpi = { label: string; value: number; display?: string; icon: typeof Clock; context: string; up?: boolean; spark?: number[] };
+  type Kpi = { label: string; value: number; display?: string; icon: typeof Clock; context: string; up?: boolean; spark?: number[]; note?: string };
 
   // Permission-aware money cards. Company-finance users see workspace Earned/Outstanding;
   // members with only own-earnings access see their own Earned/Owed. Figures come from the
@@ -175,13 +177,17 @@ export default function DashboardPage() {
 
     if (canReadCompanyFinance) {
       const rateByProject = new Map(projects.map(p => [p.id, p.hourly_tracking && p.hourly_rate ? p.hourly_rate : 0]));
-      const base = { projects, invoices: projectInvoices, timeEntries, team, rateByProject, now: nowMs, timezone: tz, lineSharePercent, accruingRetainerLines };
+      // Totals in the workspace currency only: an invoice in another currency is left out, never added.
+      const workspaceCurrency = money.currency.toUpperCase();
+      const invoices = projectInvoices.filter(i => (i.currency || workspaceCurrency).toUpperCase() === workspaceCurrency);
+      const leftOut = excludedNote(projectInvoices.length - invoices.length);
+      const base = { projects, invoices, timeEntries, team, rateByProject, now: nowMs, timezone: tz, lineSharePercent, accruingRetainerLines };
       const s = computeCompanyFinanceSummary({ ...base, range });
       const prev = computeCompanyFinanceSummary({ ...base, range: prevRange });
       const trend = trendChip(s.earned, prev.earned, `Last 30 days, ${formatHours(s.hours)} logged`);
       return [
-        { label: 'Earned', value: 0, display: fmtMoney(s.earned), icon: DollarSign, context: trend.text, up: trend.up },
-        { label: 'Outstanding', value: 0, display: fmtMoney(s.outstanding), icon: Wallet, context: s.overdue > 0 ? `${fmtMoney(s.overdue)} overdue` : 'to collect' },
+        { label: 'Earned', value: 0, display: money(s.earned), icon: DollarSign, context: trend.text, up: trend.up },
+        { label: 'Outstanding', value: 0, display: money(s.outstanding), icon: Wallet, context: s.overdue > 0 ? `${money(s.overdue)} overdue` : 'to collect', note: leftOut || undefined },
       ];
     }
     if (canReadOwnEarnings && employeeEarnings) {
@@ -189,12 +195,12 @@ export default function DashboardPage() {
       const mPrev = computeMemberEarningsSummary(employeeEarnings, prevRange);
       const trend = trendChip(m.earned, mPrev.earned, 'Last 30 days');
       return [
-        { label: 'Earned', value: 0, display: fmtMoney(m.earned), icon: DollarSign, context: trend.text, up: trend.up },
-        { label: 'Owed to you', value: 0, display: fmtMoney(m.owed), icon: Wallet, context: m.owed > 0 ? 'unpaid' : 'all settled' },
+        { label: 'Earned', value: 0, display: money(m.earned), icon: DollarSign, context: trend.text, up: trend.up },
+        { label: 'Owed to you', value: 0, display: money(m.owed), icon: Wallet, context: m.owed > 0 ? 'unpaid' : 'all settled' },
       ];
     }
     return [];
-  }, [canReadCompanyFinance, canReadOwnEarnings, employeeEarnings, projects, projectInvoices, timeEntries, team, currentMember?.timezone, financeNow, lineSharePercent, accruingRetainerLines]);
+  }, [canReadCompanyFinance, canReadOwnEarnings, employeeEarnings, projects, projectInvoices, timeEntries, team, currentMember?.timezone, financeNow, lineSharePercent, accruingRetainerLines, money]);
 
   const kpis: Kpi[] = financeCards.length
     ? [
@@ -211,6 +217,9 @@ export default function DashboardPage() {
         ...(canViewLeads ? [{ label: 'Active leads', value: activeLeads.length, icon: Target, context: newLeadsThisWeek > 0 ? `${newLeadsThisWeek} new this week` : `${leads.length} total`, up: newLeadsThisWeek > 0 } as Kpi] : []),
         ...(canViewContacts && !canViewLeads ? [{ label: 'Contacts', value: contacts.length, icon: Users, context: `${contacts.length} total` } as Kpi] : []),
       ];
+
+  // Invoices in another currency the money cards left out, said once under the strip.
+  const financeNote = financeCards.find(k => k.note)?.note;
 
   // Without the pipeline beside it the Activity chart takes the whole row,
   // rather than repeating Quick Actions from the rail below.
@@ -264,6 +273,7 @@ export default function DashboardPage() {
             ) : kpi.context,
           }))}
         />
+        {financeNote && <p className="-mt-3 lg:-mt-4 px-1 text-xs text-zinc-500">{financeNote}</p>}
 
         {/* The install's own cards placed at the top (src/custom). */}
         <CustomWidgets placement="top" />
@@ -316,7 +326,7 @@ export default function DashboardPage() {
             <div className="flex items-end gap-2 lg:gap-3 h-32 mt-5 pb-6 relative">
               {completedPerDay.map((v, i) => {
                 const isToday = i === completedPerDay.length - 1;
-                const dateLabel = dayBuckets[i].start.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+                const dateLabel = dayBuckets[i].start.toLocaleDateString(locale, { weekday: 'short', month: 'short', day: 'numeric' });
                 return (
                   <div key={i} className="flex-1 flex flex-col justify-end items-center h-full relative">
                     {/* The sized outer div owns the %-height so the Tooltip
@@ -422,7 +432,7 @@ export default function DashboardPage() {
                       <p className="font-medium text-white text-sm">{task.title}</p>
                       <div className="flex items-center gap-2 mt-1">
                         <p className="text-xs text-zinc-400">{project?.name}</p>
-                        {task.due_date && <span className="text-xs text-zinc-500">&bull; {parseDateOnly(task.due_date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}</span>}
+                        {task.due_date && <span className="text-xs text-zinc-500">&bull; {parseDateOnly(task.due_date).toLocaleDateString(locale, { weekday: 'short', month: 'short', day: 'numeric' })}</span>}
                       </div>
                     </Link>
                   );

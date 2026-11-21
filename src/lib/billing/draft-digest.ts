@@ -5,6 +5,8 @@ import { getBrand } from '@/lib/brand/server';
 import { emailCategoryEnabled } from '@/lib/notification-defaults';
 import type { NotificationPreferences } from '@/lib/types';
 import { trashedProjectIds } from '@/lib/supabase/trash';
+import { getRegion } from '@/lib/region/server';
+import { excludedNote, formatMoneyExact, totalInCurrency } from '@/lib/format';
 
 /**
  * The morning email about auto drafts (retainer and scheduled hours) made
@@ -24,19 +26,16 @@ interface NoticeRow {
   invoice_id: string;
   project_id: string;
   summary: string;
-  project_invoices: { invoice_number: string; amount: number | string; status: string; deleted_at: string | null } | null;
+  project_invoices: { invoice_number: string; amount: number | string; currency: string | null; status: string; deleted_at: string | null } | null;
 }
 
 type Send = typeof sendTransactional;
 
-function money(value: number): string {
-  return value.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
-}
 
 export async function runDraftDigest(service: SupabaseClient, send: Send = sendTransactional): Promise<DraftDigestResult> {
   const { data, error } = await service
     .from('billing_draft_notices')
-    .select('invoice_id, project_id, summary, project_invoices(invoice_number, amount, status, deleted_at)')
+    .select('invoice_id, project_id, summary, project_invoices(*)')
     .is('emailed_at', null)
     .order('created_at');
   if (error) throw error;
@@ -83,11 +82,20 @@ export async function runDraftDigest(service: SupabaseClient, send: Send = sendT
     return { drafts: live.length, recipients: 0, emailed: 0, outcome: 'no_recipients' };
   }
 
-  const total = live.reduce((sum, notice) => sum + Number(notice.project_invoices?.amount ?? 0), 0);
+  // Each draft in its own currency; the total only adds drafts in the workspace's.
+  const { currency: workspaceCurrency, locale } = await getRegion();
+  const money = (value: number, currency?: string | null) => formatMoneyExact(value, { currency: currency || workspaceCurrency, locale });
+  const { total, excluded } = totalInCurrency(
+    live,
+    (notice) => Number(notice.project_invoices?.amount ?? 0),
+    (notice) => notice.project_invoices?.currency,
+    workspaceCurrency,
+  );
   const title = live.length === 1 ? 'An invoice draft is ready to send' : `${live.length} invoice drafts are ready to send`;
+  const leftOut = excludedNote(excluded, 'draft');
   const message = live.length === 1
     ? live[0].summary
-    : `${money(total)} in drafts, waiting for you to review and send. Nothing has been sent to a client.`;
+    : `${money(total)} in drafts, waiting for you to review and send. Nothing has been sent to a client.${leftOut ? ` ${leftOut}` : ''}`;
   const projectIds = [...new Set(live.map((notice) => notice.project_id))];
   const { data: projects, error: projectsError } = await service.from('projects').select('id, name').in('id', projectIds).is('deleted_at', null);
   if (projectsError) throw projectsError;
@@ -99,7 +107,7 @@ export async function runDraftDigest(service: SupabaseClient, send: Send = sendT
     link: projectIds.length === 1 ? `/projects/${projectIds[0]}?tab=invoices` : '/finances/billing',
     details: live.slice(0, 8).map((notice) => ({
       label: `${notice.project_invoices?.invoice_number ?? 'Invoice'} · ${projectName.get(notice.project_id) ?? 'Project'}`,
-      value: money(Number(notice.project_invoices?.amount ?? 0)),
+      value: money(Number(notice.project_invoices?.amount ?? 0), notice.project_invoices?.currency),
     })),
   });
 

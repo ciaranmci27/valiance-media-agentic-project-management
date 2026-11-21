@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
+import { appLocale } from '@/lib/region';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Toggle } from '@/components/ui/inputs/Toggle';
@@ -75,8 +76,8 @@ function deliveryDetail(d: WebhookDelivery): string {
 }
 
 function formatWhen(value: string | null): string {
-  if (!value) return ';';
-  return new Date(value).toLocaleString(undefined, {
+  if (!value) return 'not set';
+  return new Date(value).toLocaleString(appLocale(), {
     month: 'short',
     day: 'numeric',
     hour: '2-digit',
@@ -540,7 +541,7 @@ export function WebhooksPanel({ teamMemberId }: { teamMemberId: string | null })
                       </span>
                     </td>
                     <td className="px-3 py-2 text-zinc-400 font-mono">
-                      {d.last_status_code ?? ';'}
+                      {d.last_status_code ?? 'None'}
                     </td>
                     <td className="px-3 py-2 text-zinc-400 font-mono whitespace-nowrap">
                       {d.attempts}/{WEBHOOK_MAX_ATTEMPTS}

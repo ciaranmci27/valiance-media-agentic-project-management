@@ -19,6 +19,8 @@ import {
 } from '@/lib/agent-analytics';
 import { toDateKey } from '@/lib/finance/vesting';
 import { toLocalDateKey } from '@/lib/date-utils';
+import { formatMoney, formatMoneyCompact, formatNumber } from '@/lib/format';
+import { appLocale, startOfWeek } from '@/lib/region';
 import {
   useAgentAnalyticsEvents,
   useAgentHealthHistory,
@@ -73,27 +75,27 @@ import {
 
 function fmt(value: number): string {
   if (Math.abs(value) >= 1000) {
-    return value.toLocaleString('en-US', { maximumFractionDigits: 0 });
+    return formatNumber(value, { maximumFractionDigits: 0 });
   }
   const hasCents = Math.round(value * 100) % 100 !== 0;
-  return value.toLocaleString('en-US', {
+  return formatNumber(value, {
     minimumFractionDigits: hasCents ? 2 : 0,
     maximumFractionDigits: 2,
   });
 }
 
-function fmtCurrency(value: number): string {
-  return value < 0 ? `-$${fmt(Math.abs(value))}` : `$${fmt(value)}`;
-}
+/** Revenue, cost and profit are in the workspace currency. */
+const fmtCurrency = (value: number): string => formatMoney(value);
 
 function fmtDate(dateKey: string, withWeekday = false): string {
   const [y, m, d] = dateKey.split('-').map(Number);
   const date = new Date(y, m - 1, d);
-  const now = new Date();
-  const month = date.toLocaleString('en-US', { month: 'short' });
-  const base = y !== now.getFullYear() ? `${month} ${d}, ${y}` : `${month} ${d}`;
-  if (!withWeekday) return base;
-  return `${date.toLocaleString('en-US', { weekday: 'short' })}, ${base}`;
+  return date.toLocaleDateString(appLocale(), {
+    weekday: withWeekday ? 'short' : undefined,
+    month: 'short',
+    day: 'numeric',
+    year: y !== new Date().getFullYear() ? 'numeric' : undefined,
+  });
 }
 
 function fmtRangeDisplay(startKey: string, endKey: string): string {
@@ -114,15 +116,12 @@ function pickGranularity(rangeDays: number): Granularity {
   return 'month';
 }
 
-/** Bucket-start key for a date at a granularity. Weeks align to Monday. */
+/** Bucket-start key for a date at a granularity. Weeks start on the workspace's first day. */
 function bucketStartKey(dateKey: string, gran: Granularity): string {
   if (gran === 'day') return dateKey;
   const [y, m, d] = dateKey.split('-').map(Number);
   if (gran === 'month') return `${y}-${String(m).padStart(2, '0')}-01`;
-  const date = new Date(y, m - 1, d);
-  const dow = date.getDay();
-  date.setDate(date.getDate() - (dow === 0 ? 6 : dow - 1));
-  return toDateKey(date);
+  return toDateKey(startOfWeek(new Date(y, m - 1, d)));
 }
 
 function bucketLabel(startKey: string, gran: Granularity, todayKey: string): string {
@@ -130,10 +129,9 @@ function bucketLabel(startKey: string, gran: Granularity, todayKey: string): str
   const date = new Date(y, m - 1, d);
   if (gran === 'day' && startKey === todayKey) return 'Today';
   if (gran === 'month') {
-    const base = date.toLocaleDateString('en-US', { month: 'short' });
-    return y === new Date().getFullYear() ? base : `${base} ${String(y).slice(2)}`;
+    return date.toLocaleDateString(appLocale(), { month: 'short', year: y === new Date().getFullYear() ? undefined : '2-digit' });
   }
-  return `${date.toLocaleDateString('en-US', { month: 'short' })} ${d}`;
+  return date.toLocaleDateString(appLocale(), { month: 'short', day: 'numeric' });
 }
 
 // ---------------------------------------------------------------------------
@@ -211,13 +209,12 @@ function axisTicks(maxVal: number, format: MetricFormat): number[] {
 
 function fmtAxis(value: number, format: MetricFormat): string {
   if (format === 'duration') return value === 0 ? '0' : fmtDuration(value);
-  const sign = value < 0 ? '-' : '';
+  if (format === 'currency') {
+    return Math.abs(value) >= 1000 ? formatMoneyCompact(value) : formatMoney(value);
+  }
   const abs = Math.abs(value);
-  const prefix = format === 'currency' ? '$' : '';
-  if (value === 0) return `${prefix}0`;
-  if (abs >= 1000) return `${sign}${prefix}${(abs / 1000).toFixed(abs % 1000 === 0 ? 0 : 1)}K`;
-  const rounded = Math.round(abs * 100) / 100;
-  return `${sign}${prefix}${rounded}`;
+  if (abs >= 1000) return `${value < 0 ? '-' : ''}${formatNumber(abs / 1000, { maximumFractionDigits: abs % 1000 === 0 ? 0 : 1 })}K`;
+  return formatNumber(value, { maximumFractionDigits: 2 });
 }
 
 // Same vivid family as the Finances chart, one hue per agent. Assigned by
@@ -589,7 +586,7 @@ export default function AgentAnalyticsPage() {
             value: measured ? fmtDuration(fleet.activeMs) : null,
             tone: 'info' as StatTone,
             context: measured && fleet.productiveShare !== null
-              ? `${Math.round(fleet.productiveShare * 100)}% work · ${fleet.turns.toLocaleString('en-US')} turns`
+              ? `${Math.round(fleet.productiveShare * 100)}% work · ${formatNumber(fleet.turns)} turns`
               : 'Time the agents actually ran',
             notTracked: selectedProjectIds.size > 0
               ? 'Runtime is fleet-wide, not per project: a turn can touch several projects or none, so it is not attributed to a project filter.'
@@ -601,14 +598,14 @@ export default function AgentAnalyticsPage() {
           // the same pull requests, and a separate lines tile stranded a
           // seventh card on its own row for a number that means little alone.
           const parts = [
-            telemetry.handoff ? `${summary.prsOpened.toLocaleString('en-US')} opened` : null,
+            telemetry.handoff ? `${formatNumber(summary.prsOpened)} opened` : null,
             telemetry.merged && summary.linesChanged > 0
               ? `+${fmtCount(summary.additions)} / -${fmtCount(summary.deletions)}`
               : null,
           ].filter(Boolean);
           return {
             ...metric,
-            value: telemetry.merged ? summary.prsMerged.toLocaleString('en-US') : null,
+            value: telemetry.merged ? formatNumber(summary.prsMerged) : null,
             tone: 'default' as StatTone,
             context: parts.length ? parts.join(' · ') : 'Merged pull requests',
             notTracked: mergeReason,
@@ -616,7 +613,7 @@ export default function AgentAnalyticsPage() {
         }
         case 'reviewRounds': return {
           ...metric,
-          value: summary.reviewRounds.toLocaleString('en-US'),
+          value: formatNumber(summary.reviewRounds),
           tone: 'default' as StatTone,
           context: 'Review cycles in range',
           notTracked: null,
@@ -1426,7 +1423,7 @@ export default function AgentAnalyticsPage() {
                           <li key={a.agentId} className="flex items-baseline justify-between gap-3 text-xs">
                             <span className="text-zinc-400 truncate">{a.agentName}</span>
                             <span className="font-medium text-zinc-200 tabular-nums">
-                              {a.uptimePct!.toFixed(1)}%
+                              {formatNumber(a.uptimePct!, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%
                               {a.outages > 0 && <span className="text-zinc-500 font-normal"> · {a.outages} out</span>}
                             </span>
                           </li>

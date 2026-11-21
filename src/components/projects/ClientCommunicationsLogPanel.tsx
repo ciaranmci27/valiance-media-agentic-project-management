@@ -7,6 +7,7 @@ import {
 import { useDemo } from '@/lib/demo-context';
 import { useApp } from '@/lib/store';
 import { demoClientCommunications } from '@/lib/demo-data';
+import { appLocale } from '@/lib/region';
 import { Button } from '@/components/ui/Button';
 import { Bone, EmptyCard, NoMatches, Skeleton } from './TabLayout';
 import ClientEmailPreviewModal from './ClientEmailPreviewModal';
@@ -193,7 +194,7 @@ function CommRow({
   const StatusIcon = status.icon;
   const timestamp = comm.sent_at ?? comm.dismissed_at ?? comm.created_at;
   const relTime = formatRelative(timestamp);
-  const fullTime = new Date(timestamp).toLocaleString('en-US', {
+  const fullTime = new Date(timestamp).toLocaleString(appLocale(), {
     month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit',
   });
 
@@ -257,5 +258,5 @@ function formatRelative(iso: string): string {
   if (diffHr < 24) return `${diffHr}h ago`;
   const diffDay = Math.round(diffHr / 24);
   if (diffDay < 7) return `${diffDay}d ago`;
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  return d.toLocaleDateString(appLocale(), { month: 'short', day: 'numeric', year: 'numeric' });
 }

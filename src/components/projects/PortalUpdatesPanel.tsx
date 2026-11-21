@@ -29,6 +29,7 @@ import { Tooltip } from '@/components/ui/Tooltip';
 import { Button } from '@/components/ui/Button';
 import { EmptyCard, NoMatches } from './TabLayout';
 import type { PortalUpdate, PortalUpdateType, PortalUpdateAttachment } from '@/lib/types';
+import { appLocale } from '@/lib/region';
 
 interface PortalUpdatesPanelProps {
   projectId: string;
@@ -90,7 +91,7 @@ function timeAgo(dateStr: string): string {
   if (hours < 24) return `${hours}h ago`;
   const days = Math.floor(hours / 24);
   if (days < 30) return `${days}d ago`;
-  return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  return new Date(dateStr).toLocaleDateString(appLocale(), { month: 'short', day: 'numeric' });
 }
 
 function AttachmentChips({

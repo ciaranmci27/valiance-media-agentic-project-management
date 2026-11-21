@@ -7,6 +7,8 @@ import { Button } from '@/components/ui/Button';
 import { Textarea } from '@/components/ui/inputs/Textarea';
 import type { BillingGap } from '@/lib/agent-telemetry-analytics';
 import { Card, CardSkeleton, Defined, Missing, fmtWhen } from './shared';
+import { appLocale } from '@/lib/region';
+import { formatNumber } from '@/lib/format';
 
 const PHASES: Record<BillingGap['phase'], { label: string; hint: string }> = {
   mid_turn: { label: 'Mid turn', hint: 'The timer was paused while work went on. The most important kind.' },
@@ -70,12 +72,12 @@ export function BillingGapsCard({ gaps, measuring, reviewsAvailable, withheldRea
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <div className="text-sm text-zinc-200">
-                      <span className="font-semibold">{gap.minutes.toFixed(gap.minutes % 1 ? 1 : 0)} min</span>
+                      <span className="font-semibold">{formatNumber(gap.minutes, { minimumFractionDigits: gap.minutes % 1 ? 1 : 0, maximumFractionDigits: gap.minutes % 1 ? 1 : 0 })} min</span>
                       {' · '}
                       <Defined hint={phase.hint} className={gap.phase === 'mid_turn' ? 'text-amber-400' : 'text-zinc-300'}>{phase.label}</Defined>
                     </div>
                     <p className="text-[11px] text-zinc-500 truncate">
-                      {agentName(gap.agentId)} · {fmtWhen(gap.start)} to {new Date(gap.end).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+                      {agentName(gap.agentId)} · {fmtWhen(gap.start)} to {new Date(gap.end).toLocaleTimeString(appLocale(), { hour: 'numeric', minute: '2-digit' })}
                       {gap.origin ? ` · ${gap.origin}` : ''}
                     </p>
                     <p className="text-[11px] text-zinc-500 truncate">
@@ -83,7 +85,7 @@ export function BillingGapsCard({ gaps, measuring, reviewsAvailable, withheldRea
                     </p>
                     {gap.review && (
                       <p className="text-[11px] text-zinc-400 mt-1">
-                        {gap.review.status === 'reconciled' ? 'Reconciled' : 'Dismissed'} {new Date(gap.review.reviewed_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                        {gap.review.status === 'reconciled' ? 'Reconciled' : 'Dismissed'} {new Date(gap.review.reviewed_at).toLocaleDateString(appLocale(), { month: 'short', day: 'numeric' })}
                         {gap.review.note ? `: ${gap.review.note}` : ''}
                       </p>
                     )}

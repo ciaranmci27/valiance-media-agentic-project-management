@@ -10,6 +10,8 @@ import { RadioGroup } from '@/components/ui/inputs/RadioGroup';
 import { Select } from '@/components/ui/inputs/Select';
 import { Toggle } from '@/components/ui/inputs/Toggle';
 import { fetchBillingForecast, saveBillingPlan } from '@/lib/supabase/queries';
+import { moneyAffix } from '@/lib/format';
+import { appLocale } from '@/lib/region';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { BillingForecastItem, HoursCapMode, HoursTrigger, ProjectBillingPlan, ProjectBillingRun } from '@/lib/types';
 import { BillingForecastList, money } from './BillingForecastList';
@@ -50,7 +52,7 @@ export function describePlan(plan: ProjectBillingPlan, hasRetainer: boolean): st
     return `Hours are invoiced by hand. Drafted invoices are ${terms}.`;
   }
   const cap = plan.cap_mode === 'amount' && plan.cap_value
-    ? ` up to ${money(plan.cap_value)} (the rest waits for the next draft)`
+    ? ` up to ${money(plan.cap_value, plan.currency)} (the rest waits for the next draft)`
     : plan.cap_mode === 'hours' && plan.cap_value
       ? ` up to ${plan.cap_value} hours (the rest waits for the next draft)`
       : '';
@@ -58,18 +60,18 @@ export function describePlan(plan: ProjectBillingPlan, hasRetainer: boolean): st
   if (plan.hours_trigger === 'days_of_month') {
     when = `On the ${listJoin(plan.days_of_month.map(dayName))} of each month, just after midnight, approved hours through the day before${cap} go on a draft`;
   } else if (plan.hours_trigger === 'every_weeks') {
-    when = `Every ${plan.every_weeks === 1 ? 'week' : `${plan.every_weeks} weeks`}${plan.weeks_anchor ? ` from ${new Date(`${plan.weeks_anchor}T12:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : ''}, approved hours through the day before${cap} go on a draft`;
+    when = `Every ${plan.every_weeks === 1 ? 'week' : `${plan.every_weeks} weeks`}${plan.weeks_anchor ? ` from ${new Date(`${plan.weeks_anchor}T12:00:00`).toLocaleDateString(appLocale(), { month: 'short', day: 'numeric' })}` : ''}, approved hours through the day before${cap} go on a draft`;
   } else if (plan.hours_trigger === 'reaches_amount') {
-    when = `Once approved unbilled hours reach ${plan.trigger_amount ? money(plan.trigger_amount) : 'the amount'}, all of them${cap} go on a draft`;
+    when = `Once approved unbilled hours reach ${plan.trigger_amount ? money(plan.trigger_amount, plan.currency) : 'the amount'}, all of them${cap} go on a draft`;
   } else {
-    when = `Each time ${plan.trigger_amount ? money(plan.trigger_amount) : 'the amount'} of approved hours builds up, exactly that much goes on a draft and the rest rolls into the next block`;
+    when = `Each time ${plan.trigger_amount ? money(plan.trigger_amount, plan.currency) : 'the amount'} of approved hours builds up, exactly that much goes on a draft and the rest rolls into the next block`;
   }
   const combine = hasRetainer && ['days_of_month', 'every_weeks'].includes(plan.hours_trigger)
     ? plan.combine_with_retainer
       ? ' On a day the retainer bills, the hours join that invoice.'
       : ' On a day the retainer bills, the hours get their own invoice.'
     : '';
-  const minimum = plan.min_amount > 0 ? ` Drafts under ${money(plan.min_amount)} are skipped until more builds up.` : '';
+  const minimum = plan.min_amount > 0 ? ` Drafts under ${money(plan.min_amount, plan.currency)} are skipped until more builds up.` : '';
   const paused = plan.paused ? ' Paused for now.' : '';
   return `${when}.${combine}${minimum} Time awaiting approval waits for the next draft. Invoices are ${terms}. Nothing is sent without you.${paused}`;
 }
@@ -155,6 +157,9 @@ export function HoursBillingForm({ supabase, projectId, plan, runs, hasRetainer,
   };
 
   const disabled = !canManage || saving;
+  const affix = moneyAffix({ currency: plan.currency });
+  const moneyPrefix = affix.position === 'prefix' ? affix.symbol : undefined;
+  const moneySuffix = affix.position === 'suffix' ? affix.symbol : undefined;
 
   return (
     <div className="space-y-6">
@@ -206,7 +211,8 @@ export function HoursBillingForm({ supabase, projectId, plan, runs, hasRetainer,
             description={draft.hours_trigger === 'fixed_blocks'
               ? 'Each invoice is exactly this amount. A session can be split across two blocks.'
               : 'Checked every hour. The draft holds all unbilled hours at that moment.'}
-            prefix="$"
+            prefix={moneyPrefix}
+            suffix={moneySuffix}
             value={draft.trigger_amount ?? ''}
             min={1}
             step={100}
@@ -233,8 +239,8 @@ export function HoursBillingForm({ supabase, projectId, plan, runs, hasRetainer,
               <NumberInput
                 label={draft.cap_mode === 'amount' ? 'Limit' : 'Hours limit'}
                 description="The rest waits for the next draft."
-                prefix={draft.cap_mode === 'amount' ? '$' : undefined}
-                suffix={draft.cap_mode === 'hours' ? 'h' : undefined}
+                prefix={draft.cap_mode === 'amount' ? moneyPrefix : undefined}
+                suffix={draft.cap_mode === 'hours' ? 'h' : draft.cap_mode === 'amount' ? moneySuffix : undefined}
                 value={draft.cap_value ?? ''}
                 min={0.25}
                 step={draft.cap_mode === 'amount' ? 100 : 1}
@@ -261,7 +267,8 @@ export function HoursBillingForm({ supabase, projectId, plan, runs, hasRetainer,
             <NumberInput
               label="Skip a draft under"
               description="Small amounts wait for the next draft. 0 drafts any amount."
-              prefix="$"
+              prefix={moneyPrefix}
+              suffix={moneySuffix}
               value={draft.min_amount}
               min={0}
               step={50}
@@ -333,7 +340,7 @@ export function HoursBillingForm({ supabase, projectId, plan, runs, hasRetainer,
         ) : preview === null ? (
           <p className="text-sm text-zinc-500">Working out the next drafts…</p>
         ) : (
-          <BillingForecastList items={preview} emptyText="Nothing scheduled in the next three months." />
+          <BillingForecastList items={preview} currency={plan.currency} emptyText="Nothing scheduled in the next three months." />
         )}
       </div>
 
@@ -344,10 +351,10 @@ export function HoursBillingForm({ supabase, projectId, plan, runs, hasRetainer,
             {runs.map((run) => (
               <li key={run.id} className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 px-3.5 py-2 text-xs">
                 <span className="text-zinc-300 tabular-nums">
-                  {new Date(`${run.run_date}T12:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                  {new Date(`${run.run_date}T12:00:00`).toLocaleDateString(appLocale(), { month: 'short', day: 'numeric' })}
                   {' · '}
                   <span className={run.outcome === 'failed' ? 'text-red-300' : 'text-zinc-200'}>{RUN_LABEL[run.outcome]}</span>
-                  {run.amount !== null && run.outcome !== 'nothing_due' && <span className="text-zinc-400"> · {money(run.amount)}</span>}
+                  {run.amount !== null && run.outcome !== 'nothing_due' && <span className="text-zinc-400"> · {money(run.amount, plan.currency)}</span>}
                 </span>
                 <span className="text-zinc-500">
                   {run.outcome === 'failed' && run.detail ? run.detail : null}

@@ -28,6 +28,7 @@ import { PORTAL_SECTION_LABELS, type PortalAnalyticsResponse } from '@/lib/types
 import { buildDemoPortalAnalytics } from '@/lib/demo-data';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { Button } from '@/components/ui/Button';
+import { appLocale } from '@/lib/region';
 
 interface PortalAnalyticsProps {
   projectId: string;
@@ -76,7 +77,7 @@ function formatRelative(iso: string): string {
   if (h < 24) return `${h}h ago`;
   const d = Math.floor(h / 24);
   if (d < 7) return `${d}d ago`;
-  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  return new Date(iso).toLocaleDateString(appLocale(), { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
 function DeviceIcon({ type, size = 14 }: { type: string | null; size?: number }) {
@@ -395,7 +396,7 @@ function SessionsTable({
                   >
                     <div className="flex flex-col min-w-0">
                       <span className="text-zinc-100 font-medium truncate">{formatRelative(s.last_seen_at)}</span>
-                      <span className="text-[11px] text-zinc-500 truncate">{new Date(s.started_at).toLocaleString('en-US')}</span>
+                      <span className="text-[11px] text-zinc-500 truncate">{new Date(s.started_at).toLocaleString(appLocale())}</span>
                     </div>
                     <div className="flex items-center gap-2 text-zinc-300 min-w-0">
                       <span className="text-zinc-500 flex-shrink-0"><DeviceIcon type={s.device_type} /></span>
@@ -465,7 +466,7 @@ function SessionsTable({
                             row.kind === 'event' ? (
                               <li key={row.event.id} className="flex items-baseline gap-2 text-xs">
                                 <span className="text-zinc-500 tabular-nums">
-                                  {new Date(row.event.created_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit' })}
+                                  {new Date(row.event.created_at).toLocaleTimeString(appLocale(), { hour: 'numeric', minute: '2-digit', second: '2-digit' })}
                                 </span>
                                 <span
                                   className={`w-1.5 h-1.5 rounded-full flex-shrink-0 self-center ${
@@ -479,7 +480,7 @@ function SessionsTable({
                             ) : (
                               <li key={row.key} className="flex items-baseline gap-2 text-xs italic text-zinc-500">
                                 <span className="tabular-nums">
-                                  {new Date(row.startedAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+                                  {new Date(row.startedAt).toLocaleTimeString(appLocale(), { hour: 'numeric', minute: '2-digit' })}
                                 </span>
                                 <span className="w-1.5 h-1.5 rounded-full bg-white/[0.08] flex-shrink-0 self-center" />
                                 <span>Active for {formatDuration(row.durationSeconds)}</span>

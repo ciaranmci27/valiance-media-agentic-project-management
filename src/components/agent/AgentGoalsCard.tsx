@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { toast } from '@/components/ui/Toast';
 import { ProjectGoal, TaskSuggestion, Task } from '@/lib/types';
+import { appLocale } from '@/lib/region';
 
 interface AgentGoalsCardProps {
   projectId: string;
@@ -46,7 +47,7 @@ const STATUS_CONFIG: Record<string, { label: string; bg: string; text: string }>
 
 function formatDate(dateStr: string): string {
   const date = new Date(dateStr + 'T00:00:00');
-  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  return date.toLocaleDateString(appLocale(), { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
 function getDaysUntil(dateStr: string): { label: string; urgent: boolean } {

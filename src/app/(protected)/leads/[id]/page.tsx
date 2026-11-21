@@ -25,6 +25,8 @@ import {
   PhoneCall, Users, Check,
 } from 'lucide-react';
 import { formatPhone } from '@/lib/format-phone';
+import { formatMoney } from '@/lib/format';
+import { appLocale } from '@/lib/region';
 import { useAuth } from '@/lib/auth-context';
 import { hasPermission } from '@/lib/access-control';
 
@@ -62,10 +64,6 @@ const INTERACTION_ICONS: Record<string, React.ReactNode> = {
   follow_up: <CalendarClock size={16} />,
 };
 
-function formatCurrency(value: number) {
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0 }).format(value);
-}
-
 function formatRelativeDate(dateStr: string) {
   const date = new Date(dateStr);
   const now = new Date();
@@ -78,11 +76,11 @@ function formatRelativeDate(dateStr: string) {
   if (diffMins < 60) return `${diffMins}m ago`;
   if (diffHours < 24) return `${diffHours}h ago`;
   if (diffDays < 7) return `${diffDays}d ago`;
-  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: date.getFullYear() !== now.getFullYear() ? 'numeric' : undefined });
+  return date.toLocaleDateString(appLocale(), { month: 'short', day: 'numeric', year: date.getFullYear() !== now.getFullYear() ? 'numeric' : undefined });
 }
 
 function formatDate(dateStr: string) {
-  return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+  return new Date(dateStr).toLocaleDateString(appLocale(), { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
 }
 
 export default function LeadDetailPage() {
@@ -490,7 +488,7 @@ export default function LeadDetailPage() {
                         )}
                         {proposal.estimated_value != null && (
                           <p className="text-xs text-zinc-500 mt-1">
-                            {formatCurrency(proposal.estimated_value)}
+                            {formatMoney(proposal.estimated_value)}
                           </p>
                         )}
                       </div>

@@ -3592,6 +3592,171 @@ AS $$
   LIMIT 1
 $$;
 
+-- ============================================================
+-- WORKSPACE REGION (20261121070000_workspace_region.sql)
+-- The currency, locale and week start every amount and date follows, set by
+-- an Owner in Settings > Workspace > Region. Invoices, retainers and billing
+-- plans keep the currency they were made in.
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS public.workspace_region (
+  id boolean PRIMARY KEY DEFAULT true CHECK (id),
+  -- ISO 4217: new invoices, retainers and billing plans take it; pay and totals show in it.
+  currency text NOT NULL DEFAULT 'USD' CHECK (currency ~ '^[A-Z]{3}$'),
+  -- BCP 47: how amounts and dates read.
+  locale text NOT NULL DEFAULT 'en-US' CHECK (char_length(locale) <= 35 AND locale ~ '^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$'),
+  -- The first day of the week: 1 Monday, 0 Sunday, 6 Saturday.
+  week_start smallint NOT NULL DEFAULT 1 CHECK (week_start IN (0, 1, 6)),
+  -- How the currency reads in the locale, taken from the app's Intl when an
+  -- Owner saves (prefix, suffix, separators, decimals), so format_money()
+  -- writes amounts in activity lines, Trash and billing notices the way the
+  -- app shows them.
+  money_format jsonb CHECK (money_format IS NULL OR jsonb_typeof(money_format) = 'object'),
+  updated_by uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+DROP TRIGGER IF EXISTS set_workspace_region_updated_at ON public.workspace_region;
+CREATE TRIGGER set_workspace_region_updated_at
+  BEFORE UPDATE ON public.workspace_region
+  FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
+
+INSERT INTO public.workspace_region (id, money_format)
+VALUES (true, '{"prefix":"$","suffix":"","negative_prefix":"-$","negative_suffix":"","group":",","decimal":".","digits":2,"min_group":1,"secondary_group":3}'::jsonb)
+ON CONFLICT (id) DO NOTHING;
+
+-- Every signed-in member reads it (every screen shows amounts); only Owners
+-- write it. The client portal, emails and PDFs read it with the service role.
+ALTER TABLE public.workspace_region ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS workspace_region_read ON public.workspace_region;
+CREATE POLICY workspace_region_read ON public.workspace_region
+  FOR SELECT TO authenticated USING (true);
+DROP POLICY IF EXISTS workspace_region_owner_insert ON public.workspace_region;
+CREATE POLICY workspace_region_owner_insert ON public.workspace_region
+  FOR INSERT TO authenticated WITH CHECK (public.current_team_member_role() = 'owner');
+DROP POLICY IF EXISTS workspace_region_owner_update ON public.workspace_region;
+CREATE POLICY workspace_region_owner_update ON public.workspace_region
+  FOR UPDATE TO authenticated
+  USING (public.current_team_member_role() = 'owner')
+  WITH CHECK (public.current_team_member_role() = 'owner');
+REVOKE ALL ON public.workspace_region FROM anon;
+REVOKE DELETE, TRUNCATE ON public.workspace_region FROM authenticated;
+
+-- The currency a new invoice, retainer or billing plan is stamped with.
+CREATE OR REPLACE FUNCTION public.workspace_currency()
+RETURNS text
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT COALESCE((SELECT currency FROM public.workspace_region LIMIT 1), 'USD')
+$$;
+
+-- An amount as the app shows it (src/lib/format.ts). By default a total, as
+-- formatMoney: no decimals from 1,000 up, the currency's decimals below only
+-- when there are any. With p_exact, one amount (a payment, an invoice, a
+-- rate), as formatMoneyExact: always the currency's decimals. The workspace
+-- currency follows the saved pattern; another currency (an invoice issued
+-- before a change) shows its code where the symbol goes.
+CREATE OR REPLACE FUNCTION public.format_money(p_amount numeric, p_currency text DEFAULT NULL, p_exact boolean DEFAULT false)
+RETURNS text
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  home text;
+  pattern jsonb;
+  code text;
+  own boolean;
+  digits integer;
+  amount numeric := COALESCE(p_amount, 0);
+  shown numeric;
+  whole text;
+  head text;
+  grouped text;
+  fraction text := '';
+  separator text;
+  secondary integer;
+  prefix text;
+  suffix text;
+  negative_prefix text;
+  negative_suffix text;
+BEGIN
+  SELECT currency, money_format INTO home, pattern FROM public.workspace_region LIMIT 1;
+  home := COALESCE(home, 'USD');
+  code := upper(COALESCE(NULLIF(btrim(p_currency), ''), home));
+  own := code = home AND jsonb_typeof(pattern) = 'object';
+  IF jsonb_typeof(pattern) IS DISTINCT FROM 'object' THEN
+    pattern := '{"prefix":"$","suffix":"","negative_prefix":"-$","negative_suffix":"","group":",","decimal":".","digits":2,"min_group":1,"secondary_group":3}'::jsonb;
+  END IF;
+
+  IF own THEN
+    digits := COALESCE((pattern->>'digits')::integer, 2);
+    prefix := COALESCE(pattern->>'prefix', '');
+    suffix := COALESCE(pattern->>'suffix', '');
+    negative_prefix := COALESCE(pattern->>'negative_prefix', '-' || prefix);
+    negative_suffix := COALESCE(pattern->>'negative_suffix', suffix);
+  ELSE
+    digits := CASE WHEN code IN ('JPY', 'KRW', 'VND', 'CLP', 'ISK', 'PYG', 'UGX', 'XAF', 'XOF', 'XPF', 'KMF', 'GNF', 'RWF', 'VUV', 'BIF', 'DJF') THEN 0 ELSE 2 END;
+    IF COALESCE(pattern->>'prefix', '') = '' AND COALESCE(pattern->>'suffix', '') <> '' THEN
+      prefix := '';
+      suffix := chr(160) || code;
+    ELSE
+      prefix := code || chr(160);
+      suffix := '';
+    END IF;
+    negative_prefix := '-' || prefix;
+    negative_suffix := suffix;
+  END IF;
+
+  shown := abs(amount);
+  IF NOT COALESCE(p_exact, false) AND (shown >= 1000 OR round(shown, digits) = trunc(round(shown, digits))) THEN
+    digits := 0;
+  END IF;
+  shown := round(shown, digits);
+  whole := trunc(shown)::text;
+  IF digits > 0 THEN
+    fraction := COALESCE(pattern->>'decimal', '.')
+      || lpad(round((shown - trunc(shown)) * power(10::numeric, digits))::bigint::text, digits, '0');
+  END IF;
+
+  separator := COALESCE(pattern->>'group', ',');
+  secondary := GREATEST(COALESCE((pattern->>'secondary_group')::integer, 3), 1);
+  IF separator <> '' AND length(whole) >= 3 + COALESCE((pattern->>'min_group')::integer, 1) THEN
+    grouped := right(whole, 3);
+    head := left(whole, length(whole) - 3);
+    WHILE length(head) > secondary LOOP
+      grouped := right(head, secondary) || separator || grouped;
+      head := left(head, length(head) - secondary);
+    END LOOP;
+    grouped := head || separator || grouped;
+  ELSE
+    grouped := whole;
+  END IF;
+
+  IF amount < 0 AND shown > 0 THEN
+    RETURN negative_prefix || grouped || fraction || negative_suffix;
+  END IF;
+  RETURN prefix || grouped || fraction || suffix;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.workspace_currency() FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.format_money(numeric, text, boolean) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.workspace_currency() TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.format_money(numeric, text, boolean) TO authenticated, service_role;
+
+-- Money for a client keeps the currency it was made in, so a later workspace
+-- change never relabels history. Billing plans carry theirs in the table.
+ALTER TABLE public.project_invoices
+  ADD COLUMN IF NOT EXISTS currency text NOT NULL DEFAULT public.workspace_currency() CHECK (currency ~ '^[A-Z]{3}$');
+ALTER TABLE public.project_retainers
+  ADD COLUMN IF NOT EXISTS currency text NOT NULL DEFAULT public.workspace_currency() CHECK (currency ~ '^[A-Z]{3}$');
+
 -- module_enabled(): for cron jobs and service-role code paths that skip RLS.
 CREATE OR REPLACE FUNCTION public.module_enabled(p_module_id text)
 RETURNS boolean
@@ -4629,13 +4794,18 @@ BEGIN
   IF jsonb_typeof(p_lines) IS DISTINCT FROM 'array' OR jsonb_array_length(p_lines) = 0 THEN
     RETURN NULL;
   END IF;
+  -- An invoice is in one currency: retainers in different ones never share a draft.
+  IF (SELECT count(DISTINCT r.currency) FROM jsonb_array_elements(p_lines) line
+      JOIN public.project_retainers r ON r.id::text = line->>'retainer_id') > 1 THEN
+    RAISE EXCEPTION 'Retainers in different currencies cannot share an invoice';
+  END IF;
 
   PERFORM pg_advisory_xact_lock(hashtext('retainer-draft:' || p_project_id::text));
   SELECT COALESCE(payment_terms_days, 0) INTO terms FROM public.project_billing_plans WHERE project_id = p_project_id;
 
   INSERT INTO public.project_invoices (
     project_id, invoice_number, amount, status, invoice_type, line_items,
-    date, due_date, description, auto_generated, created_by
+    date, due_date, description, auto_generated, created_by, currency
   )
   SELECT
     p_project_id,
@@ -4648,7 +4818,13 @@ BEGIN
     to_char(p_invoice_date + COALESCE(terms, 0), 'YYYY-MM-DD'),
     '',
     p_auto,
-    public.current_team_member_id()
+    public.current_team_member_id(),
+    -- The retainer's own currency, so a later workspace change never relabels its bills.
+    COALESCE(
+      (SELECT r.currency FROM public.project_retainers r
+       WHERE r.id::text = (SELECT line->>'retainer_id' FROM jsonb_array_elements(p_lines) line
+                           WHERE line->>'retainer_id' IS NOT NULL LIMIT 1)),
+      public.workspace_currency())
   RETURNING * INTO saved;
 
   IF p_auto THEN
@@ -4656,8 +4832,8 @@ BEGIN
     PERFORM public.announce_billing_draft(
       saved.id,
       'Retainer invoice drafted',
-      saved.invoice_number || ' for ' || COALESCE(project_name, 'a project') || ' is ready to review and send: $'
-        || to_char(saved.amount, 'FM999,999,990.00') || '.'
+      saved.invoice_number || ' for ' || COALESCE(project_name, 'a project') || ' is ready to review and send: '
+        || public.format_money(saved.amount, saved.currency, true) || '.'
     );
   END IF;
 
@@ -4690,8 +4866,9 @@ AS $$
   )
 $$;
 
--- The scheduled job. One draft per project holding every due retainer line.
--- A paused retainer's due periods are recorded as skipped, so resuming never
+-- The scheduled job. One draft per project and currency, holding every due
+-- retainer line in that currency (an invoice is in one currency). A paused
+-- retainer's due periods are recorded as skipped, so resuming never
 -- back-bills the pause; Generate now can still bring one back.
 CREATE OR REPLACE FUNCTION public.generate_retainer_drafts(p_as_of date DEFAULT NULL)
 RETURNS integer
@@ -4716,8 +4893,9 @@ BEGIN
   ON CONFLICT (retainer_id, period_start) DO NOTHING;
 
   FOR target IN
-    SELECT DISTINCT due.project_id
+    SELECT DISTINCT due.project_id, r.currency
     FROM public.retainer_due_periods_internal(NULL, as_of) due
+    JOIN public.project_retainers r ON r.id = due.retainer_id
     WHERE due.retainer_status = 'active'
   LOOP
     BEGIN
@@ -4733,7 +4911,8 @@ BEGIN
       FROM (
         SELECT inner_due.*, row_number() OVER (ORDER BY inner_due.period_start, inner_due.retainer_name) AS line_position
         FROM public.retainer_due_periods_internal(target.project_id, as_of) inner_due
-        WHERE inner_due.retainer_status = 'active'
+        JOIN public.project_retainers r ON r.id = inner_due.retainer_id
+        WHERE inner_due.retainer_status = 'active' AND r.currency = target.currency
       ) due;
 
       draft := public.create_retainer_draft_internal(target.project_id, lines, invoice_date, true);
@@ -9809,6 +9988,8 @@ CREATE TABLE IF NOT EXISTS public.project_billing_plans (
   created_by uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
+  -- Added by 20261121070000; last, as on a migrated database (billing_forecast_internal builds this row by position).
+  currency text NOT NULL DEFAULT public.workspace_currency() CHECK (currency ~ '^[A-Z]{3}$'),
   CONSTRAINT project_billing_plans_weeks_anchor CHECK (hours_trigger <> 'every_weeks' OR weeks_anchor IS NOT NULL),
   CONSTRAINT project_billing_plans_amount CHECK (hours_trigger NOT IN ('reaches_amount', 'fixed_blocks') OR trigger_amount IS NOT NULL),
   CONSTRAINT project_billing_plans_cap CHECK (cap_mode = 'none' OR cap_value IS NOT NULL),
@@ -10046,9 +10227,11 @@ DECLARE
   project_name text;
   line jsonb;
   line_id text := gen_random_uuid()::text;
+  draft_currency text;
 BEGIN
   PERFORM pg_advisory_xact_lock(hashtext('retainer-draft:' || p_project_id::text));
-  SELECT COALESCE(payment_terms_days, 0) INTO terms FROM public.project_billing_plans WHERE project_id = p_project_id;
+  SELECT COALESCE(payment_terms_days, 0), currency INTO terms, draft_currency FROM public.project_billing_plans WHERE project_id = p_project_id;
+  draft_currency := COALESCE(draft_currency, public.workspace_currency());
   SELECT name INTO project_name FROM public.projects WHERE id = p_project_id;
   merged := false;
 
@@ -10056,6 +10239,7 @@ BEGIN
     SELECT * INTO target FROM public.project_invoices i
     WHERE i.project_id = p_project_id AND i.status = 'draft' AND i.auto_generated AND i.deleted_at IS NULL
       AND i.date = to_char(p_date, 'YYYY-MM-DD')
+      AND i.currency = draft_currency
       AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements(i.line_items) l WHERE l->>'item_type' = 'hourly')
     ORDER BY i.created_at
     LIMIT 1;
@@ -10082,7 +10266,7 @@ BEGIN
   ELSE
     INSERT INTO public.project_invoices (
       project_id, invoice_number, amount, status, invoice_type, line_items,
-      date, due_date, description, auto_generated, created_by
+      date, due_date, description, auto_generated, created_by, currency
     ) VALUES (
       p_project_id,
       public.next_project_invoice_number(p_project_id),
@@ -10094,7 +10278,8 @@ BEGIN
       to_char(p_date + COALESCE(terms, 0), 'YYYY-MM-DD'),
       '',
       true,
-      NULL
+      NULL,
+      draft_currency
     )
     RETURNING id INTO invoice_id;
   END IF;
@@ -10110,8 +10295,8 @@ BEGIN
     CASE WHEN merged THEN 'Hours added to a drafted invoice' ELSE 'Invoice drafted' END,
     (SELECT invoice_number FROM public.project_invoices WHERE id = invoice_id) || ' for ' || COALESCE(project_name, 'a project')
       || CASE WHEN merged THEN ' now includes ' ELSE ' covers ' END
-      || rtrim(rtrim(to_char(round((p_draft->>'hours')::numeric, 2), 'FM999999990.00'), '0'), '.') || ' h ($'
-      || to_char((p_draft->>'amount')::numeric, 'FM999,999,990.00') || '). Ready to review and send.'
+      || rtrim(rtrim(to_char(round((p_draft->>'hours')::numeric, 2), 'FM999999990.00'), '0'), '.') || ' h ('
+      || public.format_money((p_draft->>'amount')::numeric, draft_currency, true) || '). Ready to review and send.'
   );
 END;
 $$;
@@ -10155,7 +10340,7 @@ BEGIN
     IF (draft->>'amount')::numeric < p_plan.min_amount THEN
       INSERT INTO public.project_billing_runs (project_id, run_key, run_date, outcome, hours, amount, pending_hours, pending_amount, detail)
       VALUES (p_plan.project_id, key, run_day, 'below_minimum', (draft->>'hours')::numeric, (draft->>'amount')::numeric,
-              pending.hours, pending.amount, 'Under the $' || to_char(p_plan.min_amount, 'FM999,999,990.00') || ' minimum; the hours wait for the next draft.');
+              pending.hours, pending.amount, 'Under the ' || public.format_money(p_plan.min_amount, p_plan.currency, true) || ' minimum; the hours wait for the next draft.');
       RETURN 0;
     END IF;
 
@@ -10339,7 +10524,7 @@ BEGIN
   -- The saved plan, or the one being edited (live preview before Save).
   SELECT * INTO plan FROM public.project_billing_plans WHERE project_id = p_project_id;
   IF p_plan IS NOT NULL THEN
-    plan := jsonb_populate_record(COALESCE(plan, ROW(p_project_id, 0, 'manual', '{1}', 2, NULL, NULL, 'none', NULL, 0, true, false, NULL, NULL, NULL, now(), now())::public.project_billing_plans), p_plan);
+    plan := jsonb_populate_record(COALESCE(plan, ROW(p_project_id, 0, 'manual', '{1}', 2, NULL, NULL, 'none', NULL, 0, true, false, NULL, NULL, NULL, now(), now(), public.workspace_currency())::public.project_billing_plans), p_plan);
     IF plan.hours_trigger <> 'manual' AND plan.starts_on IS NULL THEN plan.starts_on := public.workspace_today(); END IF;
   END IF;
 
@@ -10426,7 +10611,7 @@ BEGIN
             'line', jsonb_build_object('kind', 'hours',
               'label', CASE WHEN plan.hours_trigger = 'fixed_blocks' THEN 'Block of hours (est. date)' ELSE 'Hours (est. date)' END,
               'amount', plan.trigger_amount, 'estimated', true,
-              'note', 'When unbilled hours reach $' || to_char(plan.trigger_amount, 'FM999,999,990.00') || ', at the last 90 days'' pace'));
+              'note', 'When unbilled hours reach ' || public.format_money(plan.trigger_amount, plan.currency) || ', at the last 90 days'' pace'));
         END IF;
         next_block := next_block + GREATEST(1, ceil(plan.trigger_amount / pace))::integer;
       END LOOP;
@@ -12752,14 +12937,14 @@ BEGIN
       ('project_time_entries',
         'coalesce(nullif(btrim(r.description), ''''), ''Time entry'') || '' ('' || to_char(r.start_time AT TIME ZONE public.workspace_timezone(), ''Mon FMDD, YYYY'') || '')''',
         'p.name', 'r.project_id', 'LEFT JOIN public.projects p ON p.id = r.project_id'),
-      ('project_invoices', 'r.invoice_number || '' ($'' || to_char(r.amount, ''FM999,999,990.00'') || '')''', 'p.name', 'r.project_id',
+      ('project_invoices', 'r.invoice_number || '' ('' || public.format_money(r.amount, r.currency, true) || '')''', 'p.name', 'r.project_id',
         'LEFT JOIN public.projects p ON p.id = r.project_id'),
-      ('invoice_payments', '''Payment of $'' || to_char(r.amount, ''FM999,999,990.00'') || '' on '' || i.invoice_number', 'p.name', 'i.project_id',
+      ('invoice_payments', '''Payment of '' || public.format_money(r.amount, i.currency, true) || '' on '' || i.invoice_number', 'p.name', 'i.project_id',
         'LEFT JOIN public.project_invoices i ON i.id = r.invoice_id LEFT JOIN public.projects p ON p.id = i.project_id'),
-      ('project_hourly_rates', '''$'' || to_char(r.hourly_rate, ''FM999,990.00'') || ''/hr from '' || to_char(r.effective_at AT TIME ZONE public.workspace_timezone(), ''Mon FMDD, YYYY'')',
+      ('project_hourly_rates', 'public.format_money(r.hourly_rate, NULL, true) || ''/hr from '' || to_char(r.effective_at AT TIME ZONE public.workspace_timezone(), ''Mon FMDD, YYYY'')',
         'p.name', 'r.project_id', 'LEFT JOIN public.projects p ON p.id = r.project_id'),
       ('project_retainers', 'r.name', 'p.name', 'r.project_id', 'LEFT JOIN public.projects p ON p.id = r.project_id'),
-      ('project_retainer_amounts', 'rt.name || '': $'' || to_char(r.amount, ''FM999,999,990.00'') || '' from '' || to_char(r.effective_date, ''Mon FMDD, YYYY'')',
+      ('project_retainer_amounts', 'rt.name || '': '' || public.format_money(r.amount, rt.currency, true) || '' from '' || to_char(r.effective_date, ''Mon FMDD, YYYY'')',
         'p.name', 'rt.project_id',
         'LEFT JOIN public.project_retainers rt ON rt.id = r.retainer_id LEFT JOIN public.projects p ON p.id = rt.project_id')
     ) AS specs(record_type, label_sql, context_sql, project_sql, join_sql)
@@ -13021,9 +13206,9 @@ $$;
 CREATE OR REPLACE FUNCTION public.activity_money_label(p_amount numeric)
 RETURNS text
 LANGUAGE sql
-IMMUTABLE
+STABLE
 AS $$
-  SELECT '$' || trim(to_char(coalesce(p_amount, 0), 'FM999,999,999,990.00'))
+  SELECT public.format_money(p_amount, NULL, true)
 $$;
 
 CREATE OR REPLACE FUNCTION public.activity_status_label(p_status text)
@@ -13538,12 +13723,12 @@ AS $$
 DECLARE
   v_invoice record;
 BEGIN
-  SELECT id, project_id, invoice_number INTO v_invoice FROM public.project_invoices WHERE id = NEW.invoice_id;
+  SELECT id, project_id, invoice_number, currency INTO v_invoice FROM public.project_invoices WHERE id = NEW.invoice_id;
   IF v_invoice.id IS NULL THEN
     RETURN NULL;
   END IF;
   PERFORM public.log_team_activity('payment.recorded', 'payment', NEW.id::text, v_invoice.project_id,
-    format('Recorded a %s payment on invoice %s', public.activity_money_label(NEW.amount), v_invoice.invoice_number),
+    format('Recorded a %s payment on invoice %s', public.format_money(NEW.amount, v_invoice.currency, true), v_invoice.invoice_number),
     jsonb_build_object('invoice_id', v_invoice.id, 'invoice_number', v_invoice.invoice_number, 'amount', NEW.amount));
   RETURN NULL;
 END;
@@ -13697,6 +13882,7 @@ DECLARE
   v_label text;
   v_meta jsonb := jsonb_build_object('record_type', TG_TABLE_NAME);
   v_restored boolean := NEW.deleted_at IS NULL;
+  v_currency text;
 BEGIN
   v_label := coalesce(
     nullif(rec ->> 'title', ''), nullif(rec ->> 'name', ''), nullif(rec ->> 'label', ''),
@@ -13719,9 +13905,9 @@ BEGIN
     v_meta := v_meta || jsonb_build_object('task_id', NEW.id);
   END IF;
   IF rec ? 'invoice_id' AND v_project IS NULL THEN
-    SELECT project_id, invoice_number INTO v_project, v_label
+    SELECT project_id, invoice_number, currency INTO v_project, v_label, v_currency
     FROM public.project_invoices WHERE id = (rec ->> 'invoice_id')::uuid;
-    v_label := public.activity_money_label((rec ->> 'amount')::numeric) || ' on ' || coalesce(v_label, 'an invoice');
+    v_label := public.format_money((rec ->> 'amount')::numeric, v_currency, true) || ' on ' || coalesce(v_label, 'an invoice');
   END IF;
   IF rec ? 'update_id' AND v_project IS NULL THEN
     SELECT project_id INTO v_project FROM public.portal_updates WHERE id = (rec ->> 'update_id')::uuid;

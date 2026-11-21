@@ -12,6 +12,7 @@ import { Bone, GroupLabel, RailCard, SubNav } from '@/components/projects/TabLay
 import { AgentActivity, TeamActivity } from '@/lib/types';
 import { isTelemetryEvent } from '@/lib/agent-events';
 import { activityAfterName, teamActivityHref } from '@/lib/team-activity';
+import { appLocale } from '@/lib/region';
 
 const MAX_VISIBLE = 15;
 
@@ -110,7 +111,7 @@ export function ActivityTimeline({
   };
 
   const formatFullTimestamp = (ts: string) =>
-    new Date(ts).toLocaleString('en-US', {
+    new Date(ts).toLocaleString(appLocale(), {
       weekday: 'short',
       month: 'short',
       day: 'numeric',
@@ -131,7 +132,7 @@ export function ActivityTimeline({
     if (diffMins < 60) return `${diffMins}m ago`;
     if (diffHours < 24) return `${diffHours}h ago`;
     if (diffDays < 7) return `${diffDays}d ago`;
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    return date.toLocaleDateString(appLocale(), { month: 'short', day: 'numeric' });
   };
 
   const getDayLabel = (ts: string) => {
@@ -144,7 +145,7 @@ export function ActivityTimeline({
 
     if (entryDate.getTime() === today.getTime()) return 'Today';
     if (entryDate.getTime() === yesterday.getTime()) return 'Yesterday';
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    return date.toLocaleDateString(appLocale(), { month: 'short', day: 'numeric' });
   };
 
   // Group by day

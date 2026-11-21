@@ -10,6 +10,7 @@ import { Avatar } from '@/components/ui/Avatar';
 import { subtaskProgress } from '@/lib/subtasks';
 import { TASK_STATUS_LABELS } from '@/lib/task-copy';
 import { parseDateOnly, isDateOverdue } from '@/lib/date-utils';
+import { appLocale } from '@/lib/region';
 import { SubtaskRing, SUBTASK_STATUS_RING } from './SubtaskRing';
 
 /** Why a subtask is on My Tasks: what it says, and what opening it does. */
@@ -21,7 +22,7 @@ export interface SubtaskFlag {
   action?: boolean;
 }
 
-const shortDate = (date: string) => parseDateOnly(date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+const shortDate = (date: string) => parseDateOnly(date).toLocaleDateString(appLocale(), { month: 'short', day: 'numeric' });
 
 /**
  * A parent's subtasks on My Tasks, under the parent's row: one line with the

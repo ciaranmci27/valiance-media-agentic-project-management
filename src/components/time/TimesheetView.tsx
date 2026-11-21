@@ -8,6 +8,7 @@ import { useAuth } from '@/lib/auth-context';
 import { hasPermission, isModuleEnabled } from '@/lib/access-control';
 import { getWorkedHoursByDay, isRunning } from '@/lib/time-entry-utils';
 import { hourApprovalsExist } from '@/lib/finance/finance-views';
+import { useRegion } from '@/lib/region/context';
 import { StatStrip } from '@/components/ui/StatStrip';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { Avatar } from '@/components/ui/Avatar';
@@ -58,8 +59,11 @@ export function TimesheetView() {
     return () => window.clearInterval(id);
   }, [hasRunning]);
 
-  const thisWeek = startOfWeek(new Date(now));
-  const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date()));
+  // Weeks start on the workspace's first day; a picked week follows it if it changes.
+  const { weekStart: firstDay } = useRegion();
+  const thisWeek = startOfWeek(new Date(now), firstDay);
+  const [pickedWeek, setWeekStart] = useState(() => startOfWeek(new Date(), firstDay));
+  const weekStart = useMemo(() => startOfWeek(pickedWeek, firstDay), [pickedWeek, firstDay]);
   const isThisWeek = weekStart.getTime() === thisWeek.getTime();
   const days = useMemo(() => weekDays(weekStart), [weekStart]);
 
@@ -148,6 +152,7 @@ function OwnHours({
   showStatus: boolean;
   loading: boolean;
 }) {
+  const { locale } = useRegion();
   // Picking a day narrows the project rows to it; picking it again clears it.
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const dayKeys = days.map(dayKey);
@@ -259,7 +264,7 @@ function OwnHours({
           const hours = byDay.get(key) ?? 0;
           return {
             id: key,
-            label: day.toLocaleDateString('en-US', { weekday: 'short', day: 'numeric' }),
+            label: day.toLocaleDateString(locale, { weekday: 'short', day: 'numeric' }),
             value: hours > 0 ? fmtHours(hours) : null,
             empty: '-',
             context: key === todayKey ? 'Today' : undefined,

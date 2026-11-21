@@ -2,6 +2,7 @@
 
 import { Select } from '@/components/ui/inputs/Select';
 import { NumberInput } from '@/components/ui/inputs/NumberInput';
+import { useMoney } from '@/lib/region/context';
 import type { TeamMember } from '@/lib/types';
 
 export interface LineSplit {
@@ -11,6 +12,8 @@ export interface LineSplit {
 
 interface InvoiceLineSplitProps {
   lineAmount: number;
+  /** The invoice's currency; left out, the workspace's. */
+  currency?: string | null;
   /** undefined: nothing loaded or chosen for this line yet. */
   splits: LineSplit[] | undefined;
   /** An unsaved retainer line takes the retainer's split when the invoice is saved. */
@@ -26,7 +29,8 @@ const NONE = '';
  * compensation.manage holders. One member per line here; a line that already
  * carries several (set elsewhere) is shown read-only with a way to clear it.
  */
-export function InvoiceLineSplit({ lineAmount, splits, inheritsOnSave, members, onChange }: InvoiceLineSplitProps) {
+export function InvoiceLineSplit({ lineAmount, currency, splits, inheritsOnSave, members, onChange }: InvoiceLineSplitProps) {
+  const money = useMoney();
   const rows = splits ?? [];
   const nameOf = (id: string) => members.find((member) => member.id === id)?.name ?? 'Former member';
 
@@ -72,7 +76,7 @@ export function InvoiceLineSplit({ lineAmount, splits, inheritsOnSave, members, 
             suffix="%"
           />
           <p className="self-end pb-2 text-xs text-zinc-400">
-            {nameOf(current.member_id)} earns ${share.toFixed(2)} when this is paid.
+            {nameOf(current.member_id)} earns {money.exact(share, currency)} when this is paid.
           </p>
         </>
       ) : inheritsOnSave && !splits ? (

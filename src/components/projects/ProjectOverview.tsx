@@ -12,7 +12,9 @@ import { invoiceOutstanding } from '@/lib/invoice-payments';
 import { computeInvoiceSummary } from '@/lib/invoice-summary';
 import { getWorkedHours } from '@/lib/time-entry-utils';
 import { parseDateOnly } from '@/lib/date-utils';
-import { formatHours, formatMoney as formatTotal } from '@/lib/format';
+import { excludedNote, formatHours } from '@/lib/format';
+import { appLocale, startOfWeek } from '@/lib/region';
+import { useMoney, useRegion } from '@/lib/region/context';
 import { formatListTime } from '@/components/inbox/inbox-badges';
 import { ReminderRow } from '@/components/reminders/ReminderRow';
 import { AddReminderRow } from '@/components/reminders/AddReminderRow';
@@ -51,21 +53,8 @@ interface ProjectOverviewProps {
 
 const IN_PROGRESS_LIMIT = 6;
 
-function formatMoney(value: number): string {
-  return `$${value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-}
-
-
 function shortDate(value: string): string {
-  return parseDateOnly(value).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-}
-
-/** Monday 00:00 of this week, local time: the Time tab's "This week" boundary. */
-function startOfWeek(now = new Date()): Date {
-  const start = new Date(now);
-  start.setHours(0, 0, 0, 0);
-  start.setDate(start.getDate() - ((start.getDay() + 6) % 7));
-  return start;
+  return parseDateOnly(value).toLocaleDateString(appLocale(), { month: 'short', day: 'numeric' });
 }
 
 const ROW_CLASS = 'w-full flex items-center gap-3 px-2.5 py-2 -mx-2.5 rounded-lg text-left hover:bg-white/[0.04] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500';
@@ -106,6 +95,8 @@ export function ProjectOverview({ projectId, onOpenTask, onOpenTab, onOpenContac
     getInvoicesByProject, getTimeEntriesByProject, getPortalSettings, getPortalUpdates,
   } = useApp();
   const { isDemoMode } = useDemo();
+  const money = useMoney();
+  const { weekStart: firstDayOfWeek } = useRegion();
   const project = getProject(projectId);
   const tasks = getTasksByProject(projectId);
 
@@ -128,8 +119,13 @@ export function ProjectOverview({ projectId, onOpenTask, onOpenTab, onOpenContac
     .filter(inv => (inv.status === 'sent' || inv.status === 'overdue') && invoiceOutstanding(inv, taxRate) > 0)
     .sort((a, b) => a.date.localeCompare(b.date));
   // The Billing tab's own totals, so Outstanding reads the same in both places.
+  // Totals are in the workspace currency: an invoice in another one is left
+  // out and named, never added to them.
+  const totalsCurrency = money.currency.toUpperCase();
+  const totalsInvoices = invoices.filter(inv => (inv.currency || totalsCurrency).toUpperCase() === totalsCurrency);
+  const otherCurrencyInvoices = invoices.length - totalsInvoices.length;
   const billing = can.invoices
-    ? computeInvoiceSummary(project, invoices, getTimeEntriesByProject(projectId))
+    ? computeInvoiceSummary(project, totalsInvoices, getTimeEntriesByProject(projectId))
     : null;
 
   // Emails waiting on a person: a cached read (reads.ts), warmed before
@@ -155,7 +151,8 @@ export function ProjectOverview({ projectId, onOpenTask, onOpenTab, onOpenContac
   const timeStats = useMemo(() => {
     if (!can.time) return null;
     const entries = getTimeEntriesByProject(projectId).filter(e => e.end_time !== null);
-    const weekStart = startOfWeek().getTime();
+    // The workspace's first day of the week: the Time tab's "This week" boundary.
+    const weekStart = startOfWeek(new Date(), firstDayOfWeek).getTime();
     const monthStart = new Date();
     monthStart.setHours(0, 0, 0, 0);
     monthStart.setDate(1);
@@ -168,7 +165,7 @@ export function ProjectOverview({ projectId, onOpenTask, onOpenTab, onOpenContac
       if (started >= monthStart.getTime()) month += hours;
     }
     return { week, month };
-  }, [can.time, getTimeEntriesByProject, projectId]);
+  }, [can.time, firstDayOfWeek, getTimeEntriesByProject, projectId]);
 
   // ── Next invoice draft (same read the Billing tab's banner uses) ──
   // The Billing tab reads the same forecast, so either one warms the other.
@@ -284,7 +281,7 @@ export function ProjectOverview({ projectId, onOpenTask, onOpenTab, onOpenContac
                         detail={inv.due_date ? `Due ${shortDate(inv.due_date)}` : `Sent ${shortDate(inv.date)}`}
                         end={
                           <span className={`text-sm tabular-nums ${inv.status === 'overdue' ? 'text-amber-300' : 'text-zinc-200'}`}>
-                            {formatMoney(invoiceOutstanding(inv, taxRate))}
+                            {money.exact(invoiceOutstanding(inv, taxRate), inv.currency)}
                           </span>
                         }
                       />
@@ -514,13 +511,16 @@ export function ProjectOverview({ projectId, onOpenTask, onOpenTab, onOpenContac
                 stats={[
                   {
                     label: 'Outstanding',
-                    value: formatTotal(billing.outstanding),
+                    value: money(billing.outstanding),
                     tone: billing.outstanding > 0 ? 'warning' : 'default',
                     context: billing.isHourly ? 'Includes hours not yet invoiced' : 'Invoiced and not yet paid',
                   },
-                  { label: 'Paid to date', value: formatTotal(billing.totalPaid) },
+                  { label: 'Paid to date', value: money(billing.totalPaid) },
                 ]}
               />
+            )}
+            {billing && otherCurrencyInvoices > 0 && (
+              <p className="mt-2 text-xs text-zinc-500">{excludedNote(otherCurrencyInvoices)}</p>
             )}
             {nextDraft && (
               <div className="mt-4 pt-4 border-t border-white/[0.06]">
@@ -528,7 +528,7 @@ export function ProjectOverview({ projectId, onOpenTask, onOpenTab, onOpenContac
                 <p className="text-sm text-zinc-200">
                   {shortDate(nextDraft.date)}
                   <span className="text-zinc-500"> · </span>
-                  <span className="tabular-nums">{formatTotal(nextDraft.exact + nextDraft.estimated)}</span>
+                  <span className="tabular-nums">{money(nextDraft.exact + nextDraft.estimated)}</span>
                   {nextDraft.estimated > 0 && <span className="text-zinc-500"> so far</span>}
                 </p>
               </div>
@@ -560,7 +560,7 @@ export function ProjectOverview({ projectId, onOpenTask, onOpenTab, onOpenContac
             </div>
             <p className="mt-2 text-xs text-zinc-500">
               {lastUpdate
-                ? `${portalUpdates.length} ${portalUpdates.length === 1 ? 'update' : 'updates'}, last on ${new Date(lastUpdate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
+                ? `${portalUpdates.length} ${portalUpdates.length === 1 ? 'update' : 'updates'}, last on ${new Date(lastUpdate).toLocaleDateString(appLocale(), { month: 'short', day: 'numeric' })}`
                 : 'No updates posted yet'}
             </p>
           </RailCard>

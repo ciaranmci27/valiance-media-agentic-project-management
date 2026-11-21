@@ -3,6 +3,7 @@
 import { compareVersions, type ConnectionInfo, type ReleaseInfo, type UpdateRun, type UpdatesState } from '@/lib/updates/types';
 import { UPSTREAM_REPO } from '@/lib/updates/config';
 import { peekRead, setReadData, type Read } from '@/lib/query-cache';
+import { appLocale } from '@/lib/region';
 
 /**
  * Settings > Updates and the update notice share one read of
@@ -96,5 +97,5 @@ export function activeRun(state: UpdatesState): UpdateRun | null {
 /** "Nov 12, 2026". */
 export function releaseDate(iso: string): string {
   const date = new Date(iso);
-  return Number.isNaN(date.getTime()) ? '' : date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  return Number.isNaN(date.getTime()) ? '' : date.toLocaleDateString(appLocale(), { month: 'short', day: 'numeric', year: 'numeric' });
 }

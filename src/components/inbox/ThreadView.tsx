@@ -3,6 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { loadRead, peekRead, setReadData } from '@/lib/query-cache';
 import { inboxThreadRead } from '@/lib/reads';
+import { appLocale } from '@/lib/region';
 import Link from 'next/link';
 import {
   AlertTriangle, ArrowDown, ArrowLeft, AlignLeft, Bell, Bot, Check, CheckCircle2, ChevronDown, Copy, Download, ExternalLink, Eye, FileText, Filter, Flame, Forward, Hash, HelpCircle, Image as ImageIcon, Inbox,
@@ -58,7 +59,7 @@ function dayLabel(value: string): string {
   const yesterday = new Date(Date.now() - 86_400_000);
   if (date.toDateString() === today.toDateString()) return 'Today';
   if (date.toDateString() === yesterday.toDateString()) return 'Yesterday';
-  return new Intl.DateTimeFormat('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: date.getFullYear() === today.getFullYear() ? undefined : 'numeric' }).format(date);
+  return new Intl.DateTimeFormat(appLocale(), { weekday: 'short', month: 'short', day: 'numeric', year: date.getFullYear() === today.getFullYear() ? undefined : 'numeric' }).format(date);
 }
 
 /**
@@ -1146,7 +1147,7 @@ const RELATION_LABELS: Record<InboxLinkedTask['relation'], string> = {
 
 function shortDate(value: string): string {
   const [year, month, day] = value.split('-').map(Number);
-  return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' }).format(new Date(year, month - 1, day));
+  return new Intl.DateTimeFormat(appLocale(), { month: 'short', day: 'numeric' }).format(new Date(year, month - 1, day));
 }
 
 /**

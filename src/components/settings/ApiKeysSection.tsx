@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { Ban, BookOpen, Check, Copy, Key, Pencil, Plus } from 'lucide-react';
+import { appLocale } from '@/lib/region';
 import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
 import { Button } from '@/components/ui/Button';
@@ -27,7 +28,7 @@ const formatRelativeTime = (dateStr: string | null) => {
   if (diffHr < 24) return `${diffHr}h ago`;
   const diffDays = Math.floor(diffHr / 24);
   if (diffDays < 30) return `${diffDays}d ago`;
-  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  return date.toLocaleDateString(appLocale(), { month: 'short', day: 'numeric' });
 };
 
 /**

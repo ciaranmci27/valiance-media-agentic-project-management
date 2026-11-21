@@ -3,6 +3,7 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { Check, ChevronDown, Copy } from 'lucide-react';
 import { toast } from '@/components/ui/Toast';
+import { appLocale } from '@/lib/region';
 import { Tooltip } from '@/components/ui/Tooltip';
 
 /**
@@ -28,7 +29,7 @@ export function relativeTime(iso: string): string {
   if (hours < 24) return `${hours}h ago`;
   const days = Math.floor(hours / 24);
   if (days < 30) return `${days}d ago`;
-  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  return new Date(iso).toLocaleDateString(appLocale(), { month: 'short', day: 'numeric' });
 }
 
 /** An icon button that copies a value, with a tooltip and a toast. */

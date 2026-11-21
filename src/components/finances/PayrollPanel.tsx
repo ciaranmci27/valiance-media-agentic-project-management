@@ -39,6 +39,8 @@ import { Textarea } from '@/components/ui/inputs/Textarea';
 import { Select } from '@/components/ui/inputs/Select';
 import { Avatar } from '@/components/ui/Avatar';
 import { AgentSessionModal } from '@/components/finances/AgentSessionModal';
+import { formatNumber, moneyAffix } from '@/lib/format';
+import { useMoney } from '@/lib/region/context';
 
 type PayrollData = {
   entries: TimeEntry[];
@@ -57,8 +59,6 @@ const EMPTY: PayrollData = {
   allocations: [],
   shareEarnings: [],
 };
-const money = (value: number) =>
-  value.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
 const ROLE_BADGE_CLASSES: Record<TeamMember['role'], string> = {
   owner: 'bg-amber-500/15 text-amber-300',
   admin: 'bg-brand-500/15 text-brand-300',
@@ -88,6 +88,14 @@ type EarningsRow = {
 export function PayrollPanel({ team, projects, reviewOnly = false }: { team: TeamMember[]; projects: Project[]; reviewOnly?: boolean }) {
   const { access, teamMemberId } = useAuth();
   const { isDemoMode } = useDemo();
+  // Pay is in the workspace currency, with all its decimals.
+  const payMoney = useMoney();
+  const money = payMoney.exact;
+  const payLocale = payMoney.locale;
+  const affix = moneyAffix({ currency: payMoney.currency, locale: payLocale });
+  const amountPrefix = affix.position === 'prefix' ? affix.symbol : undefined;
+  const amountSuffix = affix.position === 'suffix' ? affix.symbol : undefined;
+  const hoursLabel = (hours: number) => formatNumber(hours, { locale: payLocale, minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const canManageCompensation = hasPermission(access, 'compensation.manage');
   const canManagePayouts = hasPermission(access, 'payouts.manage');
   const canManage = canManageCompensation || canManagePayouts;
@@ -1086,7 +1094,7 @@ export function PayrollPanel({ team, projects, reviewOnly = false }: { team: Tea
                                 </span>
                               )}
                               <span className="flex-shrink-0 text-[11px] text-zinc-500">
-                                {new Date(entry.start_time).toLocaleDateString('en-US', {
+                                {new Date(entry.start_time).toLocaleDateString(payLocale, {
                                   month: 'short',
                                   day: 'numeric',
                                 })}
@@ -1113,7 +1121,7 @@ export function PayrollPanel({ team, projects, reviewOnly = false }: { team: Tea
                             )}
                             <span className="text-right">
                               <span className="block text-sm font-semibold tabular-nums text-white">
-                                {hours.toFixed(2)}
+                                {hoursLabel(hours)}
                                 <span className="ml-0.5 text-xs font-normal text-zinc-500">h</span>
                               </span>
                               {isPayEnabled && !isAgentEntry && !missingRate && (
@@ -1167,7 +1175,7 @@ export function PayrollPanel({ team, projects, reviewOnly = false }: { team: Tea
                                 Rejected
                               </span>
                               <span className="flex-shrink-0 text-[11px] text-zinc-500">
-                                {new Date(entry.start_time).toLocaleDateString('en-US', {
+                                {new Date(entry.start_time).toLocaleDateString(payLocale, {
                                   month: 'short',
                                   day: 'numeric',
                                 })}
@@ -1200,7 +1208,7 @@ export function PayrollPanel({ team, projects, reviewOnly = false }: { team: Tea
                               </button>
                             )}
                             <span className="text-right text-sm font-semibold tabular-nums text-white">
-                              {hours.toFixed(2)}
+                              {hoursLabel(hours)}
                               <span className="ml-0.5 text-xs font-normal text-zinc-500">h</span>
                             </span>
                           </span>
@@ -1224,7 +1232,7 @@ export function PayrollPanel({ team, projects, reviewOnly = false }: { team: Tea
           {!canManage && !reviewOnly && ownBalance && data.payouts.length > 0 && (
             <div className="px-5 py-3 border-t border-white/[0.06] text-xs text-zinc-400">
               Latest payment: {money(Number(data.payouts[0].amount))} on{' '}
-              {new Date(`${data.payouts[0].payment_date}T00:00:00`).toLocaleDateString()}
+              {new Date(`${data.payouts[0].payment_date}T00:00:00`).toLocaleDateString(payLocale)}
             </div>
           )}
         </>
@@ -1324,14 +1332,14 @@ export function PayrollPanel({ team, projects, reviewOnly = false }: { team: Tea
                           )}
                         </div>
                         <p className="mt-0.5 truncate text-xs text-zinc-400">
-                          {row.projectName} · {new Date(row.date).toLocaleDateString()}
+                          {row.projectName} · {new Date(row.date).toLocaleDateString(payLocale)}
                         </p>
                       </div>
                       <div className="text-left text-xs tabular-nums text-zinc-400 md:text-right">
                         {row.hours !== undefined ? (
                           <>
                             <span className="font-medium text-zinc-300">
-                              {row.hours.toFixed(2)}h
+                              {hoursLabel(row.hours)}h
                             </span>
                             <span className="block">{money(row.rate || 0)}/hr</span>
                           </>
@@ -1381,7 +1389,8 @@ export function PayrollPanel({ team, projects, reviewOnly = false }: { team: Tea
             label="Amount"
             min={0.01}
             step={0.01}
-            prefix="$"
+            prefix={amountPrefix}
+            suffix={amountSuffix}
             value={payAmount === '' ? '' : Number(payAmount)}
             onChange={(value) => setPayAmount(value === '' ? '' : String(value))}
           />
@@ -1448,8 +1457,8 @@ export function PayrollPanel({ team, projects, reviewOnly = false }: { team: Tea
             label="Hourly rate"
             min={0}
             step={0.01}
-            prefix="$"
-            suffix="/hr"
+            prefix={amountPrefix}
+            suffix={`${amountSuffix ?? ''}/hr`}
             value={rateAmount === '' ? '' : Number(rateAmount)}
             onChange={(value) => setRateAmount(value === '' ? '' : String(value))}
           />
@@ -1484,7 +1493,8 @@ export function PayrollPanel({ team, projects, reviewOnly = false }: { team: Tea
             label="Amount"
             min={0.01}
             step={0.01}
-            prefix="$"
+            prefix={amountPrefix}
+            suffix={amountSuffix}
             value={adjustmentAmount === '' ? '' : Number(adjustmentAmount)}
             onChange={(value) => setAdjustmentAmount(value === '' ? '' : String(value))}
           />

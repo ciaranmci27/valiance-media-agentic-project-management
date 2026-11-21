@@ -4,7 +4,9 @@ import { useMemo, useState } from 'react';
 import { ChevronDown, ChevronRight, FileDown } from 'lucide-react';
 import type { PortalData } from '@/lib/types';
 import { SectionCard, SectionCount, SectionHeader } from './SectionHeader';
-import { formatDay, formatMoney } from './format';
+import { useMoney } from '@/lib/region/context';
+import { excludedNote } from '@/lib/format';
+import { formatDay } from './format';
 import { summariseInvoices } from './stats';
 
 const INVOICES_INITIAL = 6;
@@ -17,6 +19,10 @@ const STATUS_CHIP: Record<string, string> = {
   overdue: 'vm-chip-error',
 };
 
+/**
+ * The portal route sends each invoice's own currency (null on rows stored
+ * before invoices had one, which are in the workspace currency).
+ */
 type Invoice = PortalData['invoices'][number];
 
 function Sep() {
@@ -31,14 +37,15 @@ function Sep() {
 function InvoiceRow({ invoice, onOpen }: { invoice: Invoice; onOpen: (invoiceNumber: string) => void }) {
   const chip = STATUS_CHIP[invoice.status] ?? '';
   const statusLabel = invoice.status.charAt(0).toUpperCase() + invoice.status.slice(1);
-  const amount = invoice.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const money = useMoney();
+  const amount = money.exact(invoice.amount, invoice.currency);
 
   return (
     <li className="vm-row flex items-center gap-1 py-1 first:pt-0 last:pb-0">
       <button
         type="button"
         onClick={() => onOpen(invoice.invoice_number)}
-        aria-label={`Preview invoice ${invoice.invoice_number}, ${statusLabel}, $${amount}`}
+        aria-label={`Preview invoice ${invoice.invoice_number}, ${statusLabel}, ${amount}`}
         className="-mx-3 grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-x-4 gap-y-1.5 rounded-xl px-3 py-4 text-left transition-colors hover:bg-white/[0.03] sm:grid-cols-12"
       >
         <span className="flex min-w-0 items-center gap-3 sm:col-span-4">
@@ -60,7 +67,7 @@ function InvoiceRow({ invoice, onOpen }: { invoice: Invoice; onOpen: (invoiceNum
             </>
           )}
         </span>
-        <span className="vm-mono text-right text-[17px] sm:col-span-3">${amount}</span>
+        <span className="vm-mono text-right text-[17px] sm:col-span-3">{amount}</span>
         <ChevronRight size={16} className="vm-faint justify-self-end sm:col-span-1" aria-hidden="true" />
       </button>
       {invoice.file_url && (
@@ -88,15 +95,23 @@ function BalanceSummary({
   invoices,
   billing,
 }: {
-  invoices: PortalData['invoices'];
+  invoices: Invoice[];
   billing: PortalData['billing'];
 }) {
-  const { balanceDue, uninvoiced } = summariseInvoices(invoices, billing);
-  const open = invoices.filter(i => i.status !== 'paid' && i.status !== 'draft' && i.status !== 'cancelled').length;
+  const money = useMoney();
+  // The balance is in the workspace currency (tracked work is too): an
+  // invoice in another currency is never added to it, and the card says so.
+  const inCurrency = invoices.filter(i => (i.currency || money.currency).toUpperCase() === money.currency);
+  const excluded = invoices.filter(i => i.status !== 'draft' && i.status !== 'cancelled').length
+    - inCurrency.filter(i => i.status !== 'draft' && i.status !== 'cancelled').length;
+  const { balanceDue, uninvoiced } = summariseInvoices(inCurrency, billing);
+  const open = inCurrency.filter(i => i.status !== 'paid' && i.status !== 'draft' && i.status !== 'cancelled').length;
+  // Whole units: cents belong to invoice amounts only.
+  const whole = (value: number) => money(Math.round(value));
 
   let note = '';
   if (uninvoiced > 0 && open > 0) {
-    note = `Across ${open} open ${open === 1 ? 'invoice' : 'invoices'}, plus $${formatMoney(uninvoiced)} of tracked work not yet invoiced.`;
+    note = `Across ${open} open ${open === 1 ? 'invoice' : 'invoices'}, plus ${whole(uninvoiced)} of tracked work not yet invoiced.`;
   } else if (uninvoiced > 0) {
     note = `Tracked work not yet invoiced. You will get an invoice before anything is due.`;
   } else if (open > 0) {
@@ -108,8 +123,11 @@ function BalanceSummary({
   return (
     <div className="vm-tile mb-7 px-5 py-5 sm:px-6">
       <p className="vm-label">Balance due</p>
-      <p className={`vm-stat mt-2.5 ${balanceDue > 0 ? 'text-(--vm-copper-300)' : ''}`}>${formatMoney(balanceDue)}</p>
+      <p className={`vm-stat mt-2.5 ${balanceDue > 0 ? 'text-(--vm-copper-300)' : ''}`}>{whole(balanceDue)}</p>
       <p className="vm-faint mt-2.5 max-w-[46ch] text-[13px] leading-relaxed">{note}</p>
+      {excluded > 0 && (
+        <p className="vm-faint mt-1 max-w-[46ch] text-[13px] leading-relaxed">{excludedNote(excluded)}</p>
+      )}
     </div>
   );
 }

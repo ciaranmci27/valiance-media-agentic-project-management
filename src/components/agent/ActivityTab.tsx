@@ -8,6 +8,7 @@ import {
   Activity, Lightbulb, PlayCircle, CheckCircle2, XCircle,
   Search, MessageSquare, RefreshCw, Zap,
 } from 'lucide-react';
+import { appLocale } from '@/lib/region';
 
 const activityIcons: Record<string, any> = {
   suggestion_created: Lightbulb,
@@ -72,7 +73,7 @@ export function ActivityTab({ filters }: { filters: ActivityFilters }) {
     if (diffMins < 60) return `${diffMins}m ago`;
     if (diffHours < 24) return `${diffHours}h ago`;
     if (diffDays < 7) return `${diffDays}d ago`;
-    return date.toLocaleDateString();
+    return date.toLocaleDateString(appLocale());
   };
 
   return (

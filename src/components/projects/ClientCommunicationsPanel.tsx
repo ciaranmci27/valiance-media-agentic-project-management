@@ -14,6 +14,8 @@ import { useApp } from '@/lib/store';
 import { useDemo } from '@/lib/demo-context';
 import { useAuth } from '@/lib/auth-context';
 import { isModuleEnabled } from '@/lib/access-control';
+import { moneyAffix } from '@/lib/format';
+import { useRegion } from '@/lib/region/context';
 import { toast } from '@/components/ui/Toast';
 import { Button } from '@/components/ui/Button';
 import { Select } from '@/components/ui/inputs/Select';
@@ -94,6 +96,8 @@ export function CommunicationAutomationCard({ projectId, onOpenPortal }: { proje
 
   const project = getProject(projectId);
   const settings = getPortalSettings(projectId);
+  const { currency, locale } = useRegion();
+  const affix = moneyAffix({ currency, locale });
 
   const [newThreshold, setNewThreshold] = useState<number | ''>('');
   const [dollarIntervalInput, setDollarIntervalInput] = useState<number | ''>(settings?.dollar_interval ?? '');
@@ -132,7 +136,7 @@ export function CommunicationAutomationCard({ projectId, onOpenPortal }: { proje
     }
     if (dollarIntervalInput <= 0) {
       setDollarIntervalInput(settings?.dollar_interval ?? '');
-      toast('error', 'Enter a positive dollar amount');
+      toast('error', 'Enter a positive amount');
       return;
     }
     if (dollarIntervalInput !== settings?.dollar_interval) {
@@ -236,7 +240,7 @@ export function CommunicationAutomationCard({ projectId, onOpenPortal }: { proje
               </p>
               <NumberInput
                 size="sm"
-                aria-label="Dollar amount per alert"
+                aria-label="Amount per alert"
                 value={dollarIntervalInput}
                 onChange={setDollarIntervalInput}
                 onBlur={handleDollarIntervalCommit}
@@ -245,8 +249,8 @@ export function CommunicationAutomationCard({ projectId, onOpenPortal }: { proje
                 }}
                 min={1}
                 placeholder="500"
-                prefix="$"
-                suffix="per alert"
+                prefix={affix.position === 'prefix' ? affix.symbol : undefined}
+                suffix={affix.position === 'suffix' ? `${affix.symbol} per alert` : 'per alert'}
                 showButtons={false}
               />
             </div>

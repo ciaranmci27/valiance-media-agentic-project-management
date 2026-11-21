@@ -3,6 +3,7 @@
 import { CircleHelp, Plus, Reply, ShieldAlert, ShieldQuestion, Sparkles, X, type LucideIcon } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { Tooltip } from '@/components/ui/Tooltip';
+import { appLocale } from '@/lib/region';
 import { isAgentChoice, type ThreadProject, type ThreadState, type TrustLevel } from '@/lib/communications/inbox-types';
 
 /** A project the member cannot open: the server sends no name for it. */
@@ -209,19 +210,19 @@ export function formatListTime(value: string): string {
   const date = new Date(value);
   const now = new Date();
   if (date.toDateString() === now.toDateString()) {
-    return new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit' }).format(date);
+    return new Intl.DateTimeFormat(appLocale(), { hour: 'numeric', minute: '2-digit' }).format(date);
   }
-  return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', ...(date.getFullYear() === now.getFullYear() ? {} : { year: 'numeric' }) }).format(date);
+  return new Intl.DateTimeFormat(appLocale(), { month: 'short', day: 'numeric', ...(date.getFullYear() === now.getFullYear() ? {} : { year: 'numeric' }) }).format(date);
 }
 
 export function formatFullTime(value: string): string {
-  return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }).format(new Date(value));
+  return new Intl.DateTimeFormat(appLocale(), { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }).format(new Date(value));
 }
 
 /** A day in a sentence: "Nov 17", with the year when it is not this one. */
 export function formatDay(value: string): string {
   const date = new Date(value);
-  return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', ...(date.getFullYear() === new Date().getFullYear() ? {} : { year: 'numeric' }) }).format(date);
+  return new Intl.DateTimeFormat(appLocale(), { month: 'short', day: 'numeric', ...(date.getFullYear() === new Date().getFullYear() ? {} : { year: 'numeric' }) }).format(date);
 }
 
 /**
@@ -232,10 +233,11 @@ export function formatMeetingTime(startsAt: string | null, endsAt: string | null
   if (!startsAt) return null;
   const start = new Date(startsAt);
   const sameYear = start.getFullYear() === new Date().getFullYear();
-  const day = (date: Date) => new Intl.DateTimeFormat('en-US', { weekday: 'short', month: 'short', day: 'numeric', ...(sameYear ? {} : { year: 'numeric' }) }).format(date);
+  const day = (date: Date) => new Intl.DateTimeFormat(appLocale(), { weekday: 'short', month: 'short', day: 'numeric', ...(sameYear ? {} : { year: 'numeric' }) }).format(date);
   const time = (date: Date, period = true) => {
-    const text = new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }).format(date);
-    return period ? text : text.replace(/\s?[AP]M$/, '');
+    // The workspace locale's clock: 12-hour drops a shared AM/PM, 24-hour has none to drop.
+    const text = new Intl.DateTimeFormat(appLocale(), { hour: 'numeric', minute: '2-digit' }).format(date);
+    return period ? text : text.replace(/\s?[AP]\.?\s?M\.?$/i, '');
   };
   if (!endsAt) return `${day(start)}, ${time(start)}`;
   const end = new Date(endsAt);

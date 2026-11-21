@@ -10,6 +10,7 @@ import {
 import type { InvoiceStatus } from '@/lib/types';
 import { EMAIL, accentPalette } from '@/lib/email/templates/shared';
 import { generateShades } from '@/lib/brand';
+import { formatMoneyExact, formatNumber } from '@/lib/format';
 import type { InvoicePdfData, InvoicePdfTheme } from './types';
 import {
   INVOICE_FONT_FAMILY,
@@ -153,49 +154,51 @@ const PAGE_MARGIN_TOP = 48;
 const PAGE_MARGIN_BOTTOM = 56;
 
 // ── Helpers ────────────────────────────────────────────────────────────
-function formatMoney(n: number): string {
-  return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+// Every amount is in the invoice's own currency and every date in the
+// workspace locale (data.currency, data.locale), as buildInvoiceData set them.
+function formatMoney(n: number, data: InvoicePdfData): string {
+  return formatMoneyExact(n, { currency: data.currency, locale: data.locale });
 }
 
-function formatDate(yyyyMmDd: string | null | undefined): string {
+function formatDate(yyyyMmDd: string | null | undefined, locale: string): string {
   if (!yyyyMmDd) return '';
   const [y, m, d] = yyyyMmDd.split('-').map(Number);
   if (!y || !m || !d) return yyyyMmDd;
-  return new Date(y, m - 1, d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  return new Date(y, m - 1, d).toLocaleDateString(locale, { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
 /** "Mar 15 – Apr 14, 2026" when both dates share a year, else both in full. */
-function formatRange(start: string, end: string): string {
-  if (start === end) return formatDate(start);
+function formatRange(start: string, end: string, locale: string): string {
+  if (start === end) return formatDate(start, locale);
   if (start.slice(0, 4) === end.slice(0, 4)) {
     const [y, m, d] = start.split('-').map(Number);
     const short = y && m && d
-      ? new Date(y, m - 1, d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-      : formatDate(start);
-    return `${short} – ${formatDate(end)}`;
+      ? new Date(y, m - 1, d).toLocaleDateString(locale, { month: 'short', day: 'numeric' })
+      : formatDate(start, locale);
+    return `${short} – ${formatDate(end, locale)}`;
   }
-  return `${formatDate(start)} – ${formatDate(end)}`;
+  return `${formatDate(start, locale)} – ${formatDate(end, locale)}`;
 }
 
-function formatGenerated(iso: string): string {
-  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+function formatGenerated(iso: string, locale: string): string {
+  return new Date(iso).toLocaleDateString(locale, { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
-function formatServicePeriod(start: string | null, end: string | null): string | null {
+function formatServicePeriod(start: string | null, end: string | null, locale: string): string | null {
   if (!start && !end) return null;
-  if (start && end && start !== end) return `${formatDate(start)} – ${formatDate(end)}`;
-  return formatDate(start ?? end!);
+  if (start && end && start !== end) return `${formatDate(start, locale)} – ${formatDate(end, locale)}`;
+  return formatDate(start ?? end!, locale);
 }
 
-function formatClock(iso: string): string {
+function formatClock(iso: string, locale: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '';
-  return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  return d.toLocaleTimeString(locale, { hour: 'numeric', minute: '2-digit' });
 }
 
-function formatDecimalHours(hours: number): string {
+function formatDecimalHours(hours: number, locale: string): string {
   const unit = Math.abs(hours - 1) < 0.000001 ? 'hr' : 'hrs';
-  return `${hours.toLocaleString('en-US', { maximumFractionDigits: 4 })} ${unit}`;
+  return `${formatNumber(hours, { locale, maximumFractionDigits: 4 })} ${unit}`;
 }
 
 type Styles = ReturnType<typeof createStyles>;
@@ -284,7 +287,7 @@ function Footer({ kit }: { kit: Kit }) {
       <View style={styles.footer} fixed>
         <Text style={styles.footerText} render={({ pageNumber, totalPages }) => `${pageNumber} / ${totalPages}`} />
         <Text style={[styles.footerText, styles.footerCenter]}>{data.business.name}</Text>
-        <Text style={styles.footerText}>Generated {formatGenerated(data.generatedAt)}</Text>
+        <Text style={styles.footerText}>Generated {formatGenerated(data.generatedAt, data.locale)}</Text>
       </View>
     </>
   );
@@ -305,9 +308,9 @@ export function InvoiceDocument({ data, theme = 'dark' }: { data: InvoicePdfData
 
   // One mono line of facts under the headline, the way the emails do it.
   const meta = [
-    `Issued ${formatDate(data.issueDate)}`,
-    data.dueDate ? `Due ${formatDate(data.dueDate)}` : null,
-    data.status === 'paid' && data.paidDate ? `Paid ${formatDate(data.paidDate)}` : null,
+    `Issued ${formatDate(data.issueDate, data.locale)}`,
+    data.dueDate ? `Due ${formatDate(data.dueDate, data.locale)}` : null,
+    data.status === 'paid' && data.paidDate ? `Paid ${formatDate(data.paidDate, data.locale)}` : null,
     `Terms ${data.paymentTerms}`,
   ].filter(Boolean).join('  ·  ');
 
@@ -327,7 +330,7 @@ export function InvoiceDocument({ data, theme = 'dark' }: { data: InvoicePdfData
           <View style={styles.heroTop}>
             <View>
               <Text style={[styles.monoLabel, styles.heroLabel]}>{status.amountLabel}</Text>
-              <Text style={styles.heroAmount}>${formatMoney(data.total)}</Text>
+              <Text style={styles.heroAmount}>{formatMoney(data.total, data)}</Text>
             </View>
             <Chip label={status.chip} tone={status.tone} kit={kit} />
           </View>
@@ -379,10 +382,10 @@ export function InvoiceDocument({ data, theme = 'dark' }: { data: InvoicePdfData
         </View>
 
         {data.lineItems.map((li) => {
-          const period = formatServicePeriod(li.service_start_date, li.service_end_date);
+          const period = formatServicePeriod(li.service_start_date, li.service_end_date, data.locale);
           const qtyText = li.quantity === null
             ? 'N/A'
-            : li.quantity.toLocaleString('en-US', { maximumFractionDigits: 4 });
+            : formatNumber(li.quantity, { locale: data.locale, maximumFractionDigits: 4 });
           const captionParts: string[] = [];
           if (li.item_type === 'recurring' && li.recurrence_frequency) {
             captionParts.push(`${li.recurrence_frequency.charAt(0).toUpperCase()}${li.recurrence_frequency.slice(1)}`);
@@ -392,7 +395,7 @@ export function InvoiceDocument({ data, theme = 'dark' }: { data: InvoicePdfData
           if (period) captionParts.push(period);
           if (li.rateBreakdown.length > 1) {
             captionParts.push(li.rateBreakdown
-              .map(rate => `${formatDecimalHours(rate.hours)} @ $${formatMoney(rate.hourlyRate)}`)
+              .map(rate => `${formatDecimalHours(rate.hours, data.locale)} @ ${formatMoney(rate.hourlyRate, data)}`)
               .join(' + '));
           }
           const caption = captionParts.join(' · ');
@@ -415,7 +418,7 @@ export function InvoiceDocument({ data, theme = 'dark' }: { data: InvoicePdfData
               </View>
               <Text style={[styles.tdMono, styles.colQty]}>{qtyText}</Text>
               <Text style={[styles.tdMono, styles.colRate]}>{li.rateLabel}</Text>
-              <Text style={[styles.tdMono, styles.colAmount]}>{li.amount < 0 ? '-' : ''}${formatMoney(Math.abs(li.amount))}</Text>
+              <Text style={[styles.tdMono, styles.colAmount]}>{formatMoney(li.amount, data)}</Text>
             </View>
           );
         })}
@@ -446,18 +449,18 @@ export function InvoiceDocument({ data, theme = 'dark' }: { data: InvoicePdfData
           <View style={styles.totalsBox}>
             <View style={styles.totalsRow}>
               <Text style={styles.monoLabel}>Subtotal</Text>
-              <Text style={styles.totalsValue}>${formatMoney(data.subtotal)}</Text>
+              <Text style={styles.totalsValue}>{formatMoney(data.subtotal, data)}</Text>
             </View>
             {data.taxRate != null && (
               <View style={[styles.totalsRow, styles.totalsRowNext]}>
                 <Text style={styles.monoLabel}>Tax ({data.taxRate}%)</Text>
-                <Text style={styles.totalsValue}>${formatMoney(data.taxAmount)}</Text>
+                <Text style={styles.totalsValue}>{formatMoney(data.taxAmount, data)}</Text>
               </View>
             )}
             <View style={styles.totalsRule} />
             <View style={styles.totalsFinal}>
               <Text style={styles.totalsFinalLabel}>{status.amountLabel}</Text>
-              <Text style={styles.totalsFinalValue}>${formatMoney(data.total)}</Text>
+              <Text style={styles.totalsFinalValue}>{formatMoney(data.total, data)}</Text>
             </View>
           </View>
         </View>
@@ -496,7 +499,7 @@ function TimeLogsPage({ kit, palette }: { kit: Kit; palette: Palette }) {
   const totalAmount = entries.reduce((sum, e) => sum + e.amount, 0);
   const firstDay = entries[0]?.dayKey ?? null;
   const lastDay = entries[entries.length - 1]?.dayKey ?? null;
-  const rangeLabel = firstDay && lastDay ? formatRange(firstDay, lastDay) : '';
+  const rangeLabel = firstDay && lastDay ? formatRange(firstDay, lastDay, data.locale) : '';
   // Member column only earns its keep when more than one person logged time.
   const uniqueMembers = new Set(entries.map(e => e.memberName).filter(Boolean));
   const showMember = uniqueMembers.size > 1;
@@ -523,7 +526,7 @@ function TimeLogsPage({ kit, palette }: { kit: Kit; palette: Palette }) {
         </View>
         <View style={styles.statTile}>
           <Text style={[styles.monoLabel, styles.statLabel]}>Total hours</Text>
-          <Text style={styles.statValue}>{formatDecimalHours(totalHours)}</Text>
+          <Text style={styles.statValue}>{formatDecimalHours(totalHours, data.locale)}</Text>
         </View>
       </View>
 
@@ -538,12 +541,12 @@ function TimeLogsPage({ kit, palette }: { kit: Kit; palette: Palette }) {
       {entries.map((entry) => {
         const isFirstOfDay = !seenDay.has(entry.dayKey);
         if (isFirstOfDay) seenDay.add(entry.dayKey);
-        const timeRange = `${formatClock(entry.startIso)} – ${formatClock(entry.endIso)}`;
+        const timeRange = `${formatClock(entry.startIso, data.locale)} – ${formatClock(entry.endIso, data.locale)}`;
 
         return (
           <View key={entry.id} style={styles.tr} wrap={false}>
             <Text style={[styles.tdMono, styles.tlColDate]}>
-              {isFirstOfDay ? formatDate(entry.dayKey) : ''}
+              {isFirstOfDay ? formatDate(entry.dayKey, data.locale) : ''}
             </Text>
             <Text style={[styles.tdMono, styles.tlColTime]}>{timeRange}</Text>
             <View style={styles.tlColDescription}>
@@ -554,8 +557,8 @@ function TimeLogsPage({ kit, palette }: { kit: Kit; palette: Palette }) {
                 <Text style={styles.tdCaption}>{entry.memberName}</Text>
               ) : null}
             </View>
-            <Text style={[styles.tdMono, styles.tlColDuration]}>{formatDecimalHours(entry.hours)}</Text>
-            <Text style={[styles.tdMono, styles.tlColAmount]}>${formatMoney(entry.amount)}</Text>
+            <Text style={[styles.tdMono, styles.tlColDuration]}>{formatDecimalHours(entry.hours, data.locale)}</Text>
+            <Text style={[styles.tdMono, styles.tlColAmount]}>{formatMoney(entry.amount, data)}</Text>
           </View>
         );
       })}
@@ -565,11 +568,11 @@ function TimeLogsPage({ kit, palette }: { kit: Kit; palette: Palette }) {
           <View style={styles.totalsRule} />
           <View style={styles.totalsFinal}>
             <Text style={styles.totalsFinalLabel}>Total hours</Text>
-            <Text style={styles.timeLogTotalValue}>{formatDecimalHours(totalHours)}</Text>
+            <Text style={styles.timeLogTotalValue}>{formatDecimalHours(totalHours, data.locale)}</Text>
           </View>
           <View style={styles.totalsFinal}>
             <Text style={styles.totalsFinalLabel}>Time charges</Text>
-            <Text style={styles.timeLogTotalValue}>${formatMoney(totalAmount)}</Text>
+            <Text style={styles.timeLogTotalValue}>{formatMoney(totalAmount, data)}</Text>
           </View>
         </View>
       </View>

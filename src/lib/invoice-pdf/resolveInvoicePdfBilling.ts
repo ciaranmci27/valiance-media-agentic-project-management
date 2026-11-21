@@ -4,6 +4,7 @@ import type {
   TimeEntry,
 } from '../types';
 import { getWorkedHours } from '../time-entry-utils';
+import { formatMoneyExact, type MoneyOptions } from '../format';
 import type {
   InvoicePdfLineItem,
   InvoicePdfRateBreakdown,
@@ -13,13 +14,6 @@ const HOURS_EPSILON = 0.0000011;
 
 function toCents(value: number): number {
   return Math.round(value * 100);
-}
-
-function money(value: number): string {
-  return `${value < 0 ? '-' : ''}$${Math.abs(value).toLocaleString('en-US', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}`;
 }
 
 export class InvoicePdfIntegrityError extends Error {
@@ -53,11 +47,11 @@ function customHourlyLineItem(lineItem: InvoiceLineItem): InvoicePdfLineItem {
   };
 }
 
-function fixedLineItem(lineItem: InvoiceLineItem): InvoicePdfLineItem {
+function fixedLineItem(lineItem: InvoiceLineItem, money: MoneyOptions | undefined): InvoicePdfLineItem {
   return {
     ...lineItem,
     quantity: 1,
-    rateLabel: money(Number(lineItem.amount) || 0),
+    rateLabel: formatMoneyExact(Number(lineItem.amount) || 0, money),
     allocationStatus: 'custom',
     rateBreakdown: [],
   };
@@ -75,6 +69,8 @@ export function resolveInvoicePdfBilling(
   lineItems: InvoiceLineItem[],
   allocations: InvoiceTimeEntryAllocation[],
   timeEntries: TimeEntry[],
+  /** The invoice's currency and the workspace locale, for the rate labels. */
+  money?: MoneyOptions,
 ): ResolvedInvoicePdfBilling {
   const lineItemById = new Map(lineItems.map(item => [item.id, item]));
   const entryById = new Map(timeEntries.map(entry => [entry.id, entry]));
@@ -100,7 +96,7 @@ export function resolveInvoicePdfBilling(
   const occupiedSlices = new Map<string, Array<{ start: number; end: number }>>();
 
   const resolvedLineItems = lineItems.map((lineItem): InvoicePdfLineItem => {
-    if (lineItem.item_type !== 'hourly') return fixedLineItem(lineItem);
+    if (lineItem.item_type !== 'hourly') return fixedLineItem(lineItem, money);
 
     const lineAllocations = allocationsByLine.get(lineItem.id) ?? [];
     if (lineAllocations.length === 0) return customHourlyLineItem(lineItem);
@@ -179,7 +175,7 @@ export function resolveInvoicePdfBilling(
     return {
       ...lineItem,
       quantity: lineResolved.reduce((sum, allocation) => sum + allocation.hours, 0),
-      rateLabel: rateBreakdown.length === 1 ? money(rateBreakdown[0].hourlyRate) : 'Mixed',
+      rateLabel: rateBreakdown.length === 1 ? formatMoneyExact(rateBreakdown[0].hourlyRate, money) : 'Mixed',
       allocationStatus: 'exact',
       rateBreakdown,
     };

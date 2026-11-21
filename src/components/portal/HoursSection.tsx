@@ -4,6 +4,8 @@ import { Fragment, useMemo, useState } from 'react';
 import { ChevronDown, CircleDollarSign } from 'lucide-react';
 import type { PortalData } from '@/lib/types';
 import { Tooltip } from '@/components/ui/Tooltip';
+import { startOfWeek, type WeekStart } from '@/lib/region';
+import { useRegion } from '@/lib/region/context';
 import { SectionCard, SectionCount, SectionHeader } from './SectionHeader';
 import {
   formatBreakDuration, formatDate, formatHoursMinutes, formatMonthDay, formatTime, rise,
@@ -44,29 +46,22 @@ interface WeekBucket {
   current: boolean;
 }
 
-/** Monday 00:00 local of the ISO week holding `date`. */
-function isoWeekStart(date: Date): Date {
-  const d = new Date(date);
-  d.setHours(0, 0, 0, 0);
-  d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
-  return d;
-}
-
 /**
- * Hours summed per ISO week over twelve weeks, oldest first. The window ends
- * on the current week; when nothing has been logged inside it (an older
- * project) it ends on the last week that has hours instead.
+ * Hours summed per week over twelve weeks, oldest first, each week starting
+ * on the workspace's first day. The window ends on the current week; when
+ * nothing has been logged inside it (an older project) it ends on the last
+ * week that has hours instead.
  */
-function weeklyHours(entries: Entry[]): { weeks: WeekBucket[]; toToday: boolean } {
+function weeklyHours(entries: Entry[], firstDay: WeekStart): { weeks: WeekBucket[]; toToday: boolean } {
   const byWeek = new Map<number, number>();
   let latest = 0;
   for (const entry of entries) {
-    const key = isoWeekStart(new Date(entry.start_time)).getTime();
+    const key = startOfWeek(new Date(entry.start_time), firstDay).getTime();
     byWeek.set(key, (byWeek.get(key) ?? 0) + entry.hours);
     if (key > latest) latest = key;
   }
 
-  const thisWeek = isoWeekStart(new Date());
+  const thisWeek = startOfWeek(new Date(), firstDay);
   const windowStart = new Date(thisWeek);
   windowStart.setDate(windowStart.getDate() - (WEEKS - 1) * 7);
   const toToday = latest === 0 || latest >= windowStart.getTime();
@@ -83,7 +78,8 @@ function weeklyHours(entries: Entry[]): { weeks: WeekBucket[]; toToday: boolean 
 
 /** Hours per week as bars, the current week at full strength, the tallest bar labelled. */
 function WeeklyChart({ entries }: { entries: Entry[] }) {
-  const { weeks, toToday } = useMemo(() => weeklyHours(entries), [entries]);
+  const { weekStart } = useRegion();
+  const { weeks, toToday } = useMemo(() => weeklyHours(entries, weekStart), [entries, weekStart]);
   const max = Math.max(...weeks.map(w => w.hours));
   const peakIndex = weeks.findIndex(w => w.hours === max);
   const colW = CHART_W / WEEKS;

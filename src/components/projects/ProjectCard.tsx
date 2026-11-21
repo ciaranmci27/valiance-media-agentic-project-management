@@ -12,6 +12,7 @@ import { Tooltip } from '@/components/ui/Tooltip';
 import { useState, useRef } from 'react';
 import { Popover } from '@/components/ui/Popover';
 import { parseDateOnly } from '@/lib/date-utils';
+import { appLocale } from '@/lib/region';
 
 interface ProjectCardProps {
   project: Project;
@@ -38,7 +39,7 @@ export function ProjectCard({ project, onEdit, onDelete }: ProjectCardProps) {
 
   const formatDate = (date: string | null) => {
     if (!date) return null;
-    return parseDateOnly(date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    return parseDateOnly(date).toLocaleDateString(appLocale(), { month: 'short', day: 'numeric' });
   };
 
   return (

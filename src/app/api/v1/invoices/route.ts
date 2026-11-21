@@ -6,6 +6,7 @@ import { accessAllows } from '@/lib/api/access';
 import { invoiceTotals, normalizedInvoiceLines, outstandingOf, serializePayment } from '@/lib/api/invoice-payments';
 import { INVOICE_STATUSES, type ProjectInvoice } from '@/lib/types';
 import { postgrestList, trashedProjectIds } from '@/lib/supabase/trash';
+import { getRegion } from '@/lib/region/server';
 
 export const dynamic = 'force-dynamic';
 
@@ -56,7 +57,7 @@ export const GET = withApi(async ({ supabase, searchParams, access }) => {
   const rows = (data ?? []) as unknown as Row[];
 
   const pageProjects = [...new Set(rows.map((row) => row.project_id))];
-  const [totals, contacts] = await Promise.all([
+  const [totals, contacts, region] = await Promise.all([
     invoiceTotals(supabase, rows.map((row) => row.id)),
     pageProjects.length
       ? supabase
@@ -67,6 +68,7 @@ export const GET = withApi(async ({ supabase, searchParams, access }) => {
           // A contact in Trash is no longer the customer.
           .is('contact.deleted_at', null)
       : Promise.resolve({ data: [], error: null }),
+    getRegion(),
   ]);
   if (contacts.error) throw contacts.error;
   type ContactRow = { project_id: string; contact: { id: string; name: string; email: string; company: string } | null };
@@ -86,6 +88,9 @@ export const GET = withApi(async ({ supabase, searchParams, access }) => {
       paid_date: row.paid_date,
       description: row.description,
       amount,
+      // ISO 4217, stamped from the workspace when the invoice was made; a row from
+      // before invoices had one is in the workspace currency.
+      currency: row.currency || region.currency,
       tax_rate: row.projects?.tax_rate == null ? null : Number(row.projects.tax_rate),
       tax_amount: Math.round((total - amount) * 100) / 100,
       total,

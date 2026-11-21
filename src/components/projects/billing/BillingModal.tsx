@@ -135,6 +135,7 @@ export default function BillingModal({
               continues={continues}
               onShowMore={months < 24 ? () => setMonths((value) => value + 12) : undefined}
               emptyText="Nothing bills on its own yet."
+              currency={plan?.currency}
             />
           </div>
         )

@@ -7,6 +7,7 @@ import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
 import type { Task, TaskEventKind, TaskUpdate, TeamMember } from '@/lib/types';
 import { topLevelTasks } from '@/lib/subtasks';
+import { appLocale } from '@/lib/region';
 
 function timeAgo(dateStr: string): string {
   const diffMins = Math.floor((Date.now() - new Date(dateStr).getTime()) / 60000);
@@ -16,7 +17,7 @@ function timeAgo(dateStr: string): string {
   if (hours < 24) return `${hours}h ago`;
   const days = Math.floor(hours / 24);
   if (days < 7) return `${days}d ago`;
-  return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  return new Date(dateStr).toLocaleDateString(appLocale(), { month: 'short', day: 'numeric' });
 }
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;

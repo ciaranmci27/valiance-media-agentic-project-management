@@ -9,6 +9,8 @@ import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
 import { isModuleEnabled } from '@/lib/access-control';
 import type { TeamMember, TimeEntry } from '@/lib/types';
+import { formatNumber } from '@/lib/format';
+import { appLocale } from '@/lib/region';
 import { Bot, Clock3, PauseCircle } from 'lucide-react';
 
 /** Review surface for one agent work session: the raw segment timeline, what
@@ -26,9 +28,9 @@ interface AgentSessionModalProps {
 }
 
 const timeFmt = (iso: string) =>
-  new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit' });
+  new Date(iso).toLocaleTimeString(appLocale(), { hour: 'numeric', minute: '2-digit', second: '2-digit' });
 const dateFmt = (iso: string) =>
-  new Date(iso).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  new Date(iso).toLocaleDateString(appLocale(), { weekday: 'short', month: 'short', day: 'numeric' });
 
 function durationLabel(ms: number): string {
   const totalMinutes = Math.round(ms / 60000);
@@ -179,7 +181,7 @@ export function AgentSessionModal({ entry, member, projectName, submitting, onAp
             </div>
             {isBillingEnabled && (
               <p className="pb-2 text-sm text-zinc-300">
-                × {multiplier.toFixed(2)} = <span className="font-semibold tabular-nums text-white">{durationLabel(billedMinutes * 60000)} billed</span>
+                × {formatNumber(multiplier, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} = <span className="font-semibold tabular-nums text-white">{durationLabel(billedMinutes * 60000)} billed</span>
               </p>
             )}
           </div>

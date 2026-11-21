@@ -16,7 +16,7 @@ export interface InvoicePdfRateBreakdown {
 export interface InvoicePdfLineItem extends InvoiceLineItem {
   /** Exact mapped hours. Null means the hourly row is intentionally custom. */
   quantity: number | null;
-  /** A formatted dollar rate, "Mixed", or "Custom". */
+  /** A formatted rate in the invoice's currency, "Mixed", or "Custom". */
   rateLabel: string;
   allocationStatus: 'exact' | 'custom';
   rateBreakdown: InvoicePdfRateBreakdown[];
@@ -119,6 +119,10 @@ export interface InvoicePdfData {
   lineItems: InvoicePdfLineItem[];
 
   // Money
+  /** ISO 4217: the invoice's own currency (the workspace's for rows stored before it had one). */
+  currency: string;
+  /** BCP 47: the workspace locale every amount and date on the PDF is written in. */
+  locale: string;
   subtotal: number;
   taxRate: number | null; // percent (e.g., 8.5)
   taxAmount: number;

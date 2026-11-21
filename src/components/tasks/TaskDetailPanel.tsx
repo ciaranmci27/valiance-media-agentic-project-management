@@ -64,6 +64,7 @@ import { TaskPanelShell } from './TaskPanelShell';
 import { useTaskUrlParam } from '@/lib/use-task-url';
 import { subtaskProgress } from '@/lib/subtasks';
 import { lastActivityAt, timeAgo } from '@/lib/task-times';
+import { useRegion } from '@/lib/region/context';
 import { SubtaskRing } from './SubtaskRing';
 import { useSubtaskMenuActions } from './MakeSubtaskDialog';
 import {
@@ -288,6 +289,7 @@ function InlineAdd({ label, placeholder, onAdd }: { label: string; placeholder: 
 /** A label and its value in the details list. */
 
 export function TaskDetailPanel({ task, onClose, onDelete, variant = 'panel' }: TaskDetailPanelProps) {
+  const { locale } = useRegion();
   const {
     team,
     tasks,
@@ -436,7 +438,7 @@ export function TaskDetailPanel({ task, onClose, onDelete, variant = 'panel' }: 
   const showCriteria = task.acceptance_criteria.length > 0 || criteriaHasRole(task) || criteriaWanted === task.id;
 
   const dueOverdue = !!task.due_date && isDateOverdue(task.due_date) && task.status !== 'done';
-  const createdDate = new Date(task.created_at).toLocaleDateString('en-US', {
+  const createdDate = new Date(task.created_at).toLocaleDateString(locale, {
     month: 'short',
     day: 'numeric',
     year: 'numeric',
@@ -586,7 +588,7 @@ export function TaskDetailPanel({ task, onClose, onDelete, variant = 'panel' }: 
           </div>
         ) : task.due_date ? (
           <span className={dueOverdue ? 'text-red-300' : 'text-zinc-200'}>
-            {parseDateOnly(task.due_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+            {parseDateOnly(task.due_date).toLocaleDateString(locale, { month: 'short', day: 'numeric', year: 'numeric' })}
             {dueOverdue && ' (overdue)'}
           </span>
         ) : (
@@ -812,7 +814,7 @@ export function TaskDetailPanel({ task, onClose, onDelete, variant = 'panel' }: 
               {subtask.due_date && (
                 <span className={`flex-shrink-0 text-xs tabular-nums ${late ? 'text-red-300' : 'text-zinc-400'}`}>
                   <span className="sr-only">Due </span>
-                  {parseDateOnly(subtask.due_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                  {parseDateOnly(subtask.due_date).toLocaleDateString(locale, { month: 'short', day: 'numeric' })}
                   {late && <span className="sr-only"> (overdue)</span>}
                 </span>
               )}
@@ -1014,7 +1016,7 @@ export function TaskDetailPanel({ task, onClose, onDelete, variant = 'panel' }: 
                       <p className="flex items-baseline gap-2 min-w-0">
                         <span className="text-sm font-medium text-white truncate">{author?.name || 'Unknown'}</span>
                         <span className="text-xs text-zinc-500 whitespace-nowrap">
-                          {new Date(comment.created_at).toLocaleDateString('en-US', {
+                          {new Date(comment.created_at).toLocaleDateString(locale, {
                             month: 'short',
                             day: 'numeric',
                             hour: 'numeric',

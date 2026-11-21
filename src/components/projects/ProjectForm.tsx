@@ -17,6 +17,9 @@ import { DateInput } from '@/components/ui/inputs/DateInput';
 import { useBrand } from '@/lib/brand/context';
 import { useAuth } from '@/lib/auth-context';
 import { hasPermission, isModuleEnabled } from '@/lib/access-control';
+import { formatMoney, formatNumber, moneyAffix } from '@/lib/format';
+import { appLocale } from '@/lib/region';
+import { useRegion } from '@/lib/region/context';
 
 const DEFAULT_PROJECT_COLOR = '';
 const OTHER_COLORS = ['#8B5CF6', '#EC4899', '#EF4444', '#F59E0B', '#10B981', '#06B6D4', '#3B82F6'];
@@ -39,14 +42,12 @@ function formatBudgetSnapshot(type: 'hours' | 'amount' | null, value: number | n
   // A budget is only meaningful when BOTH type and value are set.
   // If either is missing, treat the snapshot as "no budget".
   if (type == null || value == null) return 'None';
-  if (type === 'amount') {
-    return `$${value.toLocaleString('en-US', { maximumFractionDigits: 2 })}`;
-  }
-  return `${value.toLocaleString('en-US', { maximumFractionDigits: 2 })} hrs`;
+  if (type === 'amount') return formatMoney(value);
+  return `${formatNumber(value, { maximumFractionDigits: 2 })} hrs`;
 }
 
 function formatHistoryDate(iso: string): string {
-  return new Date(iso).toLocaleDateString('en-US', {
+  return new Date(iso).toLocaleDateString(appLocale(), {
     month: 'short',
     day: 'numeric',
     year: 'numeric',
@@ -64,6 +65,13 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
     useApp();
   const { access, teamMemberId } = useAuth();
   const brand = useBrand();
+  // A budget is in the workspace currency; the symbol sits on the side its locale puts it.
+  const region = useRegion();
+  const budgetAffix = moneyAffix({ currency: region.currency, locale: region.locale });
+  const affixLength = budgetAffix.symbol.length;
+  const budgetAffixPadding = budgetAffix.position === 'prefix'
+    ? (affixLength <= 1 ? 'pl-7' : affixLength === 2 ? 'pl-9' : 'pl-12')
+    : (affixLength <= 1 ? 'pr-7' : affixLength === 2 ? 'pr-9' : 'pr-12');
   // The brand color last; a brand color that matches another swatch shows once.
   const projectColors = [...new Set([...OTHER_COLORS, brand.colors.brand[500]])];
   const canManageBilling = hasPermission(access, 'billing.manage');
@@ -578,8 +586,8 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
                 {budgetType && (
                   <div className="relative flex-1">
                     {budgetType === 'amount' && (
-                      <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-zinc-400 z-10">
-                        $
+                      <span className={`pointer-events-none absolute ${budgetAffix.position === 'prefix' ? 'left-3' : 'right-3'} top-1/2 -translate-y-1/2 text-sm text-zinc-400 z-10`}>
+                        {budgetAffix.symbol}
                       </span>
                     )}
                     <Input
@@ -588,7 +596,7 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
                       value={formatBudgetDisplay(budgetValue)}
                       onChange={(e) => setBudgetValue(sanitizeBudgetInput(e.target.value))}
                       placeholder={budgetType === 'amount' ? '5,000' : '40'}
-                      className={budgetType === 'amount' ? 'pl-7' : ''}
+                      className={budgetType === 'amount' ? budgetAffixPadding : ''}
                     />
                   </div>
                 )}
@@ -596,7 +604,7 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
               {budgetType && (
                 <p className="text-xs text-zinc-500">
                   {budgetType === 'amount'
-                    ? 'Total dollar budget for this project'
+                    ? 'Total amount budgeted for this project'
                     : 'Total hours allocated for this project'}
                 </p>
               )}

@@ -5,6 +5,8 @@ import { ChevronDown, type LucideIcon } from 'lucide-react';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { StatStrip, type Stat as StripStat } from '@/components/ui/StatStrip';
 import type { TimeLine } from '@/lib/agent-telemetry-analytics';
+import { formatNumber } from '@/lib/format';
+import { appLocale } from '@/lib/region';
 
 /**
  * Presentation shared by the Agent Analytics cards. Every number comes from
@@ -24,9 +26,14 @@ export function fmtDuration(ms: number): string {
 
 /** Token and line counts get compact units; small values stay exact. */
 export function fmtCount(value: number): string {
-  if (Math.abs(value) >= 1_000_000) return `${(value / 1_000_000).toFixed(value % 1_000_000 === 0 ? 0 : 1)}M`;
-  if (Math.abs(value) >= 10_000) return `${(value / 1000).toFixed(value % 1000 === 0 ? 0 : 1)}K`;
-  return Math.round(value).toLocaleString('en-US');
+  if (Math.abs(value) >= 1_000_000) return `${scaled(value / 1_000_000, value % 1_000_000 === 0 ? 0 : 1)}M`;
+  if (Math.abs(value) >= 10_000) return `${scaled(value / 1000, value % 1000 === 0 ? 0 : 1)}K`;
+  return formatNumber(Math.round(value), { maximumFractionDigits: 0 });
+}
+
+/** A scaled count with fixed decimals, in the workspace locale ("1.5", "1,5"). */
+function scaled(value: number, digits: number): string {
+  return formatNumber(value, { minimumFractionDigits: digits, maximumFractionDigits: digits });
 }
 
 export function fmtPct(share: number): string {
@@ -39,11 +46,11 @@ export function fmtSeconds(seconds: number): string {
 }
 
 export function fmtWhen(ms: number): string {
-  return new Date(ms).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  return new Date(ms).toLocaleString(appLocale(), { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 }
 
 export function fmtDay(ms: number): string {
-  return new Date(ms).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  return new Date(ms).toLocaleDateString(appLocale(), { month: 'short', day: 'numeric' });
 }
 
 /**

@@ -11,6 +11,7 @@ import {
 import { taxOn } from '@/lib/invoice-payments';
 import { getWorkedHours } from '@/lib/time-entry-utils';
 import type { Brand } from '@/lib/brand';
+import { activeRegion, type Region } from '@/lib/region';
 import type { InvoicePdfData, InvoicePdfOptions, InvoicePdfTimeLogEntry } from './types';
 import { DEFAULT_INVOICE_PDF_OPTIONS } from './types';
 import {
@@ -44,6 +45,11 @@ interface BuildInvoiceDataInput {
    *  Loosened to `id`/`name` so portal callers (which only fetch those columns)
    *  don't have to cast through full TeamMember rows. */
   team?: Pick<TeamMember, 'id' | 'name'>[];
+  /**
+   * The workspace region (getRegion on the server, useRegion in the browser).
+   * The invoice's own currency wins over the region's; left out, the active region.
+   */
+  region?: Pick<Region, 'currency' | 'locale'>;
 }
 
 /**
@@ -63,7 +69,11 @@ export function buildInvoiceData({
   timeEntries,
   projectInvoices,
   team,
+  region,
 }: BuildInvoiceDataInput): InvoicePdfData {
+  const workspace = region ?? activeRegion();
+  const currency = (invoice.currency || workspace.currency).toUpperCase();
+  const locale = workspace.locale;
   const lineItems = ensureLineItems(invoice);
   const subtotal = lineItemsTotal(lineItems);
   const taxableSubtotal = lineItems
@@ -111,6 +121,7 @@ export function buildInvoiceData({
     lineItems,
     effectiveAllocations,
     timeEntries ?? [],
+    { currency, locale },
   );
   const timeLogEntries = buildTimeLogEntries({
     allocations: billing.allocations,
@@ -130,6 +141,8 @@ export function buildInvoiceData({
     paidDate: invoice.paid_date,
     paymentTerms,
     lineItems: billing.lineItems,
+    currency,
+    locale,
     subtotal,
     taxRate,
     taxAmount,

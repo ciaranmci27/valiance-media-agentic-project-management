@@ -9,6 +9,7 @@ import { createClient } from '@/lib/supabase/client';
 import { Header } from '@/components/layout/Header';
 import { Button } from '@/components/ui/Button';
 import type { Notification, NotificationEntityType } from '@/lib/types';
+import { appLocale } from '@/lib/region';
 
 type FilterTab = 'all' | 'unread';
 
@@ -23,7 +24,7 @@ function timeAgo(dateStr: string): string {
   if (hours < 24) return `${hours}h ago`;
   const days = Math.floor(hours / 24);
   if (days < 7) return `${days}d ago`;
-  return new Date(dateStr).toLocaleDateString();
+  return new Date(dateStr).toLocaleDateString(appLocale());
 }
 
 function getEntityIcon(entityType: NotificationEntityType | null) {

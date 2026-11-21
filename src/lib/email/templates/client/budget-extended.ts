@@ -7,7 +7,8 @@
 
 import type { Brand } from '@/lib/brand';
 import { ctaButton, escapeHtml, getSiteName, kvRows, linkLine, paragraph, statGrid, withEmailBrand } from '../shared';
-import { clientEmailLayout, clientHeader, greeting, usageMeter } from './layout';
+import { formatMoneyExact } from '@/lib/format';
+import { clientEmailLayout, clientHeader, formatEmailHours, greeting, usageMeter, type EmailRegion } from './layout';
 
 export interface BudgetExtendedSlots {
   subject: string;
@@ -35,9 +36,10 @@ export function budgetExtendedDefaults(ctx: {
   oldBudgetType: 'hours' | 'amount';
   newBudget: number;
   newBudgetType: 'hours' | 'amount';
+  region: EmailRegion;
 }): BudgetExtendedSlots {
-  const oldLabel = formatValue(ctx.oldBudget, ctx.oldBudgetType);
-  const newLabel = formatValue(ctx.newBudget, ctx.newBudgetType);
+  const oldLabel = formatValue(ctx.oldBudget, ctx.oldBudgetType, ctx.region);
+  const newLabel = formatValue(ctx.newBudget, ctx.newBudgetType, ctx.region);
   const verb = changeVerb(ctx);
   return {
     subject: `Budget update for ${ctx.projectName}`,
@@ -57,11 +59,13 @@ interface BudgetExtendedParams {
   newBudgetType: 'hours' | 'amount';
   currentUsage: number;
   slots: BudgetExtendedSlots;
+  /** The workspace region: a project budget is in the workspace currency. */
+  region: EmailRegion;
 }
 
-function formatValue(value: number, type: 'hours' | 'amount'): string {
-  if (type === 'hours') return `${value.toFixed(1)} hrs`;
-  return `$${value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+function formatValue(value: number, type: 'hours' | 'amount', region: EmailRegion): string {
+  if (type === 'hours') return formatEmailHours(value, region.locale);
+  return formatMoneyExact(value, region);
 }
 
 /** Renders with the workspace's brand (getBrand), so the name, logo and colors are this workspace's. */
@@ -72,15 +76,15 @@ export function buildBudgetExtendedEmail(params: BudgetExtendedParams & { brand:
 function renderBudgetExtendedEmail(params: BudgetExtendedParams): { subject: string; html: string; text: string } {
   const {
     projectName, clientName, portalUrl, logoUrl,
-    oldBudget, oldBudgetType, newBudget, newBudgetType, currentUsage, slots,
+    oldBudget, oldBudgetType, newBudget, newBudgetType, currentUsage, slots, region,
   } = params;
   const name = getSiteName();
   const remaining = Math.max(0, newBudget - currentUsage);
   const usedPct = newBudget > 0 ? Math.round((currentUsage / newBudget) * 100) : 0;
   const attention = usedPct >= 90;
   const verb = changeVerb({ oldBudget, oldBudgetType, newBudget, newBudgetType });
-  const oldLabel = formatValue(oldBudget, oldBudgetType);
-  const newLabel = formatValue(newBudget, newBudgetType);
+  const oldLabel = formatValue(oldBudget, oldBudgetType, region);
+  const newLabel = formatValue(newBudget, newBudgetType, region);
 
   const body = `
     ${clientHeader({
@@ -99,11 +103,11 @@ function renderBudgetExtendedEmail(params: BudgetExtendedParams): { subject: str
     ${usageMeter({
       percent: usedPct,
       left: `${usedPct}% of the new budget used`,
-      right: `${formatValue(remaining, newBudgetType)} remaining`,
+      right: `${formatValue(remaining, newBudgetType, region)} remaining`,
     })}
     ${statGrid([
-      { label: 'Used', value: formatValue(currentUsage, newBudgetType), tone: attention ? 'copper' : 'teal' },
-      { label: 'Remaining', value: formatValue(remaining, newBudgetType) },
+      { label: 'Used', value: formatValue(currentUsage, newBudgetType, region), tone: attention ? 'copper' : 'teal' },
+      { label: 'Remaining', value: formatValue(remaining, newBudgetType, region) },
     ])}
     ${paragraph(escapeHtml(slots.closing_line))}
     ${ctaButton('View project details', portalUrl)}
@@ -123,8 +127,8 @@ function renderBudgetExtendedEmail(params: BudgetExtendedParams): { subject: str
     '',
     `Previous budget: ${oldLabel}`,
     `New budget: ${newLabel}`,
-    `Used: ${formatValue(currentUsage, newBudgetType)} (${usedPct}%)`,
-    `Remaining: ${formatValue(remaining, newBudgetType)}`,
+    `Used: ${formatValue(currentUsage, newBudgetType, region)} (${usedPct}%)`,
+    `Remaining: ${formatValue(remaining, newBudgetType, region)}`,
     '',
     slots.closing_line,
     portalUrl,

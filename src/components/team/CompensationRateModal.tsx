@@ -10,13 +10,10 @@ import { toast } from '@/components/ui/Toast';
 import type { TeamMember, TeamMemberHourlyRate } from '@/lib/types';
 import { DateInput } from '@/components/ui/inputs/DateInput';
 import { NumberInput } from '@/components/ui/inputs/NumberInput';
+import { moneyAffix } from '@/lib/format';
+import { useMoney } from '@/lib/region/context';
 
 type PayrollRatesResponse = { rates?: TeamMemberHourlyRate[] };
-
-const money = (value: number) => value.toLocaleString('en-US', {
-  style: 'currency',
-  currency: 'USD',
-});
 
 export function CompensationRateModal({
   isOpen,
@@ -27,6 +24,10 @@ export function CompensationRateModal({
   onClose: () => void;
   member: TeamMember | null;
 }) {
+  // Pay rates are in the workspace currency, with all its decimals.
+  const payMoney = useMoney();
+  const money = payMoney.exact;
+  const affix = moneyAffix({ currency: payMoney.currency, locale: payMoney.locale });
   const [rates, setRates] = useState<TeamMemberHourlyRate[]>([]);
   const [amount, setAmount] = useState('');
   const [effectiveDate, setEffectiveDate] = useState(() => new Date().toISOString().slice(0, 10));
@@ -111,7 +112,7 @@ export function CompensationRateModal({
               <CalendarClock size={14} /> Effective since
             </div>
             <p className="mt-2 text-sm font-medium text-white">
-              {currentRate ? new Date(currentRate.effective_at).toLocaleDateString() : 'No active rate'}
+              {currentRate ? new Date(currentRate.effective_at).toLocaleDateString(payMoney.locale) : 'No active rate'}
             </p>
           </div>
         </div>
@@ -120,7 +121,7 @@ export function CompensationRateModal({
           <h3 className="text-sm font-semibold text-white">Schedule a new rate</h3>
           <p className="mt-1 text-xs text-zinc-400">New time sessions use the rate effective when the session starts. Existing sessions do not change.</p>
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
-            <NumberInput label="Hourly rate" min={0} step={0.01} prefix="$" suffix="/hr" value={amount === '' ? '' : Number(amount)} onChange={(value) => setAmount(value === '' ? '' : String(value))} />
+            <NumberInput label="Hourly rate" min={0} step={0.01} prefix={affix.position === 'prefix' ? affix.symbol : undefined} suffix={`${affix.position === 'suffix' ? affix.symbol : ''}/hr`} value={amount === '' ? '' : Number(amount)} onChange={(value) => setAmount(value === '' ? '' : String(value))} />
             <DateInput label="Effective date" value={effectiveDate} onChange={setEffectiveDate} />
           </div>
           <div className="mt-4 flex justify-end">
@@ -137,7 +138,7 @@ export function CompensationRateModal({
               <p className="p-4 text-sm text-zinc-400">No pay rates have been scheduled.</p>
             ) : rates.map((rate) => (
               <div key={rate.id} className="flex items-center justify-between border-b border-white/[0.06] px-4 py-3 last:border-b-0">
-                <span className="text-sm text-zinc-300">{new Date(rate.effective_at).toLocaleDateString()}</span>
+                <span className="text-sm text-zinc-300">{new Date(rate.effective_at).toLocaleDateString(payMoney.locale)}</span>
                 <span className="text-sm font-semibold tabular-nums text-white">{money(Number(rate.hourly_rate))}/hr</span>
               </div>
             ))}

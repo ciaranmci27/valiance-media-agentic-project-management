@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { Timer } from 'lucide-react';
 import type { BreakdownRow, TimeAccounting, TimeLine } from '@/lib/agent-telemetry-analytics';
 import { Card, CardSkeleton, Defined, LINE_ORDER, LINE_STYLE, CardStats, Missing, fmtDuration, fmtPct } from './shared';
+import { appLocale } from '@/lib/region';
 
 /**
  * Where every minute of runtime went. Active runtime is the measured total;
@@ -66,7 +67,7 @@ export function TimeAccountingCard({
                 hint: 'Every turn that ran, including idle checks, waiting, failures and turns not yet labelled. Overlapping turns of one agent count once.',
                 value: fmtDuration(a.activeMs),
                 tone: 'info',
-                context: `${a.turns.toLocaleString('en-US')} turns`,
+                context: `${a.turns.toLocaleString(appLocale())} turns`,
               },
               {
                 label: 'Effective runtime',

@@ -1,5 +1,6 @@
 import type { Task, TeamMember } from '@/lib/types';
 import { parseDateOnly } from '@/lib/date-utils';
+import { appLocale } from '@/lib/region';
 import { bySubtaskOrder } from '@/lib/subtasks';
 import { toast } from '@/components/ui/Toast';
 
@@ -38,7 +39,7 @@ interface TaskTextContext {
 }
 
 function day(date: string): string {
-  return parseDateOnly(date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  return parseDateOnly(date).toLocaleDateString(appLocale(), { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
 export function taskAsText(task: Task, { projectName, team, tasks }: TaskTextContext): string {
@@ -86,7 +87,7 @@ export function taskAsText(task: Task, { projectName, team, tasks }: TaskTextCon
   if (task.comments.length) {
     lines.push('', `## Comments (${task.comments.length})`, '');
     for (const c of task.comments) {
-      const when = new Date(c.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      const when = new Date(c.created_at).toLocaleDateString(appLocale(), { month: 'short', day: 'numeric' });
       lines.push(`- ${nameOf(c.user_id)}, ${when}: ${c.text.trim()}`);
     }
   }

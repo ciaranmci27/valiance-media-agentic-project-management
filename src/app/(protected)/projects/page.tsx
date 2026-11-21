@@ -23,6 +23,7 @@ import { parseDateOnly } from '@/lib/date-utils';
 import { useUnreadByProject } from '@/components/tasks/TaskUnread';
 import { useWarmProject } from '@/lib/reads';
 import { CountBadge } from '@/components/ui/CountBadge';
+import { appLocale } from '@/lib/region';
 
 function ProjectsContent() {
   const searchParams = useSearchParams();
@@ -134,7 +135,7 @@ function ProjectsContent() {
         <div className="mt-3 flex items-center justify-between pt-3 border-t border-white/[0.06] text-xs text-zinc-400">
           <div className="flex items-center gap-3">
             {p.due_date && (
-              <span className="inline-flex items-center gap-1"><Calendar size={13} className="text-zinc-500" />{parseDateOnly(p.due_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
+              <span className="inline-flex items-center gap-1"><Calendar size={13} className="text-zinc-500" />{parseDateOnly(p.due_date).toLocaleDateString(appLocale(), { month: 'short', day: 'numeric' })}</span>
             )}
             {members.length > 0 && <span className="inline-flex items-center gap-1"><Users size={13} className="text-zinc-500" />{members.length}</span>}
           </div>
@@ -226,7 +227,7 @@ function ProjectsContent() {
         ? (
           <span className="inline-flex items-center gap-1 text-zinc-300 whitespace-nowrap">
             <Calendar size={14} className="text-zinc-500" />
-            {parseDateOnly(p.due_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+            {parseDateOnly(p.due_date).toLocaleDateString(appLocale(), { month: 'short', day: 'numeric' })}
           </span>
         )
         : <span className="text-zinc-600 italic">—</span>,

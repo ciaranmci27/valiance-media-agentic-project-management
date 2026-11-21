@@ -1,5 +1,6 @@
 import type { Reminder } from '@/lib/types';
 import { parseDateOnly } from '@/lib/date-utils';
+import { appLocale } from '@/lib/region';
 
 /**
  * How reminders read on screen: when each is due, which group it sits in,
@@ -29,9 +30,11 @@ export function nextMonday(from: Date): string {
   return addDays(dayKey(from), offset);
 }
 
-/** "14:30:00" or "14:30" to "2:30 pm". */
+/** "14:30:00" or "14:30" to "2:30 pm", or "14:30" where the workspace locale uses a 24-hour clock. */
 export function timeLabel(time: string): string {
   const [h, m] = time.split(':').map(Number);
+  const cycle = new Intl.DateTimeFormat(appLocale(), { hour: 'numeric' }).resolvedOptions().hourCycle;
+  if (cycle === 'h23' || cycle === 'h24') return `${String(h).padStart(2, '0')}:${String(m || 0).padStart(2, '0')}`;
   const hour12 = h % 12 === 0 ? 12 : h % 12;
   return `${hour12}${m ? `:${String(m).padStart(2, '0')}` : ''} ${h < 12 ? 'am' : 'pm'}`;
 }
@@ -82,9 +85,9 @@ export function whenLabel(reminder: Pick<Reminder, 'remind_on' | 'remind_at'>, n
   else if (reminder.remind_on === addDays(today, 1)) label = 'Tomorrow';
   else if (reminder.remind_on === addDays(today, -1)) label = 'Yesterday';
   else if (reminder.remind_on > today && reminder.remind_on < addDays(today, 7)) {
-    label = date.toLocaleDateString('en-US', { weekday: 'short' });
+    label = date.toLocaleDateString(appLocale(), { weekday: 'short' });
   } else {
-    label = date.toLocaleDateString('en-US', {
+    label = date.toLocaleDateString(appLocale(), {
       month: 'short', day: 'numeric',
       ...(date.getFullYear() !== now.getFullYear() ? { year: 'numeric' } : {}),
     });

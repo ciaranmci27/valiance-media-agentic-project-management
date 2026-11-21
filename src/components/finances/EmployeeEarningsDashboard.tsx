@@ -7,6 +7,7 @@ import { StatStrip } from '@/components/ui/StatStrip';
 import { getWorkedHoursByDay } from '@/lib/time-entry-utils';
 import { computeMemberEarningsSummary } from '@/lib/finance/summary';
 import { formatHours } from '@/lib/format';
+import { useMoney } from '@/lib/region/context';
 import type { EmployeeEarningsData, Project } from '@/lib/types';
 
 type RangePreset = '7d' | '30d' | '90d' | 'all';
@@ -20,23 +21,6 @@ const RANGE_OPTIONS = [
 
 function toDateKey(date: Date): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-}
-
-function formatMoney(value: number): string {
-  const absolute = Math.abs(value).toLocaleString('en-US', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
-  return value < 0 ? `-$${absolute}` : `$${absolute}`;
-}
-
-function formatAxis(value: number): string {
-  if (value === 0) return '$0';
-  const prefix = value < 0 ? '-$' : '$';
-  const absolute = Math.abs(value);
-  return absolute >= 1000
-    ? `${prefix}${(absolute / 1000).toFixed(absolute % 1000 === 0 ? 0 : 1)}K`
-    : `${prefix}${Math.round(absolute)}`;
 }
 
 function niceStep(span: number): number {
@@ -56,6 +40,10 @@ export function EmployeeEarningsDashboard({
   projects: Project[];
   data: EmployeeEarningsData;
 }) {
+  // Earnings are in the workspace currency, with all its decimals.
+  const money = useMoney();
+  const formatMoney = money.exact;
+  const { locale } = money;
   const [preset, setPreset] = useState<RangePreset>('30d');
   const [showApproved, setShowApproved] = useState(true);
   const [showPending, setShowPending] = useState(true);
@@ -86,7 +74,7 @@ export function EmployeeEarningsDashboard({
         label:
           dateKey === todayKey
             ? 'Today'
-            : date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+            : date.toLocaleDateString(locale, { month: 'short', day: 'numeric' }),
         approved: 0,
         pending: 0,
       };
@@ -177,7 +165,7 @@ export function EmployeeEarningsDashboard({
       .sort((a, b) => b.approved + b.pending - (a.approved + a.pending));
 
     return { startKey, todayKey, bars, approved, pending, paid, owed, hours, byProject };
-  }, [data, preset, projects]);
+  }, [data, preset, projects, locale]);
 
   const visibleValues = dashboard.bars.map((bar) => {
     const approved = showApproved ? bar.approved : 0;
@@ -273,7 +261,7 @@ export function EmployeeEarningsDashboard({
               <div className="flex w-12 flex-col justify-between py-0.5 text-right">
                 {[...axisTicks].reverse().map((tick) => (
                   <span key={tick} className="text-[10px] font-medium text-zinc-500">
-                    {formatAxis(tick)}
+                    {money.compact(tick)}
                   </span>
                 ))}
               </div>

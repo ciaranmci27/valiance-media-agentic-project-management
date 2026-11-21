@@ -3,6 +3,8 @@ import { hasPermission, isModuleEnabled, type AccessContext, type TeamRole } fro
 import { TELEMETRY_EVENT_TYPES } from '@/lib/agent-events';
 import { teamActivityHref } from '@/lib/team-activity';
 import { startOfDayInTz, workedClock } from '@/lib/time-entry-utils';
+import type { WeekStart } from '@/lib/region';
+import { getRegion } from '@/lib/region/server';
 import type { TeamActivity, TimeSegment } from '@/lib/types';
 
 /**
@@ -185,17 +187,19 @@ interface Windows {
   since30: number;
 }
 
-/** The person's week (from Monday), month and last 30 days, as instants. */
-export function profileWindows(now: Date, tz: string): Windows {
+/** The person's week (from the workspace's first day, Monday unless set), month and last 30 days, as instants. */
+export function profileWindows(now: Date, tz: string, firstDay: WeekStart = 1): Windows {
   const todayStart = startOfDayInTz(now, tz);
   // Local noon of a day a few days back is always inside that day, DST or not.
   const dayStart = (daysBack: number) => startOfDayInTz(new Date(todayStart + 12 * 3_600_000 - daysBack * DAY_MS), tz);
-  const weekday = new Intl.DateTimeFormat('en-US', { timeZone: tz, weekday: 'short' }).format(now);
-  const sinceMonday = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].indexOf(weekday);
+  // en-US weekday names, parsed into 0 (Sunday) to 6.
+  const weekday = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+    .indexOf(new Intl.DateTimeFormat('en-US', { timeZone: tz, weekday: 'short' }).format(now));
+  const sinceWeekStart = weekday < 0 ? 0 : (weekday - firstDay + 7) % 7;
   const dayOfMonth = Number(localDateKey(now, tz).slice(8, 10));
   return {
     today: localDateKey(now, tz),
-    weekStart: dayStart(Math.max(0, sinceMonday)),
+    weekStart: dayStart(sinceWeekStart),
     monthStart: dayStart(dayOfMonth - 1),
     since30: dayStart(29),
   };
@@ -580,7 +584,7 @@ export async function assembleTeamProfile(input: ProfileInput): Promise<TeamProf
   const context = await resolveContext(service, access, targetId);
   if (!context) return null;
   const { view, isSelf, target } = context;
-  const windows = profileWindows(now, context.tz);
+  const windows = profileWindows(now, context.tz, (await getRegion()).weekStart);
   const full = view === 'full';
 
   // Your own tasks are always yours to see; someone else's need the read-all-tasks grant.

@@ -3,13 +3,15 @@
 import { BadgeCheck } from 'lucide-react';
 import type { Quality } from '@/lib/agent-telemetry-analytics';
 import { Card, CardSkeleton, CardStats, fmtPct } from './shared';
+import { appLocale } from '@/lib/region';
+import { formatNumber } from '@/lib/format';
 
 /** Whether work held up: approved first time, stayed done, stayed merged. */
 export function QualityCard({ quality, measuring }: { quality: Quality; measuring: boolean }) {
   const q = quality;
   // A calendar date (when tracking was installed), so it is read in UTC.
   const sinceLabel = q.reopenedSince
-    ? new Date(q.reopenedSince).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })
+    ? new Date(q.reopenedSince).toLocaleDateString(appLocale(), { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })
     : null;
   const tiles: { label: string; hint: string; value: string | null; empty: string; sub: string }[] = [
     {
@@ -22,7 +24,7 @@ export function QualityCard({ quality, measuring }: { quality: Quality; measurin
     {
       label: 'Review rounds per task',
       hint: 'Distinct review rounds (one verdict on one PR) over distinct tasks reviewed in range.',
-      value: q.roundsPerTask === null ? null : q.roundsPerTask.toFixed(1),
+      value: q.roundsPerTask === null ? null : formatNumber(q.roundsPerTask, { minimumFractionDigits: 1, maximumFractionDigits: 1 }),
       empty: 'No reviews',
       sub: q.tasksReviewed > 0 ? `${q.reviewRounds} rounds on ${q.tasksReviewed} tasks` : 'none in range',
     },

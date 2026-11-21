@@ -11,6 +11,8 @@ import {
 } from '@/lib/demo-data';
 import type { Brand } from '@/lib/brand';
 import { getBrand } from '@/lib/brand/server';
+import { getRegion } from '@/lib/region/server';
+import type { Region } from '@/lib/region';
 import { getWorkedHours, getWorkedMs, isClientBillable } from '@/lib/time-entry-utils';
 import { fifoPaymentStatuses, paidHourlyLineItemTotal, totalBillableAmount } from '@/lib/invoice-utils';
 import { invoiceAmountPaid } from '@/lib/invoice-payments';
@@ -87,12 +89,15 @@ export async function GET(
 ) {
   const { token: rawToken } = await params;
   const token = rawToken.toLowerCase();
-  const brand = await getBrand();
+  // The workspace region: invoice PDFs are written in its locale, each in
+  // the invoice's own currency. The portal page formats with the same region
+  // (the root layout's RegionProvider), so a client sees what the team sees.
+  const [brand, region] = await Promise.all([getBrand(), getRegion()]);
 
   // Demo mode: return mock data for demo tokens
   const isDemo = process.env.NEXT_PUBLIC_DEMO_MODE === 'true' || request.nextUrl.searchParams.get('demo') === 'true';
   if (isDemo) {
-    return handleDemoMode(token, request, brand);
+    return handleDemoMode(token, request, brand, region);
   }
 
   const supabase = getServiceClient();
@@ -305,6 +310,7 @@ export async function GET(
         id: i.id,
         invoice_number: i.invoice_number,
         amount: i.amount,
+        currency: i.currency ?? null,
         status: i.status,
         invoice_type: i.invoice_type,
         line_items: Array.isArray(i.line_items) ? i.line_items : [],
@@ -360,6 +366,7 @@ export async function GET(
           // Portal previews don't carry a logged-in admin's identity.
           senderName: '',
           brand,
+          region,
           portalUrl: `${origin}/portal/${token}?invoice=${encodeURIComponent(inv.invoice_number)}`,
           options: portalOptions,
           timeEntries: portalTimeEntries,
@@ -481,7 +488,7 @@ export async function GET(
   return NextResponse.json(portalData);
 }
 
-function handleDemoMode(token: string, request: NextRequest, brand: Brand) {
+function handleDemoMode(token: string, request: NextRequest, brand: Brand, region: Region) {
   // Look up portal settings by token from demo data
   const settings = demoPortalSettings.find(ps => ps.token === token);
   if (!settings || !settings.enabled) {
@@ -587,7 +594,7 @@ function handleDemoMode(token: string, request: NextRequest, brand: Brand) {
 
   // Project the already-loaded demo invoice rows down to what the client needs.
   const invoices: PortalData['invoices'] = settings.show_invoices
-    ? demoActiveInvoices.map(i => ({ id: i.id, invoice_number: i.invoice_number, amount: i.amount, status: i.status, invoice_type: i.invoice_type, line_items: i.line_items ?? [], date: i.date, due_date: i.due_date, paid_date: i.paid_date, description: i.description, file_url: i.file_url, file_name: i.file_name, file_size: i.file_size, mime_type: i.mime_type }))
+    ? demoActiveInvoices.map(i => ({ id: i.id, invoice_number: i.invoice_number, amount: i.amount, currency: i.currency ?? null, status: i.status, invoice_type: i.invoice_type, line_items: i.line_items ?? [], date: i.date, due_date: i.due_date, paid_date: i.paid_date, description: i.description, file_url: i.file_url, file_name: i.file_name, file_size: i.file_size, mime_type: i.mime_type }))
     : [];
 
   // Demo-mode invoice_pdfs — empty stub since demo doesn't carry full
@@ -605,6 +612,7 @@ function handleDemoMode(token: string, request: NextRequest, brand: Brand) {
         businessSettings: null,
         senderName: '',
         brand,
+        region,
         portalUrl: `${origin}/portal/${token}?invoice=${encodeURIComponent(inv.invoice_number)}`,
         options: { showSenderName: false },
         projectInvoices: demoActiveInvoices,
