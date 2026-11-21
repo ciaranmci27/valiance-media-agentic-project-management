@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { accessAllows, requireSessionAccess } from '@/lib/api/access';
+import { canChangeSignInEmail } from '@/lib/team/invite-rules';
 
 const updateEmailSchema = z.object({
   team_member_id: z.string().uuid(),
@@ -43,6 +44,12 @@ export async function POST(req: NextRequest) {
   }
   if (targetMember.role === 'owner' && !isSelf) {
     return NextResponse.json({ error: 'The Owner account cannot be modified by another member' }, { status: 403 });
+  }
+  // A sign-in email decides who can reset the password, so only the person
+  // or an Owner changes it (anyone else could take the account over, and its
+  // personal inbox with it).
+  if (!canChangeSignInEmail(access.role, isSelf)) {
+    return NextResponse.json({ error: 'Only the person or an Owner can change a sign-in email' }, { status: 403 });
   }
 
   if (!targetMember.auth_user_id) {

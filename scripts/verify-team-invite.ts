@@ -102,7 +102,12 @@ async function main() {
   };
 
   try {
-    const { inviteMember, reissueInvite, listPendingInvites, inviteSchema, redeemInvite, peekInvite, hashInviteToken } = await import('../src/lib/team/invite');
+    const { inviteMember, reissueInvite, listPendingInvites, inviteSchema, redeemInvite, peekInvite, hashInviteToken, canInviteRole, canChangeSignInEmail } = await import('../src/lib/team/invite');
+    // Changing someone else's sign-in email (update-email route) is Owner only.
+    check('email: only the person or an Owner changes a sign-in email', canChangeSignInEmail('member', true) && canChangeSignInEmail('owner', false) && !canChangeSignInEmail('admin', false));
+    check('rule: an Admin cannot manage the sign-in of an agent or Admin', !canInviteRole('admin', 'agent') && !canInviteRole('admin', 'admin'));
+    check('rule: an Admin manages the sign-in of a Member or Guest', canInviteRole('admin', 'member') && canInviteRole('admin', 'guest'));
+    check('rule: an Owner manages the sign-in of anyone', ['owner', 'admin', 'agent', 'member'].every((role) => canInviteRole('owner', role)));
     const { resolveMemberAccess } = await import('../src/lib/api/access');
     const { getServiceClient } = await import('../src/lib/api/supabase-service');
     const service = getServiceClient();

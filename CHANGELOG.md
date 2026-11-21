@@ -9,6 +9,12 @@ Each section starts with `## X.Y.Z (YYYY-MM-DD)` and uses these headings, leavin
 - `### Database`: the core migration files in the release, one per line. `npm run db:migrate` applies them.
 - `### Breaking`: what an install must do when it takes this release.
 
+## 1.6.1 (2026-11-21)
+
+### Changed
+- Only the person or an Owner changes a sign-in email. The email decides who can reset the password, so an Admin could otherwise take over someone else's account, and with it their personal inbox.
+- `npm run test:core` passes in installs again: a 1.6.0 test read an old schema by a commit only the source repository has.
+
 ## 1.6.0 (2026-11-21)
 
 ### Added

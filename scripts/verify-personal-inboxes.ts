@@ -22,7 +22,7 @@
 import { createHash } from 'node:crypto';
 import { NextRequest } from 'next/server';
 import type { PGlite } from '@electric-sql/pglite';
-import { actAs, createFullSchemaDatabase, schemaAt } from './full-schema-db';
+import { actAs, createFullSchemaDatabase, schemaBeforeMigration } from './full-schema-db';
 import { startFakePostgrest } from './fake-postgrest';
 
 let passed = 0;
@@ -365,7 +365,7 @@ async function main() {
 async function legacyDatabase() {
   let legacy: PGlite;
   try {
-    legacy = await createFullSchemaDatabase({ schemaSql: schemaAt('d867ec75') });
+    legacy = await createFullSchemaDatabase({ schemaSql: schemaBeforeMigration('20261121060000_personal_inboxes.sql') });
   } catch (error) {
     failures.push(`legacy: could not build the 1.5.0 schema: ${(error as Error).message}`);
     return;

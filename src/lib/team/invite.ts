@@ -3,7 +3,7 @@ import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { z } from 'zod';
 import type { AccessContext } from '@/lib/access-control';
-import { canInviteRole } from './invite-rules';
+import { canChangeSignInEmail, canInviteRole } from './invite-rules';
 
 /**
  * Inviting people to the workspace. The inviter gives a name, an email and a
@@ -36,7 +36,7 @@ export class InviteError extends Error {
   }
 }
 
-export { canInviteRole };
+export { canChangeSignInEmail, canInviteRole };
 
 /** How long an invite link works. */
 export const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;

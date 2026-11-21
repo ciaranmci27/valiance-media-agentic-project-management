@@ -8,6 +8,7 @@ import { useAuth } from '@/lib/auth-context';
 import { useDemo } from '@/lib/demo-context';
 import { createClient } from '@/lib/supabase/client';
 import { hasPermission, isModuleEnabled } from '@/lib/access-control';
+import { canChangeSignInEmail } from '@/lib/team/invite-rules';
 import { AGENT_PROFILES, type AgentProfile } from '@/lib/mcp/profiles';
 import type { TeamMember } from '@/lib/types';
 import { AvatarUpload } from '@/components/ui/AvatarUpload';
@@ -39,6 +40,8 @@ function EditMemberForm({ member, onClose }: { member: TeamMember; onClose: () =
   const supabase = createClient();
 
   const isOwner = access?.role === 'owner';
+  // Same rule as the server: someone else's sign-in email is Owner only.
+  const canEditEmail = canChangeSignInEmail(access?.role ?? '', member.id === currentTeamMemberId);
   const canManageTeam = hasPermission(access, 'team.manage');
   const canManageBilling = hasPermission(access, 'billing.manage');
   // The agent role stays with agents off; only its agent-only settings go.
@@ -315,8 +318,11 @@ function EditMemberForm({ member, onClose }: { member: TeamMember; onClose: () =
             }}
             placeholder="name@example.com"
             error={emailError}
-            disabled={formLoading}
+            disabled={formLoading || !canEditEmail}
           />
+          {!canEditEmail && (
+            <p className="-mt-2 text-xs text-zinc-400">Only an Owner can change this person&apos;s sign-in email.</p>
+          )}
 
           <Select
             label="Role"
