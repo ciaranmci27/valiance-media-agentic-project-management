@@ -142,7 +142,7 @@ export function BrandSetupStep({ onSkip }: { onSkip: () => void }) {
         <LogoField
           kind="light"
           label="Logo"
-          usage="Emails, invoices and light pages. Add a dark version in Settings."
+          usage="The sign-in page in light mode and light invoice PDFs. The sidebar, portal and emails use it too until you add a dark version in Settings."
           url={settings.logoLightUrl}
           emptyNote="No logo yet: your name shows as text"
           name={preview.name}

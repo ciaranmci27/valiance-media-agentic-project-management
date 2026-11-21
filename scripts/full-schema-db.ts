@@ -113,12 +113,18 @@ export function splitSqlStatements(sql: string): string[] {
 }
 
 /**
- * schema.sql is replayed statement by statement. It keeps a few historical
- * GRANT/REVOKE lines for function signatures a later section replaced; on a
- * fresh database those name nothing, so permission statements may fail and
- * are reported. Anything else failing is a real error.
+ * schema.sql is replayed statement by statement.
+ *
+ * strict (the current schema.sql and schema_ai_agent.sql): every statement
+ * must succeed, as on a real Supabase, where the SQL editor runs the file as
+ * one script and stops at the first error. Only the Realtime publication is
+ * excused, since PGlite has no logical replication.
+ *
+ * lenient (older copies, read back from git for migration tests): those may
+ * carry GRANT/REVOKE lines for signatures a later section replaced, and data
+ * checks a fresh database cannot pass, so such failures are reported instead.
  */
-export async function applySchema(db: PGlite, sql: string): Promise<{ skipped: string[] }> {
+export async function applySchema(db: PGlite, sql: string, options: { strict?: boolean } = {}): Promise<{ skipped: string[] }> {
   const skipped: string[] = [];
   // Working copies may carry CRLF (git autocrlf); function bodies must compare equal either way.
   for (const statement of splitSqlStatements(withoutHostedExtensions(sql.replace(/\r\n/g, NEWLINE)))) {
@@ -133,7 +139,7 @@ export async function applySchema(db: PGlite, sql: string): Promise<{ skipped: s
       const dataAssertion = /^DO\s/i.test(body) && DATA_ASSERTIONS.some((text) => message.includes(text));
       // Supabase Realtime is hosted infrastructure; its publication is not part of what tests read.
       const realtime = body.includes('supabase_realtime');
-      if (/^(GRANT|REVOKE)\s/i.test(body) || dataAssertion || realtime) {
+      if (realtime || (!options.strict && (/^(GRANT|REVOKE)\s/i.test(body) || dataAssertion))) {
         skipped.push(`${body.split(NEWLINE)[0]} (${message})`);
         continue;
       }
@@ -146,8 +152,9 @@ export async function applySchema(db: PGlite, sql: string): Promise<{ skipped: s
 export async function createFullSchemaDatabase(options: { schemaSql?: string; agentSchemaSql?: string } = {}): Promise<PGlite> {
   const db = new PGlite();
   await db.exec(SUPABASE_STANDINS);
-  await applySchema(db, options.schemaSql ?? readFileSync(SCHEMA_PATH, 'utf8'));
-  await applySchema(db, options.agentSchemaSql ?? readFileSync(AGENT_SCHEMA_PATH, 'utf8'));
+  // The files as they ship install on a fresh database with no error; an older copy may not.
+  await applySchema(db, options.schemaSql ?? readFileSync(SCHEMA_PATH, 'utf8'), { strict: options.schemaSql === undefined });
+  await applySchema(db, options.agentSchemaSql ?? readFileSync(AGENT_SCHEMA_PATH, 'utf8'), { strict: options.agentSchemaSql === undefined });
   // schema_ai_agent.sql predates the owner role and re-adds the role check
   // without it; production carries schema.sql's later check, which has it.
   await db.exec(`ALTER TABLE public.team_members DROP CONSTRAINT IF EXISTS team_members_role_check,

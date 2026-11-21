@@ -9,6 +9,14 @@ Each section starts with `## X.Y.Z (YYYY-MM-DD)` and uses these headings, leavin
 - `### Database`: the core migration files in the release, one per line. `npm run db:migrate` applies them.
 - `### Breaking`: what an install must do when it takes this release.
 
+## 1.1.3 (2026-11-20)
+
+### Changed
+- A fresh install works: `supabase/schema.sql` and `supabase/schema_ai_agent.sql` now run on a new Supabase project without errors. Before, the SQL editor stopped partway (an outdated REVOKE, an Owner check a new database cannot pass, and a Realtime step naming a table the second file creates). The test database now applies both files strictly, the way Supabase does.
+- `public/pdf.worker.min.mjs` is no longer tracked: `npm install` writes it, and on Windows its line endings made the working tree look changed, which stopped `npm run upgrade`. If an upgrade stops on that file, run `git checkout -- public/pdf.worker.min.mjs` and upgrade again.
+- Core checks pass in the public repo: the update tests load libsodium in a way its 0.7.16 release supports.
+- The first-run brand step says where the light logo shows.
+
 ## 1.1.2 (2026-11-20)
 
 ### Changed

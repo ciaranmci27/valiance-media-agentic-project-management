@@ -5983,7 +5983,7 @@ REVOKE ALL ON FUNCTION public.get_team_directory() FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.get_accessible_time_entries(uuid) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.get_accessible_credential_metadata(uuid) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.resolve_team_member_hourly_rate(uuid, timestamptz) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.review_time_entries(uuid[], text, text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.review_time_entries(uuid[], text, text, jsonb) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.record_team_member_payout(uuid, text, numeric, text, text, text, jsonb) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.set_credential_members(uuid, uuid[]) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.protect_project_billing_fields() FROM PUBLIC;
@@ -6009,11 +6009,10 @@ GRANT EXECUTE ON FUNCTION public.record_team_member_payout(uuid, text, numeric, 
 GRANT EXECUTE ON FUNCTION public.set_credential_members(uuid, uuid[]) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.validate_team_member_payout(uuid) TO service_role;
 
+-- Integrity checks. (A fresh install has no members yet: its first sign-in
+-- becomes the Owner, so no Owner check runs here.)
 DO $$
 BEGIN
-  IF (SELECT COUNT(*) FROM public.team_members WHERE role = 'owner' AND status = 'active') < 1 THEN
-    RAISE EXCEPTION 'At least one active Owner is required';
-  END IF;
   IF EXISTS (
     SELECT 1 FROM public.project_time_entries
     WHERE approval_status = 'approved' AND compensation_rate <> 0
@@ -9688,7 +9687,9 @@ begin
     'reminders',
     'workspace_modules'
   ] loop
-    if not exists (
+    -- A fresh install runs schema_ai_agent.sql after this file, so the agent
+    -- tables may not exist yet; that file publishes them itself.
+    if to_regclass(format('public.%I', t)) is not null and not exists (
       select 1 from pg_publication_tables
       where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = t
     ) then

@@ -47,3 +47,6 @@ next-env.d.ts
 # Claude Code: the shared settings, hook and pm- skills are tracked; local ones are not
 .claude/settings.local.json
 .claude/worktrees/
+
+# Copied from pdfjs-dist by the postinstall script on every install.
+/public/pdf.worker.min.mjs

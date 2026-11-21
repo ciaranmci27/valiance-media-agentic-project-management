@@ -16,6 +16,7 @@
  *   npm run -s test:updates
  */
 import { spawnSync } from 'node:child_process';
+import { createRequire } from 'node:module';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -686,8 +687,9 @@ async function routeCases() {
 }
 
 async function secretCases() {
-  const loaded = (await import('libsodium-wrappers')) as typeof import('libsodium-wrappers') & { default?: typeof import('libsodium-wrappers') };
-  const sodium = loaded.default ?? loaded;
+  // libsodium itself, as an independent check that GitHub can open what we seal.
+  // Loaded through require: its ESM build is broken in some releases (0.7.16).
+  const sodium = createRequire(__filename)('libsodium-wrappers') as typeof import('libsodium-wrappers');
   await sodium.ready;
   const pair = sodium.crypto_box_keypair();
   const publicKey = sodium.to_base64(pair.publicKey, sodium.base64_variants.ORIGINAL);
