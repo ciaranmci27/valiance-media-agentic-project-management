@@ -199,7 +199,7 @@ async function schemaLines(db: PGlite): Promise<string[]> {
 function schemaBefore(): string {
   const git = (args: string[]) => execFileSync('git', args, { cwd: APP, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
   const added = git(['log', '--diff-filter=A', '--format=%H', '--', `supabase/migrations/${MIGRATION}`]).trim().split('\n').filter(Boolean).pop();
-  return git(['show', `${added ? `${added}^` : 'HEAD'}:app/supabase/schema.sql`]);
+  return git(['show', `${added ? `${added}^` : 'HEAD'}:./supabase/schema.sql`]);
 }
 
 async function migrationChecks(applied: PGlite, fromSchema: PGlite) {

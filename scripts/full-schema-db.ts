@@ -160,7 +160,7 @@ export function schemaBeforeMigration(migration: string): string {
   const git = (args: string[]) => execFileSync('git', args, { cwd: join(__dirname, '..'), encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
   const added = git(['log', '--diff-filter=A', '--format=%H', '--', `supabase/migrations/${migration}`]).trim().split('\n').pop();
   if (!added) throw new Error(`${migration} is not committed`);
-  return git(['show', `${added}^:app/supabase/schema.sql`]);
+  return git(['show', `${added}^:./supabase/schema.sql`]);
 }
 
 /**

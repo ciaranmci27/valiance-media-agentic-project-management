@@ -31,7 +31,7 @@ function schemaBefore(): string {
   const git = (args: string[]) => execFileSync('git', args, { cwd: join(__dirname, '..'), encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
   const log = git(['log', '--format=%H', '--', 'supabase/migrations/20261117231500_task_reads_fast_path.sql']).trim().split('\n').filter(Boolean);
   const ref = log.length ? `${log[log.length - 1]}~1` : 'HEAD';
-  return git(['show', `${ref}:app/supabase/schema.sql`]);
+  return git(['show', `${ref}:./supabase/schema.sql`]);
 }
 
 const users = { owner: randomUUID(), admin: randomUUID(), member: randomUUID(), assigned: randomUUID(), guest: randomUUID(), outsider: randomUUID() };

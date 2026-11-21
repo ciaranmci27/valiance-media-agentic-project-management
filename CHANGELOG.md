@@ -9,6 +9,11 @@ Each section starts with `## X.Y.Z (YYYY-MM-DD)` and uses these headings, leavin
 - `### Database`: the core migration files in the release, one per line. `npm run db:migrate` applies them.
 - `### Breaking`: what an install must do when it takes this release.
 
+## 1.1.1 (2026-11-20)
+
+### Changed
+- Core checks pass in the public repo and in installs: five more core tests read the schema from the monorepo's path.
+
 ## 1.1.0 (2026-11-20)
 
 ### Added

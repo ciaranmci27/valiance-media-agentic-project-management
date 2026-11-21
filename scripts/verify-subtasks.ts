@@ -46,7 +46,7 @@ function schemaBefore(): string {
   try {
     return schemaBeforeMigration(MIGRATION);
   } catch {
-    return execFileSync('git', ['show', 'HEAD:app/supabase/schema.sql'], {
+    return execFileSync('git', ['show', 'HEAD:./supabase/schema.sql'], {
       cwd: join(__dirname, '..'), encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
     });
   }
