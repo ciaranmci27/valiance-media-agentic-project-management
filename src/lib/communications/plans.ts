@@ -25,7 +25,7 @@ import { ApiError, moduleOff, notFound } from '@/lib/api/errors';
 import { createTaskAs } from '@/lib/api/create-task';
 import { createReminder } from '@/lib/api/reminders';
 import { insertComment, patchTask } from '@/lib/supabase/queries';
-import { moveToTrash } from '@/lib/supabase/trash';
+import { moveToTrash, restoreFromTrash } from '@/lib/supabase/trash';
 import { addTaskFile, type TaskFilesContext } from '@/lib/task-files/service';
 import { comms } from './db';
 import { normalizeAddress, isHostname } from './email/addresses';
@@ -632,6 +632,58 @@ export async function undoItem(actor: PlanActor, itemId: string): Promise<Row> {
   const { error: stateError } = await comms(db).from('plan_items').update({ state: 'undone', resolved_by: memberId, resolved_at: new Date().toISOString() }).eq('id', itemId);
   if (stateError) throw stateError;
   return { undone: true };
+}
+
+/** Item types an undo can put back as they were: what it moved to Trash comes back, a link is tied again. */
+export const RESTORABLE = new Set(['create_task', 'comment', 'attach_file', 'add_reminder', 'link_task', 'create_lead', 'log_interaction']);
+
+/**
+ * Takes an undo or a skip back. An undone item's records come back from
+ * Trash (a link is tied again) and it reads as done again: "accepted" by
+ * this person when it had waited for an OK. A skipped suggestion waits
+ * again. Edits, reminder changes and replies owed are not redone here.
+ */
+export async function restoreItem(actor: PlanActor, itemId: string): Promise<Row> {
+  const { db, memberId } = actor;
+  const { data: row, error } = await comms(db).from('plan_items').select('*, plan:plans!inner(message_id)').eq('id', itemId).single();
+  if (error) throw error;
+  const item = row as unknown as Row & { type: string; state: string; decision: string; result: Row; plan: { message_id: string } };
+  if (item.state === 'dismissed') {
+    const { data: back, error: backError } = await comms(db).from('plan_items')
+      .update({ state: 'pending', resolved_by: null, resolved_at: null }).eq('id', itemId).eq('state', 'dismissed').select('id');
+    if (backError) throw backError;
+    if (!(back ?? []).length) throw new PlanError(409, 'CONFLICT', 'That one changed meanwhile.');
+    return { restored: true, state: 'pending' };
+  }
+  if (item.state !== 'undone') throw new PlanError(409, 'CONFLICT', 'Only an undone or skipped item can be put back.');
+  if (!RESTORABLE.has(item.type)) throw new PlanError(409, 'CONFLICT', 'That change cannot be put back from here. Make it again by hand.');
+  const result = item.result ?? {};
+  const restore = async (table: Parameters<typeof restoreFromTrash>[1], id: unknown) => {
+    if (typeof id === 'string') await restoreFromTrash(db, table, id, memberId);
+  };
+  switch (item.type) {
+    case 'create_task': await restore('tasks', result.task_id); break;
+    case 'comment': await restore('task_comments', result.comment_id); break;
+    case 'attach_file': for (const fileId of (result.task_file_ids as string[] | undefined) ?? []) await restore('task_files', fileId); break;
+    case 'add_reminder': await restore('reminders', result.reminder_id); break;
+    case 'create_lead': await restore('leads', result.lead_id); break;
+    case 'log_interaction': await restore('lead_interactions', result.interaction_id); break;
+    case 'link_task': {
+      const { error: linkError } = await comms(db).from('task_links')
+        .insert({ message_id: item.plan.message_id, task_id: result.task_id, relation: result.relation, linked_by: memberId });
+      // Tied again meanwhile: already as it should be.
+      if (linkError && (linkError as { code?: string }).code !== '23505') throw linkError;
+      break;
+    }
+  }
+  const proposed = item.decision === 'propose';
+  const { error: stateError } = await comms(db).from('plan_items').update({
+    state: proposed ? 'accepted' : 'done',
+    resolved_by: proposed ? memberId : null,
+    resolved_at: proposed ? new Date().toISOString() : null,
+  }).eq('id', itemId).eq('state', 'undone');
+  if (stateError) throw stateError;
+  return { restored: true, state: proposed ? 'accepted' : 'done' };
 }
 
 // ---------------------------------------------------------------------------

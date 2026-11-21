@@ -59,6 +59,9 @@ const listeners = new Map<string, Set<() => void>>();
 const versions = new Map<string, number>();
 /** Bumped by clearReads, so a load started before a sign-out never lands after it. */
 let generation = 0;
+/** Each key's newest request: an older one that answers later never overwrites it. */
+const newestRequest = new Map<string, number>();
+let requestCount = 0;
 
 function notify(key: string) {
   versions.set(key, (versions.get(key) ?? 0) + 1);
@@ -83,29 +86,35 @@ export function peekRead<T>(read: Read<T>): T | undefined {
 }
 
 /**
- * Load a read unless a fresh answer is cached (`force` skips that check).
- * Concurrent callers share one request, so a warm, a mount and a refresh
- * never fetch twice. Rejects with the load's error, for a screen that must
- * report it; warmRead is the fire-and-forget form.
+ * Load a read unless a fresh answer is cached. Concurrent callers share one
+ * request, so a warm, a mount and a refresh never fetch twice. `force` reads
+ * again, never joining a request already running: that one may have started
+ * before the write the caller just made. Only the newest request's answer is
+ * kept. Rejects with the load's error, for a screen that must report it;
+ * warmRead is the fire-and-forget form.
  */
 export function loadRead<T>(read: Read<T>, options: { force?: boolean } = {}): Promise<T> {
   const entry = entries.get(read.key);
   const fresh = entry && !entry.stale && Date.now() - entry.at < (read.ttlMs ?? DEFAULT_TTL_MS);
   if (fresh && !options.force) return Promise.resolve(entry.data as T);
   const running = inflight.get(read.key) as Promise<T> | undefined;
-  if (running) return running;
+  if (running && !options.force) return running;
 
   const started = generation;
-  const request = read.load()
+  const id = ++requestCount;
+  newestRequest.set(read.key, id);
+  const current = () => started === generation && newestRequest.get(read.key) === id;
+  const request: Promise<T> = read.load()
     .then((data) => {
-      if (started === generation) store(read.key, data, read.tables ?? []);
+      if (current()) store(read.key, data, read.tables ?? []);
       return data;
     }, (error: unknown) => {
-      if (started === generation) failures.add(read.key);
+      if (current()) failures.add(read.key);
       throw error;
     })
     .finally(() => {
-      inflight.delete(read.key);
+      if (inflight.get(read.key) === request) inflight.delete(read.key);
+      if (newestRequest.get(read.key) === id) newestRequest.delete(read.key);
       if (started === generation) notify(read.key);
     });
   inflight.set(read.key, request);
@@ -169,6 +178,7 @@ export function clearReads() {
   entries.clear();
   failures.clear();
   inflight.clear();
+  newestRequest.clear();
   keys.forEach(notify);
 }
 

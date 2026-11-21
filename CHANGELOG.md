@@ -9,6 +9,16 @@ Each section starts with `## X.Y.Z (YYYY-MM-DD)` and uses these headings, leavin
 - `### Database`: the core migration files in the release, one per line. `npm run db:migrate` applies them.
 - `### Breaking`: what an install must do when it takes this release.
 
+## 1.1.0 (2026-11-20)
+
+### Added
+- Inbox: the agent's reply card under each email and meeting. It lists what the agent suggests or did, every task and reminder it made with its own action (Not a task, Not needed, Unlink, Restore), and Add all, Undo all and Restore all for everything at once.
+- Inbox: reminders the agent set from an email have Not needed with Undo, like Not a task on its tasks.
+
+### Changed
+- A reload right after a change always reads fresh data, so Undo never shows the old state.
+- Core checks pass in the public repo and in installs: a core test read the schema from the monorepo's path, and another failed now and then on timing.
+
 ## 1.0.0 (2026-11-20)
 
 ### Added

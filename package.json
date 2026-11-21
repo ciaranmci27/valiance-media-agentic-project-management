@@ -1,6 +1,6 @@
 {
   "name": "valiance-media-pm",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "scripts": {
     "dev": "next dev -p 3009",
@@ -41,9 +41,11 @@
     "test:modules": "tsx --tsconfig tsconfig.mcp-test.json scripts/verify-workspace-modules.ts",
     "test:brand": "tsx --tsconfig tsconfig.mcp-test.json scripts/verify-brand.ts",
     "test:module-guards": "tsx --tsconfig tsconfig.mcp-test.json scripts/verify-module-guards.ts",
+    "test:agent-work": "tsx --tsconfig tsconfig.mcp-test.json scripts/verify-agent-work.ts",
+    "test:query-cache": "tsx --tsconfig tsconfig.mcp-test.json scripts/verify-query-cache.ts",
     "test:task-reads": "tsx --tsconfig tsconfig.mcp-test.json scripts/verify-task-reads-fast-path.ts",
     "test:soft-delete-reads": "tsx --tsconfig tsconfig.mcp-test.json scripts/verify-soft-delete-reads.ts",
-    "test:inbound-email": "tsx --tsconfig tsconfig.mcp-test.json scripts/verify-triage-policy.ts && tsx --tsconfig tsconfig.mcp-test.json scripts/verify-inbound-email-lib.ts && tsx --tsconfig tsconfig.mcp-test.json scripts/verify-inbound-email.ts && tsx --tsconfig tsconfig.mcp-test.json scripts/verify-inbound-email-retention.ts && tsx --tsconfig tsconfig.mcp-test.json scripts/verify-communications-migration.ts && tsx --tsconfig tsconfig.mcp-test.json scripts/verify-conversation-scope.ts && tsx --tsconfig tsconfig.mcp-test.json scripts/verify-triage-plans.ts && tsx --tsconfig tsconfig.mcp-test.json scripts/verify-meetings.ts && tsx --tsconfig tsconfig.mcp-test.json scripts/verify-meeting-suggestions.ts",
+    "test:inbound-email": "tsx --tsconfig tsconfig.mcp-test.json scripts/verify-triage-policy.ts && tsx --tsconfig tsconfig.mcp-test.json scripts/verify-inbound-email-lib.ts && tsx --tsconfig tsconfig.mcp-test.json scripts/verify-inbound-email.ts && tsx --tsconfig tsconfig.mcp-test.json scripts/verify-inbound-email-retention.ts && tsx --tsconfig tsconfig.mcp-test.json scripts/verify-communications-migration.ts && tsx --tsconfig tsconfig.mcp-test.json scripts/verify-conversation-scope.ts && tsx --tsconfig tsconfig.mcp-test.json scripts/verify-triage-plans.ts && tsx --tsconfig tsconfig.mcp-test.json scripts/verify-meetings.ts && tsx --tsconfig tsconfig.mcp-test.json scripts/verify-meeting-suggestions.ts && tsx --tsconfig tsconfig.mcp-test.json scripts/verify-agent-work.ts",
     "postinstall": "node -e \"require('fs').copyFileSync(require.resolve('pdfjs-dist/build/pdf.worker.min.mjs'), './public/pdf.worker.min.mjs')\""
   },
   "dependencies": {

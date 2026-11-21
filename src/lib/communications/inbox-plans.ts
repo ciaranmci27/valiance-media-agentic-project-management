@@ -6,7 +6,7 @@
  */
 import { assertCanTriage, assertId, InboxError, loadReadableThread, type InboxContext } from './inbox-service';
 import { comms } from './db';
-import { acceptItem, dismissItem, inboxAgentName, loadPlanItem, PlanError, syncWaitingNotification, undoItem, undoPlan, type PlanActor } from './plans';
+import { acceptItem, dismissItem, inboxAgentName, loadPlanItem, PlanError, restoreItem, syncWaitingNotification, undoItem, undoPlan, type PlanActor } from './plans';
 import type { PlanItemRequest } from './plan-schemas';
 
 type Row = Record<string, unknown>;
@@ -56,6 +56,14 @@ export async function dismissPlanItem(ctx: InboxContext, itemId: string): Promis
 export async function undoPlanItem(ctx: InboxContext, itemId: string): Promise<Row> {
   const { message } = await readableItem(ctx, itemId);
   const result = await inboxErrors(() => undoItem(actorOf(ctx), itemId));
+  await syncWaitingNotification(ctx.service, message, await inboxAgentName(ctx.service, message.inbox_id));
+  return result;
+}
+
+/** Takes an undo or a skip back: what was undone is restored, a skipped suggestion waits again. */
+export async function restorePlanItem(ctx: InboxContext, itemId: string): Promise<Row> {
+  const { message } = await readableItem(ctx, itemId);
+  const result = await inboxErrors(() => restoreItem(actorOf(ctx), itemId));
   await syncWaitingNotification(ctx.service, message, await inboxAgentName(ctx.service, message.inbox_id));
   return result;
 }

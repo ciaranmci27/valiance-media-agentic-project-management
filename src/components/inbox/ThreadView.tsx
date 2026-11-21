@@ -6,7 +6,7 @@ import { inboxThreadRead } from '@/lib/reads';
 import Link from 'next/link';
 import {
   AlertTriangle, ArrowDown, ArrowLeft, AlignLeft, Bell, Bot, Check, CheckCircle2, ChevronDown, Copy, Download, ExternalLink, Eye, FileText, Filter, Flame, Forward, Hash, HelpCircle, Image as ImageIcon, Inbox,
-  Loader2, MessageSquareReply, Paperclip, PenLine, Plus, RefreshCw, RotateCcw, ShieldOff, Sparkles, SquareCheck, Tag, Trash2, Undo2, Video, X,
+  CircleSlash, Link2, ListChecks, Loader2, MessageSquare, MessageSquareReply, Paperclip, PenLine, Plus, RefreshCw, RotateCcw, ShieldOff, Sparkles, Square, SquareCheck, SquarePlus, Tag, Trash2, Undo2, Unlink, Video, X,
 } from 'lucide-react';
 import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
@@ -20,7 +20,7 @@ import { RowActionsMenu, type RowAction } from '@/components/ui/RowActionsMenu';
 import { copyText } from '@/lib/task-copy';
 import { toast } from '@/components/ui/Toast';
 import { announceInboxChange, inboxClient } from '@/lib/communications/inbox-client';
-import { MEETING_PACKAGE_LABELS, skippedReasonLabel, type InboxAnswer, type MeetingDismissUndo, type InboxAttachment, type InboxLinkedTask, type InboxMessage, type InboxPlan, type InboxPlanItem, type InboxReminder, type InboxReplyPoint, type InboxThreadDetail, type InboxTriage, type ThreadProject, type TriageOutcome } from '@/lib/communications/inbox-types';
+import { MEETING_PACKAGE_LABELS, skippedReasonLabel, type AgentWorkUndo, type InboxAnswer, type MeetingDismissUndo, type InboxAttachment, type InboxLinkedTask, type InboxMessage, type InboxPlanItem, type InboxReminder, type InboxReplyPoint, type InboxThreadDetail, type InboxTriage, type ThreadProject, type TriageOutcome } from '@/lib/communications/inbox-types';
 import { hasQuotedHtml, inlineImageIds, linkParts, opensAsHtml } from '@/lib/communications/email/display';
 import { FilePreviewModal } from '@/components/ui/FilePreviewModal';
 import { Textarea } from '@/components/ui/inputs/Textarea';
@@ -31,7 +31,7 @@ import { ThreadProjectDialog } from './ThreadProjectDialog';
 import { LinkTaskDialog } from './LinkTaskDialog';
 import { SenderRuleDialog } from './SenderRuleDialog';
 import { DraftRequestDialog, ReplyDraftCard } from './ReplyDraft';
-import { MeetingDetails, meetingNoteLines, MeetingSuggestions, TranscriptReader, type MeetingSuggestion, type SuggestionEdits } from './MeetingParts';
+import { MeetingDetails, meetingNoteLines, SuggestionRow, TranscriptReader, type MeetingSuggestion, type SuggestionEdits, type SuggestionsOutcome } from './MeetingParts';
 import { DecisionCard } from './DecisionCard';
 import { ThreadAttachmentsDialog, threadAttachments } from './ThreadAttachmentsDialog';
 import { useInboxUpdates } from './use-inbox-updates';
@@ -77,13 +77,28 @@ interface TaskUndo {
   /** Absent for members who cannot change tasks. */
   notATask?: (messageId: string, task: InboxLinkedTask) => Promise<void>;
   undo: (taskId: string) => Promise<void>;
+  /** The same for a reminder the agent set: "Not needed" to Trash, Undo back. */
+  trashedReminders: Record<string, { messageId: string; reminder: InboxReminder }>;
+  /** Null when this member cannot move that reminder to Trash, or an agent did not set it. */
+  notNeeded: (reminder: InboxReminder) => ((messageId: string) => Promise<void>) | null;
+  undoReminder: (reminderId: string) => Promise<void>;
+  /** A link the agent made to existing work, taken off here, by linkKey, with what ties it again. */
+  unlinked: Record<string, { messageId: string; task: InboxLinkedTask; link: AgentWorkUndo['links'][number] }>;
+  /** Absent for members who cannot triage. */
+  unlink?: (messageId: string, task: InboxLinkedTask) => Promise<void>;
+  relink: (key: string) => Promise<void>;
   pending: string | null;
 }
-const TaskUndoContext = createContext<TaskUndo>({ trashed: {}, undo: async () => {}, pending: null });
+const TaskUndoContext = createContext<TaskUndo>({
+  trashed: {}, undo: async () => {}, trashedReminders: {}, notNeeded: () => null, undoReminder: async () => {},
+  unlinked: {}, relink: async () => {}, pending: null,
+});
+/** One link of an email to a task, as a key: the same task can be linked more than one way. */
+function linkKey(messageId: string, task: { task_id: string; relation: string }): string {
+  return `${messageId}:${task.task_id}:${task.relation}`;
+}
 /** True when the thread is filed on several projects: each linked task then names its own. */
 const ProjectLabelsContext = createContext(false);
-/** A meeting lists its waiting suggestions first, so a message's pills leave them out. */
-const SuggestionsListedContext = createContext(false);
 
 /**
  * What a person does with the agent's plan from the thread: accept or dismiss
@@ -93,16 +108,32 @@ const SuggestionsListedContext = createContext(false);
 type PlanAction = 'accept' | 'dismiss' | 'undo' | 'undo_plan' | 'resolve';
 interface PlanActions {
   act?: (action: PlanAction, id: string) => Promise<void>;
+  /** A suggestion added (as it is, or changed first) or skipped, and an undo or a skip taken back. */
+  add?: (item: InboxPlanItem, edits?: SuggestionEdits) => Promise<boolean>;
+  skip?: (item: InboxPlanItem) => Promise<void>;
+  restore?: (item: InboxPlanItem) => Promise<void>;
+  /** A card's waiting suggestions added at once. */
+  addAll?: (cardKey: string, items: InboxPlanItem[]) => Promise<void>;
+  /** Everything the agent did in a card taken back (Undo all), and put back (Restore all). */
+  undoAll?: (cardKey: string, messageIds: string[] | null) => Promise<void>;
+  restoreAll?: (cardKey: string) => Promise<void>;
+  /** What each card's Undo all took back, while this thread stays open. */
+  undone: Record<string, AgentWorkUndo>;
+  /** An item id, or a card's bulk action ("undo-all:<card>"), while it runs. */
   pending: string | null;
+  /** A meeting's Add all or Nothing to do, while it runs. */
+  bulk: 'add_all' | 'nothing' | null;
 }
-const PlanActionsContext = createContext<PlanActions>({ pending: null });
+const PlanActionsContext = createContext<PlanActions>({ pending: null, undone: {}, bulk: null });
+/** Item types an undo can be taken back for: their records return from Trash (mirrors RESTORABLE in plans.ts). */
+const RESTORABLE = new Set(['create_task', 'comment', 'attach_file', 'add_reminder', 'link_task', 'create_lead', 'log_interaction']);
 /** Item types whose effect can be put back. */
 const UNDOABLE = new Set(['create_task', 'update_task', 'comment', 'attach_file', 'add_reminder', 'update_reminder', 'complete_reminder',
   'link_task', 'reply_owed', 'mute_conversation', 'add_context', 'create_lead', 'log_interaction']);
 
 export function ThreadView({ threadId, focusMessageId, onMissing, onBack }: ThreadViewProps) {
   const { isDemoMode } = useDemo();
-  const { projects, team, deleteTask, restoreRecord } = useApp();
+  const { projects, team, deleteTask, deleteReminder, restoreRecord } = useApp();
   const { access, teamMemberId } = useAuth();
   const canTriage = hasPermission(access, 'inbound_email.triage') || hasPermission(access, 'inbound_email.manage');
   const canManageRules = hasPermission(access, 'inbound_email.manage') && !isDemoMode;
@@ -122,7 +153,10 @@ export function ThreadView({ threadId, focusMessageId, onMissing, onBack }: Thre
   const [attachmentsOpen, setAttachmentsOpen] = useState(false);
   const [preview, setPreview] = useState<InboxAttachment | null>(null);
   // Kept per thread: switching threads starts with nothing to undo.
-  const [trashedIn, setTrashedIn] = useState<{ threadId: string; tasks: TaskUndo['trashed'] }>({ threadId, tasks: {} });
+  const [trashedIn, setTrashedIn] = useState<{ threadId: string; tasks: TaskUndo['trashed']; reminders: TaskUndo['trashedReminders']; links: TaskUndo['unlinked'] }>(
+    { threadId, tasks: {}, reminders: {}, links: {} });
+  // What each card's Undo all took back, for its Restore all, while this thread stays open.
+  const [undoneIn, setUndoneIn] = useState<{ threadId: string; cards: Record<string, AgentWorkUndo> }>({ threadId, cards: {} });
   const [taskPending, setTaskPending] = useState<string | null>(null);
   // A meeting's suggestions settled at once: the line it leaves, with its Undo, while this meeting stays open.
   const [bulk, setBulk] = useState<'add_all' | 'nothing' | null>(null);
@@ -206,16 +240,95 @@ export function ThreadView({ threadId, focusMessageId, onMissing, onBack }: Thre
     }
   }, [client, threadId, load]);
 
+  // This thread's session state, starting clean on another thread.
+  const ownTrash = useCallback((prev: typeof trashedIn) => (prev.threadId === threadId ? prev : { threadId, tasks: {}, reminders: {}, links: {} }), [threadId]);
+  /**
+   * Keeps what an Undo all or an Unlink took back on screen (struck, with
+   * Restore), though the thread no longer lists it: the task, reminder or
+   * link as the thread showed it before.
+   */
+  const keepTaken = useCallback((undo: AgentWorkUndo) => {
+    if (!detail) return;
+    setTrashedIn((prev) => {
+      const next = ownTrash(prev);
+      const tasks = { ...next.tasks };
+      const reminders = { ...next.reminders };
+      const links = { ...next.links };
+      for (const message of detail.messages) {
+        for (const task of message.linked_tasks) {
+          if (undo.tasks.includes(task.task_id) && task.relation === 'created') tasks[task.task_id] = { messageId: message.id, task };
+        }
+        for (const reminder of message.reminders) {
+          if (undo.reminders.includes(reminder.id)) reminders[reminder.id] = { messageId: message.id, reminder };
+        }
+      }
+      for (const link of undo.links) {
+        const task = detail.messages.find((m) => m.id === link.message_id)?.linked_tasks.find((t) => t.task_id === link.task_id && t.relation === link.relation);
+        if (task) links[linkKey(link.message_id, task)] = { messageId: link.message_id, task, link };
+      }
+      return { ...next, tasks, reminders, links };
+    });
+  }, [detail, ownTrash]);
+  /** Forgets what is back on the thread again. */
+  const dropTaken = useCallback((undo: Pick<AgentWorkUndo, 'tasks' | 'reminders' | 'links'>) => {
+    setTrashedIn((prev) => {
+      const next = ownTrash(prev);
+      const tasks = { ...next.tasks };
+      const reminders = { ...next.reminders };
+      const links = { ...next.links };
+      for (const id of undo.tasks) delete tasks[id];
+      for (const id of undo.reminders) delete reminders[id];
+      for (const link of undo.links) delete links[linkKey(link.message_id, link)];
+      return { ...next, tasks, reminders, links };
+    });
+  }, [ownTrash]);
+
   const taskUndo = useMemo((): TaskUndo => {
-    const trashed = trashedIn.threadId === threadId ? trashedIn.tasks : {};
+    const own: Pick<typeof trashedIn, 'tasks' | 'reminders' | 'links'> = trashedIn.threadId === threadId ? trashedIn : { tasks: {}, reminders: {}, links: {} };
+    const agentIds = new Set(team.filter((member) => member.role === 'agent').map((member) => member.id));
     return {
-      trashed,
+      trashed: own.tasks,
+      trashedReminders: own.reminders,
+      unlinked: own.links,
       pending: taskPending,
+      // Who may bin a reminder, as the database decides it: its owner, its writer, or a manager of every task.
+      notNeeded: (reminder) => !canTriage || reminder.status !== 'open' || !reminder.created_by || !agentIds.has(reminder.created_by)
+        || !(reminder.mine || hasPermission(access, 'tasks.manage_all')) ? null : async (messageId) => {
+        setTaskPending(reminder.id);
+        try {
+          if (!(await deleteReminder(reminder.id))) return;
+          setTrashedIn((prev) => {
+            const next = ownTrash(prev);
+            return { ...next, reminders: { ...next.reminders, [reminder.id]: { messageId, reminder } } };
+          });
+          toast('success', `Moved "${reminder.title}" to Trash`);
+          announceInboxChange({ threadId });
+          void load(true);
+        } finally {
+          setTaskPending(null);
+        }
+      },
+      undoReminder: async (reminderId) => {
+        setTaskPending(reminderId);
+        try {
+          if (!(await restoreRecord('reminders', reminderId))) return;
+          toast('success', 'Reminder restored');
+          announceInboxChange({ threadId });
+          // The struck line stays until the thread lists the reminder again, so it never blinks out.
+          await load(true);
+          dropTaken({ tasks: [], reminders: [reminderId], links: [] });
+        } finally {
+          setTaskPending(null);
+        }
+      },
       notATask: canTrashTasks ? async (messageId, task) => {
         setTaskPending(task.task_id);
         try {
           if (!(await deleteTask(task.task_id))) return;
-          setTrashedIn({ threadId, tasks: { ...trashed, [task.task_id]: { messageId, task } } });
+          setTrashedIn((prev) => {
+            const next = ownTrash(prev);
+            return { ...next, tasks: { ...next.tasks, [task.task_id]: { messageId, task } } };
+          });
           toast('success', `Moved "${task.title ?? 'the task'}" to Trash`);
           announceInboxChange({ threadId });
           void load(true);
@@ -227,23 +340,49 @@ export function ThreadView({ threadId, focusMessageId, onMissing, onBack }: Thre
         setTaskPending(taskId);
         try {
           if (!(await restoreRecord('tasks', taskId))) return;
-          const rest = { ...trashed };
-          delete rest[taskId];
-          setTrashedIn({ threadId, tasks: rest });
           toast('success', 'Task restored');
           announceInboxChange({ threadId });
+          await load(true);
+          dropTaken({ tasks: [taskId], reminders: [], links: [] });
+        } finally {
+          setTaskPending(null);
+        }
+      },
+      unlink: canTriage && !isDemoMode ? async (messageId, task) => {
+        setTaskPending(linkKey(messageId, task));
+        try {
+          const undo = await client.undoAgentWork(threadId, { message_ids: [messageId], task_id: task.task_id });
+          keepTaken(undo);
+          toast('success', `Unlinked "${task.title ?? 'the task'}"`);
+          announceInboxChange({ threadId });
           void load(true);
+        } catch (err) {
+          toast('error', err instanceof Error ? err.message : 'Could not unlink the task');
+        } finally {
+          setTaskPending(null);
+        }
+      } : undefined,
+      relink: async (key) => {
+        const entry = own.links[key];
+        if (!entry) return;
+        setTaskPending(key);
+        try {
+          await client.restoreAgentWork(threadId, { plan_items: [], tasks: [], reminders: [], links: [entry.link], kept: [] });
+          toast('success', `Linked "${entry.task.title ?? 'the task'}" again`);
+          announceInboxChange({ threadId });
+          await load(true);
+          dropTaken({ tasks: [], reminders: [], links: [entry.link] });
+        } catch (err) {
+          toast('error', err instanceof Error ? err.message : 'Could not link it again');
         } finally {
           setTaskPending(null);
         }
       },
     };
-  }, [trashedIn, threadId, taskPending, canTrashTasks, deleteTask, restoreRecord, load]);
+  }, [trashedIn, threadId, taskPending, canTrashTasks, canTriage, isDemoMode, access, team, client, deleteTask, deleteReminder, restoreRecord, load, ownTrash, keepTaken, dropTaken]);
 
   const [planPending, setPlanPending] = useState<string | null>(null);
-  const planActions = useMemo((): PlanActions => ({
-    pending: planPending,
-    act: canTriage ? async (action, id) => {
+  const act = useCallback(async (action: PlanAction, id: string) => {
       setPlanPending(id);
       try {
         if (action === 'accept') {
@@ -269,8 +408,7 @@ export function ThreadView({ threadId, focusMessageId, onMissing, onBack }: Thre
       } finally {
         setPlanPending(null);
       }
-    } : undefined,
-  }), [canTriage, client, load, planPending, threadId]);
+  }, [client, load, threadId]);
 
   // Add all: every waiting suggestion, as yours; one Undo takes the set back, newest first.
   const addAll = useCallback(async () => {
@@ -365,6 +503,103 @@ export function ThreadView({ threadId, focusMessageId, onMissing, onBack }: Thre
       setPlanPending(null);
     }
   }, [client, threadId, load]);
+  // An undo or a skip taken back: the work returns, or the suggestion waits again.
+  const restoreItem = useCallback(async (item: InboxPlanItem) => {
+    setPlanPending(item.id);
+    try {
+      await client.restorePlanItem(item.id);
+      toast('success', item.state === 'dismissed' ? 'Waiting for your OK again' : 'Restored');
+      announceInboxChange({ threadId });
+      await load(true);
+    } catch (err) {
+      toast('error', err instanceof Error ? err.message : 'Could not restore it');
+    } finally {
+      setPlanPending(null);
+    }
+  }, [client, threadId, load]);
+  const isMeetingThread = detail?.channel === 'meeting';
+  // A meeting adds all through its own call (one Undo line); an email adds its waiting suggestions one by one.
+  const addAllIn = useCallback(async (cardKey: string, items: InboxPlanItem[]) => {
+    if (isMeetingThread) return addAll();
+    setPlanPending(`add-all:${cardKey}`);
+    let added = 0;
+    const failed: string[] = [];
+    try {
+      for (const item of items) {
+        try {
+          await client.acceptPlanItem(item.id);
+          added++;
+        } catch (err) {
+          failed.push(`${item.title || item.label}: ${err instanceof Error ? err.message : 'it did not go through'}`);
+        }
+      }
+      if (failed.length) toast('error', `${added ? `Added ${added}. ` : ''}${failed.length} did not go through. ${failed[0]}`);
+      else toast('success', added === 1 ? 'Added' : `Added ${added}`);
+      announceInboxChange({ threadId });
+      await load(true);
+    } finally {
+      setPlanPending(null);
+    }
+  }, [isMeetingThread, addAll, client, threadId, load]);
+  const undoAll = useCallback(async (cardKey: string, messageIds: string[] | null) => {
+    setPlanPending(`undo-all:${cardKey}`);
+    try {
+      const undo = await client.undoAgentWork(threadId, { message_ids: messageIds });
+      keepTaken(undo);
+      // A second Undo all adds to the first, so Restore all still puts back both.
+      setUndoneIn((prev) => {
+        const cards = prev.threadId === threadId ? prev.cards : {};
+        const before = cards[cardKey];
+        const merged: AgentWorkUndo = before ? {
+          plan_items: [...new Set([...before.plan_items, ...undo.plan_items])],
+          tasks: [...new Set([...before.tasks, ...undo.tasks])],
+          reminders: [...new Set([...before.reminders, ...undo.reminders])],
+          links: [...before.links, ...undo.links.filter((l) => !before.links.some((b) => linkKey(b.message_id, b) === linkKey(l.message_id, l)))],
+          kept: undo.kept,
+        } : undo;
+        return { threadId, cards: { ...cards, [cardKey]: merged } };
+      });
+      const count = undo.plan_items.length + undo.tasks.length + undo.reminders.length + undo.links.length;
+      toast(count ? 'success' : 'info', count ? `Took back ${count} ${count === 1 ? 'thing' : 'things'}. Restore all puts them back.` : 'Nothing here could be taken back');
+      announceInboxChange({ threadId });
+      await load(true);
+    } catch (err) {
+      toast('error', err instanceof Error ? err.message : 'Could not undo it');
+    } finally {
+      setPlanPending(null);
+    }
+  }, [client, threadId, keepTaken, load]);
+  const restoreAll = useCallback(async (cardKey: string) => {
+    const undo = undoneIn.threadId === threadId ? undoneIn.cards[cardKey] : undefined;
+    if (!undo) return;
+    setPlanPending(`restore-all:${cardKey}`);
+    try {
+      const result = await client.restoreAgentWork(threadId, undo);
+      toast(result.kept.length ? 'info' : 'success', result.kept.length
+        ? `Restored ${result.restored}. ${result.kept.length} could not be put back: ${result.kept.map((k) => k.label).join(', ')}.`
+        : 'Restored');
+      announceInboxChange({ threadId });
+      await load(true);
+      dropTaken(undo);
+      setUndoneIn((prev) => {
+        const cards = { ...prev.cards };
+        delete cards[cardKey];
+        return { ...prev, cards };
+      });
+    } catch (err) {
+      toast('error', err instanceof Error ? err.message : 'Could not restore it');
+    } finally {
+      setPlanPending(null);
+    }
+  }, [client, threadId, undoneIn, dropTaken, load]);
+  const planActions = useMemo((): PlanActions => ({
+    pending: planPending,
+    bulk,
+    undone: undoneIn.threadId === threadId ? undoneIn.cards : {},
+    ...(canTriage && !isDemoMode ? {
+      act, add: addSuggestion, skip: skipSuggestion, restore: restoreItem, addAll: addAllIn, undoAll, restoreAll,
+    } : canTriage ? { act } : {}),
+  }), [planPending, bulk, undoneIn, threadId, canTriage, isDemoMode, act, addSuggestion, skipSuggestion, restoreItem, addAllIn, undoAll, restoreAll]);
 
   // While the agent writes a requested draft, look again every few seconds,
   // for ten minutes at most; the request closes itself after half an hour.
@@ -533,11 +768,10 @@ export function ThreadView({ threadId, focusMessageId, onMissing, onBack }: Thre
   // A meeting: no sender to filter or trust, no mail to reply to; a recap email to the attendees instead.
   const meeting = detail.channel === 'meeting' ? detail.meeting : null;
   const isMeeting = detail.channel === 'meeting';
-  // What the agent suggests from the meeting and nobody settled yet, under the meeting's own words.
-  const suggestions: MeetingSuggestion[] = isMeeting
-    // One being accepted stays in the list (its row keeps its spinner and any Change edits) until it is done.
-    ? detail.messages.flatMap((m) => (m.plan?.items ?? []).filter((item) => item.state === 'pending' || item.state === 'accepting'))
-    : [];
+  // A meeting's card: every package's plan items in one place, said by its newest triage.
+  const meetingItems = isMeeting ? detail.messages.flatMap((m) => m.plan?.items ?? []) : [];
+  const meetingTriaged = isMeeting ? [...detail.messages].reverse().find((m) => !!m.triage) ?? null : null;
+  const meetingWaiting = meetingItems.some((item) => item.state === 'pending' && item.type !== 'ask');
   // A dismissal stands until a newer package arrives.
   const dismissedCurrent = !!meeting?.dismissed && !detail.messages.some((m) => Date.parse(m.received_at) > Date.parse(meeting.dismissed!.at));
   const canSettle = isMeeting && canTriage && !isDemoMode;
@@ -680,7 +914,6 @@ export function ThreadView({ threadId, focusMessageId, onMissing, onBack }: Thre
         <TaskUndoContext.Provider value={taskUndo}>
         <PlanActionsContext.Provider value={planActions}>
         <ProjectLabelsContext.Provider value={detail.projects.length > 1}>
-        <SuggestionsListedContext.Provider value={isMeeting}>
         <ol className="space-y-3">
           {detail.messages.map((message) => {
             const day = dayLabel(message.received_at);
@@ -710,6 +943,7 @@ export function ThreadView({ threadId, focusMessageId, onMissing, onBack }: Thre
                   onRule={canManageRules && message.channel !== 'meeting' ? () => setRuleFor(message) : undefined}
                   onAnswer={canTriage && !isDemoMode ? (text) => answerQuestion(message.id, text) : undefined}
                   questionInPanel={asking?.id === message.id}
+                  inMeetingCard={isMeeting}
                   busy={busy !== null}
                   onDownload={(attachment) => void downloadAttachment(attachment)}
                 />
@@ -717,28 +951,35 @@ export function ThreadView({ threadId, focusMessageId, onMissing, onBack }: Thre
             );
           })}
         </ol>
-        </SuggestionsListedContext.Provider>
+        {/* A meeting reads first (its notes or transcript), then what the agent took from it. */}
+        {isMeeting && (
+          <AgentCard
+            cardKey="meeting"
+            scope={null}
+            triage={meetingTriaged?.triage ?? null}
+            agentName={agentName}
+            items={meetingItems}
+            tasks={[]}
+            reminders={[]}
+            points={detail.messages.flatMap((m) => m.reply_points ?? [])}
+            handled={!!meetingTriaged?.reviewed_at}
+            answer={meetingTriaged?.answer ?? null}
+            waiting={meetingTriaged?.status === 'new'}
+            onAnswer={canTriage && !isDemoMode && meetingTriaged ? (text) => answerQuestion(meetingTriaged.id, text) : undefined}
+            questionInPanel={!!meetingTriaged && asking?.id === meetingTriaged.id}
+            meeting={{
+              onNothingToDo: canSettle && !dismissedCurrent && (meetingWaiting || canHandle) ? () => void nothingToDo() : undefined,
+              outcome: shownOutcome ? {
+                text: shownOutcome.text,
+                onUndo: canSettle && (shownOutcome.added?.length || shownOutcome.dismissed) ? () => void undoOutcome() : undefined,
+                undoing: undoingOutcome,
+              } : null,
+            }}
+          />
+        )}
         </ProjectLabelsContext.Provider>
         </PlanActionsContext.Provider>
         </TaskUndoContext.Provider>
-        {/* A meeting reads first (its notes or transcript), then what the agent took from it. */}
-        {isMeeting && (
-          <MeetingSuggestions
-            items={suggestions}
-            agentName={agentName}
-            onAdd={canSettle ? addSuggestion : undefined}
-            onSkip={canSettle ? skipSuggestion : undefined}
-            pendingId={planPending}
-            onAddAll={canSettle ? () => void addAll() : undefined}
-            onNothingToDo={canSettle && !dismissedCurrent && (suggestions.length > 0 || canHandle) ? () => void nothingToDo() : undefined}
-            bulk={bulk}
-            outcome={shownOutcome ? {
-              text: shownOutcome.text,
-              onUndo: canSettle && (shownOutcome.added?.length || shownOutcome.dismissed) ? () => void undoOutcome() : undefined,
-              undoing: undoingOutcome,
-            } : null}
-          />
-        )}
         {/* The end of the thread reads, then acts: the draft to use, and last the decision that waits. */}
         {draft && (
           <div className="mt-4">
@@ -1017,7 +1258,7 @@ function EmailText({ text }: { text: string }) {
   );
 }
 
-function MessageCard({ message, agentName, focused, busy, viewUrl, onSendToAgent, onMoveToInbox, onAlwaysFilter, onRule, onAnswer, questionInPanel, onDownload, onPreview }: {
+function MessageCard({ message, agentName, focused, busy, viewUrl, onSendToAgent, onMoveToInbox, onAlwaysFilter, onRule, onAnswer, questionInPanel, inMeetingCard, onDownload, onPreview }: {
   message: InboxMessage;
   agentName: string;
   focused: boolean;
@@ -1036,6 +1277,8 @@ function MessageCard({ message, agentName, focused, busy, viewUrl, onSendToAgent
   onAnswer?: (text: string) => Promise<boolean>;
   /** Its question is open in the decision card, so the note leaves it out. */
   questionInPanel?: boolean;
+  /** A meeting's package: the meeting's one card, after its words, holds what the agent made of it. */
+  inMeetingCard?: boolean;
   onDownload: (attachment: InboxAttachment) => void;
   onPreview?: (attachment: InboxAttachment) => void;
 }) {
@@ -1056,16 +1299,23 @@ function MessageCard({ message, agentName, focused, busy, viewUrl, onSendToAgent
     return map;
   }, [message.attachments, viewUrl]);
   // The agent's note covers what the agent did; people's links live in the thread's strip.
-  const { trashed } = useContext(TaskUndoContext);
-  // A task trashed here stays on its email (with Undo) after the thread stops listing it.
+  const { trashed, trashedReminders, unlinked } = useContext(TaskUndoContext);
+  // A task trashed or unlinked here stays on its email (with Restore) after the thread stops listing it.
   const agentLinks = useMemo(() => {
     const live = message.linked_tasks.filter((task) => task.by === 'agent');
-    const gone = Object.values(trashed)
-      .filter((entry) => entry.messageId === message.id && !live.some((task) => task.task_id === entry.task.task_id))
+    const has = (task: InboxLinkedTask) => live.some((t) => t.task_id === task.task_id && t.relation === task.relation);
+    const gone = [...Object.values(trashed), ...Object.values(unlinked)]
+      .filter((entry) => entry.messageId === message.id && !has(entry.task))
       .map((entry) => entry.task);
     return [...live, ...gone];
-  }, [message.linked_tasks, message.id, trashed]);
-  const noteMode = message.triage ? agentNoteMode(message.triage, agentLinks, message.reminders, message.plan ?? null, message.reply_points ?? []) : null;
+  }, [message.linked_tasks, message.id, trashed, unlinked]);
+  // So does a reminder.
+  const reminders = useMemo(() => [
+    ...message.reminders,
+    ...Object.values(trashedReminders)
+      .filter((entry) => entry.messageId === message.id && !message.reminders.some((reminder) => reminder.id === entry.reminder.id))
+      .map((entry) => entry.reminder),
+  ], [message.reminders, message.id, trashedReminders]);
   // Images the HTML already shows in place are not listed again under it.
   const referenced = useMemo(() => inlineImageIds(message.html_body), [message.html_body]);
   const listed = showingHtml
@@ -1094,6 +1344,7 @@ function MessageCard({ message, agentName, focused, busy, viewUrl, onSendToAgent
   ].filter(Boolean).join(' · ');
 
   return (
+    <>
     <article
       id={`email-${message.id}`}
       aria-label={meetingPackage === 'notes' ? "Meeting notes by Gemini" : meetingPackage ? 'Meeting transcript' : `Email from ${sender}`}
@@ -1207,10 +1458,6 @@ function MessageCard({ message, agentName, focused, busy, viewUrl, onSendToAgent
 
       {listed.length > 0 && <AttachmentList attachments={listed} agentName={agentName} viewUrl={viewUrl} onDownload={onDownload} onPreview={onPreview} />}
 
-      {message.triage && noteMode && (
-        <AgentNote messageId={message.id} triage={message.triage} agentName={agentName} linkedTasks={agentLinks} reminders={message.reminders} collapsed={noteMode === 'summary'} handled={!!message.reviewed_at}
-          answer={message.answer ?? null} waiting={message.status === 'new'} onAnswer={onAnswer} questionInPanel={!!questionInPanel} plan={message.plan ?? null} points={message.reply_points ?? []} />
-      )}
       {message.sorting?.superseded_by && (
         <p className="mx-4 mb-3 text-[11px] text-zinc-400">Replaced by a newer alert from the same sender, so it no longer waits on anyone.</p>
       )}
@@ -1221,6 +1468,25 @@ function MessageCard({ message, agentName, focused, busy, viewUrl, onSendToAgent
         </p>
       )}
     </article>
+    {message.triage && !inMeetingCard && (
+      <AgentCard
+        cardKey={message.id}
+        scope={[message.id]}
+        triage={message.triage}
+        agentName={agentName}
+        items={message.plan?.items ?? []}
+        // An email with a plan is its plan's; an older triage shows what it linked and set.
+        tasks={message.plan ? [] : agentLinks.map((task) => ({ messageId: message.id, task }))}
+        reminders={message.plan ? [] : reminders.map((reminder) => ({ messageId: message.id, reminder }))}
+        points={message.reply_points ?? []}
+        handled={!!message.reviewed_at}
+        answer={message.answer ?? null}
+        waiting={message.status === 'new'}
+        onAnswer={onAnswer}
+        questionInPanel={!!questionInPanel}
+      />
+    )}
+    </>
   );
 }
 
@@ -1294,22 +1560,11 @@ function AttachmentList({ attachments, agentName, viewUrl, onDownload, onPreview
   );
 }
 
-/**
- * How much of the agent's triage an email shows, always in the same place
- * under it: an action receipt when it did something or needs you
- * ("actions"), else one quiet "No action" row with the summary a click away.
- */
-function agentNoteMode(triage: InboxTriage, linkedTasks: InboxMessage['linked_tasks'], reminders: InboxReminder[], plan: InboxPlan | null, points: InboxReplyPoint[]): 'actions' | 'summary' {
-  if (triage.outcome !== 'no_action' || triage.urgent || triage.question_for_human || linkedTasks.length > 0 || reminders.length > 0) return 'actions';
-  if ((plan?.items.some((item) => item.state !== 'skipped') ?? false) || points.length > 0) return 'actions';
-  return 'summary';
-}
-
 /** The agent who triaged: its name and its photo from the team directory. */
-function useTriager(triage: InboxTriage, agentName: string): { name: string; avatar?: string } {
+function useTriager(triage: InboxTriage | null, agentName: string): { name: string; avatar?: string } {
   const { team } = useApp();
-  const name = triage.member?.name ?? agentName;
-  const member = triage.member ? team.find((m) => m.id === triage.member!.id) : team.find((m) => m.name === agentName);
+  const name = triage?.member?.name ?? agentName;
+  const member = triage?.member ? team.find((m) => m.id === triage.member!.id) : team.find((m) => m.name === agentName);
   return { name, avatar: member?.avatar || undefined };
 }
 
@@ -1371,62 +1626,6 @@ function NoteCardHeader({ name, avatar, at }: { name: string; avatar?: string; a
       <span className="text-xs font-semibold text-zinc-100">{name}</span>
       <time dateTime={at} className="ml-auto text-[11px] text-zinc-400">{formatFullTime(at)}</time>
     </div>
-  );
-}
-
-/**
- * One linked task as a receipt item: what happened to it, then the task. A
- * task the agent created can be waved off as "Not a task" (to Trash), and
- * brought back with Undo.
- */
-function TaskReceipt({ task, messageId }: { task: InboxMessage['linked_tasks'][number]; messageId: string }) {
-  const { trashed, notATask, undo, pending } = useContext(TaskUndoContext);
-  const projectLabels = useContext(ProjectLabelsContext);
-  const verb = task.relation === 'created' ? 'Created' : task.relation === 'updated' ? 'Updated' : 'About';
-  const title = task.title ?? 'Task';
-  const busy = pending === task.task_id;
-  if (trashed[task.task_id]) {
-    return (
-      <li className="flex min-w-0 items-center gap-2 text-xs">
-        <Trash2 size={12} className="flex-shrink-0 text-zinc-400" aria-hidden="true" />
-        <span className="min-w-0 flex-1 truncate text-zinc-400"><span className="line-through">{title}</span> moved to Trash</span>
-        <Button size="sm" variant="ghost" className="!rounded-md !px-2 !py-0.5" disabled={busy} onClick={() => void undo(task.task_id)}
-          icon={busy ? <Loader2 size={12} className="animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <Undo2 size={12} aria-hidden="true" />}>
-          Undo
-        </Button>
-      </li>
-    );
-  }
-  const dismissable = !!notATask && task.relation === 'created' && task.by === 'agent' && task.title !== null && task.status !== 'done';
-  return (
-    <li className="flex min-w-0 items-center gap-2 text-xs">
-      <SquareCheck size={12} className="flex-shrink-0 text-emerald-300" aria-hidden="true" />
-      <span className="w-[3.75rem] flex-shrink-0 text-zinc-400">{verb}</span>
-      {task.project_id && task.title === null ? (
-        // In a project this member cannot open: no title, no link.
-        <span className="min-w-0 flex-1 truncate text-zinc-300">a task in another project</span>
-      ) : task.project_id ? (
-        <Link
-          href={`/projects/${task.project_id}?task=${task.task_id}`}
-          title={title}
-          className="min-w-0 flex-1 truncate rounded font-medium text-zinc-100 underline decoration-white/20 underline-offset-2 hover:text-brand-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
-        >
-          {title}
-        </Link>
-      ) : (
-        <span className="min-w-0 flex-1 truncate text-zinc-300">{title}</span>
-      )}
-      {projectLabels && <TaskProjectLabel task={task} />}
-      {dismissable && (
-        <Tooltip content="Moves it to Trash. Undo brings it back.">
-          <Button size="sm" variant="ghost" className="!rounded-md !px-2 !py-0.5 flex-shrink-0" disabled={busy}
-            onClick={() => void notATask(messageId, task)} aria-label={`Not a task: move "${title}" to Trash`}
-            icon={busy ? <Loader2 size={12} className="animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <X size={12} aria-hidden="true" />}>
-            Not a task
-          </Button>
-        </Tooltip>
-      )}
-    </li>
   );
 }
 
@@ -1496,42 +1695,177 @@ function QuestionAnswer({ agentName, answer, waiting, onAnswer }: {
   );
 }
 
+type CardGroup = 'task' | 'reminder' | 'comment' | 'existing' | 'other';
+
+/** The card in the order a person settles it: new work, follow-ups, notes on work that exists, then the rest. */
+const CARD_GROUPS: { key: CardGroup; one: string; many: string; icon: ReactNode }[] = [
+  { key: 'task', one: 'New task', many: 'New tasks', icon: <SquarePlus size={12} aria-hidden="true" /> },
+  { key: 'reminder', one: 'Reminder', many: 'Reminders', icon: <Bell size={12} aria-hidden="true" /> },
+  { key: 'comment', one: 'Comment on a task', many: 'Comments on tasks', icon: <MessageSquare size={12} aria-hidden="true" /> },
+  { key: 'existing', one: 'Existing task', many: 'Existing tasks', icon: <Link2 size={12} aria-hidden="true" /> },
+  { key: 'other', one: 'Other change', many: 'Other changes', icon: <ListChecks size={12} aria-hidden="true" /> },
+];
+
+/** What waits, said as nouns: "2 new tasks and 1 reminder". */
+const GROUP_NOUN: Record<CardGroup, [string, string]> = {
+  task: ['new task', 'new tasks'], reminder: ['reminder', 'reminders'], comment: ['comment', 'comments'],
+  existing: ['link to an existing task', 'links to existing tasks'], other: ['other change', 'other changes'],
+};
+/** What was done, said as verbs: "created 3 tasks and set 3 reminders". */
+const GROUP_DONE: Record<CardGroup, [string, string]> = {
+  task: ['created 1 task', 'created # tasks'], reminder: ['set 1 reminder', 'set # reminders'], comment: ['commented on 1 task', 'commented on # tasks'],
+  existing: ['linked 1 existing task', 'linked # existing tasks'], other: ['made 1 other change', 'made # other changes'],
+};
+
+function itemGroup(item: InboxPlanItem): CardGroup {
+  switch (item.type) {
+    case 'create_task': return 'task';
+    case 'add_reminder': case 'update_reminder': case 'complete_reminder': return 'reminder';
+    case 'comment': return 'comment';
+    case 'link_task': case 'update_task': case 'attach_file': return 'existing';
+    default: return 'other';
+  }
+}
+
+/** A row's title under its group: the task or reminder itself, without the "Link " or "New task: " the group already says. */
+function rowTitle(item: InboxPlanItem): string {
+  return item.title || item.label.replace(/^(Link|New task:|Reminder:|Comment on)\s+/, '');
+}
+
+function joinWords(parts: string[]): string {
+  return parts.length <= 1 ? parts[0] ?? '' : `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`;
+}
+
+function countPhrase(groups: CardGroup[], words: Record<CardGroup, [string, string]>, withCount: boolean): string {
+  const counts = new Map<CardGroup, number>();
+  for (const group of groups) counts.set(group, (counts.get(group) ?? 0) + 1);
+  return joinWords(CARD_GROUPS.filter((g) => counts.has(g.key)).map((g) => {
+    const n = counts.get(g.key)!;
+    const [one, many] = words[g.key];
+    return withCount ? `${n} ${n === 1 ? one : many}` : (n === 1 ? one : many.replace('#', String(n)));
+  }));
+}
+
+/** One row of the card: a plan item, or what an older triage left (a linked task, a reminder). */
+type CardRow =
+  | { kind: 'item'; key: string; group: CardGroup; item: InboxPlanItem }
+  | { kind: 'task'; key: string; group: CardGroup; messageId: string; task: InboxLinkedTask }
+  | { kind: 'reminder'; key: string; group: CardGroup; messageId: string; reminder: InboxReminder };
+
+/** The card's body and footer line up with the name, as an email's text lines up with its sender. */
+const CARD_INSET = 'px-3 sm:pl-[3.25rem] sm:pr-4';
+
+/** A summary longer than this folds to three lines with "Show more". */
+const SUMMARY_FOLD = 240;
+
+function CardSummary({ text }: { text: string }) {
+  const [open, setOpen] = useState(false);
+  const long = text.length > SUMMARY_FOLD;
+  return (
+    <div>
+      <p className={`whitespace-pre-wrap break-words text-sm leading-relaxed text-zinc-200 [overflow-wrap:anywhere] ${long && !open ? 'line-clamp-3' : ''}`}>{text}</p>
+      {long && (
+        <button type="button" onClick={() => setOpen((value) => !value)} aria-expanded={open}
+          className="mt-1 inline-flex items-center gap-1 rounded text-xs font-medium text-brand-300 hover:text-brand-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500">
+          <ChevronDown size={13} className={`transition-transform motion-reduce:transition-none ${open ? 'rotate-180' : ''}`} aria-hidden="true" />
+          {open ? 'Show less' : 'Show more'}
+        </button>
+      )}
+    </div>
+  );
+}
+
+/** The agent's mark beside its name, so its reply never reads as a person's. */
+function AgentTag() {
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full bg-brand-500/[0.14] px-2 py-0.5 text-[11px] font-medium text-brand-200">
+      <Sparkles size={11} aria-hidden="true" />
+      Agent
+    </span>
+  );
+}
+
+/** The card's chrome: the agent's reply to the message above it, a step in. A meeting's stands on its own. */
+function cardChrome(meeting: boolean): string {
+  return `${meeting ? 'mt-4' : 'ml-3 mt-2 sm:ml-8'} min-w-0 rounded-xl border border-brand-400/[0.14] bg-brand-500/[0.025]`;
+}
+
 /**
- * What the agent did with an email, under it, as one line of pills that
- * each open a card: its summary, the tasks it touched, the reminders it
- * set, a question for you (amber until the thread is handled) and an old
- * suggested reply. Nothing repeats the email or spreads across the page.
+ * The agent's reply to an email (under it) or a meeting (after its words):
+ * who, what it suggests or did ("Created 3 tasks and set 3 reminders"), its
+ * summary, then each thing grouped by kind with its own action (Add, Change,
+ * Skip; Undo, Not a task, Not needed, Unlink). What was taken back folds at
+ * the bottom with Restore. The footer holds its question, suggested reply and
+ * replies owed, and the actions for the lot: Undo all, Add all. An email it
+ * left alone gets one quiet line.
  */
-function AgentNote({ messageId, triage, agentName, linkedTasks, reminders, collapsed, handled, answer, waiting, onAnswer, questionInPanel, plan, points }: {
-  messageId: string;
-  /** The plan behind this triage, when the agent planned it: its pills replace the task and reminder ones. */
-  plan: InboxPlan | null;
-  /** Replies owed this email raised. */
+function AgentCard({ cardKey, scope, triage, agentName, items, tasks, reminders, points, handled, answer, waiting, onAnswer, questionInPanel, meeting }: {
+  /** The email's id, or "meeting": what Undo all and Add all are kept under. */
+  cardKey: string;
+  /** The emails Undo all covers; the whole thread when null. */
+  scope: string[] | null;
+  triage: InboxTriage | null;
+  agentName: string;
+  /** Plan items in any state (the question and replies owed show apart). */
+  items: InboxPlanItem[];
+  /** What an older triage linked (with any this view took back). */
+  tasks: { messageId: string; task: InboxLinkedTask }[];
+  reminders: { messageId: string; reminder: InboxReminder }[];
   points: InboxReplyPoint[];
-  /** A person's answer to this triage's question. */
+  handled: boolean;
   answer: InboxAnswer | null;
-  /** The email is back with the agent (after an answer, say). */
   waiting: boolean;
   onAnswer?: (text: string) => Promise<boolean>;
-  /** The question is open in the decision card at the end of the thread. */
   questionInPanel: boolean;
-  triage: InboxTriage;
-  agentName: string;
-  linkedTasks: InboxMessage['linked_tasks'];
-  /** Reminders the agent set from this email. */
-  reminders: InboxReminder[];
-  /** Someone marked the email handled: its question is settled and stops calling for attention. */
-  handled: boolean;
-  /** Only a summary to show: say "No action" rather than the outcome. */
-  collapsed: boolean;
+  /** A meeting's card: Nothing to do, and the line Add all or Nothing to do leaves. */
+  meeting?: { onNothingToDo?: () => void; outcome: SuggestionsOutcome | null };
 }) {
-  const [copied, setCopied] = useState(false);
+  const { trashed, trashedReminders, unlinked, notNeeded } = useContext(TaskUndoContext);
+  const { pending, add, skip, addAll, undoAll, restoreAll, undone, bulk } = useContext(PlanActionsContext);
+  const projectLabels = useContext(ProjectLabelsContext);
   const { name: who, avatar } = useTriager(triage, agentName);
-  const outcome = OUTCOME[triage.outcome];
-  const OutcomeIcon = outcome.icon;
+  const [settledOpen, setSettledOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  // Only what waits, what was done and what a person took back: a suggestion the policy
+  // rejected, one that expired unanswered, or one still applying is not the agent's work to show.
+  const shown = items.filter((item) => item.type !== 'ask' && item.type !== 'reply_owed'
+    && ['pending', 'accepting', 'done', 'accepted', 'failed', 'undone', 'dismissed'].includes(item.state));
+  const waitingItems = shown.filter((item) => item.state === 'pending' || item.state === 'accepting');
+  const rows: CardRow[] = [];
+  const settled: CardRow[] = [];
+  for (const item of shown) {
+    if (item.state === 'pending' || item.state === 'accepting') continue;
+    (item.state === 'undone' || item.state === 'dismissed' ? settled : rows).push({ kind: 'item', key: item.id, group: itemGroup(item), item });
+  }
+  for (const { messageId, task } of tasks) {
+    const key = linkKey(messageId, task);
+    const row: CardRow = { kind: 'task', key, group: task.relation === 'created' ? 'task' : 'existing', messageId, task };
+    (trashed[task.task_id] || unlinked[key] ? settled : rows).push(row);
+  }
+  for (const { messageId, reminder } of reminders) {
+    (trashedReminders[reminder.id] ? settled : rows).push({ kind: 'reminder', key: reminder.id, group: 'reminder', messageId, reminder });
+  }
+  const owed = points.filter((point) => point.state === 'open');
+  const question = triage?.question_for_human && !questionInPanel ? triage.question_for_human : null;
+
+  const busy = pending !== null || bulk !== null;
+  const undoableCount = rows.filter((row) => row.kind === 'item'
+    ? (row.item.state === 'done' || row.item.state === 'accepted') && UNDOABLE.has(row.item.type)
+    : row.kind === 'task'
+      ? row.task.by === 'agent' && row.task.title !== null && !(row.task.relation === 'created' && row.task.status === 'done')
+      : !!notNeeded(row.reminder)).length;
+  // One thing is undone from its own row; Undo all is for the lot.
+  const undoable = undoableCount >= 2;
+  const addable = waitingItems.filter((item) => item.state === 'pending');
+  const tookBack = undone[cardKey];
+  const tookBackCount = tookBack ? tookBack.plan_items.length + tookBack.tasks.length + tookBack.reminders.length + tookBack.links.length : 0;
+  const mixedProjects = new Set(waitingItems.map((item) => item.project_id)).size > 1;
+  const spinner13 = <Loader2 size={13} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />;
+  const at = triage?.created_at ?? null;
 
   const copyReply = async () => {
-    if (!triage.suggested_reply) return;
+    if (!triage?.suggested_reply) return;
     try {
       await navigator.clipboard.writeText(triage.suggested_reply);
       setCopied(true);
@@ -1541,227 +1875,470 @@ function AgentNote({ messageId, triage, agentName, linkedTasks, reminders, colla
       toast('error', 'Could not copy to the clipboard');
     }
   };
+  const replyPill = triage?.suggested_reply && (
+    <NotePill label="Suggested reply" icon={<MessageSquareReply size={11} aria-hidden="true" />} width={440}>
+      <NoteCardHeader name={who} avatar={avatar} at={triage.created_at} />
+      <blockquote className="max-h-72 overflow-y-auto whitespace-pre-wrap rounded-lg bg-white/[0.03] px-3.5 py-3 text-sm leading-relaxed text-zinc-200">
+        {triage.suggested_reply}
+      </blockquote>
+      <div className="mt-2.5 flex items-center justify-between gap-2">
+        <p className="text-[11px] text-zinc-400">Nothing is sent from here.</p>
+        <Button size="sm" variant="secondary" onClick={() => void copyReply()} icon={copied ? <Check size={12} aria-hidden="true" /> : <Copy size={12} aria-hidden="true" />}>
+          {copied ? 'Copied' : 'Copy'}
+        </Button>
+      </div>
+    </NotePill>
+  );
+
+  // Nothing done, nothing waiting, nothing to answer: one quiet line, the summary a click away.
+  const quiet = !meeting && !!triage && triage.outcome === 'no_action' && !triage.urgent && !triage.question_for_human
+    && !waitingItems.length && !rows.length && !settled.length && !owed.length && !tookBack;
+  if (quiet && triage) {
+    return (
+      <section aria-label={`${who}: no action needed`}
+        className="ml-3 mt-2 flex min-w-0 flex-nowrap items-center gap-x-2.5 rounded-xl border border-white/[0.06] bg-white/[0.015] px-3 py-2 sm:ml-8 sm:px-4">
+        <Avatar name={who} src={avatar} size="xs" />
+        <span className="hidden text-xs font-semibold text-zinc-200 sm:inline">{who}</span>
+        <span className="inline-flex min-w-0 items-center gap-1 truncate text-xs text-zinc-400">
+          <CheckCircle2 size={12} className="flex-shrink-0" aria-hidden="true" />
+          No action needed
+        </span>
+        <span className="ml-auto flex flex-shrink-0 items-center gap-1.5">
+          <NotePill label="Summary" icon={<AlignLeft size={11} aria-hidden="true" />} align="end">
+            <NoteCardHeader name={who} avatar={avatar} at={triage.created_at} />
+            <p className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-200">{triage.summary}</p>
+          </NotePill>
+          {replyPill}
+        </span>
+      </section>
+    );
+  }
+  if (meeting && !triage && !shown.length && !meeting.outcome && !meeting.onNothingToDo) return null;
+
+  // What it is doing here, in one line under its name.
+  const activeRows = rows.filter((row) => !(row.kind === 'item' && row.item.state === 'failed'));
+  const status = [
+    waitingItems.length ? `Suggests ${countPhrase(waitingItems.map(itemGroup), GROUP_NOUN, true)}` : '',
+    activeRows.length ? countPhrase(activeRows.map((row) => row.group), GROUP_DONE, false).replace(/^./, (c) => c.toUpperCase()) : '',
+  ].filter(Boolean).join(' · ')
+    || (settled.length || tookBack ? 'Everything here was taken back or skipped' : triage ? OUTCOME[triage.outcome].label : 'Nothing to add');
+  const heading = `${who}: ${status}`;
+  const renderRow = (row: CardRow) => row.kind === 'item'
+    ? (row.item.state === 'undone' || row.item.state === 'dismissed' ? <SettledItemRow key={row.key} item={row.item} /> : <PlanItemRow key={row.key} item={row.item} />)
+    : row.kind === 'task'
+      ? <TaskReceipt key={row.key} task={row.task} messageId={row.messageId} />
+      : <ReminderReceipt key={row.key} reminder={row.reminder} messageId={row.messageId} />;
+  const canUndoAll = !!undoAll && undoable;
+  const otherFooter = (!!addAll && addable.length > 0) || !!meeting?.onNothingToDo || !!question || !!replyPill || owed.length > 0;
+  // Alone, Undo all sits beside the line that says what it undoes; with other actions, in the footer.
+  const undoInHeader = canUndoAll && !otherFooter;
+  const hasActions = (canUndoAll && !undoInHeader) || (!!addAll && addable.length > 0) || !!meeting?.onNothingToDo;
+  const hasFooter = hasActions || !!question || !!replyPill || owed.length > 0;
+  const undoAllButton = canUndoAll && (
+    <Tooltip content={`Takes back everything ${who} did here. Restore all puts it back.`}>
+      <Button size="sm" variant="ghost" className={undoInHeader ? '!-my-1 !px-2 !py-1' : ''} disabled={busy} onClick={() => void undoAll!(cardKey, scope)}
+        icon={pending === `undo-all:${cardKey}` ? spinner13 : <Undo2 size={13} aria-hidden="true" />}>
+        Undo all {undoableCount}
+      </Button>
+    </Tooltip>
+  );
+  const listClass = 'divide-y divide-white/[0.05] overflow-hidden rounded-lg border border-white/[0.06] bg-white/[0.02]';
 
   return (
-    <section aria-label={`What ${who} did`} className="mx-4 mb-3 border-t border-white/[0.06] pt-2.5">
-      <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5">
-        <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-zinc-200">
-          <Avatar name={who} src={avatar} size="xs" />
-          {who}
-        </span>
-        {triage.urgent && (
-          <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-red-300">
-            <Flame size={11} aria-hidden="true" />
-            Urgent
-          </span>
-        )}
-        {linkedTasks.length === 0 && reminders.length === 0 && !triage.question_for_human && !plan && (
-          <span className={`inline-flex items-center gap-1 text-[11px] font-medium ${outcome.className}`}>
-            <OutcomeIcon size={11} aria-hidden="true" />
-            {collapsed ? 'No action' : outcome.label}
-          </span>
-        )}
-        <NotePill label="Summary" icon={<AlignLeft size={11} aria-hidden="true" />}>
-          <NoteCardHeader name={who} avatar={avatar} at={triage.created_at} />
-          <p className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-200">{triage.summary}</p>
-        </NotePill>
-        {plan && <PlanPills plan={plan} points={points} who={who} avatar={avatar} at={triage.created_at} />}
-        {!plan && linkedTasks.length > 0 && (
-          <NotePill
-            label={`${linkedTasks.length} ${linkedTasks.length === 1 ? 'task' : 'tasks'}`}
-            icon={<SquareCheck size={11} className="text-emerald-300" aria-hidden="true" />}
-            width={440}
-          >
-            <NoteCardHeader name={who} avatar={avatar} at={triage.created_at} />
-            <ul className="space-y-1.5">
-              {linkedTasks.map((task) => <TaskReceipt key={`${task.task_id}-${task.relation}`} task={task} messageId={messageId} />)}
-            </ul>
-          </NotePill>
-        )}
-        {!plan && reminders.length > 0 && (
-          <NotePill
-            label={`${reminders.length} ${reminders.length === 1 ? 'reminder' : 'reminders'}`}
-            icon={<Bell size={11} className="text-amber-300" aria-hidden="true" />}
-            width={400}
-          >
-            <NoteCardHeader name={who} avatar={avatar} at={triage.created_at} />
-            <ul className="space-y-1.5">
-              {reminders.map((reminder) => (
-                <li key={reminder.id} className="flex min-w-0 items-center gap-1.5 text-xs">
-                  <Bell size={12} className="flex-shrink-0 text-amber-300" aria-hidden="true" />
-                  <span className={`min-w-0 truncate font-medium ${reminder.status === 'done' ? 'text-zinc-400 line-through' : 'text-zinc-100'}`}>{reminder.title}</span>
-                  {reminder.remind_on && <span className="flex-shrink-0 text-zinc-400">{shortDate(reminder.remind_on)}</span>}
-                  {reminder.status === 'done' && <span className="sr-only">(done)</span>}
-                </li>
-              ))}
-            </ul>
-          </NotePill>
-        )}
-        {triage.question_for_human && !questionInPanel && (
-          // Amber until the thread is handled or answered: a decision waits on you.
-          <NotePill
-            label={handled ? 'Question' : answer ? 'Answered' : 'Question for you'}
-            icon={<HelpCircle size={11} aria-hidden="true" />}
-            width={420}
-            className={handled || answer ? '' : '!bg-amber-500/[0.14] !text-amber-200 hover:!bg-amber-500/[0.22]'}
-          >
-            <NoteCardHeader name={who} avatar={avatar} at={triage.created_at} />
-            <p className={`mb-1 text-[11px] font-semibold uppercase tracking-wider ${handled ? 'text-zinc-400' : 'text-amber-300'}`}>
-              {handled ? 'Question (handled)' : 'Question for you'}
-            </p>
-            <p className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-100">{triage.question_for_human}</p>
-            <QuestionAnswer agentName={who} answer={answer} waiting={waiting} onAnswer={handled || waiting ? undefined : onAnswer} />
-          </NotePill>
-        )}
-        {triage.suggested_reply && (
-          <NotePill label="Suggested reply" icon={<MessageSquareReply size={11} aria-hidden="true" />} width={440}>
-            <NoteCardHeader name={who} avatar={avatar} at={triage.created_at} />
-            <blockquote className="max-h-72 overflow-y-auto whitespace-pre-wrap rounded-lg bg-white/[0.03] px-3.5 py-3 text-sm leading-relaxed text-zinc-200">
-              {triage.suggested_reply}
-            </blockquote>
-            <div className="mt-2.5 flex items-center justify-between gap-2">
-              <p className="text-[11px] text-zinc-400">Nothing is sent from here.</p>
-              <Button size="sm" variant="secondary" onClick={() => void copyReply()} icon={copied ? <Check size={12} aria-hidden="true" /> : <Copy size={12} aria-hidden="true" />}>
-                {copied ? 'Copied' : 'Copy'}
-              </Button>
+    <section aria-label={heading} className={cardChrome(!!meeting)}>
+      <header className="flex items-start gap-3 px-3 pt-3 sm:px-4 sm:pt-3.5">
+        <Avatar name={who} src={avatar} size="sm" />
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <span className="text-sm font-semibold text-white">{who}</span>
+            <AgentTag />
+            {triage?.urgent && (
+              <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-red-300">
+                <Flame size={11} aria-hidden="true" />
+                Urgent
+              </span>
+            )}
+            {at && (
+              <time dateTime={at} className="ml-auto text-xs tabular-nums text-zinc-400">
+                <span className="sm:hidden">{formatListTime(at)}</span>
+                <span className="hidden sm:inline">{formatFullTime(at)}</span>
+              </time>
+            )}
+          </div>
+          <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1">
+            <p className="min-w-0 flex-1 text-xs text-zinc-300">{status}</p>
+            {undoInHeader && undoAllButton}
+          </div>
+        </div>
+      </header>
+
+      <div className={`${CARD_INSET} ${hasFooter ? '' : 'pb-3'} mt-2.5 space-y-3`}>
+        {triage?.summary && <CardSummary text={triage.summary} />}
+
+        {tookBack && (
+          <div className="rounded-lg bg-white/[0.04] px-3 py-2 text-xs text-zinc-200" role="status">
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+              <Undo2 size={13} className="flex-shrink-0 text-zinc-400" aria-hidden="true" />
+              <span className="min-w-0 flex-1 break-words">
+                {tookBackCount ? `Took back ${tookBackCount} ${tookBackCount === 1 ? 'thing' : 'things'} ${who} did here` : 'Nothing here could be taken back'}
+              </span>
+              {restoreAll && tookBackCount > 0 && (
+                <Button size="sm" variant="ghost" className="!rounded-md !px-2 !py-0.5" disabled={busy} onClick={() => void restoreAll(cardKey)}
+                  icon={pending === `restore-all:${cardKey}` ? spinner : <RotateCcw size={12} aria-hidden="true" />}>
+                  Restore all
+                </Button>
+              )}
             </div>
-          </NotePill>
+            {tookBack.kept.length > 0 && (
+              <ul className="mt-1 space-y-0.5 pl-5 text-[11px] text-zinc-400" aria-label="Left as they were">
+                {tookBack.kept.map((kept, index) => (
+                  <li key={index} className="break-words [overflow-wrap:anywhere]"><span className="text-zinc-300">{kept.label}</span>: {kept.reason}</li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+        {meeting?.outcome && (
+          <p className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg bg-white/[0.04] px-3 py-2 text-xs text-zinc-200" role="status">
+            <Check size={13} className="flex-shrink-0 text-emerald-300" aria-hidden="true" />
+            <span className="min-w-0 flex-1 break-words">{meeting.outcome.text}</span>
+            {meeting.outcome.onUndo && (
+              <Button size="sm" variant="ghost" className="!rounded-md !px-2 !py-0.5" disabled={meeting.outcome.undoing || busy} onClick={meeting.outcome.onUndo}
+                icon={meeting.outcome.undoing ? spinner : <Undo2 size={12} aria-hidden="true" />}>
+                Undo
+              </Button>
+            )}
+          </p>
+        )}
+
+        {CARD_GROUPS.map((group) => {
+          const waitingIn = waitingItems.filter((item) => itemGroup(item) === group.key);
+          const doneIn = rows.filter((row) => row.group === group.key);
+          const count = waitingIn.length + doneIn.length;
+          if (!count) return null;
+          return (
+            <div key={group.key} className="min-w-0">
+              <h4 className="mb-1.5 flex items-center gap-1.5 text-[11px] font-medium text-zinc-400">
+                {group.icon}
+                {count === 1 ? group.one : group.many}
+                <span className="tabular-nums text-zinc-500">{count}</span>
+              </h4>
+              <ul className={listClass} aria-label={count === 1 ? group.one : group.many}>
+                {waitingIn.map((item) => (
+                  <SuggestionRow key={item.id} item={item} onAdd={add} onSkip={skip} pending={pending === item.id} busy={busy}
+                    showProject={mixedProjects || projectLabels} showReason={!meeting} className="px-3 py-2.5" />
+                ))}
+                {doneIn.map(renderRow)}
+              </ul>
+            </div>
+          );
+        })}
+        {!waitingItems.length && !rows.length && !settled.length && meeting && !meeting.outcome && (
+          <p className="text-xs text-zinc-400">No suggestions are waiting.</p>
+        )}
+
+        {settled.length > 0 && (
+          <div className="min-w-0">
+            <button type="button" onClick={() => setSettledOpen((value) => !value)} aria-expanded={settledOpen}
+              className="inline-flex items-center gap-1 rounded text-[11px] font-medium text-zinc-400 transition-colors hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500">
+              <ChevronDown size={12} className={`transition-transform motion-reduce:transition-none ${settledOpen ? 'rotate-180' : ''}`} aria-hidden="true" />
+              Taken back or skipped
+              <span className="tabular-nums text-zinc-500">{settled.length}</span>
+            </button>
+            {settledOpen && <ul className={`mt-1.5 ${listClass}`} aria-label="Taken back or skipped">{settled.map(renderRow)}</ul>}
+          </div>
         )}
       </div>
+
+      {hasFooter && (
+        <div className={`mt-3 flex flex-wrap items-center gap-2 border-t border-white/[0.06] py-2.5 ${CARD_INSET}`}>
+          {question && triage && (
+            // Amber until the thread is handled or answered: a decision waits on you.
+            <NotePill
+              label={handled ? 'Question' : answer ? 'Answered' : 'Question for you'}
+              icon={<HelpCircle size={11} aria-hidden="true" />}
+              width={420}
+              className={handled || answer ? '' : '!bg-amber-500/[0.14] !text-amber-200 hover:!bg-amber-500/[0.22]'}
+            >
+              <NoteCardHeader name={who} avatar={avatar} at={triage.created_at} />
+              <p className={`mb-1 text-[11px] font-semibold uppercase tracking-wider ${handled ? 'text-zinc-400' : 'text-amber-300'}`}>
+                {handled ? 'Question (handled)' : 'Question for you'}
+              </p>
+              <p className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-100">{question}</p>
+              <QuestionAnswer agentName={who} answer={answer} waiting={waiting} onAnswer={handled || waiting ? undefined : onAnswer} />
+            </NotePill>
+          )}
+          {replyPill}
+          {owed.length > 0 && <RepliesOwedPill points={owed} who={who} avatar={avatar} at={at ?? new Date().toISOString()} />}
+          {hasActions && (
+            <div className="ml-auto flex flex-wrap items-center justify-end gap-1.5">
+              {!undoInHeader && undoAllButton}
+              {meeting?.onNothingToDo && (
+                <Tooltip content={addable.length ? 'Skips every suggestion and marks the meeting handled. Undo puts them back.' : 'Marks the meeting handled, with no new work from it.'}>
+                  <Button size="sm" variant="ghost" disabled={busy} onClick={meeting.onNothingToDo}
+                    icon={bulk === 'nothing' ? spinner13 : <CircleSlash size={13} aria-hidden="true" />}>
+                    Nothing to do
+                  </Button>
+                </Tooltip>
+              )}
+              {addAll && addable.length > 0 && (
+                <Button size="sm" disabled={busy} onClick={() => void addAll(cardKey, addable)}
+                  icon={pending === `add-all:${cardKey}` || (meeting && bulk === 'add_all') ? spinner13 : <Plus size={13} aria-hidden="true" />}>
+                  {addable.length === 1 ? 'Add it' : `Add all ${addable.length}`}
+                </Button>
+              )}
+            </div>
+          )}
+        </div>
+      )}
     </section>
   );
 }
 
 const spinner = <Loader2 size={12} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />;
 
-const DONE_PHRASES: Record<string, [string, string]> = {
-  link_task: ['Linked 1 task', 'Linked # tasks'],
-  create_task: ['Created 1 task', 'Created # tasks'],
-  update_task: ['Changed 1 task', 'Changed # tasks'],
-  comment: ['1 comment', '# comments'],
-  add_reminder: ['1 reminder', '# reminders'],
-  file_project: ['Filed on a project', 'Filed on # projects'],
-};
-
 /**
- * What the agent did, said by kind ("Linked 8 tasks", "Created 2 tasks ·
- * Linked 3 tasks"), so linking existing work never reads as making new
- * work. Two kinds at most, then "+N more"; undone and failed count as done
- * here as before, in the list behind the pill.
+ * One row of the card's lists: what it is (linked where it opens), one quiet
+ * line of detail, a status tag, and its action. Taken-back rows are struck.
  */
-function doneLabel(done: InboxPlanItem[]): string {
-  const counts = new Map<string, number>();
-  for (const item of done) counts.set(item.type, (counts.get(item.type) ?? 0) + 1);
-  const known = [...counts.entries()].filter(([type]) => DONE_PHRASES[type]).sort((a, b) => b[1] - a[1]);
-  if (!known.length) return `${done.length} done`;
-  const parts = known.slice(0, 2).map(([type, count]) => (count === 1 ? DONE_PHRASES[type][0] : DONE_PHRASES[type][1].replace('#', String(count))));
-  const rest = done.length - known.slice(0, 2).reduce((sum, [, count]) => sum + count, 0);
-  return rest > 0 ? `${parts.join(' · ')} · +${rest} more` : parts.join(' · ');
+function CardRowShell({ icon, struck = false, title, meta, tag, action }: {
+  icon: ReactNode;
+  struck?: boolean;
+  title: ReactNode;
+  meta?: ReactNode;
+  tag?: ReactNode;
+  action?: ReactNode;
+}) {
+  return (
+    <li className="flex min-h-10 min-w-0 items-center gap-2.5 px-3 py-2">
+      <span className="flex w-4 flex-shrink-0 justify-center" aria-hidden="true">{icon}</span>
+      <div className="min-w-0 flex-1">
+        <div className={`line-clamp-2 break-words text-[13px] font-medium leading-snug [overflow-wrap:anywhere] ${struck ? 'text-zinc-400 line-through' : 'text-zinc-100'}`}>{title}</div>
+        {meta && <p className="mt-0.5 text-[11px] leading-snug text-zinc-400">{meta}</p>}
+      </div>
+      {tag}
+      {action}
+    </li>
+  );
+}
+
+/** A task's title, opening the task where it lives. */
+function TaskLink({ href, children }: { href: string | null; children: ReactNode }) {
+  if (!href) return <>{children}</>;
+  return (
+    <Link href={href} className="rounded underline decoration-white/20 underline-offset-2 hover:text-brand-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500">
+      {children}
+    </Link>
+  );
+}
+
+function DoneTag() {
+  return <span className="flex-shrink-0 rounded-full bg-emerald-500/[0.12] px-2 py-0.5 text-[11px] font-semibold text-emerald-300">Done</span>;
+}
+
+/** A row's own action: a quiet button, its spinner while it runs. */
+function RowButton({ label, icon, aria, running, disabled, onClick, tooltip }: {
+  label: string;
+  icon: ReactNode;
+  aria: string;
+  running: boolean;
+  disabled: boolean;
+  onClick: () => void;
+  tooltip?: string;
+}) {
+  const button = (
+    <Button size="sm" variant="ghost" className="!rounded-md !p-3 flex-shrink-0 sm:!px-2 sm:!py-1" disabled={disabled} onClick={onClick} aria-label={aria}
+      icon={running ? spinner : icon}>
+      {/* Phones: the icon alone, so the title keeps the room; the label stays for screen readers. */}
+      <span className="hidden sm:inline">{label}</span>
+    </Button>
+  );
+  return tooltip ? <Tooltip content={tooltip}>{button}</Tooltip> : button;
 }
 
 /**
- * A plan's items as pills beside the summary: what the agent did (each with
- * an "Unsure" mark when it applied it without being sure, and Undo), what
- * waits for your OK (Accept or Dismiss, with the reason it waits), and the
- * replies you owe (Done).
+ * A task an older triage linked: created by the agent (Not a task sends it to
+ * Trash) or existing work it tied the email to (Unlink takes the email off).
+ * Taken back, it stays struck with Restore.
  */
-function PlanPills({ plan, points, who, avatar, at }: { plan: InboxPlan; points: InboxReplyPoint[]; who: string; avatar?: string; at: string }) {
-  const { act, pending } = useContext(PlanActionsContext);
-  const listed = useContext(SuggestionsListedContext);
-  const done = plan.items.filter((item) => ['done', 'accepted', 'undone', 'failed'].includes(item.state) && item.type !== 'reply_owed');
-  // A meeting lists what waits at the top of the thread instead.
-  const proposals = listed ? [] : plan.items.filter((item) => item.state === 'pending' || item.state === 'accepting');
-  const owed = points.filter((point) => point.state === 'open');
-  const unsure = done.filter((item) => item.decision === 'apply_unsure' && item.state === 'done').length;
-  const undoable = done.some((item) => (item.state === 'done' || item.state === 'accepted') && UNDOABLE.has(item.type));
+function TaskReceipt({ task, messageId }: { task: InboxMessage['linked_tasks'][number]; messageId: string }) {
+  const { trashed, notATask, undo, unlinked, unlink, relink, pending } = useContext(TaskUndoContext);
+  const projectLabels = useContext(ProjectLabelsContext);
+  const title = task.title ?? 'A task in another project';
+  const key = linkKey(messageId, task);
+  const running = pending === task.task_id || pending === key;
+  const href = task.project_id && task.title !== null ? `/projects/${task.project_id}?task=${task.task_id}` : null;
+  const project = projectLabels && task.project_name ? task.project_name : null;
+  if (trashed[task.task_id] || unlinked[key]) {
+    const binned = !!trashed[task.task_id];
+    return (
+      <CardRowShell
+        icon={binned ? <Trash2 size={13} className="text-zinc-500" /> : <Unlink size={13} className="text-zinc-500" />}
+        struck
+        title={title}
+        meta={binned ? 'Moved to Trash' : 'Unlinked from this email'}
+        action={<RowButton label="Restore" icon={<RotateCcw size={13} aria-hidden="true" />} aria={`Restore: ${title}`} running={running}
+          disabled={pending !== null} onClick={() => void (binned ? undo(task.task_id) : relink(key))} />}
+      />
+    );
+  }
+  const created = task.relation === 'created';
+  const done = task.status === 'done';
+  const dismissable = !!notATask && created && task.by === 'agent' && task.title !== null && !done;
+  // A link the agent made to existing work comes off; the task itself stays.
+  const unlinkable = !!unlink && !created && task.by === 'agent' && task.title !== null;
+  const meta = [created ? null : task.relation === 'updated' ? 'Updated from this email' : 'Linked to this email', project].filter(Boolean).join(' · ');
   return (
-    <>
-      {done.length > 0 && (
-        <NotePill
-          label={unsure ? `${doneLabel(done)} · ${unsure} unsure` : doneLabel(done)}
-          icon={<SquareCheck size={11} className="text-emerald-300" aria-hidden="true" />}
-          width={460}
-        >
-          <NoteCardHeader name={who} avatar={avatar} at={at} />
-          <ul className="space-y-2">
-            {done.map((item) => <PlanItemRow key={item.id} item={item} />)}
-          </ul>
-          {act && undoable && plan.status !== 'undone' && (
-            <div className="mt-3 flex justify-end border-t border-white/[0.06] pt-2.5">
-              <Button size="sm" variant="ghost" disabled={pending !== null} onClick={() => void act('undo_plan', plan.id)}
-                icon={pending === plan.id ? spinner : <Undo2 size={12} aria-hidden="true" />}>
-                Undo all of it
-              </Button>
+    <CardRowShell
+      icon={created ? (done ? <SquareCheck size={13} className="text-emerald-300" /> : <Square size={13} className="text-zinc-400" />) : <Link2 size={13} className="text-zinc-400" />}
+      title={<TaskLink href={href}>{title}</TaskLink>}
+      meta={meta || undefined}
+      tag={done ? <DoneTag /> : undefined}
+      action={dismissable ? (
+        <RowButton label="Not a task" icon={<Trash2 size={13} aria-hidden="true" />} aria={`Not a task: move "${title}" to Trash`} running={running}
+          disabled={pending !== null} onClick={() => void notATask(messageId, task)} tooltip="Moves it to Trash. Restore brings it back." />
+      ) : unlinkable ? (
+        <RowButton label="Unlink" icon={<Unlink size={13} aria-hidden="true" />} aria={`Unlink "${title}"`} running={running}
+          disabled={pending !== null} onClick={() => void unlink!(messageId, task)}
+          tooltip={task.relation === 'updated' ? 'Takes this email off the task. Changes already made to the task stay.' : 'Takes this email off the task. The task stays.'} />
+      ) : undefined}
+    />
+  );
+}
+
+/** A reminder the agent set: Not needed sends it to Trash, Restore brings it back. One already done says so. */
+function ReminderReceipt({ reminder, messageId }: { reminder: InboxReminder; messageId: string }) {
+  const { trashedReminders, notNeeded, undoReminder, pending } = useContext(TaskUndoContext);
+  const running = pending === reminder.id;
+  if (trashedReminders[reminder.id]) {
+    return (
+      <CardRowShell
+        icon={<Trash2 size={13} className="text-zinc-500" />}
+        struck
+        title={reminder.title}
+        meta="Moved to Trash"
+        action={<RowButton label="Restore" icon={<RotateCcw size={13} aria-hidden="true" />} aria={`Restore: ${reminder.title}`} running={running}
+          disabled={pending !== null} onClick={() => void undoReminder(reminder.id)} />}
+      />
+    );
+  }
+  const done = reminder.status === 'done';
+  const dismiss = notNeeded(reminder);
+  return (
+    <CardRowShell
+      icon={<Bell size={13} className={done ? 'text-zinc-500' : 'text-amber-300'} />}
+      title={reminder.title}
+      meta={reminder.remind_on ? `On ${shortDate(reminder.remind_on)}` : undefined}
+      tag={done ? <DoneTag /> : undefined}
+      action={dismiss ? (
+        <RowButton label="Not needed" icon={<Trash2 size={13} aria-hidden="true" />} aria={`Not needed: move "${reminder.title}" to Trash`} running={running}
+          disabled={pending !== null} onClick={() => void dismiss(messageId)} tooltip="Moves it to Trash. Restore brings it back." />
+      ) : undefined}
+    />
+  );
+}
+
+const ITEM_ICON: Record<CardGroup, (className: string) => ReactNode> = {
+  task: (className) => <Square size={13} className={className || 'text-zinc-400'} />,
+  reminder: (className) => <Bell size={13} className={className || 'text-amber-300'} />,
+  comment: (className) => <MessageSquare size={13} className={className || 'text-zinc-400'} />,
+  existing: (className) => <Link2 size={13} className={className || 'text-zinc-400'} />,
+  other: (className) => <ListChecks size={13} className={className || 'text-zinc-400'} />,
+};
+
+/** One thing a plan did: what, where, unsure or approved, and Undo. */
+function PlanItemRow({ item }: { item: InboxPlanItem }) {
+  const { act, pending } = useContext(PlanActionsContext);
+  const projectLabels = useContext(ProjectLabelsContext);
+  const failed = item.state === 'failed';
+  const title = rowTitle(item);
+  const href = !!item.task_id && !!item.project_id && ['create_task', 'update_task', 'comment', 'attach_file', 'link_task'].includes(item.type)
+    ? `/projects/${item.project_id}?task=${item.task_id}` : null;
+  const unsure = item.decision === 'apply_unsure' && !failed;
+  const finished = !!item.target_done;
+  const meta = [
+    failed ? `Did not go through: ${item.error ?? 'unknown error'}` : null,
+    item.type === 'add_reminder' && item.remind_on ? `On ${shortDate(item.remind_on)}` : null,
+    item.type === 'create_task' && item.due_date ? `Due ${shortDate(item.due_date)}` : null,
+    item.state === 'accepted' ? 'You approved' : null,
+    projectLabels ? item.project_name : null,
+    unsure ? item.decision_reason ?? 'Applied without being sure: check it, or undo it.' : null,
+  ].filter(Boolean).join(' · ');
+  // The same words as an older email's rows: what undoing it does to this kind of thing.
+  const undoAction = item.type === 'create_task' ? { label: 'Not a task', icon: <Trash2 size={13} aria-hidden="true" />, tip: 'Moves it to Trash. Restore brings it back.' }
+    : item.type === 'add_reminder' ? { label: 'Not needed', icon: <Trash2 size={13} aria-hidden="true" />, tip: 'Moves it to Trash. Restore brings it back.' }
+      : item.type === 'link_task' ? { label: 'Unlink', icon: <Unlink size={13} aria-hidden="true" />, tip: 'Takes this email off the task. The task stays.' }
+        : { label: 'Undo', icon: <Undo2 size={13} aria-hidden="true" />, tip: undefined };
+  return (
+    <CardRowShell
+      icon={failed ? <AlertTriangle size={13} className="text-red-300" />
+        : finished && item.type === 'create_task' ? <SquareCheck size={13} className="text-emerald-300" />
+          : ITEM_ICON[itemGroup(item)](finished ? 'text-zinc-500' : '')}
+      title={<TaskLink href={href}>{title}</TaskLink>}
+      meta={meta || undefined}
+      tag={finished ? <DoneTag /> : unsure ? <span className="flex-shrink-0 rounded-full bg-amber-500/[0.14] px-2 py-0.5 text-[11px] font-semibold text-amber-200">Unsure</span> : undefined}
+      action={act && !finished && (item.state === 'done' || item.state === 'accepted') && UNDOABLE.has(item.type) ? (
+        <RowButton label={undoAction.label} icon={undoAction.icon} aria={`${undoAction.label}: ${title}`} running={pending === item.id}
+          disabled={pending !== null} onClick={() => void act('undo', item.id)} tooltip={undoAction.tip} />
+      ) : undefined}
+    />
+  );
+}
+
+/** Something taken back (undone) or waved off (skipped), struck, with Restore where it can come back. */
+function SettledItemRow({ item }: { item: InboxPlanItem }) {
+  const { restore, pending } = useContext(PlanActionsContext);
+  const skipped = item.state === 'dismissed';
+  const restorable = skipped || RESTORABLE.has(item.type);
+  const title = rowTitle(item);
+  return (
+    <CardRowShell
+      icon={skipped ? <X size={13} className="text-zinc-500" /> : <Undo2 size={13} className="text-zinc-500" />}
+      struck
+      title={title}
+      meta={skipped ? 'Skipped' : restorable ? 'Undone' : 'Undone. This kind of change cannot be put back from here.'}
+      action={restore && restorable ? (
+        <RowButton label="Restore" icon={<RotateCcw size={13} aria-hidden="true" />} aria={`Restore: ${title}`} running={pending === item.id}
+          disabled={pending !== null} onClick={() => void restore(item)} />
+      ) : undefined}
+    />
+  );
+}
+
+/** The replies this message says you owe, each marked Done once sent. */
+function RepliesOwedPill({ points, who, avatar, at }: { points: InboxReplyPoint[]; who: string; avatar?: string; at: string }) {
+  const { act, pending } = useContext(PlanActionsContext);
+  return (
+    <NotePill
+      label={`${points.length} ${points.length === 1 ? 'reply' : 'replies'} owed`}
+      icon={<MessageSquareReply size={11} className="text-sky-300" aria-hidden="true" />}
+      width={440}
+    >
+      <NoteCardHeader name={who} avatar={avatar} at={at} />
+      <ul className="space-y-2.5">
+        {points.map((point) => (
+          <li key={point.id} className="flex items-start gap-2 text-xs">
+            <MessageSquareReply size={12} className="mt-0.5 flex-shrink-0 text-sky-300" aria-hidden="true" />
+            <div className="min-w-0 flex-1">
+              <p className="text-sm text-zinc-100">
+                <span className="font-semibold">{point.to_agent ? `${who} owes ${point.who}` : point.who}</span>: {point.what}
+              </p>
+              <p className="mt-0.5 text-[11px] text-zinc-400">
+                {REPLY_KIND[point.kind]}{point.by_when ? ` · by ${shortDate(point.by_when)}` : ''}{point.urgent ? ' · urgent' : ''}
+              </p>
+              {point.note && <p className="mt-1 text-xs text-zinc-300">{point.note}</p>}
             </div>
-          )}
-        </NotePill>
-      )}
-      {proposals.length > 0 && (
-        <NotePill
-          label={`${proposals.length} to approve`}
-          icon={<HelpCircle size={11} aria-hidden="true" />}
-          width={460}
-          className="!bg-amber-500/[0.14] !text-amber-200 hover:!bg-amber-500/[0.22]"
-        >
-          <NoteCardHeader name={who} avatar={avatar} at={at} />
-          <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-amber-300">Waiting for your OK</p>
-          <ul className="space-y-3">
-            {proposals.map((item) => (
-              <li key={item.id} className="rounded-lg bg-white/[0.03] px-3 py-2.5">
-                <p className="text-sm font-medium text-zinc-100">{item.label}</p>
-                {item.project_name && <p className="mt-0.5 text-[11px] text-zinc-400">{item.project_name}</p>}
-                {item.decision_reason && <p className="mt-1 text-xs text-zinc-300">{item.decision_reason}</p>}
-                {item.evidence && <p className="mt-1 text-xs italic text-zinc-400">&ldquo;{item.evidence}&rdquo;</p>}
-                {act && (
-                  <div className="mt-2 flex flex-wrap justify-end gap-2">
-                    <Button size="sm" variant="ghost" disabled={pending !== null} onClick={() => void act('dismiss', item.id)}
-                      aria-label={`Dismiss: ${item.label}`} icon={<X size={12} aria-hidden="true" />}>
-                      Dismiss
-                    </Button>
-                    <Button size="sm" disabled={pending !== null} onClick={() => void act('accept', item.id)}
-                      aria-label={`Accept: ${item.label}`} icon={pending === item.id ? spinner : <Check size={12} aria-hidden="true" />}>
-                      Accept
-                    </Button>
-                  </div>
-                )}
-              </li>
-            ))}
-          </ul>
-        </NotePill>
-      )}
-      {owed.length > 0 && (
-        <NotePill
-          label={`${owed.length} ${owed.length === 1 ? 'reply' : 'replies'} owed`}
-          icon={<MessageSquareReply size={11} className="text-sky-300" aria-hidden="true" />}
-          width={440}
-        >
-          <NoteCardHeader name={who} avatar={avatar} at={at} />
-          <ul className="space-y-2.5">
-            {owed.map((point) => (
-              <li key={point.id} className="flex items-start gap-2 text-xs">
-                <MessageSquareReply size={12} className="mt-0.5 flex-shrink-0 text-sky-300" aria-hidden="true" />
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm text-zinc-100">
-                    <span className="font-semibold">{point.to_agent ? `${who} owes ${point.who}` : point.who}</span>: {point.what}
-                  </p>
-                  <p className="mt-0.5 text-[11px] text-zinc-400">
-                    {REPLY_KIND[point.kind]}{point.by_when ? ` · by ${shortDate(point.by_when)}` : ''}{point.urgent ? ' · urgent' : ''}
-                  </p>
-                  {point.note && <p className="mt-1 text-xs text-zinc-300">{point.note}</p>}
-                </div>
-                {act && (
-                  <Button size="sm" variant="ghost" className="!rounded-md !px-2 !py-0.5 flex-shrink-0" disabled={pending !== null}
-                    onClick={() => void act('resolve', point.id)} aria-label={`Mark as replied: ${point.what}`}
-                    icon={pending === point.id ? spinner : <Check size={12} aria-hidden="true" />}>
-                    Done
-                  </Button>
-                )}
-              </li>
-            ))}
-          </ul>
-        </NotePill>
-      )}
-    </>
+            {act && (
+              <Button size="sm" variant="ghost" className="!rounded-md !px-2 !py-0.5 flex-shrink-0" disabled={pending !== null}
+                onClick={() => void act('resolve', point.id)} aria-label={`Mark as replied: ${point.what}`}
+                icon={pending === point.id ? spinner : <Check size={12} aria-hidden="true" />}>
+                Done
+              </Button>
+            )}
+          </li>
+        ))}
+      </ul>
+    </NotePill>
   );
 }
 
@@ -1771,46 +2348,3 @@ const REPLY_KIND: Record<InboxReplyPoint['kind'], string> = {
   security: 'Access or security',
   schedule: 'Scheduling',
 };
-
-/** One thing the agent did: what, where, unsure or undone, and Undo. */
-function PlanItemRow({ item }: { item: InboxPlanItem }) {
-  const { act, pending } = useContext(PlanActionsContext);
-  const undone = item.state === 'undone';
-  const failed = item.state === 'failed';
-  const linkable = !!item.task_id && !!item.project_id && !undone && ['create_task', 'update_task', 'comment', 'attach_file', 'link_task'].includes(item.type);
-  return (
-    <li className="flex min-w-0 items-start gap-2 text-xs">
-      {failed
-        ? <AlertTriangle size={12} className="mt-0.5 flex-shrink-0 text-red-300" aria-hidden="true" />
-        : <SquareCheck size={12} className={`mt-0.5 flex-shrink-0 ${undone ? 'text-zinc-500' : 'text-emerald-300'}`} aria-hidden="true" />}
-      <div className="min-w-0 flex-1">
-        {linkable ? (
-          <Link href={`/projects/${item.project_id}?task=${item.task_id}`}
-            className="rounded font-medium text-zinc-100 underline decoration-white/20 underline-offset-2 hover:text-brand-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500">
-            {item.label}
-          </Link>
-        ) : (
-          <span className={`font-medium ${undone ? 'text-zinc-400 line-through' : 'text-zinc-100'}`}>{item.label}</span>
-        )}
-        <span className="ml-1.5 inline-flex flex-wrap items-center gap-1 align-middle">
-          {item.decision === 'apply_unsure' && !undone && (
-            <Tooltip content={item.decision_reason ?? 'Applied without being sure: check it, or undo it.'}>
-              <span className="rounded-full bg-amber-500/[0.14] px-1.5 py-px text-[10px] font-semibold text-amber-200">Unsure</span>
-            </Tooltip>
-          )}
-          {item.state === 'accepted' && <span className="rounded-full bg-white/[0.06] px-1.5 py-px text-[10px] text-zinc-300">You approved</span>}
-          {undone && <span className="text-[11px] text-zinc-400">Undone</span>}
-        </span>
-        {item.project_name && !undone && <p className="mt-0.5 text-[11px] text-zinc-400">{item.project_name}</p>}
-        {failed && <p className="mt-0.5 text-[11px] text-red-300">Did not go through: {item.error ?? 'unknown error'}</p>}
-      </div>
-      {act && (item.state === 'done' || item.state === 'accepted') && UNDOABLE.has(item.type) && (
-        <Button size="sm" variant="ghost" className="!rounded-md !px-2 !py-0.5 flex-shrink-0" disabled={pending !== null}
-          onClick={() => void act('undo', item.id)} aria-label={`Undo: ${item.label}`}
-          icon={pending === item.id ? spinner : <Undo2 size={12} aria-hidden="true" />}>
-          Undo
-        </Button>
-      )}
-    </li>
-  );
-}

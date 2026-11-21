@@ -455,7 +455,7 @@ interface AppContextType {
   reminders: Reminder[];
   addReminder: (fields: ReminderFields) => Promise<Reminder | undefined>;
   updateReminder: (id: string, updates: Partial<ReminderFields>) => Promise<void>;
-  deleteReminder: (id: string) => Promise<void>;
+  deleteReminder: (id: string) => Promise<boolean>;
   /** Everything in Trash the member may restore, newest first. */
   loadTrash: () => Promise<TrashItem[]>;
   /** Brings a record back from Trash; false after a refusal (already toasted with the reason). */
@@ -4251,21 +4251,23 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const deleteReminderAction = async (id: string) => {
+  const deleteReminderAction = async (id: string): Promise<boolean> => {
     const before = reminders;
     setReminders(prev => prev.filter(r => r.id !== id));
     if (skipSupabase) {
       const reminder = before.find(r => r.id === id);
       trashInDemo('reminders', id, reminder?.title ?? 'Reminder', projectName(reminder?.project_id), reminder?.project_id ?? null,
         () => setReminders(rollbackScope(before, r => r.id === id)));
-      return;
+      return true;
     }
     try {
       await deleteReminderQuery(supabase, id);
+      return true;
     } catch (err) {
       console.error('Failed to delete reminder:', err);
       setReminders(rollbackScope(before, r => r.id === id));
       toast('error', 'Could not delete the reminder');
+      return false;
     }
   };
 

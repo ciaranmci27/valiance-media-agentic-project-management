@@ -1,10 +1,9 @@
 'use client';
 
-import { Fragment, useMemo, useState, type ReactNode } from 'react';
+import { Fragment, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { Bell, CalendarClock, Check, ChevronDown, CircleSlash, ExternalLink, ListChecks, Loader2, MessageSquare, PenLine, Plus, RefreshCw, SquarePlus, Undo2, Users, X } from 'lucide-react';
+import { Bell, CalendarClock, ChevronDown, CircleSlash, ExternalLink, Loader2, PenLine, Plus, RefreshCw, Users, X } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
-import { Tooltip } from '@/components/ui/Tooltip';
 import { TextInput } from '@/components/ui/inputs/TextInput';
 import { DateInput } from '@/components/ui/inputs/DateInput';
 import { useRead } from '@/lib/query-cache';
@@ -111,113 +110,6 @@ export interface SuggestionsOutcome {
   undoing: boolean;
 }
 
-/**
- * A meeting's waiting suggestions, under its notes or transcript, as a checklist: each
- * one can be added, changed then added, or skipped, and the whole set added
- * or waved off with Nothing to do. From a meeting the agent only suggests,
- * so nothing here exists until a person adds it.
- */
-export function MeetingSuggestions({ items, agentName, onAdd, onSkip, pendingId, onAddAll, onNothingToDo, bulk, outcome }: {
-  items: MeetingSuggestion[];
-  agentName: string;
-  /** Absent for members who only view the inbox. Resolves true once it was added. */
-  onAdd?: (item: MeetingSuggestion, edits?: SuggestionEdits) => Promise<boolean>;
-  onSkip?: (item: MeetingSuggestion) => Promise<void>;
-  /** The suggestion whose action is running. */
-  pendingId: string | null;
-  onAddAll?: () => void;
-  /** Offered while the meeting still waits on someone and is not marked yet. */
-  onNothingToDo?: () => void;
-  bulk: 'add_all' | 'nothing' | null;
-  outcome: SuggestionsOutcome | null;
-}) {
-  const busy = bulk !== null || pendingId !== null;
-  // The project shows on each row only when the suggestions span more than one.
-  const mixedProjects = new Set(items.map((item) => item.project_id)).size > 1;
-  if (!items.length && !outcome && !onNothingToDo) return null;
-  const spinner = <Loader2 size={13} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />;
-  return (
-    <section aria-labelledby="meeting-suggestions" className="mt-4 min-w-0 rounded-xl border border-white/[0.07] bg-white/[0.02] p-3 sm:p-4">
-      <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2">
-        <h3 id="meeting-suggestions" className="flex min-w-0 items-center gap-1.5 text-sm font-semibold text-white">
-          <ListChecks size={15} className="text-brand-300" aria-hidden="true" />
-          {items.length ? `${agentName} suggests (${items.length})` : 'Suggestions'}
-        </h3>
-        {(onNothingToDo || (onAddAll && items.length > 0)) && (
-          <span className="ml-auto flex flex-wrap items-center gap-1.5">
-            {onNothingToDo && (
-              <Tooltip content={items.length ? 'Skips every suggestion and marks the meeting handled. Undo puts them back.' : 'Marks the meeting handled, with no new work from it.'}>
-                <Button size="sm" variant="ghost" disabled={busy} onClick={onNothingToDo}
-                  icon={bulk === 'nothing' ? spinner : <CircleSlash size={13} aria-hidden="true" />}>
-                  Nothing to do
-                </Button>
-              </Tooltip>
-            )}
-            {onAddAll && items.length > 0 && (
-              <Button size="sm" disabled={busy} onClick={onAddAll} icon={bulk === 'add_all' ? spinner : <Plus size={13} aria-hidden="true" />}>
-                {items.length === 1 ? 'Add it' : `Add all ${items.length}`}
-              </Button>
-            )}
-          </span>
-        )}
-      </div>
-      {outcome && (
-        <p className="mt-2.5 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg bg-white/[0.04] px-2.5 py-1.5 text-xs text-zinc-200" role="status">
-          <Check size={13} className="flex-shrink-0 text-emerald-300" aria-hidden="true" />
-          <span className="min-w-0 flex-1 break-words">{outcome.text}</span>
-          {outcome.onUndo && (
-            <Button size="sm" variant="ghost" className="!rounded-md !px-2 !py-0.5" disabled={outcome.undoing || busy} onClick={outcome.onUndo}
-              icon={outcome.undoing ? spinner : <Undo2 size={12} aria-hidden="true" />}>
-              Undo
-            </Button>
-          )}
-        </p>
-      )}
-      {items.length > 0 ? (
-        <div className="mt-3 space-y-3">
-          {SUGGESTION_GROUPS.map((group) => {
-            const inGroup = items.filter((item) => groupOf(item) === group.key);
-            if (!inGroup.length) return null;
-            return (
-              <div key={group.key} className="min-w-0 space-y-1.5">
-                <p className="flex items-center gap-1.5 text-[11px] font-medium text-zinc-400">
-                  {group.icon}
-                  {inGroup.length === 1 ? group.one : group.many} ({inGroup.length})
-                </p>
-                <ul className="space-y-2" aria-label={group.many}>
-                  {inGroup.map((item) => (
-                    <SuggestionRow key={item.id} item={item} onAdd={onAdd} onSkip={onSkip} pending={pendingId === item.id} busy={busy}
-                      showProject={mixedProjects} />
-                  ))}
-                </ul>
-              </div>
-            );
-          })}
-        </div>
-      ) : !outcome && (
-        <p className="mt-1.5 text-xs text-zinc-400">No suggestions are waiting.</p>
-      )}
-    </section>
-  );
-}
-
-type SuggestionGroup = 'task' | 'reminder' | 'comment' | 'other';
-
-/** The checklist in the order a person settles it: new work, then follow-ups, then notes on work that exists. */
-const SUGGESTION_GROUPS: { key: SuggestionGroup; one: string; many: string; icon: ReactNode }[] = [
-  { key: 'task', one: 'New task', many: 'New tasks', icon: <SquarePlus size={12} aria-hidden="true" /> },
-  { key: 'reminder', one: 'Reminder', many: 'Reminders', icon: <Bell size={12} aria-hidden="true" /> },
-  { key: 'comment', one: 'Comment on an existing task', many: 'Comments on existing tasks', icon: <MessageSquare size={12} aria-hidden="true" /> },
-  { key: 'other', one: 'Other change', many: 'Other changes', icon: <ListChecks size={12} aria-hidden="true" /> },
-];
-
-function groupOf(item: MeetingSuggestion): SuggestionGroup {
-  if (item.type === 'create_task') return 'task';
-  if (item.type === 'add_reminder') return 'reminder';
-  if (item.type === 'comment') return 'comment';
-  return 'other';
-}
-
 /** The row's headline under its group: the title alone, without the "New task:" a group heading already says. */
 function headline(item: MeetingSuggestion): string {
   if (item.type === 'create_task' || item.type === 'add_reminder') return item.title || item.label;
@@ -229,13 +121,21 @@ function headline(item: MeetingSuggestion): string {
 /** A body longer than this folds to three lines with "Show more". */
 const BODY_FOLD = 220;
 
-function SuggestionRow({ item, onAdd, onSkip, pending, busy, showProject }: {
+/**
+ * One suggestion waiting for an OK: what it is, why it waits, and Add,
+ * Change (title and due date first) or Skip. Nothing exists until it is added.
+ */
+export function SuggestionRow({ item, onAdd, onSkip, pending, busy, showProject, showReason = false, className = 'rounded-lg bg-white/[0.03] px-3 py-2.5' }: {
   item: MeetingSuggestion;
   onAdd?: (item: MeetingSuggestion, edits?: SuggestionEdits) => Promise<boolean>;
   onSkip?: (item: MeetingSuggestion) => Promise<void>;
   pending: boolean;
   busy: boolean;
   showProject: boolean;
+  /** Why it waits for an OK (an email's proposal); a meeting's always wait, so they leave it out. */
+  showReason?: boolean;
+  /** The row's own surface; inside a divided list it takes only padding. */
+  className?: string;
 }) {
   const changeable = !!onAdd && (item.type === 'create_task' || item.type === 'add_reminder');
   const [changing, setChanging] = useState(false);
@@ -255,7 +155,7 @@ function SuggestionRow({ item, onAdd, onSkip, pending, busy, showProject }: {
   const taskHref = item.type === 'comment' && item.task_id && item.project_id ? `/projects/${item.project_id}?task=${item.task_id}` : null;
   const long = (item.body?.length ?? 0) > BODY_FOLD;
   return (
-    <li className="min-w-0 rounded-lg bg-white/[0.03] px-3 py-2.5">
+    <li className={`min-w-0 ${className}`}>
       <div className="flex flex-wrap items-start gap-x-3 gap-y-2">
         {/* Phones: the text takes the whole row and the buttons wrap under it. */}
         <div className="min-w-0 basis-full sm:flex-1 sm:basis-0">
@@ -279,6 +179,7 @@ function SuggestionRow({ item, onAdd, onSkip, pending, busy, showProject }: {
             )}
           </p>
           {showProject && item.project_name && <p className="mt-0.5 truncate text-[11px] text-zinc-400">{item.project_name}</p>}
+          {showReason && item.decision_reason && <p className="mt-1 break-words text-xs text-zinc-300 [overflow-wrap:anywhere]">{item.decision_reason}</p>}
           {item.body && (
             <div className="mt-1">
               <p className={`whitespace-pre-line break-words text-xs leading-relaxed text-zinc-300 [overflow-wrap:anywhere] ${long && !open ? 'line-clamp-3' : ''}`}>

@@ -328,6 +328,8 @@ export interface InboxPlanItem {
   due_date?: string | null;
   /** A suggested reminder's day (YYYY-MM-DD), when it has one. */
   remind_on?: string | null;
+  /** The task or reminder it made is finished since: it reads as done, with nothing to wave off. */
+  target_done?: boolean;
 }
 
 export interface InboxPlan {
@@ -423,6 +425,8 @@ export interface InboxReminder {
   task_id: string | null;
   /** The viewer's own reminder (marking the thread handled closes their "Reply to ..." ones). */
   mine?: boolean;
+  /** Who set it: an agent's reminder can be waved off as "Not needed". */
+  created_by?: string | null;
 }
 
 export interface SetThreadProjectRequest {
@@ -493,6 +497,20 @@ export interface MeetingDismissResult {
 export interface MeetingDismissUndo {
   skipped: string[];
   handled: MeetingHandledMessage[];
+}
+
+/**
+ * What one "Undo all" on the agent's work took back, so "Restore all" can put
+ * exactly that back: the plan items it undid, the tasks and reminders the
+ * agent made that went to Trash, the links it removed, and what stayed.
+ */
+export interface AgentWorkUndo {
+  plan_items: string[];
+  tasks: string[];
+  reminders: string[];
+  links: { message_id: string; task_id: string; relation: TaskLinkRelation; triage_id: string | null; linked_by: string | null }[];
+  /** What stayed as it was, and why ("done, so it stays"). */
+  kept: { label: string; reason: string }[];
 }
 
 // -- Settings ---------------------------------------------------------------

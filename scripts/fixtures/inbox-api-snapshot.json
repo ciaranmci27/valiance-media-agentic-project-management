@@ -23784,7 +23784,8 @@
        "remind_on": "2026-11-11",
        "status": "open",
        "task_id": "<task:Footer copy>",
-       "mine": false
+       "mine": false,
+       "created_by": null
       },
       {
        "id": "<reminder:My own note>",
@@ -23792,7 +23793,8 @@
        "remind_on": "2026-11-13",
        "status": "open",
        "task_id": null,
-       "mine": true
+       "mine": true,
+       "created_by": "<ids.owner>"
       }
      ],
      "plan": null,
@@ -27392,7 +27394,8 @@
        "remind_on": null,
        "status": "open",
        "task_id": null,
-       "mine": true
+       "mine": true,
+       "created_by": "<ids.owner>"
       },
       {
        "id": "<reminder:Chase the decks>",
@@ -27400,7 +27403,8 @@
        "remind_on": null,
        "status": "open",
        "task_id": null,
-       "mine": true
+       "mine": true,
+       "created_by": "<ids.ashley>"
       }
      ],
      "plan": null,

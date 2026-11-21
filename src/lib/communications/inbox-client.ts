@@ -2,7 +2,7 @@
 
 import { demoInbox, demoInboxSettings } from './inbox-demo';
 import type {
-  ClientEmailDomain, ClientSenderAddress, ClientSenderAddressList, InboxReplyDraft, MeetingAddAllResult, MeetingDismissResult, MeetingDismissUndo, InboxSettings, InboxSettingsInput, InboxSettingsList, InboxTab, InboxThreadDetail, InboxThreadList,
+  AgentWorkUndo, ClientEmailDomain, ClientSenderAddress, ClientSenderAddressList, InboxReplyDraft, MeetingAddAllResult, MeetingDismissResult, MeetingDismissUndo, InboxSettings, InboxSettingsInput, InboxSettingsList, InboxTab, InboxThreadDetail, InboxThreadList,
   MxStatus, ProjectEmailAddress, ProjectEmailAddressInput, ProjectEmailAddressList, SetThreadProjectRequest, SetThreadProjectResult,
   OwnDomain, TaskSourceEmails, YourAddress, YourAddressInput, YourAddressList, YourAddressPatchInput,
 } from './inbox-types';
@@ -110,6 +110,21 @@ export function inboxClient(isDemo: boolean) {
     },
     undoPlanItem(itemId: string): Promise<{ undone?: boolean; changed_since?: boolean; skipped?: string }> {
       return isDemo ? demoInbox.resolvePlanItem(itemId, 'undone') : post(`/api/workspace/inbox/plan-items/${itemId}/undo`);
+    },
+    /** Takes back an undo (its work returns) or a skip (the suggestion waits again). */
+    async restorePlanItem(itemId: string): Promise<{ restored: boolean; state: string }> {
+      if (isDemo) throw new Error('Restore is off in demo mode');
+      return post(`/api/workspace/inbox/plan-items/${itemId}/restore`);
+    },
+    /** Undo all: what the agent did with these emails (every one of the thread when null), or only its links to one task. */
+    async undoAgentWork(threadId: string, request: { message_ids: string[] | null; task_id?: string | null }): Promise<AgentWorkUndo> {
+      if (isDemo) throw new Error('Undo all is off in demo mode');
+      return post(`/api/workspace/inbox/threads/${threadId}/agent-work`, { message_ids: request.message_ids, task_id: request.task_id ?? null });
+    },
+    /** Restore all: what one Undo all took back, put back. */
+    async restoreAgentWork(threadId: string, undo: AgentWorkUndo): Promise<{ restored: number; kept: AgentWorkUndo['kept'] }> {
+      if (isDemo) throw new Error('Restore is off in demo mode');
+      return call(`/api/workspace/inbox/threads/${threadId}/agent-work`, { method: 'DELETE', body: JSON.stringify(undo) });
     },
     undoPlan(planId: string): Promise<unknown> {
       return isDemo ? demoInbox.undoPlan(planId) : post(`/api/workspace/inbox/plans/${planId}/undo`);

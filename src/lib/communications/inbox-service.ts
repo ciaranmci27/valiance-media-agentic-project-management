@@ -856,10 +856,14 @@ export async function threadDetail(ctx: InboxContext, threadId: string): Promise
           status: reminder.status as 'open' | 'done',
           task_id: (reminder.task_id as string | null) ?? null,
           mine: reminder.owner_id === ctx.memberId,
+          created_by: reminder.created_by ?? null,
         })),
       plan: plans.forMessage(id, (projectId) => projectLabel(ctx, names, projectId), (taskId) => {
         const task = tasks.find((t) => t.id === taskId);
         return task && accessAllowsProject(ctx.access, task.project_id) ? task.title : null;
+      }, {
+        task: (taskId) => tasks.some((t) => t.id === taskId && t.status === 'done'),
+        reminder: (reminderId) => reminderRows.some((r) => r.id === reminderId && r.status === 'done'),
       }),
       reply_points: plans.points.filter((point) => point.message_id === id).map((point): InboxReplyPoint => ({
         id: point.id, who: point.who, what: point.what, kind: point.kind, by_when: point.by_when, urgent: point.urgent,
@@ -1224,7 +1228,7 @@ async function threadPlans(ctx: InboxContext, threadId: string, messageIds: stri
   const [items, points] = await Promise.all([
     planIds.length
       ? many<Row & { plan_id: string; position: number }>(comms(ctx.service).from('plan_items')
-        .select('id, plan_id, position, type, intent, decision, decision_reason, state, payload, evidence, project_id, task_id, error').in('plan_id', planIds).order('position'))
+        .select('id, plan_id, position, type, intent, decision, decision_reason, state, payload, evidence, project_id, task_id, error, result').in('plan_id', planIds).order('position'))
       : Promise.resolve([] as (Row & { plan_id: string; position: number })[]),
     many<Row & InboxReplyPoint & { message_id: string | null }>(comms(ctx.service).from('reply_points')
       .select('id, message_id, who, what, kind, by_when, urgent, to_agent, note, state').eq('conversation_id', threadId).order('created_at')),
@@ -1234,7 +1238,8 @@ async function threadPlans(ctx: InboxContext, threadId: string, messageIds: stri
       .filter((id): id is string => typeof id === 'string' && !!id),
     projectIds: items.map((item) => item.project_id as string | null).filter((id): id is string => !!id),
     points,
-    forMessage(messageId: string, project: (id: string) => string | null, task: (id: string) => string | null): InboxPlan | null {
+    forMessage(messageId: string, project: (id: string) => string | null, task: (id: string) => string | null,
+      done: { task: (id: string) => boolean; reminder: (id: string) => boolean }): InboxPlan | null {
       const plan = newest.get(messageId);
       if (!plan) return null;
       return {
@@ -1260,6 +1265,12 @@ async function threadPlans(ctx: InboxContext, threadId: string, messageIds: stri
             title: (((item.payload ?? {}) as Row).title as string | undefined) ?? null,
             ...(item.type === 'create_task' ? { due_date: (((item.payload ?? {}) as Row).due_date as string | null | undefined) ?? null } : {}),
             ...(item.type === 'add_reminder' ? { remind_on: (((item.payload ?? {}) as Row).remind_on as string | null | undefined) ?? null } : {}),
+          } : {}),
+          // What it made, finished since: a done task or reminder is not one to wave off.
+          ...(['done', 'accepted'].includes(item.state as string) && (item.type === 'create_task' || item.type === 'add_reminder') ? {
+            target_done: item.type === 'create_task'
+              ? !!item.task_id && done.task(item.task_id as string)
+              : typeof ((item.result ?? {}) as Row).reminder_id === 'string' && done.reminder(((item.result ?? {}) as Row).reminder_id as string),
           } : {}),
         })),
       };

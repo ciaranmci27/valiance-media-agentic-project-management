@@ -24,14 +24,16 @@ import { actAs, createFullSchemaDatabase } from './full-schema-db';
 const MIGRATIONS_DIR = join(__dirname, '..', 'supabase', 'migrations');
 /** The schema files as they were before this change (the branch point from main). */
 const BASE_REF = execFileSync('git', ['merge-base', 'HEAD', 'origin/main'], { encoding: 'utf8' }).trim();
-const atBase = (path: string) => execFileSync('git', ['show', `${BASE_REF}:app/supabase/${path}`], { encoding: 'utf8' });
+/** The app folder's path inside the repo: 'app/' in the monorepo, '' in the public repo and installs. */
+const APP_PREFIX = execFileSync('git', ['rev-parse', '--show-prefix'], { cwd: join(__dirname, '..'), encoding: 'utf8' }).trim();
+const atBase = (path: string) => execFileSync('git', ['show', `${BASE_REF}:${APP_PREFIX}supabase/${path}`], { encoding: 'utf8' });
 /**
  * The migrations this branch adds over its base, in order: replayed on the
  * base schema, they must arrive at schema.sql. (Replaying older migrations on
  * a newer base fails once a later migration has moved what they name.)
  */
 const BASE_MIGRATIONS = new Set(
-  execFileSync('git', ['ls-tree', '--name-only', '--full-tree', BASE_REF, 'app/supabase/migrations/'], { encoding: 'utf8' })
+  execFileSync('git', ['ls-tree', '--name-only', '--full-tree', BASE_REF, `${APP_PREFIX}supabase/migrations/`], { encoding: 'utf8' })
     .split(/\r?\n/).filter(Boolean).map((path) => path.slice(path.lastIndexOf('/') + 1)),
 );
 const MIGRATIONS = readdirSync(MIGRATIONS_DIR)

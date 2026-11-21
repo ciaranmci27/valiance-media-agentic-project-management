@@ -145,7 +145,9 @@ async function main() {
   try {
     // ---- A linked meeting reads as a meeting on the task, an email as an email ----
     const linkedTo = id(98);
-    await q(`INSERT INTO public.tasks (id, project_id, title, created_by) VALUES ($1, $2, 'Linked both ways', $3)`, [linkedTo, ids.acme, ids.owner]);
+    // Created a minute ago: record_task_event skips a task created at the same
+    // instant (its creation is the event), and two quick statements can share a timestamp.
+    await q(`INSERT INTO public.tasks (id, project_id, title, created_by, created_at) VALUES ($1, $2, 'Linked both ways', $3, now() - interval '1 minute')`, [linkedTo, ids.acme, ids.owner]);
     await q(`INSERT INTO communications.task_links (message_id, task_id, relation) VALUES ($1, $3, 'related'), ($2, $3, 'related')`,
       [ids.kickoffTranscript, ids.emailMessage, linkedTo]);
     const kinds = (await q<{ kind: string }>('SELECT kind FROM public.task_events WHERE task_id = $1 ORDER BY kind', [linkedTo])).map((row) => row.kind);
