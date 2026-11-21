@@ -12,7 +12,7 @@ import Link from 'next/link';
 import Modal from '@/components/ui/Modal';
 import { FolderKanban, CheckCircle, Clock, AlertTriangle, Plus, ArrowRight, Users, Target, Activity, DollarSign, Wallet } from 'lucide-react';
 import { Tooltip } from '@/components/ui/Tooltip';
-import { Sparkline } from '@/components/ui/Sparkline';
+import { StatStrip } from '@/components/ui/StatStrip';
 import { parseDateOnly, toLocalDateKey } from '@/lib/date-utils';
 import { hasPermission } from '@/lib/access-control';
 import { computeCompanyFinanceSummary, computeMemberEarningsSummary } from '@/lib/finance/summary';
@@ -199,22 +199,19 @@ export default function DashboardPage() {
   const kpis: Kpi[] = financeCards.length
     ? [
         ...financeCards,
-        { label: 'Active Projects', value: activeProjects.length, icon: FolderKanban, context: `${projects.length} total` },
+        { label: 'Active projects', value: activeProjects.length, icon: FolderKanban, context: `${projects.length} total` },
         ...(canViewLeads
-          ? [{ label: 'Active Leads', value: activeLeads.length, icon: Target, context: newLeadsThisWeek > 0 ? `${newLeadsThisWeek} new this week` : `${leads.length} total`, up: newLeadsThisWeek > 0 } as Kpi]
-          : [{ label: 'In Progress', value: inProgressTasks.length, icon: Clock, context: `${dueThisWeek.length} due this week` } as Kpi]),
+          ? [{ label: 'Active leads', value: activeLeads.length, icon: Target, context: newLeadsThisWeek > 0 ? `${newLeadsThisWeek} new this week` : `${leads.length} total`, up: newLeadsThisWeek > 0 } as Kpi]
+          : [{ label: 'In progress', value: inProgressTasks.length, icon: Clock, context: `${dueThisWeek.length} due this week` } as Kpi]),
       ]
     : [
-        { label: 'Active Projects', value: activeProjects.length, icon: FolderKanban, context: `${projects.length} total` },
-        { label: 'In Progress', value: inProgressTasks.length, icon: Clock, context: `${dueThisWeek.length} due this week` },
+        { label: 'Active projects', value: activeProjects.length, icon: FolderKanban, context: `${projects.length} total` },
+        { label: 'In progress', value: inProgressTasks.length, icon: Clock, context: `${dueThisWeek.length} due this week` },
         { label: 'Completed', value: doneTasks.length, icon: CheckCircle, context: completedThisWeek > 0 ? `${completedThisWeek} this week` : 'this week', up: completedThisWeek > 0, spark: completedPerDay },
-        ...(canViewLeads ? [{ label: 'Active Leads', value: activeLeads.length, icon: Target, context: newLeadsThisWeek > 0 ? `${newLeadsThisWeek} new this week` : `${leads.length} total`, up: newLeadsThisWeek > 0 } as Kpi] : []),
+        ...(canViewLeads ? [{ label: 'Active leads', value: activeLeads.length, icon: Target, context: newLeadsThisWeek > 0 ? `${newLeadsThisWeek} new this week` : `${leads.length} total`, up: newLeadsThisWeek > 0 } as Kpi] : []),
         ...(canViewContacts && !canViewLeads ? [{ label: 'Contacts', value: contacts.length, icon: Users, context: `${contacts.length} total` } as Kpi] : []),
       ];
 
-  // The tiles fill one row on desktop whatever the switched-on modules leave
-  // (three or four), so a module that is off never leaves a hole.
-  const kpiCols = kpis.length <= 3 ? 'lg:grid-cols-3' : 'lg:grid-cols-4';
   // Without the pipeline beside it the Activity chart takes the whole row,
   // rather than repeating Quick Actions from the rail below.
   const showPipeline = canViewLeads && leads.length > 0;
@@ -254,28 +251,19 @@ export default function DashboardPage() {
         {/* First-run setup: Owners on a fresh install only. */}
         <WorkspaceSetupCard />
 
-        {/* KPI tiles */}
-        <div className={`flex overflow-x-auto gap-3 lg:grid ${kpiCols} lg:gap-4 -mx-4 px-4 lg:mx-0 lg:px-0 scrollbar-none`}>
-          {kpis.map((kpi) => (
-            <div key={kpi.label} className="min-w-[180px] flex-shrink-0 lg:min-w-0 glass-card rounded-xl p-4 lg:p-5">
-              <div className="flex items-start justify-between">
-                <div>
-                  <p className="text-xs lg:text-sm text-zinc-500 font-medium">{kpi.label}</p>
-                  <p className="text-2xl lg:text-3xl font-bold tracking-tight text-white mt-0.5 leading-none">{kpi.display ?? kpi.value}</p>
-                </div>
-                <div className="w-8 h-8 lg:w-9 lg:h-9 rounded-lg grid place-items-center bg-white/[0.06] text-zinc-400 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)]">
-                  <kpi.icon size={17} />
-                </div>
-              </div>
-              <div className="flex items-center justify-between gap-2 mt-3.5">
-                <span className={`text-xs font-medium ${kpi.up ? 'text-emerald-300/90' : 'text-zinc-500'}`}>
-                  {kpi.up && <span aria-hidden="true">&#9650; </span>}{kpi.context}
-                </span>
-                {kpi.spark && <Sparkline data={kpi.spark} />}
-              </div>
-            </div>
-          ))}
-        </div>
+        {/* Headline numbers: one strip, whatever the switched-on modules leave. */}
+        <StatStrip
+          label="Headline numbers"
+          stats={kpis.map((kpi) => ({
+            label: kpi.label,
+            value: kpi.display ?? kpi.value,
+            icon: kpi.icon,
+            spark: kpi.spark,
+            context: kpi.up ? (
+              <span className="text-emerald-300/90"><span aria-hidden="true">&#9650; </span>{kpi.context}</span>
+            ) : kpi.context,
+          }))}
+        />
 
         {/* The install's own cards placed at the top (src/custom). */}
         <CustomWidgets placement="top" />

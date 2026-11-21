@@ -15,6 +15,7 @@ import {
 import { Button } from '@/components/ui/Button';
 import Modal from '@/components/ui/Modal';
 import { toast } from '@/components/ui/Toast';
+import { StatStrip } from '@/components/ui/StatStrip';
 import { getWorkedHours } from '@/lib/time-entry-utils';
 import { hasPermission, isModuleEnabled } from '@/lib/access-control';
 import { useAuth } from '@/lib/auth-context';
@@ -906,14 +907,12 @@ export function PayrollPanel({ team, projects, reviewOnly = false }: { team: Tea
                   </span>
                 </div>
               </div>
-              <div className="mt-4 grid grid-cols-3 gap-2" aria-hidden="true">
-                {['Earned', 'Paid', 'Owed'].map((label) => (
-                  <div key={label}>
-                    <p className="text-[10px] uppercase text-zinc-500">{label}</p>
-                    <div className="mt-1 h-4 w-14 rounded bg-white/[0.08] motion-safe:animate-pulse" />
-                  </div>
-                ))}
-              </div>
+              <StatStrip
+                bare
+                loading
+                className="mt-4"
+                stats={[{ label: 'Earned', value: null }, { label: 'Paid', value: null }, { label: 'Owed', value: null }]}
+              />
             </div>
           ))}
           <span className="sr-only" role="status">
@@ -1228,22 +1227,16 @@ export function PayrollPanel({ team, projects, reviewOnly = false }: { team: Tea
                       )}
                     </div>
                   </div>
-                  <div className="mt-4 grid grid-cols-3 gap-2">
-                    <div>
-                      <p className="text-[10px] uppercase text-zinc-500">Earned</p>
-                      <p className="text-sm font-semibold">{money(balance.earned)}</p>
-                    </div>
-                    <div>
-                      <p className="text-[10px] uppercase text-zinc-500">Paid</p>
-                      <p className="text-sm font-semibold text-emerald-300">
-                        {money(balance.paid)}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-[10px] uppercase text-zinc-500">Owed</p>
-                      <p className="text-sm font-semibold text-amber-300">{money(balance.owed)}</p>
-                    </div>
-                  </div>
+                  <StatStrip
+                    bare
+                    className="mt-4"
+                    label={`${member.name} balance`}
+                    stats={[
+                      { label: 'Earned', value: money(balance.earned) },
+                      { label: 'Paid', value: money(balance.paid), tone: 'success' },
+                      { label: 'Owed', value: money(balance.owed), tone: 'warning' },
+                    ]}
+                  />
                   {missingApprovedRates > 0 && (
                     <p className="mt-3 text-xs font-medium text-red-400">
                       {missingApprovedRates} approved{' '}
@@ -1271,16 +1264,19 @@ export function PayrollPanel({ team, projects, reviewOnly = false }: { team: Tea
         size="4xl"
       >
         <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <LedgerStat label="Approved" value={money(earningsSummary.approved)} tone="approved" />
-            <LedgerStat label="Pending" value={money(earningsSummary.pending)} tone="pending" />
-            <LedgerStat
-              label="Paid"
-              value={money(ledgerMemberId ? balances.get(ledgerMemberId)?.paid || 0 : 0)}
-              tone="approved"
-            />
-            <LedgerStat label="Unpaid" value={money(earningsSummary.unpaid)} tone="pending" />
-          </div>
+          <StatStrip
+            label="Earnings summary"
+            stats={[
+              { label: 'Approved', value: money(earningsSummary.approved), tone: 'success' },
+              { label: 'Pending', value: money(earningsSummary.pending), tone: 'warning' },
+              {
+                label: 'Paid',
+                value: money(ledgerMemberId ? balances.get(ledgerMemberId)?.paid || 0 : 0),
+                tone: 'success',
+              },
+              { label: 'Unpaid', value: money(earningsSummary.unpaid), tone: 'warning' },
+            ]}
+          />
 
           <div className="seg-track flex-wrap">
             {(
@@ -1559,24 +1555,5 @@ export function PayrollPanel({ team, projects, reviewOnly = false }: { team: Tea
           );
         })()}
     </section>
-  );
-}
-
-function LedgerStat({
-  label,
-  value,
-  tone,
-}: {
-  label: string;
-  value: string;
-  tone?: 'approved' | 'pending';
-}) {
-  const color =
-    tone === 'approved' ? 'text-emerald-300' : tone === 'pending' ? 'text-amber-300' : 'text-white';
-  return (
-    <div className="rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2.5">
-      <p className="text-[10px] font-medium uppercase tracking-wider text-zinc-500">{label}</p>
-      <p className={`mt-0.5 text-sm font-semibold tabular-nums ${color}`}>{value}</p>
-    </div>
   );
 }

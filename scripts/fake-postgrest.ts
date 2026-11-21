@@ -10,8 +10,11 @@
  * the schema, as supabase-js's .schema() sends them; without one it is public.
  * `handle` can serve other paths (a Storage stand-in). Every request
  * runs in its own transaction as service_role with service_role claims and no
- * user, the way PostgREST runs a service-key request. Requests are serialized
- * because pglite has one connection.
+ * user, the way PostgREST runs a service-key request. With `userHeader` set, a
+ * request carrying that header runs as `authenticated` with the header's value
+ * as the user id instead, so row level security applies as for a signed-in
+ * person's client. An `or` filter may hold `and(...)` groups. Requests are
+ * serialized because pglite has one connection.
  */
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -40,7 +43,8 @@ function filter(column: string, expression: string, params: unknown[]): string {
   if (expression.startsWith("not.")) return `NOT (${filter(column, expression.slice(4), params)})`;
   const dot = expression.indexOf(".");
   const op = expression.slice(0, dot);
-  const value = expression.slice(dot + 1);
+  // A value with reserved characters (a timestamp inside `or`) comes double quoted.
+  const value = expression.slice(dot + 1).replace(/^"(.*)"$/, "$1");
   // `col->>key` filters a jsonb field as text, as PostgREST does.
   const path = /^([a-z_][a-z0-9_]*)->>([a-z_][a-z0-9_]*)$/.exec(column);
   const col = path ? `${ident(path[1])}->>'${path[2]}'` : ident(column);
@@ -115,8 +119,19 @@ function parseSelect(value: string | null): { columns: string[] | null; embeds: 
 
 export type ExtraHandler = (request: IncomingMessage, response: ServerResponse, url: URL) => Promise<boolean>;
 
+/**
+ * One `or` part: a plain `col.op.value`, or an `and(...)` group of them, as
+ * PostgREST nests them.
+ */
+function orPart(part: string, params: unknown[]): string {
+  const group = /^and\((.*)\)$/.exec(part);
+  if (group) return "(" + splitSelect(group[1]).map((inner) => orPart(inner, params)).join(" AND ") + ")";
+  const [col, ...rest] = part.split(".");
+  return filter(col, rest.join("."), params);
+}
+
 /** maxRows plays PostgREST's db-max-rows: no select returns more rows than this. */
-export async function startFakePostgrest(db: PGlite, options: { maxRows?: number; handle?: ExtraHandler } = {}) {
+export async function startFakePostgrest(db: PGlite, options: { maxRows?: number; handle?: ExtraHandler; userHeader?: string } = {}) {
   const maxRows = options.maxRows ?? 1000;
   let queue: Promise<unknown> = Promise.resolve();
   const serialized = <T>(work: () => Promise<T>): Promise<T> => {
@@ -144,9 +159,12 @@ export async function startFakePostgrest(db: PGlite, options: { maxRows?: number
   // Like PostgREST, the request's headers are readable as request.headers.
   const asService = <T>(headers: IncomingMessage["headers"], work: () => Promise<T>) =>
     serialized(async () => {
-      await db.exec("RESET ROLE; BEGIN; SET LOCAL ROLE service_role;");
-      await db.query("SELECT set_config('request.jwt.claims',$1,true), set_config('request.jwt.claim.sub','',true), set_config('request.jwt.claim.role','service_role',true), set_config('request.headers',$2,true)", [
-        JSON.stringify({ role: "service_role" }), JSON.stringify(headers),
+      const header = options.userHeader ? headers[options.userHeader.toLowerCase()] : undefined;
+      const user = (Array.isArray(header) ? header[0] : header) || "";
+      const role = user ? "authenticated" : "service_role";
+      await db.exec(`RESET ROLE; BEGIN; SET LOCAL ROLE ${role};`);
+      await db.query("SELECT set_config('request.jwt.claims',$1,true), set_config('request.jwt.claim.sub',$2,true), set_config('request.jwt.claim.role',$3,true), set_config('request.headers',$4,true)", [
+        JSON.stringify(user ? { role, sub: user } : { role }), user, role, JSON.stringify(headers),
       ]);
       try {
         const result = await work();
@@ -240,16 +258,7 @@ export async function startFakePostgrest(db: PGlite, options: { maxRows?: number
           else if (key === "or") {
             // Split at top-level commas: `col.not.in.(a,b)` keeps its list.
             const parts = splitSelect(value.replace(/^\(|\)$/g, ""));
-            where.push(
-              "(" +
-                parts
-                  .map((part) => {
-                    const [col, ...rest] = part.split(".");
-                    return filter(col, rest.join("."), params);
-                  })
-                  .join(" OR ") +
-                ")",
-            );
+            where.push("(" + parts.map((part) => orPart(part, params)).join(" OR ") + ")");
           } else where.push(filter(key, value, params));
         }
         const counted = (request.headers.prefer ?? "").includes("count=exact");

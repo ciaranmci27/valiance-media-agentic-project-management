@@ -6,6 +6,7 @@ import { Header } from '@/components/layout/Header';
 import { getWorkedHoursByHour, isRunning } from '@/lib/time-entry-utils';
 import { DateInput } from '@/components/ui/inputs/DateInput';
 import { Tooltip } from '@/components/ui/Tooltip';
+import { StatStrip } from '@/components/ui/StatStrip';
 import { Popover } from '@/components/ui/Popover';
 import { ensureLineItems, spreadLineItem } from '@/lib/invoice-utils';
 import {
@@ -1491,88 +1492,63 @@ export default function FinancesPage() {
             </div>
           </div>
 
-          <div className="px-5 py-3 sm:overflow-x-auto">
-            {/* Mobile: 3-col grid (all stats, no overflow, adapts to width).
-                sm+: single inline row that scrolls if needed. */}
-            {sourceData && attribution ? (
-              /* Source view: the contributor lens. Invoice metrics are
-                 company money, so they only render in the company view. */
-              <div className="grid grid-cols-2 gap-x-3 gap-y-4 sm:flex sm:gap-6 lg:gap-8 sm:min-w-max">
-                <div className="min-w-0 sm:shrink-0 sm:min-w-[5.5rem]">
-                  <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-500 mb-0.5">Earned</p>
-                  <p className={`text-sm font-semibold ${sourceData.totalEarned >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{fmtCurrency(sourceData.totalEarned)}</p>
-                </div>
-                <div className="min-w-0 sm:shrink-0 sm:min-w-[5.5rem]">
-                  <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-500 mb-0.5">Recorded cost</p>
-                  {attribution.recordedCost !== null
-                    ? <p className={`text-sm font-semibold ${attribution.recordedCost > 0 ? 'text-amber-400' : 'text-zinc-500'}`}>{fmtCurrency(attribution.recordedCost)}</p>
-                    : <NotTrackedValue className="text-sm" reason={costNotTrackedReason} />}
-                </div>
-                <div className="min-w-0 sm:shrink-0 sm:min-w-[5.5rem]">
-                  <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-500 mb-0.5">Contribution</p>
-                  {attribution.contribution !== null
-                    ? <p className={`text-sm font-semibold ${attribution.contribution >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{fmtCurrency(attribution.contribution)}</p>
-                    : <NotTrackedValue className="text-sm" reason={costNotTrackedReason} />}
-                </div>
-                <div className="min-w-0 sm:shrink-0 sm:min-w-[5.5rem]">
-                  <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-500 mb-0.5">Hours</p>
-                  <p className="text-sm font-semibold text-white">{sourceData.totalHours.toFixed(1)}</p>
-                </div>
-              </div>
-            ) : (
-              <div className="grid grid-cols-3 gap-x-3 gap-y-4 sm:flex sm:gap-6 lg:gap-8 sm:min-w-max">
-                <div className="min-w-0 sm:shrink-0 sm:min-w-[5.5rem]">
-                  <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-500 mb-0.5">Earned</p>
-                  <p className={`text-sm font-semibold ${data.totalEarned >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{fmtCurrency(data.totalEarned)}</p>
-                </div>
-                {/* Worked but unapproved value. Shown rather than folded into
-                    Earned so reviewing a session can only ever move this number
-                    into Earned, never make Earned fall. */}
-                {data.totalPendingEarned > 0.005 && (
-                  <div className="min-w-0 sm:shrink-0 sm:min-w-[5.5rem]">
-                    {/* Flex wrapper: the tooltip's trigger is inline-flex, which on
-                        its own sits on a 16px line box and drops this 10px label
-                        below the others in the row. */}
-                    <div className="flex mb-0.5">
-                      <Tooltip content="Worked time awaiting your approval. It becomes Earned once approved.">
-                        <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-500 cursor-help">Pending</p>
-                      </Tooltip>
-                    </div>
-                    <p className="text-sm font-semibold text-zinc-400">{fmtCurrency(data.totalPendingEarned)}</p>
-                  </div>
-                )}
-                <div className="min-w-0 sm:shrink-0 sm:min-w-[5.5rem]">
-                  <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-500 mb-0.5">Outstanding</p>
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    <p className={`text-sm font-semibold ${data.totalOutstanding > 0 ? 'text-amber-400' : 'text-zinc-500'}`}>
-                      ${fmt(data.totalOutstanding)}
-                    </p>
-                    {data.totalOverdue > 0 && (
-                      <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-red-500/15 text-red-400">
-                        ${fmt(data.totalOverdue)} overdue
-                      </span>
-                    )}
-                  </div>
-                </div>
-                <div className="min-w-0 sm:shrink-0 sm:min-w-[5.5rem]">
-                  <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-500 mb-0.5">Invoiced</p>
-                  <p className="text-sm font-semibold text-white">${fmt(data.totalInvoiced)}</p>
-                </div>
-                <div className="min-w-0 sm:shrink-0 sm:min-w-[5.5rem]">
-                  <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-500 mb-0.5">Received</p>
-                  <p className="text-sm font-semibold text-emerald-400">${fmt(data.totalPaymentsReceived)}</p>
-                </div>
-                <div className="min-w-0 sm:shrink-0 sm:min-w-[5.5rem]">
-                  <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-500 mb-0.5">Total Hours</p>
-                  <p className="text-sm font-semibold text-white">{data.totalHours.toFixed(1)}</p>
-                </div>
-                <div className="min-w-0 sm:shrink-0 sm:min-w-[5.5rem]">
-                  <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-500 mb-0.5">Invoices</p>
-                  <p className="text-sm font-semibold text-white">{data.activeInvoicesCount}</p>
-                </div>
-              </div>
-            )}
-          </div>
+          {sourceData && attribution ? (
+            /* Source view: the contributor lens. Invoice metrics are
+               company money, so they only render in the company view. */
+            <StatStrip
+              bare
+              className="px-5 py-4"
+              label="Contributor totals"
+              stats={[
+                { label: 'Earned', value: fmtCurrency(sourceData.totalEarned), tone: sourceData.totalEarned >= 0 ? 'success' : 'danger' },
+                {
+                  label: 'Recorded cost',
+                  value: attribution.recordedCost !== null ? fmtCurrency(attribution.recordedCost) : null,
+                  empty: <NotTrackedValue reason={costNotTrackedReason} />,
+                  tone: attribution.recordedCost !== null && attribution.recordedCost > 0 ? 'warning' : 'default',
+                },
+                {
+                  label: 'Contribution',
+                  value: attribution.contribution !== null ? fmtCurrency(attribution.contribution) : null,
+                  empty: <NotTrackedValue reason={costNotTrackedReason} />,
+                  tone: attribution.contribution !== null && attribution.contribution < 0 ? 'danger' : 'success',
+                },
+                { label: 'Hours', value: sourceData.totalHours.toFixed(1) },
+              ]}
+            />
+          ) : (
+            <StatStrip
+              bare
+              className="px-5 py-4"
+              label="Totals"
+              stats={[
+                { label: 'Earned', value: fmtCurrency(data.totalEarned), tone: data.totalEarned >= 0 ? 'success' : 'danger' },
+                // Worked but unapproved value. Shown rather than folded into
+                // Earned so reviewing a session can only ever move this number
+                // into Earned, never make Earned fall.
+                data.totalPendingEarned > 0.005 && {
+                  id: 'pending',
+                  label: (
+                    <Tooltip content="Worked time awaiting your approval. It becomes Earned once approved.">
+                      <span className="cursor-help">Pending</span>
+                    </Tooltip>
+                  ),
+                  value: fmtCurrency(data.totalPendingEarned),
+                  context: 'Awaiting approval',
+                },
+                {
+                  label: 'Outstanding',
+                  value: `$${fmt(data.totalOutstanding)}`,
+                  tone: data.totalOutstanding > 0 ? 'warning' : 'default',
+                  context: data.totalOverdue > 0 ? <span className="text-red-300">${fmt(data.totalOverdue)} overdue</span> : undefined,
+                },
+                { label: 'Invoiced', value: `$${fmt(data.totalInvoiced)}` },
+                { label: 'Received', value: `$${fmt(data.totalPaymentsReceived)}`, tone: 'success' },
+                { label: 'Total hours', value: data.totalHours.toFixed(1) },
+                { label: 'Invoices', value: data.activeInvoicesCount },
+              ]}
+            />
+          )}
         </div>
 
         {/* ── Main Grid ───────────────────────────────────── */}
@@ -2199,28 +2175,16 @@ export default function FinancesPage() {
                     {p.color && <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: p.color }} />}
                     <span className="text-sm font-medium text-white truncate">{p.name}</span>
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <p className="text-[10px] uppercase tracking-wider text-zinc-500 font-medium">Earned</p>
-                      <p className={`text-sm font-semibold ${p.earned >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{fmtCurrency(p.earned)}</p>
-                    </div>
-                    <div>
-                      <p className="text-[10px] uppercase tracking-wider text-zinc-500 font-medium">Received</p>
-                      <p className="text-sm font-semibold text-emerald-300">${fmt(p.received)}</p>
-                    </div>
-                    <div>
-                      <p className="text-[10px] uppercase tracking-wider text-zinc-500 font-medium">Outstanding</p>
-                      <p className={`text-sm font-semibold ${p.outstanding > 0 ? 'text-amber-400' : 'text-zinc-600'}`}>
-                        {p.outstanding > 0 ? `$${fmt(p.outstanding)}` : '-'}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-[10px] uppercase tracking-wider text-zinc-500 font-medium">Hours</p>
-                      <p className={`text-sm font-semibold ${p.hours > 0 ? 'text-violet-400' : 'text-zinc-600'}`}>
-                        {p.hours > 0 ? `${p.hours.toFixed(1)}h` : '-'}
-                      </p>
-                    </div>
-                  </div>
+                  <StatStrip
+                    bare
+                    label={`${p.name} totals`}
+                    stats={[
+                      { label: 'Earned', value: fmtCurrency(p.earned), tone: p.earned >= 0 ? 'success' : 'danger' },
+                      { label: 'Received', value: `$${fmt(p.received)}`, tone: 'success' },
+                      { label: 'Outstanding', value: p.outstanding > 0 ? `$${fmt(p.outstanding)}` : null, empty: '-', tone: 'warning' },
+                      { label: 'Hours', value: p.hours > 0 ? `${p.hours.toFixed(1)}h` : null, empty: '-' },
+                    ]}
+                  />
                 </Link>
               ))}
             </div>

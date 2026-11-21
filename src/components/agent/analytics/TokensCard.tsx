@@ -2,7 +2,7 @@
 
 import { Coins } from 'lucide-react';
 import type { TimeLine, TokenView } from '@/lib/agent-telemetry-analytics';
-import { Card, CardSkeleton, Label, LINE_STYLE, MiniStat, Missing, StatRow, fmtCount, fmtPct } from './shared';
+import { Card, CardSkeleton, Label, LINE_STYLE, CardStats, Missing, fmtCount, fmtPct } from './shared';
 
 const RATIOS = [
   { ratio: 'perMergedPr', count: 'mergedPrs', label: 'Per merged PR' },
@@ -35,26 +35,28 @@ export function TokensCard({ tokens, measuring, withheldReason }: {
         <Missing>Usage telemetry has not reported for this selection, so there are no tokens to show.</Missing>
       ) : (
         <div className="p-5 space-y-5">
-          <StatRow columns={3}>
-            <MiniStat
-              label="Usage ledger"
-              hint="Hermes' usage ledger: input, output and cached tokens per session. The total, and the source of model cost."
-              value={t.ledgerTokens === null ? null : fmtCount(t.ledgerTokens)}
-              empty="Not reported"
-            />
-            <MiniStat
-              label="Attributed to turns"
-              hint="Tokens tied to a specific turn: scheduled turns report their own, directed turns take their session's usage. Older turns carry none."
-              value={fmtCount(t.attributedTokens)}
-              sub={t.ledgerTokens ? `${fmtPct(Math.min(1, t.attributedTokens / t.ledgerTokens))} of the ledger` : undefined}
-            />
-            <MiniStat
-              label="Idle-token share"
-              hint="Idle checks, waiting and skipped turns, over every token attributed to a turn."
-              value={t.idleShare === null ? null : fmtPct(t.idleShare)}
-              valueClass={t.idleShare !== null && t.idleShare > 0.5 ? 'text-amber-400' : 'text-white'}
-            />
-          </StatRow>
+          <CardStats
+            stats={[
+              {
+                label: 'Usage ledger',
+                hint: "Hermes' usage ledger: input, output and cached tokens per session. The total, and the source of model cost.",
+                value: t.ledgerTokens === null ? null : fmtCount(t.ledgerTokens),
+                empty: 'Not reported',
+              },
+              {
+                label: 'Attributed to turns',
+                hint: "Tokens tied to a specific turn: scheduled turns report their own, directed turns take their session's usage. Older turns carry none.",
+                value: fmtCount(t.attributedTokens),
+                context: t.ledgerTokens ? `${fmtPct(Math.min(1, t.attributedTokens / t.ledgerTokens))} of the ledger` : undefined,
+              },
+              {
+                label: 'Idle-token share',
+                hint: 'Idle checks, waiting and skipped turns, over every token attributed to a turn.',
+                value: t.idleShare === null ? null : fmtPct(t.idleShare),
+                tone: t.idleShare !== null && t.idleShare > 0.5 ? 'warning' : 'default',
+              },
+            ]}
+          />
 
           {t.byOutcome.length > 0 && (
             <div>

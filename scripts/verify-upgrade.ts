@@ -21,7 +21,7 @@ import { isAllowedInstallChange, isClientOwned } from './lib/core-paths';
 import { checkCustomSql } from './lib/custom-sql';
 import { git, gitRun } from './lib/git';
 import { mergeJson, mergeJsonText, type Json } from './lib/json-merge';
-import { normalizeRemote, upgrade, type UpgradeSummary } from './upgrade';
+import { clearGeneratedTypes, normalizeRemote, upgrade, type UpgradeSummary } from './upgrade';
 
 const APP = join(__dirname, '..');
 
@@ -115,6 +115,26 @@ function jsonMergeCases() {
 /* ------------------------------------------------------------------ */
 /* Custom SQL and client-owned paths                                   */
 /* ------------------------------------------------------------------ */
+
+/** Stale Next.js route types are cleared before type-checking; the rest of .next stays. */
+function generatedTypesCases() {
+  const root = mkdtempSync(join(tmpdir(), 'pm-next-types-'));
+  try {
+    for (const file of ['.next/types/validator.ts', '.next/dev/types/routes.d.ts', '.next/cache/keep.json', '.next/BUILD_ID']) {
+      mkdirSync(dirname(join(root, file)), { recursive: true });
+      writeFileSync(join(root, file), 'x');
+    }
+    clearGeneratedTypes(root);
+    check('upgrade: generated route types are cleared before type-checking',
+      !existsSync(join(root, '.next/types')) && !existsSync(join(root, '.next/dev/types')));
+    check('upgrade: the rest of .next is left alone',
+      existsSync(join(root, '.next/cache/keep.json')) && existsSync(join(root, '.next/BUILD_ID')));
+    clearGeneratedTypes(root);
+    check('upgrade: clearing twice is harmless', true);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
 
 function rulesCases() {
   const ok = (sql: string) => {
@@ -502,6 +522,7 @@ function scenario() {
 
 try {
   jsonMergeCases();
+  generatedTypesCases();
   rulesCases();
   scenario();
 } catch (err) {

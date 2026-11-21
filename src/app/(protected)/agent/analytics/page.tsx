@@ -8,7 +8,7 @@ import { Header } from '@/components/layout/Header';
 import { Avatar } from '@/components/ui/Avatar';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { Popover } from '@/components/ui/Popover';
-import { Sparkline } from '@/components/ui/Sparkline';
+import { StatStrip, type StatTone } from '@/components/ui/StatStrip';
 import { DateInput } from '@/components/ui/inputs/DateInput';
 import {
   computeAgentAnalytics,
@@ -549,7 +549,7 @@ export default function AgentAnalyticsPage() {
         case 'revenue': return {
           ...metric,
           value: fmtCurrency(summary.revenue),
-          valueClass: 'text-white',
+          tone: 'default' as StatTone,
           // Approved hours only. Unapproved value is named rather than folded
           // in, so approving a session can only move money into this number.
           context: summary.pendingRevenue > 0.005
@@ -560,7 +560,7 @@ export default function AgentAnalyticsPage() {
         case 'modelCost': return {
           ...metric,
           value: summary.modelCost !== null ? fmtCurrency(summary.modelCost) : null,
-          valueClass: 'text-amber-400',
+          tone: 'warning' as StatTone,
           context: summary.modelCost !== null
             ? `In ${fmtCount(summary.inputTokens ?? 0)} · Out ${fmtCount(summary.outputTokens ?? 0)}`
             : 'Awaiting Hermes telemetry',
@@ -569,7 +569,7 @@ export default function AgentAnalyticsPage() {
         case 'profit': return {
           ...metric,
           value: summary.profit !== null ? fmtCurrency(summary.profit) : null,
-          valueClass: summary.profit !== null && summary.profit < 0 ? 'text-red-400' : 'text-emerald-400',
+          tone: (summary.profit !== null && summary.profit < 0 ? 'danger' : 'success') as StatTone,
           context: marginPct !== null ? `${marginPct}% margin` : 'Revenue minus model cost',
           notTracked: profitReason,
         };
@@ -582,7 +582,7 @@ export default function AgentAnalyticsPage() {
           return {
             ...metric,
             value: measured ? fmtDuration(fleet.activeMs) : null,
-            valueClass: 'text-sky-300',
+            tone: 'info' as StatTone,
             context: measured && fleet.productiveShare !== null
               ? `${Math.round(fleet.productiveShare * 100)}% work · ${fleet.turns.toLocaleString('en-US')} turns`
               : 'Time the agents actually ran',
@@ -604,7 +604,7 @@ export default function AgentAnalyticsPage() {
           return {
             ...metric,
             value: telemetry.merged ? summary.prsMerged.toLocaleString('en-US') : null,
-            valueClass: 'text-white',
+            tone: 'default' as StatTone,
             context: parts.length ? parts.join(' · ') : 'Merged pull requests',
             notTracked: mergeReason,
           };
@@ -612,7 +612,7 @@ export default function AgentAnalyticsPage() {
         case 'reviewRounds': return {
           ...metric,
           value: summary.reviewRounds.toLocaleString('en-US'),
-          valueClass: 'text-white',
+          tone: 'default' as StatTone,
           context: 'Review cycles in range',
           notTracked: null,
         };
@@ -1054,58 +1054,30 @@ export default function AgentAnalyticsPage() {
           </p>
         )}
 
-        {/* ── KPI tiles: one per metric, selection drives the chart ── */}
-        <div className="flex overflow-x-auto gap-3 lg:grid lg:grid-cols-3 xl:grid-cols-6 lg:gap-4 -mx-4 px-4 lg:mx-0 lg:px-0 scrollbar-none">
-          {tiles.map(tile => {
-            const selected = chartMetric === tile.key;
-            const Icon = tile.icon;
+        {/* ── Headline numbers: one per metric, selection drives the chart ── */}
+        {/* A figure that is still being measured is left blank on purpose.
+            Showing an approximation from whatever is already in memory made the
+            page correct itself in front of the reader, which is worse than a
+            moment of honesty. */}
+        <StatStrip
+          label="Headline numbers. Pick one to chart it."
+          loading={measuring}
+          stats={tiles.map(tile => {
             const spark = sparkSeries[tile.key];
-            const showSpark = tile.value !== null && spark.some(v => v !== 0);
-            return (
-              <button
-                key={tile.key}
-                type="button"
-                onClick={() => setChartMetric(tile.key)}
-                aria-pressed={selected}
-                className={`min-w-[190px] flex-shrink-0 lg:min-w-0 glass-card rounded-xl p-4 lg:p-5 text-left cursor-pointer transition-shadow focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 ${
-                  selected ? 'ring-1 ring-brand-500/40' : ''
-                }`}
-              >
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <p className="text-xs lg:text-sm text-zinc-500 font-medium">{tile.label}</p>
-                    {measuring ? (
-                      // A figure that is still being measured is left blank on
-                      // purpose. Showing an approximation from whatever is
-                      // already in memory made the page correct itself in front
-                      // of the reader, which is worse than a moment of honesty.
-                      <div className="mt-1.5 h-7 lg:h-8 flex items-center">
-                        <div className="h-6 lg:h-7 w-24 rounded bg-white/[0.07] motion-safe:animate-pulse" />
-                      </div>
-                    ) : tile.value !== null ? (
-                      <p className={`text-2xl lg:text-3xl font-bold tracking-tight mt-1.5 leading-none ${tile.valueClass}`}>
-                        {tile.value}
-                      </p>
-                    ) : (
-                      <div className="mt-1.5">
-                        <NotTracked className="text-base" reason={tile.notTracked ?? usageReason} />
-                      </div>
-                    )}
-                  </div>
-                  <div className="w-8 h-8 lg:w-9 lg:h-9 rounded-lg grid place-items-center bg-white/[0.06] text-zinc-400 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)] flex-shrink-0">
-                    <Icon size={16} aria-hidden="true" />
-                  </div>
-                </div>
-                <div className="flex items-center justify-between gap-2 mt-3.5 min-h-[22px]">
-                  <span className="text-xs text-zinc-500 truncate">{measuring ? '' : tile.context}</span>
-                  {!measuring && showSpark && (
-                    <Sparkline data={spark} className={selected ? 'text-brand-400 flex-shrink-0' : 'text-zinc-500 flex-shrink-0'} />
-                  )}
-                </div>
-              </button>
-            );
+            return {
+              id: tile.key,
+              label: tile.label,
+              value: tile.value,
+              empty: <NotTracked reason={tile.notTracked ?? usageReason} />,
+              tone: tile.tone,
+              icon: tile.icon,
+              context: tile.context,
+              spark: tile.value !== null && spark.some(v => v !== 0) ? spark : undefined,
+              selected: chartMetric === tile.key,
+              onSelect: () => setChartMetric(tile.key),
+            };
           })}
-        </div>
+        />
 
         {/* ── Main chart, driven by the selected tile ────────── */}
         <div className="glass-card rounded-xl overflow-hidden flex flex-col min-h-[380px]">
@@ -1661,54 +1633,43 @@ export default function AgentAnalyticsPage() {
                           In {fmtCount(row.inputTokens.value ?? 0)} · Out {fmtCount(row.outputTokens.value ?? 0)} · Cached {fmtCount(row.cachedTokens.value ?? 0)}
                         </p>
                       )}
-                      <div className={`grid grid-cols-3 gap-3 ${row.inputTokens.tracking === 'tracked' ? '' : 'mt-2'}`}>
-                        <div>
-                          <p className="text-[10px] uppercase tracking-wider text-zinc-500 font-medium">Opened</p>
-                          {/* div, not p: NotTracked's tooltip trigger is a div
-                              and a div inside p is a hydration error */}
-                          <div className="text-sm font-semibold text-white">
-                            {telemetry.handoff ? row.prsOpened : <NotTracked className="text-xs" reason="No pull request hand-offs have been recorded yet." />}
-                          </div>
-                        </div>
-                        <div>
-                          <p className="text-[10px] uppercase tracking-wider text-zinc-500 font-medium">Merged</p>
-                          <div className="text-sm font-semibold text-white">
-                            {telemetry.merged ? row.prsMerged : <NotTracked className="text-xs" reason="Merge telemetry has not reported yet." />}
-                          </div>
-                        </div>
-                        <div>
-                          <p className="text-[10px] uppercase tracking-wider text-zinc-500 font-medium">Rounds</p>
-                          <p className="text-sm font-semibold text-white">{row.reviewRounds}</p>
-                        </div>
-                        <div>
-                          <p className="text-[10px] uppercase tracking-wider text-zinc-500 font-medium">Runtime</p>
-                          <div className="text-sm font-semibold text-sky-300">
-                            {runtimeOf(row.agentId) !== null
-                              ? fmtDuration(runtimeOf(row.agentId)!)
-                              : <NotTracked className="text-xs" reason={runtimeReason} />}
-                          </div>
-                        </div>
-                        <div>
-                          <p className="text-[10px] uppercase tracking-wider text-zinc-500 font-medium">Revenue</p>
-                          <p className="text-sm font-semibold text-emerald-400">{fmtCurrency(row.revenue)}</p>
-                        </div>
-                        <div>
-                          <p className="text-[10px] uppercase tracking-wider text-zinc-500 font-medium">Cost</p>
-                          <div className="text-sm font-semibold text-amber-400">
-                            {row.modelCost.tracking === 'tracked' && row.modelCost.value !== null
-                              ? fmtCurrency(row.modelCost.value)
-                              : <NotTracked className="text-xs" reason={usageReason} />}
-                          </div>
-                        </div>
-                        <div>
-                          <p className="text-[10px] uppercase tracking-wider text-zinc-500 font-medium">Profit</p>
-                          <div className="text-sm font-semibold">
-                            {row.profit.tracking === 'tracked' && row.profit.value !== null
-                              ? <span className={row.profit.value >= 0 ? 'text-emerald-400' : 'text-red-400'}>{fmtCurrency(row.profit.value)}</span>
-                              : <NotTracked className="text-xs" reason={usageReason} />}
-                          </div>
-                        </div>
-                      </div>
+                      <StatStrip
+                        bare
+                        className={row.inputTokens.tracking === 'tracked' ? '' : 'mt-2'}
+                        label={`${row.agentName} figures`}
+                        stats={[
+                          {
+                            label: 'Opened',
+                            value: telemetry.handoff ? row.prsOpened : null,
+                            empty: <NotTracked reason="No pull request hand-offs have been recorded yet." />,
+                          },
+                          {
+                            label: 'Merged',
+                            value: telemetry.merged ? row.prsMerged : null,
+                            empty: <NotTracked reason="Merge telemetry has not reported yet." />,
+                          },
+                          { label: 'Rounds', value: row.reviewRounds },
+                          {
+                            label: 'Runtime',
+                            value: runtimeOf(row.agentId) !== null ? fmtDuration(runtimeOf(row.agentId)!) : null,
+                            empty: <NotTracked reason={runtimeReason} />,
+                            tone: 'info',
+                          },
+                          { label: 'Revenue', value: fmtCurrency(row.revenue), tone: 'success' },
+                          {
+                            label: 'Cost',
+                            value: row.modelCost.tracking === 'tracked' && row.modelCost.value !== null ? fmtCurrency(row.modelCost.value) : null,
+                            empty: <NotTracked reason={usageReason} />,
+                            tone: 'warning',
+                          },
+                          {
+                            label: 'Profit',
+                            value: row.profit.tracking === 'tracked' && row.profit.value !== null ? fmtCurrency(row.profit.value) : null,
+                            empty: <NotTracked reason={usageReason} />,
+                            tone: row.profit.tracking === 'tracked' && row.profit.value !== null && row.profit.value < 0 ? 'danger' : 'success',
+                          },
+                        ]}
+                      />
                     </div>
                   );
                 })}

@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { Timer } from 'lucide-react';
 import type { BreakdownRow, TimeAccounting, TimeLine } from '@/lib/agent-telemetry-analytics';
-import { Card, CardSkeleton, Defined, LINE_ORDER, LINE_STYLE, MiniStat, Missing, StatRow, fmtDuration, fmtPct } from './shared';
+import { Card, CardSkeleton, Defined, LINE_ORDER, LINE_STYLE, CardStats, Missing, fmtDuration, fmtPct } from './shared';
 
 /**
  * Where every minute of runtime went. Active runtime is the measured total;
@@ -59,28 +59,30 @@ export function TimeAccountingCard({
         <Missing>No turns in this range. Runtime appears once completed turns are recorded.</Missing>
       ) : (
         <div className="p-5 space-y-5">
-          <StatRow columns={3}>
-            <MiniStat
-              label="Active runtime"
-              hint="Every turn that ran, including idle checks, waiting, failures and turns not yet labelled. Overlapping turns of one agent count once."
-              value={fmtDuration(a.activeMs)}
-              valueClass="text-sky-300"
-              sub={`${a.turns.toLocaleString('en-US')} turns`}
-            />
-            <MiniStat
-              label="Effective runtime"
-              hint="Outcome work only, minus rework on approved work. Idle checks, waiting, blocked, skipped, unknown, unlabelled and failed time are never in it."
-              value={fmtDuration(a.effectiveMs)}
-              valueClass="text-emerald-400"
-              sub={a.lines.rework > 0 ? `after ${fmtDuration(a.lines.rework)} of rework` : 'outcome work only'}
-            />
-            <MiniStat
-              label="Productive share"
-              hint="All work, rework included, over active runtime."
-              value={a.productiveShare === null ? null : fmtPct(a.productiveShare)}
-              sub="work over active"
-            />
-          </StatRow>
+          <CardStats
+            stats={[
+              {
+                label: 'Active runtime',
+                hint: 'Every turn that ran, including idle checks, waiting, failures and turns not yet labelled. Overlapping turns of one agent count once.',
+                value: fmtDuration(a.activeMs),
+                tone: 'info',
+                context: `${a.turns.toLocaleString('en-US')} turns`,
+              },
+              {
+                label: 'Effective runtime',
+                hint: 'Outcome work only, minus rework on approved work. Idle checks, waiting, blocked, skipped, unknown, unlabelled and failed time are never in it.',
+                value: fmtDuration(a.effectiveMs),
+                tone: 'success',
+                context: a.lines.rework > 0 ? `after ${fmtDuration(a.lines.rework)} of rework` : 'outcome work only',
+              },
+              {
+                label: 'Productive share',
+                hint: 'All work, rework included, over active runtime.',
+                value: a.productiveShare === null ? null : fmtPct(a.productiveShare),
+                context: 'work over active',
+              },
+            ]}
+          />
 
           <div>
             {/* One bar, proportional, so idle reads as idle at a glance. */}

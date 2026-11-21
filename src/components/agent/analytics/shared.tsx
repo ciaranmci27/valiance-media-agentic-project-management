@@ -3,6 +3,7 @@
 import { useId, useState } from 'react';
 import { ChevronDown, type LucideIcon } from 'lucide-react';
 import { Tooltip } from '@/components/ui/Tooltip';
+import { StatStrip, type Stat as StripStat } from '@/components/ui/StatStrip';
 import type { TimeLine } from '@/lib/agent-telemetry-analytics';
 
 /**
@@ -187,38 +188,31 @@ export function Stat({ label, value, sub, valueClass = 'text-white' }: {
   );
 }
 
-/**
- * The one way a card states a headline number: small label, large value, one
- * line of context. `hint` defines the label on hover and focus. A value of
- * null renders `empty` muted, so a missing measurement never looks like 0.
- */
-export function MiniStat({ label, hint, value, sub, empty = 'Not measured', valueClass = 'text-white' }: {
-  label: string;
-  hint?: string;
-  value: React.ReactNode | null;
-  sub?: React.ReactNode;
-  empty?: string;
-  valueClass?: string;
-}) {
-  return (
-    <div className="min-w-0">
-      <div className="text-xs text-zinc-500 truncate">
-        {hint ? <Defined hint={hint}>{label}</Defined> : label}
-      </div>
-      {value === null ? (
-        <p className="text-sm font-medium text-zinc-500 mt-1.5">{empty}</p>
-      ) : (
-        <p className={`text-xl font-semibold tracking-tight mt-1 leading-tight tabular-nums ${valueClass}`}>{value}</p>
-      )}
-      {sub && <p className="text-[11px] text-zinc-500 mt-0.5 truncate">{sub}</p>}
-    </div>
-  );
-}
+/** A card's headline number: `hint` defines the label on hover and focus. */
+export type CardStat = Omit<StripStat, 'label' | 'id'> & { label: string; hint?: string };
 
-/** A row of MiniStats with even columns that wrap on phones. */
-export function StatRow({ children, columns = 3 }: { children: React.ReactNode; columns?: 2 | 3 | 4 }) {
-  const cols = { 2: 'grid-cols-2', 3: 'grid-cols-2 sm:grid-cols-3', 4: 'grid-cols-2 sm:grid-cols-4' }[columns];
-  return <div className={`grid ${cols} gap-x-4 gap-y-4`}>{children}</div>;
+/**
+ * The one way a card states its headline numbers: a bare stat strip, so they
+ * read as one row on a wide card and a label and value list on a narrow one.
+ * A null value shows `empty` (default "Not measured") muted, so a missing
+ * measurement never looks like 0.
+ */
+export function CardStats({ stats }: { stats: (CardStat | false | null | undefined)[] }) {
+  return (
+    <StatStrip
+      bare
+      stats={stats.map((stat) => {
+        if (!stat) return null;
+        const { label, hint, empty, ...rest } = stat;
+        return {
+          ...rest,
+          id: label,
+          label: hint ? <Defined hint={hint}>{label}</Defined> : label,
+          empty: empty ?? 'Not measured',
+        };
+      })}
+    />
+  );
 }
 
 /**

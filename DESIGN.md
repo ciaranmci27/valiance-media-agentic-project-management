@@ -26,7 +26,9 @@ All in `src/app/globals.css`, one source of truth:
 
 ## Components
 
-Shared, in `src/components/ui/`: `Button` (primary, secondary, ghost, danger; sm, md, lg), `Modal`, `ConfirmDialog` (with `trash` for soft deletes), `Tooltip`, `Popover`, `RowActionsMenu`, `Toast` (`toast()`), `Avatar`, `Badge`, `CountBadge`, `DataTable`, `KpiTile`, `Sparkline`, `SectionHeader`, `Select`, `Toggle`, `FilePreviewModal`, inputs in `ui/inputs/`.
+Shared, in `src/components/ui/`: `Button` (primary, secondary, ghost, danger; sm, md, lg), `Modal`, `ConfirmDialog` (with `trash` for soft deletes), `Tooltip`, `Popover`, `RowActionsMenu`, `Toast` (`toast()`), `Avatar`, `Badge`, `CountBadge`, `DataTable`, `StatStrip`, `Sparkline`, `SectionHeader`, `Select`, `Toggle`, `FilePreviewModal`, inputs in `ui/inputs/`.
+
+`StatStrip` is the one way to show a row of numbers: one surface (or `bare` inside a card), stats side by side with hairlines once its own width fits them all, a label and value list below that. Label 12px zinc-500 and value 20px semibold tabular in the row; label 14px zinc-300 and value 16px in the list. Props per stat: `label`, `value` (null shows `empty` muted), `context`, `tone` (default, success, warning, danger, info), `icon`, `href` or `onSelect` with `selected`, `spark`. The row switch is the `strip-row` variant in `globals.css`.
 
 Inbox pieces, in `src/components/inbox/`: `inbox-badges.tsx` (state dots, trust, project chips, time formats), `NotePill` (pill that opens a card, in `ThreadView.tsx`), `MeetingParts.tsx` (meeting details, the transcript reader, the suggestions checklist with Add all and Nothing to do).
 
@@ -37,6 +39,7 @@ Inbox pieces, in `src/components/inbox/`: `inbox-badges.tsx` (state dots, trust,
 - **Pills that open cards**: the agent's work under a message is one line of small pills (Summary, 2 tasks, 1 reminder, Question for you) that each open a paragraph-width card, so nothing spreads across the page.
 - **Plain, short words**: labels say what happens ("Add all 7", "Nothing to do", "Mark handled"). Results read as one plain line ("Added 7 suggestions"). Status and loader copy is three words, present tense. No em dashes.
 - **Undo over confirm**: anything reversible acts at once and leaves one plain line with Undo in place; a confirmation is only for what cannot be undone.
+- **Numbers in a row are one stat strip, never a grid of separate tiles**; on phones the strip becomes a label and value list. No odd stat stranded on its own row.
 - **Dense but calm**: 11 to 13px meta text, generous line height in reading areas (email bodies, transcripts), tabular numbers for times and counts.
 
 ## Reference screens

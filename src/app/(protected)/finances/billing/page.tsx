@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { ArrowLeft, CalendarClock } from 'lucide-react';
 import { Header } from '@/components/layout/Header';
 import { Select } from '@/components/ui/inputs/Select';
+import { StatStrip } from '@/components/ui/StatStrip';
 import { BillingForecastList, money } from '@/components/projects/billing/BillingForecastList';
 import { useDemo } from '@/lib/demo-context';
 import { createClient } from '@/lib/supabase/client';
@@ -115,20 +116,16 @@ export default function BillingCalendarPage() {
             </div>
 
             {items !== null && visible.length > 0 && (
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-px bg-white/[0.06] border-b border-white/[0.06]">
-                <div className="bg-surface-raised/40 px-5 py-3.5">
-                  <p className="text-[11px] uppercase tracking-wider text-zinc-500">Fixed (exact)</p>
-                  <p className="mt-1 text-lg font-semibold text-white tabular-nums">{money(exact)}</p>
-                </div>
-                <div className="bg-surface-raised/40 px-5 py-3.5">
-                  <p className="text-[11px] uppercase tracking-wider text-zinc-500">Hours (estimated)</p>
-                  <p className="mt-1 text-lg font-semibold text-zinc-300 tabular-nums">~{money(estimated)}</p>
-                </div>
-                <div className="bg-surface-raised/40 px-5 py-3.5 col-span-2 sm:col-span-1">
-                  <p className="text-[11px] uppercase tracking-wider text-zinc-500">Drafted, waiting on you</p>
-                  <p className="mt-1 text-lg font-semibold text-white tabular-nums">{drafted}</p>
-                </div>
-              </div>
+              <StatStrip
+                bare
+                className="border-b border-white/[0.06] px-5 py-4"
+                label="Billing totals"
+                stats={[
+                  { label: 'Fixed (exact)', value: money(exact) },
+                  { label: 'Hours (estimated)', value: `~${money(estimated)}` },
+                  { label: 'Drafted, waiting on you', value: drafted, tone: drafted > 0 ? 'warning' : 'default' },
+                ]}
+              />
             )}
 
             <div className="p-5">

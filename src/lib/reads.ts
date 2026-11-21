@@ -24,6 +24,7 @@ import type {
 } from '@/lib/types';
 import type { InboxAttention } from '@/lib/communications/inbox-view';
 import { demoNotifications } from '@/lib/demo-data';
+import type { ProfileActivityPage, TeamProfile } from '@/lib/team/profile';
 
 /**
  * Every read a screen makes outside the store, described once: its key, its
@@ -584,4 +585,38 @@ export function projectContextRead(projectId: string): Read<ProjectContext[]> {
       return (data ?? []) as ProjectContext[];
     },
   };
+}
+
+// ── Team ────────────────────────────────────────────────────────────────
+
+export type TeamProfileResult = { found: true; profile: TeamProfile } | { found: false };
+
+/**
+ * A team member's profile, as the server assembles it under the viewer's
+ * rights. Not found and no access are one answer. Counts and activity are
+ * not in live sync: a minute fresh, and a change to the person refreshes it.
+ */
+export function teamProfileRead(memberId: string): Read<TeamProfileResult> {
+  return {
+    key: `team-profile:${memberId}`,
+    tables: ['team_members'],
+    ttlMs: 60_000,
+    load: async () => {
+      const response = await fetch(`/api/workspace/team-members/${encodeURIComponent(memberId)}/profile`);
+      if (response.status === 404) return { found: false };
+      if (!response.ok) throw new Error('Could not load the profile');
+      const { data } = (await response.json()) as { data: TeamProfile };
+      return { found: true, profile: data };
+    },
+  };
+}
+
+/** An older page of a member's activity (the profile holds the first). */
+export async function loadTeamProfileActivity(memberId: string, before: string): Promise<ProfileActivityPage> {
+  const params = new URLSearchParams({ before });
+  const { data } = await getJson<{ data: ProfileActivityPage }>(
+    `/api/workspace/team-members/${encodeURIComponent(memberId)}/profile?${params.toString()}`,
+    'activity',
+  );
+  return data;
 }

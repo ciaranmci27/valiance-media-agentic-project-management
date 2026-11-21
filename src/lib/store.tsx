@@ -347,7 +347,8 @@ interface AppContextType {
 
   // Team CRUD
   addTeamMember: (member: Omit<TeamMember, 'id'>) => void;
-  updateTeamMember: (id: string, updates: Partial<TeamMember>) => void;
+  /** Resolves true once saved; on failure it rolls back, says so, and resolves false. */
+  updateTeamMember: (id: string, updates: Partial<TeamMember>) => Promise<boolean>;
   deleteTeamMember: (id: string) => void;
   upsertLocalTeamMember: (member: TeamMember) => void;
 
@@ -1899,10 +1900,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const updateTeamMember = async (id: string, updates: Partial<TeamMember>) => {
+  const updateTeamMember = async (id: string, updates: Partial<TeamMember>): Promise<boolean> => {
     const prev = team;
     setTeam(t => t.map(m => m.id === id ? { ...m, ...updates } : m));
-    if (skipSupabase) return;
+    if (skipSupabase) return true;
 
     try {
       const response = await fetch(`/api/workspace/team-members/${encodeURIComponent(id)}`, {
@@ -1914,9 +1915,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const payload = await response.json();
         throw new Error(payload.error || 'Failed to update team member');
       }
+      return true;
     } catch (err) {
       setTeam(rollbackScope(prev, m => m.id === id));
       toast('error', 'Failed to update team member');
+      return false;
     }
   };
 

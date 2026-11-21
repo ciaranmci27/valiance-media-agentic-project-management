@@ -19,7 +19,8 @@ import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
 import { toast } from '@/components/ui/Toast';
 import { Button } from '@/components/ui/Button';
-import { EmptyCard, GroupLabel, NoMatches, RailCard, RailLayout, Stat, SubNav, TabToolbar } from '@/components/projects/TabLayout';
+import { EmptyCard, GroupLabel, NoMatches, RailCard, RailLayout, SubNav, TabToolbar } from '@/components/projects/TabLayout';
+import { StatStrip } from '@/components/ui/StatStrip';
 import { Avatar } from '@/components/ui/Avatar';
 import { Select } from '@/components/ui/inputs/Select';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
@@ -1294,18 +1295,20 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
       icon={<Clock size={16} className="text-zinc-400" aria-hidden="true" />}
       description={sessionNeedle ? `${rangeLabel}, matching your search` : rangeLabel}
     >
-      <div className="grid grid-cols-2 gap-4">
-        <Stat label="Hours" value={formatHM(shownHours)} />
-        {shownMoney ? (
-          <>
-            <Stat label="Billable" value={money(shownMoney.billable)} />
-            <Stat label="Received" value={money(shownMoney.received)} />
-            <Stat label="Unpaid" value={money(shownMoney.unpaid)} tone={shownMoney.unpaid > 0 ? 'warn' : undefined} />
-          </>
-        ) : (
-          <Stat label={shownEntries.length === 1 ? 'Session' : 'Sessions'} value={String(shownEntries.length)} />
-        )}
-      </div>
+      <StatStrip
+        bare
+        label="Time totals"
+        stats={[
+          { label: 'Hours', value: formatHM(shownHours) },
+          ...(shownMoney
+            ? [
+                { label: 'Billable', value: money(shownMoney.billable) },
+                { label: 'Received', value: money(shownMoney.received) },
+                { label: 'Unpaid', value: money(shownMoney.unpaid), tone: shownMoney.unpaid > 0 ? ('warning' as const) : ('default' as const) },
+              ]
+            : [{ label: shownEntries.length === 1 ? 'Session' : 'Sessions', value: String(shownEntries.length) }]),
+        ]}
+      />
       <p className="mt-3 text-xs text-zinc-500">
         {shownEntries.length} {shownEntries.length === 1 ? 'session' : 'sessions'} by {shownPeople} {shownPeople === 1 ? 'person' : 'people'}
         {shownMoney && '.'}

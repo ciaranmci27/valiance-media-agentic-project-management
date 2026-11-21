@@ -9,6 +9,16 @@ Each section starts with `## X.Y.Z (YYYY-MM-DD)` and uses these headings, leavin
 - `### Database`: the core migration files in the release, one per line. `npm run db:migrate` applies them.
 - `### Breaking`: what an install must do when it takes this release.
 
+## 1.4.0 (2026-11-21)
+
+### Added
+- Team member profiles: click anyone on the Team page to see who they are (role, local time, joined, last active), their open and recently finished tasks, their projects, their hours (with Time on), their recent activity and simple usage (active days, actions this month, last sign-in). What a viewer sees follows their role: Owners and Admins see everything, Members see a colleague's shared projects and tasks, Guests see only people on their shared projects. Edit, Permissions and a new Suspend / Reactivate action work from the profile and the Team page.
+
+### Changed
+- Numbers in a row are one stat strip instead of a grid of separate tiles, across the dashboard, finances, payroll, billing, portal analytics, agent analytics, project tabs and profiles. On phones a strip becomes a label and value list.
+- `npm run upgrade` clears Next.js's generated route types before type-checking, so a leftover `.next` folder no longer fails the check after a merge.
+- The loading screen no longer breaks a short workspace name mid-word.
+
 ## 1.3.0 (2026-11-21)
 
 ### Changed

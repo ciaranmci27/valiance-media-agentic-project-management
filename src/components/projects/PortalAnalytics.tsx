@@ -21,7 +21,7 @@ import {
 import { useDemo } from '@/lib/demo-context';
 import { useAuth } from '@/lib/auth-context';
 import { isModuleEnabled } from '@/lib/access-control';
-import { KpiRow, KpiTile } from '@/components/ui/KpiTile';
+import { StatStrip } from '@/components/ui/StatStrip';
 import { Toggle } from '@/components/ui/inputs/Toggle';
 import { Bone, NoMatches, RailCard, RailLayout, Skeleton } from './TabLayout';
 import { PORTAL_SECTION_LABELS, type PortalAnalyticsResponse } from '@/lib/types';
@@ -270,13 +270,22 @@ export function PortalAnalytics({
   return (
     <div className={`space-y-6 transition-opacity ${loading ? 'opacity-60' : ''}`}>
       {/* Headline numbers, last 30 days */}
-      <KpiRow className="lg:grid-cols-5">
-        <KpiTile size="compact" label="Sessions" value={data.totals.total_sessions} icon={ActivityIcon} context="Last 30 days" />
-        <KpiTile size="compact" label="Total events" value={data.totals.total_events} icon={MousePointerClick} context="Views, clicks, downloads" />
-        <KpiTile size="compact" label="Unique visitors" value={data.totals.unique_ip_hashes} icon={Users} context="IP + browser fingerprint" />
-        <KpiTile size="compact" label="Avg duration" value={formatDuration(data.totals.avg_duration_seconds)} icon={Clock} context="Per session" />
-        <KpiTile size="compact" label="Last seen" value={data.totals.last_seen_at ? formatRelative(data.totals.last_seen_at) : '-'} icon={Eye} context="Most recent visit" />
-      </KpiRow>
+      <StatStrip
+        label="Portal activity, last 30 days"
+        stats={[
+          { label: 'Sessions', value: data.totals.total_sessions, icon: ActivityIcon, context: 'Last 30 days' },
+          { label: 'Total events', value: data.totals.total_events, icon: MousePointerClick, context: 'Views, clicks, downloads' },
+          { label: 'Unique visitors', value: data.totals.unique_ip_hashes, icon: Users, context: 'IP + browser fingerprint' },
+          { label: 'Avg duration', value: formatDuration(data.totals.avg_duration_seconds), icon: Clock, context: 'Per session' },
+          {
+            label: 'Last seen',
+            value: data.totals.last_seen_at ? formatRelative(data.totals.last_seen_at) : null,
+            empty: 'Never',
+            icon: Eye,
+            context: 'Most recent visit',
+          },
+        ]}
+      />
 
       <RailLayout rail={<><EngagementCards data={data} /><SecurityCard data={data} /></>}>
         <SessionsTable
@@ -297,20 +306,10 @@ export function PortalAnalytics({
 function ActivitySkeleton() {
   return (
     <Skeleton label="Loading portal activity" className="space-y-6">
-      <KpiRow className="lg:grid-cols-5">
-        {[0, 1, 2, 3, 4].map((i) => (
-          <div key={i} className="glass-card rounded-xl p-4 lg:p-5 space-y-3">
-            <div className="flex items-start justify-between gap-3">
-              <div className="space-y-2.5 flex-1">
-                <Bone className="h-3 w-16" />
-                <Bone className="h-6 w-12" />
-              </div>
-              <Bone className="w-8 h-8 lg:w-9 lg:h-9 rounded-lg" />
-            </div>
-            <Bone className="h-2.5 w-20" />
-          </div>
-        ))}
-      </KpiRow>
+      <StatStrip
+        loading
+        stats={['Sessions', 'Total events', 'Unique visitors', 'Avg duration', 'Last seen'].map((label) => ({ label, value: null }))}
+      />
       <RailLayout
         rail={[0, 1].map((i) => (
           <div key={i} className="glass-card rounded-xl px-5 pt-4 pb-5 space-y-4">

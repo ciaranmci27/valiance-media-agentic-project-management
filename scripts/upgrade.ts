@@ -19,7 +19,7 @@
  * aborted), 3 no shared history with the public repo, 4 merged but a check failed.
  */
 import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { isSourceMonorepo } from './lib/core-paths';
 import { compareSemver, git, gitRun, lines, parseSemver, releaseTags } from './lib/git';
@@ -334,6 +334,13 @@ export function upgrade(options: UpgradeOptions): UpgradeSummary {
   }
 }
 
+/** Removes Next.js's generated route types (.next/types, .next/dev/types). Nothing else in .next is touched. */
+export function clearGeneratedTypes(root: string): void {
+  for (const dir of ['.next/types', '.next/dev/types']) {
+    rmSync(resolve(root, dir), { recursive: true, force: true });
+  }
+}
+
 function runChecks(root: string, log: (line: string) => void): CheckResult[] {
   const steps: { name: string; command: string; script?: string }[] = [
     { name: 'install', command: 'npm install --no-audit --no-fund' },
@@ -351,6 +358,10 @@ function runChecks(root: string, log: (line: string) => void): CheckResult[] {
       continue;
     }
     log(`  ${step.name}: ${step.command}`);
+    // Next.js writes route types into .next for whatever the last build or dev
+    // server saw. After a merge they can name routes the release removed, so
+    // they are cleared before type-checking (Next.js writes them again).
+    if (step.name === 'type-check') clearGeneratedTypes(root);
     const run = runCommand(root, step.command);
     const ok = run.code === 0;
     results.push({ name: step.name, command: step.command, ok, exitCode: run.code, durationMs: run.durationMs, output: tail(run.output) });

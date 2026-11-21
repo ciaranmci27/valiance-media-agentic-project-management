@@ -2,7 +2,7 @@
 
 import { ShieldAlert } from 'lucide-react';
 import type { Reliability } from '@/lib/agent-telemetry-analytics';
-import { Card, CardSkeleton, Disclosure, MiniStat, Missing, StatRow, fmtDuration, fmtPct, fmtSeconds, fmtWhen } from './shared';
+import { Card, CardSkeleton, Disclosure, CardStats, Missing, fmtDuration, fmtPct, fmtSeconds, fmtWhen } from './shared';
 
 const FAILURE_LABELS: Record<string, string> = {
   failed: 'Failed',
@@ -35,37 +35,39 @@ export function ReliabilityCard({ reliability, measuring, withheldReason }: {
         <Missing>{withheldReason}</Missing>
       ) : (
         <div className="p-5 space-y-4">
-          <StatRow columns={4}>
-            <MiniStat
-              label="Failed turns"
-              hint="Scheduled fires that did not end cleanly, over the runs of the jobs they belong to."
-              value={r.tracked.failures ? String(failed) : null}
-              empty="Not reported"
-              valueClass={failed > 0 ? 'text-rose-400' : 'text-white'}
-              sub={failed > 0 && runs > 0 ? `${fmtPct(failed / runs)} of affected jobs' runs` : 'none in range'}
-            />
-            <MiniStat
-              label="Restarts"
-              hint="Container and gateway starts, with the deploy that caused them when there was one."
-              value={r.tracked.restarts ? String(r.restarts.length) : null}
-              empty="Not reported"
-              sub={r.restarts.length > 0 ? `latest ${fmtWhen(r.restarts[0].at)}` : 'none in range'}
-            />
-            <MiniStat
-              label="Overlapping turns"
-              hint="Two turns of the same agent running at once, scheduled or directed. Overlap double-billed real work on Oct 4."
-              value={String(pairs)}
-              valueClass={pairs > 0 ? 'text-amber-400' : 'text-white'}
-              sub={pairs > 0 ? `${r.overlaps.length} agent${r.overlaps.length === 1 ? '' : 's'}` : 'none in range'}
-            />
-            <MiniStat
-              label="Hand-off latency"
-              hint="Seconds from the dispatcher seeing a new task or PR state to waking the agent: median, with the 95th percentile below."
-              value={r.handoff.p50Seconds === null ? null : fmtSeconds(r.handoff.p50Seconds)}
-              empty={r.tracked.wakes ? 'No hand-offs' : 'Not reported'}
-              sub={r.handoff.p95Seconds !== null ? `p95 ${fmtSeconds(r.handoff.p95Seconds)} · ${r.handoff.samples} wakes` : wakes > 0 ? `${wakes} wakes, none a hand-off` : undefined}
-            />
-          </StatRow>
+          <CardStats
+            stats={[
+              {
+                label: 'Failed turns',
+                hint: 'Scheduled fires that did not end cleanly, over the runs of the jobs they belong to.',
+                value: r.tracked.failures ? String(failed) : null,
+                empty: 'Not reported',
+                tone: failed > 0 ? 'danger' : 'default',
+                context: failed > 0 && runs > 0 ? `${fmtPct(failed / runs)} of affected jobs' runs` : 'none in range',
+              },
+              {
+                label: 'Restarts',
+                hint: 'Container and gateway starts, with the deploy that caused them when there was one.',
+                value: r.tracked.restarts ? String(r.restarts.length) : null,
+                empty: 'Not reported',
+                context: r.restarts.length > 0 ? `latest ${fmtWhen(r.restarts[0].at)}` : 'none in range',
+              },
+              {
+                label: 'Overlapping turns',
+                hint: 'Two turns of the same agent running at once, scheduled or directed. Overlap double-billed real work on Oct 4.',
+                value: String(pairs),
+                tone: pairs > 0 ? 'warning' : 'default',
+                context: pairs > 0 ? `${r.overlaps.length} agent${r.overlaps.length === 1 ? '' : 's'}` : 'none in range',
+              },
+              {
+                label: 'Hand-off latency',
+                hint: 'Seconds from the dispatcher seeing a new task or PR state to waking the agent: median, with the 95th percentile below.',
+                value: r.handoff.p50Seconds === null ? null : fmtSeconds(r.handoff.p50Seconds),
+                empty: r.tracked.wakes ? 'No hand-offs' : 'Not reported',
+                context: r.handoff.p95Seconds !== null ? `p95 ${fmtSeconds(r.handoff.p95Seconds)} · ${r.handoff.samples} wakes` : wakes > 0 ? `${wakes} wakes, none a hand-off` : undefined,
+              },
+            ]}
+          />
 
           {failed > 0 && (
             <Disclosure label="Failed turns" count={failed}>

@@ -30,7 +30,8 @@ import BillingModal, { type BillingTab } from '@/components/projects/billing/Bil
 import { InvoiceLineSplit, type LineSplit } from '@/components/projects/InvoiceLineSplit';
 import { InvoicePayments, formatMoney } from '@/components/projects/InvoicePayments';
 import { invoiceOutstanding, invoicePaidTotal, invoiceTotal, isPartiallyPaid } from '@/lib/invoice-payments';
-import { Bone, CardAction, EmptyCard, NoMatches, RailCard, RailLayout, Skeleton, Stat, SubNav, TabToolbar, ToolbarButton } from '@/components/projects/TabLayout';
+import { Bone, CardAction, EmptyCard, NoMatches, RailCard, RailLayout, Skeleton, SubNav, TabToolbar, ToolbarButton } from '@/components/projects/TabLayout';
+import { StatStrip } from '@/components/ui/StatStrip';
 import { RowActionsMenu } from '@/components/ui/RowActionsMenu';
 import { Button } from '@/components/ui/Button';
 import { computeInvoiceSummary } from '@/lib/invoice-summary';
@@ -2098,12 +2099,16 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
                 invoices start at the top of the page. Whole-project figures:
                 the status filter picks invoices, not what is owed. */}
             <RailCard title="Totals" icon={<Wallet size={16} className="text-zinc-400" aria-hidden="true" />} description="Whole project">
-              <div className="grid grid-cols-2 gap-4">
-                {isHourly && <Stat label="Billable" value={`$${formatCurrency(Math.round(billableTotal))}`} />}
-                <Stat label="Invoiced" value={`$${formatCurrency(Math.round(totalInvoiced))}`} />
-                <Stat label="Paid" value={`$${formatCurrency(Math.round(totalPaid))}`} />
-                <Stat label="Outstanding" value={`$${formatCurrency(Math.round(outstanding))}`} tone={outstanding > 0 ? 'warn' : undefined} />
-              </div>
+              <StatStrip
+                bare
+                label="Project totals"
+                stats={[
+                  isHourly && { label: 'Billable', value: `$${formatCurrency(Math.round(billableTotal))}` },
+                  { label: 'Invoiced', value: `$${formatCurrency(Math.round(totalInvoiced))}` },
+                  { label: 'Paid', value: `$${formatCurrency(Math.round(totalPaid))}` },
+                  { label: 'Outstanding', value: `$${formatCurrency(Math.round(outstanding))}`, tone: outstanding > 0 ? 'warning' : 'default' },
+                ]}
+              />
               <p className="mt-3 text-xs text-zinc-500">
                 {[
                   isHourly ? `${Math.round(totalHours)}h at $${Math.round(hourlyRate)}/hr` : null,

@@ -19,7 +19,8 @@ import { ActivityTimeline } from '@/components/agent/ActivityTimeline';
 import { useProjectActivity } from '@/lib/use-project-activity';
 import { useRead } from '@/lib/query-cache';
 import { projectEmailsRead, projectForecastRead, useBillingToday } from '@/lib/reads';
-import { Bone, CardLink, GroupLabel, RailCard, Skeleton, Stat } from '@/components/projects/TabLayout';
+import { Bone, CardLink, GroupLabel, RailCard, Skeleton } from '@/components/projects/TabLayout';
+import { StatStrip } from '@/components/ui/StatStrip';
 import { Avatar, AvatarGroup } from '@/components/ui/Avatar';
 import { PriorityBadge, StatusBadge } from '@/components/ui/Badge';
 import { DateInput } from '@/components/ui/inputs/DateInput';
@@ -491,10 +492,14 @@ export function ProjectOverview({ projectId, onOpenTask, onOpenTab, onOpenContac
             title="Time"
             action={<CardLink onClick={() => onOpenTab('time')}>Open</CardLink>}
           >
-            <div className="grid grid-cols-2 gap-4">
-              <Stat label="This week" value={`${formatHours(timeStats.week)}h`} />
-              <Stat label="This month" value={`${formatHours(timeStats.month)}h`} />
-            </div>
+            <StatStrip
+              bare
+              label="Hours logged"
+              stats={[
+                { label: 'This week', value: `${formatHours(timeStats.week)}h` },
+                { label: 'This month', value: `${formatHours(timeStats.month)}h` },
+              ]}
+            />
           </RailCard>
         )}
 
@@ -505,16 +510,16 @@ export function ProjectOverview({ projectId, onOpenTask, onOpenTab, onOpenContac
             action={<CardLink onClick={() => onOpenTab('billing')}>Open</CardLink>}
           >
             {billing && (
-              <div className="grid grid-cols-2 gap-4">
-                <Stat
-                  label="Outstanding"
-                  value={formatMoney(billing.outstanding)}
-                  tone={billing.outstanding > 0 ? 'warn' : undefined}
-                />
-                <Stat label="Paid to date" value={formatMoney(billing.totalPaid)} />
-              </div>
+              <StatStrip
+                bare
+                label="Billing"
+                stats={[
+                  { label: 'Outstanding', value: formatMoney(billing.outstanding), tone: billing.outstanding > 0 ? 'warning' : 'default' },
+                  { label: 'Paid to date', value: formatMoney(billing.totalPaid) },
+                ]}
+              />
             )}
-            <p className="text-xs text-zinc-500 mt-1">
+            <p className="text-xs text-zinc-500 mt-3">
               {billing?.isHourly ? 'Includes hours not yet invoiced' : 'Invoiced and not yet paid'}
             </p>
             {nextDraft && (

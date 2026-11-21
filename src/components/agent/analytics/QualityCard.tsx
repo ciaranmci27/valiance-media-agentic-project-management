@@ -2,7 +2,7 @@
 
 import { BadgeCheck } from 'lucide-react';
 import type { Quality } from '@/lib/agent-telemetry-analytics';
-import { Card, CardSkeleton, MiniStat, StatRow, fmtPct } from './shared';
+import { Card, CardSkeleton, CardStats, fmtPct } from './shared';
 
 /** Whether work held up: approved first time, stayed done, stayed merged. */
 export function QualityCard({ quality, measuring }: { quality: Quality; measuring: boolean }) {
@@ -51,11 +51,7 @@ export function QualityCard({ quality, measuring }: { quality: Quality; measurin
         <CardSkeleton rows={4} />
       ) : (
         <div className="p-5">
-          <StatRow columns={2}>
-            {tiles.map((tile) => (
-              <MiniStat key={tile.label} label={tile.label} hint={tile.hint} value={tile.value} empty={tile.empty} sub={tile.sub} />
-            ))}
-          </StatRow>
+          <CardStats stats={tiles.map(({ sub, ...tile }) => ({ ...tile, context: sub }))} />
           {q.revertedPrs.length > 0 && (
             <ul className="mt-4 pt-3 border-t border-white/[0.08] space-y-1">
               {q.revertedPrs.map((row) => (

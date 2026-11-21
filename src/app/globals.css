@@ -9,6 +9,17 @@
    any `dark:` utility in sync with the actual selected theme. */
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
 
+/* StatStrip's row layout (src/components/ui/StatStrip.tsx). A strip is a
+   label and value list until its own width fits every stat side by side. The
+   width that fits grows with the number of stats, which the strip sets as
+   data-fit: s for up to 3, m for 4, l for 5 or 6, xl for more. */
+@custom-variant strip-row {
+  @container stat-strip (min-width: 28rem) { &:where([data-fit='s'] *) { @slot; } }
+  @container stat-strip (min-width: 36rem) { &:where([data-fit='m'] *) { @slot; } }
+  @container stat-strip (min-width: 48rem) { &:where([data-fit='l'] *) { @slot; } }
+  @container stat-strip (min-width: 56rem) { &:where([data-fit='xl'] *) { @slot; } }
+}
+
 /*
   ─────────────────────────────────────────────────────────────
   VALIANCE ; DARK GLASS DESIGN SYSTEM
@@ -1027,14 +1038,16 @@ a.bg-brand-500 {
    needs the -webkit-box display the theme variables carry). */
 .brand-splash-mark-name {
   max-width: 100%;
-  padding: 0 0.5rem;
+  padding: 0 0.35rem;
   text-align: center;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 700;
   line-height: 1.2;
   letter-spacing: -0.01em;
   color: rgba(var(--ink), 0.9);
-  overflow-wrap: anywhere;
+  /* Breaks between words; inside a word only when it cannot fit a line on its own. */
+  overflow-wrap: break-word;
+  hyphens: auto;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;

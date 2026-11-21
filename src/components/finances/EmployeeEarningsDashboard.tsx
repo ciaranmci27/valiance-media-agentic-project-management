@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react';
 import { CalendarRange, FolderKanban, TrendingUp } from 'lucide-react';
 import { Select } from '@/components/ui/inputs/Select';
+import { StatStrip } from '@/components/ui/StatStrip';
 import { getWorkedHoursByDay } from '@/lib/time-entry-utils';
 import { computeMemberEarningsSummary } from '@/lib/finance/summary';
 import type { EmployeeEarningsData, Project } from '@/lib/types';
@@ -218,13 +219,18 @@ export function EmployeeEarningsDashboard({
             />
           </div>
         </div>
-        <div className="grid grid-cols-2 gap-5 px-5 py-4 sm:grid-cols-3 lg:grid-cols-5">
-          <Stat label="Earned" value={formatMoney(dashboard.approved)} tone="approved" />
-          <Stat label="Pending" value={formatMoney(dashboard.pending)} tone="pending" />
-          <Stat label="Paid" value={formatMoney(dashboard.paid)} tone="approved" />
-          <Stat label="Owed (all-time)" value={formatMoney(dashboard.owed)} tone="pending" />
-          <Stat label="Hours" value={`${dashboard.hours.toFixed(1)}h`} />
-        </div>
+        <StatStrip
+          bare
+          className="px-5 py-4"
+          label="Earnings overview"
+          stats={[
+            { label: 'Earned', value: formatMoney(dashboard.approved), tone: 'success' },
+            { label: 'Pending', value: formatMoney(dashboard.pending), tone: 'warning' },
+            { label: 'Paid', value: formatMoney(dashboard.paid), tone: 'success' },
+            { label: 'Owed (all-time)', value: formatMoney(dashboard.owed), tone: 'warning' },
+            { label: 'Hours', value: `${dashboard.hours.toFixed(1)}h` },
+          ]}
+        />
       </section>
 
       <section className="rounded-xl border border-white/[0.08] bg-surface-raised">
@@ -395,27 +401,6 @@ export function EmployeeEarningsDashboard({
           </div>
         </section>
       )}
-    </div>
-  );
-}
-
-function Stat({
-  label,
-  value,
-  tone,
-}: {
-  label: string;
-  value: string;
-  tone?: 'approved' | 'pending';
-}) {
-  const color =
-    tone === 'approved' ? 'text-emerald-400' : tone === 'pending' ? 'text-amber-400' : 'text-white';
-  return (
-    <div>
-      <p className="mb-0.5 text-[10px] font-medium uppercase tracking-wider text-zinc-500">
-        {label}
-      </p>
-      <p className={`text-sm font-semibold ${color}`}>{value}</p>
     </div>
   );
 }

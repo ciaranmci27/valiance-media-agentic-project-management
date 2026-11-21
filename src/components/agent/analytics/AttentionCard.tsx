@@ -3,7 +3,7 @@
 import { BellRing } from 'lucide-react';
 import { Sparkline } from '@/components/ui/Sparkline';
 import type { Attention } from '@/lib/agent-telemetry-analytics';
-import { Card, CardSkeleton, Disclosure, MiniStat, Missing, StatRow, fmtDuration, fmtPct } from './shared';
+import { Card, CardSkeleton, Disclosure, CardStats, Missing, fmtDuration, fmtPct } from './shared';
 
 const KIND_LABELS: Record<string, string> = {
   telegram_reply: 'replies',
@@ -37,26 +37,28 @@ export function AttentionCard({ attention, measuring, rangeDays, taskTitle }: {
         <Missing>No agent messages reached a person in this range.</Missing>
       ) : (
         <div className="p-5 space-y-4">
-          <StatRow columns={3}>
-            <MiniStat
-              label="Messages"
-              value={String(a.total)}
-              sub={a.hostAlertShare ? `${fmtPct(a.hostAlertShare)} host alerts` : 'all from agents'}
-            />
-            <MiniStat
-              label="Unsolicited a day"
-              hint="Messages nobody asked for (updates, notifications, questions, alerts), averaged over the days in range."
-              value={(unsolicited / rangeDays).toFixed(1)}
-              sub={`${unsolicited} in range`}
-            />
-            <MiniStat
-              label="Blocked to resumed"
-              hint="From an agent's blocked event on a task to its next sign of progress on that task: median, with the 95th percentile below."
-              value={b.medianMs === null ? null : fmtDuration(b.medianMs)}
-              empty={b.unresolved > 0 ? 'None resumed' : 'No blocks'}
-              sub={b.medianMs !== null ? `p95 ${fmtDuration(b.p95Ms ?? 0)} · ${b.unresolved} still blocked` : b.unresolved > 0 ? `${b.unresolved} still blocked` : undefined}
-            />
-          </StatRow>
+          <CardStats
+            stats={[
+              {
+                label: 'Messages',
+                value: String(a.total),
+                context: a.hostAlertShare ? `${fmtPct(a.hostAlertShare)} host alerts` : 'all from agents',
+              },
+              {
+                label: 'Unsolicited a day',
+                hint: 'Messages nobody asked for (updates, notifications, questions, alerts), averaged over the days in range.',
+                value: (unsolicited / rangeDays).toFixed(1),
+                context: `${unsolicited} in range`,
+              },
+              {
+                label: 'Blocked to resumed',
+                hint: "From an agent's blocked event on a task to its next sign of progress on that task: median, with the 95th percentile below.",
+                value: b.medianMs === null ? null : fmtDuration(b.medianMs),
+                empty: b.unresolved > 0 ? 'None resumed' : 'No blocks',
+                context: b.medianMs !== null ? `p95 ${fmtDuration(b.p95Ms ?? 0)} · ${b.unresolved} still blocked` : b.unresolved > 0 ? `${b.unresolved} still blocked` : undefined,
+              },
+            ]}
+          />
 
           <ul className="divide-y divide-white/[0.06] border-t border-white/[0.06]">
             {a.rows.map((row) => (
