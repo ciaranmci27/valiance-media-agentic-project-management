@@ -24,7 +24,7 @@ interface ClientEmailDomainsProps {
 const byDomain = (a: ClientEmailDomain, b: ClientEmailDomain) => a.domain.localeCompare(b.domain);
 
 /**
- * The project's client email domains: mail from any address at one of these
+ * The project's sender domains: mail from any address at one of these
  * maps to the project. Everyone who can see the project sees the list; people
  * who manage contacts or the inbox can add and remove domains.
  */
@@ -118,7 +118,7 @@ export function ClientEmailDomains({ isOpen, projectId }: ClientEmailDomainsProp
         <div className="flex items-center gap-2">
           <Globe size={14} className="text-zinc-400 flex-shrink-0" aria-hidden="true" />
           <h4 id={`${inputId}-heading`} className="text-sm font-medium text-white">
-            Client domains <span className="font-normal text-zinc-400">(optional)</span>
+            Sender domains <span className="font-normal text-zinc-400">(optional)</span>
           </h4>
           {loading && (
             <Loader2 size={14} className="text-zinc-500 animate-spin motion-reduce:animate-none" aria-label="Loading domains" role="status" />
@@ -155,7 +155,7 @@ export function ClientEmailDomains({ isOpen, projectId }: ClientEmailDomainsProp
           ))}
         </ul>
       ) : !loading ? (
-        <p className="text-xs text-zinc-400">None yet. Optional: add one to catch everyone at the client&apos;s company.</p>
+        <p className="text-xs text-zinc-400">None yet. Optional: add one to catch everyone at a company you work with on this project.</p>
       ) : null}
 
       {canManage && (

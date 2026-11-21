@@ -312,7 +312,7 @@ export function SubNav<K extends string>({ items, active, onChange, label }: {
         >
           {item.icon && <item.icon size={16} aria-hidden="true" />}
           <span className={item.icon && item.hideLabelOnMobile ? 'hidden sm:inline' : undefined}>{item.label}</span>
-          {!!item.count && <span className="text-xs font-mono tabular-nums text-zinc-400">{item.count}</span>}
+          {!!item.count && <span className="text-xs tabular-nums text-zinc-400">{item.count}</span>}
         </button>
       ))}
     </div>

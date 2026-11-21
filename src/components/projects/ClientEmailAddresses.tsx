@@ -148,7 +148,7 @@ export function ClientEmailAddresses({ isOpen, projectId }: ClientEmailAddresses
         <div className="flex items-center gap-2">
           <Mail size={14} className="text-zinc-400 flex-shrink-0" aria-hidden="true" />
           <h4 id={`${inputId}-heading`} className="text-sm font-medium text-white">
-            Client people <span className="font-normal text-zinc-400">(optional)</span>
+            Sender addresses <span className="font-normal text-zinc-400">(optional)</span>
           </h4>
           {loading && (
             <Loader2 size={14} className="text-zinc-500 animate-spin motion-reduce:animate-none" aria-label="Loading addresses" role="status" />
@@ -195,7 +195,7 @@ export function ClientEmailAddresses({ isOpen, projectId }: ClientEmailAddresses
           ))}
         </ul>
       ) : !loading ? (
-        <p className="text-xs text-zinc-400">None yet. Optional: add one when a client writes from a personal address.</p>
+        <p className="text-xs text-zinc-400">None yet. Optional: add one when someone writes from a personal address.</p>
       ) : null}
 
       {canManage && (

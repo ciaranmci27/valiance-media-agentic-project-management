@@ -12,8 +12,8 @@ function presetSummary(id: PresetId): string {
 
 /**
  * One preset as a card you press to apply it. Full (Settings > Features)
- * adds what it switches on and marks the current one; compact (the
- * Dashboard's setup card) is the label and its line only.
+ * and the setup wizard) adds what it switches on and marks the current
+ * one; compact is the label and its line only.
  */
 export function PresetCard({ id, current = false, compact = false, busy = false, disabled = false, onPick }: {
   id: PresetId;

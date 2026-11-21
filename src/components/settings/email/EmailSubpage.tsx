@@ -17,13 +17,13 @@ export function EmailSubpage({
   children,
 }: {
   title: string;
-  /** inbox: inbound_email.manage. smtp: smtp.manage (and not demo mode). */
-  need: 'inbox' | 'smtp';
+  /** inbox: inbound_email.manage. mine: inbound_email.personal. smtp: smtp.manage (and not demo mode). */
+  need: 'inbox' | 'mine' | 'smtp';
   children: ReactNode;
 }) {
   const router = useRouter();
   const { show } = useSettingsAccess();
-  const allowed = need === 'inbox' ? show.emailInboxes : show.smtp;
+  const allowed = need === 'inbox' ? show.emailInboxes : need === 'mine' ? show.myInbox : show.smtp;
 
   useEffect(() => {
     if (!allowed) router.replace(EMAIL_PAGES.overview);

@@ -32,16 +32,13 @@ export function RoleChip({ role }: { role: Role }) {
   );
 }
 
-/** Active or Suspended. `dense` for table rows. */
-export function MemberStatusChip({ status, dense = false }: { status?: TeamMember['status']; dense?: boolean }) {
+/** Active, Invited (has not signed in yet) or Suspended. `dense` for table rows. */
+export function MemberStatusChip({ status, invited = false, dense = false }: { status?: TeamMember['status']; invited?: boolean; dense?: boolean }) {
   const suspended = status === 'suspended';
+  const tone = suspended ? 'bg-red-500/15 text-red-300' : invited ? 'bg-sky-500/15 text-sky-300' : 'bg-emerald-500/15 text-emerald-300';
   return (
-    <span
-      className={`inline-flex items-center px-2 ${dense ? 'py-0.5' : 'py-1'} rounded-full text-xs font-medium whitespace-nowrap ${
-        suspended ? 'bg-red-500/15 text-red-300' : 'bg-emerald-500/15 text-emerald-300'
-      }`}
-    >
-      {suspended ? 'Suspended' : 'Active'}
+    <span className={`inline-flex items-center px-2 ${dense ? 'py-0.5' : 'py-1'} rounded-full text-xs font-medium whitespace-nowrap ${tone}`}>
+      {suspended ? 'Suspended' : invited ? 'Invited' : 'Active'}
     </span>
   );
 }

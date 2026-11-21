@@ -25,9 +25,11 @@ import {
   resolveBrand,
   type BrandSettings,
 } from '../src/lib/brand';
+import { rowToSettings, type WorkspaceBrandRow } from '../src/lib/brand/resolve';
 import { BRAND_LIMITS, parseBrandInput, sniffImage } from '../src/lib/brand/validate';
 
 const MIGRATION_SQL = readFileSync(join(__dirname, '..', 'supabase', 'migrations', '20261121001500_workspace_brand.sql'), 'utf8');
+const SIDEBAR_SQL = readFileSync(join(__dirname, '..', 'supabase', 'migrations', '20261121063000_sidebar_projects_style.sql'), 'utf8');
 
 let passed = 0;
 const failures: string[] = [];
@@ -98,6 +100,13 @@ function parsing() {
   check('parse: a description over the limit is refused', parseBrandInput({ description: 'x'.repeat(BRAND_LIMITS.description + 1) }).error !== null);
   check('parse: a non-boolean flag is refused', parseBrandInput({ showNameUnderLogo: 'yes' }).error !== null);
   check('parse: text that is not a string is refused', parseBrandInput({ name: 42 }).error !== null);
+  check('parse: projects style left out stays out, so the stored one is kept', ok.data !== null && !('sidebarProjects' in ok.data), ok.data);
+  check('parse: projects as a menu is accepted', parseBrandInput({ sidebarProjects: 'menu' }).data?.sidebarProjects === 'menu');
+  check('parse: an unknown projects style is refused', parseBrandInput({ sidebarProjects: 'grid' }).error !== null);
+  const oldRow = { name: null, tagline: null, description: null, brand_color: null, brand_shades: null, accent_color: null, logo_light_path: null, logo_dark_path: null, favicon_path: null, invert_logo_in_sidebar: false, show_name_under_logo: false } as WorkspaceBrandRow;
+  check('row: a database without the column reads projects as a list', rowToSettings(oldRow).sidebarProjects === 'list');
+  check('row: a stored menu reads as a menu', rowToSettings({ ...oldRow, sidebar_projects: 'menu' }).sidebarProjects === 'menu');
+  check('resolve: the projects style carries to the brand', resolveBrand({ ...EMPTY_BRAND_SETTINGS, sidebarProjects: 'menu' }).sidebarProjects === 'menu' && DEFAULT_BRAND.sidebarProjects === 'list');
   check('parse: a body that is not an object is refused', parseBrandInput(null).error !== null && parseBrandInput([]).error !== null);
   check('parse: shades that are not an object are refused', parseBrandInput({ brandShades: ['#FFFFFF'] }).error !== null);
 }
@@ -136,6 +145,8 @@ async function database() {
   // The migration re-runs safely on a database that already has it.
   await db.exec(MIGRATION_SQL);
   await db.exec(MIGRATION_SQL);
+  await db.exec(SIDEBAR_SQL);
+  await db.exec(SIDEBAR_SQL);
 
   await actAs(db, null);
   const rows = await db.query<{ n: number }>('SELECT count(*)::int AS n FROM public.workspace_brand');
@@ -167,6 +178,9 @@ async function database() {
   check('db: a bad brand color is refused', !!(await failure(db, "UPDATE public.workspace_brand SET brand_color = 'red'")));
   check('db: a bad accent color is refused', !!(await failure(db, "UPDATE public.workspace_brand SET accent_color = '#12345'")));
   check('db: a name over 60 characters is refused', !!(await failure(db, `UPDATE public.workspace_brand SET name = '${'x'.repeat(61)}'`)));
+  check('db: projects start as a list', (await db.query<{ s: string }>('SELECT sidebar_projects AS s FROM public.workspace_brand')).rows[0]?.s === 'list');
+  check('db: projects as a menu is stored', (await failure(db, "UPDATE public.workspace_brand SET sidebar_projects = 'menu'")) === null);
+  check('db: an unknown projects style is refused', !!(await failure(db, "UPDATE public.workspace_brand SET sidebar_projects = 'grid'")));
   check('db: shades that are not an object are refused', !!(await failure(db, `UPDATE public.workspace_brand SET brand_shades = '["#FFFFFF"]'`)));
   const after = await db.query<{ name: string; brand_color: string }>('SELECT name, brand_color FROM public.workspace_brand');
   check('db: a refused write leaves the row as it was', after.rows[0].name === 'Acme' && after.rows[0].brand_color === '#4F46E5', after.rows);

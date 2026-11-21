@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import type { ReactNode } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 import { ChevronRight, type LucideIcon } from 'lucide-react';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { Sparkline } from '@/components/ui/Sparkline';
@@ -50,59 +50,96 @@ const TONES: Record<StatTone, string> = {
   info: 'text-sky-300',
 };
 
-/** How wide the strip must be before every stat fits side by side (globals.css, strip-row). */
-function fitFor(count: number) {
-  if (count <= 3) return 's';
-  if (count === 4) return 'm';
-  if (count <= 6) return 'l';
-  return 'xl';
+/** The rem steps the strip's widths snap up to (globals.css, strip-row and strip-line). */
+const STEPS = [16, 20, 24, 28, 32, 36, 40, 44, 48, 52, 56, 64, 72, 80, 88, 96];
+/** Below this a strip stays a list even when a two-row grid would fit, so phones get the list. */
+const GRID_MIN = 32;
+
+function snap(rem: number) {
+  return STEPS.find(step => step >= rem);
+}
+
+function textLength(node: ReactNode) {
+  return typeof node === 'string' || typeof node === 'number' ? String(node).length : null;
+}
+
+/**
+ * The widths (in rem) where the stats fit as columns without cutting off a
+ * label or value: `row` for one line, `grid` for two rows when the count is
+ * even. A rough measure from the text lengths: 12px labels, 20px values, a
+ * sparkline beside the value. Context wraps to two lines, so it never sets
+ * the width.
+ */
+function fitFor(items: Stat[], bare: boolean) {
+  const anySpark = items.some(stat => stat.spark);
+  const cell = Math.max(
+    ...items.map(stat => {
+      const labelChars = textLength(stat.label) ?? 14;
+      const label = labelChars * 0.42 + (stat.icon ? 1.25 : 0);
+      const valueChars = stat.value === null || stat.value === undefined ? 5 : textLength(stat.value) ?? 7;
+      const value = valueChars * 0.72 + (anySpark ? 5.25 : 0);
+      return Math.max(label, value, 5.5);
+    }),
+  ) + (bare ? 2 : 2.5);
+  const count = items.length;
+  const columns = count >= 4 && count % 2 === 0 ? count / 2 : null;
+  const grid = columns ? snap(Math.max(GRID_MIN, columns * cell)) : undefined;
+  return { row: snap(count * cell), grid, columns: columns ?? count };
 }
 
 /**
  * A row of numbers as one surface. Wide enough, the stats sit side by side
- * with hairlines between them: label, value, one line of context. Narrower,
- * the same strip is a list: label on the left, value on the right. It never
- * becomes a grid of separate tiles, so an odd stat is never left alone on a
- * row.
+ * with hairlines between them: label, value, up to two lines of context, all
+ * top aligned so labels and values share a line whatever the context. A
+ * little narrower, an even count splits into two rows of columns. Narrower
+ * still, the same strip is a list: label on the left, value on the right. It
+ * never becomes a grid of separate tiles, so an odd stat is never left alone
+ * on a row.
  */
 export function StatStrip({ stats, bare = false, loading = false, label, className = '' }: StatStripProps) {
   const items = stats.filter((stat): stat is Stat => !!stat);
   if (items.length === 0) return null;
-  const last = items.length - 1;
+  const fit = fitFor(items, bare);
 
   return (
     <div
-      data-fit={fitFor(items.length)}
+      data-row={fit.row}
+      data-grid={fit.grid}
+      style={{ '--strip-n': items.length, '--strip-g': fit.columns } as CSSProperties}
       className={`@container/stat-strip min-w-0 ${bare ? '' : 'glass-card rounded-xl overflow-hidden'} ${className}`}
     >
       <ul
         aria-label={label}
         aria-busy={loading || undefined}
-        className="flex flex-col divide-y divide-white/[0.06] strip-row:flex-row strip-row:divide-y-0 strip-row:divide-x"
+        className={`flex flex-col divide-y divide-white/[0.06] [--strip-cols:var(--strip-g)] strip-row:grid strip-row:grid-cols-[repeat(var(--strip-cols),minmax(0,1fr))] strip-row:divide-y-0 strip-row:overflow-hidden strip-line:[--strip-cols:var(--strip-n)] ${
+          // Bare strips line their stats up with the card's content edges.
+          bare ? '-my-2.5 strip-row:-mx-4 strip-row:-my-3' : ''
+        }`}
       >
         {items.map((stat, index) => {
           const key = stat.id ?? (typeof stat.label === 'string' ? stat.label : String(index));
           const Icon = stat.icon;
           const interactive = !!stat.href || !!stat.onSelect;
-          // Bare strips line their first and last stat up with the card's content edges.
-          const pad = bare
-            ? `py-2.5 strip-row:py-0 strip-row:px-4 ${index === 0 ? 'pt-0 strip-row:pl-0' : ''} ${index === last ? 'pb-0 strip-row:pr-0' : ''}`
-            : 'px-4 py-3 strip-row:px-5 strip-row:py-4';
-          const cellClass = `grid h-full w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 text-left [grid-template-areas:'label_value''context_value'] strip-row:items-end strip-row:gap-x-3 strip-row:[grid-template-areas:'label_label''value_spark''context_context'] ${pad} ${
+          const pad = bare ? 'py-2.5 strip-row:px-4 strip-row:py-3' : 'px-4 py-3 strip-row:px-5 strip-row:py-4';
+          const cellClass = `grid h-full w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 text-left [grid-template-areas:'label_value''context_value'] strip-row:content-start strip-row:items-start strip-row:gap-x-3 strip-row:[grid-template-areas:'label_label''value_spark''context_context'] ${pad} ${
             interactive
               ? `transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-500 ${
-                  stat.selected ? 'bg-brand-500/[0.08]' : 'hover:bg-white/[0.03]'
+                  stat.selected ? 'bg-brand-500/[0.14]' : 'hover:bg-white/[0.03]'
                 }`
               : ''
           }`;
 
           const body = (
             <>
-              <span className="[grid-area:label] flex min-w-0 items-center gap-1.5 text-sm text-zinc-300 strip-row:text-xs strip-row:font-medium strip-row:text-zinc-500">
-                {Icon && <Icon size={14} className="flex-shrink-0 text-zinc-500" aria-hidden="true" />}
+              <span
+                className={`[grid-area:label] flex min-w-0 items-center gap-1.5 text-sm strip-row:text-xs strip-row:font-medium ${
+                  stat.selected ? 'text-brand-300' : 'text-zinc-300 strip-row:text-zinc-500'
+                }`}
+              >
+                {Icon && <Icon size={14} className={`flex-shrink-0 ${stat.selected ? 'text-brand-400' : 'text-zinc-500'}`} aria-hidden="true" />}
                 {typeof stat.label === 'string' && stat.label.length > 22 ? (
-                  // A long label may be cut off: the full text shows on hover.
-                  <Tooltip content={stat.label} className="min-w-0"><span className="block min-w-0 truncate">{stat.label}</span></Tooltip>
+                  // A long label may be cut off: the full text shows below on hover.
+                  <Tooltip content={stat.label} position="bottom" offset={12} className="min-w-0"><span className="block min-w-0 truncate">{stat.label}</span></Tooltip>
                 ) : (
                   <span className="min-w-0 truncate">{stat.label}</span>
                 )}
@@ -125,13 +162,18 @@ export function StatStrip({ stats, bare = false, loading = false, label, classNa
                 </span>
               )}
               {stat.context && !loading && (
-                <span className="[grid-area:context] block min-w-0 truncate text-xs text-zinc-500 strip-row:mt-0.5">{stat.context}</span>
+                <span className="[grid-area:context] block min-w-0 truncate text-xs text-zinc-500 strip-row:mt-0.5 strip-row:line-clamp-2 strip-row:whitespace-normal">{stat.context}</span>
               )}
             </>
           );
 
           return (
-            <li key={key} className="min-w-0 strip-row:flex-1 strip-row:basis-0">
+            // In columns each stat draws a hairline on its left and top edge;
+            // the list clips the ones on its outer edges.
+            <li
+              key={key}
+              className="min-w-0 strip-row:[box-shadow:-1px_0_0_0_rgba(var(--ink),0.06),0_-1px_0_0_rgba(var(--ink),0.06)]"
+            >
               {stat.href ? (
                 <Link href={stat.href} className={cellClass}>{body}</Link>
               ) : stat.onSelect ? (

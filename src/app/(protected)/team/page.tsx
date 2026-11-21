@@ -11,7 +11,6 @@ import { User, UserPlus, SlidersHorizontal } from 'lucide-react';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { RowActionsMenu } from '@/components/ui/RowActionsMenu';
 import { TeamMember } from '@/lib/types';
-import { toast } from '@/components/ui/Toast';
 import { useDemo } from '@/lib/demo-context';
 import InviteMemberModal from '@/components/team/InviteMemberModal';
 import { MemberStatusChip, RoleChip } from '@/components/team/member-chips';
@@ -24,7 +23,7 @@ export default function TeamPage() {
   const { isDemoMode } = useDemo();
   const router = useRouter();
   const [isInviteOpen, setIsInviteOpen] = useState(false);
-  const { buildActions, openAccess, isOwner, canManageTeam, modals } = useMemberActions();
+  const { buildActions, openAccess, isOwner, canManageTeam, isPendingInvite, modals } = useMemberActions();
 
   useEffect(() => {
     setFilters(defaultFilters);
@@ -82,7 +81,7 @@ export default function TeamPage() {
         </div>
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <RoleChip role={m.role} />
-          {m.status === 'suspended' && <MemberStatusChip status="suspended" />}
+          {(m.status === 'suspended' || isPendingInvite(m)) && <MemberStatusChip status={m.status} invited={isPendingInvite(m)} />}
           <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-white/[0.06] text-zinc-300">
             {count} task{count !== 1 ? 's' : ''}
           </span>
@@ -129,7 +128,7 @@ export default function TeamPage() {
       key: 'status',
       header: 'Status',
       className: 'hidden md:table-cell',
-      render: (m) => <MemberStatusChip status={m.status} dense />,
+      render: (m) => <MemberStatusChip status={m.status} invited={isPendingInvite(m)} dense />,
     },
     {
       key: 'tasks',
@@ -138,7 +137,7 @@ export default function TeamPage() {
       sortValue: (m) => getTaskCount(m.id),
       render: (m) => {
         const count = getTaskCount(m.id);
-        return <span className="font-mono text-zinc-300 tabular-nums">{count}</span>;
+        return <span className="text-zinc-300 tabular-nums">{count}</span>;
       },
     },
     {
@@ -203,10 +202,7 @@ export default function TeamPage() {
       <InviteMemberModal
         isOpen={isInviteOpen}
         onClose={() => setIsInviteOpen(false)}
-        onSuccess={(member) => {
-          upsertLocalTeamMember(member);
-          toast('success', `${member.name} has been invited`);
-        }}
+        onSuccess={(member) => upsertLocalTeamMember(member)}
         canAssignOwner={isOwner}
       />
 

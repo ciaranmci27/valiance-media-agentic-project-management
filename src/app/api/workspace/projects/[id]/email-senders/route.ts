@@ -4,7 +4,7 @@ import { clientSenderSchema } from '@/lib/communications/schemas';
 
 export const dynamic = 'force-dynamic';
 
-/** Client email addresses: mail from one maps to this project. Lists the project's contact addresses too. */
+/** Sender addresses: mail from one maps to this project. Lists the project's contact addresses too. */
 export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   return inboxRoute((ctx) => listClientSenders(ctx, id));

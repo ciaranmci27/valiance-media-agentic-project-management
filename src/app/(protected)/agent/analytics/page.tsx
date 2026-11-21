@@ -236,9 +236,14 @@ const AGENT_SERIES = [
 // ---------------------------------------------------------------------------
 
 /** The one way a missing measurement renders. Never a fake zero. */
-function NotTracked({ reason, className = '' }: { reason: string; className?: string }) {
+function NotTracked({ reason, className = '', below = false }: { reason: string; className?: string; below?: boolean }) {
   return (
-    <Tooltip content={<span className="block max-w-[260px] whitespace-normal">{reason}</span>}>
+    <Tooltip
+      content={<span className="block max-w-[260px] whitespace-normal">{reason}</span>}
+      // In a stat strip the tooltip opens below, clear of the stat's own label.
+      position={below ? 'bottom' : 'top'}
+      offset={below ? 12 : 8}
+    >
       <span className={`font-medium text-zinc-500 cursor-help ${className}`}>Not tracked</span>
     </Tooltip>
   );
@@ -491,12 +496,12 @@ export default function AgentAnalyticsPage() {
   }, [analytics]);
 
   const usageReason = selectedAgentIds.size > 0 || selectedProjectIds.size > 0
-    ? 'Hermes usage telemetry has not reported for this selection.'
-    : 'Hermes usage telemetry has not reported yet. Token and cost figures appear once usage events are recorded.';
-  const mergeReason = 'Merge telemetry has not reported yet. Counts appear once merged pull requests are recorded.';
+    ? 'No usage data yet for this selection.'
+    : 'No usage data yet. Token and cost figures show once the agents report their usage.';
+  const mergeReason = 'No merge data yet. Counts show once merged pull requests are recorded.';
   const runtimeReason = selectedProjectIds.size > 0
     ? 'Runtime is fleet-wide, not per project: a turn can touch several projects or none, so it is not attributed to a project filter.'
-    : 'Turn telemetry has not reported yet. Runtime appears once completed turns are recorded.';
+    : 'No runtime data yet. Runtime shows once the agents finish their first turns.';
   const profitReason = telemetry.usage
     ? 'Model cost is missing for at least one agent with revenue in this selection, so profit would be overstated.'
     : usageReason;
@@ -563,7 +568,7 @@ export default function AgentAnalyticsPage() {
           tone: 'warning' as StatTone,
           context: summary.modelCost !== null
             ? `In ${fmtCount(summary.inputTokens ?? 0)} · Out ${fmtCount(summary.outputTokens ?? 0)}`
-            : 'Awaiting Hermes telemetry',
+            : 'No usage data yet',
           notTracked: usageReason,
         };
         case 'profit': return {
@@ -588,7 +593,7 @@ export default function AgentAnalyticsPage() {
               : 'Time the agents actually ran',
             notTracked: selectedProjectIds.size > 0
               ? 'Runtime is fleet-wide, not per project: a turn can touch several projects or none, so it is not attributed to a project filter.'
-              : 'Turn telemetry has not reported yet. Runtime appears once completed turns are recorded.',
+              : 'No runtime data yet. Runtime shows once the agents finish their first turns.',
           };
         }
         case 'prsMerged': {
@@ -773,11 +778,11 @@ export default function AgentAnalyticsPage() {
 
   const noTelemetryForMetric =
     chartMetric === 'prsMerged' && !telemetry.merged
-      ? 'Merge telemetry has not reported yet. This chart fills in once merged pull requests are recorded.'
+      ? 'No merge data yet. This chart fills in once merged pull requests are recorded.'
       : (chartMetric === 'modelCost' || chartMetric === 'profit') && !telemetry.usage
         ? usageReason
         : chartMetric === 'runtime' && !telemetry.runtime
-          ? 'Turn telemetry has not reported yet. Runtime appears once completed turns are recorded.'
+          ? 'No runtime data yet. Runtime shows once the agents finish their first turns.'
           : null;
 
   /** One agent's active runtime from the outcome model; null when it ran no turns. */
@@ -793,7 +798,7 @@ export default function AgentAnalyticsPage() {
   return (
     <div className="animate-fadeIn min-h-screen">
       <Header
-        title="Agent Analytics"
+        title="Agent analytics"
         subtitle={<span className="hidden sm:inline">Delivery, cost, and revenue per agent. Only measured data; nothing is estimated.</span>}
       />
 
@@ -1068,7 +1073,7 @@ export default function AgentAnalyticsPage() {
               id: tile.key,
               label: tile.label,
               value: tile.value,
-              empty: <NotTracked reason={tile.notTracked ?? usageReason} />,
+              empty: <NotTracked below reason={tile.notTracked ?? usageReason} />,
               tone: tile.tone,
               icon: tile.icon,
               context: tile.context,
@@ -1401,7 +1406,7 @@ export default function AgentAnalyticsPage() {
                       </div>
                       <div className="text-right flex-shrink-0">
                         {stage.notTracked ? (
-                          <NotTracked className="text-xs" reason="Merge telemetry has not reported yet, so the wait between approval and merge cannot be measured." />
+                          <NotTracked className="text-xs" reason="No merge data yet, so the wait between approval and merge cannot be measured." />
                         ) : stage.medianMs === null ? (
                           <span className="text-sm text-zinc-500">-</span>
                         ) : (
@@ -1574,7 +1579,7 @@ export default function AgentAnalyticsPage() {
                           {telemetry.handoff ? row.prsOpened : <NotTracked className="text-[11px]" reason="No pull request hand-offs have been recorded yet." />}
                         </span>
                         <span className="text-sm text-zinc-300 font-medium text-right w-16">
-                          {telemetry.merged ? row.prsMerged : <NotTracked className="text-[11px]" reason="Merge telemetry has not reported yet." />}
+                          {telemetry.merged ? row.prsMerged : <NotTracked className="text-[11px]" reason="No merge data yet." />}
                         </span>
                         <span className="text-sm text-zinc-300 font-medium text-right w-16">{row.reviewRounds}</span>
                         <span className="text-sm font-medium text-right w-20">
@@ -1585,7 +1590,7 @@ export default function AgentAnalyticsPage() {
                         <span className="text-sm font-medium text-right w-24">
                           {telemetry.merged
                             ? <><span className="text-emerald-400">+{fmtCount(row.additions)}</span>{' '}<span className="text-rose-400">-{fmtCount(row.deletions)}</span></>
-                            : <NotTracked className="text-[11px]" reason="Line counts arrive with merge telemetry, which has not reported yet." />}
+                            : <NotTracked className="text-[11px]" reason="Line counts come with merge data, and none has arrived yet." />}
                         </span>
                         <span className="text-sm text-emerald-400 font-semibold text-right w-20">{fmtCurrency(row.revenue)}</span>
                         <span className="text-sm font-medium text-right w-20">
@@ -1641,31 +1646,31 @@ export default function AgentAnalyticsPage() {
                           {
                             label: 'Opened',
                             value: telemetry.handoff ? row.prsOpened : null,
-                            empty: <NotTracked reason="No pull request hand-offs have been recorded yet." />,
+                            empty: <NotTracked below reason="No pull request hand-offs have been recorded yet." />,
                           },
                           {
                             label: 'Merged',
                             value: telemetry.merged ? row.prsMerged : null,
-                            empty: <NotTracked reason="Merge telemetry has not reported yet." />,
+                            empty: <NotTracked below reason="No merge data yet." />,
                           },
                           { label: 'Rounds', value: row.reviewRounds },
                           {
                             label: 'Runtime',
                             value: runtimeOf(row.agentId) !== null ? fmtDuration(runtimeOf(row.agentId)!) : null,
-                            empty: <NotTracked reason={runtimeReason} />,
+                            empty: <NotTracked below reason={runtimeReason} />,
                             tone: 'info',
                           },
                           { label: 'Revenue', value: fmtCurrency(row.revenue), tone: 'success' },
                           {
                             label: 'Cost',
                             value: row.modelCost.tracking === 'tracked' && row.modelCost.value !== null ? fmtCurrency(row.modelCost.value) : null,
-                            empty: <NotTracked reason={usageReason} />,
+                            empty: <NotTracked below reason={usageReason} />,
                             tone: 'warning',
                           },
                           {
                             label: 'Profit',
                             value: row.profit.tracking === 'tracked' && row.profit.value !== null ? fmtCurrency(row.profit.value) : null,
-                            empty: <NotTracked reason={usageReason} />,
+                            empty: <NotTracked below reason={usageReason} />,
                             tone: row.profit.tracking === 'tracked' && row.profit.value !== null && row.profit.value < 0 ? 'danger' : 'success',
                           },
                         ]}
@@ -1677,7 +1682,7 @@ export default function AgentAnalyticsPage() {
 
               {summary.usagePartial && (
                 <p className="px-5 py-2.5 text-[11px] text-zinc-500 border-t border-white/[0.06]">
-                  Usage telemetry reported for {summary.usageAgents} of {summary.totalAgents} agents in this selection. Token and cost totals cover only the reporting agents.
+                  Usage data came in for {summary.usageAgents} of {summary.totalAgents} agents in this selection. Token and cost totals cover only the reporting agents.
                 </p>
               )}
             </>

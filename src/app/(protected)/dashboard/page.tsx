@@ -20,20 +20,20 @@ import { useRetainerFinanceInputs } from '@/lib/finance/use-retainer-finance';
 import { toDateKey } from '@/lib/finance/vesting';
 import { isRunning } from '@/lib/time-entry-utils';
 import { activityAfterName, teamActivityHref } from '@/lib/team-activity';
-import { WorkspaceSetupCard } from '@/components/settings/workspace/WorkspaceSetupCard';
+import { GettingStartedCard } from '@/components/welcome/GettingStartedCard';
 import { useCustomDashboardWidgets } from '@/lib/extensions/hooks';
+import { formatHours, formatMoney } from '@/lib/format';
 
-const fmtMoney = (n: number) =>
-  new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n);
+const fmtMoney = formatMoney;
 
 // Trend chip: percent change vs the prior 30-day window (▲ up is added by the card,
 // ▼ down is baked in). Falls back to a plain label when there's no prior baseline.
 function trendChip(current: number, prior: number, fallback: string): { text: string; up: boolean } {
   if (prior <= 0) return { text: fallback, up: false };
   const pct = Math.round(((current - prior) / prior) * 100);
-  if (pct > 0) return { text: `${pct}%`, up: true };
-  if (pct < 0) return { text: `▼ ${Math.abs(pct)}%`, up: false };
-  return { text: '0%', up: false };
+  if (pct > 0) return { text: `${pct}% on the 30 days before`, up: true };
+  if (pct < 0) return { text: `▼ ${Math.abs(pct)}% on the 30 days before`, up: false };
+  return { text: 'Same as the 30 days before', up: false };
 }
 
 function getTimeAgo(dateStr: string): string {
@@ -178,18 +178,18 @@ export default function DashboardPage() {
       const base = { projects, invoices: projectInvoices, timeEntries, team, rateByProject, now: nowMs, timezone: tz, lineSharePercent, accruingRetainerLines };
       const s = computeCompanyFinanceSummary({ ...base, range });
       const prev = computeCompanyFinanceSummary({ ...base, range: prevRange });
-      const trend = trendChip(s.earned, prev.earned, `${Math.round(s.hours)}h logged`);
+      const trend = trendChip(s.earned, prev.earned, `Last 30 days, ${formatHours(s.hours)} logged`);
       return [
-        { label: 'Earned (30d)', value: 0, display: fmtMoney(s.earned), icon: DollarSign, context: trend.text, up: trend.up },
+        { label: 'Earned', value: 0, display: fmtMoney(s.earned), icon: DollarSign, context: trend.text, up: trend.up },
         { label: 'Outstanding', value: 0, display: fmtMoney(s.outstanding), icon: Wallet, context: s.overdue > 0 ? `${fmtMoney(s.overdue)} overdue` : 'to collect' },
       ];
     }
     if (canReadOwnEarnings && employeeEarnings) {
       const m = computeMemberEarningsSummary(employeeEarnings, range);
       const mPrev = computeMemberEarningsSummary(employeeEarnings, prevRange);
-      const trend = trendChip(m.earned, mPrev.earned, 'last 30 days');
+      const trend = trendChip(m.earned, mPrev.earned, 'Last 30 days');
       return [
-        { label: 'Earned (30d)', value: 0, display: fmtMoney(m.earned), icon: DollarSign, context: trend.text, up: trend.up },
+        { label: 'Earned', value: 0, display: fmtMoney(m.earned), icon: DollarSign, context: trend.text, up: trend.up },
         { label: 'Owed to you', value: 0, display: fmtMoney(m.owed), icon: Wallet, context: m.owed > 0 ? 'unpaid' : 'all settled' },
       ];
     }
@@ -248,8 +248,8 @@ export default function DashboardPage() {
       />
 
       <div className="p-4 lg:p-6 space-y-5 lg:space-y-6">
-        {/* First-run setup: Owners on a fresh install only. */}
-        <WorkspaceSetupCard />
+        {/* After first-run setup: what the Owner skipped, until done or hidden. */}
+        <GettingStartedCard />
 
         {/* Headline numbers: one strip, whatever the switched-on modules leave. */}
         <StatStrip
@@ -276,7 +276,7 @@ export default function DashboardPage() {
                 <AlertTriangle size={18} className="text-red-300" />
               </div>
               <div>
-                <h2 className="font-semibold text-white">Overdue Tasks</h2>
+                <h2 className="font-semibold text-white">Overdue tasks</h2>
                 <p className="text-sm text-red-300/80">{overdue.length} task{overdue.length !== 1 ? 's' : ''} past due date</p>
               </div>
             </div>
@@ -311,7 +311,7 @@ export default function DashboardPage() {
                 <h2 className="font-semibold text-white">Activity</h2>
                 <p className="text-xs text-zinc-500 mt-0.5">{seesAllTasks ? 'Tasks completed' : 'Your tasks completed'}, last 7 days</p>
               </div>
-              <p className="font-mono text-xl font-bold text-white tabular-nums">{completedThisWeek}<span className="text-xs text-zinc-500 font-medium font-sans"> total</span></p>
+              <p className="text-xl font-bold text-white tabular-nums">{completedThisWeek}<span className="text-xs text-zinc-500 font-medium"> total</span></p>
             </div>
             <div className="flex items-end gap-2 lg:gap-3 h-32 mt-5 pb-6 relative">
               {completedPerDay.map((v, i) => {
@@ -344,7 +344,7 @@ export default function DashboardPage() {
             <div className="glass-card rounded-xl p-4 lg:p-5">
               <div className="flex items-center justify-between">
                 <div>
-                  <h2 className="font-semibold text-white">Leads Pipeline</h2>
+                  <h2 className="font-semibold text-white">Leads pipeline</h2>
                   <p className="text-xs text-zinc-500 mt-0.5">{pipelineTotal} lead{pipelineTotal !== 1 ? 's' : ''} in pipeline</p>
                 </div>
                 <Link href="/leads" className="text-zinc-500 hover:text-zinc-300 transition-colors"><ArrowRight size={16} /></Link>
@@ -371,7 +371,7 @@ export default function DashboardPage() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-6">
           <div className="lg:col-span-2 glass-card rounded-xl overflow-hidden flex flex-col">
             <div className="flex items-center justify-between p-4 border-b border-white/[0.06] flex-shrink-0">
-              <h2 className="font-semibold text-white">Recent Tasks</h2>
+              <h2 className="font-semibold text-white">Recent tasks</h2>
               <Link href="/projects" className="text-sm text-brand-300 hover:text-brand-200 flex items-center gap-1">View all <ArrowRight size={14} /></Link>
             </div>
             <div className="divide-y divide-white/[0.06] flex-1 flex flex-col">
@@ -399,19 +399,19 @@ export default function DashboardPage() {
 
           <div className="space-y-4 lg:space-y-6">
             <div className="glass-card rounded-xl p-4 lg:p-5">
-              <h2 className="font-semibold text-white mb-4">Quick Actions</h2>
+              <h2 className="font-semibold text-white mb-4">Quick actions</h2>
               <div className="space-y-2">
-                {canManageProjects && <Link href="/projects?new=true" className="flex items-center gap-3 p-3 rounded-lg bg-white/[0.03] text-zinc-300 hover:bg-white/[0.06] transition-colors"><Plus size={18} /><span className="font-medium text-sm">New Project</span></Link>}
+                {canManageProjects && <Link href="/projects?new=true" className="flex items-center gap-3 p-3 rounded-lg bg-white/[0.03] text-zinc-300 hover:bg-white/[0.06] transition-colors"><Plus size={18} /><span className="font-medium text-sm">New project</span></Link>}
                 {canCreateTasks && activeProjects.length > 0 && (
-                  <button onClick={() => setShowProjectPicker(true)} className="w-full flex items-center gap-3 p-3 rounded-lg bg-white/[0.03] text-zinc-300 hover:bg-white/[0.06] transition-colors"><FolderKanban size={18} /><span className="font-medium text-sm">Add Task</span></button>
+                  <button onClick={() => setShowProjectPicker(true)} className="w-full flex items-center gap-3 p-3 rounded-lg bg-white/[0.03] text-zinc-300 hover:bg-white/[0.06] transition-colors"><FolderKanban size={18} /><span className="font-medium text-sm">Add task</span></button>
                 )}
-                {canViewTeam && <Link href="/team" className="flex items-center gap-3 p-3 rounded-lg bg-white/[0.03] text-zinc-300 hover:bg-white/[0.06] transition-colors"><Users size={18} /><span className="font-medium text-sm">{hasPermission(access, 'team.manage') ? 'Manage Team' : 'View Team'}</span></Link>}
+                {canViewTeam && <Link href="/team" className="flex items-center gap-3 p-3 rounded-lg bg-white/[0.03] text-zinc-300 hover:bg-white/[0.06] transition-colors"><Users size={18} /><span className="font-medium text-sm">{hasPermission(access, 'team.manage') ? 'Manage team' : 'View team'}</span></Link>}
               </div>
             </div>
 
             <div className="glass-card rounded-xl overflow-hidden">
               <div className="p-4 border-b border-white/[0.06]">
-                <h2 className="font-semibold text-white">Due This Week</h2>
+                <h2 className="font-semibold text-white">Due this week</h2>
                 <p className="text-sm text-zinc-400">{dueThisWeek.length} task{dueThisWeek.length !== 1 ? 's' : ''}</p>
               </div>
               <div className="divide-y divide-white/[0.06] max-h-64 overflow-y-auto">
@@ -436,7 +436,7 @@ export default function DashboardPage() {
         {projects.length > 0 && (
           <div className="glass-card rounded-xl overflow-hidden">
             <div className="flex items-center justify-between p-4 border-b border-white/[0.06]">
-              <h2 className="font-semibold text-white">Projects Overview</h2>
+              <h2 className="font-semibold text-white">Projects overview</h2>
               <Link href="/projects" className="text-sm text-brand-300 hover:text-brand-200 flex items-center gap-1">View all <ArrowRight size={14} /></Link>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 divide-x divide-white/[0.06]">
@@ -453,7 +453,7 @@ export default function DashboardPage() {
                       <h3 className="font-medium text-white truncate">{project.name}</h3>
                     </div>
                     <div className="flex items-center justify-between text-xs lg:text-sm text-zinc-400 mb-2">
-                      <span>{projectTasks.length} tasks</span>
+                      <span>{projectTasks.length} {projectTasks.length === 1 ? 'task' : 'tasks'}</span>
                       <span className="tabular-nums">{progress}% done</span>
                     </div>
                     <div className="h-1.5 bg-white/[0.06] rounded-full overflow-hidden">
@@ -471,7 +471,7 @@ export default function DashboardPage() {
           <div className="glass-card rounded-xl overflow-hidden">
             <div className="flex items-center gap-2 p-4 border-b border-white/[0.06]">
               <Activity size={16} className="text-zinc-400" />
-              <h2 className="font-semibold text-white">Recent Activity</h2>
+              <h2 className="font-semibold text-white">Recent activity</h2>
             </div>
             <div className="divide-y divide-white/[0.06] max-h-72 overflow-y-auto">
               {activities.slice(0, 10).map((activity) => {

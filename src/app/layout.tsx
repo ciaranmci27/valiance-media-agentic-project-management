@@ -38,9 +38,12 @@ export async function generateMetadata(): Promise<Metadata> {
   };
 }
 
-// Runs before paint: applies the saved theme (or the OS preference on first visit)
-// to <html> so there's no flash of the wrong theme. Kept tiny and dependency-free.
-const themeInitScript = `(function(){try{var t=localStorage.getItem('theme');if(t!=='light'&&t!=='dark'){t=window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';}document.documentElement.setAttribute('data-theme',t);}catch(e){document.documentElement.setAttribute('data-theme','dark');}})();`;
+// Runs before paint: applies the saved theme (or the OS preference when none is
+// saved) to <html>, so there is no flash of the wrong theme, on every page,
+// signed in or not. With no saved choice it also follows the OS live: switching
+// the device to dark turns the open app dark. A change in one tab reaches the
+// others through the storage event. Kept tiny and dependency-free.
+const themeInitScript = `(function(){var d=document.documentElement;function saved(){try{var t=localStorage.getItem('theme');return t==='light'||t==='dark'?t:null;}catch(e){return null;}}var m=window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)');function os(){return m&&!m.matches?'light':'dark';}d.setAttribute('data-theme',saved()||os());if(m){var f=function(){if(!saved())d.setAttribute('data-theme',os());};if(m.addEventListener)m.addEventListener('change',f);else if(m.addListener)m.addListener(f);}window.addEventListener('storage',function(e){if(e.key==='theme'||e.key===null)d.setAttribute('data-theme',saved()||os());});})();`;
 
 export default async function RootLayout({
   children,

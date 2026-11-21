@@ -14,7 +14,7 @@ import { formatDay, formatFullTime, formatMeetingTime } from './inbox-badges';
 
 export type { TaskLinkCounts };
 
-/** The client emails and meetings linked to a task: a cached read, warmed before the panel opens. */
+/** The emails and meetings linked to a task: a cached read, warmed before the panel opens. */
 export function useTaskSourceEmails(taskId: string | null): TaskSourceEmailsData | null {
   const { isDemoMode } = useDemo();
   const read = useRead(taskId ? taskEmailsRead(taskId, isDemoMode) : null);

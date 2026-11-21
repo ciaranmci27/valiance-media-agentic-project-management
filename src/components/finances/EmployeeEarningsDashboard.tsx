@@ -6,6 +6,7 @@ import { Select } from '@/components/ui/inputs/Select';
 import { StatStrip } from '@/components/ui/StatStrip';
 import { getWorkedHoursByDay } from '@/lib/time-entry-utils';
 import { computeMemberEarningsSummary } from '@/lib/finance/summary';
+import { formatHours } from '@/lib/format';
 import type { EmployeeEarningsData, Project } from '@/lib/types';
 
 type RangePreset = '7d' | '30d' | '90d' | 'all';
@@ -200,6 +201,16 @@ export function EmployeeEarningsDashboard({
   const hasChartData = dashboard.bars.some(
     (bar) => Math.abs(bar.approved) > 0.005 || bar.pending > 0.005,
   );
+  // Approved hours with no pay rate in force earn $0, so say why.
+  const approvedWithoutRate = data.entries.some(
+    (entry) =>
+      entry.approval_status === 'approved' &&
+      !data.rates.some(
+        (rate) =>
+          rate.member_id === entry.member_id &&
+          new Date(rate.effective_at).getTime() <= new Date(entry.start_time).getTime(),
+      ),
+  );
 
   return (
     <div className="space-y-4 lg:space-y-6">
@@ -227,17 +238,20 @@ export function EmployeeEarningsDashboard({
             { label: 'Earned', value: formatMoney(dashboard.approved), tone: 'success' },
             { label: 'Pending', value: formatMoney(dashboard.pending), tone: 'warning' },
             { label: 'Paid', value: formatMoney(dashboard.paid), tone: 'success' },
-            { label: 'Owed (all-time)', value: formatMoney(dashboard.owed), tone: 'warning' },
-            { label: 'Hours', value: `${dashboard.hours.toFixed(1)}h` },
+            { label: 'Owed', value: formatMoney(dashboard.owed), tone: dashboard.owed > 0.005 ? 'warning' : 'default', context: 'All time' },
+            { label: 'Hours', value: formatHours(dashboard.hours) },
           ]}
         />
+        {approvedWithoutRate && (
+          <p className="border-t border-white/[0.06] px-5 py-3 text-xs text-amber-300">No pay rate set yet. Ask an Owner.</p>
+        )}
       </section>
 
       <section className="rounded-xl border border-white/[0.08] bg-surface-raised">
         <div className="flex items-center justify-between border-b border-white/[0.06] px-5 py-4">
           <div className="flex items-center gap-2">
             <TrendingUp size={18} className="text-zinc-400" />
-            <h2 className="font-semibold text-white">Daily Earnings</h2>
+            <h2 className="font-semibold text-white">Daily earnings</h2>
           </div>
           <span className="text-xs font-medium text-zinc-500">
             {RANGE_OPTIONS.find((option) => option.value === preset)?.label}
@@ -366,7 +380,7 @@ export function EmployeeEarningsDashboard({
         <section className="overflow-hidden rounded-xl border border-white/[0.08] bg-surface-raised">
           <div className="flex items-center gap-2 border-b border-white/[0.06] px-5 py-4">
             <FolderKanban size={18} className="text-zinc-400" />
-            <h2 className="font-semibold text-white">By Project</h2>
+            <h2 className="font-semibold text-white">By project</h2>
           </div>
           <div className="grid grid-cols-[1fr_auto_auto_auto] gap-5 border-b border-white/[0.06] px-5 py-2 text-[10px] font-medium uppercase tracking-wider text-zinc-500">
             <span>Project</span>
@@ -394,7 +408,7 @@ export function EmployeeEarningsDashboard({
                   {formatMoney(project.pending)}
                 </span>
                 <span className="w-20 text-right text-sm font-medium text-violet-400">
-                  {project.hours.toFixed(1)}h
+                  {formatHours(project.hours)}
                 </span>
               </div>
             ))}

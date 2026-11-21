@@ -131,7 +131,7 @@ function orPart(part: string, params: unknown[]): string {
 }
 
 /** maxRows plays PostgREST's db-max-rows: no select returns more rows than this. */
-export async function startFakePostgrest(db: PGlite, options: { maxRows?: number; handle?: ExtraHandler; userHeader?: string } = {}) {
+export async function startFakePostgrest(db: PGlite, options: { maxRows?: number; handle?: ExtraHandler; userHeader?: string; strictColumns?: boolean } = {}) {
   const maxRows = options.maxRows ?? 1000;
   let queue: Promise<unknown> = Promise.resolve();
   const serialized = <T>(work: () => Promise<T>): Promise<T> => {
@@ -260,6 +260,15 @@ export async function startFakePostgrest(db: PGlite, options: { maxRows?: number
             const parts = splitSelect(value.replace(/^\(|\)$/g, ""));
             where.push("(" + parts.map((part) => orPart(part, params)).join(" OR ") + ")");
           } else where.push(filter(key, value, params));
+        }
+        // strictColumns: a selected column the table lacks answers 42703, as
+        // PostgREST does (by default the projection just leaves it out).
+        if (options.strictColumns && select.columns) {
+          const known = new Set((await db.query<{ column_name: string }>(
+            "SELECT column_name FROM information_schema.columns WHERE table_schema = $1 AND table_name = $2", [schemaName, rest],
+          )).rows.map((row) => row.column_name));
+          const missing = select.columns.find((column) => column !== "*" && !known.has(column));
+          if (missing) return send(400, { code: "42703", message: `column ${rest}.${missing} does not exist`, details: null, hint: null });
         }
         const counted = (request.headers.prefer ?? "").includes("count=exact");
         const { rows, total } = await asService(request.headers, async () => {

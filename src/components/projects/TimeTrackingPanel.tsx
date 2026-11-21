@@ -1348,7 +1348,7 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
                 </p>
               </div>
               <span
-                className="text-sm font-semibold font-mono tabular-nums flex-shrink-0"
+                className="text-sm font-semibold tabular-nums flex-shrink-0"
                 style={{ color: paused ? 'var(--color-zinc-400)' : projectColor }}
               >
                 {formatElapsed(Math.floor(getWorkedMs(entry) / 1000))}
@@ -1615,7 +1615,7 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
                 <div key={date} className="border-b border-white/[0.06] last:border-0">
                   <div className="flex items-center justify-between px-5 py-2 bg-white/[0.025]">
                     <GroupLabel as="h3" className="">{formatDateHeader(date)}</GroupLabel>
-                    <span className="text-xs font-mono tabular-nums text-zinc-400">{formatHM(dayTotal)}</span>
+                    <span className="text-xs tabular-nums text-zinc-400">{formatHM(dayTotal)}</span>
                   </div>
                   <div className="divide-y divide-white/[0.05]">{dateEntries.map(renderEntry)}</div>
                 </div>

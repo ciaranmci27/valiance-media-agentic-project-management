@@ -8,20 +8,20 @@ import { MODULE_IDS, MODULES, type ModuleId } from '@/lib/modules/registry';
 
 /**
  * The Owner's side of the module switches, shared by Settings > Features and
- * the Dashboard's first-run card. Which modules are on comes from the access
+ * the setup wizard. Which modules are on comes from the access
  * context (the same answer every screen uses, refreshed in every open tab by
  * realtime); the route adds whether setup is finished and whether the
  * database is ready for switches at all.
  */
 
 export type WorkspaceModulesState =
-  | { status: 'ready'; modules: ModuleId[]; setupCompleted: boolean }
+  | { status: 'ready'; modules: ModuleId[]; setupCompleted: boolean; setupCompletedAt?: string | null }
   /** The modules migration has not run: nothing can be switched yet. */
   | { status: 'migration'; message: string };
 
 class MigrationMissingError extends Error {}
 
-async function parse(response: Response): Promise<{ modules: ModuleId[]; setupCompleted: boolean }> {
+async function parse(response: Response): Promise<{ modules: ModuleId[]; setupCompleted: boolean; setupCompletedAt?: string | null }> {
   const payload = await response.json().catch(() => ({}));
   if (response.status === 409) throw new MigrationMissingError(payload.error || 'Run the latest database migration first.');
   if (!response.ok) throw new Error(payload.error || 'Could not reach the server.');

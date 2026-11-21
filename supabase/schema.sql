@@ -983,6 +983,9 @@ create table public.business_settings (
   -- When an Owner finished first-run setup (picked the workspace's modules).
   -- A fresh install starts unset, so the Owner is asked once.
   setup_completed_at timestamptz,
+  -- While true, people who manage inboxes (Owners) may read every personal
+  -- inbox; members see a line saying so. Off by default.
+  owners_read_personal_inboxes boolean not null default false,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -3091,6 +3094,8 @@ CREATE TABLE IF NOT EXISTS public.workspace_brand (
   favicon_path text,
   invert_logo_in_sidebar boolean NOT NULL DEFAULT false,
   show_name_under_logo boolean NOT NULL DEFAULT false,
+  -- How the sidebar lists projects: 'list' (the first few) or 'menu' (all active, under Projects).
+  sidebar_projects text NOT NULL DEFAULT 'list' CONSTRAINT workspace_brand_sidebar_projects_check CHECK (sidebar_projects IN ('list', 'menu')),
   updated_by uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
@@ -3135,7 +3140,7 @@ INSERT INTO public.permission_modules (permission_key, module_id) VALUES
   ('portal.read', 'portal'), ('portal.manage', 'portal'),
   ('communications.read', 'inbox'), ('communications.manage', 'inbox'),
   ('inbound_email.read', 'inbox'), ('inbound_email.triage', 'inbox'), ('inbound_email.signal', 'inbox'),
-  ('inbound_email.manage', 'inbox'), ('meetings.write', 'inbox'),
+  ('inbound_email.manage', 'inbox'), ('inbound_email.personal', 'inbox'), ('meetings.write', 'inbox'),
   ('credentials.reveal_shared', 'credentials'), ('credentials.manage', 'credentials'),
   ('invoices.read', 'billing'), ('invoices.manage', 'billing'), ('invoices.record_payments', 'billing'),
   ('billing.manage', 'billing'), ('finance.company.read', 'billing'),
@@ -6758,6 +6763,23 @@ $$;
 REVOKE ALL ON FUNCTION public.consume_api_rate_limit(uuid, integer, integer) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.consume_api_rate_limit(uuid, integer, integer) TO service_role;
 
+-- Team invites (20261121061500_team_invites.sql): the app's own
+-- set-your-password links. Only the sha256 of the token is stored; a link
+-- lasts 7 days and works once, and a new invite or resend deletes the
+-- person's unused ones. Service role only.
+CREATE TABLE IF NOT EXISTS public.team_invites (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  member_id uuid NOT NULL REFERENCES public.team_members(id) ON DELETE CASCADE,
+  token_hash text NOT NULL UNIQUE,
+  created_by uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  expires_at timestamptz NOT NULL DEFAULT (now() + interval '7 days'),
+  used_at timestamptz
+);
+CREATE INDEX IF NOT EXISTS idx_team_invites_member ON public.team_invites(member_id);
+ALTER TABLE public.team_invites ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE public.team_invites FROM anon, authenticated;
+
 COMMIT;
 
 -- ─────────────────────────────────────────────────────────────
@@ -7009,6 +7031,12 @@ CREATE TABLE communications.inboxes (
   -- kept) or plans.
   triage_mode text NOT NULL DEFAULT 'legacy'
     CONSTRAINT inboxes_triage_mode_check CHECK (triage_mode IN ('legacy', 'shadow', 'plans')),
+  -- A personal inbox's person (20261121060000_personal_inboxes.sql); NULL is
+  -- a shared inbox. A personal one is read by its owner, the people they
+  -- granted, and those who manage inboxes only while
+  -- business_settings.owners_read_personal_inboxes is on. RESTRICT: deleting
+  -- its owner's member row is refused, so it never turns shared.
+  owner_member_id uuid REFERENCES public.team_members(id) ON DELETE RESTRICT,
   CONSTRAINT email_inboxes_routing_address_key UNIQUE (routing_address),
   CONSTRAINT email_inboxes_verification_code_key UNIQUE (verification_code)
 );
@@ -7021,6 +7049,7 @@ CREATE TABLE communications.inbox_access (
   PRIMARY KEY (inbox_id, member_id)
 );
 CREATE INDEX idx_email_inbox_access_member ON communications.inbox_access (member_id);
+CREATE INDEX idx_inboxes_owner_member ON communications.inboxes (owner_member_id) WHERE owner_member_id IS NOT NULL;
 
 CREATE OR REPLACE FUNCTION communications.inboxes_before_write()
 RETURNS trigger
@@ -7090,6 +7119,45 @@ CREATE TRIGGER inboxes_before_write
 CREATE TRIGGER inboxes_grant_handler
   AFTER INSERT OR UPDATE OF handler_member_id ON communications.inboxes
   FOR EACH ROW EXECUTE FUNCTION communications.inboxes_grant_handler();
+
+-- An inbox never changes hands: a shared one stays shared, a personal one
+-- its owner's (whose member row cannot be deleted while it exists: ON DELETE
+-- RESTRICT). Someone else's personal inbox is only switched off or on, never
+-- edited: managing inboxes may turn it off when its owner leaves. Server code
+-- (the service role, no member) checks for itself.
+CREATE OR REPLACE FUNCTION communications.inboxes_guard_personal()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = communications, public
+AS $$
+DECLARE
+  v_actor uuid := public.current_team_member_id();
+BEGIN
+  IF v_actor IS NULL THEN
+    RETURN NEW;
+  END IF;
+  IF NEW.owner_member_id IS DISTINCT FROM OLD.owner_member_id THEN
+    RAISE EXCEPTION 'An inbox never changes hands: a shared inbox stays shared, a personal one stays its owner''s.'
+      USING ERRCODE = 'insufficient_privilege';
+  END IF;
+  IF OLD.owner_member_id IS NULL OR OLD.owner_member_id = v_actor THEN
+    RETURN NEW;
+  END IF;
+  IF (to_jsonb(NEW) - 'enabled' - 'updated_at' - 'routing_address')
+     IS DISTINCT FROM (to_jsonb(OLD) - 'enabled' - 'updated_at' - 'routing_address') THEN
+    RAISE EXCEPTION 'Only its owner changes a personal inbox. Others may turn it off or on.'
+      USING ERRCODE = 'insufficient_privilege';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION communications.inboxes_guard_personal() FROM PUBLIC, anon, authenticated;
+
+CREATE TRIGGER inboxes_guard_personal
+  BEFORE UPDATE ON communications.inboxes
+  FOR EACH ROW EXECUTE FUNCTION communications.inboxes_guard_personal();
 
 -- Mail from any address at a client's domain maps to the project. A domain may
 -- map to several projects (one client, several companies).
@@ -8947,8 +9015,10 @@ REVOKE ALL ON FUNCTION public.sync_contact_email_mirror(uuid) FROM PUBLIC, anon,
 -- 7. Row level security (people in the app; agents use the service client)
 -- ============================================================
 
--- inbound_email.manage sees every inbox; inbound_email.read sees the inboxes
--- the member was granted.
+-- Who reads an inbox (20261121060000_personal_inboxes.sql). Shared:
+-- inbound_email.manage reads every one, inbound_email.read the granted ones.
+-- Personal: its owner and the people it was shared with; managing inboxes
+-- only while the workspace allows Owners to read personal inboxes.
 CREATE OR REPLACE FUNCTION communications.can_read_inbox(p_inbox_id uuid)
 RETURNS boolean
 LANGUAGE sql
@@ -8956,14 +9026,58 @@ STABLE
 SECURITY DEFINER
 SET search_path = communications, public
 AS $$
-  SELECT public.has_permission('inbound_email.manage', 'app')
-    OR (
-      public.has_permission('inbound_email.read', 'app')
-      AND EXISTS (
-        SELECT 1 FROM communications.inbox_access a
-        WHERE a.inbox_id = p_inbox_id AND a.member_id = public.current_team_member_id()
-      )
-    )
+  SELECT EXISTS (
+    SELECT 1 FROM communications.inboxes i
+    WHERE i.id = p_inbox_id
+      AND CASE
+        -- Shared: inbound_email.manage reads every one; inbound_email.read the granted ones.
+        WHEN i.owner_member_id IS NULL THEN
+          public.has_permission('inbound_email.manage', 'app')
+          OR (
+            public.has_permission('inbound_email.read', 'app')
+            AND EXISTS (
+              SELECT 1 FROM communications.inbox_access a
+              WHERE a.inbox_id = i.id AND a.member_id = public.current_team_member_id()
+            )
+          )
+        -- Personal: its owner and the people it was shared with, while the
+        -- Inbox is on; managing inboxes only while the workspace allows it.
+        ELSE
+          (
+            public.module_enabled('inbox')
+            AND (
+              i.owner_member_id = public.current_team_member_id()
+              OR EXISTS (
+                SELECT 1 FROM communications.inbox_access a
+                WHERE a.inbox_id = i.id AND a.member_id = public.current_team_member_id()
+              )
+            )
+          )
+          OR (
+            public.has_permission('inbound_email.manage', 'app')
+            AND COALESCE((SELECT s.owners_read_personal_inboxes FROM public.business_settings s LIMIT 1), false)
+          )
+      END
+  )
+$$;
+
+-- Who changes an inbox and sees its grants: managing inboxes for a shared
+-- one, its owner (with inbound_email.personal) for a personal one.
+CREATE OR REPLACE FUNCTION communications.can_manage_inbox(p_inbox_id uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = communications, public
+AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM communications.inboxes i
+    WHERE i.id = p_inbox_id
+      AND CASE
+        WHEN i.owner_member_id IS NULL THEN public.has_permission('inbound_email.manage', 'app')
+        ELSE i.owner_member_id = public.current_team_member_id() AND public.has_permission('inbound_email.personal', 'app')
+      END
+  )
 $$;
 
 CREATE OR REPLACE FUNCTION communications.can_read_message(p_message_id uuid)
@@ -8983,6 +9097,8 @@ REVOKE ALL ON FUNCTION communications.can_read_inbox(uuid) FROM PUBLIC, anon;
 REVOKE ALL ON FUNCTION communications.can_read_message(uuid) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION communications.can_read_inbox(uuid) TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION communications.can_read_message(uuid) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION communications.can_manage_inbox(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION communications.can_manage_inbox(uuid) TO authenticated, service_role;
 
 GRANT ALL ON ALL TABLES IN SCHEMA communications TO service_role;
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA communications TO authenticated;
@@ -9020,15 +9136,27 @@ CREATE POLICY contact_emails_select ON public.contact_emails FOR SELECT TO authe
 CREATE POLICY contact_emails_manage ON public.contact_emails FOR ALL TO authenticated
   USING (public.has_permission('contacts.manage')) WITH CHECK (public.has_permission('contacts.manage'));
 
+-- Managing inboxes sees every inbox row (a personal one's name, address and
+-- health); its mail follows can_read_inbox().
 CREATE POLICY email_inboxes_select ON communications.inboxes FOR SELECT TO authenticated
-  USING (communications.can_read_inbox(id));
+  USING (communications.can_read_inbox(id) OR public.has_permission('inbound_email.manage'));
 CREATE POLICY email_inboxes_manage ON communications.inboxes FOR ALL TO authenticated
-  USING (public.has_permission('inbound_email.manage')) WITH CHECK (public.has_permission('inbound_email.manage'));
+  USING (owner_member_id IS NULL AND public.has_permission('inbound_email.manage'))
+  WITH CHECK (owner_member_id IS NULL AND public.has_permission('inbound_email.manage'));
+-- A person creates personal inboxes only for themselves, and changes only their own.
+CREATE POLICY email_inboxes_personal ON communications.inboxes FOR ALL TO authenticated
+  USING (owner_member_id = public.current_team_member_id() AND public.has_permission('inbound_email.personal'))
+  WITH CHECK (owner_member_id = public.current_team_member_id() AND public.has_permission('inbound_email.personal'));
+-- Offboarding: turning someone's personal inbox off or on (inboxes_guard_personal allows nothing else).
+CREATE POLICY email_inboxes_switch_personal ON communications.inboxes FOR UPDATE TO authenticated
+  USING (owner_member_id IS NOT NULL AND public.has_permission('inbound_email.manage'))
+  WITH CHECK (owner_member_id IS NOT NULL AND public.has_permission('inbound_email.manage'));
 
 CREATE POLICY email_inbox_access_select ON communications.inbox_access FOR SELECT TO authenticated
-  USING (public.has_permission('inbound_email.manage') OR member_id = public.current_team_member_id());
+  USING (member_id = public.current_team_member_id() OR communications.can_manage_inbox(inbox_id));
 CREATE POLICY email_inbox_access_manage ON communications.inbox_access FOR ALL TO authenticated
-  USING (public.has_permission('inbound_email.manage')) WITH CHECK (public.has_permission('inbound_email.manage'));
+  USING (communications.can_manage_inbox(inbox_id))
+  WITH CHECK (communications.can_manage_inbox(inbox_id));
 
 CREATE POLICY email_client_domains_select ON communications.client_domains FOR SELECT TO authenticated
   USING (public.can_access_project(project_id) AND (
@@ -9104,11 +9232,15 @@ ON CONFLICT (id) DO NOTHING;
 -- 9. Permissions and the agent event
 -- ============================================================
 -- App: inbound_email.read opens the Inbox (granted inboxes), and
--- inbound_email.manage edits inbox settings and sees every inbox. API: read,
--- triage and signal, always narrowed to the key member's granted inboxes.
+-- inbound_email.manage edits inbox settings and sees every shared inbox.
+-- inbound_email.personal connects your own inbox (Admins and Members; Owners
+-- hold every permission). API: read, triage and signal, always narrowed to
+-- the key member's granted inboxes.
 INSERT INTO public.role_permissions (role, permission_key, access_channel) VALUES
   ('admin', 'inbound_email.read', 'app'),
   ('admin', 'inbound_email.manage', 'app'),
+  ('admin', 'inbound_email.personal', 'app'),
+  ('member', 'inbound_email.personal', 'app'),
   ('agent', 'inbound_email.read', 'api'),
   ('agent', 'inbound_email.triage', 'api'),
   ('agent', 'inbound_email.signal', 'api')

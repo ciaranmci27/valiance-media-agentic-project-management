@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { accessAllowsProject } from '@/lib/api/access';
-import { InboxError, assertCanTriage, assertId, loadReadableThread, many, one, type InboxContext } from './inbox-service';
+import { assertId, InboxError, loadTriageableThread, many, one, type InboxContext } from './inbox-service';
 import { comms } from '@/lib/communications/db';
 
 /**
@@ -27,8 +27,7 @@ async function liveTask(ctx: InboxContext, taskId: string): Promise<{ id: string
 }
 
 export async function linkThreadTask(ctx: InboxContext, threadId: string, request: LinkTaskRequest): Promise<{ task_id: string; message_id: string; relation: string; project_set: boolean }> {
-  assertCanTriage(ctx.access);
-  const thread = await loadReadableThread(ctx, threadId);
+  const thread = await loadTriageableThread(ctx, threadId);
   const task = await liveTask(ctx, request.task_id);
   const messages = await many<{ id: string }>(comms(ctx.service).from('messages').select('id')
     .eq('thread_id', thread.id).neq('status', 'receiving').order('received_at', { ascending: false }).order('id', { ascending: false }));
@@ -47,8 +46,7 @@ export async function linkThreadTask(ctx: InboxContext, threadId: string, reques
 
 /** Every link between this thread's emails and the task goes, whoever made it. The task stays. */
 export async function unlinkThreadTask(ctx: InboxContext, threadId: string, taskId: string): Promise<{ removed: number }> {
-  assertCanTriage(ctx.access);
-  const thread = await loadReadableThread(ctx, threadId);
+  const thread = await loadTriageableThread(ctx, threadId);
   const id = assertId(taskId, 'task_id');
   // Only a task the member can open; a link to one in another project is not theirs to cut.
   const task = await one<{ id: string; project_id: string }>(ctx.service.from('tasks').select('id, project_id').eq('id', id).is('deleted_at', null).maybeSingle());

@@ -11,12 +11,13 @@ import {
   type BrandSettings,
   type BrandSettingsInput,
   type LogoKind,
+  type SidebarProjectsStyle,
 } from '@/lib/brand';
 import { LOGO_MAX_BYTES } from '@/lib/brand/validate';
 
 /**
  * The Owner's side of the workspace brand, shared by Settings > Workspace >
- * Brand and the Dashboard's first-run card: one read, one save, and the logo
+ * Brand and the setup wizard's first step: one read, one save, and the logo
  * uploads. Every screen else reads the brand from the page render
  * (useBrand), so a successful write is followed by router.refresh().
  */
@@ -95,6 +96,15 @@ export function saveBrand(input: BrandSettingsInput): Promise<BrandResult> {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
+  }));
+}
+
+/** Sets only how the sidebar lists projects (the setup wizard, from the preset). */
+export function saveSidebarProjects(sidebarProjects: SidebarProjectsStyle): Promise<BrandResult> {
+  return run(() => fetch('/api/workspace/brand', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sidebarProjects }),
   }));
 }
 
@@ -185,6 +195,7 @@ export const EMPTY_INPUT: BrandSettingsInput = {
   accentColor: null,
   invertLogoInSidebar: false,
   showNameUnderLogo: false,
+  sidebarProjects: 'list',
 };
 
 /** The fields the form saves, from what is stored. */
@@ -198,6 +209,7 @@ export function toInput(settings: BrandSettings): BrandSettingsInput {
     accentColor: settings.accentColor,
     invertLogoInSidebar: settings.invertLogoInSidebar,
     showNameUnderLogo: settings.showNameUnderLogo,
+    sidebarProjects: settings.sidebarProjects,
   };
 }
 
@@ -238,6 +250,7 @@ export function sameInput(a: BrandSettingsInput, b: BrandSettingsInput): boolean
     && x.accentColor === y.accentColor
     && x.invertLogoInSidebar === y.invertLogoInSidebar
     && x.showNameUnderLogo === y.showNameUnderLogo
+    && x.sidebarProjects === y.sidebarProjects
     && BRAND_SHADES.every((shade) => (x.brandShades?.[shade] ?? null) === (y.brandShades?.[shade] ?? null));
 }
 
@@ -274,6 +287,7 @@ export function settingsFromBrand(brand: Brand): BrandSettings {
     faviconUrl: brand.logos.favicon,
     invertLogoInSidebar: brand.invertLogoInSidebar,
     showNameUnderLogo: brand.showNameUnderLogo,
+    sidebarProjects: brand.sidebarProjects,
   };
 }
 

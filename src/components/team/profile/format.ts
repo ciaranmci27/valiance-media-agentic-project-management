@@ -1,11 +1,7 @@
 /** Display helpers for the member profile. */
 
-const hoursFormat = new Intl.NumberFormat('en-US', { maximumFractionDigits: 1 });
-
-/** "12.5 h", "0 h". */
-export function formatHours(hours: number): string {
-  return `${hoursFormat.format(hours)} h`;
-}
+/** "12.5h", "0h": the app's one hours format. */
+export { formatHours } from '@/lib/format';
 
 /** "Nov 3, 2026". */
 export function formatDate(iso: string): string {

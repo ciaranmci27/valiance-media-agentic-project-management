@@ -5,7 +5,7 @@ import { EmailHandlerSection } from '@/components/settings/email/EmailHandlerSec
 
 export default function EmailHandlerPage() {
   return (
-    <EmailSubpage title="Who handles your mail" need="inbox">
+    <EmailSubpage title="Shared inboxes" need="inbox">
       <EmailHandlerSection />
     </EmailSubpage>
   );

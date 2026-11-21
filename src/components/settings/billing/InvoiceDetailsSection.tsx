@@ -66,7 +66,7 @@ export function InvoiceDetailsSection() {
         business_address: address.trim(),
         business_email: email.trim(),
         business_phone: phone.trim(),
-        payment_terms: paymentTerms.trim() || 'Upon Receipt',
+        payment_terms: paymentTerms.trim() || 'Upon receipt',
         payment_instructions: paymentInstructions.trim(),
         default_invoice_notes: defaultNotes.trim(),
       });
@@ -111,7 +111,7 @@ export function InvoiceDetailsSection() {
           label="Payment terms"
           value={paymentTerms}
           onChange={(e) => setPaymentTerms(e.target.value)}
-          placeholder="Upon Receipt"
+          placeholder="Upon receipt"
           disabled={isDemoMode}
         />
       </div>

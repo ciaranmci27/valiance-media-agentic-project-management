@@ -7,27 +7,53 @@ import { domainOf, isHostname, normalizeAddress, validateClientSenderAddress } f
 import { mergeClientSenders, type ProjectContactAddress } from './mapping';
 import { isPublicEmailDomain, validateClientDomain } from './email/public-domains';
 import { assertId, InboxError, ownAddresses, type InboxContext } from './inbox-service';
-import type { InboxSettingsRequest, ProjectAddressPatch, ProjectAddressRequest, YourAddressPatch, YourAddressRequest } from './schemas';
+import { ownerColumnRead, ownersReadPersonalInboxes } from './inbox-visibility';
+import type { InboxSettingsRequest, MyInboxRequest, ProjectAddressPatch, ProjectAddressRequest, YourAddressPatch, YourAddressRequest } from './schemas';
 import type {
-  AgentReadableType, ClientEmailDomain, ClientSenderAddress, ClientSenderAddressList, InboxSettings, InboxSettingsList, MxStatus, ProjectEmailAddress, ProjectEmailAddressList,
-  OwnDomain, UnlistedAddress, UnlistedDomain, YourAddress, YourAddressList,
+  AgentReadableType, ClientEmailDomain, ClientSenderAddress, ClientSenderAddressList, InboxSettings, InboxSettingsList, MxStatus, MyInboxList, PersonalInboxHealth,
+  ProjectEmailAddress, ProjectEmailAddressList, OwnDomain, UnlistedAddress, UnlistedDomain, YourAddress, YourAddressList,
 } from './inbox-types';
 
 /**
- * Settings > Email inboxes, and the client email domains and addresses on a project. Inboxes
+ * Settings > Email inboxes, and the sender domains and addresses on a project. Inboxes
  * are enabled or disabled, never deleted here: a message's inbox is ON DELETE
  * RESTRICT, and retention removes files before rows. Changing an inbox's
  * routing local part or domain clears verified_at (the database does it), so
  * the forwarder must be verified again.
+ *
+ * Shared inboxes (no owner) are managed with inbound_email.manage. A personal
+ * inbox is its owner's (inbound_email.personal): they connect it, pick its
+ * agent and choose who else reads it, and may remove it while it holds no
+ * mail. Managing inboxes sees only that it exists and how it is doing, and
+ * may turn it off or on (when someone leaves), never change it.
  */
 
 type Row = Record<string, unknown>;
 
-const INBOX_COLUMNS = 'id, name, address, routing_local_part, routing_domain, routing_address, handler_member_id, enabled, retention_days, max_attachment_mb, agent_readable_types, summary_interval_minutes, filter_auto_mail, aliases, triage_mode, verification_code, verified_at, last_received_at, last_error, last_error_at, created_at';
+/** Before the 1.6.0 migration there is no owner_member_id: every inbox reads as shared (ownerColumnRead). */
+const LEGACY_INBOX_COLUMNS = 'id, name, address, routing_local_part, routing_domain, routing_address, handler_member_id, enabled, retention_days, max_attachment_mb, agent_readable_types, summary_interval_minutes, filter_auto_mail, aliases, triage_mode, verification_code, verified_at, last_received_at, last_error, last_error_at, created_at';
+const INBOX_COLUMNS = `${LEGACY_INBOX_COLUMNS}, owner_member_id`;
+
+/** One inbox with its settings, or null; tolerant of a database not yet migrated to 1.6.0. */
+async function inboxRow(service: SupabaseClient, id: string): Promise<Row | null> {
+  return ownerColumnRead<Row | null>(
+    () => comms(service).from('inboxes').select(INBOX_COLUMNS).eq('id', id).maybeSingle(),
+    () => comms(service).from('inboxes').select(LEGACY_INBOX_COLUMNS).eq('id', id).maybeSingle(),
+  );
+}
 
 function requireManage(ctx: InboxContext) {
   if (!accessAllows(ctx.access, 'inbound_email.manage')) throw new InboxError(403, 'Forbidden');
 }
+
+/** Connecting your own inbox: a person (never an agent) with inbound_email.personal. */
+function requirePersonal(ctx: InboxContext) {
+  if (ctx.access.role === 'agent' || !accessAllows(ctx.access, 'inbound_email.personal')) {
+    throw new InboxError(403, 'Connecting your own inbox needs permission to connect your own inbox.');
+  }
+}
+
+const PERSONAL_INBOX_LOCKED = "This is someone's personal inbox. Only they change it; you can turn it off or on.";
 
 async function many<T extends Row>(query: PromiseLike<{ data: unknown; error: unknown }>): Promise<T[]> {
   const { data, error } = await query;
@@ -79,34 +105,66 @@ function present(row: Row, access: string[], messages: number, projectAddresses:
     message_count: messages,
     project_address_count: projectAddresses,
     created_at: row.created_at as string,
+    owner_member_id: (row.owner_member_id as string | null) ?? null,
+  };
+}
+
+/** What managing inboxes sees of someone's personal inbox: that it exists and how it is doing. */
+function presentHealth(row: Row, ownerName: string | null, messages: number): PersonalInboxHealth {
+  const ownerId = row.owner_member_id as string;
+  return {
+    id: row.id as string,
+    name: row.name as string,
+    address: row.address as string,
+    owner: { id: ownerId, name: ownerName ?? 'A former teammate' },
+    enabled: Boolean(row.enabled),
+    verified_at: (row.verified_at as string | null) ?? null,
+    last_received_at: (row.last_received_at as string | null) ?? null,
+    last_error: (row.last_error as string | null) ?? null,
+    last_error_at: (row.last_error_at as string | null) ?? null,
+    message_count: messages,
+    created_at: row.created_at as string,
   };
 }
 
 export async function listInboxSettings(ctx: InboxContext): Promise<InboxSettingsList> {
   requireManage(ctx);
-  const [relay, inboxes, access] = await Promise.all([
+  const [relay, rows, access, ownersRead] = await Promise.all([
     relayDomain(ctx.service),
-    many<Row>(comms(ctx.service).from('inboxes').select(INBOX_COLUMNS).order('created_at')),
+    ownerColumnRead<Row[]>(
+      () => comms(ctx.service).from('inboxes').select(INBOX_COLUMNS).order('created_at'),
+      () => comms(ctx.service).from('inboxes').select(LEGACY_INBOX_COLUMNS).order('created_at'),
+    ).then((rows) => rows ?? []),
     many<{ inbox_id: string; member_id: string }>(comms(ctx.service).from('inbox_access').select('inbox_id, member_id')),
+    ownersReadPersonalInboxes(ctx.service),
   ]);
-  const [counts, addressCounts] = await Promise.all([
-    Promise.all(inboxes.map((inbox) => messageCount(ctx.service, inbox.id as string))),
-    Promise.all(inboxes.map((inbox) => projectAddressCount(ctx.service, inbox.id as string))),
+  const shared = rows.filter((row) => !row.owner_member_id);
+  const personal = rows.filter((row) => row.owner_member_id);
+  const [counts, addressCounts, personalCounts, owners] = await Promise.all([
+    Promise.all(shared.map((inbox) => messageCount(ctx.service, inbox.id as string))),
+    Promise.all(shared.map((inbox) => projectAddressCount(ctx.service, inbox.id as string))),
+    Promise.all(personal.map((inbox) => messageCount(ctx.service, inbox.id as string))),
+    personal.length
+      ? many<{ id: string; name: string }>(ctx.service.from('team_members').select('id, name').in('id', [...new Set(personal.map((row) => row.owner_member_id as string))]))
+      : Promise.resolve([]),
   ]);
+  const ownerName = new Map(owners.map((row) => [row.id, row.name]));
   return {
     relay_domain: relay?.domain ?? '',
-    inboxes: inboxes.map((inbox, index) => present(
+    inboxes: shared.map((inbox, index) => present(
       inbox,
       access.filter((row) => row.inbox_id === inbox.id).map((row) => row.member_id),
       counts[index],
       addressCounts[index],
     )),
+    personal: personal.map((inbox, index) => presentHealth(inbox, ownerName.get(inbox.owner_member_id as string) ?? null, personalCounts[index])),
+    owners_read_personal: ownersRead,
   };
 }
 
 async function validate(ctx: InboxContext, input: InboxSettingsRequest) {
   const address = normalizeAddress(input.address);
-  if (!address) throw new InboxError(422, 'Enter the public address clients write to, such as ashley@yourdomain.com.');
+  if (!address) throw new InboxError(422, 'Enter the public address people write to, such as ashley@yourdomain.com.');
   if (input.routing_domain && !isHostname(input.routing_domain)) throw new InboxError(422, 'Enter a routing domain such as relay.yourdomain.com.');
   const memberIds = [...new Set([...input.access_member_ids, ...(input.handler_member_id ? [input.handler_member_id] : [])])];
   if (memberIds.length) {
@@ -157,10 +215,13 @@ function friendly(error: unknown): never {
   throw error;
 }
 
-async function inboxById(ctx: InboxContext, id: string): Promise<InboxSettings> {
-  const { data, error } = await comms(ctx.service).from('inboxes').select(INBOX_COLUMNS).eq('id', id).maybeSingle();
-  if (error) throw error;
+async function inboxById(ctx: InboxContext, id: string, owner: { shared: true } | { memberId: string } | null = null): Promise<InboxSettings> {
+  const data = await inboxRow(ctx.service, id);
   if (!data) throw new InboxError(404, 'Inbox not found');
+  const ownerId = (data.owner_member_id as string | null | undefined) ?? null;
+  if (owner && 'shared' in owner && ownerId) throw new InboxError(403, PERSONAL_INBOX_LOCKED);
+  // Someone else's personal inbox looks like no inbox at all.
+  if (owner && 'memberId' in owner && ownerId !== owner.memberId) throw new InboxError(404, 'Inbox not found');
   const access = (await many<{ member_id: string }>(comms(ctx.service).from('inbox_access').select('member_id').eq('inbox_id', id))).map((row) => row.member_id);
   const [messages, projectAddresses] = await Promise.all([messageCount(ctx.service, id), projectAddressCount(ctx.service, id)]);
   return present(data as Row, access, messages, projectAddresses);
@@ -195,7 +256,7 @@ export async function createInbox(ctx: InboxContext, input: InboxSettingsRequest
 export async function updateInbox(ctx: InboxContext, inboxId: string, input: InboxSettingsRequest): Promise<InboxSettings> {
   requireManage(ctx);
   const id = assertId(inboxId, 'inbox id');
-  await inboxById(ctx, id);
+  await inboxById(ctx, id, { shared: true });
   const { address, memberIds, aliases } = await validate(ctx, input);
   const { error } = await comms(ctx.service).from('inboxes').update({
     name: input.name,
@@ -215,6 +276,127 @@ export async function updateInbox(ctx: InboxContext, inboxId: string, input: Inb
   if (error) friendly(error);
   await setAccess(ctx, id, memberIds);
   return inboxById(ctx, id);
+}
+
+/** Offboarding: someone's personal inbox turned off (or back on). Nothing else about it changes. */
+export async function setPersonalInboxEnabled(ctx: InboxContext, inboxId: string, enabled: boolean): Promise<PersonalInboxHealth> {
+  requireManage(ctx);
+  const id = assertId(inboxId, 'inbox id');
+  const row = await inboxRow(ctx.service, id);
+  if (!row) throw new InboxError(404, 'Inbox not found');
+  if (!row.owner_member_id) throw new InboxError(409, 'This is a shared inbox. Change it from its own settings.');
+  const { error: updateError } = await comms(ctx.service).from('inboxes').update({ enabled }).eq('id', id);
+  if (updateError) throw updateError;
+  const [{ data: owner }, messages] = await Promise.all([
+    ctx.service.from('team_members').select('name').eq('id', row.owner_member_id as string).maybeSingle(),
+    messageCount(ctx.service, id),
+  ]);
+  return presentHealth({ ...row, enabled }, (owner as { name?: string } | null)?.name ?? null, messages);
+}
+
+/** The workspace switch: may Owners read personal inboxes. Only business settings managers change it. */
+export async function setOwnersReadPersonal(ctx: InboxContext, value: boolean): Promise<{ owners_read_personal: boolean }> {
+  if (ctx.access.role === 'agent' || !accessAllows(ctx.access, 'settings.manage')) throw new InboxError(403, 'Only someone who manages business settings changes this.');
+  const current = await relayDomain(ctx.service);
+  if (!current) throw new InboxError(404, 'Business settings not found');
+  const { error } = await ctx.service.from('business_settings').update({ owners_read_personal_inboxes: value }).eq('id', current.id as string);
+  if (error) throw error;
+  return { owners_read_personal: value };
+}
+
+// -- Your own inbox ------------------------------------------------------------
+
+/** The person's own personal inboxes, in full, and whether Owners may read them. */
+export async function listMyInboxes(ctx: InboxContext): Promise<MyInboxList> {
+  requirePersonal(ctx);
+  const [relay, rows, ownersRead] = await Promise.all([
+    relayDomain(ctx.service),
+    // Not migrated yet: nobody has a personal inbox.
+    ownerColumnRead<Row[]>(
+      () => comms(ctx.service).from('inboxes').select(INBOX_COLUMNS).eq('owner_member_id', ctx.memberId).order('created_at'),
+      () => ({ data: [], error: null }),
+    ).then((rows) => rows ?? []),
+    ownersReadPersonalInboxes(ctx.service),
+  ]);
+  const ids = rows.map((row) => row.id as string);
+  const [access, counts] = await Promise.all([
+    ids.length ? many<{ inbox_id: string; member_id: string }>(comms(ctx.service).from('inbox_access').select('inbox_id, member_id').in('inbox_id', ids)) : Promise.resolve([]),
+    Promise.all(ids.map((id) => messageCount(ctx.service, id))),
+  ]);
+  return {
+    relay_domain: relay?.domain ?? '',
+    inboxes: rows.map((row, index) => present(row, access.filter((grant) => grant.inbox_id === row.id).map((grant) => grant.member_id), counts[index], 0)),
+    owners_read_personal: ownersRead,
+  };
+}
+
+/** The checked values of your own inbox: the address, an agent (or nobody) to sort it, and who else reads it. */
+async function validateMine(ctx: InboxContext, input: MyInboxRequest) {
+  const address = normalizeAddress(input.address);
+  if (!address) throw new InboxError(422, 'Enter your email address, such as you@yourdomain.com.');
+  if (input.handler_member_id) {
+    const { data, error } = await ctx.service.from('team_members').select('id, role, status').eq('id', input.handler_member_id).maybeSingle();
+    if (error) throw error;
+    const handler = data as { role: string; status: string } | null;
+    if (!handler || handler.role !== 'agent' || handler.status !== 'active') throw new InboxError(422, 'Choose one of your agents to sort your mail, or nobody.');
+  }
+  const memberIds = [...new Set([...input.access_member_ids, ...(input.handler_member_id ? [input.handler_member_id] : [])])].filter((id) => id !== ctx.memberId);
+  if (memberIds.length) {
+    const found = await many<{ id: string }>(ctx.service.from('team_members').select('id').in('id', memberIds).eq('status', 'active'));
+    if (found.length !== memberIds.length) throw new InboxError(422, 'Share your inbox only with people and agents on the team.');
+  }
+  return { address, memberIds };
+}
+
+export async function createMyInbox(ctx: InboxContext, input: MyInboxRequest): Promise<InboxSettings> {
+  requirePersonal(ctx);
+  const { address, memberIds } = await validateMine(ctx, input);
+  const { data: me, error: meError } = await ctx.service.from('team_members').select('name').eq('id', ctx.memberId).maybeSingle();
+  if (meError) throw meError;
+  const name = ((me as { name?: string } | null)?.name ?? '').trim().slice(0, 100) || address;
+  const { data, error } = await comms(ctx.service).from('inboxes').insert({
+    name,
+    address,
+    // The address's local part on the relay domain, as for a shared inbox.
+    routing_local_part: '',
+    routing_domain: '',
+    handler_member_id: input.handler_member_id,
+    enabled: input.enabled,
+    owner_member_id: ctx.memberId,
+    created_by: ctx.memberId,
+  }).select('id').single();
+  if (error) friendly(error);
+  const id = (data as { id: string }).id;
+  await setAccess(ctx, id, memberIds);
+  return inboxById(ctx, id, { memberId: ctx.memberId });
+}
+
+export async function updateMyInbox(ctx: InboxContext, inboxId: string, input: MyInboxRequest): Promise<InboxSettings> {
+  requirePersonal(ctx);
+  const id = assertId(inboxId, 'inbox id');
+  await inboxById(ctx, id, { memberId: ctx.memberId });
+  const { address, memberIds } = await validateMine(ctx, input);
+  const { error } = await comms(ctx.service).from('inboxes').update({
+    address,
+    handler_member_id: input.handler_member_id,
+    enabled: input.enabled,
+  }).eq('id', id).eq('owner_member_id', ctx.memberId);
+  if (error) friendly(error);
+  await setAccess(ctx, id, memberIds);
+  return inboxById(ctx, id, { memberId: ctx.memberId });
+}
+
+/** Removes your own inbox while it holds no mail (a setup started by mistake); otherwise turn it off. */
+export async function removeMyInbox(ctx: InboxContext, inboxId: string): Promise<void> {
+  requirePersonal(ctx);
+  const id = assertId(inboxId, 'inbox id');
+  const inbox = await inboxById(ctx, id, { memberId: ctx.memberId });
+  if (inbox.message_count > 0) throw new InboxError(409, 'Your inbox holds mail, so it cannot be removed. Turn it off instead.');
+  const { error } = await comms(ctx.service).from('inboxes').delete().eq('id', id).eq('owner_member_id', ctx.memberId);
+  if (error) {
+    if ((error as { code?: string }).code === '23503') throw new InboxError(409, 'Your inbox holds mail, so it cannot be removed. Turn it off instead.');
+    throw error;
+  }
 }
 
 export async function setRelayDomain(ctx: InboxContext, domain: string): Promise<{ relay_domain: string }> {
@@ -414,8 +596,12 @@ async function requireExistingProject(ctx: InboxContext, projectId: string): Pro
 async function addressValues(ctx: InboxContext, input: ProjectAddressPatch): Promise<Row> {
   const values: Row = {};
   if (input.inbox_id !== undefined) {
-    const { data, error } = await comms(ctx.service).from('inboxes').select('id').eq('id', input.inbox_id).maybeSingle();
-    if (error) throw error;
+    // A personal inbox is its owner's: no project address delivers to it.
+    const inboxId = input.inbox_id;
+    const data = await ownerColumnRead<{ id: string } | null>(
+      () => comms(ctx.service).from('inboxes').select('id').eq('id', inboxId).is('owner_member_id', null).maybeSingle(),
+      () => comms(ctx.service).from('inboxes').select('id').eq('id', inboxId).maybeSingle(),
+    );
     if (!data) throw new InboxError(422, 'Choose the inbox that receives this address.');
     values.inbox_id = input.inbox_id;
   }
@@ -515,8 +701,13 @@ function presentYourAddress(row: Row): YourAddress {
 
 type InboxChoice = { id: string; name: string; address: string; routing_address: string; enabled: boolean; handler_member_id: string | null };
 
+/** Shared inboxes only: a personal inbox is its owner's, so no address of the company's delivers to it. */
 async function inboxChoices(service: SupabaseClient): Promise<InboxChoice[]> {
-  return many<InboxChoice>(comms(service).from('inboxes').select('id, name, address, routing_address, enabled, handler_member_id').order('created_at'));
+  const columns = 'id, name, address, routing_address, enabled, handler_member_id';
+  return (await ownerColumnRead<InboxChoice[] | null>(
+    () => comms(service).from('inboxes').select(columns).is('owner_member_id', null).order('created_at'),
+    () => comms(service).from('inboxes').select(columns).order('created_at'),
+  )) ?? [];
 }
 
 /**
@@ -612,8 +803,11 @@ async function addressOwnership(ctx: InboxContext, input: { project_id?: string 
     values.owner_member_id = input.owner_member_id;
   }
   if (input.inbox_id !== undefined) {
-    const { data, error } = await comms(ctx.service).from('inboxes').select('id').eq('id', input.inbox_id).maybeSingle();
-    if (error) throw error;
+    const inboxId = input.inbox_id;
+    const data = await ownerColumnRead<{ id: string } | null>(
+      () => comms(ctx.service).from('inboxes').select('id').eq('id', inboxId).is('owner_member_id', null).maybeSingle(),
+      () => comms(ctx.service).from('inboxes').select('id').eq('id', inboxId).maybeSingle(),
+    );
     if (!data) throw new InboxError(422, 'Choose the inbox this address delivers to.');
     values.inbox_id = input.inbox_id;
   }

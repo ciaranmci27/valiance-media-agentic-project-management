@@ -12,6 +12,7 @@ import { invoiceOutstanding } from '@/lib/invoice-payments';
 import { computeInvoiceSummary } from '@/lib/invoice-summary';
 import { getWorkedHours } from '@/lib/time-entry-utils';
 import { parseDateOnly } from '@/lib/date-utils';
+import { formatHours, formatMoney as formatTotal } from '@/lib/format';
 import { formatListTime } from '@/components/inbox/inbox-badges';
 import { ReminderRow } from '@/components/reminders/ReminderRow';
 import { AddReminderRow } from '@/components/reminders/AddReminderRow';
@@ -54,9 +55,6 @@ function formatMoney(value: number): string {
   return `$${value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
-function formatHours(hours: number): string {
-  return hours.toLocaleString('en-US', { maximumFractionDigits: 1 });
-}
 
 function shortDate(value: string): string {
   return parseDateOnly(value).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
@@ -134,7 +132,7 @@ export function ProjectOverview({ projectId, onOpenTask, onOpenTab, onOpenContac
     ? computeInvoiceSummary(project, invoices, getTimeEntriesByProject(projectId))
     : null;
 
-  // Client emails waiting on a person: a cached read (reads.ts), warmed before
+  // Emails waiting on a person: a cached read (reads.ts), warmed before
   // the project opens and refreshed by the inbox's own changes.
   const emailsRead = useRead(can.inbox ? projectEmailsRead(projectId, isDemoMode) : null);
   const emails = emailsRead.data;
@@ -210,7 +208,7 @@ export function ProjectOverview({ projectId, onOpenTask, onOpenTab, onOpenContac
           icon={<Bell size={16} className="text-zinc-400" aria-hidden="true" />}
           title="Needs you"
           action={needsYouCount > 0 ? (
-            <span className="text-xs font-mono tabular-nums text-zinc-400">{needsYouCount}</span>
+            <span className="text-xs tabular-nums text-zinc-400">{needsYouCount}</span>
           ) : undefined}
         >
           {needsYouCount === 0 && emailsLoading ? (
@@ -243,7 +241,7 @@ export function ProjectOverview({ projectId, onOpenTask, onOpenTab, onOpenContac
 
               {emailThreads.length > 0 && (
                 <div>
-                  <GroupLabel>Client emails</GroupLabel>
+                  <GroupLabel>Emails</GroupLabel>
                   {emailThreads.map(thread => (
                     <Link key={thread.id} href={`/inbox?thread=${thread.id}`} className={ROW_CLASS}>
                       <RowBody
@@ -429,7 +427,7 @@ export function ProjectOverview({ projectId, onOpenTask, onOpenTab, onOpenContac
                         style={{ width: `${progressPercent}%`, backgroundColor: project?.color || '#A1A1AA' }}
                       />
                     </span>
-                    <span className="text-xs text-zinc-400 font-mono tabular-nums">{doneCount}/{tasks.length} done</span>
+                    <span className="text-xs text-zinc-400 tabular-nums">{doneCount}/{tasks.length} done</span>
                   </dd>
                 </>
               )}
@@ -496,8 +494,8 @@ export function ProjectOverview({ projectId, onOpenTask, onOpenTab, onOpenContac
               bare
               label="Hours logged"
               stats={[
-                { label: 'This week', value: `${formatHours(timeStats.week)}h` },
-                { label: 'This month', value: `${formatHours(timeStats.month)}h` },
+                { label: 'This week', value: formatHours(timeStats.week) },
+                { label: 'This month', value: formatHours(timeStats.month) },
               ]}
             />
           </RailCard>
@@ -514,21 +512,23 @@ export function ProjectOverview({ projectId, onOpenTask, onOpenTab, onOpenContac
                 bare
                 label="Billing"
                 stats={[
-                  { label: 'Outstanding', value: formatMoney(billing.outstanding), tone: billing.outstanding > 0 ? 'warning' : 'default' },
-                  { label: 'Paid to date', value: formatMoney(billing.totalPaid) },
+                  {
+                    label: 'Outstanding',
+                    value: formatTotal(billing.outstanding),
+                    tone: billing.outstanding > 0 ? 'warning' : 'default',
+                    context: billing.isHourly ? 'Includes hours not yet invoiced' : 'Invoiced and not yet paid',
+                  },
+                  { label: 'Paid to date', value: formatTotal(billing.totalPaid) },
                 ]}
               />
             )}
-            <p className="text-xs text-zinc-500 mt-3">
-              {billing?.isHourly ? 'Includes hours not yet invoiced' : 'Invoiced and not yet paid'}
-            </p>
             {nextDraft && (
               <div className="mt-4 pt-4 border-t border-white/[0.06]">
                 <p className="text-xs text-zinc-500">Next draft</p>
                 <p className="text-sm text-zinc-200">
                   {shortDate(nextDraft.date)}
                   <span className="text-zinc-500"> · </span>
-                  <span className="tabular-nums">{formatMoney(nextDraft.exact + nextDraft.estimated)}</span>
+                  <span className="tabular-nums">{formatTotal(nextDraft.exact + nextDraft.estimated)}</span>
                   {nextDraft.estimated > 0 && <span className="text-zinc-500"> so far</span>}
                 </p>
               </div>

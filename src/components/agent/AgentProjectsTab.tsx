@@ -379,7 +379,7 @@ export function AgentProjectsTab() {
             >
               Cancel
             </Button>
-            <Button type="submit">{editingGoal ? 'Save Changes' : 'Create Goal'}</Button>
+            <Button type="submit">{editingGoal ? 'Save changes' : 'Create goal'}</Button>
           </div>
         </form>
       </Modal>

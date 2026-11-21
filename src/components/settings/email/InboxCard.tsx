@@ -13,7 +13,7 @@ import type { InboxSettings } from '@/lib/communications/inbox-types';
 import type { TeamMember } from '@/lib/types';
 
 /**
- * One inbox on Settings > Email > Who handles your mail: its name, who
+ * One inbox on Settings > Email > Shared inboxes: its name, who
  * handles it and what that means, its own address, how many of your
  * addresses deliver to it, who else can read it, how long mail is kept, which
  * triage runs, whether mail is coming in, and the switch and edit button.

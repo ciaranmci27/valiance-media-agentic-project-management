@@ -52,7 +52,7 @@ export function HourApprovalsSection() {
           <p className="text-sm font-medium text-white">Auto-approve people&apos;s hours</p>
           <p className="mt-1 text-xs leading-relaxed text-zinc-400">
             On, your team&apos;s finished sessions are approved as they are logged. Off, they wait for review
-            on the Time tab. An Owner&apos;s own hours never wait.
+            on the Time tab in Finances. An Owner&apos;s own hours never wait.
           </p>
           {isAgentsOn && (
             <p className="mt-1 text-xs leading-relaxed text-zinc-400">

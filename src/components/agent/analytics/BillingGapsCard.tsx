@@ -59,7 +59,7 @@ export function BillingGapsCard({ gaps, measuring, reviewsAvailable, withheldRea
       ) : withheldReason ? (
         <Missing>{withheldReason}</Missing>
       ) : gaps.length === 0 ? (
-        <Missing>No billing gaps in range. Gaps appear when the billing audit runs with --post.</Missing>
+        <Missing>No billing gaps in range. Gaps show here once the billing audit is set to save what it finds.</Missing>
       ) : (
         <ul className="divide-y divide-white/[0.06] max-h-[420px] overflow-y-auto">
           {gaps.map((gap) => {

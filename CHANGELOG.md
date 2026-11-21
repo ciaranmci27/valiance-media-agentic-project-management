@@ -9,6 +9,30 @@ Each section starts with `## X.Y.Z (YYYY-MM-DD)` and uses these headings, leavin
 - `### Database`: the core migration files in the release, one per line. `npm run db:migrate` applies them.
 - `### Breaking`: what an install must do when it takes this release.
 
+## 1.6.0 (2026-11-21)
+
+### Added
+- A setup wizard for the first Owner: workspace name, logo and color; how you'll use it (a preset, then each part on or off); invoice details when Client invoicing is on; an email check; inviting the team; and the first projects. Every step can be skipped, and it picks up where it left off. A check at the top says if a required environment variable is missing. After it, the Dashboard shows a short Getting started list for anything skipped.
+- Invitations: invited people get an email with a link to choose their own password (it works once and lasts 7 days). When email is not set up, the inviter copies the link instead. People who have not signed in yet show as Invited on the Team page, with Resend invite and Copy invite link.
+- Personal inboxes: anyone can connect their own email in Settings > Email > Your inbox (Owners, Admins and Members by default), choose the agent that sorts it, and share it with named people. It is private: Owners see that it exists and whether it works, not its mail, unless an Owner turns on "Owners can read personal inboxes", which everyone then sees. The owner of a personal inbox triages it.
+- Projects in the sidebar, in Settings > Workspace > Brand: a list of the first five (as before) or a menu of every active project under Projects. The wizard's preset picks one: a list for Agency, a menu for Internal team and Solo.
+
+### Changed
+- The theme follows the device live when set to System, keeps in step across open tabs, and a System choice on your account clears a Light or Dark left on the device.
+- The Inbox is for any email about your projects, not only clients': wording across the Inbox, projects and tasks says email, and a project's client email domains and addresses are now its Sender domains and Sender addresses.
+- Every project shows its Time tracking tab while Time is on; with tracking off for that project, the tab says so and offers to turn it on.
+- Team pay is called Team pay everywhere (the Finances tab, its card and the Team row menu's Pay rate) and is one table of people. Members with approved hours and no pay rate are told to ask an Owner.
+- Stat strips line up their values, fall back to two rows or a list before a label would be cut off, and agent analytics speaks plainly ("No usage data yet").
+- One format for hours ("2.5h") and money (cents below $1,000, whole dollars above); counts are no longer in the code font.
+- Settings > Client portal saves exclusions as you add or remove them, with Undo. On phones, the Settings tabs keep the current one in view.
+- Sentence case for buttons and headings that were still in Title Case, and for table headers.
+- Only Owners invite agents or send an agent a sign-in link, since an agent can sort personal inboxes.
+
+### Database
+- 20261121060000_personal_inboxes.sql
+- 20261121061500_team_invites.sql
+- 20261121063000_sidebar_projects_style.sql
+
 ## 1.5.0 (2026-11-21)
 
 ### Added

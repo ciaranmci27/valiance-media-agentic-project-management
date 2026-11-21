@@ -3,14 +3,14 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { AtSign, ChevronRight, Filter, Inbox, Mail, Send, type LucideIcon } from 'lucide-react';
+import { AtSign, ChevronRight, Filter, Inbox, Mail, Send, UserRound, Users, type LucideIcon } from 'lucide-react';
 import { EMAIL_PAGES, settingsHrefForSection, useSettingsAccess } from '@/components/settings/settings-groups';
 import { SettingsSectionHeader } from '@/components/settings/SettingsSectionHeader';
 import { STATUS_DOT, worstStatus } from '@/components/settings/email/inbox-status';
 import { useApp } from '@/lib/store';
 import { useDemo } from '@/lib/demo-context';
 import { inboxClient, inboxSettingsClient } from '@/lib/communications/inbox-client';
-import type { InboxSettingsList, YourAddressList } from '@/lib/communications/inbox-types';
+import { OWNERS_READ_PERSONAL_LINE, type InboxSettingsList, type MyInboxList, type YourAddressList } from '@/lib/communications/inbox-types';
 import type { InboxSenderRule } from '@/lib/communications/inbox-rules';
 import type { SmtpAccountSafe } from '@/lib/email/types';
 
@@ -49,6 +49,7 @@ export function EmailOverview() {
   const [addresses, setAddresses] = useState<Read<YourAddressList>>(undefined);
   const [rules, setRules] = useState<Read<InboxSenderRule[]>>(undefined);
   const [smtp, setSmtp] = useState<Read<SmtpState>>(undefined);
+  const [mine, setMine] = useState<Read<MyInboxList>>(undefined);
   // The one fix a new install needs before any mail setup: shown once, in place of three load errors.
   const [setupError, setSetupError] = useState<string | null>(null);
 
@@ -73,6 +74,20 @@ export function EmailOverview() {
     void settle(inbox.senderRules().then((data) => data.rules), setRules);
     return () => { cancelled = true; };
   }, [show.emailInboxes, settings, inbox]);
+
+  useEffect(() => {
+    if (!show.myInbox) return;
+    let cancelled = false;
+    settings.myInboxes().then(
+      (value) => { if (!cancelled) setMine(value); },
+      (error: unknown) => {
+        if (cancelled) return;
+        setMine(null);
+        if (error instanceof Error && error.message.includes('not set up in Supabase')) setSetupError(error.message);
+      },
+    );
+    return () => { cancelled = true; };
+  }, [show.myInbox, settings]);
 
   useEffect(() => {
     if (!show.smtp) return;
@@ -104,6 +119,29 @@ export function EmailOverview() {
         <span className={status.tone === 'on' ? 'text-emerald-300' : status.tone === 'error' ? 'text-red-300' : undefined}>{status.text}</span>
       </>
     );
+  };
+
+  const mineLine = (): ReactNode => {
+    if (mine === undefined) return 'Checking...';
+    if (mine === null) return 'Could not load your inbox';
+    if (mine.inboxes.length === 0) return 'Not connected yet. Forward your own email here.';
+    const status = worstStatus(mine.inboxes);
+    const address = mine.inboxes.length === 1 ? mine.inboxes[0].address : plural(mine.inboxes.length, 'address', 'addresses');
+    return (
+      <>
+        <span className="text-zinc-200 break-all">{address}</span>
+        <span aria-hidden="true" className={`inline-block h-2 w-2 flex-shrink-0 rounded-full ${STATUS_DOT[status.tone]}`} />
+        <span className={status.tone === 'on' ? 'text-emerald-300' : status.tone === 'error' ? 'text-red-300' : undefined}>{status.text}</span>
+      </>
+    );
+  };
+
+  const personalLine = (): ReactNode => {
+    if (inboxes === undefined) return 'Checking...';
+    if (inboxes === null) return 'Could not load personal inboxes';
+    const list = inboxes.personal ?? [];
+    const who = list.length === 0 ? 'None connected yet' : plural(list.length, 'teammate connected one', 'teammates connected one');
+    return `${who}. ${inboxes.owners_read_personal ? 'Owners can read them.' : 'Private to each owner.'}`;
   };
 
   const addressesLine = (): ReactNode => {
@@ -155,9 +193,18 @@ export function EmailOverview() {
         {setupError && (
           <p role="alert" className="rounded-lg bg-amber-500/[0.14] px-4 py-3 text-sm leading-relaxed text-amber-200">{setupError}</p>
         )}
+        {show.myInbox && (
+          <Group label="Yours">
+            <Row href={EMAIL_PAGES.mine} icon={UserRound} title="Your inbox" status={mineLine()} />
+            {mine?.owners_read_personal && mine.inboxes.length > 0 && (
+              <li className="px-4 py-2 text-[11px] text-zinc-500">{OWNERS_READ_PERSONAL_LINE}</li>
+            )}
+          </Group>
+        )}
         {show.emailInboxes && (
           <Group label="Incoming">
-            <Row href={EMAIL_PAGES.handler} icon={Inbox} title="Who handles your mail" status={handlerLine()} />
+            <Row href={EMAIL_PAGES.handler} icon={Inbox} title="Shared inboxes" status={handlerLine()} />
+            <Row href={EMAIL_PAGES.personal} icon={Users} title="Personal inboxes" status={personalLine()} />
             <Row href={EMAIL_PAGES.addresses} icon={AtSign} title="Your addresses" status={addressesLine()} />
             <Row href={EMAIL_PAGES.rules} icon={Filter} title="Mail rules" status={rulesLine()} />
           </Group>

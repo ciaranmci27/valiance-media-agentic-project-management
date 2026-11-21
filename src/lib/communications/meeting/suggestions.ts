@@ -18,7 +18,7 @@
  * has no meeting row to record a dismissal on.
  */
 import { comms } from '../db';
-import { assertCanTriage, assertId, InboxError, loadReadableThread, many, markThreadHandled, one, type InboxContext } from '../inbox-service';
+import { assertId, InboxError, loadTriageableThread, many, markThreadHandled, one, type InboxContext } from '../inbox-service';
 import { acceptPlanItem } from '../inbox-plans';
 import type { MeetingAddAllResult, MeetingDismissResult, MeetingDismissUndo, MeetingHandledMessage } from '../inbox-types';
 import { inboxAgentName, syncWaitingNotification, type PlanMessage } from '../plans';
@@ -26,8 +26,7 @@ import { inboxAgentName, syncWaitingNotification, type PlanMessage } from '../pl
 type Row = Record<string, unknown>;
 
 async function meetingThread(ctx: InboxContext, threadId: string) {
-  assertCanTriage(ctx.access);
-  const thread = await loadReadableThread(ctx, threadId);
+  const thread = await loadTriageableThread(ctx, threadId);
   if (thread.channel !== 'meeting') {
     throw new InboxError(409, 'Only a meeting settles its suggestions all at once. For an email, add or skip each one.');
   }

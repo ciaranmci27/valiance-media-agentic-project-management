@@ -21353,7 +21353,8 @@
     "handler": {
      "id": "<ids.ashley>",
      "name": "Ashley P."
-    }
+    },
+    "owner": null
    },
    {
     "id": "<ids.inboxB>",
@@ -21363,7 +21364,8 @@
     "handler": {
      "id": "<ids.jeff>",
      "name": "Jeff"
-    }
+    },
+    "owner": null
    },
    {
     "id": "<inbox:Support>",
@@ -21373,7 +21375,8 @@
     "handler": {
      "id": "<ids.jeff>",
      "name": "Jeff"
-    }
+    },
+    "owner": null
    }
   ],
   "threads": [
@@ -22859,10 +22862,12 @@
    "handled": 8,
    "unassigned": 15
   },
-  "latest_code": null
+  "latest_code": null,
+  "owners_read_personal": false
  },
  "threads": [
   {
+   "can_triage": true,
    "id": "<thread:Ashley/attach-8-again@acme-roofing.example>",
    "inbox": {
     "id": "<ids.inboxA>",
@@ -22872,7 +22877,8 @@
     "handler": {
      "id": "<ids.ashley>",
      "name": "Ashley P."
-    }
+    },
+    "owner": null
    },
    "channel": "email",
    "meeting": null,
@@ -23476,6 +23482,7 @@
    ]
   },
   {
+   "can_triage": true,
    "id": "<thread:Ashley/BN8PR11MB1234outlook@BN8PR11MB1234.namprd11.prod.outlook.example>",
    "inbox": {
     "id": "<ids.inboxA>",
@@ -23485,7 +23492,8 @@
     "handler": {
      "id": "<ids.ashley>",
      "name": "Ashley P."
-    }
+    },
+    "owner": null
    },
    "channel": "email",
    "meeting": null,
@@ -23609,6 +23617,7 @@
    ]
   },
   {
+   "can_triage": true,
    "id": "<thread:Ashley/CAF2xGmail-reply-1@mail.gmail.com>",
    "inbox": {
     "id": "<ids.inboxA>",
@@ -23618,7 +23627,8 @@
     "handler": {
      "id": "<ids.ashley>",
      "name": "Ashley P."
-    }
+    },
+    "owner": null
    },
    "channel": "email",
    "meeting": null,
@@ -24227,6 +24237,7 @@
    ]
   },
   {
+   "can_triage": true,
    "id": "<thread:Ashley/cs-desk@gmail.example>",
    "inbox": {
     "id": "<ids.inboxA>",
@@ -24236,7 +24247,8 @@
     "handler": {
      "id": "<ids.ashley>",
      "name": "Ashley P."
-    }
+    },
+    "owner": null
    },
    "channel": "email",
    "meeting": null,
@@ -24351,6 +24363,7 @@
    ]
   },
   {
+   "can_triage": true,
    "id": "<thread:Ashley/cs-one@gmail.example>",
    "inbox": {
     "id": "<ids.inboxA>",
@@ -24360,7 +24373,8 @@
     "handler": {
      "id": "<ids.ashley>",
      "name": "Ashley P."
-    }
+    },
+    "owner": null
    },
    "channel": "email",
    "meeting": null,
@@ -24468,6 +24482,7 @@
    ]
   },
   {
+   "can_triage": true,
    "id": "<thread:Ashley/cs-two@gmail.example>",
    "inbox": {
     "id": "<ids.inboxA>",
@@ -24477,7 +24492,8 @@
     "handler": {
      "id": "<ids.ashley>",
      "name": "Ashley P."
-    }
+    },
+    "owner": null
    },
    "channel": "email",
    "meeting": null,
@@ -24592,6 +24608,7 @@
    ]
   },
   {
+   "can_triage": true,
    "id": "<thread:Ashley/fw-agent@agency.example>",
    "inbox": {
     "id": "<ids.inboxA>",
@@ -24601,7 +24618,8 @@
     "handler": {
      "id": "<ids.ashley>",
      "name": "Ashley P."
-    }
+    },
+    "owner": null
    },
    "channel": "email",
    "meeting": null,
@@ -24683,6 +24701,7 @@
    ]
   },
   {
+   "can_triage": true,
    "id": "<thread:Ashley/fw-apple@agency.example>",
    "inbox": {
     "id": "<ids.inboxA>",
@@ -24692,7 +24711,8 @@
     "handler": {
      "id": "<ids.ashley>",
      "name": "Ashley P."
-    }
+    },
+    "owner": null
    },
    "channel": "email",
    "meeting": null,
@@ -24804,6 +24824,7 @@
    ]
   },
   {
+   "can_triage": true,
    "id": "<thread:Ashley/fw-client@cliffbuilders.example>",
    "inbox": {
     "id": "<ids.inboxA>",
@@ -24813,7 +24834,8 @@
     "handler": {
      "id": "<ids.ashley>",
      "name": "Ashley P."
-    }
+    },
+    "owner": null
    },
    "channel": "email",
    "meeting": null,
@@ -24919,6 +24941,7 @@
    ]
   },
   {
+   "can_triage": true,
    "id": "<thread:Ashley/fw-desk@agency.example>",
    "inbox": {
     "id": "<ids.inboxA>",
@@ -24928,7 +24951,8 @@
     "handler": {
      "id": "<ids.ashley>",
      "name": "Ashley P."
-    }
+    },
+    "owner": null
    },
    "channel": "email",
    "meeting": null,
@@ -25040,6 +25064,7 @@
    ]
   },
   {
+   "can_triage": true,
    "id": "<thread:Ashley/fw-eml@agency.example>",
    "inbox": {
     "id": "<ids.inboxA>",
@@ -25049,7 +25074,8 @@
     "handler": {
      "id": "<ids.ashley>",
      "name": "Ashley P."
-    }
+    },
+    "owner": null
    },
    "channel": "email",
    "meeting": null,
@@ -25174,6 +25200,7 @@
    ]
   },
   {
+   "can_triage": true,
    "id": "<thread:Ashley/fw-far@agency.example>",
    "inbox": {
     "id": "<ids.inboxA>",
@@ -25183,7 +25210,8 @@
     "handler": {
      "id": "<ids.ashley>",
      "name": "Ashley P."
-    }
+    },
+    "owner": null
    },
    "channel": "email",
    "meeting": null,
@@ -25284,6 +25312,7 @@
    "senders": []
   },
   {
+   "can_triage": true,
    "id": "<thread:Ashley/fw-gmail@agency.example>",
    "inbox": {
     "id": "<ids.inboxA>",
@@ -25293,7 +25322,8 @@
     "handler": {
      "id": "<ids.ashley>",
      "name": "Ashley P."
-    }
+    },
+    "owner": null
    },
    "channel": "email",
    "meeting": null,
@@ -25419,6 +25449,7 @@
    ]
   },
   {
+   "can_triage": true,
    "id": "<thread:Ashley/fw-html@agency.example>",
    "inbox": {
     "id": "<ids.inboxA>",
@@ -25428,7 +25459,8 @@
     "handler": {
      "id": "<ids.ashley>",
      "name": "Ashley P."
-    }
+    },
+    "owner": null
    },
    "channel": "email",
    "meeting": null,
@@ -25540,6 +25572,7 @@
    ]
   },
   {
+   "can_triage": true,
    "id": "<thread:Ashley/fw-outlook@agency.example>",
    "inbox": {
     "id": "<ids.inboxA>",
@@ -25549,7 +25582,8 @@
     "handler": {
      "id": "<ids.ashley>",
      "name": "Ashley P."
-    }
+    },
+    "owner": null
    },
    "channel": "email",
    "meeting": null,
@@ -25661,6 +25695,7 @@
    ]
   },
   {
+   "can_triage": true,
    "id": "<thread:Ashley/fw-suspended@agency.example>",
    "inbox": {
     "id": "<ids.inboxA>",
@@ -25670,7 +25705,8 @@
     "handler": {
      "id": "<ids.ashley>",
      "name": "Ashley P."
-    }
+    },
+    "owner": null
    },
    "channel": "email",
    "meeting": null,
@@ -25752,6 +25788,7 @@
    ]
   },
   {
+   "can_triage": true,
    "id": "<thread:Ashley/fw-unknown@agency.example>",
    "inbox": {
     "id": "<ids.inboxA>",
@@ -25761,7 +25798,8 @@
     "handler": {
      "id": "<ids.ashley>",
      "name": "Ashley P."
-    }
+    },
+    "owner": null
    },
    "channel": "email",
    "meeting": null,
@@ -25865,6 +25903,7 @@
    ]
   },
   {
+   "can_triage": true,
    "id": "<thread:Ashley/fw-unverified@agency.example>",
    "inbox": {
     "id": "<ids.inboxA>",
@@ -25874,7 +25913,8 @@
     "handler": {
      "id": "<ids.ashley>",
      "name": "Ashley P."
-    }
+    },
+    "owner": null
    },
    "channel": "email",
    "meeting": null,
@@ -25946,6 +25986,7 @@
    "senders": []
   },
   {
+   "can_triage": true,
    "id": "<thread:Ashley/fwd-3@agency.example>",
    "inbox": {
     "id": "<ids.inboxA>",
@@ -25955,7 +25996,8 @@
     "handler": {
      "id": "<ids.ashley>",
      "name": "Ashley P."
-    }
+    },
+    "owner": null
    },
    "channel": "email",
    "meeting": null,
@@ -26059,6 +26101,7 @@
    "senders": []
   },
   {
+   "can_triage": true,
    "id": "<thread:Ashley/guess@agency.example>",
    "inbox": {
     "id": "<ids.inboxA>",
@@ -26068,7 +26111,8 @@
     "handler": {
      "id": "<ids.ashley>",
      "name": "Ashley P."
-    }
+    },
+    "owner": null
    },
    "channel": "email",
    "meeting": null,
@@ -26169,6 +26213,7 @@
    "senders": []
   },
   {
+   "can_triage": true,
    "id": "<thread:Ashley/html-only-4@mail.gmail.com>",
    "inbox": {
     "id": "<ids.inboxA>",
@@ -26178,7 +26223,8 @@
     "handler": {
      "id": "<ids.ashley>",
      "name": "Ashley P."
-    }
+    },
+    "owner": null
    },
    "channel": "email",
    "meeting": null,
@@ -26286,6 +26332,7 @@
    ]
   },
   {
+   "can_triage": true,
    "id": "<thread:Ashley/oversized-10@birchpartners.example>",
    "inbox": {
     "id": "<ids.inboxA>",
@@ -26295,7 +26342,8 @@
     "handler": {
      "id": "<ids.ashley>",
      "name": "Ashley P."
-    }
+    },
+    "owner": null
    },
    "channel": "email",
    "meeting": null,
@@ -26510,6 +26558,7 @@
    ]
   },
   {
+   "can_triage": true,
    "id": "<thread:Ashley/own-domain@acme-roofing.example>",
    "inbox": {
     "id": "<ids.inboxA>",
@@ -26519,7 +26568,8 @@
     "handler": {
      "id": "<ids.ashley>",
      "name": "Ashley P."
-    }
+    },
+    "owner": null
    },
    "channel": "email",
    "meeting": null,
@@ -26622,6 +26672,7 @@
    ]
   },
   {
+   "can_triage": true,
    "id": "<thread:Ashley/pa-cross@oldco.example>",
    "inbox": {
     "id": "<ids.inboxA>",
@@ -26631,7 +26682,8 @@
     "handler": {
      "id": "<ids.ashley>",
      "name": "Ashley P."
-    }
+    },
+    "owner": null
    },
    "channel": "email",
    "meeting": null,
@@ -26725,6 +26777,7 @@
    ]
   },
   {
+   "can_triage": true,
    "id": "<thread:Ashley/pa-new@acme-roofing.example>",
    "inbox": {
     "id": "<ids.inboxA>",
@@ -26734,7 +26787,8 @@
     "handler": {
      "id": "<ids.ashley>",
      "name": "Ashley P."
-    }
+    },
+    "owner": null
    },
    "channel": "email",
    "meeting": null,
@@ -26875,6 +26929,7 @@
    ]
   },
   {
+   "can_triage": true,
    "id": "<thread:Ashley/pa-shelved@oldco.example>",
    "inbox": {
     "id": "<ids.inboxA>",
@@ -26884,7 +26939,8 @@
     "handler": {
      "id": "<ids.ashley>",
      "name": "Ashley P."
-    }
+    },
+    "owner": null
    },
    "channel": "email",
    "meeting": null,
@@ -26978,6 +27034,7 @@
    ]
   },
   {
+   "can_triage": true,
    "id": "<thread:Ashley/pa-two-a@oldco.example>",
    "inbox": {
     "id": "<ids.inboxA>",
@@ -26987,7 +27044,8 @@
     "handler": {
      "id": "<ids.ashley>",
      "name": "Ashley P."
-    }
+    },
+    "owner": null
    },
    "channel": "email",
    "meeting": null,
@@ -27081,6 +27139,7 @@
    ]
   },
   {
+   "can_triage": true,
    "id": "<thread:Ashley/pa-two-b@oldco.example>",
    "inbox": {
     "id": "<ids.inboxA>",
@@ -27090,7 +27149,8 @@
     "handler": {
      "id": "<ids.ashley>",
      "name": "Ashley P."
-    }
+    },
+    "owner": null
    },
    "channel": "email",
    "meeting": null,
@@ -27184,6 +27244,7 @@
    ]
   },
   {
+   "can_triage": true,
    "id": "<thread:Ashley/public-domain@acme-roofing.example>",
    "inbox": {
     "id": "<ids.inboxA>",
@@ -27193,7 +27254,8 @@
     "handler": {
      "id": "<ids.ashley>",
      "name": "Ashley P."
-    }
+    },
+    "owner": null
    },
    "channel": "email",
    "meeting": null,
@@ -27301,6 +27363,7 @@
    ]
   },
   {
+   "can_triage": true,
    "id": "<thread:Ashley/quiet@agency.example>",
    "inbox": {
     "id": "<ids.inboxA>",
@@ -27310,7 +27373,8 @@
     "handler": {
      "id": "<ids.ashley>",
      "name": "Ashley P."
-    }
+    },
+    "owner": null
    },
    "channel": "email",
    "meeting": null,
@@ -27418,6 +27482,7 @@
    "senders": []
   },
   {
+   "can_triage": true,
    "id": "<thread:Ashley/related@agency.example>",
    "inbox": {
     "id": "<ids.inboxA>",
@@ -27427,7 +27492,8 @@
     "handler": {
      "id": "<ids.ashley>",
      "name": "Ashley P."
-    }
+    },
+    "owner": null
    },
    "channel": "email",
    "meeting": null,
@@ -27538,6 +27604,7 @@
    "senders": []
   },
   {
+   "can_triage": true,
    "id": "<thread:Ashley/settle-1@agency.example>",
    "inbox": {
     "id": "<ids.inboxA>",
@@ -27547,7 +27614,8 @@
     "handler": {
      "id": "<ids.ashley>",
      "name": "Ashley P."
-    }
+    },
+    "owner": null
    },
    "channel": "email",
    "meeting": null,
@@ -27718,6 +27786,7 @@
    "senders": []
   },
   {
+   "can_triage": true,
    "id": "<thread:Ashley/stranger@unknown-co.example>",
    "inbox": {
     "id": "<ids.inboxA>",
@@ -27727,7 +27796,8 @@
     "handler": {
      "id": "<ids.ashley>",
      "name": "Ashley P."
-    }
+    },
+    "owner": null
    },
    "channel": "email",
    "meeting": null,
@@ -27809,6 +27879,7 @@
    ]
   },
   {
+   "can_triage": true,
    "id": "<thread:Ashley/team-cc-two@agency.example>",
    "inbox": {
     "id": "<ids.inboxA>",
@@ -27818,7 +27889,8 @@
     "handler": {
      "id": "<ids.ashley>",
      "name": "Ashley P."
-    }
+    },
+    "owner": null
    },
    "channel": "email",
    "meeting": null,
@@ -27945,6 +28017,7 @@
    "senders": []
   },
   {
+   "can_triage": true,
    "id": "<thread:Ashley/team-cc@agency.example>",
    "inbox": {
     "id": "<ids.inboxA>",
@@ -27954,7 +28027,8 @@
     "handler": {
      "id": "<ids.ashley>",
      "name": "Ashley P."
-    }
+    },
+    "owner": null
    },
    "channel": "email",
    "meeting": null,
@@ -28060,6 +28134,7 @@
    "senders": []
   },
   {
+   "can_triage": true,
    "id": "<thread:Ashley/tt-1@agency.example>",
    "inbox": {
     "id": "<ids.inboxA>",
@@ -28069,7 +28144,8 @@
     "handler": {
      "id": "<ids.ashley>",
      "name": "Ashley P."
-    }
+    },
+    "owner": null
    },
    "channel": "email",
    "meeting": null,
@@ -28245,6 +28321,7 @@
    ]
   },
   {
+   "can_triage": true,
    "id": "<thread:Ashley/tt-2@agency.example>",
    "inbox": {
     "id": "<ids.inboxA>",
@@ -28254,7 +28331,8 @@
     "handler": {
      "id": "<ids.ashley>",
      "name": "Ashley P."
-    }
+    },
+    "owner": null
    },
    "channel": "email",
    "meeting": null,
@@ -28355,6 +28433,7 @@
    "senders": []
   },
   {
+   "can_triage": true,
    "id": "<thread:Ashley/unlisted@acme-roofing.example>",
    "inbox": {
     "id": "<ids.inboxA>",
@@ -28364,7 +28443,8 @@
     "handler": {
      "id": "<ids.ashley>",
      "name": "Ashley P."
-    }
+    },
+    "owner": null
    },
    "channel": "email",
    "meeting": null,
@@ -28472,6 +28552,7 @@
    ]
   },
   {
+   "can_triage": true,
    "id": "<thread:Ashley/verify-10@agency.example>",
    "inbox": {
     "id": "<ids.inboxA>",
@@ -28481,7 +28562,8 @@
     "handler": {
      "id": "<ids.ashley>",
      "name": "Ashley P."
-    }
+    },
+    "owner": null
    },
    "channel": "email",
    "meeting": null,
@@ -28553,6 +28635,7 @@
    "senders": []
   },
   {
+   "can_triage": true,
    "id": "<thread:Ashley/your-address@acme-roofing.example>",
    "inbox": {
     "id": "<ids.inboxA>",
@@ -28562,7 +28645,8 @@
     "handler": {
      "id": "<ids.ashley>",
      "name": "Ashley P."
-    }
+    },
+    "owner": null
    },
    "channel": "email",
    "meeting": null,
@@ -28665,6 +28749,7 @@
    ]
   },
   {
+   "can_triage": true,
    "id": "<thread:Billing/pa-cross@oldco.example>",
    "inbox": {
     "id": "<ids.inboxB>",
@@ -28674,7 +28759,8 @@
     "handler": {
      "id": "<ids.jeff>",
      "name": "Jeff"
-    }
+    },
+    "owner": null
    },
    "channel": "email",
    "meeting": null,
@@ -28768,6 +28854,7 @@
    ]
   },
   {
+   "can_triage": true,
    "id": "<thread:Billing/two-inboxes@agency.example>",
    "inbox": {
     "id": "<ids.inboxB>",
@@ -28777,7 +28864,8 @@
     "handler": {
      "id": "<ids.jeff>",
      "name": "Jeff"
-    }
+    },
+    "owner": null
    },
    "channel": "email",
    "meeting": null,

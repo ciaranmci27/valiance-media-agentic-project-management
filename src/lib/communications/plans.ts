@@ -28,6 +28,7 @@ import { insertComment, patchTask } from '@/lib/supabase/queries';
 import { moveToTrash, restoreFromTrash } from '@/lib/supabase/trash';
 import { addTaskFile, type TaskFilesContext } from '@/lib/task-files/service';
 import { comms } from './db';
+import { inboxPeopleIds } from './inbox-visibility';
 import { normalizeAddress, isHostname } from './email/addresses';
 import { messageFacts, type MessageFacts } from './speaker';
 import { decideItem, type Decision, type PolicyItem } from './triage-policy';
@@ -724,16 +725,13 @@ function triageOf(body: PlanRequest, items: Row[]) {
   };
 }
 
-/** Everyone who can act on the inbox: the owner and the people granted it. */
+/**
+ * Everyone who can act on the inbox: the workspace Owners and the people
+ * granted it; for a personal inbox its owner and the people granted it, and
+ * the Owners only while they may read personal inboxes (inbox-visibility.ts).
+ */
 async function inboxPeople(db: SupabaseClient, inboxId: string): Promise<string[]> {
-  const { data: granted, error: grantError } = await comms(db).from('inbox_access').select('member_id').eq('inbox_id', inboxId);
-  if (grantError) throw grantError;
-  const grantedIds = ((granted ?? []) as { member_id: string }[]).map((row) => row.member_id);
-  const { data: people, error } = await db.from('team_members').select('id, role, status')
-    .or(grantedIds.length ? `role.eq.owner,id.in.(${grantedIds.join(',')})` : 'role.eq.owner');
-  if (error) throw error;
-  return ((people ?? []) as { id: string; role: string; status: string }[])
-    .filter((member) => member.role !== 'agent' && member.status === 'active').map((member) => member.id);
+  return inboxPeopleIds(db, inboxId);
 }
 
 /** The first name of the agent that handles an inbox, for what people read. */

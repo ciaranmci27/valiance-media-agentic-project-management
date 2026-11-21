@@ -11,14 +11,17 @@ export interface InboxStatus {
   text: string;
 }
 
+/** What the status line reads: a shared inbox's settings, or a personal inbox's health. */
+type StatusFields = Pick<InboxSettings, 'enabled' | 'verified_at' | 'last_received_at' | 'last_error' | 'last_error_at'>;
+
 /** The inbox's last error, while no email has arrived since it. */
-export function currentError(inbox: InboxSettings): string | null {
+export function currentError(inbox: StatusFields): string | null {
   if (!inbox.last_error) return null;
   if (inbox.last_error_at && inbox.last_received_at && inbox.last_received_at > inbox.last_error_at) return null;
   return inbox.last_error;
 }
 
-export function inboxStatus(inbox: InboxSettings): InboxStatus {
+export function inboxStatus(inbox: StatusFields): InboxStatus {
   if (!inbox.enabled) return { tone: 'off', text: 'Off. Mail sent to it is dropped, not queued.' };
   if (inbox.last_received_at) return { tone: 'on', text: `Connected, last email ${relativeTime(inbox.last_received_at)}` };
   if (inbox.verified_at) return { tone: 'on', text: 'Connected, no email yet' };
@@ -28,7 +31,7 @@ export function inboxStatus(inbox: InboxSettings): InboxStatus {
 /** Worst first: mail dropped, then a failure, then nothing arrived yet. */
 const SEVERITY: Record<InboxStatus['tone'], number> = { off: 3, error: 2, waiting: 1, on: 0 };
 
-function toneOf(inbox: InboxSettings): InboxStatus['tone'] {
+function toneOf(inbox: StatusFields): InboxStatus['tone'] {
   if (!inbox.enabled) return 'off';
   if (currentError(inbox)) return 'error';
   return inboxStatus(inbox).tone;
@@ -38,7 +41,7 @@ function toneOf(inbox: InboxSettings): InboxStatus['tone'] {
  * The worst status across every inbox, for the overview: which inbox it is
  * when there are several, or a count when several share it.
  */
-export function worstStatus(inboxes: InboxSettings[]): InboxStatus {
+export function worstStatus(inboxes: (StatusFields & Pick<InboxSettings, 'name' | 'created_at'>)[]): InboxStatus {
   if (inboxes.length === 1) {
     const [inbox] = inboxes;
     const tone = toneOf(inbox);
@@ -65,4 +68,4 @@ export const STATUS_DOT: Record<InboxStatus['tone'], string> = {
 };
 
 /** True while an enabled inbox waits for its first email (the page polls). */
-export const isWaiting = (inbox: InboxSettings) => inbox.enabled && !inbox.verified_at && !inbox.last_received_at;
+export const isWaiting = (inbox: StatusFields) => inbox.enabled && !inbox.verified_at && !inbox.last_received_at;

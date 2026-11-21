@@ -109,7 +109,19 @@ export interface InboxSummary {
   address: string;
   enabled: boolean;
   handler: { id: string; name: string } | null;
+  /** A personal inbox's person; null for a shared inbox. Shown as "Your inbox" or "<Name>'s inbox". */
+  owner: { id: string; name: string } | null;
 }
+
+/** What an inbox is called to the person reading it: a personal one is "Your inbox" or "<Name>'s inbox". */
+export function inboxDisplayName(inbox: Pick<InboxSummary, 'name' | 'owner'>, viewerId: string | null | undefined): string {
+  if (!inbox.owner) return inbox.name;
+  if (viewerId && inbox.owner.id === viewerId) return 'Your inbox';
+  return `${inbox.owner.name}'s inbox`;
+}
+
+/** The one line a personal inbox's people see while Owners may read it. */
+export const OWNERS_READ_PERSONAL_LINE = 'Owners in this workspace can read personal inboxes';
 
 export interface ThreadProject {
   id: string;
@@ -161,6 +173,8 @@ export interface InboxThreadList {
   counts: InboxTabCounts;
   /** The newest one-time code, while it is fresh (CODE_PIN_MINUTES): pinned at the top of the Inbox. */
   latest_code: InboxLatestCode | null;
+  /** A personal inbox is listed and the workspace lets Owners read personal inboxes: the Inbox says so. */
+  owners_read_personal?: boolean;
 }
 
 export interface InboxLatestCode {
@@ -352,11 +366,11 @@ export interface InboxReplyPoint {
   state: 'open' | 'resolved' | 'expired';
 }
 
-/** How a candidate's reason reads in the UI ("matched by contact and client email address"). */
+/** How a candidate's reason reads in the UI ("matched by contact and sender address"). */
 export const CANDIDATE_REASON_LABELS: Record<CandidateReason, string> = {
   contact: 'contact',
-  domain: 'client domain',
-  sender: 'client email address',
+  domain: 'sender domain',
+  sender: 'sender address',
 };
 
 export interface InboxCandidate {
@@ -381,6 +395,12 @@ export interface RememberableSender {
 
 export interface InboxThreadDetail {
   id: string;
+  /**
+   * The viewer may act on this thread (file it, mark it handled, send it back,
+   * settle the agent's work): triage is per inbox. Left out by the demo and
+   * older servers, where the role decides.
+   */
+  can_triage?: boolean;
   inbox: InboxSummary;
   channel: InboxChannel;
   /** A meeting's own details; null for email. */
@@ -546,11 +566,52 @@ export interface InboxSettings {
   /** Project email addresses that deliver to this inbox. */
   project_address_count: number;
   created_at: string;
+  /** A personal inbox's person; null for a shared inbox. */
+  owner_member_id: string | null;
+}
+
+/**
+ * A personal inbox as those who manage inboxes see it in Settings: that it
+ * exists and how it is doing, never its mail, its routing or who reads it.
+ */
+export interface PersonalInboxHealth {
+  id: string;
+  name: string;
+  address: string;
+  owner: { id: string; name: string } | null;
+  enabled: boolean;
+  verified_at: string | null;
+  last_received_at: string | null;
+  last_error: string | null;
+  last_error_at: string | null;
+  message_count: number;
+  created_at: string;
 }
 
 export interface InboxSettingsList {
   relay_domain: string;
+  /** Shared inboxes (no owner), in full. */
   inboxes: InboxSettings[];
+  /** Every personal inbox's health. Left out by older servers and the demo. */
+  personal?: PersonalInboxHealth[];
+  /** business_settings.owners_read_personal_inboxes. */
+  owners_read_personal?: boolean;
+}
+
+/** Settings > Email > Your inbox: the signed-in person's own personal inboxes. */
+export interface MyInboxList {
+  relay_domain: string;
+  inboxes: InboxSettings[];
+  /** While true, every personal inbox's settings say Owners can read it. */
+  owners_read_personal: boolean;
+}
+
+/** Connecting or changing one of your own inboxes. */
+export interface MyInboxInput {
+  address: string;
+  handler_member_id: string | null;
+  enabled: boolean;
+  access_member_ids: string[];
 }
 
 export interface InboxSettingsInput {

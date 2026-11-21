@@ -4,7 +4,7 @@
  * a whole plan, resolve a reply owed. Each checks the person can triage the
  * conversation's inbox, like every other Inbox action.
  */
-import { assertCanTriage, assertId, InboxError, loadReadableThread, type InboxContext } from './inbox-service';
+import { assertId, InboxError, loadTriageableThread, type InboxContext } from './inbox-service';
 import { comms } from './db';
 import { acceptItem, dismissItem, inboxAgentName, loadPlanItem, PlanError, restoreItem, syncWaitingNotification, undoItem, undoPlan, type PlanActor } from './plans';
 import type { PlanItemRequest } from './plan-schemas';
@@ -26,9 +26,8 @@ async function inboxErrors<T>(work: () => Promise<T>): Promise<T> {
 }
 
 async function readableItem(ctx: InboxContext, itemId: string) {
-  assertCanTriage(ctx.access);
   const { item, message } = await inboxErrors(() => loadPlanItem(ctx.service, assertId(itemId, 'item id')));
-  await loadReadableThread(ctx, message.thread_id);
+  await loadTriageableThread(ctx, message.thread_id);
   return { item, message };
 }
 
@@ -69,22 +68,20 @@ export async function restorePlanItem(ctx: InboxContext, itemId: string): Promis
 }
 
 export async function undoWholePlan(ctx: InboxContext, planId: string): Promise<{ items: Row[] }> {
-  assertCanTriage(ctx.access);
   const id = assertId(planId, 'plan id');
   const { data: plan, error } = await comms(ctx.service).from('plans').select('id, message_id, conversation_id, mode').eq('id', id).maybeSingle();
   if (error) throw error;
   if (!plan || (plan as Row).mode !== 'live') throw new InboxError(404, 'Plan not found');
-  await loadReadableThread(ctx, (plan as Row).conversation_id as string);
+  await loadTriageableThread(ctx, (plan as Row).conversation_id as string);
   return { items: await inboxErrors(() => undoPlan(actorOf(ctx), id)) };
 }
 
 export async function resolveReplyPoint(ctx: InboxContext, pointId: string): Promise<{ resolved: true }> {
-  assertCanTriage(ctx.access);
   const id = assertId(pointId, 'reply id');
   const { data: point, error } = await comms(ctx.service).from('reply_points').select('id, conversation_id, message_id, state').eq('id', id).maybeSingle();
   if (error) throw error;
   if (!point) throw new InboxError(404, 'Not found');
-  await loadReadableThread(ctx, (point as Row).conversation_id as string);
+  await loadTriageableThread(ctx, (point as Row).conversation_id as string);
   const { error: updateError } = await comms(ctx.service).from('reply_points')
     .update({ state: 'resolved', resolved_by: ctx.memberId, resolved_at: new Date().toISOString() }).eq('id', id);
   if (updateError) throw updateError;

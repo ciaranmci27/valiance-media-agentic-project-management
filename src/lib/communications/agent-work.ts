@@ -19,7 +19,7 @@ import { hasPermission } from '@/lib/access-control';
 import { accessAllowsProject } from '@/lib/api/access';
 import { moveToTrash, restoreFromTrash } from '@/lib/supabase/trash';
 import { comms } from './db';
-import { assertCanTriage, assertId, InboxError, loadReadableThread, many, type InboxContext } from './inbox-service';
+import { assertId, InboxError, loadTriageableThread, many, type InboxContext } from './inbox-service';
 import { restorePlanItem, undoWholePlan } from './inbox-plans';
 import type { AgentWorkUndo } from './inbox-types';
 
@@ -52,8 +52,7 @@ function titleOf(payload: unknown): string {
 }
 
 export async function undoAgentWork(ctx: InboxContext, threadId: string, scope: AgentWorkScope): Promise<AgentWorkUndo> {
-  assertCanTriage(ctx.access);
-  const thread = await loadReadableThread(ctx, threadId);
+  const thread = await loadTriageableThread(ctx, threadId);
   const inThread = await threadMessages(ctx, thread.id);
   const ids = scope.message_ids ? [...new Set(scope.message_ids.map((id) => assertId(id, 'message id')))] : [...inThread];
   if (ids.some((id) => !inThread.has(id))) throw new InboxError(422, 'Those emails are not in this conversation');
@@ -140,8 +139,7 @@ export async function undoAgentWork(ctx: InboxContext, threadId: string, scope: 
 
 /** Restore all: what one Undo all took back, put back, as long as it belongs to this conversation. */
 export async function restoreAgentWork(ctx: InboxContext, threadId: string, undo: Omit<AgentWorkUndo, 'kept'>): Promise<{ restored: number; kept: AgentWorkUndo['kept'] }> {
-  assertCanTriage(ctx.access);
-  const thread = await loadReadableThread(ctx, threadId);
+  const thread = await loadTriageableThread(ctx, threadId);
   const inThread = [...await threadMessages(ctx, thread.id)];
   const itemIds = [...new Set(undo.plan_items)].map((id) => assertId(id, 'item id'));
   const taskIds = [...new Set(undo.tasks)].map((id) => assertId(id, 'task id'));

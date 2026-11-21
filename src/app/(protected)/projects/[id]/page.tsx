@@ -33,7 +33,7 @@ import { toast } from '@/components/ui/Toast';
 import { useTaskUrlParam } from '@/lib/use-task-url';
 import {
   Plus, LayoutGrid, List, Calendar,
-  Edit, ChevronRight, Trash2,
+  Edit, ChevronRight, Trash2, Clock,
 } from 'lucide-react';
 import { Task, ViewMode } from '@/lib/types';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
@@ -44,7 +44,7 @@ import {
   encryptionStatusRead, inboxLandingRead, projectBillingRunsRead, projectForecastRead, projectPaymentsRead, useBillingToday,
 } from '@/lib/reads';
 import { isRunning } from '@/lib/time-entry-utils';
-import { hasPermission, canEditTask, canManageAllTasks, canBeAssignedInProject } from '@/lib/access-control';
+import { hasPermission, canOpenInbox, canEditTask, canManageAllTasks, canBeAssignedInProject } from '@/lib/access-control';
 import { useCustomProjectTabs } from '@/lib/extensions/hooks';
 
 // Custom tabs (src/custom) are keyed x-<key>, so a core tab added later never collides.
@@ -71,7 +71,7 @@ export default function ProjectDetailPage() {
   const canReadFiles = hasPermission(access, 'files.read');
   const canReadPortal = hasPermission(access, 'portal.read') || hasPermission(access, 'portal.manage');
   const canReadCommunications = hasPermission(access, 'communications.read') || hasPermission(access, 'communications.manage');
-  const canReadInbox = hasPermission(access, 'inbound_email.read') || hasPermission(access, 'inbound_email.manage');
+  const canReadInbox = canOpenInbox(access);
   const canReadCredentials = hasPermission(access, 'credentials.reveal_shared') || hasPermission(access, 'credentials.manage');
   const canReadInvoices = hasPermission(access, 'invoices.read') || hasPermission(access, 'invoices.manage');
   const canReadTime = hasPermission(access, 'time.manage_own') || hasPermission(access, 'time.read_all') || hasPermission(access, 'time.manage_all');
@@ -80,8 +80,9 @@ export default function ProjectDetailPage() {
     getProject, getTasksByProject,
     team,
     deleteTask, deleteProject, updateTask, reorderTasks, filters, setFilters,
-    tasks, loading, timeEntries, getInvoicesByProject,
+    tasks, loading, timeEntries, getInvoicesByProject, updateProject,
   } = useApp();
+  const [turningOnTime, setTurningOnTime] = useState(false);
   const cardUnread = useCardUnread();
   const customTabs = useCustomProjectTabs();
 
@@ -125,7 +126,8 @@ export default function ProjectDetailPage() {
     { key: 'overview', label: 'Overview', visible: true },
     { key: 'tasks', label: 'Tasks', visible: true,
       badge: { count: unreadTaskCount, label: `${unreadTaskCount} unread task${unreadTaskCount === 1 ? '' : 's'}` } },
-    { key: 'time', label: 'Time tracking', visible: !!timeTrackingOn, live: clockedIn },
+    // Shown whenever the viewer may use time, on or off for this project.
+    { key: 'time', label: 'Time tracking', visible: !!project && canReadTime, live: clockedIn },
     { key: 'communication', label: 'Communication', visible: canReadInbox || canReadCommunications,
       warm: canReadInbox ? () => void warmRead(inboxLandingRead(projectId, isDemoMode)) : undefined },
     { key: 'portal', label: 'Client portal', visible: canReadPortal },
@@ -597,7 +599,34 @@ export default function ProjectDetailPage() {
         )}
       </>)}
 
-      {tabPanel('time', <TimeTrackingPanel projectId={projectId} projectColor={project.color} />)}
+      {tabPanel('time', timeTrackingOn ? (
+        <TimeTrackingPanel projectId={projectId} projectColor={project.color} />
+      ) : (
+        // The tab stays while the Time module is on, so "add hours from a
+        // project's Time tracking tab" is always true; here it says it is off.
+        <EmptyCard
+          icon={<Clock />}
+          title="Time tracking is off for this project"
+          description={canManageProject
+            ? 'Turn it on to start timers and log hours here.'
+            : 'Ask a project lead to turn it on to log hours here.'}
+          action={canManageProject ? (
+            <Button
+              size="sm"
+              disabled={turningOnTime}
+              onClick={async () => {
+                setTurningOnTime(true);
+                // The same pair the project form saves from its one switch.
+                const saved = await updateProject(projectId, { time_tracking_enabled: true, hourly_tracking: true });
+                setTurningOnTime(false);
+                if (saved) toast('success', 'Time tracking on');
+              }}
+            >
+              Turn on time tracking
+            </Button>
+          ) : undefined}
+        />
+      ))}
 
       {tabPanel('communication', (
         <CommunicationTab

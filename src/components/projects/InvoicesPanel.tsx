@@ -53,6 +53,7 @@ import { TextInput } from '@/components/ui/inputs/TextInput';
 import { DateInput } from '@/components/ui/inputs/DateInput';
 import { Textarea } from '@/components/ui/inputs/Textarea';
 import { toLocalDateKey } from '@/lib/date-utils';
+import { formatHours as formatHoursShort, formatMoney as formatTotal } from '@/lib/format';
 import { invalidateTables, useRead, warmReads } from '@/lib/query-cache';
 import {
   billingModalReads, projectBillingRunsRead, projectForecastRead, projectPaymentsRead, refreshBilling, useBillingToday,
@@ -2103,15 +2104,15 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
                 bare
                 label="Project totals"
                 stats={[
-                  isHourly && { label: 'Billable', value: `$${formatCurrency(Math.round(billableTotal))}` },
-                  { label: 'Invoiced', value: `$${formatCurrency(Math.round(totalInvoiced))}` },
-                  { label: 'Paid', value: `$${formatCurrency(Math.round(totalPaid))}` },
-                  { label: 'Outstanding', value: `$${formatCurrency(Math.round(outstanding))}`, tone: outstanding > 0 ? 'warning' : 'default' },
+                  isHourly && { label: 'Billable', value: formatTotal(billableTotal) },
+                  { label: 'Invoiced', value: formatTotal(totalInvoiced) },
+                  { label: 'Paid', value: formatTotal(totalPaid) },
+                  { label: 'Outstanding', value: formatTotal(outstanding), tone: outstanding > 0 ? 'warning' : 'default' },
                 ]}
               />
               <p className="mt-3 text-xs text-zinc-500">
                 {[
-                  isHourly ? `${Math.round(totalHours)}h at $${Math.round(hourlyRate)}/hr` : null,
+                  isHourly ? `${formatHoursShort(totalHours)} at $${Math.round(hourlyRate)}/hr` : null,
                   `${activeInvoiceCount} ${activeInvoiceCount === 1 ? 'invoice' : 'invoices'}`,
                   totalInvoiced > 0 ? `${paidShare}% of invoiced paid` : 'nothing invoiced yet',
                 ].filter(Boolean).join(' · ')}
@@ -2119,7 +2120,7 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
               {outstanding > 0 && (
                 <p className={`mt-1 text-xs ${overdueTotal > 0 ? 'text-amber-300' : 'text-zinc-500'}`}>
                   {overdueTotal > 0
-                    ? `$${formatCurrency(Math.round(overdueTotal))} of it is overdue.`
+                    ? `${formatTotal(overdueTotal)} of it is overdue.`
                     : isHourly ? 'Outstanding includes hours not invoiced yet.' : 'Outstanding is invoiced and not yet paid.'}
                 </p>
               )}

@@ -4,25 +4,28 @@ import { Check, Forward, Inbox as InboxIcon, Settings, Sparkles } from 'lucide-r
 import { Button } from '@/components/ui/Button';
 import { hasPermission } from '@/lib/access-control';
 import { useAuth } from '@/lib/auth-context';
-import type { InboxSummary } from '@/lib/communications/inbox-types';
+import { inboxDisplayName, type InboxSummary } from '@/lib/communications/inbox-types';
 
 /** The whole Inbox before any email has arrived: what it is and how mail gets here. */
 export function InboxEmptyState({ inboxes }: { inboxes: InboxSummary[] }) {
   const { access } = useAuth();
   const canManage = hasPermission(access, 'inbound_email.manage');
+  const canConnectOwn = hasPermission(access, 'inbound_email.personal') && access?.role !== 'agent';
   const hasInbox = inboxes.length > 0;
 
   const steps = [
     {
       icon: InboxIcon,
-      title: 'Create an inbox',
-      body: 'Pick the address clients write to and who handles it: an agent or a teammate.',
+      title: canManage ? 'Add an inbox' : 'Connect your email',
+      body: canManage
+        ? 'Connect your own email, or add a shared address and pick who handles it.'
+        : 'Add your address and pick the agent that sorts your mail.',
       done: hasInbox,
     },
     {
       icon: Forward,
-      title: 'Forward client email',
-      body: 'Point that address at the inbox relay address shown in Settings.',
+      title: 'Forward your email',
+      body: 'Forward the address to the relay address shown in Settings > Email.',
       done: false,
     },
     {
@@ -39,7 +42,7 @@ export function InboxEmptyState({ inboxes }: { inboxes: InboxSummary[] }) {
         <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-white/[0.06]">
           <InboxIcon size={22} className="text-zinc-400" aria-hidden="true" />
         </div>
-        <h2 className="text-base font-semibold text-white">No client email yet</h2>
+        <h2 className="text-base font-semibold text-white">No email yet</h2>
         <p className="mx-auto mt-1.5 max-w-md text-sm text-zinc-400">
           Email lands here once its handler has read it, with the tasks it made and anything that needs you. Replies are never sent from here; you answer from your own mail.
         </p>
@@ -72,7 +75,7 @@ export function InboxEmptyState({ inboxes }: { inboxes: InboxSummary[] }) {
             {inboxes.map((inbox) => (
               <li key={inbox.id} className="flex items-center justify-between gap-3 rounded-lg border border-white/[0.06] px-3 py-2">
                 <div className="min-w-0">
-                  <p className="truncate text-sm font-medium text-white">{inbox.name}</p>
+                  <p className="truncate text-sm font-medium text-white">{inboxDisplayName(inbox, access?.member_id)}</p>
                   <p className="truncate font-mono text-xs text-zinc-400">{inbox.address}</p>
                 </div>
                 <span className="flex-shrink-0 text-xs text-zinc-400">
@@ -87,6 +90,10 @@ export function InboxEmptyState({ inboxes }: { inboxes: InboxSummary[] }) {
           {canManage ? (
             <Button href="/settings/email/handler" variant={hasInbox ? 'secondary' : 'primary'} size="sm" icon={<Settings size={14} aria-hidden="true" />}>
               {hasInbox ? 'Inbox settings' : 'Set up an inbox'}
+            </Button>
+          ) : canConnectOwn ? (
+            <Button href="/settings/email/inbox" variant={hasInbox ? 'secondary' : 'primary'} size="sm" icon={<Settings size={14} aria-hidden="true" />}>
+              {hasInbox ? 'Your inbox settings' : 'Connect your email'}
             </Button>
           ) : (
             !hasInbox && <p className="text-xs text-zinc-400">Ask an Owner to set up an inbox in Settings.</p>

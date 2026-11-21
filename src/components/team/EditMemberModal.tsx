@@ -461,7 +461,7 @@ function EditMemberForm({ member, onClose }: { member: TeamMember; onClose: () =
               Cancel
             </Button>
             <Button type="submit" disabled={formLoading}>
-              {formLoading ? 'Saving...' : 'Save Changes'}
+              {formLoading ? 'Saving...' : 'Save changes'}
             </Button>
           </div>
         </form>

@@ -2,28 +2,27 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowRight, Loader2 } from 'lucide-react';
-import { Button } from '@/components/ui/Button';
 import { useRead } from '@/lib/query-cache';
 import { BRAND_LIMITS } from '@/lib/brand/validate';
 import { resolveBrand } from '@/lib/brand';
-import { BrandTextField } from './BrandTextField';
-import { HexColorField } from './HexColorField';
-import { LogoField } from './LogoField';
-import { OutcomeLine, type Outcome } from './OutcomeLine';
-import { checkLogoFile, cleanInput, fetchLogoFile, removeLogo, saveBrand, toInput, uploadLogo, workspaceBrandRead } from './brand-settings';
-
-export const BRAND_SETTINGS_HREF = '/settings/workspace#brand';
+import { BrandTextField } from '@/components/settings/workspace/BrandTextField';
+import { HexColorField } from '@/components/settings/workspace/HexColorField';
+import { LogoField } from '@/components/settings/workspace/LogoField';
+import type { Outcome } from '@/components/settings/workspace/OutcomeLine';
+import { checkLogoFile, cleanInput, fetchLogoFile, removeLogo, saveBrand, toInput, uploadLogo, workspaceBrandRead } from '@/components/settings/workspace/brand-settings';
+import { EnvChecksPanel, setupChecksRead } from '../setup-checks';
+import { StepFrame, type WizardStepProps } from '../StepFrame';
 
 /**
- * The first-run card's second step: the name, the logo and the color, the
- * three things that make the app look like the company's own. Saved through
- * the same routes as Settings > Workspace > Brand; Skip leaves the defaults.
- * Shows nothing while the brand cannot be saved (the migration has not run).
+ * Step 1: the name, logo and color that make the app the company's own,
+ * saved through the same routes as Settings > Workspace > Brand. The logo
+ * saves when chosen; the name and color save on Continue. The setup check
+ * sits on top, so a broken install says so before anything else.
  */
-export function BrandSetupStep({ onSkip }: { onSkip: () => void }) {
+export function WorkspaceStep({ onNext, onSkip }: WizardStepProps) {
   const router = useRouter();
   const read = useRead(workspaceBrandRead);
+  const checks = useRead(setupChecksRead);
   const data = read.data?.status === 'ready' ? read.data.data : null;
 
   const [name, setName] = useState<string | null>(null);
@@ -33,15 +32,36 @@ export function BrandSetupStep({ onSkip }: { onSkip: () => void }) {
   const [uploading, setUploading] = useState(false);
   const [logoError, setLogoError] = useState<string | null>(null);
   const [logoOutcome, setLogoOutcome] = useState<Outcome | null>(null);
-  const [outcome, setOutcome] = useState<Outcome | null>(null);
-  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const panel = (
+    <EnvChecksPanel checks={checks.data} loading={checks.loading} failed={checks.failed} onReload={checks.reload} />
+  );
+
+  const frame = { title: 'Make it yours', onSkip };
 
   if (read.loading) {
     return (
-      <div aria-busy="true" aria-label="Loading brand" className="mt-4 h-40 rounded-xl bg-white/[0.03] ring-1 ring-inset ring-white/[0.06] motion-safe:animate-pulse" />
+      <StepFrame {...frame} description="Your workspace name, logo and color." onSubmit={onNext} primaryDisabled>
+        {panel}
+        <div aria-busy="true" aria-label="Loading your brand" className="mt-6 h-64 rounded-xl bg-white/[0.03] motion-safe:animate-pulse" />
+      </StepFrame>
     );
   }
-  if (!data) return null;
+
+  if (!data) {
+    return (
+      <StepFrame
+        {...frame}
+        description={read.data?.status === 'migration'
+          ? `${read.data.message} You can add your brand later in Settings > Workspace.`
+          : 'Your brand could not be loaded. You can add it later in Settings > Workspace.'}
+        onSubmit={onNext}
+      >
+        {panel}
+      </StepFrame>
+    );
+  }
 
   const settings = data.settings;
   const nameValue = name ?? settings.name ?? '';
@@ -83,47 +103,42 @@ export function BrandSetupStep({ onSkip }: { onSkip: () => void }) {
     router.refresh();
   };
 
-  const save = async () => {
-    if (saving || !colorValid) return;
+  const submit = async () => {
+    if (!colorValid) {
+      setError('Fix the brand color, or clear it to use the default.');
+      return;
+    }
+    if (!changed) {
+      onNext();
+      return;
+    }
     setSaving(true);
+    setError(null);
     // A save sends every field, so the rest goes back as it is.
     const result = await saveBrand(cleanInput({ ...toInput(settings), name: nameValue, brandColor: colorValue }));
     setSaving(false);
     if (!result.ok) {
-      setOutcome({ tone: 'error', text: `Not saved. ${result.message}` });
+      setError(`Not saved. ${result.message}`);
       return;
     }
-    setSaved(true);
-    setOutcome({ tone: 'done', text: 'Brand saved. Everyone sees it now.' });
     router.refresh();
+    onNext();
   };
 
-  if (saved) {
-    return (
-      <div className="mt-4">
-        {outcome && <OutcomeLine outcome={outcome} />}
-        <div className="mt-3 -ml-2.5">
-          <Button href={BRAND_SETTINGS_HREF} variant="ghost" size="sm">
-            Tagline, favicon and more in Brand settings
-            <ArrowRight size={13} aria-hidden="true" />
-          </Button>
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div role="group" aria-labelledby="brand-setup-title" className="mt-5 border-t border-white/[0.06] pt-5">
-      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-        <h3 id="brand-setup-title" className="text-sm font-medium text-zinc-100">Add your brand</h3>
-        <span className="text-[11px] text-zinc-400">Last step</span>
-      </div>
-      <p className="mt-0.5 text-xs text-zinc-400">Your name, logo and color, for the app, emails and invoices. You can change them any time in Settings.</p>
-
-      <div className="mt-4 grid grid-cols-1 gap-5 md:grid-cols-2">
-        <div className="space-y-5">
+    <StepFrame
+      {...frame}
+      description="Your name, logo and color show across the app, in emails and on invoices. You can change them any time in Settings."
+      onSubmit={() => { void submit(); }}
+      busy={saving}
+      primaryDisabled={uploading}
+      error={error}
+    >
+      {panel}
+      <div className="mt-8 grid grid-cols-1 gap-6 md:grid-cols-2">
+        <div className="space-y-6">
           <BrandTextField
-            label="Name"
+            label="Workspace name"
             value={nameValue}
             placeholder={data.defaults.name}
             max={BRAND_LIMITS.name}
@@ -142,7 +157,7 @@ export function BrandSetupStep({ onSkip }: { onSkip: () => void }) {
         <LogoField
           kind="light"
           label="Logo"
-          usage="The sign-in page in light mode and light invoice PDFs. The sidebar, portal and emails use it too until you add a dark version in Settings."
+          usage="Shows across the app and in emails. You can add a version for dark backgrounds later in Settings."
           url={settings.logoLightUrl}
           emptyNote="No logo yet: your name shows as text"
           name={preview.name}
@@ -154,25 +169,6 @@ export function BrandSetupStep({ onSkip }: { onSkip: () => void }) {
           onRemove={() => { void remove(); }}
         />
       </div>
-
-      {outcome && <OutcomeLine outcome={outcome} className="mt-4" />}
-
-      <div className="mt-4 flex flex-wrap items-center gap-2">
-        {!changed && settings.logoLightUrl ? (
-          // Only the logo changed, and it saved on upload: nothing left to save.
-          <Button size="sm" onClick={onSkip}>Done</Button>
-        ) : (
-          <Button
-            size="sm"
-            onClick={() => { void save(); }}
-            disabled={saving || !colorValid || !changed}
-            icon={saving ? <Loader2 size={13} className="animate-spin motion-reduce:animate-none" aria-hidden="true" /> : undefined}
-          >
-            {saving ? 'Saving...' : 'Save brand'}
-          </Button>
-        )}
-        <Button size="sm" variant="ghost" onClick={onSkip} disabled={saving}>Skip for now</Button>
-      </div>
-    </div>
+    </StepFrame>
   );
 }

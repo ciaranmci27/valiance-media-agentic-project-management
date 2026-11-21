@@ -9,15 +9,48 @@
    any `dark:` utility in sync with the actual selected theme. */
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
 
-/* StatStrip's row layout (src/components/ui/StatStrip.tsx). A strip is a
-   label and value list until its own width fits every stat side by side. The
-   width that fits grows with the number of stats, which the strip sets as
-   data-fit: s for up to 3, m for 4, l for 5 or 6, xl for more. */
+/* StatStrip's column layout (src/components/ui/StatStrip.tsx). A strip is a
+   label and value list until its own width fits its stats as columns. The
+   strip works out the width each stat needs and sets two attributes, both a
+   rem step from the list below: data-row, the width where every stat fits on
+   one line, and data-grid, the width where an even count fits in two rows
+   (4 as 2 by 2, 6 as 3 by 2, 8 as 4 by 2). strip-row styles a stat as a
+   column in either layout; strip-line is the one-line layout only. */
 @custom-variant strip-row {
-  @container stat-strip (min-width: 28rem) { &:where([data-fit='s'] *) { @slot; } }
-  @container stat-strip (min-width: 36rem) { &:where([data-fit='m'] *) { @slot; } }
-  @container stat-strip (min-width: 48rem) { &:where([data-fit='l'] *) { @slot; } }
-  @container stat-strip (min-width: 56rem) { &:where([data-fit='xl'] *) { @slot; } }
+  @container stat-strip (min-width: 16rem) { &:where([data-row='16'] *, [data-grid='16'] *) { @slot; } }
+  @container stat-strip (min-width: 20rem) { &:where([data-row='20'] *, [data-grid='20'] *) { @slot; } }
+  @container stat-strip (min-width: 24rem) { &:where([data-row='24'] *, [data-grid='24'] *) { @slot; } }
+  @container stat-strip (min-width: 28rem) { &:where([data-row='28'] *, [data-grid='28'] *) { @slot; } }
+  @container stat-strip (min-width: 32rem) { &:where([data-row='32'] *, [data-grid='32'] *) { @slot; } }
+  @container stat-strip (min-width: 36rem) { &:where([data-row='36'] *, [data-grid='36'] *) { @slot; } }
+  @container stat-strip (min-width: 40rem) { &:where([data-row='40'] *, [data-grid='40'] *) { @slot; } }
+  @container stat-strip (min-width: 44rem) { &:where([data-row='44'] *, [data-grid='44'] *) { @slot; } }
+  @container stat-strip (min-width: 48rem) { &:where([data-row='48'] *, [data-grid='48'] *) { @slot; } }
+  @container stat-strip (min-width: 52rem) { &:where([data-row='52'] *, [data-grid='52'] *) { @slot; } }
+  @container stat-strip (min-width: 56rem) { &:where([data-row='56'] *, [data-grid='56'] *) { @slot; } }
+  @container stat-strip (min-width: 64rem) { &:where([data-row='64'] *, [data-grid='64'] *) { @slot; } }
+  @container stat-strip (min-width: 72rem) { &:where([data-row='72'] *, [data-grid='72'] *) { @slot; } }
+  @container stat-strip (min-width: 80rem) { &:where([data-row='80'] *, [data-grid='80'] *) { @slot; } }
+  @container stat-strip (min-width: 88rem) { &:where([data-row='88'] *, [data-grid='88'] *) { @slot; } }
+  @container stat-strip (min-width: 96rem) { &:where([data-row='96'] *, [data-grid='96'] *) { @slot; } }
+}
+@custom-variant strip-line {
+  @container stat-strip (min-width: 16rem) { &:where([data-row='16'] *) { @slot; } }
+  @container stat-strip (min-width: 20rem) { &:where([data-row='20'] *) { @slot; } }
+  @container stat-strip (min-width: 24rem) { &:where([data-row='24'] *) { @slot; } }
+  @container stat-strip (min-width: 28rem) { &:where([data-row='28'] *) { @slot; } }
+  @container stat-strip (min-width: 32rem) { &:where([data-row='32'] *) { @slot; } }
+  @container stat-strip (min-width: 36rem) { &:where([data-row='36'] *) { @slot; } }
+  @container stat-strip (min-width: 40rem) { &:where([data-row='40'] *) { @slot; } }
+  @container stat-strip (min-width: 44rem) { &:where([data-row='44'] *) { @slot; } }
+  @container stat-strip (min-width: 48rem) { &:where([data-row='48'] *) { @slot; } }
+  @container stat-strip (min-width: 52rem) { &:where([data-row='52'] *) { @slot; } }
+  @container stat-strip (min-width: 56rem) { &:where([data-row='56'] *) { @slot; } }
+  @container stat-strip (min-width: 64rem) { &:where([data-row='64'] *) { @slot; } }
+  @container stat-strip (min-width: 72rem) { &:where([data-row='72'] *) { @slot; } }
+  @container stat-strip (min-width: 80rem) { &:where([data-row='80'] *) { @slot; } }
+  @container stat-strip (min-width: 88rem) { &:where([data-row='88'] *) { @slot; } }
+  @container stat-strip (min-width: 96rem) { &:where([data-row='96'] *) { @slot; } }
 }
 
 /*

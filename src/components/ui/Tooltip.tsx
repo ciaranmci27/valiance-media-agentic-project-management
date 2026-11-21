@@ -11,6 +11,8 @@ export interface TooltipProps {
   className?: string;
   /** When true, renders children directly without tooltip functionality */
   disabled?: boolean;
+  /** Gap in px between the trigger and the tooltip. */
+  offset?: number;
 }
 
 export function Tooltip({
@@ -20,6 +22,7 @@ export function Tooltip({
   delay = 200,
   className = '',
   disabled = false,
+  offset = 8,
 }: TooltipProps) {
   const [isVisible, setIsVisible] = useState(false);
   const [shouldRender, setShouldRender] = useState(false);
@@ -42,7 +45,7 @@ export function Tooltip({
     const tooltipEl = tooltipRef.current;
     const tooltipWidth = tooltipEl?.offsetWidth || 0;
     const tooltipHeight = tooltipEl?.offsetHeight || 0;
-    const padding = 8;
+    const padding = offset;
     const viewportPadding = 8;
 
     const viewport = {
@@ -118,7 +121,7 @@ export function Tooltip({
 
     setActualPosition(bestPosition);
     setCoords({ top, left });
-  }, [position]);
+  }, [position, offset]);
 
   const showTooltip = () => {
     if (hideTimeoutRef.current) clearTimeout(hideTimeoutRef.current);

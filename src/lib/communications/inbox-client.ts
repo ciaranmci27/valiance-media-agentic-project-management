@@ -3,7 +3,7 @@
 import { demoInbox, demoInboxSettings } from './inbox-demo';
 import type {
   AgentWorkUndo, ClientEmailDomain, ClientSenderAddress, ClientSenderAddressList, InboxReplyDraft, MeetingAddAllResult, MeetingDismissResult, MeetingDismissUndo, InboxSettings, InboxSettingsInput, InboxSettingsList, InboxTab, InboxThreadDetail, InboxThreadList,
-  MxStatus, ProjectEmailAddress, ProjectEmailAddressInput, ProjectEmailAddressList, SetThreadProjectRequest, SetThreadProjectResult,
+  MxStatus, MyInboxInput, MyInboxList, PersonalInboxHealth, ProjectEmailAddress, ProjectEmailAddressInput, ProjectEmailAddressList, SetThreadProjectRequest, SetThreadProjectResult,
   OwnDomain, TaskSourceEmails, YourAddress, YourAddressInput, YourAddressList, YourAddressPatchInput,
 } from './inbox-types';
 import { INBOX_TABLES, INBOX_UPDATED_EVENT } from './inbox-types';
@@ -244,6 +244,28 @@ export function inboxSettingsClient(isDemo: boolean) {
     },
     mx(domain: string): Promise<MxStatus> {
       return isDemo ? demoInboxSettings.mx(domain) : call(`/api/workspace/email-inboxes/mx?domain=${encodeURIComponent(domain)}`);
+    },
+    /** Someone's personal inbox turned off or on (offboarding). */
+    switchPersonal(inboxId: string, enabled: boolean): Promise<PersonalInboxHealth> {
+      return isDemo ? demoInboxSettings.switchPersonal(inboxId, enabled) : patch(`/api/workspace/email-inboxes/${inboxId}`, { enabled });
+    },
+    /** Whether Owners may read personal inboxes. */
+    setPersonalPolicy(ownersRead: boolean): Promise<{ owners_read_personal: boolean }> {
+      return isDemo ? demoInboxSettings.setPersonalPolicy(ownersRead) : put('/api/workspace/email-inboxes/personal-policy', { owners_read_personal: ownersRead });
+    },
+    /** Your own personal inboxes. */
+    myInboxes(): Promise<MyInboxList> {
+      return isDemo ? demoInboxSettings.myInboxes() : call('/api/workspace/my-inbox');
+    },
+    createMine(input: MyInboxInput): Promise<InboxSettings> {
+      return isDemo ? demoInboxSettings.createMine(input) : post('/api/workspace/my-inbox', input);
+    },
+    updateMine(inboxId: string, input: MyInboxInput): Promise<InboxSettings> {
+      return isDemo ? demoInboxSettings.updateMine(inboxId, input) : put(`/api/workspace/my-inbox/${inboxId}`, input);
+    },
+    async removeMine(inboxId: string): Promise<void> {
+      if (isDemo) return demoInboxSettings.removeMine(inboxId);
+      await call(`/api/workspace/my-inbox/${inboxId}`, { method: 'DELETE' });
     },
     /**
      * Every address mail comes in on, your domains and the inboxes an address

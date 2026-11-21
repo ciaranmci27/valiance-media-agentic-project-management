@@ -26,7 +26,7 @@ import { announceInboxChange, inboxSettingsClient } from '@/lib/communications/i
 import type { InboxSettings, InboxSettingsList } from '@/lib/communications/inbox-types';
 
 /**
- * Settings > Email > Who handles your mail: each inbox with its handler,
+ * Settings > Email > Shared inboxes: each shared inbox with its handler,
  * readers, retention, switch and triage mode, an add/edit form, what to do
  * right after adding one, and Setup folded below: the relay domain, MX
  * status and each inbox's relay address with its connect checklist. Inboxes
@@ -441,8 +441,8 @@ function SectionHeading({ action = null }: { action?: React.ReactNode }) {
   return (
     <SettingsSectionHeader
       icon={Inbox}
-      title="Who handles your mail"
-      description="Who reads the mail that reaches your addresses, and who else can see it. Replies are never sent from here; you answer from your own mail."
+      title="Shared inboxes"
+      description="Inboxes the team shares: who reads the mail that reaches your addresses, and who else can see it. Replies are never sent from here; you answer from your own mail."
       action={action}
     />
   );

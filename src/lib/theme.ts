@@ -2,6 +2,16 @@ export type Theme = 'light' | 'dark';
 
 const STORAGE_KEY = 'theme';
 
+/** The Light or Dark choice saved on this device, or null when it follows the OS. */
+export function getSavedTheme(): Theme | null {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    return saved === 'light' || saved === 'dark' ? saved : null;
+  } catch {
+    return null;
+  }
+}
+
 /** The theme currently applied to <html> (defaults to dark if unset). */
 export function getActiveTheme(): Theme {
   if (typeof document === 'undefined') return 'dark';
@@ -16,7 +26,7 @@ export function applyTheme(theme: Theme): void {
   try {
     localStorage.setItem(STORAGE_KEY, theme);
   } catch {
-    /* storage unavailable — the DB remains the source of truth */
+    /* storage unavailable: the DB remains the source of truth */
   }
 }
 

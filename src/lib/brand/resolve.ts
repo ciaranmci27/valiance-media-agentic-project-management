@@ -18,10 +18,13 @@ export interface WorkspaceBrandRow {
   favicon_path: string | null;
   invert_logo_in_sidebar: boolean | null;
   show_name_under_logo: boolean | null;
+  /** Missing until migration 20261121063000 is applied: read as 'list'. */
+  sidebar_projects?: string | null;
 }
 
-export const WORKSPACE_BRAND_COLUMNS =
-  'name, tagline, description, brand_color, brand_shades, accent_color, logo_light_path, logo_dark_path, favicon_path, invert_logo_in_sidebar, show_name_under_logo';
+// Every column, so a column a newer release adds reads as its default until
+// that release's migration runs, instead of failing the whole brand read.
+export const WORKSPACE_BRAND_COLUMNS = '*';
 
 export const EMPTY_BRAND_SETTINGS: BrandSettings = {
   name: null,
@@ -35,6 +38,7 @@ export const EMPTY_BRAND_SETTINGS: BrandSettings = {
   faviconUrl: null,
   invertLogoInSidebar: false,
   showNameUnderLogo: false,
+  sidebarProjects: 'list',
 };
 
 /** The public URL of an object in the brand bucket. */
@@ -74,6 +78,7 @@ export function rowToSettings(row: WorkspaceBrandRow | null, supabaseUrl?: strin
     faviconUrl: brandFileUrl(row.favicon_path, supabaseUrl),
     invertLogoInSidebar: row.invert_logo_in_sidebar === true,
     showNameUnderLogo: row.show_name_under_logo === true,
+    sidebarProjects: row.sidebar_projects === 'menu' ? 'menu' : 'list',
   };
 }
 
@@ -97,6 +102,7 @@ export function resolveBrand(settings: BrandSettings): Brand {
     },
     invertLogoInSidebar: settings.invertLogoInSidebar,
     showNameUnderLogo: settings.showNameUnderLogo,
+    sidebarProjects: settings.sidebarProjects,
   };
 }
 

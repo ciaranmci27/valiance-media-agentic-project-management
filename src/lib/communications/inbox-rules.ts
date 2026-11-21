@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { RULE_ACTIONS } from './sorting';
 import { describeRule, liveRuleFor, ruleTarget, RULE_COLUMNS, senderRuleSchema, type SenderRuleRow } from './sender-rules';
-import { InboxError, assertCanManageInboxes, assertCanTriage, assertId, canManageInboxes, loadReadableThread, many, one, type InboxContext } from './inbox-service';
+import { assertCanManageInboxes, assertId, canManageInboxes, InboxError, loadTriageableThread, many, one, type InboxContext } from './inbox-service';
 import { domainOf, organizationalDomain } from './email/addresses';
 import { comms } from '@/lib/communications/db';
 
@@ -51,7 +51,9 @@ export async function createSenderRule(ctx: InboxContext, request: CreateSenderR
   assertCanManageInboxes(ctx.access);
   const target = ruleTarget(request.match_kind, request.match_value);
   if (!target.ok) throw new InboxError(422, target.error);
-  const thread = request.thread_id ? await loadReadableThread(ctx, request.thread_id) : null;
+  // Filtering the thread's open mail now acts on it: only in an inbox the
+  // member may act on (never someone's personal inbox read under the Owners switch).
+  const thread = request.thread_id ? await loadTriageableThread(ctx, request.thread_id) : null;
 
   // The same sender and topic: switched off and replaced, so the history shows both.
   const existing = await liveRuleFor(ctx.service, request.match_kind, target.value, request.topic);
@@ -118,8 +120,7 @@ async function filterThreadNow(ctx: InboxContext, threadId: string, rule: Sender
  * this email.
  */
 export async function moveToInbox(ctx: InboxContext, threadId: string, messageId: string): Promise<{ message_id: string; rule: InboxSenderRule | null }> {
-  assertCanTriage(ctx.access);
-  const thread = await loadReadableThread(ctx, threadId);
+  const thread = await loadTriageableThread(ctx, threadId);
   const message = await one<{ id: string; status: string; routing_basis: string; original_from_address: string | null }>(comms(ctx.service).from('messages')
     .select('id, status, routing_basis, original_from_address').eq('id', assertId(messageId, 'message_id')).eq('thread_id', thread.id).maybeSingle());
   if (!message) throw new InboxError(404, 'Message not found');

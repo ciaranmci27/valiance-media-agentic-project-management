@@ -100,7 +100,7 @@ export const MODULE_SURFACES: Record<ModuleId, ModuleSurface> = {
       'communications.reply_points', 'communications.sender_rules', 'communications.task_links',
       'communications.triage',
     ],
-    rpcs: ['communications.can_read_inbox', 'communications.can_read_message'],
+    rpcs: ['communications.can_read_inbox', 'communications.can_read_message', 'communications.can_manage_inbox'],
     routes: [
       'api/v1/inbound-emails', 'api/v1/inbox', 'api/v1/projects/[id]/communications',
       'api/v1/projects/[id]/client-notifications', 'api/v1/tasks/[id]/emails', 'api/v1/tasks/[id]/messages',
@@ -108,11 +108,13 @@ export const MODULE_SURFACES: Record<ModuleId, ModuleSurface> = {
       // The mail webhook keeps storing with the Inbox off; nothing acts on it until it is back on.
       'api/inbound-email', 'api/internal/inbound-email',
       'api/workspace/inbox', 'api/workspace/email-addresses', 'api/workspace/email-domains', 'api/workspace/email-inboxes',
+      'api/workspace/my-inbox',
       'api/workspace/projects/[id]/email-addresses', 'api/workspace/projects/[id]/email-domains',
       'api/workspace/projects/[id]/email-senders', 'api/workspace/tasks/[id]/source-emails',
       '(protected)/inbox',
       '(protected)/settings/(sections)/email/addresses', '(protected)/settings/(sections)/email/handler',
-      '(protected)/settings/(sections)/email/rules',
+      '(protected)/settings/(sections)/email/rules', '(protected)/settings/(sections)/email/inbox',
+      '(protected)/settings/(sections)/email/personal',
     ],
   },
   credentials: {
@@ -149,13 +151,13 @@ export const CORE_ROUTES: string[] = [
   'api/smtp', 'api/team-members', 'api/whats-my-ip', 'api/youtube',
   'api/v1/activities', 'api/v1/audit-log', 'api/v1/entity-files', 'api/v1/notifications', 'api/v1/reminders',
   'api/v1/tasks', 'api/v1/team-members', 'api/v1/projects',
-  'api/workspace/access', 'api/workspace/api-keys', 'api/workspace/brand', 'api/workspace/me', 'api/workspace/modules',
+  'api/workspace/access', 'api/workspace/api-keys', 'api/workspace/brand', 'api/workspace/me', 'api/workspace/modules', 'api/workspace/setup-checks', 'api/welcome',
   'api/workspace/projects', 'api/workspace/tasks', 'api/workspace/team-directory', 'api/workspace/team-members',
   'api/workspace/updates',
   // The install's own routes and pages (src/custom): each item names its own module, permission or role.
   'api/x', '(protected)/x',
   '(protected)/dashboard', '(protected)/my-tasks', '(protected)/notifications', '(protected)/projects',
-  '(protected)/reminders', '(protected)/settings', '(protected)/team',
+  '(protected)/reminders', '(protected)/settings', '(protected)/team', '(protected)/welcome',
   // Public and developer pages.
   'smtp/docs', '(dashboard)/email-preview', 'dev',
 ];
@@ -166,7 +168,7 @@ export const CORE_TABLES: string[] = [
   'permission_modules', 'project_context', 'project_members', 'projects', 'reminders', 'role_permissions',
   'smtp_accounts', 'task_acceptance_criteria', 'task_assignees', 'task_comments', 'task_dependencies',
   'task_events', 'task_files', 'task_reviews', 'task_subtasks', 'task_views', 'tasks',
-  'team_member_notifications', 'team_member_permissions', 'team_members', 'trash_events', 'workspace_brand',
+  'team_invites', 'team_member_notifications', 'team_member_permissions', 'team_members', 'trash_events', 'workspace_brand',
   'workspace_modules',
 ];
 

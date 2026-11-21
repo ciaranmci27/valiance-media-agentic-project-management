@@ -1,14 +1,12 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Popover } from '@/components/ui/Popover';
+import { RowActionsMenu, type RowAction } from '@/components/ui/RowActionsMenu';
 import {
-  CheckCircle2,
   Clock3,
   DollarSign,
   Landmark,
   ListChecks,
-  MoreVertical,
   Plus,
   WalletCards,
 } from 'lucide-react';
@@ -121,8 +119,6 @@ export function PayrollPanel({ team, projects, reviewOnly = false }: { team: Tea
   const [adjustmentDescription, setAdjustmentDescription] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('');
   const [paymentReference, setPaymentReference] = useState('');
-  const [menuMemberId, setMenuMemberId] = useState<string | null>(null);
-  const compMenuRef = useRef<HTMLElement | null>(null);
   const [ledgerMemberId, setLedgerMemberId] = useState<string | null>(null);
   const [earningsFilter, setEarningsFilter] = useState<EarningsFilter>('all');
   const [sessionEntryId, setSessionEntryId] = useState<string | null>(null);
@@ -635,14 +631,12 @@ export function PayrollPanel({ team, projects, reviewOnly = false }: { team: Tea
   const openPayout = (memberId: string) => {
     setPayMemberId(memberId);
     setPayAmount(Math.max(0, balances.get(memberId)?.owed || 0).toFixed(2));
-    setMenuMemberId(null);
   };
 
   const openRate = (memberId: string) => {
     setRateMemberId(memberId);
     setRateAmount('');
     setShowRate(true);
-    setMenuMemberId(null);
   };
 
   const openAdjustment = (memberId: string) => {
@@ -651,13 +645,11 @@ export function PayrollPanel({ team, projects, reviewOnly = false }: { team: Tea
     setAdjustmentAmount('');
     setAdjustmentDescription('');
     setShowAdjustment(true);
-    setMenuMemberId(null);
   };
 
   const openEarnings = (memberId: string) => {
     setLedgerMemberId(memberId);
     setEarningsFilter('all');
-    setMenuMemberId(null);
   };
 
   const recordPayout = () =>
@@ -783,7 +775,7 @@ export function PayrollPanel({ team, projects, reviewOnly = false }: { team: Tea
           'success',
           updatedEntries > 0
             ? `Rate scheduled and ${updatedEntries} unpaid ${updatedEntries === 1 ? 'entry' : 'entries'} recalculated`
-            : 'Compensation rate scheduled',
+            : 'Pay rate scheduled',
         );
       } catch (error) {
         toast('error', error instanceof Error ? error.message : 'Rate update failed');
@@ -841,6 +833,127 @@ export function PayrollPanel({ team, projects, reviewOnly = false }: { team: Tea
   const rateMember = team.find((member) => member.id === rateMemberId);
   const adjustmentMember = team.find((member) => member.id === adjustmentMemberId);
   const ledgerMember = team.find((member) => member.id === ledgerMemberId);
+  // One row per person: Earned, Paid, Owed and their actions. A table on
+  // wider screens, a block per person on phones, like the Team list.
+  const renderPayTable = (members: TeamMember[], placeholders: boolean) => {
+    const rows = members.map((member) => {
+      const balance = balances.get(member.id) || { earned: 0, paid: 0, owed: 0 };
+      const missingApprovedRates = placeholders
+        ? 0
+        : data.entries.filter(
+            (entry) =>
+              entry.member_id === member.id &&
+              entry.approval_status === 'approved' &&
+              !hasEffectiveRate(entry.member_id, entry.start_time),
+          ).length;
+      const actions: RowAction[] = canManage && !placeholders
+        ? [
+            { label: 'View earnings', icon: <ListChecks size={14} />, onClick: () => openEarnings(member.id) },
+            ...(canManagePayouts && balance.owed > 0.005
+              ? [{ label: 'Record payment', icon: <Landmark size={14} />, onClick: () => openPayout(member.id) }]
+              : []),
+            ...(canManageCompensation
+              ? [
+                  { label: 'Add adjustment', icon: <Plus size={14} />, onClick: () => openAdjustment(member.id) },
+                  { label: 'Pay rate', icon: <DollarSign size={14} />, onClick: () => openRate(member.id) },
+                ]
+              : []),
+          ]
+        : [];
+      return { member, balance, missingApprovedRates, actions };
+    });
+    const amount = (value: number, className: string) =>
+      placeholders ? (
+        <span className="inline-block h-4 w-16 rounded bg-white/[0.07] motion-safe:animate-pulse" aria-hidden="true" />
+      ) : (
+        <span className={`tabular-nums ${className}`}>{money(value)}</span>
+      );
+    const owedClass = (owed: number) => (owed > 0.005 ? 'font-medium text-amber-300' : 'text-zinc-400');
+    const person = ({ member, missingApprovedRates }: (typeof rows)[number]) => (
+      <div className="flex min-w-0 items-center gap-2.5">
+        <Avatar name={member.name} src={member.avatar} size="sm" />
+        <div className="min-w-0">
+          <div className="flex min-w-0 items-center gap-1.5">
+            <p className="truncate text-sm font-medium text-white">{member.name}</p>
+            <span className={`flex-shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium capitalize ${ROLE_BADGE_CLASSES[member.role]}`}>
+              {member.role}
+            </span>
+          </div>
+          {missingApprovedRates > 0 && (() => {
+            const text = `${missingApprovedRates} approved ${missingApprovedRates === 1 ? 'entry needs' : 'entries need'} a pay rate`;
+            return canManageCompensation ? (
+              <button
+                type="button"
+                onClick={() => openRate(member.id)}
+                className="mt-0.5 rounded text-left text-xs font-medium text-amber-300 hover:text-amber-200 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+              >
+                {text}. Set rate
+              </button>
+            ) : (
+              <p className="mt-0.5 text-xs font-medium text-amber-300">{text}</p>
+            );
+          })()}
+        </div>
+      </div>
+    );
+    return (
+      <>
+        <table className="hidden w-full border-collapse text-left md:table">
+          <thead>
+            <tr className="border-b border-white/[0.06]">
+              <th scope="col" className="px-5 py-2.5 text-xs font-semibold text-zinc-400">Person</th>
+              <th scope="col" className="px-4 py-2.5 text-right text-xs font-semibold text-zinc-400">Earned</th>
+              <th scope="col" className="px-4 py-2.5 text-right text-xs font-semibold text-zinc-400">Paid</th>
+              <th scope="col" className="px-4 py-2.5 text-right text-xs font-semibold text-zinc-400">Owed</th>
+              <th scope="col" className="w-12 px-4 py-2.5"><span className="sr-only">Actions</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={row.member.id} className="border-b border-white/[0.05] last:border-0">
+                <td className="px-5 py-3 align-middle">{person(row)}</td>
+                <td className="px-4 py-3 text-right align-middle text-sm">{amount(row.balance.earned, 'text-zinc-200')}</td>
+                <td className="px-4 py-3 text-right align-middle text-sm">{amount(row.balance.paid, 'text-zinc-300')}</td>
+                <td className="px-4 py-3 text-right align-middle text-sm">{amount(row.balance.owed, owedClass(row.balance.owed))}</td>
+                <td className="px-4 py-3 text-right align-middle">
+                  {row.actions.length > 0 && (
+                    <RowActionsMenu actions={row.actions} label={`Pay actions for ${row.member.name}`} />
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <ul className="divide-y divide-white/[0.06] md:hidden">
+          {rows.map((row) => (
+            <li key={row.member.id} className="px-4 py-3">
+              <div className="flex items-start justify-between gap-3">
+                {person(row)}
+                {row.actions.length > 0 && (
+                  <RowActionsMenu actions={row.actions} label={`Pay actions for ${row.member.name}`} />
+                )}
+              </div>
+              <dl className="mt-2.5 grid grid-cols-3 gap-3 text-sm">
+                <div>
+                  <dt className="text-xs text-zinc-500">Earned</dt>
+                  <dd className="mt-0.5">{amount(row.balance.earned, 'text-zinc-200')}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-zinc-500">Paid</dt>
+                  <dd className="mt-0.5">{amount(row.balance.paid, 'text-zinc-300')}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-zinc-500">Owed</dt>
+                  <dd className="mt-0.5">{amount(row.balance.owed, owedClass(row.balance.owed))}</dd>
+                </div>
+              </dl>
+            </li>
+          ))}
+        </ul>
+      </>
+    );
+  };
+
   if (!hasPanelIdentity) return null;
   // Whether this panel has anything to show depends on fetched data, so while
   // that is in flight it renders only when the store ALREADY proves there is
@@ -860,7 +973,7 @@ export function PayrollPanel({ team, projects, reviewOnly = false }: { team: Tea
               ? <WalletCards size={18} className="text-brand-300" />
               : <Clock3 size={18} className="text-brand-300" aria-hidden="true" />}
             <h2 className="font-semibold text-white">
-              {reviewOnly ? 'Time review' : canManage ? 'Team compensation' : 'My earnings'}
+              {reviewOnly ? 'Time review' : canManage ? 'Team pay' : 'My earnings'}
             </h2>
           </div>
           <p className="text-xs text-zinc-400 mt-1">
@@ -891,35 +1004,12 @@ export function PayrollPanel({ team, projects, reviewOnly = false }: { team: Tea
         // first paint. Everything else can: the roster is already in the store,
         // so the panel opens in its final shape with real names, and only the
         // amounts resolve. Nothing moves when they land.
-        <div className="grid sm:grid-cols-2 lg:grid-cols-3 divide-y sm:divide-y-0 sm:divide-x divide-white/[0.06]">
-          {(canManage
-            ? payableMembers
-            : payableMembers.filter((member) => member.id === teamMemberId)
-          ).map((member) => (
-            <div key={member.id} className="p-5">
-              <div className="flex min-w-0 items-center gap-2.5">
-                <Avatar name={member.name} src={member.avatar} size="sm" />
-                <div className="flex min-w-0 items-center gap-1.5">
-                  <p className="truncate text-sm font-semibold text-white">{member.name}</p>
-                  <span
-                    className={`flex-shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium capitalize ${ROLE_BADGE_CLASSES[member.role]}`}
-                  >
-                    {member.role}
-                  </span>
-                </div>
-              </div>
-              <StatStrip
-                bare
-                loading
-                className="mt-4"
-                stats={[{ label: 'Earned', value: null }, { label: 'Paid', value: null }, { label: 'Owed', value: null }]}
-              />
-            </div>
-          ))}
+        <>
+          {renderPayTable(canManage ? payableMembers : payableMembers.filter((member) => member.id === teamMemberId), true)}
           <span className="sr-only" role="status">
-            Loading compensation ledger
+            Loading team pay
           </span>
-        </div>
+        </>
       ) : (
         <>
           <Modal
@@ -1130,125 +1220,7 @@ export function PayrollPanel({ team, projects, reviewOnly = false }: { team: Tea
                 : `${pending.length} submitted ${pending.length === 1 ? 'entry is' : 'entries are'} waiting. Open Review hours to approve or reject.`}
             </p>
           )}
-          <div className="grid sm:grid-cols-2 lg:grid-cols-3 divide-y sm:divide-y-0 sm:divide-x divide-white/[0.06]">
-            {(canManage ? visibleMembers : visibleMembers.slice(0, 1)).map((member) => {
-              const balance = balances.get(member.id) || { earned: 0, paid: 0, owed: 0 };
-              const missingApprovedRates = data.entries.filter(
-                (entry) =>
-                  entry.member_id === member.id &&
-                  entry.approval_status === 'approved' &&
-                  !hasEffectiveRate(entry.member_id, entry.start_time),
-              ).length;
-              return (
-                <div key={member.id} className="relative p-5">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex min-w-0 items-center gap-2.5">
-                      <Avatar name={member.name} src={member.avatar} size="sm" />
-                      <div className="flex min-w-0 items-center gap-1.5">
-                        <p className="truncate text-sm font-semibold text-white">{member.name}</p>
-                        <span
-                          className={`flex-shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium capitalize ${ROLE_BADGE_CLASSES[member.role]}`}
-                        >
-                          {member.role}
-                        </span>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      {balance.owed <= 0.005 && (
-                        <CheckCircle2 size={18} className="text-emerald-500" />
-                      )}
-                      {canManage && (
-                        <div className="relative">
-                          <button
-                            type="button"
-                            aria-label={`Compensation actions for ${member.name}`}
-                            aria-expanded={menuMemberId === member.id}
-                            onClick={(event) => {
-                              // Anchor before the state change. A ref prop that only
-                              // attaches once this row's menu is open lands after the
-                              // Popover's layout effect has measured, so it found no
-                              // anchor and never rendered.
-                              compMenuRef.current = event.currentTarget;
-                              setMenuMemberId((current) =>
-                                current === member.id ? null : member.id,
-                              );
-                            }}
-                            className="rounded-md p-1 text-zinc-500 transition-colors hover:bg-white/[0.06] hover:text-zinc-300"
-                          >
-                            <MoreVertical size={16} />
-                          </button>
-                          <Popover
-                            anchorRef={compMenuRef}
-                            open={menuMemberId === member.id}
-                            onClose={() => setMenuMemberId(null)}
-                            align="end"
-                            width={190}
-                            className="rounded-lg border border-white/[0.08] bg-surface-raised py-1 shadow-xl"
-                          >
-                            <button
-                              type="button"
-                              onClick={() => openEarnings(member.id)}
-                              className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-zinc-300 transition-colors hover:bg-white/[0.03]"
-                            >
-                              <ListChecks size={14} />
-                              View earnings
-                            </button>
-                            {canManagePayouts && balance.owed > 0.005 && (
-                              <button
-                                type="button"
-                                onClick={() => openPayout(member.id)}
-                                className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-zinc-300 transition-colors hover:bg-white/[0.03]"
-                              >
-                                <Landmark size={14} />
-                                Record payment
-                              </button>
-                            )}
-                            {canManageCompensation && (
-                              <button
-                                type="button"
-                                onClick={() => openAdjustment(member.id)}
-                                className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-zinc-300 transition-colors hover:bg-white/[0.03]"
-                              >
-                                <Plus size={14} />
-                                Add adjustment
-                              </button>
-                            )}
-                            {canManageCompensation && (
-                              <button
-                                type="button"
-                                onClick={() => openRate(member.id)}
-                                className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-zinc-300 transition-colors hover:bg-white/[0.03]"
-                              >
-                                <DollarSign size={14} />
-                                Schedule rate
-                              </button>
-                            )}
-                          </Popover>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                  <StatStrip
-                    bare
-                    className="mt-4"
-                    label={`${member.name} balance`}
-                    stats={[
-                      { label: 'Earned', value: money(balance.earned) },
-                      { label: 'Paid', value: money(balance.paid), tone: 'success' },
-                      { label: 'Owed', value: money(balance.owed), tone: 'warning' },
-                    ]}
-                  />
-                  {missingApprovedRates > 0 && (
-                    <p className="mt-3 text-xs font-medium text-red-400">
-                      {missingApprovedRates} approved{' '}
-                      {missingApprovedRates === 1 ? 'entry needs' : 'entries need'} a compensation
-                      rate
-                    </p>
-                  )}
-                </div>
-              );
-            })}
-          </div>
+          {!reviewOnly && renderPayTable(canManage ? visibleMembers : visibleMembers.slice(0, 1), false)}
           {!canManage && !reviewOnly && ownBalance && data.payouts.length > 0 && (
             <div className="px-5 py-3 border-t border-white/[0.06] text-xs text-zinc-400">
               Latest payment: {money(Number(data.payouts[0].amount))} on{' '}
@@ -1468,7 +1440,7 @@ export function PayrollPanel({ team, projects, reviewOnly = false }: { team: Tea
       <Modal
         isOpen={showRate}
         onClose={() => setShowRate(false)}
-        title={`Schedule rate for ${rateMember?.name || 'team member'}`}
+        title={`Pay rate for ${rateMember?.name || 'team member'}`}
         size="sm"
       >
         <div className="space-y-4">

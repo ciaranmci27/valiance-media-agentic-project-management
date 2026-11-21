@@ -1,10 +1,10 @@
 import { withApi } from '@/lib/api/middleware';
 import { created, success } from '@/lib/api/response';
 import { notFound } from '@/lib/api/errors';
-import { logAudit } from '@/lib/api/audit';
+import { logInboxAudit } from '@/lib/communications/inbox-audit';
 import { afterResponse } from '@/lib/api/after-response';
 import { formatEventTitle } from '@/lib/agent-events';
-import { isGoneError, loadAccessibleMessage } from '@/lib/communications/agent-access';
+import { isGoneError, loadTriageableMessage } from '@/lib/communications/agent-access';
 import { comms } from '@/lib/communications/db';
 import { planSchema, type PlanRequest } from '@/lib/communications/plan-schemas';
 import { submitPlan } from '@/lib/communications/plans';
@@ -22,7 +22,7 @@ export const dynamic = 'force-dynamic';
  * finishes an interrupted plan); with another body it is 409.
  */
 export const POST = withApi<PlanRequest, { id: string }>(async ({ supabase, params, body, teamMemberId, apiKeyId, access, scopes }) => {
-  const accessible = await loadAccessibleMessage(supabase, teamMemberId, access, params.id);
+  const accessible = await loadTriageableMessage(supabase, teamMemberId, access, params.id);
   const { data: row, error } = await comms(supabase).from('messages').select('subject').eq('id', accessible.id).single();
   if (error) throw isGoneError(error) ? notFound('Email') : error;
   const message = { id: accessible.id, thread_id: accessible.thread_id, inbox_id: accessible.inbox_id, subject: (row as { subject: string | null }).subject, channel: accessible.channel };
@@ -53,7 +53,13 @@ export const POST = withApi<PlanRequest, { id: string }>(async ({ supabase, para
       if (activityError) throw activityError;
     });
   }
-  logAudit(supabase, {
+  // A personal inbox's audit line keeps ids and counts, never the plan's words.
+  const states = result.items.reduce<Record<string, number>>((tally, item) => {
+    const state = String(item.state);
+    tally[state] = (tally[state] ?? 0) + 1;
+    return tally;
+  }, {});
+  await logInboxAudit(supabase, message.inbox_id, {
     method: 'POST',
     endpoint: `/api/v1/inbox/messages/${message.id}/plan`,
     entityType: 'email_triage',
@@ -63,6 +69,6 @@ export const POST = withApi<PlanRequest, { id: string }>(async ({ supabase, para
     requestBody: body,
     afterSnapshot: result,
     statusCode: 201,
-  });
+  }, { message_id: message.id, plan_id: result.plan.id, mode: result.plan.mode, items: result.items.length, states });
   return created(result);
 }, { schema: planSchema, permission: 'inbound_email.triage' });

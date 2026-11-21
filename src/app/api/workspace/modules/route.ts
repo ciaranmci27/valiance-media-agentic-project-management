@@ -17,6 +17,8 @@ import { parseModuleList } from '@/lib/modules/server';
 interface WorkspaceModulesState {
   modules: ModuleId[];
   setupCompleted: boolean;
+  /** When setup was finished or skipped, for the Dashboard's Getting started list. */
+  setupCompletedAt: string | null;
 }
 
 type Loaded =
@@ -42,6 +44,7 @@ async function loadState(service: SupabaseClient): Promise<Loaded> {
     state: {
       modules: MODULE_IDS.filter((id) => !off.has(id)),
       setupCompleted: !!settings.data?.setup_completed_at,
+      setupCompletedAt: (settings.data?.setup_completed_at as string | null | undefined) ?? null,
     },
     rows: new Set(rows.map((row) => row.module_id as string)),
     settingsId: (settings.data?.id as string | undefined) ?? null,
@@ -95,6 +98,7 @@ export async function PUT(request: NextRequest) {
   }
 
   let setupCompleted = before.state.setupCompleted;
+  let setupCompletedAt = before.state.setupCompletedAt;
   if (body.completeSetup && !setupCompleted) {
     const stamp = { setup_completed_at: new Date().toISOString() };
     const { error } = before.settingsId
@@ -102,9 +106,10 @@ export async function PUT(request: NextRequest) {
       : await service.from('business_settings').insert(stamp);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     setupCompleted = true;
+    setupCompletedAt = stamp.setup_completed_at;
   }
 
-  const after: WorkspaceModulesState = { modules: next, setupCompleted };
+  const after: WorkspaceModulesState = { modules: next, setupCompleted, setupCompletedAt };
   // The app's own audit row (via 'app'), with the set as it was and as it is.
   afterResponse('workspace modules audit', async () => {
     const { error } = await service.from('api_audit_log').insert({

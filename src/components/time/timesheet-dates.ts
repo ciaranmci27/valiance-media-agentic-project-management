@@ -48,11 +48,8 @@ export function fmtWeekRange(weekStart: Date): string {
   return end.getFullYear() === new Date().getFullYear() ? range : `${range}, ${end.getFullYear()}`;
 }
 
-/** "6.5h"; a sliver under six minutes reads "<0.1h" rather than "0.0h". */
-export function fmtHours(hours: number): string {
-  if (hours > 0 && hours < 0.05) return '<0.1h';
-  return `${hours.toFixed(1)}h`;
-}
+/** "6.5h", "6h": the app's one hours format (src/lib/format.ts). */
+export { formatHours as fmtHours } from '@/lib/format';
 
 // ── Hours in a person's own timezone ─────────────────────────────────────────
 

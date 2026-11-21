@@ -233,7 +233,7 @@ export function AgentGoalsCard({
                 disabled={!isFormValid}
                 className="inline-flex items-center gap-1.5 px-4 py-1.5 text-sm font-medium text-white bg-brand-600 hover:bg-brand-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {editingGoal ? 'Save Changes' : 'Create Goal'}
+                {editingGoal ? 'Save changes' : 'Create goal'}
               </button>
             </div>
           </form>

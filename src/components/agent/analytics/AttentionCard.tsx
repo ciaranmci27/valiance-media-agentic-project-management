@@ -32,7 +32,7 @@ export function AttentionCard({ attention, measuring, rangeDays, taskTitle }: {
       {measuring ? (
         <CardSkeleton rows={4} />
       ) : !a.tracked ? (
-        <Missing>Attention telemetry has not reported yet. Messages appear once the host publishes them.</Missing>
+        <Missing>No attention data yet. Messages appear once the agents’ host sends them.</Missing>
       ) : a.total === 0 ? (
         <Missing>No agent messages reached a person in this range.</Missing>
       ) : (

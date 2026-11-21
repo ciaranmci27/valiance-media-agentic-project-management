@@ -48,6 +48,7 @@ export const PERMISSIONS = [
   'inbound_email.triage',
   'inbound_email.signal',
   'inbound_email.manage',
+  'inbound_email.personal',
   'credentials.reveal_shared',
   'credentials.manage',
   'invoices.read',
@@ -151,6 +152,15 @@ export function canEditApiKey(
   key: { team_member_id: string | null },
 ): boolean {
   return (!!memberId && key.team_member_id === memberId) || hasPermission(access, 'api_keys.manage_all');
+}
+
+/**
+ * May open the Inbox: reading or managing shared inboxes, or connecting your
+ * own (a personal inbox needs no other inbox permission). Which inboxes it
+ * shows is the server's call (inbox-visibility.ts).
+ */
+export function canOpenInbox(access: AccessContext | null | undefined): boolean {
+  return hasPermission(access, 'inbound_email.read') || hasPermission(access, 'inbound_email.manage') || hasPermission(access, 'inbound_email.personal');
 }
 
 /** Either task read grant: every task in accessible projects, or only your own (RLS decides which rows). */
@@ -258,10 +268,11 @@ export const PERMISSION_GROUPS: Array<{
       { key: 'portal.manage', label: 'Manage client portal', description: 'Configure and publish client portal content.' },
       { key: 'communications.read', label: 'View communications', description: 'View client communication history.' },
       { key: 'communications.manage', label: 'Manage communications', description: 'Send and manage client communications.' },
-      { key: 'inbound_email.read', label: 'View inbox', description: 'Read client email in the inboxes granted to the member, read only. Through the API, only those inboxes.' },
+      { key: 'inbound_email.read', label: 'View inbox', description: 'Read email in the shared inboxes granted to the member, read only. Through the API, only those inboxes.' },
       { key: 'inbound_email.triage', label: 'Triage inbox email', description: 'Record triage on inbox email and label attachments through the API. In the app, mark threads handled, send them back to the agent, and set the project of a thread. Never sends email.' },
       { key: 'inbound_email.signal', label: 'Poll inbox signal', description: 'Read new-mail and summary counts for granted inboxes through the API.' },
-      { key: 'inbound_email.manage', label: 'Manage email inboxes', description: 'Create and edit email inboxes and who can read them, and see every inbox.' },
+      { key: 'inbound_email.manage', label: 'Manage email inboxes', description: 'Create and edit shared inboxes and who can read them, and read every shared inbox. Sees that personal inboxes exist and can turn them off, but reads them only while the workspace allows it.' },
+      { key: 'inbound_email.personal', label: 'Connect your own inbox', description: 'Connect, change and remove your own personal inboxes, pick the agent that sorts them, and choose who else can read them.' },
     ],
   },
   {

@@ -343,7 +343,7 @@ function OwnEmpty({ isThisWeek }: { isThisWeek: boolean }) {
     <div className="mx-auto max-w-sm">
       <p className="text-sm font-medium text-zinc-300">{isThisWeek ? 'No hours yet this week' : 'No hours this week'}</p>
       <p className="mt-1 text-xs text-zinc-400">
-        Start a timer or add hours from a project&apos;s Time tracking tab.{' '}
+        Open a project&apos;s Time tracking tab to start a timer or add hours. Where tracking is off, the tab says who can turn it on.{' '}
         <Link href="/projects" className="text-brand-300 hover:text-brand-200 hover:underline">Open Projects</Link>
       </p>
     </div>
@@ -533,8 +533,7 @@ function TeamHours({
           { label: 'People logging', value: `${logging} of ${rows.length}`, context: isThisWeek ? 'this week' : 'that week' },
           showPending && {
             label: 'Waiting for review',
-            value: pendingTotal > 0 ? pendingTotal : null,
-            empty: 'None',
+            value: pendingTotal,
             tone: pendingTotal > 0 ? 'warning' : 'default',
             context: pendingTotal === 1 ? 'session' : 'sessions',
           },

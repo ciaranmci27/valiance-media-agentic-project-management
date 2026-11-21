@@ -7,5 +7,5 @@ import { ModulePage } from '@/components/modules/ModuleGate';
  * person must be able to read an inbox.
  */
 export default function InboxLayout({ children }: { children: React.ReactNode }) {
-  return <ModulePage module="inbox" anyOf={['inbound_email.read', 'inbound_email.manage']}>{children}</ModulePage>;
+  return <ModulePage module="inbox" anyOf={['inbound_email.read', 'inbound_email.manage', 'inbound_email.personal']}>{children}</ModulePage>;
 }

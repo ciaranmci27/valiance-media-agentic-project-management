@@ -4,6 +4,7 @@ import { isPublicEmailDomain, validateClientDomain } from './email/public-domain
 import { attentionCounts, matchesSearch, snippetOf, tabCounts, threadFlags, threadInTab, type InboxAttention, type MessageState } from './inbox-view';
 import type {
   ClientEmailDomain, ClientSenderAddress, ClientSenderAddressList, InboxMessage, InboxSettings, InboxSettingsInput, InboxSettingsList, InboxSummary, InboxTab,
+  MyInboxInput, MyInboxList, PersonalInboxHealth,
   InboxLinkedTask, InboxThreadDetail, InboxThreadList, InboxThreadSummary, MxStatus, ProjectEmailAddress, ProjectEmailAddressInput,
   ProjectEmailAddressList, SetThreadProjectRequest, SetThreadProjectResult, TaskSourceEmails, ThreadProject,
   OwnDomain, UnlistedAddress, UnlistedDomain, YourAddress, YourAddressInput, YourAddressList, YourAddressPatchInput,
@@ -31,8 +32,8 @@ const PROJECT_NAMES: Record<string, string> = {
   [SOLSTICE]: 'Solstice Realty Platform',
 };
 
-const INBOX_SCOUT: InboxSummary = { id: '9e9e9e9e-0001-4000-8000-000000000001', name: 'Scout', address: 'scout@example.com', enabled: true, handler: SCOUT };
-const INBOX_BILLING: InboxSummary = { id: '9e9e9e9e-0002-4000-8000-000000000002', name: 'Billing', address: 'billing@example.com', enabled: true, handler: ATLAS };
+const INBOX_SCOUT: InboxSummary = { id: '9e9e9e9e-0001-4000-8000-000000000001', name: 'Scout', address: 'scout@example.com', enabled: true, handler: SCOUT, owner: null };
+const INBOX_BILLING: InboxSummary = { id: '9e9e9e9e-0002-4000-8000-000000000002', name: 'Billing', address: 'billing@example.com', enabled: true, handler: ATLAS, owner: null };
 
 const TRUSTED = { level: 'trusted' as const, reason: 'DKIM pass aligned with the From domain', spf: 'pass', dkim: 'pass', dmarc: 'pass' };
 const UNKNOWN = { level: 'unknown' as const, reason: 'No authentication results to rely on', spf: null, dkim: null, dmarc: null };
@@ -675,16 +676,20 @@ let settings: InboxSettings[] = [
     routing_address: `scout@${relay}`, handler_member_id: SCOUT.id, enabled: true, retention_days: 90, max_attachment_mb: 25,
     agent_readable_types: ['image', 'pdf', 'text'], summary_interval_minutes: 30, filter_auto_mail: true, aliases: [], triage_mode: 'legacy', verification_code: 'VM-7K2Q',
     verified_at: hoursAgo(240), last_received_at: hoursAgo(0.6), last_error: null, last_error_at: null,
-    access_member_ids: [SCOUT.id, SARAH.id], message_count: 9, project_address_count: 0, created_at: hoursAgo(300),
+    access_member_ids: [SCOUT.id, SARAH.id], message_count: 9, project_address_count: 0, created_at: hoursAgo(300), owner_member_id: null,
   },
   {
     id: INBOX_BILLING.id, name: 'Billing', address: INBOX_BILLING.address, routing_local_part: 'billing', routing_domain: relay,
     routing_address: `billing@${relay}`, handler_member_id: ATLAS.id, enabled: true, retention_days: 180, max_attachment_mb: 10,
     agent_readable_types: ['pdf'], summary_interval_minutes: 60, filter_auto_mail: true, aliases: [], triage_mode: 'legacy', verification_code: 'VM-3XPA',
     verified_at: null, last_received_at: hoursAgo(9), last_error: 'Attachment invoice-scan.tiff was over the 10 MB limit and was not stored',
-    last_error_at: hoursAgo(9), access_member_ids: [ATLAS.id], message_count: 1, project_address_count: 0, created_at: hoursAgo(20),
+    last_error_at: hoursAgo(9), access_member_ids: [ATLAS.id], message_count: 1, project_address_count: 0, created_at: hoursAgo(20), owner_member_id: null,
   },
 ];
+
+/** Your own inboxes in demo mode, and the workspace switch. */
+let mine: InboxSettings[] = [];
+let ownersReadPersonal = false;
 
 function applyInput(base: InboxSettings, input: InboxSettingsInput): InboxSettings {
   const local = input.routing_local_part || input.address.split('@')[0].replace(/[^a-z0-9._-]/g, '');
@@ -732,6 +737,53 @@ export const demoInboxSettings = {
     await pause();
     relay = domain.trim().toLowerCase();
     return { relay_domain: relay };
+  },
+  // Personal inboxes: the demo signs in as an Owner with no personal inbox
+  // yet; one connected here lasts until a reload.
+  async switchPersonal(inboxId: string, enabled: boolean): Promise<PersonalInboxHealth> {
+    await pause();
+    const base = mine.find((inbox) => inbox.id === inboxId);
+    if (!base) throw new Error('Inbox not found');
+    mine = mine.map((inbox) => (inbox.id === inboxId ? { ...inbox, enabled } : inbox));
+    const { id, name, address, verified_at, last_received_at, last_error, last_error_at, message_count, created_at } = base;
+    return { id, name, address, owner: null, enabled, verified_at, last_received_at, last_error, last_error_at, message_count, created_at };
+  },
+  async setPersonalPolicy(ownersRead: boolean): Promise<{ owners_read_personal: boolean }> {
+    await pause();
+    ownersReadPersonal = ownersRead;
+    return { owners_read_personal: ownersRead };
+  },
+  async myInboxes(): Promise<MyInboxList> {
+    await pause();
+    return structuredClone({ relay_domain: relay, inboxes: mine, owners_read_personal: ownersReadPersonal });
+  },
+  async createMine(input: MyInboxInput): Promise<InboxSettings> {
+    await pause();
+    const local = input.address.split('@')[0].replace(/[^a-z0-9._-]/g, '') || 'inbox';
+    const created: InboxSettings = {
+      ...settings[0], id: crypto.randomUUID(), name: 'You', address: input.address.toLowerCase(), routing_local_part: local, routing_domain: relay,
+      routing_address: `${local}@${relay}`, handler_member_id: input.handler_member_id, enabled: input.enabled, aliases: [], verified_at: null,
+      verification_code: 'VM-DEMO', last_received_at: null, last_error: null, last_error_at: null, message_count: 0, project_address_count: 0,
+      access_member_ids: [...new Set([...input.access_member_ids, ...(input.handler_member_id ? [input.handler_member_id] : [])])],
+      created_at: new Date().toISOString(), owner_member_id: 'demo-you',
+    };
+    mine = [...mine, created];
+    return structuredClone(created);
+  },
+  async updateMine(inboxId: string, input: MyInboxInput): Promise<InboxSettings> {
+    await pause();
+    const base = mine.find((inbox) => inbox.id === inboxId);
+    if (!base) throw new Error('Inbox not found');
+    const updated: InboxSettings = {
+      ...base, address: input.address.toLowerCase(), handler_member_id: input.handler_member_id, enabled: input.enabled,
+      access_member_ids: [...new Set([...input.access_member_ids, ...(input.handler_member_id ? [input.handler_member_id] : [])])],
+    };
+    mine = mine.map((inbox) => (inbox.id === inboxId ? updated : inbox));
+    return structuredClone(updated);
+  },
+  async removeMine(inboxId: string): Promise<void> {
+    await pause();
+    mine = mine.filter((inbox) => inbox.id !== inboxId);
   },
   async mx(domain: string): Promise<MxStatus> {
     await pause();

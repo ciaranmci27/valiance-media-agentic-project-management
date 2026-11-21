@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/lib/auth-context';
 import { useDemo } from '@/lib/demo-context';
-import { hasPermission, isModuleEnabled } from '@/lib/access-control';
+import { canOpenInbox, hasPermission, isModuleEnabled } from '@/lib/access-control';
 import {
   fetchAgentActivity, fetchBillingForecast, fetchBillingPlan, fetchBillingRuns, fetchProjectInvoicePayments, fetchProjectRetainers,
   fetchProjectTeamActivity, type ProjectRetainerBundle,
@@ -66,7 +66,7 @@ export interface ProjectEmailsWaiting {
   total: number;
 }
 
-/** The project's client emails waiting on a person, as the Overview's Needs you lists them. */
+/** The project's emails waiting on a person, as the Overview's Needs you lists them. */
 export function projectEmailsRead(projectId: string, isDemo: boolean): Read<ProjectEmailsWaiting> {
   return {
     key: `project-emails-waiting:${isDemo ? 'demo:' : ''}${projectId}`,
@@ -194,7 +194,7 @@ function useProjectReadAccess(): ProjectReadAccess {
   return {
     today,
     isDemo: isDemoMode,
-    inbox: hasPermission(access, 'inbound_email.read') || hasPermission(access, 'inbound_email.manage'),
+    inbox: canOpenInbox(access),
     invoices: hasPermission(access, 'invoices.read') || hasPermission(access, 'invoices.manage'),
     agents: isModuleEnabled(access, 'agents'),
   };
@@ -253,7 +253,7 @@ export function taskSourceRead(taskId: string): Read<TaskSource> {
   };
 }
 
-/** The client emails linked to a task, for its panel. */
+/** The emails linked to a task, for its panel. */
 export function taskEmailsRead(taskId: string, isDemo: boolean): Read<TaskSourceEmails> {
   return {
     key: `task-emails:${isDemo ? 'demo:' : ''}${taskId}`,

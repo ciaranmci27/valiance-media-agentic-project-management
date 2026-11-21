@@ -44,7 +44,7 @@ export function CompensationRateModal({
         .filter((rate) => rate.member_id === member.id)
         .sort((a, b) => b.effective_at.localeCompare(a.effective_at)));
     } catch (error) {
-      toast('error', error instanceof Error ? error.message : 'Failed to load compensation rates');
+      toast('error', error instanceof Error ? error.message : 'Failed to load pay rates');
     } finally {
       setLoading(false);
     }
@@ -83,19 +83,19 @@ export function CompensationRateModal({
         }),
       });
       const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || 'Failed to schedule compensation rate');
+      if (!response.ok) throw new Error(payload.error || 'Failed to schedule pay rate');
       toast('success', `Compensation rate scheduled for ${member.name}`);
       setAmount('');
       await load(true);
     } catch (error) {
-      toast('error', error instanceof Error ? error.message : 'Failed to schedule compensation rate');
+      toast('error', error instanceof Error ? error.message : 'Failed to schedule pay rate');
     } finally {
       setSaving(false);
     }
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title={member ? `${member.name} · Compensation` : 'Compensation'} size="lg">
+    <Modal isOpen={isOpen} onClose={onClose} title={member ? `${member.name} · Pay rate` : 'Pay rate'} size="lg">
       <div className="space-y-5">
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4">
@@ -134,7 +134,7 @@ export function CompensationRateModal({
             {loading ? (
               <p className="p-4 text-sm text-zinc-400">Loading rate history...</p>
             ) : rates.length === 0 ? (
-              <p className="p-4 text-sm text-zinc-400">No compensation rates have been scheduled.</p>
+              <p className="p-4 text-sm text-zinc-400">No pay rates have been scheduled.</p>
             ) : rates.map((rate) => (
               <div key={rate.id} className="flex items-center justify-between border-b border-white/[0.06] px-4 py-3 last:border-b-0">
                 <span className="text-sm text-zinc-300">{new Date(rate.effective_at).toLocaleDateString()}</span>

@@ -87,7 +87,7 @@ export function LeadProposalForm({ isOpen, onClose, leadId, proposal }: LeadProp
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      title={proposal ? 'Edit Proposal' : 'Add Proposal'}
+      title={proposal ? 'Edit Proposal' : 'Add proposal'}
       size="lg"
     >
       <form onSubmit={handleSubmit} className="space-y-4">
@@ -132,7 +132,7 @@ export function LeadProposalForm({ isOpen, onClose, leadId, proposal }: LeadProp
             Cancel
           </Button>
           <Button type="submit" disabled={saving}>
-            {saving ? 'Saving...' : proposal ? 'Save Changes' : 'Add Proposal'}
+            {saving ? 'Saving...' : proposal ? 'Save changes' : 'Add proposal'}
           </Button>
         </div>
       </form>

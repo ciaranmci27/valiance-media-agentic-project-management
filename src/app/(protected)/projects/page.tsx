@@ -127,7 +127,7 @@ function ProjectsContent() {
             <div className="flex-1 h-1.5 rounded-full bg-white/[0.06] overflow-hidden">
               <div className="h-full rounded-full bg-brand-500" style={{ width: `${pct}%` }} />
             </div>
-            <span className="font-mono text-xs text-zinc-400 tabular-nums">{pct}%</span>
+            <span className="text-xs text-zinc-400 tabular-nums">{pct}%</span>
           </div>
         )}
 
@@ -211,7 +211,7 @@ function ProjectsContent() {
             <div className="flex-1 h-1.5 rounded-full bg-white/[0.06] overflow-hidden">
               <div className="h-full rounded-full bg-brand-500 transition-all" style={{ width: `${pct}%` }} />
             </div>
-            <span className="font-mono text-xs text-zinc-400 tabular-nums w-8 text-right">{pct}%</span>
+            <span className="text-xs text-zinc-400 tabular-nums w-8 text-right">{pct}%</span>
           </div>
         );
       },

@@ -3,11 +3,11 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { withApi } from '@/lib/api/middleware';
 import { created, success } from '@/lib/api/response';
 import { ApiError, forbidden, notFound } from '@/lib/api/errors';
-import { logAudit } from '@/lib/api/audit';
+import { logInboxAudit } from '@/lib/communications/inbox-audit';
 import { afterResponse } from '@/lib/api/after-response';
 import { accessAllowsProject } from '@/lib/api/access';
 import { formatEventTitle } from '@/lib/agent-events';
-import { isGoneError, loadAccessibleMessage, type AccessibleMessage } from '@/lib/communications/agent-access';
+import { isGoneError, loadTriageableMessage, type AccessibleMessage } from '@/lib/communications/agent-access';
 import { triageSchema, type TriageRequest } from '@/lib/communications/schemas';
 import { comms } from '@/lib/communications/db';
 import { outreachPlacement } from '@/lib/communications/outreach';
@@ -161,7 +161,7 @@ async function filtersAsOutreach(
  * waited on (see settleEarlier). Nothing here sends email.
  */
 export const POST = withApi<TriageRequest, { id: string }>(async ({ supabase, params, body, teamMemberId, apiKeyId, access }) => {
-  const message = await loadAccessibleMessage(supabase, teamMemberId, access, params.id);
+  const message = await loadTriageableMessage(supabase, teamMemberId, access, params.id);
   const key = body.idempotency_key ?? null;
   const hash = key ? requestHash(body) : null;
   if (key && hash) {
@@ -287,7 +287,8 @@ export const POST = withApi<TriageRequest, { id: string }>(async ({ supabase, pa
       if (activityError) throw activityError;
     });
   }
-  logAudit(supabase, {
+  // A personal inbox's audit line keeps ids and the outcome, never the summary or questions.
+  await logInboxAudit(supabase, message.inbox_id, {
     method: 'POST',
     endpoint: `/api/v1/inbound-emails/${message.id}/triage`,
     entityType: 'email_triage',
@@ -297,6 +298,6 @@ export const POST = withApi<TriageRequest, { id: string }>(async ({ supabase, pa
     requestBody: body,
     afterSnapshot: recorded,
     statusCode: 201,
-  });
+  }, { message_id: message.id, triage_id: recorded.triage.id, outcome: body.outcome, urgent: body.urgent, links: links.length, project_ids: recorded.triage.project_ids ?? [] });
   return created({ ...recorded, ...settled });
 }, { schema: triageSchema, permission: 'inbound_email.triage' });

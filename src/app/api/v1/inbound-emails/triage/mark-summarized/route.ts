@@ -2,7 +2,7 @@ import { withApi } from '@/lib/api/middleware';
 import { success } from '@/lib/api/response';
 import { ApiError } from '@/lib/api/errors';
 import { logAudit } from '@/lib/api/audit';
-import { memberInboxIds } from '@/lib/communications/agent-access';
+import { memberTriageInboxIds } from '@/lib/communications/agent-access';
 import { markSummarizedSchema } from '@/lib/communications/schemas';
 import { comms } from '@/lib/communications/db';
 
@@ -14,7 +14,7 @@ export const dynamic = 'force-dynamic';
  * inboxes marks nothing and is reported.
  */
 export const POST = withApi<{ triage_ids: string[] }>(async ({ supabase, body, teamMemberId, apiKeyId, access }) => {
-  const inboxIds = await memberInboxIds(supabase, teamMemberId, access);
+  const inboxIds = await memberTriageInboxIds(supabase, teamMemberId, access);
   const { data, error } = await comms(supabase).rpc('mark_triage_summarized', {
     p_triage_ids: body.triage_ids,
     p_inbox_ids: inboxIds,

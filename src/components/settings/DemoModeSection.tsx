@@ -14,7 +14,7 @@ export function DemoModeSection() {
           <FlaskConical className="text-amber-400" size={20} />
         </div>
         <div>
-          <h2 className="font-semibold text-white">Demo Mode</h2>
+          <h2 className="font-semibold text-white">Demo mode</h2>
           <p className="text-sm text-zinc-400">View the app with sample data</p>
         </div>
       </div>

@@ -5,7 +5,7 @@ import { ApiError, forbidden } from '@/lib/api/errors';
 import { accessAllows } from '@/lib/api/access';
 import { createApiTask } from '@/lib/api/create-task';
 import { createTaskSchema } from '@/lib/schemas';
-import { loadAccessibleMessage } from '@/lib/communications/agent-access';
+import { loadTriageableMessage } from '@/lib/communications/agent-access';
 import { comms } from '@/lib/communications/db';
 
 export const dynamic = 'force-dynamic';
@@ -23,7 +23,7 @@ export const POST = withApi<CreateTaskRequest, { id: string }>(async (ctx) => {
   if (!(scopes.includes('inbound_email.triage') && accessAllows(access, 'inbound_email.triage', 'api'))) {
     throw forbidden('API scope required: inbound_email.triage', { reason: 'missing_scope', required: ['inbound_email.triage'] });
   }
-  const message = await loadAccessibleMessage(supabase, teamMemberId, access, params.id);
+  const message = await loadTriageableMessage(supabase, teamMemberId, access, params.id);
   const { data: source, error: scopeError } = await comms(supabase).rpc('scope_source', { p_message_id: message.id, p_project_id: body.project_id });
   if (scopeError) throw scopeError;
   if (!source) {

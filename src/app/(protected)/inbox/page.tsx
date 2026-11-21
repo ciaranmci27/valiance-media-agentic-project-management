@@ -9,8 +9,8 @@ import { isModuleEnabled } from '@/lib/access-control';
 export default function InboxPage() {
   const { access } = useAuth();
   const subtitle = isModuleEnabled(access, 'agents')
-    ? 'Client email, triaged by your agents. Read only: reply from your own mail.'
-    : 'Client email, sorted by project. Read only: reply from your own mail.';
+    ? 'Email about your projects, sorted by your agents. Read only: reply from your own mail.'
+    : 'Email about your projects, sorted by project. Read only: reply from your own mail.';
 
   return (
     // A full-height column: the inbox fills what the header leaves, with the

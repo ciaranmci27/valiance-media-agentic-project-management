@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/Button';
 import { Select } from '@/components/ui/inputs/Select';
 import { TextInput } from '@/components/ui/inputs/TextInput';
 import { inboxClient } from '@/lib/communications/inbox-client';
-import { INBOX_FILTERS, INBOX_TAB_LABELS, INBOX_TABS, INBOX_VIEWS, isAgentChoice, type InboxSummary, type InboxTab, type InboxTabCounts, type InboxThreadSummary } from '@/lib/communications/inbox-types';
+import { INBOX_FILTERS, INBOX_TAB_LABELS, INBOX_TABS, INBOX_VIEWS, inboxDisplayName, isAgentChoice, OWNERS_READ_PERSONAL_LINE, type InboxSummary, type InboxTab, type InboxTabCounts, type InboxThreadSummary } from '@/lib/communications/inbox-types';
 import { CODE_PIN_MINUTES, isInboxTab } from '@/lib/communications/inbox-view';
 import { timeAgo } from '@/lib/task-times';
 import { CopyValueButton } from '@/components/settings/EmailConnectChecklist';
@@ -99,6 +99,8 @@ export function InboxView({ projectId, embedded = false, emptyState, searchQuery
   const [threads, setThreads] = useState<InboxThreadSummary[]>([]);
   const [counts, setCounts] = useState<InboxTabCounts | null>(null);
   const [latestCode, setLatestCode] = useState<InboxLatestCode | null>(null);
+  /** A personal inbox is listed and Owners may read personal inboxes: one quiet line says so. */
+  const [ownersReadPersonal, setOwnersReadPersonal] = useState(false);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -190,6 +192,7 @@ export function InboxView({ projectId, embedded = false, emptyState, searchQuery
       setThreads((current) => (append ? [...current, ...data.threads.filter((t) => !current.some((c) => c.id === t.id))] : data.threads));
       setCounts(data.counts);
       if (!append) setLatestCode(data.latest_code ?? null);
+      setOwnersReadPersonal(!!data.owners_read_personal);
       setTotal(data.total);
       setHasLoaded(true);
       setError('');
@@ -266,7 +269,10 @@ export function InboxView({ projectId, embedded = false, emptyState, searchQuery
   const retry = () => void load(failedRef.current);
 
   const projectColor = useCallback((id: string) => projects.find((p) => p.id === id)?.color, [projects]);
-  const inboxOptions = [{ value: '', label: 'All inboxes' }, ...inboxes.map((inbox) => ({ value: inbox.id, label: inbox.enabled ? inbox.name : `${inbox.name} (disabled)` }))];
+  const inboxOptions = [{ value: '', label: 'All inboxes' }, ...inboxes.map((inbox) => {
+    const name = inboxDisplayName(inbox, access?.member_id);
+    return { value: inbox.id, label: inbox.enabled ? name : `${name} (disabled)` };
+  })];
   const projectOptions = [
     { value: '', label: 'All projects' },
     ...projects
@@ -394,6 +400,10 @@ export function InboxView({ projectId, embedded = false, emptyState, searchQuery
         </p>
       )}
 
+      {ownersReadPersonal && (
+        <p className="border-b border-white/[0.06] px-4 py-2 text-[11px] text-zinc-500">{OWNERS_READ_PERSONAL_LINE}</p>
+      )}
+
       {tab === 'all' && latestCode && <PinnedCode code={latestCode} onOpen={() => selectThread(latestCode.thread_id)} />}
 
       <div className="min-h-0 flex-1 overflow-y-auto" aria-busy={loading}>
@@ -429,8 +439,8 @@ export function InboxView({ projectId, embedded = false, emptyState, searchQuery
                 {filtersActive
                   ? 'Try another status, inbox or search.'
                   : lockedProject
-                    ? 'Client email mapped to this project will appear here.'
-                    : 'Client email forwarded to an agent inbox will appear here.'}
+                    ? 'Email about this project will appear here.'
+                    : 'Email forwarded to an inbox will appear here.'}
               </p>
             )}
             {filteredNote}

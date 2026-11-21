@@ -28,7 +28,11 @@ export interface SettingsGroup {
 /** The pages under Settings > Email, each linked from its overview. */
 export const EMAIL_PAGES = {
   overview: '/settings/email',
+  /** Your own inbox: anyone who may connect one. */
+  mine: '/settings/email/inbox',
   handler: '/settings/email/handler',
+  /** Every personal inbox's health, and the switch for whether Owners read them. */
+  personal: '/settings/email/personal',
   addresses: '/settings/email/addresses',
   rules: '/settings/email/rules',
   sending: '/settings/email/sending',
@@ -53,10 +57,12 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
     href: '/settings/email',
     label: 'Email',
     icon: Mail,
-    sectionIds: ['smtp', 'email-inboxes', 'email-addresses', 'mail-rules'],
+    sectionIds: ['smtp', 'my-inbox', 'email-inboxes', 'personal-inboxes', 'email-addresses', 'mail-rules'],
     sectionHrefs: {
       smtp: EMAIL_PAGES.sending,
+      'my-inbox': EMAIL_PAGES.mine,
       'email-inboxes': EMAIL_PAGES.handler,
+      'personal-inboxes': EMAIL_PAGES.personal,
       'email-addresses': EMAIL_PAGES.addresses,
       'mail-rules': EMAIL_PAGES.rules,
     },
@@ -94,6 +100,8 @@ export function useSettingsAccess() {
   const canManageAgents = hasPermission(access, 'agents.manage');
   const canManageWebhooks = hasPermission(access, 'webhooks.manage');
   const canManageInboxes = hasPermission(access, 'inbound_email.manage');
+  // Connecting your own inbox: people only, never an agent's session.
+  const canConnectOwnInbox = hasPermission(access, 'inbound_email.personal') && access?.role !== 'agent';
   // A role, not a permission: a module switch hides parts of the app from
   // everyone. The demo workspace signs in as an Owner, so it shows there too.
   const isOwner = access?.role === 'owner';
@@ -116,6 +124,7 @@ export function useSettingsAccess() {
     // SMTP is hidden in demo mode; inboxes show there too, on sample data whose changes last until a reload.
     smtp: canManageSmtp && !isDemoMode,
     emailInboxes: canManageInboxes,
+    myInbox: canConnectOwnInbox,
     password: !isDemoMode,
     // The exclusions filter portal analytics, so they go with the portal.
     analyticsExclusions: canManageSettings && isModuleEnabled(access, 'portal'),
@@ -131,11 +140,11 @@ export function useSettingsAccess() {
     notifications: true,
     billing: show.invoiceDetails || show.hourApprovals,
     portal: show.analyticsExclusions,
-    email: show.smtp || show.emailInboxes,
+    email: show.smtp || show.emailInboxes || show.myInbox,
     developers: show.apiKeys || show.webhooks,
     data: !isGuest,
   };
 
   const customVisible = useCustomSettingsVisibility();
-  return { canManageAgents, show, visibleGroups: { ...visibleGroups, ...customVisible } };
+  return { canManageAgents, canManageSettings, show, visibleGroups: { ...visibleGroups, ...customVisible } };
 }

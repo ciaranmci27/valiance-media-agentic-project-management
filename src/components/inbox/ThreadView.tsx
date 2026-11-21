@@ -135,12 +135,17 @@ export function ThreadView({ threadId, focusMessageId, onMissing, onBack }: Thre
   const { isDemoMode } = useDemo();
   const { projects, team, deleteTask, deleteReminder, restoreRecord } = useApp();
   const { access, teamMemberId } = useAuth();
-  const canTriage = hasPermission(access, 'inbound_email.triage') || hasPermission(access, 'inbound_email.manage');
-  const canManageRules = hasPermission(access, 'inbound_email.manage') && !isDemoMode;
   const client = useMemo(() => inboxClient(isDemoMode), [isDemoMode]);
   // A thread seen or warmed before (pointing at it in the list) paints at
   // once from the cache; the load below refreshes it behind itself.
   const [detail, setDetail] = useState<InboxThreadDetail | null>(() => peekRead(inboxThreadRead(threadId, isDemoMode)) ?? null);
+  // Acting on a thread is per inbox: the server says (your own inbox, or one
+  // shared with you while you hold triage). The demo, which leaves it out, goes by role.
+  const canTriage = detail?.can_triage
+    ?? (hasPermission(access, 'inbound_email.triage') || hasPermission(access, 'inbound_email.manage'));
+  // A rule made from a thread filters that thread's open mail now, which acts
+  // on it: only where the viewer may act (never under the Owners switch).
+  const canManageRules = hasPermission(access, 'inbound_email.manage') && !isDemoMode && canTriage;
   useEffect(() => {
     if (detail) setReadData(inboxThreadRead(detail.id, isDemoMode), () => detail);
   }, [detail, isDemoMode]);

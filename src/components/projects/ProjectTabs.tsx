@@ -84,7 +84,7 @@ export function ProjectTabs<K extends string>({ tabs, active, onChange, label = 
               {tab.live && <LivePulse label="Your timer is running on this project" />}
               {tab.badge && <CountBadge count={tab.badge.count} label={tab.badge.label} />}
               {!!tab.count && (
-                <span className={`text-xs font-mono tabular-nums ${selected ? 'text-zinc-300' : 'text-zinc-500'}`}>
+                <span className={`text-xs tabular-nums ${selected ? 'text-zinc-300' : 'text-zinc-500'}`}>
                   {tab.count}
                 </span>
               )}

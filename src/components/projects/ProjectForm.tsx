@@ -723,7 +723,7 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
             Cancel
           </Button>
           <Button type="submit" disabled={saving}>
-            {saving ? 'Saving...' : project ? 'Save Changes' : 'Create Project'}
+            {saving ? 'Saving...' : project ? 'Save changes' : 'Create project'}
           </Button>
         </div>
       </form>

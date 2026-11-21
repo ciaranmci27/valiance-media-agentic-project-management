@@ -168,7 +168,7 @@ export function ProfileSection() {
             onRemove={currentAvatarSrc ? handleRemoveAvatar : undefined}
           />
           <div className="min-w-0 flex-1">
-            <p className="font-medium text-white truncate">{userName || 'Your Name'}</p>
+            <p className="font-medium text-white truncate">{userName || 'Your name'}</p>
             <p className="text-sm text-zinc-400 truncate">{userEmail || 'your@email.com'}</p>
           </div>
         </div>
@@ -196,7 +196,7 @@ export function ProfileSection() {
 
         <div className="mt-4">
           <Button onClick={handleSaveProfile} disabled={profileLoading}>
-            {profileLoading ? 'Saving...' : 'Save Changes'}
+            {profileLoading ? 'Saving...' : 'Save changes'}
           </Button>
         </div>
       </section>

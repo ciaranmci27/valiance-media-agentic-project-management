@@ -300,7 +300,7 @@ export function WebhooksPanel({ teamMemberId }: { teamMemberId: string | null })
           {!showForm && !newSecret && (
             <Button size="sm" onClick={() => setShowForm(true)} icon={<Plus size={14} />}>
               <span className="sm:hidden">New</span>
-              <span className="hidden sm:inline">New Endpoint</span>
+              <span className="hidden sm:inline">New endpoint</span>
             </Button>
           )}
         </div>

@@ -2,8 +2,8 @@ import { z } from 'zod';
 import { withApi } from '@/lib/api/middleware';
 import { success } from '@/lib/api/response';
 import { ApiError, notFound } from '@/lib/api/errors';
-import { logAudit } from '@/lib/api/audit';
-import { assertUuid, memberInboxIds } from '@/lib/communications/agent-access';
+import { logInboxAudit } from '@/lib/communications/inbox-audit';
+import { assertUuid, inboxTriageDenied, memberInboxIds, memberTriageInboxIds } from '@/lib/communications/agent-access';
 import { DRAFT_COLUMNS } from '@/lib/communications/inbox-drafts';
 import { comms } from '@/lib/communications/db';
 
@@ -32,6 +32,8 @@ export const PUT = withApi<DraftResult, { id: string }>(async ({ supabase, param
   // A draft in an inbox the key cannot read is 404, like one that does not exist.
   const granted = await memberInboxIds(supabase, teamMemberId, access);
   if (!draft || !message || !granted.includes(message.inbox_id)) throw notFound('Reply draft');
+  // Answering a draft acts on the inbox: read only under the Owners switch, or without triage on someone else's personal inbox.
+  if (!(await memberTriageInboxIds(supabase, teamMemberId, access)).includes(message.inbox_id)) throw inboxTriageDenied();
   if (draft.status !== 'requested') {
     throw new ApiError(409, 'CONFLICT', 'This draft request is already answered', { reason: 'draft_answered', status: draft.status });
   }
@@ -44,7 +46,8 @@ export const PUT = withApi<DraftResult, { id: string }>(async ({ supabase, param
   }).eq('id', id).eq('status', 'requested').select(DRAFT_COLUMNS).maybeSingle();
   if (updateError) throw updateError;
   if (!updated) throw new ApiError(409, 'CONFLICT', 'This draft request is already answered', { reason: 'draft_answered' });
-  logAudit(supabase, {
+  // A personal inbox's audit line keeps ids and the outcome, never the draft.
+  await logInboxAudit(supabase, message.inbox_id, {
     method: 'PUT',
     endpoint: `/api/v1/inbound-emails/reply-drafts/${id}`,
     entityType: 'email_reply_draft',
@@ -54,6 +57,6 @@ export const PUT = withApi<DraftResult, { id: string }>(async ({ supabase, param
     requestBody: body,
     afterSnapshot: updated,
     statusCode: 200,
-  });
+  }, { draft_id: id, message_id: draft.message_id, status: (updated as { status?: string } | null)?.status ?? null });
   return success(updated);
 }, { schema: draftResultSchema, permission: 'inbound_email.triage' });

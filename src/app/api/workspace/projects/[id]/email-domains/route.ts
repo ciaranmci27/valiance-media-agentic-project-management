@@ -4,7 +4,7 @@ import { clientDomainSchema } from '@/lib/communications/schemas';
 
 export const dynamic = 'force-dynamic';
 
-/** Client email domains: mail from any address at one maps to this project. */
+/** Sender domains: mail from any address at one maps to this project. */
 export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   return inboxRoute((ctx) => listClientDomains(ctx, id));

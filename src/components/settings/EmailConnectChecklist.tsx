@@ -90,6 +90,8 @@ export interface EmailConnectChecklistProps {
   verification?: { code: string; verifiedAt: string | null } | null;
   /** Shown instead of the checklist while mail to this address is dropped. */
   offNote?: string | null;
+  /** Someone's own inbox: the steps speak to that one person about their own mail. */
+  personal?: boolean;
 }
 
 export function EmailConnectChecklist({
@@ -98,6 +100,7 @@ export function EmailConnectChecklist({
   lastReceivedAt,
   verification = null,
   offNote = null,
+  personal = false,
 }: EmailConnectChecklistProps) {
   const stepsId = useId();
   const connectedAt = lastReceivedAt ?? verification?.verifiedAt ?? null;
@@ -158,7 +161,14 @@ export function EmailConnectChecklist({
           <ol className="space-y-2.5 text-xs leading-relaxed text-zinc-400">
             <li className="flex items-start gap-2">
               <StepNumber n={1} />
-              {publicAddress ? (
+              {personal && publicAddress ? (
+                <div className="min-w-0">
+                  In your mail settings, forward <Address value={publicAddress} label={`Copy ${publicAddress}`} /> to{' '}
+                  <Address value={routingAddress} label={`Copy ${routingAddress}`} />.{' '}
+                  <span className="text-zinc-300">Gmail: Settings &gt; Forwarding. Outlook: Settings &gt; Mail &gt; Forwarding.</span>{' '}
+                  If your mail asks you to confirm, its email arrives in your Inbox here.
+                </div>
+              ) : publicAddress ? (
                 <div className="min-w-0">
                   Forward <Address value={publicAddress} label={`Copy ${publicAddress}`} /> to{' '}
                   <Address value={routingAddress} label={`Copy ${routingAddress}`} /> at your mail host.{' '}
@@ -173,7 +183,8 @@ export function EmailConnectChecklist({
             <li className="flex items-start gap-2">
               <StepNumber n={2} />
               <div className="min-w-0">
-                Send a test email to <span className="font-mono break-all text-zinc-300">{testTarget}</span>.
+                {personal ? 'From another address, send a test email to ' : 'Send a test email to '}
+                <span className="font-mono break-all text-zinc-300">{testTarget}</span>.
                 {verification && !verification.verifiedAt && (
                   <>
                     {' '}Put <Address value={verification.code} label="Copy verification code" /> in the subject to verify the inbox.

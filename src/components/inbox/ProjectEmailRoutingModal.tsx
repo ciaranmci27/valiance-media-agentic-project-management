@@ -32,7 +32,7 @@ export function ProjectEmailRoutingModal({ isOpen, onClose, projectId }: Project
     <Modal isOpen={isOpen} onClose={onClose} title="How mail finds this project" size="lg">
       <div className="space-y-6">
         <p className="text-sm text-zinc-300">
-          Mail lands on this project when it is sent to one of its addresses, or sent from someone at the client.
+          Mail lands on this project when it is sent to one of its addresses, or sent from one of its senders.
         </p>
 
         <section aria-labelledby={`${baseId}-to`} className="space-y-3">

@@ -139,7 +139,7 @@ export function EditSuggestionModal({ suggestion, onClose, onSave }: EditSuggest
           <Button type="button" variant="ghost" onClick={onClose}>
             Cancel
           </Button>
-          <Button type="submit">Save Changes</Button>
+          <Button type="submit">Save changes</Button>
         </div>
       </form>
     </Modal>

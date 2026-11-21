@@ -111,7 +111,7 @@ export function ApiKeysSection() {
             {!showKeyForm && !revealedKey && (
               <Button size="sm" onClick={() => setShowKeyForm(true)} icon={<Plus size={14} />}>
                 <span className="sm:hidden">New</span>
-                <span className="hidden sm:inline">Generate New Key</span>
+                <span className="hidden sm:inline">Generate new key</span>
               </Button>
             )}
           </div>

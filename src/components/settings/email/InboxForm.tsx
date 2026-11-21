@@ -19,7 +19,7 @@ import {
 import type { TeamMember } from '@/lib/types';
 
 /**
- * The add/edit form for an inbox (Settings > Email > Who handles your mail).
+ * The add/edit form for an inbox (Settings > Email > Shared inboxes).
  * It leads with the plain questions in the order people answer them: who
  * handles the mail, what the inbox is called, its address, and who else can
  * read it. Everything technical sits under Advanced with working defaults.

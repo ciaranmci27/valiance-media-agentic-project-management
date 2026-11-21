@@ -15,6 +15,8 @@ import { KeyboardShortcuts } from '@/components/layout/KeyboardShortcuts';
 import { ToastContainer } from '@/components/ui/Toast';
 import { BrandLoader } from '@/components/ui/BrandLoader';
 import { Button } from '@/components/ui/Button';
+import { useSetupGate } from '@/components/welcome/use-setup-gate';
+import { isWelcomePath } from '@/lib/setup/gate';
 
 /**
  * Booting the shell has two real phases, the session check and the first data
@@ -57,10 +59,13 @@ function StoreStateReporter() {
 function BootScreen() {
   const { user, loading, access } = useAuth();
   const { storeState } = useContext(BootContext);
+  const gate = useSetupGate();
   const authPending = loading || !user;
   // A signed-in user without workspace access gets AuthGate's own card.
   if (!authPending && !access) return null;
-  if (!authPending && storeState === 'ready') return null;
+  // Up until the page can show: an Owner's first-run state is known, and any
+  // move to or from the setup wizard has happened.
+  if (!authPending && storeState === 'ready' && !gate.pending && !gate.redirect) return null;
   return (
     <div className="min-h-screen flex items-center justify-center px-6">
       <BrandLoader steps={BOOT_STEPS} step={authPending ? 0 : 1} announcement="Loading your workspace" />
@@ -107,6 +112,13 @@ function StoreGate({ children }: { children: React.ReactNode }) {
   // flag here would mount the sidebar one render before the boot screen heard
   // about it, and both would be on screen for a frame.
   const { storeState } = useContext(BootContext);
+  const router = useRouter();
+  const pathname = usePathname();
+  const gate = useSetupGate();
+  useEffect(() => {
+    if (gate.redirect) router.replace(gate.redirect);
+  }, [gate.redirect, router]);
+  const ready = storeState === 'ready' && !gate.pending && !gate.redirect;
 
   return (
     <>
@@ -114,8 +126,10 @@ function StoreGate({ children }: { children: React.ReactNode }) {
           team arrives, and any toast raised during boot has a home. */}
       <ThemeSync />
       <ToastContainer />
+      {/* First-run setup: the wizard has the whole screen, no sidebar. */}
+      {ready && isWelcomePath(pathname) && <main className="min-h-screen">{children}</main>}
       {/* The sidebar and the page mount together, once, so nothing shifts. */}
-      {storeState === 'ready' && (
+      {ready && !isWelcomePath(pathname) && (
         <>
           <Sidebar />
           <main className="lg:ml-60 min-h-screen">

@@ -42,6 +42,7 @@ import { useAuth } from '@/lib/auth-context';
 import { hasPermission, isModuleEnabled } from '@/lib/access-control';
 import type { EmployeeEarningsData } from '@/lib/types';
 import { toLocalDateKey } from '@/lib/date-utils';
+import { formatHours, formatMoney } from '@/lib/format';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -67,7 +68,7 @@ function fmt(value: number): string {
 }
 
 function fmtCurrency(value: number): string {
-  return value < 0 ? `-$${fmt(Math.abs(value))}` : `$${fmt(value)}`;
+  return formatMoney(value);
 }
 
 function fmtDate(dateStr: string, withWeekday = false): string {
@@ -364,11 +365,11 @@ function LiveTickIndicator({
 }) {
   if (timerCount <= 0 && !fixedIncomeLive && !recurringIncomeLive) return null;
   const liveSources = [
-    ...(timerCount > 0 ? [`${timerCount} Hourly ${timerCount === 1 ? 'Timer' : 'Timers'}`] : []),
-    ...(fixedIncomeLive ? ['Fixed Invoices'] : []),
-    ...(recurringIncomeLive ? ['Recurring Invoices'] : []),
+    ...(timerCount > 0 ? [`${timerCount} hourly ${timerCount === 1 ? 'timer' : 'timers'}`] : []),
+    ...(fixedIncomeLive ? ['fixed invoices'] : []),
+    ...(recurringIncomeLive ? ['recurring invoices'] : []),
   ];
-  const tooltip = `LIVE: ${liveSources.join(', ')}`;
+  const tooltip = `Live from ${liveSources.join(', ')}`;
 
   return (
     <Tooltip content={tooltip} className="ml-1">
@@ -797,8 +798,8 @@ function CompanyOverview() {
       : SOURCE_OPTIONS.find(o => o.value === sourceFilter)?.label ?? null;
 
   const costNotTrackedReason = selectedProjectIds.size > 0
-    ? 'Hermes usage cost is tracked per agent, not per project, so it cannot be assigned to a project-scoped view. Clear the project filter to see agent cost and contribution.'
-    : 'Hermes usage telemetry has not reported for one or more agents in this selection.';
+    ? 'Agent usage cost is tracked per agent, not per project, so it cannot be assigned to a project-scoped view. Clear the project filter to see agent cost and contribution.'
+    : 'No usage data yet for one or more agents in this selection.';
 
   // ── Chart state & constants ────────────────────────────────
   const [showHourly, setShowHourly] = useState(true);
@@ -1138,6 +1139,7 @@ function CompanyOverview() {
     () => chartBars.some(d => d.hourlyValue > 0 || d.fixedRevenue > 0 || d.recurringRevenue > 0 || d.paymentReceived > 0 || Math.abs(d.teamContribution) > 0.005),
     [chartBars],
   );
+  const chartIsEmpty = !hasAnyChartData || (!showHourly && !showRecurring && !showFixed && !showTeam && !showPayments);
 
   // Track which categories have data so legend only shows relevant items
   const categoryHasData = useMemo(() => ({
@@ -1474,7 +1476,7 @@ function CompanyOverview() {
                   empty: <NotTrackedValue reason={costNotTrackedReason} />,
                   tone: attribution.contribution !== null && attribution.contribution < 0 ? 'danger' : 'success',
                 },
-                { label: 'Hours', value: sourceData.totalHours.toFixed(1) },
+                { label: 'Hours', value: formatHours(sourceData.totalHours) },
               ]}
             />
           ) : (
@@ -1505,7 +1507,7 @@ function CompanyOverview() {
                 },
                 { label: 'Invoiced', value: `$${fmt(data.totalInvoiced)}` },
                 { label: 'Received', value: `$${fmt(data.totalPaymentsReceived)}`, tone: 'success' },
-                { label: 'Total hours', value: data.totalHours.toFixed(1) },
+                { label: 'Total hours', value: formatHours(data.totalHours) },
                 { label: 'Invoices', value: data.activeInvoicesCount },
               ]}
             />
@@ -1515,17 +1517,18 @@ function CompanyOverview() {
         {/* ── Main Grid ───────────────────────────────────── */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-6 items-stretch">
 
-          {/* ── Daily Earnings Chart (2/3) ──────────────────── */}
-          <div className="lg:col-span-2 glass-card rounded-xl overflow-hidden flex flex-col min-h-[500px]">
+          {/* ── Daily earnings chart (2/3) ──────────────────── */}
+          {/* An empty chart stays short on phones instead of a tall blank card. */}
+          <div className={`lg:col-span-2 glass-card rounded-xl overflow-hidden flex flex-col ${chartIsEmpty ? 'min-h-[200px] lg:min-h-[500px]' : 'min-h-[500px]'}`}>
             <div className="px-5 py-4 flex items-center justify-between border-b border-white/[0.06] flex-shrink-0">
               <div className="flex items-center gap-2 min-w-0">
                 <TrendingUp size={18} className="text-zinc-400 flex-shrink-0" />
                 <h2 className="font-semibold text-white truncate">
                   {isHourView
-                    ? `Hourly Earnings · ${fmtDate(drilldownDay!, true)}`
+                    ? `Hourly earnings · ${fmtDate(drilldownDay!, true)}`
                     : isBucketView
-                      ? `Daily Earnings · ${fmtRangeDisplay(drilldownBucket!.startKey, drilldownBucket!.endKey)}`
-                      : `${chartData.granularity === 'month' ? 'Monthly' : chartData.granularity === 'week' ? 'Weekly' : 'Daily'} Earnings${sourceLabel ? ` · ${sourceLabel}` : ''}`}
+                      ? `Daily earnings · ${fmtRangeDisplay(drilldownBucket!.startKey, drilldownBucket!.endKey)}`
+                      : `${chartData.granularity === 'month' ? 'Monthly' : chartData.granularity === 'week' ? 'Weekly' : 'Daily'} earnings${sourceLabel ? ` · ${sourceLabel}` : ''}`}
                 </h2>
                 <LiveTickIndicator
                   timerCount={runningCount}
@@ -1837,7 +1840,7 @@ function CompanyOverview() {
                                               ones to lose width. */}
                                           <span className="text-zinc-500 flex-1 min-w-0 truncate" title={row.projectName}>{row.projectName}</span>
                                           {row.hours !== undefined && row.hours > 0 && (
-                                            <span className="text-zinc-300 flex-shrink-0">{row.hours.toFixed(1)}h</span>
+                                            <span className="text-zinc-300 flex-shrink-0">{formatHours(row.hours)}</span>
                                           )}
                                           <span className={`font-semibold flex-shrink-0 ${row.amount < 0 ? 'text-rose-300' : ''}`}>{fmtCurrency(row.amount)}</span>
                                         </div>
@@ -2030,7 +2033,7 @@ function CompanyOverview() {
                 })}
               </div>
             ) : (
-              <div className="flex-1 flex flex-col items-center justify-center text-center px-6">
+              <div className="flex-1 flex flex-col items-center justify-center text-center px-6 py-10 min-h-[200px]">
                 <div className="w-10 h-10 rounded-full bg-white/[0.06] flex items-center justify-center mb-3">
                   <Receipt size={18} className="text-zinc-500" />
                 </div>
@@ -2046,7 +2049,7 @@ function CompanyOverview() {
             <div className="px-5 py-4 flex items-center justify-between border-b border-white/[0.06] flex-shrink-0">
               <div className="flex items-center gap-2">
                 <FolderKanban size={18} className="text-zinc-400" />
-                <h2 className="font-semibold text-white">By Project</h2>
+                <h2 className="font-semibold text-white">By project</h2>
                 <LiveTickIndicator
                   timerCount={runningCount}
                   fixedIncomeLive={liveServiceRevenue.fixed}
@@ -2104,7 +2107,7 @@ function CompanyOverview() {
                         {p.outstanding > 0 ? `$${fmt(p.outstanding)}` : '-'}
                       </span>
                       <span className={`text-sm text-right w-20 ${p.hours > 0 ? 'text-violet-400 font-medium' : 'text-zinc-600'}`}>
-                        {p.hours > 0 ? `${p.hours.toFixed(1)}h` : '-'}
+                        {p.hours > 0 ? formatHours(p.hours) : '-'}
                       </span>
                     </Link>
                   );
@@ -2120,7 +2123,7 @@ function CompanyOverview() {
                 <span className={`text-sm font-bold text-right w-24 ${data.totalOutstanding > 0 ? 'text-amber-400' : 'text-zinc-600'}`}>
                   {data.totalOutstanding > 0 ? `$${fmt(data.totalOutstanding)}` : '-'}
                 </span>
-                <span className="text-sm font-bold text-violet-400 text-right w-20">{data.totalHours.toFixed(1)}h</span>
+                <span className="text-sm font-bold text-violet-400 text-right w-20">{formatHours(data.totalHours)}</span>
               </div>
             </div>
 
@@ -2143,7 +2146,7 @@ function CompanyOverview() {
                       { label: 'Earned', value: fmtCurrency(p.earned), tone: p.earned >= 0 ? 'success' : 'danger' },
                       { label: 'Received', value: `$${fmt(p.received)}`, tone: 'success' },
                       { label: 'Outstanding', value: p.outstanding > 0 ? `$${fmt(p.outstanding)}` : null, empty: '-', tone: 'warning' },
-                      { label: 'Hours', value: p.hours > 0 ? `${p.hours.toFixed(1)}h` : null, empty: '-' },
+                      { label: 'Hours', value: p.hours > 0 ? formatHours(p.hours) : null, empty: '-' },
                     ]}
                   />
                 </Link>
@@ -2170,8 +2173,7 @@ function CompanyOverview() {
 
 /**
  * Finances, for whoever has a money view: the company Overview (Client
- * invoicing), Time (the shared timesheet), Payroll (Team pay, for whoever
- * runs pay) or My earnings (Team pay, for everyone else who is paid). The
+ * invoicing), Time (the shared timesheet), Team pay (for whoever runs pay) or My earnings (Team pay, for everyone else who is paid). The
  * name and the tabs come from `financeViews`, which the sidebar reads too,
  * so the two always agree. Someone with no money view has the timesheet
  * alone, at /time, and is sent there.
@@ -2226,14 +2228,14 @@ function FinancesTabs() {
       <Header
         title={views.entry.label}
         subtitle={active ? <span className="hidden sm:inline">{subtitles[active]}</span> : undefined}
-        actions={views.invoices ? (
+        // Upcoming invoices belongs with the company money: Overview only.
+        actions={views.invoices && active === 'overview' ? (
           <Link
             href="/finances/billing"
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-zinc-300 border border-white/[0.08] bg-surface-raised hover:bg-white/[0.03] hover:text-white rounded-lg transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-400"
+            className="inline-flex items-center gap-1.5 whitespace-nowrap px-3 py-1.5 text-sm font-medium text-zinc-300 border border-white/[0.08] bg-surface-raised hover:bg-white/[0.03] hover:text-white rounded-lg transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-400"
           >
             <CalendarClock size={14} aria-hidden="true" />
-            <span className="hidden sm:inline">Upcoming invoices</span>
-            <span className="sm:hidden">Upcoming</span>
+            Upcoming invoices
           </Link>
         ) : undefined}
       />
@@ -2261,7 +2263,7 @@ function FinancesTabs() {
               : (
                 <FinanceEmpty
                   title="No one to pay yet"
-                  body="Owners are not paid through payroll. Invite a teammate, then set their pay rate here."
+                  body="Owners are not paid through Team pay. Invite a teammate, then set their pay rate here."
                   action={<Button href="/team" variant="secondary" size="sm">Open Team</Button>}
                 />
               ))}

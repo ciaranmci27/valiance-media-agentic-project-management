@@ -1,7 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { z } from 'zod';
 import type { InboxReplyDraft } from './inbox-types';
-import { InboxError, assertCanTriage, loadReadableThread, many, one, type InboxContext } from './inbox-service';
+import { InboxError, loadTriageableThread, many, one, type InboxContext } from './inbox-service';
 import { comms } from '@/lib/communications/db';
 
 /**
@@ -64,8 +64,7 @@ export const draftCopiedSchema = z.object({ draft_id: z.string().uuid() }).stric
  * that went out. Copying again changes nothing.
  */
 export async function markDraftCopied(ctx: InboxContext, threadId: string, draftId: string): Promise<InboxReplyDraft> {
-  assertCanTriage(ctx.access);
-  const thread = await loadReadableThread(ctx, threadId);
+  const thread = await loadTriageableThread(ctx, threadId);
   const { error } = await comms(ctx.service).from('reply_drafts').update({ copied_at: new Date().toISOString() })
     .eq('id', draftId).eq('thread_id', thread.id).eq('status', 'ready').is('copied_at', null);
   if (error) throw error;
@@ -77,8 +76,7 @@ export async function markDraftCopied(ctx: InboxContext, threadId: string, draft
 }
 
 export async function requestReplyDraft(ctx: InboxContext, threadId: string, request: RequestDraftRequest): Promise<InboxReplyDraft> {
-  assertCanTriage(ctx.access);
-  const thread = await loadReadableThread(ctx, threadId);
+  const thread = await loadTriageableThread(ctx, threadId);
   const { data: inbox, error: inboxError } = await comms(ctx.service).from('inboxes').select('handler_member_id').eq('id', thread.inbox_id).maybeSingle();
   if (inboxError) throw inboxError;
   if (!inbox?.handler_member_id) throw new InboxError(409, 'This inbox has no agent to write a draft. Choose one in its settings.');

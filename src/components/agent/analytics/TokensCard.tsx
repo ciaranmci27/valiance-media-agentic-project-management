@@ -32,14 +32,14 @@ export function TokensCard({ tokens, measuring, withheldReason }: {
       ) : withheldReason ? (
         <Missing>{withheldReason}</Missing>
       ) : t.ledgerTokens === null && t.attributedTokens === 0 ? (
-        <Missing>Usage telemetry has not reported for this selection, so there are no tokens to show.</Missing>
+        <Missing>No usage data for this selection yet, so there are no tokens to show.</Missing>
       ) : (
         <div className="p-5 space-y-5">
           <CardStats
             stats={[
               {
                 label: 'Usage ledger',
-                hint: "Hermes' usage ledger: input, output and cached tokens per session. The total, and the source of model cost.",
+                hint: 'What the agents report using: input, output and cached tokens per session. The total, and the source of model cost.',
                 value: t.ledgerTokens === null ? null : fmtCount(t.ledgerTokens),
                 empty: 'Not reported',
               },

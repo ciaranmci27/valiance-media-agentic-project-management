@@ -117,7 +117,7 @@ import { clearReads, invalidateAllReads, invalidateTables, loadRead } from '@/li
 import { payrollRead } from '@/lib/finance/payroll-read';
 import { DEFAULT_ITEM_COLOR } from '@/lib/brand';
 import { findStalePausedEntries, isStalePause } from '@/lib/time-entry-utils';
-import { hasPermission, canReadTasks, isModuleEnabled } from '@/lib/access-control';
+import { hasPermission, canOpenInbox, canReadTasks, isModuleEnabled } from '@/lib/access-control';
 import { loadRetainerFinanceInputs } from '@/lib/finance/use-retainer-finance';
 import { rollbackScope } from '@/lib/optimistic';
 import { INBOX_TABLES, INBOX_UPDATED_EVENT } from '@/lib/communications/inbox-types';
@@ -515,7 +515,8 @@ interface AppContextType {
   getInvoicesByContact: (contactId: string) => ProjectInvoice[];
 
   // Business Settings (singleton)
-  updateBusinessSettings: (updates: Partial<Omit<BusinessSettings, 'id' | 'created_at' | 'updated_at'>>) => Promise<void>;
+  /** False when the change did not save (the store has toasted and rolled back). */
+  updateBusinessSettings: (updates: Partial<Omit<BusinessSettings, 'id' | 'created_at' | 'updated_at'>>) => Promise<boolean>;
 
   // Helpers
   getProject: (id: string) => Project | undefined;
@@ -1106,7 +1107,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         case 'emails':
           // Like notifications: the Inbox views own their fetches through the
           // session routes; this only tells them (and the badge) to refetch.
-          if (hasPermission(access, 'inbound_email.read') || hasPermission(access, 'inbound_email.manage')) {
+          if (canOpenInbox(access)) {
             setEmailsRefreshSignal(s => s + 1);
             window.dispatchEvent(new Event(INBOX_UPDATED_EVENT));
           }
@@ -4455,16 +4456,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const updateBusinessSettings = async (
     updates: Partial<Omit<BusinessSettings, 'id' | 'created_at' | 'updated_at'>>,
   ) => {
-    if (!businessSettings) return;
+    if (!businessSettings) return false;
     const prev = businessSettings;
     setBusinessSettings({ ...prev, ...updates, updated_at: new Date().toISOString() });
-    if (skipSupabase) return;
+    if (skipSupabase) return true;
     try {
       const updated = await patchBusinessSettingsQuery(supabase, prev.id, updates);
       setBusinessSettings(updated);
+      return true;
     } catch {
       setBusinessSettings(prev);
       toast('error', 'Failed to update business settings');
+      return false;
     }
   };
 

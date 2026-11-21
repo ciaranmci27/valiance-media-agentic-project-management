@@ -1,4 +1,5 @@
 import { comms } from '@/lib/communications/db';
+import { readableInboxIdsFor } from '@/lib/communications/inbox-visibility';
 import { createHash, randomUUID } from 'node:crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { AccessContext, PermissionKey } from '@/lib/access-control';
@@ -262,20 +263,14 @@ async function loadFile(ctx: TaskFilesContext, task: TaskRow, fileId: string): P
 }
 
 /**
- * The inboxes this reader opens, as the Inbox scopes them: every inbox for a
- * member who manages inboxes, otherwise the granted ones. Through a key, only
- * with inbound_email.read (or manage) on both sides, as the email API reads.
+ * The inboxes this reader opens, as the Inbox scopes them (inbox-visibility.ts):
+ * shared inboxes by managing or a grant, personal ones by their owner and the
+ * people they were shared with. Through a key, only with inbound_email.read
+ * (or manage) on both sides, as the email API reads.
  */
 async function readableInboxes(ctx: TaskFilesContext): Promise<Set<string>> {
-  if (!can(ctx, 'inbound_email.read') && !can(ctx, 'inbound_email.manage')) return new Set();
-  if (accessAllows(ctx.access, 'inbound_email.manage', ctx.channel)) {
-    const { data, error } = await comms(ctx.db).from('inboxes').select('id');
-    if (error) throw error;
-    return new Set((data ?? []).map((row: { id: string }) => row.id));
-  }
-  const { data, error } = await comms(ctx.db).from('inbox_access').select('inbox_id').eq('member_id', ctx.memberId);
-  if (error) throw error;
-  return new Set((data ?? []).map((row: { inbox_id: string }) => row.inbox_id));
+  if (!can(ctx, 'inbound_email.read') && !can(ctx, 'inbound_email.manage') && !(ctx.channel === 'app' && can(ctx, 'inbound_email.personal'))) return new Set();
+  return new Set(await readableInboxIdsFor(ctx.db, ctx.memberId, ctx.access, ctx.channel));
 }
 
 async function views(ctx: TaskFilesContext, rows: FileRow[]): Promise<TaskFileView[]> {

@@ -1,11 +1,14 @@
 import { isHexColor } from './shades';
 import { cleanShades } from './resolve';
-import type { BrandSettingsInput, LogoKind } from './types';
+import type { BrandSettingsInput, LogoKind, SidebarProjectsStyle } from './types';
 
 /** Longest values the brand table accepts (matches its CHECK constraints). */
 export const BRAND_LIMITS = { name: 60, tagline: 60, description: 200 } as const;
 
-type Parsed = { data: BrandSettingsInput; error: null } | { data: null; error: string };
+/** A save body: sidebarProjects left out keeps what is stored (older clients and the setup wizard send no value). */
+export type ParsedBrandInput = Omit<BrandSettingsInput, 'sidebarProjects'> & { sidebarProjects?: SidebarProjectsStyle };
+
+type Parsed = { data: ParsedBrandInput; error: null } | { data: null; error: string };
 
 function optionalText(value: unknown, label: string, max: number): { value: string | null; error: string | null } {
   if (value === null || value === undefined) return { value: null, error: null };
@@ -38,6 +41,9 @@ export function parseBrandInput(body: unknown): Parsed {
   for (const key of ['invertLogoInSidebar', 'showNameUnderLogo'] as const) {
     if (b[key] !== undefined && typeof b[key] !== 'boolean') return { data: null, error: `${key} must be true or false` };
   }
+  if (b.sidebarProjects !== undefined && b.sidebarProjects !== 'list' && b.sidebarProjects !== 'menu') {
+    return { data: null, error: 'sidebarProjects must be list or menu' };
+  }
   return {
     data: {
       name: name.value,
@@ -48,6 +54,7 @@ export function parseBrandInput(body: unknown): Parsed {
       accentColor: accentColor.value,
       invertLogoInSidebar: b.invertLogoInSidebar === true,
       showNameUnderLogo: b.showNameUnderLogo === true,
+      ...(b.sidebarProjects === undefined ? {} : { sidebarProjects: b.sidebarProjects as SidebarProjectsStyle }),
     },
     error: null,
   };

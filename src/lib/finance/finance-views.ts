@@ -5,7 +5,7 @@ import { hasPermission, isModuleEnabled, type AccessContext, type PermissionKey 
  * Finances page and the Time page always agree on the name and the tabs.
  *
  * - Client invoicing (`billing`) adds the company Overview and invoices.
- * - Team pay (`team_pay`) adds Payroll for whoever runs pay, and My earnings
+ * - Team pay (`team_pay`) adds the Team pay tab for whoever runs pay, and My earnings
  *   for everyone else who is paid.
  * - Time tracking adds the timesheet: your own hours, the team's for people
  *   who read all time, and the review queue where approvals exist.
@@ -38,7 +38,7 @@ export interface FinanceViews {
 export const FINANCE_TAB_LABELS: Record<FinanceTab, string> = {
   overview: 'Overview',
   time: 'Time',
-  payroll: 'Payroll',
+  payroll: 'Team pay',
   earnings: 'My earnings',
 };
 

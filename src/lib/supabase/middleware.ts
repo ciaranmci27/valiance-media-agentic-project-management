@@ -23,6 +23,9 @@ function isPublicRoute(pathname: string) {
     pathname.startsWith('/api/logo') ||
     pathname.startsWith('/api/brand/') ||
     pathname.startsWith('/login') ||
+    // An invited person choosing their password: the link's token signs them in.
+    pathname === '/welcome/set-password' ||
+    pathname === '/api/welcome/set-password' ||
     pathname.startsWith('/auth') ||
     pathname.startsWith('/portal') ||
     pathname.startsWith('/api/portal') ||

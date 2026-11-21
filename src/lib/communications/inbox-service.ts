@@ -12,7 +12,7 @@ import { isPublicEmailDomain, validateClientDomain } from './email/public-domain
 import type { CandidateReason } from './mapping';
 import { attentionCounts, CODE_PIN_MINUTES, codeIn, matchesSearch, snippetOf, tabCounts, threadFlags, threadInTab, type InboxAttention, type MessageState, type ThreadFlags } from './inbox-view';
 import type { MailKind, MailTopic } from './sorting';
-import { meetingPackageOf, MEETING_PACKAGE_LABELS } from './inbox-types';
+import { inboxDisplayName, meetingPackageOf, MEETING_PACKAGE_LABELS } from './inbox-types';
 import type {
   InboxAttachment, InboxCandidate, InboxChannel, InboxMeeting, InboxMeetingSummary, InboxReminder, InboxSorting, TaskLinkRelation, InboxLinkedTask, InboxMessage, InboxPerson, InboxSummary, InboxTab,
   InboxLatestCode, InboxThreadDetail, InboxThreadList, InboxThreadSummary, MessageStatus, ProjectSource, RememberableSender, RoutingBasis,
@@ -21,12 +21,14 @@ import type {
 } from './inbox-types';
 import type { TriageCategory } from './outreach';
 import { comms } from '@/lib/communications/db';
+import { memberTriagesInbox, ownerColumnRead, ownersReadPersonalInboxes, readableInboxIdsFor } from './inbox-visibility';
 
 /**
  * The Inbox for people signed in to the app (session routes). Reads use the
- * service client, scoped here the way RLS scopes them (can_read_email_inbox):
- * inbound_email.manage reads every inbox, inbound_email.read the inboxes the
- * member was granted. Reading is read only: the human actions (set or
+ * service client, scoped here the way RLS scopes them (can_read_inbox, in
+ * inbox-visibility.ts): shared inboxes by inbound_email.manage or a grant
+ * with inbound_email.read, personal ones by their owner and the people they
+ * shared them with. Reading is read only: the human actions (set or
  * confirm a thread's project and remember the sender or domain, rule 7; mark
  * handled; send back to the agent) need inbound_email.triage or
  * inbound_email.manage. Names from projects the member cannot reach (the
@@ -83,18 +85,20 @@ export async function many<T extends Row>(query: PromiseLike<{ data: unknown; er
   return (data ?? []) as T[];
 }
 
+/** May open the Inbox at all: shared inbox reading or managing, or a personal inbox of their own. Which inboxes is readableInboxIds. */
 export function canReadInbox(access: AccessContext): boolean {
-  return accessAllows(access, 'inbound_email.read') || accessAllows(access, 'inbound_email.manage');
+  return accessAllows(access, 'inbound_email.read') || accessAllows(access, 'inbound_email.manage') || accessAllows(access, 'inbound_email.personal');
 }
 
-/** Acting on a thread (project, handled, send back) needs more than reading it. */
+/**
+ * Could act on some inbox at all: triage or manage (shared inboxes), or a
+ * personal inbox of their own. Which threads is per inbox (loadTriageableThread).
+ */
 export function canTriageInbox(access: AccessContext): boolean {
-  return accessAllows(access, 'inbound_email.triage') || accessAllows(access, 'inbound_email.manage');
+  return accessAllows(access, 'inbound_email.triage') || accessAllows(access, 'inbound_email.manage') || accessAllows(access, 'inbound_email.personal');
 }
 
-export function assertCanTriage(access: AccessContext) {
-  if (!canTriageInbox(access)) throw new InboxError(403, 'Viewing the inbox is read only. Triaging email needs permission to triage inbox email.');
-}
+const TRIAGE_DENIED = 'Viewing this inbox is read only. Acting on its email needs permission to triage inbox email, or it being your own inbox.';
 
 export function canManageInboxes(access: AccessContext): boolean {
   return accessAllows(access, 'inbound_email.manage');
@@ -112,14 +116,9 @@ function isPerson(access: AccessContext): boolean {
   return access.role !== 'agent';
 }
 
-/** The inboxes this member reads (mirrors can_read_email_inbox). */
+/** The inboxes this member reads in the app (mirrors communications.can_read_inbox). */
 export async function readableInboxIds(ctx: InboxContext): Promise<string[]> {
-  if (accessAllows(ctx.access, 'inbound_email.manage')) {
-    return (await many<{ id: string }>(comms(ctx.service).from('inboxes').select('id').order('created_at'))).map((row) => row.id);
-  }
-  if (!accessAllows(ctx.access, 'inbound_email.read')) return [];
-  return (await many<{ inbox_id: string }>(comms(ctx.service).from('inbox_access').select('inbox_id').eq('member_id', ctx.memberId)))
-    .map((row) => row.inbox_id);
+  return readableInboxIdsFor(ctx.service, ctx.memberId, ctx.access, 'app');
 }
 
 async function memberNames(service: SupabaseClient, ids: (string | null | undefined)[]): Promise<Map<string, string>> {
@@ -189,15 +188,19 @@ export function ctxSelect(service: SupabaseClient | ReturnType<typeof comms>, ta
 
 async function inboxSummaries(service: SupabaseClient, ids: string[]): Promise<InboxSummary[]> {
   if (ids.length === 0) return [];
-  const inboxes = await many<{ id: string; name: string; address: string; enabled: boolean; handler_member_id: string | null }>(
-    comms(service).from('inboxes').select('id, name, address, enabled, handler_member_id').in('id', ids).order('name'));
-  const names = await memberNames(service, inboxes.map((inbox) => inbox.handler_member_id));
+  // Before the 1.6.0 migration there is no owner column: every inbox is shared.
+  const inboxes = (await ownerColumnRead<{ id: string; name: string; address: string; enabled: boolean; handler_member_id: string | null; owner_member_id?: string | null }[] | null>(
+    () => comms(service).from('inboxes').select('id, name, address, enabled, handler_member_id, owner_member_id').in('id', ids).order('name'),
+    () => comms(service).from('inboxes').select('id, name, address, enabled, handler_member_id').in('id', ids).order('name'),
+  )) ?? [];
+  const names = await memberNames(service, inboxes.flatMap((inbox) => [inbox.handler_member_id, inbox.owner_member_id]));
   return inboxes.map((inbox) => ({
     id: inbox.id,
     name: inbox.name,
     address: inbox.address,
     enabled: inbox.enabled,
     handler: inbox.handler_member_id ? { id: inbox.handler_member_id, name: names.get(inbox.handler_member_id) ?? 'Agent' } : null,
+    owner: inbox.owner_member_id ? { id: inbox.owner_member_id, name: names.get(inbox.owner_member_id) ?? 'A former teammate' } : null,
   }));
 }
 
@@ -513,7 +516,7 @@ export async function listThreads(ctx: InboxContext, filters: ThreadListFilters)
     pageDetails(ctx, page),
     memberNames(ctx.service, page.map((entry) => entry.meeting?.dismissed_by)),
   ]);
-  const inboxNames = new Map(inboxes.map((inbox) => [inbox.id, inbox.name]));
+  const inboxNames = new Map(inboxes.map((inbox) => [inbox.id, inboxDisplayName(inbox, ctx.memberId)]));
   const bodyById = new Map(bodies.map((row) => [row.id, row]));
   const threads: InboxThreadSummary[] = page.map((entry) => {
     const latest = entry.messages[entry.messages.length - 1];
@@ -555,7 +558,9 @@ export async function listThreads(ctx: InboxContext, filters: ThreadListFilters)
       suggestion_count: suggestions.get(entry.thread.id) ?? 0,
     };
   });
-  return { inboxes, threads, total: inTab.length, counts, latest_code: latestCode };
+  // Members always know when Owners can read personal inboxes: one line on the Inbox while it is on.
+  const ownersReadPersonal = inboxes.some((inbox) => inbox.owner) ? await ownersReadPersonalInboxes(ctx.service) : false;
+  return { inboxes, threads, total: inTab.length, counts, latest_code: latestCode, owners_read_personal: ownersReadPersonal };
 }
 
 /** The newest one-time code that arrived in the last CODE_PIN_MINUTES, with the code read from it. */
@@ -614,6 +619,20 @@ export async function loadReadableThread(ctx: InboxContext, threadId: string): P
     .select('id, inbox_id, channel, subject_normalized, project_id, project_source, project_address_id, summary, last_message_at').eq('id', id).maybeSingle());
   // An inbox the member cannot read looks like no thread at all.
   if (!thread || !(await readableInboxIds(ctx)).includes(thread.inbox_id)) throw new InboxError(404, 'Thread not found');
+  return thread;
+}
+
+/**
+ * A thread to act on (file it, mark it handled, send it back, settle the
+ * agent's work): readable, and in an inbox the member triages
+ * (inbox-visibility.ts: a shared inbox with triage or manage, their own
+ * personal inbox, or one shared with them while they hold triage). Unreadable
+ * is 404, as for reading; readable but not theirs to act on is 403.
+ */
+export async function loadTriageableThread(ctx: InboxContext, threadId: string): Promise<ThreadRow> {
+  if (!canTriageInbox(ctx.access)) throw new InboxError(403, TRIAGE_DENIED);
+  const thread = await loadReadableThread(ctx, threadId);
+  if (!(await memberTriagesInbox(ctx.service, ctx.memberId, ctx.access, 'app', thread.inbox_id))) throw new InboxError(403, TRIAGE_DENIED);
   return thread;
 }
 
@@ -894,9 +913,12 @@ export async function threadDetail(ctx: InboxContext, threadId: string): Promise
       .sort((a, b) => Number(b.address === organizer) - Number(a.address === organizer));
     meeting = { ...meetingSummary(meetingRow, people, organizer ? seen.get(organizer) ?? '' : ''), attendees };
   }
+  // The thread's actions show only where the viewer may act on this inbox (inbox-visibility.ts).
+  const canTriage = canTriageInbox(ctx.access) && await memberTriagesInbox(service, ctx.memberId, ctx.access, 'app', thread.inbox_id);
   return {
+    can_triage: canTriage,
     id: thread.id,
-    inbox: inbox ?? { id: thread.inbox_id, name: 'Inbox', address: '', enabled: true, handler: null },
+    inbox: inbox ?? { id: thread.inbox_id, name: 'Inbox', address: '', enabled: true, handler: null, owner: null },
     channel: thread.channel ?? 'email',
     meeting,
     subject: meeting?.title || latestMessage?.subject || thread.subject_normalized || '',
@@ -966,8 +988,7 @@ export async function setThreadProject(
   threadId: string,
   request: SetThreadProjectRequest,
 ): Promise<SetThreadProjectResult> {
-  assertCanTriage(ctx.access);
-  const thread = await loadReadableThread(ctx, threadId);
+  const thread = await loadTriageableThread(ctx, threadId);
   const projectId = assertId(request.project_id, 'project_id');
   const rememberSender = request.remember_sender ?? null;
   const rememberDomain = request.remember_domain ?? null;
@@ -1071,8 +1092,7 @@ export async function setThreadProject(
  * emails is linked to a task on that project: unlink or move the task first.
  */
 export async function removeThreadProject(ctx: InboxContext, threadId: string, projectId: string): Promise<{ removed: boolean }> {
-  assertCanTriage(ctx.access);
-  const thread = await loadReadableThread(ctx, threadId);
+  const thread = await loadTriageableThread(ctx, threadId);
   const id = assertId(projectId, 'project_id');
   if (!accessAllowsProject(ctx.access, id)) throw new InboxError(403, 'You cannot change email on that project');
   const { data, error } = await comms(ctx.service).rpc('remove_conversation_project', { p_conversation_id: thread.id, p_project_id: id });
@@ -1099,8 +1119,7 @@ export async function markThreadHandled(
   threadId: string,
   { closeReplyReminders = true }: { closeReplyReminders?: boolean } = {},
 ): Promise<{ handled: number; reviewed: number; closed_reminders: string[] }> {
-  assertCanTriage(ctx.access);
-  const thread = await loadReadableThread(ctx, threadId);
+  const thread = await loadTriageableThread(ctx, threadId);
   const now = new Date().toISOString();
   const handled = await many<{ id: string }>(comms(ctx.service).from('messages')
     .update({ status: 'handled' }).eq('thread_id', thread.id).in('status', ['new', 'needs_human']).select('id'));
@@ -1123,8 +1142,7 @@ export async function markThreadHandled(
 
 /** Back to the agent: the message (the newest one by default) is New again and she re-triages it. */
 export async function sendBackToAgent(ctx: InboxContext, threadId: string, messageId: string | null): Promise<{ message_id: string }> {
-  assertCanTriage(ctx.access);
-  const thread = await loadReadableThread(ctx, threadId);
+  const thread = await loadTriageableThread(ctx, threadId);
   const messages = await many<{ id: string; status: string }>(comms(ctx.service).from('messages')
     .select('id, status').eq('thread_id', thread.id).neq('status', 'receiving').order('received_at', { ascending: false }).order('id', { ascending: false }));
   const target = messageId ? messages.find((message) => message.id === assertId(messageId, 'message_id')) : messages[0];
@@ -1142,8 +1160,7 @@ export async function sendBackToAgent(ctx: InboxContext, threadId: string, messa
  * and the email goes back to New, so the agent acts on it at once.
  */
 export async function answerAgentQuestion(ctx: InboxContext, threadId: string, messageId: string | null, answer: string): Promise<{ message_id: string }> {
-  assertCanTriage(ctx.access);
-  const thread = await loadReadableThread(ctx, threadId);
+  const thread = await loadTriageableThread(ctx, threadId);
   const messages = await many<{ id: string; status: string }>(comms(ctx.service).from('messages')
     .select('id, status').eq('thread_id', thread.id).neq('status', 'receiving').order('received_at', { ascending: false }).order('id', { ascending: false }));
   const ids = messages.map((message) => message.id);

@@ -138,6 +138,21 @@ export const inboxSettingsSchema = z.object({
 }).strict();
 export type InboxSettingsRequest = z.infer<typeof inboxSettingsSchema>;
 
+/** Connecting or changing your own inbox: your address, the agent that sorts it (or nobody) and who else reads it. */
+export const myInboxSchema = z.object({
+  address: z.string().trim().toLowerCase().min(3).max(320),
+  handler_member_id: z.string().uuid().nullable(),
+  enabled: z.boolean(),
+  access_member_ids: z.array(z.string().uuid()).max(100),
+}).strict();
+export type MyInboxRequest = z.infer<typeof myInboxSchema>;
+
+/** Turning someone's personal inbox off or on. */
+export const inboxSwitchSchema = z.object({ enabled: z.boolean() }).strict();
+
+/** Whether Owners may read personal inboxes. */
+export const personalInboxPolicySchema = z.object({ owners_read_personal: z.boolean() }).strict();
+
 /**
  * A project's own email address. The routing local part follows the inbox
  * rules; left empty, it takes the public address's local part. The routing

@@ -241,7 +241,7 @@ export function NotificationPreferencesSection({ canManageAgents }: { canManageA
           <Bell className="text-brand-300" size={20} />
         </div>
         <div>
-          <h2 className="font-semibold text-white">Notification Preferences</h2>
+          <h2 className="font-semibold text-white">Notification preferences</h2>
           <p className="text-sm text-zinc-400">Choose which notifications you receive</p>
         </div>
       </div>

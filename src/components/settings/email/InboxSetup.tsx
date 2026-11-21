@@ -11,7 +11,7 @@ import type { MxStatus } from '@/lib/communications/inbox-types';
 /**
  * The once-only setup behind every inbox: the relay domain new routing
  * addresses take, and whether each domain's MX record points mail at the
- * app. Shown folded under Setup on Settings > Email > Who handles your mail.
+ * app. Shown folded under Setup on Settings > Email > Shared inboxes.
  */
 
 const ICON_BUTTON =

@@ -25,6 +25,7 @@ export const DEFAULT_BRAND: Brand = {
   logos: { light: null, dark: null, favicon: null },
   invertLogoInSidebar: false,
   showNameUnderLogo: false,
+  sidebarProjects: 'list',
 };
 
 /**

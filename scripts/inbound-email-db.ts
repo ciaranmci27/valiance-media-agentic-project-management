@@ -36,6 +36,7 @@ export const SUMMARY_NEWS_MIGRATION = '../supabase/migrations/20261104232042_sum
 export const RULE_RECIPIENT_MIGRATION = '../supabase/migrations/20261112020822_sender_rules_by_recipient.sql';
 export const MEETINGS_MIGRATION = '../supabase/migrations/20261112042424_meetings_channel.sql';
 export const MEETING_DISMISSAL_MIGRATION = '../supabase/migrations/20261117161849_meeting_nothing_to_do.sql';
+export const PERSONAL_INBOXES_MIGRATION = '../supabase/migrations/20261121060000_personal_inboxes.sql';
 const TASK_SAVE_MIGRATION = '../supabase/migrations/20260923235152_atomic_task_save.sql';
 
 async function read(path: string) {
@@ -125,6 +126,7 @@ export async function createEmailDatabase(
   await db.exec(`
     CREATE TABLE public.workspace_modules (module_id text PRIMARY KEY, enabled boolean NOT NULL DEFAULT true);
     CREATE TABLE public.permission_modules (permission_key text PRIMARY KEY, module_id text NOT NULL REFERENCES public.workspace_modules(module_id));
+    INSERT INTO public.workspace_modules (module_id) VALUES ('inbox');
   `);
   for (const name of ['current_team_member_id', 'module_enabled', 'has_permission', 'can_access_project', 'project_is_live']) {
     await db.exec(fn(name));
@@ -142,7 +144,7 @@ export async function createEmailDatabase(
     await db.exec(spec);
     await db.exec(spec); // safe to re-run
     if (!stopBeforeNeedsHuman) {
-      for (const path of [NEEDS_HUMAN_MIGRATION, NEEDS_HUMAN_CLEANUP_MIGRATION, PROJECT_SOURCE_PERSON_MIGRATION, SORTING_MIGRATION, ANSWERS_MIGRATION, SHARED_FILES_MIGRATION, ANSWERED_PERSON_MIGRATION, COMMUNICATIONS_MIGRATION, CONVERSATION_SCOPE_MIGRATION, SCOPE_HARDENING_MIGRATION, DELIVERY_MIGRATION, PLANS_MIGRATION, YOUR_ADDRESSES_MIGRATION, YOUR_DOMAINS_MIGRATION, OUTREACH_MIGRATION, SORTING_TOPICS_MIGRATION, TRIAGE_QUESTIONS_MIGRATION, REPLY_DRAFT_COPIED_MIGRATION, SUMMARY_OUTCOMES_MIGRATION, SUMMARY_NEWS_MIGRATION, RULE_RECIPIENT_MIGRATION, MEETINGS_MIGRATION, MEETING_DISMISSAL_MIGRATION]) {
+      for (const path of [NEEDS_HUMAN_MIGRATION, NEEDS_HUMAN_CLEANUP_MIGRATION, PROJECT_SOURCE_PERSON_MIGRATION, SORTING_MIGRATION, ANSWERS_MIGRATION, SHARED_FILES_MIGRATION, ANSWERED_PERSON_MIGRATION, COMMUNICATIONS_MIGRATION, CONVERSATION_SCOPE_MIGRATION, SCOPE_HARDENING_MIGRATION, DELIVERY_MIGRATION, PLANS_MIGRATION, YOUR_ADDRESSES_MIGRATION, YOUR_DOMAINS_MIGRATION, OUTREACH_MIGRATION, SORTING_TOPICS_MIGRATION, TRIAGE_QUESTIONS_MIGRATION, REPLY_DRAFT_COPIED_MIGRATION, SUMMARY_OUTCOMES_MIGRATION, SUMMARY_NEWS_MIGRATION, RULE_RECIPIENT_MIGRATION, MEETINGS_MIGRATION, MEETING_DISMISSAL_MIGRATION, PERSONAL_INBOXES_MIGRATION]) {
         const sql = await read(path);
         await db.exec(sql);
         await db.exec(sql); // safe to re-run
@@ -157,6 +159,8 @@ export async function createEmailDatabase(
     assert.ok(hostname && settingsColumn && start > 0 && end > start, 'inbound email section in schema.sql');
     await db.exec(hostname);
     await db.exec(`ALTER TABLE public.business_settings ADD COLUMN ${settingsColumn.trim().replace(/,$/, '')};`);
+    // Personal inboxes read this switch (can_read_inbox).
+    await db.exec('ALTER TABLE public.business_settings ADD COLUMN owners_read_personal_inboxes boolean NOT NULL DEFAULT false;');
     await db.exec(canonical.slice(start, end));
   }
   // Retention asks which task files link an attachment (keepLinkedTaskFiles;

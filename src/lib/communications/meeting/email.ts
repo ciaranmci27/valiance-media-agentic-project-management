@@ -1,7 +1,8 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { z } from 'zod';
-import { accessAllows, resolveMemberAccess } from '@/lib/api/access';
+import { resolveMemberAccess } from '@/lib/api/access';
 import { comms } from '@/lib/communications/db';
+import { readableInboxIdsFor } from '@/lib/communications/inbox-visibility';
 import type { InboundAttachment, InboundEmail } from '../email/normalized';
 import { readableBody, type PreparedEmail } from '../email/prepare';
 import { verifiedTeamSender, type TeamMemberRow } from '../email/team-sender';
@@ -96,12 +97,7 @@ export async function meetingEmailOf(supabase: SupabaseClient, email: InboundEma
 export async function memberCanReadInbox(supabase: SupabaseClient, memberId: string, inboxId: string): Promise<boolean> {
   const access = await resolveMemberAccess(supabase, memberId);
   if (!access) return false;
-  if (accessAllows(access, 'inbound_email.manage', 'app')) return true;
-  if (!accessAllows(access, 'inbound_email.read', 'app')) return false;
-  const { data, error } = await comms(supabase).from('inbox_access').select('inbox_id')
-    .eq('inbox_id', inboxId).eq('member_id', memberId).maybeSingle();
-  if (error) throw error;
-  return !!data;
+  return (await readableInboxIdsFor(supabase, memberId, access, 'app')).includes(inboxId);
 }
 
 /** The package for one inbox, with the attached file's words; null when they do not make a valid package. */

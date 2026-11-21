@@ -7,12 +7,12 @@ import { InboxView, type InboxLink } from './InboxView';
 
 const ROUTES = [
   { icon: Users, title: 'From a contact', body: 'Anyone on this project’s contact list.' },
-  { icon: Globe, title: 'From the client’s domain', body: 'Everyone at the company, like @client.com.' },
+  { icon: Globe, title: 'From a sender domain', body: 'Everyone at a company, like @partner.com.' },
   { icon: AtSign, title: 'To the project’s address', body: 'Its own address, like project@yourdomain.' },
 ];
 
 /**
- * The project's client email: the Inbox, locked to this project. It fills the
+ * The project's email: the Inbox, locked to this project. It fills the
  * rest of the screen on desktop, like the Inbox page, so the list and the
  * open thread each scroll on their own. Its toolbar lives in the tab.
  */
@@ -25,7 +25,7 @@ export function ProjectEmailsPanel({ projectId, onSetUpRouting, searchQuery, lin
         <Mail size={18} className="text-zinc-500" aria-hidden="true" />
       </div>
       <p className="text-sm font-medium text-zinc-300">No email for this project yet</p>
-      <p className="mt-1 max-w-md text-xs text-zinc-500">Client email lands here when it comes in one of these ways.</p>
+      <p className="mt-1 max-w-md text-xs text-zinc-500">Email lands here when it comes in one of these ways.</p>
       <ul className="mt-5 grid w-full max-w-2xl gap-3 text-left sm:grid-cols-3">
         {ROUTES.map(({ icon: Icon, title, body }) => (
           <li key={title} className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-4">
@@ -49,7 +49,7 @@ export function ProjectEmailsPanel({ projectId, onSetUpRouting, searchQuery, lin
     <section
       ref={fillRef}
       style={fillStyle}
-      aria-label="Client email"
+      aria-label="Project email"
       className="glass-card flex h-[600px] lg:h-[var(--fill-h,600px)] flex-col overflow-hidden rounded-xl"
     >
       <InboxView projectId={projectId} embedded emptyState={emptyState} searchQuery={searchQuery} link={link} />

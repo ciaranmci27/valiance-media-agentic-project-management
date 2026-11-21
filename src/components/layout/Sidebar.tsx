@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useSyncExternalStore } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
@@ -36,7 +36,7 @@ import { invalidateTables, useRead, warmRead } from '@/lib/query-cache';
 import { CountBadge, type CountBadgeTone } from '@/components/ui/CountBadge';
 import { isRunning } from '@/lib/time-entry-utils';
 import { useBrand } from '@/lib/brand/context';
-import { hasPermission, isModuleEnabled } from '@/lib/access-control';
+import { canOpenInbox, hasPermission, isModuleEnabled } from '@/lib/access-control';
 import { financeViews, type FinanceEntryKind } from '@/lib/finance/finance-views';
 import { prefetchAgentAnalytics } from '@/lib/use-agent-analytics-events';
 import { defaultAgentAnalyticsRange } from '@/lib/agent-range';
@@ -44,6 +44,32 @@ import { reminderGroup } from '@/lib/reminders';
 import { placeNavItems } from '@/lib/extensions/registry';
 import { useCustomNavItems } from '@/lib/extensions/hooks';
 import type { InboxAttention } from '@/lib/communications/inbox-view';
+
+/** Whether the projects menu is open, remembered on this device (open until closed). */
+const PROJECTS_MENU_KEY = 'sidebar-projects-menu';
+const projectsMenuListeners = new Set<() => void>();
+let projectsMenuOpen = true; // used when storage is unavailable
+function readProjectsMenu(): boolean {
+  try {
+    const saved = localStorage.getItem(PROJECTS_MENU_KEY);
+    return saved === null ? projectsMenuOpen : saved !== 'closed';
+  } catch {
+    return projectsMenuOpen;
+  }
+}
+function writeProjectsMenu(open: boolean) {
+  projectsMenuOpen = open;
+  try { localStorage.setItem(PROJECTS_MENU_KEY, open ? 'open' : 'closed'); } catch { /* storage unavailable */ }
+  projectsMenuListeners.forEach((listener) => listener());
+}
+function subscribeProjectsMenu(listener: () => void) {
+  projectsMenuListeners.add(listener);
+  window.addEventListener('storage', listener);
+  return () => {
+    projectsMenuListeners.delete(listener);
+    window.removeEventListener('storage', listener);
+  };
+}
 
 export function Sidebar() {
   const pathname = usePathname();
@@ -78,6 +104,12 @@ export function Sidebar() {
   // The Agent item expands into its three surfaces. null = follow the route
   // (auto-expand while on an /agent page); a manual toggle always wins.
   const [agentOpen, setAgentOpen] = useState<boolean | null>(null);
+  // With projects as a menu (Settings > Workspace > Brand), the Projects item
+  // folds every active project under it. Open until someone closes it; the
+  // choice is remembered on this device.
+  const projectsAsMenu = brand.sidebarProjects === 'menu';
+  const projectsOpen = useSyncExternalStore(subscribeProjectsMenu, readProjectsMenu, () => true);
+  const setProjectsOpen = writeProjectsMenu;
 
   // Listen for the Header's hamburger button event
   useEffect(() => {
@@ -95,7 +127,7 @@ export function Sidebar() {
     window.addEventListener('notifications-updated', handler);
     return () => window.removeEventListener('notifications-updated', handler);
   }, []);
-  const canReadInbox = hasPermission(access, 'inbound_email.read') || hasPermission(access, 'inbound_email.manage');
+  const canReadInbox = canOpenInbox(access);
   const inboxAttention = useRead(canReadInbox ? inboxAttentionRead(isDemoMode) : null).data ?? NO_ATTENTION;
   // Pointing at a tab warms its landing screen.
   const intent = useIntent();
@@ -187,7 +219,7 @@ export function Sidebar() {
         {/* Logo — pinned to h-16 so its bottom border aligns with the header's */}
         <div className="flex items-center justify-between h-16 px-5 border-b border-white/[0.06]">
           <Link href="/dashboard" className="flex flex-col" onClick={closeSidebar}>
-            <Logo variant="dark" className="h-9 w-full" invert={brand.invertLogoInSidebar} />
+            <Logo variant="dark" className="h-9 w-full flex items-center text-lg text-white" invert={brand.invertLogoInSidebar} />
             {/* With no logo the name already stands in its place. */}
             {brand.showNameUnderLogo && brand.logos.dark && (
               <span className="text-white font-semibold text-[7px] tracking-[0.2em] uppercase w-full text-center">{brand.name}</span>
@@ -208,6 +240,92 @@ export function Sidebar() {
             // Agent is the one expandable group: the row toggles a sub-list of
             // the three agent surfaces instead of navigating, so the pages'
             // headers no longer need their own switcher.
+            if (item.href === '/projects' && projectsAsMenu) {
+              const activeProjects = projects.filter(p => p.status === 'active');
+              const onProjectsIndex = pathname === '/projects';
+              return (
+                <div key={item.href}>
+                  <button
+                    type="button"
+                    onClick={() => setProjectsOpen(!projectsOpen)}
+                    aria-expanded={projectsOpen}
+                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 ${
+                      isActive
+                        ? 'bg-brand-500/15 text-brand-300 glow-brand-soft'
+                        : 'text-zinc-400 hover:bg-white/5 hover:text-zinc-200'
+                    }`}
+                  >
+                    <span className="relative flex-shrink-0 leading-none">
+                      <item.icon size={18} aria-hidden="true" />
+                      {item.count && <CountBadge {...badgeProps(item.count)} placement="icon" />}
+                    </span>
+                    <span className="text-sm font-medium flex-1 text-left">{item.label}</span>
+                    <ChevronDown
+                      size={14}
+                      className={`flex-shrink-0 transition-transform ${projectsOpen ? '' : '-rotate-90'}`}
+                      aria-hidden="true"
+                    />
+                  </button>
+                  {projectsOpen && (
+                    /* The same rail as Agent's: one hairline under the parent
+                       icon, labels meeting the parent label. */
+                    <div className="relative ml-[20.5px] mt-0.5 mb-1 animate-slideDown">
+                      <span className="absolute left-0 top-1 bottom-1 w-px bg-white/[0.08]" aria-hidden="true" />
+                      <Link
+                        href="/projects"
+                        onClick={closeSidebar}
+                        aria-current={onProjectsIndex ? 'page' : undefined}
+                        className={`relative flex items-center pl-[21.5px] pr-3 py-1.5 rounded-md text-[13px] font-medium transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 ${onProjectsIndex ? 'text-brand-300' : 'text-zinc-500 hover:text-zinc-200'}`}
+                      >
+                        {onProjectsIndex && <span className="absolute -left-[0.5px] top-1/2 -translate-y-1/2 h-4 w-[2px] rounded-full bg-brand-400" aria-hidden="true" />}
+                        All projects
+                      </Link>
+                      {loading && activeProjects.length === 0 && [1, 2, 3].map((i) => (
+                        <div key={i} className="flex items-center gap-2 pl-[21.5px] pr-3 py-2" aria-hidden="true">
+                          <div className="w-1.5 h-1.5 rounded-full bg-white/10 animate-pulse" />
+                          <div className="h-3.5 rounded bg-white/10 animate-pulse" style={{ width: `${50 + i * 15}px` }} />
+                        </div>
+                      ))}
+                      {activeProjects.map((project) => {
+                        const href = `/projects/${project.id}`;
+                        const current = pathname === href || pathname.startsWith(`${href}/`);
+                        return (
+                          <Link
+                            key={project.id}
+                            href={href}
+                            onClick={closeSidebar}
+                            onMouseEnter={() => warmProject(project.id)}
+                            onFocus={() => warmProject(project.id)}
+                            aria-current={current ? 'page' : undefined}
+                            className={`relative flex items-center pl-[21.5px] pr-3 py-1.5 rounded-md text-[13px] font-medium transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 gap-2 ${current ? 'text-brand-300' : 'text-zinc-500 hover:text-zinc-200'}`}
+                          >
+                            {current && <span className="absolute -left-[0.5px] top-1/2 -translate-y-1/2 h-4 w-[2px] rounded-full bg-brand-400" aria-hidden="true" />}
+                            {/* No color picked: the brand color, so every name lines up. */}
+                            <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: project.color || 'var(--color-brand-500)' }} aria-hidden="true" />
+                            <span className="truncate flex-1 min-w-0">{project.name}</span>
+                            {myRunningProjectIds.has(project.id) && (
+                              <Tooltip content="Time tracker is active" position="right">
+                                <LivePulse label="Time tracker is active for this project" />
+                              </Tooltip>
+                            )}
+                          </Link>
+                        );
+                      })}
+                      {hasPermission(access, 'projects.manage') && (
+                        <Link
+                          href="/projects?new=true"
+                          onClick={closeSidebar}
+                          className="relative flex items-center pl-[21.5px] pr-3 py-1.5 rounded-md text-[13px] font-medium transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 gap-1.5 text-zinc-500 hover:text-zinc-200"
+                        >
+                          <Plus size={13} aria-hidden="true" />
+                          New project
+                        </Link>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            }
             if (item.href === '/agent') {
               const agentExpanded = agentOpen ?? pathname.startsWith('/agent');
               const agentLinks = [
@@ -303,8 +421,8 @@ export function Sidebar() {
             );
           })}
 
-          {/* Projects section */}
-          {(loading || projects.length > 0) && (
+          {/* Projects section (as a list; a menu lives under the Projects item) */}
+          {!projectsAsMenu && (loading || projects.length > 0) && (
           <div className="pt-4">
             <div className="flex items-center justify-between px-3 mb-2">
               <p className="text-xs text-zinc-600 uppercase tracking-wider font-medium">Projects</p>
@@ -346,12 +464,11 @@ export function Sidebar() {
                             : 'text-zinc-400 hover:bg-white/5 hover:text-zinc-200'
                         }`}
                       >
-                        {project.color && (
-                          <div
-                            className="w-2 h-2 rounded-full flex-shrink-0"
-                            style={{ backgroundColor: project.color }}
-                          />
-                        )}
+                        <div
+                          className="w-2 h-2 rounded-full flex-shrink-0"
+                          style={{ backgroundColor: project.color || 'var(--color-brand-500)' }}
+                          aria-hidden="true"
+                        />
                         <span className="text-sm truncate flex-1 min-w-0">{project.name}</span>
                         {isClockedIn && (
                           <Tooltip content="Time tracker is active" position="right">

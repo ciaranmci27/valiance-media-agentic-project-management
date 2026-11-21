@@ -121,7 +121,7 @@ export function DataTable<T>({
                     <th
                       key={col.key}
                       scope="col"
-                      className={`px-4 py-3 text-xs font-semibold text-zinc-400 uppercase tracking-wider whitespace-nowrap ${alignClass(col.align)} ${col.width ?? ''} ${col.className ?? ''}`}
+                      className={`px-4 py-3 text-xs font-semibold text-zinc-400 whitespace-nowrap ${alignClass(col.align)} ${col.width ?? ''} ${col.className ?? ''}`}
                     >
                       {col.sortValue ? (
                         <button

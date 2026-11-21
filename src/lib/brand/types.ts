@@ -9,6 +9,9 @@ export const BRAND_SHADES = [50, 100, 200, 300, 400, 500, 600, 700] as const;
 export type BrandShade = typeof BRAND_SHADES[number];
 export type BrandScale = Record<BrandShade, string>;
 
+/** How the sidebar lists projects: a section of the first few (agencies), or a menu of every active one under Projects (teams, solo). */
+export type SidebarProjectsStyle = 'list' | 'menu';
+
 export const LOGO_KINDS = ['light', 'dark', 'favicon'] as const;
 export type LogoKind = typeof LOGO_KINDS[number];
 
@@ -42,6 +45,8 @@ export interface Brand {
   invertLogoInSidebar: boolean;
   /** Prints the name under the logo in the sidebar. */
   showNameUnderLogo: boolean;
+  /** How the sidebar lists projects. */
+  sidebarProjects: SidebarProjectsStyle;
 }
 
 /**
@@ -62,6 +67,7 @@ export interface BrandSettings {
   faviconUrl: string | null;
   invertLogoInSidebar: boolean;
   showNameUnderLogo: boolean;
+  sidebarProjects: SidebarProjectsStyle;
 }
 
 /** The fields the settings page saves (logos upload on their own route). */

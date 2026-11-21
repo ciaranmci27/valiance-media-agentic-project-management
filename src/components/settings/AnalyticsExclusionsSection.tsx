@@ -7,12 +7,13 @@
  * goes with the portal. It shares storage with the invoice details on the
  * singleton business_settings row, nothing more.
  *
- * Save semantics match the rest of the settings sections: edit locally, hit
- * Save, the singleton row is patched.
+ * Add and remove save at once and leave one line with Undo in place, which
+ * puts the list back as it was and saves that.
  */
 
 import { useEffect, useState } from 'react';
 import { Loader2, Plus, Trash2, ShieldOff } from 'lucide-react';
+import { SettingsSectionHeader } from '@/components/settings/SettingsSectionHeader';
 import { useApp } from '@/lib/store';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
@@ -38,21 +39,18 @@ export function AnalyticsExclusionsSection() {
   const { businessSettings, updateBusinessSettings } = useApp();
   const { isDemoMode } = useDemo();
 
-  const [excludedIps, setExcludedIps] = useState<ExcludedIp[]>([]);
+  const excludedIps: ExcludedIp[] = businessSettings?.excluded_ips ?? [];
   const [newIp, setNewIp] = useState('');
   const [newLabel, setNewLabel] = useState('');
   const [detectingIp, setDetectingIp] = useState(false);
   const [saving, setSaving] = useState(false);
+  // The last change, with the list as it was before it, for Undo.
+  const [receipt, setReceipt] = useState<{ text: string; previous: ExcludedIp[] } | null>(null);
   // The "Detect IP" button hits /api/whats-my-ip which reads the request's
   // IP from forwarded headers. On localhost that's always ::1 / 127.0.0.1,
-  // which isn't useful as an exclusion entry — so we hide the button there
+  // which isn't useful as an exclusion entry, so we hide the button there
   // and let admins paste their IP manually instead.
   const [isLocalhost, setIsLocalhost] = useState(false);
-
-  useEffect(() => {
-    if (!businessSettings) return;
-    setExcludedIps(businessSettings.excluded_ips ?? []);
-  }, [businessSettings?.id]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -60,26 +58,21 @@ export function AnalyticsExclusionsSection() {
     setIsLocalhost(host === 'localhost' || host === '127.0.0.1' || host === '::1');
   }, []);
 
-  const isDirty = !!businessSettings && (
-    excludedIps.length !== (businessSettings.excluded_ips ?? []).length ||
-    excludedIps.some((e, i) => {
-      const original = businessSettings.excluded_ips?.[i];
-      return !original || original.ip !== e.ip || original.label !== e.label;
-    })
-  );
-
-  const handleSave = async () => {
-    if (!isDirty) return;
+  /** Saves the list; on success the receipt line offers Undo (none for an undo itself). */
+  const save = async (next: ExcludedIp[], text: string | null) => {
+    if (saving) return false;
+    const previous = excludedIps;
     setSaving(true);
     try {
-      await updateBusinessSettings({ excluded_ips: excludedIps });
-      toast('success', 'Analytics exclusions saved');
+      const ok = await updateBusinessSettings({ excluded_ips: next });
+      if (ok) setReceipt(text ? { text, previous } : null);
+      return ok;
     } finally {
       setSaving(false);
     }
   };
 
-  const handleAddIp = () => {
+  const handleAddIp = async () => {
     const ip = newIp.trim();
     const label = newLabel.trim();
     if (!ip) {
@@ -94,13 +87,18 @@ export function AnalyticsExclusionsSection() {
       toast('error', 'That IP is already in the list');
       return;
     }
-    setExcludedIps([...excludedIps, { ip, label: label || 'Unlabeled' }]);
-    setNewIp('');
-    setNewLabel('');
+    if (await save([...excludedIps, { ip, label: label || 'Unlabeled' }], `Added ${ip}.`)) {
+      setNewIp('');
+      setNewLabel('');
+    }
   };
 
   const handleRemoveIp = (ip: string) => {
-    setExcludedIps(excludedIps.filter((e) => e.ip !== ip));
+    void save(excludedIps.filter((e) => e.ip !== ip), `Removed ${ip}.`);
+  };
+
+  const handleUndo = () => {
+    if (receipt) void save(receipt.previous, null);
   };
 
   const handleDetectMyIp = async () => {
@@ -127,17 +125,14 @@ export function AnalyticsExclusionsSection() {
 
   return (
     <section className="glass-card rounded-xl p-4 lg:p-6">
-      <div className="flex items-center gap-3 mb-6">
-        <div className="p-2 bg-white/[0.06] rounded-lg">
-          <ShieldOff className="text-zinc-300" size={20} />
-        </div>
-        <div>
-          <h2 className="font-semibold text-white">Analytics Exclusions</h2>
-          <p className="text-sm text-zinc-400">
-            Hide traffic from these IPs in portal analytics
-          </p>
-        </div>
-      </div>
+      <SettingsSectionHeader
+        icon={ShieldOff}
+        title="Analytics exclusions"
+        description="Visits from these IP addresses are left out of every project's portal analytics."
+      />
+      <p className="-mt-3 mb-5 text-xs text-zinc-500">
+        Each project&apos;s portal is switched on from that project&apos;s Client portal tab.
+      </p>
 
       {excludedIps.length > 0 && (
         <div className="rounded-lg border border-white/[0.08] divide-y divide-white/[0.06] mb-4 overflow-hidden">
@@ -148,8 +143,9 @@ export function AnalyticsExclusionsSection() {
                 <div className="text-xs text-zinc-400 truncate">{entry.label}</div>
               </div>
               <button
+                type="button"
                 onClick={() => handleRemoveIp(entry.ip)}
-                disabled={isDemoMode}
+                disabled={isDemoMode || saving}
                 className="p-1.5 rounded-md text-zinc-500 hover:text-rose-400 hover:bg-rose-500/15 transition-colors disabled:opacity-40 disabled:cursor-not-allowed focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-500"
                 aria-label={`Remove ${entry.ip}`}
               >
@@ -185,18 +181,26 @@ export function AnalyticsExclusionsSection() {
               {detectingIp ? <Loader2 size={14} className="animate-spin" /> : 'Detect IP'}
             </Button>
           )}
-          <Button onClick={handleAddIp} disabled={!newIp.trim() || isDemoMode}>
-            <Plus size={14} className="mr-1" />
+          <Button onClick={handleAddIp} disabled={!newIp.trim() || isDemoMode || saving}>
+            {saving ? <Loader2 size={14} className="mr-1 animate-spin" /> : <Plus size={14} className="mr-1" />}
             Add
           </Button>
         </div>
       </div>
 
-      <div className="mt-4">
-        <Button onClick={handleSave} disabled={!isDirty || saving || isDemoMode}>
-          {saving ? <><Loader2 size={14} className="animate-spin mr-1.5" />Saving...</> : 'Save Exclusions'}
-        </Button>
-      </div>
+      {receipt && (
+        <p role="status" className="mt-3 flex items-center gap-2 text-xs text-zinc-400">
+          {receipt.text}
+          <button
+            type="button"
+            onClick={handleUndo}
+            disabled={saving || isDemoMode}
+            className="rounded font-medium text-brand-300 hover:text-brand-200 hover:underline disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+          >
+            Undo
+          </button>
+        </p>
+      )}
     </section>
   );
 }

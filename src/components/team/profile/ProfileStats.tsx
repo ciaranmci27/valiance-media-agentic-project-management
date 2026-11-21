@@ -31,7 +31,7 @@ export function ProfileNumbers({ work, time, shared }: { work?: Work; time?: Tim
           icon: time.running ? Timer : Clock,
           context: time.running ? <span className="text-emerald-300">Timer running now</span> : 'Logged since Monday',
         },
-        time && { label: 'Hours, 30 days', value: formatHours(time.last_30_hours), icon: Clock, context: 'Approved or not' },
+        time && { label: 'Hours, last 30 days', value: formatHours(time.last_30_hours), icon: Clock, context: 'All logged time' },
       ]}
     />
   );

@@ -124,7 +124,7 @@ export function LeadInteractionForm({
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      title={interaction ? 'Edit Interaction' : 'Add Interaction'}
+      title={interaction ? 'Edit Interaction' : 'Add interaction'}
       size="lg"
     >
       <form onSubmit={handleSubmit} className="space-y-4">
@@ -182,7 +182,7 @@ export function LeadInteractionForm({
             Cancel
           </Button>
           <Button type="submit" disabled={saving}>
-            {saving ? 'Saving...' : interaction ? 'Save Changes' : 'Add Interaction'}
+            {saving ? 'Saving...' : interaction ? 'Save changes' : 'Add interaction'}
           </Button>
         </div>
       </form>

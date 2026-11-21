@@ -42,7 +42,7 @@ export function FeaturesSection() {
   const changeCount = useRef(0);
 
   const migration = read.data?.status === 'migration' ? read.data.message : null;
-  // An Owner choosing features here has set the workspace up: the Dashboard stops asking.
+  // An Owner choosing features here has set the workspace up: the setup wizard stops showing.
   const finishesSetup = read.data?.status === 'ready' && !read.data.setupCompleted;
   const on = new Set(enabled);
   const current = presetFor(enabled);

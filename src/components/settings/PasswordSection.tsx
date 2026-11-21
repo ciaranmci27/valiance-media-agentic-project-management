@@ -45,7 +45,7 @@ export function PasswordSection() {
           <Lock className="text-rose-400" size={20} />
         </div>
         <div>
-          <h2 className="font-semibold text-white">Change Password</h2>
+          <h2 className="font-semibold text-white">Change password</h2>
           <p className="text-sm text-zinc-400">Update your account password</p>
         </div>
       </div>
@@ -69,7 +69,7 @@ export function PasswordSection() {
 
       <div className="mt-4">
         <Button onClick={handleChangePassword} disabled={passwordLoading}>
-          {passwordLoading ? 'Updating...' : 'Update Password'}
+          {passwordLoading ? 'Updating...' : 'Update password'}
         </Button>
       </div>
     </section>

@@ -389,7 +389,7 @@ export function ContactForm({ isOpen, onClose, contact }: ContactFormProps) {
             Cancel
           </Button>
           <Button type="submit" disabled={saving}>
-            {saving ? 'Saving...' : contact || createdId ? 'Save Changes' : 'Add Contact'}
+            {saving ? 'Saving...' : contact || createdId ? 'Save changes' : 'Add contact'}
           </Button>
         </div>
       </form>

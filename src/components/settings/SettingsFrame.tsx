@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import {
@@ -23,6 +23,46 @@ export function SettingsFrame({ children }: { children: ReactNode }) {
   const groups = SETTINGS_GROUPS.filter((g) => visibleGroups[g.key]);
   const current = settingsGroupForPath(pathname);
   const hidden = !!current && !visibleGroups[current.key];
+
+  // Phones: the strip scrolls sideways, so the open group is scrolled into
+  // view (at once on first paint, smoothly after) and a fade marks each edge
+  // that has more tabs past it.
+  const stripRef = useRef<HTMLUListElement>(null);
+  const firstScroll = useRef(true);
+  const [edges, setEdges] = useState({ start: false, end: false });
+  useLayoutEffect(() => {
+    const strip = stripRef.current;
+    const tab = strip?.querySelector<HTMLElement>('[aria-current="page"]');
+    if (!strip || !tab) return;
+    const left = tab.offsetLeft - (strip.clientWidth - tab.offsetWidth) / 2;
+    const smooth = !firstScroll.current && !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    strip.scrollTo({ left: Math.max(0, left), behavior: smooth ? 'smooth' : 'auto' });
+    firstScroll.current = false;
+  }, [current?.key, groups.length]);
+  useEffect(() => {
+    const strip = stripRef.current;
+    if (!strip) return;
+    const measure = () => {
+      const start = strip.scrollLeft > 1;
+      const end = strip.scrollLeft + strip.clientWidth < strip.scrollWidth - 1;
+      setEdges((prev) => (prev.start === start && prev.end === end ? prev : { start, end }));
+    };
+    measure();
+    strip.addEventListener('scroll', measure, { passive: true });
+    const observer = new ResizeObserver(measure);
+    observer.observe(strip);
+    return () => {
+      strip.removeEventListener('scroll', measure);
+      observer.disconnect();
+    };
+  }, [groups.length]);
+  const fade = edges.start && edges.end
+    ? '[mask-image:linear-gradient(to_right,transparent,#000_2rem,#000_calc(100%-2rem),transparent)]'
+    : edges.start
+      ? '[mask-image:linear-gradient(to_right,transparent,#000_2rem)]'
+      : edges.end
+        ? '[mask-image:linear-gradient(to_left,transparent,#000_2rem)]'
+        : '';
 
   // A group with nothing left to show for this person (a direct link, or demo
   // mode switched on) falls back to Account instead of an empty page.
@@ -55,7 +95,7 @@ export function SettingsFrame({ children }: { children: ReactNode }) {
     <div className="p-4 lg:p-6 max-w-3xl lg:max-w-6xl mx-auto lg:grid lg:grid-cols-[200px_minmax(0,1fr)] lg:gap-8 lg:items-start">
       {/* Phones: the underline strip the project tabs use, scrolling sideways. */}
       <nav aria-label="Settings" className="lg:hidden mb-6 border-b border-white/[0.08]">
-        <ul className="flex items-end gap-1 -mb-px pb-px overflow-x-auto overflow-y-hidden overscroll-x-contain scrollbar-none">
+        <ul ref={stripRef} className={`flex items-end gap-1 -mb-px pb-px overflow-x-auto overflow-y-hidden overscroll-x-contain scrollbar-none ${fade}`}>
           {groups.map((group) => {
             const active = current?.key === group.key;
             return (

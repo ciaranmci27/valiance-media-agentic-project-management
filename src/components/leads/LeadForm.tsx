@@ -219,7 +219,7 @@ export function LeadForm({ isOpen, onClose, lead, onConvertRequested }: LeadForm
             Cancel
           </Button>
           <Button type="submit" disabled={saving}>
-            {saving ? 'Saving...' : lead ? 'Save Changes' : 'Add Lead'}
+            {saving ? 'Saving...' : lead ? 'Save changes' : 'Add lead'}
           </Button>
         </div>
       </form>
