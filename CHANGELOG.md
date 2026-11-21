@@ -9,6 +9,11 @@ Each section starts with `## X.Y.Z (YYYY-MM-DD)` and uses these headings, leavin
 - `### Database`: the core migration files in the release, one per line. `npm run db:migrate` applies them.
 - `### Breaking`: what an install must do when it takes this release.
 
+## 1.1.2 (2026-11-20)
+
+### Changed
+- The email parser is postal-mime 4.2.1 everywhere: the monorepo's tests ran 4.0.4 while installs and production run 4.2.1, which keeps a text attachment's final line break. Core checks pass in the public repo.
+
 ## 1.1.1 (2026-11-20)
 
 ### Changed

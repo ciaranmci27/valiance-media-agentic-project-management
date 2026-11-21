@@ -117,6 +117,7 @@ After a release with a `### Database` section in `CHANGELOG.md`, apply its migra
 - **A new permission** gets its module in `PERMISSION_MODULE` (`src/lib/modules/registry.ts`) and its `permission_modules` row in the migration.
 - **A new module** goes in `MODULE_IDS` and `MODULES`, with its `workspace_modules` row in the same migration. `npm run test:modules` fails until the registry and the database agree.
 - **Client-owned paths** change in `scripts/lib/core-paths.ts` and `.claude/hooks/guard-core.mjs` together. `npm run test:agent-guard` fails when they differ.
+- **Scripts and tests read git paths relative to the app folder** (`git show REF:./supabase/schema.sql`), never `app/...`: the public repo and every install have the app at their root, so a monorepo path fails their Core checks.
 - **Never change a shipped file in `src/custom/`**: installs own those files. A new plug-in point must work when an install leaves it empty.
 - **To publish a release**: bump `version` in `package.json` and add its section to `CHANGELOG.md` (`## X.Y.Z (YYYY-MM-DD)` with `### Added`, `### Changed`, `### Database`, `### Breaking`; leave out empty ones). `### Breaking` says exactly what an install must do. When the change reaches `main`, the sync workflow tags the release on the public repo and publishes that section as its notes. No section, no release.
 
