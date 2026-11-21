@@ -1,4 +1,5 @@
-import { Bell, Building2, CircleArrowUp, Code2, Database, LayoutGrid, Mail, User, type LucideIcon } from 'lucide-react';
+import { Bell, CircleArrowUp, Code2, Database, Globe, LayoutGrid, Mail, Receipt, User, type LucideIcon } from 'lucide-react';
+import { hourApprovalsExist } from '@/lib/finance/finance-views';
 import { useAuth } from '@/lib/auth-context';
 import { useDemo } from '@/lib/demo-context';
 import { hasPermission, isModuleEnabled } from '@/lib/access-control';
@@ -12,7 +13,7 @@ import { customSettingsGroups, useCustomSettingsVisibility } from '@/lib/extensi
  */
 
 /** Core groups, then the install's own Settings sections (src/custom), keyed `custom:<key>`. */
-export type SettingsGroupKey = 'workspace' | 'updates' | 'account' | 'notifications' | 'business' | 'email' | 'developers' | 'data' | `custom:${string}`;
+export type SettingsGroupKey = 'workspace' | 'updates' | 'account' | 'notifications' | 'billing' | 'portal' | 'email' | 'developers' | 'data' | `custom:${string}`;
 
 export interface SettingsGroup {
   key: SettingsGroupKey;
@@ -34,13 +35,19 @@ export const EMAIL_PAGES = {
 } as const;
 
 export const SETTINGS_GROUPS: SettingsGroup[] = [
-  // Workspace-wide, so it leads the menu for the Owners who see it.
-  { key: 'workspace', href: '/settings/workspace', label: 'Workspace', icon: LayoutGrid, sectionIds: ['features', 'brand'] },
+  // Your own account first: everyone has it, so it is also where /settings opens.
+  { key: 'account', href: '/settings/account', label: 'Account', icon: User, sectionIds: ['profile', 'timezone', 'password', 'appearance'] },
   // New versions of the app and how to install them (Owners only).
   { key: 'updates', href: '/settings/updates', label: 'Updates', icon: CircleArrowUp, sectionIds: ['updates'] },
-  { key: 'account', href: '/settings/account', label: 'Account', icon: User, sectionIds: ['profile', 'timezone', 'password', 'appearance'] },
+  // Workspace-wide: the modules and the brand (Owners only).
+  { key: 'workspace', href: '/settings/workspace', label: 'Workspace', icon: LayoutGrid, sectionIds: ['features', 'brand'] },
   { key: 'notifications', href: '/settings/notifications', label: 'Notifications', icon: Bell, sectionIds: ['notifications'] },
-  { key: 'business', href: '/settings/business', label: 'Business', icon: Building2, sectionIds: ['business'] },
+  // Invoice details (Client invoicing) and hour approvals (either money
+  // module). Was Business, at /settings/business, which still redirects here;
+  // 'business' keeps old /settings#business links landing on this page.
+  { key: 'billing', href: '/settings/billing', label: 'Billing', icon: Receipt, sectionIds: ['invoice-details', 'hour-approvals', 'business'] },
+  // Portal-wide settings, while the Client portal is on.
+  { key: 'portal', href: '/settings/portal', label: 'Client portal', icon: Globe, sectionIds: ['analytics-exclusions'] },
   {
     key: 'email',
     href: '/settings/email',
@@ -55,7 +62,7 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
     },
   },
   { key: 'developers', href: '/settings/developers', label: 'Developers', icon: Code2, sectionIds: ['api-keys', 'webhooks'] },
-  { key: 'data', href: '/settings/data', label: 'Data', icon: Database, sectionIds: ['trash', 'analytics-exclusions', 'demo-mode'] },
+  { key: 'data', href: '/settings/data', label: 'Data', icon: Database, sectionIds: ['trash', 'demo-mode'] },
   // The install's own sections, after core's.
   ...customSettingsGroups(),
 ];
@@ -99,7 +106,10 @@ export function useSettingsAccess() {
     brand: isOwner,
     // Owners only. In demo mode the page says updates are off there.
     updates: isOwner,
-    business: canManageSettings,
+    // Billing: invoice details only mean something with Client invoicing on;
+    // hour approvals only while hours wait for review (either money module).
+    invoiceDetails: canManageSettings && isModuleEnabled(access, 'billing'),
+    hourApprovals: canManageSettings && hourApprovalsExist(access),
     // Every active member can create personal keys; none in demo mode.
     apiKeys: !isDemoMode && !isGuest,
     webhooks: canManageWebhooks && !isDemoMode,
@@ -119,7 +129,8 @@ export function useSettingsAccess() {
     updates: show.updates,
     account: true,
     notifications: true,
-    business: show.business,
+    billing: show.invoiceDetails || show.hourApprovals,
+    portal: show.analyticsExclusions,
     email: show.smtp || show.emailInboxes,
     developers: show.apiKeys || show.webhooks,
     data: !isGuest,

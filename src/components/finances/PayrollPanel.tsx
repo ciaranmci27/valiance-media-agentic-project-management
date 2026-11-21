@@ -94,9 +94,10 @@ export function PayrollPanel({ team, projects, reviewOnly = false }: { team: Tea
   const canManagePayouts = hasPermission(access, 'payouts.manage');
   const canManage = canManageCompensation || canManagePayouts;
   const canApprove = hasPermission(access, 'time.approve');
-  // With billing off, review is about hours alone: no pay, no rate needed,
-  // and no billing conversion to mention.
-  const isBillingEnabled = isModuleEnabled(access, 'billing');
+  // Pay is Team pay's: with it off, review needs no rate and shows no pay.
+  // Agent billed-time conversion and invoiceable hours are Client invoicing's.
+  const isPayEnabled = isModuleEnabled(access, 'team_pay');
+  const isInvoicingEnabled = isModuleEnabled(access, 'billing');
   // Payroll is one cached read (reads.ts), shared with the store's earnings
   // and the compensation modal: a read already made paints at once.
   const [data, setData] = useState<PayrollData>(() => {
@@ -594,7 +595,7 @@ export function PayrollPanel({ team, projects, reviewOnly = false }: { team: Tea
         toast(
           'success',
           decision === 'approved'
-            ? isBillingEnabled ? 'Session approved and converted' : 'Session approved'
+            ? isInvoicingEnabled ? 'Session approved and converted' : 'Session approved'
             : 'Session rejected',
         );
       } catch (error) {
@@ -855,7 +856,7 @@ export function PayrollPanel({ team, projects, reviewOnly = false }: { team: Tea
       <div className="px-5 py-4 flex flex-wrap items-center justify-between gap-3 border-b border-white/[0.06]">
         <div>
           <div className="flex items-center gap-2">
-            {isBillingEnabled
+            {isPayEnabled
               ? <WalletCards size={18} className="text-brand-300" />
               : <Clock3 size={18} className="text-brand-300" aria-hidden="true" />}
             <h2 className="font-semibold text-white">
@@ -931,7 +932,7 @@ export function PayrollPanel({ team, projects, reviewOnly = false }: { team: Tea
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <p className="text-xs text-zinc-400">
                   {pending.length} submitted {pending.length === 1 ? 'entry' : 'entries'}.
-                  {isBillingEnabled ? (
+                  {isInvoicingEnabled ? (
                     <>
                       {' '}Approving makes the hours invoiceable
                       {pending.some((entry) => agentMemberIds.has(entry.member_id))
@@ -967,7 +968,7 @@ export function PayrollPanel({ team, projects, reviewOnly = false }: { team: Tea
                   // cost); their entries are approvable without one.
                   const isAgentEntry = agentMemberIds.has(entry.member_id);
                   const missingRate =
-                    isBillingEnabled && !isAgentEntry && !hasEffectiveRate(entry.member_id, entry.start_time);
+                    isPayEnabled && !isAgentEntry && !hasEffectiveRate(entry.member_id, entry.start_time);
                   return (
                     <Checkbox
                       key={entry.id}
@@ -1025,7 +1026,7 @@ export function PayrollPanel({ team, projects, reviewOnly = false }: { team: Tea
                                 {hours.toFixed(2)}
                                 <span className="ml-0.5 text-xs font-normal text-zinc-500">h</span>
                               </span>
-                              {isBillingEnabled && !isAgentEntry && !missingRate && (
+                              {isPayEnabled && !isAgentEntry && !missingRate && (
                                 <span className="block text-[11px] tabular-nums text-zinc-500">
                                   {money(hours * Number(entry.compensation_rate || 0))}
                                 </span>

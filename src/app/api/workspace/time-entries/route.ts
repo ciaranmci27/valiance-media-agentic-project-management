@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { fetchAllRows } from '@/lib/supabase/fetch-all';
 import { accessAllows, accessAllowsProject, requireSessionAccess, sanitizeTimeEntryForAccess } from '@/lib/api/access';
 import { fetchMemberBillingMultiplier, resolveProjectHourlyRate } from '@/lib/supabase/queries';
-import { APPROVED_ENTRY_LOCKED_MESSAGE, lockedApprovedFields } from '@/lib/time-entry-lock';
+import { APPROVED_ENTRY_LOCKED_MESSAGE, approvedEntryLocked, lockedApprovedFields } from '@/lib/time-entry-lock';
 import { moveToTrash, postgrestList, TRASH_ERROR_STATUS, trashedProjectIds, TrashError } from '@/lib/supabase/trash';
 import { replaceEntryTaskLinks, withLiveTaskIds } from '@/lib/api/task-guards';
 
@@ -215,7 +215,7 @@ export async function PATCH(request: Request) {
   const canManageAll = accessAllows(access, 'time.manage_all', 'app');
   if (!canManageAll && existing.member_id !== memberId) return responseError('Forbidden', 403);
   // Approval locks the time and money, not the notes (see time-entry-lock).
-  if (!canManageAll && existing.approval_status === 'approved') {
+  if (!canManageAll && existing.approval_status === 'approved' && approvedEntryLocked(access)) {
     const locked = lockedApprovedFields(body as Record<string, unknown>);
     if (locked.length > 0) return responseError(`${APPROVED_ENTRY_LOCKED_MESSAGE} (not ${locked.join(', ')})`, 409);
   }

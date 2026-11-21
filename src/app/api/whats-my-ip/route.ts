@@ -5,9 +5,9 @@ import { getClientIp } from '@/lib/portal-analytics';
 export const dynamic = 'force-dynamic';
 
 /**
- * Echo the request's client IP back to the caller. Used by the Business Info
- * settings page's "Add my current IP" button so admins don't have to look up
- * their own IP elsewhere.
+ * Echo the request's client IP back to the caller. Used by the Detect IP
+ * button in Settings > Client portal (analytics exclusions) so admins don't
+ * have to look up their own IP elsewhere.
  *
  * Auth-gated to team members so this can't be abused as a public IP-echo
  * service.

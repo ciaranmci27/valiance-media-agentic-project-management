@@ -29,33 +29,43 @@ export const MODULE_SURFACES: Record<ModuleId, ModuleSurface> = {
   time: {
     tables: ['project_time_entries', 'time_entry_tasks'],
     rpcs: ['review_time_entries', 'review_time_entries_api', 'get_accessible_time_entries', 'apply_agent_billing_conversion', 'time_entry_is_live'],
-    routes: ['api/v1/projects/[id]/time-entries', 'api/workspace/time-entries'],
+    routes: ['api/v1/projects/[id]/time-entries', 'api/workspace/time-entries', '(protected)/time'],
   },
   billing: {
     tables: [
-      'project_invoices', 'invoice_payments', 'invoice_time_entry_allocations', 'invoice_line_shares',
+      'project_invoices', 'invoice_payments', 'invoice_time_entry_allocations',
       'project_billing_plans', 'project_billing_runs', 'billing_draft_notices', 'project_budget_history',
       'project_hourly_rates', 'project_retainers', 'project_retainer_amounts', 'project_retainer_periods',
-      'project_retainer_shares', 'team_member_earning_adjustments', 'team_member_hourly_rates',
-      'team_member_payout_allocations', 'team_member_payouts', 'team_member_share_earnings',
     ],
     rpcs: [
       'invoice_hours_draft', 'save_project_invoice_with_allocations', 'suggest_project_invoice_number',
-      'schedule_retainer_amount', 'set_retainer_shares', 'schedule_team_member_hourly_rate',
-      'record_team_member_payout', 'generate_retainer_period', 'set_invoice_line_shares', 'retainer_due_periods',
+      'schedule_retainer_amount', 'generate_retainer_period', 'retainer_due_periods',
       'save_project_retainer', 'retainer_accruing_lines', 'save_project_billing_plan', 'billing_forecast',
       'remove_invoice_payment', 'project_invoice_payments', 'record_invoice_payment',
-      'resolve_team_member_hourly_rate', 'validate_team_member_payout', 'invoice_is_live', 'retainer_is_live',
-      'generate_retainer_drafts', 'generate_billing_drafts',
+      'invoice_is_live', 'retainer_is_live', 'generate_retainer_drafts', 'generate_billing_drafts',
     ],
     routes: [
       'api/v1/invoices', 'api/v1/billing', 'api/v1/projects/[id]/invoices', 'api/v1/projects/[id]/hourly-rates',
       'api/projects/[id]/invoices', 'api/projects/[id]/budget-change', 'api/projects/[id]/budget-history',
-      // Budget emails also need the Client portal; the route checks both.
+      // Budget emails also need the Client portal and Contacts; the route checks all three.
       'api/projects/[id]/budget-alerts',
       'api/internal/billing',
-      '(protected)/finances',
+      '(protected)/finances/billing',
     ],
+  },
+  team_pay: {
+    // Revenue splits on retainers and invoice lines are pay: who earns what
+    // from the client's money, behind compensation.manage.
+    tables: [
+      'team_member_hourly_rates', 'team_member_earning_adjustments', 'team_member_payouts',
+      'team_member_payout_allocations', 'team_member_share_earnings', 'project_retainer_shares',
+      'invoice_line_shares',
+    ],
+    rpcs: [
+      'schedule_team_member_hourly_rate', 'record_team_member_payout', 'resolve_team_member_hourly_rate',
+      'validate_team_member_payout', 'set_retainer_shares', 'set_invoice_line_shares',
+    ],
+    routes: [],
   },
   webhooks: {
     tables: ['webhook_endpoints', 'webhook_events', 'webhook_deliveries'],
@@ -125,8 +135,12 @@ export const MODULE_SURFACES: Record<ModuleId, ModuleSurface> = {
 
 /** Routes that serve several modules and check each part's module inside. */
 export const SHARED_ROUTES: Array<{ route: string; modules: ModuleId[] }> = [
-  // Pay (Billing and finance) and time approvals (Time tracking) on one page.
-  { route: 'api/workspace/payroll', modules: ['billing', 'time'] },
+  // Pay (Team pay) and time approvals (Time tracking) on one page.
+  { route: 'api/workspace/payroll', modules: ['team_pay', 'time'] },
+  // Finances: company revenue and invoices (Client invoicing), payroll and
+  // earnings (Team pay), the timesheet (Time tracking). The layout gates on
+  // Time, which both money modules need; each tab checks its own module.
+  { route: '(protected)/finances', modules: ['billing', 'team_pay', 'time'] },
 ];
 
 /** Always on: what every workspace has. */

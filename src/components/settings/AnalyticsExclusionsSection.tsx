@@ -3,9 +3,9 @@
 /**
  * Admin-managed IP exclusion list for the portal analytics dashboard.
  *
- * Lives in its own settings section (not under Business Info) because it's
- * analytics config, not invoice/billing config — they only share storage on
- * the singleton business_settings row.
+ * Lives under Settings > Client portal: it filters portal analytics, so it
+ * goes with the portal. It shares storage with the invoice details on the
+ * singleton business_settings row, nothing more.
  *
  * Save semantics match the rest of the settings sections: edit locally, hit
  * Save, the singleton row is patched.

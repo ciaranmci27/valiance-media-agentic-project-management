@@ -15,5 +15,16 @@ export function lockedApprovedFields(body: Record<string, unknown>): string[] {
   return Object.keys(body).filter((key) => key !== 'id' && !APPROVED_ENTRY_EDITABLE_FIELDS.has(key));
 }
 
+import { isModuleEnabled, type AccessContext } from '@/lib/access-control';
+
+/**
+ * Whether an approved entry is fixed, as the database trigger decides: money
+ * depends on it while Client invoicing or Team pay is on. With neither, its
+ * own member can still correct the time.
+ */
+export function approvedEntryLocked(access: AccessContext): boolean {
+  return isModuleEnabled(access, 'billing') || isModuleEnabled(access, 'team_pay');
+}
+
 export const APPROVED_ENTRY_LOCKED_MESSAGE =
   'Approved time is locked: only the description and linked tasks can change';

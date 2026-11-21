@@ -9,7 +9,9 @@
  *   scheduled jobs and the webhook claim follow the switch; schema.sql holds
  *   exactly what the migration does.
  * - Real rows, owner and member, with a module off: nothing read, nothing
- *   written. Time approval needs no pay rate while Billing is off.
+ *   written. Time approval needs no pay rate while Team pay is off, converts
+ *   agent hours only while Client invoicing is on, and with both off finished
+ *   time is approved as it is logged.
  * - Every route file under the module folders is claimed once.
  * - readEnabledModules on a stub client: missing table, other error, missing row.
  * - Real routes over fake-postgrest: withApi's MODULE_OFF answer, the agents
@@ -195,6 +197,13 @@ async function schemaLines(db: PGlite): Promise<string[]> {
   return rows.map((r) => r.line).sort();
 }
 
+/** The core migrations after this one, oldest first. */
+function laterMigrations(): Array<{ name: string; sql: string }> {
+  const migrations = join(APP, 'supabase', 'migrations');
+  return readdirSync(migrations).filter((name) => name.endsWith('.sql') && name > MIGRATION).sort()
+    .map((name) => ({ name, sql: readFileSync(join(migrations, name), 'utf8') }));
+}
+
 /** schema.sql before this migration: its parent commit's copy once committed, HEAD's before. */
 function schemaBefore(): string {
   const git = (args: string[]) => execFileSync('git', args, { cwd: APP, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
@@ -210,16 +219,13 @@ async function migrationChecks(applied: PGlite, fromSchema: PGlite) {
   await before.exec(MIGRATION_SQL);
   await before.exec(MIGRATION_SQL);
   // Later migrations are in schema.sql too, so they are applied after this one.
-  const migrations = join(APP, 'supabase', 'migrations');
-  for (const later of readdirSync(migrations).filter((name) => name.endsWith('.sql') && name > MIGRATION).sort()) {
-    await before.exec(readFileSync(join(migrations, later), 'utf8'));
-  }
+  for (const later of laterMigrations()) await before.exec(later.sql);
   const [a, b] = [await schemaLines(fromSchema), await schemaLines(before)];
   const onlySchema = a.filter((line) => !b.includes(line));
   const onlyMigration = b.filter((line) => !a.includes(line));
   check('mirror: schema.sql holds exactly what the migration does', onlySchema.length === 0 && onlyMigration.length === 0,
     { onlySchema: onlySchema.slice(0, 6), onlyMigration: onlyMigration.slice(0, 6) });
-  check('mirror: applying the migration on schema.sql changes nothing', JSON.stringify(await schemaLines(applied)) === JSON.stringify(a));
+  check('mirror: applying the migration and the ones after it on schema.sql changes nothing', JSON.stringify(await schemaLines(applied)) === JSON.stringify(a));
   await before.close();
 
   // The agent tables' gate lands where those tables exist (production applies migrations after both schema files).
@@ -342,32 +348,104 @@ async function rowChecks(db: PGlite, s: Seeded) {
   }
   await setModules(db, MODULE_IDS);
 
-  // Approving time: with Billing off no pay rate is needed or set; with it on, still required.
-  const pending = async () => {
+  // Approving time. Pay is Team pay's: with it off no pay rate is needed or
+  // set; with it on, still required. Agent billed-time conversion is Client
+  // invoicing's. With both off there is nothing to review: finished time is
+  // approved as it is logged, for every role.
+  let minute = 0;
+  const logged = async (memberId: string, finished = true) => {
     await asDatabaseOwner(db);
-    const start = new Date(Date.UTC(2026, 10, 4, 15, Math.floor(Math.random() * 59))).toISOString();
+    // Distinct start times, so no two entries of one member overlap.
+    const start = new Date(Date.UTC(2026, 10, 4, 6, 0) + (minute++) * 7_200_000).toISOString();
     const end = new Date(Date.parse(start) + 3600_000).toISOString();
-    return (await db.query<{ id: string; approval_status: string }>(`INSERT INTO public.project_time_entries (project_id, member_id, start_time, end_time, segments, work_type)
-      VALUES ($1, $2, $3, $4, $5::jsonb, 'client') RETURNING id, approval_status`, [s.project, s.member, start, end, JSON.stringify([{ start, end }])])).rows[0];
+    return (await db.query<{ id: string; approval_status: string; approved_by: string | null }>(`INSERT INTO public.project_time_entries (project_id, member_id, start_time, end_time, segments, work_type)
+      VALUES ($1, $2, $3, $4, $5::jsonb, 'client') RETURNING id, approval_status, approved_by`,
+    [s.project, memberId, start, finished ? end : null, JSON.stringify(finished ? [{ start, end }] : [{ start }])])).rows[0];
   };
+  const pending = () => logged(s.member);
+  const entryRow = async (id: string) => {
+    await asDatabaseOwner(db);
+    return (await db.query<{ approval_status: string; approved_by: string | null; compensation_rate: string; billing_converted_at: string | null }>(
+      'SELECT approval_status, approved_by, compensation_rate, billing_converted_at FROM public.project_time_entries WHERE id = $1', [id])).rows[0];
+  };
+  const review = async (ids: string[]) => {
+    await actAs(db, OWNER_USER);
+    const result = await attempt(db, "SELECT id FROM public.review_time_entries($1::uuid[], 'approved')", [ids]);
+    await asDatabaseOwner(db);
+    return result;
+  };
+  const NO_MONEY: ModuleId[] = ['time', 'contacts', 'inbox', 'agents', 'credentials'];
+
   const first = await pending();
   check('approval: a member entry waits for review', first.approval_status === 'pending', first);
-  await setModules(db, ['time', 'contacts', 'inbox', 'agents', 'credentials']);
-  await actAs(db, OWNER_USER);
-  const timeOnly = await attempt(db, "SELECT approval_status, compensation_rate FROM public.review_time_entries(ARRAY[$1]::uuid[], 'approved')", [first.id]);
-  await asDatabaseOwner(db);
-  const firstAfter = (await db.query<{ approval_status: string; compensation_rate: string }>('SELECT approval_status, compensation_rate FROM public.project_time_entries WHERE id = $1', [first.id])).rows[0];
+  await setModules(db, NO_MONEY);
+  const timeOnly = await review([first.id]);
+  const firstAfter = await entryRow(first.id);
   check('approval: a time-only workspace approves a human entry with no rate', timeOnly.ok && firstAfter.approval_status === 'approved', { timeOnly, firstAfter });
   check('approval: and sets no pay', Number(firstAfter.compensation_rate) === 0, firstAfter);
-  const second = await pending();
-  await setModules(db, MODULE_IDS);
-  await actAs(db, OWNER_USER);
-  const withBilling = await attempt(db, "SELECT id FROM public.review_time_entries(ARRAY[$1]::uuid[], 'approved')", [second.id]);
-  check('approval: with Billing on a missing rate still blocks approval', !withBilling.ok && /Compensation rate missing/.test(withBilling.error ?? ''), withBilling);
+
+  // Both money modules off: submitted time is approved as it is logged.
+  const memberLogged = await logged(s.member);
+  check('approval: with no money modules a member\'s finished entry is approved on submit',
+    memberLogged.approval_status === 'approved' && memberLogged.approved_by === null, memberLogged);
+  const agentLogged = await logged(AGENT_MEMBER);
+  check('approval: with no money modules an agent\'s entry is approved on submit',
+    agentLogged.approval_status === 'approved' && agentLogged.approved_by === null, agentLogged);
+  const timer = await logged(AGENT_MEMBER, false);
+  check('approval: a running timer stays a draft', timer.approval_status === 'draft', timer);
+  await db.query(`UPDATE public.project_time_entries SET end_time = start_time + interval '30 minutes',
+    segments = jsonb_build_array(jsonb_build_object('start', start_time, 'end', start_time + interval '30 minutes')) WHERE id = $1`, [timer.id]);
+  const stopped = await entryRow(timer.id);
+  check('approval: stopping an agent timer with no money modules approves it', stopped.approval_status === 'approved' && stopped.approved_by === null, stopped);
+  check('approval: and converts nothing', stopped.billing_converted_at === null, stopped);
+  // With no pay attached, an approved entry can still be corrected by its member.
+  await asDatabaseOwner(db);
+  const correct = await attempt(db, "UPDATE public.project_time_entries SET start_time = start_time - interval '15 minutes' WHERE id = $1", [memberLogged.id]);
+  check('lock: with Team pay off the time of an approved entry can be corrected', correct.ok, correct);
+
+  // Either money module on: today's review rules.
+  await setModules(db, allBut('team_pay'));
+  await asDatabaseOwner(db);
+  const billedLock = await attempt(db, "UPDATE public.project_time_entries SET start_time = start_time - interval '15 minutes' WHERE id = $1", [memberLogged.id]);
+  check('lock: with Client invoicing on (Team pay off) the time of an approved entry is locked', !billedLock.ok && /compensation is locked/.test(billedLock.error ?? ''), billedLock);
+  const agentWaits = await logged(AGENT_MEMBER);
+  check('approval: with Client invoicing on an agent entry waits for review', agentWaits.approval_status === 'pending', agentWaits);
+  const memberWaits = await pending();
+  check('approval: with Client invoicing on a member entry waits (auto-approve off)', memberWaits.approval_status === 'pending', memberWaits);
+  const invoicingOnly = await review([memberWaits.id, agentWaits.id]);
+  const memberApproved = await entryRow(memberWaits.id);
+  const agentApproved = await entryRow(agentWaits.id);
+  check('approval: Client invoicing without Team pay approves a member with no pay rate',
+    invoicingOnly.ok && memberApproved.approval_status === 'approved' && Number(memberApproved.compensation_rate) === 0, { invoicingOnly, memberApproved });
+  check('approval: and still converts agent hours', agentApproved.approval_status === 'approved' && agentApproved.billing_converted_at !== null, agentApproved);
+
   await setModules(db, allBut('billing'));
+  await asDatabaseOwner(db);
+  const lockedNow = await attempt(db, "UPDATE public.project_time_entries SET start_time = start_time - interval '15 minutes' WHERE id = $1", [memberLogged.id]);
+  check('lock: with Team pay on the time of an approved entry is locked', !lockedNow.ok && /compensation is locked/.test(lockedNow.error ?? ''), lockedNow);
+  const payOnlyAgent = await logged(AGENT_MEMBER);
+  check('approval: with Team pay on an agent entry waits for review', payOnlyAgent.approval_status === 'pending', payOnlyAgent);
+  const payOnlyMember = await pending();
+  const payOnly = await review([payOnlyMember.id]);
+  check('approval: with Team pay on (Client invoicing off) a missing rate blocks approval',
+    !payOnly.ok && /Compensation rate missing/.test(payOnly.error ?? ''), payOnly);
+  const payOnlyAgentReview = await review([payOnlyAgent.id]);
+  const payOnlyAgentAfter = await entryRow(payOnlyAgent.id);
+  check('approval: Team pay alone approves an agent with no conversion',
+    payOnlyAgentReview.ok && payOnlyAgentAfter.approval_status === 'approved' && payOnlyAgentAfter.billing_converted_at === null, { payOnlyAgentReview, payOnlyAgentAfter });
+  await actAs(db, null);
+  const apiPayOnly = await attempt(db, "SELECT id FROM public.review_time_entries_api($1, ARRAY[$2]::uuid[], 'approved', NULL, $3)", [s.project, payOnlyMember.id, s.owner]);
+  check('approval: the API review asks for a rate with Team pay on', !apiPayOnly.ok && /Compensation rate missing/.test(apiPayOnly.error ?? ''), apiPayOnly);
+
+  await setModules(db, MODULE_IDS);
+  const second = await pending();
+  check('approval: with everything on a member entry waits for review', second.approval_status === 'pending', second);
+  const withBilling = await review([second.id]);
+  check('approval: with Billing on a missing rate still blocks approval', !withBilling.ok && /Compensation rate missing/.test(withBilling.error ?? ''), withBilling);
+  await setModules(db, allBut('team_pay'));
   await actAs(db, null);
   const apiReview = await attempt(db, "SELECT id FROM public.review_time_entries_api($1, ARRAY[$2]::uuid[], 'approved', NULL, $3)", [s.project, second.id, s.owner]);
-  check('approval: the API review follows the same rule', apiReview.ok, apiReview);
+  check('approval: the API review needs no rate with Team pay off', apiReview.ok, apiReview);
   await setModules(db, MODULE_IDS);
 
   // The webhook claim hands out nothing while Webhooks is off; the delivery waits untouched.
@@ -533,7 +611,7 @@ async function routeChecks(db: PGlite, s: Seeded) {
     const off = await api(invoices.GET as Handler, 'GET', '/api/v1/invoices', keys.owner);
     check('withApi: billing off is 403 MODULE_OFF, owners included', off.status === 403 && off.body?.error?.code === MODULE_OFF, off);
     check('withApi: it names the module', off.body?.error?.details?.module === 'billing' && off.body?.error?.details?.reason === 'module_off', off.body);
-    check('withApi: in plain words', off.body?.error?.message === 'Billing and finance is switched off for this workspace.', off.body?.error?.message);
+    check('withApi: in plain words', off.body?.error?.message === 'Client invoicing is switched off for this workspace.', off.body?.error?.message);
     const plain = await api(teamMembers.GET as Handler, 'GET', '/api/v1/team-members', keys.ownerNarrow);
     check('withApi: a missing scope stays a plain denial', plain.status === 403 && plain.body?.error?.code === 'FORBIDDEN' && plain.body?.error?.details?.reason === 'missing_key_scope', plain);
     await setModules(db, MODULE_IDS);
@@ -592,6 +670,13 @@ async function routeChecks(db: PGlite, s: Seeded) {
       const result = await render(type);
       check(`client email: billing off refuses ${type}`, result.error === moduleOffMessage('billing'), result);
     }
+    await setModules(db, allBut('contacts'));
+    for (const type of ['project_summary', 'portal_welcome', ...BILLING_EMAILS]) {
+      const result = await render(type);
+      check(`client email: contacts off refuses ${type}`, result.error === moduleOffMessage('contacts'), result);
+    }
+    const portalNoContacts = await openPortal();
+    check('portal: contacts off still opens the portal', portalNoContacts.status === 200 && portalNoContacts.body.settings.show_hours === true, portalNoContacts.status);
     await setModules(db, allBut('portal'));
     const invoiceNoPortal = await renderCommunication(s.project, 'invoice', {}, { invoiceId: s.invoice }) as { error?: string; html?: string; text?: string };
     check('client email: portal off still sends the invoice, with no portal link',
@@ -652,8 +737,12 @@ async function routeChecks(db: PGlite, s: Seeded) {
     const editor = { memberId: s.owner, access: ownerAccess as AccessContext };
     const keep = await editApiKey(service, editor, ownerKey, { scopes: ['invoices.read', 'notifications.send', 'projects.read', 'goals.read', 'tasks.read'] });
     check('keys: saving a key that carries an off module\'s scope works', keep.status === 200, keep);
-    const add = await editApiKey(service, editor, ownerKey, { scopes: ['invoices.read', 'payouts.manage', 'tasks.read'] });
-    check('keys: adding an off module\'s scope is refused', add.status === 422 && /payouts\.manage/.test((add.body as { error: string }).error) && !/invoices\.read/.test((add.body as { error: string }).error), add);
+    const add = await editApiKey(service, editor, ownerKey, { scopes: ['invoices.read', 'finance.company.read', 'tasks.read'] });
+    check('keys: adding an off module\'s scope is refused', add.status === 422 && /finance\.company\.read/.test((add.body as { error: string }).error) && !/invoices\.read/.test((add.body as { error: string }).error), add);
+    await setModules(db, allBut('team_pay'));
+    const noPayAccess = await resolveMemberAccess(service, s.owner);
+    const addPay = await editApiKey(service, { memberId: s.owner, access: noPayAccess as AccessContext }, ownerKey, { scopes: ['invoices.read', 'payouts.manage', 'tasks.read'] });
+    check('keys: with Team pay off, adding a pay scope is refused', addPay.status === 422 && /payouts\.manage/.test((addPay.body as { error: string }).error) && !/invoices\.read/.test((addPay.body as { error: string }).error), addPay);
     await setModules(db, MODULE_IDS);
 
     // The refusal helpers behind requireSessionAccess and the session routes.
@@ -664,6 +753,12 @@ async function routeChecks(db: PGlite, s: Seeded) {
     const denied = deniedResponse(ownerNoBilling, ['invoices.read']);
     const deniedBody = await denied.json() as Payload;
     check('session: the refusal carries the code and module', denied.status === 403 && deniedBody.code === MODULE_OFF && deniedBody.module === 'billing' && /switched off/.test(deniedBody.error), deniedBody);
+    const ownerNoPay: AccessContext = { ...ownerAll, modules: allBut('team_pay') };
+    check('session: pay and earnings name Team pay when it is off',
+      moduleOffFor(ownerNoPay, ['compensation.manage', 'payouts.manage', 'earnings.own.read']) === 'team_pay');
+    const payDenied = await deniedResponse(ownerNoPay, ['compensation.manage', 'payouts.manage', 'earnings.own.read']).json() as Payload;
+    check('session: the pay refusal carries MODULE_OFF and team_pay', payDenied.code === MODULE_OFF && payDenied.module === 'team_pay', payDenied);
+    check('session: Team pay off leaves invoices alone', moduleOffFor(ownerNoPay, ['invoices.read']) === null);
     const memberNone: AccessContext = { ...ownerAll, role: 'member', app_permissions: [], api_permissions: [], modules: [...MODULE_IDS] };
     const plainDenied = await deniedResponse(memberNone, ['invoices.read']).json() as Payload;
     check('session: a missing grant stays Forbidden', plainDenied.error === 'Forbidden' && !plainDenied.code, plainDenied);
@@ -716,6 +811,9 @@ async function main() {
   await asDatabaseOwner(applied);
   await applied.exec(MIGRATION_SQL);
   await applied.exec(MIGRATION_SQL);
+  // The migrations after it in order, as an install applies them: a later
+  // one may redefine a function this one wrote (team pay redefines review).
+  for (const later of laterMigrations()) await applied.exec(later.sql);
   await staticChecks(applied);
   await migrationChecks(applied, fromSchema);
   await fromSchema.close();

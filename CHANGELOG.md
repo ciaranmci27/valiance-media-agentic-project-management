@@ -9,6 +9,25 @@ Each section starts with `## X.Y.Z (YYYY-MM-DD)` and uses these headings, leavin
 - `### Database`: the core migration files in the release, one per line. `npm run db:migrate` applies them.
 - `### Breaking`: what an install must do when it takes this release.
 
+## 1.5.0 (2026-11-21)
+
+### Added
+- Team pay, a module of its own: pay rates, payroll, payouts and each person's earnings. Client invoicing (the former Billing and finance) keeps invoices, retainers, payments and company revenue. Turn on either, both or neither in Settings > Workspace > Features.
+- One Time view: your hours week by week, and the team's for people who see all time (each person's days in their own timezone, agent hours as worked time), with the review queue where approvals apply. It is a tab in Finances when a money module is on, and its own page at /time when neither is.
+- Settings > Billing (Owners): invoice details with Client invoicing on, hour approvals with either money module on. Settings > Client portal holds the portal analytics exclusions.
+
+### Changed
+- With neither money module on, finished hours are approved as they are logged and stay editable. With either on, approved hours stay locked as before.
+- The client portal no longer needs Contacts. Client emails now do: with Contacts off, none are sent.
+- Finances is tabbed (Overview, Time, Payroll, My earnings), each tab shown only to people who may see it; the sidebar names the page each person actually gets.
+- Settings starts with Account, then Updates and Workspace. /settings/business now opens Settings > Billing.
+
+### Database
+- 20261121050000_team_pay_module.sql
+
+### Breaking
+- Team pay arrives matching your current Billing switch. If you run payroll without client invoicing, turn Team pay on and Client invoicing off in Features.
+
 ## 1.4.0 (2026-11-21)
 
 ### Added

@@ -23,7 +23,8 @@ Core is always on. Everything else is a module an Owner can switch on or off.
 
 **Modules**
 - **Time tracking**: timers, manual entries and approvals.
-- **Billing and finance**: invoices, rates, budgets, payments and team pay.
+- **Client invoicing**: invoices, retainers, billing plans, rates, budgets, payments and company revenue.
+- **Team pay**: pay rates, payroll, payouts and each person's own earnings.
 - **Contacts**: a shared address book linked to projects.
 - **Leads**: a sales pipeline with interactions, proposals and one-click conversion to a project.
 - **Client portal**: a private page per project where clients see progress, updates and files, with an optional PIN.
@@ -106,9 +107,9 @@ Owners switch modules in **Settings > Workspace > Features**. Presets set a whol
 |---|---|
 | Agency | All of them |
 | Internal team | Time tracking, Credentials, Inbox, AI agents |
-| Solo | Time tracking, Contacts, Billing and finance, Webhooks |
+| Solo | Time tracking, Contacts, Client invoicing, Webhooks |
 
-Some modules need others: Leads and Client portal need Contacts, Billing and finance needs Time tracking, and Webhooks needs Billing and finance. Turning one on turns on what it needs. Turning one off turns off what needs it.
+Some modules need others: Leads needs Contacts, Client invoicing and Team pay need Time tracking, and Webhooks needs Client invoicing. The Client portal works on its own; emailing clients needs Contacts. With Client invoicing and Team pay both off, finished hours are approved as they are logged. Turning one on turns on what it needs. Turning one off turns off what needs it.
 
 What turning a module off does:
 

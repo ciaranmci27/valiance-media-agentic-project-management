@@ -1129,7 +1129,7 @@ export const endpoints: EndpointDoc[] = [
   },
 
   // ─── Notifications ────────────────────────────────────────────────
-  { method: 'POST', path: '/api/v1/projects/:id/time-entries/review', description: 'Approve or reject pending completed time entries in one project. Reviewers cannot approve their own time. Employee approvals fail if no compensation rate was effective when the session began. Approving an agent entry also converts it into its billed continuous slot (worked time times the snapshotted billing_multiplier).', group: 'Time Entries',
+  { method: 'POST', path: '/api/v1/projects/:id/time-entries/review', description: 'Approve or reject pending completed time entries in one project. Reviewers cannot approve their own time. While Team pay is on, employee approvals fail if no compensation rate was effective when the session began. While Client invoicing is on, approving an agent entry also converts it into its billed continuous slot (worked time times the snapshotted billing_multiplier).', group: 'Time Entries',
     params: [{ name: 'id', type: 'uuid', required: true, description: 'Project ID' }],
     body: [
       { name: 'entry_ids', type: 'uuid[]', required: true, description: 'One or more time entry IDs from this project' },

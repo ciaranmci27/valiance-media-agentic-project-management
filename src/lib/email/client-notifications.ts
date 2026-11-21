@@ -697,14 +697,16 @@ export async function renderCommunication(
 
   // Client email follows the modules, here at the one place every send,
   // preview and queued approval passes: everything but the invoice email
-  // leads to the client portal, and invoices and budget figures are Billing
-  // and finance's. An unreadable switch throws (ModuleReadError).
+  // leads to the client portal, invoices and budget figures are Client
+  // invoicing's, and every one goes to the project's client, a contact.
+  // An unreadable switch throws (ModuleReadError).
   const modules = await enabledModuleSet(getServiceClient());
   if (type !== 'invoice' && !modules.has('portal')) return { error: moduleOffMessage('portal') };
   if ((type === 'invoice' || type === 'budget_threshold' || type === 'dollar_interval' || type === 'budget_extended')
     && !modules.has('billing')) {
     return { error: moduleOffMessage('billing') };
   }
+  if (!modules.has('contacts')) return { error: moduleOffMessage('contacts') };
 
   const portal = await getPortalInfo(projectId);
   if (!portal && type !== 'invoice') {
@@ -761,7 +763,7 @@ export async function renderCommunication(
 
   if (type === 'project_summary') {
     const supabase = getServiceClient();
-    // Balance, payments and budget are Billing and finance's. Switched off
+    // Balance, payments and budget are Client invoicing's. Switched off
     // the summary is the update and the portal link alone.
     if (!(await moduleEnabled(supabase, 'billing'))) {
       const defaults = projectSummaryDefaults({ projectName: project.name });

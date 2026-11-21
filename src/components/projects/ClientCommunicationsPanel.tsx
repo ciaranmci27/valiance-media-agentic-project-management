@@ -43,10 +43,11 @@ export function SendClientEmailButtons({ projectId, onSent }: { projectId: strin
   const { getPrimaryClient } = useApp();
   const { isDemoMode } = useDemo();
   const { access } = useAuth();
-  // Both emails lead the client to the portal, so they go with it (the server
-  // refuses them too); without billing a summary has no balance to share.
+  // Both emails lead the client to the portal and go to the client contact,
+  // so they go with both modules (the server refuses them too); without
+  // Client invoicing a summary has no balance to share.
   const actions = SEND_ACTIONS
-    .filter(() => isModuleEnabled(access, 'portal'))
+    .filter(() => isModuleEnabled(access, 'portal') && isModuleEnabled(access, 'contacts'))
     .map((action) => action.type === 'project_summary' && !isModuleEnabled(access, 'billing')
       ? { ...action, hint: 'Share a status update' }
       : action);

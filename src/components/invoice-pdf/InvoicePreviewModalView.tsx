@@ -126,7 +126,7 @@ const TOGGLE_DEFINITIONS: { key: keyof InvoicePdfOptions; label: string; descrip
   { key: 'showLineCaptions',        label: 'Line item captions',   description: 'Service period and frequency under each line item.' },
   { key: 'showPortalLink',          label: 'Client portal link',   description: 'Callout linking to the project portal (only shown when enabled).' },
   { key: 'showNotes',               label: 'Notes',                description: 'Per-invoice notes block.' },
-  { key: 'showPaymentInstructions', label: 'Payment instructions', description: 'Payment instructions block from Business Info.' },
+  { key: 'showPaymentInstructions', label: 'Payment instructions', description: 'Payment instructions from Settings > Billing.' },
   { key: 'showFooter',              label: 'Footer',               description: 'Page numbers, business name, and generated date.' },
   { key: 'showTimeLogs',            label: 'Time log page',        description: 'Append a second page listing the time entries that back the hourly line items.' },
 ];

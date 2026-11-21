@@ -18,8 +18,8 @@ export async function GET() {
   const canReview = accessAllows(access, 'time.approve', 'app');
   const canReadOwn = accessAllows(access, 'earnings.own.read', 'app');
   // Each part follows its own module: pay (rates, adjustments, payouts) is
-  // Billing and finance, approvals are Time tracking. With Billing off a
-  // reviewer still gets the entries, with pay withheld below.
+  // Team pay, approvals are Time tracking. With Team pay off a reviewer
+  // still gets the entries, with pay withheld below.
   if (!canManage && !canReview && !canReadOwn) {
     return deniedResponse(access, ['compensation.manage', 'payouts.manage', 'time.approve', 'earnings.own.read']);
   }

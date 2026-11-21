@@ -56,7 +56,7 @@ interface ProjectSummaryParams {
   budgetType: 'hours' | 'amount' | null;
   budgetValue: number | null;
   budgetUsed: number | null;
-  /** False when Billing and finance is switched off: every money and budget line is left out. */
+  /** False when Client invoicing is switched off: every money and budget line is left out. */
   billing?: boolean;
   slots: ProjectSummarySlots;
 }

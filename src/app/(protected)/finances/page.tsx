@@ -1,6 +1,7 @@
 'use client';
 
-import { useMemo, useState, useRef, useEffect } from 'react';
+import { Suspense, useMemo, useState, useRef, useEffect } from 'react';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useApp } from '@/lib/store';
 import { Header } from '@/components/layout/Header';
 import { getWorkedHoursByHour, isRunning } from '@/lib/time-entry-utils';
@@ -32,6 +33,10 @@ import {
 } from 'lucide-react';
 import { Avatar } from '@/components/ui/Avatar';
 import { PayrollPanel } from '@/components/finances/PayrollPanel';
+import { TimesheetView } from '@/components/time/TimesheetView';
+import { ProjectTabs, projectPanelId, projectTabId } from '@/components/projects/ProjectTabs';
+import { Button } from '@/components/ui/Button';
+import { FINANCE_TAB_LABELS, financeViews, type FinanceTab } from '@/lib/finance/finance-views';
 import { EmployeeEarningsDashboard } from '@/components/finances/EmployeeEarningsDashboard';
 import { useAuth } from '@/lib/auth-context';
 import { hasPermission, isModuleEnabled } from '@/lib/access-control';
@@ -527,11 +532,14 @@ function buildRangeBars(
 // Page
 // ---------------------------------------------------------------------------
 
-export default function FinancesPage() {
-  const { projects, projectInvoices, timeEntries, team, employeeEarnings, agentActivity } = useApp();
+/**
+ * The company view (Client invoicing): revenue, the earnings chart, invoices
+ * and the per-project breakdown, for people who read company finance.
+ */
+function CompanyOverview() {
+  const { projects, projectInvoices, timeEntries, team, agentActivity } = useApp();
   const { access, teamMemberId } = useAuth();
   const canReadCompanyFinance = hasPermission(access, 'finance.company.read');
-  const canReadOwnEarnings = hasPermission(access, 'earnings.own.read');
   // Agent cost and the AI agents lens belong to the agents module.
   const isAgentsEnabled = isModuleEnabled(access, 'agents');
   const currentMember = team.find(member => member.id === teamMemberId);
@@ -1140,55 +1148,8 @@ export default function FinancesPage() {
     team: chartBars.some(d => Math.abs(d.teamContribution) > 0.005),
   }), [chartBars]);
 
-  if (!canReadCompanyFinance) {
-    // time.approve is its own grant: a reviewer without company finance still
-    // gets the review queue here, and no company figures.
-    const canReviewTime = hasPermission(access, 'time.approve');
-    // With billing off there is no money to show: the page is time approvals
-    // alone, named for them (the sidebar calls it Time too).
-    if (!isModuleEnabled(access, 'billing')) {
-      const hasReviewableTeam = team.some(member => member.role !== 'owner' && member.id !== teamMemberId);
-      return (
-        <div className="animate-fadeIn min-h-screen">
-          <Header title="Time" subtitle={<span className="hidden sm:inline">Hours your team submits, for you to approve.</span>} />
-          <div className="p-4 lg:p-6 space-y-4 lg:space-y-6">
-            {hasReviewableTeam
-              ? <PayrollPanel team={team} projects={projects} reviewOnly />
-              : <div className="rounded-xl border border-white/[0.08] bg-surface-raised p-8 text-center text-sm text-zinc-400">Hours your team submits will appear here for review.</div>}
-          </div>
-        </div>
-      );
-    }
-    return (
-      <div className="animate-fadeIn min-h-screen">
-        <Header title="My earnings" subtitle={<span className="hidden sm:inline">Your hours, rates, and payouts.</span>} />
-        <div className="p-4 lg:p-6 space-y-4 lg:space-y-6">
-          {canReviewTime && <PayrollPanel team={team} projects={projects} reviewOnly />}
-          {canReadOwnEarnings
-            ? <EmployeeEarningsDashboard projects={projects} data={employeeEarnings ?? EMPTY_EMPLOYEE_EARNINGS} />
-            : !canReviewTime && <div className="rounded-xl border border-white/[0.08] bg-surface-raised p-8 text-center text-sm text-zinc-400">You do not have access to financial information.</div>}
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div className="animate-fadeIn min-h-screen">
-      <Header
-        title="Finances"
-        subtitle={<span className="hidden sm:inline">Revenue, billing, and payroll across every project.</span>}
-        actions={hasPermission(access, 'invoices.read') ? (
-          <Link
-            href="/finances/billing"
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-zinc-300 border border-white/[0.08] bg-surface-raised hover:bg-white/[0.03] hover:text-white rounded-lg transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-400"
-          >
-            <CalendarClock size={14} aria-hidden="true" />
-            Upcoming invoices
-          </Link>
-        ) : undefined}
-      />
-
-      <div className="p-4 lg:p-6 space-y-4 lg:space-y-6">
+    <div className="space-y-4 lg:space-y-6">
         {/* ── Overview + Date Filter ──────────────────────── */}
         <div className="glass-card rounded-xl">
           <div className="px-5 py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-white/[0.06]">
@@ -2199,8 +2160,134 @@ export default function FinancesPage() {
               </div>
             )}
           </div>
-        <PayrollPanel team={team} projects={projects} />
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// The page: one header, the tabs this person may see
+// ---------------------------------------------------------------------------
+
+/**
+ * Finances, for whoever has a money view: the company Overview (Client
+ * invoicing), Time (the shared timesheet), Payroll (Team pay, for whoever
+ * runs pay) or My earnings (Team pay, for everyone else who is paid). The
+ * name and the tabs come from `financeViews`, which the sidebar reads too,
+ * so the two always agree. Someone with no money view has the timesheet
+ * alone, at /time, and is sent there.
+ */
+export default function FinancesPage() {
+  // useSearchParams (the open tab) needs a Suspense boundary on a static page.
+  return (
+    <Suspense fallback={null}>
+      <FinancesTabs />
+    </Suspense>
+  );
+}
+
+function FinancesTabs() {
+  const { projects, team, employeeEarnings } = useApp();
+  const { access } = useAuth();
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const views = financeViews(access);
+  const goesToTime = views.entry?.href === '/time';
+
+  useEffect(() => {
+    if (goesToTime) router.replace('/time');
+  }, [goesToTime, router]);
+
+  if (!views.entry || goesToTime) return null;
+
+  const requested = searchParams.get('tab') as FinanceTab | null;
+  const active: FinanceTab | null = requested && views.tabs.includes(requested) ? requested : views.tabs[0] ?? null;
+  // The open tab is the URL's ?tab=, so it can be linked to and survives a
+  // reload; the default tab keeps the bare URL.
+  const setActive = (tab: FinanceTab) => {
+    const next = new URLSearchParams(searchParams.toString());
+    if (tab === views.tabs[0]) next.delete('tab');
+    else next.set('tab', tab);
+    const query = next.toString();
+    window.history.pushState(null, '', query ? `${pathname}?${query}` : pathname);
+  };
+
+  const canReadAllTime = hasPermission(access, 'time.read_all');
+  const subtitles: Record<FinanceTab, string> = {
+    overview: 'Revenue and invoices across every project.',
+    time: canReadAllTime ? "Your hours and your team's, week by week." : 'Your hours, week by week.',
+    payroll: 'Rates, approved hours and payouts for your team.',
+    earnings: 'Your approved hours, rates and payouts.',
+  };
+  const hasPayableTeam = team.some(member => member.role !== 'owner' && member.role !== 'agent');
+
+  return (
+    <div className="animate-fadeIn min-h-screen">
+      <Header
+        title={views.entry.label}
+        subtitle={active ? <span className="hidden sm:inline">{subtitles[active]}</span> : undefined}
+        actions={views.invoices ? (
+          <Link
+            href="/finances/billing"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-zinc-300 border border-white/[0.08] bg-surface-raised hover:bg-white/[0.03] hover:text-white rounded-lg transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-400"
+          >
+            <CalendarClock size={14} aria-hidden="true" />
+            <span className="hidden sm:inline">Upcoming invoices</span>
+            <span className="sm:hidden">Upcoming</span>
+          </Link>
+        ) : undefined}
+      />
+
+      <div className="p-4 lg:p-6 space-y-4 lg:space-y-6">
+        {views.tabs.length > 1 && active && (
+          <ProjectTabs
+            label={views.entry.label}
+            tabs={views.tabs.map(tab => ({ key: tab, label: FINANCE_TAB_LABELS[tab] }))}
+            active={active}
+            onChange={setActive}
+          />
+        )}
+
+        {active ? (
+          <div
+            id={projectPanelId(active)}
+            role={views.tabs.length > 1 ? 'tabpanel' : undefined}
+            aria-labelledby={views.tabs.length > 1 ? projectTabId(active) : undefined}
+          >
+            {active === 'overview' && <CompanyOverview />}
+            {active === 'time' && <TimesheetView />}
+            {active === 'payroll' && (hasPayableTeam
+              ? <PayrollPanel team={team} projects={projects} />
+              : (
+                <FinanceEmpty
+                  title="No one to pay yet"
+                  body="Owners are not paid through payroll. Invite a teammate, then set their pay rate here."
+                  action={<Button href="/team" variant="secondary" size="sm">Open Team</Button>}
+                />
+              ))}
+            {active === 'earnings' && (
+              <EmployeeEarningsDashboard projects={projects} data={employeeEarnings ?? EMPTY_EMPLOYEE_EARNINGS} />
+            )}
+          </div>
+        ) : (
+          // Reads invoices, nothing else here: the one place to go is Upcoming invoices.
+          <FinanceEmpty
+            title="Invoices live in Upcoming invoices"
+            body="You can see what bills next, by month and project."
+            action={<Button href="/finances/billing" variant="secondary" size="sm">Open Upcoming invoices</Button>}
+          />
+        )}
       </div>
+    </div>
+  );
+}
+
+function FinanceEmpty({ title, body, action }: { title: string; body: string; action?: React.ReactNode }) {
+  return (
+    <div className="glass-card rounded-xl px-6 py-12 text-center">
+      <p className="text-sm font-medium text-zinc-200">{title}</p>
+      <p className="mx-auto mt-1 max-w-sm text-xs text-zinc-400">{body}</p>
+      {action && <div className="mt-4">{action}</div>}
     </div>
   );
 }

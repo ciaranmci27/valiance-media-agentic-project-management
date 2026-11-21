@@ -19,6 +19,7 @@ import {
   ChevronDown,
   DollarSign,
   Clock,
+  Wallet,
   Inbox,
 } from 'lucide-react';
 import { useApp } from '@/lib/store';
@@ -36,6 +37,7 @@ import { CountBadge, type CountBadgeTone } from '@/components/ui/CountBadge';
 import { isRunning } from '@/lib/time-entry-utils';
 import { useBrand } from '@/lib/brand/context';
 import { hasPermission, isModuleEnabled } from '@/lib/access-control';
+import { financeViews, type FinanceEntryKind } from '@/lib/finance/finance-views';
 import { prefetchAgentAnalytics } from '@/lib/use-agent-analytics-events';
 import { defaultAgentAnalyticsRange } from '@/lib/agent-range';
 import { reminderGroup } from '@/lib/reminders';
@@ -134,6 +136,7 @@ export function Sidebar() {
   // takes the tone of its most pressing thread.
   const myTasksCount = radarCount + remindersDue;
   const unreadTasks = [...unreadByProject.values()].reduce((sum, n) => sum + n, 0);
+  const financeEntry = financeViews(access).entry;
   const coreNavItems: NavEntry[] = [
     { href: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
     { href: '/my-tasks', icon: ListTodo, label: 'My Tasks',
@@ -148,11 +151,10 @@ export function Sidebar() {
       ? [{ href: '/contacts', icon: UserCircle, label: 'Contacts' }] : []),
     ...(hasPermission(access, 'team.read') || hasPermission(access, 'team.manage')
       ? [{ href: '/team', icon: Users, label: 'Team' }] : []),
-    // With billing off the page holds only time approvals, so it is named for them.
-    ...(hasPermission(access, 'finance.company.read') || hasPermission(access, 'earnings.own.read') || hasPermission(access, 'time.approve')
-      ? [isModuleEnabled(access, 'billing')
-          ? { href: '/finances', icon: DollarSign, label: 'Finances' }
-          : { href: '/finances', icon: Clock, label: 'Time' }] : []),
+    // Named for what the page holds (financeViews, shared with the page):
+    // Finances with a money view, My earnings for pay alone, Time for the
+    // timesheet alone (its own page at /time when no money module is on).
+    ...(financeEntry ? [{ href: financeEntry.href, icon: FINANCE_ENTRY_ICONS[financeEntry.kind], label: financeEntry.label }] : []),
     ...(isAgentsEnabled && canManageAgents ? [{ href: '/agent', icon: Bot, label: 'Agent',
       count: { value: pendingSuggestionCount, label: `${plural(pendingSuggestionCount, 'agent suggestion')} to review`, tone: 'brand' as const } }] : []),
     { href: '/notifications', icon: Bell, label: 'Notifications',
@@ -421,6 +423,12 @@ type NavCount = { value: number; label: string; tone: CountBadgeTone };
 type NavEntry = { href: string; icon: typeof LayoutDashboard; label: string; count?: NavCount };
 
 const NO_ATTENTION: InboxAttention = { total: 0, urgent: 0, decide: 0, reply: 0 };
+
+const FINANCE_ENTRY_ICONS: Record<FinanceEntryKind, typeof LayoutDashboard> = {
+  finances: DollarSign,
+  earnings: Wallet,
+  time: Clock,
+};
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 

@@ -62,8 +62,9 @@ function typeShown(access: AccessContext | null, recordType: string): boolean {
 
 /**
  * The tabs for the modules that are on: each keeps only its shown types, and
- * one left with none goes. With billing off its tab holds time entries alone,
- * so it is named Time; with the portal off, Files is just files.
+ * one left with none goes. Every Billing type but time entries is Client
+ * invoicing's (none is Team pay's), so with it off the tab holds time entries
+ * alone and is named Time; with the portal off, Files is just files.
  */
 function groupsFor(access: AccessContext | null): typeof GROUPS {
   return GROUPS.map((g) => ({

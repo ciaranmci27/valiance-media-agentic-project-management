@@ -2,7 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { hasPermission, isModuleEnabled, type AccessContext, type TeamRole } from '@/lib/access-control';
 import { TELEMETRY_EVENT_TYPES } from '@/lib/agent-events';
 import { teamActivityHref } from '@/lib/team-activity';
-import { startOfDayInTz } from '@/lib/time-entry-utils';
+import { startOfDayInTz, workedClock } from '@/lib/time-entry-utils';
 import type { TeamActivity, TimeSegment } from '@/lib/types';
 
 /**
@@ -207,6 +207,8 @@ interface EntryRow {
   start_time: string;
   end_time: string | null;
   segments: TimeSegment[] | null;
+  billing_converted_at?: string | null;
+  raw_time_snapshot?: { start_time: string; end_time: string; segments: TimeSegment[] } | null;
 }
 
 /**
@@ -214,9 +216,11 @@ interface EntryRow {
  * when there are any (paused gaps never count), an open segment ticks to now
  * unless the entry is stopped.
  */
-export function workedMsSince(entry: EntryRow, from: number, now: number): number {
+export function workedMsSince(row: EntryRow, from: number, now: number): number {
+  // Worked time, not a converted agent entry's billed slot (as the timesheet counts it).
+  const entry = workedClock({ ...row, segments: row.segments ?? [], raw_time_snapshot: row.raw_time_snapshot as never });
   const overlap = (start: number, end: number) => Math.max(0, Math.min(end, now) - Math.max(start, from));
-  const segments = entry.segments ?? [];
+  const segments = entry.segments;
   if (segments.length === 0) {
     if (!entry.end_time) return 0;
     return overlap(new Date(entry.start_time).getTime(), new Date(entry.end_time).getTime());
@@ -399,7 +403,7 @@ async function loadTime(service: SupabaseClient, context: ProfileContext, window
   // Entries still open, or that ended inside the window: a month of one person's time.
   let query = service
     .from('project_time_entries')
-    .select('id, project_id, start_time, end_time, segments, project:projects!inner(id)')
+    .select('id, project_id, start_time, end_time, segments, billing_converted_at, raw_time_snapshot, project:projects!inner(id)')
     .eq('member_id', context.target.id)
     .is('deleted_at', null)
     .is('project.deleted_at', null)

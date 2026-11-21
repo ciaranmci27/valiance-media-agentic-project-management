@@ -22,6 +22,8 @@ interface ProjectTabsProps<K extends string> {
   tabs: ProjectTab<K>[];
   active: K;
   onChange: (key: K) => void;
+  /** Names the tab list for screen readers. */
+  label?: string;
 }
 
 export const projectTabId = (key: string) => `project-tab-${key}`;
@@ -32,7 +34,7 @@ export const projectPanelId = (key: string) => `project-panel-${key}`;
  * reads as one more segmented control beside the task view toggle. Arrow keys
  * move between tabs (roving tabindex), as the ARIA tabs pattern expects.
  */
-export function ProjectTabs<K extends string>({ tabs, active, onChange }: ProjectTabsProps<K>) {
+export function ProjectTabs<K extends string>({ tabs, active, onChange, label = 'Project sections' }: ProjectTabsProps<K>) {
   const refs = useRef<(HTMLButtonElement | null)[]>([]);
   const intent = useIntent();
 
@@ -56,7 +58,7 @@ export function ProjectTabs<K extends string>({ tabs, active, onChange }: Projec
     <div className="border-b border-white/[0.08]">
       <div
         role="tablist"
-        aria-label="Project sections"
+        aria-label={label}
         className="flex items-end gap-1 -mb-px pb-px overflow-x-auto overflow-y-hidden overscroll-x-contain scrollbar-none"
       >
         {tabs.map((tab, index) => {

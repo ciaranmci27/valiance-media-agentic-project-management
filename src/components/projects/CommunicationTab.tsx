@@ -4,7 +4,7 @@ import type { InboxLink } from '@/components/inbox/InboxView';
 import { useState } from 'react';
 import { ExternalLink, Route } from 'lucide-react';
 import { useAuth } from '@/lib/auth-context';
-import { isModuleEnabled } from '@/lib/access-control';
+import { budgetAlertsEnabled } from '@/lib/api/budget-alerts';
 import { ProjectEmailsPanel } from '@/components/inbox/ProjectEmailsPanel';
 import { ProjectEmailRoutingModal } from '@/components/inbox/ProjectEmailRoutingModal';
 import { CommunicationHistory } from './ClientCommunicationsLogPanel';
@@ -32,8 +32,9 @@ interface CommunicationTabProps {
  */
 export function CommunicationTab({ projectId, view, onViewChange, canReadInbox, canReadSent, onOpenPortal, emailLink }: CommunicationTabProps) {
   const { access } = useAuth();
-  // Budget alerts are portal settings about a budget, so they need both.
-  const showAutomation = isModuleEnabled(access, 'portal') && isModuleEnabled(access, 'billing');
+  // Budget alerts are portal settings about a budget, emailed to the client
+  // contact, so they need the same modules the send does.
+  const showAutomation = budgetAlertsEnabled(access);
   const [routingOpen, setRoutingOpen] = useState(false);
   const [sentRefresh, setSentRefresh] = useState(0);
   // Each view keeps its own search, so switching back finds it as it was.

@@ -3069,7 +3069,7 @@ CREATE TRIGGER set_workspace_modules_updated_at
   FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
 
 INSERT INTO public.workspace_modules (module_id) VALUES
-  ('time'), ('billing'), ('contacts'), ('sales'), ('portal'),
+  ('time'), ('billing'), ('team_pay'), ('contacts'), ('sales'), ('portal'),
   ('inbox'), ('agents'), ('credentials'), ('webhooks')
 ON CONFLICT (module_id) DO NOTHING;
 
@@ -3138,8 +3138,8 @@ INSERT INTO public.permission_modules (permission_key, module_id) VALUES
   ('inbound_email.manage', 'inbox'), ('meetings.write', 'inbox'),
   ('credentials.reveal_shared', 'credentials'), ('credentials.manage', 'credentials'),
   ('invoices.read', 'billing'), ('invoices.manage', 'billing'), ('invoices.record_payments', 'billing'),
-  ('billing.manage', 'billing'), ('finance.company.read', 'billing'), ('earnings.own.read', 'billing'),
-  ('compensation.manage', 'billing'), ('payouts.manage', 'billing'),
+  ('billing.manage', 'billing'), ('finance.company.read', 'billing'),
+  ('earnings.own.read', 'team_pay'), ('compensation.manage', 'team_pay'), ('payouts.manage', 'team_pay'),
   ('webhooks.manage', 'webhooks'),
   ('agents.manage', 'agents'),
   ('goals.read', 'agents'), ('goals.manage', 'agents'), ('suggestions.create', 'agents'),
@@ -6118,7 +6118,12 @@ BEGIN
     -- hourly pay), so without the role exemption every owner edit was an
     -- edit to an approved entry and the lock fired on the one person it
     -- protects nothing from (20260812_owner_time_entries_stay_editable).
-    IF TG_OP = 'UPDATE' AND OLD.approval_status = 'approved' AND member_role <> 'owner' THEN
+    -- An approved entry stays fixed while money depends on it: it is billed
+    -- to a client (Client invoicing on) or paid (Team pay on). With neither,
+    -- its owner can still correct it. (Invoiced time has its own lock in
+    -- protect_invoiced_time_entry.)
+    IF TG_OP = 'UPDATE' AND OLD.approval_status = 'approved' AND member_role <> 'owner'
+      AND (public.module_enabled('billing') OR public.module_enabled('team_pay')) THEN
       RAISE EXCEPTION 'Approved time entry compensation is locked';
     END IF;
     IF member_role = 'owner' THEN
@@ -6136,7 +6141,15 @@ BEGIN
     NEW.approved_by := NULL;
   ELSIF TG_OP = 'INSERT' OR OLD.end_time IS NULL THEN
     NEW.submitted_at := now();
-    IF member_role = 'owner' THEN
+    IF NOT public.module_enabled('billing') AND NOT public.module_enabled('team_pay') THEN
+      -- With Client invoicing and Team pay both off no money rides on the
+      -- hours, so there is nothing to review: finished time from every role,
+      -- agents included, is approved as it is logged. approved_by NULL marks
+      -- it as system-approved.
+      NEW.approval_status := 'approved';
+      NEW.approved_at := now();
+      NEW.approved_by := NULL;
+    ELSIF member_role = 'owner' THEN
       NEW.approval_status := 'approved';
       NEW.approved_at := now();
       NEW.approved_by := NEW.member_id;
@@ -6203,9 +6216,9 @@ BEGIN
   ) THEN
     RAISE EXCEPTION 'Project access denied';
   END IF;
-  -- Pay is Billing and finance's: with it off, approving time needs no
-  -- compensation rate and sets none.
-  IF p_decision = 'approved' AND public.module_enabled('billing') AND EXISTS (
+  -- Pay is Team pay's: with it off, approving time needs no compensation
+  -- rate and sets none.
+  IF p_decision = 'approved' AND public.module_enabled('team_pay') AND EXISTS (
     SELECT 1
     FROM public.project_time_entries entry
     JOIN public.team_members member ON member.id = entry.member_id
@@ -6223,7 +6236,7 @@ BEGIN
 
   UPDATE public.project_time_entries entry
   SET approval_status = p_decision,
-      compensation_rate = CASE WHEN p_decision = 'approved' AND public.module_enabled('billing')
+      compensation_rate = CASE WHEN p_decision = 'approved' AND public.module_enabled('team_pay')
         THEN public.resolve_team_member_hourly_rate(entry.member_id, entry.start_time)
         ELSE entry.compensation_rate END,
       approved_at = CASE WHEN p_decision = 'approved' THEN now() ELSE NULL END,
@@ -6237,7 +6250,7 @@ BEGIN
 
   -- Approved agent entries convert to their billed continuous slot here,
   -- optionally with the reviewer's adjusted worked minutes per entry id
-  -- (Billing and finance only).
+  -- (Client invoicing only).
   IF p_decision = 'approved' AND public.module_enabled('billing') THEN
     FOREACH v_id IN ARRAY p_entry_ids LOOP
       PERFORM public.apply_agent_billing_conversion(
@@ -6675,8 +6688,8 @@ BEGIN
   IF (SELECT count(*) FROM public.project_time_entries WHERE id = ANY(p_entry_ids) AND deleted_at IS NULL) <> cardinality(p_entry_ids) THEN RAISE EXCEPTION 'One or more time entries were not found'; END IF;
   IF EXISTS (SELECT 1 FROM public.project_time_entries WHERE id = ANY(p_entry_ids) AND project_id IS DISTINCT FROM p_project_id) THEN RAISE EXCEPTION 'Time entry does not belong to the project'; END IF;
   IF EXISTS (SELECT 1 FROM public.project_time_entries WHERE id = ANY(p_entry_ids) AND member_id = p_reviewer_id) THEN RAISE EXCEPTION 'Time entries cannot be self-approved'; END IF;
-  -- With Billing and finance off, approval needs no rate and sets none.
-  IF p_decision = 'approved' AND public.module_enabled('billing') AND EXISTS (
+  -- With Team pay off, approval needs no rate and sets none.
+  IF p_decision = 'approved' AND public.module_enabled('team_pay') AND EXISTS (
     SELECT 1 FROM public.project_time_entries entry
     JOIN public.team_members member ON member.id = entry.member_id
     WHERE entry.id = ANY(p_entry_ids) AND entry.approval_status = 'pending'
@@ -6685,13 +6698,14 @@ BEGIN
   ) THEN RAISE EXCEPTION 'Compensation rate missing for one or more time entries'; END IF;
   UPDATE public.project_time_entries entry
   SET approval_status = p_decision,
-      compensation_rate = CASE WHEN p_decision = 'approved' AND public.module_enabled('billing') THEN public.resolve_team_member_hourly_rate(entry.member_id, entry.start_time) ELSE entry.compensation_rate END,
+      compensation_rate = CASE WHEN p_decision = 'approved' AND public.module_enabled('team_pay') THEN public.resolve_team_member_hourly_rate(entry.member_id, entry.start_time) ELSE entry.compensation_rate END,
       approved_at = CASE WHEN p_decision = 'approved' THEN now() ELSE NULL END,
       approved_by = CASE WHEN p_decision = 'approved' THEN p_reviewer_id ELSE NULL END,
       rejection_reason = CASE WHEN p_decision = 'rejected' THEN COALESCE(p_reason, '') ELSE NULL END,
       updated_at = now()
   WHERE entry.id = ANY(p_entry_ids) AND entry.project_id = p_project_id
     AND entry.approval_status = 'pending' AND entry.end_time IS NOT NULL;
+  -- Agent billed-time conversion is Client invoicing's.
   IF p_decision = 'approved' AND public.module_enabled('billing') THEN
     PERFORM public.apply_agent_billing_conversion(entry_id, NULL)
     FROM unnest(p_entry_ids) AS entry_id;

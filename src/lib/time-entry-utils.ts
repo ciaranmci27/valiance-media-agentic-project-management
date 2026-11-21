@@ -44,6 +44,31 @@ export function isPaused(entry: TimeEntry): boolean {
 }
 
 /**
+ * The time actually worked in an entry. A converted agent entry has its
+ * segments and end rewritten to the billed slot (worked time times the
+ * multiplier); the worked clock is kept in raw_time_snapshot, so that is used.
+ * Screens that show hours worked (timesheets, profiles) read this, so they
+ * agree with each other.
+ */
+export function workedClock(
+  entry: Pick<TimeEntry, 'start_time' | 'end_time' | 'segments' | 'billing_converted_at' | 'raw_time_snapshot'>,
+): { start_time: string; end_time: string | null; segments: TimeSegment[] } {
+  const raw = entry.billing_converted_at ? entry.raw_time_snapshot : null;
+  // A converted entry always reads its raw clock, segments or not (then start to end).
+  if (raw) return { start_time: raw.start_time, end_time: raw.end_time, segments: raw.segments ?? [] };
+  return { start_time: entry.start_time, end_time: entry.end_time, segments: entry.segments ?? [] };
+}
+
+/** The worked segments of an entry (see workedClock); a finished entry with none counts start to end. */
+export function workedSegments(
+  entry: Pick<TimeEntry, 'start_time' | 'end_time' | 'segments' | 'billing_converted_at' | 'raw_time_snapshot'>,
+): TimeSegment[] {
+  const clock = workedClock(entry);
+  if (clock.segments.length) return clock.segments;
+  return clock.end_time ? [{ start: clock.start_time, end: clock.end_time }] : [];
+}
+
+/**
  * Total worked time across all segments. For an actively running segment
  * (end: null), uses `now` as the virtual end so live timers tick.
  */

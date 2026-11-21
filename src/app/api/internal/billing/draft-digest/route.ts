@@ -12,7 +12,7 @@ export const maxDuration = 60;
  * and admins the invoice drafts made since the last run (retainer and
  * scheduled hours). The bell already announced each one as it was drafted;
  * this is the morning summary. 500 when the run broke, so the cron log shows it.
- * With Billing and finance switched off (or its state unreadable) it sends
+ * With Client invoicing switched off (or its state unreadable) it sends
  * nothing and still answers 200: an idle module is not a broken run.
  */
 export async function GET(request: Request) {

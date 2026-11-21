@@ -1,15 +1,17 @@
 'use client';
 
-import { BusinessInfoSection } from '@/components/settings/BusinessInfoSection';
-import { useSettingsAccess } from '@/components/settings/settings-groups';
+import { useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 
-/** Business info, invoice defaults and the auto-approve hours policy (all in BusinessInfoSection). */
-export default function BusinessSettingsPage() {
-  const { show } = useSettingsAccess();
-  if (!show.business) return null;
-  return (
-    <div id="business" className="scroll-mt-6">
-      <BusinessInfoSection />
-    </div>
-  );
+/**
+ * Settings > Business is now Settings > Billing. Old links still land: the
+ * query and hash come along, so /settings/business#business opens Billing.
+ */
+export default function BusinessSettingsRedirect() {
+  const router = useRouter();
+  useEffect(() => {
+    const { search, hash } = window.location;
+    router.replace(`/settings/billing${search}${hash}`);
+  }, [router]);
+  return null;
 }

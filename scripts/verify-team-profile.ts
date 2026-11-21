@@ -127,6 +127,11 @@ async function main() {
       [projectId, ids.maya, at(start), at(end), JSON.stringify([{ start: at(start), end: at(end) }])],
     );
     await entry(shared, '2026-11-17T09:00:00Z', '2026-11-17T11:00:00Z'); // 2 h this week
+    // A converted agent entry: 1 h worked, rewritten to a 3 h billed slot (multiplier 3).
+    await q(`INSERT INTO public.project_time_entries (project_id, member_id, start_time, end_time, segments, billing_converted_at, raw_time_snapshot)
+      VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7::jsonb)`, [shared, ids.agent, at('2026-11-18T09:00:00Z'), at('2026-11-18T12:00:00Z'),
+      JSON.stringify([{ start: at('2026-11-18T09:00:00Z'), end: at('2026-11-18T12:00:00Z') }]), at('2026-11-18T13:00:00Z'),
+      JSON.stringify({ version: 1, start_time: at('2026-11-18T09:00:00Z'), end_time: at('2026-11-18T10:00:00Z'), segments: [{ start: at('2026-11-18T09:00:00Z'), end: at('2026-11-18T10:00:00Z') }], worked_ms: 3_600_000, captured_at: at('2026-11-18T13:00:00Z') })]);
     await entry(private_, '2026-11-05T09:00:00Z', '2026-11-05T12:00:00Z'); // 3 h this month, last week
     await entry(shared, '2026-09-01T09:00:00Z', '2026-09-01T17:00:00Z'); // outside 30 days
 
@@ -196,6 +201,7 @@ async function main() {
 
     // ---- Agents ----------------------------------------------------------------
     const agent = await view('owner', ids.agent);
+    check('agent: hours are worked time, not the billed slot', agent?.time?.week_hours === 1 && agent.time.last_30_hours === 1, agent?.time);
     check('agent: a profile without usage', agent?.member.role === 'agent' && agent.usage === undefined && agent.member.agent_profile === 'generic', agent && { member: agent.member, usage: agent.usage });
     check('agent: activity is its own log, without telemetry', agent?.activity?.source === 'agent' && agent.activity.items.length === 1
       && agent.activity.items[0].text === 'Finished the import', agent?.activity);

@@ -11,7 +11,7 @@ import { buildSignatureHeader, WEBHOOK_SIGNATURE_HEADER } from './sign';
 // Invoked by the in-app kick after an invoice change, the Settings "send now"
 // button, and the scheduled route (Supabase pg_cron, webhook_retry_kick).
 //
-// Nothing goes out while Webhooks, or Billing and finance which it needs, is
+// Nothing goes out while Webhooks, or Client invoicing which it needs, is
 // switched off: the claim comes back empty (here and in
 // claim_webhook_deliveries itself), so events wait in order, their attempts
 // untouched, and go out once the module is back on.
