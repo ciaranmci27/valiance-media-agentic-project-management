@@ -64,8 +64,9 @@ The `checkout` line starts you on the newest release. The public `main` branch c
 
 1. In Supabase, open the SQL Editor and run `supabase/schema.sql`. It is the whole database in one file; features you switch off later simply go unused.
 2. In Supabase, open Project Settings, then Data API, and add `communications` to **Exposed schemas** (keep `public` and `graphql_public`). The Inbox lives in that schema.
-3. Copy `.env.example` to `.env.local`. Set `SUPABASE_DB_URL`: your database's session or direct connection string (Supabase, Connect, port 5432). Not the port 6543 transaction pooler. (`DATABASE_URL` also works and wins if both are set.)
-4. Record the database as up to date:
+3. In Supabase, open Authentication, then Sign In / Providers, and turn off **Allow new users to sign up**. The app creates every account itself (the setup wizard and invitations), and with sign-ups on, anyone with your public key could make themselves a member.
+4. Copy `.env.example` to `.env.local`. Set `SUPABASE_DB_URL`: your database's session or direct connection string (Supabase, Connect, port 5432). Not the port 6543 transaction pooler. (`DATABASE_URL` also works and wins if both are set.)
+5. Record the database as up to date:
    ```bash
    npm run db:migrate -- --baseline
    ```
@@ -90,10 +91,15 @@ Run it locally with `npm run dev`, then open http://localhost:3009.
 
 ### 5. First run
 
-1. In Supabase, open Authentication, Users, Add user. Enter your email and a password, and tick Auto Confirm. The first account becomes the **Owner**.
-2. Sign in to your app.
-3. The Dashboard asks you to pick your features. Choose a preset or pick modules one by one (next section). You can change this any time.
-4. Set your name, colors, logos and favicon in **Settings > Workspace > Brand**. Until then the app shows the neutral name "Workspace" and the default teal.
+Open your app right after it deploys. On a fresh database it goes straight to the setup wizard:
+
+1. **Create your account.** The first account becomes the **Owner**. Until someone does this, every visit lands here, so do it before you share the address.
+2. **Your workspace**: name, logo and color.
+3. **How you will use it**: a preset or modules one by one (next section), and your currency and number format.
+4. **Email**: connect the account invites and notifications are sent from (Google, Resend or any SMTP server). It needs only `SMTP_ENCRYPTION_KEY` (see "Fill in the environment variables"); the wizard shows how to add it if it is missing. You can do this later in **Settings > Email**.
+5. **Your team** and **First projects**, then you are in.
+
+Everything can be changed later in Settings. Owners can look through the wizard again any time from **Settings > Workspace > Features > Preview setup**; a preview saves nothing.
 
 To try the app without a database, set `NEXT_PUBLIC_DEMO_MODE=true` and `DEMO_MODE=true`. Both are required: the server-only `DEMO_MODE` stops a stray public variable from turning off sign-in on a real deployment.
 

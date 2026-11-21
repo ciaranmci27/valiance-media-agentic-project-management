@@ -11,6 +11,7 @@ import { LogoField } from '@/components/settings/workspace/LogoField';
 import type { Outcome } from '@/components/settings/workspace/OutcomeLine';
 import { checkLogoFile, cleanInput, fetchLogoFile, removeLogo, saveBrand, toInput, uploadLogo, workspaceBrandRead } from '@/components/settings/workspace/brand-settings';
 import { EnvChecksPanel, setupChecksRead } from '../setup-checks';
+import { useWizardPreview } from '../wizard-preview';
 import { StepFrame, type WizardStepProps } from '../StepFrame';
 
 /**
@@ -19,8 +20,9 @@ import { StepFrame, type WizardStepProps } from '../StepFrame';
  * saves when chosen; the name and color save on Continue. The setup check
  * sits on top, so a broken install says so before anything else.
  */
-export function WorkspaceStep({ onNext, onSkip }: WizardStepProps) {
+export function WorkspaceStep({ onNext, onSkip, onBack }: WizardStepProps) {
   const router = useRouter();
+  const inPreview = useWizardPreview();
   const read = useRead(workspaceBrandRead);
   const checks = useRead(setupChecksRead);
   const data = read.data?.status === 'ready' ? read.data.data : null;
@@ -38,7 +40,8 @@ export function WorkspaceStep({ onNext, onSkip }: WizardStepProps) {
     <EnvChecksPanel checks={checks.data} loading={checks.loading} failed={checks.failed} onReload={checks.reload} />
   );
 
-  const frame = { title: 'Make it yours', onSkip };
+  // Back only in a preview, to the account step; for real, this is where the wizard starts.
+  const frame = { title: 'Make it yours', onSkip, onBack };
 
   if (read.loading) {
     return (
@@ -70,6 +73,10 @@ export function WorkspaceStep({ onNext, onSkip }: WizardStepProps) {
   const changed = (nameValue.trim() || null) !== settings.name || colorValue !== settings.brandColor;
 
   const upload = async (file: File) => {
+    if (inPreview) {
+      setLogoError('Preview: logos are not uploaded.');
+      return;
+    }
     const problem = checkLogoFile('light', file);
     setLogoOutcome(null);
     if (problem) {
@@ -88,7 +95,7 @@ export function WorkspaceStep({ onNext, onSkip }: WizardStepProps) {
   };
 
   const remove = async () => {
-    if (!settings.logoLightUrl) return;
+    if (!settings.logoLightUrl || inPreview) return;
     setLogoError(null);
     setUploading(true);
     // Kept in memory, so Undo can upload it again.

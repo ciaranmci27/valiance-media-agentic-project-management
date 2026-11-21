@@ -1,7 +1,7 @@
 'use client';
 
 import { useRef, useState } from 'react';
-import { Database, LayoutGrid, Lock, RotateCw } from 'lucide-react';
+import { Database, Eye, LayoutGrid, Lock, RotateCw } from 'lucide-react';
 import { SettingsSectionHeader } from '@/components/settings/SettingsSectionHeader';
 import { Button } from '@/components/ui/Button';
 import {
@@ -119,7 +119,17 @@ export function FeaturesSection() {
 
   return (
     <section className="glass-card rounded-xl p-4 lg:p-6">
-      <SettingsSectionHeader icon={LayoutGrid} title="Features" description={DESCRIPTION} />
+      <SettingsSectionHeader
+        icon={LayoutGrid}
+        title="Features"
+        description={DESCRIPTION}
+        action={!isDemoMode && read.data?.status === 'ready' && read.data.setupCompleted ? (
+          // The first-run wizard, step by step, nothing saved: what a new Owner sees.
+          <Button href="/welcome?preview=1" size="sm" variant="ghost" icon={<Eye size={14} aria-hidden="true" />}>
+            Preview setup
+          </Button>
+        ) : null}
+      />
 
       {isDemoMode && (
         <p className="-mt-3 mb-6 text-xs text-zinc-400">Demo workspace: changes last until you reload.</p>

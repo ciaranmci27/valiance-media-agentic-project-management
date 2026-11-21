@@ -26,6 +26,10 @@ function isPublicRoute(pathname: string) {
     // An invited person choosing their password: the link's token signs them in.
     pathname === '/welcome/set-password' ||
     pathname === '/api/welcome/set-password' ||
+    // A fresh install's first account (the setup wizard's first step). Both
+    // answer only while nobody is on the team; after that, never again.
+    pathname === '/welcome/create-account' ||
+    pathname === '/api/welcome/owner' ||
     pathname.startsWith('/auth') ||
     pathname.startsWith('/portal') ||
     pathname.startsWith('/api/portal') ||

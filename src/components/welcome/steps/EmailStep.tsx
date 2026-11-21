@@ -1,11 +1,14 @@
 'use client';
 
+import { useState } from 'react';
 import { AlertTriangle, Check, Database, Inbox, Mail, RotateCw, type LucideIcon } from 'lucide-react';
 import { useRead } from '@/lib/query-cache';
 import { useModuleSwitch } from '@/components/settings/workspace/workspace-modules';
 import { Button } from '@/components/ui/Button';
 import { SCHEMA_FIX_STEPS, setupChecksRead, type SetupChecks } from '../setup-checks';
 import { StepFrame, type WizardStepProps } from '../StepFrame';
+import { useWizardPreview } from '../wizard-preview';
+import { EmailConnect, EmailConnected, type ConnectedAccount } from './EmailConnect';
 
 type Tone = 'ready' | 'warning' | 'neutral';
 
@@ -69,6 +72,7 @@ function InboxCheck({ state, onReload, revalidating }: { state: SetupChecks['com
 /**
  * Step 4, optional: whether email works. Invitations go out through an SMTP
  * account; without one, the team step hands over links to copy instead.
+ * Connect email sets one up in place (Google, Resend or any SMTP server).
  * With the Inbox on, it checks Supabase shares the communications schema
  * and gives the exact fix when it does not. Inboxes themselves are set up
  * after the wizard, in Settings > Email.
@@ -77,6 +81,15 @@ export function EmailStep({ onNext, onBack }: WizardStepProps) {
   const checks = useRead(setupChecksRead);
   const { enabled } = useModuleSwitch();
   const inboxOn = enabled.includes('inbox');
+  // A preview shows the step as a new Owner meets it: nothing connected yet.
+  const inPreview = useWizardPreview();
+  // Kept after the checks reload, so the receipt and the test email stay in view.
+  const [connected, setConnected] = useState<ConnectedAccount | null>(null);
+
+  const onConnected = (account: ConnectedAccount) => {
+    setConnected(account);
+    checks.reload();
+  };
 
   return (
     <StepFrame
@@ -97,13 +110,18 @@ export function EmailStep({ onNext, onBack }: WizardStepProps) {
         </div>
       ) : (
         <ul className="divide-y divide-white/[0.06]">
-          {checks.data.emailConfigured ? (
+          {connected ? (
+            <CheckRow icon={Mail} title="Sending email" tone="ready">
+              <EmailConnected account={connected} />
+            </CheckRow>
+          ) : checks.data.emailConfigured && !inPreview ? (
             <CheckRow icon={Mail} title="Sending email" tone="ready">
               Ready. Invites and notifications go out from your email account.
             </CheckRow>
           ) : (
             <CheckRow icon={Mail} title="Sending email is not set up" tone="neutral">
-              That is fine for now: when you invite people next, you get a link to send them yourself. To email them instead, add an SMTP account (Gmail, Outlook or your own) after setup, in Settings &gt; Email.
+              That is fine for now: when you invite people next, you get a link to send them yourself. To email them instead, connect the account email should come from. You can also do it later, in Settings &gt; Email.
+              <EmailConnect onConnected={onConnected} />
             </CheckRow>
           )}
           {inboxOn && <InboxCheck state={checks.data.communications} onReload={checks.reload} revalidating={checks.revalidating} />}

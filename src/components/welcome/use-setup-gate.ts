@@ -1,6 +1,6 @@
 'use client';
 
-import { usePathname } from 'next/navigation';
+import { usePathname, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
 import { useDemo } from '@/lib/demo-context';
 import { useRead } from '@/lib/query-cache';
@@ -18,6 +18,7 @@ export function useSetupGate() {
   const { access } = useAuth();
   const { isDemoMode } = useDemo();
   const pathname = usePathname();
+  const preview = useSearchParams().get('preview') === '1';
   const role = access?.role;
   const read = useRead(role === 'owner' && !isDemoMode ? workspaceModulesRead : null);
   const setupCompleted = read.data
@@ -26,6 +27,6 @@ export function useSetupGate() {
   const input = { role, setupCompleted, demo: isDemoMode };
   return {
     pending: setupPending(input),
-    redirect: setupRedirect({ ...input, pathname }),
+    redirect: setupRedirect({ ...input, pathname, preview }),
   };
 }

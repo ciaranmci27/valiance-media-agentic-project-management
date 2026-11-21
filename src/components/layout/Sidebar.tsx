@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo, useSyncExternalStore } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
@@ -45,32 +45,6 @@ import { placeNavItems } from '@/lib/extensions/registry';
 import { useCustomNavItems } from '@/lib/extensions/hooks';
 import type { InboxAttention } from '@/lib/communications/inbox-view';
 
-/** Whether the projects menu is open, remembered on this device (open until closed). */
-const PROJECTS_MENU_KEY = 'sidebar-projects-menu';
-const projectsMenuListeners = new Set<() => void>();
-let projectsMenuOpen = true; // used when storage is unavailable
-function readProjectsMenu(): boolean {
-  try {
-    const saved = localStorage.getItem(PROJECTS_MENU_KEY);
-    return saved === null ? projectsMenuOpen : saved !== 'closed';
-  } catch {
-    return projectsMenuOpen;
-  }
-}
-function writeProjectsMenu(open: boolean) {
-  projectsMenuOpen = open;
-  try { localStorage.setItem(PROJECTS_MENU_KEY, open ? 'open' : 'closed'); } catch { /* storage unavailable */ }
-  projectsMenuListeners.forEach((listener) => listener());
-}
-function subscribeProjectsMenu(listener: () => void) {
-  projectsMenuListeners.add(listener);
-  window.addEventListener('storage', listener);
-  return () => {
-    projectsMenuListeners.delete(listener);
-    window.removeEventListener('storage', listener);
-  };
-}
-
 export function Sidebar() {
   const pathname = usePathname();
   // The profile row opens Settings, so it reads active anywhere in that area.
@@ -105,11 +79,10 @@ export function Sidebar() {
   // (auto-expand while on an /agent page); a manual toggle always wins.
   const [agentOpen, setAgentOpen] = useState<boolean | null>(null);
   // With projects as a menu (Settings > Workspace > Brand), the Projects item
-  // folds every active project under it. Open until someone closes it; the
-  // choice is remembered on this device.
+  // folds every active project under it. Closed each time the app loads; it
+  // stays as set while moving between pages.
   const projectsAsMenu = brand.sidebarProjects === 'menu';
-  const projectsOpen = useSyncExternalStore(subscribeProjectsMenu, readProjectsMenu, () => true);
-  const setProjectsOpen = writeProjectsMenu;
+  const [projectsOpen, setProjectsOpen] = useState(false);
 
   // Listen for the Header's hamburger button event
   useEffect(() => {
@@ -243,6 +216,14 @@ export function Sidebar() {
             if (item.href === '/projects' && projectsAsMenu) {
               const activeProjects = projects.filter(p => p.status === 'active');
               const onProjectsIndex = pathname === '/projects';
+              // A short list of active projects is the whole picture. The
+              // index link shows from four projects, whenever the menu hides
+              // some (completed or archived), and with no active project, so
+              // the menu never opens empty. New projects start on the
+              // Projects page or the Dashboard.
+              const showAllProjects = projects.length > 3
+                || projects.length > activeProjects.length
+                || (!loading && activeProjects.length === 0);
               return (
                 <div key={item.href}>
                   <button
@@ -271,15 +252,6 @@ export function Sidebar() {
                        icon, labels meeting the parent label. */
                     <div className="relative ml-[20.5px] mt-0.5 mb-1 animate-slideDown">
                       <span className="absolute left-0 top-1 bottom-1 w-px bg-white/[0.08]" aria-hidden="true" />
-                      <Link
-                        href="/projects"
-                        onClick={closeSidebar}
-                        aria-current={onProjectsIndex ? 'page' : undefined}
-                        className={`relative flex items-center pl-[21.5px] pr-3 py-1.5 rounded-md text-[13px] font-medium transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 ${onProjectsIndex ? 'text-brand-300' : 'text-zinc-500 hover:text-zinc-200'}`}
-                      >
-                        {onProjectsIndex && <span className="absolute -left-[0.5px] top-1/2 -translate-y-1/2 h-4 w-[2px] rounded-full bg-brand-400" aria-hidden="true" />}
-                        All projects
-                      </Link>
                       {loading && activeProjects.length === 0 && [1, 2, 3].map((i) => (
                         <div key={i} className="flex items-center gap-2 pl-[21.5px] pr-3 py-2" aria-hidden="true">
                           <div className="w-1.5 h-1.5 rounded-full bg-white/10 animate-pulse" />
@@ -311,16 +283,16 @@ export function Sidebar() {
                           </Link>
                         );
                       })}
-                      {hasPermission(access, 'projects.manage') && (
-                        <Link
-                          href="/projects?new=true"
-                          onClick={closeSidebar}
-                          className="relative flex items-center pl-[21.5px] pr-3 py-1.5 rounded-md text-[13px] font-medium transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 gap-1.5 text-zinc-500 hover:text-zinc-200"
-                        >
-                          <Plus size={13} aria-hidden="true" />
-                          New project
-                        </Link>
-                      )}
+                      {/* Last, after the projects it leads beyond. */}
+                      {showAllProjects && <Link
+                        href="/projects"
+                        onClick={closeSidebar}
+                        aria-current={onProjectsIndex ? 'page' : undefined}
+                        className={`relative flex items-center pl-[21.5px] pr-3 py-1.5 rounded-md text-[13px] font-medium transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 ${onProjectsIndex ? 'text-brand-300' : 'text-zinc-500 hover:text-zinc-200'}`}
+                      >
+                        {onProjectsIndex && <span className="absolute -left-[0.5px] top-1/2 -translate-y-1/2 h-4 w-[2px] rounded-full bg-brand-400" aria-hidden="true" />}
+                        All projects
+                      </Link>}
                     </div>
                   )}
                 </div>

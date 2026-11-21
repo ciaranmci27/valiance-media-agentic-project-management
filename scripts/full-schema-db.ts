@@ -26,6 +26,7 @@ const SUPABASE_STANDINS = `
   CREATE SCHEMA auth;
   GRANT USAGE ON SCHEMA auth TO authenticated, anon, service_role;
   CREATE TABLE auth.users (id uuid PRIMARY KEY, email text, raw_user_meta_data jsonb DEFAULT '{}'::jsonb,
+    raw_app_meta_data jsonb DEFAULT '{}'::jsonb,
     created_at timestamptz DEFAULT now());
   CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE
     AS $$ SELECT nullif(current_setting('request.jwt.claim.sub', true), '')::uuid $$;

@@ -9,6 +9,20 @@ Each section starts with `## X.Y.Z (YYYY-MM-DD)` and uses these headings, leavin
 - `### Database`: the core migration files in the release, one per line. `npm run db:migrate` applies them.
 - `### Breaking`: what an install must do when it takes this release.
 
+## 1.8.0 (2026-11-21)
+
+### Added
+- A fresh install starts at the setup wizard. Step 1 is Create your account: the first account becomes the Owner, with no need to add a user in Supabase first. Until someone does it, every visit goes there; after that it is gone for good.
+- The wizard's Email step connects the account invites and notifications are sent from (Google, Resend or any SMTP server), checking the connection before it saves, with an optional test email. If `SMTP_ENCRYPTION_KEY` is missing it shows how to add it.
+- Owners can look through the setup wizard any time from Settings > Workspace > Features > Preview setup. A preview shows every step, the account step included, and saves nothing.
+
+### Changed
+- The setup wizard can no longer be skipped as a whole. Optional steps still have Skip for now.
+- Projects as a menu in the sidebar (Settings > Workspace > Brand) starts closed every time the app opens, and stays as you leave it while you move between pages. It no longer has a New project link (new projects start on the Projects page or the Dashboard). All projects is the last item, shown when there are four or more projects or when some are completed or archived.
+
+### Database
+- `20261121080000_first_owner_lock.sql`: two sign-ups at the same moment can no longer both become the first Owner.
+
 ## 1.7.0 (2026-11-21)
 
 ### Added

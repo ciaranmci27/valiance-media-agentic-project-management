@@ -4,6 +4,7 @@ import { useEffect, useRef, type FormEvent, type ReactNode } from 'react';
 import { ArrowLeft, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { OutcomeLine } from '@/components/settings/workspace/OutcomeLine';
+import { useWizardPreviewNext } from './wizard-preview';
 
 /** What the wizard hands every step: where Back, Skip and Continue lead. */
 export interface WizardStepProps {
@@ -17,7 +18,8 @@ export interface WizardStepProps {
  * (Back on the left; Skip for now and the primary action on the right).
  * The step is a form, so Enter in any field continues. On arrival the first
  * field takes focus with a mouse or keyboard; on touch screens the heading
- * does, so the keyboard does not cover the step.
+ * does, so the keyboard does not cover the step. In a preview the primary
+ * action only moves on: the step's own submit, which saves, never runs.
  */
 export function StepFrame({
   title,
@@ -47,6 +49,7 @@ export function StepFrame({
   error?: string | null;
 }) {
   const form = useRef<HTMLFormElement>(null);
+  const previewNext = useWizardPreviewNext();
   const heading = useRef<HTMLHeadingElement>(null);
 
   useEffect(() => {
@@ -60,6 +63,10 @@ export function StepFrame({
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
+    if (previewNext) {
+      previewNext();
+      return;
+    }
     if (busy || primaryDisabled) return;
     onSubmit();
   };
@@ -91,7 +98,7 @@ export function StepFrame({
           )}
           <Button
             type="submit"
-            disabled={busy || primaryDisabled}
+            disabled={!previewNext && (busy || primaryDisabled)}
             icon={busy ? <Loader2 size={14} className="animate-spin motion-reduce:animate-none" aria-hidden="true" /> : undefined}
           >
             {busy ? busyLabel : primaryLabel}

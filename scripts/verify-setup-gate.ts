@@ -35,6 +35,17 @@ check('the demo workspace never shows the wizard', gate('owner', false, '/dashbo
 check('while the state loads, an Owner is not moved', gate('owner', undefined) === null && gate('owner', undefined, WELCOME_PATH) === null);
 check('the set-password page is not the wizard', gate('member', false, '/welcome/set-password') === null);
 
+const pv = (role: string, setupCompleted: boolean | undefined, demo = false) =>
+  setupRedirect({ role, setupCompleted, pathname: WELCOME_PATH, demo, preview: true });
+check('preview: an Owner after setup stays on the wizard', pv('owner', true) === null, pv('owner', true));
+for (const role of ['admin', 'member', 'guest', 'agent']) {
+  check(`preview: ${role} is still sent away`, pv(role, true) === AFTER_SETUP_PATH, pv(role, true));
+}
+check('preview: before setup it is just the wizard', pv('owner', false) === null);
+check('preview: never in the demo workspace', pv('owner', true, true) === AFTER_SETUP_PATH, pv('owner', true, true));
+check('preview: elsewhere in the app it changes nothing', setupRedirect({ role: 'owner', setupCompleted: true, pathname: '/dashboard', demo: false, preview: true }) === null);
+check('steps: your account comes first', wizardSteps()[0] === 'account');
+
 check('pending: an Owner waits for the state', setupPending({ role: 'owner', setupCompleted: undefined, demo: false }));
 check('pending: not once it is known', !setupPending({ role: 'owner', setupCompleted: false, demo: false }));
 check('pending: nobody else waits', !setupPending({ role: 'member', setupCompleted: undefined, demo: false }));
@@ -42,9 +53,9 @@ check('pending: not in the demo workspace', !setupPending({ role: 'owner', setup
 
 // ---- The wizard's steps ----------------------------------------------------
 const all = wizardSteps(MODULE_IDS);
-check('steps: Billing details with Client invoicing on', JSON.stringify(all) === JSON.stringify(['workspace', 'usage', 'billing', 'email', 'team', 'projects', 'done']), all);
+check('steps: Billing details with Client invoicing on', JSON.stringify(all) === JSON.stringify(['account', 'workspace', 'usage', 'billing', 'email', 'team', 'projects', 'done']), all);
 const noBilling = wizardSteps(['time', 'inbox']);
-check('steps: no Billing details with Client invoicing off', !noBilling.includes('billing') && noBilling.length === 6, noBilling);
+check('steps: no Billing details with Client invoicing off', !noBilling.includes('billing') && noBilling.length === 7, noBilling);
 
 // ---- Getting started ---------------------------------------------------------
 const nothingDone = { brandSet: false, teamInvited: false, hasProject: false, billingOn: true, billingDetailsSet: false };

@@ -2716,25 +2716,33 @@ create trigger set_project_context_updated_at
 -- ============================================================
 -- AUTO-CREATE TEAM MEMBER ON SIGNUP
 -- ============================================================
-create or replace function public.handle_new_user()
-returns trigger
-language plpgsql
-security definer
-set search_path = ''
-as $$
-begin
-  insert into public.team_members (auth_user_id, name, email, role)
-  values (
-    new.id,
-    coalesce(new.raw_user_meta_data->>'display_name', split_part(new.email, '@', 1)),
-    new.email,
-    case
-      when exists (select 1 from public.team_members) then 'member'
-      else 'owner'
-    end
+-- The first account becomes the Owner (the account step of the setup wizard).
+-- The lock makes two sign-ups at once decide in turn, so only one is first;
+-- the wizard account (user_metadata first_owner) is refused once a team exists.
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+DECLARE
+  team_exists boolean;
+BEGIN
+  -- One sign-up at a time decides who is first (key: 'handle_new_user').
+  PERFORM pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtext('public.handle_new_user'));
+  team_exists := EXISTS (SELECT 1 FROM public.team_members);
+  IF team_exists AND COALESCE(NEW.raw_user_meta_data->>'first_owner', '') = 'true' THEN
+    RAISE EXCEPTION 'This workspace already has an Owner' USING ERRCODE = 'P0001';
+  END IF;
+  INSERT INTO public.team_members (auth_user_id, name, email, role)
+  VALUES (
+    NEW.id,
+    COALESCE(NEW.raw_user_meta_data->>'display_name', split_part(NEW.email, '@', 1)),
+    NEW.email,
+    CASE WHEN team_exists THEN 'member' ELSE 'owner' END
   );
-  return new;
-end;
+  RETURN NEW;
+END;
 $$;
 
 create trigger on_auth_user_created
