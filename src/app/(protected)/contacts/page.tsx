@@ -24,6 +24,8 @@ export default function ContactsPage() {
   const { contacts, contactEmails, deleteContact, filters, setFilters } = useApp();
   const { access } = useAuth();
   const canManageContacts = hasPermission(access, 'contacts.manage');
+  // Converting a lead makes a contact too, so the empty state offers it while Leads is on.
+  const canConvertLeads = hasPermission(access, 'leads.manage');
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingContact, setEditingContact] = useState<Contact | null>(null);
   const [deletingContactId, setDeletingContactId] = useState<string | null>(null);
@@ -174,7 +176,7 @@ export default function ContactsPage() {
               <UserCircle className="text-zinc-500" size={32} />
             </div>
             <h3 className="text-lg font-semibold text-white mb-2">No contacts yet</h3>
-            <p className="text-zinc-400 mb-4">{canManageContacts ? 'Add a contact or convert a lead to get started' : 'No contacts are available to you'}</p>
+            <p className="text-zinc-400 mb-4">{!canManageContacts ? 'No contacts are available to you' : canConvertLeads ? 'Add a contact or convert a lead to get started' : 'Add a contact to get started'}</p>
             {canManageContacts && <Button onClick={() => setIsFormOpen(true)}>Add Contact</Button>}
           </div>
         ) : (

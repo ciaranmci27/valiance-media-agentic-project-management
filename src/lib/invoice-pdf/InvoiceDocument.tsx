@@ -9,6 +9,7 @@ import {
 } from '@react-pdf/renderer';
 import type { InvoiceStatus } from '@/lib/types';
 import { EMAIL, accentPalette } from '@/lib/email/templates/shared';
+import { generateShades } from '@/lib/brand';
 import type { InvoicePdfData, InvoicePdfTheme } from './types';
 import {
   INVOICE_FONT_FAMILY,
@@ -84,9 +85,13 @@ const PAPER: Palette = {
   chipNeutralBorder: '#D9D6CF',
 };
 
-function paletteFor(theme: InvoicePdfTheme): Palette {
-  if (theme === 'paper') return PAPER;
-  const teal = accentPalette();
+/** The theme's palette, with its accent drawn from the workspace's brand color. */
+function paletteFor(theme: InvoicePdfTheme, brandColor: string): Palette {
+  if (theme === 'paper') {
+    const shades = generateShades(brandColor);
+    return { ...PAPER, accent: shades[600], accentTile: shades[50], accentBorder: shades[100] };
+  }
+  const teal = accentPalette(brandColor);
   return {
     page: EMAIL.canvas,
     tile: EMAIL.tile,
@@ -200,7 +205,8 @@ interface Kit {
   data: InvoicePdfData;
   styles: Styles;
   tones: Tones;
-  logoSrc: string;
+  /** Null with no logo uploaded: the masthead shows the business name instead. */
+  logoSrc: string | null;
 }
 
 // ── Shared pieces ──────────────────────────────────────────────────────
@@ -286,7 +292,7 @@ function Footer({ kit }: { kit: Kit }) {
 
 // ── Document ───────────────────────────────────────────────────────────
 export function InvoiceDocument({ data, theme = 'dark' }: { data: InvoicePdfData; theme?: InvoicePdfTheme }) {
-  const palette = paletteFor(theme);
+  const palette = paletteFor(theme, data.brandColor);
   const styles = createStyles(palette);
   const tones = tonesFor(palette);
   const logoSrc = theme === 'dark' ? (data.logoDarkUrl ?? data.logoUrl) : data.logoUrl;

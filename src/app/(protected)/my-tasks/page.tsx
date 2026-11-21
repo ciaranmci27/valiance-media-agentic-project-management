@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 import { Task } from '@/lib/types';
 import { parseDateOnly } from '@/lib/date-utils';
-import { hasPermission } from '@/lib/access-control';
+import { hasPermission, isModuleEnabled } from '@/lib/access-control';
 import {
   computeNeedsYou, getTaskLane, getReviewProfile, type NeedsYouItem,
 } from '@/lib/autonomy';
@@ -95,7 +95,7 @@ function RadarPageContent() {
   // Subtask trays the person opened or closed; the rest follow the default.
   const [trayOpen, setTrayOpen] = useState<Map<string, boolean>>(() => new Map());
 
-  const isAgentsEnabled = process.env.NEXT_PUBLIC_ENABLE_AGENTS === 'true';
+  const isAgentsEnabled = isModuleEnabled(access, 'agents');
   const canManageAgents = hasPermission(access, 'agents.manage');
 
   const suggestionById = useMemo(

@@ -1,5 +1,4 @@
 import { z } from 'zod';
-import { siteConfig } from '@/site-config';
 
 export const createProjectSchema = z.object({
   name: z.string().min(1, 'Name is required'),

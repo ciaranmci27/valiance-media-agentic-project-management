@@ -6,6 +6,7 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import { useApp, defaultFilters } from '@/lib/store';
 import { Header } from '@/components/layout/Header';
 import { ProjectForm } from '@/components/projects/ProjectForm';
+import { projectTrashMessage } from '@/components/projects/trash-message';
 import { Button } from '@/components/ui/Button';
 import { AvatarGroup } from '@/components/ui/Avatar';
 import { Tooltip } from '@/components/ui/Tooltip';
@@ -17,7 +18,7 @@ import { Project } from '@/lib/types';
 import { toast } from '@/components/ui/Toast';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { useAuth } from '@/lib/auth-context';
-import { hasPermission } from '@/lib/access-control';
+import { hasPermission, isModuleEnabled } from '@/lib/access-control';
 import { parseDateOnly } from '@/lib/date-utils';
 import { useUnreadByProject } from '@/components/tasks/TaskUnread';
 import { useWarmProject } from '@/lib/reads';
@@ -32,7 +33,8 @@ function ProjectsContent() {
   const warmProject = useWarmProject();
   const canManageProjects = hasPermission(access, 'projects.manage');
   const canManageAgents = hasPermission(access, 'agents.manage');
-  const isAgentsEnabled = process.env.NEXT_PUBLIC_ENABLE_AGENTS === 'true';
+  const isAgentsEnabled = isModuleEnabled(access, 'agents');
+  const canReadContacts = hasPermission(access, 'contacts.read') || hasPermission(access, 'contacts.read_all');
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingProject, setEditingProject] = useState<Project | null>(null);
   const [deletingProjectId, setDeletingProjectId] = useState<string | null>(null);
@@ -91,7 +93,7 @@ function ProjectsContent() {
   const mobileCard = (p: Project) => {
     const { pct, total } = getProgress(p);
     const members = team.filter(m => p.member_ids.includes(m.id));
-    const client = getPrimaryClient(p.id);
+    const client = canReadContacts ? getPrimaryClient(p.id) : undefined;
     return (
       <div className="glass-card rounded-xl p-4 hover:border-white/[0.12] transition-colors">
         <div className="flex items-start justify-between gap-3">
@@ -173,7 +175,8 @@ function ProjectsContent() {
         </div>
       ),
     },
-    {
+    // Without contacts there is no client to show; Description takes its width.
+    ...(canReadContacts ? [{
       key: 'client',
       header: 'Client',
       width: 'w-[14%]',
@@ -184,11 +187,11 @@ function ProjectsContent() {
           ? <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-white/[0.06] text-zinc-300">{client.contact.name}</span>
           : <span className="text-zinc-600 italic">—</span>;
       },
-    },
+    } satisfies Column<Project>] : []),
     {
       key: 'description',
       header: 'Description',
-      width: 'w-[29%]',
+      width: canReadContacts ? 'w-[29%]' : 'w-[43%]',
       className: 'hidden lg:table-cell',
       render: (p) => p.description
         ? <span className="text-zinc-400 truncate block">{p.description}</span>
@@ -316,7 +319,7 @@ function ProjectsContent() {
         onClose={() => setDeletingProjectId(null)}
         onConfirm={executeDelete}
         title="Move project to Trash?"
-        message="The project goes to Trash with everything in it: tasks, time, invoices, files and the client portal."
+        message={projectTrashMessage(access)}
         variant="danger"
         trash
       />

@@ -7,7 +7,7 @@ import { logAudit } from '@/lib/api/audit';
 import { accessAllowsProject } from '@/lib/api/access';
 
 export const POST = withApi(async ({ supabase, body, apiKeyId, teamMemberId, access }) => {
-  requireAgentsEnabled();
+  requireAgentsEnabled(access);
 
   const { ids, rejection_reason } = body as { ids: string[]; rejection_reason?: string };
   const reviewedBy = teamMemberId || apiKeyId;

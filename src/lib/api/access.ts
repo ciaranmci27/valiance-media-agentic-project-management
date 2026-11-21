@@ -1,9 +1,12 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
-import type { AccessContext, PermissionKey, TeamRole } from '@/lib/access-control';
+import { hasPermission, isModuleEnabled, type AccessContext, type PermissionKey, type TeamRole } from '@/lib/access-control';
 import { createClient } from '@/lib/supabase/server';
 import { sessionUser, type SessionUser } from '@/lib/supabase/session-user';
 import { getActorClient, getServiceClient } from '@/lib/api/supabase-service';
+import { readEnabledModules } from '@/lib/modules/server';
+import { moduleOfPermission, type ModuleId } from '@/lib/modules/registry';
+import { MODULE_OFF, moduleOffMessage } from '@/lib/api/errors';
 
 export interface SessionAccessResult {
   user: SessionUser;
@@ -90,7 +93,7 @@ async function accessForMember(
 ): Promise<AccessContext | null> {
   const memberId = member.id;
   const role = member.role as TeamRole;
-  const [roleResult, overrideResult, projectResult] = await Promise.all([
+  const [roleResult, overrideResult, projectResult, modules] = await Promise.all([
     role === 'owner'
       ? Promise.resolve({ data: [], error: null })
       : service
@@ -112,7 +115,11 @@ async function accessForMember(
       .eq('member_id', memberId)
       .is('project.deleted_at', null)
       .order('project_id'),
+    readEnabledModules(service),
   ]);
+
+  // Which parts of the app are switched on decides what any permission means.
+  if (!modules) return null;
 
   // An admin running against the pre-migration schema should retain the legacy
   // management experience. New roles remain closed by default until migrated.
@@ -130,6 +137,7 @@ async function accessForMember(
       app_permissions: legacyManagement ? ['*'] : [],
       api_permissions: legacyManagement ? ['*'] : [],
       project_ids: (projectResult.data || []).map((row) => row.project_id),
+      modules,
     };
   }
 
@@ -167,6 +175,7 @@ async function accessForMember(
     app_permissions: [...app] as AccessContext['app_permissions'],
     api_permissions: [...api] as AccessContext['api_permissions'],
     project_ids: (projectRows || []).map((row) => row.project_id),
+    modules,
   };
 }
 
@@ -218,9 +227,34 @@ export function accessAllows(
   permission: PermissionKey,
   channel: 'app' | 'api' = 'app',
 ): boolean {
-  if (access.status !== 'active') return false;
-  const permissions = channel === 'app' ? access.app_permissions : access.api_permissions;
-  return permissions.includes('*') || permissions.includes(permission);
+  // The same rule as the app's: status, the module switch, then the grant.
+  return hasPermission(access, permission, channel);
+}
+
+/**
+ * The switched-off module behind a refusal: set only when every permission
+ * that would do belongs to a module that is off. Null when any of them is
+ * core or on, so a missing grant still reads as a missing grant.
+ */
+export function moduleOffFor(access: AccessContext, permissions: readonly PermissionKey[]): ModuleId | null {
+  let off: ModuleId | null = null;
+  for (const permission of permissions) {
+    const mod = moduleOfPermission(permission);
+    if (mod === 'core' || isModuleEnabled(access, mod)) return null;
+    off ??= mod;
+  }
+  return off;
+}
+
+/** The session-route refusal for a switched-off module: { error } plus a stable code. */
+export function moduleOffResponse(id: ModuleId): NextResponse {
+  return NextResponse.json({ error: moduleOffMessage(id), code: MODULE_OFF, module: id }, { status: 403 });
+}
+
+/** A session route's 403 when none of `permissions` is held: the module-off answer when that is why. */
+export function deniedResponse(access: AccessContext, permissions: readonly PermissionKey[]): NextResponse {
+  const off = moduleOffFor(access, permissions);
+  return off ? moduleOffResponse(off) : NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 }
 
 export function accessAllowsProject(
@@ -441,6 +475,8 @@ export async function requireSessionAccess(options?: {
     return { data: null, error: NextResponse.json({ error: 'Account suspended' }, { status: 403 }) };
   }
   if (options?.permission && !accessAllows(access, options.permission, 'app')) {
+    const off = moduleOffFor(access, [options.permission]);
+    if (off) return { data: null, error: moduleOffResponse(off) };
     return { data: null, error: NextResponse.json({ error: 'Forbidden' }, { status: 403 }) };
   }
   if (options?.projectId && !accessAllowsProject(access, options.projectId)) {

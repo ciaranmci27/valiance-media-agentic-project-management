@@ -1,11 +1,10 @@
 'use client';
 
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import * as THREE from 'three';
-import { useTexture } from '@react-three/drei';
 import { RectAreaLightUniformsLib } from 'three/examples/jsm/lights/RectAreaLightUniformsLib.js';
-import { siteConfig } from '@/site-config';
-import { PALETTE } from './crew';
+import { useBrand } from '@/lib/brand/context';
+import { useScenePalette } from './crew';
 import { OfficeProp, Prop } from './Prop';
 import { roundedMetricBox } from './metricGeometry';
 import { type TimeOfDay } from './timeOfDay';
@@ -404,6 +403,26 @@ function FlutedPanel({
 }
 
 /**
+ * Loads a logo for drawing onto a canvas, or null while it loads, when there
+ * is none, or when it fails. Never suspends or throws, so a missing or broken
+ * logo cannot take the scene down. CORS-enabled, so the canvas stays usable
+ * as a WebGL texture.
+ */
+function useLogoImage(src: string | null): HTMLImageElement | null {
+  const [loaded, setLoaded] = useState<{ src: string; img: HTMLImageElement } | null>(null);
+  useEffect(() => {
+    if (!src) return;
+    let live = true;
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => { if (live) setLoaded({ src, img }); };
+    img.src = src;
+    return () => { live = false; };
+  }, [src]);
+  return loaded && loaded.src === src ? loaded.img : null;
+}
+
+/**
  * A fleet board on the wall: the always-on status screen an operations floor
  * has, as opposed to the per-desk monitors which show one person's work.
  *
@@ -412,17 +431,11 @@ function FlutedPanel({
  * room fixture has no business owning.
  */
 function useFleetBoardTexture(): THREE.CanvasTexture {
-  // The real lockup, not the brand name typed out. This used to draw the
-  // literal string 'VALIANCE', which meant re-skinning the app via
-  // `site-config` changed every surface except this one screen.
-  //
-  // `/api/logo?variant=dark` is the app's own resolver (see `ui/Logo.tsx`):
-  // it serves `logo-dark.*` — the mark paired with a light wordmark, drawn for
-  // exactly this kind of near-black chrome — and falls back to the standard
-  // logo for a brand that hasn't supplied one, so it is always safe to ask
-  // for. Going straight to `/logos/logo-dark.png` would skip both the
-  // fallback and the ETag revalidation the route provides.
-  const logo = useTexture('/api/logo?variant=dark');
+  // The workspace's own logo, drawn for dark backgrounds (the light one when
+  // none is uploaded), on this near-black board. With no logo, the name.
+  const brand = useBrand();
+  const palette = useScenePalette();
+  const img = useLogoImage(brand.logos.dark);
 
   return useMemo(() => {
     const w = 1024;
@@ -436,12 +449,11 @@ function useFleetBoardTexture(): THREE.CanvasTexture {
     ctx.fillRect(0, 0, w, h);
 
     // Header rule.
-    ctx.fillStyle = PALETTE.brand;
+    ctx.fillStyle = palette.brand;
     ctx.fillRect(48, 52, 5, 34);
 
     // The lockup, scaled to a fixed cap height so a taller or wider brand
     // asset can't shove the rest of the header around.
-    const img = logo?.image as (CanvasImageSource & { width: number; height: number }) | undefined;
     let cursorX = 68;
     if (img?.width) {
       const drawH = 40;
@@ -449,15 +461,15 @@ function useFleetBoardTexture(): THREE.CanvasTexture {
       ctx.drawImage(img, cursorX, 79 - drawH * 0.78, drawW, drawH);
       cursorX += drawW + 14;
     } else {
-      // Asset missing entirely: fall back to the configured name, the same
-      // way `ui/Logo.tsx` does, rather than leaving a blank header.
+      // No logo (or not loaded yet): the name, the same way `ui/Logo.tsx`
+      // does, rather than a blank header.
       ctx.fillStyle = '#e8edf4';
       ctx.font = '600 30px "DM Sans", system-ui, sans-serif';
-      ctx.fillText(siteConfig.name.toUpperCase(), cursorX, 79);
-      cursorX += ctx.measureText(siteConfig.name.toUpperCase()).width + 14;
+      ctx.fillText(brand.name.toUpperCase(), cursorX, 79);
+      cursorX += ctx.measureText(brand.name.toUpperCase()).width + 14;
     }
 
-    ctx.fillStyle = PALETTE.brand;
+    ctx.fillStyle = palette.brand;
     ctx.font = '600 30px "DM Sans", system-ui, sans-serif';
     ctx.fillText('// LIVE', cursorX, 79);
 
@@ -484,7 +496,7 @@ function useFleetBoardTexture(): THREE.CanvasTexture {
       const barW = w - 320 - 130;
       ctx.fillStyle = 'rgba(255,255,255,0.07)';
       ctx.fillRect(barX, y, barW, 16);
-      ctx.fillStyle = PALETTE.brand;
+      ctx.fillStyle = palette.brand;
       ctx.fillRect(barX, y, barW * r.pct, 16);
       ctx.fillStyle = '#8f98a6';
       ctx.font = '400 16px "DM Mono", ui-monospace, monospace';
@@ -498,7 +510,7 @@ function useFleetBoardTexture(): THREE.CanvasTexture {
       seed = (seed * 16807) % 2147483647;
       return seed / 2147483647;
     };
-    ctx.strokeStyle = PALETTE.brandBright;
+    ctx.strokeStyle = palette.brandBright;
     ctx.lineWidth = 2.5;
     ctx.beginPath();
     const baseY = h - 62;
@@ -518,9 +530,9 @@ function useFleetBoardTexture(): THREE.CanvasTexture {
     tex.colorSpace = THREE.SRGBColorSpace;
     tex.anisotropy = 8;
     return tex;
-    // Depends on the logo: the board has to redraw once the asset resolves,
+    // Depends on the logo: the board has to redraw once the image loads,
     // or it keeps whichever header it happened to compose first.
-  }, [logo]);
+  }, [img, brand.name, palette]);
 }
 
 function WallScreen({ position, rotationY }: { position: [number, number, number]; rotationY: number }) {
@@ -555,6 +567,7 @@ function WallScreen({ position, rotationY }: { position: [number, number, number
 const RUG = roundedMetricBox(2.7, 0.012, 1.9, 0.006, 2);
 
 export function Room({ time }: { time: TimeOfDay }) {
+  const palette = useScenePalette();
   // Photographed surfaces (see `officeMaterials`), each tiled to its own
   // real-world size so a slab is a slab and a board is a board everywhere.
   const floor = useFloorMaterial({ width: ROOM.width, height: ROOM.depth });
@@ -658,8 +671,8 @@ export function Room({ time }: { time: TimeOfDay }) {
         <mesh key={i} position={[...s.pos]} rotation={[0, s.rotY, 0]}>
           <planeGeometry args={[s.len, 0.04]} />
           <meshStandardMaterial
-            color={PALETTE.brandDeep}
-            emissive={PALETTE.brand}
+            color={palette.brandDeep}
+            emissive={palette.brand}
             emissiveIntensity={2.4}
             toneMapped={false}
           />

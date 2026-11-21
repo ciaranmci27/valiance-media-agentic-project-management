@@ -11,7 +11,7 @@ import { Tooltip } from '@/components/ui/Tooltip';
 import { TextInput } from '@/components/ui/inputs/TextInput';
 import { RowActionsMenu, type RowAction } from '@/components/ui/RowActionsMenu';
 import { parseDateOnly, isDateOverdue } from '@/lib/date-utils';
-import { hasPermission, canEditTask, canManageAllTasks } from '@/lib/access-control';
+import { hasPermission, canEditTask, canManageAllTasks, isModuleEnabled } from '@/lib/access-control';
 import { TASK_STATUS_LABELS, taskAsText, taskUrl, copyText } from '@/lib/task-copy';
 import { nextReminderFor, reminderGroup, whenLabel } from '@/lib/reminders';
 import { TaskLinkCountBadges, useTaskLinkCounts } from '@/components/inbox/TaskSourceEmails';
@@ -79,7 +79,7 @@ export function TaskCard({ task, onView, onDelete, onMove }: TaskCardProps) {
   const [adding, setAdding] = useState(false);
   const [newSubtask, setNewSubtask] = useState('');
 
-  const isAgentsEnabled = process.env.NEXT_PUBLIC_ENABLE_AGENTS === 'true';
+  const isAgentsEnabled = isModuleEnabled(access, 'agents');
   const canManageAgents = hasPermission(access, 'agents.manage');
 
   const assignees = team.filter(m => task.assignee_ids.includes(m.id));

@@ -7,6 +7,7 @@ import type { User } from '@supabase/supabase-js';
 import { useDemo } from '@/lib/demo-context';
 import { DEMO_USER_ID, DEMO_ADMIN_TEAM_MEMBER_ID } from '@/lib/demo-data';
 import type { AccessContext } from '@/lib/access-control';
+import { MODULE_IDS, type ModuleId } from '@/lib/modules/registry';
 
 interface AuthContextType {
   user: User | null;
@@ -15,6 +16,12 @@ interface AuthContextType {
   accessError: string | null;
   loading: boolean;
   refreshAccess: () => Promise<void>;
+  /**
+   * Demo mode only: switch modules on the sample workspace (lasts until a
+   * reload, like every other demo change). Outside demo mode, modules change
+   * through Settings > Features and arrive here through realtime.
+   */
+  setDemoModules: (modules: ModuleId[]) => void;
   signOut: () => Promise<void>;
 }
 
@@ -29,6 +36,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [access, setAccess] = useState<AccessContext | null>(null);
   const [accessError, setAccessError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [demoModules, setDemoModules] = useState<ModuleId[]>(() => [...MODULE_IDS]);
   const router = useRouter();
   const supabase = useMemo(() => createClient(), []);
   const { isDemoMode, isEnvForcedDemo } = useDemo();
@@ -77,6 +85,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         app_permissions: ['*'],
         api_permissions: ['*'],
         project_ids: [],
+        modules: [...MODULE_IDS],
       });
       setAccessError(null);
       setLoading(false);
@@ -162,6 +171,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener('focus', refreshOnFocus);
   }, [isEnvForcedDemo, loadWorkspaceIdentity, user]);
 
+  // An Owner switching a module changes what everyone may do: every open tab
+  // re-reads its access at once, and the app reshapes around the new set.
+  useEffect(() => {
+    if (!user || isEnvForcedDemo) return;
+    const channel = supabase
+      .channel('workspace-modules')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'workspace_modules' }, () => {
+        void loadWorkspaceIdentity().catch(() => {});
+      })
+      .subscribe();
+    return () => { void supabase.removeChannel(channel); };
+  }, [isEnvForcedDemo, loadWorkspaceIdentity, supabase, user]);
+
   const signOut = async () => {
     await supabase.auth.signOut();
     setUser(null);
@@ -178,19 +200,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     ? DEMO_ADMIN_TEAM_MEMBER_ID
     : teamMemberId;
 
-  const effectiveAccess = isDemoMode && !isEnvForcedDemo
-    ? {
+  const effectiveAccess = useMemo<AccessContext | null>(() => {
+    if (isEnvForcedDemo) return access ? { ...access, modules: demoModules } : access;
+    if (isDemoMode) {
+      return {
         member_id: DEMO_ADMIN_TEAM_MEMBER_ID,
-        role: 'owner' as const,
-        status: 'active' as const,
-        app_permissions: ['*' as const],
-        api_permissions: ['*' as const],
+        role: 'owner',
+        status: 'active',
+        app_permissions: ['*'],
+        api_permissions: ['*'],
         project_ids: [],
-      }
-    : access;
+        modules: demoModules,
+      };
+    }
+    return access;
+  }, [access, demoModules, isDemoMode, isEnvForcedDemo]);
 
   return (
-    <AuthContext.Provider value={{ user, teamMemberId: effectiveTeamMemberId, access: effectiveAccess, accessError, loading, refreshAccess: loadWorkspaceIdentity, signOut }}>
+    <AuthContext.Provider value={{ user, teamMemberId: effectiveTeamMemberId, access: effectiveAccess, accessError, loading, refreshAccess: loadWorkspaceIdentity, setDemoModules, signOut }}>
       {children}
     </AuthContext.Provider>
   );

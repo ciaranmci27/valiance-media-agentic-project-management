@@ -31,7 +31,6 @@ import { TimeInput } from '@/components/ui/inputs/TimeInput';
 import { DateInput } from '@/components/ui/inputs/DateInput';
 import { NumberInput } from '@/components/ui/inputs/NumberInput';
 import { TimeEntry, TimeSegment } from '@/lib/types';
-import { siteConfig } from '@/site-config';
 import { toLocalTimeString, toLocalDateString, toLocalDateKey } from '@/lib/date-utils';
 import { invoiceAmountReceived } from '@/lib/invoice-payments';
 import {

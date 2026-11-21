@@ -6,6 +6,7 @@ import { notFound, badRequest } from '@/lib/api/errors';
 import { logAudit } from '@/lib/api/audit';
 import { trashForApi } from '@/lib/api/trash';
 import { evaluateBudgetAlerts } from '@/lib/email/client-notifications';
+import { budgetAlertsEnabled } from '@/lib/api/budget-alerts';
 import type { TimeSegment } from '@/lib/types';
 import { resolveProjectHourlyRate, TIME_ENTRY_SELECT, mapTimeEntryRow } from '@/lib/supabase/queries';
 import { assertTasksInProject, replaceEntryTaskLinks, withLiveTaskIds } from '@/lib/api/task-guards';
@@ -157,7 +158,7 @@ export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemb
 
   // Use after() so the promise reliably resolves on serverless
   // platforms; a bare .catch() can be killed when the response sends.
-  after(() => evaluateBudgetAlerts(id));
+  if (budgetAlertsEnabled(access)) after(() => evaluateBudgetAlerts(id));
 
   return success(sanitizeTimeEntryForAccess(data as unknown as Record<string, unknown>, access, 'api'));
 }, { schema: updateTimeEntrySchema, permission: ['time.manage_own', 'time.manage_all'] });

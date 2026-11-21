@@ -8,7 +8,7 @@ import { logAudit } from '@/lib/api/audit';
 import { accessAllows, accessAllowsProject } from '@/lib/api/access';
 
 export const GET = withApi<unknown, { id: string }>(async ({ supabase, params, access }) => {
-  requireAgentsEnabled();
+  requireAgentsEnabled(access);
 
   const { data, error } = await supabase
     .from('task_suggestions')
@@ -25,7 +25,7 @@ export const GET = withApi<unknown, { id: string }>(async ({ supabase, params, a
 }, { permission: ['suggestions.create', 'suggestions.manage'] });
 
 export const PATCH = withApi<any, { id: string }>(async ({ supabase, params, body, apiKeyId, teamMemberId, access, scopes }) => {
-  requireAgentsEnabled();
+  requireAgentsEnabled(access);
 
   const { data: before } = await supabase
     .from('task_suggestions')

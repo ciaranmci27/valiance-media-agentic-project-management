@@ -14,21 +14,12 @@ import { ContactForm } from '@/components/contacts/ContactForm';
 import { Textarea } from '@/components/ui/inputs/Textarea';
 import { MultiSelect } from '@/components/ui/inputs/MultiSelect';
 import { DateInput } from '@/components/ui/inputs/DateInput';
-import { siteConfig } from '@/site-config';
+import { useBrand } from '@/lib/brand/context';
 import { useAuth } from '@/lib/auth-context';
-import { hasPermission } from '@/lib/access-control';
+import { hasPermission, isModuleEnabled } from '@/lib/access-control';
 
 const DEFAULT_PROJECT_COLOR = '';
-const PROJECT_COLORS = [
-  '#8B5CF6',
-  '#EC4899',
-  '#EF4444',
-  '#F59E0B',
-  '#10B981',
-  '#06B6D4',
-  '#3B82F6',
-  siteConfig.colors.brand[500],
-];
+const OTHER_COLORS = ['#8B5CF6', '#EC4899', '#EF4444', '#F59E0B', '#10B981', '#06B6D4', '#3B82F6'];
 
 function formatBudgetDisplay(val: string): string {
   if (!val) return '';
@@ -72,11 +63,17 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
   const { team, contacts, addProject, updateProject, addProjectContact, getPrimaryClient } =
     useApp();
   const { access, teamMemberId } = useAuth();
+  const brand = useBrand();
+  // The brand color last; a brand color that matches another swatch shows once.
+  const projectColors = [...new Set([...OTHER_COLORS, brand.colors.brand[500]])];
   const canManageBilling = hasPermission(access, 'billing.manage');
   const canManageProject = hasPermission(access, 'projects.manage');
   const canManageProjectMembers = hasPermission(access, 'project_members.manage');
   const canManageContacts = hasPermission(access, 'contacts.manage');
   const canManageAgents = hasPermission(access, 'agents.manage');
+  // Time tracking is a module: switched off, its toggle is hidden and a save
+  // leaves the project's stored setting as it was.
+  const timeOn = isModuleEnabled(access, 'time');
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [color, setColor] = useState(DEFAULT_PROJECT_COLOR);
@@ -212,6 +209,10 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
     if (project) {
       const updateData: Partial<Project> = { ...projectData };
       if (!canManageProjectMembers) delete updateData.member_ids;
+      if (!timeOn) {
+        delete updateData.hourly_tracking;
+        delete updateData.time_tracking_enabled;
+      }
       saved = await updateProject(project.id, updateData);
       if (saved && canManageContacts && selectedContactId) {
         const currentPrimary = getPrimaryClient(project.id);
@@ -500,26 +501,28 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
           />
         </div>
 
-        <div className="flex items-center justify-between py-1">
-          <div>
-            <label className="block text-sm font-medium text-zinc-300">Time Tracking</label>
-            <p className="text-xs text-zinc-500">Enable time tracking for this project</p>
-          </div>
-          <button
-            type="button"
-            onClick={() => setHourlyTracking(!hourlyTracking)}
-            className={`relative w-10 h-[22px] rounded-full transition-colors ${
-              hourlyTracking ? 'bg-brand-600' : 'bg-zinc-300'
-            }`}
-          >
-            <span
-              className={`absolute top-0.5 left-0.5 w-[18px] h-[18px] bg-surface-raised rounded-full shadow transition-transform ${
-                hourlyTracking ? 'translate-x-[18px]' : 'translate-x-0'
+        {timeOn && (
+          <div className="flex items-center justify-between py-1">
+            <div>
+              <label className="block text-sm font-medium text-zinc-300">Time Tracking</label>
+              <p className="text-xs text-zinc-500">Enable time tracking for this project</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setHourlyTracking(!hourlyTracking)}
+              className={`relative w-10 h-[22px] rounded-full transition-colors ${
+                hourlyTracking ? 'bg-brand-600' : 'bg-zinc-300'
               }`}
-            />
-          </button>
-        </div>
-        {hourlyTracking && canManageBilling && (
+            >
+              <span
+                className={`absolute top-0.5 left-0.5 w-[18px] h-[18px] bg-surface-raised rounded-full shadow transition-transform ${
+                  hourlyTracking ? 'translate-x-[18px]' : 'translate-x-0'
+                }`}
+              />
+            </button>
+          </div>
+        )}
+        {timeOn && hourlyTracking && canManageBilling && (
           <div>
             <label className="block text-sm font-medium text-zinc-300 mb-1.5">
               Client billing treatment
@@ -701,7 +704,7 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
             Color <span className="font-normal text-zinc-500">(optional)</span>
           </label>
           <div className="flex gap-2">
-            {PROJECT_COLORS.map((c) => (
+            {projectColors.map((c) => (
               <button
                 key={c}
                 type="button"

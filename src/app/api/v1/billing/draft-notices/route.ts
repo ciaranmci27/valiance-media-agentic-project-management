@@ -1,10 +1,10 @@
 import { withApi } from '@/lib/api/middleware';
 import { success } from '@/lib/api/response';
 import { accessAllowsProject } from '@/lib/api/access';
+import { getSiteUrl } from '@/lib/email/templates/shared';
 
 export const dynamic = 'force-dynamic';
 
-const APP_URL = (process.env.NEXT_PUBLIC_APP_URL || 'https://app.valiancemedia.com').replace(/\/$/, '');
 
 /**
  * Invoice drafts made by the retainer or billing jobs that the PM agent has
@@ -43,7 +43,7 @@ export const GET = withApi(async ({ supabase, access }) => {
     date: row.project_invoices?.date ?? null,
     due_date: row.project_invoices?.due_date ?? null,
     summary: row.summary,
-    link: `${APP_URL}/projects/${row.project_id}?tab=invoices`,
+    link: `${getSiteUrl().replace(/\/$/, '')}/projects/${row.project_id}?tab=invoices`,
     drafted_at: row.created_at,
   })));
 }, { permission: 'invoices.read' });

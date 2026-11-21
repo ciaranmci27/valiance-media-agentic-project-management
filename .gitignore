@@ -43,3 +43,7 @@ next-env.d.ts
 
 # playwright
 .playwright/
+
+# Claude Code: the shared settings, hook and pm- skills are tracked; local ones are not
+.claude/settings.local.json
+.claude/worktrees/

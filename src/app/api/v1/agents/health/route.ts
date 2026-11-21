@@ -25,8 +25,8 @@ import { badRequest } from '@/lib/api/errors';
  * substrings the permission inference recognizes, and defaulting a write
  * to projects.manage would let a broader key than intended feed this table.
  */
-export const POST = withApi<z.infer<typeof agentHealthReportSchema>>(async ({ supabase, body }) => {
-  requireAgentsEnabled();
+export const POST = withApi<z.infer<typeof agentHealthReportSchema>>(async ({ supabase, body, access }) => {
+  requireAgentsEnabled(access);
 
   // Body arrives schema-validated: withApi parses and enforces the zod
   // schema passed in the options below before the handler runs.

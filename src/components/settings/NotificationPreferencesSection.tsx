@@ -4,15 +4,44 @@ import { useEffect, useState } from 'react';
 import { Bell, Mail } from 'lucide-react';
 import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
+import { isModuleEnabled } from '@/lib/access-control';
 import { Toggle } from '@/components/ui/inputs/Toggle';
 import { toast } from '@/components/ui/Toast';
 import { emailCategoryEnabled } from '@/lib/notification-defaults';
 import type { NotificationCategory, NotificationPreferences } from '@/lib/types';
+import type { ModuleId } from '@/lib/modules/registry';
+
+/**
+ * The module each category belongs to; one missing here is core. A category
+ * of a switched-off module has nothing to notify about, so its row is hidden,
+ * and a group left with no rows goes with it. Stored choices stay as they are.
+ */
+const CATEGORY_MODULE: Partial<Record<NotificationCategory, ModuleId>> = {
+  project_contacts: 'contacts',
+  portal_settings: 'portal',
+  portal_updates: 'portal',
+  time_entries: 'time',
+  invoice_drafts: 'billing',
+  contact_created: 'contacts',
+  contact_deleted: 'contacts',
+  contact_updates: 'contacts',
+  lead_created: 'sales',
+  lead_deleted: 'sales',
+  lead_status: 'sales',
+  lead_updates: 'sales',
+  lead_interactions: 'sales',
+  lead_proposals: 'sales',
+  lead_contacts: 'sales',
+  lead_conversions: 'sales',
+  agent_suggestions: 'agents',
+  agent_goals: 'agents',
+  agent_autonomous: 'agents',
+  agent_activity: 'agents',
+};
 
 const NOTIF_GROUPS: {
   group: string;
   adminOnly?: boolean;
-  agentOnly?: boolean;
   items: { key: NotificationCategory; label: string; desc: string }[];
 }[] = [
   {
@@ -108,7 +137,6 @@ const NOTIF_GROUPS: {
   {
     group: 'Agent',
     adminOnly: true,
-    agentOnly: true,
     items: [
       {
         key: 'agent_suggestions' as NotificationCategory,
@@ -137,7 +165,7 @@ const NOTIF_GROUPS: {
 /** In-app and email toggles per notification category, plus the email master switch. */
 export function NotificationPreferencesSection({ canManageAgents }: { canManageAgents: boolean }) {
   const { team, updateTeamMember } = useApp();
-  const { teamMemberId } = useAuth();
+  const { teamMemberId, access } = useAuth();
   const currentMember = team.find((m) => m.id === teamMemberId);
 
   const [notifPrefs, setNotifPrefs] = useState<NotificationPreferences>({});
@@ -242,11 +270,13 @@ export function NotificationPreferencesSection({ canManageAgents }: { canManageA
       </div>
 
       <div className="space-y-6">
-        {NOTIF_GROUPS.filter((g) => {
-          if (g.agentOnly && process.env.NEXT_PUBLIC_ENABLE_AGENTS !== 'true') return false;
-          if (g.adminOnly && !canManageAgents) return false;
-          return true;
-        }).map(({ group, items }) => (
+        {NOTIF_GROUPS.filter((g) => !g.adminOnly || canManageAgents).map((g) => ({
+          ...g,
+          items: g.items.filter(({ key }) => {
+            const mod = CATEGORY_MODULE[key];
+            return !mod || isModuleEnabled(access, mod);
+          }),
+        })).filter((g) => g.items.length > 0).map(({ group, items }) => (
           <div key={group}>
             {/* Group header with column labels */}
             <div className="flex items-center justify-between mb-3">

@@ -1,7 +1,6 @@
 import { withApi } from '@/lib/api/middleware';
 import { success, created, paginated } from '@/lib/api/response';
 import { createGoalSchema } from '@/lib/schemas';
-import { requireAgentsEnabled } from '@/lib/api/agents';
 import { parsePagination, sanitizeSearch } from '@/lib/api/pagination';
 import { insertGoal } from '@/lib/supabase/queries';
 import { notFound } from '@/lib/api/errors';
@@ -29,7 +28,6 @@ export const GET = withApi<unknown, { id: string }>(async ({ supabase, params, s
 });
 
 export const POST = withApi<any, { id: string }>(async ({ supabase, params, body, apiKeyId, teamMemberId }) => {
-  requireAgentsEnabled();
   const projectId = params.id;
 
   // Verify project exists

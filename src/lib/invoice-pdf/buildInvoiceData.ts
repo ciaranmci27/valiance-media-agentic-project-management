@@ -10,7 +10,7 @@ import {
 } from '@/lib/invoice-utils';
 import { taxOn } from '@/lib/invoice-payments';
 import { getWorkedHours } from '@/lib/time-entry-utils';
-import { siteConfig } from '@/site-config';
+import type { Brand } from '@/lib/brand';
 import type { InvoicePdfData, InvoicePdfOptions, InvoicePdfTimeLogEntry } from './types';
 import { DEFAULT_INVOICE_PDF_OPTIONS } from './types';
 import {
@@ -25,10 +25,11 @@ interface BuildInvoiceDataInput {
   businessSettings: BusinessSettings | null;
   /** Logged-in user's display name — rendered under the business name in the From block. */
   senderName: string;
-  /** Absolute URL to the logo, or a relative path the PDF can resolve. */
-  logoUrl: string;
-  /** Absolute URL to the lockup drawn for dark chrome; the dark canvas uses it. */
-  logoDarkUrl?: string | null;
+  /**
+   * The workspace's brand (getBrand on the server, useBrand in the browser):
+   * the fallback business name, the accent color and the logos.
+   */
+  brand: Brand;
   /** Absolute URL to the client portal — null/undefined when not enabled. */
   portalUrl?: string | null;
   /** Optional per-invoice rendering toggles. Falls back to all-on. */
@@ -56,8 +57,7 @@ export function buildInvoiceData({
   primaryContact,
   businessSettings,
   senderName,
-  logoUrl,
-  logoDarkUrl,
+  brand,
   portalUrl,
   options,
   timeEntries,
@@ -76,7 +76,7 @@ export function buildInvoiceData({
   const total = (Math.round(subtotal * 100) + Math.round(taxAmount * 100)) / 100;
 
   const business = {
-    name: businessSettings?.business_name?.trim() || siteConfig.name,
+    name: businessSettings?.business_name?.trim() || brand.name,
     senderName: senderName.trim(),
     address: businessSettings?.business_address ?? '',
     email: businessSettings?.business_email ?? '',
@@ -118,9 +118,9 @@ export function buildInvoiceData({
   });
 
   return {
-    brandColor: siteConfig.colors.brand[500],
-    logoUrl,
-    logoDarkUrl: logoDarkUrl ?? null,
+    brandColor: brand.colors.brand[500],
+    logoUrl: brand.logos.light,
+    logoDarkUrl: brand.logos.dark,
     business,
     billTo,
     invoiceNumber: invoice.invoice_number,

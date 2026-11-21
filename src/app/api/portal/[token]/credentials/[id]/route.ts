@@ -5,6 +5,7 @@ import { encrypt, decrypt, isEncryptionConfigured } from '@/lib/api/encryption';
 import { isSensitiveKey } from '@/lib/credential-fields';
 import type { CredentialPayload } from '@/lib/types';
 import { checkPortalPin, pinFailureResponse } from '@/lib/portal-pin';
+import { enabledModuleSet } from '@/lib/modules/server';
 
 function getServiceClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
@@ -29,6 +30,12 @@ export async function GET(
 
   const supabase = getServiceClient();
 
+  // With the Client portal switched off every link answers like an unknown one.
+  const modules = await enabledModuleSet(supabase);
+  if (!modules.has('portal')) {
+    return NextResponse.json({ error: 'Portal not found' }, { status: 404 });
+  }
+
   const { data: settings } = await supabase
     .from('portal_settings')
     .select('id, project_id, enabled, pin, show_credentials, project:projects!inner(id)')
@@ -37,7 +44,7 @@ export async function GET(
     .is('project.deleted_at', null)
     .maybeSingle();
 
-  if (!settings || !settings.enabled || !settings.show_credentials) {
+  if (!settings || !settings.enabled || !settings.show_credentials || !modules.has('credentials')) {
     return NextResponse.json({ error: 'Portal not found' }, { status: 404 });
   }
 
@@ -86,6 +93,12 @@ export async function PATCH(
 
   const supabase = getServiceClient();
 
+  // With the Client portal switched off every link answers like an unknown one.
+  const modules = await enabledModuleSet(supabase);
+  if (!modules.has('portal')) {
+    return NextResponse.json({ error: 'Portal not found' }, { status: 404 });
+  }
+
   // Verify portal
   const { data: settings } = await supabase
     .from('portal_settings')
@@ -99,7 +112,7 @@ export async function PATCH(
     return NextResponse.json({ error: 'Portal not found' }, { status: 404 });
   }
 
-  if (!settings.show_credentials) {
+  if (!settings.show_credentials || !modules.has('credentials')) {
     return NextResponse.json({ error: 'Credential submission is not enabled' }, { status: 403 });
   }
 

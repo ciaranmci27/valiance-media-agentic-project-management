@@ -1,4 +1,6 @@
-import { siteConfig } from '@/site-config';
+import { useMemo } from 'react';
+import { useBrand } from '@/lib/brand/context';
+import type { Brand } from '@/lib/brand';
 import { elapsedLabel, type AgentMood } from '@/lib/agent-status';
 
 /** Local alias so the scene keeps its historical `Mood` name. */
@@ -261,11 +263,11 @@ export const PROP_SCALE = 2;
 export const SEAT_Y = 0.42;
 export const DESK_TOP = 0.769;
 
-/** Brand + semantic colors, hex strings usable by both three and CSS. */
+/**
+ * Semantic colors, hex strings usable by both three and CSS. The brand's own
+ * colors come from the workspace's brand: see useScenePalette.
+ */
 export const PALETTE = {
-  brand: siteConfig.colors.brand[500],
-  brandBright: siteConfig.colors.brand[300],
-  brandDeep: siteConfig.colors.brand[700],
   /** Warm counterpoint for lamp light; copper against the teal. */
   warm: '#c5a68f',
   warmDeep: '#8a6f5c',
@@ -274,6 +276,24 @@ export const PALETTE = {
   merged: '#4ade80',
   night: '#05060a',
 };
+
+/** The scene's colors with the workspace's brand shades. */
+export function scenePalette(brand: Brand) {
+  return {
+    ...PALETTE,
+    brand: brand.colors.brand[500],
+    brandBright: brand.colors.brand[300],
+    brandDeep: brand.colors.brand[700],
+  };
+}
+
+export type ScenePalette = ReturnType<typeof scenePalette>;
+
+/** scenePalette for the brand the page was rendered with (the Canvas bridges React context). */
+export function useScenePalette(): ScenePalette {
+  const brand = useBrand();
+  return useMemo(() => scenePalette(brand), [brand]);
+}
 
 /** How long a station's queue has been waiting, for the desk badge. */
 export function queueLabel(queue: StationQueue, now: number): string | null {

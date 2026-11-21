@@ -14,7 +14,7 @@ import { isUuid, mergeOutcome, metadataIdentity, sourceKey } from '@/lib/agent-t
 import type { AgentActivity } from '@/lib/types';
 
 export const GET = withApi(async ({ supabase, searchParams, access }) => {
-  requireAgentsEnabled();
+  requireAgentsEnabled(access);
 
   const { page, limit, offset } = parsePagination(searchParams);
   const agentId = searchParams.get('agent_id');
@@ -50,7 +50,7 @@ export const GET = withApi(async ({ supabase, searchParams, access }) => {
 }, { permission: 'audit.read' });
 
 export const POST = withApi(async ({ supabase, body, apiKeyId, teamMemberId, access, scopes }) => {
-  requireAgentsEnabled();
+  requireAgentsEnabled(access);
 
   if (!teamMemberId) {
     throw badRequest('API key must be linked to an agent team member to log activity');

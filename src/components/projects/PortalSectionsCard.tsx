@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { GripVertical, LayoutTemplate } from 'lucide-react';
 import { useApp } from '@/lib/store';
+import { useAuth } from '@/lib/auth-context';
+import { isModuleEnabled } from '@/lib/access-control';
 import { Toggle } from '@/components/ui/inputs/Toggle';
 import { GroupLabel, RailCard } from '@/components/projects/TabLayout';
 import { isClientBillable } from '@/lib/time-entry-utils';
@@ -23,6 +25,7 @@ export function PortalSectionsCard({ projectId }: { projectId: string }) {
     getPortalSettings, upsertPortalSettings, getProject, getInvoicesByProject,
     getTimeEntriesByProject, getPortalUpdates, getEntityFiles,
   } = useApp();
+  const { access } = useAuth();
   const settings = getPortalSettings(projectId);
   const project = getProject(projectId);
 
@@ -120,7 +123,14 @@ export function PortalSectionsCard({ projectId }: { projectId: string }) {
     }
   };
 
-  const visible = order.filter((key) => key !== 'show_hours' || project.hourly_tracking);
+  // A section whose module is off is left out (its switch and place in the
+  // order are kept for when it comes back).
+  const visible = order.filter((key) => {
+    if (key === 'show_hours') return project.hourly_tracking && isModuleEnabled(access, 'time');
+    if (key === 'show_invoices') return isModuleEnabled(access, 'billing');
+    if (key === 'show_credentials') return isModuleEnabled(access, 'credentials');
+    return true;
+  });
   const column = (main: boolean) => visible.filter((key) => MAIN_COLUMN.has(key) === main);
 
   const renderRow = (key: PortalSectionKey) => {

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { siteConfig } from '@/site-config';
+import { DEFAULT_ITEM_COLOR } from '@/lib/brand';
 
 export const createLeadSchema = z.object({
   name: z.string().min(1, 'Name is required'),
@@ -29,6 +29,6 @@ export const updateLeadSchema = z.object({
 
 export const convertLeadSchema = z.object({
   project_name: z.string().min(1, 'Project name is required'),
-  project_color: z.string().regex(/^#[0-9a-fA-F]{6}$/).default(siteConfig.colors.brand[500]),
+  project_color: z.string().regex(/^#[0-9a-fA-F]{6}$/).default(DEFAULT_ITEM_COLOR),
   project_description: z.string().default(''),
 });

@@ -31,17 +31,17 @@ import { Toggle } from '@/components/ui/inputs/Toggle';
 import { Button } from '@/components/ui/Button';
 import { RailCard } from '@/components/projects/TabLayout';
 import { createClient } from '@/lib/supabase/client';
-import { siteConfig } from '@/site-config';
+import { useBrand } from '@/lib/brand/context';
 
 interface PortalSettingsPanelProps {
   projectId: string;
 }
 
 /** What turning the portal on writes: on, the project's color, a starter welcome. */
-export function portalEnablePatch(projectColor: string | undefined, hasWelcomeMessage: boolean) {
+export function portalEnablePatch(projectColor: string | undefined, hasWelcomeMessage: boolean, brandColor: string) {
   return {
     enabled: true,
-    accent_color: projectColor || siteConfig.colors.brand[500],
+    accent_color: projectColor || brandColor,
     ...(!hasWelcomeMessage && {
       welcome_message: `Welcome to your project portal. Here you'll find the latest updates, files, and progress.`,
     }),
@@ -56,6 +56,7 @@ export function portalEnablePatch(projectColor: string | undefined, hasWelcomeMe
 export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
   const { getPortalSettings, upsertPortalSettings, updatePortalSlug, getProject } = useApp();
   const { isDemoMode } = useDemo();
+  const brand = useBrand();
 
   const settings = getPortalSettings(projectId);
   const project = getProject(projectId);
@@ -75,20 +76,21 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
   const slugInputRef = useRef<HTMLInputElement>(null);
   const [localPin, setLocalPin] = useState(settings?.pin || '');
   const [localAccentColor, setLocalAccentColor] = useState(
-    settings?.accent_color || siteConfig.colors.brand[500],
+    settings?.accent_color || brand.colors.brand[500],
   );
   const [localWelcomeMessage, setLocalWelcomeMessage] = useState(settings?.welcome_message || '');
   // Sync local state when settings change externally
   useEffect(() => {
     setLocalSlug(settings?.token || '');
     setLocalPin(settings?.pin || '');
-    setLocalAccentColor(settings?.accent_color || siteConfig.colors.brand[500]);
+    setLocalAccentColor(settings?.accent_color || brand.colors.brand[500]);
     setLocalWelcomeMessage(settings?.welcome_message || '');
   }, [
     settings?.token,
     settings?.pin,
     settings?.accent_color,
     settings?.welcome_message,
+    brand.colors.brand,
   ]);
 
   // Debounced save helper
@@ -125,7 +127,7 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
   const handleToggleEnabled = () => {
     upsertPortalSettings(
       projectId,
-      isEnabled ? { enabled: false } : portalEnablePatch(project?.color, !!settings?.welcome_message),
+      isEnabled ? { enabled: false } : portalEnablePatch(project?.color, !!settings?.welcome_message, brand.colors.brand[500]),
     );
   };
 
@@ -341,7 +343,7 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
               ) : (
                 <div
                   className="w-full h-full flex items-center justify-center text-white text-lg font-bold"
-                  style={{ backgroundColor: settings.accent_color || siteConfig.colors.brand[500] }}
+                  style={{ backgroundColor: settings.accent_color || brand.colors.brand[500] }}
                 >
                   {project?.name?.charAt(0) || 'P'}
                 </div>

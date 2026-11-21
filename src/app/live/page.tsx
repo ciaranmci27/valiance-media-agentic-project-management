@@ -1,4 +1,7 @@
 import type { Metadata } from 'next';
+import { notFound } from 'next/navigation';
+import { getServiceClient } from '@/lib/api/supabase-service';
+import { moduleEnabled } from '@/lib/modules/server';
 import { LiveSimClient } from './live-client';
 
 /**
@@ -19,6 +22,14 @@ export const metadata: Metadata = {
   description: 'Walk the floor: a live, read-only 3D view of an autonomous dev team at work.',
 };
 
-export default function LiveSimPage() {
+// Whether the floor exists depends on the AI agents module, read per request.
+export const dynamic = 'force-dynamic';
+
+export default async function LiveSimPage() {
+  // The floor is the AI agents module's: switched off, the link is not found.
+  // Demo mode has no database and keeps its switches in the browser.
+  if (process.env.NEXT_PUBLIC_DEMO_MODE !== 'true' && !(await moduleEnabled(getServiceClient(), 'agents'))) {
+    notFound();
+  }
   return <LiveSimClient />;
 }

@@ -5,6 +5,7 @@ import { encrypt, isEncryptionConfigured } from '@/lib/api/encryption';
 import type { CredentialPayload } from '@/lib/types';
 import { recordPortalEvent, getOrCreateSessionId } from '@/lib/portal-analytics';
 import { checkPortalPin, pinFailureResponse } from '@/lib/portal-pin';
+import { enabledModuleSet } from '@/lib/modules/server';
 
 function getServiceClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
@@ -28,6 +29,12 @@ export async function POST(
 
   const supabase = getServiceClient();
 
+  // With the Client portal switched off every link answers like an unknown one.
+  const modules = await enabledModuleSet(supabase);
+  if (!modules.has('portal')) {
+    return NextResponse.json({ error: 'Portal not found' }, { status: 404 });
+  }
+
   // Verify portal
   const { data: settings } = await supabase
     .from('portal_settings')
@@ -41,7 +48,7 @@ export async function POST(
     return NextResponse.json({ error: 'Portal not found' }, { status: 404 });
   }
 
-  if (!settings.show_credentials) {
+  if (!settings.show_credentials || !modules.has('credentials')) {
     return NextResponse.json({ error: 'Credential submission is not enabled' }, { status: 403 });
   }
 

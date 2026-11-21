@@ -1,7 +1,8 @@
-import { Bell, Building2, Code2, Database, Mail, User, type LucideIcon } from 'lucide-react';
+import { Bell, Building2, CircleArrowUp, Code2, Database, LayoutGrid, Mail, User, type LucideIcon } from 'lucide-react';
 import { useAuth } from '@/lib/auth-context';
 import { useDemo } from '@/lib/demo-context';
-import { hasPermission } from '@/lib/access-control';
+import { hasPermission, isModuleEnabled } from '@/lib/access-control';
+import { customSettingsGroups, useCustomSettingsVisibility } from '@/lib/extensions/hooks';
 
 /**
  * The Settings area's menu: one page per group, each listing the ids of the
@@ -10,7 +11,8 @@ import { hasPermission } from '@/lib/access-control';
  * section there.
  */
 
-export type SettingsGroupKey = 'account' | 'notifications' | 'business' | 'email' | 'developers' | 'data';
+/** Core groups, then the install's own Settings sections (src/custom), keyed `custom:<key>`. */
+export type SettingsGroupKey = 'workspace' | 'updates' | 'account' | 'notifications' | 'business' | 'email' | 'developers' | 'data' | `custom:${string}`;
 
 export interface SettingsGroup {
   key: SettingsGroupKey;
@@ -32,6 +34,10 @@ export const EMAIL_PAGES = {
 } as const;
 
 export const SETTINGS_GROUPS: SettingsGroup[] = [
+  // Workspace-wide, so it leads the menu for the Owners who see it.
+  { key: 'workspace', href: '/settings/workspace', label: 'Workspace', icon: LayoutGrid, sectionIds: ['features', 'brand'] },
+  // New versions of the app and how to install them (Owners only).
+  { key: 'updates', href: '/settings/updates', label: 'Updates', icon: CircleArrowUp, sectionIds: ['updates'] },
   { key: 'account', href: '/settings/account', label: 'Account', icon: User, sectionIds: ['profile', 'timezone', 'password', 'appearance'] },
   { key: 'notifications', href: '/settings/notifications', label: 'Notifications', icon: Bell, sectionIds: ['notifications'] },
   { key: 'business', href: '/settings/business', label: 'Business', icon: Building2, sectionIds: ['business'] },
@@ -50,6 +56,8 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
   },
   { key: 'developers', href: '/settings/developers', label: 'Developers', icon: Code2, sectionIds: ['api-keys', 'webhooks'] },
   { key: 'data', href: '/settings/data', label: 'Data', icon: Database, sectionIds: ['trash', 'analytics-exclusions', 'demo-mode'] },
+  // The install's own sections, after core's.
+  ...customSettingsGroups(),
 ];
 
 export const DEFAULT_SETTINGS_HREF = '/settings/account';
@@ -79,8 +87,16 @@ export function useSettingsAccess() {
   const canManageAgents = hasPermission(access, 'agents.manage');
   const canManageWebhooks = hasPermission(access, 'webhooks.manage');
   const canManageInboxes = hasPermission(access, 'inbound_email.manage');
+  // A role, not a permission: a module switch hides parts of the app from
+  // everyone. The demo workspace signs in as an Owner, so it shows there too.
+  const isOwner = access?.role === 'owner';
 
   const show = {
+    features: isOwner,
+    // The workspace's name, logo and colors: they change the app for everyone, so Owners only.
+    brand: isOwner,
+    // Owners only. In demo mode the page says updates are off there.
+    updates: isOwner,
     business: canManageSettings,
     // Every active member can create personal keys; none in demo mode.
     apiKeys: !isDemoMode,
@@ -89,13 +105,16 @@ export function useSettingsAccess() {
     smtp: canManageSmtp && !isDemoMode,
     emailInboxes: canManageInboxes,
     password: !isDemoMode,
-    analyticsExclusions: canManageSettings,
+    // The exclusions filter portal analytics, so they go with the portal.
+    analyticsExclusions: canManageSettings && isModuleEnabled(access, 'portal'),
     // Hidden when the environment forces demo mode on.
     demoMode: canManageSettings && !isEnvForcedDemo,
   };
 
   // A group shows in the menu while at least one of its sections does.
   const visibleGroups: Record<SettingsGroupKey, boolean> = {
+    workspace: show.features || show.brand,
+    updates: show.updates,
     account: true,
     notifications: true,
     business: show.business,
@@ -104,5 +123,6 @@ export function useSettingsAccess() {
     data: true,
   };
 
-  return { canManageAgents, show, visibleGroups };
+  const customVisible = useCustomSettingsVisibility();
+  return { canManageAgents, show, visibleGroups: { ...visibleGroups, ...customVisible } };
 }

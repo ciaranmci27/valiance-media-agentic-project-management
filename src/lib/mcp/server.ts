@@ -1,7 +1,7 @@
 import 'server-only';
 import { NextRequest } from 'next/server';
 import { Server, type CallToolResult } from '@modelcontextprotocol/server';
-import type { AccessContext, PermissionKey } from '@/lib/access-control';
+import { isModuleEnabled, type AccessContext, type PermissionKey } from '@/lib/access-control';
 import { accessAllows } from '@/lib/api/access';
 import { permissionAlternatives } from '@/lib/api/middleware';
 import { apiRequestContext } from '@/lib/api/request-context';
@@ -57,10 +57,15 @@ export function refusal(status: number, code: string, message: string, details: 
   return payloadResult({ ok: false, status, error: { code, message, ...extra } }, fatal);
 }
 
-/** Whether a key sees a tool: its profile, its read-only flag, and the permission on key AND member. */
+/**
+ * Whether a key sees a tool: its profile, its read-only flag, its module, and
+ * the permission on key AND member. A permission of a switched-off module is
+ * held by nobody, so a module's tools go with it.
+ */
 export function toolVisible(tool: PmTool, caller: Pick<McpCaller, 'access' | 'scopes' | 'readOnly' | 'profile'>): boolean {
   if (tool.profiles && !tool.profiles.includes(caller.profile)) return false;
   if (tool.agentsOnly && caller.access.role !== 'agent') return false;
+  if (tool.module && !isModuleEnabled(caller.access, tool.module)) return false;
   if (tool.write && caller.readOnly) return false;
   if (tool.name === GUIDE_TOOL) return true;
   const wanted = (Array.isArray(tool.permission) ? tool.permission : [tool.permission])
@@ -134,10 +139,10 @@ export function createPmServer(caller: McpCaller): Server {
   const byName = new Map(tools.map((tool) => [tool.name, tool]));
   const call = routeCaller(caller);
   const server = new Server(
-    { name: 'valiance-pm', version: '1.0.0' },
+    { name: 'project-management', version: '1.0.0' },
     {
       capabilities: { tools: {} },
-      instructions: 'Valiance Media project management: projects, tasks, time, suggestions, leads. Call pm_guide first.',
+      instructions: 'Project management for this workspace: projects, tasks, time, suggestions, leads. Call pm_guide first.',
     },
   );
 

@@ -7,13 +7,10 @@ import Modal from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Textarea } from '@/components/ui/inputs/Textarea';
-import { siteConfig } from '@/site-config';
+import { useBrand } from '@/lib/brand/context';
 import { formatPhone } from '@/lib/format-phone';
 
-const PROJECT_COLORS = [
-  siteConfig.colors.brand[500], '#8B5CF6', '#EC4899', '#EF4444',
-  '#F59E0B', '#10B981', '#06B6D4', '#3B82F6',
-];
+const OTHER_COLORS = ['#8B5CF6', '#EC4899', '#EF4444', '#F59E0B', '#10B981', '#06B6D4', '#3B82F6'];
 
 interface ConvertLeadModalProps {
   isOpen: boolean;
@@ -23,18 +20,21 @@ interface ConvertLeadModalProps {
 
 export function ConvertLeadModal({ isOpen, onClose, lead }: ConvertLeadModalProps) {
   const { convertLead, updateLead } = useApp();
+  const brand = useBrand();
+  // The brand color first; a brand color that matches another swatch shows once.
+  const projectColors = [...new Set([brand.colors.brand[500], ...OTHER_COLORS])];
 
   const [projectName, setProjectName] = useState('');
-  const [projectColor, setProjectColor] = useState(PROJECT_COLORS[0]);
+  const [projectColor, setProjectColor] = useState(projectColors[0]);
   const [projectDescription, setProjectDescription] = useState('');
 
   useEffect(() => {
     if (lead && isOpen) {
       setProjectName(lead.company || lead.name || '');
-      setProjectColor(PROJECT_COLORS[0]);
+      setProjectColor(brand.colors.brand[500]);
       setProjectDescription('');
     }
-  }, [lead, isOpen]);
+  }, [lead, isOpen, brand.colors.brand]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -42,7 +42,7 @@ export function ConvertLeadModal({ isOpen, onClose, lead }: ConvertLeadModalProp
 
     convertLead(lead.id, projectName.trim(), projectColor, projectDescription.trim());
     setProjectName('');
-    setProjectColor(PROJECT_COLORS[0]);
+    setProjectColor(projectColors[0]);
     setProjectDescription('');
     onClose();
   };
@@ -96,7 +96,7 @@ export function ConvertLeadModal({ isOpen, onClose, lead }: ConvertLeadModalProp
         <div className="space-y-1.5">
           <label className="block text-sm font-medium text-zinc-300">Project Color</label>
           <div className="flex gap-2">
-            {PROJECT_COLORS.map((c) => (
+            {projectColors.map((c) => (
               <button
                 key={c}
                 type="button"

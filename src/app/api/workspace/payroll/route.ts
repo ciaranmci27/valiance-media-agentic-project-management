@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { accessAllows, accessAllowsProject, requireSessionAccess, sanitizeTimeEntryForAccess } from '@/lib/api/access';
+import { accessAllows, accessAllowsProject, deniedResponse, requireSessionAccess, sanitizeTimeEntryForAccess } from '@/lib/api/access';
 import { fetchAllRows } from '@/lib/supabase/fetch-all';
 
 /** fetchAllRows as a { data, error } result, to sit beside single queries. */
@@ -17,8 +17,11 @@ export async function GET() {
   const canManage = accessAllows(access, 'compensation.manage', 'app') || accessAllows(access, 'payouts.manage', 'app');
   const canReview = accessAllows(access, 'time.approve', 'app');
   const canReadOwn = accessAllows(access, 'earnings.own.read', 'app');
+  // Each part follows its own module: pay (rates, adjustments, payouts) is
+  // Billing and finance, approvals are Time tracking. With Billing off a
+  // reviewer still gets the entries, with pay withheld below.
   if (!canManage && !canReview && !canReadOwn) {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    return deniedResponse(access, ['compensation.manage', 'payouts.manage', 'time.approve', 'earnings.own.read']);
   }
   const entryTargetMember = canManage || canReview ? null : memberId;
   const financialTargetMember = canManage ? null : memberId;
@@ -98,7 +101,7 @@ export async function POST(request: Request) {
   const action = String(body.action || '');
 
   if (action === 'review') {
-    if (!accessAllows(access, 'time.approve', 'app')) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    if (!accessAllows(access, 'time.approve', 'app')) return deniedResponse(access, ['time.approve']);
     const entryIds = Array.isArray(body.entry_ids) ? body.entry_ids.map(String) : [];
     if (entryIds.length === 0) return NextResponse.json({ error: 'Select at least one time entry' }, { status: 422 });
     const { data: reviewEntries, error: reviewError } = await service.from('project_time_entries').select('id, project_id, member_id').in('id', entryIds).is('deleted_at', null);
@@ -135,7 +138,7 @@ export async function POST(request: Request) {
   }
 
   if (action === 'schedule_rate') {
-    if (!accessAllows(access, 'compensation.manage', 'app')) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    if (!accessAllows(access, 'compensation.manage', 'app')) return deniedResponse(access, ['compensation.manage']);
     const target = String(body.member_id || '');
     const rate = Number(body.hourly_rate);
     const effectiveAt = String(body.effective_at || '');
@@ -153,7 +156,7 @@ export async function POST(request: Request) {
   }
 
   if (action === 'adjustment') {
-    if (!accessAllows(access, 'compensation.manage', 'app')) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    if (!accessAllows(access, 'compensation.manage', 'app')) return deniedResponse(access, ['compensation.manage']);
     const amount = Number(body.amount);
     const target = String(body.member_id || '');
     const effectiveDate = String(body.effective_date || '');
@@ -176,7 +179,7 @@ export async function POST(request: Request) {
   }
 
   if (action === 'payout') {
-    if (!accessAllows(access, 'payouts.manage', 'app')) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    if (!accessAllows(access, 'payouts.manage', 'app')) return deniedResponse(access, ['payouts.manage']);
     const payoutMemberId = String(body.member_id || '');
     const paymentDate = String(body.payment_date || '');
     const payoutAmount = Number(body.amount);

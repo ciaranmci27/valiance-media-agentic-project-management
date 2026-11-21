@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { runDispatch } from '@/lib/webhooks/dispatch';
+import { moduleOffResponse } from '@/lib/api/access';
+import { readEnabledModules } from '@/lib/modules/server';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -17,7 +19,12 @@ export async function POST() {
     p_permission_key: 'webhooks.manage',
     p_access_channel: 'app',
   });
-  if (allowed !== true) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  if (allowed !== true) {
+    // has_permission() is false for everyone while Webhooks is off; say why.
+    const modules = await readEnabledModules(supabase);
+    if (modules && !modules.includes('webhooks')) return moduleOffResponse('webhooks');
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  }
 
   const summary = await runDispatch();
   return NextResponse.json({ success: true, ...summary });

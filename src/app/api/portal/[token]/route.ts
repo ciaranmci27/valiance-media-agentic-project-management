@@ -9,7 +9,8 @@ import {
   demoTimeEntries,
   demoTeam, demoProjectInvoices,
 } from '@/lib/demo-data';
-import { siteConfig } from '@/site-config';
+import type { Brand } from '@/lib/brand';
+import { getBrand } from '@/lib/brand/server';
 import { getWorkedHours, getWorkedMs, isClientBillable } from '@/lib/time-entry-utils';
 import { fifoPaymentStatuses, paidHourlyLineItemTotal, totalBillableAmount } from '@/lib/invoice-utils';
 import { invoiceAmountPaid } from '@/lib/invoice-payments';
@@ -18,6 +19,7 @@ import { InvoicePdfIntegrityError } from '@/lib/invoice-pdf/resolveInvoicePdfBil
 import { recordPortalEvent, getOrCreateSessionId } from '@/lib/portal-analytics';
 import { checkPortalPin, pinFailureResponse } from '@/lib/portal-pin';
 import { resolveProjectHourlyRate } from '@/lib/supabase/queries';
+import { enabledModuleSet } from '@/lib/modules/server';
 
 /**
  * Pause duration within an entry: the part of the [start_time, end_time] span
@@ -85,14 +87,21 @@ export async function GET(
 ) {
   const { token: rawToken } = await params;
   const token = rawToken.toLowerCase();
+  const brand = await getBrand();
 
   // Demo mode: return mock data for demo tokens
   const isDemo = process.env.NEXT_PUBLIC_DEMO_MODE === 'true' || request.nextUrl.searchParams.get('demo') === 'true';
   if (isDemo) {
-    return handleDemoMode(token, request);
+    return handleDemoMode(token, request, brand);
   }
 
   const supabase = getServiceClient();
+
+  // With the Client portal switched off every link answers like an unknown one.
+  const modules = await enabledModuleSet(supabase);
+  if (!modules.has('portal')) {
+    return NextResponse.json({ error: 'Portal not found' }, { status: 404 });
+  }
 
   // Find portal settings by token
   const { data: settings, error: settingsError } = await supabase
@@ -111,6 +120,15 @@ export async function GET(
     return NextResponse.json({ error: 'Portal is disabled' }, { status: 404 });
   }
 
+  // Each section also needs its own module: one that is switched off is left
+  // out whatever the portal's show_* settings say. Rates, invoices and
+  // payment status are billing; hours are time; client logins are credentials.
+  const billingOn = modules.has('billing');
+  const timeOn = modules.has('time');
+  const showHours = !!settings.show_hours && timeOn;
+  const showInvoices = !!settings.show_invoices && billingOn;
+  const showCredentials = !!settings.show_credentials && modules.has('credentials');
+
   const pinCheck = await checkPortalPin({ supabase, request, token, settings });
   if (!pinCheck.ok) {
     // Minimal branding for the PIN screen
@@ -124,7 +142,7 @@ export async function GET(
     return pinFailureResponse(pinCheck, {
       branding: {
         logo_url: settings.logo_url || '',
-        accent_color: settings.accent_color || siteConfig.colors.brand[500],
+        accent_color: settings.accent_color || brand.colors.brand[500],
         project_name: proj?.name || '',
         welcome_message: settings.welcome_message || '',
       },
@@ -143,7 +161,7 @@ export async function GET(
   if (!project) {
     return NextResponse.json({ error: 'Project not found' }, { status: 404 });
   }
-  const currentHourlyRate = project.hourly_tracking
+  const currentHourlyRate = project.hourly_tracking && billingOn
     ? await resolveProjectHourlyRate(supabase, project.id, new Date().toISOString(), project.hourly_rate ?? 0)
     : 0;
 
@@ -173,7 +191,7 @@ export async function GET(
 
   // Fetch invoices once. We need them for the invoices section AND, on hourly
   // projects, to compute per-entry payment status for the Hours section.
-  const needsInvoices = settings.show_invoices || (settings.show_hours && project.hourly_tracking);
+  const needsInvoices = billingOn && (showInvoices || (showHours && project.hourly_tracking));
   let allInvoices: ProjectInvoice[] = [];
   if (needsInvoices) {
     const { data: invoiceData } = await supabase
@@ -198,7 +216,7 @@ export async function GET(
 
   // Fetch time entries with member names (exclude running timers)
   // Always fetch when show_hours OR (show_invoices + hourly_tracking) for billing calculations
-  const needsHours = settings.show_hours || (settings.show_invoices && project.hourly_tracking);
+  const needsHours = timeOn && (showHours || (showInvoices && project.hourly_tracking));
   let hours: PortalData['hours'] = { total_hours: 0, entries: [] };
   // Hoisted out of the `needsHours` block so the invoice-PDF builder below can
   // attach the time-log page when the project enables it. The PDF resolves
@@ -231,7 +249,7 @@ export async function GET(
       const memberMap = new Map((members || []).map((m: any) => [m.id, m.name]));
 
       // FIFO payment status (oldest entry drained first against paid hourly $).
-      // Only meaningful on hourly projects with a rate set.
+      // Only meaningful on hourly projects with a rate set (none with billing off).
       const hourlyRate = currentHourlyRate;
       const paymentMap = (project.hourly_tracking && hourlyRate > 0)
         ? fifoPaymentStatuses(
@@ -245,13 +263,14 @@ export async function GET(
 
       hours = {
         total_hours: timeEntries.reduce((sum: number, te: any) => sum + getWorkedHours(te as TimeEntry), 0),
-        entries: settings.show_hours ? timeEntries.map((te: any) => ({
+        entries: showHours ? timeEntries.map((te) => ({
           id: te.id,
           start_time: te.start_time,
-          end_time: te.end_time,
-          hours: getWorkedHours(te as TimeEntry),
-          paused_seconds: getPausedSeconds(te as TimeEntry),
-          segments: getPortalSegments(te as TimeEntry),
+          // Stopped entries only: the query above leaves running timers out.
+          end_time: te.end_time as string,
+          hours: getWorkedHours(te),
+          paused_seconds: getPausedSeconds(te),
+          segments: getPortalSegments(te),
           description: te.description,
           member_name: memberMap.get(te.member_id) || 'Unknown',
           payment_status: paymentMap.get(te.id) ?? null,
@@ -262,7 +281,7 @@ export async function GET(
 
   // Fetch client-submitted credentials
   let credentials_submitted: PortalData['credentials_submitted'] = [];
-  if (settings.show_credentials) {
+  if (showCredentials) {
     const { data: creds } = await supabase
       .from('project_credentials')
       .select('id, label, category, created_at, updated_at')
@@ -281,7 +300,7 @@ export async function GET(
   const credentials_submitted_count = credentials_submitted.length;
 
   // Project the already-loaded invoice rows down to what the client needs.
-  const invoices: PortalData['invoices'] = settings.show_invoices
+  const invoices: PortalData['invoices'] = showInvoices
     ? allInvoices.map((i: any) => ({
         id: i.id,
         invoice_number: i.invoice_number,
@@ -306,17 +325,20 @@ export async function GET(
   // business_settings / primary_contact rows directly.
   const invoice_pdfs: Record<string, InvoicePdfData> = {};
   const invoice_pdf_errors: Record<string, string> = {};
-  if (settings.show_invoices && allInvoices.length > 0) {
+  if (showInvoices && allInvoices.length > 0) {
     const [{ data: bizSettings }, { data: primaryClientLink }] = await Promise.all([
       supabase.from('business_settings').select('*').limit(1).maybeSingle(),
-      supabase
-        .from('project_contacts')
-        .select('contact_id, contact:contacts!inner(*)')
-        .eq('project_id', settings.project_id)
-        .eq('is_primary_client', true)
-        // A contact in Trash is no longer the one billed.
-        .is('contact.deleted_at', null)
-        .maybeSingle(),
+      // The client billed is a contact: with Contacts off the PDF leaves them off.
+      modules.has('contacts')
+        ? supabase
+            .from('project_contacts')
+            .select('contact_id, contact:contacts!inner(*)')
+            .eq('project_id', settings.project_id)
+            .eq('is_primary_client', true)
+            // A contact in Trash is no longer the one billed.
+            .is('contact.deleted_at', null)
+            .maybeSingle()
+        : Promise.resolve({ data: null }),
     ]);
 
     const primaryContact = (primaryClientLink as any)?.contact as Contact | undefined;
@@ -337,8 +359,7 @@ export async function GET(
           businessSettings,
           // Portal previews don't carry a logged-in admin's identity.
           senderName: '',
-          logoUrl: `${origin}/logos/logo.png`,
-          logoDarkUrl: `${origin}/logos/logo-dark.png`,
+          brand,
           portalUrl: `${origin}/portal/${token}?invoice=${encodeURIComponent(inv.invoice_number)}`,
           options: portalOptions,
           timeEntries: portalTimeEntries,
@@ -421,17 +442,17 @@ export async function GET(
       accent_color: settings.accent_color,
       show_progress: settings.show_progress,
       show_files: settings.show_files,
-      show_hours: settings.show_hours,
+      show_hours: showHours,
       show_updates: settings.show_updates ?? true,
-      show_credentials: settings.show_credentials ?? false,
-      show_invoices: settings.show_invoices ?? false,
+      show_credentials: showCredentials,
+      show_invoices: showInvoices,
       section_order: (settings.section_order as PortalSectionKey[] | null) ?? [...DEFAULT_SECTION_ORDER],
     },
     progress: timelineProgress ?? { percent: 0, days_remaining: null, is_overdue: false },
     files,
     hours,
     updates,
-    billing: project.hourly_tracking ? {
+    billing: billingOn && project.hourly_tracking ? {
       hourly_tracking: true,
       hourly_rate: currentHourlyRate,
       total_hours: hours.total_hours,
@@ -460,7 +481,7 @@ export async function GET(
   return NextResponse.json(portalData);
 }
 
-function handleDemoMode(token: string, request: NextRequest) {
+function handleDemoMode(token: string, request: NextRequest, brand: Brand) {
   // Look up portal settings by token from demo data
   const settings = demoPortalSettings.find(ps => ps.token === token);
   if (!settings || !settings.enabled) {
@@ -481,7 +502,7 @@ function handleDemoMode(token: string, request: NextRequest) {
         pin_required: true,
         branding: {
           logo_url: settings.logo_url || '',
-          accent_color: settings.accent_color || siteConfig.colors.brand[500],
+          accent_color: settings.accent_color || brand.colors.brand[500],
           project_name: project.name || '',
           welcome_message: settings.welcome_message || '',
         },
@@ -583,8 +604,7 @@ function handleDemoMode(token: string, request: NextRequest) {
         primaryContact: undefined,
         businessSettings: null,
         senderName: '',
-        logoUrl: `${origin}/logos/logo.png`,
-        logoDarkUrl: `${origin}/logos/logo-dark.png`,
+        brand,
         portalUrl: `${origin}/portal/${token}?invoice=${encodeURIComponent(inv.invoice_number)}`,
         options: { showSenderName: false },
         projectInvoices: demoActiveInvoices,

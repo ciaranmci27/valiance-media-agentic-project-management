@@ -70,7 +70,7 @@ export const TOPIC_PLURALS: Record<MailTopic, string> = {
   code: 'One-time codes',
 };
 
-/** "Usage alerts from okendo.io" / "Mail from no-reply@upwork.com" / "... to ciaran@valiancemedia.com". */
+/** "Usage alerts from okendo.io" / "Mail from no-reply@upwork.com" / "... to you@example.com". */
 export function describeRule(rule: Pick<SenderRuleRow, 'match_value' | 'topic'> & { recipient?: string | null }): string {
   return `${rule.topic ? TOPIC_PLURALS[rule.topic] : 'Mail'} from ${rule.match_value}${rule.recipient ? ` to ${rule.recipient}` : ''}`;
 }

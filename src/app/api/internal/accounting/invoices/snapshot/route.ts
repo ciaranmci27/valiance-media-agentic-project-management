@@ -1,5 +1,7 @@
 import { getServiceClient } from '@/lib/api/supabase-service';
 import { internalAuthorization, privateHeaders, readSmallJson, snapshotInput } from '@/lib/webhooks/internal-auth';
+import { MODULE_OFF, moduleOffMessage } from '@/lib/api/errors';
+import { moduleEnabled } from '@/lib/modules/server';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -12,6 +14,10 @@ export async function POST(request: Request) {
   try { args = snapshotInput(await readSmallJson(request)); }
   catch { return Response.json({ error: 'Use snapshot_id (UUID) and an optional integer cursor.' }, { status: 400, headers: privateHeaders }); }
   try {
+    // Invoices are Billing and finance; switched off, the accounting tool reads nothing.
+    if (!(await moduleEnabled(getServiceClient(), 'billing'))) {
+      return Response.json({ error: moduleOffMessage('billing'), code: MODULE_OFF, module: 'billing' }, { status: 403, headers: privateHeaders });
+    }
     const { data, error } = await getServiceClient().rpc('invoice_accounting_snapshot', args).abortSignal(AbortSignal.timeout(45_000));
     if (error) {
       const expired = error.message.includes('INVOICE_SNAPSHOT_EXPIRED');

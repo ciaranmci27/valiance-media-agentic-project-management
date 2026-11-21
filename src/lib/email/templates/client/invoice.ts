@@ -3,6 +3,7 @@
  * Sent manually from a project invoice row with the invoice PDF attached.
  */
 
+import type { Brand } from '@/lib/brand';
 import {
   EMAIL,
   FONT_MONO,
@@ -17,6 +18,7 @@ import {
   linkLine,
   paragraph,
   tile,
+  withEmailBrand,
 } from '../shared';
 import { clientEmailLayout, clientHeader, greeting } from './layout';
 import type { InvoiceStatus } from '@/lib/types';
@@ -200,9 +202,12 @@ function amountColor(tone: Tone): string {
   return EMAIL.ink;
 }
 
-export function buildInvoiceEmail(
-  params: InvoiceEmailParams,
-): { subject: string; html: string; text: string } {
+/** Renders with the workspace's brand (getBrand), so the name, logo and colors are this workspace's. */
+export function buildInvoiceEmail(params: InvoiceEmailParams & { brand: Brand }): { subject: string; html: string; text: string } {
+  return withEmailBrand(params.brand, () => renderInvoiceEmail(params));
+}
+
+function renderInvoiceEmail(params: InvoiceEmailParams): { subject: string; html: string; text: string } {
   const {
     projectName,
     clientName,

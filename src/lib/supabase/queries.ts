@@ -2,7 +2,7 @@ import { SupabaseClient } from '@supabase/supabase-js';
 import type { AiReadiness, Project, Task, TeamMember, AcceptanceCriterion, Comment, TeamActivity, Contact, ContactEmail, ProjectContact, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, PortalSettings, PortalUpdate, PortalUpdateAttachment, EntityFile, ApiKey, ProjectGoal, TaskSuggestion, AgentActivity, FleetAgentActivity, ApiAuditEntry, TimeEntry, ProjectCredential, ProjectCredentialListItem, ProjectInvoice, InvoicePayment, InvoicePaymentMethod, BusinessSettings, InvoiceTimeEntryAllocation, WebhookEndpoint, WebhookDelivery, ProjectRetainer, ProjectRetainerAmount, ProjectRetainerShare, ProjectRetainerPeriod, RetainerDuePeriod, InvoiceLineShare, ProjectBillingPlan, ProjectBillingRun, BillingForecastItem, Reminder, TaskUpdate, TrashItem } from '@/lib/types';
 import { fetchAllRows } from '@/lib/supabase/fetch-all';
 import { notFound } from '@/lib/api/errors';
-import { siteConfig } from '@/site-config';
+import { DEFAULT_ITEM_COLOR } from '@/lib/brand';
 import { generatePortalSlug } from '@/lib/portal-slug';
 import { ensureLineItems } from '@/lib/invoice-utils';
 import { TELEMETRY_EVENT_TYPES } from '@/lib/agent-events';
@@ -692,7 +692,7 @@ export async function insertLead(
         email: lead.email,
         phone: lead.phone,
         company: lead.company,
-        color: siteConfig.colors.brand[500],
+        color: DEFAULT_ITEM_COLOR,
         created_by: lead.created_by || null,
       })
       .select()
@@ -1221,7 +1221,7 @@ export async function upsertPortalSettings(
         pin: settings.pin ?? null,
         welcome_message: settings.welcome_message ?? '',
         logo_url: settings.logo_url ?? '',
-        accent_color: settings.accent_color ?? siteConfig.colors.brand[500],
+        accent_color: settings.accent_color ?? DEFAULT_ITEM_COLOR,
         show_progress: settings.show_progress ?? true,
         show_files: settings.show_files ?? true,
         show_hours: settings.show_hours ?? true,

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getServiceClient } from '@/lib/api/supabase-service';
+import { moduleEnabled } from '@/lib/modules/server';
 
 export const dynamic = 'force-dynamic';
 
@@ -29,14 +30,26 @@ const HISTORY_WINDOW_MS = 6 * 60 * 60_000;
 const REVIEW_LIMIT = 8;
 const SUGGESTION_LIMIT = 12;
 
+// A null payload caches "the AI agents module is off", so a switched-off
+// floor costs the database no more than a live one.
 let cache: { at: number; payload: unknown } | null = null;
+
+function floorNotFound() {
+  return NextResponse.json({ error: 'Not found' }, { status: 404 });
+}
 
 export async function GET() {
   if (cache && Date.now() - cache.at < CACHE_TTL_MS) {
-    return NextResponse.json(cache.payload);
+    return cache.payload === null ? floorNotFound() : NextResponse.json(cache.payload);
   }
 
   const supabase = getServiceClient();
+  // The floor is the AI agents module's. An unreadable switch throws, so a
+  // blip is a server error and is never cached as "switched off".
+  if (!(await moduleEnabled(supabase, 'agents'))) {
+    cache = { at: Date.now(), payload: null };
+    return floorNotFound();
+  }
   const [mem, taskRows, acts, reviewRows, suggestionRows, projectRows, healthRows] =
     await Promise.all([
       supabase.from('team_members').select('id, name, title, avatar').eq('role', 'agent'),

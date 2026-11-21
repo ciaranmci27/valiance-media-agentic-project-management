@@ -6,7 +6,7 @@
 -- 1a. Add 'agent' role to team_members
 ALTER TABLE public.team_members
   DROP CONSTRAINT IF EXISTS team_members_role_check,
-  ADD CONSTRAINT team_members_role_check CHECK (role IN ('admin', 'member', 'guest', 'agent'));
+  ADD CONSTRAINT team_members_role_check CHECK (role IN ('owner', 'admin', 'member', 'guest', 'agent'));
 
 -- 1b. Add team_member_id to api_keys (links API key to an agent member)
 ALTER TABLE public.api_keys
@@ -439,3 +439,24 @@ CREATE POLICY task_suggestions_parent_live ON public.task_suggestions AS RESTRIC
   USING (public.project_is_live(project_id));
 CREATE POLICY agent_activities_parent_live ON public.agent_activities AS RESTRICTIVE FOR ALL TO authenticated
   USING (project_id IS NULL OR public.project_is_live(project_id));
+
+-- ------------------------------------------------------------
+-- Workspace modules (migration 20261120201517_module_guards.sql): with the
+-- AI agents module switched off, nobody reads or writes these tables.
+-- module_enabled() is defined in schema.sql; the check keeps this file
+-- loadable over a schema.sql from before workspace modules.
+-- ------------------------------------------------------------
+DO $$
+DECLARE
+  agent_table text;
+BEGIN
+  IF to_regprocedure('public.module_enabled(text)') IS NULL THEN
+    RETURN;
+  END IF;
+  FOREACH agent_table IN ARRAY ARRAY['project_goals', 'task_suggestions', 'agent_activities'] LOOP
+    EXECUTE format('DROP POLICY IF EXISTS %I ON public.%I', agent_table || '_module_on', agent_table);
+    EXECUTE format('CREATE POLICY %I ON public.%I AS RESTRICTIVE FOR ALL TO authenticated USING ((select public.module_enabled(%L)))',
+      agent_table || '_module_on', agent_table, 'agents');
+  END LOOP;
+END;
+$$;

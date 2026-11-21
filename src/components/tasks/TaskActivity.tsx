@@ -3,6 +3,8 @@
 import { useMemo } from 'react';
 import { useApp } from '@/lib/store';
 import { useDemo } from '@/lib/demo-context';
+import { useAuth } from '@/lib/auth-context';
+import { isModuleEnabled } from '@/lib/access-control';
 import { useRead } from '@/lib/query-cache';
 import { taskActivityRead } from '@/lib/reads';
 import { ActivityTimeline } from '@/components/agent/ActivityTimeline';
@@ -24,7 +26,8 @@ export function useTaskActivityCount(task: Task | null): number {
 function useTaskActivity(task: Task | null) {
   const { activities, agentActivity } = useApp();
   const { isDemoMode } = useDemo();
-  const read = useRead(task && !isDemoMode ? taskActivityRead(task.id) : null);
+  const { access } = useAuth();
+  const read = useRead(task && !isDemoMode ? taskActivityRead(task.id, isModuleEnabled(access, 'agents')) : null);
   const demo = useMemo(() => (isDemoMode && task ? {
     team: activities.filter((row) => row.entity_type !== 'comment'
       && (row.entity_id === task.id || row.metadata?.task_id === task.id)),

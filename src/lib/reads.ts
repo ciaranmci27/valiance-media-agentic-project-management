@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/lib/auth-context';
 import { useDemo } from '@/lib/demo-context';
-import { hasPermission } from '@/lib/access-control';
+import { hasPermission, isModuleEnabled } from '@/lib/access-control';
 import {
   fetchAgentActivity, fetchBillingForecast, fetchBillingPlan, fetchBillingRuns, fetchProjectInvoicePayments, fetchProjectRetainers,
   fetchProjectTeamActivity, type ProjectRetainerBundle,
@@ -32,8 +32,6 @@ import { demoNotifications } from '@/lib/demo-data';
  * boot) builds the same read, so the two always share one cache entry.
  */
 
-const AGENTS_ENABLED = process.env.NEXT_PUBLIC_ENABLE_AGENTS === 'true';
-
 /** How many emails waiting on you the project Overview lists. */
 export const PROJECT_EMAIL_LIMIT = 5;
 
@@ -47,15 +45,15 @@ export interface ProjectActivity {
  * store's feeds are the newest rows across every project, so a quiet project
  * could find none of its own there.
  */
-export function projectActivityRead(projectId: string): Read<ProjectActivity> {
+export function projectActivityRead(projectId: string, agents: boolean): Read<ProjectActivity> {
   return {
-    key: `project-activity:${projectId}`,
+    key: `project-activity:${projectId}${agents ? '' : ':no-agents'}`,
     tables: ['activities', 'agent_activities'],
     load: async () => {
       const supabase = createClient();
       const [team, agent] = await Promise.all([
         fetchProjectTeamActivity(supabase, projectId),
-        AGENTS_ENABLED ? fetchAgentActivity(supabase, { project_id: projectId }) : Promise.resolve([] as AgentActivity[]),
+        agents ? fetchAgentActivity(supabase, { project_id: projectId }) : Promise.resolve([] as AgentActivity[]),
       ]);
       return { team, agent };
     },
@@ -173,6 +171,8 @@ export interface ProjectReadAccess {
   isDemo: boolean;
   inbox: boolean;
   invoices: boolean;
+  /** The AI agents module is on: agent activity is worth reading. */
+  agents: boolean;
   /** The person's today, for the forecast's key. */
   today: string;
 }
@@ -180,7 +180,7 @@ export interface ProjectReadAccess {
 /** Everything the project Overview reads beyond the store, for warming it before it opens. */
 export function projectOverviewReads(projectId: string, can: ProjectReadAccess): Read<unknown>[] {
   return [
-    ...(can.isDemo ? [] : [projectActivityRead(projectId)]),
+    ...(can.isDemo ? [] : [projectActivityRead(projectId, can.agents)]),
     ...(can.inbox ? [projectEmailsRead(projectId, can.isDemo)] : []),
     ...(can.invoices && !can.isDemo ? [projectForecastRead(projectId, can.today)] : []),
   ];
@@ -195,6 +195,7 @@ function useProjectReadAccess(): ProjectReadAccess {
     isDemo: isDemoMode,
     inbox: hasPermission(access, 'inbound_email.read') || hasPermission(access, 'inbound_email.manage'),
     invoices: hasPermission(access, 'invoices.read') || hasPermission(access, 'invoices.manage'),
+    agents: isModuleEnabled(access, 'agents'),
   };
 }
 
@@ -203,10 +204,10 @@ function useProjectReadAccess(): ProjectReadAccess {
  * it), so it opens with everything already in hand.
  */
 export function useWarmProject(): (projectId: string) => void {
-  const { isDemo, inbox, invoices, today } = useProjectReadAccess();
+  const { isDemo, inbox, invoices, agents, today } = useProjectReadAccess();
   return useCallback(
-    (projectId: string) => warmReads(projectOverviewReads(projectId, { isDemo, inbox, invoices, today })),
-    [isDemo, inbox, invoices, today],
+    (projectId: string) => warmReads(projectOverviewReads(projectId, { isDemo, inbox, invoices, agents, today })),
+    [isDemo, inbox, invoices, agents, today],
   );
 }
 
@@ -339,9 +340,9 @@ export function taskFileCandidatesRead(taskId: string): Read<TaskFileCandidates>
  * since the task shows them above) and what agents did (their log, telemetry
  * left out). Read for the task's Activity section.
  */
-export function taskActivityRead(taskId: string): Read<ProjectActivity> {
+export function taskActivityRead(taskId: string, agents: boolean): Read<ProjectActivity> {
   return {
-    key: `task-activity:${taskId}`,
+    key: `task-activity:${taskId}${agents ? '' : ':no-agents'}`,
     tables: ['activities', 'agent_activities'],
     load: async () => {
       const supabase = createClient();
@@ -351,7 +352,7 @@ export function taskActivityRead(taskId: string): Read<ProjectActivity> {
           .neq('entity_type', 'comment')
           .order('created_at', { ascending: false })
           .limit(100),
-        AGENTS_ENABLED
+        agents
           ? supabase.from('agent_activities').select('*')
             .eq('reference_type', 'task').eq('reference_id', taskId)
             .not('activity_type', 'in', `(${TELEMETRY_EVENT_TYPES.join(',')})`)
@@ -370,6 +371,8 @@ export interface TaskReadAccess {
   isDemo: boolean;
   /** files.read or files.manage */
   files: boolean;
+  /** The AI agents module is on. */
+  agents: boolean;
 }
 
 /**
@@ -385,14 +388,18 @@ export function taskPanelReads(taskId: string, can: TaskReadAccess): Read<unknow
     ...(can.isDemo ? [] : [taskSourceRead(taskId)]),
     ...(emails ? [taskEmailsRead(taskId, can.isDemo)] : []),
     ...(can.files && !can.isDemo ? [taskFilesRead(taskId)] : []),
-    ...(can.isDemo ? [] : [taskActivityRead(taskId)]),
+    ...(can.isDemo ? [] : [taskActivityRead(taskId, can.agents)]),
   ];
 }
 
 export function useTaskReadAccess(): TaskReadAccess {
   const { access } = useAuth();
   const { isDemoMode } = useDemo();
-  return { isDemo: isDemoMode, files: hasPermission(access, 'files.read') || hasPermission(access, 'files.manage') };
+  return {
+    isDemo: isDemoMode,
+    files: hasPermission(access, 'files.read') || hasPermission(access, 'files.manage'),
+    agents: isModuleEnabled(access, 'agents'),
+  };
 }
 
 /** A pointer resting this long on something means intent; a sweep across a list does not. */
@@ -428,11 +435,11 @@ export function useIntent(): (warm: () => void) => IntentHandlers {
 
 /** Warm tasks' panels on intent: spread `warmTask(task.id)` on a card, a list row, a My Tasks row. */
 export function useTaskWarmer(): (taskId: string) => IntentHandlers {
-  const { isDemo, files } = useTaskReadAccess();
+  const { isDemo, files, agents } = useTaskReadAccess();
   const intent = useIntent();
   return useCallback(
-    (taskId: string) => intent(() => warmReads(taskPanelReads(taskId, { isDemo, files }))),
-    [intent, isDemo, files],
+    (taskId: string) => intent(() => warmReads(taskPanelReads(taskId, { isDemo, files, agents }))),
+    [intent, isDemo, files, agents],
   );
 }
 

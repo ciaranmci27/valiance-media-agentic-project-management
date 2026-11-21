@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useApp } from '@/lib/store';
+import { useAuth } from '@/lib/auth-context';
 import { Activity, ChevronDown, ExternalLink } from 'lucide-react';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { Avatar } from '@/components/ui/Avatar';
@@ -73,6 +74,7 @@ export function ActivityTimeline({
   frame = 'card', visible = MAX_VISIBLE, taskTitle,
 }: ActivityTimelineProps = {}) {
   const { agentActivity: storeActivity, team, projects } = useApp();
+  const { access } = useAuth();
   const blended = teamEntries !== undefined;
   // Telemetry (token counters, turn runtimes) is machine measurement at a volume
   // that buries the narrative. The store already excludes it; this filter keeps
@@ -215,7 +217,7 @@ export function ActivityTimeline({
                 const projectName = projectId ? null : getProjectName(entry.project_id);
                 const detail = typeof entry.metadata?.preview === 'string' ? entry.metadata.preview
                   : typeof entry.metadata?.note === 'string' ? entry.metadata.note : '';
-                const href = taskTitle === undefined ? teamActivityHref(entry) : null;
+                const href = taskTitle === undefined ? teamActivityHref(entry, access) : null;
                 const teamInner = (
                   <>
                     <div className="flex-shrink-0 mt-0.5" aria-hidden="true">

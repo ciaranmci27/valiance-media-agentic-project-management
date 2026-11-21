@@ -3,9 +3,12 @@
  * Sent manually as a status update. Carefully framed to avoid bill-like language.
  *
  * Editable copy lives in `ProjectSummarySlots`. Numbers (hours, balance, budget
- * progress, dates) are always computed from real project state.
+ * progress, dates) are always computed from real project state. With Billing
+ * and finance switched off (`billing: false`) the email carries none of them:
+ * no balance, payment or budget, only the update and the portal link.
  */
 
+import type { Brand } from '@/lib/brand';
 import {
   EMAIL,
   FONT_MONO,
@@ -20,6 +23,7 @@ import {
   paragraph,
   statGrid,
   tile,
+  withEmailBrand,
 } from '../shared';
 import { clientEmailLayout, clientHeader, greeting, usageMeter } from './layout';
 
@@ -52,6 +56,8 @@ interface ProjectSummaryParams {
   budgetType: 'hours' | 'amount' | null;
   budgetValue: number | null;
   budgetUsed: number | null;
+  /** False when Billing and finance is switched off: every money and budget line is left out. */
+  billing?: boolean;
   slots: ProjectSummarySlots;
 }
 
@@ -78,9 +84,12 @@ function fmtDate(value: string | Date): string {
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
-export function buildProjectSummaryEmail(
-  params: ProjectSummaryParams,
-): { subject: string; html: string; text: string } {
+/** Renders with the workspace's brand (getBrand), so the name, logo and colors are this workspace's. */
+export function buildProjectSummaryEmail(params: ProjectSummaryParams & { brand: Brand }): { subject: string; html: string; text: string } {
+  return withEmailBrand(params.brand, () => renderProjectSummaryEmail(params));
+}
+
+function renderProjectSummaryEmail(params: ProjectSummaryParams): { subject: string; html: string; text: string } {
   const {
     projectName, clientName, portalUrl, logoUrl,
     unpaidHours, hourlyRate, currentBalance,
@@ -90,11 +99,14 @@ export function buildProjectSummaryEmail(
   } = params;
   const name = getSiteName();
   const teal = accentPalette();
+  const billing = params.billing !== false;
 
   const allCaughtUp = currentBalance <= 0 && (!unpaidHours || unpaidHours <= 0);
 
   let statsHtml = '';
-  if (allCaughtUp) {
+  if (!billing) {
+    // No balance to report: the update stands on its own.
+  } else if (allCaughtUp) {
     statsHtml = tile(
       `${label('Balance', { color: teal.bright })}
        <p style="margin: 0 0 4px 0; font-family: ${FONT_MONO}; font-size: 24px; line-height: 1.1; font-weight: 300; letter-spacing: -0.02em; color: ${teal.bright};">All caught up</p>
@@ -117,14 +129,14 @@ export function buildProjectSummaryEmail(
   const detailRows: Array<{ label: string; value: string }> = [];
 
   let paymentHtml = '';
-  if (lastPaymentDate && lastPaymentAmount && lastPaymentAmount > 0) {
+  if (billing && lastPaymentDate && lastPaymentAmount && lastPaymentAmount > 0) {
     const row = { label: 'Last payment', value: `${fmtCurrency(lastPaymentAmount)} on ${fmtDate(lastPaymentDate)}` };
     detailRows.push(row);
     paymentHtml = kvRows([row]);
   }
 
   let budgetHtml = '';
-  if (budgetType && budgetValue && budgetValue > 0 && budgetUsed !== null) {
+  if (billing && budgetType && budgetValue && budgetValue > 0 && budgetUsed !== null) {
     const pct = Math.min(100, Math.round((budgetUsed / budgetValue) * 100));
     const fmt = budgetType === 'hours' ? fmtHours : fmtCurrency;
     detailRows.push({ label: 'Budget progress', value: `${pct}% of ${fmt(budgetValue)}` });
@@ -165,7 +177,9 @@ export function buildProjectSummaryEmail(
     slots.opening_line,
     '',
   ];
-  if (allCaughtUp) {
+  if (!billing) {
+    // No balance lines.
+  } else if (allCaughtUp) {
     lines.push('All caught up. No outstanding balance at this time.', '');
   } else {
     if (unpaidHours && unpaidHours > 0) {

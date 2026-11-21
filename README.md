@@ -1,212 +1,203 @@
 # Valiance Media Agentic Project Management
 
-Open-source agentic project management software. Manage projects, track leads, coordinate teams, and let AI agents propose and execute work — all from a single dashboard.
+Open-source project management where AI agents work alongside your team. Run projects and tasks, track time, bill clients, handle client email, and let agents propose and do work that people review.
 
-**Built with Next.js 16, React 19, Supabase, and Tailwind CSS v4.**
+**Built with Next.js 16, React 19, Supabase and Tailwind CSS v4.**
 
 ![License](https://img.shields.io/badge/license-MIT-blue)
+
+Each company runs its own install: its own repository, database and hosting. Valiance Media publishes releases, and every install takes them with one command or from the app.
 
 ---
 
 ## Features
 
-### Project Management
-- **Projects** with status tracking, color coding, team assignment, and progress visualization
-- **Tasks** with priorities, tags, assignees, subtasks, comments, and rich text descriptions
-- **Three views**: Kanban board, sortable list, and calendar
-- **Bulk operations**: select multiple tasks for batch status changes or deletion
-- **Time tracking**: start/stop timers and manual hour entries per project
+Core is always on. Everything else is a module an Owner can switch on or off.
 
-### Lead Pipeline & CRM
-- **Full lead lifecycle**: New → Contacted → Qualified → Proposal → Won/Lost
-- **30+ custom lead fields** across business identity, opportunity assessment, and strategy categories
-- **Interactions**: log calls, emails, meetings, and follow-ups
-- **Proposals**: draft, send, and track proposals per lead
-- **Lead conversion**: one-click conversion from lead to project with contact preservation
-- **Pipeline Kanban** with deal value aggregation per stage
+**Core**
+- **Projects** with status, color, team and progress.
+- **Tasks** with priorities, tags, assignees, subtasks, comments, files and rich text. Board, list and calendar views, with bulk changes.
+- **Team** with roles (Owner, Admin, Member, Guest, Agent), invitations, permissions, time zones and notification preferences.
+- **Reminders, notifications and an audit log** with before and after snapshots.
+- **REST API** with API keys, filtering, paging and docs at `/api/docs`, plus an MCP server so AI tools can work in the app.
 
-### Contacts
-- Centralized contact database linked to projects and leads
-- Role assignments (Client, Technical Contact, Billing, Stakeholder, etc.)
-- Primary client designation per project
+**Modules**
+- **Time tracking**: timers, manual entries and approvals.
+- **Billing and finance**: invoices, rates, budgets, payments and team pay.
+- **Contacts**: a shared address book linked to projects.
+- **Leads**: a sales pipeline with interactions, proposals and one-click conversion to a project.
+- **Client portal**: a private page per project where clients see progress, updates and files, with an optional PIN.
+- **Inbox**: client email and meetings sorted by project.
+- **AI agents**: agents join the team, suggest and work tasks, and people approve what they do.
+- **Credentials**: encrypted project logins, shared with the right people.
+- **Webhooks**: invoice events sent to your other systems.
 
-### Team Management
-- Role-based access: Admin, Member, Guest, Agent
-- Email invitations with role selection
-- Avatar upload with crop modal
-- Per-member timezone and notification preferences
-
-### Agentic Workflows
-- **AI agents as team members** — agents get API keys and propose work through the suggestions system
-- **Task suggestions**: agents submit proposed tasks with reasoning, priority, and effort estimates
-- **Approval workflow**: admins review, approve, reject, or request more info on suggestions
-- **Bulk approve/reject** for efficient suggestion triage
-- **Project goals**: set objectives that agents can align suggestions against
-- **Autonomous mode**: per-project toggle to enable agent-driven task creation
-- **Activity log**: full audit trail of agent actions
-
-### Client Portal
-- Token-based public portal per project (no login required)
-- Optional PIN protection
-- Configurable visibility: progress, proposals, files, hours, updates
-- Custom branding: logo, accent color, welcome message
-- File sharing with download links
-- **Portal updates**: post timeline updates (milestones, deliverables, notes) visible to clients
-
-### REST API
-- **109 endpoints** covering tasks, projects, leads, contacts, team, agents, files, portal, notifications, and API keys
-- API key authentication with full and read-only permission levels
-- Pagination, filtering, sorting, and search on all list endpoints
-- Timezone-aware time entry creation
-- Rate limiting and audit logging
-- Interactive API documentation at `/api/docs`
-
-### Notifications & Audit
-- Granular notification preferences per category (tasks, projects, leads, contacts, team, portal, time entries, agent)
-- API-accessible notifications with mark-as-read and bulk mark-all-read
-- Full audit log with before/after snapshots on every data change
-- Activity feed on the dashboard
-
-### Other
-- **Demo mode**: explore all features with sample data, no database required
-- **Dark theme** with teal brand accent
-- **Keyboard shortcuts**
-- **Responsive design**: mobile-first with touch-friendly interactions
-- **File attachments** on leads, projects, and contacts
+**Also**: demo mode with sample data, dark theme, keyboard shortcuts, and a layout that works on phones.
 
 ---
 
-## Tech Stack
+## Install
 
-| Layer | Technology |
-|-------|-----------|
-| Framework | Next.js 16 (App Router) |
-| UI | React 19, Tailwind CSS v4 |
-| Database | Supabase (PostgreSQL) with Row-Level Security |
-| Auth | Supabase Auth (email/password, session-based) |
-| Rich Text | TipTap v3 |
-| Validation | Zod v4 |
-| Icons | Lucide React |
+You need Node.js 20.9 or newer, a [Supabase](https://supabase.com) project, a GitHub account and (to host it) a [Vercel](https://vercel.com) account.
 
----
+### 1. Copy the repository, with its history
 
-## Getting Started
+Updates merge each release into your code, so your repository must start as a copy of this one with its full history. Don't use "Use this template" or a ZIP download: both drop the history.
 
-### Prerequisites
-- Node.js 18+
-- A [Supabase](https://supabase.com) project
-
-### Setup
-
-1. **Clone the repo**
+1. On GitHub, create a new **private** repository with no README, license or .gitignore.
+2. Run, with your repository's URL:
    ```bash
-   git clone https://github.com/ciaranmci27/valiance-media-agentic-project-management.git
-   cd valiance-media-agentic-project-management
-   ```
-
-2. **Install dependencies**
-   ```bash
+   git clone https://github.com/ciaranmci27/valiance-media-agentic-project-management.git my-pm
+   cd my-pm
+   git checkout -B main "$(git describe --tags --abbrev=0 --match 'v*')"
+   git remote rename origin upstream
+   git remote add origin https://github.com/<you>/<your-repo>.git
+   git push -u origin main
+   git push origin --tags
    npm install
    ```
 
-3. **Configure environment variables**
+The `checkout` line starts you on the newest release. The public `main` branch can carry work that is not released yet, and an install should only ever run releases. `upstream` is where releases come from. `origin` is your own repository.
+
+### 2. Set up the database
+
+1. In Supabase, open the SQL Editor and run `supabase/schema.sql`.
+2. Then run `supabase/schema_ai_agent.sql`.
+3. Copy `.env.example` to `.env.local`. Set `SUPABASE_DB_URL`: your database's session or direct connection string (Supabase, Connect, port 5432). Not the port 6543 transaction pooler. (`DATABASE_URL` also works and wins if both are set.)
+4. Record the database as up to date:
    ```bash
-   cp .env.example .env.local
+   npm run db:migrate -- --baseline
    ```
-   Fill in your Supabase credentials:
-   ```
-   NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
-   NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
-   ```
+   From now on, `npm run db:migrate` applies each release's new migrations.
 
-4. **Set up the database**
+### 3. Fill in the environment variables
 
-   Run the SQL migrations in `supabase/` against your Supabase project to create all required tables, indexes, and RLS policies.
+Fill in `.env.local` from `.env.example`. Each variable has a line saying what it is for. You need at least:
 
-5. **Start the dev server**
-   ```bash
-   npm run dev
-   ```
-   Open [http://localhost:3000](http://localhost:3000).
+- `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY` (Supabase, Project Settings, API)
+- `PROJECT_CREDENTIALS_ENCRYPTION_KEY` and `SMTP_ENCRYPTION_KEY` (generate each with `openssl rand -hex 32`)
+- `NEXT_PUBLIC_APP_URL` (your app's address)
 
-### Demo Mode
+Run it locally with `npm run dev`, then open http://localhost:3009.
 
-To try the app without a database, set:
-```
-NEXT_PUBLIC_DEMO_MODE=true
-DEMO_MODE=true
-```
-This loads sample data in-memory. Nothing persists. Both flags are required: the server-only `DEMO_MODE` acts as a safety latch so a stray public env var cannot disable auth on a real deployment.
+### 4. Deploy on Vercel
 
-### Enabling Agentic Features
+1. In Vercel, add a new project and import your repository.
+2. Add the same environment variables under Project, Settings, Environment Variables.
+3. To apply database migrations on each production deploy, also add `SUPABASE_DB_URL` and `MIGRATE_ON_DEPLOY=true`.
+4. Deploy.
 
-Set the following to enable the Agent Hub:
-```
-NEXT_PUBLIC_ENABLE_AGENTS=true
-```
-Then create a team member with the `agent` role and generate an API key for it.
+### 5. First run
+
+1. In Supabase, open Authentication, Users, Add user. Enter your email and a password, and tick Auto Confirm. The first account becomes the **Owner**.
+2. Sign in to your app.
+3. The Dashboard asks you to pick your features. Choose a preset or pick modules one by one (next section). You can change this any time.
+4. Set your name, colors, logos and favicon in **Settings > Workspace > Brand**. Until then the app shows the neutral name "Workspace" and the default teal.
+
+To try the app without a database, set `NEXT_PUBLIC_DEMO_MODE=true` and `DEMO_MODE=true`. Both are required: the server-only `DEMO_MODE` stops a stray public variable from turning off sign-in on a real deployment.
 
 ---
 
-## API Quick Start
+## Choose your features
 
-Generate an API key from **Settings → API Keys**, then:
+Owners switch modules in **Settings > Workspace > Features**. Presets set a whole mix at once:
+
+| Preset | Modules |
+|---|---|
+| Agency | All of them |
+| Internal team | Time tracking, Credentials, Inbox, AI agents |
+| Solo | Time tracking, Contacts, Billing and finance, Webhooks |
+
+Some modules need others: Leads and Client portal need Contacts, Billing and finance needs Time tracking, and Webhooks needs Billing and finance. Turning one on turns on what it needs. Turning one off turns off what needs it.
+
+What turning a module off does:
+
+- It disappears for everyone, Owners included: pages, tabs, menu items, settings and notifications.
+- The API answers `403 MODULE_OFF` for it, MCP hides its tools, and its background jobs stop.
+- **Nothing is deleted.** Turn it back on and everything is where you left it.
+
+---
+
+## Customize
+
+Your own code, tables and files live in a few client-owned paths:
+
+- `src/custom/`: pages, sidebar entries, project tabs, Dashboard cards, Settings pages, API routes, your theme and Next.js settings. Your name, colors and logos are set in Settings > Workspace > Brand, not in code.
+- `supabase/migrations/custom/`: your own tables, in a database schema named `custom`.
+- `public/custom/`: your own public files.
+- `.claude/skills/`, `.claude/agents/` and `.claude/commands/`: your own agent skills, agents and commands, under any name that doesn't start with `pm-`.
+- `.github/workflows/custom-*.yml`: your own CI workflows.
+- `.claude/settings.local.json` and your `.env` files.
+
+How each plug-in point works: [`src/custom/README.md`](src/custom/README.md). Write your own notes there, not in this README.
+
+**Never edit core files** (everything outside those paths, apart from adding dependencies and scripts to `package.json` and crons to `vercel.json`). `.claude/settings.json`, the other workflows and this README are core too. Each release replaces core files, so an edit there is lost or stops the next update. `npm run check:core` lists any core file you changed. If you need core to change, ask for it (see Contributing to core).
+
+---
+
+## Updating
+
+Valiance Media publishes each release as a `vX.Y.Z` tag with notes. **Settings > Updates** shows your version, any newer release and its notes. There are two ways to take it.
+
+### In the app
+
+Set this up once:
+
+1. On GitHub, create a fine-grained personal access token for **only your repository**, with the permissions Settings > Updates lists: Contents, Pull requests, Workflows, Actions and Secrets (read and write), and Commit statuses, Deployments and Metadata (read-only).
+2. In Vercel, add `PM_GITHUB_TOKEN` (the token) and `PM_GITHUB_REPO` (your repository as owner/name), then redeploy.
+3. In Settings > Updates, check the connection, then press **Finish setup**. It stores the token as a secret in your repository for the update workflow.
+
+Your repository must allow merge commits, and `.github/workflows/core-update.yml` must be on its default branch (it comes with the copy).
+
+Then, for each release:
+
+1. **Prepare**: a GitHub workflow merges the release on a new branch, runs the checks and opens a pull request.
+2. **Checks** and **Preview**: look at the results and, if your host posts one, the preview.
+3. **Apply**: merges the pull request. Your host deploys it.
+
+### From the command line
 
 ```bash
-# List your projects
-curl -H "x-api-key: your-key" https://your-app.com/api/v1/projects
-
-# Create a task
-curl -X POST -H "x-api-key: your-key" -H "Content-Type: application/json" \
-  -d '{"title": "New task", "project_id": "...", "status": "todo"}' \
-  https://your-app.com/api/v1/tasks
-
-# Submit an agent suggestion
-curl -X POST -H "x-api-key: your-key" -H "Content-Type: application/json" \
-  -d '{"title": "Suggested task", "project_id": "...", "reasoning": "..."}' \
-  https://your-app.com/api/v1/task-suggestions
+npm run upgrade
+git push
 ```
 
-Full API documentation is available at `/api/docs` in your running instance.
+It merges the newest release, which can be several versions ahead, so read the notes of every release in between. It keeps your dependencies, scripts and crons in `package.json` and `vercel.json`, then installs, type-checks and runs the tests. It never pushes. Add `-- --to v1.4.0` for a specific release, or `-- --branch update/v1.4.0` to merge on a new branch.
+
+### If an update stops on a conflict
+
+A conflict means your repository changed a core file that the release also changed. Nothing is merged and your code is left as it was. The update lists the files. Move those changes into `src/custom`, then update again. An AI agent can do this for you: open the project with it and ask it to update to the new version. The repo's agent instructions walk it through.
+
+### Database changes
+
+Releases with a Database section in their notes change the database. If production deploys run with `MIGRATE_ON_DEPLOY=true`, they apply the migrations on their own. Otherwise, run `npm run db:migrate` against your production database right after the update. Core migrations work with the previous release's code too, so running them just before or after the deploy is safe.
+
+### Your repository must share the public history
+
+Updates are git merges. If your repository was started from copied files, the update stops and says so. To fix it, follow the steps in Install, part 1, into a new folder. Then copy in your client-owned paths, re-apply your `package.json` and `vercel.json` changes, and push that to your repository.
 
 ---
 
-## Project Structure
+## For AI agents
 
-```
-src/
-├── app/
-│   ├── (auth)/          # Login page
-│   ├── (dashboard)/     # All authenticated pages
-│   │   ├── dashboard/   # Main dashboard
-│   │   ├── projects/    # Project list & detail
-│   │   ├── my-tasks/    # Personal task view
-│   │   ├── leads/       # Lead pipeline & detail
-│   │   ├── contacts/    # Contact database
-│   │   ├── team/        # Team management
-│   │   ├── settings/    # Profile, notifications, API keys
-│   │   └── agent/       # Agent hub (suggestions, activity)
-│   ├── portal/          # Public client portal
-│   └── api/             # REST API endpoints
-├── components/          # Reusable UI components
-├── contexts/            # React context providers
-├── lib/                 # Supabase client, queries, utilities
-├── schemas/             # Zod validation schemas
-└── types/               # TypeScript type definitions
-```
+- **`AGENTS.md`**: the rules every AI agent reads first. Where custom work goes, how to upgrade, which checks to run. Claude Code, Codex, Cursor and others read it.
+- **`src/custom/AGENTS.md`**: your install's own facts (how you ship, run and sign in). Fill it in.
+- **`CLAUDE.md`**: loads both for Claude Code.
+- **Skills** in `.claude/skills/`: `pm-add-custom-feature`, `pm-add-custom-table`, `pm-upgrade` and `pm-propose-core-change`.
+- **The guard**: in an install, a Claude Code hook (`.claude/hooks/guard-core.mjs`) blocks an agent from editing core files and points it to `src/custom` or a core change proposal. It steps aside while a merge is open, so an agent can resolve an update. `npm run check:core` catches anything else before a commit.
 
 ---
 
-## Contributing
+## Contributing to core
 
-Contributions are welcome. Please open an issue first to discuss what you'd like to change.
+Releases are built in Valiance Media's own repository and mirrored here, so changes reach installs through releases, not direct edits to this repository.
+
+1. Open an issue describing what you need. The best requests ask for a new setting, module or plug-in point, so every install can use it.
+2. An AI agent can write the request for you with the `pm-propose-core-change` skill.
+3. Pull requests are welcome as illustrations. Accepted changes ship in the next release.
 
 ---
 
 ## License
 
-[MIT](LICENSE)
-
----
-
-Built by [Valiance Media](https://valiancemedia.com)
+MIT. Built by [Valiance Media](https://valiancemedia.com).

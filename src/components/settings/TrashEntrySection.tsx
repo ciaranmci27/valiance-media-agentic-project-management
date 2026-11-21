@@ -12,7 +12,7 @@ export function TrashEntrySection() {
           </div>
           <div>
             <h2 className="font-semibold text-white">Trash</h2>
-            <p className="text-sm text-zinc-400">Deleted projects, tasks, invoices and more. Nothing is ever permanently deleted, so you can restore any of it.</p>
+            <p className="text-sm text-zinc-400">Deleted projects, tasks, files and more. Nothing is ever permanently deleted, so you can restore any of it.</p>
           </div>
         </div>
         <Button href="/settings/trash" variant="secondary" className="sm:flex-shrink-0">Open Trash</Button>

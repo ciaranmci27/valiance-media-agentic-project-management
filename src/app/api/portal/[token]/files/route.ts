@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
 import { checkPortalPin, pinFailureResponse } from '@/lib/portal-pin';
+import { enabledModuleSet } from '@/lib/modules/server';
 
 export const dynamic = 'force-dynamic';
 
@@ -27,6 +28,12 @@ export async function POST(
   const { token: rawToken } = await params;
   const token = rawToken.toLowerCase();
   const supabase = getServiceClient();
+
+  // With the Client portal switched off every link answers like an unknown one.
+  const modules = await enabledModuleSet(supabase);
+  if (!modules.has('portal')) {
+    return NextResponse.json({ error: 'Portal not found' }, { status: 404 });
+  }
 
   // Verify portal
   const { data: settings } = await supabase

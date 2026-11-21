@@ -1,9 +1,11 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
 import { demoPortalSettings, demoEntityFiles, demoProjects } from '@/lib/demo-data';
-import { siteConfig } from '@/site-config';
+import type { Brand } from '@/lib/brand';
+import { getBrand } from '@/lib/brand/server';
 import { recordPortalEvent, getOrCreateSessionId } from '@/lib/portal-analytics';
 import { checkPortalPin, pinFailureResponse } from '@/lib/portal-pin';
+import { enabledModuleSet } from '@/lib/modules/server';
 
 function getServiceClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
@@ -20,14 +22,21 @@ export async function GET(
 ) {
   const { token: rawToken, fileId } = await params;
   const token = rawToken.toLowerCase();
+  const brand = await getBrand();
 
   // Demo mode
   const isDemo = process.env.NEXT_PUBLIC_DEMO_MODE === 'true' || request.nextUrl.searchParams.get('demo') === 'true';
   if (isDemo) {
-    return handleDemoMode(token, fileId, request);
+    return handleDemoMode(token, fileId, request, brand);
   }
 
   const supabase = getServiceClient();
+
+  // With the Client portal switched off every link answers like an unknown one.
+  const modules = await enabledModuleSet(supabase);
+  if (!modules.has('portal')) {
+    return NextResponse.json({ error: 'Portal not found' }, { status: 404 });
+  }
 
   // Find portal settings by token
   const { data: settings, error: settingsError } = await supabase
@@ -58,7 +67,7 @@ export async function GET(
     return pinFailureResponse(pinCheck, {
       branding: {
         logo_url: settings.logo_url || '',
-        accent_color: settings.accent_color || siteConfig.colors.brand[500],
+        accent_color: settings.accent_color || brand.colors.brand[500],
         project_name: proj?.name || '',
       },
     });
@@ -93,7 +102,7 @@ export async function GET(
   return NextResponse.json({ file_url: file.file_url, name: file.name, mime_type: file.mime_type });
 }
 
-function handleDemoMode(token: string, fileId: string, request: NextRequest) {
+function handleDemoMode(token: string, fileId: string, request: NextRequest, brand: Brand) {
   const settings = demoPortalSettings.find(ps => ps.token === token);
   if (!settings || !settings.enabled) {
     return NextResponse.json({ error: 'Portal not found' }, { status: 404 });
@@ -110,7 +119,7 @@ function handleDemoMode(token: string, fileId: string, request: NextRequest) {
         pin_required: true,
         branding: {
           logo_url: settings.logo_url || '',
-          accent_color: settings.accent_color || siteConfig.colors.brand[500],
+          accent_color: settings.accent_color || brand.colors.brand[500],
           project_name: project?.name || '',
         },
       }, { status: 401 });

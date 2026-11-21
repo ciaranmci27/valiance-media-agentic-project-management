@@ -13,26 +13,52 @@
  * so the brand reads the same from every sender.
  */
 
-import { siteConfig } from '@/site-config';
+import { DEFAULT_BRAND, type Brand } from '@/lib/brand';
 
 // ─── WORKSPACE: the only part that differs between app / website / admin ──────
+
+/**
+ * The workspace brand (Settings > Workspace > Brand) of the email being
+ * rendered. Each template's build function takes the brand and renders inside
+ * withEmailBrand, so every helper below reads it without a parameter.
+ */
+let renderingBrand: Brand = DEFAULT_BRAND;
+
+/**
+ * Runs a synchronous render with a brand, then restores the previous one.
+ * Rendering is plain string building with no awaits, so the brand holds for
+ * exactly this render and two emails can never see each other's brand.
+ */
+export function withEmailBrand<T>(brand: Brand, render: () => T): T {
+  const previous = renderingBrand;
+  renderingBrand = brand;
+  try {
+    const result = render();
+    if (result && typeof (result as { then?: unknown }).then === 'function') {
+      throw new Error('withEmailBrand renders synchronously; an async render would lose the brand');
+    }
+    return result;
+  } finally {
+    renderingBrand = previous;
+  }
+}
 
 export function getSiteUrl(): string {
   return process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
 }
 
 export function getSiteName(): string {
-  return siteConfig.name;
+  return renderingBrand.name;
 }
 
-/** The lockup drawn for dark chrome. The API route falls back to the light one. */
-export function getLogoSrc(): string {
-  return `${getSiteUrl()}/api/logo?variant=dark`;
+/** The logo drawn for dark backgrounds (the light one when none is uploaded), or null with no logo. */
+export function getLogoSrc(): string | null {
+  return renderingBrand.logos.dark;
 }
 
 /** Brand teal. Every teal tint in an email derives from this one hex. */
 export function brandPrimary(): string {
-  return siteConfig.colors.brand[500] || '#5B8A8A';
+  return renderingBrand.colors.brand[500];
 }
 
 // ─── Palette ──────────────────────────────────────────────────────────────────
@@ -103,9 +129,8 @@ export function lightenHex(hex: string, factor: number): string {
   return mixHex(hex, EMAIL.ink, factor);
 }
 
-/** Every teal-derived value an email needs, from the brand teal. */
-export function accentPalette() {
-  const base = brandPrimary();
+/** Every teal-derived value an email needs, from the brand teal (or the color given). */
+export function accentPalette(base: string = brandPrimary()) {
   return {
     base,
     /** Text and icons on dark: the site's teal-300. */
@@ -348,7 +373,11 @@ export function emailLayout(options: {
   const resolvedLogoHref = logoHref === undefined ? siteUrl : logoHref;
   const safeName = escapeHtml(name);
 
-  const lockup = `<img src="${getLogoSrc()}" alt="${safeName}" height="30" style="display: block; border: 0; outline: none; height: 30px; width: auto; max-width: 220px; color: ${EMAIL.ink}; font-family: ${FONT_SANS}; font-size: 18px; font-weight: 600;" />`;
+  // The uploaded logo, or the name as text in its place when there is none.
+  const logoSrc = getLogoSrc();
+  const lockup = logoSrc
+    ? `<img src="${escapeHtml(logoSrc)}" alt="${safeName}" height="30" style="display: block; border: 0; outline: none; height: 30px; width: auto; max-width: 220px; color: ${EMAIL.ink}; font-family: ${FONT_SANS}; font-size: 18px; font-weight: 600;" />`
+    : `<span style="display: inline-block; color: ${EMAIL.ink}; font-family: ${FONT_SANS}; font-size: 20px; line-height: 30px; font-weight: 600; letter-spacing: -0.01em; text-decoration: none;">${safeName}</span>`;
 
   const defaultFooter = `
     ${footerLine('You received this because email notifications are enabled in your account.')}

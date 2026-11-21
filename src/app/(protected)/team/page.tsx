@@ -37,7 +37,7 @@ import { useAuth } from '@/lib/auth-context';
 import InviteMemberModal from '@/components/team/InviteMemberModal';
 import { AccessControlModal } from '@/components/team/AccessControlModal';
 import { CompensationRateModal } from '@/components/team/CompensationRateModal';
-import { hasPermission } from '@/lib/access-control';
+import { hasPermission, isModuleEnabled } from '@/lib/access-control';
 
 export default function TeamPage() {
   const { team, updateTeamMember, upsertLocalTeamMember, tasks, filters, setFilters } = useApp();
@@ -57,6 +57,8 @@ export default function TeamPage() {
   const canManageTeam = hasPermission(access, 'team.manage');
   const canManageCompensation = hasPermission(access, 'compensation.manage');
   const canManageBilling = hasPermission(access, 'billing.manage');
+  // The agent role stays with agents off; only its agent-only settings go.
+  const isAgentsEnabled = isModuleEnabled(access, 'agents');
 
   useEffect(() => {
     setFilters(defaultFilters);
@@ -248,7 +250,7 @@ export default function TeamPage() {
   // Sent only when it changed, by the Owner, for an agent; the API checks
   // the same and only the Owner may change it.
   const profileUpdate = (): { agent_profile?: AgentProfile } => {
-    if (role !== 'agent' || !isOwner || !editingMember) return {};
+    if (role !== 'agent' || !isOwner || !isAgentsEnabled || !editingMember) return {};
     if (agentProfile === (editingMember.agent_profile ?? 'generic')) return {};
     return { agent_profile: agentProfile };
   };
@@ -649,7 +651,7 @@ export default function TeamPage() {
             />
           )}
 
-          {role === 'agent' && isOwner && (
+          {role === 'agent' && isOwner && isAgentsEnabled && (
             <Select
               label="Agent profile"
               description="Which MCP tools this agent sees. Its key and permissions still decide what each tool may do."

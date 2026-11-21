@@ -122,7 +122,12 @@ export async function createEmailDatabase(
   const roleTables = canonical.match(/CREATE TABLE public\.role_permissions \([\s\S]*?\n\);\n\nCREATE TABLE public\.team_member_permissions \([\s\S]*?\n\);/)?.[0];
   assert.ok(roleTables, 'permission tables in schema.sql');
   await db.exec(roleTables);
-  for (const name of ['current_team_member_id', 'has_permission', 'can_access_project', 'project_is_live']) {
+  // has_permission() reads which modules are on; every module is on here.
+  await db.exec(`
+    CREATE TABLE public.workspace_modules (module_id text PRIMARY KEY, enabled boolean NOT NULL DEFAULT true);
+    CREATE TABLE public.permission_modules (permission_key text PRIMARY KEY, module_id text NOT NULL REFERENCES public.workspace_modules(module_id));
+  `);
+  for (const name of ['current_team_member_id', 'module_enabled', 'has_permission', 'can_access_project', 'project_is_live']) {
     await db.exec(fn(name));
   }
 

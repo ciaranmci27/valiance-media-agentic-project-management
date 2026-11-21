@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { sendTransactional } from '@/lib/email/send-mail';
 import { buildNotificationEmail } from '@/lib/email/templates/team/notification';
+import { getBrand } from '@/lib/brand/server';
 import { emailCategoryEnabled } from '@/lib/notification-defaults';
 import type { NotificationPreferences } from '@/lib/types';
 import { trashedProjectIds } from '@/lib/supabase/trash';
@@ -83,6 +84,7 @@ export async function runDraftDigest(service: SupabaseClient, send: Send = sendT
   if (projectsError) throw projectsError;
   const projectName = new Map((projects ?? []).map((project) => [project.id as string, project.name as string]));
   const { html, text } = buildNotificationEmail({
+    brand: await getBrand(),
     title,
     message,
     link: projectIds.length === 1 ? `/projects/${projectIds[0]}?tab=invoices` : '/finances/billing',

@@ -4,7 +4,7 @@ import type { AccessContext } from '@/lib/access-control';
 import { accessAllows, accessAllowsProject } from '@/lib/api/access';
 import { fetchAllRows } from '@/lib/supabase/fetch-all';
 import { getActorClient } from '@/lib/api/supabase-service';
-import { siteConfig } from '@/site-config';
+import { DEFAULT_ITEM_COLOR } from '@/lib/brand';
 import { domainOf, normalizeAddress, organizationalDomain } from './email/addresses';
 import { attachmentKind } from './attachments';
 import { normalizeContentId } from './email/display';
@@ -1022,7 +1022,7 @@ export async function setThreadProject(
       const contact = await one<{ id: string }>(ctx.service.from('contacts').insert({
         name: sender.name.trim() || sender.address.split('@')[0],
         email: sender.address,
-        color: siteConfig.colors.brand[500],
+        color: DEFAULT_ITEM_COLOR,
         created_by: ctx.memberId,
       }).select('id').single());
       if (!contact) throw new InboxError(500, 'Could not create the contact');

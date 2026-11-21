@@ -9,7 +9,7 @@ The PM and CRM app: projects, tasks, the Inbox (email and meetings), leads, cont
 
 All in `src/app/globals.css`, one source of truth:
 
-- **Brand**: `--color-brand-50` to `--color-brand-700` (teal, `#5b8a8a` at 500), injected at runtime from `src/site-config.ts` by `ThemeProvider`. Copper (`--color-copper`) is the one accent beside it. Site config holds brand only.
+- **Brand**: `--color-brand-50` to `--color-brand-700` (teal, `#5b8a8a` at 500), generated from the color an Owner picks in Settings > Workspace > Brand and injected at runtime by `ThemeProvider` (defaults in `src/lib/brand/defaults.ts`). Copper (`--color-copper`) is the one accent beside it. The brand settings hold the brand only; fonts and surfaces stay in CSS.
 - **Surfaces**: `--color-surface` (page), `--color-surface-raised` (cards, modals), `--color-surface-overlay` (menus, popovers, tooltips), `--color-surface-border`. Glass: `--glass-bg`, `--glass-bg-strong`, `--glass-highlight`, `--glass-blur`.
 - **Ink**: `--ink` is the RGB the white alpha utilities (`bg-white/[0.04]`, `text-zinc-*`) resolve through, so `[data-theme="light"]` remaps them without per-component work. Write `bg-white/[0.0x]` and `text-zinc-*` in components; never a hex.
 - **Type**: DM Sans (`--font-sans`) for everything, DM Mono (`--font-mono`) only for codes and ids. Sizes in use: `text-[11px]` meta, `text-xs` secondary, `text-sm` body, `text-base`/`text-lg` view titles.

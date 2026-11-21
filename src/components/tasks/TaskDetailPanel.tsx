@@ -53,7 +53,7 @@ import { LinkedText } from '@/components/ui/LinkedText';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { Popover } from '@/components/ui/Popover';
 import { parseDateOnly, isDateOverdue } from '@/lib/date-utils';
-import { hasPermission, canEditTask, canManageAllTasks, canBeAssignedInProject } from '@/lib/access-control';
+import { hasPermission, canEditTask, canManageAllTasks, canBeAssignedInProject, isModuleEnabled } from '@/lib/access-control';
 import { linkCountsOf, linkSectionTitle, TaskSourceEmailsSection, useKnownTaskLinkCounts, useTaskSourceEmails } from '@/components/inbox/TaskSourceEmails';
 import { RailCard, RailLayout } from '@/components/projects/TabLayout';
 import { TaskSourceLine, useTaskSource } from './TaskSource';
@@ -410,7 +410,7 @@ export function TaskDetailPanel({ task, onClose, onDelete, variant = 'panel' }: 
     if (status === 'done' && task.status !== 'done' && openSubtasks.length > 0) setFinishSubtasksOf(task.id);
   };
 
-  const isAgentsEnabled = process.env.NEXT_PUBLIC_ENABLE_AGENTS === 'true';
+  const isAgentsEnabled = isModuleEnabled(access, 'agents');
   const project = getProject(task.project_id);
   // Task type and who does it are for whoever runs the agents.
   const showAgentFields = isAgentsEnabled && hasPermission(access, 'agents.manage');

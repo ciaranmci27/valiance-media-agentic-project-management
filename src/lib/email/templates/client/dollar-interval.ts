@@ -4,7 +4,8 @@
  * crosses the next multiple of the configured dollar interval on an hourly project.
  */
 
-import { ctaButton, escapeHtml, getSiteName, linkLine, paragraph, statGrid } from '../shared';
+import type { Brand } from '@/lib/brand';
+import { ctaButton, escapeHtml, getSiteName, linkLine, paragraph, statGrid, withEmailBrand } from '../shared';
 import { clientEmailLayout, clientHeader, greeting } from './layout';
 
 export interface DollarIntervalSlots {
@@ -41,9 +42,12 @@ function fmtCurrency(value: number): string {
   return `$${value.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
 }
 
-export function buildDollarIntervalEmail(
-  params: DollarIntervalParams,
-): { subject: string; html: string; text: string } {
+/** Renders with the workspace's brand (getBrand), so the name, logo and colors are this workspace's. */
+export function buildDollarIntervalEmail(params: DollarIntervalParams & { brand: Brand }): { subject: string; html: string; text: string } {
+  return withEmailBrand(params.brand, () => renderDollarIntervalEmail(params));
+}
+
+function renderDollarIntervalEmail(params: DollarIntervalParams): { subject: string; html: string; text: string } {
   const { projectName, clientName, portalUrl, logoUrl, milestone, totalAccrued, totalHours, slots } = params;
   const name = getSiteName();
   const hoursLabel = `${totalHours.toFixed(1)} hrs`;

@@ -4,6 +4,7 @@ import { success } from '@/lib/api/response';
 import { notFound, badRequest } from '@/lib/api/errors';
 import { logAudit } from '@/lib/api/audit';
 import { evaluateBudgetAlerts } from '@/lib/email/client-notifications';
+import { budgetAlertsEnabled } from '@/lib/api/budget-alerts';
 import type { TimeSegment } from '@/lib/types';
 import { apiKeyAllows, sanitizeTimeEntryForAccess } from '@/lib/api/access';
 
@@ -66,7 +67,7 @@ export const POST = withApi(async ({ supabase, params, apiKeyId, teamMemberId, a
 
   // Use after() so the promise reliably resolves on serverless
   // platforms; a bare .catch() can be killed when the response sends.
-  after(() => evaluateBudgetAlerts(id));
+  if (budgetAlertsEnabled(access)) after(() => evaluateBudgetAlerts(id));
 
   return success(sanitizeTimeEntryForAccess(data, access, 'api'));
 }, { permission: ['time.manage_own', 'time.manage_all'] });

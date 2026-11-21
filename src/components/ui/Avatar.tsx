@@ -1,6 +1,6 @@
 'use client';
 
-import { siteConfig } from '@/site-config';
+import { useBrand } from '@/lib/brand/context';
 
 interface AvatarProps {
   name: string;
@@ -26,21 +26,21 @@ function getInitials(name: string): string {
     .slice(0, 2);
 }
 
-function stringToColor(str: string): string {
+const OTHER_COLORS = ['#8B5CF6', '#EC4899', '#EF4444', '#F59E0B', '#10B981', '#06B6D4', '#3B82F6'];
+
+function stringToColor(str: string, brandColor: string): string {
   let hash = 0;
   for (let i = 0; i < str.length; i++) {
     hash = str.charCodeAt(i) + ((hash << 5) - hash);
   }
-  const colors = [
-    siteConfig.colors.brand[500], '#8B5CF6', '#EC4899', '#EF4444',
-    '#F59E0B', '#10B981', '#06B6D4', '#3B82F6'
-  ];
+  const colors = [brandColor, ...OTHER_COLORS];
   return colors[Math.abs(hash) % colors.length];
 }
 
 export function Avatar({ name, src, color, size = 'md', className = '' }: AvatarProps) {
+  const brand = useBrand();
   const initials = getInitials(name);
-  const bgColor = color || stringToColor(name);
+  const bgColor = color || stringToColor(name, brand.colors.brand[500]);
 
   if (src && (src.startsWith('http') || src.startsWith('/') || src.startsWith('blob:'))) {
     return (

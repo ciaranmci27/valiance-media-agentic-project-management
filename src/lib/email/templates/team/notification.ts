@@ -3,7 +3,8 @@
  * Used for all 32 notification categories (task, project, lead, contact, etc.)
  */
 
-import { ctaButton, emailLayout, escapeHtml, getSiteName, getSiteUrl, heading, kvRows, paragraph } from '../shared';
+import type { Brand } from '@/lib/brand';
+import { ctaButton, emailLayout, escapeHtml, getSiteName, getSiteUrl, heading, kvRows, paragraph, withEmailBrand } from '../shared';
 
 interface NotificationEmailParams {
   title: string;
@@ -12,7 +13,12 @@ interface NotificationEmailParams {
   details?: Array<{ label: string; value: string }>;
 }
 
-export function buildNotificationEmail(params: NotificationEmailParams): { html: string; text: string } {
+/** Renders with the workspace's brand (getBrand), so the name, logo and colors are this workspace's. */
+export function buildNotificationEmail(params: NotificationEmailParams & { brand: Brand }): { html: string; text: string } {
+  return withEmailBrand(params.brand, () => renderNotificationEmail(params));
+}
+
+function renderNotificationEmail(params: NotificationEmailParams): { html: string; text: string } {
   const { title, message, link, details } = params;
   const name = getSiteName();
 

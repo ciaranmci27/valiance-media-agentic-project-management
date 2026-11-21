@@ -22,6 +22,7 @@ import { startFakePostgrest } from './fake-postgrest';
 const CREATE_MIGRATION = '../supabase/migrations/20260725154128_create_webhooks.sql';
 const AMOUNT_BASIS_MIGRATION = '../supabase/migrations/20260919213826_webhook_amount_basis.sql';
 const RETRY_MIGRATION = '../supabase/migrations/20261018220437_webhook_delivery_retries.sql';
+const MODULE_GUARDS_MIGRATION = '../supabase/migrations/20261120201517_module_guards.sql';
 
 let passed = 0;
 const failures: string[] = [];
@@ -196,9 +197,12 @@ async function main() {
   const stuckBefore = await delivery(stuckEndpoint, stuckSeq);
   check('a delivery stuck before the migration has an expired lease', stuckBefore.status === 'delivering' && stuckBefore.lease_in !== null && stuckBefore.lease_in <= 0, stuckBefore);
 
-  // The schema snapshot carries the same functions as the migration.
+  // The schema snapshot carries the same functions as the migration; the
+  // claim function was redefined since, to wait while webhooks are switched off.
+  const guards = await read(MODULE_GUARDS_MIGRATION);
   for (const name of ['claim_webhook_deliveries', 'complete_webhook_delivery', 'requeue_webhook_delivery', 'webhook_retry_kick']) {
-    check(`schema.sql ${name} matches the migration`, fn(canonical, name) === fn(migration, name));
+    const latest = name === 'claim_webhook_deliveries' ? guards : migration;
+    check(`schema.sql ${name} matches its latest migration`, fn(canonical, name) === fn(latest, name));
   }
   for (const column of ['next_attempt_at timestamptz not null default now()', 'attempt_token uuid', 'lease_expires_at timestamptz']) {
     check(`schema.sql webhook_deliveries has ${column}`, canonical.includes(`  ${column},`));

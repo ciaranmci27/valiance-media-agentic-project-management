@@ -115,9 +115,9 @@ import { subtasksByParent } from '@/lib/subtasks';
 import { isTelemetryEvent } from '@/lib/agent-events';
 import { clearReads, invalidateAllReads, invalidateTables, loadRead } from '@/lib/query-cache';
 import { payrollRead } from '@/lib/finance/payroll-read';
-import { siteConfig } from '@/site-config';
+import { DEFAULT_ITEM_COLOR } from '@/lib/brand';
 import { findStalePausedEntries, isStalePause } from '@/lib/time-entry-utils';
-import { hasPermission, canReadTasks } from '@/lib/access-control';
+import { hasPermission, canReadTasks, isModuleEnabled } from '@/lib/access-control';
 import { loadRetainerFinanceInputs } from '@/lib/finance/use-retainer-finance';
 import { rollbackScope } from '@/lib/optimistic';
 import { INBOX_TABLES, INBOX_UPDATED_EVENT } from '@/lib/communications/inbox-types';
@@ -426,7 +426,7 @@ interface AppContextType {
   /** Renames a key and/or replaces its scopes on the server; the secret stays the same. Throws the server's message on failure. */
   updateApiKey: (id: string, changes: { name?: string; scopes?: string[] }) => Promise<ApiKey | undefined>;
 
-  // Agent data (conditionally loaded when NEXT_PUBLIC_ENABLE_AGENTS=true)
+  // Agent data (loaded while the AI agents module is on)
   projectGoals: ProjectGoal[];
   taskSuggestions: TaskSuggestion[];
   agentActivity: AgentActivity[];
@@ -744,7 +744,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setEmployeeEarnings({ entries: [...demoTimeEntries], rates: [], adjustments: [], payouts: [], allocations: [] });
       setBusinessSettings({
         id: 'demo-business-settings',
-        business_name: siteConfig.name,
+        // Blank, as a fresh install starts: invoices then show the workspace's brand name.
+        business_name: '',
         business_address: '',
         business_email: '',
         business_phone: '',
@@ -756,7 +757,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       });
-      if (process.env.NEXT_PUBLIC_ENABLE_AGENTS === 'true') {
+      if (isModuleEnabled(access, 'agents')) {
         setProjectGoals([...demoProjectGoals]);
         setTaskSuggestions([...demoTaskSuggestions]);
         setAgentActivityList([...demoAgentActivity]);
@@ -803,7 +804,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           : Promise.resolve(null);
         // Agent data depends on nothing below, so it loads alongside the rest
         // instead of after it. Its failure stays its own, as before.
-        const agentRequest = process.env.NEXT_PUBLIC_ENABLE_AGENTS === 'true'
+        const agentRequest = isModuleEnabled(access, 'agents')
           ? Promise.all([
               fetchGoals(supabase),
               fetchTaskSuggestions(supabase),
@@ -945,7 +946,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     /** True when a local write landed while this refetch was in flight. */
     const superseded = () => (sliceMutatedAt.current[slice] ?? 0) >= issuedAt;
     const workspaceData = fetchWorkspaceData;
-    const agentsEnabled = process.env.NEXT_PUBLIC_ENABLE_AGENTS === 'true';
+    const agentsEnabled = isModuleEnabled(access, 'agents');
     try {
       switch (slice) {
         case 'tasks':
@@ -2894,7 +2895,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         pin: settings.pin ?? null,
         welcome_message: settings.welcome_message ?? '',
         logo_url: settings.logo_url ?? '',
-        accent_color: settings.accent_color ?? siteConfig.colors.brand[500],
+        accent_color: settings.accent_color ?? DEFAULT_ITEM_COLOR,
         show_progress: settings.show_progress ?? true,
         show_files: settings.show_files ?? true,
         show_hours: settings.show_hours ?? true,

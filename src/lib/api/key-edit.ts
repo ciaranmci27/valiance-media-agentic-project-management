@@ -6,6 +6,7 @@ import {
   type AccessContext,
   type PermissionKey,
 } from '@/lib/access-control';
+import { moduleOfPermission } from '@/lib/modules/registry';
 import { updateApiKeySchema } from '@/lib/schemas/api-keys';
 import { API_KEY_COLUMNS } from '@/lib/supabase/queries';
 import type { ApiKey } from '@/lib/types';
@@ -115,7 +116,14 @@ export async function editApiKey(
   if (parsed.data.scopes !== undefined) {
     const scopes = [...new Set(parsed.data.scopes)];
     const allowed = new Set<string>(apiScopesFor(loaded.memberAccess));
-    const refused = scopes.filter((scope) => !allowed.has(scope));
+    // A scope of a switched-off module that the key already carries stays:
+    // it grants nothing while the module is off and works again once it is
+    // back on. The member must still hold it; adding one is refused.
+    const heldWithModulesOn = new Set<string>(apiScopesFor({ ...loaded.memberAccess, modules: undefined }));
+    const current = new Set<string>(loaded.key.scopes ?? []);
+    const keptWhileOff = (scope: string) =>
+      current.has(scope) && heldWithModulesOn.has(scope) && moduleOfPermission(scope) !== 'core';
+    const refused = scopes.filter((scope) => !allowed.has(scope) && !keptWhileOff(scope));
     if (refused.length > 0) {
       const whose = loaded.self ? 'not available to you' : "not held by the key's member";
       return { status: 422, body: { error: `Scopes ${whose}: ${refused.join(', ')}` } };

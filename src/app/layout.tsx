@@ -1,8 +1,11 @@
 import type { Metadata } from 'next';
 import './globals.css';
+// The install's own theme, after core's so it wins (src/custom/theme.css).
+import '../custom/theme.css';
 import { DM_Sans, DM_Mono } from 'next/font/google';
-import { siteConfig } from '@/site-config';
 import { ThemeProvider } from '@/components/ui/ThemeProvider';
+import { BrandProvider } from '@/lib/brand/context';
+import { getBrand } from '@/lib/brand/server';
 
 // Self-hosted via next/font and consumed by --font-sans / --font-mono in
 // globals.css. Do not load fonts with a Google Fonts @import url() there:
@@ -23,29 +26,28 @@ const dmMono = DM_Mono({
   display: 'swap',
 });
 
-export const metadata: Metadata = {
-  title: `${siteConfig.name} | ${siteConfig.tagline}`,
-  description: siteConfig.description,
-  icons: {
-    icon: [
-      { url: '/favicon/favicon-16x16.png', sizes: '16x16', type: 'image/png' },
-      { url: '/favicon/favicon-32x32.png', sizes: '32x32', type: 'image/png' },
-    ],
-    shortcut: '/favicon/favicon.ico',
-    apple: '/favicon/apple-touch-icon.png',
-  },
-  manifest: '/favicon/site.webmanifest',
-};
+/** Title, description and icons from the workspace's brand (Settings > Workspace > Brand). */
+export async function generateMetadata(): Promise<Metadata> {
+  const brand = await getBrand();
+  // An uploaded favicon, or one drawn from the name and brand color.
+  const icon = brand.logos.favicon ?? '/api/brand/icon';
+  return {
+    title: `${brand.name} | ${brand.tagline}`,
+    description: brand.description,
+    icons: { icon, shortcut: icon, apple: brand.logos.favicon ?? '/api/brand/icon?size=180' },
+  };
+}
 
 // Runs before paint: applies the saved theme (or the OS preference on first visit)
 // to <html> so there's no flash of the wrong theme. Kept tiny and dependency-free.
 const themeInitScript = `(function(){try{var t=localStorage.getItem('theme');if(t!=='light'&&t!=='dark'){t=window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';}document.documentElement.setAttribute('data-theme',t);}catch(e){document.documentElement.setAttribute('data-theme','dark');}})();`;
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  const brand = await getBrand();
   return (
     <html
       lang="en"
@@ -56,7 +58,9 @@ export default function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
       </head>
       <body className="antialiased bg-surface font-sans">
-        <ThemeProvider>{children}</ThemeProvider>
+        <BrandProvider brand={brand}>
+          <ThemeProvider brand={brand}>{children}</ThemeProvider>
+        </BrandProvider>
       </body>
     </html>
   );

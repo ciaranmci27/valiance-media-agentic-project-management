@@ -7,8 +7,6 @@ import { ArrowLeft, CalendarClock } from 'lucide-react';
 import { Header } from '@/components/layout/Header';
 import { Select } from '@/components/ui/inputs/Select';
 import { BillingForecastList, money } from '@/components/projects/billing/BillingForecastList';
-import { useAuth } from '@/lib/auth-context';
-import { hasPermission } from '@/lib/access-control';
 import { useDemo } from '@/lib/demo-context';
 import { createClient } from '@/lib/supabase/client';
 import { fetchBillingForecast } from '@/lib/supabase/queries';
@@ -38,17 +36,15 @@ function addMonths(date: string, months: number): string {
  */
 export default function BillingCalendarPage() {
   const router = useRouter();
-  const { access } = useAuth();
   const { isDemoMode } = useDemo();
   const supabase = useMemo(() => createClient(), []);
-  const canRead = hasPermission(access, 'invoices.read');
   const [months, setMonths] = useState('6');
   const [projectFilter, setProjectFilter] = useState('');
   const [items, setItems] = useState<BillingForecastItem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    if (!canRead || isDemoMode) return;
+    if (isDemoMode) return;
     setError(null);
     try {
       const from = today();
@@ -56,7 +52,7 @@ export default function BillingCalendarPage() {
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : 'Upcoming invoices could not load');
     }
-  }, [canRead, isDemoMode, months, supabase]);
+  }, [isDemoMode, months, supabase]);
 
   useEffect(() => {
     const handle = window.setTimeout(() => void load(), 0);
@@ -90,11 +86,7 @@ export default function BillingCalendarPage() {
       />
 
       <div className="p-4 lg:p-6 space-y-4 lg:space-y-6">
-        {!canRead ? (
-          <div className="rounded-xl border border-white/[0.08] bg-surface-raised p-8 text-center text-sm text-zinc-400">
-            You do not have access to invoices.
-          </div>
-        ) : isDemoMode ? (
+        {isDemoMode ? (
           <div className="rounded-xl border border-white/[0.08] bg-surface-raised p-8 text-center text-sm text-zinc-400">
             Upcoming invoices are not available in demo mode.
           </div>

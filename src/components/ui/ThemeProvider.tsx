@@ -1,11 +1,7 @@
-import { siteConfig } from '@/site-config';
+import { brandCssVars, type Brand } from '@/lib/brand';
 
-export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const { brand, accent } = siteConfig.colors;
-  const vars = Object.entries(brand)
-    .map(([shade, hex]) => `--color-brand-${shade}:${hex}`)
-    .concat(`--color-accent:${accent}`)
-    .join(';');
+export function ThemeProvider({ brand, children }: { brand: Brand; children: React.ReactNode }) {
+  const vars = brandCssVars(brand);
 
   // Inject the brand scale at :root AND under [data-theme="dark"]. The second copy
   // lets a nested dark subtree (the always-dark sidebar) re-assert the true brand

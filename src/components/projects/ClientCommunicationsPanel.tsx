@@ -12,6 +12,8 @@ import {
 } from 'lucide-react';
 import { useApp } from '@/lib/store';
 import { useDemo } from '@/lib/demo-context';
+import { useAuth } from '@/lib/auth-context';
+import { isModuleEnabled } from '@/lib/access-control';
 import { toast } from '@/components/ui/Toast';
 import { Button } from '@/components/ui/Button';
 import { Select } from '@/components/ui/inputs/Select';
@@ -40,6 +42,14 @@ const ALERT_MODE_OPTIONS: { value: AlertMode; label: string }[] = [
 export function SendClientEmailButtons({ projectId, onSent }: { projectId: string; onSent?: () => void }) {
   const { getPrimaryClient } = useApp();
   const { isDemoMode } = useDemo();
+  const { access } = useAuth();
+  // Both emails lead the client to the portal, so they go with it (the server
+  // refuses them too); without billing a summary has no balance to share.
+  const actions = SEND_ACTIONS
+    .filter(() => isModuleEnabled(access, 'portal'))
+    .map((action) => action.type === 'project_summary' && !isModuleEnabled(access, 'billing')
+      ? { ...action, hint: 'Share a status update' }
+      : action);
   const hasPrimaryEmail = !!getPrimaryClient(projectId)?.contact?.email;
   const [manualType, setManualType] = useState<ClientCommType | null>(null);
 
@@ -58,7 +68,7 @@ export function SendClientEmailButtons({ projectId, onSent }: { projectId: strin
 
   return (
     <>
-      {SEND_ACTIONS.map(({ type, label, hint, icon: Icon }) => (
+      {actions.map(({ type, label, hint, icon: Icon }) => (
         <ToolbarButton key={type} variant="secondary" icon={<Icon />} label={label} onClick={() => open(type)} title={hint} />
       ))}
       {manualType && (

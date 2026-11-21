@@ -18,6 +18,7 @@ import {
   Bell,
   ChevronDown,
   DollarSign,
+  Clock,
   Inbox,
 } from 'lucide-react';
 import { useApp } from '@/lib/store';
@@ -33,11 +34,13 @@ import { inboxAttentionRead, inboxLandingRead, unreadNotificationsRead, useInten
 import { invalidateTables, useRead, warmRead } from '@/lib/query-cache';
 import { CountBadge, type CountBadgeTone } from '@/components/ui/CountBadge';
 import { isRunning } from '@/lib/time-entry-utils';
-import { siteConfig } from '@/site-config';
-import { hasPermission } from '@/lib/access-control';
+import { useBrand } from '@/lib/brand/context';
+import { hasPermission, isModuleEnabled } from '@/lib/access-control';
 import { prefetchAgentAnalytics } from '@/lib/use-agent-analytics-events';
 import { defaultAgentAnalyticsRange } from '@/lib/agent-range';
 import { reminderGroup } from '@/lib/reminders';
+import { placeNavItems } from '@/lib/extensions/registry';
+import { useCustomNavItems } from '@/lib/extensions/hooks';
 import type { InboxAttention } from '@/lib/communications/inbox-view';
 
 export function Sidebar() {
@@ -46,6 +49,8 @@ export function Sidebar() {
   const inSettings = pathname === '/settings' || pathname.startsWith('/settings/');
   const { projects, team, loading, getPendingSuggestionCount, timeEntries, tasks, taskSuggestions, agentActivity, reminders } = useApp();
   const { user, teamMemberId, access, signOut } = useAuth();
+  const customNavItems = useCustomNavItems();
+  const brand = useBrand();
 
   const unreadByProject = useUnreadByProject();
   // Active projects open instantly: their Overview reads are warmed after
@@ -57,14 +62,15 @@ export function Sidebar() {
   // Project IDs where the current user has an actively-running timer. Used
   // to surface a green pulse next to the project's row in the sidebar so the
   // user can see at a glance which projects they're clocked into.
+  const isTimeEnabled = isModuleEnabled(access, 'time');
   const myRunningProjectIds = useMemo(() => {
-    if (!teamMemberId) return new Set<string>();
+    if (!teamMemberId || !isTimeEnabled) return new Set<string>();
     const ids = new Set<string>();
     for (const te of timeEntries) {
       if (te.member_id === teamMemberId && isRunning(te)) ids.add(te.project_id);
     }
     return ids;
-  }, [timeEntries, teamMemberId]);
+  }, [timeEntries, teamMemberId, isTimeEnabled]);
   const { isEnvForcedDemo, isDemoMode } = useDemo();
   const [isOpen, setIsOpen] = useState(false);
   // The Agent item expands into its three surfaces. null = follow the route
@@ -99,7 +105,7 @@ export function Sidebar() {
   const displayName = currentMember?.name || user?.user_metadata?.display_name || user?.email?.split('@')[0] || 'User';
   const displayRole = access?.role || currentMember?.role || 'member';
 
-  const isAgentsEnabled = process.env.NEXT_PUBLIC_ENABLE_AGENTS === 'true';
+  const isAgentsEnabled = isModuleEnabled(access, 'agents');
   const canManageAgents = hasPermission(access, 'agents.manage');
   const pendingSuggestionCount = isAgentsEnabled && canManageAgents ? getPendingSuggestionCount() : 0;
 
@@ -128,7 +134,7 @@ export function Sidebar() {
   // takes the tone of its most pressing thread.
   const myTasksCount = radarCount + remindersDue;
   const unreadTasks = [...unreadByProject.values()].reduce((sum, n) => sum + n, 0);
-  const navItems: { href: string; icon: typeof LayoutDashboard; label: string; count?: NavCount }[] = [
+  const coreNavItems: NavEntry[] = [
     { href: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
     { href: '/my-tasks', icon: ListTodo, label: 'My Tasks',
       count: { value: myTasksCount, label: `${myTasksCount} ${myTasksCount === 1 ? 'thing needs' : 'things need'} you`, tone: 'brand' } },
@@ -142,13 +148,18 @@ export function Sidebar() {
       ? [{ href: '/contacts', icon: UserCircle, label: 'Contacts' }] : []),
     ...(hasPermission(access, 'team.read') || hasPermission(access, 'team.manage')
       ? [{ href: '/team', icon: Users, label: 'Team' }] : []),
+    // With billing off the page holds only time approvals, so it is named for them.
     ...(hasPermission(access, 'finance.company.read') || hasPermission(access, 'earnings.own.read') || hasPermission(access, 'time.approve')
-      ? [{ href: '/finances', icon: DollarSign, label: 'Finances' }] : []),
+      ? [isModuleEnabled(access, 'billing')
+          ? { href: '/finances', icon: DollarSign, label: 'Finances' }
+          : { href: '/finances', icon: Clock, label: 'Time' }] : []),
     ...(isAgentsEnabled && canManageAgents ? [{ href: '/agent', icon: Bot, label: 'Agent',
       count: { value: pendingSuggestionCount, label: `${plural(pendingSuggestionCount, 'agent suggestion')} to review`, tone: 'brand' as const } }] : []),
     { href: '/notifications', icon: Bell, label: 'Notifications',
       count: { value: unreadNotifications, label: plural(unreadNotifications, 'unread notification'), tone: 'danger' } },
   ];
+  // The install's entries (src/custom), after the core ones or the entry each names.
+  const navItems = placeNavItems<NavEntry>(coreNavItems, customNavItems);
 
   const closeSidebar = () => setIsOpen(false);
 
@@ -174,9 +185,10 @@ export function Sidebar() {
         {/* Logo — pinned to h-16 so its bottom border aligns with the header's */}
         <div className="flex items-center justify-between h-16 px-5 border-b border-white/[0.06]">
           <Link href="/dashboard" className="flex flex-col" onClick={closeSidebar}>
-            <Logo variant="dark" className={`h-9 w-full${siteConfig.invertLogoInSidebar ? ' invert' : ''}`} />
-            {siteConfig.showNameUnderLogo && (
-              <span className="text-white font-semibold text-[7px] tracking-[0.2em] uppercase w-full text-center">{siteConfig.name}</span>
+            <Logo variant="dark" className="h-9 w-full" invert={brand.invertLogoInSidebar} />
+            {/* With no logo the name already stands in its place. */}
+            {brand.showNameUnderLogo && brand.logos.dark && (
+              <span className="text-white font-semibold text-[7px] tracking-[0.2em] uppercase w-full text-center">{brand.name}</span>
             )}
           </Link>
           <button
@@ -405,6 +417,8 @@ export function Sidebar() {
 }
 
 type NavCount = { value: number; label: string; tone: CountBadgeTone };
+
+type NavEntry = { href: string; icon: typeof LayoutDashboard; label: string; count?: NavCount };
 
 const NO_ATTENTION: InboxAttention = { total: 0, urgent: 0, decide: 0, reply: 0 };
 

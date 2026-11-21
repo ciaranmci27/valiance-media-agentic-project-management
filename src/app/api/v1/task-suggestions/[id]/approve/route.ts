@@ -8,7 +8,7 @@ import { logAudit } from '@/lib/api/audit';
 import { accessAllowsProject } from '@/lib/api/access';
 
 export const POST = withApi<any, { id: string }>(async ({ supabase, params, body, apiKeyId, teamMemberId, access }) => {
-  requireAgentsEnabled();
+  requireAgentsEnabled(access);
 
   const { data: before } = await supabase
     .from('task_suggestions')

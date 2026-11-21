@@ -10,7 +10,7 @@ import { accessAllows, accessAllowsProject } from '@/lib/api/access';
 import { postgrestList, trashedProjectIds } from '@/lib/supabase/trash';
 
 export const GET = withApi(async ({ supabase, searchParams, access }) => {
-  requireAgentsEnabled();
+  requireAgentsEnabled(access);
 
   const { page, limit, offset } = parsePagination(searchParams);
   const status = searchParams.get('status');
@@ -46,7 +46,7 @@ export const GET = withApi(async ({ supabase, searchParams, access }) => {
 }, { permission: ['suggestions.create', 'suggestions.manage'] });
 
 export const POST = withApi(async ({ supabase, body, apiKeyId, teamMemberId, access }) => {
-  requireAgentsEnabled();
+  requireAgentsEnabled(access);
 
   if (!teamMemberId) {
     throw badRequest('API key must be linked to an agent team member to create suggestions');

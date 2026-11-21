@@ -1,10 +1,13 @@
 import type { Metadata } from 'next';
-import { siteConfig } from '@/site-config';
+import { getBrand } from '@/lib/brand/server';
 
-export const metadata: Metadata = {
-  title: `${siteConfig.name} | SMTP Documentation`,
-  description: `SMTP email infrastructure documentation for ${siteConfig.name}. Configure accounts, send transactional and relay emails, and manage encryption.`,
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const brand = await getBrand();
+  return {
+    title: `${brand.name} | SMTP Documentation`,
+    description: `SMTP email infrastructure documentation for ${brand.name}. Configure accounts, send transactional and relay emails, and manage encryption.`,
+  };
+}
 
 export default function SmtpDocsLayout({ children }: { children: React.ReactNode }) {
   // Docs are always light and authored against the standard palette. data-theme="dark"

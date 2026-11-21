@@ -1,0 +1,67 @@
+name: Core checks
+
+# Type-check, core-file check, lint of the install's own code and tests on every pull request (update
+# pull requests included) and every push to the default branch. Settings >
+# Updates reads these results before Apply. Read-only: no secrets, and pull
+# requests from forks run with the same read-only token.
+
+on:
+  pull_request:
+  push:
+    # Update branches are checked through their pull request.
+    branches-ignore: ['update/**']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: core-checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    # Pushes count only on the default branch.
+    if: github.event_name == 'pull_request' || github.ref_name == github.event.repository.default_branch
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # Matches UPSTREAM_REPO in src/lib/updates/config.ts.
+      UPSTREAM_REPO: ciaranmci27/valiance-media-agentic-project-management
+    steps:
+      - name: Check out
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Fetch release tags
+        # check:core tells an install's own changes from core by the release tags.
+        run: git fetch --quiet --force --no-recurse-submodules --tags "https://github.com/${UPSTREAM_REPO}.git"
+
+      - name: Set up Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci --no-audit --no-fund
+
+      - name: Type-check
+        run: npx tsc --noEmit
+
+      - name: Core files
+        # The public repo is core itself: only installs are checked.
+        if: github.repository != 'ciaranmci27/valiance-media-agentic-project-management'
+        run: |
+          # npm ci may rewrite generated files; only real edits count.
+          git checkout -- .
+          npm run -s check:core
+
+      - name: Lint custom code
+        # The install's own code. Core is linted where it is built, so a
+        # release never fails an install's checks on code it cannot edit.
+        run: npx eslint src/custom
+
+      - name: Tests
+        run: npm run -s test:core

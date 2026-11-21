@@ -3,7 +3,8 @@
  * Sent automatically (or via approval) when tracked work crosses a configured percentage.
  */
 
-import { ctaButton, escapeHtml, getSiteName, linkLine, paragraph, statGrid } from '../shared';
+import type { Brand } from '@/lib/brand';
+import { ctaButton, escapeHtml, getSiteName, linkLine, paragraph, statGrid, withEmailBrand } from '../shared';
 import { clientEmailLayout, clientHeader, greeting, usageMeter } from './layout';
 
 export interface BudgetThresholdSlots {
@@ -44,9 +45,12 @@ function formatValue(value: number, type: 'hours' | 'amount'): string {
   return `$${value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
-export function buildBudgetThresholdEmail(
-  params: BudgetThresholdParams,
-): { subject: string; html: string; text: string } {
+/** Renders with the workspace's brand (getBrand), so the name, logo and colors are this workspace's. */
+export function buildBudgetThresholdEmail(params: BudgetThresholdParams & { brand: Brand }): { subject: string; html: string; text: string } {
+  return withEmailBrand(params.brand, () => renderBudgetThresholdEmail(params));
+}
+
+function renderBudgetThresholdEmail(params: BudgetThresholdParams): { subject: string; html: string; text: string } {
   const { projectName, clientName, portalUrl, logoUrl, budgetType, budgetValue, currentUsage, thresholdPct, slots } = params;
   const name = getSiteName();
   const remaining = Math.max(0, budgetValue - currentUsage);

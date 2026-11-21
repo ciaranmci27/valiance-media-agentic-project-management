@@ -1,4 +1,4 @@
--- Valiance Media Full Schema
+-- Full schema
 -- Run this in your Supabase SQL Editor
 
 -- ============================================================
@@ -978,8 +978,11 @@ create table public.business_settings (
   auto_approve_human_hours boolean not null default true,
   -- Default relay domain for new email inboxes (each inbox keeps its own
   -- routing_domain): the domain whose MX points at the receiving provider.
-  inbound_email_domain text not null default 'relay.valiancemedia.com'
+  inbound_email_domain text not null default 'relay.example.com'
     check (inbound_email_domain = lower(btrim(inbound_email_domain)) and public.email_is_hostname(inbound_email_domain)),
+  -- When an Owner finished first-run setup (picked the workspace's modules).
+  -- A fresh install starts unset, so the Owner is asked once.
+  setup_completed_at timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -2477,6 +2480,13 @@ AS $$
 DECLARE
   max_attempts constant int := 8;  -- WEBHOOK_MAX_ATTEMPTS
 BEGIN
+  -- Nothing goes out while Webhooks, or Billing and finance which it needs,
+  -- is switched off: deliveries wait in order, their attempts untouched, and
+  -- go out once the module is back on.
+  IF NOT (public.module_enabled('webhooks') AND public.module_enabled('billing')) THEN
+    RETURN;
+  END IF;
+
   -- One claimer at a time, so two runs cannot both pass the ordering check
   -- for the same invoice. Released at commit, before any HTTP happens.
   PERFORM pg_advisory_xact_lock(hashtext('public.claim_webhook_deliveries'));
@@ -2677,7 +2687,7 @@ BEGIN
      AND EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = 'pg_net') THEN
     CREATE EXTENSION IF NOT EXISTS pg_cron;
     CREATE EXTENSION IF NOT EXISTS pg_net;
-    PERFORM cron.schedule('webhook-retries', '* * * * *', $job$SELECT public.webhook_retry_kick();$job$);
+    PERFORM cron.schedule('webhook-retries', '* * * * *', $job$SELECT public.webhook_retry_kick() WHERE public.module_enabled('webhooks') AND public.module_enabled('billing');$job$);
   ELSE
     RAISE NOTICE 'pg_cron or pg_net is unavailable here; webhook retries will not be scheduled';
   END IF;
@@ -3042,6 +3052,99 @@ CREATE TRIGGER set_role_permissions_updated_at
 CREATE TRIGGER set_team_member_permissions_updated_at
   BEFORE UPDATE ON public.team_member_permissions
   FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
+
+-- Workspace modules (see supabase/migrations/20261120194316_workspace_modules.sql).
+-- Which modules are on. Core is always on and has no row.
+CREATE TABLE IF NOT EXISTS public.workspace_modules (
+  module_id text PRIMARY KEY,
+  enabled boolean NOT NULL DEFAULT true,
+  updated_by uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+DROP TRIGGER IF EXISTS set_workspace_modules_updated_at ON public.workspace_modules;
+CREATE TRIGGER set_workspace_modules_updated_at
+  BEFORE UPDATE ON public.workspace_modules
+  FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
+
+INSERT INTO public.workspace_modules (module_id) VALUES
+  ('time'), ('billing'), ('contacts'), ('sales'), ('portal'),
+  ('inbox'), ('agents'), ('credentials'), ('webhooks')
+ON CONFLICT (module_id) DO NOTHING;
+
+-- Workspace brand (see supabase/migrations/20261121001500_workspace_brand.sql).
+-- 1. The brand: one row, every field optional. NULL means "use core's
+--    default", so a fresh install starts neutral and an Owner fills it in.
+CREATE TABLE IF NOT EXISTS public.workspace_brand (
+  id boolean PRIMARY KEY DEFAULT true CHECK (id),
+  name text CHECK (name IS NULL OR char_length(name) <= 60),
+  tagline text CHECK (tagline IS NULL OR char_length(tagline) <= 60),
+  description text CHECK (description IS NULL OR char_length(description) <= 200),
+  brand_color text CHECK (brand_color IS NULL OR brand_color ~ '^#[0-9A-Fa-f]{6}$'),
+  -- Optional per-shade overrides on top of the scale generated from brand_color: {"50": "#F0F5F5", ...}.
+  brand_shades jsonb CHECK (brand_shades IS NULL OR jsonb_typeof(brand_shades) = 'object'),
+  accent_color text CHECK (accent_color IS NULL OR accent_color ~ '^#[0-9A-Fa-f]{6}$'),
+  -- Object paths in the public 'brand' bucket.
+  logo_light_path text,
+  logo_dark_path text,
+  favicon_path text,
+  invert_logo_in_sidebar boolean NOT NULL DEFAULT false,
+  show_name_under_logo boolean NOT NULL DEFAULT false,
+  updated_by uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+DROP TRIGGER IF EXISTS set_workspace_brand_updated_at ON public.workspace_brand;
+CREATE TRIGGER set_workspace_brand_updated_at
+  BEFORE UPDATE ON public.workspace_brand
+  FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
+
+INSERT INTO public.workspace_brand (id) VALUES (true) ON CONFLICT (id) DO NOTHING;
+
+-- 2. Anyone may read it: the sign-in page, the client portal and emails show
+--    the brand before anyone signs in, and it holds nothing private. Only the
+--    app's Owner-only route writes it, with the service role.
+ALTER TABLE public.workspace_brand ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS workspace_brand_read ON public.workspace_brand;
+CREATE POLICY workspace_brand_read ON public.workspace_brand
+  FOR SELECT TO anon, authenticated USING (true);
+REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON public.workspace_brand FROM anon, authenticated;
+
+-- 3. Logos and the favicon: a public bucket written only by the service role
+--    (no storage policies for anon or authenticated). PNG, JPEG and ICO only:
+--    emails and invoice PDFs cannot show SVG, and an SVG in a public bucket
+--    could carry script.
+INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+VALUES ('brand', 'brand', true, 2097152, ARRAY['image/png', 'image/jpeg', 'image/x-icon', 'image/vnd.microsoft.icon'])
+ON CONFLICT (id) DO NOTHING;
+
+-- The module each permission belongs to. A permission with no row is core.
+-- Mirrors PERMISSION_MODULE in src/lib/modules/registry.ts (test:modules
+-- checks they agree).
+CREATE TABLE IF NOT EXISTS public.permission_modules (
+  permission_key text PRIMARY KEY,
+  module_id text NOT NULL REFERENCES public.workspace_modules(module_id)
+);
+
+INSERT INTO public.permission_modules (permission_key, module_id) VALUES
+  ('time.manage_own', 'time'), ('time.read_all', 'time'), ('time.manage_all', 'time'), ('time.approve', 'time'),
+  ('contacts.read', 'contacts'), ('contacts.read_all', 'contacts'), ('contacts.manage', 'contacts'),
+  ('leads.read', 'sales'), ('leads.read_all', 'sales'), ('leads.manage', 'sales'),
+  ('portal.read', 'portal'), ('portal.manage', 'portal'),
+  ('communications.read', 'inbox'), ('communications.manage', 'inbox'),
+  ('inbound_email.read', 'inbox'), ('inbound_email.triage', 'inbox'), ('inbound_email.signal', 'inbox'),
+  ('inbound_email.manage', 'inbox'), ('meetings.write', 'inbox'),
+  ('credentials.reveal_shared', 'credentials'), ('credentials.manage', 'credentials'),
+  ('invoices.read', 'billing'), ('invoices.manage', 'billing'), ('invoices.record_payments', 'billing'),
+  ('billing.manage', 'billing'), ('finance.company.read', 'billing'), ('earnings.own.read', 'billing'),
+  ('compensation.manage', 'billing'), ('payouts.manage', 'billing'),
+  ('webhooks.manage', 'webhooks'),
+  ('agents.manage', 'agents'),
+  ('goals.read', 'agents'), ('goals.manage', 'agents'), ('suggestions.create', 'agents'),
+  ('suggestions.manage', 'agents'), ('agent_activity.write', 'agents'), ('fleet_alerts.write', 'agents')
+ON CONFLICT (permission_key) DO UPDATE SET module_id = EXCLUDED.module_id;
 
 INSERT INTO public.role_permissions (role, permission_key, access_channel)
 VALUES
@@ -3484,6 +3587,17 @@ AS $$
   LIMIT 1
 $$;
 
+-- module_enabled(): for cron jobs and service-role code paths that skip RLS.
+CREATE OR REPLACE FUNCTION public.module_enabled(p_module_id text)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT COALESCE((SELECT enabled FROM public.workspace_modules WHERE module_id = p_module_id), true)
+$$;
+
 CREATE OR REPLACE FUNCTION public.has_permission(p_permission_key text, p_access_channel text DEFAULT 'app')
 RETURNS boolean
 LANGUAGE sql
@@ -3498,19 +3612,27 @@ AS $$
     LIMIT 1
   )
   SELECT COALESCE(
-    (SELECT role = 'owner' FROM actor), false
-  ) OR COALESCE(
-    (SELECT effect = 'allow'
-     FROM public.team_member_permissions override_permission, actor
-     WHERE override_permission.member_id = actor.id
-       AND override_permission.permission_key = p_permission_key
-       AND override_permission.access_channel = p_access_channel),
-    EXISTS (
-      SELECT 1
-      FROM public.role_permissions role_permission, actor
-      WHERE role_permission.role = actor.role
-        AND role_permission.permission_key = p_permission_key
-        AND role_permission.access_channel = p_access_channel
+    (SELECT module.enabled
+     FROM public.permission_modules permission_module
+     JOIN public.workspace_modules module ON module.module_id = permission_module.module_id
+     WHERE permission_module.permission_key = p_permission_key),
+    true
+  ) AND (
+    COALESCE(
+      (SELECT role = 'owner' FROM actor), false
+    ) OR COALESCE(
+      (SELECT effect = 'allow'
+       FROM public.team_member_permissions override_permission, actor
+       WHERE override_permission.member_id = actor.id
+         AND override_permission.permission_key = p_permission_key
+         AND override_permission.access_channel = p_access_channel),
+      EXISTS (
+        SELECT 1
+        FROM public.role_permissions role_permission, actor
+        WHERE role_permission.role = actor.role
+          AND role_permission.permission_key = p_permission_key
+          AND role_permission.access_channel = p_access_channel
+      )
     )
   )
 $$;
@@ -3670,6 +3792,11 @@ AS $$
     FROM public.team_members
     WHERE auth_user_id = auth.uid()
     LIMIT 1
+  ), off_keys AS (
+    SELECT permission_module.permission_key
+    FROM public.permission_modules permission_module
+    JOIN public.workspace_modules module ON module.module_id = permission_module.module_id
+    WHERE NOT module.enabled
   ), keys AS (
     SELECT permission_key, access_channel
     FROM public.role_permissions, actor
@@ -3693,10 +3820,13 @@ AS $$
     'role', actor.role,
     'status', actor.status,
     'app_permissions', CASE WHEN actor.role = 'owner' THEN jsonb_build_array('*') ELSE
-      COALESCE((SELECT jsonb_agg(permission_key ORDER BY permission_key) FROM keys WHERE access_channel = 'app'), '[]'::jsonb) END,
+      COALESCE((SELECT jsonb_agg(permission_key ORDER BY permission_key) FROM keys
+        WHERE access_channel = 'app' AND permission_key NOT IN (SELECT permission_key FROM off_keys)), '[]'::jsonb) END,
     'api_permissions', CASE WHEN actor.role = 'owner' THEN jsonb_build_array('*') ELSE
-      COALESCE((SELECT jsonb_agg(permission_key ORDER BY permission_key) FROM keys WHERE access_channel = 'api'), '[]'::jsonb) END,
-    'project_ids', COALESCE((SELECT jsonb_agg(project_id) FROM public.project_members WHERE member_id = actor.id), '[]'::jsonb)
+      COALESCE((SELECT jsonb_agg(permission_key ORDER BY permission_key) FROM keys
+        WHERE access_channel = 'api' AND permission_key NOT IN (SELECT permission_key FROM off_keys)), '[]'::jsonb) END,
+    'project_ids', COALESCE((SELECT jsonb_agg(project_id) FROM public.project_members WHERE member_id = actor.id), '[]'::jsonb),
+    'modules', COALESCE((SELECT jsonb_agg(module_id ORDER BY module_id) FROM public.workspace_modules WHERE enabled), '[]'::jsonb)
   )
   FROM actor
 $$;
@@ -3910,6 +4040,9 @@ DECLARE
   v_multiplier numeric;
   v_billed_end timestamptz;
 BEGIN
+  -- The billed slot is Billing and finance's: with it off an approved entry
+  -- keeps its worked time as recorded.
+  IF NOT public.module_enabled('billing') THEN RETURN; END IF;
   SELECT * INTO v_entry FROM public.project_time_entries WHERE id = p_entry_id AND deleted_at IS NULL;
   IF NOT FOUND THEN RETURN; END IF;
   SELECT role INTO v_role FROM public.team_members WHERE id = v_entry.member_id;
@@ -3957,7 +4090,7 @@ BEGIN
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.apply_agent_billing_conversion(uuid, numeric) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.apply_agent_billing_conversion(uuid, numeric) FROM PUBLIC, anon, authenticated;
 
 -- The 3-argument overload must not coexist with the 4-argument version or
 -- PostgREST calls become ambiguous.
@@ -5491,6 +5624,24 @@ CREATE POLICY member_permissions_owner ON public.team_member_permissions FOR ALL
   USING (public.current_team_member_role() = 'owner')
   WITH CHECK (public.current_team_member_role() = 'owner');
 
+-- Everyone signed in may read both (the app shows what is on). Nobody
+-- writes through the API: the Owner switches modules in Settings, whose one
+-- server route keeps dependencies whole and records the change.
+ALTER TABLE public.workspace_modules ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.permission_modules ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS workspace_modules_read ON public.workspace_modules;
+CREATE POLICY workspace_modules_read ON public.workspace_modules FOR SELECT TO authenticated
+  USING (true);
+DROP POLICY IF EXISTS permission_modules_read ON public.permission_modules;
+CREATE POLICY permission_modules_read ON public.permission_modules FOR SELECT TO authenticated
+  USING (true);
+
+REVOKE ALL ON public.workspace_modules FROM anon;
+REVOKE ALL ON public.permission_modules FROM anon;
+REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON public.workspace_modules FROM authenticated;
+REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON public.permission_modules FROM authenticated;
+
 CREATE POLICY contacts_select ON public.contacts FOR SELECT TO authenticated
   USING (public.has_permission('contacts.read_all') OR (
     public.has_permission('contacts.read') AND EXISTS (
@@ -5588,10 +5739,10 @@ CREATE POLICY task_acceptance_criteria_manage ON public.task_acceptance_criteria
 CREATE POLICY task_reviews_select ON public.task_reviews FOR SELECT TO authenticated
   USING (public.can_access_task(task_id));
 CREATE POLICY agent_health_select ON public.agent_health FOR SELECT TO authenticated
-  USING (true);
+  USING ((select public.module_enabled('agents')));
 -- Written by the trigger under the service client; signed-in members read.
 CREATE POLICY agent_health_history_select ON public.agent_health_history FOR SELECT TO authenticated
-  USING (true);
+  USING ((select public.module_enabled('agents')));
 
 CREATE POLICY task_dependencies_select ON public.task_dependencies FOR SELECT TO authenticated
   USING (public.can_access_task(task_id));
@@ -5797,6 +5948,22 @@ BEGIN
 END;
 $$;
 
+-- The AI agents module's own tables: switched off, nobody reads or writes them.
+-- They come from schema_ai_agent.sql and are optional in a fresh install.
+DO $$
+DECLARE
+  agent_table text;
+BEGIN
+  FOREACH agent_table IN ARRAY ARRAY['project_goals', 'task_suggestions', 'agent_activities'] LOOP
+    IF to_regclass('public.' || agent_table) IS NOT NULL THEN
+      EXECUTE format('DROP POLICY IF EXISTS %I ON public.%I', agent_table || '_module_on', agent_table);
+      EXECUTE format('CREATE POLICY %I ON public.%I AS RESTRICTIVE FOR ALL TO authenticated USING ((select public.module_enabled(%L)))',
+        agent_table || '_module_on', agent_table, 'agents');
+    END IF;
+  END LOOP;
+END;
+$$;
+
 -- ---------------------------------------------------------------------------
 -- Function privileges and final validation
 -- ---------------------------------------------------------------------------
@@ -5804,6 +5971,7 @@ $$;
 REVOKE ALL ON FUNCTION public.current_team_member_id() FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.current_team_member_role() FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.has_permission(text, text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.module_enabled(text) FROM PUBLIC, anon;
 REVOKE ALL ON FUNCTION public.can_access_project(uuid) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.can_access_lead(uuid) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.can_access_task(uuid) FROM PUBLIC;
@@ -5814,16 +5982,17 @@ REVOKE ALL ON FUNCTION public.get_my_access_context() FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.get_team_directory() FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.get_accessible_time_entries(uuid) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.get_accessible_credential_metadata(uuid) FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.resolve_team_member_hourly_rate(uuid, timestamptz) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.resolve_team_member_hourly_rate(uuid, timestamptz) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.review_time_entries(uuid[], text, text) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.record_team_member_payout(uuid, text, numeric, text, text, text, jsonb) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.set_credential_members(uuid, uuid[]) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.protect_project_billing_fields() FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.validate_team_member_payout(uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.validate_team_member_payout(uuid) FROM PUBLIC, anon, authenticated;
 
 GRANT EXECUTE ON FUNCTION public.current_team_member_id() TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.current_team_member_role() TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.has_permission(text, text) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.module_enabled(text) TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.can_access_project(uuid) TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.can_access_lead(uuid) TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.can_access_task(uuid) TO authenticated, service_role;
@@ -5834,11 +6003,11 @@ GRANT EXECUTE ON FUNCTION public.get_my_access_context() TO authenticated;
 GRANT EXECUTE ON FUNCTION public.get_team_directory() TO authenticated;
 GRANT EXECUTE ON FUNCTION public.get_accessible_time_entries(uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.get_accessible_credential_metadata(uuid) TO authenticated;
-GRANT EXECUTE ON FUNCTION public.resolve_team_member_hourly_rate(uuid, timestamptz) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.resolve_team_member_hourly_rate(uuid, timestamptz) TO service_role;
 GRANT EXECUTE ON FUNCTION public.review_time_entries(uuid[], text, text, jsonb) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.record_team_member_payout(uuid, text, numeric, text, text, text, jsonb) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.set_credential_members(uuid, uuid[]) TO authenticated;
-GRANT EXECUTE ON FUNCTION public.validate_team_member_payout(uuid) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.validate_team_member_payout(uuid) TO service_role;
 
 DO $$
 BEGIN
@@ -6079,7 +6248,9 @@ BEGIN
   ) THEN
     RAISE EXCEPTION 'Project access denied';
   END IF;
-  IF p_decision = 'approved' AND EXISTS (
+  -- Pay is Billing and finance's: with it off, approving time needs no
+  -- compensation rate and sets none.
+  IF p_decision = 'approved' AND public.module_enabled('billing') AND EXISTS (
     SELECT 1
     FROM public.project_time_entries entry
     JOIN public.team_members member ON member.id = entry.member_id
@@ -6097,7 +6268,7 @@ BEGIN
 
   UPDATE public.project_time_entries entry
   SET approval_status = p_decision,
-      compensation_rate = CASE WHEN p_decision = 'approved'
+      compensation_rate = CASE WHEN p_decision = 'approved' AND public.module_enabled('billing')
         THEN public.resolve_team_member_hourly_rate(entry.member_id, entry.start_time)
         ELSE entry.compensation_rate END,
       approved_at = CASE WHEN p_decision = 'approved' THEN now() ELSE NULL END,
@@ -6110,8 +6281,9 @@ BEGIN
     AND entry.deleted_at IS NULL;
 
   -- Approved agent entries convert to their billed continuous slot here,
-  -- optionally with the reviewer's adjusted worked minutes per entry id.
-  IF p_decision = 'approved' THEN
+  -- optionally with the reviewer's adjusted worked minutes per entry id
+  -- (Billing and finance only).
+  IF p_decision = 'approved' AND public.module_enabled('billing') THEN
     FOREACH v_id IN ARRAY p_entry_ids LOOP
       PERFORM public.apply_agent_billing_conversion(
         v_id,
@@ -6548,7 +6720,8 @@ BEGIN
   IF (SELECT count(*) FROM public.project_time_entries WHERE id = ANY(p_entry_ids) AND deleted_at IS NULL) <> cardinality(p_entry_ids) THEN RAISE EXCEPTION 'One or more time entries were not found'; END IF;
   IF EXISTS (SELECT 1 FROM public.project_time_entries WHERE id = ANY(p_entry_ids) AND project_id IS DISTINCT FROM p_project_id) THEN RAISE EXCEPTION 'Time entry does not belong to the project'; END IF;
   IF EXISTS (SELECT 1 FROM public.project_time_entries WHERE id = ANY(p_entry_ids) AND member_id = p_reviewer_id) THEN RAISE EXCEPTION 'Time entries cannot be self-approved'; END IF;
-  IF p_decision = 'approved' AND EXISTS (
+  -- With Billing and finance off, approval needs no rate and sets none.
+  IF p_decision = 'approved' AND public.module_enabled('billing') AND EXISTS (
     SELECT 1 FROM public.project_time_entries entry
     JOIN public.team_members member ON member.id = entry.member_id
     WHERE entry.id = ANY(p_entry_ids) AND entry.approval_status = 'pending'
@@ -6557,14 +6730,14 @@ BEGIN
   ) THEN RAISE EXCEPTION 'Compensation rate missing for one or more time entries'; END IF;
   UPDATE public.project_time_entries entry
   SET approval_status = p_decision,
-      compensation_rate = CASE WHEN p_decision = 'approved' THEN public.resolve_team_member_hourly_rate(entry.member_id, entry.start_time) ELSE entry.compensation_rate END,
+      compensation_rate = CASE WHEN p_decision = 'approved' AND public.module_enabled('billing') THEN public.resolve_team_member_hourly_rate(entry.member_id, entry.start_time) ELSE entry.compensation_rate END,
       approved_at = CASE WHEN p_decision = 'approved' THEN now() ELSE NULL END,
       approved_by = CASE WHEN p_decision = 'approved' THEN p_reviewer_id ELSE NULL END,
       rejection_reason = CASE WHEN p_decision = 'rejected' THEN COALESCE(p_reason, '') ELSE NULL END,
       updated_at = now()
   WHERE entry.id = ANY(p_entry_ids) AND entry.project_id = p_project_id
     AND entry.approval_status = 'pending' AND entry.end_time IS NOT NULL;
-  IF p_decision = 'approved' THEN
+  IF p_decision = 'approved' AND public.module_enabled('billing') THEN
     PERFORM public.apply_agent_billing_conversion(entry_id, NULL)
     FROM unnest(p_entry_ids) AS entry_id;
   END IF;
@@ -9512,7 +9685,8 @@ begin
     'task_suggestions', 'project_goals',
     'team_member_notifications', 'client_communications',
     'contact_emails',
-    'reminders'
+    'reminders',
+    'workspace_modules'
   ] loop
     if not exists (
       select 1 from pg_publication_tables
@@ -9555,7 +9729,7 @@ BEGIN
   PERFORM cron.schedule(
     'retainer-drafts',
     '7 * * * *',
-    $job$SELECT public.generate_retainer_drafts();$job$
+    $job$SELECT public.generate_retainer_drafts() WHERE public.module_enabled('billing');$job$
   );
 END;
 $do$;
@@ -10318,7 +10492,7 @@ BEGIN
     RETURN;
   END IF;
   CREATE EXTENSION IF NOT EXISTS pg_cron;
-  PERFORM cron.schedule('billing-drafts', '17 * * * *', $job$SELECT public.generate_billing_drafts();$job$);
+  PERFORM cron.schedule('billing-drafts', '17 * * * *', $job$SELECT public.generate_billing_drafts() WHERE public.module_enabled('billing');$job$);
 END;
 $do$;
 
@@ -12389,6 +12563,9 @@ CREATE POLICY project_retainer_periods_parent_live ON public.project_retainer_pe
   USING (public.retainer_is_live(retainer_id));
 CREATE POLICY time_entry_tasks_parent_live ON public.time_entry_tasks AS RESTRICTIVE FOR ALL TO authenticated
   USING (public.task_is_live(task_id) AND public.time_entry_is_live(time_entry_id));
+-- Which tasks a time entry covers is Time tracking's.
+CREATE POLICY time_entry_tasks_module_on ON public.time_entry_tasks AS RESTRICTIVE FOR ALL TO authenticated
+  USING ((select public.module_enabled('time')));
 
 -- Why a record cannot go to Trash, as a sentence for the person deleting
 -- it; null when nothing stops it. The rules the foreign keys and DELETE

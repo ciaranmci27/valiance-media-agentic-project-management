@@ -1,17 +1,20 @@
 import { NextResponse } from 'next/server';
 import type { z } from 'zod';
-import { requireSessionAccess } from '@/lib/api/access';
+import { isModuleEnabled } from '@/lib/access-control';
+import { moduleOffResponse, requireSessionAccess } from '@/lib/api/access';
 import { InboxError, type InboxContext } from './inbox-service';
 
 /**
  * The session-route shell for the Inbox and its settings: a signed-in
  * member, the plain { data } / { error } shape, and InboxError mapped to its
- * status. Permissions are checked inside each service function.
+ * status. Every route refuses while the Inbox module is switched off;
+ * permissions are checked inside each service function.
  */
 export async function inboxRoute<T>(handler: (ctx: InboxContext) => Promise<T>, status = 200): Promise<NextResponse> {
   const auth = await requireSessionAccess();
   if (auth.error) return auth.error;
   const { service, access, memberId } = auth.data;
+  if (!isModuleEnabled(access, 'inbox')) return moduleOffResponse('inbox');
   try {
     const data = await handler({ service, access, memberId });
     return NextResponse.json({ data }, { status });

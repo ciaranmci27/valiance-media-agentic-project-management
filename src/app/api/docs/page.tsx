@@ -19,7 +19,8 @@ import {
   Bot,
 } from 'lucide-react';
 import { headers } from 'next/headers';
-import { endpoints, getEndpointScopes, groups, METHOD_COLORS } from './docs-data';
+import { endpoints, getEndpointScopes, groupModule, groups, METHOD_COLORS } from './docs-data';
+import { MODULES, moduleOfPermission } from '@/lib/modules/registry';
 import { DocsTocNav, type TocSection } from './DocsTocNav';
 import { AGENT_PROFILES } from '@/lib/mcp/profiles';
 import { PM_TOOLS } from '@/lib/mcp/tools';
@@ -112,6 +113,7 @@ export default async function ApiDocsPage() {
     name: g,
     slug: slugify(g),
     endpoints: endpoints.filter((e) => e.group === g),
+    module: groupModule(g),
     meta: GROUP_META[g] ?? { icon: Hash, bg: 'bg-zinc-50', text: 'text-zinc-600' },
   }));
 
@@ -162,6 +164,9 @@ export default async function ApiDocsPage() {
               </div>
               <p className="text-sm text-zinc-500 mt-1">
                 REST API for managing projects, tasks, leads, contacts, and more.
+              </p>
+              <p className="text-xs text-zinc-400 mt-1">
+                A section tagged with a feature answers only while that feature is switched on for the workspace.
               </p>
             </div>
           </div>
@@ -392,7 +397,7 @@ mcp_servers:
               </p>
 
               <div className="mb-4 rounded-lg border border-violet-200 bg-violet-50 p-3 text-xs text-violet-900">
-                Each agent member has a profile, set by the Owner in Team:{' '}
+                With AI agents on, each agent member has a profile, set by the Owner in Team:{' '}
                 {AGENT_PROFILES.map((profile) => profile.label).join(', ')}. Today every profile sees the generic tool set;
                 each named profile gets its own tools as that agent moves to MCP.
               </div>
@@ -419,6 +424,13 @@ mcp_servers:
                           <td className="py-2 px-3 font-mono text-xs text-zinc-500">
                             {(Array.isArray(tool.permission) ? tool.permission : [tool.permission]).join(' or ') || 'any key'}
                             {tool.agentsOnly ? ' (agents)' : ''}
+                            {(() => {
+                              const first = Array.isArray(tool.permission) ? tool.permission[0] : tool.permission;
+                              const mod = first ? moduleOfPermission(first) : 'core';
+                              return mod === 'core' ? null : (
+                                <span className="block font-sans text-[11px] text-zinc-400">{MODULES[mod].label}</span>
+                              );
+                            })()}
                           </td>
                         </tr>
                       ))}
@@ -441,7 +453,14 @@ mcp_servers:
                       <Icon className={group.meta.text} size={20} />
                     </div>
                     <div>
-                      <h2 className="font-semibold text-zinc-900">{group.name}</h2>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <h2 className="font-semibold text-zinc-900">{group.name}</h2>
+                        {group.module && (
+                          <span className="px-2 py-0.5 text-xs font-medium bg-zinc-100 text-zinc-500 rounded-full">
+                            {MODULES[group.module].label}
+                          </span>
+                        )}
+                      </div>
                       <p className="text-sm text-zinc-500">
                         {group.endpoints.length} endpoint
                         {group.endpoints.length !== 1 ? 's' : ''}

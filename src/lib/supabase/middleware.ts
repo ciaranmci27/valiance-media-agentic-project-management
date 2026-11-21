@@ -2,6 +2,8 @@ import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 import { sessionUser } from './session-user';
 import { safeNextPath } from './next-path';
+import customPublicPaths from '@/custom/middleware';
+import { matchesPublicPath } from '@/lib/extensions/registry';
 
 function isPublicRoute(pathname: string) {
   return (
@@ -14,11 +16,12 @@ function isPublicRoute(pathname: string) {
     // never reaches the tables.
     pathname === '/live' ||
     pathname === '/api/live/state' ||
-    // The brand lockup, served with ETag revalidation. Public by nature (it
-    // is on the marketing site), and the sim's fleet board textures from it:
-    // behind the login wall, an anonymous visitor's texture load followed
-    // the redirect into login-page HTML and crashed the whole scene.
+    // The workspace's logo and generated favicon. Public by nature: the
+    // sign-in page, the client portal and emails show them to visitors who
+    // are not signed in, and behind the login wall an image request would
+    // follow the redirect into login-page HTML.
     pathname.startsWith('/api/logo') ||
+    pathname.startsWith('/api/brand/') ||
     pathname.startsWith('/login') ||
     pathname.startsWith('/auth') ||
     pathname.startsWith('/portal') ||
@@ -26,7 +29,15 @@ function isPublicRoute(pathname: string) {
     pathname.startsWith('/api/v1') ||
     // The MCP server authenticates an API key, like /api/v1.
     pathname === '/api/mcp' ||
-    pathname.startsWith('/api/docs')
+    pathname.startsWith('/api/docs') ||
+    // The install's own endpoints: each route checks its declared auth itself
+    // (a session by default, an API key, or public by explicit opt-in), so an
+    // API key call is answered rather than sent to the login page.
+    pathname.startsWith('/api/x/') ||
+    // Files an install drops in public/custom. Public by nature, like /api/logo.
+    pathname.startsWith('/custom/') ||
+    // Paths the install opened in src/custom/middleware.ts.
+    matchesPublicPath(customPublicPaths, pathname)
   );
 }
 

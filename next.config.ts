@@ -1,6 +1,23 @@
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import type { NextConfig } from "next";
+// Relative imports: the config loads before the `@/` path alias exists.
+import customNextConfig from "./src/custom/next.config";
+import { mergeNextConfig } from "./src/lib/extensions/next-config";
 
-const nextConfig: NextConfig = {
+// The source install (Valiance's own) is built inside the monorepo, where the
+// app sits next to admin/ and website/. The public repo and every install have
+// the app at the repo root with neither beside it. Settings > Updates treats a
+// source build as the place releases come from, so it never tries to update
+// itself even when PM_INSTALL_ROLE was not set. Builds run from the app folder.
+const sourceLayout =
+  existsSync(join(process.cwd(), "..", "admin", "package.json")) &&
+  existsSync(join(process.cwd(), "..", "website", "package.json"));
+
+const coreNextConfig: NextConfig = {
+  // Build-time: read by installRole() in src/lib/updates/connection.ts.
+  env: sourceLayout ? { PM_SOURCE_LAYOUT: "1" } : {},
+
   // LAN/Tailscale hosts allowed to hit the dev server (e.g., phones on the same network).
   // 127.0.0.1 is here too: the server prints "Local: http://localhost:3000", but
   // localhost and 127.0.0.1 are different origins as far as this check is concerned,
@@ -12,8 +29,22 @@ const nextConfig: NextConfig = {
   // nothing in the product. Permanent because the new path is the real one and
   // the old name isn't coming back; the scene itself is unchanged.
   async redirects() {
-    return [{ source: '/command', destination: '/agent/live', permanent: true }];
+    return [
+      { source: '/command', destination: '/agent/live', permanent: true },
+      // Core used to ship its logo and favicon files here, and emails and
+      // invoices already sent link to them. The brand now lives in Settings >
+      // Workspace > Brand: these send each old path to the current file.
+      // Temporary, so the target can change when the brand does.
+      { source: '/logos/logo-dark.png', destination: '/api/logo?variant=dark', permanent: false },
+      { source: '/logos/logo.png', destination: '/api/logo', permanent: false },
+      { source: '/logos/favicon.png', destination: '/api/logo?type=favicon', permanent: false },
+      { source: '/favicon/:file*', destination: '/api/logo?type=favicon', permanent: false },
+    ];
   },
 };
+
+// The install's own settings (src/custom/next.config.ts) merge over core's:
+// redirects, rewrites and headers combine, arrays join, the rest it overrides.
+const nextConfig = mergeNextConfig(coreNextConfig, customNextConfig);
 
 export default nextConfig;

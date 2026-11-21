@@ -20,6 +20,7 @@ import { toast } from '@/components/ui/Toast';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { useAuth } from '@/lib/auth-context';
 import { hasPermission } from '@/lib/access-control';
+import { projectTrashMessage } from '@/components/projects/trash-message';
 
 export default function ContactDetailPage() {
   const params = useParams();
@@ -29,6 +30,8 @@ export default function ContactDetailPage() {
   const canManageContacts = hasPermission(access, 'contacts.manage');
   const canManageProjects = hasPermission(access, 'projects.manage');
   const canReadFiles = hasPermission(access, 'files.read');
+  const canReadLeads = hasPermission(access, 'leads.read') || hasPermission(access, 'leads.read_all') || hasPermission(access, 'leads.manage');
+  const canReadInvoices = hasPermission(access, 'invoices.read') || hasPermission(access, 'invoices.manage');
 
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [isProjectFormOpen, setIsProjectFormOpen] = useState(false);
@@ -108,8 +111,8 @@ export default function ContactDetailPage() {
       />
 
       <div className="p-4 lg:p-6 space-y-6">
-        {/* Contact Info + Leads row */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch">
+        {/* Contact Info + Leads row; the contact takes the row when Leads is off */}
+        <div className={`grid grid-cols-1 ${canReadLeads ? 'lg:grid-cols-2' : ''} gap-6 items-stretch`}>
         <div className="glass-card rounded-xl overflow-hidden flex flex-col max-h-[300px]">
           <div className="flex-shrink-0 px-6 lg:px-7 pt-6 lg:pt-7">
             <div className="flex items-center gap-4 pb-5 border-b border-white/[0.06]">
@@ -221,6 +224,7 @@ export default function ContactDetailPage() {
         </div>
 
         {/* Linked Leads */}
+        {canReadLeads && (
         <div className="glass-card rounded-xl overflow-hidden flex flex-col max-h-[300px]">
           <div className="flex items-center justify-between px-5 py-3 border-b border-white/[0.08] flex-shrink-0">
             <div className="flex items-center gap-2">
@@ -256,10 +260,11 @@ export default function ContactDetailPage() {
             </div>
           )}
         </div>
+        )}
         </div>
 
         {/* Invoices */}
-        {(() => {
+        {canReadInvoices && (() => {
           const contactInvoices = getInvoicesByContact(contactId);
           if (contactInvoices.length === 0) return null;
           const statusColors: Record<string, string> = {
@@ -329,7 +334,7 @@ export default function ContactDetailPage() {
         })()}
 
         {/* Linked Projects + Files row */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch">
+        <div className={`grid grid-cols-1 ${canReadFiles ? 'lg:grid-cols-2' : ''} gap-6 items-stretch`}>
           {/* Linked Projects */}
           <div className="glass-card rounded-xl overflow-hidden flex flex-col max-h-[600px]">
             <div className="flex items-center justify-between px-5 py-3 border-b border-white/[0.08] flex-shrink-0">
@@ -394,7 +399,7 @@ export default function ContactDetailPage() {
         onClose={() => setDeletingProjectId(null)}
         onConfirm={executeDeleteProject}
         title="Move project to Trash?"
-        message="The project goes to Trash with everything in it: tasks, time, invoices, files and the client portal."
+        message={projectTrashMessage(access)}
         variant="danger"
         trash
       />

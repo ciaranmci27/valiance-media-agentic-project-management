@@ -6,6 +6,8 @@ import { Button } from '@/components/ui/Button';
 import { NumberInput } from '@/components/ui/inputs/NumberInput';
 import { Textarea } from '@/components/ui/inputs/Textarea';
 import { useApp } from '@/lib/store';
+import { useAuth } from '@/lib/auth-context';
+import { isModuleEnabled } from '@/lib/access-control';
 import type { TeamMember, TimeEntry } from '@/lib/types';
 import { Bot, Clock3, PauseCircle } from 'lucide-react';
 
@@ -38,6 +40,11 @@ function durationLabel(ms: number): string {
 
 export function AgentSessionModal({ entry, member, projectName, submitting, onApprove, onReject, onClose }: AgentSessionModalProps) {
   const { agentActivity } = useApp();
+  const { access } = useAuth();
+  // The activity log is the agents module's; the conversion is billing's.
+  // With either off, its part of the review is left out.
+  const isAgentsEnabled = isModuleEnabled(access, 'agents');
+  const isBillingEnabled = isModuleEnabled(access, 'billing');
   const [showReject, setShowReject] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
 
@@ -121,6 +128,7 @@ export function AgentSessionModal({ entry, member, projectName, submitting, onAp
         </div>
 
         {/* What the agent did */}
+        {isAgentsEnabled && (
         <div className="rounded-lg border border-white/[0.08] bg-white/[0.03] p-3">
           <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-zinc-500">Session activity</p>
           {sessionActivities.length > 0 ? (
@@ -139,6 +147,7 @@ export function AgentSessionModal({ entry, member, projectName, submitting, onAp
             <p className="text-xs text-zinc-500">No activity log entries fall inside this session window.</p>
           )}
         </div>
+        )}
 
         {/* Conversion preview. Entries converted under the legacy stop-time
             flow are already in billed form; approving them changes nothing
@@ -146,12 +155,16 @@ export function AgentSessionModal({ entry, member, projectName, submitting, onAp
         {entry.billing_converted_at ? (
           <div className="rounded-lg border border-white/[0.08] bg-white/[0.03] p-3">
             <p className="text-xs text-zinc-400">
-              This session was already converted to its billed form (legacy flow). Approving records it as shown; the worked-minutes adjustment is unavailable.
+              {isBillingEnabled
+                ? 'This session was already converted to its billed form (legacy flow). Approving records it as shown; the worked-minutes adjustment is unavailable.'
+                : 'This session was recorded in its final form (legacy flow). Approving records it as shown; the worked-minutes adjustment is unavailable.'}
             </p>
           </div>
         ) : (
         <div className="rounded-lg border border-brand-500/30 bg-brand-500/15 p-3">
-          <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-zinc-400">Billing conversion (applies on approve)</p>
+          <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
+            {isBillingEnabled ? 'Billing conversion (applies on approve)' : 'Worked time (applies on approve)'}
+          </p>
           <div className="flex flex-wrap items-end gap-3">
             <div className="w-36">
               <NumberInput
@@ -164,12 +177,15 @@ export function AgentSessionModal({ entry, member, projectName, submitting, onAp
                 size="sm"
               />
             </div>
-            <p className="pb-2 text-sm text-zinc-300">
-              × {multiplier.toFixed(2)} = <span className="font-semibold tabular-nums text-white">{durationLabel(billedMinutes * 60000)} billed</span>
-            </p>
+            {isBillingEnabled && (
+              <p className="pb-2 text-sm text-zinc-300">
+                × {multiplier.toFixed(2)} = <span className="font-semibold tabular-nums text-white">{durationLabel(billedMinutes * 60000)} billed</span>
+              </p>
+            )}
           </div>
           <p className="mt-2 text-xs text-zinc-400">
-            Approving records one continuous session <span className="tabular-nums text-zinc-200">{timeFmt(entry.start_time)} → {timeFmt(billedEnd.toISOString())}</span> at the project&apos;s standard rate.
+            Approving records one continuous session <span className="tabular-nums text-zinc-200">{timeFmt(entry.start_time)} → {timeFmt(billedEnd.toISOString())}</span>
+            {isBillingEnabled ? <> at the project&apos;s standard rate.</> : '.'}
             {adjusted && <span className="ml-1 text-amber-300">Adjusted from {workedMinutesDefault}m worked.</span>}
           </p>
         </div>
@@ -188,7 +204,7 @@ export function AgentSessionModal({ entry, member, projectName, submitting, onAp
             <Button variant="ghost" onClick={onClose} disabled={submitting}>Close</Button>
             <Button variant="secondary" onClick={() => setShowReject(true)} disabled={submitting}>Reject</Button>
             <Button onClick={() => onApprove(!entry.billing_converted_at && adjusted ? effectiveMinutes : null)} disabled={submitting || effectiveMinutes <= 0}>
-              {submitting ? 'Approving...' : entry.billing_converted_at ? 'Approve' : 'Approve and convert'}
+              {submitting ? 'Approving...' : entry.billing_converted_at || !isBillingEnabled ? 'Approve' : 'Approve and convert'}
             </Button>
           </div>
         )}

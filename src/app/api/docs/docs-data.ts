@@ -1,3 +1,5 @@
+import type { ModuleId } from '@/lib/modules/registry';
+
 export interface EndpointDoc {
   method: string;
   path: string;
@@ -899,7 +901,7 @@ export const endpoints: EndpointDoc[] = [
     ],
   },
 
-  // ─── Goals (requires NEXT_PUBLIC_ENABLE_AGENTS=true) ──────────────
+  // ─── Goals (AI agents module) ─────────────────────────────────────
   { method: 'GET', path: '/api/v1/projects/:id/goals', description: 'List goals for a project. Goals are high-level objectives that tasks and suggestions can be linked to. Paginated.', group: 'Goals',
     params: [{ name: 'id', type: 'uuid', required: true, description: 'Project ID' }],
     queryParams: [
@@ -942,7 +944,7 @@ export const endpoints: EndpointDoc[] = [
     ],
   },
 
-  // ─── Project Context (requires NEXT_PUBLIC_ENABLE_AGENTS=true) ─────
+  // ─── Project Context (core: any AI working the project reads it) ──
   { method: 'GET', path: '/api/v1/projects/:id/context', description: 'List project knowledge entries. Returns structured context that agents use to understand the project: business context, existing work, technical decisions, constraints, and lessons learned.', group: 'Project Context',
     params: [{ name: 'id', type: 'uuid', required: true, description: 'Project ID' }],
     queryParams: [
@@ -979,7 +981,7 @@ export const endpoints: EndpointDoc[] = [
     ],
   },
 
-  // ─── Task Suggestions (requires NEXT_PUBLIC_ENABLE_AGENTS=true) ───
+  // ─── Task Suggestions (AI agents module) ──────────────────────────
   { method: 'GET', path: '/api/v1/task-suggestions', description: 'List task suggestions proposed by agents. Suggestions go through a review workflow: pending -> approved (creates a task) or rejected. Paginated.', group: 'Task Suggestions',
     queryParams: [
       { name: 'status', type: 'pending|needs_info|approved|rejected', description: 'Filter by review status' },
@@ -1055,7 +1057,7 @@ export const endpoints: EndpointDoc[] = [
     ],
   },
 
-  // ─── Agent Activity (requires NEXT_PUBLIC_ENABLE_AGENTS=true) ─────
+  // ─── Agent Activity (AI agents module) ────────────────────────────
   { method: 'GET', path: '/api/v1/agent-activities', description: 'Query agent orchestration events — task lifecycle, research progress, sub-agent spawning, and operational telemetry. This is for automated agent actions, NOT human time tracking (use /time-entries) or audit logs (use /activities). Paginated.', group: 'Agent Activity',
     queryParams: [
       { name: 'agent_id', type: 'uuid', description: 'Filter by agent team member ID' },
@@ -1518,6 +1520,35 @@ export const endpoints: EndpointDoc[] = [
 ];
 
 export const groups = [...new Set(endpoints.map(e => e.group))];
+
+/**
+ * The module each group belongs to; a group missing here is core. The docs
+ * are public, with no workspace to read, so they list every group and name
+ * the module a group needs: its endpoints answer only while it is on.
+ */
+const GROUP_MODULE: Record<string, ModuleId> = {
+  'Time Entries': 'time',
+  Invoices: 'billing',
+  'Billing Rates': 'billing',
+  Contacts: 'contacts',
+  'Project Contacts': 'contacts',
+  Leads: 'sales',
+  'Lead Contacts': 'sales',
+  'Lead Fields': 'sales',
+  'Lead Interactions': 'sales',
+  'Lead Proposals': 'sales',
+  Portal: 'portal',
+  'Inbound Email': 'inbox',
+  'Client Communications': 'inbox',
+  Credentials: 'credentials',
+  Goals: 'agents',
+  'Task Suggestions': 'agents',
+  'Agent Activity': 'agents',
+};
+
+export function groupModule(group: string): ModuleId | null {
+  return GROUP_MODULE[group] ?? null;
+}
 
 export const METHOD_COLORS: Record<string, string> = {
   GET: 'bg-emerald-100 text-emerald-700',

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { accessAllowsProject, requireSessionAccess } from '@/lib/api/access';
 import { evaluateBudgetAlerts } from '@/lib/email/client-notifications';
+import { budgetAlertsEnabled } from '@/lib/api/budget-alerts';
 
 export const dynamic = 'force-dynamic';
 
@@ -18,6 +19,8 @@ export async function POST(
   if (auth.error) return auth.error;
   if (!accessAllowsProject(auth.data.access, projectId)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
+  // Nothing to evaluate while Billing or the Client portal is switched off.
+  if (!budgetAlertsEnabled(auth.data.access)) return NextResponse.json({ evaluated: false });
   await evaluateBudgetAlerts(projectId);
   return NextResponse.json({ evaluated: true });
 }

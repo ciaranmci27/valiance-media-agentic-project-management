@@ -3,7 +3,8 @@
  * Shared by the send route and the email preview so the two never drift.
  */
 
-import { EMAIL, emailLayout, escapeHtml, footerLine, getSiteName, heading, kvRows, metaLine, paragraph } from '../shared';
+import type { Brand } from '@/lib/brand';
+import { EMAIL, emailLayout, escapeHtml, footerLine, getSiteName, heading, kvRows, metaLine, paragraph, withEmailBrand } from '../shared';
 
 interface SmtpTestEmailParams {
   label: string;
@@ -14,7 +15,12 @@ interface SmtpTestEmailParams {
   sentAt?: Date;
 }
 
-export function buildSmtpTestEmail(params: SmtpTestEmailParams): { subject: string; html: string; text: string } {
+/** Renders with the workspace's brand (getBrand), so the name, logo and colors are this workspace's. */
+export function buildSmtpTestEmail(params: SmtpTestEmailParams & { brand: Brand }): { subject: string; html: string; text: string } {
+  return withEmailBrand(params.brand, () => renderSmtpTestEmail(params));
+}
+
+function renderSmtpTestEmail(params: SmtpTestEmailParams): { subject: string; html: string; text: string } {
   const { label, host, port, fromName, fromEmail } = params;
   const sentAt = (params.sentAt ?? new Date()).toISOString();
   const name = getSiteName();

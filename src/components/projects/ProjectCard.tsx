@@ -5,7 +5,7 @@ import { Calendar, Users, MoreVertical, Edit, Trash2, Bot } from 'lucide-react';
 import { Project } from '@/lib/types';
 import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
-import { hasPermission } from '@/lib/access-control';
+import { hasPermission, isModuleEnabled } from '@/lib/access-control';
 import { StatusBadge } from '@/components/ui/Badge';
 import { AvatarGroup } from '@/components/ui/Avatar';
 import { Tooltip } from '@/components/ui/Tooltip';
@@ -25,15 +25,16 @@ export function ProjectCard({ project, onEdit, onDelete }: ProjectCardProps) {
   const [showMenu, setShowMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
-  const isAgentsEnabled = process.env.NEXT_PUBLIC_ENABLE_AGENTS === 'true';
+  const isAgentsEnabled = isModuleEnabled(access, 'agents');
   const canManageAgents = hasPermission(access, 'agents.manage');
+  const canReadContacts = hasPermission(access, 'contacts.read') || hasPermission(access, 'contacts.read_all');
 
   const projectTasks = getTasksByProject(project.id);
   const completedTasks = projectTasks.filter(t => t.status === 'done').length;
   const progress = projectTasks.length > 0 ? Math.round((completedTasks / projectTasks.length) * 100) : 0;
 
   const members = team.filter(m => project.member_ids.includes(m.id));
-  const primaryClient = getPrimaryClient(project.id);
+  const primaryClient = canReadContacts ? getPrimaryClient(project.id) : undefined;
 
   const formatDate = (date: string | null) => {
     if (!date) return null;

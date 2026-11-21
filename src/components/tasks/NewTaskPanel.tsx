@@ -5,7 +5,7 @@ import { AlignLeft, Bot, Briefcase, Calendar, CircleDot, Flag, Lock, Tag, Users,
 import { TASK_TYPES, type AiReadiness, type Task, type TaskType } from '@/lib/types';
 import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
-import { canBeAssignedInProject, hasPermission } from '@/lib/access-control';
+import { canBeAssignedInProject, hasPermission, isModuleEnabled } from '@/lib/access-control';
 import { Avatar } from '@/components/ui/Avatar';
 import { Button } from '@/components/ui/Button';
 import { DateInput } from '@/components/ui/inputs/DateInput';
@@ -51,7 +51,7 @@ export function NewTaskPanel({ projectId, initialDueDate, onClose, onCreated }: 
   const { teamMemberId, access } = useAuth();
   const project = getProject(projectId);
   const canAssignOthers = hasPermission(access, 'tasks.manage_all');
-  const showAgentFields = process.env.NEXT_PUBLIC_ENABLE_AGENTS === 'true' && hasPermission(access, 'agents.manage');
+  const showAgentFields = isModuleEnabled(access, 'agents') && hasPermission(access, 'agents.manage');
   const [draft, setDraft] = useState<Draft>(() => ({
     title: '',
     description: '',

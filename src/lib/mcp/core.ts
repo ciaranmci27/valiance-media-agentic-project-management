@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { PermissionKey } from '@/lib/access-control';
+import type { ModuleId } from '@/lib/modules/registry';
 import type { AgentProfile } from './profiles';
 
 /**
@@ -65,6 +66,12 @@ export interface PmTool {
   profiles?: readonly AgentProfile[];
   /** The route refuses members who are not agents, so only agents see it. */
   agentsOnly?: boolean;
+  /**
+   * A module the tool needs beyond its permission's own, for a tool whose
+   * permission is core but whose route belongs to a module. Switched off, the
+   * tool is not listed.
+   */
+  module?: ModuleId;
   run: (args: Record<string, unknown>, call: CallRoute, context: ToolContext) => Promise<ToolOutcome>;
 }
 
@@ -81,6 +88,7 @@ export function routeTool<I extends z.ZodObject>(config: {
   idempotent?: boolean;
   profiles?: readonly AgentProfile[];
   agentsOnly?: boolean;
+  module?: ModuleId;
   request: (args: z.infer<I>, context: ToolContext) => Omit<RouteCall, 'method' | 'path'>;
   present?: (data: unknown, meta?: Record<string, unknown>) => unknown;
 }): PmTool {
@@ -97,6 +105,7 @@ export function routeTool<I extends z.ZodObject>(config: {
     idempotent: config.idempotent ?? (config.method !== 'POST'),
     profiles: config.profiles,
     agentsOnly: config.agentsOnly,
+    module: config.module,
     run: async (args, call, context) => ({
       kind: 'route',
       result: await call({ method: config.method, path: config.path, ...config.request(args as z.infer<I>, context) }),

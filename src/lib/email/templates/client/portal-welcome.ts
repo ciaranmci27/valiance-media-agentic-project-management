@@ -6,7 +6,8 @@
  * fixed; only the text fields listed here can be overridden per send.
  */
 
-import { EMAIL, FONT_SANS, ctaButton, escapeHtml, getSiteName, label, linkLine, paragraph, pullQuote, tile } from '../shared';
+import type { Brand } from '@/lib/brand';
+import { EMAIL, FONT_SANS, ctaButton, escapeHtml, getSiteName, label, linkLine, paragraph, pullQuote, tile, withEmailBrand } from '../shared';
 import { clientEmailLayout, clientHeader, greeting } from './layout';
 
 export interface PortalWelcomeSlots {
@@ -56,9 +57,12 @@ function featureTile(feature: { title: string; line: string }): string {
   );
 }
 
-export function buildPortalWelcomeEmail(
-  params: PortalWelcomeParams,
-): { subject: string; html: string; text: string } {
+/** Renders with the workspace's brand (getBrand), so the name, logo and colors are this workspace's. */
+export function buildPortalWelcomeEmail(params: PortalWelcomeParams & { brand: Brand }): { subject: string; html: string; text: string } {
+  return withEmailBrand(params.brand, () => renderPortalWelcomeEmail(params));
+}
+
+function renderPortalWelcomeEmail(params: PortalWelcomeParams): { subject: string; html: string; text: string } {
   const { projectName, clientName, portalUrl, logoUrl, slots } = params;
   const name = getSiteName();
 

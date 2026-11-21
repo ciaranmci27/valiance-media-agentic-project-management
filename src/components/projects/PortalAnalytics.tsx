@@ -19,6 +19,8 @@ import {
   History, LayoutTemplate,
 } from 'lucide-react';
 import { useDemo } from '@/lib/demo-context';
+import { useAuth } from '@/lib/auth-context';
+import { isModuleEnabled } from '@/lib/access-control';
 import { KpiRow, KpiTile } from '@/components/ui/KpiTile';
 import { Toggle } from '@/components/ui/inputs/Toggle';
 import { Bone, NoMatches, RailCard, RailLayout, Skeleton } from './TabLayout';
@@ -502,6 +504,7 @@ function SessionsTable({
 /* ── Rail: what was opened, and security ─────────── */
 
 function EngagementCards({ data }: { data: PortalAnalyticsResponse }) {
+  const { access } = useAuth();
   return (
     <>
       <RailCard title="Most viewed sections" icon={<LayoutTemplate size={16} className="text-zinc-400" aria-hidden="true" />}>
@@ -531,22 +534,24 @@ function EngagementCards({ data }: { data: PortalAnalyticsResponse }) {
           }))}
         />
       </RailCard>
-      <RailCard title="Invoices" icon={<Receipt size={16} className="text-zinc-400" aria-hidden="true" />}>
-        <RankList
-          emptyText="No invoice views yet."
-          items={data.top_invoices.map(i => ({
-            key: i.invoice_id,
-            label: i.invoice_number ?? `Invoice ${i.invoice_id.slice(0, 8)}...`,
-            right: (
-              <span className="flex items-center gap-3 text-xs text-zinc-400 tabular-nums">
-                <span className="flex items-center gap-1" title="Views"><Eye size={11} aria-hidden="true" /> {i.views}</span>
-                <span className="flex items-center gap-1" title="PDF downloads"><Download size={11} aria-hidden="true" /> {i.pdf_downloads}</span>
-              </span>
-            ),
-            fillRatio: i.views + i.pdf_downloads,
-          }))}
-        />
-      </RailCard>
+      {isModuleEnabled(access, 'billing') && (
+        <RailCard title="Invoices" icon={<Receipt size={16} className="text-zinc-400" aria-hidden="true" />}>
+          <RankList
+            emptyText="No invoice views yet."
+            items={data.top_invoices.map(i => ({
+              key: i.invoice_id,
+              label: i.invoice_number ?? `Invoice ${i.invoice_id.slice(0, 8)}...`,
+              right: (
+                <span className="flex items-center gap-3 text-xs text-zinc-400 tabular-nums">
+                  <span className="flex items-center gap-1" title="Views"><Eye size={11} aria-hidden="true" /> {i.views}</span>
+                  <span className="flex items-center gap-1" title="PDF downloads"><Download size={11} aria-hidden="true" /> {i.pdf_downloads}</span>
+                </span>
+              ),
+              fillRatio: i.views + i.pdf_downloads,
+            }))}
+          />
+        </RailCard>
+      )}
     </>
   );
 }

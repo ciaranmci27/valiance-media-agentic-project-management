@@ -37,8 +37,9 @@ export const GET = withApi(async ({ supabase, searchParams, teamMemberId }) => {
 // Agent-to-owner channel: blocking questions and escalations land in the
 // in-app inbox. Recipients are resolved server-side by role; the caller can
 // never target an arbitrary member.
-export const POST = withApi(async ({ supabase, body, apiKeyId, teamMemberId }) => {
-  requireAgentsEnabled();
+export const POST = withApi(async ({ supabase, body, apiKeyId, teamMemberId, access }) => {
+  // The agent-to-owner channel belongs to the AI agents module.
+  requireAgentsEnabled(access);
   const notification = body as z.infer<typeof createNotificationSchema>;
   const roles = notification.audience === 'owner_and_admins' ? ['owner', 'admin'] : ['owner'];
 

@@ -1,4 +1,5 @@
 import { getServiceClient } from '@/lib/api/supabase-service';
+import { enabledModuleSet } from '@/lib/modules/server';
 import { buildSignatureHeader, WEBHOOK_SIGNATURE_HEADER } from './sign';
 
 // Claims due deliveries (claim_webhook_deliveries: a 2-minute lease per
@@ -9,6 +10,11 @@ import { buildSignatureHeader, WEBHOOK_SIGNATURE_HEADER } from './sign';
 // that dies leaves its leases to expire and the next run takes them back.
 // Invoked by the in-app kick after an invoice change, the Settings "send now"
 // button, and the scheduled route (Supabase pg_cron, webhook_retry_kick).
+//
+// Nothing goes out while Webhooks, or Billing and finance which it needs, is
+// switched off: the claim comes back empty (here and in
+// claim_webhook_deliveries itself), so events wait in order, their attempts
+// untouched, and go out once the module is back on.
 
 export interface ClaimedDelivery {
   delivery_id: string;
@@ -56,6 +62,8 @@ function serviceStore(): DispatchStore {
   const service = getServiceClient();
   return {
     async claim(limit) {
+      const modules = await enabledModuleSet(service);
+      if (!modules.has('webhooks') || !modules.has('billing')) return [];
       const { data, error } = await service.rpc('claim_webhook_deliveries', { p_limit: limit });
       if (error) throw error;
       return (data ?? []) as ClaimedDelivery[];
@@ -89,7 +97,7 @@ async function deliverOne(store: DispatchStore, d: ClaimedDelivery, summary: Dis
         [WEBHOOK_SIGNATURE_HEADER]: header,
         'X-VM-Event-Id': d.event_public_id,
         'X-VM-Event-Type': d.event_type,
-        'User-Agent': 'ValianceWebhooks/1',
+        'User-Agent': 'ProjectManagementWebhooks/1',
       },
       body,
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),

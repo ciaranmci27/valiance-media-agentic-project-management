@@ -1,0 +1,28 @@
+/**
+ * What an install's code in src/custom imports. Safe in the browser, the
+ * server and the edge middleware: validation and types only, no React and no
+ * database. Core reads the registries through hooks.ts (the app's screens) and
+ * the /api/x and /x catch-all routes.
+ */
+export {
+  ExtensionError,
+  defineApiRoutes,
+  defineExtensions,
+  definePublicPaths,
+} from './registry';
+export type {
+  ApiKeyRouteContext,
+  ApiMethod,
+  ApiRouteExtension,
+  CustomPageProps,
+  DashboardWidgetExtension,
+  ExtensionAccess,
+  Extensions,
+  ExtensionsInput,
+  NavItemExtension,
+  PageExtension,
+  ProjectTabExtension,
+  PublicRouteContext,
+  SessionRouteContext,
+  SettingsSectionExtension,
+} from './types';

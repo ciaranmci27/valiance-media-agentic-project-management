@@ -12,6 +12,9 @@ import { Button } from '@/components/ui/Button';
 import { toast } from '@/components/ui/Toast';
 import { Bone, EmptyCard, NoMatches, SubNav, TabToolbar } from '@/components/projects/TabLayout';
 import type { TrashItem } from '@/lib/types';
+import { useAuth } from '@/lib/auth-context';
+import { isModuleEnabled, type AccessContext } from '@/lib/access-control';
+import { TRASH_TABLE_MODULE, type TrashTable } from '@/lib/supabase/trash';
 
 type Group = 'all' | 'projects' | 'tasks' | 'billing' | 'clients' | 'files';
 
@@ -51,6 +54,27 @@ const TYPES: Record<string, { label: string; icon: LucideIcon }> = {
   project_retainer_amounts: { label: 'Retainer amount', icon: DollarSign },
 };
 
+/** Whether a Trash row's module is on: rows of a switched-off module stay in Trash, out of sight. */
+function typeShown(access: AccessContext | null, recordType: string): boolean {
+  const mod = TRASH_TABLE_MODULE[recordType as TrashTable];
+  return !mod || mod === 'core' || isModuleEnabled(access, mod);
+}
+
+/**
+ * The tabs for the modules that are on: each keeps only its shown types, and
+ * one left with none goes. With billing off its tab holds time entries alone,
+ * so it is named Time; with the portal off, Files is just files.
+ */
+function groupsFor(access: AccessContext | null): typeof GROUPS {
+  return GROUPS.map((g) => ({
+    ...g,
+    label: g.key === 'billing' && !isModuleEnabled(access, 'billing') ? 'Time'
+      : g.key === 'files' && !isModuleEnabled(access, 'portal') ? 'Files'
+      : g.label,
+    types: g.types.filter((type) => typeShown(access, type)),
+  })).filter((g) => g.key === 'all' || g.types.length > 0);
+}
+
 function timeAgo(dateStr: string): string {
   const diff = Math.max(0, Date.now() - new Date(dateStr).getTime());
   const minutes = Math.floor(diff / 60000);
@@ -75,9 +99,17 @@ export default function TrashPage() {
 function TrashPageContent() {
   const searchParams = useSearchParams();
   const { loadTrash, restoreRecord } = useApp();
+  const { access } = useAuth();
+  const groups = useMemo(() => groupsFor(access), [access]);
   const initialGroup = GROUPS.some((g) => g.key === searchParams.get('group')) ? (searchParams.get('group') as Group) : 'all';
-  const [group, setGroup] = useState<Group>(initialGroup);
-  const [items, setItems] = useState<TrashItem[] | null>(null);
+  const [selectedGroup, setGroup] = useState<Group>(initialGroup);
+  // A tab whose module is off falls back to All.
+  const group: Group = groups.some((g) => g.key === selectedGroup) ? selectedGroup : 'all';
+  const [allItems, setItems] = useState<TrashItem[] | null>(null);
+  const items = useMemo(
+    () => (allItems === null ? null : allItems.filter((item) => typeShown(access, item.record_type))),
+    [allItems, access],
+  );
   const [loadFailed, setLoadFailed] = useState(false);
   const [restoring, setRestoring] = useState<string | null>(null);
   const [query, setQuery] = useState('');
@@ -111,19 +143,19 @@ function TrashPageContent() {
 
   const search = query.trim().toLowerCase();
   const visible = useMemo(() => {
-    const types = GROUPS.find((g) => g.key === group)?.types ?? [];
+    const types = groups.find((g) => g.key === group)?.types ?? [];
     return (items ?? []).filter((item) =>
       (types.length === 0 || types.includes(item.record_type))
       && (!search || item.label.toLowerCase().includes(search) || (item.context ?? '').toLowerCase().includes(search)));
-  }, [items, group, search]);
+  }, [items, groups, group, search]);
 
   const counts = useMemo(() => {
     const result: Partial<Record<Group, number>> = {};
-    for (const g of GROUPS) {
+    for (const g of groups) {
       result[g.key] = (items ?? []).filter((item) => g.types.length === 0 || g.types.includes(item.record_type)).length;
     }
     return result;
-  }, [items]);
+  }, [items, groups]);
 
   // A record whose project is in Trash can come back once its project does.
   const trashedProjects = useMemo(
@@ -148,7 +180,7 @@ function TrashPageContent() {
           filters={(
             <SubNav
               label="Trash type"
-              items={GROUPS.map((g) => ({ key: g.key, label: g.label, count: items ? counts[g.key] : undefined }))}
+              items={groups.map((g) => ({ key: g.key, label: g.label, count: items ? counts[g.key] : undefined }))}
               active={group}
               onChange={setGroup}
             />
@@ -179,7 +211,7 @@ function TrashPageContent() {
           <EmptyCard
             icon={<Trash2 />}
             title="Trash is empty"
-            description="When you delete a project, task, invoice or anything else, it lands here and you can bring it back."
+            description="When you delete a project, task, file or anything else, it lands here and you can bring it back."
           />
         ) : (
           <div className="glass-card rounded-xl">

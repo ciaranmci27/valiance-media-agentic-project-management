@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client';
 import { useRouter } from 'next/navigation';
 import { Loader2 } from 'lucide-react';
 import { Logo } from '@/components/ui/Logo';
-import { siteConfig } from '@/site-config';
+import { useBrand } from '@/lib/brand/context';
 import { TextInput } from '@/components/ui/inputs/TextInput';
 import { PasswordInput } from '@/components/ui/inputs/PasswordInput';
 import { safeNextPath } from '@/lib/supabase/next-path';
@@ -18,6 +18,7 @@ export default function LoginPage() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const router = useRouter();
+  const brand = useBrand();
   const supabase = createClient();
 
   useEffect(() => {
@@ -59,12 +60,13 @@ export default function LoginPage() {
               rendered and CSS picks one: no flash, and nothing to hydrate. */}
           <Logo className="h-12 w-auto dark:hidden" />
           <Logo variant="dark" className="hidden h-12 w-auto dark:block" />
-          {siteConfig.showNameUnderLogo && (
-            <span className="text-white font-semibold text-[7px] tracking-[0.2em] uppercase">{siteConfig.name}</span>
+          {/* With no logo the name already stands in its place. */}
+          {brand.showNameUnderLogo && brand.logos.light && (
+            <span className="text-white font-semibold text-[7px] tracking-[0.2em] uppercase">{brand.name}</span>
           )}
         </div>
         <h1 className="text-2xl font-bold text-white">Welcome back</h1>
-        <p className="text-sm text-zinc-400 mt-1">Sign in to {siteConfig.name}</p>
+        <p className="text-sm text-zinc-400 mt-1">Sign in to {brand.name}</p>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-4">

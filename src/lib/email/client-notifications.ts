@@ -13,6 +13,7 @@
  * plus the automation evaluators used by time-entry and project PATCH hooks.
  */
 
+import { getBrand } from '@/lib/brand/server';
 import { getActorClient, getServiceClient } from '@/lib/api/supabase-service';
 import { currentActorVia } from '@/lib/api/request-context';
 import { sendTransactional } from './send-mail';
@@ -64,6 +65,8 @@ import { DEFAULT_INVOICE_PDF_OPTIONS, type InvoicePdfData, type InvoicePdfTheme 
 import { ensureLineItems, paidHourlyLineItemTotal, invoicedTotalsByItemType, unpaidHoursByEntry } from '@/lib/invoice-utils';
 import { resolveProjectHourlyRate } from '@/lib/supabase/queries';
 import { projectIsLive } from '@/lib/supabase/trash';
+import { enabledModuleSet, moduleEnabled } from '@/lib/modules/server';
+import { moduleOffMessage } from '@/lib/api/errors';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -191,8 +194,15 @@ interface PortalInfo {
   rearmThresholdsOnBudgetChange: boolean;
 }
 
+/**
+ * The project's portal, or null when it has none, it is switched off, or the
+ * Client portal module is off: no email then links to a portal that answers
+ * 404 (invoices fall back to their no-portal form). An unreadable module
+ * switch throws rather than dropping the link silently.
+ */
 async function getPortalInfo(projectId: string): Promise<PortalInfo | null> {
   const supabase = getServiceClient();
+  if (!(await moduleEnabled(supabase, 'portal'))) return null;
   const { data } = await supabase
     .from('portal_settings')
     .select(`
@@ -532,6 +542,7 @@ async function loadInvoicePdfData(
     team,
     portal,
     senderName,
+    brand,
   ] = await Promise.all([
     getProjectForInvoicePdf(projectId),
     getInvoiceWithAllocations(projectId, invoiceId),
@@ -542,6 +553,7 @@ async function loadInvoicePdfData(
     getTeamForInvoicePdf(),
     getPortalInfo(projectId),
     getSenderName(triggeredBy),
+    getBrand(),
   ]);
 
   if ('error' in project) return project;
@@ -561,10 +573,9 @@ async function loadInvoicePdfData(
         ...DEFAULT_INVOICE_PDF_OPTIONS,
         ...(project.invoice_pdf_options ?? {}),
       },
-      logoUrl: `${getSiteUrl()}/logos/logo.png`,
-      // Static paths, like the light one: react-pdf validates images by URL
-      // extension, so the /api/logo route (no extension) is rejected.
-      logoDarkUrl: `${getSiteUrl()}/logos/logo-dark.png`,
+      // The uploaded files' own URLs (.png or .jpg): react-pdf validates
+      // images by URL extension, so the /api/logo route would be rejected.
+      brand,
       portalUrl: portalInvoiceUrl,
       timeEntries,
       projectInvoices,
@@ -684,6 +695,17 @@ export async function renderCommunication(
   const project = await getProject(projectId);
   if (!project) return { error: 'Project not found' };
 
+  // Client email follows the modules, here at the one place every send,
+  // preview and queued approval passes: everything but the invoice email
+  // leads to the client portal, and invoices and budget figures are Billing
+  // and finance's. An unreadable switch throws (ModuleReadError).
+  const modules = await enabledModuleSet(getServiceClient());
+  if (type !== 'invoice' && !modules.has('portal')) return { error: moduleOffMessage('portal') };
+  if ((type === 'invoice' || type === 'budget_threshold' || type === 'dollar_interval' || type === 'budget_extended')
+    && !modules.has('billing')) {
+    return { error: moduleOffMessage('billing') };
+  }
+
   const portal = await getPortalInfo(projectId);
   if (!portal && type !== 'invoice') {
     return { error: 'Portal is not enabled for this project' };
@@ -709,6 +731,7 @@ export async function renderCommunication(
   );
 
   const common = {
+    brand: await getBrand(),
     projectName: project.name,
     clientName: client.name,
     portalUrl: portal ? portalUrl(portal.token) : '',
@@ -737,8 +760,38 @@ export async function renderCommunication(
   }
 
   if (type === 'project_summary') {
-    const usage = await getBudgetUsage(project);
     const supabase = getServiceClient();
+    // Balance, payments and budget are Billing and finance's. Switched off
+    // the summary is the update and the portal link alone.
+    if (!(await moduleEnabled(supabase, 'billing'))) {
+      const defaults = projectSummaryDefaults({ projectName: project.name });
+      const slots: ProjectSummarySlots = { ...defaults, ...(overrides as Partial<ProjectSummarySlots>) };
+      const { subject, html, text } = buildProjectSummaryEmail({
+        ...common,
+        unpaidHours: null,
+        hourlyRate: null,
+        currentBalance: 0,
+        lastPaymentDate: null,
+        lastPaymentAmount: null,
+        budgetType: null,
+        budgetValue: null,
+        budgetUsed: null,
+        billing: false,
+        slots,
+      });
+      return {
+        to: recipients.to,
+        cc: recipients.cc,
+        bcc: recipients.bcc,
+        contactId: client.contactId,
+        subject,
+        html,
+        text,
+        defaults: defaults as unknown as Record<string, string>,
+        metadata: {},
+      };
+    }
+    const usage = await getBudgetUsage(project);
     const isHourly = project.hourly_tracking ?? false;
     const hourlyRate = project.hourly_rate ?? 0;
 

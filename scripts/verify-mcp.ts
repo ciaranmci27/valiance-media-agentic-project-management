@@ -159,7 +159,7 @@ async function main() {
     check('http: Authorization: Bearer works', (await post(initialize, { authorization: `Bearer ${keys.agent}` })).status === 200);
     const hello = await post(initialize, { 'x-api-key': keys.agent });
     const helloBody = await rpc(hello);
-    check('legacy: initialize answers with tools', hello.status === 200 && helloBody.result?.serverInfo?.name === 'valiance-pm' && !!helloBody.result?.capabilities?.tools, helloBody);
+    check('legacy: initialize answers with tools', hello.status === 200 && helloBody.result?.serverInfo?.name === 'project-management' && !!helloBody.result?.capabilities?.tools, helloBody);
     const legacyHeaders = { 'x-api-key': keys.agent, 'mcp-protocol-version': String(helloBody.result?.protocolVersion) };
     check('legacy: initialized notification is accepted', (await post({ jsonrpc: '2.0', method: 'notifications/initialized' }, legacyHeaders)).status === 202);
     const rawList = await rpc(await post({ jsonrpc: '2.0', id: 2, method: 'tools/list' }, legacyHeaders));

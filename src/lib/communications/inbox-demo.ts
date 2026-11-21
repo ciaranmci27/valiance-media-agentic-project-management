@@ -31,8 +31,8 @@ const PROJECT_NAMES: Record<string, string> = {
   [SOLSTICE]: 'Solstice Realty Platform',
 };
 
-const INBOX_SCOUT: InboxSummary = { id: '9e9e9e9e-0001-4000-8000-000000000001', name: 'Scout', address: 'scout@valiancemedia.com', enabled: true, handler: SCOUT };
-const INBOX_BILLING: InboxSummary = { id: '9e9e9e9e-0002-4000-8000-000000000002', name: 'Billing', address: 'billing@valiancemedia.com', enabled: true, handler: ATLAS };
+const INBOX_SCOUT: InboxSummary = { id: '9e9e9e9e-0001-4000-8000-000000000001', name: 'Scout', address: 'scout@example.com', enabled: true, handler: SCOUT };
+const INBOX_BILLING: InboxSummary = { id: '9e9e9e9e-0002-4000-8000-000000000002', name: 'Billing', address: 'billing@example.com', enabled: true, handler: ATLAS };
 
 const TRUSTED = { level: 'trusted' as const, reason: 'DKIM pass aligned with the From domain', spf: 'pass', dkim: 'pass', dmarc: 'pass' };
 const UNKNOWN = { level: 'unknown' as const, reason: 'No authentication results to rely on', spf: null, dkim: null, dmarc: null };
@@ -252,7 +252,7 @@ function buildThreads(): InboxThreadDetail[] {
         message({
           subject: 'Fwd: Brand files for both sites',
           received_at: hoursAgo(50),
-          from: person('Sarah Chen', 'sarah@valiancemedia.com'),
+          from: person('Sarah Chen', 'sarah@example.com'),
           is_forward: true,
           routing_basis: 'forwarded_original',
           forwarded_by: { member_id: SARAH.id, name: SARAH.name },
@@ -290,7 +290,7 @@ function buildThreads(): InboxThreadDetail[] {
   ];
 }
 
-const DEMO_TEAM_EMAILS = new Set(['sarah@valiancemedia.com', INBOX_SCOUT.address, INBOX_BILLING.address]);
+const DEMO_TEAM_EMAILS = new Set(['sarah@example.com', INBOX_SCOUT.address, INBOX_BILLING.address]);
 
 function withSenders(detail: InboxThreadDetail): InboxThreadDetail {
   const seen = new Map<string, string>();
@@ -347,7 +347,7 @@ let demoSenders: { id: string; address: string; project_id: string; created_at: 
 let demoAddresses: ProjectEmailAddress[] = [
   {
     id: '9b9b9b9b-0001-4000-8000-000000000001', project_id: CREST, inbox_id: INBOX_SCOUT.id, routing_local_part: 'crest',
-    routing_domain: 'relay.valiancemedia.com', routing_address: 'crest@relay.valiancemedia.com', public_address: 'crest@valiancemedia.com', owner_member_id: null,
+    routing_domain: 'relay.example.com', routing_address: 'crest@relay.example.com', public_address: 'crest@example.com', owner_member_id: null,
     enabled: true, last_received_at: hoursAgo(2), created_at: hoursAgo(380), updated_at: hoursAgo(380),
   },
 ];
@@ -668,7 +668,7 @@ export const demoInbox = {
 
 // -- Settings ----------------------------------------------------------------
 
-let relay = 'relay.valiancemedia.com';
+let relay = 'relay.example.com';
 let settings: InboxSettings[] = [
   {
     id: INBOX_SCOUT.id, name: 'Scout', address: INBOX_SCOUT.address, routing_local_part: 'scout', routing_domain: relay,
@@ -735,7 +735,7 @@ export const demoInboxSettings = {
   },
   async mx(domain: string): Promise<MxStatus> {
     await pause();
-    return domain.endsWith('valiancemedia.com')
+    return domain.endsWith('example.com')
       ? { domain, found: true, records: [{ exchange: 'inbound-smtp.us-east-1.amazonaws.com', priority: 10 }], error: null }
       : { domain, found: false, records: [], error: null };
   },
@@ -849,17 +849,17 @@ const DOMAIN_PATTERN = /^(?=.{3,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-
 
 let demoForwarders: YourAddress[] = [
   {
-    id: '9b9b9b9b-0101-4000-8000-000000000001', address: 'sarah@valiancemedia.com', project_id: null, owner_member_id: SARAH.id,
+    id: '9b9b9b9b-0101-4000-8000-000000000001', address: 'sarah@example.com', project_id: null, owner_member_id: SARAH.id,
     routing_address: null, inbox_id: INBOX_SCOUT.id, enabled: true, last_received_at: hoursAgo(5),
   },
 ];
 let demoOwnDomains: OwnDomain[] = [];
 const demoIgnored = new Set<string>();
 const demoUnlisted: UnlistedAddress[] = [
-  { address: 'hello@valiancemedia.com', messages: 3, last_seen: hoursAgo(26), inbox_id: INBOX_SCOUT.id },
-  { address: 'info@valiancemedia.com', messages: 2, last_seen: hoursAgo(50), inbox_id: INBOX_SCOUT.id },
-  { address: 'accounts@valiancemedia.com', messages: 2, last_seen: hoursAgo(70), inbox_id: INBOX_BILLING.id },
-  { address: 'careers@valiancemedia.com', messages: 1, last_seen: hoursAgo(120), inbox_id: INBOX_SCOUT.id },
+  { address: 'hello@example.com', messages: 3, last_seen: hoursAgo(26), inbox_id: INBOX_SCOUT.id },
+  { address: 'info@example.com', messages: 2, last_seen: hoursAgo(50), inbox_id: INBOX_SCOUT.id },
+  { address: 'accounts@example.com', messages: 2, last_seen: hoursAgo(70), inbox_id: INBOX_BILLING.id },
+  { address: 'careers@example.com', messages: 1, last_seen: hoursAgo(120), inbox_id: INBOX_SCOUT.id },
   // Never suggested: a public mail domain is nobody's, as on the server.
   { address: 'someone@gmail.com', messages: 1, last_seen: hoursAgo(30), inbox_id: INBOX_SCOUT.id },
 ];

@@ -1,14 +1,16 @@
 /* ============================================================
-   VALIANCE CLIENT PORTAL DESIGN LANGUAGE
+   CLIENT PORTAL DESIGN LANGUAGE
 
    The website's dark cinematic system (website/src/styles/site.css),
    ported for product UI. Near-black canvas, cream ink, teal as light,
    copper for the warm accents, DM Sans / DM Mono / Instrument Serif.
 
    Scoped to `.vm` so nothing leaks into the internal app. Every teal
-   tint derives from --vm-teal through color-mix(), so a project's own
-   accent colour (portal_settings.accent_color) re-tints the whole
-   portal by overriding that one variable on the wrapper.
+   tint derives from --vm-teal through color-mix(). --vm-teal is the
+   workspace's brand color (Settings > Workspace > Brand, injected as
+   --color-brand-500), and a project's own accent colour
+   (portal_settings.accent_color) re-tints the whole portal by
+   overriding that one variable on the wrapper.
 
    Everything sits in @layer components so Tailwind utilities (which live in
    @layer utilities) can still override a token class on the same property,
@@ -21,7 +23,7 @@
     --vm-bg-2: #0d0f14;
     --vm-ink: #f5f3ef;
     --vm-ink-rgb: 245, 243, 239;
-    --vm-teal: #5b8a8a;
+    --vm-teal: var(--color-brand-500, #5b8a8a);
     --vm-teal-300: color-mix(in srgb, var(--vm-teal) 65%, var(--vm-ink));
     --vm-teal-200: color-mix(in srgb, var(--vm-teal) 40%, var(--vm-ink));
     --vm-teal-600: color-mix(in srgb, var(--vm-teal) 70%, var(--vm-bg));
@@ -373,15 +375,15 @@
     font-size: 1rem;
   }
 
-  /* The website button, verbatim: the portal is brand teal only, so the exact
-     gradient and glow can be shared rather than derived. */
+  /* The website button, in the portal's color: a lighter top fading to the
+     color itself, with a glow of the same hue. */
   .vm-btn-primary {
     color: #08090c;
-    background: linear-gradient(180deg, #a3c4c4 0%, #5b8a8a 100%);
+    background: linear-gradient(180deg, color-mix(in srgb, var(--vm-teal) 56%, #ffffff) 0%, var(--vm-teal) 100%);
     box-shadow:
       inset 0 1px 0 rgba(255, 255, 255, 0.5),
       inset 0 -1px 0 rgba(0, 0, 0, 0.18),
-      0 10px 28px -10px rgba(91, 138, 138, 0.7);
+      0 10px 28px -10px color-mix(in srgb, var(--vm-teal) 70%, transparent);
   }
 
   .vm-btn:hover svg {
@@ -410,7 +412,7 @@
       box-shadow:
         inset 0 1px 0 rgba(255, 255, 255, 0.6),
         inset 0 -1px 0 rgba(0, 0, 0, 0.18),
-        0 16px 36px -10px rgba(91, 138, 138, 0.85);
+        0 16px 36px -10px color-mix(in srgb, var(--vm-teal) 85%, transparent);
     }
   }
 

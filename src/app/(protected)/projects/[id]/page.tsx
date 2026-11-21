@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, type ReactNode } from 'react';
+import { Fragment, useState, useEffect, useRef, type ReactNode } from 'react';
 import { Popover } from '@/components/ui/Popover';
 import { TaskFilterControl, UNASSIGNED_FILTER_ID } from '@/components/tasks/TaskFilterControl';
 import { UnreadNotice, useCardUnread } from '@/components/tasks/TaskUnread';
@@ -21,6 +21,7 @@ import { TimeTrackingPanel } from '@/components/projects/TimeTrackingPanel';
 import { CredentialsPanel } from '@/components/projects/CredentialsPanel';
 import InvoicesPanel from '@/components/projects/InvoicesPanel';
 import { ProjectOverview } from '@/components/projects/ProjectOverview';
+import { projectTrashMessage } from '@/components/projects/trash-message';
 import { ProjectTabs, projectPanelId, projectTabId, type ProjectTab } from '@/components/projects/ProjectTabs';
 import { EmptyCard, NoMatches, SubNav, TabToolbar, ToolbarButton } from '@/components/projects/TabLayout';
 import { RowActionsMenu } from '@/components/ui/RowActionsMenu';
@@ -44,8 +45,10 @@ import {
 } from '@/lib/reads';
 import { isRunning } from '@/lib/time-entry-utils';
 import { hasPermission, canEditTask, canManageAllTasks, canBeAssignedInProject } from '@/lib/access-control';
+import { useCustomProjectTabs } from '@/lib/extensions/hooks';
 
-type ProjectTabKey = 'overview' | 'tasks' | 'time' | 'communication' | 'portal' | 'billing' | 'files' | 'credentials';
+// Custom tabs (src/custom) are keyed x-<key>, so a core tab added later never collides.
+type ProjectTabKey = 'overview' | 'tasks' | 'time' | 'communication' | 'portal' | 'billing' | 'files' | 'credentials' | `x-${string}`;
 const DEFAULT_TAB: ProjectTabKey = 'overview';
 
 export default function ProjectDetailPage() {
@@ -80,6 +83,7 @@ export default function ProjectDetailPage() {
     tasks, loading, timeEntries, getInvoicesByProject,
   } = useApp();
   const cardUnread = useCardUnread();
+  const customTabs = useCustomProjectTabs();
 
   useEffect(() => { setFilters(defaultFilters); }, []);
 
@@ -137,6 +141,8 @@ export default function ProjectDetailPage() {
     { key: 'files', label: 'Files', visible: canReadFiles },
     { key: 'credentials', label: 'Credentials', visible: canReadCredentials,
       warm: canReadCredentials ? () => void warmRead(encryptionStatusRead) : undefined },
+    // The install's own tabs, after the core ones.
+    ...customTabs.map((tab) => ({ key: `x-${tab.key}` as const, label: tab.label, visible: true })),
   ];
   const tabs: ProjectTab<ProjectTabKey>[] = allTabs.filter(t => t.visible);
 
@@ -600,7 +606,7 @@ export default function ProjectDetailPage() {
           onViewChange={setActiveView}
           canReadInbox={canReadInbox}
           canReadSent={canReadCommunications}
-          onOpenPortal={() => setActiveTab('portal')}
+          onOpenPortal={canReadPortal ? () => setActiveTab('portal') : undefined}
           emailLink={{ thread: searchParams.get('thread'), message: searchParams.get('message'), task: searchParams.get('email_task') }}
         />
       ))}
@@ -618,6 +624,10 @@ export default function ProjectDetailPage() {
       {tabPanel('files', <FileAttachments entityType="project" entityId={projectId} layout="grid" />)}
 
       {tabPanel('credentials', <CredentialsPanel projectId={projectId} />)}
+
+      {customTabs.map(({ key, component: Tab }) => (
+        <Fragment key={key}>{tabPanel(`x-${key}`, <Tab project={project} />)}</Fragment>
+      ))}
 
       {/* Edit Project Modal */}
       {canOpenProjectForm && <ProjectForm
@@ -661,7 +671,7 @@ export default function ProjectDetailPage() {
         title={confirmDelete?.type === 'project' ? 'Move project to Trash?' : confirmDelete?.type === 'bulk' ? 'Move tasks to Trash?' : 'Move task to Trash?'}
         message={
           confirmDelete?.type === 'project'
-            ? 'The project goes to Trash with everything in it: tasks, time, invoices, files and the client portal.'
+            ? projectTrashMessage(access)
             : confirmDelete?.type === 'bulk'
             ? `The ${selectedTaskIds.size} selected ${selectedTaskIds.size === 1 ? 'task goes' : 'tasks go'} to Trash with their subtasks and comments.`
             : 'The task goes to Trash with its subtasks and comments.'

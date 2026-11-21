@@ -1,3 +1,5 @@
+import { moduleOfPermission, type ModuleId } from '@/lib/modules/registry';
+
 export const TEAM_ROLES = ['owner', 'admin', 'member', 'guest', 'agent'] as const;
 export type TeamRole = typeof TEAM_ROLES[number];
 
@@ -98,6 +100,12 @@ export interface AccessContext {
   app_permissions: Array<PermissionKey | '*'>;
   api_permissions: Array<PermissionKey | '*'>;
   project_ids: string[];
+  /**
+   * The workspace's switched-on modules. A permission of a module that is off
+   * is held by nobody, owners included. Absent (demo data, an older server)
+   * means every module is on.
+   */
+  modules?: ModuleId[];
 }
 
 export const EMPTY_ACCESS_CONTEXT: AccessContext | null = null;
@@ -108,8 +116,19 @@ export function hasPermission(
   channel: AccessChannel = 'app',
 ): boolean {
   if (!access || access.status !== 'active') return false;
+  if (!permissionModuleEnabled(access, permission)) return false;
   const permissions = channel === 'app' ? access.app_permissions : access.api_permissions;
   return permissions.includes('*') || permissions.includes(permission);
+}
+
+/** Whether a module is switched on for this workspace (core is always on). */
+export function isModuleEnabled(access: AccessContext | null | undefined, id: ModuleId): boolean {
+  return !access?.modules || access.modules.includes(id);
+}
+
+function permissionModuleEnabled(access: AccessContext, permission: PermissionKey): boolean {
+  const mod = moduleOfPermission(permission);
+  return mod === 'core' || isModuleEnabled(access, mod);
 }
 
 /**

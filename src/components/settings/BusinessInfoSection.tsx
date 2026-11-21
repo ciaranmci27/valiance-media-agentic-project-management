@@ -9,6 +9,8 @@ import { Textarea } from '@/components/ui/inputs/Textarea';
 import { Toggle } from '@/components/ui/inputs/Toggle';
 import { toast } from '@/components/ui/Toast';
 import { useDemo } from '@/lib/demo-context';
+import { useAuth } from '@/lib/auth-context';
+import { isModuleEnabled } from '@/lib/access-control';
 
 const PAYMENT_INSTRUCTIONS_MAX = 500;
 const DEFAULT_NOTES_MAX = 300;
@@ -16,6 +18,13 @@ const DEFAULT_NOTES_MAX = 300;
 export function BusinessInfoSection() {
   const { businessSettings, updateBusinessSettings } = useApp();
   const { isDemoMode } = useDemo();
+  const { access } = useAuth();
+  // Invoice identity (terms, instructions, notes) only means something with
+  // billing on; the hours policy only with time on. Off, their fields leave
+  // the form and their stored values stay as they are.
+  const isBillingEnabled = isModuleEnabled(access, 'billing');
+  const isTimeEnabled = isModuleEnabled(access, 'time');
+  const isAgentsEnabled = isModuleEnabled(access, 'agents');
 
   const [name, setName] = useState('');
   const [address, setAddress] = useState('');
@@ -74,9 +83,11 @@ export function BusinessInfoSection() {
         business_address: address.trim(),
         business_email: email.trim(),
         business_phone: phone.trim(),
-        payment_terms: paymentTerms.trim() || 'Upon Receipt',
-        payment_instructions: paymentInstructions.trim(),
-        default_invoice_notes: defaultNotes.trim(),
+        ...(isBillingEnabled ? {
+          payment_terms: paymentTerms.trim() || 'Upon Receipt',
+          payment_instructions: paymentInstructions.trim(),
+          default_invoice_notes: defaultNotes.trim(),
+        } : {}),
       });
       toast('success', 'Business info saved');
     } finally {
@@ -93,12 +104,15 @@ export function BusinessInfoSection() {
         <div>
           <h2 className="font-semibold text-white">Business Info</h2>
           <p className="text-sm text-zinc-400">
-            Used as the &quot;From&quot; block on invoice PDFs
+            {isBillingEnabled
+              ? <>Used as the &quot;From&quot; block on invoice PDFs</>
+              : 'Your business name and contact details'}
           </p>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      {/* Without payment terms the three fields share one row rather than leave a hole. */}
+      <div className={`grid grid-cols-1 gap-4 ${isBillingEnabled ? 'md:grid-cols-2' : 'md:grid-cols-3'}`}>
         <Input
           label="Business Name"
           value={name}
@@ -111,7 +125,7 @@ export function BusinessInfoSection() {
           type="email"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
-          placeholder="billing@yourbusiness.com"
+          placeholder={isBillingEnabled ? 'billing@yourbusiness.com' : 'hello@yourbusiness.com'}
           disabled={isDemoMode}
         />
         <Input
@@ -121,13 +135,15 @@ export function BusinessInfoSection() {
           placeholder="(555) 555-5555"
           disabled={isDemoMode}
         />
-        <Input
-          label="Default Payment Terms"
-          value={paymentTerms}
-          onChange={(e) => setPaymentTerms(e.target.value)}
-          placeholder="Upon Receipt"
-          disabled={isDemoMode}
-        />
+        {isBillingEnabled && (
+          <Input
+            label="Default Payment Terms"
+            value={paymentTerms}
+            onChange={(e) => setPaymentTerms(e.target.value)}
+            placeholder="Upon Receipt"
+            disabled={isDemoMode}
+          />
+        )}
       </div>
 
       <div className="mt-4">
@@ -141,6 +157,8 @@ export function BusinessInfoSection() {
         />
       </div>
 
+      {isBillingEnabled && (
+      <>
       <div className="mt-4">
         <Textarea
           label="Payment Instructions"
@@ -168,6 +186,8 @@ export function BusinessInfoSection() {
           disabled={isDemoMode}
         />
       </div>
+      </>
+      )}
 
       <div className="mt-4">
         <Button onClick={handleSave} disabled={!isDirty || saving || isDemoMode}>
@@ -183,12 +203,15 @@ export function BusinessInfoSection() {
       </div>
 
       {/* Time approval policy. Saves immediately on toggle. */}
+      {isTimeEnabled && (
       <div className="mt-6 flex items-start justify-between gap-4 border-t border-white/[0.06] pt-5">
         <div>
           <p className="text-sm font-medium text-white">Auto-approve human hours</p>
           <p className="mt-1 text-xs text-zinc-400">
-            Team members&apos; finished sessions go straight to approved. AI agent sessions always
-            queue for review, since their billed time is converted from the agent&apos;s multiplier.
+            Team members&apos; finished sessions go straight to approved.
+            {isAgentsEnabled && (isBillingEnabled
+              ? <> AI agent sessions always queue for review, since their billed time is converted from the agent&apos;s multiplier.</>
+              : ' AI agent sessions always queue for review.')}
           </p>
         </div>
         <Toggle
@@ -198,6 +221,7 @@ export function BusinessInfoSection() {
           aria-label="Auto-approve human hours"
         />
       </div>
+      )}
     </section>
   );
 }

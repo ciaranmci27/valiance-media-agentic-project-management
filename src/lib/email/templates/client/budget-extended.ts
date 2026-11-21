@@ -5,7 +5,8 @@
  * under the updated budget.
  */
 
-import { ctaButton, escapeHtml, getSiteName, kvRows, linkLine, paragraph, statGrid } from '../shared';
+import type { Brand } from '@/lib/brand';
+import { ctaButton, escapeHtml, getSiteName, kvRows, linkLine, paragraph, statGrid, withEmailBrand } from '../shared';
 import { clientEmailLayout, clientHeader, greeting, usageMeter } from './layout';
 
 export interface BudgetExtendedSlots {
@@ -63,9 +64,12 @@ function formatValue(value: number, type: 'hours' | 'amount'): string {
   return `$${value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
-export function buildBudgetExtendedEmail(
-  params: BudgetExtendedParams,
-): { subject: string; html: string; text: string } {
+/** Renders with the workspace's brand (getBrand), so the name, logo and colors are this workspace's. */
+export function buildBudgetExtendedEmail(params: BudgetExtendedParams & { brand: Brand }): { subject: string; html: string; text: string } {
+  return withEmailBrand(params.brand, () => renderBudgetExtendedEmail(params));
+}
+
+function renderBudgetExtendedEmail(params: BudgetExtendedParams): { subject: string; html: string; text: string } {
   const {
     projectName, clientName, portalUrl, logoUrl,
     oldBudget, oldBudgetType, newBudget, newBudgetType, currentUsage, slots,

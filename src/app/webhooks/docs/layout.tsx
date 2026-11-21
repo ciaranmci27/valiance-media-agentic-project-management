@@ -1,10 +1,13 @@
 import type { Metadata } from 'next';
-import { siteConfig } from '@/site-config';
+import { getBrand } from '@/lib/brand/server';
 
-export const metadata: Metadata = {
-  title: `${siteConfig.name} | Webhooks Documentation`,
-  description: `Webhook documentation for ${siteConfig.name}. Receive signed invoice events on your own server, verify signatures, and reconcile.`,
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const brand = await getBrand();
+  return {
+    title: `${brand.name} | Webhooks Documentation`,
+    description: `Webhook documentation for ${brand.name}. Receive signed invoice events on your own server, verify signatures, and reconcile.`,
+  };
+}
 
 export default function WebhooksDocsLayout({ children }: { children: React.ReactNode }) {
   // Docs are always light and authored against the standard palette. data-theme="dark"

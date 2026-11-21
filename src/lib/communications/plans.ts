@@ -19,9 +19,9 @@
  */
 import { createHash } from 'node:crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import type { AccessContext } from '@/lib/access-control';
+import { isModuleEnabled, type AccessContext } from '@/lib/access-control';
 import { accessAllows, accessAllowsProject } from '@/lib/api/access';
-import { ApiError, notFound } from '@/lib/api/errors';
+import { ApiError, moduleOff, notFound } from '@/lib/api/errors';
 import { createTaskAs } from '@/lib/api/create-task';
 import { createReminder } from '@/lib/api/reminders';
 import { insertComment, patchTask } from '@/lib/supabase/queries';
@@ -72,6 +72,13 @@ function unprocessable(message: string, details?: unknown) {
 }
 
 const STATE_OF: Record<Decision, string> = { apply: 'applying', apply_unsure: 'applying', propose: 'pending', reject: 'skipped' };
+
+/** Items that write to Leads. With the Leads module off they are skipped: never offered, never applied. */
+const LEAD_ITEM_TYPES: ReadonlySet<string> = new Set(['create_lead', 'log_interaction']);
+
+function leadsOff(access: AccessContext, type: string): boolean {
+  return LEAD_ITEM_TYPES.has(type) && !isModuleEnabled(access, 'sales');
+}
 
 /** The inbox link a notification and a summary point at. */
 export function inboxLink(message: PlanMessage): string {
@@ -227,7 +234,8 @@ async function prepare(actor: PlanActor, message: PlanMessage, facts: MessageFac
   const threadMessages = new Set(((threadRows ?? []) as { id: string }[]).map((row) => row.id));
   const reminders = new Set(((reminderRows ?? []) as { id: string; source_message_id: string | null }[])
     .filter((row) => !!row.source_message_id && threadMessages.has(row.source_message_id)).map((row) => row.id));
-  const leadIds = items.flatMap((item) => (item.type === 'log_interaction' ? [item.lead_id] : []));
+  const salesOn = isModuleEnabled(access, 'sales');
+  const leadIds = salesOn ? items.flatMap((item) => (item.type === 'log_interaction' ? [item.lead_id] : [])) : [];
   const { data: leadRows, error: leadError } = leadIds.length
     ? await db.from('leads').select('id').in('id', leadIds).is('deleted_at', null)
     : { data: [], error: null };
@@ -250,7 +258,7 @@ async function prepare(actor: PlanActor, message: PlanMessage, facts: MessageFac
     if (projectId && projects.has(projectId) && !accessAllowsProject(access, projectId, channel)) problem('project_scope_denied');
     if ('attachment_ids' in item && item.attachment_ids?.some((id) => !ownAttachments.has(id))) problem('attachment_not_on_this_message');
     if ('reminder_id' in item && !reminders.has(item.reminder_id)) problem('reminder_not_on_this_conversation');
-    if (item.type === 'log_interaction' && !leads.has(item.lead_id)) problem('lead_not_found');
+    if (item.type === 'log_interaction' && salesOn && !leads.has(item.lead_id)) problem('lead_not_found');
     if (item.type === 'reply_owed' && item.point_id && !points.has(item.point_id)) problem('reply_point_not_on_this_conversation');
     if (item.type === 'revert_item') {
       const target = reverts.get(item.plan_item_id);
@@ -296,7 +304,11 @@ async function prepare(actor: PlanActor, message: PlanMessage, facts: MessageFac
         : task ? task.agentMade && !task.personTouched : undefined,
       teammateOwnReview: !!task && facts.speaker === 'teammate' && !!facts.senderMemberId && task.assignees.includes(facts.senderMemberId),
     };
-    const { decision, reason } = decideItem({ ...facts, suspicious: body.suspicious }, policyItem);
+    // A lead item with Leads switched off is recorded as skipped, so the plan
+    // still shows what the agent saw while nothing reaches the pipeline.
+    const { decision, reason }: { decision: Decision; reason: string } = leadsOff(access, item.type)
+      ? { decision: 'reject', reason: 'module_off' }
+      : decideItem({ ...facts, suspicious: body.suspicious }, policyItem);
     prepared.push({ item, projectId, taskId, decision, reason });
   });
   if (problems.length) {
@@ -324,6 +336,7 @@ async function link(actor: PlanActor, message: PlanMessage, taskId: string, rela
 /** Applies one item; returns what it did (ids created, values replaced) for undo. */
 export async function applyItem(actor: PlanActor, message: PlanMessage, item: PlanItemRequest, existing: Row = {}): Promise<Row> {
   const { db, memberId, access } = actor;
+  if (leadsOff(access, item.type)) throw moduleOff('sales');
   const owner = await ownerId(db);
   // A retry of this item: what an earlier try already did, and since when to look.
   const prior = (existing.result ?? {}) as Row;
@@ -530,6 +543,8 @@ export async function undoItem(actor: PlanActor, itemId: string): Promise<Row> {
   if (error) throw error;
   const item = row as unknown as Row & { type: string; state: string; result: Row; payload: Row; plan: { message_id: string } };
   if (!['done', 'accepted'].includes(item.state)) return { skipped: `not applied (${item.state})` };
+  // Undoing a lead item writes to Leads; with the module off it stays as it is.
+  if (leadsOff(actor.access, item.type)) return { skipped: 'module_off' };
   const result = item.result ?? {};
   const notes: Row = {};
   switch (item.type) {
@@ -957,6 +972,7 @@ export async function acceptItem(actor: PlanActor, itemId: string, edits: Partia
     throw new PlanError(409, 'CONFLICT', 'Only a waiting proposal can be accepted', { reason: 'not_pending', state: item.state });
   }
   const payload = { ...(item.payload as Row), ...edits } as PlanItemRequest;
+  if (leadsOff(actor.access, payload.type)) throw moduleOff('sales');
   await assertCanReach(actor, payload);
   // Claimed before it applies: of two accepts at once (two Adds, Add all twice),
   // only the one that moves it off pending applies it; the other is told so.

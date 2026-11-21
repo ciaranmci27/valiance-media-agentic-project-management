@@ -11,7 +11,7 @@ import { accessAllowsProject } from '@/lib/api/access';
 // point: declining a batch of sibling findings after approving one class-level
 // fix must not teach the auditing agent that the finding class was unwanted.
 export const POST = withApi(async ({ supabase, body, apiKeyId, teamMemberId, access }) => {
-  requireAgentsEnabled();
+  requireAgentsEnabled(access);
 
   const { ids } = body as { ids: string[] };
   const reviewedBy = teamMemberId || apiKeyId;

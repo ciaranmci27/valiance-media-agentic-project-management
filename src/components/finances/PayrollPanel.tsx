@@ -16,7 +16,7 @@ import { Button } from '@/components/ui/Button';
 import Modal from '@/components/ui/Modal';
 import { toast } from '@/components/ui/Toast';
 import { getWorkedHours } from '@/lib/time-entry-utils';
-import { hasPermission } from '@/lib/access-control';
+import { hasPermission, isModuleEnabled } from '@/lib/access-control';
 import { useAuth } from '@/lib/auth-context';
 import { useDemo } from '@/lib/demo-context';
 import { demoPayrollData } from '@/lib/demo-data';
@@ -93,6 +93,9 @@ export function PayrollPanel({ team, projects, reviewOnly = false }: { team: Tea
   const canManagePayouts = hasPermission(access, 'payouts.manage');
   const canManage = canManageCompensation || canManagePayouts;
   const canApprove = hasPermission(access, 'time.approve');
+  // With billing off, review is about hours alone: no pay, no rate needed,
+  // and no billing conversion to mention.
+  const isBillingEnabled = isModuleEnabled(access, 'billing');
   // Payroll is one cached read (reads.ts), shared with the store's earnings
   // and the compensation modal: a read already made paints at once.
   const [data, setData] = useState<PayrollData>(() => {
@@ -589,7 +592,9 @@ export function PayrollPanel({ team, projects, reviewOnly = false }: { team: Tea
         setSessionEntryId(null);
         toast(
           'success',
-          decision === 'approved' ? 'Session approved and converted' : 'Session rejected',
+          decision === 'approved'
+            ? isBillingEnabled ? 'Session approved and converted' : 'Session approved'
+            : 'Session rejected',
         );
       } catch (error) {
         toast('error', error instanceof Error ? error.message : 'Review failed');
@@ -849,7 +854,9 @@ export function PayrollPanel({ team, projects, reviewOnly = false }: { team: Tea
       <div className="px-5 py-4 flex flex-wrap items-center justify-between gap-3 border-b border-white/[0.06]">
         <div>
           <div className="flex items-center gap-2">
-            <WalletCards size={18} className="text-brand-300" />
+            {isBillingEnabled
+              ? <WalletCards size={18} className="text-brand-300" />
+              : <Clock3 size={18} className="text-brand-300" aria-hidden="true" />}
             <h2 className="font-semibold text-white">
               {reviewOnly ? 'Time review' : canManage ? 'Team compensation' : 'My earnings'}
             </h2>
@@ -924,12 +931,16 @@ export function PayrollPanel({ team, projects, reviewOnly = false }: { team: Tea
             <div className="space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <p className="text-xs text-zinc-400">
-                  {pending.length} submitted {pending.length === 1 ? 'entry' : 'entries'}. Approving
-                  makes the hours invoiceable
-                  {pending.some((entry) => agentMemberIds.has(entry.member_id))
-                    ? '; agent sessions convert on approval'
-                    : ''}
-                  .
+                  {pending.length} submitted {pending.length === 1 ? 'entry' : 'entries'}.
+                  {isBillingEnabled ? (
+                    <>
+                      {' '}Approving makes the hours invoiceable
+                      {pending.some((entry) => agentMemberIds.has(entry.member_id))
+                        ? '; agent sessions convert on approval'
+                        : ''}
+                      .
+                    </>
+                  ) : ' Approving accepts the hours as worked.'}
                 </p>
                 <div className="flex gap-2">
                   <Button
@@ -957,7 +968,7 @@ export function PayrollPanel({ team, projects, reviewOnly = false }: { team: Tea
                   // cost); their entries are approvable without one.
                   const isAgentEntry = agentMemberIds.has(entry.member_id);
                   const missingRate =
-                    !isAgentEntry && !hasEffectiveRate(entry.member_id, entry.start_time);
+                    isBillingEnabled && !isAgentEntry && !hasEffectiveRate(entry.member_id, entry.start_time);
                   return (
                     <Checkbox
                       key={entry.id}
@@ -1015,7 +1026,7 @@ export function PayrollPanel({ team, projects, reviewOnly = false }: { team: Tea
                                 {hours.toFixed(2)}
                                 <span className="ml-0.5 text-xs font-normal text-zinc-500">h</span>
                               </span>
-                              {!isAgentEntry && !missingRate && (
+                              {isBillingEnabled && !isAgentEntry && !missingRate && (
                                 <span className="block text-[11px] tabular-nums text-zinc-500">
                                   {money(hours * Number(entry.compensation_rate || 0))}
                                 </span>

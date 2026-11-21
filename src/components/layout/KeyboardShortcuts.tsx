@@ -3,21 +3,35 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import Modal from '@/components/ui/Modal';
+import { useAuth } from '@/lib/auth-context';
+import { isModuleEnabled } from '@/lib/access-control';
+import type { ModuleId } from '@/lib/modules/registry';
 
-const SHORTCUTS = [
+// A shortcut to a module's page works, and is listed, only while the module is on.
+const SHORTCUTS: { keys: string[]; description: string; module?: ModuleId }[] = [
   { keys: ['G', 'D'], description: 'Go to Dashboard' },
   { keys: ['G', 'P'], description: 'Go to Projects' },
-  { keys: ['G', 'L'], description: 'Go to Leads' },
-  { keys: ['G', 'C'], description: 'Go to Contacts' },
+  { keys: ['G', 'L'], description: 'Go to Leads', module: 'sales' },
+  { keys: ['G', 'C'], description: 'Go to Contacts', module: 'contacts' },
   { keys: ['G', 'T'], description: 'Go to Team' },
   { keys: ['G', 'S'], description: 'Go to Settings' },
   { keys: ['/'], description: 'Focus search' },
   { keys: ['?'], description: 'Show keyboard shortcuts' },
 ];
 
+const ROUTES: Record<string, { href: string; module?: ModuleId }> = {
+  d: { href: '/dashboard' },
+  p: { href: '/projects' },
+  l: { href: '/leads', module: 'sales' },
+  c: { href: '/contacts', module: 'contacts' },
+  t: { href: '/team' },
+  s: { href: '/settings/account' },
+};
+
 export function KeyboardShortcuts() {
   const router = useRouter();
   const pathname = usePathname();
+  const { access } = useAuth();
   const [showHelp, setShowHelp] = useState(false);
   const [pendingG, setPendingG] = useState(false);
 
@@ -69,18 +83,10 @@ export function KeyboardShortcuts() {
         setPendingG(false);
         if (gTimer) clearTimeout(gTimer);
 
-        const routes: Record<string, string> = {
-          d: '/dashboard',
-          p: '/projects',
-          l: '/leads',
-          c: '/contacts',
-          t: '/team',
-          s: '/settings/account',
-        };
-
-        if (routes[key] && pathname !== routes[key]) {
+        const route = ROUTES[key];
+        if (route && (!route.module || isModuleEnabled(access, route.module)) && pathname !== route.href) {
           e.preventDefault();
-          router.push(routes[key]);
+          router.push(route.href);
         }
         return;
       }
@@ -91,7 +97,7 @@ export function KeyboardShortcuts() {
       window.removeEventListener('keydown', handleKeyDown);
       if (gTimer) clearTimeout(gTimer);
     };
-  }, [pendingG, isInputFocused, router, pathname]);
+  }, [pendingG, isInputFocused, router, pathname, access]);
 
   return (
     <Modal
@@ -101,7 +107,7 @@ export function KeyboardShortcuts() {
       size="sm"
     >
       <div className="space-y-1">
-        {SHORTCUTS.map((shortcut) => (
+        {SHORTCUTS.filter((shortcut) => !shortcut.module || isModuleEnabled(access, shortcut.module)).map((shortcut) => (
           <div
             key={shortcut.description}
             className="flex items-center justify-between py-2 px-1"

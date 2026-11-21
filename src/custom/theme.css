@@ -1,0 +1,15 @@
+/*
+  This install's theme. Loaded right after core's src/app/globals.css, so
+  anything here overrides core's tokens and rules. Every design token is a CSS
+  variable, so override them on :root (and on [data-theme="light"] for the
+  light theme).
+
+  The brand colors, name and logos are not set here: an Owner sets them in
+  Settings > Workspace > Brand, so they reach emails and PDF invoices too. Use
+  this file for fonts and the surface variables, for example:
+
+    :root {
+      --font-sans: 'Inter', system-ui, sans-serif;
+      --color-copper: #c27c4e;
+    }
+*/

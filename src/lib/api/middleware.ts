@@ -5,9 +5,9 @@ import type { AccessContext, PermissionKey } from '@/lib/access-control';
 import { getActorClient, getServiceClient } from './supabase-service';
 import { hashApiKey } from './crypto';
 import { checkRateLimit } from './rate-limit';
-import { ApiError, unauthorized, forbidden, tooManyRequests, badRequest, notFound } from './errors';
+import { ApiError, unauthorized, forbidden, tooManyRequests, badRequest, notFound, moduleOff } from './errors';
 import { errorResponse } from './response';
-import { accessAllows, accessAllowsProject, resolveMemberAccess } from './access';
+import { accessAllows, accessAllowsProject, moduleOffFor, resolveMemberAccess } from './access';
 import { apiRequestContext } from './request-context';
 import { liveTaskIds } from './task-guards';
 import { afterResponse } from './after-response';
@@ -200,6 +200,10 @@ export function withApi<TBody = unknown, TParams = Record<string, string>>(
       const grantedPermission = requiredPermissions.find((permission) =>
         scopes.includes(permission) && accessAllows(access, permission, 'api'));
       if (!grantedPermission) {
+        // A switched-off module is not a grant problem: no scope or role fixes
+        // it, so say so before naming what to grant.
+        const offModule = moduleOffFor(access, requiredPermissions);
+        if (offModule) throw moduleOff(offModule);
         // Authorization is two-factor: a permission must be on BOTH the API key's
         // scopes AND the linked member's api_permissions. Report which side is
         // missing so the caller knows where to grant access, not just what.

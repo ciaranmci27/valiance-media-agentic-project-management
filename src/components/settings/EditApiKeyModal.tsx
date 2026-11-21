@@ -6,6 +6,9 @@ import { Button } from '@/components/ui/Button';
 import { TextInput } from '@/components/ui/inputs/TextInput';
 import { toast } from '@/components/ui/Toast';
 import { useApp } from '@/lib/store';
+import { useAuth } from '@/lib/auth-context';
+import { isModuleEnabled } from '@/lib/access-control';
+import { moduleOfPermission } from '@/lib/modules/registry';
 import type { ApiKey } from '@/lib/types';
 import { ApiScopePicker } from './ApiScopePicker';
 
@@ -27,6 +30,14 @@ const sameSet = (a: readonly string[], b: readonly string[]) =>
  */
 export function EditApiKeyModal({ apiKey, memberName, onClose }: EditApiKeyModalProps) {
   const { updateApiKey } = useApp();
+  const { access } = useAuth();
+  // A scope of a switched-off module stays on the key, out of sight: the
+  // picker neither lists it nor asks to untick it, and a save carries it as is,
+  // so it works again when the module comes back.
+  const parked = (scope: string) => {
+    const mod = moduleOfPermission(scope);
+    return mod !== 'core' && !isModuleEnabled(access, mod);
+  };
   const [base, setBase] = useState<ApiKey | null>(null);
   const [available, setAvailable] = useState<string[] | null>(null);
   const [name, setName] = useState('');
@@ -81,8 +92,8 @@ export function EditApiKeyModal({ apiKey, memberName, onClose }: EditApiKeyModal
     if (!base || !available) return;
     const trimmed = name.trim();
     if (!trimmed) return setError('Name is required.');
-    if (scopes.length === 0) return setError('Choose at least one scope.');
-    const unheld = scopes.filter((scope) => !available.includes(scope));
+    if (scopes.filter((scope) => !parked(scope)).length === 0) return setError('Choose at least one scope.');
+    const unheld = scopes.filter((scope) => !available.includes(scope) && !parked(scope));
     if (unheld.length > 0) return setError(`Untick scopes that are no longer allowed: ${unheld.join(', ')}.`);
 
     const changes: { name?: string; scopes?: string[] } = {};
@@ -129,10 +140,12 @@ export function EditApiKeyModal({ apiKey, memberName, onClose }: EditApiKeyModal
         {available ? (
           <ApiScopePicker
             available={available}
-            selected={scopes}
-            onChange={setScopes}
+            selected={scopes.filter((scope) => !parked(scope))}
+            onChange={(next) => setScopes([...next, ...scopes.filter(parked)])}
             hint={hint}
-            note="Changes apply to the existing key; the secret stays the same."
+            note={scopes.some(parked)
+              ? 'Changes apply to the existing key; the secret stays the same. Scopes for switched-off features are kept and hidden.'
+              : 'Changes apply to the existing key; the secret stays the same.'}
             emptyText="No API scopes are enabled for this key's member."
           />
         ) : (

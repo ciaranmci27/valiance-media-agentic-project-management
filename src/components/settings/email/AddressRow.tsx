@@ -63,7 +63,7 @@ export const addressLayout = (showInbox: boolean): AddressLayout => (showInbox ?
 /**
  * An address that wraps after its "@" (ciaran@ / plan4thefuture.com) rather
  * than mid-word; with atDots, also after a dot in its domain, for a long
- * relay address beside a copy button (p4tf@relay. / valiancemedia.com).
+ * relay address beside a copy button (p4tf@relay. / example.com).
  */
 export function WrappingAddress({ value, atDots = false }: { value: string; atDots?: boolean }) {
   const at = value.lastIndexOf('@');

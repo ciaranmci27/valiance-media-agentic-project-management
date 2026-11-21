@@ -33,7 +33,7 @@ import { Avatar } from '@/components/ui/Avatar';
 import { PayrollPanel } from '@/components/finances/PayrollPanel';
 import { EmployeeEarningsDashboard } from '@/components/finances/EmployeeEarningsDashboard';
 import { useAuth } from '@/lib/auth-context';
-import { hasPermission } from '@/lib/access-control';
+import { hasPermission, isModuleEnabled } from '@/lib/access-control';
 import type { EmployeeEarningsData } from '@/lib/types';
 import { toLocalDateKey } from '@/lib/date-utils';
 
@@ -531,6 +531,8 @@ export default function FinancesPage() {
   const { access, teamMemberId } = useAuth();
   const canReadCompanyFinance = hasPermission(access, 'finance.company.read');
   const canReadOwnEarnings = hasPermission(access, 'earnings.own.read');
+  // Agent cost and the AI agents lens belong to the agents module.
+  const isAgentsEnabled = isModuleEnabled(access, 'agents');
   const currentMember = team.find(member => member.id === teamMemberId);
   const preferredTimezone = currentMember?.timezone && currentMember.timezone !== 'UTC'
     ? currentMember.timezone
@@ -756,12 +758,12 @@ export default function FinancesPage() {
   // never assigned to one project; agent rows then report cost as not
   // tracked instead of a misleading number.
   const agentUsageCostByMember = useMemo(() => {
-    if (sourceFilter === 'company' || selectedProjectIds.size > 0) return undefined;
+    if (!isAgentsEnabled || sourceFilter === 'company' || selectedProjectIds.size > 0) return undefined;
     return trackedAgentUsageCostByMember(computeAgentAnalytics({
       activities: agentActivity, timeEntries, team, projects, range, now,
       timezone: preferredTimezone,
     }));
-  }, [agentActivity, timeEntries, team, projects, range, now, preferredTimezone, selectedProjectIds, sourceFilter]);
+  }, [isAgentsEnabled, agentActivity, timeEntries, team, projects, range, now, preferredTimezone, selectedProjectIds, sourceFilter]);
 
   // Cost and contribution for the active source's Overview strip. Earned and
   // hours come from the sourceData engine pass so strip and chart agree.
@@ -1141,6 +1143,21 @@ export default function FinancesPage() {
     // time.approve is its own grant: a reviewer without company finance still
     // gets the review queue here, and no company figures.
     const canReviewTime = hasPermission(access, 'time.approve');
+    // With billing off there is no money to show: the page is time approvals
+    // alone, named for them (the sidebar calls it Time too).
+    if (!isModuleEnabled(access, 'billing')) {
+      const hasReviewableTeam = team.some(member => member.role !== 'owner' && member.id !== teamMemberId);
+      return (
+        <div className="animate-fadeIn min-h-screen">
+          <Header title="Time" subtitle={<span className="hidden sm:inline">Hours your team submits, for you to approve.</span>} />
+          <div className="p-4 lg:p-6 space-y-4 lg:space-y-6">
+            {hasReviewableTeam
+              ? <PayrollPanel team={team} projects={projects} reviewOnly />
+              : <div className="rounded-xl border border-white/[0.08] bg-surface-raised p-8 text-center text-sm text-zinc-400">Hours your team submits will appear here for review.</div>}
+          </div>
+        </div>
+      );
+    }
     return (
       <div className="animate-fadeIn min-h-screen">
         <Header title="My earnings" subtitle={<span className="hidden sm:inline">Your hours, rates, and payouts.</span>} />
@@ -1382,9 +1399,10 @@ export default function FinancesPage() {
                 strip. Same compact pattern as the date and project dropdowns. */}
             {(() => {
               const members = team
-                .filter(m => m.role !== 'guest' && m.status !== 'suspended')
+                .filter(m => m.role !== 'guest' && m.status !== 'suspended' && (isAgentsEnabled || m.role !== 'agent'))
                 .slice()
                 .sort((a, b) => a.name.localeCompare(b.name));
+              const sourceOptions = isAgentsEnabled ? SOURCE_OPTIONS : SOURCE_OPTIONS.filter(o => o.value !== 'agent');
               const buttonLabel = sourceFilter === 'member'
                 ? (team.find(m => m.id === sourceMemberId)?.name ?? 'Contributor')
                 : (SOURCE_OPTIONS.find(o => o.value === sourceFilter)?.label ?? 'Company');
@@ -1413,7 +1431,7 @@ export default function FinancesPage() {
                       <span className="text-[10px] uppercase tracking-wider font-semibold text-zinc-400">Earnings source</span>
                     </div>
                     <div className="p-1">
-                      {SOURCE_OPTIONS.map(opt => {
+                      {sourceOptions.map(opt => {
                         const active = sourceFilter === opt.value;
                         return (
                           <button

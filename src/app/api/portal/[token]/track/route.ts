@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { PORTAL_EVENT_TYPES, type PortalEventType } from '@/lib/types';
 import { recordPortalEvent, isValidUuid } from '@/lib/portal-analytics';
 import { checkPortalPin, pinFailureResponse } from '@/lib/portal-pin';
+import { enabledModuleSet } from '@/lib/modules/server';
 
 export const dynamic = 'force-dynamic';
 
@@ -114,6 +115,12 @@ export async function POST(
   }
 
   const supabase = getServiceClient();
+
+  // With the Client portal switched off every link answers like an unknown one.
+  const modules = await enabledModuleSet(supabase);
+  if (!modules.has('portal')) {
+    return NextResponse.json({ error: 'Portal not found' }, { status: 404 });
+  }
 
   // Resolve the portal so we know which project + settings row to attribute
   // the event to. PIN check matches the rest of the portal API: the same

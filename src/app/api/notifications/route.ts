@@ -11,6 +11,7 @@ import {
 } from '@/lib/api/access';
 import { sendTransactional } from '@/lib/email/send-mail';
 import { buildNotificationEmail } from '@/lib/email/templates/team/notification';
+import { getBrand } from '@/lib/brand/server';
 
 export const dynamic = 'force-dynamic';
 
@@ -189,6 +190,7 @@ export async function POST(req: NextRequest) {
   let emailed = 0;
   if (emailable.length > 0) {
     const { html, text } = buildNotificationEmail({
+      brand: await getBrand(),
       title: body.title,
       message: body.message,
       link: body.link,

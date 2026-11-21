@@ -3,6 +3,8 @@
 import type { InboxLink } from '@/components/inbox/InboxView';
 import { useState } from 'react';
 import { ExternalLink, Route } from 'lucide-react';
+import { useAuth } from '@/lib/auth-context';
+import { isModuleEnabled } from '@/lib/access-control';
 import { ProjectEmailsPanel } from '@/components/inbox/ProjectEmailsPanel';
 import { ProjectEmailRoutingModal } from '@/components/inbox/ProjectEmailRoutingModal';
 import { CommunicationHistory } from './ClientCommunicationsLogPanel';
@@ -18,7 +20,8 @@ interface CommunicationTabProps {
   onViewChange: (view: CommunicationView) => void;
   canReadInbox: boolean;
   canReadSent: boolean;
-  onOpenPortal: () => void;
+  /** Absent when the viewer cannot open the Client portal tab. */
+  onOpenPortal?: () => void;
   /** A link into the inbox from elsewhere in the project: a thread to open, or a task to filter by. */
   emailLink?: InboxLink;
 }
@@ -28,6 +31,9 @@ interface CommunicationTabProps {
  * went out (Sent), with the sending tools and alert automation beside it.
  */
 export function CommunicationTab({ projectId, view, onViewChange, canReadInbox, canReadSent, onOpenPortal, emailLink }: CommunicationTabProps) {
+  const { access } = useAuth();
+  // Budget alerts are portal settings about a budget, so they need both.
+  const showAutomation = isModuleEnabled(access, 'portal') && isModuleEnabled(access, 'billing');
   const [routingOpen, setRoutingOpen] = useState(false);
   const [sentRefresh, setSentRefresh] = useState(0);
   // Each view keeps its own search, so switching back finds it as it was.
@@ -71,9 +77,13 @@ export function CommunicationTab({ projectId, view, onViewChange, canReadInbox, 
 
       {canReadSent && kept.has('sent') && (
         <div hidden={active !== 'sent'}>
-          <RailLayout rail={<CommunicationAutomationCard projectId={projectId} onOpenPortal={onOpenPortal} />}>
+          {showAutomation ? (
+            <RailLayout rail={<CommunicationAutomationCard projectId={projectId} onOpenPortal={onOpenPortal} />}>
+              <CommunicationHistory projectId={projectId} refreshSignal={sentRefresh} query={sentQuery} />
+            </RailLayout>
+          ) : (
             <CommunicationHistory projectId={projectId} refreshSignal={sentRefresh} query={sentQuery} />
-          </RailLayout>
+          )}
         </div>
       )}
 

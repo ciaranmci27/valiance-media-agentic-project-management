@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { fetchAllRows } from './fetch-all';
+import type { ModuleId } from '@/lib/modules/registry';
 
 /**
  * Records are never permanently deleted: "delete" moves one to Trash and
@@ -17,6 +18,34 @@ export const TRASH_TABLES = [
 ] as const;
 
 export type TrashTable = (typeof TRASH_TABLES)[number];
+
+/**
+ * The module each Trash table belongs to. A `Record`, so a new Trash table
+ * does not compile until it is placed. Trash hides rows of a switched-off
+ * module; they stay in Trash and show again when it is back on.
+ */
+export const TRASH_TABLE_MODULE: Record<TrashTable, ModuleId | 'core'> = {
+  projects: 'core',
+  tasks: 'core',
+  task_comments: 'core',
+  reminders: 'core',
+  project_credentials: 'credentials',
+  entity_files: 'core',
+  portal_updates: 'portal',
+  portal_update_attachments: 'portal',
+  contacts: 'contacts',
+  leads: 'sales',
+  lead_interactions: 'sales',
+  lead_proposals: 'sales',
+  lead_fields: 'sales',
+  project_time_entries: 'time',
+  project_invoices: 'billing',
+  invoice_payments: 'billing',
+  project_hourly_rates: 'billing',
+  project_retainers: 'billing',
+  project_retainer_amounts: 'billing',
+  task_files: 'core',
+};
 
 export type TrashErrorReason = 'not_found' | 'forbidden' | 'blocked' | 'invalid';
 

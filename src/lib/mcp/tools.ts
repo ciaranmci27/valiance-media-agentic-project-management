@@ -655,6 +655,8 @@ export const PM_TOOLS: PmTool[] = [
       entity_id: id('entity_id').nullable().optional(),
     }).strict(),
     permission: 'notifications.send',
+    // The agent-to-owner channel: the route answers only with AI agents on.
+    module: 'agents',
     method: 'POST',
     path: '/api/v1/notifications',
     request: (body) => ({ body: { ...body, audience: 'owner' } }),
@@ -726,6 +728,7 @@ export const PM_TOOLS: PmTool[] = [
       page, limit: limit(25),
     }).strict(),
     permission: 'audit.read',
+    module: 'agents',
     method: 'GET',
     path: '/api/v1/agent-activities',
     request: (args) => ({ query: args }),

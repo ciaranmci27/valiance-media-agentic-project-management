@@ -1,10 +1,13 @@
 import type { Metadata } from 'next';
-import { siteConfig } from '@/site-config';
+import { getBrand } from '@/lib/brand/server';
 
-export const metadata: Metadata = {
-  title: `${siteConfig.name} | API Documentation`,
-  description: `REST API documentation for ${siteConfig.name}. Manage projects, tasks, leads, contacts, and more via authenticated API endpoints.`,
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const brand = await getBrand();
+  return {
+    title: `${brand.name} | API Documentation`,
+    description: `REST API documentation for ${brand.name}. Manage projects, tasks, leads, contacts, and more via authenticated API endpoints.`,
+  };
+}
 
 export default function ApiDocsLayout({ children }: { children: React.ReactNode }) {
   // Docs are always light and authored against the standard palette. data-theme="dark"

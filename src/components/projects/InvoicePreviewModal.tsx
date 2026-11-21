@@ -3,6 +3,7 @@
 import { useMemo } from 'react';
 import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
+import { useBrand } from '@/lib/brand/context';
 import { buildInvoiceData } from '@/lib/invoice-pdf/buildInvoiceData';
 import { InvoicePdfIntegrityError } from '@/lib/invoice-pdf/resolveInvoicePdfBilling';
 import { DEFAULT_INVOICE_PDF_OPTIONS, type InvoicePdfOptions } from '@/lib/invoice-pdf/types';
@@ -18,6 +19,7 @@ export function InvoicePreviewModal({ invoiceId, onClose }: InvoicePreviewModalP
     projectInvoices, getProject, getPrimaryClient, getContact, getPortalSettings,
     businessSettings, updateProject, team, getTimeEntriesByProject,
   } = useApp();
+  const brand = useBrand();
   const { teamMemberId } = useAuth();
   const currentMember = team.find(m => m.id === teamMemberId);
   const senderName = currentMember?.name ?? '';
@@ -75,8 +77,7 @@ export function InvoicePreviewModal({ invoiceId, onClose }: InvoicePreviewModalP
           businessSettings,
           senderName,
           options,
-          logoUrl: typeof window !== 'undefined' ? `${window.location.origin}/logos/logo.png` : '/logos/logo.png',
-          logoDarkUrl: typeof window !== 'undefined' ? `${window.location.origin}/logos/logo-dark.png` : '/logos/logo-dark.png',
+          brand,
           portalUrl,
           timeEntries,
           projectInvoices: projectInvoiceRows,
@@ -92,7 +93,7 @@ export function InvoicePreviewModal({ invoiceId, onClose }: InvoicePreviewModalP
           : 'The PDF could not be verified against the invoice billing data.',
       };
     }
-  }, [invoice, project, primaryContact, businessSettings, senderName, options, portalUrl, timeEntries, projectInvoiceRows, team]);
+  }, [invoice, project, primaryContact, businessSettings, senderName, options, brand, portalUrl, timeEntries, projectInvoiceRows, team]);
   const pdfData = pdfResult.data;
 
   const clientLabel = pdfData?.billTo.company || pdfData?.billTo.name || 'Client';

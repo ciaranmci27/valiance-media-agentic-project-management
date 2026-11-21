@@ -20,6 +20,8 @@ import { useRetainerFinanceInputs } from '@/lib/finance/use-retainer-finance';
 import { toDateKey } from '@/lib/finance/vesting';
 import { isRunning } from '@/lib/time-entry-utils';
 import { activityAfterName, teamActivityHref } from '@/lib/team-activity';
+import { WorkspaceSetupCard } from '@/components/settings/workspace/WorkspaceSetupCard';
+import { useCustomDashboardWidgets } from '@/lib/extensions/hooks';
 
 const fmtMoney = (n: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n);
@@ -46,6 +48,36 @@ function getTimeAgo(dateStr: string): string {
   const diffDays = Math.floor(diffHours / 24);
   if (diffDays < 7) return `${diffDays}d ago`;
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
+/**
+ * The install's Dashboard cards in the page's own card: the same glass, the
+ * same header as Recent Activity. Half cards pair up from lg; a lone half card
+ * keeps its width.
+ */
+function CustomWidgets({ placement }: { placement: 'top' | 'bottom' }) {
+  const widgets = useCustomDashboardWidgets(placement);
+  if (!widgets.length) return null;
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 lg:gap-6">
+      {widgets.map(({ key, title, icon: Icon, href, size, component: Body }) => (
+        <section key={key} className={`${size === 'half' ? '' : 'lg:col-span-2'} glass-card rounded-xl overflow-hidden min-w-0`}>
+          <div className="flex items-center gap-2 p-4 border-b border-white/[0.06]">
+            {Icon && <Icon size={16} className="text-zinc-400" aria-hidden="true" />}
+            <h2 className="font-semibold text-white flex-1 min-w-0 truncate">{title}</h2>
+            {href && (
+              <Link href={href} aria-label={`Open ${title}`} className="text-zinc-500 hover:text-zinc-300 transition-colors">
+                <ArrowRight size={16} />
+              </Link>
+            )}
+          </div>
+          <div className="p-4 lg:p-5">
+            <Body />
+          </div>
+        </section>
+      ))}
+    </div>
+  );
 }
 
 export default function DashboardPage() {
@@ -180,6 +212,13 @@ export default function DashboardPage() {
         ...(canViewContacts && !canViewLeads ? [{ label: 'Contacts', value: contacts.length, icon: Users, context: `${contacts.length} total` } as Kpi] : []),
       ];
 
+  // The tiles fill one row on desktop whatever the switched-on modules leave
+  // (three or four), so a module that is off never leaves a hole.
+  const kpiCols = kpis.length <= 3 ? 'lg:grid-cols-3' : 'lg:grid-cols-4';
+  // Without the pipeline beside it the Activity chart takes the whole row,
+  // rather than repeating Quick Actions from the rail below.
+  const showPipeline = canViewLeads && leads.length > 0;
+
   const pipelineStages = [
     { status: 'new', label: 'New', color: '#3F6767' },
     { status: 'contacted', label: 'Contacted', color: '#4A7171' },
@@ -212,8 +251,11 @@ export default function DashboardPage() {
       />
 
       <div className="p-4 lg:p-6 space-y-5 lg:space-y-6">
+        {/* First-run setup: Owners on a fresh install only. */}
+        <WorkspaceSetupCard />
+
         {/* KPI tiles */}
-        <div className="flex overflow-x-auto gap-3 lg:grid lg:grid-cols-4 lg:gap-4 -mx-4 px-4 lg:mx-0 lg:px-0 scrollbar-none">
+        <div className={`flex overflow-x-auto gap-3 lg:grid ${kpiCols} lg:gap-4 -mx-4 px-4 lg:mx-0 lg:px-0 scrollbar-none`}>
           {kpis.map((kpi) => (
             <div key={kpi.label} className="min-w-[180px] flex-shrink-0 lg:min-w-0 glass-card rounded-xl p-4 lg:p-5">
               <div className="flex items-start justify-between">
@@ -234,6 +276,9 @@ export default function DashboardPage() {
             </div>
           ))}
         </div>
+
+        {/* The install's own cards placed at the top (src/custom). */}
+        <CustomWidgets placement="top" />
 
         {/* Overdue alert */}
         {overdue.length > 0 && (
@@ -272,7 +317,7 @@ export default function DashboardPage() {
 
         {/* Activity chart + Leads pipeline */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-6">
-          <div className="lg:col-span-2 glass-card rounded-xl p-4 lg:p-5">
+          <div className={`${showPipeline ? 'lg:col-span-2' : 'lg:col-span-3'} glass-card rounded-xl p-4 lg:p-5`}>
             <div className="flex items-start justify-between">
               <div>
                 <h2 className="font-semibold text-white">Activity</h2>
@@ -307,7 +352,7 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {canViewLeads && leads.length > 0 ? (
+          {showPipeline && (
             <div className="glass-card rounded-xl p-4 lg:p-5">
               <div className="flex items-center justify-between">
                 <div>
@@ -329,14 +374,6 @@ export default function DashboardPage() {
                     <span className="font-semibold text-white tabular-nums">{s.count}</span>
                   </div>
                 ))}
-              </div>
-            </div>
-          ) : (
-            <div className="glass-card rounded-xl p-4 lg:p-5">
-              <h2 className="font-semibold text-white mb-4">Quick Actions</h2>
-              <div className="space-y-2">
-                {canManageProjects && <Link href="/projects?new=true" className="flex items-center gap-3 p-3 rounded-lg bg-white/[0.03] text-zinc-300 hover:bg-white/[0.06] transition-colors"><Plus size={18} /><span className="font-medium text-sm">New Project</span></Link>}
-                {canViewTeam && <Link href="/team" className="flex items-center gap-3 p-3 rounded-lg bg-white/[0.03] text-zinc-300 hover:bg-white/[0.06] transition-colors"><Users size={18} /><span className="font-medium text-sm">{hasPermission(access, 'team.manage') ? 'Manage Team' : 'View Team'}</span></Link>}
               </div>
             </div>
           )}
@@ -452,7 +489,7 @@ export default function DashboardPage() {
               {activities.slice(0, 10).map((activity) => {
                 const member = activity.user_id ? getTeamMember(activity.user_id) : undefined;
                 const name = member?.name || 'Someone';
-                const href = teamActivityHref(activity);
+                const href = teamActivityHref(activity, access);
                 const body = (
                   <>
                     <Avatar name={name} src={member?.avatar || undefined} size="sm" />
@@ -477,6 +514,9 @@ export default function DashboardPage() {
             </div>
           </div>
         )}
+
+        {/* The install's own cards (src/custom), at the end by default. */}
+        <CustomWidgets placement="bottom" />
       </div>
 
       {/* Project Picker Modal */}

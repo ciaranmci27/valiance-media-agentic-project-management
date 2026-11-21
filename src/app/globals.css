@@ -15,8 +15,9 @@
   A refined, near-black interface with subtle frosted-glass
   surfaces and a quiet brand-teal glow reserved for interactive
   and active states. All glow/tint colors derive from the brand
-  scale via color-mix(), so re-theming is a one-file change in
-  site-config.ts (ThemeProvider injects --color-brand-* at runtime).
+  scale via color-mix(), so re-theming needs no code: an Owner
+  picks the brand color in Settings > Workspace > Brand, and ThemeProvider
+  injects --color-brand-* at runtime.
   ─────────────────────────────────────────────────────────────
 */
 
@@ -24,7 +25,7 @@
   --font-sans: var(--font-dm-sans), 'DM Sans', system-ui, sans-serif;
   --font-mono: var(--font-dm-mono), 'DM Mono', monospace;
 
-  /* Brand color scale ; defaults match site-config.ts (teal); ThemeProvider overrides at runtime */
+  /* Brand color scale ; defaults match DEFAULT_BRAND in src/lib/brand/defaults.ts (teal); ThemeProvider overrides at runtime */
   --color-brand-50: #f0f5f5;
   --color-brand-100: #d9e6e6;
   --color-brand-200: #b3cccc;
@@ -907,19 +908,23 @@ a.bg-brand-500 {
 
 /* ── Brand loader ────────────────────────────────────────
    The one loading screen, shared by the app shell and the client portal
-   (components/ui/BrandLoader.tsx): the emblem cropped out of the lockup, a
+   (components/ui/BrandLoader.tsx): the workspace's logo (or its name), a
    hairline orbit with a quarter turn of brand light going round, and a status
-   line beneath that advances through a short sequence. Which lockup shows
+   line beneath that advances through a short sequence. Which logo shows
    follows the nearest data-theme through inherited variables, so a portal
    pinned dark inside a light-themed document still gets the dark mark. */
 :root,
 [data-theme='dark'] {
   --loader-mark-dark: block;
   --loader-mark-light: none;
+  --loader-name-dark: -webkit-box;
+  --loader-name-light: none;
 }
 [data-theme='light'] {
   --loader-mark-dark: none;
   --loader-mark-light: block;
+  --loader-name-dark: none;
+  --loader-name-light: -webkit-box;
 }
 
 .brand-loader {
@@ -989,24 +994,56 @@ a.bg-brand-500 {
   }
 }
 
-/* The round window the emblem is cropped through; the image inside is
-   positioned by the component from the emblem's measured place in the file. */
+/* The round window inside the orbit. The uploaded logo fits inside it at any
+   shape, inset so a wide lockup's corners stay clear of the circle's edge. */
 .brand-splash-mark {
   position: relative;
+  display: grid;
+  place-items: center;
   width: 5.25rem;
   height: 5.25rem;
   border-radius: 50%;
   overflow: hidden;
 }
+.brand-splash-mark > * {
+  grid-area: 1 / 1;
+}
 .brand-splash-mark-img {
-  position: absolute;
-  max-width: none;
+  width: 100%;
+  height: 100%;
+  padding: 12%;
+  object-fit: contain;
+}
+.brand-splash-mark-img.is-mark {
+  padding: 0;
 }
 .brand-splash-mark-img.is-dark {
   display: var(--loader-mark-dark, block);
 }
 .brand-splash-mark-img.is-light {
   display: var(--loader-mark-light, none);
+}
+/* With no logo uploaded: the name, cut at two short lines (line-clamp
+   needs the -webkit-box display the theme variables carry). */
+.brand-splash-mark-name {
+  max-width: 100%;
+  padding: 0 0.5rem;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  color: rgba(var(--ink), 0.9);
+  overflow-wrap: anywhere;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.brand-splash-mark-name.is-dark {
+  display: var(--loader-name-dark, -webkit-box);
+}
+.brand-splash-mark-name.is-light {
+  display: var(--loader-name-light, none);
 }
 
 /* The status sequence: outgoing and incoming lines in one grid cell. */
@@ -1148,3 +1185,6 @@ a.bg-brand-500 {
 .no-scrollbar::-webkit-scrollbar {
   display: none;
 }
+
+/* The install's own theme, src/custom/theme.css, loads after this file (see
+   src/app/layout.tsx), so its variables and rules override the ones above. */

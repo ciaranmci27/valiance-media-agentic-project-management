@@ -16,7 +16,7 @@ import { useTaskWarmer } from '@/lib/reads';
 import { useTaskFileCount } from './task-file-counts';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { parseDateOnly, isDateOverdue } from '@/lib/date-utils';
-import { hasPermission, canEditTask, canManageAllTasks } from '@/lib/access-control';
+import { hasPermission, canEditTask, canManageAllTasks, isModuleEnabled } from '@/lib/access-control';
 
 /**
  * The ONE column template the list header and every row share. The old
@@ -52,7 +52,7 @@ export function TaskRow({ task, onView, onDelete }: TaskRowProps) {
   const fileCount = useTaskFileCount(task.id);
   const menuBtnRef = useRef<HTMLButtonElement>(null);
 
-  const isAgentsEnabled = process.env.NEXT_PUBLIC_ENABLE_AGENTS === 'true';
+  const isAgentsEnabled = isModuleEnabled(access, 'agents');
   const canManageAgents = hasPermission(access, 'agents.manage');
 
   const assignees = team.filter(m => task.assignee_ids.includes(m.id));
@@ -235,7 +235,7 @@ export function TaskRowDesktop({ task, onView, onDelete, selected, onToggleSelec
   const fileCount = useTaskFileCount(task.id);
   const menuBtnRef = useRef<HTMLButtonElement>(null);
 
-  const isAgentsEnabled = process.env.NEXT_PUBLIC_ENABLE_AGENTS === 'true';
+  const isAgentsEnabled = isModuleEnabled(access, 'agents');
   const canManageAgents = hasPermission(access, 'agents.manage');
 
   const assignees = team.filter(m => task.assignee_ids.includes(m.id));

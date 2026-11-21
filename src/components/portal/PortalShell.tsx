@@ -2,14 +2,15 @@
 
 import type { ReactNode } from 'react';
 import { Logo } from '@/components/ui/Logo';
-import { siteConfig } from '@/site-config';
+import { useBrand } from '@/lib/brand/context';
 
 /** The stage every band of the portal sits on, as wide as the website's. */
 export const STAGE = 'mx-auto w-full max-w-[1320px] px-5 sm:px-8';
 
 /**
- * The element carrying `.vm`. The portal is Valiance teal for every client:
- * the brand is the vibe, the project name is the identity.
+ * The element carrying `.vm`. The portal wears the workspace's brand color
+ * (or the project's accent): the brand is the vibe, the project name is the
+ * identity.
  */
 export function PortalRoot({
   children,
@@ -99,11 +100,12 @@ export function PortalHeader({
 }
 
 export function PortalFooter() {
+  const brand = useBrand();
   return (
     <footer className={`${STAGE} pb-10 pt-16 sm:pt-20`}>
       <div className="vm-hr" aria-hidden="true" />
       <div className="mt-6 flex flex-col gap-2 text-[13px] sm:flex-row sm:items-center sm:justify-between">
-        <span className="vm-mono vm-faint">Prepared by {siteConfig.name}</span>
+        <span className="vm-mono vm-faint">Prepared by {brand.name}</span>
         <span className="vm-faint">Questions? Reply to any email from us.</span>
       </div>
     </footer>

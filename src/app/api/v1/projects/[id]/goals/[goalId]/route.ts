@@ -1,7 +1,6 @@
 import { withApi } from '@/lib/api/middleware';
 import { success } from '@/lib/api/response';
 import { updateGoalSchema } from '@/lib/schemas';
-import { requireAgentsEnabled } from '@/lib/api/agents';
 import { notFound } from '@/lib/api/errors';
 import { patchGoal, archiveGoal } from '@/lib/supabase/queries';
 import { logAudit } from '@/lib/api/audit';
@@ -39,7 +38,6 @@ export const GET = withApi<unknown, { id: string; goalId: string }>(async ({ sup
 });
 
 export const PATCH = withApi<any, { id: string; goalId: string }>(async ({ supabase, params, body, apiKeyId, teamMemberId }) => {
-  requireAgentsEnabled();
 
   const { data: before } = await supabase
     .from('project_goals')
@@ -68,7 +66,6 @@ export const PATCH = withApi<any, { id: string; goalId: string }>(async ({ supab
 }, { schema: updateGoalSchema });
 
 export const DELETE = withApi<unknown, { id: string; goalId: string }>(async ({ supabase, params, apiKeyId, teamMemberId }) => {
-  requireAgentsEnabled();
 
   const { data: before } = await supabase
     .from('project_goals')

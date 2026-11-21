@@ -85,8 +85,9 @@ export interface InvoicePdfTimeLogEntry {
 export interface InvoicePdfData {
   // Branding
   brandColor: string;
-  logoUrl: string;
-  /** The lockup drawn for dark chrome, used on the dark canvas. Falls back to logoUrl. */
+  /** The workspace's logo for light backgrounds, or null with none uploaded (the masthead shows the business name). */
+  logoUrl: string | null;
+  /** The logo drawn for dark backgrounds, used on the dark canvas. Falls back to logoUrl. */
   logoDarkUrl: string | null;
 
   // From (workspace business identity)

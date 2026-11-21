@@ -5,7 +5,7 @@ import * as THREE from 'three';
 import { Canvas, useFrame, useStore, useThree } from '@react-three/fiber';
 import { Stats } from '@react-three/drei';
 import { EffectComposer, Bloom, Vignette, Noise, N8AO, SMAA } from '@react-three/postprocessing';
-import { STATIONS, PALETTE, type CrewState, type Mood } from './scene/crew';
+import { STATIONS, PALETTE, useScenePalette, type CrewState, type Mood } from './scene/crew';
 import { useCrewData } from './scene/useCrewData';
 import { Room } from './scene/Room';
 import { ReflectionProbe } from './scene/ReflectionProbe';
@@ -151,6 +151,7 @@ function SceneContent({
   // impure for exactly this reason.) The rig already runs every frame and
   // already tracks the celebration clock, so it applies the window there.
   const preset = QUALITY_PRESETS[settings.quality];
+  const palette = useScenePalette();
   const keyLightRef = useRef<THREE.DirectionalLight>(null);
   const showStats = useMemo(
     () => typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('stats'),
@@ -337,7 +338,7 @@ function SceneContent({
       {/* Brand cove wash on the left wall. x kept at the same 0.6-unit offset
           from the wall as before, now measured from the new leftX=-6 (was
           -7.6) after the room was squared up. */}
-      <pointLight position={[-5.4, 0.5, -0.5]} intensity={3} distance={6} decay={2} color={PALETTE.brand} />
+      <pointLight position={[-5.4, 0.5, -0.5]} intensity={3} distance={6} decay={2} color={palette.brand} />
       {/* Warm bounce from the lounge lamp, so the right side is not dead. x
           tracks the lamp's own position (see `lampRoundFloor` in Room.tsx),
           which moved the same 1.6 units inward as the rest of the lounge set. */}

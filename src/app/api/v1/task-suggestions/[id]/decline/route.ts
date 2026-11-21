@@ -12,7 +12,7 @@ import { accessAllowsProject } from '@/lib/api/access';
 // task) without teaching the auditing agent that the finding class is unwanted.
 // It is also excluded from per-question approval-rate tallies for that reason.
 export const POST = withApi<any, { id: string }>(async ({ supabase, params, apiKeyId, teamMemberId, access }) => {
-  requireAgentsEnabled();
+  requireAgentsEnabled(access);
 
   const { data: before } = await supabase
     .from('task_suggestions')

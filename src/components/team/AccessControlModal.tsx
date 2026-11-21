@@ -6,6 +6,7 @@ import Modal from '@/components/ui/Modal';
 import {
   API_ENDPOINT_PERMISSION_SET,
   PERMISSION_GROUPS,
+  isModuleEnabled,
   type AccessChannel,
   type PermissionEffect,
   type PermissionKey,
@@ -15,6 +16,8 @@ import type { RolePermission, TeamMember, TeamMemberPermission } from '@/lib/typ
 import { toast } from '@/components/ui/Toast';
 import { Select } from '@/components/ui/inputs/Select';
 import { Avatar } from '@/components/ui/Avatar';
+import { useAuth } from '@/lib/auth-context';
+import { MODULE_IDS, moduleOfPermission } from '@/lib/modules/registry';
 
 type AccessData = {
   role_permissions: RolePermission[];
@@ -58,6 +61,15 @@ export function AccessControlModal({
   initialMemberId?: string | null;
 }) {
   const [data, setData] = useState<AccessData>({ role_permissions: [], member_permissions: [] });
+  // Permissions of a switched-off module are held by nobody, so the editor
+  // leaves them out. Each row saves on its own, so a stored grant or exception
+  // for a hidden permission is never touched and comes back with its module.
+  const { access } = useAuth();
+  const permissionShown = (key: PermissionKey) => {
+    const mod = moduleOfPermission(key);
+    return mod === 'core' || isModuleEnabled(access, mod);
+  };
+  const someModulesOff = MODULE_IDS.some((mod) => !isModuleEnabled(access, mod));
   const [targetType, setTargetType] = useState<'role' | 'member'>('role');
   const [role, setRole] = useState<TeamRole>('member');
   const [memberId, setMemberId] = useState('');
@@ -276,7 +288,7 @@ export function AccessControlModal({
             {PERMISSION_GROUPS.map((group) => ({
               ...group,
               permissions: group.permissions.filter((permission) =>
-                channel === 'api'
+                permissionShown(permission.key) && (channel === 'api'
                   ? API_ENDPOINT_PERMISSION_SET.has(permission.key)
                   : ![
                       'notifications.manage_own',
@@ -285,7 +297,7 @@ export function AccessControlModal({
                       'agent_activity.write',
                       'fleet_alerts.write',
                       'meetings.write',
-                    ].includes(permission.key),
+                    ].includes(permission.key)),
               ),
             }))
               .filter((group) => group.permissions.length > 0)
@@ -380,6 +392,9 @@ export function AccessControlModal({
                 </div>
               ))}
           </div>
+        )}
+        {!loading && someModulesOff && (
+          <p className="text-xs text-zinc-500">Permissions for switched-off features are hidden.</p>
         )}
       </div>
     </Modal>

@@ -3,9 +3,12 @@
 import { useState } from 'react';
 import { ExternalLink, Globe, Plus } from 'lucide-react';
 import { useApp } from '@/lib/store';
+import { useAuth } from '@/lib/auth-context';
+import { isModuleEnabled } from '@/lib/access-control';
 import { Button } from '@/components/ui/Button';
 import { PortalAnalytics, PortalAnalyticsFilters, usePortalAnalyticsFilters } from './PortalAnalytics';
 import { PortalSettingsPanel, portalEnablePatch } from './PortalSettingsPanel';
+import { useBrand } from '@/lib/brand/context';
 import { PortalUpdatesPanel } from './PortalUpdatesPanel';
 import { PortalSectionsCard } from './PortalSectionsCard';
 import { EmptyCard, RailLayout, SubNav, TabToolbar, ToolbarButton, useKeptViews, type SubNavItem } from './TabLayout';
@@ -34,6 +37,8 @@ interface ClientPortalTabProps {
  */
 export function ClientPortalTab({ projectId, view, onViewChange }: ClientPortalTabProps) {
   const { getPortalSettings, getPortalUpdates, getProject, upsertPortalSettings } = useApp();
+  const { access } = useAuth();
+  const brand = useBrand();
   const settings = getPortalSettings(projectId);
   const project = getProject(projectId);
   const updates = getPortalUpdates(projectId);
@@ -48,11 +53,15 @@ export function ClientPortalTab({ projectId, view, onViewChange }: ClientPortalT
       <EmptyCard
         icon={<Globe />}
         title="The client portal is off"
-        description="Turn it on to give this client a private page with the project's progress, updates, invoices, hours and files."
+        description={`Turn it on to give this client a private page with the project's ${[
+          'progress', 'updates',
+          ...(isModuleEnabled(access, 'billing') ? ['invoices'] : []),
+          ...(isModuleEnabled(access, 'time') ? ['hours'] : []),
+        ].join(', ')} and files.`}
         action={
           <Button
             icon={<Globe size={16} aria-hidden="true" />}
-            onClick={() => upsertPortalSettings(projectId, portalEnablePatch(project?.color, !!settings?.welcome_message))}
+            onClick={() => upsertPortalSettings(projectId, portalEnablePatch(project?.color, !!settings?.welcome_message, brand.colors.brand[500]))}
           >
             Turn on client portal
           </Button>

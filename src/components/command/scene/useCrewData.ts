@@ -728,13 +728,11 @@ const MOCK_IDS = {
   john: 'cbe473dc-8e2b-456a-8603-df500e16a6c1',
 };
 
-const AVATAR_BASE = 'https://zjwgovvgdbamgtjustuz.supabase.co/storage/v1/object/public/avatars/team';
-
 const MOCK_MEMBERS: Member[] = [
-  { id: MOCK_IDS.greg, name: 'Greg A.', title: 'Technical Auditor', avatar: `${AVATAR_BASE}/${MOCK_IDS.greg}.jpg` },
-  { id: MOCK_IDS.ashley, name: 'Ashley P.', title: 'Project Manager', avatar: `${AVATAR_BASE}/${MOCK_IDS.ashley}.jpg` },
-  { id: MOCK_IDS.jeff, name: 'Jeff D.', title: 'Senior Developer', avatar: `${AVATAR_BASE}/${MOCK_IDS.jeff}.jpg` },
-  { id: MOCK_IDS.john, name: 'John R.', title: 'Code Reviewer', avatar: `${AVATAR_BASE}/${MOCK_IDS.john}.jpg` },
+  { id: MOCK_IDS.greg, name: 'Greg A.', title: 'Technical Auditor', avatar: null },
+  { id: MOCK_IDS.ashley, name: 'Ashley P.', title: 'Project Manager', avatar: null },
+  { id: MOCK_IDS.jeff, name: 'Jeff D.', title: 'Senior Developer', avatar: null },
+  { id: MOCK_IDS.john, name: 'John R.', title: 'Code Reviewer', avatar: null },
 ];
 
 function mockTask(id: string, title: string, status: string, assignee: string, updatedAt: number): CrewTask {

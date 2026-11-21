@@ -1,8 +1,7 @@
 'use client';
 
-import { useEffect, useState, type AnimationEvent, type CSSProperties } from 'react';
-import { DARK_LOGO_SRC } from '@/components/ui/Logo';
-import { siteConfig } from '@/site-config';
+import { useEffect, useState, type AnimationEvent } from 'react';
+import { useBrand } from '@/lib/brand/context';
 
 /** How long each status line stays before the next one takes over. */
 export const LOADER_STEP_MS = 700;
@@ -12,21 +11,6 @@ const ORBIT = 120;
 const ORBIT_R = 56;
 const ORBIT_C = 2 * Math.PI * ORBIT_R;
 const ARC = ORBIT_C / 4;
-
-/**
- * Where the emblem sits in the lockup files, in pixels of the 3443 x 820
- * artwork (the light and dark lockups share it): a circle of radius 397
- * centred at (403, 413.5). The crop is a slightly larger circle so the ring's
- * edge is never clipped, and round so the top of the wordmark's first letter,
- * which starts just past the ring, stays out.
- */
-const MARK = { cx: 403, cy: 413.5, r: 402, fileHeight: 820 };
-const MARK_D = MARK.r * 2;
-const MARK_CROP: CSSProperties = {
-  height: `${(MARK.fileHeight / MARK_D) * 100}%`,
-  left: `${(-(MARK.cx - MARK.r) / MARK_D) * 100}%`,
-  top: `${(-(MARK.cy - MARK.r) / MARK_D) * 100}%`,
-};
 
 /** Walks a status sequence one line at a time and stops on the last one. */
 function useStepIndex(count: number) {
@@ -42,9 +26,9 @@ function useStepIndex(count: number) {
 /**
  * The one loading screen, shared by the app shell and the client portal.
  *
- * The emblem cropped out of the lockup (the dark or light one, following the
- * nearest `data-theme`), a hairline orbit with a quarter turn of brand light
- * going round, and a status line beneath that narrates what is coming up, one
+ * The workspace's logo inside the orbit (the dark or light one, following the
+ * nearest `data-theme`; the name as text when none is uploaded), a hairline
+ * orbit with a quarter turn of brand light going round, and a status line beneath that narrates what is coming up, one
  * short line at a time. The orbit is the only indicator; the words carry no
  * dots or spinner of their own.
  *
@@ -73,7 +57,16 @@ export function BrandLoader({
   onLeft?: () => void;
   className?: string;
 }) {
+  const brand = useBrand();
   const timedStep = useStepIndex(steps.length);
+  // A logo that fails to load gives way to the name, like having none.
+  const [failed, setFailed] = useState<readonly string[]>([]);
+  // The square mark (the favicon) fits the round splash best; a wide logo
+  // shrinks to an unreadable strip inside it, so it is the fallback.
+  const markSrc = brand.logos.favicon && !failed.includes(brand.logos.favicon) ? brand.logos.favicon : null;
+  const darkSrc = brand.logos.dark && !failed.includes(brand.logos.dark) ? brand.logos.dark : null;
+  const lightSrc = brand.logos.light && !failed.includes(brand.logos.light) ? brand.logos.light : null;
+  const markFailed = (src: string) => () => setFailed((list) => [...list, src]);
   const step = controlledStep === undefined
     ? timedStep
     : Math.min(Math.max(controlledStep, 0), steps.length - 1);
@@ -98,13 +91,30 @@ export function BrandLoader({
               strokeDasharray={`${ARC} ${ORBIT_C - ARC}`}
             />
           </svg>
-          {/* Both lockups are rendered and the theme shows one, so a theme
-              change never swaps an image mid-load. */}
+          {/* The uploaded favicon when there is one, in both themes. Otherwise
+              both logos are rendered and the theme shows one, so a theme
+              change never swaps an image mid-load; a theme with no logo shows
+              the name in its place. */}
           <span className="brand-splash-mark">
-            {/* eslint-disable-next-line @next/next/no-img-element -- served by /api/logo so the brand can swap it */}
-            <img src={DARK_LOGO_SRC} alt={siteConfig.name} className="brand-splash-mark-img is-dark" style={MARK_CROP} />
-            {/* eslint-disable-next-line @next/next/no-img-element -- served by /api/logo so the brand can swap it */}
-            <img src="/api/logo" alt={siteConfig.name} className="brand-splash-mark-img is-light" style={MARK_CROP} />
+            {markSrc ? (
+              // eslint-disable-next-line @next/next/no-img-element -- an uploaded file of any size, served from storage
+              <img src={markSrc} alt={brand.name} className="brand-splash-mark-img is-mark" onError={markFailed(markSrc)} />
+            ) : (
+              <>
+                {darkSrc ? (
+                  // eslint-disable-next-line @next/next/no-img-element -- an uploaded file of any size, served from storage
+                  <img src={darkSrc} alt={brand.name} className="brand-splash-mark-img is-dark" onError={markFailed(darkSrc)} />
+                ) : (
+                  <span className="brand-splash-mark-name is-dark">{brand.name}</span>
+                )}
+                {lightSrc ? (
+                  // eslint-disable-next-line @next/next/no-img-element -- an uploaded file of any size, served from storage
+                  <img src={lightSrc} alt={brand.name} className="brand-splash-mark-img is-light" onError={markFailed(lightSrc)} />
+                ) : (
+                  <span className="brand-splash-mark-name is-light">{brand.name}</span>
+                )}
+              </>
+            )}
           </span>
         </div>
 

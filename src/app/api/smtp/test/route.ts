@@ -3,6 +3,7 @@ import nodemailer from 'nodemailer';
 import { requireAdmin } from '@/lib/api/require-admin';
 import { decrypt } from '@/lib/email/crypto';
 import { buildSmtpTestEmail } from '@/lib/email/templates/team/smtp-test';
+import { getBrand } from '@/lib/brand/server';
 
 export const dynamic = 'force-dynamic';
 
@@ -49,6 +50,7 @@ export async function POST(request: Request) {
     });
 
     const { subject, html, text } = buildSmtpTestEmail({
+      brand: await getBrand(),
       label: account.label,
       host: account.host,
       port: account.port,

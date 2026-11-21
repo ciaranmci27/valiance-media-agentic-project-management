@@ -46,7 +46,8 @@ type Source = { created_via: string; created_by_key_id: string | null; created_n
  * the task source columns and section, so the migration is tested on top of it.
  */
 function schemaBeforeMigration(): string {
-  const sql = readFileSync(SCHEMA_PATH, 'utf8');
+  // A Windows checkout may carry CRLF; the markers below are LF.
+  const sql = readFileSync(SCHEMA_PATH, 'utf8').replace(/\r\n/g, '\n');
   const section = sql.indexOf('\n-- ---------------------------------------------------------------------------\n-- Task source and seen');
   const columns = sql.indexOf('  -- Where it came from, stamped on insert');
   const columnsEnd = sql.indexOf(');', columns);

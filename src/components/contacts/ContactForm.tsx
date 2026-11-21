@@ -15,7 +15,7 @@ import { Textarea } from '@/components/ui/inputs/Textarea';
 import { TextInput } from '@/components/ui/inputs/TextInput';
 import { fieldLabelClass } from '@/components/ui/inputs/_shared';
 import { formatPhone } from '@/lib/format-phone';
-import { siteConfig } from '@/site-config';
+import { useBrand } from '@/lib/brand/context';
 
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -58,6 +58,7 @@ interface ContactFormProps {
 
 export function ContactForm({ isOpen, onClose, contact }: ContactFormProps) {
   const { addContact, updateContact, getContactEmails, saveContactEmails } = useApp();
+  const brand = useBrand();
   const { isDemoMode } = useDemo();
   const supabase = createClient();
 
@@ -227,7 +228,7 @@ export function ContactForm({ isOpen, onClose, contact }: ContactFormProps) {
       phone: phone.trim(),
       company: company.trim(),
       notes: notes.trim(),
-      color: contact?.color || siteConfig.colors.brand[500],
+      color: contact?.color || brand.colors.brand[500],
     };
 
     // Stays open when the addresses fail to save (the store says why), so nothing typed is lost.

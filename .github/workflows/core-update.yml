@@ -1,0 +1,206 @@
+name: Core update
+
+# Prepares a release for this install: merges the release tag on
+# update/<version>, runs the checks, then opens (or updates) a pull request to
+# the default branch. Settings > Updates starts it and reads how it went from
+# the annotations below. It never merges: Apply does that after review.
+#
+# PM_UPDATE_TOKEN (Actions secret) is the install's fine-grained token, stored
+# by Settings > Updates > Finish setup. GITHUB_TOKEN cannot push changes to
+# workflow files, which releases can carry.
+
+run-name: Update to v${{ inputs.version }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version, like 1.4.0'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: core-update-${{ inputs.version }}
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      # Inputs reach scripts only through the environment, never pasted into them.
+      VERSION: ${{ inputs.version }}
+      DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+      HAS_UPDATE_TOKEN: ${{ secrets.PM_UPDATE_TOKEN != '' }}
+      # Matches UPSTREAM_REPO in src/lib/updates/config.ts.
+      UPSTREAM_REPO: ciaranmci27/valiance-media-agentic-project-management
+    steps:
+      # Every stop prints annotations for people and, last, one line the app
+      # reads from the job log: PM_UPDATE_RESULT {json}. (Fine-grained tokens
+      # cannot read annotations; Actions: read covers the log.)
+      - name: Check the request
+        run: |
+          if [[ ! "$VERSION" =~ ^[0-9]{1,4}\.[0-9]{1,4}\.[0-9]{1,4}$ ]]; then
+            echo "::error title=failed::The version must look like 1.4.0."
+            echo 'PM_UPDATE_RESULT {"kind":"failed","message":"The version must look like 1.4.0."}'
+            exit 1
+          fi
+          if [[ "$HAS_UPDATE_TOKEN" != "true" ]]; then
+            echo "::error title=failed::The PM_UPDATE_TOKEN secret is missing. Open Settings > Updates and Finish setup."
+            echo 'PM_UPDATE_RESULT {"kind":"failed","message":"The PM_UPDATE_TOKEN secret is missing. Open Settings > Updates and Finish setup."}'
+            exit 1
+          fi
+          if [[ "$GITHUB_REF_NAME" != "$DEFAULT_BRANCH" ]]; then
+            echo "::error title=failed::Start the update from the default branch."
+            echo 'PM_UPDATE_RESULT {"kind":"failed","message":"Start the update from the default branch."}'
+            exit 1
+          fi
+
+      - name: Check out
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          token: ${{ secrets.PM_UPDATE_TOKEN }}
+          fetch-depth: 0
+          # The token is not left in .git/config while dependencies and tests
+          # run; only the push and pull request steps receive it.
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci --no-audit --no-fund
+
+      - name: Merge the release and run the checks
+        id: upgrade
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # npm ci may rewrite generated files; the merge needs a clean tree.
+          git checkout -- .
+          stop_token="stop-$(openssl rand -hex 16)"
+          echo "::stop-commands::${stop_token}"
+          set +e
+          npx tsx --tsconfig tsconfig.mcp-test.json scripts/upgrade.ts --to "$VERSION" --branch "update/$VERSION" --json "$RUNNER_TEMP/upgrade.json"
+          code=$?
+          set -e
+          echo "::${stop_token}::"
+          echo "code=${code}" >> "$GITHUB_OUTPUT"
+
+      - name: Report the result
+        env:
+          UPGRADE_CODE: ${{ steps.upgrade.outputs.code }}
+        run: |
+          node <<'NODE'
+          const fs = require('fs');
+          const code = Number(process.env.UPGRADE_CODE);
+          let summary = {};
+          try { summary = JSON.parse(fs.readFileSync(`${process.env.RUNNER_TEMP}/upgrade.json`, 'utf8')); } catch {}
+          // Workflow command data: % and line breaks escaped, so nothing can start a new command.
+          const esc = (text) => String(text ?? '').replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A');
+          const error = (title, message) => console.log(`::error title=${title}::${esc(message)}`);
+          const lastLine = (text) => String(text ?? '').split('\n').map((l) => l.trim()).filter(Boolean).pop() ?? '';
+          const headline = (text, fallback) => (text ? String(text).split('\n')[0] : fallback);
+          // The app's line: one JSON object on one line (JSON.stringify escapes
+          // line breaks; U+2028 and U+2029 are escaped too), printed last.
+          const stop = (result) => {
+            const json = JSON.stringify(result).replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
+            console.log(`PM_UPDATE_RESULT ${json}`);
+            process.exit(1);
+          };
+          // GitHub keeps 10 error annotations per step: up to 9 files, then a count.
+          if (code === 2) {
+            const files = (Array.isArray(summary.conflicts) ? summary.conflicts : []).map(String);
+            files.slice(0, 9).forEach((file) => error('conflict', file));
+            if (files.length > 9) error('conflict_more', `${files.length - 9} more files: see this run's log`);
+            if (!files.length) error('failed', summary.message || 'The merge conflicted.');
+            console.log(summary.message || '');
+            stop({ kind: 'conflict', files: files.slice(0, 200), checks: [], message: headline(summary.message, 'The merge conflicted.') });
+          }
+          if (code === 3) {
+            const message = headline(summary.message, 'This repository shares no history with the public repo.');
+            error('no_shared_history', message);
+            console.log(summary.message || '');
+            stop({ kind: 'no_shared_history', files: [], checks: [], message });
+          }
+          if (code === 4) {
+            const failed = (summary.checks || []).filter((check) => check.ok === false)
+              .map((check) => ({ name: String(check.name), detail: lastLine(check.output) || `exit ${check.exitCode}` }));
+            failed.slice(0, 10).forEach((check) => error('checks_failed', `${check.name}: ${check.detail}`));
+            if (!failed.length) error('checks_failed', 'checks: a check failed');
+            stop({ kind: 'checks_failed', files: [], checks: failed.slice(0, 20), message: headline(summary.message, 'A check failed.') });
+          }
+          if (code !== 0) {
+            const message = headline(summary.message, `The update stopped (exit ${code}).`);
+            error('failed', message);
+            stop({ kind: 'failed', files: [], checks: [], message });
+          }
+          if (!summary.merged) {
+            const message = summary.upToDate ? `Already up to date with v${process.env.VERSION}.` : headline(summary.message, 'Nothing was merged.');
+            error('failed', message);
+            stop({ kind: 'failed', files: [], checks: [], message });
+          }
+          NODE
+
+      - name: Push the update branch
+        env:
+          PM_UPDATE_TOKEN: ${{ secrets.PM_UPDATE_TOKEN }}
+        run: |
+          branch="update/$VERSION"
+          auth=$(printf 'x-access-token:%s' "$PM_UPDATE_TOKEN" | base64 -w0)
+          echo "::add-mask::${auth}"
+          git_auth=(-c "http.https://github.com/.extraheader=AUTHORIZATION: basic ${auth}")
+          # The update branch is this workflow's output: a newer run replaces it,
+          # but only if nobody pushed to it since it was read.
+          if remote_sha=$(git "${git_auth[@]}" ls-remote --exit-code --heads origin "refs/heads/$branch" | cut -f1); then
+            git "${git_auth[@]}" push --force-with-lease="refs/heads/$branch:$remote_sha" origin "HEAD:refs/heads/$branch"
+          else
+            git "${git_auth[@]}" push origin "HEAD:refs/heads/$branch"
+          fi
+
+      - name: Open or update the pull request
+        env:
+          GH_TOKEN: ${{ secrets.PM_UPDATE_TOKEN }}
+        run: |
+          branch="update/$VERSION"
+          notes_file="$RUNNER_TEMP/notes.md"
+          if ! gh release view "v$VERSION" --repo "$UPSTREAM_REPO" --json body --jq .body > "$notes_file" 2>/dev/null || [[ ! -s "$notes_file" ]]; then
+            echo "Release notes: https://github.com/$UPSTREAM_REPO/releases/tag/v$VERSION" > "$notes_file"
+          fi
+          node <<'NODE'
+          const fs = require('fs');
+          const temp = process.env.RUNNER_TEMP;
+          const summary = JSON.parse(fs.readFileSync(`${temp}/upgrade.json`, 'utf8'));
+          const notes = fs.readFileSync(`${temp}/notes.md`, 'utf8').trim();
+          const hidden = {
+            from: summary.from,
+            to: summary.to,
+            conflicts: summary.conflicts || [],
+            autoResolved: (summary.autoResolved || []).map((item) => ({ file: item.file, how: item.how })),
+            checks: (summary.checks || []).map((check) => ({ name: check.name, ok: check.ok })),
+            migrationsInRelease: summary.migrationsInRelease || [],
+            hasMigrations: (summary.migrationsInRelease || []).length > 0,
+          };
+          // < and > escaped so the JSON can never close the comment early.
+          const json = JSON.stringify(hidden).replace(/</g, '\\u003c').replace(/>/g, '\\u003e');
+          const body = [
+            `Merges release v${process.env.VERSION} into this install. Apply it from Settings > Updates once the checks pass.`,
+            '',
+            notes.slice(0, 60000),
+            '',
+            `<!-- pm-update-summary ${json} -->`,
+          ].join('\n');
+          fs.writeFileSync(`${temp}/body.md`, body);
+          NODE
+          number=$(gh pr list --head "$branch" --base "$DEFAULT_BRANCH" --state open --json number --jq '.[0].number // empty')
+          if [[ -n "$number" ]]; then
+            gh pr edit "$number" --title "Update to v$VERSION" --body-file "$RUNNER_TEMP/body.md"
+          else
+            gh pr create --head "$branch" --base "$DEFAULT_BRANCH" --title "Update to v$VERSION" --body-file "$RUNNER_TEMP/body.md"
+          fi

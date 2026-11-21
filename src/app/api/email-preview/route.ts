@@ -8,6 +8,8 @@ import { buildDollarIntervalEmail, dollarIntervalDefaults } from '@/lib/email/te
 import { buildBudgetExtendedEmail, budgetExtendedDefaults } from '@/lib/email/templates/client/budget-extended';
 import { buildInvoiceEmail, invoiceEmailDefaults } from '@/lib/email/templates/client/invoice';
 import type { InvoiceStatus } from '@/lib/types';
+import type { Brand } from '@/lib/brand';
+import { getBrand } from '@/lib/brand/server';
 
 export const dynamic = 'force-dynamic';
 
@@ -16,7 +18,7 @@ const portalUrl = 'https://example.com/portal/acme-rebrand';
 /** Dark placeholder mark so the logo variant previews on the dark card. */
 const sampleLogo = (initials: string) => `https://placehold.co/88x88/12141A/8DB3B3/png?text=${initials}`;
 
-function invoicePreview(status: InvoiceStatus, options: { portal?: boolean; logo?: boolean } = {}): string {
+function invoicePreview(brand: Brand, status: InvoiceStatus, options: { portal?: boolean; logo?: boolean } = {}): string {
   const project = 'Acme Corp Rebrand';
   const invoiceNumber = 'INV-1042';
   const amount = 1875;
@@ -26,6 +28,7 @@ function invoicePreview(status: InvoiceStatus, options: { portal?: boolean; logo
   const invoicePortalUrl = options.portal === false ? null : `${portalUrl}?invoice=${encodeURIComponent(invoiceNumber)}`;
 
   return buildInvoiceEmail({
+    brand,
     projectName: project,
     clientName: 'Sarah',
     portalUrl: invoicePortalUrl,
@@ -49,6 +52,8 @@ function invoicePreview(status: InvoiceStatus, options: { portal?: boolean; logo
 
 export async function GET(req: NextRequest) {
   const template = req.nextUrl.searchParams.get('template') || 'portal-welcome';
+  // Previews show this workspace's brand, as the real emails do.
+  const brand = await getBrand();
 
   let html = '';
 
@@ -57,6 +62,7 @@ export async function GET(req: NextRequest) {
 
     case 'team-task-assigned': {
       const result = buildNotificationEmail({
+        brand,
         title: 'New task assigned to you',
         message: 'Sarah assigned you to "Design homepage wireframes" on the Acme Corp Rebrand project.',
         link: '/projects/acme-corp-rebrand',
@@ -72,6 +78,7 @@ export async function GET(req: NextRequest) {
 
     case 'team-task-status': {
       const result = buildNotificationEmail({
+        brand,
         title: '"Design homepage wireframes" moved to In Progress',
         message: 'Marcus updated the task status on Acme Corp Rebrand.',
         link: '/projects/acme-corp-rebrand',
@@ -87,6 +94,7 @@ export async function GET(req: NextRequest) {
 
     case 'team-task-comment': {
       const result = buildNotificationEmail({
+        brand,
         title: 'New comment on "Design homepage wireframes"',
         message: 'Sarah: "Pushed up the latest revision. The hero section is cleaner now, but I\'m still not sure about the CTA placement. Thoughts?"',
         link: '/projects/acme-corp-rebrand',
@@ -101,6 +109,7 @@ export async function GET(req: NextRequest) {
 
     case 'team-project-created': {
       const result = buildNotificationEmail({
+        brand,
         title: 'New project: "Bloomwell Health App"',
         message: 'Jessica created a new project.',
         link: '/projects/bloomwell-health-app',
@@ -116,6 +125,7 @@ export async function GET(req: NextRequest) {
 
     case 'team-lead-converted': {
       const result = buildNotificationEmail({
+        brand,
         title: 'Lead "Northbound Coffee Co." converted to project',
         message: 'Marcus converted the lead after the proposal was accepted.',
         link: '/leads/northbound-coffee',
@@ -131,6 +141,7 @@ export async function GET(req: NextRequest) {
 
     case 'team-lead-status': {
       const result = buildNotificationEmail({
+        brand,
         title: 'Lead "Northbound Coffee Co." moved to Proposal Sent',
         message: 'Sarah updated the lead status.',
         link: '/leads/northbound-coffee',
@@ -141,6 +152,7 @@ export async function GET(req: NextRequest) {
 
     case 'team-minimal': {
       const result = buildNotificationEmail({
+        brand,
         title: 'Contact "Alex Rivera" was deleted',
         message: 'Marcus removed a contact.',
       });
@@ -150,11 +162,12 @@ export async function GET(req: NextRequest) {
 
     case 'smtp-test': {
       const result = buildSmtpTestEmail({
+        brand,
         label: 'Notifications (Postmark)',
         host: 'smtp.postmarkapp.com',
         port: 587,
-        fromName: 'Valiance Media',
-        fromEmail: 'hello@valiancemedia.com',
+        fromName: brand.name,
+        fromEmail: 'hello@example.com',
       });
       html = result.html;
       break;
@@ -164,6 +177,7 @@ export async function GET(req: NextRequest) {
 
     case 'portal-welcome': {
       const result = buildPortalWelcomeEmail({
+        brand,
         projectName: 'Acme Corp Rebrand',
         clientName: 'Sarah',
         portalUrl,
@@ -178,6 +192,7 @@ export async function GET(req: NextRequest) {
 
     case 'portal-welcome-plain': {
       const result = buildPortalWelcomeEmail({
+        brand,
         projectName: 'Bloomwell Health App',
         clientName: 'Jessica',
         portalUrl: 'https://example.com/portal/bloomwell-health',
@@ -190,6 +205,7 @@ export async function GET(req: NextRequest) {
 
     case 'budget-threshold-hours': {
       const result = buildBudgetThresholdEmail({
+        brand,
         projectName: 'Acme Corp Rebrand',
         clientName: 'Sarah',
         portalUrl,
@@ -205,6 +221,7 @@ export async function GET(req: NextRequest) {
 
     case 'budget-threshold-amount': {
       const result = buildBudgetThresholdEmail({
+        brand,
         projectName: 'NeoForge Website',
         clientName: 'Marcus',
         portalUrl: 'https://example.com/portal/neoforge-website',
@@ -221,6 +238,7 @@ export async function GET(req: NextRequest) {
 
     case 'dollar-interval': {
       const result = buildDollarIntervalEmail({
+        brand,
         projectName: 'Acme Corp Rebrand',
         clientName: 'Sarah',
         portalUrl,
@@ -236,6 +254,7 @@ export async function GET(req: NextRequest) {
 
     case 'budget-extended': {
       const result = buildBudgetExtendedEmail({
+        brand,
         projectName: 'Acme Corp Rebrand',
         clientName: 'Sarah',
         portalUrl,
@@ -258,6 +277,7 @@ export async function GET(req: NextRequest) {
 
     case 'budget-updated': {
       const result = buildBudgetExtendedEmail({
+        brand,
         projectName: 'NeoForge Website',
         clientName: 'Marcus',
         portalUrl: 'https://example.com/portal/neoforge-website',
@@ -280,6 +300,7 @@ export async function GET(req: NextRequest) {
 
     case 'project-summary': {
       const result = buildProjectSummaryEmail({
+        brand,
         projectName: 'Acme Corp Rebrand',
         clientName: 'Sarah',
         portalUrl,
@@ -299,6 +320,7 @@ export async function GET(req: NextRequest) {
 
     case 'project-summary-caught-up': {
       const result = buildProjectSummaryEmail({
+        brand,
         projectName: 'Acme Corp Rebrand',
         clientName: 'Sarah',
         portalUrl,
@@ -319,6 +341,7 @@ export async function GET(req: NextRequest) {
 
     case 'project-summary-no-budget': {
       const result = buildProjectSummaryEmail({
+        brand,
         projectName: 'Bloomwell Health App',
         clientName: 'Jessica',
         portalUrl: 'https://example.com/portal/bloomwell-health',
@@ -337,27 +360,27 @@ export async function GET(req: NextRequest) {
     }
 
     case 'invoice-sent':
-      html = invoicePreview('sent');
+      html = invoicePreview(brand, 'sent');
       break;
 
     case 'invoice-paid':
-      html = invoicePreview('paid', { logo: true });
+      html = invoicePreview(brand, 'paid', { logo: true });
       break;
 
     case 'invoice-overdue':
-      html = invoicePreview('overdue');
+      html = invoicePreview(brand, 'overdue');
       break;
 
     case 'invoice-cancelled':
-      html = invoicePreview('cancelled');
+      html = invoicePreview(brand, 'cancelled');
       break;
 
     case 'invoice-draft':
-      html = invoicePreview('draft');
+      html = invoicePreview(brand, 'draft');
       break;
 
     case 'invoice-no-portal':
-      html = invoicePreview('sent', { portal: false });
+      html = invoicePreview(brand, 'sent', { portal: false });
       break;
 
     default:

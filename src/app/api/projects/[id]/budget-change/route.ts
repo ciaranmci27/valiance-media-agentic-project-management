@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { accessAllows, accessAllowsProject, requireSessionAccess } from '@/lib/api/access';
 import { handleBudgetChange } from '@/lib/email/client-notifications';
+import { budgetAlertsEnabled } from '@/lib/api/budget-alerts';
 import { logProjectBudgetChange, type BudgetType } from '@/lib/project-budget-history';
 
 export const dynamic = 'force-dynamic';
@@ -75,8 +76,9 @@ export async function POST(
   //    after() would show a stale log until the next refresh. Latency cost is
   //    one render + one insert (~200-500ms), acceptable for a form submit.
   //    Errors are swallowed so a misconfigured project can't block the budget
-  //    history write that already succeeded above.
-  await handleBudgetChange(
+  //    history write that already succeeded above. Budget emails need the
+  //    Client portal as well as Billing; with it off only the history is kept.
+  if (budgetAlertsEnabled(auth.data.access)) await handleBudgetChange(
     projectId,
     oldSnapshot.type,
     oldSnapshot.value,
