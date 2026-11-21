@@ -148,5 +148,5 @@ export function useSettingsAccess() {
   };
 
   const customVisible = useCustomSettingsVisibility();
-  return { canManageAgents, canManageSettings, show, visibleGroups: { ...visibleGroups, ...customVisible } };
+  return { canManageAgents, canManageSettings, isOwner, show, visibleGroups: { ...visibleGroups, ...customVisible } };
 }

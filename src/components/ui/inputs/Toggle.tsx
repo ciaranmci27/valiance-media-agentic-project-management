@@ -64,7 +64,7 @@ export const Toggle = forwardRef<HTMLButtonElement, ToggleProps>(function Toggle
             className={`${knob} ${position} rounded-full bg-input-accent-fg shadow-sm transition-transform motion-reduce:transition-none`}
           />
         </span>
-        {label && <span>{label}</span>}
+        {label && <span className="text-left">{label}</span>}
       </button>
       {description && (
         <p id={`${id}-description`} className="text-xs text-input-text-subtle">

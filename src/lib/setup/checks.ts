@@ -23,6 +23,8 @@ const ENV_VARS: Array<Omit<EnvCheck, 'set'>> = [
   { name: 'NEXT_PUBLIC_APP_URL', required: true, purpose: 'The address used in emails and invite links.' },
   { name: 'PROJECT_CREDENTIALS_ENCRYPTION_KEY', required: false, purpose: 'Encrypts saved project credentials.' },
   { name: 'SMTP_ENCRYPTION_KEY', required: false, purpose: 'Encrypts email account passwords, for sending email.' },
+  // DATABASE_URL counts too (envChecks). Without it, each update's database changes are applied by hand.
+  { name: 'SUPABASE_DB_URL', required: false, purpose: 'Applies the database changes in each update when it deploys.' },
 ];
 
 const CRON_VAR: Omit<EnvCheck, 'set'> = {
@@ -34,7 +36,11 @@ const CRON_VAR: Omit<EnvCheck, 'set'> = {
 /** True or false per variable; a blank value counts as not set. Values never leave this function. */
 export function envChecks(env: Record<string, string | undefined>, options: { crons: boolean }): EnvCheck[] {
   const list = options.crons ? [...ENV_VARS, CRON_VAR] : ENV_VARS;
-  return list.map((item) => ({ ...item, set: typeof env[item.name] === 'string' && env[item.name]!.trim() !== '' }));
+  const isSet = (name: string) => typeof env[name] === 'string' && env[name]!.trim() !== '';
+  return list.map((item) => ({
+    ...item,
+    set: isSet(item.name) || (item.name === 'SUPABASE_DB_URL' && isSet('DATABASE_URL')),
+  }));
 }
 
 export type SchemaState = 'ready' | 'not_exposed' | 'missing' | 'unknown';

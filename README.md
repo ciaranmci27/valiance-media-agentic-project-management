@@ -86,7 +86,7 @@ Run it locally with `npm run dev`, then open http://localhost:3009.
 
 1. In Vercel, add a new project and import your repository.
 2. Add the same environment variables under Project, Settings, Environment Variables.
-3. To apply database migrations on each production deploy, also add `SUPABASE_DB_URL` and `MIGRATE_ON_DEPLOY=true`.
+3. Add `SUPABASE_DB_URL` too, so each production deploy applies its update's database changes first. Owners can turn that off in **Settings > Updates**.
 4. Deploy.
 
 ### 5. First run
@@ -177,7 +177,7 @@ A conflict means your repository changed a core file that the release also chang
 
 ### Database changes
 
-Releases with a Database section in their notes change the database. If production deploys run with `MIGRATE_ON_DEPLOY=true`, they apply the migrations on their own. Otherwise, run `npm run db:migrate` against your production database right after the update. Core migrations work with the previous release's code too, so running them just before or after the deploy is safe.
+Releases with a Database section in their notes change the database. When your host has `SUPABASE_DB_URL`, production deploys apply those changes on their own before the new version goes live, unless an Owner turned it off in **Settings > Updates**, which also shows whether every change has landed. Otherwise, run `npm run db:migrate` against your production database right after the update. Core migrations work with the previous release's code too, so running them just before or after the deploy is safe.
 
 ### Your repository must share the public history
 

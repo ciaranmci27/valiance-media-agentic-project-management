@@ -9,6 +9,23 @@ Each section starts with `## X.Y.Z (YYYY-MM-DD)` and uses these headings, leavin
 - `### Database`: the core migration files in the release, one per line. `npm run db:migrate` applies them.
 - `### Breaking`: what an install must do when it takes this release.
 
+## 1.9.0 (2026-11-21)
+
+### Added
+- Settings > Updates has a Database updates card for Owners: whether each update changes the database on its own while it deploys, a switch to turn that off and apply changes by hand, the steps to set it up when the host lacks the connection string, and a check that every database change this version carries has landed, naming any that did not.
+- The setup wizard's checks include `SUPABASE_DB_URL`, so a new install knows on day one whether updates will change its database on their own.
+
+### Changed
+- Production deploys apply pending migrations whenever the host has `SUPABASE_DB_URL` (or `DATABASE_URL`), unless an Owner turned it off in Settings > Updates. `MIGRATE_ON_DEPLOY=true` is no longer needed; `MIGRATE_ON_DEPLOY=false` now keeps deploys from ever changing the database.
+- Only an Owner can change automatic database updates or whether Owners read personal inboxes. Admins who manage business settings could change the second before; now the app and the database both refuse.
+
+### Database
+- `20261121090000_database_updates_switch.sql`: the Owner's switch for automatic database updates, and a guard so only an Owner changes it or the personal inbox policy.
+
+### Breaking
+- If your host has `SUPABASE_DB_URL` set but not `MIGRATE_ON_DEPLOY=true`, production deploys start applying database changes on their own from this release. To keep applying them by hand, set `MIGRATE_ON_DEPLOY=false` in your host before you take this update: that alone keeps deploys from changing the database. (Later you can turn the switch off in Settings > Updates and remove the variable.)
+- A deploy leaves a database alone, with a warning in the build log, when the database has no record of its migrations (it was loaded from `schema.sql` without `npm run db:migrate -- --baseline`). Settings > Updates says so and gives the command.
+
 ## 1.8.0 (2026-11-21)
 
 ### Added

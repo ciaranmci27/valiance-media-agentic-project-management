@@ -9,12 +9,13 @@ import { Button } from '@/components/ui/Button';
 import { toast } from '@/components/ui/Toast';
 import { SettingsSectionHeader } from '@/components/settings/SettingsSectionHeader';
 import type { Outcome } from '@/components/settings/workspace/OutcomeLine';
-import { activeRun, finishSetup, isRunMoving, newestPending, refreshUpdates, startRun, updatesRead } from './updates-data';
+import { activeRun, finishSetup, isRunMoving, newestPending, refreshUpdates, saveDatabaseUpdates, startRun, updatesRead } from './updates-data';
 import { UPDATE_FIXTURES } from './fixtures';
 import { VersionCard } from './VersionCard';
 import { WhatsNew } from './WhatsNew';
 import { UpdateSteps } from './UpdateSteps';
 import { ConnectionCard } from './ConnectionCard';
+import { DatabaseCard } from './DatabaseCard';
 
 /** While an update moves on GitHub, how often the screen asks again. */
 const POLL_MS = 10_000;
@@ -66,7 +67,8 @@ function useFixtureName(): string | null {
 
 /**
  * Settings > Updates: the version this app runs and the newest release, what
- * changed, the four update steps, and the GitHub connection they need. GitHub
+ * changed, the four update steps, the GitHub connection they need, and
+ * whether deploys update the database. GitHub
  * holds the truth; this screen reads it through /api/workspace/updates.
  */
 export function UpdatesSection() {
@@ -79,6 +81,8 @@ export function UpdatesSection() {
   const [stepError, setStepError] = useState<{ action: 'prepare' | 'apply'; message: string } | null>(null);
   const [finishing, setFinishing] = useState(false);
   const [connectionOutcome, setConnectionOutcome] = useState<Outcome | null>(null);
+  const [savingDatabase, setSavingDatabase] = useState(false);
+  const [databaseOutcome, setDatabaseOutcome] = useState<Outcome | null>(null);
 
   const fixture = fixtureName ? UPDATE_FIXTURES[fixtureName] ?? null : null;
   const state: UpdatesState | undefined = fixture ?? read.data;
@@ -130,6 +134,22 @@ export function UpdatesSection() {
     }
   };
 
+  const saveDatabase = async (automatic: boolean) => {
+    if (fixtureName) return sample();
+    setSavingDatabase(true);
+    setDatabaseOutcome(null);
+    try {
+      const database = await saveDatabaseUpdates(automatic);
+      setDatabaseOutcome(!database ? null : automatic
+        ? { tone: 'done', text: database.mode === 'automatic' ? 'Turned on. Each update now changes your database while it deploys.' : 'Turned on. It takes effect once your host allows it.' }
+        : { tone: 'done', text: 'Turned off. Apply each update\'s database changes with npm run db:migrate.' });
+    } catch (error) {
+      setDatabaseOutcome({ tone: 'error', text: `Couldn't save. ${errorMessage(error)}`, onRetry: () => { void saveDatabase(automatic); } });
+    } finally {
+      setSavingDatabase(false);
+    }
+  };
+
   // A sample state (development only) wins over demo mode, so the demo server can show every state.
   if ((isDemoMode && !fixtureName) || fixtureName === 'demo') return <DemoPanel />;
   if (fixtureName === 'loading' || (!fixtureName && read.loading)) return <UpdatesSkeleton />;
@@ -155,6 +175,7 @@ export function UpdatesSection() {
           version={version}
           hasMigrations={target?.hasMigrations ?? false}
           breaking={state.pending.some((release) => release.breaking)}
+          database={state.database}
           busy={busy}
           error={stepError}
           checking={checking}
@@ -175,6 +196,15 @@ export function UpdatesSection() {
           onFinish={() => void finish()}
         />
       )}
+
+      <DatabaseCard
+        database={state.database}
+        saving={savingDatabase}
+        outcome={databaseOutcome}
+        onSave={(automatic) => void saveDatabase(automatic)}
+        checking={checking}
+        onRetry={() => void check()}
+      />
     </div>
   );
 }

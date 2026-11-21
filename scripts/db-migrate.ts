@@ -35,10 +35,12 @@ export interface CliOptions {
   baseline: boolean;
   forceBaseline: boolean;
   coreOnly: boolean;
+  /** Deploys: skip when an Owner turned automatic database updates off (Settings > Updates). */
+  ifEnabled: boolean;
 }
 
 export function parseArgs(argv: string[]): CliOptions {
-  const known = new Set(['--status', '--dry-run', '--baseline', '--force-baseline', '--core-only']);
+  const known = new Set(['--status', '--dry-run', '--baseline', '--force-baseline', '--core-only', '--if-enabled']);
   const unknown = argv.filter(arg => !known.has(arg));
   if (unknown.length) throw new Error(`Unknown option ${unknown.join(', ')}. Options: ${[...known].join(' ')}`);
   return {
@@ -47,6 +49,7 @@ export function parseArgs(argv: string[]): CliOptions {
     baseline: argv.includes('--baseline') || argv.includes('--force-baseline'),
     forceBaseline: argv.includes('--force-baseline'),
     coreOnly: argv.includes('--core-only'),
+    ifEnabled: argv.includes('--if-enabled'),
   };
 }
 
@@ -69,6 +72,20 @@ function pgDb(client: Client): MigrationDb {
   };
 }
 
+/**
+ * The Owner's switch (business_settings.auto_migrate). On when it is on, when
+ * the setting is not there yet (its default), and when there is no settings
+ * row: only an explicit off stops a deploy from migrating.
+ */
+export async function automaticUpdatesOn(db: MigrationDb): Promise<boolean> {
+  const present = await db.query<{ present: boolean }>(
+    `SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'business_settings' AND column_name = 'auto_migrate') AS present`,
+  );
+  if (!present[0]?.present) return true;
+  const rows = await db.query<{ auto_migrate: boolean | null }>('SELECT auto_migrate FROM public.business_settings ORDER BY created_at NULLS LAST LIMIT 1');
+  return rows[0]?.auto_migrate !== false;
+}
+
 /** Runs the command; returns the process exit code. */
 export async function main(argv: string[], root = APP_ROOT): Promise<number> {
   const options = parseArgs(argv);
@@ -82,6 +99,19 @@ export async function main(argv: string[], root = APP_ROOT): Promise<number> {
     // Migrations can outlast a role's default statement timeout.
     await client.query('SET statement_timeout = 0');
     const db = pgDb(client);
+
+    if (options.ifEnabled) {
+      if (!(await automaticUpdatesOn(db))) {
+        console.log('Automatic database updates are off (Settings > Updates): not applying migrations. Run npm run db:migrate to apply them.');
+        return 0;
+      }
+      // A deploy never guesses what an unrecorded database already has: it goes
+      // live without changing it, as before automatic updates, and says why.
+      if ((await migrationStatus(db, files)).empty) {
+        console.log('WARNING: this database has no record of its migrations, so the deploy is not changing it. Run npm run db:migrate -- --baseline once; later deploys then apply each update on their own.');
+        return 0;
+      }
+    }
 
     if (options.status) {
       const status = await migrationStatus(db, files);

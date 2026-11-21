@@ -193,7 +193,7 @@ async function main() {
     };
     const sorted = (list: string[]) => JSON.stringify([...list].sort());
 
-    const [owner, mia, ned, rae, scout] = await Promise.all([ctxOf(ids.owner), ctxOf(ids.mia), ctxOf(ids.ned), ctxOf(ids.rae), ctxOf(ids.scout)]);
+    const [owner, mia, ned, rae, scout, admin] = await Promise.all([ctxOf(ids.owner), ctxOf(ids.mia), ctxOf(ids.ned), ctxOf(ids.rae), ctxOf(ids.scout), ctxOf(ids.admin)]);
     check('app: the owner reads their personal inbox', sorted(await inbox.readableInboxIds(mia)) === sorted([ids.personal]), await inbox.readableInboxIds(mia));
     check('app: an Owner reads shared inboxes only, while the switch is off', sorted(await inbox.readableInboxIds(owner)) === sorted([ids.shared]));
     await setPolicy(db, true);
@@ -303,6 +303,9 @@ async function main() {
       address: 'scout2@partner.example', handler_member_id: null, enabled: true, access_member_ids: [],
     })) === 403);
     check('settings: a Member cannot change the workspace switch', await status(() => settings.setOwnersReadPersonal(mia, true)) === 403);
+    // An Admin who does manage business settings (the default for the role in production).
+    const settingsAdmin = { ...admin, access: { ...admin.access, app_permissions: [...admin.access.app_permissions, 'settings.manage' as const] } };
+    check('settings: nor can an Admin who manages business settings', await status(() => settings.setOwnersReadPersonal(settingsAdmin, true)) === 403);
     check('settings: an Owner changes it', (await settings.setOwnersReadPersonal(owner, true)).owners_read_personal === true
       && (await settings.listMyInboxes(mia)).owners_read_personal === true);
     await settings.removeMyInbox(ned, created.id);

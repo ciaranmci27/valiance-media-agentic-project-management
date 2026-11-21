@@ -205,7 +205,8 @@ export function ConnectionCard({
 
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
         <StatusChip status={status} />
-        <p aria-live="polite" className="min-w-0 flex-1 text-sm text-zinc-200">
+        {/* At least 12rem, so on a phone the button drops below instead of squeezing the sentence. */}
+        <p aria-live="polite" className="min-w-[12rem] flex-1 text-sm text-zinc-200">
           {connected ? (
             <>
               Connected to {repoName}

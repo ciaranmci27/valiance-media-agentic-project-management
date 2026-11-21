@@ -99,7 +99,7 @@ The newest release can be several versions ahead. Read every `CHANGELOG.md` sect
 
 Resolve conflicted core files by hand only inside a merge (`git merge vX.Y.Z` with a conflict open), and only when the change cannot move into `src/custom`. The guard allows core edits while a merge is in progress.
 
-After a release with a `### Database` section in `CHANGELOG.md`, apply its migrations: `npm run db:migrate` (`--status` to list, `--dry-run` to preview). Production deploys on Vercel apply them on their own when `MIGRATE_ON_DEPLOY=true`.
+After a release with a `### Database` section in `CHANGELOG.md`, apply its migrations: `npm run db:migrate` (`--status` to list, `--dry-run` to preview). Production deploys on Vercel apply them on their own when the host has `SUPABASE_DB_URL`, unless an Owner turned it off in Settings > Updates (or the host sets `MIGRATE_ON_DEPLOY=false`); that page also lists any change that has not landed.
 
 ## Checks before committing
 

@@ -1,6 +1,7 @@
 'use client';
 
 import { compareVersions, type ConnectionInfo, type ReleaseInfo, type UpdateRun, type UpdatesState } from '@/lib/updates/types';
+import type { DatabaseUpdates } from '@/lib/updates/database';
 import { UPSTREAM_REPO } from '@/lib/updates/config';
 import { peekRead, setReadData, type Read } from '@/lib/query-cache';
 import { appLocale } from '@/lib/region';
@@ -64,6 +65,13 @@ export async function finishSetup(): Promise<ConnectionInfo> {
   const connection = await post<ConnectionInfo>('setup', {});
   patchState((state) => ({ ...state, connection }));
   return connection;
+}
+
+/** Turns automatic database updates on or off; the status it returns replaces the one on screen. */
+export async function saveDatabaseUpdates(automatic: boolean): Promise<DatabaseUpdates | null> {
+  const database = await post<DatabaseUpdates | null>('database', { automatic });
+  patchState((state) => ({ ...state, database }));
+  return database;
 }
 
 /** The newest pending release (pending is oldest first). */

@@ -986,9 +986,14 @@ create table public.business_settings (
   -- While true, people who manage inboxes (Owners) may read every personal
   -- inbox; members see a line saying so. Off by default.
   owners_read_personal_inboxes boolean not null default false,
+  -- Settings > Updates: production deploys apply pending migrations first.
+  auto_migrate boolean not null default true,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+comment on column public.business_settings.auto_migrate is
+  'Production deploys apply pending migrations first (Settings > Updates). Owners only.';
 
 -- Enforce singleton: only one row may ever exist in this table.
 create unique index business_settings_singleton on public.business_settings ((true));
@@ -6088,6 +6093,39 @@ CREATE POLICY budget_history_access ON public.project_budget_history FOR SELECT 
 
 CREATE POLICY business_settings_access ON public.business_settings FOR ALL TO authenticated
   USING (public.has_permission('settings.manage')) WITH CHECK (public.has_permission('settings.manage'));
+
+-- Owner-only settings on the business row. Admins manage the rest of it
+-- (settings.manage), so a column check guards the two only an Owner may
+-- change: this switch, and whether Owners read personal inboxes (1.6).
+-- The app's own server (service role) and direct database sessions pass.
+CREATE OR REPLACE FUNCTION public.business_settings_owner_columns()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+BEGIN
+  IF auth.role() = 'service_role' OR auth.uid() IS NULL THEN
+    RETURN NEW;
+  END IF;
+  IF (TG_OP = 'INSERT' AND (NEW.auto_migrate IS DISTINCT FROM true OR NEW.owners_read_personal_inboxes IS DISTINCT FROM false))
+     OR (TG_OP = 'UPDATE' AND (NEW.auto_migrate IS DISTINCT FROM OLD.auto_migrate
+       OR NEW.owners_read_personal_inboxes IS DISTINCT FROM OLD.owners_read_personal_inboxes)) THEN
+    IF COALESCE(public.current_team_member_role(), '') <> 'owner' THEN
+      RAISE EXCEPTION 'Only an Owner can change this setting' USING ERRCODE = '42501';
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.business_settings_owner_columns() FROM PUBLIC, anon, authenticated;
+
+DROP TRIGGER IF EXISTS business_settings_owner_columns ON public.business_settings;
+CREATE TRIGGER business_settings_owner_columns
+  BEFORE INSERT OR UPDATE ON public.business_settings
+  FOR EACH ROW EXECUTE FUNCTION public.business_settings_owner_columns();
+
 CREATE POLICY smtp_accounts_access ON public.smtp_accounts FOR ALL TO authenticated
   USING (public.has_permission('smtp.manage')) WITH CHECK (public.has_permission('smtp.manage'));
 

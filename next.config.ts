@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import type { NextConfig } from "next";
 // Relative imports: the config loads before the `@/` path alias exists.
@@ -14,9 +14,21 @@ const sourceLayout =
   existsSync(join(process.cwd(), "..", "admin", "package.json")) &&
   existsSync(join(process.cwd(), "..", "website", "package.json"));
 
+// The migration files this build carries, as the migration runner names them
+// (core files, then custom/...), so Settings > Updates can say whether the
+// database has them all (src/lib/updates/database.ts).
+function migrationNames(): string {
+  const sql = (dir: string) => existsSync(dir)
+    ? readdirSync(dir, { withFileTypes: true }).filter((e) => e.isFile() && e.name.endsWith(".sql")).map((e) => e.name).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
+    : [];
+  const core = join(process.cwd(), "supabase", "migrations");
+  return [...sql(core), ...sql(join(core, "custom")).map((name) => `custom/${name}`)].join(",");
+}
+
 const coreNextConfig: NextConfig = {
-  // Build-time: read by installRole() in src/lib/updates/connection.ts.
-  env: sourceLayout ? { PM_SOURCE_LAYOUT: "1" } : {},
+  // Build-time: read by installRole() in src/lib/updates/connection.ts and by
+  // src/lib/updates/database.ts.
+  env: { PM_MIGRATIONS: migrationNames(), ...(sourceLayout ? { PM_SOURCE_LAYOUT: "1" } : {}) },
 
   // LAN/Tailscale hosts allowed to hit the dev server (e.g., phones on the same network).
   // 127.0.0.1 is here too: the server prints "Local: http://localhost:3000", but

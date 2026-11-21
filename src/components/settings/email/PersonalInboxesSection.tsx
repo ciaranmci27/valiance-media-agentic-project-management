@@ -34,7 +34,8 @@ function errorMessage(error: unknown, fallback: string): string {
 export function PersonalInboxesSection() {
   const { isDemoMode } = useDemo();
   const { emailsRefreshSignal } = useApp();
-  const { canManageSettings } = useSettingsAccess();
+  // Only an Owner changes whether Owners read personal inboxes (the server and database agree).
+  const { isOwner } = useSettingsAccess();
   const client = useMemo(() => inboxSettingsClient(isDemoMode), [isDemoMode]);
 
   const [loading, setLoading] = useState(true);
@@ -126,9 +127,9 @@ export function PersonalInboxesSection() {
         <div className="min-w-0 flex-1">
           <p id="owners-read-personal-label" className="text-sm font-medium text-zinc-100">Owners can read personal inboxes</p>
           <p id="owners-read-personal-description" className="mt-0.5 text-xs leading-relaxed text-zinc-400">
-            {canManageSettings
+            {isOwner
               ? 'While on, Owners read every personal inbox, and each one says so to its owner.'
-              : 'Only someone who manages business settings changes this.'}
+              : 'Only an Owner changes this.'}
           </p>
         </div>
         <Toggle
@@ -137,9 +138,9 @@ export function PersonalInboxesSection() {
           className="mt-0.5 flex-shrink-0"
           checked={ownersRead}
           onChange={(checked) => {
-            if (canManageSettings && !policySaving) void savePolicy(checked);
+            if (isOwner && !policySaving) void savePolicy(checked);
           }}
-          disabled={!canManageSettings || policySaving || loading}
+          disabled={!isOwner || policySaving || loading}
         />
       </div>
 

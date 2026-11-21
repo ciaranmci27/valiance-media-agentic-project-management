@@ -89,6 +89,8 @@ export interface UpdateRun {
   updatedAt: string;
 }
 
+import type { DatabaseUpdates } from './database';
+
 export interface UpdatesState {
   role: InstallRole;
   /** The version this build runs. */
@@ -105,6 +107,8 @@ export interface UpdatesState {
   connection: ConnectionInfo | null;
   /** The newest update in progress or just finished, null when none. */
   run: UpdateRun | null;
+  /** Whether deploys update the database, and what has not landed. Null when it could not be read. */
+  database: DatabaseUpdates | null;
 }
 
 /** The fine-grained token permissions an install's token needs, for the setup steps. */

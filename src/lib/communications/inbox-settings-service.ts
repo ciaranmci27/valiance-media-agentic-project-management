@@ -294,9 +294,13 @@ export async function setPersonalInboxEnabled(ctx: InboxContext, inboxId: string
   return presentHealth({ ...row, enabled }, (owner as { name?: string } | null)?.name ?? null, messages);
 }
 
-/** The workspace switch: may Owners read personal inboxes. Only business settings managers change it. */
+/**
+ * The workspace switch: may Owners read personal inboxes. Only an Owner
+ * changes it (the database guards the column the same way), never an Admin
+ * who manages the rest of the business settings.
+ */
 export async function setOwnersReadPersonal(ctx: InboxContext, value: boolean): Promise<{ owners_read_personal: boolean }> {
-  if (ctx.access.role === 'agent' || !accessAllows(ctx.access, 'settings.manage')) throw new InboxError(403, 'Only someone who manages business settings changes this.');
+  if (ctx.access.role !== 'owner') throw new InboxError(403, 'Only an Owner changes this.');
   const current = await relayDomain(ctx.service);
   if (!current) throw new InboxError(404, 'Business settings not found');
   const { error } = await ctx.service.from('business_settings').update({ owners_read_personal_inboxes: value }).eq('id', current.id as string);

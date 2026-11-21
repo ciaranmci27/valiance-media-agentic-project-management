@@ -3,6 +3,7 @@
 import { useState, type ReactNode } from 'react';
 import { AlertTriangle, Check, CircleCheck, CircleX, Database, GitMerge, Hand, Loader2, RotateCw, X } from 'lucide-react';
 import type { UpdateCheck, UpdateRun } from '@/lib/updates/types';
+import type { DatabaseUpdates } from '@/lib/updates/database';
 import { Button } from '@/components/ui/Button';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { SettingsSectionHeader } from '@/components/settings/SettingsSectionHeader';
@@ -56,6 +57,16 @@ function stepStates(run: UpdateRun | null): Record<StepKey, StepState> {
       return { prepare: 'done', checks: 'done', preview: 'done', apply: 'running' };
     case 'applied':
       return { prepare: 'done', checks: 'done', preview: 'done', apply: 'done' };
+  }
+}
+
+/** The Apply confirmation's last sentence for an update that changes the database, by how it will be applied. */
+function databaseConfirm(database: DatabaseUpdates | null): string {
+  switch (database?.mode) {
+    case 'automatic': return ' It also changes your database, which updates during the deploy.';
+    case 'manual': return ' It also changes your database: apply its changes with npm run db:migrate before it goes live.';
+    case 'not_set_up': return ' It also changes your database: apply its changes with npm run db:migrate before it goes live, or add SUPABASE_DB_URL to let deploys do it.';
+    default: return ' It also changes your database.';
   }
 }
 
@@ -180,6 +191,7 @@ export function UpdateSteps({
   version,
   hasMigrations,
   breaking,
+  database,
   busy,
   error,
   checking,
@@ -193,6 +205,8 @@ export function UpdateSteps({
   hasMigrations: boolean;
   /** A release in this update has a Breaking section. */
   breaking: boolean;
+  /** Whether deploys update the database; null when it could not be read. */
+  database: DatabaseUpdates | null;
   busy: 'prepare' | 'apply' | null;
   error: { action: 'prepare' | 'apply'; message: string } | null;
   checking: boolean;
@@ -332,7 +346,14 @@ export function UpdateSteps({
         {migrations && (
           <p className="flex items-start gap-2 rounded-lg bg-amber-500/[0.1] px-3 py-2 text-xs text-zinc-200">
             <Database size={13} className="mt-px flex-shrink-0 text-amber-300" aria-hidden="true" />
-            This update changes the database. The preview can&apos;t show those parts until you apply it.
+            <span>
+              This update changes the database. The preview can&apos;t show those parts until you apply it.
+              {database?.mode === 'automatic' && ' Your database updates during the deploy.'}
+              {(database?.mode === 'manual' || database?.mode === 'not_set_up') && (
+                <> Apply its database changes with <Mono>npm run db:migrate</Mono> before it goes live
+                  {database.mode === 'not_set_up' && <>, or add <Mono>SUPABASE_DB_URL</Mono> to let deploys do it</>}.</>
+              )}
+            </span>
           </p>
         )}
       </>
@@ -421,7 +442,7 @@ export function UpdateSteps({
         onConfirm={onApply}
         variant="default"
         title={`Apply the update to ${version}?`}
-        message={`This merges the update into your code and your host deploys it to your live app. It can't be undone from here.${migrations ? ' It also changes your database.' : ''}`}
+        message={`This merges the update into your code and your host deploys it to your live app. It can't be undone from here.${migrations ? databaseConfirm(database) : ''}`}
         confirmLabel="Apply update"
       />
     </section>

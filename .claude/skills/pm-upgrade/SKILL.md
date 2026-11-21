@@ -40,7 +40,7 @@ Releases are `vX.Y.Z` tags on `ciaranmci27/valiance-media-agentic-project-manage
    npm run db:migrate -- --dry-run
    npm run db:migrate
    ```
-   Skip this where production deploys run with `MIGRATE_ON_DEPLOY=true`; say so in the report.
+   Skip this where production deploys apply database updates on their own (Settings > Updates says "automatic": the host has `SUPABASE_DB_URL` and an Owner has not turned it off); say so in the report, and check that page lists nothing pending after the deploy.
 7. **Push** (or open the pull request for the branch) when the owner's ship rules allow.
 
 ## Resolve a conflict (exit 2)

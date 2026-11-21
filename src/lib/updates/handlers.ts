@@ -13,6 +13,7 @@ import { GitHubError, repoPath, sealSecret, withGetMemo, type FetchLike, type Gi
 import { pendingReleases, readReleases } from './releases';
 import { canApply, deriveRun, runTitle, versionToFollow } from './run';
 import { parseVersion, type ConnectionInfo, type ReleaseInfo, type UpdateRun, type UpdatesState } from './types';
+import { databaseUpdates, type DatabaseEnv, type DatabaseUpdates } from './database';
 
 export type AuthResult =
   | { error: NextResponse; memberId?: undefined; role?: undefined }
@@ -28,8 +29,16 @@ export interface AuditEntry {
   memberId: string;
 }
 
+/** The database side of updates: the Owner's switch and what the migration runner recorded. */
+export interface DatabaseStore {
+  /** switchOn null: the setting is not there yet. applied null: no record kept (the runner never ran). */
+  read: () => Promise<{ switchOn: boolean | null; applied: string[] | null }>;
+  save: (on: boolean) => Promise<{ ok: true } | { ok: false; message: string }>;
+}
+
 export interface UpdatesDeps {
-  env: UpdatesEnv & { NEXT_PUBLIC_DEMO_MODE?: string; DEMO_MODE?: string };
+  env: UpdatesEnv & DatabaseEnv & { NEXT_PUBLIC_DEMO_MODE?: string; DEMO_MODE?: string };
+  database?: DatabaseStore;
   authorize: () => Promise<AuthResult>;
   audit: (entry: AuditEntry) => void;
   currentVersion: () => string;
@@ -127,9 +136,10 @@ export async function getUpdates(request: NextRequest, deps: UpdatesDeps): Promi
   const role = installRole(deps.env);
   const current = deps.currentVersion();
   const refresh = request.nextUrl.searchParams.get('refresh') === '1';
-  const [list, connection] = await Promise.all([
+  const [list, connection, database] = await Promise.all([
     readReleases({ refresh, fetch: deps.fetch, now: deps.now, token: releaseToken(deps) }),
     role === 'source' ? Promise.resolve(null) : connectionFor(deps, !refresh),
+    readDatabase(deps),
   ]);
   const pending = pendingReleases(list.releases, current);
 
@@ -159,8 +169,49 @@ export async function getUpdates(request: NextRequest, deps: UpdatesDeps): Promi
     releasesError: list.error,
     connection: connection?.info ?? null,
     run,
+    database,
   };
   return NextResponse.json({ data: state });
+}
+
+async function readDatabase(deps: UpdatesDeps): Promise<DatabaseUpdates | null> {
+  if (!deps.database) return null;
+  try {
+    return databaseUpdates(deps.env, await deps.database.read());
+  } catch (error) {
+    console.error('[updates] reading the database state failed:', error instanceof Error ? error.message : 'unknown error');
+    return null;
+  }
+}
+
+/**
+ * Owners turn automatic database updates on or off (Settings > Updates). The
+ * source install has the switch too: it deploys like any other. Answers the
+ * database state as it now is.
+ */
+export async function postDatabase(request: NextRequest, deps: UpdatesDeps): Promise<NextResponse> {
+  if (isDemo(deps.env)) return fail(403, 'The demo workspace does not update.');
+  if (!isSameOrigin(request)) return fail(403, 'Cross-site request refused');
+  const owner = await ownerOnly(deps);
+  if (owner.error) return owner.error;
+  if (!deps.database) return fail(503, 'Database updates are not available here.');
+  const body = await request.json().catch(() => null) as { automatic?: unknown } | null;
+  if (typeof body?.automatic !== 'boolean') return fail(400, 'Send { automatic: true } or { automatic: false }.');
+
+  const before = await readDatabase(deps);
+  const saved = await deps.database.save(body.automatic);
+  if (!saved.ok) return fail(500, saved.message);
+  const after = await readDatabase(deps);
+  deps.audit({
+    method: 'POST',
+    endpoint: `${ENDPOINT}/database`,
+    request_body: { automatic: body.automatic },
+    before_snapshot: before && { mode: before.mode, switchOn: before.switchOn },
+    after_snapshot: after && { mode: after.mode, switchOn: after.switchOn },
+    status_code: 200,
+    memberId: owner.memberId,
+  });
+  return NextResponse.json({ data: after });
 }
 
 export async function postSetup(request: NextRequest, deps: UpdatesDeps): Promise<NextResponse> {

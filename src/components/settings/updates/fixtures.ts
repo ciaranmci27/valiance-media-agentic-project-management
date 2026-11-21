@@ -1,4 +1,5 @@
 import type { ConnectionInfo, ReleaseInfo, UpdateRun, UpdatesState } from '@/lib/updates/types';
+import type { DatabaseUpdates } from '@/lib/updates/database';
 
 /**
  * Development only: /settings/updates?state=<name> shows the screen in one
@@ -48,6 +49,18 @@ const R150: ReleaseInfo = {
   hasMigrations: true,
 };
 
+const dbAutomatic: DatabaseUpdates = { mode: 'automatic', switchOn: true, hostOff: false, pending: [] };
+const db = (patch: Partial<DatabaseUpdates>): DatabaseUpdates => ({ ...dbAutomatic, ...patch });
+const PENDING = [
+  '20261119090000_lead_imports.sql',
+  '20261120090000_lead_import_rows.sql',
+  '20261120100000_lead_import_rows_index.sql',
+  '20261121090000_database_updates_switch.sql',
+  'custom/20261121100000_acme_reports_weekly_rollup_with_a_long_name.sql',
+  'custom/20261121110000_acme_reports_policies.sql',
+  'custom/20261121120000_acme_reports_view.sql',
+];
+
 const connected: ConnectionInfo = { status: 'connected', repo: REPO, defaultBranch: 'main', missing: [], message: null };
 
 const base: UpdatesState = {
@@ -59,6 +72,7 @@ const base: UpdatesState = {
   releasesError: null,
   connection: connected,
   run: null,
+  database: dbAutomatic,
 };
 
 const run = (patch: Partial<UpdateRun>): UpdateRun => ({
@@ -121,6 +135,16 @@ export const UPDATE_FIXTURES: Record<string, UpdatesState> = {
   waiting_approval: { ...base, run: run({ stage: 'waiting_approval', checks: passed }) },
   applying: { ...base, run: run({ stage: 'applying', checks: passed }) },
   applied: { ...base, run: run({ stage: 'applied', checks: passed }) },
+  // Database updates: the switch, its setup, and changes that have not landed.
+  db_manual: { ...base, current: '1.5.0', pending: [], database: db({ mode: 'manual', switchOn: false }) },
+  db_host_off: { ...base, current: '1.5.0', pending: [], database: db({ mode: 'manual', hostOff: true }) },
+  db_not_set_up: { ...base, current: '1.5.0', pending: [], database: db({ mode: 'not_set_up' }) },
+  db_pending: { ...base, current: '1.5.0', pending: [], database: db({ pending: PENDING }) },
+  db_pending_manual: { ...base, current: '1.5.0', pending: [], database: db({ mode: 'manual', switchOn: false, pending: PENDING.slice(0, 2) }) },
+  db_no_record: { ...base, current: '1.5.0', pending: [], database: db({ pending: null }) },
+  db_unreadable: { ...base, current: '1.5.0', pending: [], database: null },
+  ready_manual_db: { ...base, run: run({ stage: 'ready', checks: passed }), database: db({ mode: 'manual', switchOn: false }) },
+  ready_db_not_set_up: { ...base, run: run({ stage: 'ready', checks: passed }), database: db({ mode: 'not_set_up' }) },
 };
 
 export const FIXTURE_NAMES = ['loading', 'error', 'demo', ...Object.keys(UPDATE_FIXTURES)];
