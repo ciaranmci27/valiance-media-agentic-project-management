@@ -1,3 +1,4 @@
+import { readSecrets } from '@/lib/secrets/store';
 import { getServiceClient } from '@/lib/api/supabase-service';
 import { ingestInbound } from '@/lib/communications/email/ingest';
 import { createResendReceiving, inboundFromResend, type ResendWebhookEvent } from '@/lib/communications/email/resend';
@@ -29,9 +30,21 @@ export async function POST(request: Request) {
   if (env.NEXT_PUBLIC_DEMO_MODE === 'true' || env.DEMO_MODE === 'true') {
     return respond({ error: 'Inbound email is disabled' }, 404);
   }
-  const secret = env.RESEND_INBOUND_WEBHOOK_SECRET;
-  const apiKey = env.RESEND_API_KEY;
-  if (!secret || !secret.startsWith('whsec_') || !apiKey || !env.SUPABASE_SERVICE_ROLE_KEY || !env.NEXT_PUBLIC_SUPABASE_URL) {
+  if (!env.SUPABASE_SERVICE_ROLE_KEY || !env.NEXT_PUBLIC_SUPABASE_URL) {
+    return respond({ error: 'Inbound email is not configured' }, 503);
+  }
+  // Saved in the app (Settings > Email > Receiving) first, else the host's variables.
+  let secret: string | null = null;
+  let apiKey: string | null = null;
+  try {
+    const saved = await readSecrets(getServiceClient(), ['resend_webhook_secret', 'resend_api_key'] as const);
+    secret = saved.resend_webhook_secret;
+    apiKey = saved.resend_api_key;
+  } catch {
+    secret = env.RESEND_INBOUND_WEBHOOK_SECRET ?? null;
+    apiKey = env.RESEND_API_KEY ?? null;
+  }
+  if (!secret || !secret.startsWith('whsec_') || !apiKey) {
     return respond({ error: 'Inbound email is not configured' }, 503);
   }
 

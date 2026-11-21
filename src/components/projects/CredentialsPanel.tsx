@@ -300,7 +300,7 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
   };
 
   const handleCopyKey = async () => {
-    await navigator.clipboard.writeText(`PROJECT_CREDENTIALS_ENCRYPTION_KEY=${generatedKey}`);
+    await navigator.clipboard.writeText(`APP_ENCRYPTION_KEY=${generatedKey}`);
     setKeyCopied(true);
     toast('success', 'Copied to clipboard');
     setTimeout(() => setKeyCopied(false), 3000);
@@ -317,7 +317,7 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
       } else {
         toast(
           'error',
-          "Key not detected. Make sure you've restarted your dev server after adding the env var.",
+          'APP_ENCRYPTION_KEY not detected. Redeploy or restart the app after adding it, then verify again.',
         );
       }
     } catch {
@@ -505,12 +505,12 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
       <RailCard title="Set up credential encryption" icon={<Lock size={16} className="text-zinc-400" aria-hidden="true" />}>
         <div className="space-y-4">
           <div className="text-sm text-zinc-300 leading-relaxed">
-            Generate an encryption key and add it to your{' '}
+            Generate the app&apos;s encryption key and add it in your host as{' '}
             <code className="px-1.5 py-0.5 bg-white/[0.06] rounded text-xs font-mono text-zinc-300">
-              .env.local
+              APP_ENCRYPTION_KEY
             </code>{' '}
-            file. This key encrypts all stored credentials with AES-256-GCM. Keep it safe ; if lost,
-            stored credentials cannot be recovered.
+            (64 hex characters). It encrypts stored credentials with AES-256-GCM. Keep it safe: if
+            it&apos;s lost, saved passwords and keys can&apos;t be recovered.
           </div>
 
           {!generatedKey ? (
@@ -528,7 +528,7 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
               <div className="relative">
                 <div className="flex items-center gap-2 px-3 py-2.5 bg-white/[0.03] border border-white/[0.08] rounded-lg">
                   <code className="flex-1 text-xs font-mono text-zinc-300 break-all select-all leading-relaxed">
-                    PROJECT_CREDENTIALS_ENCRYPTION_KEY={generatedKey}
+                    APP_ENCRYPTION_KEY={generatedKey}
                   </code>
                   <Tooltip content="Copy">
                     <button
@@ -551,13 +551,13 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
                 <ol className="list-decimal list-inside space-y-1 pl-1">
                   <li>Copy the line above</li>
                   <li>
-                    Paste it into your{' '}
+                    Add it in your host&apos;s environment variables for Production (running locally, in{' '}
                     <code className="px-1 py-0.5 bg-white/[0.06] rounded font-mono">
                       .env.local
-                    </code>{' '}
-                    file
+                    </code>
+                    )
                   </li>
-                  <li>Restart your dev server</li>
+                  <li>Redeploy, or restart the app locally</li>
                   <li>Click &quot;Verify Setup&quot; below</li>
                 </ol>
               </div>

@@ -122,7 +122,7 @@ export function SmtpSection() {
   };
 
   const handleCopyKey = () => {
-    navigator.clipboard.writeText(`SMTP_ENCRYPTION_KEY=${generatedKey}`);
+    navigator.clipboard.writeText(`APP_ENCRYPTION_KEY=${generatedKey}`);
     setKeyCopied(true);
     toast('success', 'Copied to clipboard');
     setTimeout(() => setKeyCopied(false), 2000);
@@ -139,7 +139,7 @@ export function SmtpSection() {
       } else {
         toast(
           'error',
-          'SMTP_ENCRYPTION_KEY not detected. Restart your dev server after adding it to .env.local.',
+          'APP_ENCRYPTION_KEY not detected. Add it in your host (or .env.local), then redeploy or restart the app.',
         );
       }
     } catch {
@@ -324,7 +324,7 @@ export function SmtpSection() {
           <div>
             <h2 className="font-semibold text-white">Sending</h2>
             <p className="text-sm text-zinc-400">
-              Set up encryption first. It keeps SMTP passwords safe.
+              Set the app&apos;s encryption key first. It keeps SMTP passwords safe.
             </p>
           </div>
         </div>
@@ -337,13 +337,12 @@ export function SmtpSection() {
           <div className="space-y-4">
             <div>
               <p className="text-sm font-medium text-zinc-300 mb-2">
-                Add this to your{' '}
-                <code className="px-1.5 py-0.5 bg-white/[0.06] rounded text-xs">.env.local</code>{' '}
-                file:
+                Add this in your host&apos;s environment variables (running locally, in{' '}
+                <code className="px-1.5 py-0.5 bg-white/[0.06] rounded text-xs">.env.local</code>):
               </p>
               <div className="flex items-center gap-2">
                 <code className="flex-1 px-3 py-2 bg-white/[0.03] border border-white/[0.08] rounded-lg text-sm font-mono text-zinc-100 break-all select-all">
-                  SMTP_ENCRYPTION_KEY={generatedKey}
+                  APP_ENCRYPTION_KEY={generatedKey}
                 </code>
                 <button
                   onClick={handleCopyKey}
@@ -355,8 +354,8 @@ export function SmtpSection() {
             </div>
 
             <p className="text-xs text-zinc-400">
-              After adding the key, restart your dev server, then click &ldquo;Verify Setup&rdquo;
-              to confirm.
+              64 hex characters. Keep it safe: if it&apos;s lost, saved passwords and keys can&apos;t be
+              recovered. After adding it, redeploy or restart the app, then click &ldquo;Verify Setup&rdquo;.
             </p>
 
             <Button onClick={handleVerifySetup} disabled={verifying}>

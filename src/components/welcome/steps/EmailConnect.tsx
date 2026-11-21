@@ -68,7 +68,7 @@ const PROVIDERS: Record<ProviderId, {
 
 const PROVIDER_IDS: ProviderId[] = ['google', 'resend', 'other'];
 
-/** Whether the app can store a mail password: SMTP_ENCRYPTION_KEY is set. Read fresh on every visit. */
+/** Whether the app can store a mail password: APP_ENCRYPTION_KEY is set. Read fresh on every visit. */
 const smtpSetupRead: Read<{ encryptionConfigured: boolean }> = {
   key: 'welcome-smtp-setup',
   tables: ['smtp_accounts'],
@@ -368,14 +368,14 @@ function ConnectForm({ brandName, preview, onCancel, onConnected, onKeyMissing }
   );
 }
 
-/** The one setting sending needs before a password can be stored: SMTP_ENCRYPTION_KEY. */
+/** The one setting sending needs before a password can be stored: APP_ENCRYPTION_KEY (64 hex characters). */
 function EncryptionFix({ onCheck, checking, onCancel }: { onCheck: () => void; checking: boolean; onCancel: () => void }) {
   const [key, setKey] = useState('');
   const [generating, setGenerating] = useState(false);
   const [generateError, setGenerateError] = useState<string | null>(null);
   const [copy, setCopy] = useState<'idle' | 'copied' | 'failed'>('idle');
   const [checked, setChecked] = useState(false);
-  const line = `SMTP_ENCRYPTION_KEY=${key}`;
+  const line = `APP_ENCRYPTION_KEY=${key}`;
 
   const generate = async () => {
     setGenerating(true);
@@ -410,7 +410,7 @@ function EncryptionFix({ onCheck, checking, onCancel }: { onCheck: () => void; c
   return (
     <div className="space-y-4">
       <p className="text-xs leading-relaxed text-zinc-300">
-        One thing first: the app needs a key to keep your email password encrypted. It is the only setting sending needs.
+        One thing first: the app needs its encryption key to keep your email password safe. It is the only setting sending needs.
       </p>
 
       {!key ? (
@@ -432,10 +432,11 @@ function EncryptionFix({ onCheck, checking, onCancel }: { onCheck: () => void; c
               {copy === 'copied' ? 'Copied' : 'Copy'}
             </Button>
           </div>
+          <p className="text-xs leading-relaxed text-amber-200">Keep it safe: if it&apos;s lost, saved passwords and keys can&apos;t be recovered.</p>
           {copy === 'failed' && <OutcomeLine outcome={{ tone: 'error', text: 'Could not copy. Select the line and copy it yourself.' }} />}
           <ol className="list-decimal space-y-1 pl-4 text-xs leading-relaxed text-zinc-300">
-            <li>Add the line to the <span className="font-mono text-[11px]">.env.local</span> file in the app folder. If the app runs online, add it to the host&apos;s environment variables too (on Vercel: Settings &gt; Environment Variables).</li>
-            <li>Restart the app, or redeploy it online.</li>
+            <li>In your host (on Vercel: Project, Settings, Environment Variables) add the line for Production; running locally, add it to <span className="font-mono text-[11px]">.env.local</span>.</li>
+            <li>Redeploy, or restart the app locally.</li>
             <li>Press Check again.</li>
           </ol>
           <div className="flex flex-wrap items-center gap-2">
@@ -445,7 +446,7 @@ function EncryptionFix({ onCheck, checking, onCancel }: { onCheck: () => void; c
             </Button>
             <Button type="button" size="sm" variant="ghost" onClick={onCancel}>Cancel</Button>
           </div>
-          {checked && !checking && <OutcomeLine outcome={{ tone: 'error', text: 'The key is not set yet. Restart the app after adding it, then check again.' }} />}
+          {checked && !checking && <OutcomeLine outcome={{ tone: 'error', text: 'The key is not set yet. Redeploy or restart the app after adding it, then check again.' }} />}
         </>
       )}
       {generateError && <OutcomeLine outcome={{ tone: 'error', text: generateError, onRetry: () => { void generate(); } }} busy={generating} />}

@@ -194,6 +194,8 @@ export function UpdatesSection() {
           finishing={finishing}
           outcome={connectionOutcome}
           onFinish={() => void finish()}
+          sample={!!fixtureName}
+          onSample={sample}
         />
       )}
 

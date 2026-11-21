@@ -44,7 +44,7 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
   // New versions of the app and how to install them (Owners only).
   { key: 'updates', href: '/settings/updates', label: 'Updates', icon: CircleArrowUp, sectionIds: ['updates'] },
   // Workspace-wide: the modules, the brand and the region (Owners only).
-  { key: 'workspace', href: '/settings/workspace', label: 'Workspace', icon: LayoutGrid, sectionIds: ['features', 'brand', 'region'] },
+  { key: 'workspace', href: '/settings/workspace', label: 'Workspace', icon: LayoutGrid, sectionIds: ['features', 'brand', 'region', 'encryption'] },
   { key: 'notifications', href: '/settings/notifications', label: 'Notifications', icon: Bell, sectionIds: ['notifications'] },
   // Invoice details (Client invoicing) and hour approvals (either money
   // module). Was Business, at /settings/business, which still redirects here;
@@ -57,7 +57,7 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
     href: '/settings/email',
     label: 'Email',
     icon: Mail,
-    sectionIds: ['smtp', 'my-inbox', 'email-inboxes', 'personal-inboxes', 'email-addresses', 'mail-rules'],
+    sectionIds: ['smtp', 'my-inbox', 'email-inboxes', 'personal-inboxes', 'email-addresses', 'mail-rules', 'receiving'],
     sectionHrefs: {
       smtp: EMAIL_PAGES.sending,
       'my-inbox': EMAIL_PAGES.mine,
@@ -67,7 +67,7 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
       'mail-rules': EMAIL_PAGES.rules,
     },
   },
-  { key: 'developers', href: '/settings/developers', label: 'Developers', icon: Code2, sectionIds: ['api-keys', 'webhooks'] },
+  { key: 'developers', href: '/settings/developers', label: 'Developers', icon: Code2, sectionIds: ['api-keys', 'webhooks', 'webhook-retries'] },
   { key: 'data', href: '/settings/data', label: 'Data', icon: Database, sectionIds: ['trash', 'demo-mode'] },
   // The install's own sections, after core's.
   ...customSettingsGroups(),
@@ -114,6 +114,8 @@ export function useSettingsAccess() {
     brand: isOwner,
     // Currency, number and date format: every amount everyone sees, so Owners only.
     region: isOwner,
+    // The app key and the values saved with it. The demo workspace has no database to check.
+    encryption: isOwner && !isDemoMode,
     // Owners only. In demo mode the page says updates are off there.
     updates: isOwner,
     // Billing: invoice details only mean something with Client invoicing on;
@@ -123,10 +125,14 @@ export function useSettingsAccess() {
     // Every active member can create personal keys; none in demo mode.
     apiKeys: !isDemoMode && !isGuest,
     webhooks: canManageWebhooks && !isDemoMode,
+    // Turning on retries writes a secret and Supabase Vault: Owners only, with webhooks on.
+    webhookRetries: isOwner && !isDemoMode && isModuleEnabled(access, 'webhooks'),
     // SMTP is hidden in demo mode; inboxes show there too, on sample data whose changes last until a reload.
     smtp: canManageSmtp && !isDemoMode,
     emailInboxes: canManageInboxes,
     myInbox: canConnectOwnInbox,
+    // The Resend keys mail arrives through: Owners only, with the Inbox on.
+    receiving: isOwner && !isDemoMode && isModuleEnabled(access, 'inbox'),
     password: !isDemoMode,
     // The exclusions filter portal analytics, so they go with the portal.
     analyticsExclusions: canManageSettings && isModuleEnabled(access, 'portal'),
@@ -136,14 +142,14 @@ export function useSettingsAccess() {
 
   // A group shows in the menu while at least one of its sections does.
   const visibleGroups: Record<SettingsGroupKey, boolean> = {
-    workspace: show.features || show.brand || show.region,
+    workspace: show.features || show.brand || show.region || show.encryption,
     updates: show.updates,
     account: true,
     notifications: true,
     billing: show.invoiceDetails || show.hourApprovals,
     portal: show.analyticsExclusions,
-    email: show.smtp || show.emailInboxes || show.myInbox,
-    developers: show.apiKeys || show.webhooks,
+    email: show.smtp || show.emailInboxes || show.myInbox || show.receiving,
+    developers: show.apiKeys || show.webhooks || show.webhookRetries,
     data: !isGuest,
   };
 

@@ -10,5 +10,5 @@ import { updatesDeps } from '@/lib/updates/server';
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
-  return getUpdates(request, updatesDeps());
+  return getUpdates(request, await updatesDeps());
 }

@@ -9,6 +9,28 @@ Each section starts with `## X.Y.Z (YYYY-MM-DD)` and uses these headings, leavin
 - `### Database`: the core migration files in the release, one per line. `npm run db:migrate` applies them.
 - `### Breaking`: what an install must do when it takes this release.
 
+## 1.10.0 (2026-11-22)
+
+### Added
+- One encryption key for the whole app: `APP_ENCRYPTION_KEY` (64 hex characters) encrypts email account passwords, project credentials and integration secrets, with a separate key derived for each use.
+- Settings > Workspace > Encryption (Owners) shows the key's state and moves values saved under the older keys onto the new one (`npm run secrets:reencrypt` does the same from a terminal).
+- Integration secrets set in the app instead of the host, saved encrypted, with the host's variables still working as a fallback:
+  - The Resend receiving key and webhook signing secret: Settings > Email > Receiving.
+  - The GitHub update token and repository: Settings > Updates.
+- "Turn on webhook retries" in Settings > Developers makes the scheduler secret, saves it, and writes it with the app's address into Supabase Vault. No hand-made secret or Vault entry.
+- The setup wizard starts with "Connect your server" when a required setting is missing (`APP_ENCRYPTION_KEY`, `NEXT_PUBLIC_APP_URL`), with a key generated in the browser and the steps to add it. Nothing else opens until they are set; this only applies before the first Owner exists.
+- When the Supabase settings themselves are missing, every page shows a plain setup page naming them, instead of an error.
+
+### Changed
+- `SMTP_ENCRYPTION_KEY` and `PROJECT_CREDENTIALS_ENCRYPTION_KEY` are no longer needed for new installs. On existing installs they keep opening what was saved under them until it has been moved. New values use `APP_ENCRYPTION_KEY` as soon as it is set, and the older keys until then, so nothing breaks before you add it.
+- The setup checks list `APP_ENCRYPTION_KEY` as required (a value that isn't 64 hex characters counts as not set) instead of the two older keys.
+
+### Database
+- `20261122090000_app_secrets.sql`: the encrypted integration secrets table (service role only), and the Vault writer for webhook retries (made only where Supabase Vault exists).
+
+### Breaking
+- None for running installs. To finish moving: add `APP_ENCRYPTION_KEY` to your host and redeploy, run the move in Settings > Workspace > Encryption, then remove the two older keys once it says nothing is left. Keep a safe copy of the key: if it is lost, saved passwords and keys cannot be recovered.
+
 ## 1.9.0 (2026-11-21)
 
 ### Added

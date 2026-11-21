@@ -5,17 +5,33 @@ import { afterResponse } from '@/lib/api/after-response';
 import { currentVersion } from './config';
 import type { AuditEntry, UpdatesDeps } from './handlers';
 import { recordedMigrations } from './database';
+import { getServiceClient } from '@/lib/api/supabase-service';
+import { clearSecretCache, readSecrets } from '@/lib/secrets/store';
 
 /**
  * The update routes' real dependencies: the signed-in session (never an API
- * key or MCP), the app's own audit row, and the host's environment.
+ * key or MCP), the app's own audit row, and the host's environment. The
+ * GitHub token and repository come from Settings > Updates when an Owner saved
+ * them there (sealed with the app key), else from PM_GITHUB_TOKEN and
+ * PM_GITHUB_REPO.
  */
-export function updatesDeps(): UpdatesDeps {
+export async function updatesDeps(): Promise<UpdatesDeps> {
   let service: SupabaseClient | null = null;
+  let github: { github_token: string | null; github_repo: string | null } = {
+    github_token: process.env.PM_GITHUB_TOKEN ?? null,
+    github_repo: process.env.PM_GITHUB_REPO ?? null,
+  };
+  try {
+    // Owners act on what they just saved, possibly on another server instance: read fresh.
+    clearSecretCache();
+    github = await readSecrets(getServiceClient(), ['github_token', 'github_repo'] as const);
+  } catch {
+    // The database is unreachable: the environment answers, as before.
+  }
   return {
     env: {
-      PM_GITHUB_TOKEN: process.env.PM_GITHUB_TOKEN,
-      PM_GITHUB_REPO: process.env.PM_GITHUB_REPO,
+      PM_GITHUB_TOKEN: github.github_token ?? undefined,
+      PM_GITHUB_REPO: github.github_repo ?? undefined,
       PM_INSTALL_ROLE: process.env.PM_INSTALL_ROLE,
       PM_SOURCE_LAYOUT: process.env.PM_SOURCE_LAYOUT,
       // Database updates: read for whether they are set, never sent anywhere.

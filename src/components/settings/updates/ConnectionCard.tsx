@@ -6,6 +6,9 @@ import { REQUIRED_TOKEN_PERMISSIONS, type ConnectionInfo, type ConnectionStatus 
 import { Button } from '@/components/ui/Button';
 import { SettingsSectionHeader } from '@/components/settings/SettingsSectionHeader';
 import { OutcomeLine, type Outcome } from '@/components/settings/workspace/OutcomeLine';
+import { AppKeyPointer, SecretField, SecretList } from '@/components/settings/SecretField';
+import { secretStatus, secretsRead, type SecretsState } from '@/components/settings/secrets-data';
+import { useRead } from '@/lib/query-cache';
 import { NEW_TOKEN_URL } from './updates-data';
 import { CopyCode, ExternalButton, ExternalLinkText, Label, Mono } from './parts';
 
@@ -48,8 +51,8 @@ function FixBox({ connection }: { connection: ConnectionInfo }) {
     case 'repo_unreachable':
       return box('Check the repository name and access', (
         <p>
-          Make sure <Mono>PM_GITHUB_REPO</Mono> is your repository as owner/name (like acme/pm-app), and that the token
-          has this repository picked under Only select repositories.
+          Make sure the repository in step 3 is yours as owner/name (like acme/pm-app), and that the token has this
+          repository picked under Only select repositories.
         </p>
       ));
     case 'missing_permissions':
@@ -62,7 +65,7 @@ function FixBox({ connection }: { connection: ConnectionInfo }) {
           </ul>
           <p>
             On GitHub, open Settings, Developer settings, Fine-grained tokens, pick this token and add them (step 2 lists
-            the access each needs). The token itself stays the same, so nothing changes in your host. Then check again.
+            the access each needs). The token itself stays the same, so there is nothing to save again. Then check again.
           </p>
         </>
       ));
@@ -149,10 +152,15 @@ function PermissionTable({ missing }: { missing: string[] }) {
   );
 }
 
+/** owner/name, as GitHub allows them. */
+const REPO_PATTERN = /^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/;
+
 /**
  * Settings > Updates' GitHub connection: one status line once it works, the
- * numbered setup until then. The token lives in the host's environment only:
- * this screen never shows it or asks for it.
+ * numbered setup until then. The repository and token are saved in the app
+ * (encrypted with the app key, never shown again), or set in the host as
+ * PM_GITHUB_REPO and PM_GITHUB_TOKEN, which still answer when nothing is
+ * saved here.
  */
 export function ConnectionCard({
   connection,
@@ -161,6 +169,8 @@ export function ConnectionCard({
   finishing,
   outcome,
   onFinish,
+  sample = false,
+  onSample,
 }: {
   connection: ConnectionInfo;
   checking: boolean;
@@ -168,7 +178,11 @@ export function ConnectionCard({
   finishing: boolean;
   outcome: Outcome | null;
   onFinish: () => void;
+  /** A sample state (development only): the fields show, nothing is sent. */
+  sample?: boolean;
+  onSample?: () => void;
 }) {
+  const secrets = useRead(sample ? null : secretsRead);
   const status = connection.status;
   const connected = status === 'connected';
   const tokenReady = TOKEN_READY.includes(status);
@@ -252,27 +266,17 @@ export function ConnectionCard({
           </SetupStep>
 
           <SetupStep number={3} done={tokenReady}>
-            <p>
-              In your host&apos;s environment settings (on Vercel: Project, Settings, Environment Variables), add these two:
-            </p>
-            <dl className="space-y-2 rounded-lg bg-white/[0.03] px-3 py-2.5">
-              <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-3">
-                <dt className="sm:w-44"><CopyCode text="PM_GITHUB_TOKEN" /></dt>
-                <dd className="text-xs text-zinc-400">The token you just copied.</dd>
-              </div>
-              <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-3">
-                <dt className="sm:w-44"><CopyCode text="PM_GITHUB_REPO" /></dt>
-                <dd className="text-xs text-zinc-400">Your repository as owner/name, like acme/pm-app.</dd>
-              </div>
-            </dl>
-            <p className="flex items-start gap-1.5 text-xs text-zinc-400">
-              <KeyRound size={12} className="mt-px flex-shrink-0" aria-hidden="true" />
-              The token stays in your host. This app never shows it or asks you for it.
-            </p>
+            <GithubSecrets
+              state={sample ? { appKey: 'set', secrets: [] } : secrets.data}
+              loading={!sample && secrets.loading}
+              sample={sample}
+              onSample={onSample}
+              onSaved={onCheck}
+            />
           </SetupStep>
 
           <SetupStep number={4} done={tokenReady}>
-            <p>Redeploy so the app picks them up, then check the connection.</p>
+            <p>Check the connection. Saving above checks it for you; if you set them in your host, redeploy first.</p>
             <div>{checkButton(tokenReady ? 'secondary' : 'primary')}</div>
           </SetupStep>
 
@@ -292,5 +296,103 @@ export function ConnectionCard({
         </ol>
       </div>
     </section>
+  );
+}
+
+/** The host's way, as before the app could keep them: two variables and a redeploy. */
+function HostVariables() {
+  return (
+    <>
+      <p>
+        In your host&apos;s environment settings (on Vercel: Project, Settings, Environment Variables), add these two:
+      </p>
+      <dl className="space-y-2 rounded-lg bg-white/[0.03] px-3 py-2.5">
+        <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-3">
+          <dt className="sm:w-44"><CopyCode text="PM_GITHUB_TOKEN" /></dt>
+          <dd className="text-xs text-zinc-400">The token you just copied.</dd>
+        </div>
+        <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-3">
+          <dt className="sm:w-44"><CopyCode text="PM_GITHUB_REPO" /></dt>
+          <dd className="text-xs text-zinc-400">Your repository as owner/name, like acme/pm-app.</dd>
+        </div>
+      </dl>
+      <p className="flex items-start gap-1.5 text-xs text-zinc-400">
+        <KeyRound size={12} className="mt-px flex-shrink-0" aria-hidden="true" />
+        The token stays in your host. This app never shows it.
+      </p>
+    </>
+  );
+}
+
+/**
+ * Step 3: the repository and token, saved in the app when the app key is set
+ * (each save checks the connection again); the host variables otherwise.
+ */
+function GithubSecrets({
+  state,
+  loading,
+  sample,
+  onSample,
+  onSaved,
+}: {
+  state: SecretsState | undefined;
+  loading: boolean;
+  sample: boolean;
+  onSample?: () => void;
+  onSaved: () => void;
+}) {
+  if (loading) {
+    return <div aria-busy="true" aria-label="Loading the saved connection" className="h-32 rounded-lg bg-white/[0.03] motion-safe:animate-pulse" />;
+  }
+
+  if (!state || state.appKey !== 'set') {
+    return (
+      <>
+        <HostVariables />
+        {state && (
+          <AppKeyPointer
+            invalid={state.appKey === 'invalid'}
+            lead={state.appKey === 'invalid'
+              ? 'To save them in the app instead, fix your app key first. '
+              : 'To save them in the app instead, add your app key first. '}
+          />
+        )}
+      </>
+    );
+  }
+
+  return (
+    <>
+      <p>Save them here. They&apos;re encrypted with your app key and never shown again.</p>
+      <SecretList label="GitHub connection">
+        <SecretField
+          status={secretStatus(state, 'github_repo')}
+          label="Repository"
+          hint="Your repository as owner/name, like acme/pm-app."
+          envName="PM_GITHUB_REPO"
+          placeholder="acme/pm-app"
+          secret={false}
+          validate={(value) => (REPO_PATTERN.test(value) ? null : 'Enter it as owner/name, like acme/pm-app.')}
+          locked={false}
+          onSaved={onSaved}
+          sample={sample}
+          sampleNote={onSample}
+        />
+        <SecretField
+          status={secretStatus(state, 'github_token')}
+          label="Token"
+          hint="The token you just copied."
+          envName="PM_GITHUB_TOKEN"
+          placeholder="github_pat_..."
+          locked={false}
+          onSaved={onSaved}
+          sample={sample}
+          sampleNote={onSample}
+        />
+      </SecretList>
+      <p className="text-xs text-zinc-400">
+        Or set <CopyCode text="PM_GITHUB_TOKEN" /> and <CopyCode text="PM_GITHUB_REPO" /> in your host, then redeploy.
+      </p>
+    </>
   );
 }

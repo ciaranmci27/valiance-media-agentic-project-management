@@ -66,14 +66,14 @@ check('getting started: nothing left when all done', gettingStartedLeft({ brandS
 
 // ---- Setup check: set or not, never a value ---------------------------------
 const secret = 'super-secret-value-123';
-const report = envChecks({ NEXT_PUBLIC_SUPABASE_URL: 'https://x.supabase.co', SUPABASE_SERVICE_ROLE_KEY: secret, SMTP_ENCRYPTION_KEY: '   ' }, { crons: true });
+const report = envChecks({ NEXT_PUBLIC_SUPABASE_URL: 'https://x.supabase.co', SUPABASE_SERVICE_ROLE_KEY: secret, NEXT_PUBLIC_APP_URL: '   ' }, { crons: true });
 check('env: no value appears anywhere in the report', !JSON.stringify(report).includes(secret) && !JSON.stringify(report).includes('supabase.co'));
 check('env: a set variable reads true', report.find((item) => item.name === 'SUPABASE_SERVICE_ROLE_KEY')?.set === true);
 check('env: a missing variable reads false', report.find((item) => item.name === 'NEXT_PUBLIC_APP_URL')?.set === false);
-check('env: a blank variable counts as not set', report.find((item) => item.name === 'SMTP_ENCRYPTION_KEY')?.set === false);
+check('env: a blank variable counts as not set', report.find((item) => item.name === 'NEXT_PUBLIC_APP_URL')?.set === false);
 check('env: CRON_SECRET is checked when crons exist', report.some((item) => item.name === 'CRON_SECRET'));
 check('env: and left out when there are none', !envChecks({}, { crons: false }).some((item) => item.name === 'CRON_SECRET'));
-check('env: every asked-for variable is checked', ['NEXT_PUBLIC_SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY', 'PROJECT_CREDENTIALS_ENCRYPTION_KEY', 'SMTP_ENCRYPTION_KEY', 'NEXT_PUBLIC_APP_URL']
+check('env: every asked-for variable is checked', ['NEXT_PUBLIC_SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY', 'APP_ENCRYPTION_KEY', 'NEXT_PUBLIC_APP_URL']
   .every((name) => report.some((item) => item.name === name)));
 check('env: each entry is name, set, required and purpose only', report.every((item) => JSON.stringify(Object.keys(item).sort()) === JSON.stringify(['name', 'purpose', 'required', 'set'])));
 

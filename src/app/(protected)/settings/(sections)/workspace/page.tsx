@@ -1,11 +1,12 @@
 'use client';
 
+import { EncryptionSection } from '@/components/settings/workspace/EncryptionSection';
 import { BrandSection } from '@/components/settings/workspace/BrandSection';
 import { FeaturesSection } from '@/components/settings/workspace/FeaturesSection';
 import { RegionSection } from '@/components/settings/workspace/RegionSection';
 import { useSettingsAccess } from '@/components/settings/settings-groups';
 
-/** Workspace: the parts of the app the workspace uses, its brand and its region (Owners only). */
+/** Workspace: the parts of the app the workspace uses, its brand, its region and its encryption key (Owners only). */
 export default function WorkspaceSettingsPage() {
   const { show } = useSettingsAccess();
   return (
@@ -23,6 +24,11 @@ export default function WorkspaceSettingsPage() {
       {show.region && (
         <div id="region" className="scroll-mt-6">
           <RegionSection />
+        </div>
+      )}
+      {show.encryption && (
+        <div id="encryption" className="scroll-mt-6">
+          <EncryptionSection />
         </div>
       )}
     </>

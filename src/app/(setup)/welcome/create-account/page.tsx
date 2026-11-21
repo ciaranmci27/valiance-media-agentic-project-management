@@ -3,6 +3,7 @@ import { getServiceClient } from '@/lib/api/supabase-service';
 import { readEnabledModules } from '@/lib/modules/server';
 import { firstOwnerNeeded } from '@/lib/setup/first-owner-server';
 import { wizardSteps } from '@/lib/setup/gate';
+import { missingServerSettings, supabaseConnected } from '@/lib/setup/checks';
 import { CreateAccount } from './CreateAccount';
 
 export const dynamic = 'force-dynamic';
@@ -12,7 +13,10 @@ export const dynamic = 'force-dynamic';
  * Only while nobody is on the team: after that it sends people to sign in.
  */
 export default async function CreateAccountPage() {
+  if (!supabaseConnected(process.env)) redirect('/setup-required');
   if (!(await firstOwnerNeeded())) redirect('/login');
   const modules = await readEnabledModules(getServiceClient()).catch(() => null);
-  return <CreateAccount steps={wizardSteps(modules ?? undefined)} />;
+  // Required settings still missing come first (names and purposes only; this page
+  // exists only while nobody is on the team).
+  return <CreateAccount steps={wizardSteps(modules ?? undefined)} missing={missingServerSettings(process.env)} />;
 }

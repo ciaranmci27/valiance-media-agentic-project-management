@@ -11,7 +11,7 @@ export const GET = withApi(async ({ supabase, params, apiKeyId, teamMemberId, ac
   const { id, credentialId } = params as any;
 
   if (!isEncryptionConfigured()) {
-    throw badRequest('Encryption not configured. Set PROJECT_CREDENTIALS_ENCRYPTION_KEY in your environment.');
+    throw badRequest('Encryption not configured. Set APP_ENCRYPTION_KEY (64 hex characters) in your host.');
   }
 
   const { data: check } = await supabase

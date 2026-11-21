@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServiceClient } from '@/lib/api/supabase-service';
 import { createFirstOwner, FirstOwnerError } from '@/lib/setup/first-owner';
+import { missingServerSettings } from '@/lib/setup/checks';
 
 /**
  * The setup wizard's first step, open without signing in: POST { name,
@@ -33,6 +34,10 @@ export async function POST(request: NextRequest) {
   }
   if (limited(request)) {
     return NextResponse.json({ error: 'Too many tries. Wait a few minutes and try again.' }, { status: 429 });
+  }
+  // Same rule as the page: nothing past "Connect your server" until the required settings are set.
+  if (missingServerSettings(process.env).length) {
+    return NextResponse.json({ error: 'Finish connecting your server first: a required setting is missing.' }, { status: 409 });
   }
   const body = await request.json().catch(() => null) as Record<string, unknown> | null;
   try {

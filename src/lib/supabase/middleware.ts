@@ -29,6 +29,8 @@ function isPublicRoute(pathname: string) {
     // A fresh install's first account (the setup wizard's first step). Both
     // answer only while nobody is on the team; after that, never again.
     pathname === '/welcome/create-account' ||
+    // Shown when the Supabase settings themselves are missing: it reads nothing.
+    pathname === '/setup-required' ||
     pathname === '/api/welcome/owner' ||
     pathname.startsWith('/auth') ||
     pathname.startsWith('/portal') ||
@@ -66,6 +68,22 @@ export async function updateSession(request: NextRequest) {
   // can never disable auth on a real deployment.
   if (process.env.NEXT_PUBLIC_DEMO_MODE === 'true' && process.env.DEMO_MODE === 'true') {
     return NextResponse.next();
+  }
+
+  // Without the Supabase settings nothing can load: every page goes to the
+  // static page that names them (it reads nothing and shows no values).
+  if (!process.env.NEXT_PUBLIC_SUPABASE_URL?.trim() || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim()) {
+    // The logo and favicon routes fall back to the default brand without a database.
+    if (request.nextUrl.pathname.startsWith('/api/brand/') || request.nextUrl.pathname.startsWith('/api/logo')) return NextResponse.next();
+    if (request.nextUrl.pathname === '/setup-required' || request.nextUrl.pathname.startsWith('/_next') || request.nextUrl.pathname.startsWith('/api/')) {
+      return request.nextUrl.pathname.startsWith('/api/')
+        ? NextResponse.json({ error: 'The app is not connected to Supabase yet.' }, { status: 503 })
+        : NextResponse.next();
+    }
+    const url = request.nextUrl.clone();
+    url.pathname = '/setup-required';
+    url.search = '';
+    return NextResponse.rewrite(url);
   }
 
   let supabaseResponse = NextResponse.next({

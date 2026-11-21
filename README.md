@@ -77,7 +77,7 @@ The `checkout` line starts you on the newest release. The public `main` branch c
 Fill in `.env.local` from `.env.example`. Each variable has a line saying what it is for. You need at least:
 
 - `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY` (Supabase, Project Settings, API)
-- `PROJECT_CREDENTIALS_ENCRYPTION_KEY` and `SMTP_ENCRYPTION_KEY` (generate each with `openssl rand -hex 32`)
+- `APP_ENCRYPTION_KEY`: one key for everything the app saves encrypted (generate it with `openssl rand -hex 32`, or let the setup wizard make one). Keep a safe copy: if it is lost, saved passwords and keys cannot be recovered.
 - `NEXT_PUBLIC_APP_URL` (your app's address)
 
 Run it locally with `npm run dev`, then open http://localhost:3009.
@@ -96,7 +96,7 @@ Open your app right after it deploys. On a fresh database it goes straight to th
 1. **Create your account.** The first account becomes the **Owner**. Until someone does this, every visit lands here, so do it before you share the address.
 2. **Your workspace**: name, logo and color.
 3. **How you will use it**: a preset or modules one by one (next section), and your currency and number format.
-4. **Email**: connect the account invites and notifications are sent from (Google, Resend or any SMTP server). It needs only `SMTP_ENCRYPTION_KEY` (see "Fill in the environment variables"); the wizard shows how to add it if it is missing. You can do this later in **Settings > Email**.
+4. **Email**: connect the account invites and notifications are sent from (Google, Resend or any SMTP server). It needs only `APP_ENCRYPTION_KEY` (see "Fill in the environment variables"); the wizard checks it before anything else and shows how to add it. You can do this later in **Settings > Email**.
 5. **Your team** and **First projects**, then you are in.
 
 Everything can be changed later in Settings. Owners can look through the wizard again any time from **Settings > Workspace > Features > Preview setup**; a preview saves nothing.
@@ -151,7 +151,7 @@ Valiance Media publishes each release as a `vX.Y.Z` tag with notes. **Settings >
 Set this up once:
 
 1. On GitHub, create a fine-grained personal access token for **only your repository**, with the permissions Settings > Updates lists: Contents, Pull requests, Workflows, Actions and Secrets (read and write), and Commit statuses, Deployments and Metadata (read-only).
-2. In Vercel, add `PM_GITHUB_TOKEN` (the token) and `PM_GITHUB_REPO` (your repository as owner/name), then redeploy.
+2. In Settings > Updates, paste the token and your repository (owner/name). They are saved encrypted with `APP_ENCRYPTION_KEY`. (Setting `PM_GITHUB_TOKEN` and `PM_GITHUB_REPO` in your host and redeploying works too.)
 3. In Settings > Updates, check the connection, then press **Finish setup**. It stores the token as a secret in your repository for the update workflow.
 
 Your repository must allow merge commits, and `.github/workflows/core-update.yml` must be on its default branch (it comes with the copy).

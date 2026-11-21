@@ -3,12 +3,23 @@ import { createHash, timingSafeEqual } from 'node:crypto';
 type Environment = Record<string, string | undefined>;
 export const privateHeaders = { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' };
 
-/** Internal integrations use dedicated server secrets, never browser sessions. */
-export function internalAuthorization(request: Request, kind: 'snapshot' | 'scheduler', env: Environment = process.env): Response | null {
+/**
+ * Internal integrations use dedicated server secrets, never browser sessions.
+ * `saved` is what the app holds for this integration (Settings, sealed with
+ * the app key): it answers before the environment, and a secret saved in the
+ * app also switches the integration on.
+ */
+export function internalAuthorization(
+  request: Request,
+  kind: 'snapshot' | 'scheduler',
+  env: Environment = process.env,
+  saved: { secret: string | null; enabled: boolean } | null = null,
+): Response | null {
   const prefix = kind === 'snapshot' ? 'ACCOUNTING_INVOICE_SOURCE' : 'WEBHOOK_SCHEDULER';
-  const secret = env[`${prefix}_SECRET`];
+  const secret = saved?.secret ?? env[`${prefix}_SECRET`];
   const respond = (error: string, status: number) => Response.json({ error }, { status, headers: privateHeaders });
-  if (env.NEXT_PUBLIC_DEMO_MODE === 'true' || env.DEMO_MODE === 'true' || env[`${prefix}_ENABLED`] !== 'true') return respond('Integration disabled', 404);
+  const enabled = env[`${prefix}_ENABLED`] === 'true' || saved?.enabled === true;
+  if (env.NEXT_PUBLIC_DEMO_MODE === 'true' || env.DEMO_MODE === 'true' || !enabled) return respond('Integration disabled', 404);
   if (!secret || secret.length < 32 || secret.length > 512 || !env.SUPABASE_SERVICE_ROLE_KEY || !env.NEXT_PUBLIC_SUPABASE_URL) return respond('Integration is not configured', 503);
   const header = request.headers.get('authorization') ?? '';
   if (header.length > 1024 || !header.startsWith('Bearer ')) return respond('Unauthorized', 401);

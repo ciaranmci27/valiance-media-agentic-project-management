@@ -1,10 +1,17 @@
 /**
- * Server-side encryption module (AES-256-GCM) for project credentials.
+ * Project credentials (project_credentials.encrypted_data and iv).
  *
- * Uses the PROJECT_CREDENTIALS_ENCRYPTION_KEY environment variable.
- * The encrypt/decrypt functions are generic and can be adapted for
- * other features (e.g. SMTP config) with their own env var keys.
+ * New values are sealed with the app key (APP_ENCRYPTION_KEY, purpose
+ * "credentials"): encrypted_data holds the sealed value and iv the marker
+ * "pm1". Values saved before it, under PROJECT_CREDENTIALS_ENCRYPTION_KEY,
+ * still open while that variable is set; the re-encrypt moves them across.
+ * Until the app key is set, new values keep using the older key, so a
+ * running install never breaks.
  */
+import { appKeyReady, isAppSealed, open, seal } from '@/lib/crypto/app-key';
+
+/** The iv column's value for credentials sealed with the app key (the nonce lives inside the sealed value). */
+export const APP_SEALED_IV = 'pm1';
 
 const ALGORITHM = 'AES-GCM';
 const IV_LENGTH = 12; // 96-bit IV recommended for AES-GCM
@@ -16,15 +23,25 @@ const IV_LENGTH = 12; // 96-bit IV recommended for AES-GCM
 let cachedKey: CryptoKey | null = null;
 let cachedHex: string | null = null;
 
-export function isEncryptionConfigured(): boolean {
+function legacyConfigured(): boolean {
   const hex = process.env.PROJECT_CREDENTIALS_ENCRYPTION_KEY;
   return typeof hex === 'string' && hex.length === 64;
+}
+
+/** Credentials can be saved: the app key, or the older credentials key, is set. */
+export function isEncryptionConfigured(): boolean {
+  return appKeyReady() || legacyConfigured();
+}
+
+/** A credential still sealed under PROJECT_CREDENTIALS_ENCRYPTION_KEY (the re-encrypt moves it). */
+export function isLegacyCredential(encryptedData: string | null | undefined): boolean {
+  return typeof encryptedData === 'string' && encryptedData.length > 0 && !isAppSealed(encryptedData);
 }
 
 async function getMasterKey(): Promise<CryptoKey> {
   const hex = process.env.PROJECT_CREDENTIALS_ENCRYPTION_KEY;
   if (!hex || hex.length !== 64) {
-    throw new Error('PROJECT_CREDENTIALS_ENCRYPTION_KEY must be a 64-character hex string (32 bytes)');
+    throw new Error('No encryption key: set APP_ENCRYPTION_KEY in your host (64 hex characters)');
   }
   // Return cached key if env var hasn't changed
   if (cachedKey && cachedHex === hex) return cachedKey;
@@ -45,6 +62,7 @@ async function getMasterKey(): Promise<CryptoKey> {
 // ---------------------------------------------------------------------------
 
 export async function encrypt<T>(payload: T): Promise<{ encrypted_data: string; iv: string }> {
+  if (appKeyReady()) return { encrypted_data: seal('credentials', JSON.stringify(payload)), iv: APP_SEALED_IV };
   const key = await getMasterKey();
   const iv = crypto.getRandomValues(new Uint8Array(IV_LENGTH));
   const encoded = new TextEncoder().encode(JSON.stringify(payload));
@@ -58,6 +76,7 @@ export async function encrypt<T>(payload: T): Promise<{ encrypted_data: string; 
 }
 
 export async function decrypt<T>(encryptedData: string, iv: string): Promise<T> {
+  if (isAppSealed(encryptedData)) return JSON.parse(open('credentials', encryptedData)) as T;
   const key = await getMasterKey();
   const cipherBytes = base64ToBuffer(encryptedData);
   const ivBytes = base64ToBuffer(iv);
@@ -65,17 +84,6 @@ export async function decrypt<T>(encryptedData: string, iv: string): Promise<T> 
     { name: ALGORITHM, iv: ivBytes }, key, cipherBytes,
   );
   return JSON.parse(new TextDecoder().decode(plaintext)) as T;
-}
-
-// ---------------------------------------------------------------------------
-// Key generation helper (used by the setup API)
-// ---------------------------------------------------------------------------
-
-export function generateEncryptionKey(): string {
-  const bytes = crypto.getRandomValues(new Uint8Array(32));
-  return Array.from(bytes)
-    .map(b => b.toString(16).padStart(2, '0'))
-    .join('');
 }
 
 // ---------------------------------------------------------------------------

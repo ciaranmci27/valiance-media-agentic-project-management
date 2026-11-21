@@ -370,7 +370,7 @@ export const endpoints: EndpointDoc[] = [
       { name: 'limit', type: 'number', description: 'Items per page (default 25, max 100)' },
     ],
   },
-  { method: 'POST', path: '/api/v1/projects/:id/credentials', description: 'Store an encrypted credential for a project. Field values are encrypted server-side with AES-256-GCM before storage. Each category has its own expected field keys (login: username/password/url; api_key: api_key/api_secret/url; ssh_key: host/username/private_key/passphrase; database: host/port/database/username/password; credit_card: cardholder/card_number/expiry/cvc/billing_zip; ach: account_holder/bank_name/routing_number/account_number/account_type). Requires PROJECT_CREDENTIALS_ENCRYPTION_KEY to be configured.', group: 'Credentials',
+  { method: 'POST', path: '/api/v1/projects/:id/credentials', description: 'Store an encrypted credential for a project. Field values are encrypted server-side with AES-256-GCM before storage. Each category has its own expected field keys (login: username/password/url; api_key: api_key/api_secret/url; ssh_key: host/username/private_key/passphrase; database: host/port/database/username/password; credit_card: cardholder/card_number/expiry/cvc/billing_zip; ach: account_holder/bank_name/routing_number/account_number/account_type). Requires APP_ENCRYPTION_KEY to be configured.', group: 'Credentials',
     params: [{ name: 'id', type: 'uuid', required: true, description: 'Project ID' }],
     body: [
       { name: 'label', type: 'string', required: true, description: 'Display name (e.g. "WordPress Admin", "Stripe API Key")' },

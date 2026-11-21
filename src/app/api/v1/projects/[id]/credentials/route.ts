@@ -50,7 +50,7 @@ export const POST = withApi(async ({ supabase, params, body, apiKeyId, teamMembe
   if (!project) throw notFound('Project');
 
   if (!isEncryptionConfigured()) {
-    throw badRequest('Encryption not configured. Set PROJECT_CREDENTIALS_ENCRYPTION_KEY in your environment.');
+    throw badRequest('Encryption not configured. Set APP_ENCRYPTION_KEY (64 hex characters) in your host.');
   }
 
   const payload: CredentialPayload = payloadFromBody(entry);

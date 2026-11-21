@@ -6,5 +6,5 @@ import { updatesDeps } from '@/lib/updates/server';
 export const dynamic = 'force-dynamic';
 
 export async function POST(request: NextRequest) {
-  return postDatabase(request, updatesDeps());
+  return postDatabase(request, await updatesDeps());
 }

@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { isDemoWorkspace, requireOwner } from '@/lib/api/owner-route';
 import { communicationsSchemaState, envChecks } from '@/lib/setup/checks';
 import { emailConfigured } from '@/lib/team/invite';
+import { isSmtpEncryptionConfigured } from '@/lib/email/crypto';
 import vercelConfig from '../../../../../vercel.json';
 
 /**
@@ -21,7 +22,7 @@ export async function GET() {
     data: {
       env: envChecks(process.env, { crons }),
       communications,
-      emailConfigured: email && !!process.env.SMTP_ENCRYPTION_KEY,
+      emailConfigured: email && isSmtpEncryptionConfigured(),
     },
   });
 }

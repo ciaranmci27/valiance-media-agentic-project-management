@@ -26,12 +26,15 @@ export function WizardChrome({
   current,
   headerAction,
   banner,
+  hideProgress = false,
   children,
 }: {
   steps: readonly WizardStepId[];
   current: WizardStepId;
   headerAction?: ReactNode;
   banner?: ReactNode;
+  /** For what comes before the questions (Connect your server): no step count. */
+  hideProgress?: boolean;
   children: ReactNode;
 }) {
   const index = steps.indexOf(current);
@@ -49,7 +52,7 @@ export function WizardChrome({
       <div className="mx-auto w-full max-w-[46rem] flex-1 px-4 pb-16 pt-6 sm:px-8 sm:pt-10">
         <div className="mx-auto max-w-2xl">
           {banner}
-          <nav aria-label="Setup progress" className="mb-10">
+          {!hideProgress && <nav aria-label="Setup progress" className="mb-10">
             <p className="text-xs font-medium text-zinc-400">
               {current === 'done' ? 'Setup complete' : `Step ${index + 1} of ${questionCount}: ${STEP_NAMES[current]}`}
             </p>
@@ -65,7 +68,7 @@ export function WizardChrome({
                 />
               ))}
             </ol>
-          </nav>
+          </nav>}
           {children}
         </div>
       </div>

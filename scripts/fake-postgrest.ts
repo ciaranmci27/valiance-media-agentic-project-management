@@ -70,6 +70,8 @@ function filter(column: string, expression: string, params: unknown[]): string {
     case "ilike":
       // PostgREST takes * as the wildcard.
       return `${col}::text ILIKE ${bind(value.replace(/\*/g, "%"))}`;
+    case "like":
+      return `${col}::text LIKE ${bind(value.replace(/\*/g, "%"))}`;
     case "is":
       if (value === "null") return `${col} IS NULL`;
       if (value === "true" || value === "false") return `${col} IS ${value.toUpperCase()}`;
@@ -353,13 +355,19 @@ export async function startFakePostgrest(db: PGlite, options: { maxRows?: number
         const payload = JSON.parse(await body(request)) as Record<string, unknown> | Record<string, unknown>[];
         const records = Array.isArray(payload) ? payload : [payload];
         const returning = (request.headers.prefer ?? "").includes("return=representation");
+        // Upsert, as supabase-js sends it: Prefer resolution=merge-duplicates plus ?on_conflict=cols.
+        const merge = (request.headers.prefer ?? "").includes("resolution=merge-duplicates");
+        const conflict = (url.searchParams.get("on_conflict") ?? "").split(",").map((c) => c.trim()).filter(Boolean);
         const out: unknown[] = [];
         await asService(request.headers, async () => {
           for (const record of records) {
             const keys = Object.keys(record);
             const params = await Promise.all(keys.map((key) => columnValue(schemaName, rest, key, record[key])));
+            const upsert = merge && conflict.length
+              ? ` ON CONFLICT (${conflict.map(ident).join(", ")}) DO UPDATE SET ${keys.filter((k) => !conflict.includes(k)).map((k) => `${ident(k)} = EXCLUDED.${ident(k)}`).join(", ") || `${ident(conflict[0])} = EXCLUDED.${ident(conflict[0])}`}`
+              : "";
             const result = await db.query(
-              `INSERT INTO ${schema}.${table} (${keys.map(ident).join(", ")}) VALUES (${keys.map((_, i) => `$${i + 1}`).join(", ")})${returning ? " RETURNING *" : ""}`,
+              `INSERT INTO ${schema}.${table} (${keys.map(ident).join(", ")}) VALUES (${keys.map((_, i) => `$${i + 1}`).join(", ")})${upsert}${returning ? " RETURNING *" : ""}`,
               params,
             );
             out.push(...result.rows);
