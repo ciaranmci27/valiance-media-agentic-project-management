@@ -61,10 +61,9 @@ The `checkout` line starts you on the newest release. The public `main` branch c
 
 ### 2. Set up the database
 
-1. In Supabase, open the SQL Editor and run `supabase/schema.sql`.
-2. Then run `supabase/schema_ai_agent.sql`.
-3. Copy `.env.example` to `.env.local`. Set `SUPABASE_DB_URL`: your database's session or direct connection string (Supabase, Connect, port 5432). Not the port 6543 transaction pooler. (`DATABASE_URL` also works and wins if both are set.)
-4. Record the database as up to date:
+1. In Supabase, open the SQL Editor and run `supabase/schema.sql`. It is the whole database in one file; features you switch off later simply go unused.
+2. Copy `.env.example` to `.env.local`. Set `SUPABASE_DB_URL`: your database's session or direct connection string (Supabase, Connect, port 5432). Not the port 6543 transaction pooler. (`DATABASE_URL` also works and wins if both are set.)
+3. Record the database as up to date:
    ```bash
    npm run db:migrate -- --baseline
    ```

@@ -35,9 +35,9 @@ const MIN = 60_000;
 
 async function main() {
   const db = new PGlite();
-  const agentSchema = (await readFile(new URL('../supabase/schema_ai_agent.sql', import.meta.url), 'utf8')).replace(/\r\n/g, '\n');
-  const table = agentSchema.match(/CREATE TABLE public\.agent_activities \([\s\S]*?^\);/m)?.[0];
-  if (!table) throw new Error('agent_activities in schema_ai_agent.sql');
+  const schema = (await readFile(new URL('../supabase/schema.sql', import.meta.url), 'utf8')).replace(/\r\n/g, '\n');
+  const table = schema.match(/CREATE TABLE public\.agent_activities \([\s\S]*?^\);/m)?.[0];
+  if (!table) throw new Error('agent_activities in schema.sql');
   await db.exec(`
     CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role BYPASSRLS;
     GRANT USAGE ON SCHEMA public TO service_role, authenticated;

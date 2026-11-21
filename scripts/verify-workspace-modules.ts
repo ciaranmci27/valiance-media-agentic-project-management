@@ -13,7 +13,7 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { PGlite } from '@electric-sql/pglite';
-import { actAs, createFullSchemaDatabase } from './full-schema-db';
+import { actAs, createFullSchemaDatabase, schemaAt } from './full-schema-db';
 import { PERMISSIONS, hasPermission, isModuleEnabled, type AccessContext, type PermissionKey } from '../src/lib/access-control';
 import {
   MODULE_IDS,
@@ -52,7 +52,7 @@ const USERS: Record<Role, string> = {
 function schemaBefore(): string {
   const git = (args: string[]) => execFileSync('git', args, { cwd: join(__dirname, '..'), encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
   const added = git(['log', '--diff-filter=A', '--format=%H', '--', `supabase/migrations/${MIGRATION}`]).trim().split('\n').pop();
-  return git(['show', `${added ? `${added}^` : 'origin/main'}:./supabase/schema.sql`]);
+  return schemaAt(added ? `${added}^` : 'origin/main');
 }
 
 /** Setup writes run as the database owner, as a migration or the dashboard would. */

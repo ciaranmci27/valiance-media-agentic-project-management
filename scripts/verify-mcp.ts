@@ -109,7 +109,6 @@ async function main() {
   const server = await startFakePostgrest(db);
   process.env.NEXT_PUBLIC_SUPABASE_URL = server.url;
   process.env.SUPABASE_SERVICE_ROLE_KEY = 'fake-service-key';
-  process.env.NEXT_PUBLIC_ENABLE_AGENTS = 'true';
 
   try {
     const { ROUTE_MODULES, routeHandler } = await import('../src/lib/mcp/handlers');

@@ -53,7 +53,7 @@ export const MODULE_SURFACES: Record<ModuleId, ModuleSurface> = {
       'api/projects/[id]/invoices', 'api/projects/[id]/budget-change', 'api/projects/[id]/budget-history',
       // Budget emails also need the Client portal; the route checks both.
       'api/projects/[id]/budget-alerts',
-      'api/internal/billing', 'api/internal/accounting',
+      'api/internal/billing',
       '(protected)/finances',
     ],
   },

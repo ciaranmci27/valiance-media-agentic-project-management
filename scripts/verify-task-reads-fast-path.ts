@@ -14,7 +14,7 @@ import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { PGlite } from '@electric-sql/pglite';
-import { actAs, createFullSchemaDatabase } from './full-schema-db';
+import { actAs, createFullSchemaDatabase, schemaAt } from './full-schema-db';
 
 const MIGRATION = join(__dirname, '..', 'supabase', 'migrations', '20261117231500_task_reads_fast_path.sql');
 const TABLES = ['tasks', 'task_assignees', 'task_comments', 'task_acceptance_criteria', 'task_reviews', 'task_dependencies'];
@@ -31,7 +31,7 @@ function schemaBefore(): string {
   const git = (args: string[]) => execFileSync('git', args, { cwd: join(__dirname, '..'), encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
   const log = git(['log', '--format=%H', '--', 'supabase/migrations/20261117231500_task_reads_fast_path.sql']).trim().split('\n').filter(Boolean);
   const ref = log.length ? `${log[log.length - 1]}~1` : 'HEAD';
-  return git(['show', `${ref}:./supabase/schema.sql`]);
+  return schemaAt(ref);
 }
 
 const users = { owner: randomUUID(), admin: randomUUID(), member: randomUUID(), assigned: randomUUID(), guest: randomUUID(), outsider: randomUUID() };

@@ -106,7 +106,7 @@ async function main() {
   await db.exec('RESET ROLE');
   const key = await seed(db);
   const server = await startFakePostgrest(db);
-  Object.assign(process.env, { NEXT_PUBLIC_SUPABASE_URL: server.url, SUPABASE_SERVICE_ROLE_KEY: 'fake-service-key', NEXT_PUBLIC_ENABLE_AGENTS: 'true' });
+  Object.assign(process.env, { NEXT_PUBLIC_SUPABASE_URL: server.url, SUPABASE_SERVICE_ROLE_KEY: 'fake-service-key' });
   const q = async <T = Row>(sql: string, params: unknown[] = []) => {
     await db.exec('RESET ROLE');
     return (await db.query<T>(sql, params)).rows;

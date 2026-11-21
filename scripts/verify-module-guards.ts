@@ -28,7 +28,7 @@ import { join, relative } from 'node:path';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { PGlite } from '@electric-sql/pglite';
 import { NextRequest } from 'next/server';
-import { actAs, createFullSchemaDatabase } from './full-schema-db';
+import { actAs, createFullSchemaDatabase, schemaAt } from './full-schema-db';
 import { startFakePostgrest } from './fake-postgrest';
 import { FakeResend, FakeStorage, readEml, resendFixture } from './inbound-email-fixtures';
 import { signSvix } from '../src/lib/communications/email/svix';
@@ -199,7 +199,7 @@ async function schemaLines(db: PGlite): Promise<string[]> {
 function schemaBefore(): string {
   const git = (args: string[]) => execFileSync('git', args, { cwd: APP, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
   const added = git(['log', '--diff-filter=A', '--format=%H', '--', `supabase/migrations/${MIGRATION}`]).trim().split('\n').filter(Boolean).pop();
-  return git(['show', `${added ? `${added}^` : 'HEAD'}:./supabase/schema.sql`]);
+  return schemaAt(added ? `${added}^` : 'HEAD');
 }
 
 async function migrationChecks(applied: PGlite, fromSchema: PGlite) {

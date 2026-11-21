@@ -371,7 +371,9 @@ async function billing(db: PGlite, people: { owner: string; member: string }) {
 
 async function main() {
   // --- The migrations on the schema as it was, each twice ------------------
-  const migrated = await createFullSchemaDatabase({ schemaSql: atBase('schema.sql'), agentSchemaSql: atBase('schema_ai_agent.sql') });
+  // Before 1.2.0 the agent tables were a second file; from then on schema.sql holds them.
+  const agentAtBase = (() => { try { return atBase('schema_ai_agent.sql'); } catch { return undefined; } })();
+  const migrated = await createFullSchemaDatabase({ schemaSql: atBase('schema.sql'), agentSchemaSql: agentAtBase });
   await migrated.exec('RESET ROLE');
   for (const path of MIGRATIONS) {
     // Same line endings as the schema files (applySchema strips CRLF), or every function body differs.

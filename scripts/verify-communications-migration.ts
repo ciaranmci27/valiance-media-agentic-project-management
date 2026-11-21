@@ -17,7 +17,7 @@ import { execFileSync } from 'node:child_process';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { PGlite } from '@electric-sql/pglite';
-import { applyMigrationsFrom, createFullSchemaDatabase, SCHEMA_PATH } from './full-schema-db';
+import { applyMigrationsFrom, createFullSchemaDatabase, SCHEMA_PATH, schemaAt } from './full-schema-db';
 
 let passed = 0;
 const failures: string[] = [];
@@ -33,7 +33,7 @@ const MIGRATION = readdirSync(MIGRATIONS).find((name) => name.endsWith('_communi
 function schemaBefore(): string {
   const git = (args: string[]) => execFileSync('git', args, { cwd: join(__dirname, '..'), encoding: 'utf8' }).trim();
   const added = git(['log', '--diff-filter=A', '--format=%H', '--', `supabase/migrations/${MIGRATION}`]).split('\n').filter(Boolean).pop();
-  return git(['show', `${added ? `${added}^` : 'HEAD'}:./supabase/schema.sql`]);
+  return schemaAt(added ? `${added}^` : 'HEAD');
 }
 
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;

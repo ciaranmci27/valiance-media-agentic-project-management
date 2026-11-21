@@ -176,7 +176,7 @@ export interface RunResult {
 const NO_HISTORY = [
   'This database has no migration history yet, so nothing was run.',
   'Record the current core migrations first: npm run db:migrate -- --baseline',
-  '(a fresh database loads supabase/schema.sql and supabase/schema_ai_agent.sql before the baseline).',
+  '(a fresh database loads supabase/schema.sql before the baseline).',
 ].join('\n');
 
 /**

@@ -56,7 +56,6 @@ export async function createEmailDatabase(
   { stopBeforeNeedsHuman = false }: { stopBeforeNeedsHuman?: boolean } = {},
 ): Promise<PGlite> {
   const canonical = await read('../supabase/schema.sql');
-  const agentSchema = await read('../supabase/schema_ai_agent.sql');
   const table = (sql: string, name: string) => {
     const found = sql.match(new RegExp('create table public\\.' + name + ' \\([\\s\\S]*?^\\);', 'mi'))?.[0];
     assert.ok(found, `table ${name} in schema`);
@@ -118,7 +117,7 @@ export async function createEmailDatabase(
       owner_id uuid, created_by uuid, completed_at timestamptz, completed_by uuid,
       created_at timestamptz NOT NULL DEFAULT now(), deleted_at timestamptz);
   `);
-  await db.exec(table(agentSchema, 'agent_activities').replace('CREATE TABLE', 'create table'));
+  await db.exec(table(canonical, 'agent_activities').replace('CREATE TABLE', 'create table'));
   const roleTables = canonical.match(/CREATE TABLE public\.role_permissions \([\s\S]*?\n\);\n\nCREATE TABLE public\.team_member_permissions \([\s\S]*?\n\);/)?.[0];
   assert.ok(roleTables, 'permission tables in schema.sql');
   await db.exec(roleTables);
@@ -153,7 +152,8 @@ export async function createEmailDatabase(
     const hostname = canonical.match(/create or replace function public\.email_is_hostname\([\s\S]*?^\$\$;/m)?.[0];
     const settingsColumn = canonical.match(/^  inbound_email_domain text[\s\S]*?\),\n/m)?.[0];
     const start = canonical.indexOf('-- Inbound client email (20261006010922_email_inboxes.sql)');
-    const end = canonical.indexOf('-- Realtime publication (20260730134850_realtime_publication.sql)');
+    // The section runs up to the retainer drafts schedule that follows it.
+    const end = canonical.indexOf('-- Retainer drafts schedule (20260919050750_create_project_retainers.sql)', start);
     assert.ok(hostname && settingsColumn && start > 0 && end > start, 'inbound email section in schema.sql');
     await db.exec(hostname);
     await db.exec(`ALTER TABLE public.business_settings ADD COLUMN ${settingsColumn.trim().replace(/,$/, '')};`);

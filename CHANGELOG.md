@@ -9,6 +9,16 @@ Each section starts with `## X.Y.Z (YYYY-MM-DD)` and uses these headings, leavin
 - `### Database`: the core migration files in the release, one per line. `npm run db:migrate` applies them.
 - `### Breaking`: what an install must do when it takes this release.
 
+## 1.2.0 (2026-11-20)
+
+### Changed
+- The database is one file: `supabase/schema.sql`. The agent tables, API keys for agents and the API audit log (formerly `supabase/schema_ai_agent.sql`) are part of it, and the Features switches decide what is used. A fresh install runs that one file.
+- A fresh install's API audit log, project goals, task suggestions and agent activity log get their intended access rules. Before, installs built from the schema files kept open rules on those four tables: any signed-in member could read and write them. The migration below fixes installs made that way.
+- Removed an unfinished accounting invoice source draft (`supabase/schema/accounting-invoice-source.sql` and the `/api/internal/accounting/invoices/snapshot` route it needed), which no install used, and `supabase/seed.sql`, a stale demo data script that emptied the main tables.
+
+### Database
+- 20261121031500_agent_table_access_policies.sql
+
 ## 1.1.3 (2026-11-20)
 
 ### Changed

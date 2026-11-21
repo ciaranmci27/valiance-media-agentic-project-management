@@ -14,11 +14,10 @@
  *
  *   npm run -s test:subtasks
  */
-import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { PGlite } from '@electric-sql/pglite';
-import { actAs, createFullSchemaDatabase, schemaBeforeMigration } from './full-schema-db';
+import { actAs, createFullSchemaDatabase, schemaAt, schemaBeforeMigration } from './full-schema-db';
 
 const MIGRATION = '20261026212748_subtasks_are_tasks.sql';
 const OWNER_USER = '00000000-0000-0000-0000-0000000000e1';
@@ -46,9 +45,7 @@ function schemaBefore(): string {
   try {
     return schemaBeforeMigration(MIGRATION);
   } catch {
-    return execFileSync('git', ['show', 'HEAD:./supabase/schema.sql'], {
-      cwd: join(__dirname, '..'), encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
-    });
+    return schemaAt('HEAD');
   }
 }
 

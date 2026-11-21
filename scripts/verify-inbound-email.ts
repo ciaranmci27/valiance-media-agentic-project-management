@@ -107,7 +107,6 @@ async function main() {
   Object.assign(process.env, {
     NEXT_PUBLIC_SUPABASE_URL: server.url,
     SUPABASE_SERVICE_ROLE_KEY: 'fake-service-key',
-    NEXT_PUBLIC_ENABLE_AGENTS: 'true',
     RESEND_API_KEY: resend.apiKey,
     RESEND_INBOUND_WEBHOOK_SECRET: SECRET,
   });

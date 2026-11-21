@@ -14,8 +14,6 @@ import { join } from 'node:path';
 import { PGlite } from '@electric-sql/pglite';
 
 export const SCHEMA_PATH = join(__dirname, '..', 'supabase', 'schema.sql');
-/** Applied after schema.sql, as its header says. */
-export const AGENT_SCHEMA_PATH = join(__dirname, '..', 'supabase', 'schema_ai_agent.sql');
 
 /** What Supabase provides that schema.sql leans on, reduced to the shape it uses. */
 const SUPABASE_STANDINS = `
@@ -115,7 +113,7 @@ export function splitSqlStatements(sql: string): string[] {
 /**
  * schema.sql is replayed statement by statement.
  *
- * strict (the current schema.sql and schema_ai_agent.sql): every statement
+ * strict (the current schema.sql): every statement
  * must succeed, as on a real Supabase, where the SQL editor runs the file as
  * one script and stops at the first error. Only the Realtime publication is
  * excused, since PGlite has no logical replication.
@@ -149,25 +147,50 @@ export async function applySchema(db: PGlite, sql: string, options: { strict?: b
   return { skipped };
 }
 
+/**
+ * A database built from schema.sql. Older copies read back from git may
+ * come as two files (the agent tables were supabase/schema_ai_agent.sql until
+ * 1.2.0): pass that one as agentSchemaSql to apply it after.
+ */
 export async function createFullSchemaDatabase(options: { schemaSql?: string; agentSchemaSql?: string } = {}): Promise<PGlite> {
   const db = new PGlite();
   await db.exec(SUPABASE_STANDINS);
-  // The files as they ship install on a fresh database with no error; an older copy may not.
+  // The file as it ships installs on a fresh database with no error; an older copy may not.
   await applySchema(db, options.schemaSql ?? readFileSync(SCHEMA_PATH, 'utf8'), { strict: options.schemaSql === undefined });
-  await applySchema(db, options.agentSchemaSql ?? readFileSync(AGENT_SCHEMA_PATH, 'utf8'), { strict: options.agentSchemaSql === undefined });
-  // schema_ai_agent.sql predates the owner role and re-adds the role check
-  // without it; production carries schema.sql's later check, which has it.
-  await db.exec(`ALTER TABLE public.team_members DROP CONSTRAINT IF EXISTS team_members_role_check,
-    ADD CONSTRAINT team_members_role_check CHECK (role IN ('owner', 'admin', 'member', 'guest', 'agent'))`);
+  if (options.agentSchemaSql) await applySchema(db, options.agentSchemaSql);
+  if (options.schemaSql !== undefined || options.agentSchemaSql) {
+    // Older agent files re-added the role check without 'owner'; production has it.
+    await db.exec(`ALTER TABLE public.team_members DROP CONSTRAINT IF EXISTS team_members_role_check,
+      ADD CONSTRAINT team_members_role_check CHECK (role IN ('owner', 'admin', 'member', 'guest', 'agent'))`);
+  }
   return db;
 }
 
 /** schema.sql as it was just before a migration was committed (its parent commit's copy). */
+/**
+ * The database schema as a git ref had it, as one SQL text. Until 1.2.0 the
+ * agent tables were a second file run after schema.sql: the two are joined in
+ * that order, as a fresh install of that commit ran them.
+ */
+export function schemaAt(ref: string): string {
+  const show = (path: string) => execFileSync('git', ['show', `${ref}:./supabase/${path}`], {
+    cwd: join(__dirname, '..'), encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'],
+  });
+  const schema = show('schema.sql');
+  let agentSchema = '';
+  try {
+    agentSchema = show('schema_ai_agent.sql');
+  } catch {
+    // Not there: that commit's schema.sql already holds the agent tables.
+  }
+  return agentSchema ? [schema, agentSchema].join(NEWLINE) : schema;
+}
+
 export function schemaBeforeMigration(migration: string): string {
   const git = (args: string[]) => execFileSync('git', args, { cwd: join(__dirname, '..'), encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
-  const added = git(['log', '--diff-filter=A', '--format=%H', '--', `supabase/migrations/${migration}`]).trim().split('\n').pop();
+  const added = git(['log', '--diff-filter=A', '--format=%H', '--', `supabase/migrations/${migration}`]).trim().split(NEWLINE).pop();
   if (!added) throw new Error(`${migration} is not committed`);
-  return git(['show', `${added}^:./supabase/schema.sql`]);
+  return schemaAt(`${added}^`);
 }
 
 /**
