@@ -62,11 +62,20 @@ export async function runDraftDigest(service: SupabaseClient, send: Send = sendT
   const { data: members, error: membersError } = await service
     .from('team_members')
     .select('id, email, role, status, email_notifications_enabled, email_notification_prefs')
-    .in('role', ['owner', 'admin'])
     .eq('status', 'active');
   if (membersError) throw membersError;
+  // Invoice drafts carry amounts: only people who may see invoices get them
+  // (Owners, and anyone granted invoices.read or invoices.manage).
+  const allowed = new Set<string>();
+  for (const member of members ?? []) {
+    for (const key of ['invoices.read', 'invoices.manage']) {
+      const { data: holds, error } = await service.rpc('member_has_permission', { p_member_id: member.id, p_permission_key: key });
+      if (error) throw error;
+      if (holds) { allowed.add(member.id as string); break; }
+    }
+  }
   const recipients = (members ?? []).filter((member) =>
-    member.email && member.email_notifications_enabled
+    allowed.has(member.id as string) && member.email && member.email_notifications_enabled
     && emailCategoryEnabled(member.email_notification_prefs as NotificationPreferences | null, 'invoice_drafts'));
 
   if (recipients.length === 0) {

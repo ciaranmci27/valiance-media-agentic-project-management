@@ -20,6 +20,14 @@ export async function inboxRoute<T>(handler: (ctx: InboxContext) => Promise<T>, 
     return NextResponse.json({ data }, { status });
   } catch (error) {
     if (error instanceof InboxError) return NextResponse.json({ error: error.message }, { status: error.status });
+    // A new Supabase project exposes only the public schema to its API; the Inbox
+    // lives in the communications schema, which an Owner exposes once.
+    if ((error as { code?: string } | null)?.code === 'PGRST106') {
+      return NextResponse.json({
+        error: 'The Inbox is not set up in Supabase yet. In Supabase, open Project Settings, then Data API, and add communications to the exposed schemas.',
+        code: 'SCHEMA_NOT_EXPOSED',
+      }, { status: 503 });
+    }
     console.error('[inbox] request failed:', error);
     return NextResponse.json({ error: 'Something went wrong. Try again.' }, { status: 500 });
   }

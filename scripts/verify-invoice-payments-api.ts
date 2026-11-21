@@ -37,7 +37,8 @@ async function seedAccess(db: PGlite) {
   await db.exec(`
     CREATE TABLE IF NOT EXISTS public.business_settings (id serial PRIMARY KEY, api_enabled boolean NOT NULL DEFAULT true);
     INSERT INTO public.business_settings DEFAULT VALUES;
-    CREATE TABLE public.team_member_permissions (member_id uuid, permission_key text, access_channel text, effect text);
+    -- The drafting database may already carry this stand-in (same columns).
+    CREATE TABLE IF NOT EXISTS public.team_member_permissions (member_id uuid, permission_key text, access_channel text, effect text);
     CREATE TABLE public.project_members (member_id uuid, project_id uuid REFERENCES public.projects(id));
     CREATE TABLE public.api_audit_log (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), method text, endpoint text, entity_type text,
       entity_id uuid, api_key_id uuid, team_member_id uuid, request_body jsonb, before_snapshot jsonb, after_snapshot jsonb,

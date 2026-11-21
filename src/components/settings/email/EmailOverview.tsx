@@ -49,6 +49,8 @@ export function EmailOverview() {
   const [addresses, setAddresses] = useState<Read<YourAddressList>>(undefined);
   const [rules, setRules] = useState<Read<InboxSenderRule[]>>(undefined);
   const [smtp, setSmtp] = useState<Read<SmtpState>>(undefined);
+  // The one fix a new install needs before any mail setup: shown once, in place of three load errors.
+  const [setupError, setSetupError] = useState<string | null>(null);
 
   // Old links to a section (/settings/email#email-inboxes) open its page now.
   useEffect(() => {
@@ -61,7 +63,11 @@ export function EmailOverview() {
     if (!show.emailInboxes) return;
     let cancelled = false;
     const settle = <T,>(promise: Promise<T>, set: (value: T | null) => void) =>
-      promise.then((value) => { if (!cancelled) set(value); }, () => { if (!cancelled) set(null); });
+      promise.then((value) => { if (!cancelled) set(value); }, (error: unknown) => {
+        if (cancelled) return;
+        set(null);
+        if (error instanceof Error && error.message.includes('not set up in Supabase')) setSetupError(error.message);
+      });
     void settle(settings.list(), setInboxes);
     void settle(settings.yourAddresses(), setAddresses);
     void settle(inbox.senderRules().then((data) => data.rules), setRules);
@@ -146,6 +152,9 @@ export function EmailOverview() {
       <SettingsSectionHeader icon={Mail} title="Email" description="How mail reaches the app, and how the app sends it." />
 
       <div className="space-y-6">
+        {setupError && (
+          <p role="alert" className="rounded-lg bg-amber-500/[0.14] px-4 py-3 text-sm leading-relaxed text-amber-200">{setupError}</p>
+        )}
         {show.emailInboxes && (
           <Group label="Incoming">
             <Row href={EMAIL_PAGES.handler} icon={Inbox} title="Who handles your mail" status={handlerLine()} />

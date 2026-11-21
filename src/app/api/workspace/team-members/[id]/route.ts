@@ -136,6 +136,10 @@ export async function PATCH(
     .eq('id', id)
     .select()
     .single();
+  // The database keeps at least one active Owner; say so plainly instead of failing.
+  if (error?.message?.includes('At least one active Owner')) {
+    return NextResponse.json({ error: 'A workspace needs at least one active Owner. Make someone else an Owner first.' }, { status: 409 });
+  }
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ data });
 }

@@ -16,6 +16,9 @@ export async function POST(request: Request) {
   const auth = await requireSessionAccess();
   if (auth.error) return auth.error;
   const { access, memberId, service } = auth.data;
+  if (access.role === 'guest') {
+    return NextResponse.json({ error: 'Guests cannot create API keys' }, { status: 403 });
+  }
 
   const parsed = createApiKeySchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) {

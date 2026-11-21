@@ -54,7 +54,7 @@ export function NoAccessState({ module }: { module: ModuleId }) {
     <FeatureState
       icon={<Lock size={20} aria-hidden="true" />}
       title={`You don't have access to ${MODULES[module].label}`}
-      body="Ask a workspace admin to give you access."
+      body="Ask an Owner or Admin to give you access."
       action={null}
     />
   );

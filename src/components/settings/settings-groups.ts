@@ -90,6 +90,8 @@ export function useSettingsAccess() {
   // A role, not a permission: a module switch hides parts of the app from
   // everyone. The demo workspace signs in as an Owner, so it shows there too.
   const isOwner = access?.role === 'owner';
+  // Guests are outside collaborators (a client, a contractor): no keys, no Trash.
+  const isGuest = access?.role === 'guest';
 
   const show = {
     features: isOwner,
@@ -99,7 +101,7 @@ export function useSettingsAccess() {
     updates: isOwner,
     business: canManageSettings,
     // Every active member can create personal keys; none in demo mode.
-    apiKeys: !isDemoMode,
+    apiKeys: !isDemoMode && !isGuest,
     webhooks: canManageWebhooks && !isDemoMode,
     // SMTP is hidden in demo mode; inboxes show there too, on sample data whose changes last until a reload.
     smtp: canManageSmtp && !isDemoMode,
@@ -120,7 +122,7 @@ export function useSettingsAccess() {
     business: show.business,
     email: show.smtp || show.emailInboxes,
     developers: show.apiKeys || show.webhooks,
-    data: true,
+    data: !isGuest,
   };
 
   const customVisible = useCustomSettingsVisibility();

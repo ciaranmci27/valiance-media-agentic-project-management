@@ -89,7 +89,7 @@ export function InboxEmptyState({ inboxes }: { inboxes: InboxSummary[] }) {
               {hasInbox ? 'Inbox settings' : 'Set up an inbox'}
             </Button>
           ) : (
-            !hasInbox && <p className="text-xs text-zinc-400">Ask an admin to set up an inbox in Settings.</p>
+            !hasInbox && <p className="text-xs text-zinc-400">Ask an Owner to set up an inbox in Settings.</p>
           )}
         </div>
       </div>

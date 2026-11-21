@@ -4742,7 +4742,8 @@ BEGIN
       ON CONFLICT (project_id, run_key) DO UPDATE SET detail = EXCLUDED.detail, created_at = now();
       SELECT name INTO project_name FROM public.projects WHERE id = target.project_id;
       FOR recipient IN
-        SELECT id FROM public.team_members WHERE role IN ('owner', 'admin') AND status = 'active'
+        SELECT id FROM public.team_members WHERE status = 'active'
+          AND (public.member_has_permission(id, 'invoices.read') OR public.member_has_permission(id, 'invoices.manage'))
       LOOP
         PERFORM public.upsert_notification(
           recipient,
@@ -9826,7 +9827,8 @@ BEGIN
   SELECT * INTO invoice FROM public.project_invoices WHERE id = p_invoice_id;
   IF NOT FOUND THEN RETURN; END IF;
   FOR recipient IN
-    SELECT id FROM public.team_members WHERE role IN ('owner', 'admin') AND status = 'active'
+    SELECT id FROM public.team_members WHERE status = 'active'
+          AND (public.member_has_permission(id, 'invoices.read') OR public.member_has_permission(id, 'invoices.manage'))
   LOOP
     PERFORM public.upsert_notification(
       recipient, p_title, p_message,
@@ -14983,6 +14985,90 @@ BEGIN
   END LOOP;
 END;
 $$;
+
+-- Owners only, by default (20261121040000_owner_only_defaults.sql): the Admin
+-- role does not start with money or workspace-setup permissions, and the last
+-- active Owner cannot be demoted, suspended or deleted.
+DELETE FROM public.role_permissions
+WHERE role = 'admin'
+  AND permission_key IN (
+    'settings.manage', 'smtp.manage', 'webhooks.manage', 'inbound_email.manage',
+    'billing.manage', 'finance.company.read', 'invoices.read', 'invoices.manage',
+    'invoices.record_payments', 'compensation.manage', 'payouts.manage'
+  );
+
+CREATE OR REPLACE FUNCTION public.keep_an_active_owner()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  IF OLD.role = 'owner' AND OLD.status = 'active'
+     AND (TG_OP = 'DELETE' OR NEW.role IS DISTINCT FROM 'owner' OR NEW.status IS DISTINCT FROM 'active') THEN
+    -- Lock the Owners' rows first, so two Owners leaving at once cannot both pass.
+    PERFORM 1 FROM public.team_members WHERE role = 'owner' FOR UPDATE;
+    IF NOT EXISTS (
+      SELECT 1 FROM public.team_members
+      WHERE role = 'owner' AND status = 'active' AND id <> OLD.id
+    ) THEN
+      RAISE EXCEPTION 'At least one active Owner is required. Make someone else an Owner first.'
+        USING ERRCODE = 'check_violation';
+    END IF;
+  END IF;
+  RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.keep_an_active_owner() FROM PUBLIC, anon, authenticated;
+
+DROP TRIGGER IF EXISTS keep_an_active_owner ON public.team_members;
+CREATE TRIGGER keep_an_active_owner
+  BEFORE UPDATE OF role, status OR DELETE ON public.team_members
+  FOR EACH ROW EXECUTE FUNCTION public.keep_an_active_owner();
+
+-- Invoice drafts reach the people who may see invoices: Owners, and anyone
+-- an Owner granted invoices.read or invoices.manage (no longer every Admin).
+-- One member's effective permission (role default, per-person override,
+-- module switch), for server-side code that picks people rather than acting
+-- as them: who gets an invoice draft email or bell, for instance.
+CREATE OR REPLACE FUNCTION public.member_has_permission(p_member_id uuid, p_permission_key text, p_access_channel text DEFAULT 'app')
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  WITH member AS (
+    SELECT id, role FROM public.team_members WHERE id = p_member_id AND status = 'active'
+  )
+  SELECT COALESCE(
+    (SELECT module.enabled
+     FROM public.permission_modules permission_module
+     JOIN public.workspace_modules module ON module.module_id = permission_module.module_id
+     WHERE permission_module.permission_key = p_permission_key),
+    true
+  ) AND (
+    COALESCE((SELECT role = 'owner' FROM member), false)
+    OR COALESCE(
+      (SELECT effect = 'allow'
+       FROM public.team_member_permissions override_permission, member
+       WHERE override_permission.member_id = member.id
+         AND override_permission.permission_key = p_permission_key
+         AND override_permission.access_channel = p_access_channel),
+      EXISTS (
+        SELECT 1 FROM public.role_permissions role_permission, member
+        WHERE role_permission.role = member.role
+          AND role_permission.permission_key = p_permission_key
+          AND role_permission.access_channel = p_access_channel
+      )
+    )
+  )
+$$;
+
+REVOKE ALL ON FUNCTION public.member_has_permission(uuid, text, text) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.member_has_permission(uuid, text, text) TO service_role;
+
 
 -- ─────────────────────────────────────────────────────────────
 -- Realtime publication (20260730134850_realtime_publication.sql)

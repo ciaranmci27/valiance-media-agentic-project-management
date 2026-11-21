@@ -76,6 +76,14 @@ export async function createDraftingDatabase(extraMigrations: string[] = []): Pr
     CREATE FUNCTION public.current_team_member_id() RETURNS uuid LANGUAGE sql AS $$ SELECT NULL::uuid $$;
     CREATE FUNCTION public.has_permission(text, text DEFAULT 'app') RETURNS boolean LANGUAGE sql AS $$ SELECT true $$;
     CREATE FUNCTION public.can_access_project(uuid) RETURNS boolean LANGUAGE sql AS $$ SELECT true $$;
+    -- Stand-in for who may see invoices: Owners, plus a per-person grant (role defaults omitted;
+    -- since 1.3.0 Admins do not start with invoice permissions).
+    CREATE TABLE public.team_member_permissions (member_id uuid, permission_key text, access_channel text DEFAULT 'app', effect text DEFAULT 'allow');
+    CREATE FUNCTION public.member_has_permission(p_member_id uuid, p_permission_key text, p_access_channel text DEFAULT 'app') RETURNS boolean LANGUAGE sql AS $$
+      SELECT EXISTS (SELECT 1 FROM public.team_members WHERE id = p_member_id AND role = 'owner' AND status = 'active')
+        OR EXISTS (SELECT 1 FROM public.team_member_permissions WHERE member_id = p_member_id AND permission_key = p_permission_key
+          AND access_channel = p_access_channel AND effect = 'allow')
+    $$;
   `);
   for (const name of ['project_invoices', 'invoice_time_entry_allocations', 'team_member_earning_adjustments', 'team_member_payouts']) {
     await db.exec(table(name));

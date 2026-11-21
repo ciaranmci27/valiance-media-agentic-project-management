@@ -9,6 +9,22 @@ Each section starts with `## X.Y.Z (YYYY-MM-DD)` and uses these headings, leavin
 - `### Database`: the core migration files in the release, one per line. `npm run db:migrate` applies them.
 - `### Breaking`: what an install must do when it takes this release.
 
+## 1.3.0 (2026-11-21)
+
+### Changed
+- Owners only, by default: the Admin role no longer starts with company money (revenue, invoices, payroll, pay rates, payouts) or workspace setup (business details, email setup, webhooks). Admins still run the team, projects, tasks and hour reviews. An Owner can grant any of these to a person in Access control.
+- A workspace always keeps at least one active Owner: demoting, suspending or removing the last one is refused.
+- Guests (clients, contractors) see only the people on the projects they share, without email addresses, and cannot create API keys or open Trash.
+- When the Inbox's database schema is not exposed in Supabase, the Inbox and Settings > Email say how to fix it, in place of a load error. The README install steps include it.
+- Access messages say "Ask an Owner or Admin".
+
+### Database
+- 20261121040000_owner_only_defaults.sql
+
+### Breaking
+- Admins lose the money and workspace-setup permissions listed above. If an Admin needs them, an Owner grants them in Team, Roles & permissions or a person's Access control.
+- New installs: in Supabase, Project Settings, Data API, add `communications` to Exposed schemas, or the Inbox stays off.
+
 ## 1.2.0 (2026-11-20)
 
 ### Changed

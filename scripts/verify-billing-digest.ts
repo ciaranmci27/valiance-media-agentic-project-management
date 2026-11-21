@@ -44,12 +44,16 @@ async function main() {
     const optedOut = randomUUID();
     const quiet = randomUUID();
     const member = randomUUID();
+    const plainAdmin = randomUUID();
     await q(`INSERT INTO team_members(id, name, email, role, email_notifications_enabled, email_notification_prefs) VALUES
       ($1, 'Owner', 'owner@example.test', 'owner', true, '{}'),
       ($2, 'Admin', 'admin@example.test', 'admin', true, '{"invoice_drafts": true}'),
       ($3, 'Opted out', 'out@example.test', 'admin', true, '{"invoice_drafts": false}'),
       ($4, 'No email', 'quiet@example.test', 'owner', false, '{}'),
-      ($5, 'Member', 'member@example.test', 'member', true, '{"invoice_drafts": true}')`, [owner, admin, optedOut, quiet, member]);
+      ($5, 'Member', 'member@example.test', 'member', true, '{"invoice_drafts": true}'),
+      ($6, 'Plain admin', 'plain-admin@example.test', 'admin', true, '{"invoice_drafts": true}')`, [owner, admin, optedOut, quiet, member, plainAdmin]);
+    // Since 1.3.0 invoices are the Owners': an Admin gets the digest only when granted invoices.read.
+    await q(`INSERT INTO team_member_permissions (member_id, permission_key) VALUES ($1, 'invoices.read'), ($2, 'invoices.read')`, [admin, optedOut]);
 
     check('nothing new: no email', (await runDraftDigest(service, send)).outcome === 'nothing_new' && sent.length === 0);
 
@@ -66,7 +70,7 @@ async function main() {
     const second = await draft('INV-022', 400);
     const result = await runDraftDigest(service, send);
     const recipients = sent.map((mail) => mail.to).sort();
-    check('one email per owner or admin with email on and the category not turned off (on by default)',
+    check('one email per person allowed to see invoices (Owners, granted Admins) with email on and the category not turned off; an Admin without the grant gets none',
       result.outcome === 'sent' && JSON.stringify(recipients) === JSON.stringify(['admin@example.test', 'owner@example.test']), { result, recipients });
     check('the email lists both drafts and the total, and says nothing was sent to a client',
       sent[0].subject === '2 invoice drafts are ready to send' && /INV-021/.test(sent[0].text ?? '') && /\$4,100\.00/.test(sent[0].text ?? '')

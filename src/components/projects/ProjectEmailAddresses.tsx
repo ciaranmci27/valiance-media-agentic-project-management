@@ -343,7 +343,7 @@ export function ProjectEmailAddresses({ isOpen, projectId }: ProjectEmailAddress
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2.5">
           <p className="min-w-0 text-xs text-zinc-400">
             An address needs an inbox to deliver to, and there is none yet.
-            {!canManageInboxes && ' Ask an admin to add an inbox.'}
+            {!canManageInboxes && ' Ask an Owner to add an inbox.'}
           </p>
           {canManageInboxes && (
             <Button href="/settings/email/handler" size="sm" variant="secondary" className="flex-shrink-0" icon={<Settings size={14} aria-hidden="true" />}>
