@@ -306,7 +306,7 @@ function publicPaths() {
 function customSqlExample() {
   const readme = readFileSync(join(__dirname, '..', 'supabase', 'migrations', 'custom', 'README.md'), 'utf8');
   const sql = readme.match(/```sql\r?\n([\s\S]*?)```/)?.[1] ?? '';
-  check('sql: the README has an example', sql.includes('create table custom.'));
+  check('sql: the README has an example', sql.includes('create table pm_custom.'));
   const violations = checkCustomSql(sql);
   check('sql: the example passes check:core\'s custom schema rule', violations.length === 0, violations);
 }

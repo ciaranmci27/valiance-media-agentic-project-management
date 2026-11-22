@@ -20,6 +20,8 @@
  * Run with: npx tsx --tsconfig tsconfig.mcp-test.json scripts/verify-personal-inboxes.ts
  */
 import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { NextRequest } from 'next/server';
 import type { PGlite } from '@electric-sql/pglite';
 import { actAs, createFullSchemaDatabase, schemaBeforeMigration } from './full-schema-db';
@@ -81,46 +83,46 @@ async function seed(db: PGlite) {
   ];
   for (const [who, memberId, name, role] of people) {
     await db.query('INSERT INTO auth.users (id, email) VALUES ($1, $2)', [AUTH[who], `${who}@agency.example`]);
-    await db.query("UPDATE public.team_members SET id = $2, name = $3, role = $4, status = 'active' WHERE auth_user_id = $1", [AUTH[who], memberId, name, role]);
+    await db.query("UPDATE pm.team_members SET id = $2, name = $3, role = $4, status = 'active' WHERE auth_user_id = $1", [AUTH[who], memberId, name, role]);
   }
-  await db.query(`INSERT INTO public.team_members (id, name, email, role, status) VALUES ($1, 'Scout', 'scout@agency.example', 'agent', 'active')`, [ids.scout]);
-  await db.query("UPDATE public.business_settings SET inbound_email_domain = 'relay.example.test'");
+  await db.query(`INSERT INTO pm.team_members (id, name, email, role, status) VALUES ($1, 'Scout', 'scout@agency.example', 'agent', 'active')`, [ids.scout]);
+  await db.query("UPDATE pm.business_settings SET inbound_email_domain = 'relay.example.test'");
   // Rae reads shared inboxes she is granted (inbound_email.read), as an Owner may allow.
-  await db.query("INSERT INTO public.team_member_permissions (member_id, permission_key, access_channel, effect) VALUES ($1, 'inbound_email.read', 'app', 'allow')", [ids.rae]);
-  await db.query(`INSERT INTO communications.inboxes (id, name, address, handler_member_id) VALUES ($1, 'Scout', 'scout@agency.example', $2)`, [ids.shared, ids.scout]);
-  await db.query(`INSERT INTO communications.inboxes (id, name, address, handler_member_id, owner_member_id, created_by)
+  await db.query("INSERT INTO pm.team_member_permissions (member_id, permission_key, access_channel, effect) VALUES ($1, 'inbound_email.read', 'app', 'allow')", [ids.rae]);
+  await db.query(`INSERT INTO pm.inboxes (id, name, address, handler_member_id) VALUES ($1, 'Scout', 'scout@agency.example', $2)`, [ids.shared, ids.scout]);
+  await db.query(`INSERT INTO pm.inboxes (id, name, address, handler_member_id, owner_member_id, created_by)
     VALUES ($1, 'Mia', 'mia@agency.example', $2, $3, $3)`, [ids.personal, ids.scout, ids.mia]);
   // Mia shares her inbox with Ned; Rae and Ada are granted the shared one.
-  await db.query('INSERT INTO communications.inbox_access (inbox_id, member_id) VALUES ($1, $2), ($3, $4), ($3, $5), ($3, $6)',
+  await db.query('INSERT INTO pm.inbox_access (inbox_id, member_id) VALUES ($1, $2), ($3, $4), ($3, $5), ($3, $6)',
     [ids.personal, ids.ned, ids.shared, ids.rae, ids.admin, ids.mia]);
   for (const [thread, message, inbox] of [[ids.sharedThread, ids.sharedMessage, ids.shared], [ids.personalThread, ids.personalMessage, ids.personal]]) {
-    await db.query('INSERT INTO communications.conversations (id, inbox_id) VALUES ($1, $2)', [thread, inbox]);
-    await db.query(`INSERT INTO communications.messages (id, inbox_id, thread_id, status, provider, provider_email_id, internet_message_id, received_at, kind, subject)
+    await db.query('INSERT INTO pm.conversations (id, inbox_id) VALUES ($1, $2)', [thread, inbox]);
+    await db.query(`INSERT INTO pm.messages (id, inbox_id, thread_id, status, provider, provider_email_id, internet_message_id, received_at, kind, subject)
       VALUES ($1, $2, $3, 'handled', 'test', $4, $4, '2026-11-20T10:00:00Z', 'person', 'Hello')`, [message, inbox, thread, `m-${message}`]);
   }
 }
 
 const setPolicy = async (db: PGlite, on: boolean) => {
   await db.exec('RESET ROLE');
-  await db.query('UPDATE public.business_settings SET owners_read_personal_inboxes = $1', [on]);
+  await db.query('UPDATE pm.business_settings SET owners_read_personal_inboxes = $1', [on]);
 };
 
 async function main() {
   const db = await createFullSchemaDatabase();
   await seed(db);
 
-  const messagesOf = async (who: Who) => (await seen(db, who, 'SELECT inbox_id FROM communications.messages ORDER BY inbox_id')).map((r) => r.inbox_id);
-  const inboxRows = async (who: Who) => (await seen(db, who, 'SELECT id FROM communications.inboxes ORDER BY id')).map((r) => r.id);
+  const messagesOf = async (who: Who) => (await seen(db, who, 'SELECT inbox_id FROM pm.messages ORDER BY inbox_id')).map((r) => r.inbox_id);
+  const inboxRows = async (who: Who) => (await seen(db, who, 'SELECT id FROM pm.inboxes ORDER BY id')).map((r) => r.id);
 
   // ---- Reading, in the database (RLS through can_read_inbox) ---------------
   check('db: the owner reads their personal inbox without inbound_email.read', JSON.stringify(await messagesOf('mia')) === JSON.stringify([ids.personal]),
     await messagesOf('mia'));
-  check('db: the owner reads its thread and sees its row', (await seen(db, 'mia', 'SELECT id FROM communications.conversations')).length === 1
+  check('db: the owner reads its thread and sees its row', (await seen(db, 'mia', 'SELECT id FROM pm.conversations')).length === 1
     && (await inboxRows('mia')).includes(ids.personal));
   check('db: an Owner sees the personal inbox row (its health) while the switch is off', (await inboxRows('owner')).includes(ids.personal));
   check('db: an Owner does not read its mail while the switch is off', JSON.stringify(await messagesOf('owner')) === JSON.stringify([ids.shared]),
     await messagesOf('owner'));
-  check('db: an Owner does not read its thread either', (await seen(db, 'owner', 'SELECT id FROM communications.conversations WHERE id = $1', [ids.personalThread])).length === 0);
+  check('db: an Owner does not read its thread either', (await seen(db, 'owner', 'SELECT id FROM pm.conversations WHERE id = $1', [ids.personalThread])).length === 0);
   await setPolicy(db, true);
   check('db: with the switch on, an Owner reads personal inboxes', JSON.stringify(await messagesOf('owner')) === JSON.stringify([ids.shared, ids.personal]),
     await messagesOf('owner'));
@@ -128,10 +130,10 @@ async function main() {
   await setPolicy(db, false);
   check('db: a teammate the owner shared it with reads it', JSON.stringify(await messagesOf('ned')) === JSON.stringify([ids.personal]), await messagesOf('ned'));
   check('db: someone not granted reads nothing of it', !(await messagesOf('rae')).includes(ids.personal) && !(await inboxRows('rae')).includes(ids.personal));
-  check('db: a person granted a personal inbox sees their own grant row only', (await seen(db, 'ned', 'SELECT member_id FROM communications.inbox_access WHERE inbox_id = $1', [ids.personal]))
+  check('db: a person granted a personal inbox sees their own grant row only', (await seen(db, 'ned', 'SELECT member_id FROM pm.inbox_access WHERE inbox_id = $1', [ids.personal]))
     .every((r) => r.member_id === ids.ned));
-  check('db: the owner sees who reads their inbox; an Owner does not', (await seen(db, 'mia', 'SELECT 1 FROM communications.inbox_access WHERE inbox_id = $1', [ids.personal])).length === 2
-    && (await seen(db, 'owner', 'SELECT 1 FROM communications.inbox_access WHERE inbox_id = $1', [ids.personal])).length === 0);
+  check('db: the owner sees who reads their inbox; an Owner does not', (await seen(db, 'mia', 'SELECT 1 FROM pm.inbox_access WHERE inbox_id = $1', [ids.personal])).length === 2
+    && (await seen(db, 'owner', 'SELECT 1 FROM pm.inbox_access WHERE inbox_id = $1', [ids.personal])).length === 0);
 
   // Shared inboxes, as before.
   check('db: shared: an Owner reads every shared inbox', (await messagesOf('owner')).includes(ids.shared));
@@ -141,40 +143,40 @@ async function main() {
   check('db: shared: Ned (no grant, no read) reads none of it', !(await messagesOf('ned')).includes(ids.shared));
 
   // The Inbox switched off: nobody reads a personal inbox.
-  await db.exec("RESET ROLE; UPDATE public.workspace_modules SET enabled = false WHERE module_id = 'inbox'");
+  await db.exec("RESET ROLE; UPDATE pm.workspace_modules SET enabled = false WHERE module_id = 'inbox'");
   check('db: with the Inbox module off, the owner reads nothing', (await messagesOf('mia')).length === 0 && (await messagesOf('ned')).length === 0);
-  await db.exec("RESET ROLE; UPDATE public.workspace_modules SET enabled = true WHERE module_id = 'inbox'");
+  await db.exec("RESET ROLE; UPDATE pm.workspace_modules SET enabled = true WHERE module_id = 'inbox'");
 
   // ---- Writing, in the database ---------------------------------------------
-  const insertPersonal = `INSERT INTO communications.inboxes (name, address, owner_member_id) VALUES ('X', $1, $2)`;
+  const insertPersonal = `INSERT INTO pm.inboxes (name, address, owner_member_id) VALUES ('X', $1, $2)`;
   check('db: a Member creates a personal inbox for themselves', await refusal(db, 'mia', insertPersonal, ['mia.two@agency.example', ids.mia]) === '');
   check('db: a Member cannot create one for someone else', (await refusal(db, 'mia', insertPersonal, ['ned.two@agency.example', ids.ned])).includes('row-level security'));
-  check('db: a Member cannot create a shared inbox', (await refusal(db, 'mia', "INSERT INTO communications.inboxes (name, address) VALUES ('X', 'shared.two@agency.example')")).includes('row-level security'));
-  check('db: the owner changes their own inbox', await refusal(db, 'mia', "UPDATE communications.inboxes SET address = 'mia.new@agency.example' WHERE id = $1", [ids.personal]) === '');
-  check('db: an Owner cannot change someone\'s personal inbox', (await refusal(db, 'owner', "UPDATE communications.inboxes SET address = 'x@agency.example' WHERE id = $1", [ids.personal])).includes('Only its owner'));
-  check('db: an Owner cannot hand it to someone else', (await refusal(db, 'owner', 'UPDATE communications.inboxes SET owner_member_id = $2 WHERE id = $1', [ids.personal, ids.owner])).includes('never changes hands'));
-  check('db: an Owner may turn it off (offboarding)', await refusal(db, 'owner', 'UPDATE communications.inboxes SET enabled = false WHERE id = $1', [ids.personal]) === '');
-  check('db: an Owner cannot grant access to it', (await refusal(db, 'owner', 'INSERT INTO communications.inbox_access (inbox_id, member_id) VALUES ($1, $2)', [ids.personal, ids.owner])).includes('row-level security'));
-  check('db: the owner grants access to it', await refusal(db, 'mia', 'INSERT INTO communications.inbox_access (inbox_id, member_id) VALUES ($1, $2)', [ids.personal, ids.rae]) === '');
-  check('db: an Owner still manages shared inboxes', await refusal(db, 'owner', "UPDATE communications.inboxes SET name = 'Scout 2' WHERE id = $1", [ids.shared]) === ''
-    && await refusal(db, 'owner', 'INSERT INTO communications.inbox_access (inbox_id, member_id) VALUES ($1, $2)', [ids.shared, ids.ned]) === '');
-  check('db: an Owner cannot turn a shared inbox into a personal one', (await refusal(db, 'owner', 'UPDATE communications.inboxes SET owner_member_id = $2 WHERE id = $1', [ids.shared, ids.owner])).includes('never changes hands'));
-  check('db: the owner cannot hand their inbox to the company (make it shared)', (await refusal(db, 'mia', 'UPDATE communications.inboxes SET owner_member_id = NULL WHERE id = $1', [ids.personal])) !== '');
+  check('db: a Member cannot create a shared inbox', (await refusal(db, 'mia', "INSERT INTO pm.inboxes (name, address) VALUES ('X', 'shared.two@agency.example')")).includes('row-level security'));
+  check('db: the owner changes their own inbox', await refusal(db, 'mia', "UPDATE pm.inboxes SET address = 'mia.new@agency.example' WHERE id = $1", [ids.personal]) === '');
+  check('db: an Owner cannot change someone\'s personal inbox', (await refusal(db, 'owner', "UPDATE pm.inboxes SET address = 'x@agency.example' WHERE id = $1", [ids.personal])).includes('Only its owner'));
+  check('db: an Owner cannot hand it to someone else', (await refusal(db, 'owner', 'UPDATE pm.inboxes SET owner_member_id = $2 WHERE id = $1', [ids.personal, ids.owner])).includes('never changes hands'));
+  check('db: an Owner may turn it off (offboarding)', await refusal(db, 'owner', 'UPDATE pm.inboxes SET enabled = false WHERE id = $1', [ids.personal]) === '');
+  check('db: an Owner cannot grant access to it', (await refusal(db, 'owner', 'INSERT INTO pm.inbox_access (inbox_id, member_id) VALUES ($1, $2)', [ids.personal, ids.owner])).includes('row-level security'));
+  check('db: the owner grants access to it', await refusal(db, 'mia', 'INSERT INTO pm.inbox_access (inbox_id, member_id) VALUES ($1, $2)', [ids.personal, ids.rae]) === '');
+  check('db: an Owner still manages shared inboxes', await refusal(db, 'owner', "UPDATE pm.inboxes SET name = 'Scout 2' WHERE id = $1", [ids.shared]) === ''
+    && await refusal(db, 'owner', 'INSERT INTO pm.inbox_access (inbox_id, member_id) VALUES ($1, $2)', [ids.shared, ids.ned]) === '');
+  check('db: an Owner cannot turn a shared inbox into a personal one', (await refusal(db, 'owner', 'UPDATE pm.inboxes SET owner_member_id = $2 WHERE id = $1', [ids.shared, ids.owner])).includes('never changes hands'));
+  check('db: the owner cannot hand their inbox to the company (make it shared)', (await refusal(db, 'mia', 'UPDATE pm.inboxes SET owner_member_id = NULL WHERE id = $1', [ids.personal])) !== '');
   // Team members are never hard-deleted (forbid_hard_delete); with that guard
   // lifted, as a future cleanup might, the inbox itself still refuses.
   await db.exec('RESET ROLE');
   await db.exec('BEGIN');
   let deleteOwner = '';
   try {
-    await db.exec('ALTER TABLE public.team_members DISABLE TRIGGER forbid_hard_delete');
-    await db.query('DELETE FROM public.team_members WHERE id = $1', [ids.mia]);
+    await db.exec('ALTER TABLE pm.team_members DISABLE TRIGGER forbid_hard_delete');
+    await db.query('DELETE FROM pm.team_members WHERE id = $1', [ids.mia]);
   } catch (error) {
     deleteOwner = (error as Error).message;
   } finally {
     await db.exec('ROLLBACK');
   }
   check('db: deleting a member who owns a personal inbox is refused', deleteOwner.includes('foreign key') && deleteOwner.includes('inboxes'), deleteOwner);
-  check('db: the personal inbox stays theirs', (await db.query<Row>('SELECT owner_member_id FROM communications.inboxes WHERE id = $1', [ids.personal])).rows[0]?.owner_member_id === ids.mia);
+  check('db: the personal inbox stays theirs', (await db.query<Row>('SELECT owner_member_id FROM pm.inboxes WHERE id = $1', [ids.personal])).rows[0]?.owner_member_id === ids.mia);
 
   // ---- The service-side rule ---------------------------------------------------
   const server = await startFakePostgrest(db);
@@ -222,7 +224,7 @@ async function main() {
     check('triage: under the switch, the Owners are still not notified', !(await visibility.inboxPeopleIds(service, ids.personal)).includes(ids.owner));
     await setPolicy(db, false);
     await db.exec('RESET ROLE');
-    await db.query("INSERT INTO public.team_member_permissions (member_id, permission_key, access_channel, effect) VALUES ($1, 'inbound_email.triage', 'app', 'allow')", [ids.ned]);
+    await db.query("INSERT INTO pm.team_member_permissions (member_id, permission_key, access_channel, effect) VALUES ($1, 'inbound_email.triage', 'app', 'allow')", [ids.ned]);
     const nedTriage = await ctxOf(ids.ned);
     check('triage: a grantee with inbound_email.triage acts on it', await handle(nedTriage, ids.personalThread) === 0);
     check('triage: shared: an Owner acts, a reader without triage cannot, as before', await handle(owner, ids.sharedThread) === 0
@@ -240,15 +242,15 @@ async function main() {
     // A sender rule made from a thread filters that thread's open mail now, which acts on it.
     const rules = await import('../src/lib/communications/inbox-rules');
     await db.exec('RESET ROLE');
-    await db.query("UPDATE communications.messages SET status = 'new' WHERE id = $1", [ids.personalMessage]);
-    await db.query("INSERT INTO communications.participants (message_id, kind, address) VALUES ($1, 'from', 'pitch@vendor.example')", [ids.personalMessage]);
+    await db.query("UPDATE pm.messages SET status = 'new' WHERE id = $1", [ids.personalMessage]);
+    await db.query("INSERT INTO pm.participants (message_id, kind, address) VALUES ($1, 'from', 'pitch@vendor.example')", [ids.personalMessage]);
     await setPolicy(db, true);
     const ruleUnderSwitch = await status(() => rules.createSenderRule(owner, {
       match_kind: 'address', match_value: 'pitch@vendor.example', topic: null, action: 'ignore', reason: 'Pitch', thread_id: ids.personalThread,
     }));
     await setPolicy(db, false);
     await db.exec('RESET ROLE');
-    const afterRule = (await db.query<Row>('SELECT status FROM communications.messages WHERE id = $1', [ids.personalMessage])).rows[0];
+    const afterRule = (await db.query<Row>('SELECT status FROM pm.messages WHERE id = $1', [ids.personalMessage])).rows[0];
     check('rules: an Owner under the switch cannot filter someone\'s personal thread through a rule', ruleUnderSwitch === 403 && afterRule.status === 'new', { ruleUnderSwitch, afterRule });
 
     // API keys and agents.
@@ -317,11 +319,11 @@ async function main() {
     const key = 'pk_live_personal_inbox_audit_key';
     await db.exec('RESET ROLE');
     // The rate limit as one row the client reads (as the other API tests stand it in).
-    await db.exec(`DROP FUNCTION public.consume_api_rate_limit(uuid, integer, integer);
-      CREATE FUNCTION public.consume_api_rate_limit(p_api_key_id uuid, p_limit integer, p_window_seconds integer)
+    await db.exec(`DROP FUNCTION pm.consume_api_rate_limit(uuid, integer, integer);
+      CREATE FUNCTION pm.consume_api_rate_limit(p_api_key_id uuid, p_limit integer, p_window_seconds integer)
       RETURNS jsonb LANGUAGE sql AS $$ SELECT jsonb_build_object('allowed', true, 'remaining', p_limit - 1,
         'reset_at', now() + make_interval(secs => p_window_seconds)) $$;`);
-    await db.query(`INSERT INTO public.api_keys (name, key_prefix, key_hash, team_member_id, scopes) VALUES ('Scout', 'pk_live', $1, $2, $3)`,
+    await db.query(`INSERT INTO pm.api_keys (name, key_prefix, key_hash, team_member_id, scopes) VALUES ('Scout', 'pk_live', $1, $2, $3)`,
       [createHash('sha256').update(key).digest('hex'), ids.scout, ['inbound_email.read', 'inbound_email.triage']]);
     const triageAs = async (messageId: string, summary: string) => {
       const response = await triageRoute.POST(new NextRequest(`http://localhost/api/v1/inbound-emails/${messageId}/triage`, {
@@ -334,7 +336,7 @@ async function main() {
     const auditFor = async (messageId: string) => {
       await new Promise((resolve) => setTimeout(resolve, 300));
       await db.exec('RESET ROLE');
-      return (await db.query<Row>("SELECT request_body, before_snapshot, after_snapshot FROM public.api_audit_log WHERE endpoint = $1", [`/api/v1/inbound-emails/${messageId}/triage`])).rows;
+      return (await db.query<Row>("SELECT request_body, before_snapshot, after_snapshot FROM pm.api_audit_log WHERE endpoint = $1", [`/api/v1/inbound-emails/${messageId}/triage`])).rows;
     };
     const personalStatus = await triageAs(ids.personalMessage, 'SECRET-PERSONAL-SUMMARY');
     const personalAudit = await auditFor(ids.personalMessage);
@@ -363,7 +365,9 @@ async function main() {
 /**
  * The 1.5.0 schema (the commit before this release), with no owner column and
  * no workspace switch: the Inbox, its settings and the API read every inbox as
- * shared, as 1.5.0 did, instead of failing.
+ * shared, as 1.5.0 did, instead of failing. Since 2.0 the code reads schema pm
+ * only, so the 1.5.0 database is moved into pm first (the 2.0 move on its
+ * own, without the personal inbox migration).
  */
 async function legacyDatabase() {
   let legacy: PGlite;
@@ -379,10 +383,11 @@ async function legacyDatabase() {
   await legacy.query(`INSERT INTO public.team_members (id, name, email, role, status) VALUES ($1, 'Scout', 'scout@agency.example', 'agent', 'active')`, [ids.scout]);
   await legacy.query("UPDATE public.business_settings SET inbound_email_domain = 'relay.example.test'");
   await legacy.query(`INSERT INTO communications.inboxes (id, name, address, handler_member_id) VALUES ($1, 'Scout', 'scout@agency.example', $2)`, [ids.shared, ids.scout]);
+  await legacy.exec(readFileSync(join(__dirname, '..', 'supabase', 'migrations', '20261123000000_move_to_pm.sql'), 'utf8'));
   const server = await startFakePostgrest(legacy, { strictColumns: true });
-  const { createClient } = await import('@supabase/supabase-js');
+  const { createPmClient } = await import('../src/lib/supabase/pm-client');
   // Its own client: the service client of the run above points at the other database.
-  const service = createClient(server.url, 'fake-service-key', { auth: { persistSession: false } });
+  const service = createPmClient(server.url, 'fake-service-key', { auth: { persistSession: false } });
   try {
     const { resolveMemberAccess } = await import('../src/lib/api/access');
     const inbox = await import('../src/lib/communications/inbox-service');

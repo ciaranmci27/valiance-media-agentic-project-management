@@ -18,17 +18,17 @@ import { actAs, createFullSchemaDatabase, schemaAt, schemaBeforeMigration } from
 
 const MIGRATION = '20261122100000_pm_schemas_and_outsiders.sql';
 
-const SCHEMAS = ['public', 'communications'];
+const SCHEMAS = ['pm'];
 
 /**
  * Readable by any signed-in account on purpose, each for a reason. Nothing
  * here may hold a team's data.
  */
 const OPEN_ON_PURPOSE: Record<string, string> = {
-  'public.workspace_brand': 'name, colour and logo for the sign-in page, which signed-out visitors see too',
-  'public.permission_modules': 'which module each permission belongs to: product metadata, the same for every install',
-  'public.role_permissions': 'what each role may do by default: product metadata, the same for every install',
-  'public.workspace_modules': 'which modules are switched on: the sign-in shell reads it before access is known',
+  'pm.workspace_brand': 'name, colour and logo for the sign-in page, which signed-out visitors see too',
+  'pm.permission_modules': 'which module each permission belongs to: product metadata, the same for every install',
+  'pm.role_permissions': 'what each role may do by default: product metadata, the same for every install',
+  'pm.workspace_modules': 'which modules are switched on: the sign-in shell reads it before access is known',
 };
 
 let passed = 0;
@@ -116,7 +116,7 @@ async function main() {
   await db.exec('ALTER TABLE auth.users DISABLE TRIGGER USER');
   await db.query(`INSERT INTO auth.users (id, email) VALUES ($1, 'outsider@other-app.example')`, [outsider]);
   await db.exec('ALTER TABLE auth.users ENABLE TRIGGER USER');
-  check('setup: the outsider has no team row', (await q(`SELECT 1 FROM public.team_members WHERE auth_user_id = $1`, [outsider])).length === 0);
+  check('setup: the outsider has no team row', (await q(`SELECT 1 FROM pm.team_members WHERE auth_user_id = $1`, [outsider])).length === 0);
 
   for (const table of tables) {
     const name = `${table.schema}.${table.name}`;

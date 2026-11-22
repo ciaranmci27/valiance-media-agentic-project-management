@@ -12,6 +12,7 @@ import {
   type AgentTrace,
 } from '@/lib/agent-status';
 import { useAgentHealth } from '@/lib/use-agent-health';
+import { PM_SCHEMA } from '@/lib/supabase/schema';
 import {
   STATIONS,
   emptyWork,
@@ -425,10 +426,10 @@ export function useCrewData(mock?: { mood?: Mood }, publicFeed?: boolean): CrewS
 
     const channel = supabase
       .channel('command-scene')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'agent_activities' }, (p) => {
+      .on('postgres_changes', { event: 'INSERT', schema: PM_SCHEMA, table: 'agent_activities' }, (p) => {
         ingestActivity(p.new as ActivityRow, true);
       })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks' }, (p) => {
+      .on('postgres_changes', { event: '*', schema: PM_SCHEMA, table: 'tasks' }, (p) => {
         const row = p.new as CrewTask & { task_assignees?: { member_id: string }[] };
         if (!row?.id) return;
         // Realtime payloads do not include the join; keep any assignees we knew.
@@ -444,7 +445,7 @@ export function useCrewData(mock?: { mood?: Mood }, publicFeed?: boolean): CrewS
           react(key, 'celebrating', 4200);
         }
       })
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'task_reviews' }, (p) => {
+      .on('postgres_changes', { event: 'INSERT', schema: PM_SCHEMA, table: 'task_reviews' }, (p) => {
         // Same handler the poll diff uses, so the two transports cannot
         // disagree about what a verdict landing looks like. Marked seen so a
         // later transport switch could never replay it.
@@ -455,7 +456,7 @@ export function useCrewData(mock?: { mood?: Mood }, publicFeed?: boolean): CrewS
       // Greg's findings ledger, kept live the same way John's verdicts are.
       // `*` rather than INSERT because a suggestion leaving `pending` (someone
       // approved or rejected it) has to drop off his screen, not linger.
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'task_suggestions' }, (p) => {
+      .on('postgres_changes', { event: '*', schema: PM_SCHEMA, table: 'task_suggestions' }, (p) => {
         const row = p.new as SuggestionRow | null;
         const gone = p.eventType === 'DELETE' || !row || !OPEN_SUGGESTION.has(row.status);
         const id = (row?.id ?? (p.old as { id?: string } | null)?.id) as string | undefined;

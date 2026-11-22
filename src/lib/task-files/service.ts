@@ -10,6 +10,8 @@ import { realLink, shortUrl } from '@/lib/communications/email/display';
 import { INBOUND_EMAIL_BUCKET } from '@/lib/communications/email/ingest';
 import { trashApiError } from '@/lib/api/trash';
 import { moveToTrash } from '@/lib/supabase/trash';
+import { pmStorage } from '@/lib/supabase/storage';
+import { BUCKETS } from '@/lib/supabase/schema';
 
 /**
  * A task's files, for the app (session routes) and the API (v1, MCP). Each
@@ -35,7 +37,7 @@ import { moveToTrash } from '@/lib/supabase/trash';
  * kinds the browser shows safely: images, PDFs, text).
  */
 
-export const TASK_FILES_BUCKET = 'task-files';
+export const TASK_FILES_BUCKET = BUCKETS.taskFiles;
 /** The bucket's own limit (file_size_limit). */
 export const MAX_FILE_BYTES = 50 * 1024 * 1024;
 /** content_base64 uploads: the JSON body stays under Vercel's 4.5 MB request cap. */
@@ -360,7 +362,7 @@ async function storeBytes(ctx: TaskFilesContext, projectId: string, bytes: Buffe
   const sha256 = sha256Of(bytes);
   const path = `${projectId}/${sha256}`;
   // trash-checked: a Storage bucket, not a table.
-  const { error } = await ctx.db.storage.from(TASK_FILES_BUCKET).upload(path, bytes, { contentType: storedType(mimeType, name), upsert: false });
+  const { error } = await pmStorage(ctx.db).from(TASK_FILES_BUCKET).upload(path, bytes, { contentType: storedType(mimeType, name), upsert: false });
   if (error && !isDuplicateObject(error)) throw new ApiError(502, 'STORAGE_ERROR', 'Could not store the file');
   return { path, sha256 };
 }
@@ -378,20 +380,20 @@ export async function copyAttachmentToProject(
   let sha256 = attachment.sha256;
   let bytes: Buffer | null = null;
   if (!sha256) {
-    const { data, error } = await db.storage.from(INBOUND_EMAIL_BUCKET).download(attachment.storage_path);
+    const { data, error } = await pmStorage(db).from(INBOUND_EMAIL_BUCKET).download(attachment.storage_path);
     if (error || !data) throw new Error(`could not read the attachment: ${error?.message ?? 'no data'}`);
     bytes = Buffer.from(await data.arrayBuffer());
     sha256 = sha256Of(bytes);
   }
   const path = `${projectId}/${sha256}`;
   if (!bytes) {
-    const copied = await db.storage.from(INBOUND_EMAIL_BUCKET).copy(attachment.storage_path, path, { destinationBucket: TASK_FILES_BUCKET });
+    const copied = await pmStorage(db).from(INBOUND_EMAIL_BUCKET).copy(attachment.storage_path, path, { destinationBucket: TASK_FILES_BUCKET });
     if (!copied.error || isDuplicateObject(copied.error)) return { path, sha256 };
-    const { data, error } = await db.storage.from(INBOUND_EMAIL_BUCKET).download(attachment.storage_path);
+    const { data, error } = await pmStorage(db).from(INBOUND_EMAIL_BUCKET).download(attachment.storage_path);
     if (error || !data) throw new Error(`could not read the attachment: ${error?.message ?? 'no data'}`);
     bytes = Buffer.from(await data.arrayBuffer());
   }
-  const { error } = await db.storage.from(TASK_FILES_BUCKET).upload(path, bytes, { contentType: storedType(attachment.content_type, attachment.filename), upsert: false });
+  const { error } = await pmStorage(db).from(TASK_FILES_BUCKET).upload(path, bytes, { contentType: storedType(attachment.content_type, attachment.filename), upsert: false });
   if (error && !isDuplicateObject(error)) throw new Error(`could not store the copy: ${error.message}`);
   return { path, sha256 };
 }
@@ -401,7 +403,7 @@ export async function createUploadLink(ctx: TaskFilesContext, taskId: string): P
   requirePermission(ctx, 'files.upload', 'Adding files to a task needs permission to upload files');
   const task = await loadTask(ctx, taskId);
   const uploadId = randomUUID();
-  const { data, error } = await ctx.db.storage.from(TASK_FILES_BUCKET).createSignedUploadUrl(`${task.project_id}/incoming/${uploadId}`);
+  const { data, error } = await pmStorage(ctx.db).from(TASK_FILES_BUCKET).createSignedUploadUrl(`${task.project_id}/incoming/${uploadId}`);
   if (error || !data) throw new ApiError(502, 'STORAGE_ERROR', 'Could not create an upload link');
   return {
     upload_id: uploadId,
@@ -415,7 +417,7 @@ export async function createUploadLink(ctx: TaskFilesContext, taskId: string): P
 /** The bytes uploaded to an upload link, read back so the server hashes them itself; the upload is removed once stored. */
 async function claimUpload(ctx: TaskFilesContext, projectId: string, uploadId: string): Promise<{ bytes: Buffer; contentType: string | null; remove: () => Promise<void> }> {
   const incoming = `${projectId}/incoming/${assertId(uploadId, 'upload_id')}`;
-  const bucket = ctx.db.storage.from(TASK_FILES_BUCKET);
+  const bucket = pmStorage(ctx.db).from(TASK_FILES_BUCKET);
   const { data, error } = await bucket.download(incoming);
   if (error || !data) {
     if (!error || isMissingDownload(error)) {
@@ -627,7 +629,7 @@ export async function taskFileLink(ctx: TaskFilesContext, taskId: string, fileId
   const expiresIn = options.inline ? INLINE_SECONDS : DOWNLOAD_SECONDS;
   const sign = async (bucket: string, path: string) => {
     // trash-checked: a Storage bucket, not a table.
-    const { data, error } = await ctx.db.storage.from(bucket)
+    const { data, error } = await pmStorage(ctx.db).from(bucket)
       .createSignedUrl(path, expiresIn, options.inline ? undefined : { download: file.name || true });
     if (error && isMissingObject(error)) throw notFound('Stored file');
     if (error || !data?.signedUrl) throw new ApiError(502, 'STORAGE_ERROR', 'Could not create a link');

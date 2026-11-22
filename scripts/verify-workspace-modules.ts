@@ -65,15 +65,22 @@ async function asOwnerOfDatabase(db: PGlite) {
   await db.exec('RESET ROLE');
 }
 
+/** Where the app lives: pm since 2.0, public in the copies of earlier releases. */
+async function appSchema(db: PGlite): Promise<'pm' | 'public'> {
+  const { rows } = await db.query<{ pm: boolean }>("SELECT to_regclass('pm.team_members') IS NOT NULL AS pm");
+  return rows[0].pm ? 'pm' : 'public';
+}
+
 async function seedMembers(db: PGlite) {
   await asOwnerOfDatabase(db);
+  const s = await appSchema(db);
   for (const role of ROLES) {
     await db.query('INSERT INTO auth.users (id, email) VALUES ($1, $2) ON CONFLICT DO NOTHING', [USERS[role], `${role}@example.com`]);
     // Signing up may already have made the member (the auth trigger); either way, set the role.
-    const updated = await db.query(`UPDATE public.team_members SET role = $2, status = 'active' WHERE auth_user_id = $1`, [USERS[role], role]);
+    const updated = await db.query(`UPDATE ${s}.team_members SET role = $2, status = 'active' WHERE auth_user_id = $1`, [USERS[role], role]);
     if (!updated.affectedRows) {
       await db.query(
-        `INSERT INTO public.team_members (auth_user_id, name, email, role, status) VALUES ($1, $2, $3, $4, 'active')`,
+        `INSERT INTO ${s}.team_members (auth_user_id, name, email, role, status) VALUES ($1, $2, $3, $4, 'active')`,
         [USERS[role], role, `${role}@example.com`, role],
       );
     }
@@ -84,13 +91,14 @@ type Snapshot = Record<Role, { context: Record<string, unknown>; granted: string
 
 async function snapshot(db: PGlite): Promise<Snapshot> {
   const out = {} as Snapshot;
+  const s = await appSchema(db);
   for (const role of ROLES) {
     await actAs(db, USERS[role]);
-    const context = (await db.query<{ ctx: Record<string, unknown> }>('SELECT public.get_my_access_context() AS ctx')).rows[0].ctx;
+    const context = (await db.query<{ ctx: Record<string, unknown> }>(`SELECT ${s}.get_my_access_context() AS ctx`)).rows[0].ctx;
     const granted: string[] = [];
     for (const key of PERMISSIONS) {
       for (const channel of ['app', 'api']) {
-        const row = (await db.query<{ ok: boolean }>('SELECT public.has_permission($1, $2) AS ok', [key, channel])).rows[0];
+        const row = (await db.query<{ ok: boolean }>(`SELECT ${s}.has_permission($1, $2) AS ok`, [key, channel])).rows[0];
         if (row.ok) granted.push(`${channel}:${key}`);
       }
     }
@@ -102,7 +110,7 @@ async function snapshot(db: PGlite): Promise<Snapshot> {
 
 async function setModule(db: PGlite, id: ModuleId, enabled: boolean) {
   await asOwnerOfDatabase(db);
-  await db.query('UPDATE public.workspace_modules SET enabled = $2 WHERE module_id = $1', [id, enabled]);
+  await db.query(`UPDATE ${await appSchema(db)}.workspace_modules SET enabled = $2 WHERE module_id = $1`, [id, enabled]);
 }
 
 function appAccess(context: Record<string, unknown>, modules: ModuleId[]): AccessContext {
@@ -234,18 +242,18 @@ async function main() {
   // --- schema.sql (a fresh install) ------------------------------------------------------
   const db = await createFullSchemaDatabase();
   await seedMembers(db);
-  const fresh = (await db.query<{ done: boolean }>('SELECT setup_completed_at IS NOT NULL AS done FROM public.business_settings')).rows[0];
+  const fresh = (await db.query<{ done: boolean }>('SELECT setup_completed_at IS NOT NULL AS done FROM pm.business_settings')).rows[0];
   check('fresh install: setup not done yet', !fresh.done);
 
-  const seeded = (await db.query<{ permission_key: string; module_id: string }>('SELECT permission_key, module_id FROM public.permission_modules ORDER BY 1')).rows;
+  const seeded = (await db.query<{ permission_key: string; module_id: string }>('SELECT permission_key, module_id FROM pm.permission_modules ORDER BY 1')).rows;
   const expected = (Object.entries(PERMISSION_MODULE) as Array<[PermissionKey, string]>).filter(([, m]) => m !== 'core').sort(([a], [b]) => (a < b ? -1 : 1));
   check('seed: permission_modules matches the registry', JSON.stringify(seeded.map((r) => [r.permission_key, r.module_id])) === JSON.stringify(expected),
     { onlySql: seeded.filter((r) => PERMISSION_MODULE[r.permission_key as PermissionKey] !== r.module_id), onlyRegistry: expected.filter(([k]) => !seeded.some((r) => r.permission_key === k)) });
-  const mods = (await db.query<{ module_id: string; enabled: boolean }>('SELECT module_id, enabled FROM public.workspace_modules ORDER BY 1')).rows;
+  const mods = (await db.query<{ module_id: string; enabled: boolean }>('SELECT module_id, enabled FROM pm.workspace_modules ORDER BY 1')).rows;
   check('seed: one row per module, all on', JSON.stringify(mods.map((r) => r.module_id)) === JSON.stringify([...MODULE_IDS].sort()) && mods.every((r) => r.enabled), mods);
   check('seed: Team pay has its row and its three permissions',
     mods.some((r) => r.module_id === 'team_pay') && PAY_KEYS.every((key) => seeded.some((r) => r.permission_key === key && r.module_id === 'team_pay')));
-  const roleKeys = (await db.query<{ permission_key: string }>('SELECT DISTINCT permission_key FROM public.role_permissions')).rows;
+  const roleKeys = (await db.query<{ permission_key: string }>('SELECT DISTINCT permission_key FROM pm.role_permissions')).rows;
   check('seed: every permission a role holds is a known key', roleKeys.every((r) => (PERMISSIONS as readonly string[]).includes(r.permission_key)),
     roleKeys.filter((r) => !(PERMISSIONS as readonly string[]).includes(r.permission_key)));
 
@@ -275,7 +283,7 @@ async function main() {
   }
   await actAs(db, null);
   check('module_enabled: reads the switch', (await db.query<{ a: boolean; b: boolean; c: boolean }>(
-    "SELECT public.module_enabled('billing') AS a, public.module_enabled('time') AS b, public.module_enabled('not-a-module') AS c")).rows
+    "SELECT pm.module_enabled('billing') AS a, pm.module_enabled('time') AS b, pm.module_enabled('not-a-module') AS c")).rows
     .every((r) => r.a === false && r.b === true && r.c === true));
   await setModule(db, 'billing', true);
 
@@ -299,10 +307,10 @@ async function main() {
 
   // --- Rows follow the switch through RLS -------------------------------------------------
   await asOwnerOfDatabase(db);
-  await db.query("INSERT INTO public.leads (name) VALUES ('Acme Co')");
+  await db.query("INSERT INTO pm.leads (name) VALUES ('Acme Co')");
   const leadsSeen = async (role: Role) => {
     await actAs(db, USERS[role]);
-    const n = (await db.query<{ n: number }>('SELECT count(*)::int AS n FROM public.leads')).rows[0].n;
+    const n = (await db.query<{ n: number }>('SELECT count(*)::int AS n FROM pm.leads')).rows[0].n;
     await actAs(db, null);
     return n;
   };
@@ -312,7 +320,7 @@ async function main() {
   await actAs(db, USERS.owner);
   let insertRefused = false;
   try {
-    await db.query("INSERT INTO public.leads (name) VALUES ('Sneaky')");
+    await db.query("INSERT INTO pm.leads (name) VALUES ('Sneaky')");
   } catch {
     insertRefused = true;
   }
@@ -325,14 +333,14 @@ async function main() {
     await actAs(db, USERS[role]);
     let refused = false;
     try {
-      await db.query("UPDATE public.workspace_modules SET enabled = false WHERE module_id = 'billing'");
+      await db.query("UPDATE pm.workspace_modules SET enabled = false WHERE module_id = 'billing'");
     } catch {
       refused = true;
     }
     check(`writes: ${role} cannot switch a module directly`, refused);
   }
   await actAs(db, USERS.member);
-  const visible = (await db.query<{ n: number }>('SELECT count(*)::int AS n FROM public.workspace_modules')).rows[0].n;
+  const visible = (await db.query<{ n: number }>('SELECT count(*)::int AS n FROM pm.workspace_modules')).rows[0].n;
   check('reads: any member can see which modules are on', visible === MODULE_IDS.length);
   await actAs(db, null);
 

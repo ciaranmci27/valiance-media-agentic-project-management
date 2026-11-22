@@ -16,10 +16,11 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { PGlite } from '@electric-sql/pglite';
 import { NextRequest } from 'next/server';
-import { actAs, createFullSchemaDatabase, SCHEMA_PATH } from './full-schema-db';
+import { actAs, createFullSchemaDatabase, schemaBeforeMigration } from './full-schema-db';
 import { startFakePostgrest } from './fake-postgrest';
 
-const MIGRATION = join(__dirname, '..', 'supabase', 'migrations', '20261024065232_task_source_and_seen.sql');
+const MIGRATION_FILE = '20261024065232_task_source_and_seen.sql';
+const MIGRATION = join(__dirname, '..', 'supabase', 'migrations', MIGRATION_FILE);
 const OWNER_USER = '00000000-0000-0000-0000-0000000000c1';
 const MEMBER_USER = '00000000-0000-0000-0000-0000000000c2';
 
@@ -42,21 +43,13 @@ async function attempt(db: PGlite, sql: string, params: unknown[] = []) {
 type Source = { created_via: string; created_by_key_id: string | null; created_note: string | null; created_by: string | null };
 
 /**
- * The schema before this migration, as production has it: schema.sql without
- * the task source columns and section, so the migration is tested on top of it.
+ * Every check, on a database in `schema`. The queries name the schema before
+ * 2.0 (public); on a 2.0 database (schema.sql today) the same objects are in pm.
  */
-function schemaBeforeMigration(): string {
-  // A Windows checkout may carry CRLF; the markers below are LF.
-  const sql = readFileSync(SCHEMA_PATH, 'utf8').replace(/\r\n/g, '\n');
-  const section = sql.indexOf('\n-- ---------------------------------------------------------------------------\n-- Task source and seen');
-  const columns = sql.indexOf('  -- Where it came from, stamped on insert');
-  const columnsEnd = sql.indexOf(');', columns);
-  if (section < 0 || columns < 0) throw new Error('schema.sql no longer has the task source pieces this test removes');
-  return sql.slice(0, columns).replace(/,\s*$/, '\n') + sql.slice(columnsEnd, section);
-}
-
-async function run(db: PGlite, label: string) {
-  const q = async <T = Record<string, unknown>>(sql: string, params: unknown[] = []) => (await db.query<T>(sql, params)).rows;
+async function run(db: PGlite, label: string, schema: 'public' | 'pm') {
+  const at = (sql: string) => (schema === 'pm' ? sql.replace(/\bpublic\./g, 'pm.') : sql);
+  const q = async <T = Record<string, unknown>>(sql: string, params: unknown[] = []) => (await db.query<T>(at(sql), params)).rows;
+  const tryQuery = (sql: string, params: unknown[] = []) => attempt(db, at(sql), params);
   const superuser = async () => {
     await db.exec('RESET ROLE');
     await db.query("SELECT set_config('request.jwt.claim.sub', '', false), set_config('request.jwt.claim.role', '', false), set_config('request.headers', '', false)");
@@ -76,11 +69,11 @@ async function run(db: PGlite, label: string) {
   const people = await q<{ id: string; auth_user_id: string }>('SELECT id, auth_user_id FROM public.team_members');
   const owner = people.find((m) => m.auth_user_id === OWNER_USER)!.id;
   const member = people.find((m) => m.auth_user_id === MEMBER_USER)!.id;
-  await db.query(`INSERT INTO public.team_member_permissions (member_id, permission_key, access_channel, effect)
+  await q(`INSERT INTO public.team_member_permissions (member_id, permission_key, access_channel, effect)
     SELECT $1, key, 'app', 'allow' FROM unnest(ARRAY['projects.read', 'tasks.read']) AS key`, [member]);
   const ashley = (await q<{ id: string }>("INSERT INTO public.team_members (name, email, role) VALUES ('Ashley', 'ashley@example.com', 'agent') RETURNING id"))[0].id;
   const project = (await q<{ id: string }>("INSERT INTO public.projects (name) VALUES ('Happy Innovations') RETURNING id"))[0].id;
-  await db.query('INSERT INTO public.project_members (project_id, member_id) VALUES ($1, $2)', [project, member]);
+  await q('INSERT INTO public.project_members (project_id, member_id) VALUES ($1, $2)', [project, member]);
   const ashleyKey = (await q<{ id: string }>(
     "INSERT INTO public.api_keys (name, key_prefix, key_hash, team_member_id, created_by) VALUES ('Ashley', 'vm_a', 'h1', $1, $2) RETURNING id", [ashley, owner]))[0].id;
   const recapKey = (await q<{ id: string }>(
@@ -129,11 +122,11 @@ async function run(db: PGlite, label: string) {
 
   await asServer({ 'x-actor-member-id': ashley, 'x-actor-via': 'api', 'x-actor-key-id': ashleyKey });
   check(`${label}: a note over 200 characters is cut to 200`,
-    (await attempt(db, "INSERT INTO public.tasks (project_id, title, created_note) VALUES ($1, 'Long note', $2)", [project, 'x'.repeat(300)])) === null
+    (await tryQuery("INSERT INTO public.tasks (project_id, title, created_note) VALUES ($1, 'Long note', $2)", [project, 'x'.repeat(300)])) === null
       && (await q<{ n: number }>("SELECT length(created_note) AS n FROM public.tasks WHERE title = 'Long note'"))[0]?.n === 200);
 
   await actAs(db, OWNER_USER);
-  await db.query("UPDATE public.tasks SET created_via = 'app', created_by_key_id = NULL, created_note = 'rewritten', title = 'Holiday banner v2' WHERE id = $1", [fromAshley]);
+  await q("UPDATE public.tasks SET created_via = 'app', created_by_key_id = NULL, created_note = 'rewritten', title = 'Holiday banner v2' WHERE id = $1", [fromAshley]);
   s = await source(fromAshley);
   check(`${label}: where a task came from never changes after the insert`,
     s.created_via === 'api' && s.created_by_key_id === ashleyKey && s.created_note === "from Brennan's email", s);
@@ -142,21 +135,21 @@ async function run(db: PGlite, label: string) {
 
   // --- Seen -------------------------------------------------------------------
   await actAs(db, MEMBER_USER);
-  check(`${label}: a member marks a task seen`, (await attempt(db, 'SELECT public.mark_task_seen($1)', [fromAshley])) === null);
+  check(`${label}: a member marks a task seen`, (await tryQuery('SELECT public.mark_task_seen($1)', [fromAshley])) === null);
   const first = (await q<{ seen_at: string }>('SELECT seen_at FROM public.task_views WHERE task_id = $1', [fromAshley]))[0]?.seen_at;
-  check(`${label}: opening it again keeps one row`, (await attempt(db, 'SELECT public.mark_task_seen($1)', [fromAshley])) === null
+  check(`${label}: opening it again keeps one row`, (await tryQuery('SELECT public.mark_task_seen($1)', [fromAshley])) === null
     && (await q('SELECT 1 FROM public.task_views WHERE task_id = $1', [fromAshley])).length === 1 && !!first);
 
   await actAs(db, OWNER_USER);
   check(`${label}: one member's views are not another's`, (await q('SELECT 1 FROM public.task_views')).length === 0);
   check(`${label}: nobody writes a view for someone else`,
-    (await attempt(db, 'INSERT INTO public.task_views (task_id, member_id) VALUES ($1, $2)', [fromAshley, member])) !== null);
+    (await tryQuery('INSERT INTO public.task_views (task_id, member_id) VALUES ($1, $2)', [fromAshley, member])) !== null);
 
   await superuser();
   const elsewhere = (await q<{ id: string }>("INSERT INTO public.projects (name) VALUES ('Apex') RETURNING id"))[0].id;
   const hidden = (await q<{ id: string }>("INSERT INTO public.tasks (project_id, title) VALUES ($1, 'Not theirs') RETURNING id", [elsewhere]))[0].id;
   await actAs(db, MEMBER_USER);
-  check(`${label}: a member cannot mark a task they cannot open`, (await attempt(db, 'SELECT public.mark_task_seen($1)', [hidden])) !== null);
+  check(`${label}: a member cannot mark a task they cannot open`, (await tryQuery('SELECT public.mark_task_seen($1)', [hidden])) !== null);
 }
 
 /** POST /api/v1/tasks with a real key: the task records that key and the note it gave. */
@@ -164,16 +157,16 @@ async function throughTheApi(db: PGlite) {
   const q = async <T = Record<string, unknown>>(sql: string, params: unknown[] = []) => (await db.query<T>(sql, params)).rows;
   await db.exec('RESET ROLE');
   await db.query("SELECT set_config('request.jwt.claim.sub', '', false), set_config('request.jwt.claim.role', '', false), set_config('request.headers', '', false)");
-  await db.exec(`DROP FUNCTION public.consume_api_rate_limit(uuid, integer, integer);
-    CREATE FUNCTION public.consume_api_rate_limit(p_api_key_id uuid, p_limit integer, p_window_seconds integer)
+  await db.exec(`DROP FUNCTION pm.consume_api_rate_limit(uuid, integer, integer);
+    CREATE FUNCTION pm.consume_api_rate_limit(p_api_key_id uuid, p_limit integer, p_window_seconds integer)
     RETURNS jsonb LANGUAGE sql AS $$ SELECT jsonb_build_object('allowed', true, 'remaining', p_limit - 1,
       'reset_at', now() + make_interval(secs => p_window_seconds)) $$;`);
-  const agent = (await q<{ id: string }>("SELECT id FROM public.team_members WHERE role = 'agent' LIMIT 1"))[0].id;
-  const project = (await q<{ id: string }>("SELECT id FROM public.projects WHERE name = 'Happy Innovations' LIMIT 1"))[0].id;
-  await db.query(`INSERT INTO public.team_member_permissions (member_id, permission_key, access_channel, effect)
+  const agent = (await q<{ id: string }>("SELECT id FROM pm.team_members WHERE role = 'agent' LIMIT 1"))[0].id;
+  const project = (await q<{ id: string }>("SELECT id FROM pm.projects WHERE name = 'Happy Innovations' LIMIT 1"))[0].id;
+  await db.query(`INSERT INTO pm.team_member_permissions (member_id, permission_key, access_channel, effect)
     SELECT $1, key, 'api', 'allow' FROM unnest(ARRAY['tasks.read', 'tasks.create', 'tasks.manage_all', 'projects.read', 'projects.read_all']) AS key`, [agent]);
   const secret = `pk_live_${randomUUID().replace(/-/g, '')}`;
-  const keyId = (await q<{ id: string }>(`INSERT INTO public.api_keys (name, key_prefix, key_hash, team_member_id, scopes, permissions)
+  const keyId = (await q<{ id: string }>(`INSERT INTO pm.api_keys (name, key_prefix, key_hash, team_member_id, scopes, permissions)
     VALUES ('Ashley', 'pk_live', $1, $2, $3, 'scoped') RETURNING id`, [createHash('sha256').update(secret).digest('hex'), agent,
     ['tasks.read', 'tasks.create', 'tasks.manage_all', 'projects.read', 'projects.read_all']]))[0].id;
 
@@ -190,7 +183,7 @@ async function throughTheApi(db: PGlite) {
     const id = body.data?.id;
     await db.exec('RESET ROLE');
     await db.query("SELECT set_config('request.jwt.claim.sub', '', false), set_config('request.jwt.claim.role', '', false), set_config('request.headers', '', false)");
-    const row = id ? (await q<Source>('SELECT created_via, created_by_key_id, created_note, created_by FROM public.tasks WHERE id = $1', [id]))[0] : undefined;
+    const row = id ? (await q<Source>('SELECT created_via, created_by_key_id, created_note, created_by FROM pm.tasks WHERE id = $1', [id]))[0] : undefined;
     check('api: a task made with a key records the key, its person and its note',
       response.status === 201 && row?.created_via === 'api' && row.created_by_key_id === keyId
         && row.created_note === "from Brennan's email" && row.created_by === agent, { status: response.status, body, row });
@@ -200,9 +193,9 @@ async function throughTheApi(db: PGlite) {
 }
 
 async function main() {
-  // On the schema as committed (production's shape): migration twice, then every check.
+  // On the schema just before this migration was committed: migration twice, then every check.
   {
-    const db = await createFullSchemaDatabase({ schemaSql: schemaBeforeMigration() });
+    const db = await createFullSchemaDatabase({ schemaSql: schemaBeforeMigration(MIGRATION_FILE) });
     await db.exec('RESET ROLE');
     const old = (await db.query<{ id: string }>("INSERT INTO public.projects (name) VALUES ('Old') RETURNING id")).rows[0].id;
     const legacy = (await db.query<{ id: string }>("INSERT INTO public.tasks (project_id, title) VALUES ($1, 'From before') RETURNING id", [old])).rows[0].id;
@@ -210,12 +203,12 @@ async function main() {
     await db.exec(readFileSync(MIGRATION, 'utf8'));
     const was = (await db.query<{ created_via: string }>('SELECT created_via FROM public.tasks WHERE id = $1', [legacy])).rows[0];
     check('migration: tasks from before are unknown', was?.created_via === 'unknown', was);
-    await run(db, 'migrated');
+    await run(db, 'migrated', 'public');
     await db.close();
   }
   // On schema.sql, which must describe the same final state.
   const fresh = await createFullSchemaDatabase();
-  await run(fresh, 'schema.sql');
+  await run(fresh, 'schema.sql', 'pm');
   await throughTheApi(fresh);
   await fresh.close();
 

@@ -1,10 +1,22 @@
--- Full schema
--- Run this in your Supabase SQL Editor
+-- Full schema (2.0): the app lives in its own schemas, `pm` (core, changed
+-- only by releases) and `pm_custom` (an install's own), so it can share a
+-- Supabase project with a company's other apps. Run this in your Supabase SQL
+-- Editor on a new project, or on one that already holds other apps: it
+-- creates nothing in `public`.
+
+CREATE SCHEMA IF NOT EXISTS pm;
+CREATE SCHEMA IF NOT EXISTS pm_custom;
+GRANT USAGE ON SCHEMA pm, pm_custom TO anon, authenticated, service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA pm GRANT ALL ON TABLES TO anon, authenticated, service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA pm GRANT ALL ON SEQUENCES TO anon, authenticated, service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA pm GRANT ALL ON FUNCTIONS TO anon, authenticated, service_role;
+SET search_path = pm, extensions;
+
 
 -- ============================================================
 -- 1. TEAM MEMBERS (auto-created on auth signup, or manually added)
 -- ============================================================
-create table public.team_members (
+create table pm.team_members (
   id uuid primary key default gen_random_uuid(),
   auth_user_id uuid references auth.users(id) on delete set null,
   name text not null,
@@ -40,7 +52,7 @@ create table public.team_members (
 -- ============================================================
 -- 3. CONTACTS (replaces clients)
 -- ============================================================
-create table public.contacts (
+create table pm.contacts (
   id uuid primary key default gen_random_uuid(),
   name text not null,
   email text not null default '',
@@ -49,19 +61,19 @@ create table public.contacts (
   notes text not null default '',
   color text not null default '#6366F1',
   avatar_url text not null default '',
-  created_by uuid references public.team_members(id) on delete set null,
+  created_by uuid references pm.team_members(id) on delete set null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   -- Trash: when it was deleted and by whom (null = live). Rows are never
   -- removed; see the Soft delete section.
   deleted_at timestamptz,
-  deleted_by uuid references public.team_members(id) on delete set null
+  deleted_by uuid references pm.team_members(id) on delete set null
 );
 
 -- ============================================================
 -- 4. PROJECTS
 -- ============================================================
-create table public.projects (
+create table pm.projects (
   id uuid primary key default gen_random_uuid(),
   name text not null,
   description text not null default '',
@@ -105,49 +117,49 @@ create table public.projects (
   -- task autonomy from the same pattern. One value, both consumers.
   sensitive_paths text not null default '(^|/)(migrations?|supabase/migrations)/|\.sql$|auth|permission|role|access|middleware|session|credential|secret|token|rls|billing|payment|invoice|stripe|payout|revenue|pdf|docx|document-generation|(^|/)email/|mailer|smtp|resend|sendgrid|twilio|sms|outbound|webhook',
   repo_path text,
-  created_by uuid references public.team_members(id) on delete set null,
+  created_by uuid references pm.team_members(id) on delete set null,
   archived_at timestamptz default null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   -- Trash: when it was deleted and by whom (null = live). Rows are never
   -- removed; see the Soft delete section.
   deleted_at timestamptz,
-  deleted_by uuid references public.team_members(id) on delete set null
+  deleted_by uuid references pm.team_members(id) on delete set null
 );
 
 -- ============================================================
 -- 4b. PROJECT BUDGET HISTORY (append-only audit trail of budget changes)
 -- ============================================================
-create table public.project_budget_history (
+create table pm.project_budget_history (
   id uuid primary key default gen_random_uuid(),
-  project_id uuid not null references public.projects(id) on delete cascade,
+  project_id uuid not null references pm.projects(id) on delete cascade,
   old_type text check (old_type in ('hours', 'amount')),
   new_type text check (new_type in ('hours', 'amount')),
   old_value numeric(12,2),
   new_value numeric(12,2),
-  changed_by uuid references public.team_members(id) on delete set null,
+  changed_by uuid references pm.team_members(id) on delete set null,
   created_at timestamptz not null default now()
 );
 
 create index idx_project_budget_history_project
-  on public.project_budget_history(project_id, created_at desc);
+  on pm.project_budget_history(project_id, created_at desc);
 
 -- ============================================================
 -- 5. PROJECT MEMBERS (junction: project <-> team_member)
 -- ============================================================
-create table public.project_members (
-  project_id uuid not null references public.projects(id) on delete cascade,
-  member_id uuid not null references public.team_members(id) on delete cascade,
+create table pm.project_members (
+  project_id uuid not null references pm.projects(id) on delete cascade,
+  member_id uuid not null references pm.team_members(id) on delete cascade,
   primary key (project_id, member_id)
 );
 
 -- ============================================================
 -- 5b. PROJECT CONTACTS (junction: project <-> contact with roles)
 -- ============================================================
-create table public.project_contacts (
+create table pm.project_contacts (
   id uuid primary key default gen_random_uuid(),
-  project_id uuid not null references public.projects(id) on delete cascade,
-  contact_id uuid not null references public.contacts(id) on delete cascade,
+  project_id uuid not null references pm.projects(id) on delete cascade,
+  contact_id uuid not null references pm.contacts(id) on delete cascade,
   role text not null default 'Stakeholder',
   custom_role text,
   is_primary_client boolean not null default false,
@@ -157,14 +169,14 @@ create table public.project_contacts (
 
 -- Only 1 primary client per project:
 create unique index idx_project_contacts_primary_client
-  on public.project_contacts (project_id) where is_primary_client = true;
+  on pm.project_contacts (project_id) where is_primary_client = true;
 
 -- ============================================================
 -- 6. TASKS
 -- ============================================================
-create table public.tasks (
+create table pm.tasks (
   id uuid primary key default gen_random_uuid(),
-  project_id uuid not null references public.projects(id) on delete cascade,
+  project_id uuid not null references pm.projects(id) on delete cascade,
   title text not null,
   description text not null default '',
   status text not null default 'todo' check (status in ('backlog', 'todo', 'in_progress', 'in_review', 'done')),
@@ -172,7 +184,7 @@ create table public.tasks (
   due_date text,
   tags text[] not null default '{}',
   sort_order int not null default 0,
-  created_by uuid references public.team_members(id) on delete set null,
+  created_by uuid references pm.team_members(id) on delete set null,
   completed_at timestamptz,
   -- Who does the work. null or 'human_only': a person (most tasks).
   -- 'needs_spec': meant for the dev agent, spec not written yet.
@@ -183,10 +195,10 @@ create table public.tasks (
   -- Trash: when it was deleted and by whom (null = live). Rows are never
   -- removed; see the Soft delete section.
   deleted_at timestamptz,
-  deleted_by uuid references public.team_members(id) on delete set null,
+  deleted_by uuid references pm.team_members(id) on delete set null,
   -- The task this is a subtask of (null for a top-level task). One level
   -- deep, same project as the parent: see Subtasks are tasks.
-  parent_task_id uuid references public.tasks(id) on delete cascade,
+  parent_task_id uuid references pm.tasks(id) on delete cascade,
   -- Where it came from, stamped on insert and never changed (see Task source
   -- and seen): app, api, mcp, system, or unknown for tasks from before.
   created_via text not null default 'unknown',
@@ -201,18 +213,18 @@ create table public.tasks (
 -- ============================================================
 -- 7. TASK ASSIGNEES (junction: task <-> team_member)
 -- ============================================================
-create table public.task_assignees (
-  task_id uuid not null references public.tasks(id) on delete cascade,
-  member_id uuid not null references public.team_members(id) on delete cascade,
+create table pm.task_assignees (
+  task_id uuid not null references pm.tasks(id) on delete cascade,
+  member_id uuid not null references pm.team_members(id) on delete cascade,
   primary key (task_id, member_id)
 );
 
 -- ============================================================
 -- 8. SUBTASKS
 -- ============================================================
-create table public.task_subtasks (
+create table pm.task_subtasks (
   id uuid primary key default gen_random_uuid(),
-  task_id uuid not null references public.tasks(id) on delete cascade,
+  task_id uuid not null references pm.tasks(id) on delete cascade,
   title text not null,
   completed boolean not null default false,
   sort_order int not null default 0,
@@ -221,15 +233,15 @@ create table public.task_subtasks (
   -- Trash: when it was deleted and by whom (null = live). Rows are never
   -- removed; see the Soft delete section.
   deleted_at timestamptz,
-  deleted_by uuid references public.team_members(id) on delete set null
+  deleted_by uuid references pm.team_members(id) on delete set null
 );
 
 -- ============================================================
 -- 8b. TASK ACCEPTANCE CRITERIA (addressable spec checklist)
 -- ============================================================
-create table public.task_acceptance_criteria (
+create table pm.task_acceptance_criteria (
   id uuid primary key default gen_random_uuid(),
-  task_id uuid not null references public.tasks(id) on delete cascade,
+  task_id uuid not null references pm.tasks(id) on delete cascade,
   criterion text not null,
   satisfied boolean not null default false,
   sort_order int not null default 0,
@@ -238,21 +250,21 @@ create table public.task_acceptance_criteria (
 );
 
 create index idx_task_acceptance_criteria_task_id
-  on public.task_acceptance_criteria(task_id);
+  on pm.task_acceptance_criteria(task_id);
 
 -- ============================================================
 -- 8c. TASK DEPENDENCIES (blocked-by junction)
 -- ============================================================
-create table public.task_dependencies (
-  task_id uuid not null references public.tasks(id) on delete cascade,
-  blocked_by_task_id uuid not null references public.tasks(id) on delete cascade,
+create table pm.task_dependencies (
+  task_id uuid not null references pm.tasks(id) on delete cascade,
+  blocked_by_task_id uuid not null references pm.tasks(id) on delete cascade,
   created_at timestamptz not null default now(),
   primary key (task_id, blocked_by_task_id),
   check (task_id <> blocked_by_task_id)
 );
 
 create index idx_task_dependencies_blocked_by
-  on public.task_dependencies(blocked_by_task_id);
+  on pm.task_dependencies(blocked_by_task_id);
 
 -- ============================================================
 -- 8d. TASK REVIEWS (independent PR review verdicts)
@@ -261,26 +273,26 @@ create index idx_task_dependencies_blocked_by
 -- head_sha pins the verdict to the exact PR head reviewed so automerge can
 -- refuse commits pushed after approval. Written only via the v1 agent API
 -- (service client); authenticated users read.
-create table public.task_reviews (
+create table pm.task_reviews (
   id uuid primary key default gen_random_uuid(),
-  task_id uuid not null references public.tasks(id) on delete cascade,
+  task_id uuid not null references pm.tasks(id) on delete cascade,
   round int not null default 1,
   verdict text not null check (verdict in ('approved', 'changes_requested')),
   summary text,
   pr_url text,
   head_sha text,
-  reviewer_member_id uuid references public.team_members(id),
+  reviewer_member_id uuid references pm.team_members(id),
   created_at timestamptz not null default now()
 );
 
 create index idx_task_reviews_task_created
-  on public.task_reviews(task_id, created_at desc);
+  on pm.task_reviews(task_id, created_at desc);
 
 -- One verdict per commit. Overlapping reviewer turns once filed opposite
 -- conclusions about identical bytes, and each contradiction minted a new round
 -- that sent the developer back to rebuild approved work.
 create unique index idx_task_reviews_commit_identity
-  on public.task_reviews(task_id, pr_url, head_sha);
+  on pm.task_reviews(task_id, pr_url, head_sha);
 
 -- Agent infrastructure heartbeats: one row per agent, upserted in place by a
 -- VPS cron every minute (container state + execution ledger). Current state,
@@ -288,8 +300,8 @@ create unique index idx_task_reviews_commit_identity
 -- reported_at means the publisher itself is silent, which readers surface as
 -- an outage. Written only via the v1 agent API (service client);
 -- authenticated users read.
-create table public.agent_health (
-  member_id uuid primary key references public.team_members(id) on delete cascade,
+create table pm.agent_health (
+  member_id uuid primary key references pm.team_members(id) on delete cascade,
   container text not null,
   container_running boolean not null default false,
   turn_running boolean not null default false,
@@ -302,9 +314,9 @@ create table public.agent_health (
 -- records CONTAINER transitions here, which is enough to measure uptime without
 -- storing a row per minute. Turn starts and stops are deliberately not recorded:
 -- they are already tracked, in full and reconciled, as turn.completed events.
-create table public.agent_health_history (
+create table pm.agent_health_history (
   id uuid primary key default gen_random_uuid(),
-  member_id uuid not null references public.team_members(id) on delete cascade,
+  member_id uuid not null references pm.team_members(id) on delete cascade,
   container_running boolean not null,
   turn_running boolean not null,
   -- The publisher's clock, not the database's: a delayed write must not shift
@@ -313,18 +325,18 @@ create table public.agent_health_history (
 );
 
 create index idx_agent_health_history_member
-  on public.agent_health_history (member_id, changed_at desc);
+  on pm.agent_health_history (member_id, changed_at desc);
 
-create or replace function public.log_agent_health_change()
+create or replace function pm.log_agent_health_change()
 returns trigger
 language plpgsql
 security definer
-set search_path = public
+set search_path = pm
 as $$
 begin
   if tg_op = 'INSERT'
      or new.container_running is distinct from old.container_running then
-    insert into public.agent_health_history (member_id, container_running, turn_running, changed_at)
+    insert into pm.agent_health_history (member_id, container_running, turn_running, changed_at)
     values (new.member_id, new.container_running, new.turn_running, new.reported_at);
   end if;
   return new;
@@ -332,22 +344,22 @@ end;
 $$;
 
 create trigger agent_health_history_trigger
-  after insert or update on public.agent_health
-  for each row execute function public.log_agent_health_change();
+  after insert or update on pm.agent_health
+  for each row execute function pm.log_agent_health_change();
 
 -- ============================================================
 -- 9. COMMENTS
 -- ============================================================
-create table public.task_comments (
+create table pm.task_comments (
   id uuid primary key default gen_random_uuid(),
-  task_id uuid not null references public.tasks(id) on delete cascade,
-  user_id uuid not null references public.team_members(id) on delete cascade,
+  task_id uuid not null references pm.tasks(id) on delete cascade,
+  user_id uuid not null references pm.team_members(id) on delete cascade,
   text text not null,
   created_at timestamptz not null default now(),
   -- Trash: when it was deleted and by whom (null = live). Rows are never
   -- removed; see the Soft delete section.
   deleted_at timestamptz,
-  deleted_by uuid references public.team_members(id) on delete set null
+  deleted_by uuid references pm.team_members(id) on delete set null
 );
 
 -- ============================================================
@@ -355,16 +367,16 @@ create table public.task_comments (
 -- ============================================================
 -- The team activity log: what people on the team did (agents keep their own
 -- log in agent_activities). Written only by triggers; see "Team activity log".
-create table public.activities (
+create table pm.activities (
   id uuid primary key default gen_random_uuid(),
   type text not null,
   entity_id text not null,
   entity_type text not null,
-  user_id uuid references public.team_members(id) on delete set null,
+  user_id uuid references pm.team_members(id) on delete set null,
   description text not null default '',
   metadata jsonb not null default '{}',
   created_at timestamptz not null default now(),
-  project_id uuid references public.projects(id) on delete set null,
+  project_id uuid references pm.projects(id) on delete set null,
   source text not null default 'app',
   updated_at timestamptz not null default now(),
   constraint activities_entity_type_check check (entity_type in (
@@ -379,7 +391,7 @@ create table public.activities (
 -- ============================================================
 -- 11. LEADS
 -- ============================================================
-create table public.leads (
+create table pm.leads (
   id uuid primary key default gen_random_uuid(),
   name text not null,
   email text not null default '',
@@ -388,65 +400,65 @@ create table public.leads (
   source text not null default 'other' check (source in ('referral', 'website', 'social', 'cold_outreach', 'event', 'network', 'other')),
   status text not null default 'new' check (status in ('new', 'contacted', 'qualified', 'proposal', 'won', 'lost')),
   notes text not null default '',
-  assigned_to uuid references public.team_members(id) on delete set null,
-  contact_id uuid references public.contacts(id) on delete set null,
-  created_by uuid references public.team_members(id) on delete set null,
+  assigned_to uuid references pm.team_members(id) on delete set null,
+  contact_id uuid references pm.contacts(id) on delete set null,
+  created_by uuid references pm.team_members(id) on delete set null,
   archived_at timestamptz default null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   -- Trash: when it was deleted and by whom (null = live). Rows are never
   -- removed; see the Soft delete section.
   deleted_at timestamptz,
-  deleted_by uuid references public.team_members(id) on delete set null
+  deleted_by uuid references pm.team_members(id) on delete set null
 );
 
 -- ============================================================
 -- 12. LEAD INTERACTIONS
 -- ============================================================
-create table public.lead_interactions (
+create table pm.lead_interactions (
   id uuid primary key default gen_random_uuid(),
-  lead_id uuid not null references public.leads(id) on delete cascade,
+  lead_id uuid not null references pm.leads(id) on delete cascade,
   type text not null default 'note' check (type in ('call', 'email', 'meeting', 'note', 'follow_up')),
   title text not null,
   description text not null default '',
   occurred_at timestamptz not null default now(),
   scheduled_at timestamptz,
   completed boolean not null default false,
-  created_by uuid references public.team_members(id) on delete set null,
+  created_by uuid references pm.team_members(id) on delete set null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   -- Trash: when it was deleted and by whom (null = live). Rows are never
   -- removed; see the Soft delete section.
   deleted_at timestamptz,
-  deleted_by uuid references public.team_members(id) on delete set null
+  deleted_by uuid references pm.team_members(id) on delete set null
 );
 
 -- ============================================================
 -- 13. LEAD PROPOSALS
 -- ============================================================
-create table public.lead_proposals (
+create table pm.lead_proposals (
   id uuid primary key default gen_random_uuid(),
-  lead_id uuid not null references public.leads(id) on delete cascade,
+  lead_id uuid not null references pm.leads(id) on delete cascade,
   title text not null,
   description text not null default '',
   estimated_value numeric(12,2),
   status text not null default 'draft' check (status in ('draft', 'sent', 'accepted', 'rejected')),
   sent_at timestamptz,
-  created_by uuid references public.team_members(id) on delete set null,
+  created_by uuid references pm.team_members(id) on delete set null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   -- Trash: when it was deleted and by whom (null = live). Rows are never
   -- removed; see the Soft delete section.
   deleted_at timestamptz,
-  deleted_by uuid references public.team_members(id) on delete set null
+  deleted_by uuid references pm.team_members(id) on delete set null
 );
 
 -- ============================================================
 -- 14. LEAD FIELDS (dynamic key-value fields for leads)
 -- ============================================================
-create table public.lead_fields (
+create table pm.lead_fields (
   id uuid primary key default gen_random_uuid(),
-  lead_id uuid not null references public.leads(id) on delete cascade,
+  lead_id uuid not null references pm.leads(id) on delete cascade,
   field_key text not null,
   value text not null default '',
   created_at timestamptz not null default now(),
@@ -454,35 +466,35 @@ create table public.lead_fields (
   -- Trash: when it was deleted and by whom (null = live). Rows are never
   -- removed; see the Soft delete section.
   deleted_at timestamptz,
-  deleted_by uuid references public.team_members(id) on delete set null
+  deleted_by uuid references pm.team_members(id) on delete set null
 );
 
 -- Among live fields: a field in Trash does not block setting it again.
 CREATE UNIQUE INDEX lead_fields_live_key
-  ON public.lead_fields (lead_id, field_key) WHERE deleted_at IS NULL;
+  ON pm.lead_fields (lead_id, field_key) WHERE deleted_at IS NULL;
 
 -- ============================================================
 -- 15. LEAD MEMBERS (junction: lead <-> team_member)
 -- ============================================================
-create table public.lead_members (
-  lead_id uuid not null references public.leads(id) on delete cascade,
-  member_id uuid not null references public.team_members(id) on delete cascade,
+create table pm.lead_members (
+  lead_id uuid not null references pm.leads(id) on delete cascade,
+  member_id uuid not null references pm.team_members(id) on delete cascade,
   primary key (lead_id, member_id)
 );
 
 -- Backfill: create lead_members entries for existing leads that have assigned_to
-insert into public.lead_members (lead_id, member_id)
+insert into pm.lead_members (lead_id, member_id)
 select id, assigned_to
-from public.leads
+from pm.leads
 where assigned_to is not null;
 
 -- ============================================================
 -- 16. LEAD CONTACTS (junction: lead <-> contact with roles)
 -- ============================================================
-create table public.lead_contacts (
+create table pm.lead_contacts (
   id uuid primary key default gen_random_uuid(),
-  lead_id uuid not null references public.leads(id) on delete cascade,
-  contact_id uuid not null references public.contacts(id) on delete cascade,
+  lead_id uuid not null references pm.leads(id) on delete cascade,
+  contact_id uuid not null references pm.contacts(id) on delete cascade,
   role text not null default 'Stakeholder',
   custom_role text,
   is_primary_client boolean not null default false,
@@ -492,20 +504,20 @@ create table public.lead_contacts (
 
 -- Only 1 primary client per lead:
 create unique index idx_lead_contacts_primary_client
-  on public.lead_contacts (lead_id) where is_primary_client = true;
+  on pm.lead_contacts (lead_id) where is_primary_client = true;
 
 -- Backfill: create lead_contacts entries for existing leads that have a contact_id
-insert into public.lead_contacts (lead_id, contact_id, role, is_primary_client)
+insert into pm.lead_contacts (lead_id, contact_id, role, is_primary_client)
 select id, contact_id, 'Client', true
-from public.leads
+from pm.leads
 where contact_id is not null;
 
 -- ============================================================
 -- 17. PORTAL SETTINGS (one per project, client-facing portal config)
 -- ============================================================
-create table public.portal_settings (
+create table pm.portal_settings (
   id uuid primary key default gen_random_uuid(),
-  project_id uuid not null references public.projects(id) on delete cascade,
+  project_id uuid not null references pm.projects(id) on delete cascade,
   enabled boolean not null default false,
   token text not null,
   pin text default null,
@@ -533,10 +545,10 @@ create table public.portal_settings (
 -- ============================================================
 -- 18a. CLIENT COMMUNICATIONS (audit log + pending approval queue)
 -- ============================================================
-create table public.client_communications (
+create table pm.client_communications (
   id uuid primary key default gen_random_uuid(),
-  project_id uuid not null references public.projects(id) on delete cascade,
-  contact_id uuid not null references public.contacts(id) on delete cascade,
+  project_id uuid not null references pm.projects(id) on delete cascade,
+  contact_id uuid not null references pm.contacts(id) on delete cascade,
   notification_type text not null check (notification_type in (
     'portal_welcome',
     'project_summary',
@@ -552,7 +564,7 @@ create table public.client_communications (
   slot_overrides jsonb not null default '{}',
   metadata jsonb default '{}',
   recipients jsonb not null default '{"to":[],"cc":[],"bcc":[]}',
-  triggered_by uuid references public.team_members(id) on delete set null,
+  triggered_by uuid references pm.team_members(id) on delete set null,
   sent_at timestamptz,
   dismissed_at timestamptz,
   created_at timestamptz not null default now()
@@ -561,7 +573,7 @@ create table public.client_communications (
 -- ============================================================
 -- 19. ENTITY FILES (polymorphic attachments for leads, projects, contacts)
 -- ============================================================
-create table public.entity_files (
+create table pm.entity_files (
   id uuid primary key default gen_random_uuid(),
   entity_type text not null check (entity_type in ('lead', 'project', 'contact')),
   entity_id uuid not null,
@@ -570,24 +582,24 @@ create table public.entity_files (
   file_size bigint not null default 0,
   mime_type text not null default 'application/octet-stream',
   visibility text not null default 'internal' check (visibility in ('internal', 'external')),
-  uploaded_by uuid references public.team_members(id) on delete set null,
+  uploaded_by uuid references pm.team_members(id) on delete set null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   -- Trash: when it was deleted and by whom (null = live). Rows are never
   -- removed; see the Soft delete section.
   deleted_at timestamptz,
-  deleted_by uuid references public.team_members(id) on delete set null
+  deleted_by uuid references pm.team_members(id) on delete set null
 );
 
 -- ============================================================
 -- 20. API KEYS (database-managed API key system)
 -- ============================================================
-create table public.api_keys (
+create table pm.api_keys (
   id uuid primary key default gen_random_uuid(),
   name text not null,
   key_prefix text not null,
   key_hash text not null,
-  created_by uuid references public.team_members(id) on delete set null,
+  created_by uuid references pm.team_members(id) on delete set null,
   permissions text not null default 'full' check (permissions in ('full', 'read_only')),
   last_used_at timestamptz,
   revoked_at timestamptz,
@@ -604,9 +616,9 @@ create table public.api_keys (
 -- 8 attempts under a lease (claim_webhook_deliveries); pg_cron asks the
 -- app to send due retries (webhook_retry_kick). Secret is stored
 -- retrievably because it is needed to sign at delivery time.
-create sequence if not exists public.webhook_event_seq;
+create sequence if not exists pm.webhook_event_seq;
 
-create table public.webhook_endpoints (
+create table pm.webhook_endpoints (
   id uuid primary key default gen_random_uuid(),
   name text not null,
   url text not null,
@@ -617,13 +629,13 @@ create table public.webhook_endpoints (
   -- Which amounts this endpoint receives: what was billed, or what is left
   -- after revenue splits. Applied per delivery in claim_webhook_deliveries.
   amount_basis text not null default 'gross' check (amount_basis in ('gross', 'net')),
-  created_by uuid references public.team_members(id) on delete set null,
+  created_by uuid references pm.team_members(id) on delete set null,
   last_delivery_at timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
 
-create table public.webhook_events (
+create table pm.webhook_events (
   id uuid primary key default gen_random_uuid(),
   event_id text not null unique,
   sequence bigint not null unique,
@@ -637,12 +649,12 @@ create table public.webhook_events (
   created_at timestamptz not null default now()
 );
 create index idx_webhook_events_resource
-  on public.webhook_events (resource_type, resource_id);
+  on pm.webhook_events (resource_type, resource_id);
 
-create table public.webhook_deliveries (
+create table pm.webhook_deliveries (
   id uuid primary key default gen_random_uuid(),
-  webhook_event_id uuid not null references public.webhook_events(id) on delete cascade,
-  endpoint_id uuid not null references public.webhook_endpoints(id) on delete cascade,
+  webhook_event_id uuid not null references pm.webhook_events(id) on delete cascade,
+  endpoint_id uuid not null references pm.webhook_endpoints(id) on delete cascade,
   status text not null default 'pending'
     check (status in ('pending', 'delivering', 'succeeded', 'failed')),
   attempts int not null default 0,
@@ -661,19 +673,19 @@ create table public.webhook_deliveries (
   updated_at timestamptz not null default now()
 );
 create index idx_webhook_deliveries_due
-  on public.webhook_deliveries (next_attempt_at)
+  on pm.webhook_deliveries (next_attempt_at)
   where status in ('pending', 'delivering');
 create index idx_webhook_deliveries_endpoint
-  on public.webhook_deliveries (endpoint_id);
+  on pm.webhook_deliveries (endpoint_id);
 create index idx_webhook_deliveries_event
-  on public.webhook_deliveries (webhook_event_id);
+  on pm.webhook_deliveries (webhook_event_id);
 
 -- ============================================================
 -- 20. NOTIFICATIONS
 -- ============================================================
-create table public.team_member_notifications (
+create table pm.team_member_notifications (
   id uuid primary key default gen_random_uuid(),
-  user_id uuid not null references public.team_members(id) on delete cascade,
+  user_id uuid not null references pm.team_members(id) on delete cascade,
   title text not null,
   message text,
   link text,
@@ -689,10 +701,10 @@ create table public.team_member_notifications (
 -- ============================================================
 -- 21. TIME ENTRIES (start/stop timer + manual entry)
 -- ============================================================
-create table public.project_time_entries (
+create table pm.project_time_entries (
   id uuid primary key default gen_random_uuid(),
-  project_id uuid not null references public.projects(id) on delete cascade,
-  member_id uuid not null references public.team_members(id) on delete cascade,
+  project_id uuid not null references pm.projects(id) on delete cascade,
+  member_id uuid not null references pm.team_members(id) on delete cascade,
   start_time timestamptz not null default now(),
   end_time timestamptz,
   -- Segments array: [{start: ISO, end: ISO | null}, ...].
@@ -717,27 +729,27 @@ create table public.project_time_entries (
   -- Trash: when it was deleted and by whom (null = live). Rows are never
   -- removed; see the Soft delete section.
   deleted_at timestamptz,
-  deleted_by uuid references public.team_members(id) on delete set null
+  deleted_by uuid references pm.team_members(id) on delete set null
 );
 
 -- One work session can span multiple tasks (billing traceability for
 -- humans and agents alike). Junction mirrors task_assignees.
-create table public.time_entry_tasks (
-  time_entry_id uuid not null references public.project_time_entries(id) on delete cascade,
-  task_id uuid not null references public.tasks(id) on delete cascade,
+create table pm.time_entry_tasks (
+  time_entry_id uuid not null references pm.project_time_entries(id) on delete cascade,
+  task_id uuid not null references pm.tasks(id) on delete cascade,
   created_at timestamptz not null default now(),
   primary key (time_entry_id, task_id)
 );
 
 create index idx_time_entry_tasks_task
-  on public.time_entry_tasks(task_id);
+  on pm.time_entry_tasks(task_id);
 
 -- ============================================================
 -- 21b. PROJECT HOURLY RATE SCHEDULE
 -- ============================================================
-create table public.project_hourly_rates (
+create table pm.project_hourly_rates (
   id uuid primary key default gen_random_uuid(),
-  project_id uuid not null references public.projects(id) on delete cascade,
+  project_id uuid not null references pm.projects(id) on delete cascade,
   hourly_rate numeric(10,2) not null check (hourly_rate >= 0),
   effective_at timestamptz not null,
   created_at timestamptz not null default now(),
@@ -745,63 +757,63 @@ create table public.project_hourly_rates (
   -- Trash: when it was deleted and by whom (null = live). Rows are never
   -- removed; see the Soft delete section.
   deleted_at timestamptz,
-  deleted_by uuid references public.team_members(id) on delete set null
+  deleted_by uuid references pm.team_members(id) on delete set null
 );
 
 -- Among live rows: a row in Trash does not block a new one.
 CREATE UNIQUE INDEX project_hourly_rates_live_effective_key
-  ON public.project_hourly_rates (project_id, effective_at) WHERE deleted_at IS NULL;
+  ON pm.project_hourly_rates (project_id, effective_at) WHERE deleted_at IS NULL;
 
 -- Only one running timer per (project, member) at a time — each teammate can
 -- track their own live session on the same project simultaneously.
 create unique index idx_project_time_entries_running
-  on public.project_time_entries (project_id, member_id) where end_time is null and deleted_at is null;
+  on pm.project_time_entries (project_id, member_id) where end_time is null and deleted_at is null;
 
 -- ============================================================
 -- 22. PORTAL UPDATES (team-posted timeline updates for client portal)
 -- ============================================================
-create table public.portal_updates (
+create table pm.portal_updates (
   id uuid primary key default gen_random_uuid(),
-  project_id uuid not null references public.projects(id) on delete cascade,
+  project_id uuid not null references pm.projects(id) on delete cascade,
   title text not null,
   content text not null default '',
   update_type text not null default 'general' check (update_type in ('general', 'milestone', 'deliverable', 'note')),
-  author_id uuid references public.team_members(id) on delete set null,
+  author_id uuid references pm.team_members(id) on delete set null,
   pinned boolean not null default false,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   -- Trash: when it was deleted and by whom (null = live). Rows are never
   -- removed; see the Soft delete section.
   deleted_at timestamptz,
-  deleted_by uuid references public.team_members(id) on delete set null
+  deleted_by uuid references pm.team_members(id) on delete set null
 );
 
 -- ============================================================
 -- 22b. PORTAL UPDATE ATTACHMENTS (files attached to portal updates)
 -- ============================================================
-create table public.portal_update_attachments (
+create table pm.portal_update_attachments (
   id          uuid primary key default gen_random_uuid(),
-  update_id   uuid not null references public.portal_updates(id) on delete cascade,
+  update_id   uuid not null references pm.portal_updates(id) on delete cascade,
   name        text not null,
   file_url    text not null,
   file_size   bigint not null default 0,
   mime_type   text not null default 'application/octet-stream',
-  uploaded_by uuid references public.team_members(id) on delete set null,
+  uploaded_by uuid references pm.team_members(id) on delete set null,
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now(),
   -- Trash: when it was deleted and by whom (null = live). Rows are never
   -- removed; see the Soft delete section.
   deleted_at timestamptz,
-  deleted_by uuid references public.team_members(id) on delete set null
+  deleted_by uuid references pm.team_members(id) on delete set null
 );
 
 -- ============================================================
 -- 22c. PORTAL EVENTS (per-event analytics log + session rollup view)
 -- ============================================================
-create table public.portal_events (
+create table pm.portal_events (
   id                  uuid primary key default gen_random_uuid(),
-  portal_settings_id  uuid not null references public.portal_settings(id) on delete cascade,
-  project_id          uuid not null references public.projects(id) on delete cascade,
+  portal_settings_id  uuid not null references pm.portal_settings(id) on delete cascade,
+  project_id          uuid not null references pm.projects(id) on delete cascade,
   session_id          uuid not null,
   event_type          text not null check (event_type in (
     'portal_view', 'pin_attempt', 'section_view',
@@ -833,9 +845,9 @@ create table public.portal_events (
 -- ============================================================
 -- 23. PROJECT CREDENTIALS (encrypted client credentials)
 -- ============================================================
-create table public.project_credentials (
+create table pm.project_credentials (
   id uuid primary key default gen_random_uuid(),
-  project_id uuid not null references public.projects(id) on delete cascade,
+  project_id uuid not null references pm.projects(id) on delete cascade,
   label text not null,
   category text not null default 'login'
     check (category in ('login', 'api_key', 'ssh_key', 'database', 'credit_card', 'ach')),
@@ -843,21 +855,21 @@ create table public.project_credentials (
   iv text not null,
   submitted_by_client boolean not null default false,
   submitted_by_name text not null default '',
-  created_by uuid references public.team_members(id) on delete set null,
+  created_by uuid references pm.team_members(id) on delete set null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   -- Trash: when it was deleted and by whom (null = live). Rows are never
   -- removed; see the Soft delete section.
   deleted_at timestamptz,
-  deleted_by uuid references public.team_members(id) on delete set null
+  deleted_by uuid references pm.team_members(id) on delete set null
 );
 
 -- ============================================================
 -- 24b. PROJECT INVOICES (invoice tracking per project)
 -- ============================================================
-create table public.project_invoices (
+create table pm.project_invoices (
   id uuid primary key default gen_random_uuid(),
-  project_id uuid not null references public.projects(id) on delete cascade,
+  project_id uuid not null references pm.projects(id) on delete cascade,
   invoice_number text not null,
   amount numeric(12,2) not null default 0,
   status text not null default 'draft'
@@ -879,22 +891,22 @@ create table public.project_invoices (
   mime_type text,
   -- True for drafts created by the retainer job, so the list can mark them.
   auto_generated boolean not null default false,
-  created_by uuid references public.team_members(id) on delete set null,
+  created_by uuid references pm.team_members(id) on delete set null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   -- Trash: when it was deleted and by whom (null = live). Rows are never
   -- removed; see the Soft delete section.
   deleted_at timestamptz,
-  deleted_by uuid references public.team_members(id) on delete set null
+  deleted_by uuid references pm.team_members(id) on delete set null
 );
 
 -- Exact time-session portions represented by generated hourly line items.
 -- line_item_id refers to the stable id stored in project_invoices.line_items.
-create table public.invoice_time_entry_allocations (
+create table pm.invoice_time_entry_allocations (
   id uuid primary key default gen_random_uuid(),
-  invoice_id uuid not null references public.project_invoices(id) on delete cascade,
+  invoice_id uuid not null references pm.project_invoices(id) on delete cascade,
   line_item_id text not null,
-  time_entry_id uuid not null references public.project_time_entries(id) on delete restrict,
+  time_entry_id uuid not null references pm.project_time_entries(id) on delete restrict,
   start_offset_hours numeric(14,6) not null default 0 check (start_offset_hours >= 0),
   allocated_hours numeric(14,6) not null check (allocated_hours > 0),
   allocated_amount numeric(12,2) not null check (allocated_amount >= 0),
@@ -905,7 +917,7 @@ create table public.invoice_time_entry_allocations (
 -- ============================================================
 -- 25. SMTP ACCOUNTS (encrypted SMTP credentials)
 -- ============================================================
-create table public.smtp_accounts (
+create table pm.smtp_accounts (
   id uuid primary key default gen_random_uuid(),
   label text not null,
   host text not null,
@@ -917,40 +929,40 @@ create table public.smtp_accounts (
   from_email text not null,
   reply_to text not null default '',
   is_default boolean not null default false,
-  created_by uuid references public.team_members(id) on delete set null,
+  created_by uuid references pm.team_members(id) on delete set null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
 
-create index idx_smtp_accounts_is_default on public.smtp_accounts(is_default) where is_default = true;
+create index idx_smtp_accounts_is_default on pm.smtp_accounts(is_default) where is_default = true;
 
-alter table public.smtp_accounts enable row level security;
+alter table pm.smtp_accounts enable row level security;
 
 -- SMTP credentials are admin-only (see 20260714_smtp_admin_only_rls.sql)
-create or replace function public.is_admin()
+create or replace function pm.is_admin()
 returns boolean
 language sql
 stable
 security definer
-set search_path = public
+set search_path = pm
 as $$
   select exists (
-    select 1 from public.team_members
+    select 1 from pm.team_members
     where auth_user_id = auth.uid() and role = 'admin'
   );
 $$;
 
-create policy "smtp_accounts_admin_only" on public.smtp_accounts
+create policy "smtp_accounts_admin_only" on pm.smtp_accounts
   for all to authenticated
-  using (public.is_admin())
-  with check (public.is_admin());
+  using (pm.is_admin())
+  with check (pm.is_admin());
 
 -- ============================================================
 -- 25b. BUSINESS SETTINGS (singleton — workspace's own "From" identity for invoice PDFs)
 -- ============================================================
 -- Hostname check used by inbound email settings (business_settings and
 -- inboxes); defined here because business_settings uses it.
-create or replace function public.email_is_hostname(p_value text)
+create or replace function pm.email_is_hostname(p_value text)
 returns boolean
 language sql
 immutable
@@ -960,7 +972,7 @@ as $$
     and p_value ~ '^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]{0,61}[a-z0-9]$'
 $$;
 
-create table public.business_settings (
+create table pm.business_settings (
   id uuid primary key default gen_random_uuid(),
   business_name text not null default '',
   business_address text not null default '',
@@ -979,7 +991,7 @@ create table public.business_settings (
   -- Default relay domain for new email inboxes (each inbox keeps its own
   -- routing_domain): the domain whose MX points at the receiving provider.
   inbound_email_domain text not null default 'relay.example.com'
-    check (inbound_email_domain = lower(btrim(inbound_email_domain)) and public.email_is_hostname(inbound_email_domain)),
+    check (inbound_email_domain = lower(btrim(inbound_email_domain)) and pm.email_is_hostname(inbound_email_domain)),
   -- When an Owner finished first-run setup (picked the workspace's modules).
   -- A fresh install starts unset, so the Owner is asked once.
   setup_completed_at timestamptz,
@@ -992,26 +1004,26 @@ create table public.business_settings (
   updated_at timestamptz not null default now()
 );
 
-comment on column public.business_settings.auto_migrate is
+comment on column pm.business_settings.auto_migrate is
   'Production deploys apply pending migrations first (Settings > Updates). Owners only.';
 
 -- Enforce singleton: only one row may ever exist in this table.
-create unique index business_settings_singleton on public.business_settings ((true));
+create unique index business_settings_singleton on pm.business_settings ((true));
 
-alter table public.business_settings enable row level security;
+alter table pm.business_settings enable row level security;
 
-create policy "business_settings_all" on public.business_settings
+create policy "business_settings_all" on pm.business_settings
   for all to authenticated using (true) with check (true);
 
 -- Seed a single empty row so the app always has a settings row to read/update.
-insert into public.business_settings default values;
+insert into pm.business_settings default values;
 
 -- ============================================================
 -- 26. PROJECT CONTEXT (AI orchestrator context entries per project)
 -- ============================================================
-create table public.project_context (
+create table pm.project_context (
   id uuid primary key default gen_random_uuid(),
-  project_id uuid not null references public.projects(id) on delete cascade,
+  project_id uuid not null references pm.projects(id) on delete cascade,
   category text not null check (category in ('business_context', 'existing_work', 'technical_decision', 'constraint', 'lesson_learned')),
   content text not null,
   source text not null default 'human' check (source in ('human', 'agent', 'scan')),
@@ -1024,49 +1036,49 @@ create table public.project_context (
 -- ============================================================
 -- INDEXES
 -- ============================================================
-create unique index idx_team_members_auth_user_id on public.team_members(auth_user_id) where auth_user_id is not null;
-create index idx_contacts_created_by on public.contacts(created_by);
-create index idx_projects_status on public.projects(status);
-create index idx_projects_created_by on public.projects(created_by);
-create index idx_project_members_member_id on public.project_members(member_id);
-create index idx_project_contacts_contact_id on public.project_contacts(contact_id);
-create index idx_tasks_project_id on public.tasks(project_id);
-create index idx_tasks_status on public.tasks(status);
-create index idx_tasks_sort_order on public.tasks(project_id, status, sort_order);
-create index idx_tasks_created_by on public.tasks(created_by);
-create index idx_tasks_parent_task_id on public.tasks(parent_task_id) where parent_task_id is not null;
-create index idx_task_assignees_member_id on public.task_assignees(member_id);
-create index idx_task_subtasks_task_id on public.task_subtasks(task_id);
-create index idx_task_comments_task_id on public.task_comments(task_id);
-create index idx_task_comments_user_id on public.task_comments(user_id);
-create index idx_activities_entity_id on public.activities(entity_id);
-create index idx_activities_user_id on public.activities(user_id);
-create index idx_activities_project_created on public.activities (project_id, created_at desc);
-create index idx_activities_user_created on public.activities (user_id, created_at desc);
-create index idx_leads_status on public.leads(status);
-create index idx_leads_assigned_to on public.leads(assigned_to);
-create index idx_leads_contact_id on public.leads(contact_id);
-create index idx_leads_created_by on public.leads(created_by);
-create index idx_lead_interactions_lead_id on public.lead_interactions(lead_id);
-create index idx_lead_interactions_type on public.lead_interactions(type);
-create index idx_lead_interactions_scheduled_at on public.lead_interactions(scheduled_at) where scheduled_at is not null;
-create index idx_lead_proposals_lead_id on public.lead_proposals(lead_id);
-create index idx_lead_proposals_status on public.lead_proposals(status);
-create index idx_lead_fields_lead_id on public.lead_fields(lead_id);
-create index idx_lead_fields_field_key on public.lead_fields(field_key);
-create index idx_lead_members_member_id on public.lead_members(member_id);
-create index idx_lead_contacts_lead_id on public.lead_contacts(lead_id);
-create index idx_lead_contacts_contact_id on public.lead_contacts(contact_id);
-create index idx_portal_settings_project_id on public.portal_settings(project_id);
-create index idx_portal_settings_token on public.portal_settings(token);
-create index idx_client_communications_project on public.client_communications(project_id);
-create index idx_client_communications_type on public.client_communications(project_id, notification_type);
-create index idx_client_communications_status on public.client_communications(project_id, status);
+create unique index idx_team_members_auth_user_id on pm.team_members(auth_user_id) where auth_user_id is not null;
+create index idx_contacts_created_by on pm.contacts(created_by);
+create index idx_projects_status on pm.projects(status);
+create index idx_projects_created_by on pm.projects(created_by);
+create index idx_project_members_member_id on pm.project_members(member_id);
+create index idx_project_contacts_contact_id on pm.project_contacts(contact_id);
+create index idx_tasks_project_id on pm.tasks(project_id);
+create index idx_tasks_status on pm.tasks(status);
+create index idx_tasks_sort_order on pm.tasks(project_id, status, sort_order);
+create index idx_tasks_created_by on pm.tasks(created_by);
+create index idx_tasks_parent_task_id on pm.tasks(parent_task_id) where parent_task_id is not null;
+create index idx_task_assignees_member_id on pm.task_assignees(member_id);
+create index idx_task_subtasks_task_id on pm.task_subtasks(task_id);
+create index idx_task_comments_task_id on pm.task_comments(task_id);
+create index idx_task_comments_user_id on pm.task_comments(user_id);
+create index idx_activities_entity_id on pm.activities(entity_id);
+create index idx_activities_user_id on pm.activities(user_id);
+create index idx_activities_project_created on pm.activities (project_id, created_at desc);
+create index idx_activities_user_created on pm.activities (user_id, created_at desc);
+create index idx_leads_status on pm.leads(status);
+create index idx_leads_assigned_to on pm.leads(assigned_to);
+create index idx_leads_contact_id on pm.leads(contact_id);
+create index idx_leads_created_by on pm.leads(created_by);
+create index idx_lead_interactions_lead_id on pm.lead_interactions(lead_id);
+create index idx_lead_interactions_type on pm.lead_interactions(type);
+create index idx_lead_interactions_scheduled_at on pm.lead_interactions(scheduled_at) where scheduled_at is not null;
+create index idx_lead_proposals_lead_id on pm.lead_proposals(lead_id);
+create index idx_lead_proposals_status on pm.lead_proposals(status);
+create index idx_lead_fields_lead_id on pm.lead_fields(lead_id);
+create index idx_lead_fields_field_key on pm.lead_fields(field_key);
+create index idx_lead_members_member_id on pm.lead_members(member_id);
+create index idx_lead_contacts_lead_id on pm.lead_contacts(lead_id);
+create index idx_lead_contacts_contact_id on pm.lead_contacts(contact_id);
+create index idx_portal_settings_project_id on pm.portal_settings(project_id);
+create index idx_portal_settings_token on pm.portal_settings(token);
+create index idx_client_communications_project on pm.client_communications(project_id);
+create index idx_client_communications_type on pm.client_communications(project_id, notification_type);
+create index idx_client_communications_status on pm.client_communications(project_id, status);
 
 -- Dedup unique indexes for automated comm types. See migration
 -- 20260415_client_comm_dedup.sql for rationale.
 create unique index if not exists ux_client_comm_threshold_dedup
-  on public.client_communications (
+  on pm.client_communications (
     project_id,
     ((metadata->>'threshold')::int),
     coalesce((metadata->>'fired_under_budget_type'), ''),
@@ -1077,64 +1089,64 @@ create unique index if not exists ux_client_comm_threshold_dedup
     and metadata ? 'threshold';
 
 create unique index if not exists ux_client_comm_dollar_interval_dedup
-  on public.client_communications (
+  on pm.client_communications (
     project_id,
     ((metadata->>'milestone')::numeric)
   )
   where notification_type = 'dollar_interval'
     and status <> 'failed'
     and metadata ? 'milestone';
-create index idx_portal_updates_project_id on public.portal_updates(project_id);
-create index idx_portal_updates_created_at on public.portal_updates(created_at desc);
+create index idx_portal_updates_project_id on pm.portal_updates(project_id);
+create index idx_portal_updates_created_at on pm.portal_updates(created_at desc);
 
-create index idx_portal_update_attachments_update_id on public.portal_update_attachments(update_id);
+create index idx_portal_update_attachments_update_id on pm.portal_update_attachments(update_id);
 
-create index idx_portal_events_settings_created on public.portal_events(portal_settings_id, created_at desc);
-create index idx_portal_events_project_created on public.portal_events(project_id, created_at desc);
-create index idx_portal_events_session on public.portal_events(session_id);
-create index idx_portal_events_type on public.portal_events(portal_settings_id, event_type, created_at desc);
-create index idx_portal_events_ip_hash on public.portal_events(portal_settings_id, ip_hash);
+create index idx_portal_events_settings_created on pm.portal_events(portal_settings_id, created_at desc);
+create index idx_portal_events_project_created on pm.portal_events(project_id, created_at desc);
+create index idx_portal_events_session on pm.portal_events(session_id);
+create index idx_portal_events_type on pm.portal_events(portal_settings_id, event_type, created_at desc);
+create index idx_portal_events_ip_hash on pm.portal_events(portal_settings_id, ip_hash);
 
-create index idx_entity_files_entity on public.entity_files(entity_type, entity_id);
-create index idx_entity_files_external_project on public.entity_files(entity_id) where entity_type = 'project' and visibility = 'external';
+create index idx_entity_files_entity on pm.entity_files(entity_type, entity_id);
+create index idx_entity_files_external_project on pm.entity_files(entity_id) where entity_type = 'project' and visibility = 'external';
 
-create index idx_api_keys_key_hash on public.api_keys(key_hash);
-create index idx_api_keys_revoked_at on public.api_keys(revoked_at) where revoked_at is null;
+create index idx_api_keys_key_hash on pm.api_keys(key_hash);
+create index idx_api_keys_revoked_at on pm.api_keys(revoked_at) where revoked_at is null;
 
-create index idx_project_credentials_project on public.project_credentials(project_id);
-create index idx_project_context_project_id on public.project_context(project_id);
-create index idx_project_context_category on public.project_context(project_id, category);
-create index idx_project_context_active on public.project_context(project_id, is_active);
-create unique index idx_project_context_file_path on public.project_context(project_id, file_path) where file_path is not null and is_active = true;
-create index idx_project_invoices_project on public.project_invoices(project_id);
+create index idx_project_credentials_project on pm.project_credentials(project_id);
+create index idx_project_context_project_id on pm.project_context(project_id);
+create index idx_project_context_category on pm.project_context(project_id, category);
+create index idx_project_context_active on pm.project_context(project_id, is_active);
+create unique index idx_project_context_file_path on pm.project_context(project_id, file_path) where file_path is not null and is_active = true;
+create index idx_project_invoices_project on pm.project_invoices(project_id);
 -- One number per invoice on a project.
-CREATE UNIQUE INDEX project_invoices_project_number_key ON public.project_invoices (project_id, invoice_number);
-create index idx_project_invoices_status on public.project_invoices(status);
-create index idx_project_invoices_date on public.project_invoices(date desc);
-create index idx_projects_archived_at on public.projects(archived_at) where archived_at is null;
-create index idx_leads_archived_at on public.leads(archived_at) where archived_at is null;
+CREATE UNIQUE INDEX project_invoices_project_number_key ON pm.project_invoices (project_id, invoice_number);
+create index idx_project_invoices_status on pm.project_invoices(status);
+create index idx_project_invoices_date on pm.project_invoices(date desc);
+create index idx_projects_archived_at on pm.projects(archived_at) where archived_at is null;
+create index idx_leads_archived_at on pm.leads(archived_at) where archived_at is null;
 
-create index idx_project_time_entries_project on public.project_time_entries(project_id);
-create index idx_project_time_entries_member on public.project_time_entries(member_id);
-create index idx_project_time_entries_start_time on public.project_time_entries(start_time desc);
-create index idx_project_hourly_rates_lookup on public.project_hourly_rates(project_id, effective_at desc);
-create index idx_invoice_time_allocations_invoice on public.invoice_time_entry_allocations(invoice_id);
-create index idx_invoice_time_allocations_entry on public.invoice_time_entry_allocations(time_entry_id);
+create index idx_project_time_entries_project on pm.project_time_entries(project_id);
+create index idx_project_time_entries_member on pm.project_time_entries(member_id);
+create index idx_project_time_entries_start_time on pm.project_time_entries(start_time desc);
+create index idx_project_hourly_rates_lookup on pm.project_hourly_rates(project_id, effective_at desc);
+create index idx_invoice_time_allocations_invoice on pm.invoice_time_entry_allocations(invoice_id);
+create index idx_invoice_time_allocations_entry on pm.invoice_time_entry_allocations(time_entry_id);
 
-create index idx_team_member_notifications_user_id on public.team_member_notifications(user_id);
-create index idx_team_member_notifications_unread on public.team_member_notifications(user_id, is_read) where is_read = false;
-create index idx_team_member_notifications_created_at on public.team_member_notifications(created_at desc);
-create index idx_team_member_notifications_entity on public.team_member_notifications(entity_type, entity_id);
+create index idx_team_member_notifications_user_id on pm.team_member_notifications(user_id);
+create index idx_team_member_notifications_unread on pm.team_member_notifications(user_id, is_read) where is_read = false;
+create index idx_team_member_notifications_created_at on pm.team_member_notifications(created_at desc);
+create index idx_team_member_notifications_entity on pm.team_member_notifications(entity_type, entity_id);
 
 -- Dedup index for upsert_notification: one unread notification per user+entity
 create unique index idx_team_member_notifications_dedup
-  on public.team_member_notifications (user_id, entity_type, entity_id) where is_read = false;
+  on pm.team_member_notifications (user_id, entity_type, entity_id) where is_read = false;
 
 -- ============================================================
 -- UPSERT NOTIFICATION (SECURITY DEFINER, bypasses RLS for the dedup check).
 -- Server-side callers only: the service role and other definer functions.
 -- ============================================================
-create or replace function public.upsert_notification(
+create or replace function pm.upsert_notification(
   p_user_id uuid,
   p_title text,
   p_message text,
@@ -1143,7 +1155,7 @@ create or replace function public.upsert_notification(
   p_entity_id text
 ) returns void as $$
 begin
-  update public.team_member_notifications
+  update pm.team_member_notifications
   set title = p_title, message = p_message, link = p_link, created_at = now(), cleared_at = null
   where user_id = p_user_id
     and entity_type = p_entity_type
@@ -1151,24 +1163,24 @@ begin
     and is_read = false;
 
   if not found then
-    insert into public.team_member_notifications (user_id, title, message, link, entity_type, entity_id)
+    insert into pm.team_member_notifications (user_id, title, message, link, entity_type, entity_id)
     values (p_user_id, p_title, p_message, p_link, p_entity_type, p_entity_id);
   end if;
 end;
-$$ language plpgsql security definer set search_path = public;
+$$ language plpgsql security definer set search_path = pm;
 
-revoke all on function public.upsert_notification(uuid, text, text, text, text, text) from public, anon, authenticated;
-grant execute on function public.upsert_notification(uuid, text, text, text, text, text) to service_role;
+revoke all on function pm.upsert_notification(uuid, text, text, text, text, text) from public, anon, authenticated;
+grant execute on function pm.upsert_notification(uuid, text, text, text, text, text) to service_role;
 
 -- Clears, or brings back, everyone's notifications about one thing. p_title
 -- narrows it where the entity is shared: a project has many kinds of notice.
-CREATE OR REPLACE FUNCTION public.set_notifications_cleared(p_entity_type text, p_entity_id text, p_cleared boolean, p_title text DEFAULT NULL)
+CREATE OR REPLACE FUNCTION pm.set_notifications_cleared(p_entity_type text, p_entity_id text, p_cleared boolean, p_title text DEFAULT NULL)
 RETURNS void
 LANGUAGE sql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
-  UPDATE public.team_member_notifications
+  UPDATE pm.team_member_notifications
   SET cleared_at = CASE WHEN p_cleared THEN now() END
   WHERE entity_type = p_entity_type
     AND entity_id = p_entity_id
@@ -1176,14 +1188,14 @@ AS $$
     AND (cleared_at IS NULL) = p_cleared;
 $$;
 
-REVOKE ALL ON FUNCTION public.set_notifications_cleared(text, text, boolean, text) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION pm.set_notifications_cleared(text, text, boolean, text) FROM PUBLIC, anon, authenticated;
 
 -- ============================================================
 -- SAVE TASK: a task row and its assignees, criteria and blockers in one
 -- transaction. SECURITY INVOKER, so every RLS policy still applies. p_task is
 -- a column patch; a NULL list is left unchanged, an empty list clears it.
 -- ============================================================
-CREATE OR REPLACE FUNCTION public.save_task(
+CREATE OR REPLACE FUNCTION pm.save_task(
   p_task_id uuid,
   p_task jsonb,
   p_assignee_ids uuid[] DEFAULT NULL,
@@ -1193,7 +1205,7 @@ CREATE OR REPLACE FUNCTION public.save_task(
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY INVOKER
-SET search_path = public
+SET search_path = pm
 AS $$
 DECLARE
   v_task_id uuid := p_task_id;
@@ -1201,7 +1213,7 @@ DECLARE
   v_unknown text;
   v_cols text[];
   v_rows integer;
-  v_task public.tasks;
+  v_task pm.tasks;
 BEGIN
   IF jsonb_typeof(v_payload) <> 'object' THEN
     RAISE EXCEPTION 'save_task: p_task must be a JSON object' USING ERRCODE = '22023';
@@ -1213,7 +1225,7 @@ BEGIN
   FROM jsonb_object_keys(v_payload) AS key
   WHERE NOT EXISTS (
     SELECT 1 FROM pg_attribute a
-    WHERE a.attrelid = 'public.tasks'::regclass
+    WHERE a.attrelid = 'pm.tasks'::regclass
       AND a.attnum > 0
       AND NOT a.attisdropped
       AND a.attname = key
@@ -1232,13 +1244,13 @@ BEGIN
       RAISE EXCEPTION 'save_task: a new task needs its columns' USING ERRCODE = '22023';
     END IF;
     EXECUTE format(
-      'INSERT INTO public.tasks (%s) SELECT %s FROM jsonb_populate_record(NULL::public.tasks, $1) r RETURNING id',
+      'INSERT INTO pm.tasks (%s) SELECT %s FROM jsonb_populate_record(NULL::pm.tasks, $1) r RETURNING id',
       (SELECT string_agg(format('%I', c), ', ') FROM unnest(v_cols) c),
       (SELECT string_agg(format('r.%I', c), ', ') FROM unnest(v_cols) c)
     ) INTO v_task_id USING v_payload;
   ELSIF v_cols IS NOT NULL THEN
     EXECUTE format(
-      'UPDATE public.tasks t SET %s FROM jsonb_populate_record(NULL::public.tasks, $1) r WHERE t.id = $2',
+      'UPDATE pm.tasks t SET %s FROM jsonb_populate_record(NULL::pm.tasks, $1) r WHERE t.id = $2',
       (SELECT string_agg(format('%I = r.%I', c, c), ', ') FROM unnest(v_cols) c)
     ) USING v_payload, v_task_id;
     GET DIAGNOSTICS v_rows = ROW_COUNT;
@@ -1247,52 +1259,52 @@ BEGIN
       RAISE EXCEPTION 'save_task: task % not found or not permitted', v_task_id USING ERRCODE = 'P0002';
     END IF;
   ELSE
-    PERFORM 1 FROM public.tasks WHERE id = v_task_id;
+    PERFORM 1 FROM pm.tasks WHERE id = v_task_id;
     IF NOT FOUND THEN
       RAISE EXCEPTION 'save_task: task % not found or not permitted', v_task_id USING ERRCODE = 'P0002';
     END IF;
   END IF;
 
   IF p_assignee_ids IS NOT NULL THEN
-    DELETE FROM public.task_assignees
+    DELETE FROM pm.task_assignees
     WHERE task_id = v_task_id AND NOT (member_id = ANY (p_assignee_ids));
-    INSERT INTO public.task_assignees (task_id, member_id)
+    INSERT INTO pm.task_assignees (task_id, member_id)
     SELECT DISTINCT v_task_id, member_id FROM unnest(p_assignee_ids) AS member_id
     ON CONFLICT (task_id, member_id) DO NOTHING;
   END IF;
 
   IF p_criteria IS NOT NULL THEN
-    DELETE FROM public.task_acceptance_criteria WHERE task_id = v_task_id;
-    INSERT INTO public.task_acceptance_criteria (task_id, criterion, sort_order)
+    DELETE FROM pm.task_acceptance_criteria WHERE task_id = v_task_id;
+    INSERT INTO pm.task_acceptance_criteria (task_id, criterion, sort_order)
     SELECT v_task_id, c.criterion, (c.ordinality - 1)::int
     FROM unnest(p_criteria) WITH ORDINALITY AS c(criterion, ordinality);
   END IF;
 
   IF p_blocked_by IS NOT NULL THEN
-    DELETE FROM public.task_dependencies WHERE task_id = v_task_id;
-    INSERT INTO public.task_dependencies (task_id, blocked_by_task_id)
+    DELETE FROM pm.task_dependencies WHERE task_id = v_task_id;
+    INSERT INTO pm.task_dependencies (task_id, blocked_by_task_id)
     SELECT DISTINCT v_task_id, blocked_by FROM unnest(p_blocked_by) AS blocked_by;
   END IF;
 
-  SELECT * INTO v_task FROM public.tasks WHERE id = v_task_id;
+  SELECT * INTO v_task FROM pm.tasks WHERE id = v_task_id;
   RETURN jsonb_build_object(
     'task', to_jsonb(v_task),
     'criteria', COALESCE((
       SELECT jsonb_agg(to_jsonb(c) ORDER BY c.sort_order)
-      FROM public.task_acceptance_criteria c
+      FROM pm.task_acceptance_criteria c
       WHERE c.task_id = v_task_id
     ), '[]'::jsonb)
   );
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.save_task(uuid, jsonb, uuid[], text[], uuid[]) FROM public, anon;
-GRANT EXECUTE ON FUNCTION public.save_task(uuid, jsonb, uuid[], text[], uuid[]) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.save_task(uuid, jsonb, uuid[], text[], uuid[]) FROM public, anon;
+GRANT EXECUTE ON FUNCTION pm.save_task(uuid, jsonb, uuid[], text[], uuid[]) TO authenticated, service_role;
 
 -- ============================================================
 -- CONVERT LEAD (atomic conversion with double-convert guard)
 -- ============================================================
-create or replace function public.convert_lead(
+create or replace function pm.convert_lead(
   p_lead_id uuid,
   p_project_name text,
   p_project_color text,
@@ -1302,11 +1314,11 @@ create or replace function public.convert_lead(
 language plpgsql
 as $$
 declare
-  v_lead public.leads%rowtype;
+  v_lead pm.leads%rowtype;
   v_contact_id uuid;
   v_project_id uuid;
 begin
-  select * into v_lead from public.leads where id = p_lead_id and deleted_at is null for update;
+  select * into v_lead from pm.leads where id = p_lead_id and deleted_at is null for update;
   if not found then
     raise exception 'Lead not found' using errcode = 'P0002';
   end if;
@@ -1317,38 +1329,38 @@ begin
   end if;
 
   -- Reuse the lead's contact unless it is in Trash, otherwise create one
-  select c.id into v_contact_id from public.contacts c
+  select c.id into v_contact_id from pm.contacts c
   where c.id = v_lead.contact_id and c.deleted_at is null;
   if v_contact_id is null then
-    insert into public.contacts (name, email, phone, company, color, created_by)
+    insert into pm.contacts (name, email, phone, company, color, created_by)
     values (v_lead.name, v_lead.email, v_lead.phone, v_lead.company, p_project_color, p_created_by)
     returning id into v_contact_id;
   end if;
 
-  insert into public.projects (name, description, color, status, created_by)
+  insert into pm.projects (name, description, color, status, created_by)
   values (p_project_name, p_project_description, p_project_color, 'active', p_created_by)
   returning id into v_project_id;
 
   -- Primary client
-  insert into public.project_contacts (project_id, contact_id, role, is_primary_client)
+  insert into pm.project_contacts (project_id, contact_id, role, is_primary_client)
   values (v_project_id, v_contact_id, 'Client', true);
 
   -- Copy additional (non-primary) lead contacts
-  insert into public.project_contacts (project_id, contact_id, role, custom_role, is_primary_client)
+  insert into pm.project_contacts (project_id, contact_id, role, custom_role, is_primary_client)
   select v_project_id, lc.contact_id, lc.role, lc.custom_role, false
-  from public.lead_contacts lc
-  join public.contacts c on c.id = lc.contact_id and c.deleted_at is null
+  from pm.lead_contacts lc
+  join pm.contacts c on c.id = lc.contact_id and c.deleted_at is null
   where lc.lead_id = p_lead_id and lc.is_primary_client = false
   on conflict (project_id, contact_id) do nothing;
 
   -- Copy lead members to project members
-  insert into public.project_members (project_id, member_id)
+  insert into pm.project_members (project_id, member_id)
   select v_project_id, lm.member_id
-  from public.lead_members lm
+  from pm.lead_members lm
   where lm.lead_id = p_lead_id
   on conflict (project_id, member_id) do nothing;
 
-  update public.leads set status = 'won', contact_id = v_contact_id where id = p_lead_id;
+  update pm.leads set status = 'won', contact_id = v_contact_id where id = p_lead_id;
 
   return jsonb_build_object('project_id', v_project_id, 'contact_id', v_contact_id);
 end;
@@ -1356,13 +1368,13 @@ $$;
 
 -- The function runs with the caller's privileges (RLS applies), but keep the
 -- PostgREST /rpc surface closed to anonymous callers regardless.
-revoke execute on function public.convert_lead(uuid, text, text, text, uuid) from public, anon;
-grant execute on function public.convert_lead(uuid, text, text, text, uuid) to authenticated, service_role;
+revoke execute on function pm.convert_lead(uuid, text, text, text, uuid) from public, anon;
+grant execute on function pm.convert_lead(uuid, text, text, text, uuid) to authenticated, service_role;
 
 -- ============================================================
 -- UPDATED_AT TRIGGER FUNCTION
 -- ============================================================
-create or replace function public.handle_updated_at()
+create or replace function pm.handle_updated_at()
 returns trigger as $$
 begin
   new.updated_at = now();
@@ -1371,21 +1383,21 @@ end;
 $$ language plpgsql;
 
 create trigger set_team_members_updated_at
-  before update on public.team_members
-  for each row execute function public.handle_updated_at();
+  before update on pm.team_members
+  for each row execute function pm.handle_updated_at();
 
 create trigger set_contacts_updated_at
-  before update on public.contacts
-  for each row execute function public.handle_updated_at();
+  before update on pm.contacts
+  for each row execute function pm.handle_updated_at();
 
 create trigger set_projects_updated_at
-  before update on public.projects
-  for each row execute function public.handle_updated_at();
+  before update on pm.projects
+  for each row execute function pm.handle_updated_at();
 
 -- Tasks get a dedicated handler: it maintains completed_at on status
 -- transitions and skips the updated_at bump for reorder-only writes
 -- (sort_order changes are cosmetic and must not look like activity).
-create or replace function public.handle_task_before_update()
+create or replace function pm.handle_task_before_update()
 returns trigger as $$
 begin
   if new.status = 'done' and old.status is distinct from 'done' then
@@ -1404,7 +1416,7 @@ begin
 end;
 $$ language plpgsql;
 
-create or replace function public.handle_task_before_insert()
+create or replace function pm.handle_task_before_insert()
 returns trigger as $$
 begin
   if new.status = 'done' and new.completed_at is null then
@@ -1415,23 +1427,23 @@ end;
 $$ language plpgsql;
 
 create trigger tasks_before_update
-  before update on public.tasks
-  for each row execute function public.handle_task_before_update();
+  before update on pm.tasks
+  for each row execute function pm.handle_task_before_update();
 
 create trigger tasks_before_insert
-  before insert on public.tasks
-  for each row execute function public.handle_task_before_insert();
+  before insert on pm.tasks
+  for each row execute function pm.handle_task_before_insert();
 
 -- A task a signed-in member moves to done while their own timer is running on that
 -- project joins that session, so work finished mid-session is tied to its time with
 -- no one linking it by hand. Only the web app's signed-in writes carry auth.uid():
 -- API writes (agents, the recap skill, scripts) never fire this, and a task dragged
 -- to done later, with no timer running, is left for the recap to link by evidence.
-create or replace function public.link_done_task_to_running_timer()
+create or replace function pm.link_done_task_to_running_timer()
 returns trigger
 language plpgsql
 security definer
-set search_path = public
+set search_path = pm
 as $$
 declare
   v_member uuid;
@@ -1441,7 +1453,7 @@ begin
   end if;
 
   select id into v_member
-  from public.team_members
+  from pm.team_members
   where auth_user_id = auth.uid()
   limit 1;
   if v_member is null then
@@ -1449,9 +1461,9 @@ begin
   end if;
 
   -- Running, not paused: the session is open and its last segment has no end.
-  insert into public.time_entry_tasks (time_entry_id, task_id)
+  insert into pm.time_entry_tasks (time_entry_id, task_id)
   select te.id, new.id
-  from public.project_time_entries te
+  from pm.project_time_entries te
   where te.project_id = new.project_id
     and te.member_id = v_member
     and te.end_time is null
@@ -1464,56 +1476,56 @@ begin
 end;
 $$;
 
-revoke all on function public.link_done_task_to_running_timer() from public, anon, authenticated;
+revoke all on function pm.link_done_task_to_running_timer() from public, anon, authenticated;
 
 create trigger tasks_link_done_to_running_timer
-  after update of status on public.tasks
+  after update of status on pm.tasks
   for each row
   when (new.status = 'done' and old.status is distinct from 'done')
-  execute function public.link_done_task_to_running_timer();
+  execute function pm.link_done_task_to_running_timer();
 
 create trigger set_task_subtasks_updated_at
-  before update on public.task_subtasks
-  for each row execute function public.handle_updated_at();
+  before update on pm.task_subtasks
+  for each row execute function pm.handle_updated_at();
 
 create trigger set_task_acceptance_criteria_updated_at
-  before update on public.task_acceptance_criteria
-  for each row execute function public.handle_updated_at();
+  before update on pm.task_acceptance_criteria
+  for each row execute function pm.handle_updated_at();
 
 create trigger set_leads_updated_at
-  before update on public.leads
-  for each row execute function public.handle_updated_at();
+  before update on pm.leads
+  for each row execute function pm.handle_updated_at();
 
 create trigger set_lead_interactions_updated_at
-  before update on public.lead_interactions
-  for each row execute function public.handle_updated_at();
+  before update on pm.lead_interactions
+  for each row execute function pm.handle_updated_at();
 
 create trigger set_lead_proposals_updated_at
-  before update on public.lead_proposals
-  for each row execute function public.handle_updated_at();
+  before update on pm.lead_proposals
+  for each row execute function pm.handle_updated_at();
 
 create trigger set_lead_fields_updated_at
-  before update on public.lead_fields
-  for each row execute function public.handle_updated_at();
+  before update on pm.lead_fields
+  for each row execute function pm.handle_updated_at();
 
 create trigger set_portal_settings_updated_at
-  before update on public.portal_settings
-  for each row execute function public.handle_updated_at();
+  before update on pm.portal_settings
+  for each row execute function pm.handle_updated_at();
 
 create trigger set_entity_files_updated_at
-  before update on public.entity_files
-  for each row execute function public.handle_updated_at();
+  before update on pm.entity_files
+  for each row execute function pm.handle_updated_at();
 
 create trigger set_api_keys_updated_at
-  before update on public.api_keys
-  for each row execute function public.handle_updated_at();
+  before update on pm.api_keys
+  for each row execute function pm.handle_updated_at();
 
 -- A revoke is final, the secret and creation time never change, and a key
 -- never moves to another member. team_member_id and created_by may still
 -- become NULL: their foreign keys are ON DELETE SET NULL, which runs as an
 -- UPDATE and fires this trigger. scopes, name, disabled_at (reversible, unlike
 -- a revoke) and last_used_at stay writable by the server.
-CREATE OR REPLACE FUNCTION public.api_keys_guard()
+CREATE OR REPLACE FUNCTION pm.api_keys_guard()
 RETURNS trigger
 LANGUAGE plpgsql
 SET search_path = ''
@@ -1538,29 +1550,29 @@ BEGIN
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.api_keys_guard() FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION pm.api_keys_guard() FROM PUBLIC, anon, authenticated;
 
 CREATE OR REPLACE TRIGGER api_keys_guard
-  BEFORE UPDATE ON public.api_keys
-  FOR EACH ROW EXECUTE FUNCTION public.api_keys_guard();
+  BEFORE UPDATE ON pm.api_keys
+  FOR EACH ROW EXECUTE FUNCTION pm.api_keys_guard();
 
 create trigger set_project_credentials_updated_at
-  before update on public.project_credentials
-  for each row execute function public.handle_updated_at();
+  before update on pm.project_credentials
+  for each row execute function pm.handle_updated_at();
 
 create trigger set_project_time_entries_updated_at
-  before update on public.project_time_entries
-  for each row execute function public.handle_updated_at();
+  before update on pm.project_time_entries
+  for each row execute function pm.handle_updated_at();
 
 create trigger set_project_hourly_rates_updated_at
-  before update on public.project_hourly_rates
-  for each row execute function public.handle_updated_at();
+  before update on pm.project_hourly_rates
+  for each row execute function pm.handle_updated_at();
 
-create or replace function public.protect_invoiced_time_entry()
+create or replace function pm.protect_invoiced_time_entry()
 returns trigger as $$
 begin
   if exists (
-    select 1 from public.invoice_time_entry_allocations allocation
+    select 1 from pm.invoice_time_entry_allocations allocation
     where allocation.time_entry_id = old.id
   ) and (
     new.start_time is distinct from old.start_time or
@@ -1575,8 +1587,8 @@ end;
 $$ language plpgsql;
 
 create trigger protect_invoiced_time_entry
-  before update on public.project_time_entries
-  for each row execute function public.protect_invoiced_time_entry();
+  before update on pm.project_time_entries
+  for each row execute function pm.protect_invoiced_time_entry();
 
 -- Hours on a draft or sent invoice are billed (20261018172146): unbilled time is
 -- approved client time beyond the FIFO pool of paid hourly dollars, minus the
@@ -1584,19 +1596,19 @@ create trigger protect_invoiced_time_entry
 -- hourly line exactly as lib/invoice-utils.ts does, for the scheduled drafter
 -- and the form alike. validate_invoice_time_allocations refuses held,
 -- unapproved or internal time.
-CREATE OR REPLACE FUNCTION public.workspace_timezone()
+CREATE OR REPLACE FUNCTION pm.workspace_timezone()
 RETURNS text
 LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
 DECLARE
   zone text;
 BEGIN
   FOR zone IN
     SELECT member.timezone
-    FROM public.team_members member
+    FROM pm.team_members member
     WHERE member.role = 'owner'
       AND member.timezone ~ '^[A-Za-z][A-Za-z0-9_-]*(/[A-Za-z0-9_+-]+)*$'
     ORDER BY member.created_at
@@ -1612,7 +1624,7 @@ BEGIN
 END;
 $$;
 
-CREATE OR REPLACE FUNCTION public.time_entry_worked_hours(p_segments jsonb, p_start timestamptz, p_end timestamptz)
+CREATE OR REPLACE FUNCTION pm.time_entry_worked_hours(p_segments jsonb, p_start timestamptz, p_end timestamptz)
 RETURNS numeric
 LANGUAGE sql
 IMMUTABLE
@@ -1627,12 +1639,12 @@ AS $$
   END
 $$;
 
-CREATE OR REPLACE FUNCTION public.invoice_paid_hourly_pool(p_project_id uuid, p_exclude_invoice_id uuid DEFAULT NULL)
+CREATE OR REPLACE FUNCTION pm.invoice_paid_hourly_pool(p_project_id uuid, p_exclude_invoice_id uuid DEFAULT NULL)
 RETURNS numeric
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
   SELECT COALESCE(sum(CASE
     WHEN jsonb_array_length(COALESCE(invoice.line_items, '[]'::jsonb)) = 0 THEN
@@ -1643,7 +1655,7 @@ AS $$
       WHERE line->>'item_type' = 'hourly'
     )
   END), 0)
-  FROM public.project_invoices invoice
+  FROM pm.project_invoices invoice
   WHERE invoice.project_id = p_project_id
     AND invoice.status = 'paid'
     AND invoice.deleted_at IS NULL
@@ -1652,30 +1664,30 @@ $$;
 
 -- Paid hourly dollars, plus hourly lines on draft, sent or overdue invoices
 -- that no session allocation backs.
-CREATE OR REPLACE FUNCTION public.invoice_billed_hourly_pool(p_project_id uuid, p_exclude_invoice_id uuid DEFAULT NULL)
+CREATE OR REPLACE FUNCTION pm.invoice_billed_hourly_pool(p_project_id uuid, p_exclude_invoice_id uuid DEFAULT NULL)
 RETURNS numeric
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
-  SELECT public.invoice_paid_hourly_pool(p_project_id, p_exclude_invoice_id) + COALESCE((
+  SELECT pm.invoice_paid_hourly_pool(p_project_id, p_exclude_invoice_id) + COALESCE((
     SELECT sum(CASE
       WHEN jsonb_array_length(COALESCE(invoice.line_items, '[]'::jsonb)) = 0 THEN
         CASE WHEN invoice.invoice_type = 'hourly'
-              AND NOT EXISTS (SELECT 1 FROM public.invoice_time_entry_allocations a WHERE a.invoice_id = invoice.id)
+              AND NOT EXISTS (SELECT 1 FROM pm.invoice_time_entry_allocations a WHERE a.invoice_id = invoice.id)
              THEN invoice.amount ELSE 0 END
       ELSE (
         SELECT COALESCE(sum(COALESCE(NULLIF(line->>'amount', '')::numeric, 0)), 0)
         FROM jsonb_array_elements(invoice.line_items) line
         WHERE line->>'item_type' = 'hourly'
           AND NOT EXISTS (
-            SELECT 1 FROM public.invoice_time_entry_allocations a
+            SELECT 1 FROM pm.invoice_time_entry_allocations a
             WHERE a.invoice_id = invoice.id AND a.line_item_id = line->>'id'
           )
       )
     END)
-    FROM public.project_invoices invoice
+    FROM pm.project_invoices invoice
     WHERE invoice.project_id = p_project_id
       AND invoice.status IN ('draft', 'sent', 'overdue')
       AND invoice.deleted_at IS NULL
@@ -1683,7 +1695,7 @@ AS $$
   ), 0)
 $$;
 
-CREATE OR REPLACE FUNCTION public.invoice_unbilled_slices(p_project_id uuid, p_exclude_invoice_id uuid DEFAULT NULL)
+CREATE OR REPLACE FUNCTION pm.invoice_unbilled_slices(p_project_id uuid, p_exclude_invoice_id uuid DEFAULT NULL)
 RETURNS TABLE (
   time_entry_id uuid,
   start_time timestamptz,
@@ -1695,12 +1707,12 @@ RETURNS TABLE (
 LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
 DECLARE
   money_eps CONSTANT numeric := 0.005000001;
   hours_eps CONSTANT numeric := 0.000050001;
-  pool numeric := public.invoice_billed_hourly_pool(p_project_id, p_exclude_invoice_id);
+  pool numeric := pm.invoice_billed_hourly_pool(p_project_id, p_exclude_invoice_id);
   entry record;
   worked numeric;
   cost numeric;
@@ -1710,7 +1722,7 @@ DECLARE
 BEGIN
   FOR entry IN
     SELECT e.id, e.start_time, e.end_time, e.hourly_rate, e.segments
-    FROM public.project_time_entries e
+    FROM pm.project_time_entries e
     WHERE e.project_id = p_project_id
       AND e.end_time IS NOT NULL
       AND e.work_type <> 'internal'
@@ -1719,7 +1731,7 @@ BEGIN
     ORDER BY e.start_time, e.id
   LOOP
     IF entry.hourly_rate IS NULL OR entry.hourly_rate <= 0 THEN CONTINUE; END IF;
-    worked := public.time_entry_worked_hours(entry.segments, entry.start_time, entry.end_time);
+    worked := pm.time_entry_worked_hours(entry.segments, entry.start_time, entry.end_time);
     cost := worked * entry.hourly_rate;
     IF cost <= money_eps THEN CONTINUE; END IF;
 
@@ -1737,8 +1749,8 @@ BEGIN
 
     free := nummultirange(numrange(portion_start, worked, '[)')) - COALESCE((
       SELECT range_agg(numrange(a.start_offset_hours, a.start_offset_hours + a.allocated_hours, '[)'))
-      FROM public.invoice_time_entry_allocations a
-      JOIN public.project_invoices i ON i.id = a.invoice_id
+      FROM pm.invoice_time_entry_allocations a
+      JOIN pm.project_invoices i ON i.id = a.invoice_id
       WHERE a.time_entry_id = entry.id
         AND i.status IN ('draft', 'sent', 'overdue')
         AND i.deleted_at IS NULL
@@ -1764,7 +1776,7 @@ BEGIN
 END;
 $$;
 
-CREATE OR REPLACE FUNCTION public.invoice_hours_draft_internal(
+CREATE OR REPLACE FUNCTION pm.invoice_hours_draft_internal(
   p_project_id uuid,
   p_mode text DEFAULT 'all',
   p_target numeric DEFAULT NULL,
@@ -1776,7 +1788,7 @@ RETURNS jsonb
 LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
 DECLARE
   money_eps CONSTANT numeric := 0.005000001;
@@ -1798,7 +1810,7 @@ DECLARE
   direction int;
   cursor_at int := 0;
   idx int;
-  zone text := public.workspace_timezone();
+  zone text := pm.workspace_timezone();
   allocations jsonb := '[]'::jsonb;
   hours_text text;
 BEGIN
@@ -1809,7 +1821,7 @@ BEGIN
   remaining := p_target;
 
   FOR slice IN
-    SELECT * FROM public.invoice_unbilled_slices(p_project_id, p_exclude_invoice_id) s
+    SELECT * FROM pm.invoice_unbilled_slices(p_project_id, p_exclude_invoice_id) s
     WHERE (p_from IS NULL OR s.start_time >= p_from)
       AND (p_through IS NULL OR s.start_time < p_through)
   LOOP
@@ -1875,7 +1887,7 @@ BEGIN
 END;
 $$;
 
-CREATE OR REPLACE FUNCTION public.invoice_hours_draft(
+CREATE OR REPLACE FUNCTION pm.invoice_hours_draft(
   p_project_id uuid,
   p_mode text DEFAULT 'all',
   p_target numeric DEFAULT NULL,
@@ -1887,30 +1899,30 @@ RETURNS jsonb
 LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
 BEGIN
   IF COALESCE(auth.role(), '') <> 'service_role'
-     AND NOT (public.has_permission('invoices.manage', 'app') AND public.can_access_project(p_project_id)) THEN
+     AND NOT (pm.has_permission('invoices.manage', 'app') AND pm.can_access_project(p_project_id)) THEN
     RAISE EXCEPTION 'Not allowed to draft invoices on this project' USING ERRCODE = '42501';
   END IF;
-  RETURN public.invoice_hours_draft_internal(p_project_id, p_mode, p_target, p_from, p_through, p_exclude_invoice_id);
+  RETURN pm.invoice_hours_draft_internal(p_project_id, p_mode, p_target, p_from, p_through, p_exclude_invoice_id);
 END;
 $$;
 
-CREATE OR REPLACE FUNCTION public.validate_invoice_time_allocations(target_invoice_id uuid)
+CREATE OR REPLACE FUNCTION pm.validate_invoice_time_allocations(target_invoice_id uuid)
 RETURNS void
 LANGUAGE plpgsql
 SECURITY INVOKER
-SET search_path = public
+SET search_path = pm
 AS $$
 DECLARE
   clash record;
 BEGIN
   IF EXISTS (
     SELECT 1
-    FROM public.invoice_time_entry_allocations allocation
-    JOIN public.project_invoices invoice ON invoice.id = allocation.invoice_id
+    FROM pm.invoice_time_entry_allocations allocation
+    JOIN pm.project_invoices invoice ON invoice.id = allocation.invoice_id
     LEFT JOIN LATERAL jsonb_array_elements(invoice.line_items) line_item
       ON line_item->>'id' = allocation.line_item_id
     WHERE allocation.invoice_id = target_invoice_id
@@ -1921,9 +1933,9 @@ BEGIN
 
   IF EXISTS (
     SELECT 1
-    FROM public.invoice_time_entry_allocations allocation
-    JOIN public.project_invoices invoice ON invoice.id = allocation.invoice_id
-    LEFT JOIN public.project_time_entries entry ON entry.id = allocation.time_entry_id
+    FROM pm.invoice_time_entry_allocations allocation
+    JOIN pm.project_invoices invoice ON invoice.id = allocation.invoice_id
+    LEFT JOIN pm.project_time_entries entry ON entry.id = allocation.time_entry_id
     WHERE allocation.invoice_id = target_invoice_id
       AND (
         entry.id IS NULL
@@ -1938,8 +1950,8 @@ BEGIN
 
   IF EXISTS (
     SELECT 1
-    FROM public.invoice_time_entry_allocations allocation
-    JOIN public.project_time_entries entry ON entry.id = allocation.time_entry_id
+    FROM pm.invoice_time_entry_allocations allocation
+    JOIN pm.project_time_entries entry ON entry.id = allocation.time_entry_id
     WHERE allocation.invoice_id = target_invoice_id
       AND (entry.approval_status IS DISTINCT FROM 'approved' OR entry.work_type = 'internal')
   ) THEN
@@ -1948,19 +1960,19 @@ BEGIN
 
   IF EXISTS (
     SELECT 1
-    FROM public.invoice_time_entry_allocations allocation
-    JOIN public.project_time_entries entry ON entry.id = allocation.time_entry_id
+    FROM pm.invoice_time_entry_allocations allocation
+    JOIN pm.project_time_entries entry ON entry.id = allocation.time_entry_id
     WHERE allocation.invoice_id = target_invoice_id
       AND allocation.start_offset_hours + allocation.allocated_hours
-        > public.time_entry_worked_hours(entry.segments, entry.start_time, entry.end_time) + 0.0000011
+        > pm.time_entry_worked_hours(entry.segments, entry.start_time, entry.end_time) + 0.0000011
   ) THEN
     RAISE EXCEPTION 'Invoice allocation extends beyond its tracked session';
   END IF;
 
   IF EXISTS (
     SELECT 1
-    FROM public.invoice_time_entry_allocations allocation
-    JOIN public.project_time_entries entry ON entry.id = allocation.time_entry_id
+    FROM pm.invoice_time_entry_allocations allocation
+    JOIN pm.project_time_entries entry ON entry.id = allocation.time_entry_id
     WHERE allocation.invoice_id = target_invoice_id
       AND abs(round(allocation.allocated_hours * entry.hourly_rate, 2) - allocation.allocated_amount) > 0.01
   ) THEN
@@ -1969,8 +1981,8 @@ BEGIN
 
   IF EXISTS (
     SELECT 1
-    FROM public.invoice_time_entry_allocations left_allocation
-    JOIN public.invoice_time_entry_allocations right_allocation
+    FROM pm.invoice_time_entry_allocations left_allocation
+    JOIN pm.invoice_time_entry_allocations right_allocation
       ON right_allocation.invoice_id = left_allocation.invoice_id
       AND right_allocation.time_entry_id = left_allocation.time_entry_id
       AND right_allocation.id > left_allocation.id
@@ -1985,11 +1997,11 @@ BEGIN
   -- with another live invoice (a margin under a millionth of an hour is
   -- rounding, not a clash).
   SELECT other.invoice_number INTO clash
-  FROM public.invoice_time_entry_allocations mine
-  JOIN public.project_invoices me ON me.id = mine.invoice_id
-  JOIN public.invoice_time_entry_allocations theirs
+  FROM pm.invoice_time_entry_allocations mine
+  JOIN pm.project_invoices me ON me.id = mine.invoice_id
+  JOIN pm.invoice_time_entry_allocations theirs
     ON theirs.time_entry_id = mine.time_entry_id AND theirs.invoice_id <> mine.invoice_id
-  JOIN public.project_invoices other ON other.id = theirs.invoice_id
+  JOIN pm.project_invoices other ON other.id = theirs.invoice_id
   WHERE mine.invoice_id = target_invoice_id
     AND me.status <> 'cancelled'
     AND other.status <> 'cancelled'
@@ -2003,11 +2015,11 @@ BEGIN
 
   IF EXISTS (
     SELECT 1
-    FROM public.project_invoices invoice
+    FROM pm.project_invoices invoice
     CROSS JOIN LATERAL jsonb_array_elements(invoice.line_items) line_item
     JOIN (
       SELECT line_item_id, sum(allocated_amount) AS allocated_amount
-      FROM public.invoice_time_entry_allocations
+      FROM pm.invoice_time_entry_allocations
       WHERE invoice_id = target_invoice_id
       GROUP BY line_item_id
     ) totals ON totals.line_item_id = line_item->>'id'
@@ -2019,25 +2031,25 @@ BEGIN
 END;
 $$;
 
-create or replace function public.save_project_invoice_with_allocations(
+create or replace function pm.save_project_invoice_with_allocations(
   p_invoice_id uuid,
   p_invoice jsonb,
   p_allocations jsonb
 )
-returns public.project_invoices
+returns pm.project_invoices
 language plpgsql
 security definer
-set search_path = public
+set search_path = pm
 as $$
 declare
-  existing_invoice public.project_invoices;
-  saved public.project_invoices;
+  existing_invoice pm.project_invoices;
+  saved pm.project_invoices;
   target_project_id uuid;
 begin
   p_invoice := coalesce(p_invoice, '{}'::jsonb);
 
   if coalesce(auth.role(), '') <> 'service_role' then
-    if not public.has_permission('invoices.manage', 'app') then
+    if not pm.has_permission('invoices.manage', 'app') then
       raise exception 'Missing permission to manage invoices';
     end if;
   end if;
@@ -2047,15 +2059,15 @@ begin
     if target_project_id is null then
       raise exception 'Invoice project is required';
     end if;
-    if not public.project_is_live(target_project_id) then
+    if not pm.project_is_live(target_project_id) then
       raise exception 'Project not found';
     end if;
     if coalesce(auth.role(), '') <> 'service_role'
-      and not public.can_access_project(target_project_id) then
+      and not pm.can_access_project(target_project_id) then
       raise exception 'Project access denied';
     end if;
 
-    insert into public.project_invoices (
+    insert into pm.project_invoices (
       project_id, invoice_number, amount, status, invoice_type, line_items,
       date, due_date, paid_date, description, file_url, file_name, file_size,
       mime_type, created_by
@@ -2079,7 +2091,7 @@ begin
     returning * into saved;
   else
     select * into existing_invoice
-    from public.project_invoices
+    from pm.project_invoices
     where id = p_invoice_id
       and deleted_at is null;
 
@@ -2094,18 +2106,18 @@ begin
     if target_project_id is null then
       raise exception 'Invoice project is required';
     end if;
-    if not public.project_is_live(target_project_id) then
+    if not pm.project_is_live(target_project_id) then
       raise exception 'Project not found';
     end if;
     if coalesce(auth.role(), '') <> 'service_role'
       and (
-        not public.can_access_project(existing_invoice.project_id)
-        or not public.can_access_project(target_project_id)
+        not pm.can_access_project(existing_invoice.project_id)
+        or not pm.can_access_project(target_project_id)
       ) then
       raise exception 'Project access denied';
     end if;
 
-    update public.project_invoices invoice
+    update pm.project_invoices invoice
     set
       project_id = case when p_invoice ? 'project_id' then target_project_id else invoice.project_id end,
       invoice_number = case when p_invoice ? 'invoice_number' then p_invoice->>'invoice_number' else invoice.invoice_number end,
@@ -2131,10 +2143,10 @@ begin
   end if;
 
   if p_allocations is not null then
-    delete from public.invoice_time_entry_allocations
+    delete from pm.invoice_time_entry_allocations
     where invoice_id = saved.id;
 
-    insert into public.invoice_time_entry_allocations (
+    insert into pm.invoice_time_entry_allocations (
       invoice_id, line_item_id, time_entry_id, start_offset_hours,
       allocated_hours, allocated_amount
     )
@@ -2154,46 +2166,46 @@ begin
     );
   end if;
 
-  perform public.validate_invoice_time_allocations(saved.id);
+  perform pm.validate_invoice_time_allocations(saved.id);
   return saved;
 end;
 $$;
 
-REVOKE ALL ON FUNCTION public.workspace_timezone() FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.invoice_paid_hourly_pool(uuid, uuid) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.invoice_billed_hourly_pool(uuid, uuid) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.invoice_billed_hourly_pool(uuid, uuid) TO service_role;
-REVOKE ALL ON FUNCTION public.invoice_unbilled_slices(uuid, uuid) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.invoice_hours_draft_internal(uuid, text, numeric, timestamptz, timestamptz, uuid) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.invoice_hours_draft(uuid, text, numeric, timestamptz, timestamptz, uuid) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.invoice_hours_draft(uuid, text, numeric, timestamptz, timestamptz, uuid) TO authenticated, service_role;
-GRANT EXECUTE ON FUNCTION public.workspace_timezone() TO service_role;
-GRANT EXECUTE ON FUNCTION public.invoice_unbilled_slices(uuid, uuid) TO service_role;
-GRANT EXECUTE ON FUNCTION public.invoice_hours_draft_internal(uuid, text, numeric, timestamptz, timestamptz, uuid) TO service_role;
-revoke all on function public.validate_invoice_time_allocations(uuid) from public;
-revoke all on function public.save_project_invoice_with_allocations(uuid, jsonb, jsonb) from public;
-grant execute on function public.save_project_invoice_with_allocations(uuid, jsonb, jsonb) to authenticated;
-grant execute on function public.save_project_invoice_with_allocations(uuid, jsonb, jsonb) to service_role;
+REVOKE ALL ON FUNCTION pm.workspace_timezone() FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION pm.invoice_paid_hourly_pool(uuid, uuid) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION pm.invoice_billed_hourly_pool(uuid, uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION pm.invoice_billed_hourly_pool(uuid, uuid) TO service_role;
+REVOKE ALL ON FUNCTION pm.invoice_unbilled_slices(uuid, uuid) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION pm.invoice_hours_draft_internal(uuid, text, numeric, timestamptz, timestamptz, uuid) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION pm.invoice_hours_draft(uuid, text, numeric, timestamptz, timestamptz, uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION pm.invoice_hours_draft(uuid, text, numeric, timestamptz, timestamptz, uuid) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.workspace_timezone() TO service_role;
+GRANT EXECUTE ON FUNCTION pm.invoice_unbilled_slices(uuid, uuid) TO service_role;
+GRANT EXECUTE ON FUNCTION pm.invoice_hours_draft_internal(uuid, text, numeric, timestamptz, timestamptz, uuid) TO service_role;
+revoke all on function pm.validate_invoice_time_allocations(uuid) from public;
+revoke all on function pm.save_project_invoice_with_allocations(uuid, jsonb, jsonb) from public;
+grant execute on function pm.save_project_invoice_with_allocations(uuid, jsonb, jsonb) to authenticated;
+grant execute on function pm.save_project_invoice_with_allocations(uuid, jsonb, jsonb) to service_role;
 
 create trigger set_portal_updates_updated_at
-  before update on public.portal_updates
-  for each row execute function public.handle_updated_at();
+  before update on pm.portal_updates
+  for each row execute function pm.handle_updated_at();
 
 create trigger set_portal_update_attachments_updated_at
-  before update on public.portal_update_attachments
-  for each row execute function public.handle_updated_at();
+  before update on pm.portal_update_attachments
+  for each row execute function pm.handle_updated_at();
 
 create trigger set_project_invoices_updated_at
-  before update on public.project_invoices
-  for each row execute function public.handle_updated_at();
+  before update on pm.project_invoices
+  for each row execute function pm.handle_updated_at();
 
 create trigger set_webhook_endpoints_updated_at
-  before update on public.webhook_endpoints
-  for each row execute function public.handle_updated_at();
+  before update on pm.webhook_endpoints
+  for each row execute function pm.handle_updated_at();
 
 create trigger set_webhook_deliveries_updated_at
-  before update on public.webhook_deliveries
-  for each row execute function public.handle_updated_at();
+  before update on pm.webhook_deliveries
+  for each row execute function pm.handle_updated_at();
 
 -- Emits invoice.paid / invoice.updated / invoice.deleted events for
 -- paid-relevant invoices and fans out deliveries. See migration
@@ -2201,12 +2213,12 @@ create trigger set_webhook_deliveries_updated_at
 -- What the company keeps of an invoice after revenue splits. Only positive
 -- fixed and recurring lines can carry a split; every other line, discounts
 -- included, is its full amount.
-create or replace function public.invoice_net_amounts(p_invoice public.project_invoices)
+create or replace function pm.invoice_net_amounts(p_invoice pm.project_invoices)
 returns jsonb
 language plpgsql
 stable
 security definer
-set search_path = public
+set search_path = pm
 as $$
 declare
   v_lines jsonb := coalesce(nullif(p_invoice.line_items, 'null'::jsonb), '[]'::jsonb);
@@ -2227,7 +2239,7 @@ begin
       round(
         (li->>'amount')::numeric * (1 - least(100, coalesce((
           select sum(share.percent)
-          from public.invoice_line_shares share
+          from pm.invoice_line_shares share
           where share.invoice_id = p_invoice.id
             and share.line_item_id = li->>'id'
             and li->>'item_type' in ('fixed', 'recurring')
@@ -2258,15 +2270,15 @@ $$;
 -- The event writer, split out of the trigger so a split change on a paid
 -- invoice can announce itself too (see emit_invoice_webhook_for_shares).
 -- p_data is merged into the payload's data (the payment events use it).
-create or replace function public.emit_invoice_webhook_event(
-  p_row public.project_invoices,
+create or replace function pm.emit_invoice_webhook_event(
+  p_row pm.project_invoices,
   p_event_type text,
   p_data jsonb default null
 )
 returns void
 language plpgsql
 security definer
-set search_path = public
+set search_path = pm
 as $$
 declare
   v_is_paid boolean := (p_event_type <> 'invoice.deleted' and p_row.status = 'paid');
@@ -2278,14 +2290,14 @@ declare
   v_payload jsonb;
 begin
   if not exists (
-    select 1 from public.webhook_endpoints e
+    select 1 from pm.webhook_endpoints e
     where e.is_active and p_event_type = any(e.events)
   ) then
     return;
   end if;
 
   select name into v_project_name
-  from public.projects where id = p_row.project_id;
+  from pm.projects where id = p_row.project_id;
 
   select coalesce(jsonb_object_agg(t.item_type, t.subtotal), '{}'::jsonb)
     into v_totals
@@ -2302,7 +2314,7 @@ begin
     v_totals := jsonb_build_object(p_row.invoice_type, p_row.amount);
   end if;
 
-  v_seq := nextval('public.webhook_event_seq');
+  v_seq := nextval('pm.webhook_event_seq');
   v_public_id := 'evt_' || replace(gen_random_uuid()::text, '-', '');
 
   v_payload := jsonb_build_object(
@@ -2334,28 +2346,28 @@ begin
     ) || coalesce(p_data, '{}'::jsonb)
   );
 
-  insert into public.webhook_events (
+  insert into pm.webhook_events (
     event_id, sequence, event_type, resource_type, resource_id, payload, net_amounts
   )
   values (
     v_public_id, v_seq, p_event_type, 'invoice', p_row.id, v_payload,
-    public.invoice_net_amounts(p_row)
+    pm.invoice_net_amounts(p_row)
   )
   returning id into v_event_uuid;
 
-  insert into public.webhook_deliveries (webhook_event_id, endpoint_id)
+  insert into pm.webhook_deliveries (webhook_event_id, endpoint_id)
   select v_event_uuid, e.id
-  from public.webhook_endpoints e
+  from pm.webhook_endpoints e
   where e.is_active and p_event_type = any(e.events);
 end;
 $$;
 
 -- Same rules as before for when an invoice change is worth an event.
-create or replace function public.emit_invoice_webhook()
+create or replace function pm.emit_invoice_webhook()
 returns trigger
 language plpgsql
 security definer
-set search_path = public
+set search_path = pm
 as $$
 declare
   v_op text := TG_OP;
@@ -2367,7 +2379,7 @@ begin
 
   if v_op = 'DELETE' then
     if v_was_paid then
-      perform public.emit_invoice_webhook_event(OLD, 'invoice.deleted');
+      perform pm.emit_invoice_webhook_event(OLD, 'invoice.deleted');
     end if;
     return OLD;
   end if;
@@ -2376,20 +2388,20 @@ begin
   -- would send. Edits while it is in Trash send nothing.
   if v_op = 'UPDATE' and NEW.deleted_at is not null then
     if OLD.deleted_at is null and v_was_paid then
-      perform public.emit_invoice_webhook_event(OLD, 'invoice.deleted');
+      perform pm.emit_invoice_webhook_event(OLD, 'invoice.deleted');
     end if;
     return NEW;
   end if;
   if v_op = 'UPDATE' and OLD.deleted_at is not null then
     if v_is_paid then
-      perform public.emit_invoice_webhook_event(NEW, 'invoice.paid');
+      perform pm.emit_invoice_webhook_event(NEW, 'invoice.paid');
     end if;
     return NEW;
   end if;
 
   if v_op = 'INSERT' then
     if v_is_paid then
-      perform public.emit_invoice_webhook_event(NEW, 'invoice.paid');
+      perform pm.emit_invoice_webhook_event(NEW, 'invoice.paid');
     end if;
     return NEW;
   end if;
@@ -2399,7 +2411,7 @@ begin
   end if;
 
   if v_is_paid and not v_was_paid then
-    perform public.emit_invoice_webhook_event(NEW, 'invoice.paid');
+    perform pm.emit_invoice_webhook_event(NEW, 'invoice.paid');
     return NEW;
   end if;
 
@@ -2414,20 +2426,20 @@ begin
     return NEW;
   end if;
 
-  perform public.emit_invoice_webhook_event(NEW, 'invoice.updated');
+  perform pm.emit_invoice_webhook_event(NEW, 'invoice.updated');
   return NEW;
 end;
 $$;
 
 create trigger emit_invoice_webhook
-  after insert or update or delete on public.project_invoices
-  for each row execute function public.emit_invoice_webhook();
+  after insert or update or delete on pm.project_invoices
+  for each row execute function pm.emit_invoice_webhook();
 
 -- The body one endpoint receives. amount_basis is always stated. For a net
 -- endpoint the invoice amount, each line amount and totals_by_type are the
 -- company's part; the gross figures are not sent alongside, so a receiver
 -- cannot mix the two.
-create or replace function public.webhook_payload_for_endpoint(
+create or replace function pm.webhook_payload_for_endpoint(
   p_payload jsonb,
   p_net jsonb,
   p_basis text
@@ -2467,7 +2479,7 @@ $$;
 -- invoice and endpoint, in sequence order. complete_webhook_delivery records
 -- each attempt and schedules the retry. See migration
 -- 20261018220437_webhook_delivery_retries.sql.
-CREATE OR REPLACE FUNCTION public.claim_webhook_deliveries(p_limit int DEFAULT 20)
+CREATE OR REPLACE FUNCTION pm.claim_webhook_deliveries(p_limit int DEFAULT 20)
 RETURNS TABLE (
   delivery_id uuid,
   attempt_token uuid,
@@ -2483,7 +2495,7 @@ RETURNS TABLE (
 )
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
 DECLARE
   max_attempts constant int := 8;  -- WEBHOOK_MAX_ATTEMPTS
@@ -2491,16 +2503,16 @@ BEGIN
   -- Nothing goes out while Webhooks, or Billing and finance which it needs,
   -- is switched off: deliveries wait in order, their attempts untouched, and
   -- go out once the module is back on.
-  IF NOT (public.module_enabled('webhooks') AND public.module_enabled('billing')) THEN
+  IF NOT (pm.module_enabled('webhooks') AND pm.module_enabled('billing')) THEN
     RETURN;
   END IF;
 
   -- One claimer at a time, so two runs cannot both pass the ordering check
   -- for the same invoice. Released at commit, before any HTTP happens.
-  PERFORM pg_advisory_xact_lock(hashtext('public.claim_webhook_deliveries'));
+  PERFORM pg_advisory_xact_lock(hashtext('pm.claim_webhook_deliveries'));
 
   -- A lease that ran out on the last attempt has nothing left to retry.
-  UPDATE public.webhook_deliveries d
+  UPDATE pm.webhook_deliveries d
   SET status = 'failed',
       last_error = coalesce(d.last_error, 'Delivery did not finish before its lease expired'),
       attempt_token = NULL,
@@ -2512,9 +2524,9 @@ BEGIN
   RETURN QUERY
   WITH due AS (
     SELECT d.id
-    FROM public.webhook_deliveries d
-    JOIN public.webhook_events ev ON ev.id = d.webhook_event_id
-    JOIN public.webhook_endpoints ep ON ep.id = d.endpoint_id
+    FROM pm.webhook_deliveries d
+    JOIN pm.webhook_events ev ON ev.id = d.webhook_event_id
+    JOIN pm.webhook_endpoints ep ON ep.id = d.endpoint_id
     WHERE ep.is_active
       AND (
         (d.status = 'pending' AND d.next_attempt_at <= now())
@@ -2524,8 +2536,8 @@ BEGIN
       -- still waiting, and nothing for it is in flight under a live lease.
       AND NOT EXISTS (
         SELECT 1
-        FROM public.webhook_deliveries other
-        JOIN public.webhook_events other_ev ON other_ev.id = other.webhook_event_id
+        FROM pm.webhook_deliveries other
+        JOIN pm.webhook_events other_ev ON other_ev.id = other.webhook_event_id
         WHERE other.endpoint_id = d.endpoint_id
           AND other.id <> d.id
           AND other_ev.resource_type = ev.resource_type
@@ -2539,20 +2551,20 @@ BEGIN
     LIMIT p_limit
     FOR UPDATE OF d SKIP LOCKED
   )
-  UPDATE public.webhook_deliveries d
+  UPDATE pm.webhook_deliveries d
   SET status = 'delivering',
       attempts = d.attempts + 1,
       last_attempt_at = now(),
       attempt_token = gen_random_uuid(),
       lease_expires_at = now() + interval '2 minutes'
-  FROM due, public.webhook_events ev, public.webhook_endpoints e
+  FROM due, pm.webhook_events ev, pm.webhook_endpoints e
   WHERE d.id = due.id
     AND ev.id = d.webhook_event_id
     AND e.id = d.endpoint_id
   RETURNING d.id, d.attempt_token, d.attempts,
             e.id, e.url, e.secret,
             ev.event_id, ev.event_type, ev.sequence, ev.resource_id,
-            public.webhook_payload_for_endpoint(ev.payload, ev.net_amounts, e.amount_basis);
+            pm.webhook_payload_for_endpoint(ev.payload, ev.net_amounts, e.amount_basis);
 END;
 $$;
 
@@ -2560,7 +2572,7 @@ $$;
 -- 'succeeded', 'retrying' (back to pending at next_attempt_at), 'failed'
 -- (attempts used up) or 'stale' (the lease was taken back by another run,
 -- which will deliver it again; nothing is written).
-CREATE OR REPLACE FUNCTION public.complete_webhook_delivery(
+CREATE OR REPLACE FUNCTION pm.complete_webhook_delivery(
   p_delivery_id uuid,
   p_attempt_token uuid,
   p_status_code int,
@@ -2570,14 +2582,14 @@ CREATE OR REPLACE FUNCTION public.complete_webhook_delivery(
 RETURNS text
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
 DECLARE
   max_attempts constant int := 8;  -- WEBHOOK_MAX_ATTEMPTS
-  d public.webhook_deliveries;
+  d pm.webhook_deliveries;
   outcome text;
 BEGIN
-  SELECT * INTO d FROM public.webhook_deliveries WHERE id = p_delivery_id FOR UPDATE;
+  SELECT * INTO d FROM pm.webhook_deliveries WHERE id = p_delivery_id FOR UPDATE;
   IF NOT FOUND OR d.status <> 'delivering' OR p_attempt_token IS NULL
      OR d.attempt_token IS DISTINCT FROM p_attempt_token THEN
     RETURN 'stale';
@@ -2589,7 +2601,7 @@ BEGIN
     ELSE 'retrying'
   END;
 
-  UPDATE public.webhook_deliveries
+  UPDATE pm.webhook_deliveries
   SET status = CASE outcome WHEN 'retrying' THEN 'pending' ELSE outcome END,
       delivered_at = CASE WHEN outcome = 'succeeded' THEN now() ELSE delivered_at END,
       next_attempt_at = CASE
@@ -2605,7 +2617,7 @@ BEGIN
   WHERE id = d.id;
 
   IF outcome = 'succeeded' THEN
-    UPDATE public.webhook_endpoints SET last_delivery_at = now() WHERE id = d.endpoint_id;
+    UPDATE pm.webhook_endpoints SET last_delivery_at = now() WHERE id = d.endpoint_id;
   END IF;
   RETURN outcome;
 END;
@@ -2614,14 +2626,14 @@ $$;
 -- Settings > Webhooks "Resend": a failed delivery starts over with a fresh
 -- attempt budget. Runs as the caller, so the webhooks.manage RLS policy
 -- decides who may. Returns false when the row is not failed (or not visible).
-CREATE OR REPLACE FUNCTION public.requeue_webhook_delivery(p_delivery_id uuid)
+CREATE OR REPLACE FUNCTION pm.requeue_webhook_delivery(p_delivery_id uuid)
 RETURNS boolean
 LANGUAGE sql
 SECURITY INVOKER
-SET search_path = public
+SET search_path = pm
 AS $$
   WITH requeued AS (
-    UPDATE public.webhook_deliveries
+    UPDATE pm.webhook_deliveries
     SET status = 'pending',
         attempts = 0,
         next_attempt_at = now(),
@@ -2640,11 +2652,11 @@ $$;
 -- WEBHOOK_SCHEDULER_SECRET, read from Vault (webhook_scheduler_url,
 -- webhook_scheduler_secret). Idle minutes make no request. Returns the
 -- pg_net request id, or null when nothing was sent.
-CREATE OR REPLACE FUNCTION public.webhook_retry_kick()
+CREATE OR REPLACE FUNCTION pm.webhook_retry_kick()
 RETURNS bigint
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
 DECLARE
   app_url text;
@@ -2652,8 +2664,8 @@ DECLARE
 BEGIN
   IF NOT EXISTS (
     SELECT 1
-    FROM public.webhook_deliveries d
-    JOIN public.webhook_endpoints e ON e.id = d.endpoint_id
+    FROM pm.webhook_deliveries d
+    JOIN pm.webhook_endpoints e ON e.id = d.endpoint_id
     WHERE e.is_active
       AND (
         (d.status = 'pending' AND d.next_attempt_at <= now())
@@ -2663,8 +2675,8 @@ BEGIN
     RETURN NULL;
   END IF;
 
-  SELECT decrypted_secret INTO app_url FROM vault.decrypted_secrets WHERE name = 'webhook_scheduler_url';
-  SELECT decrypted_secret INTO secret FROM vault.decrypted_secrets WHERE name = 'webhook_scheduler_secret';
+  SELECT decrypted_secret INTO app_url FROM vault.decrypted_secrets WHERE name = 'pm_webhook_scheduler_url';
+  SELECT decrypted_secret INTO secret FROM vault.decrypted_secrets WHERE name = 'pm_webhook_scheduler_secret';
   IF app_url IS NULL OR secret IS NULL THEN
     RAISE NOTICE 'webhook_scheduler_url or webhook_scheduler_secret is missing from Vault; webhook retries wait for the next in-app dispatch';
     RETURN NULL;
@@ -2679,13 +2691,13 @@ BEGIN
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.claim_webhook_deliveries(int) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.complete_webhook_delivery(uuid, uuid, int, text, text) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.requeue_webhook_delivery(uuid) FROM PUBLIC, anon;
-REVOKE ALL ON FUNCTION public.webhook_retry_kick() FROM PUBLIC, anon, authenticated, service_role;
-GRANT EXECUTE ON FUNCTION public.claim_webhook_deliveries(int) TO service_role;
-GRANT EXECUTE ON FUNCTION public.complete_webhook_delivery(uuid, uuid, int, text, text) TO service_role;
-GRANT EXECUTE ON FUNCTION public.requeue_webhook_delivery(uuid) TO authenticated;
+REVOKE ALL ON FUNCTION pm.claim_webhook_deliveries(int) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION pm.complete_webhook_delivery(uuid, uuid, int, text, text) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION pm.requeue_webhook_delivery(uuid) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION pm.webhook_retry_kick() FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.claim_webhook_deliveries(int) TO service_role;
+GRANT EXECUTE ON FUNCTION pm.complete_webhook_delivery(uuid, uuid, int, text, text) TO service_role;
+GRANT EXECUTE ON FUNCTION pm.requeue_webhook_delivery(uuid) TO authenticated;
 
 -- Supabase only: skipped where pg_cron or pg_net is unavailable (PGlite).
 -- Re-running cron.schedule updates the job in place.
@@ -2695,28 +2707,28 @@ BEGIN
      AND EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = 'pg_net') THEN
     CREATE EXTENSION IF NOT EXISTS pg_cron;
     CREATE EXTENSION IF NOT EXISTS pg_net;
-    PERFORM cron.schedule('webhook-retries', '* * * * *', $job$SELECT public.webhook_retry_kick() WHERE public.module_enabled('webhooks') AND public.module_enabled('billing');$job$);
+    PERFORM cron.schedule('pm-webhook-retries', '* * * * *', $job$SELECT pm.webhook_retry_kick() WHERE pm.module_enabled('webhooks') AND pm.module_enabled('billing');$job$);
   ELSE
     RAISE NOTICE 'pg_cron or pg_net is unavailable here; webhook retries will not be scheduled';
   END IF;
 END;
 $do$;
 
-revoke all on function public.invoice_net_amounts(public.project_invoices) from public, anon, authenticated;
-revoke all on function public.emit_invoice_webhook_event(public.project_invoices, text, jsonb) from public, anon, authenticated;
-revoke all on function public.webhook_payload_for_endpoint(jsonb, jsonb, text) from public, anon, authenticated;
+revoke all on function pm.invoice_net_amounts(pm.project_invoices) from public, anon, authenticated;
+revoke all on function pm.emit_invoice_webhook_event(pm.project_invoices, text, jsonb) from public, anon, authenticated;
+revoke all on function pm.webhook_payload_for_endpoint(jsonb, jsonb, text) from public, anon, authenticated;
 
 create trigger set_smtp_accounts_updated_at
-  before update on public.smtp_accounts
-  for each row execute function public.handle_updated_at();
+  before update on pm.smtp_accounts
+  for each row execute function pm.handle_updated_at();
 
 create trigger set_business_settings_updated_at
-  before update on public.business_settings
-  for each row execute function public.handle_updated_at();
+  before update on pm.business_settings
+  for each row execute function pm.handle_updated_at();
 
 create trigger set_project_context_updated_at
-  before update on public.project_context
-  for each row execute function public.handle_updated_at();
+  before update on pm.project_context
+  for each row execute function pm.handle_updated_at();
 
 -- ============================================================
 -- AUTO-CREATE TEAM MEMBER ON SIGNUP
@@ -2724,7 +2736,7 @@ create trigger set_project_context_updated_at
 -- The first account becomes the Owner (the account step of the setup wizard).
 -- The lock makes two sign-ups at once decide in turn, so only one is first;
 -- the wizard account (user_metadata first_owner) is refused once a team exists.
-CREATE OR REPLACE FUNCTION public.handle_new_user()
+CREATE OR REPLACE FUNCTION pm.handle_new_user()
 RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -2734,12 +2746,12 @@ DECLARE
   team_exists boolean;
 BEGIN
   -- One sign-up at a time decides who is first (key: 'handle_new_user').
-  PERFORM pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtext('public.handle_new_user'));
-  team_exists := EXISTS (SELECT 1 FROM public.team_members);
+  PERFORM pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtext('pm.handle_new_user'));
+  team_exists := EXISTS (SELECT 1 FROM pm.team_members);
   IF team_exists AND COALESCE(NEW.raw_user_meta_data->>'first_owner', '') = 'true' THEN
     RAISE EXCEPTION 'This workspace already has an Owner' USING ERRCODE = 'P0001';
   END IF;
-  INSERT INTO public.team_members (auth_user_id, name, email, role)
+  INSERT INTO pm.team_members (auth_user_id, name, email, role)
   VALUES (
     NEW.id,
     COALESCE(NEW.raw_user_meta_data->>'display_name', split_part(NEW.email, '@', 1)),
@@ -2750,162 +2762,159 @@ BEGIN
 END;
 $$;
 
-create trigger on_auth_user_created
-  after insert on auth.users
-  for each row execute function public.handle_new_user();
 
 -- ============================================================
 -- ROW LEVEL SECURITY
 -- ============================================================
 
 -- Enable RLS on all tables
-alter table public.team_members enable row level security;
-alter table public.contacts enable row level security;
-alter table public.projects enable row level security;
-alter table public.project_members enable row level security;
-alter table public.project_contacts enable row level security;
-alter table public.tasks enable row level security;
-alter table public.task_assignees enable row level security;
-alter table public.task_subtasks enable row level security;
-alter table public.task_acceptance_criteria enable row level security;
-alter table public.task_reviews enable row level security;
-alter table public.agent_health enable row level security;
-alter table public.agent_health_history enable row level security;
-alter table public.task_dependencies enable row level security;
-alter table public.task_comments enable row level security;
-alter table public.activities enable row level security;
-alter table public.leads enable row level security;
-alter table public.lead_interactions enable row level security;
-alter table public.lead_proposals enable row level security;
-alter table public.lead_fields enable row level security;
-alter table public.lead_members enable row level security;
-alter table public.lead_contacts enable row level security;
-alter table public.portal_settings enable row level security;
-alter table public.client_communications enable row level security;
-alter table public.entity_files enable row level security;
-alter table public.api_keys enable row level security;
-alter table public.portal_updates enable row level security;
-alter table public.portal_update_attachments enable row level security;
-alter table public.portal_events enable row level security;
-alter table public.project_time_entries enable row level security;
-alter table public.time_entry_tasks enable row level security;
-alter table public.project_hourly_rates enable row level security;
-alter table public.invoice_time_entry_allocations enable row level security;
-alter table public.project_credentials enable row level security;
-alter table public.project_invoices enable row level security;
-alter table public.team_member_notifications enable row level security;
-alter table public.project_context enable row level security;
-alter table public.project_budget_history enable row level security;
+alter table pm.team_members enable row level security;
+alter table pm.contacts enable row level security;
+alter table pm.projects enable row level security;
+alter table pm.project_members enable row level security;
+alter table pm.project_contacts enable row level security;
+alter table pm.tasks enable row level security;
+alter table pm.task_assignees enable row level security;
+alter table pm.task_subtasks enable row level security;
+alter table pm.task_acceptance_criteria enable row level security;
+alter table pm.task_reviews enable row level security;
+alter table pm.agent_health enable row level security;
+alter table pm.agent_health_history enable row level security;
+alter table pm.task_dependencies enable row level security;
+alter table pm.task_comments enable row level security;
+alter table pm.activities enable row level security;
+alter table pm.leads enable row level security;
+alter table pm.lead_interactions enable row level security;
+alter table pm.lead_proposals enable row level security;
+alter table pm.lead_fields enable row level security;
+alter table pm.lead_members enable row level security;
+alter table pm.lead_contacts enable row level security;
+alter table pm.portal_settings enable row level security;
+alter table pm.client_communications enable row level security;
+alter table pm.entity_files enable row level security;
+alter table pm.api_keys enable row level security;
+alter table pm.portal_updates enable row level security;
+alter table pm.portal_update_attachments enable row level security;
+alter table pm.portal_events enable row level security;
+alter table pm.project_time_entries enable row level security;
+alter table pm.time_entry_tasks enable row level security;
+alter table pm.project_hourly_rates enable row level security;
+alter table pm.invoice_time_entry_allocations enable row level security;
+alter table pm.project_credentials enable row level security;
+alter table pm.project_invoices enable row level security;
+alter table pm.team_member_notifications enable row level security;
+alter table pm.project_context enable row level security;
+alter table pm.project_budget_history enable row level security;
 
 -- All authenticated users get full CRUD on shared data
-create policy "team_members_all" on public.team_members
+create policy "team_members_all" on pm.team_members
   for all to authenticated using (true) with check (true);
 
-create policy "contacts_all" on public.contacts
+create policy "contacts_all" on pm.contacts
   for all to authenticated using (true) with check (true);
 
-create policy "projects_all" on public.projects
+create policy "projects_all" on pm.projects
   for all to authenticated using (true) with check (true);
 
-create policy "project_members_all" on public.project_members
+create policy "project_members_all" on pm.project_members
   for all to authenticated using (true) with check (true);
 
-create policy "project_contacts_all" on public.project_contacts
+create policy "project_contacts_all" on pm.project_contacts
   for all to authenticated using (true) with check (true);
 
-create policy "tasks_all" on public.tasks
+create policy "tasks_all" on pm.tasks
   for all to authenticated using (true) with check (true);
 
-create policy "task_assignees_all" on public.task_assignees
+create policy "task_assignees_all" on pm.task_assignees
   for all to authenticated using (true) with check (true);
 
-create policy "task_subtasks_all" on public.task_subtasks
+create policy "task_subtasks_all" on pm.task_subtasks
   for all to authenticated using (true) with check (true);
 
-create policy "task_comments_all" on public.task_comments
+create policy "task_comments_all" on pm.task_comments
   for all to authenticated using (true) with check (true);
 
-create policy "activities_all" on public.activities
+create policy "activities_all" on pm.activities
   for all to authenticated using (true) with check (true);
 
-create policy "leads_all" on public.leads
+create policy "leads_all" on pm.leads
   for all to authenticated using (true) with check (true);
 
-create policy "lead_interactions_all" on public.lead_interactions
+create policy "lead_interactions_all" on pm.lead_interactions
   for all to authenticated using (true) with check (true);
 
-create policy "lead_proposals_all" on public.lead_proposals
+create policy "lead_proposals_all" on pm.lead_proposals
   for all to authenticated using (true) with check (true);
 
-create policy "lead_fields_all" on public.lead_fields
+create policy "lead_fields_all" on pm.lead_fields
   for all to authenticated using (true) with check (true);
 
-create policy "lead_members_all" on public.lead_members
+create policy "lead_members_all" on pm.lead_members
   for all to authenticated using (true) with check (true);
 
-create policy "lead_contacts_all" on public.lead_contacts
+create policy "lead_contacts_all" on pm.lead_contacts
   for all to authenticated using (true) with check (true);
 
-create policy "portal_settings_all" on public.portal_settings
+create policy "portal_settings_all" on pm.portal_settings
   for all to authenticated using (true) with check (true);
 
-create policy "client_communications_all" on public.client_communications
+create policy "client_communications_all" on pm.client_communications
   for all to authenticated using (true) with check (true);
 
-create policy "project_budget_history_all" on public.project_budget_history
+create policy "project_budget_history_all" on pm.project_budget_history
   for all to authenticated using (true) with check (true);
 
-create policy "entity_files_all" on public.entity_files
+create policy "entity_files_all" on pm.entity_files
   for all to authenticated using (true) with check (true);
 
-create policy "portal_updates_all" on public.portal_updates
+create policy "portal_updates_all" on pm.portal_updates
   for all to authenticated using (true) with check (true);
 
-create policy "portal_update_attachments_all" on public.portal_update_attachments
+create policy "portal_update_attachments_all" on pm.portal_update_attachments
   for all to authenticated using (true) with check (true);
 
-create policy "portal_events_all" on public.portal_events
+create policy "portal_events_all" on pm.portal_events
   for all to authenticated using (true) with check (true);
 
-create policy "project_time_entries_all" on public.project_time_entries
+create policy "project_time_entries_all" on pm.project_time_entries
   for all to authenticated using (true) with check (true);
 
-create policy "time_entry_tasks_all" on public.time_entry_tasks
+create policy "time_entry_tasks_all" on pm.time_entry_tasks
   for all to authenticated using (true) with check (true);
 
-create policy "project_hourly_rates_all" on public.project_hourly_rates
+create policy "project_hourly_rates_all" on pm.project_hourly_rates
   for all to authenticated using (true) with check (true);
 
-create policy "invoice_time_entry_allocations_all" on public.invoice_time_entry_allocations
+create policy "invoice_time_entry_allocations_all" on pm.invoice_time_entry_allocations
   for all to authenticated using (true) with check (true);
 
-create policy "api_keys_all" on public.api_keys
+create policy "api_keys_all" on pm.api_keys
   for all to authenticated using (true) with check (true);
 
-create policy "project_credentials_all" on public.project_credentials
+create policy "project_credentials_all" on pm.project_credentials
   for all to authenticated using (true) with check (true);
 
-create policy "project_invoices_all" on public.project_invoices
+create policy "project_invoices_all" on pm.project_invoices
   for all to authenticated using (true) with check (true);
 
-create policy "project_context_all" on public.project_context
+create policy "project_context_all" on pm.project_context
   for all to authenticated using (true) with check (true);
 
 -- Users can only read/update/delete their own notifications.
 -- Any authenticated user can insert (the store creates notifications for other users).
-create policy "team_member_notifications_select_own" on public.team_member_notifications
+create policy "team_member_notifications_select_own" on pm.team_member_notifications
   for select to authenticated
-  using (user_id in (select id from public.team_members where auth_user_id = auth.uid()));
+  using (user_id in (select id from pm.team_members where auth_user_id = auth.uid()));
 
-create policy "team_member_notifications_update_own" on public.team_member_notifications
+create policy "team_member_notifications_update_own" on pm.team_member_notifications
   for update to authenticated
-  using (user_id in (select id from public.team_members where auth_user_id = auth.uid()));
+  using (user_id in (select id from pm.team_members where auth_user_id = auth.uid()));
 
-create policy "team_member_notifications_delete_own" on public.team_member_notifications
+create policy "team_member_notifications_delete_own" on pm.team_member_notifications
   for delete to authenticated
-  using (user_id in (select id from public.team_members where auth_user_id = auth.uid()));
+  using (user_id in (select id from pm.team_members where auth_user_id = auth.uid()));
 
-create policy "team_member_notifications_insert" on public.team_member_notifications
+create policy "team_member_notifications_insert" on pm.team_member_notifications
   for insert to authenticated
   with check (true);
 
@@ -2913,84 +2922,84 @@ create policy "team_member_notifications_insert" on public.team_member_notificat
 -- STORAGE: Avatars Bucket (public, 5MB limit)
 -- ============================================================
 insert into storage.buckets (id, name, public, file_size_limit)
-values ('avatars', 'avatars', true, 5242880)
+values ('pm-avatars', 'pm-avatars', true, 5242880)
 on conflict (id) do nothing;
 
-create policy "Authenticated users can upload avatars"
+create policy "pm: Authenticated users can upload avatars"
   on storage.objects for insert
   to authenticated
-  with check (bucket_id = 'avatars');
+  with check (bucket_id = 'pm-avatars');
 
-create policy "Authenticated users can update avatars"
+create policy "pm: Authenticated users can update avatars"
   on storage.objects for update
   to authenticated
-  using (bucket_id = 'avatars');
+  using (bucket_id = 'pm-avatars');
 
-create policy "Authenticated users can delete avatars"
+create policy "pm: Authenticated users can delete avatars"
   on storage.objects for delete
   to authenticated
-  using (bucket_id = 'avatars');
+  using (bucket_id = 'pm-avatars');
 
-create policy "Public can read avatars"
+create policy "pm: Public can read avatars"
   on storage.objects for select
   to public
-  using (bucket_id = 'avatars');
+  using (bucket_id = 'pm-avatars');
 
 -- ============================================================
 -- STORAGE: Portal Files Bucket (public, 50MB limit) — used by portal update attachments
 -- ============================================================
 insert into storage.buckets (id, name, public, file_size_limit)
-values ('portal-files', 'portal-files', true, 52428800)
+values ('pm-portal-files', 'pm-portal-files', true, 52428800)
 on conflict (id) do nothing;
 
-create policy "Authenticated users can upload portal files"
+create policy "pm: Authenticated users can upload portal files"
   on storage.objects for insert
   to authenticated
-  with check (bucket_id = 'portal-files');
+  with check (bucket_id = 'pm-portal-files');
 
-create policy "Authenticated users can update portal files"
+create policy "pm: Authenticated users can update portal files"
   on storage.objects for update
   to authenticated
-  using (bucket_id = 'portal-files');
+  using (bucket_id = 'pm-portal-files');
 
-create policy "Authenticated users can delete portal files"
+create policy "pm: Authenticated users can delete portal files"
   on storage.objects for delete
   to authenticated
-  using (bucket_id = 'portal-files');
+  using (bucket_id = 'pm-portal-files');
 
-create policy "Public can read portal files"
+create policy "pm: Public can read portal files"
   on storage.objects for select
   to public
-  using (bucket_id = 'portal-files');
+  using (bucket_id = 'pm-portal-files');
 
 -- ============================================================
 -- STORAGE: Entity Files Bucket (public, 50MB limit)
 -- ============================================================
 insert into storage.buckets (id, name, public, file_size_limit)
-values ('entity-files', 'entity-files', true, 52428800)
+values ('pm-entity-files', 'pm-entity-files', true, 52428800)
 on conflict (id) do nothing;
 
-create policy "Authenticated users can upload entity files"
+create policy "pm: Authenticated users can upload entity files"
   on storage.objects for insert
   to authenticated
-  with check (bucket_id = 'entity-files');
+  with check (bucket_id = 'pm-entity-files');
 
-create policy "Authenticated users can update entity files"
+create policy "pm: Authenticated users can update entity files"
   on storage.objects for update
   to authenticated
-  using (bucket_id = 'entity-files');
+  using (bucket_id = 'pm-entity-files');
 
-create policy "Authenticated users can delete entity files"
+create policy "pm: Authenticated users can delete entity files"
   on storage.objects for delete
   to authenticated
-  using (bucket_id = 'entity-files');
+  using (bucket_id = 'pm-entity-files');
 
 -- Object URLs on this public bucket skip policies, so shared links work;
 -- listing and API reads need a session.
-create policy "Authenticated users can read entity files"
+create policy "pm: Authenticated users can read entity files"
   on storage.objects for select
   to authenticated
-  using (bucket_id = 'entity-files');
+  using (bucket_id = 'pm-entity-files');
 
 -- ============================================================
 -- CURRENT TEAM ACCESS, COMPENSATION, AND PERMISSION MODEL
@@ -3011,34 +3020,34 @@ SET LOCAL statement_timeout = '10min';
 -- ---------------------------------------------------------------------------
 
 -- Fresh schema bootstrap has no legacy rows to validate.
-ALTER TABLE public.team_members
+ALTER TABLE pm.team_members
   DROP CONSTRAINT IF EXISTS team_members_role_check;
 
-ALTER TABLE public.team_members
+ALTER TABLE pm.team_members
   ADD CONSTRAINT team_members_role_check
   CHECK (role IN ('owner', 'admin', 'member', 'guest', 'agent'));
 
-ALTER TABLE public.team_members
+ALTER TABLE pm.team_members
   ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'active',
   ADD COLUMN IF NOT EXISTS suspended_at timestamptz,
-  ADD COLUMN IF NOT EXISTS suspended_by uuid REFERENCES public.team_members(id) ON DELETE SET NULL;
+  ADD COLUMN IF NOT EXISTS suspended_by uuid REFERENCES pm.team_members(id) ON DELETE SET NULL;
 
-ALTER TABLE public.team_members
+ALTER TABLE pm.team_members
   DROP CONSTRAINT IF EXISTS team_members_status_check;
 
-ALTER TABLE public.team_members
+ALTER TABLE pm.team_members
   ADD CONSTRAINT team_members_status_check CHECK (status IN ('active', 'suspended'));
 
-UPDATE public.team_members
+UPDATE pm.team_members
 SET role = 'owner'
 WHERE role = 'admin'
-  AND NOT EXISTS (SELECT 1 FROM public.team_members WHERE role = 'owner');
+  AND NOT EXISTS (SELECT 1 FROM pm.team_members WHERE role = 'owner');
 
 -- ---------------------------------------------------------------------------
 -- App and API permissions
 -- ---------------------------------------------------------------------------
 
-CREATE TABLE public.role_permissions (
+CREATE TABLE pm.role_permissions (
   role text NOT NULL CHECK (role IN ('admin', 'member', 'guest', 'agent')),
   permission_key text NOT NULL,
   access_channel text NOT NULL CHECK (access_channel IN ('app', 'api')),
@@ -3047,44 +3056,44 @@ CREATE TABLE public.role_permissions (
   PRIMARY KEY (role, permission_key, access_channel)
 );
 
-CREATE TABLE public.team_member_permissions (
-  member_id uuid NOT NULL REFERENCES public.team_members(id) ON DELETE CASCADE,
+CREATE TABLE pm.team_member_permissions (
+  member_id uuid NOT NULL REFERENCES pm.team_members(id) ON DELETE CASCADE,
   permission_key text NOT NULL,
   access_channel text NOT NULL CHECK (access_channel IN ('app', 'api')),
   effect text NOT NULL CHECK (effect IN ('allow', 'deny')),
-  created_by uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
+  created_by uuid REFERENCES pm.team_members(id) ON DELETE SET NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (member_id, permission_key, access_channel)
 );
 
 CREATE INDEX idx_team_member_permissions_member
-  ON public.team_member_permissions(member_id);
+  ON pm.team_member_permissions(member_id);
 
 CREATE TRIGGER set_role_permissions_updated_at
-  BEFORE UPDATE ON public.role_permissions
-  FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
+  BEFORE UPDATE ON pm.role_permissions
+  FOR EACH ROW EXECUTE FUNCTION pm.handle_updated_at();
 
 CREATE TRIGGER set_team_member_permissions_updated_at
-  BEFORE UPDATE ON public.team_member_permissions
-  FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
+  BEFORE UPDATE ON pm.team_member_permissions
+  FOR EACH ROW EXECUTE FUNCTION pm.handle_updated_at();
 
 -- Workspace modules (see supabase/migrations/20261120194316_workspace_modules.sql).
 -- Which modules are on. Core is always on and has no row.
-CREATE TABLE IF NOT EXISTS public.workspace_modules (
+CREATE TABLE IF NOT EXISTS pm.workspace_modules (
   module_id text PRIMARY KEY,
   enabled boolean NOT NULL DEFAULT true,
-  updated_by uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
+  updated_by uuid REFERENCES pm.team_members(id) ON DELETE SET NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
-DROP TRIGGER IF EXISTS set_workspace_modules_updated_at ON public.workspace_modules;
+DROP TRIGGER IF EXISTS set_workspace_modules_updated_at ON pm.workspace_modules;
 CREATE TRIGGER set_workspace_modules_updated_at
-  BEFORE UPDATE ON public.workspace_modules
-  FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
+  BEFORE UPDATE ON pm.workspace_modules
+  FOR EACH ROW EXECUTE FUNCTION pm.handle_updated_at();
 
-INSERT INTO public.workspace_modules (module_id) VALUES
+INSERT INTO pm.workspace_modules (module_id) VALUES
   ('time'), ('billing'), ('team_pay'), ('contacts'), ('sales'), ('portal'),
   ('inbox'), ('agents'), ('credentials'), ('webhooks')
 ON CONFLICT (module_id) DO NOTHING;
@@ -3092,7 +3101,7 @@ ON CONFLICT (module_id) DO NOTHING;
 -- Workspace brand (see supabase/migrations/20261121001500_workspace_brand.sql).
 -- 1. The brand: one row, every field optional. NULL means "use core's
 --    default", so a fresh install starts neutral and an Owner fills it in.
-CREATE TABLE IF NOT EXISTS public.workspace_brand (
+CREATE TABLE IF NOT EXISTS pm.workspace_brand (
   id boolean PRIMARY KEY DEFAULT true CHECK (id),
   name text CHECK (name IS NULL OR char_length(name) <= 60),
   tagline text CHECK (tagline IS NULL OR char_length(tagline) <= 60),
@@ -3109,44 +3118,44 @@ CREATE TABLE IF NOT EXISTS public.workspace_brand (
   show_name_under_logo boolean NOT NULL DEFAULT false,
   -- How the sidebar lists projects: 'list' (the first few) or 'menu' (all active, under Projects).
   sidebar_projects text NOT NULL DEFAULT 'list' CONSTRAINT workspace_brand_sidebar_projects_check CHECK (sidebar_projects IN ('list', 'menu')),
-  updated_by uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
+  updated_by uuid REFERENCES pm.team_members(id) ON DELETE SET NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
-DROP TRIGGER IF EXISTS set_workspace_brand_updated_at ON public.workspace_brand;
+DROP TRIGGER IF EXISTS set_workspace_brand_updated_at ON pm.workspace_brand;
 CREATE TRIGGER set_workspace_brand_updated_at
-  BEFORE UPDATE ON public.workspace_brand
-  FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
+  BEFORE UPDATE ON pm.workspace_brand
+  FOR EACH ROW EXECUTE FUNCTION pm.handle_updated_at();
 
-INSERT INTO public.workspace_brand (id) VALUES (true) ON CONFLICT (id) DO NOTHING;
+INSERT INTO pm.workspace_brand (id) VALUES (true) ON CONFLICT (id) DO NOTHING;
 
 -- 2. Anyone may read it: the sign-in page, the client portal and emails show
 --    the brand before anyone signs in, and it holds nothing private. Only the
 --    app's Owner-only route writes it, with the service role.
-ALTER TABLE public.workspace_brand ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS workspace_brand_read ON public.workspace_brand;
-CREATE POLICY workspace_brand_read ON public.workspace_brand
+ALTER TABLE pm.workspace_brand ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS workspace_brand_read ON pm.workspace_brand;
+CREATE POLICY workspace_brand_read ON pm.workspace_brand
   FOR SELECT TO anon, authenticated USING (true);
-REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON public.workspace_brand FROM anon, authenticated;
+REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON pm.workspace_brand FROM anon, authenticated;
 
 -- 3. Logos and the favicon: a public bucket written only by the service role
 --    (no storage policies for anon or authenticated). PNG, JPEG and ICO only:
 --    emails and invoice PDFs cannot show SVG, and an SVG in a public bucket
 --    could carry script.
 INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
-VALUES ('brand', 'brand', true, 2097152, ARRAY['image/png', 'image/jpeg', 'image/x-icon', 'image/vnd.microsoft.icon'])
+VALUES ('pm-brand', 'pm-brand', true, 2097152, ARRAY['image/png', 'image/jpeg', 'image/x-icon', 'image/vnd.microsoft.icon'])
 ON CONFLICT (id) DO NOTHING;
 
 -- The module each permission belongs to. A permission with no row is core.
 -- Mirrors PERMISSION_MODULE in src/lib/modules/registry.ts (test:modules
 -- checks they agree).
-CREATE TABLE IF NOT EXISTS public.permission_modules (
+CREATE TABLE IF NOT EXISTS pm.permission_modules (
   permission_key text PRIMARY KEY,
-  module_id text NOT NULL REFERENCES public.workspace_modules(module_id)
+  module_id text NOT NULL REFERENCES pm.workspace_modules(module_id)
 );
 
-INSERT INTO public.permission_modules (permission_key, module_id) VALUES
+INSERT INTO pm.permission_modules (permission_key, module_id) VALUES
   ('time.manage_own', 'time'), ('time.read_all', 'time'), ('time.manage_all', 'time'), ('time.approve', 'time'),
   ('contacts.read', 'contacts'), ('contacts.read_all', 'contacts'), ('contacts.manage', 'contacts'),
   ('leads.read', 'sales'), ('leads.read_all', 'sales'), ('leads.manage', 'sales'),
@@ -3164,7 +3173,7 @@ INSERT INTO public.permission_modules (permission_key, module_id) VALUES
   ('suggestions.manage', 'agents'), ('agent_activity.write', 'agents'), ('fleet_alerts.write', 'agents')
 ON CONFLICT (permission_key) DO UPDATE SET module_id = EXCLUDED.module_id;
 
-INSERT INTO public.role_permissions (role, permission_key, access_channel)
+INSERT INTO pm.role_permissions (role, permission_key, access_channel)
 VALUES
   -- Admin app permissions. Access policy and Owner lifecycle remain Owner-only.
   ('admin','team.read','app'), ('admin','team.manage','app'),
@@ -3251,60 +3260,60 @@ ON CONFLICT DO NOTHING;
 -- API key evolution
 -- ---------------------------------------------------------------------------
 
-ALTER TABLE public.api_keys
-  ADD COLUMN IF NOT EXISTS team_member_id uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
+ALTER TABLE pm.api_keys
+  ADD COLUMN IF NOT EXISTS team_member_id uuid REFERENCES pm.team_members(id) ON DELETE SET NULL,
   ADD COLUMN IF NOT EXISTS scopes text[] NOT NULL DEFAULT '{}',
   ADD COLUMN IF NOT EXISTS expires_at timestamptz,
   ADD COLUMN IF NOT EXISTS disabled_at timestamptz;
 
-ALTER TABLE public.api_keys
+ALTER TABLE pm.api_keys
   DROP CONSTRAINT IF EXISTS api_keys_permissions_check;
-ALTER TABLE public.api_keys
+ALTER TABLE pm.api_keys
   ADD CONSTRAINT api_keys_permissions_check CHECK (permissions IN ('full', 'read_only', 'scoped'));
 
-CREATE INDEX IF NOT EXISTS idx_api_keys_team_member_id ON public.api_keys(team_member_id);
+CREATE INDEX IF NOT EXISTS idx_api_keys_team_member_id ON pm.api_keys(team_member_id);
 
 -- Existing keys are unused and cannot be safely translated from full/read-only.
-UPDATE public.api_keys
+UPDATE pm.api_keys
 SET revoked_at = COALESCE(revoked_at, now());
 
-ALTER TABLE public.business_settings
+ALTER TABLE pm.business_settings
   ADD COLUMN IF NOT EXISTS api_enabled boolean NOT NULL DEFAULT true;
 
 -- ---------------------------------------------------------------------------
 -- Project time configuration and approval lifecycle
 -- ---------------------------------------------------------------------------
 
-ALTER TABLE public.projects
+ALTER TABLE pm.projects
   ADD COLUMN IF NOT EXISTS time_tracking_enabled boolean NOT NULL DEFAULT false,
   ADD COLUMN IF NOT EXISTS client_time_billing text NOT NULL DEFAULT 'included';
 
-ALTER TABLE public.projects
+ALTER TABLE pm.projects
   DROP CONSTRAINT IF EXISTS projects_client_time_billing_check;
 
-ALTER TABLE public.projects
+ALTER TABLE pm.projects
   ADD CONSTRAINT projects_client_time_billing_check
   CHECK (client_time_billing IN ('hourly', 'included'));
 
-UPDATE public.projects
+UPDATE pm.projects
 SET time_tracking_enabled = hourly_tracking,
     client_time_billing = CASE WHEN hourly_tracking THEN 'hourly' ELSE 'included' END;
 
-ALTER TABLE public.project_time_entries
+ALTER TABLE pm.project_time_entries
   ADD COLUMN IF NOT EXISTS work_type text NOT NULL DEFAULT 'client',
   ADD COLUMN IF NOT EXISTS approval_status text NOT NULL DEFAULT 'draft',
   ADD COLUMN IF NOT EXISTS submitted_at timestamptz,
   ADD COLUMN IF NOT EXISTS approved_at timestamptz,
-  ADD COLUMN IF NOT EXISTS approved_by uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
+  ADD COLUMN IF NOT EXISTS approved_by uuid REFERENCES pm.team_members(id) ON DELETE SET NULL,
   ADD COLUMN IF NOT EXISTS rejection_reason text,
   ADD COLUMN IF NOT EXISTS compensation_rate numeric(10,2) NOT NULL DEFAULT 0;
 
-ALTER TABLE public.project_time_entries
+ALTER TABLE pm.project_time_entries
   DROP CONSTRAINT IF EXISTS project_time_entries_work_type_check,
   DROP CONSTRAINT IF EXISTS project_time_entries_approval_status_check,
   DROP CONSTRAINT IF EXISTS project_time_entries_compensation_rate_check;
 
-ALTER TABLE public.project_time_entries
+ALTER TABLE pm.project_time_entries
   ADD CONSTRAINT project_time_entries_work_type_check CHECK (work_type IN ('client', 'internal')),
   ADD CONSTRAINT project_time_entries_approval_status_check
     CHECK (approval_status IN ('draft', 'pending', 'approved', 'rejected')),
@@ -3314,15 +3323,15 @@ DO $$
 DECLARE
   owner_id uuid;
 BEGIN
-  SELECT id INTO owner_id FROM public.team_members WHERE role = 'owner' ORDER BY created_at LIMIT 1;
+  SELECT id INTO owner_id FROM pm.team_members WHERE role = 'owner' ORDER BY created_at LIMIT 1;
 
   IF EXISTS (
-    SELECT 1 FROM public.project_time_entries WHERE member_id IS DISTINCT FROM owner_id
+    SELECT 1 FROM pm.project_time_entries WHERE member_id IS DISTINCT FROM owner_id
   ) THEN
     RAISE EXCEPTION 'Historical time contains a non-Owner member; manual compensation backfill required';
   END IF;
 
-  UPDATE public.project_time_entries
+  UPDATE pm.project_time_entries
   SET approval_status = CASE WHEN end_time IS NULL THEN 'draft' ELSE 'approved' END,
       submitted_at = CASE WHEN end_time IS NULL THEN NULL ELSE COALESCE(updated_at, created_at) END,
       approved_at = CASE WHEN end_time IS NULL THEN NULL ELSE COALESCE(updated_at, created_at) END,
@@ -3331,28 +3340,28 @@ BEGIN
 END;
 $$;
 
-CREATE TABLE public.team_member_hourly_rates (
+CREATE TABLE pm.team_member_hourly_rates (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  member_id uuid NOT NULL REFERENCES public.team_members(id) ON DELETE CASCADE,
+  member_id uuid NOT NULL REFERENCES pm.team_members(id) ON DELETE CASCADE,
   hourly_rate numeric(10,2) NOT NULL CHECK (hourly_rate >= 0),
   effective_at timestamptz NOT NULL,
-  created_by uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
+  created_by uuid REFERENCES pm.team_members(id) ON DELETE SET NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
   UNIQUE (member_id, effective_at)
 );
 
-CREATE TABLE public.team_member_earning_adjustments (
+CREATE TABLE pm.team_member_earning_adjustments (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  member_id uuid NOT NULL REFERENCES public.team_members(id) ON DELETE RESTRICT,
+  member_id uuid NOT NULL REFERENCES pm.team_members(id) ON DELETE RESTRICT,
   adjustment_type text NOT NULL CHECK (adjustment_type IN ('bonus', 'deduction')),
   amount numeric(12,2) NOT NULL CHECK (amount > 0),
   effective_date date NOT NULL,
-  project_id uuid REFERENCES public.projects(id) ON DELETE SET NULL,
+  project_id uuid REFERENCES pm.projects(id) ON DELETE SET NULL,
   description text NOT NULL DEFAULT '',
-  created_by uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
+  created_by uuid REFERENCES pm.team_members(id) ON DELETE SET NULL,
   voided_at timestamptz,
-  voided_by uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
+  voided_by uuid REFERENCES pm.team_members(id) ON DELETE SET NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
@@ -3364,9 +3373,9 @@ CREATE TABLE public.team_member_earning_adjustments (
 -- in project_invoices.line_items: that JSON reaches the portal, webhooks and API.
 -- ---------------------------------------------------------------------------
 
-CREATE TABLE public.project_retainers (
+CREATE TABLE pm.project_retainers (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  project_id uuid NOT NULL REFERENCES public.projects(id) ON DELETE CASCADE,
+  project_id uuid NOT NULL REFERENCES pm.projects(id) ON DELETE CASCADE,
   name text NOT NULL CHECK (length(btrim(name)) > 0),
   -- advance: the bill date is the period start and the line covers the coming
   -- month. arrears: the bill date is the day after the period ends.
@@ -3377,57 +3386,57 @@ CREATE TABLE public.project_retainers (
   status text NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'paused')),
   -- The draft appears this many days before the bill date.
   lead_days integer NOT NULL DEFAULT 1 CHECK (lead_days BETWEEN 0 AND 28),
-  created_by uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
+  created_by uuid REFERENCES pm.team_members(id) ON DELETE SET NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
   -- Trash: when it was deleted and by whom (null = live). Rows are never
   -- removed; see the Soft delete section.
   deleted_at timestamptz,
-  deleted_by uuid references public.team_members(id) on delete set null
+  deleted_by uuid references pm.team_members(id) on delete set null
 );
 
 -- Dated amount history, same shape as team_member_hourly_rates. A period bills
 -- at the amount effective on its start date.
-CREATE TABLE public.project_retainer_amounts (
+CREATE TABLE pm.project_retainer_amounts (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  retainer_id uuid NOT NULL REFERENCES public.project_retainers(id) ON DELETE CASCADE,
+  retainer_id uuid NOT NULL REFERENCES pm.project_retainers(id) ON DELETE CASCADE,
   amount numeric(12,2) NOT NULL CHECK (amount >= 0),
   effective_date date NOT NULL,
-  created_by uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
+  created_by uuid REFERENCES pm.team_members(id) ON DELETE SET NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
   -- Trash: when it was deleted and by whom (null = live). Rows are never
   -- removed; see the Soft delete section.
   deleted_at timestamptz,
-  deleted_by uuid references public.team_members(id) on delete set null
+  deleted_by uuid references pm.team_members(id) on delete set null
 );
 
 -- Among live rows: a row in Trash does not block a new one.
 CREATE UNIQUE INDEX project_retainer_amounts_live_effective_key
-  ON public.project_retainer_amounts (retainer_id, effective_date) WHERE deleted_at IS NULL;
+  ON pm.project_retainer_amounts (retainer_id, effective_date) WHERE deleted_at IS NULL;
 
 -- Who shares in a retainer, and from when. A line takes the split effective on
 -- its period start.
-CREATE TABLE public.project_retainer_shares (
+CREATE TABLE pm.project_retainer_shares (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  retainer_id uuid NOT NULL REFERENCES public.project_retainers(id) ON DELETE CASCADE,
-  member_id uuid NOT NULL REFERENCES public.team_members(id) ON DELETE RESTRICT,
+  retainer_id uuid NOT NULL REFERENCES pm.project_retainers(id) ON DELETE CASCADE,
+  member_id uuid NOT NULL REFERENCES pm.team_members(id) ON DELETE RESTRICT,
   percent numeric(5,2) NOT NULL CHECK (percent > 0 AND percent <= 100),
   effective_from date NOT NULL,
   effective_to date CHECK (effective_to IS NULL OR effective_to >= effective_from),
-  created_by uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
+  created_by uuid REFERENCES pm.team_members(id) ON DELETE SET NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
 -- One row per period that has been dealt with: on an invoice, or skipped. The
 -- unique key is the no-double-billing guard. A period with no row is still due.
-CREATE TABLE public.project_retainer_periods (
+CREATE TABLE pm.project_retainer_periods (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  retainer_id uuid NOT NULL REFERENCES public.project_retainers(id) ON DELETE CASCADE,
+  retainer_id uuid NOT NULL REFERENCES pm.project_retainers(id) ON DELETE CASCADE,
   period_start date NOT NULL,
   period_end date NOT NULL,
   status text NOT NULL CHECK (status IN ('invoiced', 'skipped')),
-  invoice_id uuid REFERENCES public.project_invoices(id) ON DELETE SET NULL,
+  invoice_id uuid REFERENCES pm.project_invoices(id) ON DELETE SET NULL,
   line_item_id text,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
@@ -3437,11 +3446,11 @@ CREATE TABLE public.project_retainer_periods (
 
 -- The split frozen onto an invoice line. line_item_id is the stable id stored
 -- in project_invoices.line_items, as in invoice_time_entry_allocations.
-CREATE TABLE public.invoice_line_shares (
+CREATE TABLE pm.invoice_line_shares (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  invoice_id uuid NOT NULL REFERENCES public.project_invoices(id) ON DELETE CASCADE,
+  invoice_id uuid NOT NULL REFERENCES pm.project_invoices(id) ON DELETE CASCADE,
   line_item_id text NOT NULL,
-  member_id uuid NOT NULL REFERENCES public.team_members(id) ON DELETE RESTRICT,
+  member_id uuid NOT NULL REFERENCES pm.team_members(id) ON DELETE RESTRICT,
   percent numeric(5,2) NOT NULL CHECK (percent > 0 AND percent <= 100),
   created_at timestamptz NOT NULL DEFAULT now(),
   UNIQUE (invoice_id, line_item_id, member_id)
@@ -3451,12 +3460,12 @@ CREATE TABLE public.invoice_line_shares (
 -- voided_at: retired before any payout touched it. reversed_at: retired after
 -- a payout; the row stays so that payout still validates, and a deduction
 -- adjustment carries the clawback.
-CREATE TABLE public.team_member_share_earnings (
+CREATE TABLE pm.team_member_share_earnings (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  member_id uuid NOT NULL REFERENCES public.team_members(id) ON DELETE RESTRICT,
-  project_id uuid REFERENCES public.projects(id) ON DELETE SET NULL,
-  retainer_id uuid REFERENCES public.project_retainers(id) ON DELETE SET NULL,
-  invoice_id uuid REFERENCES public.project_invoices(id) ON DELETE SET NULL,
+  member_id uuid NOT NULL REFERENCES pm.team_members(id) ON DELETE RESTRICT,
+  project_id uuid REFERENCES pm.projects(id) ON DELETE SET NULL,
+  retainer_id uuid REFERENCES pm.project_retainers(id) ON DELETE SET NULL,
+  invoice_id uuid REFERENCES pm.project_invoices(id) ON DELETE SET NULL,
   line_item_id text NOT NULL,
   invoice_number text NOT NULL DEFAULT '',
   description text NOT NULL DEFAULT '',
@@ -3466,32 +3475,32 @@ CREATE TABLE public.team_member_share_earnings (
   earned_date date NOT NULL,
   voided_at timestamptz,
   reversed_at timestamptz,
-  reversal_adjustment_id uuid REFERENCES public.team_member_earning_adjustments(id) ON DELETE SET NULL,
+  reversal_adjustment_id uuid REFERENCES pm.team_member_earning_adjustments(id) ON DELETE SET NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE TABLE public.team_member_payouts (
+CREATE TABLE pm.team_member_payouts (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  member_id uuid NOT NULL REFERENCES public.team_members(id) ON DELETE RESTRICT,
+  member_id uuid NOT NULL REFERENCES pm.team_members(id) ON DELETE RESTRICT,
   payment_date date NOT NULL,
   amount numeric(12,2) NOT NULL CHECK (amount >= 0),
   payment_method text NOT NULL DEFAULT '',
   reference text NOT NULL DEFAULT '',
   notes text NOT NULL DEFAULT '',
-  created_by uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
+  created_by uuid REFERENCES pm.team_members(id) ON DELETE SET NULL,
   voided_at timestamptz,
-  voided_by uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
+  voided_by uuid REFERENCES pm.team_members(id) ON DELETE SET NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE TABLE public.team_member_payout_allocations (
+CREATE TABLE pm.team_member_payout_allocations (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  payout_id uuid NOT NULL REFERENCES public.team_member_payouts(id) ON DELETE CASCADE,
-  time_entry_id uuid REFERENCES public.project_time_entries(id) ON DELETE RESTRICT,
-  adjustment_id uuid REFERENCES public.team_member_earning_adjustments(id) ON DELETE RESTRICT,
-  share_earning_id uuid REFERENCES public.team_member_share_earnings(id) ON DELETE RESTRICT,
+  payout_id uuid NOT NULL REFERENCES pm.team_member_payouts(id) ON DELETE CASCADE,
+  time_entry_id uuid REFERENCES pm.project_time_entries(id) ON DELETE RESTRICT,
+  adjustment_id uuid REFERENCES pm.team_member_earning_adjustments(id) ON DELETE RESTRICT,
+  share_earning_id uuid REFERENCES pm.team_member_share_earnings(id) ON DELETE RESTRICT,
   allocated_amount numeric(12,2) NOT NULL CHECK (allocated_amount <> 0),
   created_at timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT team_member_payout_allocations_one_source
@@ -3501,106 +3510,106 @@ CREATE TABLE public.team_member_payout_allocations (
 );
 
 CREATE INDEX idx_team_member_hourly_rates_lookup
-  ON public.team_member_hourly_rates(member_id, effective_at DESC);
+  ON pm.team_member_hourly_rates(member_id, effective_at DESC);
 CREATE INDEX idx_team_member_earning_adjustments_member
-  ON public.team_member_earning_adjustments(member_id, effective_date DESC);
+  ON pm.team_member_earning_adjustments(member_id, effective_date DESC);
 CREATE INDEX idx_team_member_payouts_member
-  ON public.team_member_payouts(member_id, payment_date DESC);
+  ON pm.team_member_payouts(member_id, payment_date DESC);
 CREATE INDEX idx_team_member_payout_allocations_payout
-  ON public.team_member_payout_allocations(payout_id);
+  ON pm.team_member_payout_allocations(payout_id);
 CREATE INDEX idx_team_member_payout_allocations_time_entry
-  ON public.team_member_payout_allocations(time_entry_id) WHERE time_entry_id IS NOT NULL;
+  ON pm.team_member_payout_allocations(time_entry_id) WHERE time_entry_id IS NOT NULL;
 CREATE INDEX idx_team_member_payout_allocations_adjustment
-  ON public.team_member_payout_allocations(adjustment_id) WHERE adjustment_id IS NOT NULL;
+  ON pm.team_member_payout_allocations(adjustment_id) WHERE adjustment_id IS NOT NULL;
 
 CREATE TRIGGER set_team_member_hourly_rates_updated_at
-  BEFORE UPDATE ON public.team_member_hourly_rates
-  FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
+  BEFORE UPDATE ON pm.team_member_hourly_rates
+  FOR EACH ROW EXECUTE FUNCTION pm.handle_updated_at();
 CREATE TRIGGER set_team_member_earning_adjustments_updated_at
-  BEFORE UPDATE ON public.team_member_earning_adjustments
-  FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
+  BEFORE UPDATE ON pm.team_member_earning_adjustments
+  FOR EACH ROW EXECUTE FUNCTION pm.handle_updated_at();
 CREATE TRIGGER set_team_member_payouts_updated_at
-  BEFORE UPDATE ON public.team_member_payouts
-  FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
+  BEFORE UPDATE ON pm.team_member_payouts
+  FOR EACH ROW EXECUTE FUNCTION pm.handle_updated_at();
 
 CREATE INDEX idx_project_retainers_project
-  ON public.project_retainers(project_id);
+  ON pm.project_retainers(project_id);
 CREATE INDEX idx_project_retainer_shares_retainer
-  ON public.project_retainer_shares(retainer_id, effective_from);
+  ON pm.project_retainer_shares(retainer_id, effective_from);
 CREATE INDEX idx_project_retainer_periods_invoice
-  ON public.project_retainer_periods(invoice_id) WHERE invoice_id IS NOT NULL;
+  ON pm.project_retainer_periods(invoice_id) WHERE invoice_id IS NOT NULL;
 CREATE INDEX idx_invoice_line_shares_member
-  ON public.invoice_line_shares(member_id);
+  ON pm.invoice_line_shares(member_id);
 CREATE INDEX idx_team_member_share_earnings_member
-  ON public.team_member_share_earnings(member_id, earned_date DESC);
+  ON pm.team_member_share_earnings(member_id, earned_date DESC);
 CREATE INDEX idx_team_member_share_earnings_invoice
-  ON public.team_member_share_earnings(invoice_id) WHERE invoice_id IS NOT NULL;
+  ON pm.team_member_share_earnings(invoice_id) WHERE invoice_id IS NOT NULL;
 CREATE UNIQUE INDEX idx_team_member_share_earnings_active
-  ON public.team_member_share_earnings(invoice_id, line_item_id, member_id)
+  ON pm.team_member_share_earnings(invoice_id, line_item_id, member_id)
   WHERE voided_at IS NULL AND reversed_at IS NULL;
 CREATE INDEX idx_team_member_payout_allocations_share_earning
-  ON public.team_member_payout_allocations(share_earning_id) WHERE share_earning_id IS NOT NULL;
+  ON pm.team_member_payout_allocations(share_earning_id) WHERE share_earning_id IS NOT NULL;
 
 CREATE TRIGGER set_project_retainers_updated_at
-  BEFORE UPDATE ON public.project_retainers
-  FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
+  BEFORE UPDATE ON pm.project_retainers
+  FOR EACH ROW EXECUTE FUNCTION pm.handle_updated_at();
 CREATE TRIGGER set_project_retainer_shares_updated_at
-  BEFORE UPDATE ON public.project_retainer_shares
-  FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
+  BEFORE UPDATE ON pm.project_retainer_shares
+  FOR EACH ROW EXECUTE FUNCTION pm.handle_updated_at();
 CREATE TRIGGER set_project_retainer_periods_updated_at
-  BEFORE UPDATE ON public.project_retainer_periods
-  FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
+  BEFORE UPDATE ON pm.project_retainer_periods
+  FOR EACH ROW EXECUTE FUNCTION pm.handle_updated_at();
 CREATE TRIGGER set_team_member_share_earnings_updated_at
-  BEFORE UPDATE ON public.team_member_share_earnings
-  FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
+  BEFORE UPDATE ON pm.team_member_share_earnings
+  FOR EACH ROW EXECUTE FUNCTION pm.handle_updated_at();
 
 -- Owner rate is explicit and remains zero unless ownership changes.
-INSERT INTO public.team_member_hourly_rates (member_id, hourly_rate, effective_at, created_by)
-SELECT id, 0, created_at, id FROM public.team_members WHERE role = 'owner'
+INSERT INTO pm.team_member_hourly_rates (member_id, hourly_rate, effective_at, created_by)
+SELECT id, 0, created_at, id FROM pm.team_members WHERE role = 'owner'
 ON CONFLICT DO NOTHING;
 
 -- ---------------------------------------------------------------------------
 -- Per-credential sharing
 -- ---------------------------------------------------------------------------
 
-CREATE TABLE public.project_credential_members (
-  credential_id uuid NOT NULL REFERENCES public.project_credentials(id) ON DELETE CASCADE,
-  member_id uuid NOT NULL REFERENCES public.team_members(id) ON DELETE CASCADE,
-  granted_by uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
+CREATE TABLE pm.project_credential_members (
+  credential_id uuid NOT NULL REFERENCES pm.project_credentials(id) ON DELETE CASCADE,
+  member_id uuid NOT NULL REFERENCES pm.team_members(id) ON DELETE CASCADE,
+  granted_by uuid REFERENCES pm.team_members(id) ON DELETE SET NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (credential_id, member_id)
 );
 
 CREATE INDEX idx_project_credential_members_member
-  ON public.project_credential_members(member_id);
+  ON pm.project_credential_members(member_id);
 
 -- ---------------------------------------------------------------------------
 -- Access helpers. Each helper has a fixed search path and bypasses recursive RLS.
 -- ---------------------------------------------------------------------------
 
-CREATE OR REPLACE FUNCTION public.current_team_member_id()
+CREATE OR REPLACE FUNCTION pm.current_team_member_id()
 RETURNS uuid
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
   SELECT id
-  FROM public.team_members
+  FROM pm.team_members
   WHERE auth_user_id = auth.uid()
     AND status = 'active'
   LIMIT 1
 $$;
 
-CREATE OR REPLACE FUNCTION public.current_team_member_role()
+CREATE OR REPLACE FUNCTION pm.current_team_member_role()
 RETURNS text
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
   SELECT role
-  FROM public.team_members
+  FROM pm.team_members
   WHERE auth_user_id = auth.uid() AND status = 'active'
   LIMIT 1
 $$;
@@ -3612,7 +3621,7 @@ $$;
 -- plans keep the currency they were made in.
 -- ============================================================
 
-CREATE TABLE IF NOT EXISTS public.workspace_region (
+CREATE TABLE IF NOT EXISTS pm.workspace_region (
   id boolean PRIMARY KEY DEFAULT true CHECK (id),
   -- ISO 4217: new invoices, retainers and billing plans take it; pay and totals show in it.
   currency text NOT NULL DEFAULT 'USD' CHECK (currency ~ '^[A-Z]{3}$'),
@@ -3625,46 +3634,46 @@ CREATE TABLE IF NOT EXISTS public.workspace_region (
   -- writes amounts in activity lines, Trash and billing notices the way the
   -- app shows them.
   money_format jsonb CHECK (money_format IS NULL OR jsonb_typeof(money_format) = 'object'),
-  updated_by uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
+  updated_by uuid REFERENCES pm.team_members(id) ON DELETE SET NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
-DROP TRIGGER IF EXISTS set_workspace_region_updated_at ON public.workspace_region;
+DROP TRIGGER IF EXISTS set_workspace_region_updated_at ON pm.workspace_region;
 CREATE TRIGGER set_workspace_region_updated_at
-  BEFORE UPDATE ON public.workspace_region
-  FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
+  BEFORE UPDATE ON pm.workspace_region
+  FOR EACH ROW EXECUTE FUNCTION pm.handle_updated_at();
 
-INSERT INTO public.workspace_region (id, money_format)
+INSERT INTO pm.workspace_region (id, money_format)
 VALUES (true, '{"prefix":"$","suffix":"","negative_prefix":"-$","negative_suffix":"","group":",","decimal":".","digits":2,"min_group":1,"secondary_group":3}'::jsonb)
 ON CONFLICT (id) DO NOTHING;
 
 -- Every active member reads it (every screen shows amounts); only Owners
 -- write it. The client portal, emails and PDFs read it with the service role.
-ALTER TABLE public.workspace_region ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS workspace_region_read ON public.workspace_region;
-CREATE POLICY workspace_region_read ON public.workspace_region
-  FOR SELECT TO authenticated USING ((select public.current_team_member_id()) IS NOT NULL);
-DROP POLICY IF EXISTS workspace_region_owner_insert ON public.workspace_region;
-CREATE POLICY workspace_region_owner_insert ON public.workspace_region
-  FOR INSERT TO authenticated WITH CHECK (public.current_team_member_role() = 'owner');
-DROP POLICY IF EXISTS workspace_region_owner_update ON public.workspace_region;
-CREATE POLICY workspace_region_owner_update ON public.workspace_region
+ALTER TABLE pm.workspace_region ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS workspace_region_read ON pm.workspace_region;
+CREATE POLICY workspace_region_read ON pm.workspace_region
+  FOR SELECT TO authenticated USING ((select pm.current_team_member_id()) IS NOT NULL);
+DROP POLICY IF EXISTS workspace_region_owner_insert ON pm.workspace_region;
+CREATE POLICY workspace_region_owner_insert ON pm.workspace_region
+  FOR INSERT TO authenticated WITH CHECK (pm.current_team_member_role() = 'owner');
+DROP POLICY IF EXISTS workspace_region_owner_update ON pm.workspace_region;
+CREATE POLICY workspace_region_owner_update ON pm.workspace_region
   FOR UPDATE TO authenticated
-  USING (public.current_team_member_role() = 'owner')
-  WITH CHECK (public.current_team_member_role() = 'owner');
-REVOKE ALL ON public.workspace_region FROM anon;
-REVOKE DELETE, TRUNCATE ON public.workspace_region FROM authenticated;
+  USING (pm.current_team_member_role() = 'owner')
+  WITH CHECK (pm.current_team_member_role() = 'owner');
+REVOKE ALL ON pm.workspace_region FROM anon;
+REVOKE DELETE, TRUNCATE ON pm.workspace_region FROM authenticated;
 
 -- The currency a new invoice, retainer or billing plan is stamped with.
-CREATE OR REPLACE FUNCTION public.workspace_currency()
+CREATE OR REPLACE FUNCTION pm.workspace_currency()
 RETURNS text
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
-  SELECT COALESCE((SELECT currency FROM public.workspace_region LIMIT 1), 'USD')
+  SELECT COALESCE((SELECT currency FROM pm.workspace_region LIMIT 1), 'USD')
 $$;
 
 -- An amount as the app shows it (src/lib/format.ts). By default a total, as
@@ -3673,12 +3682,12 @@ $$;
 -- rate), as formatMoneyExact: always the currency's decimals. The workspace
 -- currency follows the saved pattern; another currency (an invoice issued
 -- before a change) shows its code where the symbol goes.
-CREATE OR REPLACE FUNCTION public.format_money(p_amount numeric, p_currency text DEFAULT NULL, p_exact boolean DEFAULT false)
+CREATE OR REPLACE FUNCTION pm.format_money(p_amount numeric, p_currency text DEFAULT NULL, p_exact boolean DEFAULT false)
 RETURNS text
 LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
 DECLARE
   home text;
@@ -3699,7 +3708,7 @@ DECLARE
   negative_prefix text;
   negative_suffix text;
 BEGIN
-  SELECT currency, money_format INTO home, pattern FROM public.workspace_region LIMIT 1;
+  SELECT currency, money_format INTO home, pattern FROM pm.workspace_region LIMIT 1;
   home := COALESCE(home, 'USD');
   code := upper(COALESCE(NULLIF(btrim(p_currency), ''), home));
   own := code = home AND jsonb_typeof(pattern) = 'object';
@@ -3758,46 +3767,46 @@ BEGIN
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.workspace_currency() FROM PUBLIC, anon;
-REVOKE ALL ON FUNCTION public.format_money(numeric, text, boolean) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.workspace_currency() TO authenticated, service_role;
-GRANT EXECUTE ON FUNCTION public.format_money(numeric, text, boolean) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.workspace_currency() FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION pm.format_money(numeric, text, boolean) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION pm.workspace_currency() TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.format_money(numeric, text, boolean) TO authenticated, service_role;
 
 -- Money for a client keeps the currency it was made in, so a later workspace
 -- change never relabels history. Billing plans carry theirs in the table.
-ALTER TABLE public.project_invoices
-  ADD COLUMN IF NOT EXISTS currency text NOT NULL DEFAULT public.workspace_currency() CHECK (currency ~ '^[A-Z]{3}$');
-ALTER TABLE public.project_retainers
-  ADD COLUMN IF NOT EXISTS currency text NOT NULL DEFAULT public.workspace_currency() CHECK (currency ~ '^[A-Z]{3}$');
+ALTER TABLE pm.project_invoices
+  ADD COLUMN IF NOT EXISTS currency text NOT NULL DEFAULT pm.workspace_currency() CHECK (currency ~ '^[A-Z]{3}$');
+ALTER TABLE pm.project_retainers
+  ADD COLUMN IF NOT EXISTS currency text NOT NULL DEFAULT pm.workspace_currency() CHECK (currency ~ '^[A-Z]{3}$');
 
 -- module_enabled(): for cron jobs and service-role code paths that skip RLS.
-CREATE OR REPLACE FUNCTION public.module_enabled(p_module_id text)
+CREATE OR REPLACE FUNCTION pm.module_enabled(p_module_id text)
 RETURNS boolean
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
-  SELECT COALESCE((SELECT enabled FROM public.workspace_modules WHERE module_id = p_module_id), true)
+  SELECT COALESCE((SELECT enabled FROM pm.workspace_modules WHERE module_id = p_module_id), true)
 $$;
 
-CREATE OR REPLACE FUNCTION public.has_permission(p_permission_key text, p_access_channel text DEFAULT 'app')
+CREATE OR REPLACE FUNCTION pm.has_permission(p_permission_key text, p_access_channel text DEFAULT 'app')
 RETURNS boolean
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
   WITH actor AS (
     SELECT id, role
-    FROM public.team_members
+    FROM pm.team_members
     WHERE auth_user_id = auth.uid() AND status = 'active'
     LIMIT 1
   )
   SELECT COALESCE(
     (SELECT module.enabled
-     FROM public.permission_modules permission_module
-     JOIN public.workspace_modules module ON module.module_id = permission_module.module_id
+     FROM pm.permission_modules permission_module
+     JOIN pm.workspace_modules module ON module.module_id = permission_module.module_id
      WHERE permission_module.permission_key = p_permission_key),
     true
   ) AND (
@@ -3805,13 +3814,13 @@ AS $$
       (SELECT role = 'owner' FROM actor), false
     ) OR COALESCE(
       (SELECT effect = 'allow'
-       FROM public.team_member_permissions override_permission, actor
+       FROM pm.team_member_permissions override_permission, actor
        WHERE override_permission.member_id = actor.id
          AND override_permission.permission_key = p_permission_key
          AND override_permission.access_channel = p_access_channel),
       EXISTS (
         SELECT 1
-        FROM public.role_permissions role_permission, actor
+        FROM pm.role_permissions role_permission, actor
         WHERE role_permission.role = actor.role
           AND role_permission.permission_key = p_permission_key
           AND role_permission.access_channel = p_access_channel
@@ -3820,41 +3829,41 @@ AS $$
   )
 $$;
 
-CREATE OR REPLACE FUNCTION public.can_access_project(p_project_id uuid)
+CREATE OR REPLACE FUNCTION pm.can_access_project(p_project_id uuid)
 RETURNS boolean
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
-  SELECT EXISTS (SELECT 1 FROM public.projects WHERE id = p_project_id AND deleted_at IS NULL)
+  SELECT EXISTS (SELECT 1 FROM pm.projects WHERE id = p_project_id AND deleted_at IS NULL)
     AND (
-      public.has_permission('projects.read_all', 'app')
+      pm.has_permission('projects.read_all', 'app')
       OR (
-        public.has_permission('projects.read', 'app')
+        pm.has_permission('projects.read', 'app')
         AND EXISTS (
-          SELECT 1 FROM public.project_members
+          SELECT 1 FROM pm.project_members
           WHERE project_id = p_project_id
-            AND member_id = public.current_team_member_id()
+            AND member_id = pm.current_team_member_id()
         )
       )
     )
 $$;
 
-CREATE OR REPLACE FUNCTION public.can_access_lead(p_lead_id uuid)
+CREATE OR REPLACE FUNCTION pm.can_access_lead(p_lead_id uuid)
 RETURNS boolean
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
-  SELECT public.has_permission('leads.read_all', 'app')
+  SELECT pm.has_permission('leads.read_all', 'app')
     OR (
-      public.has_permission('leads.read', 'app')
+      pm.has_permission('leads.read', 'app')
       AND EXISTS (
-        SELECT 1 FROM public.lead_members
+        SELECT 1 FROM pm.lead_members
         WHERE lead_id = p_lead_id
-          AND member_id = public.current_team_member_id()
+          AND member_id = pm.current_team_member_id()
       )
     )
 $$;
@@ -3863,41 +3872,41 @@ $$;
 -- can_access_task) every child table. tasks.read sees every task in the
 -- projects the member can open; tasks.read_assigned only the ones assigned
 -- to them or created by them.
-CREATE OR REPLACE FUNCTION public.can_read_task_row(p_task_id uuid, p_project_id uuid, p_created_by uuid)
+CREATE OR REPLACE FUNCTION pm.can_read_task_row(p_task_id uuid, p_project_id uuid, p_created_by uuid)
 RETURNS boolean
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
-  SELECT public.can_access_project(p_project_id) AND (
-    public.has_permission('tasks.read')
+  SELECT pm.can_access_project(p_project_id) AND (
+    pm.has_permission('tasks.read')
     OR (
-      public.has_permission('tasks.read_assigned')
+      pm.has_permission('tasks.read_assigned')
       AND (
-        p_created_by = public.current_team_member_id()
+        p_created_by = pm.current_team_member_id()
         OR EXISTS (
-          SELECT 1 FROM public.task_assignees ta
-          WHERE ta.task_id = p_task_id AND ta.member_id = public.current_team_member_id()
+          SELECT 1 FROM pm.task_assignees ta
+          WHERE ta.task_id = p_task_id AND ta.member_id = pm.current_team_member_id()
         )
         OR EXISTS (
-          SELECT 1 FROM public.tasks child
-          JOIN public.tasks parent ON parent.id = child.parent_task_id
+          SELECT 1 FROM pm.tasks child
+          JOIN pm.tasks parent ON parent.id = child.parent_task_id
           WHERE child.id = p_task_id AND (
-            parent.created_by = public.current_team_member_id()
+            parent.created_by = pm.current_team_member_id()
             OR EXISTS (
-              SELECT 1 FROM public.task_assignees ta
-              WHERE ta.task_id = parent.id AND ta.member_id = public.current_team_member_id()
+              SELECT 1 FROM pm.task_assignees ta
+              WHERE ta.task_id = parent.id AND ta.member_id = pm.current_team_member_id()
             )
           )
         )
         OR EXISTS (
-          SELECT 1 FROM public.tasks child
+          SELECT 1 FROM pm.tasks child
           WHERE child.parent_task_id = p_task_id AND child.deleted_at IS NULL AND (
-            child.created_by = public.current_team_member_id()
+            child.created_by = pm.current_team_member_id()
             OR EXISTS (
-              SELECT 1 FROM public.task_assignees ta
-              WHERE ta.task_id = child.id AND ta.member_id = public.current_team_member_id()
+              SELECT 1 FROM pm.task_assignees ta
+              WHERE ta.task_id = child.id AND ta.member_id = pm.current_team_member_id()
             )
           )
         )
@@ -3906,94 +3915,94 @@ AS $$
   )
 $$;
 
-CREATE OR REPLACE FUNCTION public.can_access_task(p_task_id uuid)
+CREATE OR REPLACE FUNCTION pm.can_access_task(p_task_id uuid)
 RETURNS boolean
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
   SELECT EXISTS (
-    SELECT 1 FROM public.tasks
-    WHERE id = p_task_id AND deleted_at IS NULL AND public.can_read_task_row(id, project_id, created_by)
+    SELECT 1 FROM pm.tasks
+    WHERE id = p_task_id AND deleted_at IS NULL AND pm.can_read_task_row(id, project_id, created_by)
   )
 $$;
 
 -- The fast path of the task read policies: someone with tasks.read and
 -- projects.read_all reads every task whose project is live, exactly what the
 -- full check returns for them, so it is checked once per statement.
-CREATE OR REPLACE FUNCTION public.can_read_all_tasks()
+CREATE OR REPLACE FUNCTION pm.can_read_all_tasks()
 RETURNS boolean
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
-  SELECT public.has_permission('tasks.read') AND public.has_permission('projects.read_all', 'app')
+  SELECT pm.has_permission('tasks.read') AND pm.has_permission('projects.read_all', 'app')
 $$;
 
-CREATE OR REPLACE FUNCTION public.can_access_credential(p_credential_id uuid)
+CREATE OR REPLACE FUNCTION pm.can_access_credential(p_credential_id uuid)
 RETURNS boolean
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
   SELECT EXISTS (
     SELECT 1
-    FROM public.project_credentials credential
-    JOIN public.projects project ON project.id = credential.project_id
+    FROM pm.project_credentials credential
+    JOIN pm.projects project ON project.id = credential.project_id
     WHERE credential.id = p_credential_id
       AND credential.deleted_at IS NULL
       AND project.deleted_at IS NULL
   )
   AND (
-    public.has_permission('credentials.manage', 'app')
+    pm.has_permission('credentials.manage', 'app')
     OR (
-      public.has_permission('credentials.reveal_shared', 'app')
+      pm.has_permission('credentials.reveal_shared', 'app')
       AND EXISTS (
         SELECT 1
-        FROM public.project_credential_members grant_row
-        JOIN public.project_credentials credential ON credential.id = grant_row.credential_id
+        FROM pm.project_credential_members grant_row
+        JOIN pm.project_credentials credential ON credential.id = grant_row.credential_id
         WHERE grant_row.credential_id = p_credential_id
-          AND grant_row.member_id = public.current_team_member_id()
-          AND public.can_access_project(credential.project_id)
+          AND grant_row.member_id = pm.current_team_member_id()
+          AND pm.can_access_project(credential.project_id)
       )
     )
   )
 $$;
 
-CREATE OR REPLACE FUNCTION public.get_my_access_context()
+CREATE OR REPLACE FUNCTION pm.get_my_access_context()
 RETURNS jsonb
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
   WITH actor AS (
     SELECT id, role, status
-    FROM public.team_members
+    FROM pm.team_members
     WHERE auth_user_id = auth.uid()
     LIMIT 1
   ), off_keys AS (
     SELECT permission_module.permission_key
-    FROM public.permission_modules permission_module
-    JOIN public.workspace_modules module ON module.module_id = permission_module.module_id
+    FROM pm.permission_modules permission_module
+    JOIN pm.workspace_modules module ON module.module_id = permission_module.module_id
     WHERE NOT module.enabled
   ), keys AS (
     SELECT permission_key, access_channel
-    FROM public.role_permissions, actor
+    FROM pm.role_permissions, actor
     WHERE role_permissions.role = actor.role
       AND actor.status = 'active'
     UNION
     SELECT permission_key, access_channel
-    FROM public.team_member_permissions, actor
+    FROM pm.team_member_permissions, actor
     WHERE team_member_permissions.member_id = actor.id
       AND team_member_permissions.effect = 'allow'
       AND actor.status = 'active'
     EXCEPT
     SELECT permission_key, access_channel
-    FROM public.team_member_permissions, actor
+    FROM pm.team_member_permissions, actor
     WHERE team_member_permissions.member_id = actor.id
       AND team_member_permissions.effect = 'deny'
       AND actor.status = 'active'
@@ -4008,32 +4017,32 @@ AS $$
     'api_permissions', CASE WHEN actor.role = 'owner' THEN jsonb_build_array('*') ELSE
       COALESCE((SELECT jsonb_agg(permission_key ORDER BY permission_key) FROM keys
         WHERE access_channel = 'api' AND permission_key NOT IN (SELECT permission_key FROM off_keys)), '[]'::jsonb) END,
-    'project_ids', COALESCE((SELECT jsonb_agg(project_id) FROM public.project_members WHERE member_id = actor.id), '[]'::jsonb),
-    'modules', COALESCE((SELECT jsonb_agg(module_id ORDER BY module_id) FROM public.workspace_modules WHERE enabled), '[]'::jsonb)
+    'project_ids', COALESCE((SELECT jsonb_agg(project_id) FROM pm.project_members WHERE member_id = actor.id), '[]'::jsonb),
+    'modules', COALESCE((SELECT jsonb_agg(module_id ORDER BY module_id) FROM pm.workspace_modules WHERE enabled), '[]'::jsonb)
   )
   FROM actor
 $$;
 
-CREATE OR REPLACE FUNCTION public.get_team_directory()
+CREATE OR REPLACE FUNCTION pm.get_team_directory()
 RETURNS TABLE (id uuid, name text, avatar text, role text, status text)
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
   SELECT member.id, member.name, member.avatar, member.role, member.status
-  FROM public.team_members member
-  WHERE public.has_permission('team.read', 'app')
-     OR member.id = public.current_team_member_id()
+  FROM pm.team_members member
+  WHERE pm.has_permission('team.read', 'app')
+     OR member.id = pm.current_team_member_id()
   ORDER BY member.name
 $$;
 
-CREATE OR REPLACE FUNCTION public.get_accessible_time_entries(p_project_id uuid DEFAULT NULL)
+CREATE OR REPLACE FUNCTION pm.get_accessible_time_entries(p_project_id uuid DEFAULT NULL)
 RETURNS SETOF jsonb
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
   -- Mask sensitive rate columns independently, mirroring the app-layer rule in
   -- sanitizeTimeEntryForAccess: the client billing rate (hourly_rate) requires
@@ -4042,26 +4051,26 @@ AS $$
   -- earnings.own.read. Removing the empty key '' is a no-op when access is allowed.
   SELECT (
     (to_jsonb(entry)
-      - (CASE WHEN public.has_permission('billing.manage', 'app') THEN '' ELSE 'hourly_rate' END))
+      - (CASE WHEN pm.has_permission('billing.manage', 'app') THEN '' ELSE 'hourly_rate' END))
       - (CASE
-           WHEN public.has_permission('compensation.manage', 'app')
-             OR public.has_permission('payouts.manage', 'app')
-             OR (entry.member_id = public.current_team_member_id() AND public.has_permission('earnings.own.read', 'app'))
+           WHEN pm.has_permission('compensation.manage', 'app')
+             OR pm.has_permission('payouts.manage', 'app')
+             OR (entry.member_id = pm.current_team_member_id() AND pm.has_permission('earnings.own.read', 'app'))
            THEN '' ELSE 'compensation_rate'
          END)
   )
-  FROM public.project_time_entries entry
+  FROM pm.project_time_entries entry
   WHERE (p_project_id IS NULL OR entry.project_id = p_project_id)
     AND entry.deleted_at IS NULL
-    AND public.can_access_project(entry.project_id)
+    AND pm.can_access_project(entry.project_id)
     AND (
-      public.has_permission('time.read_all', 'app')
-      OR entry.member_id = public.current_team_member_id()
+      pm.has_permission('time.read_all', 'app')
+      OR entry.member_id = pm.current_team_member_id()
     )
   ORDER BY entry.start_time DESC
 $$;
 
-CREATE OR REPLACE FUNCTION public.get_accessible_credential_metadata(p_project_id uuid DEFAULT NULL)
+CREATE OR REPLACE FUNCTION pm.get_accessible_credential_metadata(p_project_id uuid DEFAULT NULL)
 RETURNS TABLE (
   id uuid, project_id uuid, label text, category text,
   submitted_by_client boolean, submitted_by_name text,
@@ -4070,18 +4079,18 @@ RETURNS TABLE (
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
   SELECT credential.id, credential.project_id, credential.label, credential.category,
          credential.submitted_by_client, credential.submitted_by_name,
          credential.created_by, credential.created_at, credential.updated_at
-  FROM public.project_credentials credential
+  FROM pm.project_credentials credential
   WHERE (p_project_id IS NULL OR credential.project_id = p_project_id)
-    AND public.can_access_credential(credential.id)
+    AND pm.can_access_credential(credential.id)
   ORDER BY credential.created_at DESC
 $$;
 
-CREATE OR REPLACE FUNCTION public.resolve_team_member_hourly_rate(
+CREATE OR REPLACE FUNCTION pm.resolve_team_member_hourly_rate(
   p_member_id uuid,
   p_effective_at timestamptz
 )
@@ -4089,27 +4098,27 @@ RETURNS numeric
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
   SELECT CASE WHEN member.role IN ('owner', 'agent') THEN 0 ELSE COALESCE((
     SELECT rate.hourly_rate
-    FROM public.team_member_hourly_rates rate
+    FROM pm.team_member_hourly_rates rate
     WHERE rate.member_id = p_member_id AND rate.effective_at <= p_effective_at
     ORDER BY rate.effective_at DESC
     LIMIT 1
   ), 0) END
-  FROM public.team_members member
+  FROM pm.team_members member
   WHERE member.id = p_member_id
 $$;
 
-CREATE OR REPLACE FUNCTION public.protect_project_billing_fields()
+CREATE OR REPLACE FUNCTION pm.protect_project_billing_fields()
 RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
 BEGIN
-  IF auth.role() = 'service_role' OR public.has_permission('billing.manage', 'app') THEN
+  IF auth.role() = 'service_role' OR pm.has_permission('billing.manage', 'app') THEN
     RETURN NEW;
   END IF;
 
@@ -4135,25 +4144,25 @@ END;
 $$;
 
 CREATE TRIGGER protect_project_billing_fields
-  BEFORE INSERT OR UPDATE ON public.projects
-  FOR EACH ROW EXECUTE FUNCTION public.protect_project_billing_fields();
+  BEFORE INSERT OR UPDATE ON pm.projects
+  FOR EACH ROW EXECUTE FUNCTION pm.protect_project_billing_fields();
 
-CREATE OR REPLACE FUNCTION public.apply_time_entry_compensation()
+CREATE OR REPLACE FUNCTION pm.apply_time_entry_compensation()
 RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
 DECLARE
   member_role text;
 BEGIN
-  SELECT role INTO member_role FROM public.team_members WHERE id = NEW.member_id;
+  SELECT role INTO member_role FROM pm.team_members WHERE id = NEW.member_id;
 
   IF TG_OP = 'INSERT' OR NEW.start_time IS DISTINCT FROM OLD.start_time OR NEW.member_id IS DISTINCT FROM OLD.member_id THEN
     IF TG_OP = 'UPDATE' AND OLD.approval_status = 'approved' THEN
       RAISE EXCEPTION 'Approved time entry compensation is locked';
     END IF;
-    NEW.compensation_rate := public.resolve_team_member_hourly_rate(NEW.member_id, NEW.start_time);
+    NEW.compensation_rate := pm.resolve_team_member_hourly_rate(NEW.member_id, NEW.start_time);
   END IF;
 
   IF NEW.end_time IS NULL THEN
@@ -4169,7 +4178,7 @@ BEGIN
       NEW.approved_by := NEW.member_id;
       NEW.compensation_rate := 0;
     ELSIF member_role <> 'agent'
-      AND COALESCE((SELECT auto_approve_human_hours FROM public.business_settings LIMIT 1), true) THEN
+      AND COALESCE((SELECT auto_approve_human_hours FROM pm.business_settings LIMIT 1), true) THEN
       -- Auto-approved by workspace policy; approved_by NULL marks it as
       -- system-approved rather than reviewed by a person.
       NEW.approval_status := 'approved';
@@ -4197,8 +4206,8 @@ END;
 $$;
 
 CREATE TRIGGER apply_time_entry_compensation
-  BEFORE INSERT OR UPDATE ON public.project_time_entries
-  FOR EACH ROW EXECUTE FUNCTION public.apply_time_entry_compensation();
+  BEFORE INSERT OR UPDATE ON pm.project_time_entries
+  FOR EACH ROW EXECUTE FUNCTION pm.apply_time_entry_compensation();
 
 -- Agent billing conversion: runs at APPROVAL (not timer stop) so the reviewer
 -- sees the raw session and edits operate on truth. Collapses the entry into
@@ -4206,17 +4215,17 @@ CREATE TRIGGER apply_time_entry_compensation
 -- adjusted minutes) times the snapshotted multiplier, anchored at the real
 -- start. Single-shot via billing_converted_at. Called only from the review
 -- functions; no direct grants.
-CREATE OR REPLACE FUNCTION public.apply_agent_billing_conversion(
+CREATE OR REPLACE FUNCTION pm.apply_agent_billing_conversion(
   p_entry_id uuid,
   p_adjusted_minutes numeric DEFAULT NULL
 )
 RETURNS void
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
 DECLARE
-  v_entry public.project_time_entries%ROWTYPE;
+  v_entry pm.project_time_entries%ROWTYPE;
   v_role text;
   v_raw_worked_ms numeric;
   v_billing_worked_ms numeric;
@@ -4225,10 +4234,10 @@ DECLARE
 BEGIN
   -- The billed slot is Billing and finance's: with it off an approved entry
   -- keeps its worked time as recorded.
-  IF NOT public.module_enabled('billing') THEN RETURN; END IF;
-  SELECT * INTO v_entry FROM public.project_time_entries WHERE id = p_entry_id AND deleted_at IS NULL;
+  IF NOT pm.module_enabled('billing') THEN RETURN; END IF;
+  SELECT * INTO v_entry FROM pm.project_time_entries WHERE id = p_entry_id AND deleted_at IS NULL;
   IF NOT FOUND THEN RETURN; END IF;
-  SELECT role INTO v_role FROM public.team_members WHERE id = v_entry.member_id;
+  SELECT role INTO v_role FROM pm.team_members WHERE id = v_entry.member_id;
   IF v_role IS DISTINCT FROM 'agent' THEN RETURN; END IF;
   IF v_entry.billing_converted_at IS NOT NULL THEN RETURN; END IF;
   IF v_entry.end_time IS NULL OR v_entry.approval_status <> 'approved' THEN RETURN; END IF;
@@ -4253,7 +4262,7 @@ BEGIN
   IF v_multiplier <= 0 THEN v_multiplier := 1; END IF;
   v_billed_end := v_entry.start_time + make_interval(secs => (v_billing_worked_ms * v_multiplier) / 1000.0);
 
-  UPDATE public.project_time_entries
+  UPDATE pm.project_time_entries
   SET raw_time_snapshot = COALESCE(v_entry.raw_time_snapshot, jsonb_build_object(
         'version', 1,
         'start_time', v_entry.start_time,
@@ -4273,51 +4282,51 @@ BEGIN
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.apply_agent_billing_conversion(uuid, numeric) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION pm.apply_agent_billing_conversion(uuid, numeric) FROM PUBLIC, anon, authenticated;
 
 -- The 3-argument overload must not coexist with the 4-argument version or
 -- PostgREST calls become ambiguous.
-DROP FUNCTION IF EXISTS public.review_time_entries(uuid[], text, text);
+DROP FUNCTION IF EXISTS pm.review_time_entries(uuid[], text, text);
 
-CREATE OR REPLACE FUNCTION public.review_time_entries(
+CREATE OR REPLACE FUNCTION pm.review_time_entries(
   p_entry_ids uuid[],
   p_decision text,
   p_reason text DEFAULT NULL,
   p_adjustments jsonb DEFAULT NULL
 )
-RETURNS SETOF public.project_time_entries
+RETURNS SETOF pm.project_time_entries
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
 DECLARE
   v_id uuid;
 BEGIN
-  IF NOT public.has_permission('time.approve', 'app') THEN
+  IF NOT pm.has_permission('time.approve', 'app') THEN
     RAISE EXCEPTION 'Permission denied';
   END IF;
   IF p_decision NOT IN ('approved', 'rejected') THEN
     RAISE EXCEPTION 'Invalid review decision';
   END IF;
   IF EXISTS (
-    SELECT 1 FROM public.project_time_entries
+    SELECT 1 FROM pm.project_time_entries
     WHERE id = ANY(p_entry_ids)
-      AND member_id = public.current_team_member_id()
+      AND member_id = pm.current_team_member_id()
   ) THEN
     RAISE EXCEPTION 'Time entries cannot be self-approved';
   END IF;
   IF EXISTS (
-    SELECT 1 FROM public.project_time_entries
+    SELECT 1 FROM pm.project_time_entries
     WHERE id = ANY(p_entry_ids)
-      AND NOT public.can_access_project(project_id)
+      AND NOT pm.can_access_project(project_id)
   ) THEN
     RAISE EXCEPTION 'Project access denied';
   END IF;
 
-  UPDATE public.project_time_entries entry
+  UPDATE pm.project_time_entries entry
   SET approval_status = p_decision,
       approved_at = CASE WHEN p_decision = 'approved' THEN now() ELSE NULL END,
-      approved_by = CASE WHEN p_decision = 'approved' THEN public.current_team_member_id() ELSE NULL END,
+      approved_by = CASE WHEN p_decision = 'approved' THEN pm.current_team_member_id() ELSE NULL END,
       rejection_reason = CASE WHEN p_decision = 'rejected' THEN COALESCE(p_reason, '') ELSE NULL END,
       updated_at = now()
   WHERE entry.id = ANY(p_entry_ids)
@@ -4326,7 +4335,7 @@ BEGIN
 
   IF p_decision = 'approved' THEN
     FOREACH v_id IN ARRAY p_entry_ids LOOP
-      PERFORM public.apply_agent_billing_conversion(
+      PERFORM pm.apply_agent_billing_conversion(
         v_id,
         CASE WHEN p_adjustments IS NOT NULL AND p_adjustments ? v_id::text
           THEN (p_adjustments->>v_id::text)::numeric
@@ -4336,29 +4345,29 @@ BEGIN
   END IF;
 
   RETURN QUERY
-  SELECT * FROM public.project_time_entries WHERE id = ANY(p_entry_ids);
+  SELECT * FROM pm.project_time_entries WHERE id = ANY(p_entry_ids);
 END;
 $$;
 
-CREATE OR REPLACE FUNCTION public.validate_team_member_payout(p_payout_id uuid)
+CREATE OR REPLACE FUNCTION pm.validate_team_member_payout(p_payout_id uuid)
 RETURNS void
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
 DECLARE
-  payout_row public.team_member_payouts;
+  payout_row pm.team_member_payouts;
   allocation_total numeric;
   allocation_row record;
   source_amount numeric;
   source_allocated numeric;
 BEGIN
-  SELECT * INTO payout_row FROM public.team_member_payouts WHERE id = p_payout_id;
+  SELECT * INTO payout_row FROM pm.team_member_payouts WHERE id = p_payout_id;
   IF NOT FOUND THEN RAISE EXCEPTION 'Payout not found'; END IF;
 
   SELECT COALESCE(SUM(allocated_amount), 0)
   INTO allocation_total
-  FROM public.team_member_payout_allocations
+  FROM pm.team_member_payout_allocations
   WHERE payout_id = p_payout_id;
 
   IF ROUND(allocation_total, 2) IS DISTINCT FROM ROUND(payout_row.amount, 2) THEN
@@ -4367,10 +4376,10 @@ BEGIN
 
   IF EXISTS (
     SELECT 1
-    FROM public.team_member_payout_allocations allocation
-    LEFT JOIN public.project_time_entries entry ON entry.id = allocation.time_entry_id
-    LEFT JOIN public.team_member_earning_adjustments adjustment ON adjustment.id = allocation.adjustment_id
-    LEFT JOIN public.team_member_share_earnings share_earning ON share_earning.id = allocation.share_earning_id
+    FROM pm.team_member_payout_allocations allocation
+    LEFT JOIN pm.project_time_entries entry ON entry.id = allocation.time_entry_id
+    LEFT JOIN pm.team_member_earning_adjustments adjustment ON adjustment.id = allocation.adjustment_id
+    LEFT JOIN pm.team_member_share_earnings share_earning ON share_earning.id = allocation.share_earning_id
     WHERE allocation.payout_id = p_payout_id
       AND COALESCE(entry.member_id, adjustment.member_id, share_earning.member_id) IS DISTINCT FROM payout_row.member_id
   ) THEN
@@ -4378,7 +4387,7 @@ BEGIN
   END IF;
 
   FOR allocation_row IN
-    SELECT * FROM public.team_member_payout_allocations WHERE payout_id = p_payout_id
+    SELECT * FROM pm.team_member_payout_allocations WHERE payout_id = p_payout_id
   LOOP
     IF allocation_row.time_entry_id IS NOT NULL THEN
       SELECT
@@ -4400,7 +4409,7 @@ BEGIN
           ELSE NULL
         END
       INTO source_amount
-      FROM public.project_time_entries entry
+      FROM pm.project_time_entries entry
       WHERE entry.id = allocation_row.time_entry_id;
 
       IF source_amount IS NULL THEN
@@ -4410,7 +4419,7 @@ BEGIN
       -- A reversed earning stays valid: its clawback is a separate deduction.
       SELECT CASE WHEN share_earning.voided_at IS NULL THEN share_earning.amount ELSE NULL END
       INTO source_amount
-      FROM public.team_member_share_earnings share_earning
+      FROM pm.team_member_share_earnings share_earning
       WHERE share_earning.id = allocation_row.share_earning_id;
 
       IF source_amount IS NULL THEN
@@ -4424,7 +4433,7 @@ BEGIN
           ELSE NULL
         END
       INTO source_amount
-      FROM public.team_member_earning_adjustments adjustment
+      FROM pm.team_member_earning_adjustments adjustment
       WHERE adjustment.id = allocation_row.adjustment_id;
 
       IF source_amount IS NULL THEN
@@ -4439,8 +4448,8 @@ BEGIN
 
     SELECT COALESCE(SUM(existing.allocated_amount), 0)
     INTO source_allocated
-    FROM public.team_member_payout_allocations existing
-    JOIN public.team_member_payouts existing_payout ON existing_payout.id = existing.payout_id
+    FROM pm.team_member_payout_allocations existing
+    JOIN pm.team_member_payouts existing_payout ON existing_payout.id = existing.payout_id
     WHERE existing_payout.voided_at IS NULL
       AND (
         (allocation_row.time_entry_id IS NOT NULL AND existing.time_entry_id = allocation_row.time_entry_id)
@@ -4456,7 +4465,7 @@ BEGIN
 END;
 $$;
 
-CREATE OR REPLACE FUNCTION public.record_team_member_payout(
+CREATE OR REPLACE FUNCTION pm.record_team_member_payout(
   p_member_id uuid,
   p_payment_date text,
   p_amount numeric,
@@ -4465,32 +4474,32 @@ CREATE OR REPLACE FUNCTION public.record_team_member_payout(
   p_notes text,
   p_allocations jsonb
 )
-RETURNS public.team_member_payouts
+RETURNS pm.team_member_payouts
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
 DECLARE
-  payout_row public.team_member_payouts;
+  payout_row pm.team_member_payouts;
   allocation jsonb;
 BEGIN
-  IF NOT public.has_permission('payouts.manage', 'app') THEN
+  IF NOT pm.has_permission('payouts.manage', 'app') THEN
     RAISE EXCEPTION 'Permission denied';
   END IF;
   IF p_amount <= 0 OR jsonb_typeof(p_allocations) IS DISTINCT FROM 'array' THEN
     RAISE EXCEPTION 'A positive payout and allocations are required';
   END IF;
 
-  INSERT INTO public.team_member_payouts (
+  INSERT INTO pm.team_member_payouts (
     member_id, payment_date, amount, payment_method, reference, notes, created_by
   ) VALUES (
     p_member_id, p_payment_date::date, p_amount, COALESCE(p_payment_method, ''),
-    COALESCE(p_reference, ''), COALESCE(p_notes, ''), public.current_team_member_id()
+    COALESCE(p_reference, ''), COALESCE(p_notes, ''), pm.current_team_member_id()
   ) RETURNING * INTO payout_row;
 
   FOR allocation IN SELECT value FROM jsonb_array_elements(p_allocations)
   LOOP
-    INSERT INTO public.team_member_payout_allocations (
+    INSERT INTO pm.team_member_payout_allocations (
       payout_id, time_entry_id, adjustment_id, share_earning_id, allocated_amount
     ) VALUES (
       payout_row.id,
@@ -4501,7 +4510,7 @@ BEGIN
     );
   END LOOP;
 
-  PERFORM public.validate_team_member_payout(payout_row.id);
+  PERFORM pm.validate_team_member_payout(payout_row.id);
   RETURN payout_row;
 END;
 $$;
@@ -4512,11 +4521,11 @@ $$;
 -- bypasses the RPC (a client insert by a payouts.manage holder, a SQL console)
 -- is still validated: allocations must sum to the payout amount, belong to the
 -- payout's member, match direction, and not over-allocate a source.
-CREATE OR REPLACE FUNCTION public.enforce_team_member_payout_integrity()
+CREATE OR REPLACE FUNCTION pm.enforce_team_member_payout_integrity()
 RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
 DECLARE
   target_payout uuid;
@@ -4528,25 +4537,25 @@ BEGIN
   END IF;
   -- Nothing to validate if the payout no longer exists (e.g. a cascaded delete).
   IF target_payout IS NULL
-    OR NOT EXISTS (SELECT 1 FROM public.team_member_payouts WHERE id = target_payout) THEN
+    OR NOT EXISTS (SELECT 1 FROM pm.team_member_payouts WHERE id = target_payout) THEN
     RETURN NULL;
   END IF;
-  PERFORM public.validate_team_member_payout(target_payout);
+  PERFORM pm.validate_team_member_payout(target_payout);
   RETURN NULL;
 END;
 $$;
 
-DROP TRIGGER IF EXISTS trg_team_member_payout_integrity ON public.team_member_payouts;
+DROP TRIGGER IF EXISTS trg_team_member_payout_integrity ON pm.team_member_payouts;
 CREATE CONSTRAINT TRIGGER trg_team_member_payout_integrity
-  AFTER INSERT OR UPDATE ON public.team_member_payouts
+  AFTER INSERT OR UPDATE ON pm.team_member_payouts
   DEFERRABLE INITIALLY DEFERRED
-  FOR EACH ROW EXECUTE FUNCTION public.enforce_team_member_payout_integrity();
+  FOR EACH ROW EXECUTE FUNCTION pm.enforce_team_member_payout_integrity();
 
-DROP TRIGGER IF EXISTS trg_team_member_payout_allocation_integrity ON public.team_member_payout_allocations;
+DROP TRIGGER IF EXISTS trg_team_member_payout_allocation_integrity ON pm.team_member_payout_allocations;
 CREATE CONSTRAINT TRIGGER trg_team_member_payout_allocation_integrity
-  AFTER INSERT OR UPDATE ON public.team_member_payout_allocations
+  AFTER INSERT OR UPDATE ON pm.team_member_payout_allocations
   DEFERRABLE INITIALLY DEFERRED
-  FOR EACH ROW EXECUTE FUNCTION public.enforce_team_member_payout_integrity();
+  FOR EACH ROW EXECUTE FUNCTION pm.enforce_team_member_payout_integrity();
 
 -- ---------------------------------------------------------------------------
 -- Period math
@@ -4556,19 +4565,19 @@ CREATE CONSTRAINT TRIGGER trg_team_member_payout_allocation_integrity
 -- whose time zone Postgres recognizes, else UTC. A rejected name is caught and
 -- skipped rather than looked up in pg_timezone_names, which reads the whole
 -- time zone database on every call.
-CREATE OR REPLACE FUNCTION public.workspace_today()
+CREATE OR REPLACE FUNCTION pm.workspace_today()
 RETURNS date
 LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
 DECLARE
   zone text;
 BEGIN
   FOR zone IN
     SELECT member.timezone
-    FROM public.team_members member
+    FROM pm.team_members member
     WHERE member.role = 'owner'
       AND member.timezone ~ '^[A-Za-z][A-Za-z0-9_-]*(/[A-Za-z0-9_+-]+)*$'
     ORDER BY member.created_at
@@ -4585,7 +4594,7 @@ $$;
 
 -- The calendar-month periods of one retainer whose month falls in the window,
 -- clipped to the retainer's own dates and priced with proration.
-CREATE OR REPLACE FUNCTION public.retainer_periods(p_retainer_id uuid, p_from date, p_to date)
+CREATE OR REPLACE FUNCTION pm.retainer_periods(p_retainer_id uuid, p_from date, p_to date)
 RETURNS TABLE (
   period_start date,
   period_end date,
@@ -4597,10 +4606,10 @@ RETURNS TABLE (
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
   WITH retainer AS (
-    SELECT * FROM public.project_retainers WHERE id = p_retainer_id AND deleted_at IS NULL
+    SELECT * FROM pm.project_retainers WHERE id = p_retainer_id AND deleted_at IS NULL
   ),
   months AS (
     SELECT month_start::date AS month_start,
@@ -4623,11 +4632,11 @@ AS $$
   priced AS (
     SELECT bounds.*,
       COALESCE(
-        (SELECT history.amount FROM public.project_retainer_amounts history
+        (SELECT history.amount FROM pm.project_retainer_amounts history
          WHERE history.retainer_id = p_retainer_id AND history.deleted_at IS NULL
            AND history.effective_date <= bounds.period_start
          ORDER BY history.effective_date DESC LIMIT 1),
-        (SELECT history.amount FROM public.project_retainer_amounts history
+        (SELECT history.amount FROM pm.project_retainer_amounts history
          WHERE history.retainer_id = p_retainer_id AND history.deleted_at IS NULL
          ORDER BY history.effective_date ASC LIMIT 1),
         0
@@ -4652,7 +4661,7 @@ AS $$
 $$;
 
 -- Periods that should be on an invoice by p_as_of and have no period row yet.
-CREATE OR REPLACE FUNCTION public.retainer_due_periods_internal(p_project_id uuid, p_as_of date)
+CREATE OR REPLACE FUNCTION pm.retainer_due_periods_internal(p_project_id uuid, p_as_of date)
 RETURNS TABLE (
   retainer_id uuid,
   project_id uuid,
@@ -4670,7 +4679,7 @@ RETURNS TABLE (
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
   SELECT
     retainer.id,
@@ -4685,19 +4694,19 @@ AS $$
     period.full_amount,
     period.prorated,
     retainer.name || CASE WHEN period.prorated THEN ' (Prorated)' ELSE '' END
-  FROM public.project_retainers retainer
-  CROSS JOIN LATERAL public.retainer_periods(
+  FROM pm.project_retainers retainer
+  CROSS JOIN LATERAL pm.retainer_periods(
     retainer.id,
     retainer.start_date,
     (p_as_of + retainer.lead_days + 31)
   ) period
   WHERE (p_project_id IS NULL OR retainer.project_id = p_project_id)
     AND retainer.deleted_at IS NULL
-    AND EXISTS (SELECT 1 FROM public.projects project
+    AND EXISTS (SELECT 1 FROM pm.projects project
         WHERE project.id = retainer.project_id AND project.deleted_at IS NULL)
     AND period.bill_date - retainer.lead_days <= p_as_of
     AND NOT EXISTS (
-      SELECT 1 FROM public.project_retainer_periods handled
+      SELECT 1 FROM pm.project_retainer_periods handled
       WHERE handled.retainer_id = retainer.id
         AND handled.period_start = period.period_start
     )
@@ -4706,7 +4715,7 @@ $$;
 
 -- What the invoice form offers as ready lines: periods that are due, plus
 -- skipped ones so a line removed by mistake can be put back.
-CREATE OR REPLACE FUNCTION public.retainer_due_periods(p_project_id uuid)
+CREATE OR REPLACE FUNCTION pm.retainer_due_periods(p_project_id uuid)
 RETURNS TABLE (
   retainer_id uuid,
   retainer_name text,
@@ -4723,26 +4732,26 @@ RETURNS TABLE (
 LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
 BEGIN
   IF COALESCE(auth.role(), '') <> 'service_role'
-    AND NOT (public.has_permission('invoices.manage', 'app') AND public.can_access_project(p_project_id)) THEN
+    AND NOT (pm.has_permission('invoices.manage', 'app') AND pm.can_access_project(p_project_id)) THEN
     RAISE EXCEPTION 'Missing permission to manage invoices';
   END IF;
 
   RETURN QUERY
   SELECT due.retainer_id, due.retainer_name, due.billing_timing, due.period_start, due.period_end,
          due.bill_date, due.amount, due.full_amount, due.prorated, due.description, false
-  FROM public.retainer_due_periods_internal(p_project_id, public.workspace_today()) due
+  FROM pm.retainer_due_periods_internal(p_project_id, pm.workspace_today()) due
   WHERE due.retainer_status = 'active'
   UNION ALL
   SELECT retainer.id, retainer.name, retainer.billing_timing, period.period_start, period.period_end,
          period.bill_date, period.amount, period.full_amount, period.prorated,
          retainer.name || CASE WHEN period.prorated THEN ' (Prorated)' ELSE '' END, true
-  FROM public.project_retainer_periods handled
-  JOIN public.project_retainers retainer ON retainer.id = handled.retainer_id
-  CROSS JOIN LATERAL public.retainer_periods(retainer.id, handled.period_start, handled.period_start) period
+  FROM pm.project_retainer_periods handled
+  JOIN pm.project_retainers retainer ON retainer.id = handled.retainer_id
+  CROSS JOIN LATERAL pm.retainer_periods(retainer.id, handled.period_start, handled.period_start) period
   WHERE retainer.project_id = p_project_id
     AND retainer.deleted_at IS NULL
     AND handled.status = 'skipped'
@@ -4756,51 +4765,51 @@ $$;
 -- ---------------------------------------------------------------------------
 
 -- Same rule the invoice form uses: per project, highest trailing number + 1.
-CREATE OR REPLACE FUNCTION public.next_project_invoice_number(p_project_id uuid)
+CREATE OR REPLACE FUNCTION pm.next_project_invoice_number(p_project_id uuid)
 RETURNS text
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
   SELECT 'INV-' || lpad((COALESCE(MAX(substring(invoice_number FROM '(\d{1,12})$')::bigint), 0) + 1)::text, 3, '0')
-  FROM public.project_invoices
+  FROM pm.project_invoices
   WHERE project_id = p_project_id
 $$;
 
 -- The next free invoice number for the invoice form. A number on an invoice in
 -- Trash stays taken (a restore brings the invoice back with it), and the
 -- person adding an invoice cannot see those, so the database suggests it.
-CREATE OR REPLACE FUNCTION public.suggest_project_invoice_number(p_project_id uuid)
+CREATE OR REPLACE FUNCTION pm.suggest_project_invoice_number(p_project_id uuid)
 RETURNS text
 LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
 BEGIN
-  IF NOT (public.has_permission('invoices.manage') AND public.can_access_project(p_project_id)) THEN
+  IF NOT (pm.has_permission('invoices.manage') AND pm.can_access_project(p_project_id)) THEN
     RAISE EXCEPTION 'You cannot add invoices to this project' USING ERRCODE = '42501';
   END IF;
-  RETURN public.next_project_invoice_number(p_project_id);
+  RETURN pm.next_project_invoice_number(p_project_id);
 END;
 $$;
 
 -- Builds one draft from the given lines. The reconcile trigger on
 -- project_invoices claims the periods and copies the retainer splits.
-CREATE OR REPLACE FUNCTION public.create_retainer_draft_internal(
+CREATE OR REPLACE FUNCTION pm.create_retainer_draft_internal(
   p_project_id uuid,
   p_lines jsonb,
   p_invoice_date date,
   p_auto boolean
 )
-RETURNS public.project_invoices
+RETURNS pm.project_invoices
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
 DECLARE
-  saved public.project_invoices;
+  saved pm.project_invoices;
   project_name text;
   terms integer;
 BEGIN
@@ -4809,20 +4818,20 @@ BEGIN
   END IF;
   -- An invoice is in one currency: retainers in different ones never share a draft.
   IF (SELECT count(DISTINCT r.currency) FROM jsonb_array_elements(p_lines) line
-      JOIN public.project_retainers r ON r.id::text = line->>'retainer_id') > 1 THEN
+      JOIN pm.project_retainers r ON r.id::text = line->>'retainer_id') > 1 THEN
     RAISE EXCEPTION 'Retainers in different currencies cannot share an invoice';
   END IF;
 
   PERFORM pg_advisory_xact_lock(hashtext('retainer-draft:' || p_project_id::text));
-  SELECT COALESCE(payment_terms_days, 0) INTO terms FROM public.project_billing_plans WHERE project_id = p_project_id;
+  SELECT COALESCE(payment_terms_days, 0) INTO terms FROM pm.project_billing_plans WHERE project_id = p_project_id;
 
-  INSERT INTO public.project_invoices (
+  INSERT INTO pm.project_invoices (
     project_id, invoice_number, amount, status, invoice_type, line_items,
     date, due_date, description, auto_generated, created_by, currency
   )
   SELECT
     p_project_id,
-    public.next_project_invoice_number(p_project_id),
+    pm.next_project_invoice_number(p_project_id),
     (SELECT COALESCE(SUM((line->>'amount')::numeric), 0) FROM jsonb_array_elements(p_lines) line),
     'draft',
     'recurring',
@@ -4831,22 +4840,22 @@ BEGIN
     to_char(p_invoice_date + COALESCE(terms, 0), 'YYYY-MM-DD'),
     '',
     p_auto,
-    public.current_team_member_id(),
+    pm.current_team_member_id(),
     -- The retainer's own currency, so a later workspace change never relabels its bills.
     COALESCE(
-      (SELECT r.currency FROM public.project_retainers r
+      (SELECT r.currency FROM pm.project_retainers r
        WHERE r.id::text = (SELECT line->>'retainer_id' FROM jsonb_array_elements(p_lines) line
                            WHERE line->>'retainer_id' IS NOT NULL LIMIT 1)),
-      public.workspace_currency())
+      pm.workspace_currency())
   RETURNING * INTO saved;
 
   IF p_auto THEN
-    SELECT name INTO project_name FROM public.projects WHERE id = p_project_id;
-    PERFORM public.announce_billing_draft(
+    SELECT name INTO project_name FROM pm.projects WHERE id = p_project_id;
+    PERFORM pm.announce_billing_draft(
       saved.id,
       'Retainer invoice drafted',
       saved.invoice_number || ' for ' || COALESCE(project_name, 'a project') || ' is ready to review and send: '
-        || public.format_money(saved.amount, saved.currency, true) || '.'
+        || pm.format_money(saved.amount, saved.currency, true) || '.'
     );
   END IF;
 
@@ -4854,7 +4863,7 @@ BEGIN
 END;
 $$;
 
-CREATE OR REPLACE FUNCTION public.retainer_line_json(
+CREATE OR REPLACE FUNCTION pm.retainer_line_json(
   p_retainer_id uuid,
   p_position integer,
   p_amount numeric,
@@ -4883,38 +4892,38 @@ $$;
 -- retainer line in that currency (an invoice is in one currency). A paused
 -- retainer's due periods are recorded as skipped, so resuming never
 -- back-bills the pause; Generate now can still bring one back.
-CREATE OR REPLACE FUNCTION public.generate_retainer_drafts(p_as_of date DEFAULT NULL)
+CREATE OR REPLACE FUNCTION pm.generate_retainer_drafts(p_as_of date DEFAULT NULL)
 RETURNS integer
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
 DECLARE
-  as_of date := COALESCE(p_as_of, public.workspace_today());
+  as_of date := COALESCE(p_as_of, pm.workspace_today());
   target record;
   lines jsonb;
   invoice_date date;
   created integer := 0;
-  draft public.project_invoices;
+  draft pm.project_invoices;
   recipient uuid;
   project_name text;
 BEGIN
-  INSERT INTO public.project_retainer_periods (retainer_id, period_start, period_end, status)
+  INSERT INTO pm.project_retainer_periods (retainer_id, period_start, period_end, status)
   SELECT due.retainer_id, due.period_start, due.period_end, 'skipped'
-  FROM public.retainer_due_periods_internal(NULL, as_of) due
+  FROM pm.retainer_due_periods_internal(NULL, as_of) due
   WHERE due.retainer_status = 'paused'
   ON CONFLICT (retainer_id, period_start) DO NOTHING;
 
   FOR target IN
     SELECT DISTINCT due.project_id, r.currency
-    FROM public.retainer_due_periods_internal(NULL, as_of) due
-    JOIN public.project_retainers r ON r.id = due.retainer_id
+    FROM pm.retainer_due_periods_internal(NULL, as_of) due
+    JOIN pm.project_retainers r ON r.id = due.retainer_id
     WHERE due.retainer_status = 'active'
   LOOP
     BEGIN
       SELECT
         jsonb_agg(
-          public.retainer_line_json(
+          pm.retainer_line_json(
             due.retainer_id, (due.line_position - 1)::integer, due.amount, due.description,
             due.period_start, due.period_end
           ) ORDER BY due.line_position
@@ -4923,26 +4932,26 @@ BEGIN
       INTO lines, invoice_date
       FROM (
         SELECT inner_due.*, row_number() OVER (ORDER BY inner_due.period_start, inner_due.retainer_name) AS line_position
-        FROM public.retainer_due_periods_internal(target.project_id, as_of) inner_due
-        JOIN public.project_retainers r ON r.id = inner_due.retainer_id
+        FROM pm.retainer_due_periods_internal(target.project_id, as_of) inner_due
+        JOIN pm.project_retainers r ON r.id = inner_due.retainer_id
         WHERE inner_due.retainer_status = 'active' AND r.currency = target.currency
       ) due;
 
-      draft := public.create_retainer_draft_internal(target.project_id, lines, invoice_date, true);
+      draft := pm.create_retainer_draft_internal(target.project_id, lines, invoice_date, true);
       IF draft.id IS NOT NULL THEN
         created := created + 1;
       END IF;
     EXCEPTION WHEN OTHERS THEN
-      INSERT INTO public.project_billing_runs (project_id, run_key, run_date, outcome, detail)
+      INSERT INTO pm.project_billing_runs (project_id, run_key, run_date, outcome, detail)
       VALUES (target.project_id, 'retainer-failed:' || to_char(as_of, 'YYYY-MM-DD'), as_of, 'failed',
               left('Retainer draft: ' || SQLERRM, 500))
       ON CONFLICT (project_id, run_key) DO UPDATE SET detail = EXCLUDED.detail, created_at = now();
-      SELECT name INTO project_name FROM public.projects WHERE id = target.project_id;
+      SELECT name INTO project_name FROM pm.projects WHERE id = target.project_id;
       FOR recipient IN
-        SELECT id FROM public.team_members WHERE status = 'active'
-          AND (public.member_has_permission(id, 'invoices.read') OR public.member_has_permission(id, 'invoices.manage'))
+        SELECT id FROM pm.team_members WHERE status = 'active'
+          AND (pm.member_has_permission(id, 'invoices.read') OR pm.member_has_permission(id, 'invoices.manage'))
       LOOP
-        PERFORM public.upsert_notification(
+        PERFORM pm.upsert_notification(
           recipient,
           'Retainer draft failed',
           'The retainer invoice for ' || COALESCE(project_name, 'a project') || ' could not be drafted: '
@@ -4960,50 +4969,50 @@ END;
 $$;
 
 -- Generate now: one period, regardless of lead time or a Skipped mark.
-CREATE OR REPLACE FUNCTION public.generate_retainer_period(p_retainer_id uuid, p_period_start date)
-RETURNS public.project_invoices
+CREATE OR REPLACE FUNCTION pm.generate_retainer_period(p_retainer_id uuid, p_period_start date)
+RETURNS pm.project_invoices
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
 DECLARE
-  retainer public.project_retainers;
+  retainer pm.project_retainers;
   period record;
-  handled public.project_retainer_periods;
+  handled pm.project_retainer_periods;
 BEGIN
-  SELECT * INTO retainer FROM public.project_retainers
-  WHERE id = p_retainer_id AND deleted_at IS NULL AND public.project_is_live(project_id);
+  SELECT * INTO retainer FROM pm.project_retainers
+  WHERE id = p_retainer_id AND deleted_at IS NULL AND pm.project_is_live(project_id);
   IF NOT FOUND THEN RAISE EXCEPTION 'Retainer not found'; END IF;
 
   IF COALESCE(auth.role(), '') <> 'service_role'
-    AND NOT (public.has_permission('invoices.manage', 'app') AND public.can_access_project(retainer.project_id)) THEN
+    AND NOT (pm.has_permission('invoices.manage', 'app') AND pm.can_access_project(retainer.project_id)) THEN
     RAISE EXCEPTION 'Missing permission to manage invoices';
   END IF;
 
   SELECT * INTO period
-  FROM public.retainer_periods(p_retainer_id, p_period_start, p_period_start) candidate
+  FROM pm.retainer_periods(p_retainer_id, p_period_start, p_period_start) candidate
   WHERE candidate.period_start = p_period_start;
   IF NOT FOUND THEN RAISE EXCEPTION 'That is not a billing period of this retainer'; END IF;
 
   SELECT * INTO handled
-  FROM public.project_retainer_periods
+  FROM pm.project_retainer_periods
   WHERE retainer_id = p_retainer_id AND period_start = p_period_start
   FOR UPDATE;
   IF FOUND THEN
     IF handled.status = 'invoiced' AND handled.invoice_id IS NOT NULL THEN
       RAISE EXCEPTION 'That period is already on an invoice';
     END IF;
-    DELETE FROM public.project_retainer_periods WHERE id = handled.id;
+    DELETE FROM pm.project_retainer_periods WHERE id = handled.id;
   END IF;
 
-  RETURN public.create_retainer_draft_internal(
+  RETURN pm.create_retainer_draft_internal(
     retainer.project_id,
-    jsonb_build_array(public.retainer_line_json(
+    jsonb_build_array(pm.retainer_line_json(
       retainer.id, 0, period.amount,
       retainer.name || CASE WHEN period.prorated THEN ' (Prorated)' ELSE '' END,
       period.period_start, period.period_end
     )),
-    GREATEST(period.bill_date, public.workspace_today()),
+    GREATEST(period.bill_date, pm.workspace_today()),
     false
   );
 END;
@@ -5016,72 +5025,72 @@ $$;
 -- Retire one earning. Untouched by payouts: void it. Already paid out: keep the
 -- row (its payout must still validate) and write a deduction for the full
 -- amount, which the payout flow clears first. Payout history is never edited.
-CREATE OR REPLACE FUNCTION public.retire_share_earning(p_earning_id uuid, p_reason text)
+CREATE OR REPLACE FUNCTION pm.retire_share_earning(p_earning_id uuid, p_reason text)
 RETURNS void
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
 DECLARE
-  earning public.team_member_share_earnings;
+  earning pm.team_member_share_earnings;
   paid_out numeric;
   deduction_id uuid;
 BEGIN
   SELECT * INTO earning
-  FROM public.team_member_share_earnings
+  FROM pm.team_member_share_earnings
   WHERE id = p_earning_id AND voided_at IS NULL AND reversed_at IS NULL
   FOR UPDATE;
   IF NOT FOUND THEN RETURN; END IF;
 
   SELECT COALESCE(SUM(allocation.allocated_amount), 0)
   INTO paid_out
-  FROM public.team_member_payout_allocations allocation
-  JOIN public.team_member_payouts payout ON payout.id = allocation.payout_id
+  FROM pm.team_member_payout_allocations allocation
+  JOIN pm.team_member_payouts payout ON payout.id = allocation.payout_id
   WHERE allocation.share_earning_id = earning.id AND payout.voided_at IS NULL;
 
   IF paid_out = 0 THEN
-    UPDATE public.team_member_share_earnings SET voided_at = now() WHERE id = earning.id;
+    UPDATE pm.team_member_share_earnings SET voided_at = now() WHERE id = earning.id;
     RETURN;
   END IF;
 
-  INSERT INTO public.team_member_earning_adjustments (
+  INSERT INTO pm.team_member_earning_adjustments (
     member_id, adjustment_type, amount, effective_date, project_id, description, created_by
   ) VALUES (
     earning.member_id,
     'deduction',
     earning.amount,
-    public.workspace_today(),
+    pm.workspace_today(),
     -- Null while a project delete is cascading through its invoices.
-    (SELECT project.id FROM public.projects project WHERE project.id = earning.project_id),
+    (SELECT project.id FROM pm.projects project WHERE project.id = earning.project_id),
     btrim('Reversal: ' || earning.invoice_number || ' ' || earning.description) || ' (' || p_reason || ')',
-    public.current_team_member_id()
+    pm.current_team_member_id()
   ) RETURNING id INTO deduction_id;
 
-  UPDATE public.team_member_share_earnings
+  UPDATE pm.team_member_share_earnings
   SET reversed_at = now(), reversal_adjustment_id = deduction_id
   WHERE id = earning.id;
 END;
 $$;
 
 -- Bring an invoice's share earnings in line with its status, lines and splits.
-CREATE OR REPLACE FUNCTION public.sync_invoice_share_earnings(p_invoice_id uuid)
+CREATE OR REPLACE FUNCTION pm.sync_invoice_share_earnings(p_invoice_id uuid)
 RETURNS void
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
 DECLARE
-  invoice public.project_invoices;
+  invoice pm.project_invoices;
   earning record;
   earned_on date;
   desired jsonb := '[]'::jsonb;
 BEGIN
-  SELECT * INTO invoice FROM public.project_invoices WHERE id = p_invoice_id;
+  SELECT * INTO invoice FROM pm.project_invoices WHERE id = p_invoice_id;
   IF NOT FOUND THEN RETURN; END IF;
 
   earned_on := COALESCE(
     CASE WHEN invoice.paid_date ~ '^\d{4}-\d{2}-\d{2}' THEN substring(invoice.paid_date FROM 1 FOR 10)::date END,
-    public.workspace_today()
+    pm.workspace_today()
   );
 
   -- A trashed invoice earns nothing; restoring it earns again.
@@ -5093,12 +5102,12 @@ BEGIN
       'basis_amount', ROUND((line.value->>'amount')::numeric, 2),
       'amount', ROUND((line.value->>'amount')::numeric * share.percent / 100, 2),
       'description', COALESCE(line.value->>'description', ''),
-      'retainer_id', (SELECT retainer.id FROM public.project_retainers retainer
+      'retainer_id', (SELECT retainer.id FROM pm.project_retainers retainer
                       WHERE retainer.id::text = line.value->>'retainer_id')
     )), '[]'::jsonb)
     INTO desired
     FROM jsonb_array_elements(COALESCE(NULLIF(invoice.line_items, 'null'::jsonb), '[]'::jsonb)) line
-    JOIN public.invoice_line_shares share
+    JOIN pm.invoice_line_shares share
       ON share.invoice_id = invoice.id AND share.line_item_id = line.value->>'id'
     WHERE line.value->>'item_type' IN ('fixed', 'recurring')
       AND ROUND((line.value->>'amount')::numeric * share.percent / 100, 2) > 0;
@@ -5106,7 +5115,7 @@ BEGIN
 
   FOR earning IN
     SELECT existing.*
-    FROM public.team_member_share_earnings existing
+    FROM pm.team_member_share_earnings existing
     WHERE existing.invoice_id = invoice.id
       AND existing.voided_at IS NULL AND existing.reversed_at IS NULL
   LOOP
@@ -5117,12 +5126,12 @@ BEGIN
         AND desired.amount = earning.amount
         AND desired.percent = earning.percent
     ) THEN
-      UPDATE public.team_member_share_earnings
+      UPDATE pm.team_member_share_earnings
       SET earned_date = earned_on, invoice_number = invoice.invoice_number
       WHERE id = earning.id
         AND (earned_date IS DISTINCT FROM earned_on OR invoice_number IS DISTINCT FROM invoice.invoice_number);
     ELSE
-      PERFORM public.retire_share_earning(
+      PERFORM pm.retire_share_earning(
         earning.id,
         CASE WHEN invoice.deleted_at IS NOT NULL THEN 'invoice deleted'
              WHEN invoice.status = 'paid' THEN 'invoice changed' ELSE 'invoice no longer paid' END
@@ -5130,7 +5139,7 @@ BEGIN
     END IF;
   END LOOP;
 
-  INSERT INTO public.team_member_share_earnings (
+  INSERT INTO pm.team_member_share_earnings (
     member_id, project_id, retainer_id, invoice_id, line_item_id, invoice_number,
     description, percent, basis_amount, amount, earned_date
   )
@@ -5139,7 +5148,7 @@ BEGIN
          desired.amount, earned_on
   FROM jsonb_to_recordset(desired) AS desired(line_item_id text, member_id uuid, percent numeric, basis_amount numeric, amount numeric, description text, retainer_id uuid)
   WHERE NOT EXISTS (
-    SELECT 1 FROM public.team_member_share_earnings existing
+    SELECT 1 FROM pm.team_member_share_earnings existing
     WHERE existing.invoice_id = invoice.id
       AND existing.line_item_id = desired.line_item_id
       AND existing.member_id = desired.member_id
@@ -5152,17 +5161,17 @@ $$;
 -- Invoice triggers: periods follow lines, earnings follow paid
 -- ---------------------------------------------------------------------------
 
-CREATE OR REPLACE FUNCTION public.reconcile_invoice_retainer_lines()
+CREATE OR REPLACE FUNCTION pm.reconcile_invoice_retainer_lines()
 RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
 DECLARE
   lines jsonb := COALESCE(NULLIF(NEW.line_items, 'null'::jsonb), '[]'::jsonb);
   line jsonb;
-  retainer public.project_retainers;
-  handled public.project_retainer_periods;
+  retainer pm.project_retainers;
+  handled pm.project_retainer_periods;
   service_start date;
   service_end date;
   period_key date;
@@ -5174,19 +5183,19 @@ BEGIN
   -- hours did not go on another invoice in the meantime.
   IF NEW.deleted_at IS NOT NULL THEN
     IF TG_OP = 'UPDATE' AND OLD.deleted_at IS NULL THEN
-      UPDATE public.project_retainer_periods
+      UPDATE pm.project_retainer_periods
       SET status = 'skipped', invoice_id = NULL, line_item_id = NULL
       WHERE invoice_id = NEW.id;
-      PERFORM public.sync_invoice_share_earnings(NEW.id);
+      PERFORM pm.sync_invoice_share_earnings(NEW.id);
     END IF;
     RETURN NULL;
   END IF;
   IF TG_OP = 'UPDATE' AND OLD.deleted_at IS NOT NULL THEN
-    PERFORM public.validate_invoice_time_allocations(NEW.id);
+    PERFORM pm.validate_invoice_time_allocations(NEW.id);
   END IF;
 
   -- Let go of periods whose line is gone, or whose invoice was cancelled.
-  UPDATE public.project_retainer_periods period
+  UPDATE pm.project_retainer_periods period
   SET status = 'skipped', invoice_id = NULL, line_item_id = NULL
   WHERE period.invoice_id = NEW.id
     AND (
@@ -5198,7 +5207,7 @@ BEGIN
       )
     );
 
-  DELETE FROM public.invoice_line_shares share
+  DELETE FROM pm.invoice_line_shares share
   WHERE share.invoice_id = NEW.id
     AND NOT EXISTS (
       SELECT 1 FROM jsonb_array_elements(lines) current_line
@@ -5211,7 +5220,7 @@ BEGIN
     LOOP
       CONTINUE WHEN NULLIF(line->>'retainer_id', '') IS NULL;
 
-      SELECT * INTO retainer FROM public.project_retainers
+      SELECT * INTO retainer FROM pm.project_retainers
       WHERE id::text = line->>'retainer_id' AND deleted_at IS NULL;
       -- A retainer in Trash leaves a dangling id on old lines; that is fine.
       CONTINUE WHEN NOT FOUND;
@@ -5231,7 +5240,7 @@ BEGIN
       period_key := GREATEST(date_trunc('month', service_start::timestamp)::date, retainer.start_date);
 
       SELECT * INTO handled
-      FROM public.project_retainer_periods
+      FROM pm.project_retainer_periods
       WHERE retainer_id = retainer.id AND period_start = period_key
       FOR UPDATE;
 
@@ -5243,7 +5252,7 @@ BEGIN
         OR handled.invoice_id IS DISTINCT FROM NEW.id
         OR handled.line_item_id IS DISTINCT FROM (line->>'id');
 
-      INSERT INTO public.project_retainer_periods (
+      INSERT INTO pm.project_retainer_periods (
         retainer_id, period_start, period_end, status, invoice_id, line_item_id
       ) VALUES (
         retainer.id, period_key, GREATEST(service_end, period_key), 'invoiced', NEW.id, line->>'id'
@@ -5255,12 +5264,12 @@ BEGIN
       -- A line inherits the retainer's split once, when it is first linked.
       -- After that the line's own rows are the truth, so removing them sticks.
       IF newly_linked AND NOT EXISTS (
-        SELECT 1 FROM public.invoice_line_shares
+        SELECT 1 FROM pm.invoice_line_shares
         WHERE invoice_id = NEW.id AND line_item_id = line->>'id'
       ) THEN
-        INSERT INTO public.invoice_line_shares (invoice_id, line_item_id, member_id, percent)
+        INSERT INTO pm.invoice_line_shares (invoice_id, line_item_id, member_id, percent)
         SELECT NEW.id, line->>'id', share.member_id, share.percent
-        FROM public.project_retainer_shares share
+        FROM pm.project_retainer_shares share
         WHERE share.retainer_id = retainer.id
           AND share.effective_from <= period_key
           AND (share.effective_to IS NULL OR share.effective_to >= period_key)
@@ -5269,91 +5278,91 @@ BEGIN
     END LOOP;
   END IF;
 
-  PERFORM public.sync_invoice_share_earnings(NEW.id);
+  PERFORM pm.sync_invoice_share_earnings(NEW.id);
   RETURN NULL;
 END;
 $$;
 
-DROP TRIGGER IF EXISTS reconcile_invoice_retainer_lines ON public.project_invoices;
+DROP TRIGGER IF EXISTS reconcile_invoice_retainer_lines ON pm.project_invoices;
 CREATE TRIGGER reconcile_invoice_retainer_lines
   AFTER INSERT OR UPDATE OF line_items, status, paid_date, invoice_number, project_id, deleted_at
-  ON public.project_invoices
-  FOR EACH ROW EXECUTE FUNCTION public.reconcile_invoice_retainer_lines();
+  ON pm.project_invoices
+  FOR EACH ROW EXECUTE FUNCTION pm.reconcile_invoice_retainer_lines();
 
-CREATE OR REPLACE FUNCTION public.sync_share_earnings_from_line_shares()
+CREATE OR REPLACE FUNCTION pm.sync_share_earnings_from_line_shares()
 RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
 BEGIN
-  PERFORM public.sync_invoice_share_earnings(COALESCE(NEW.invoice_id, OLD.invoice_id));
+  PERFORM pm.sync_invoice_share_earnings(COALESCE(NEW.invoice_id, OLD.invoice_id));
   RETURN NULL;
 END;
 $$;
 
-DROP TRIGGER IF EXISTS sync_share_earnings_from_line_shares ON public.invoice_line_shares;
+DROP TRIGGER IF EXISTS sync_share_earnings_from_line_shares ON pm.invoice_line_shares;
 CREATE TRIGGER sync_share_earnings_from_line_shares
-  AFTER INSERT OR UPDATE OR DELETE ON public.invoice_line_shares
-  FOR EACH ROW EXECUTE FUNCTION public.sync_share_earnings_from_line_shares();
+  AFTER INSERT OR UPDATE OR DELETE ON pm.invoice_line_shares
+  FOR EACH ROW EXECUTE FUNCTION pm.sync_share_earnings_from_line_shares();
 
 -- A split added, changed or removed on a paid invoice changes its net amounts
 -- without touching project_invoices, so it has to raise its own event.
 -- Statement-level with a transition table: one event per invoice, however many
 -- split rows moved.
-create or replace function public.emit_invoice_webhook_for_shares()
+create or replace function pm.emit_invoice_webhook_for_shares()
 returns trigger
 language plpgsql
 security definer
-set search_path = public
+set search_path = pm
 as $$
 declare
-  v_invoice public.project_invoices;
+  v_invoice pm.project_invoices;
 begin
   for v_invoice in
     select invoice.*
-    from public.project_invoices invoice
+    from pm.project_invoices invoice
     where invoice.status = 'paid'
       and invoice.deleted_at is null
       and invoice.id in (select distinct invoice_id from changed_rows)
   loop
-    perform public.emit_invoice_webhook_event(v_invoice, 'invoice.updated');
+    perform pm.emit_invoice_webhook_event(v_invoice, 'invoice.updated');
   end loop;
   return null;
 end;
 $$;
 
 create trigger emit_invoice_webhook_shares_insert
-  after insert on public.invoice_line_shares
+  after insert on pm.invoice_line_shares
   referencing new table as changed_rows
-  for each statement execute function public.emit_invoice_webhook_for_shares();
+  for each statement execute function pm.emit_invoice_webhook_for_shares();
 
 create trigger emit_invoice_webhook_shares_update
-  after update on public.invoice_line_shares
+  after update on pm.invoice_line_shares
   referencing new table as changed_rows
-  for each statement execute function public.emit_invoice_webhook_for_shares();
+  for each statement execute function pm.emit_invoice_webhook_for_shares();
 
 create trigger emit_invoice_webhook_shares_delete
-  after delete on public.invoice_line_shares
+  after delete on pm.invoice_line_shares
   referencing old table as changed_rows
-  for each statement execute function public.emit_invoice_webhook_for_shares();
-revoke all on function public.emit_invoice_webhook_for_shares() from public, anon, authenticated;
+  for each statement execute function pm.emit_invoice_webhook_for_shares();
+revoke all on function pm.emit_invoice_webhook_for_shares() from public, anon, authenticated;
 
 -- ---------------------------------------------------------------------------
 -- Split rules
 -- ---------------------------------------------------------------------------
 
 -- Owners and agents are never paid out, so they cannot hold a share.
-CREATE OR REPLACE FUNCTION public.assert_share_member(p_member_id uuid)
+CREATE OR REPLACE FUNCTION pm.assert_share_member(p_member_id uuid)
 RETURNS void
 LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
 BEGIN
   IF NOT EXISTS (
-    SELECT 1 FROM public.team_members
+    SELECT 1 FROM pm.team_members
     WHERE id = p_member_id AND role NOT IN ('owner', 'agent')
   ) THEN
     RAISE EXCEPTION 'A split needs a team member who can be paid';
@@ -5361,17 +5370,17 @@ BEGIN
 END;
 $$;
 
-CREATE OR REPLACE FUNCTION public.enforce_retainer_share_rules()
+CREATE OR REPLACE FUNCTION pm.enforce_retainer_share_rules()
 RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
 BEGIN
-  PERFORM public.assert_share_member(NEW.member_id);
+  PERFORM pm.assert_share_member(NEW.member_id);
 
   IF EXISTS (
-    SELECT 1 FROM public.project_retainer_shares other
+    SELECT 1 FROM pm.project_retainer_shares other
     WHERE other.retainer_id = NEW.retainer_id
       AND other.member_id = NEW.member_id
       AND other.id <> NEW.id
@@ -5384,11 +5393,11 @@ BEGIN
   -- The total can only peak on a day some share starts.
   IF EXISTS (
     SELECT 1
-    FROM public.project_retainer_shares boundary
+    FROM pm.project_retainer_shares boundary
     WHERE boundary.retainer_id = NEW.retainer_id
       AND (
         SELECT SUM(covering.percent)
-        FROM public.project_retainer_shares covering
+        FROM pm.project_retainer_shares covering
         WHERE covering.retainer_id = NEW.retainer_id
           AND covering.effective_from <= boundary.effective_from
           AND COALESCE(covering.effective_to, 'infinity'::date) >= boundary.effective_from
@@ -5401,35 +5410,35 @@ BEGIN
 END;
 $$;
 
-DROP TRIGGER IF EXISTS trg_retainer_share_rules ON public.project_retainer_shares;
+DROP TRIGGER IF EXISTS trg_retainer_share_rules ON pm.project_retainer_shares;
 CREATE CONSTRAINT TRIGGER trg_retainer_share_rules
-  AFTER INSERT OR UPDATE ON public.project_retainer_shares
+  AFTER INSERT OR UPDATE ON pm.project_retainer_shares
   DEFERRABLE INITIALLY DEFERRED
-  FOR EACH ROW EXECUTE FUNCTION public.enforce_retainer_share_rules();
+  FOR EACH ROW EXECUTE FUNCTION pm.enforce_retainer_share_rules();
 
 -- ---------------------------------------------------------------------------
 -- Write RPCs
 -- ---------------------------------------------------------------------------
 
-CREATE OR REPLACE FUNCTION public.save_project_retainer(p_retainer_id uuid, p_retainer jsonb)
-RETURNS public.project_retainers
+CREATE OR REPLACE FUNCTION pm.save_project_retainer(p_retainer_id uuid, p_retainer jsonb)
+RETURNS pm.project_retainers
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
 DECLARE
-  saved public.project_retainers;
+  saved pm.project_retainers;
   target_project uuid;
 BEGIN
   IF p_retainer_id IS NULL THEN
     target_project := (p_retainer->>'project_id')::uuid;
   ELSE
-    SELECT project_id INTO target_project FROM public.project_retainers WHERE id = p_retainer_id AND deleted_at IS NULL;
+    SELECT project_id INTO target_project FROM pm.project_retainers WHERE id = p_retainer_id AND deleted_at IS NULL;
     IF NOT FOUND THEN RAISE EXCEPTION 'Retainer not found'; END IF;
   END IF;
 
   IF COALESCE(auth.role(), '') <> 'service_role'
-    AND NOT (public.has_permission('invoices.manage', 'app') AND public.can_access_project(target_project)) THEN
+    AND NOT (pm.has_permission('invoices.manage', 'app') AND pm.can_access_project(target_project)) THEN
     RAISE EXCEPTION 'Missing permission to manage invoices';
   END IF;
 
@@ -5440,7 +5449,7 @@ BEGIN
       RAISE EXCEPTION 'A retainer needs a name, a start date and an amount';
     END IF;
 
-    INSERT INTO public.project_retainers (
+    INSERT INTO pm.project_retainers (
       project_id, name, billing_timing, start_date, end_date, status, lead_days, created_by
     ) VALUES (
       target_project,
@@ -5450,21 +5459,21 @@ BEGIN
       NULLIF(p_retainer->>'end_date', '')::date,
       COALESCE(NULLIF(p_retainer->>'status', ''), 'active'),
       COALESCE(NULLIF(p_retainer->>'lead_days', '')::integer, 1),
-      public.current_team_member_id()
+      pm.current_team_member_id()
     ) RETURNING * INTO saved;
 
-    INSERT INTO public.project_retainer_amounts (retainer_id, amount, effective_date, created_by)
-    VALUES (saved.id, (p_retainer->>'amount')::numeric, saved.start_date, public.current_team_member_id());
+    INSERT INTO pm.project_retainer_amounts (retainer_id, amount, effective_date, created_by)
+    VALUES (saved.id, (p_retainer->>'amount')::numeric, saved.start_date, pm.current_team_member_id());
 
     -- The split goes in before any line is linked, so a linked line inherits it.
     IF jsonb_typeof(p_retainer->'shares') = 'array' AND jsonb_array_length(p_retainer->'shares') > 0 THEN
       IF COALESCE(auth.role(), '') <> 'service_role'
-        AND NOT public.has_permission('compensation.manage', 'app') THEN
+        AND NOT pm.has_permission('compensation.manage', 'app') THEN
         RAISE EXCEPTION 'Missing permission to manage compensation';
       END IF;
-      INSERT INTO public.project_retainer_shares (retainer_id, member_id, percent, effective_from, created_by)
+      INSERT INTO pm.project_retainer_shares (retainer_id, member_id, percent, effective_from, created_by)
       SELECT saved.id, (share.value->>'member_id')::uuid, (share.value->>'percent')::numeric,
-             saved.start_date, public.current_team_member_id()
+             saved.start_date, pm.current_team_member_id()
       FROM jsonb_array_elements(p_retainer->'shares') share;
     END IF;
 
@@ -5472,7 +5481,7 @@ BEGIN
     -- them here, in the same transaction, means the job never sees those
     -- periods as due.
     IF jsonb_typeof(p_retainer->'link_lines') = 'array' THEN
-      UPDATE public.project_invoices invoice
+      UPDATE pm.project_invoices invoice
       SET line_items = (
         SELECT jsonb_agg(
           CASE WHEN EXISTS (
@@ -5495,7 +5504,7 @@ BEGIN
         );
     END IF;
   ELSE
-    UPDATE public.project_retainers retainer
+    UPDATE pm.project_retainers retainer
     SET
       name = CASE WHEN p_retainer ? 'name' THEN btrim(p_retainer->>'name') ELSE retainer.name END,
       billing_timing = CASE WHEN p_retainer ? 'billing_timing' THEN p_retainer->>'billing_timing' ELSE retainer.billing_timing END,
@@ -5513,33 +5522,33 @@ $$;
 
 -- Same pattern as schedule_team_member_hourly_rate: a dated amount, replacing
 -- any amount already set for that date.
-CREATE OR REPLACE FUNCTION public.schedule_retainer_amount(
+CREATE OR REPLACE FUNCTION pm.schedule_retainer_amount(
   p_retainer_id uuid,
   p_amount numeric,
   p_effective_date date
 )
-RETURNS public.project_retainer_amounts
+RETURNS pm.project_retainer_amounts
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
 DECLARE
-  saved public.project_retainer_amounts;
+  saved pm.project_retainer_amounts;
   target_project uuid;
 BEGIN
-  SELECT project_id INTO target_project FROM public.project_retainers WHERE id = p_retainer_id AND deleted_at IS NULL;
+  SELECT project_id INTO target_project FROM pm.project_retainers WHERE id = p_retainer_id AND deleted_at IS NULL;
   IF NOT FOUND THEN RAISE EXCEPTION 'Retainer not found'; END IF;
 
   IF COALESCE(auth.role(), '') <> 'service_role'
-    AND NOT (public.has_permission('invoices.manage', 'app') AND public.can_access_project(target_project)) THEN
+    AND NOT (pm.has_permission('invoices.manage', 'app') AND pm.can_access_project(target_project)) THEN
     RAISE EXCEPTION 'Missing permission to manage invoices';
   END IF;
   IF p_amount IS NULL OR p_amount < 0 OR p_effective_date IS NULL THEN
     RAISE EXCEPTION 'An amount and an effective date are required';
   END IF;
 
-  INSERT INTO public.project_retainer_amounts (retainer_id, amount, effective_date, created_by)
-  VALUES (p_retainer_id, p_amount, p_effective_date, public.current_team_member_id())
+  INSERT INTO pm.project_retainer_amounts (retainer_id, amount, effective_date, created_by)
+  VALUES (p_retainer_id, p_amount, p_effective_date, pm.current_team_member_id())
   ON CONFLICT (retainer_id, effective_date) WHERE deleted_at IS NULL DO UPDATE SET amount = EXCLUDED.amount
   RETURNING * INTO saved;
 
@@ -5549,45 +5558,45 @@ $$;
 
 -- The split from p_effective_from onward. Earlier history is kept; anything
 -- scheduled on or after that date is replaced. An empty array ends the split.
-CREATE OR REPLACE FUNCTION public.set_retainer_shares(
+CREATE OR REPLACE FUNCTION pm.set_retainer_shares(
   p_retainer_id uuid,
   p_shares jsonb,
   p_effective_from date
 )
-RETURNS SETOF public.project_retainer_shares
+RETURNS SETOF pm.project_retainer_shares
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
 DECLARE
   target_project uuid;
 BEGIN
-  SELECT project_id INTO target_project FROM public.project_retainers WHERE id = p_retainer_id AND deleted_at IS NULL;
+  SELECT project_id INTO target_project FROM pm.project_retainers WHERE id = p_retainer_id AND deleted_at IS NULL;
   IF NOT FOUND THEN RAISE EXCEPTION 'Retainer not found'; END IF;
 
   IF COALESCE(auth.role(), '') <> 'service_role'
-    AND NOT (public.has_permission('compensation.manage', 'app') AND public.can_access_project(target_project)) THEN
+    AND NOT (pm.has_permission('compensation.manage', 'app') AND pm.can_access_project(target_project)) THEN
     RAISE EXCEPTION 'Missing permission to manage compensation';
   END IF;
   IF p_effective_from IS NULL OR jsonb_typeof(p_shares) IS DISTINCT FROM 'array' THEN
     RAISE EXCEPTION 'Splits and an effective date are required';
   END IF;
 
-  DELETE FROM public.project_retainer_shares
+  DELETE FROM pm.project_retainer_shares
   WHERE retainer_id = p_retainer_id AND effective_from >= p_effective_from;
 
-  UPDATE public.project_retainer_shares
+  UPDATE pm.project_retainer_shares
   SET effective_to = p_effective_from - 1
   WHERE retainer_id = p_retainer_id
     AND (effective_to IS NULL OR effective_to >= p_effective_from);
 
-  INSERT INTO public.project_retainer_shares (retainer_id, member_id, percent, effective_from, created_by)
+  INSERT INTO pm.project_retainer_shares (retainer_id, member_id, percent, effective_from, created_by)
   SELECT p_retainer_id, (share.value->>'member_id')::uuid, (share.value->>'percent')::numeric,
-         p_effective_from, public.current_team_member_id()
+         p_effective_from, pm.current_team_member_id()
   FROM jsonb_array_elements(p_shares) share;
 
   RETURN QUERY
-  SELECT * FROM public.project_retainer_shares
+  SELECT * FROM pm.project_retainer_shares
   WHERE retainer_id = p_retainer_id
   ORDER BY effective_from, created_at;
 END;
@@ -5595,21 +5604,21 @@ $$;
 
 -- Replace the split on an invoice's lines. Written as a diff so untouched rows
 -- fire no trigger: re-saving the same split must not churn a paid-out earning.
-CREATE OR REPLACE FUNCTION public.set_invoice_line_shares(p_invoice_id uuid, p_shares jsonb)
-RETURNS SETOF public.invoice_line_shares
+CREATE OR REPLACE FUNCTION pm.set_invoice_line_shares(p_invoice_id uuid, p_shares jsonb)
+RETURNS SETOF pm.invoice_line_shares
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
 DECLARE
-  invoice public.project_invoices;
+  invoice pm.project_invoices;
   share record;
 BEGIN
-  SELECT * INTO invoice FROM public.project_invoices WHERE id = p_invoice_id AND deleted_at IS NULL;
+  SELECT * INTO invoice FROM pm.project_invoices WHERE id = p_invoice_id AND deleted_at IS NULL;
   IF NOT FOUND THEN RAISE EXCEPTION 'Invoice not found'; END IF;
 
   IF COALESCE(auth.role(), '') <> 'service_role'
-    AND NOT (public.has_permission('compensation.manage', 'app') AND public.can_access_project(invoice.project_id)) THEN
+    AND NOT (pm.has_permission('compensation.manage', 'app') AND pm.can_access_project(invoice.project_id)) THEN
     RAISE EXCEPTION 'Missing permission to manage compensation';
   END IF;
   IF jsonb_typeof(p_shares) IS DISTINCT FROM 'array' THEN
@@ -5620,7 +5629,7 @@ BEGIN
     SELECT incoming.line_item_id, incoming.member_id, incoming.percent
     FROM jsonb_to_recordset(p_shares) AS incoming(line_item_id text, member_id uuid, percent numeric)
   LOOP
-    PERFORM public.assert_share_member(share.member_id);
+    PERFORM pm.assert_share_member(share.member_id);
     IF share.percent IS NULL OR share.percent <= 0 OR share.percent > 100 THEN
       RAISE EXCEPTION 'A split percent must be between 0 and 100';
     END IF;
@@ -5643,7 +5652,7 @@ BEGIN
     RAISE EXCEPTION 'Splits on a line cannot total more than 100 percent or repeat a member';
   END IF;
 
-  DELETE FROM public.invoice_line_shares existing
+  DELETE FROM pm.invoice_line_shares existing
   WHERE existing.invoice_id = p_invoice_id
     AND NOT EXISTS (
       SELECT 1
@@ -5651,15 +5660,15 @@ BEGIN
       WHERE incoming.line_item_id = existing.line_item_id AND incoming.member_id = existing.member_id
     );
 
-  INSERT INTO public.invoice_line_shares (invoice_id, line_item_id, member_id, percent)
+  INSERT INTO pm.invoice_line_shares (invoice_id, line_item_id, member_id, percent)
   SELECT p_invoice_id, incoming.line_item_id, incoming.member_id, incoming.percent
   FROM jsonb_to_recordset(p_shares) AS incoming(line_item_id text, member_id uuid, percent numeric)
   ON CONFLICT (invoice_id, line_item_id, member_id) DO UPDATE
   SET percent = EXCLUDED.percent
-  WHERE public.invoice_line_shares.percent IS DISTINCT FROM EXCLUDED.percent;
+  WHERE pm.invoice_line_shares.percent IS DISTINCT FROM EXCLUDED.percent;
 
   RETURN QUERY
-  SELECT * FROM public.invoice_line_shares WHERE invoice_id = p_invoice_id;
+  SELECT * FROM pm.invoice_line_shares WHERE invoice_id = p_invoice_id;
 END;
 $$;
 
@@ -5672,7 +5681,7 @@ $$;
 -- and then land all at once, so the counter reads the period covering today
 -- from here instead. A skipped or invoiced month has a period row and is left
 -- out. share_percent is compensation: zero unless the caller may see it.
-CREATE OR REPLACE FUNCTION public.retainer_accruing_lines()
+CREATE OR REPLACE FUNCTION pm.retainer_accruing_lines()
 RETURNS TABLE (
   project_id uuid,
   retainer_id uuid,
@@ -5684,10 +5693,10 @@ RETURNS TABLE (
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
   WITH clock AS (
-    SELECT public.workspace_today() AS today,
+    SELECT pm.workspace_today() AS today,
            COALESCE(auth.role(), '') = 'service_role' AS is_service
   )
   SELECT
@@ -5696,51 +5705,51 @@ AS $$
     period.period_start,
     period.period_end,
     period.amount,
-    CASE WHEN clock.is_service OR public.has_permission('compensation.manage', 'app') THEN COALESCE((
+    CASE WHEN clock.is_service OR pm.has_permission('compensation.manage', 'app') THEN COALESCE((
       SELECT SUM(share.percent)
-      FROM public.project_retainer_shares share
+      FROM pm.project_retainer_shares share
       WHERE share.retainer_id = retainer.id
         AND share.effective_from <= period.period_start
         AND (share.effective_to IS NULL OR share.effective_to >= period.period_start)
     ), 0) ELSE 0 END
   FROM clock
-  CROSS JOIN public.project_retainers retainer
-  CROSS JOIN LATERAL public.retainer_periods(retainer.id, clock.today, clock.today) period
+  CROSS JOIN pm.project_retainers retainer
+  CROSS JOIN LATERAL pm.retainer_periods(retainer.id, clock.today, clock.today) period
   WHERE retainer.status = 'active'
     AND retainer.deleted_at IS NULL
-    AND EXISTS (SELECT 1 FROM public.projects project
+    AND EXISTS (SELECT 1 FROM pm.projects project
         WHERE project.id = retainer.project_id AND project.deleted_at IS NULL)
     AND clock.today BETWEEN period.period_start AND period.period_end
-    AND (clock.is_service OR (public.has_permission('invoices.read', 'app') AND public.can_access_project(retainer.project_id)))
+    AND (clock.is_service OR (pm.has_permission('invoices.read', 'app') AND pm.can_access_project(retainer.project_id)))
     AND NOT EXISTS (
-      SELECT 1 FROM public.project_retainer_periods handled
+      SELECT 1 FROM pm.project_retainer_periods handled
       WHERE handled.retainer_id = retainer.id AND handled.period_start = period.period_start
     )
 $$;
 
-CREATE OR REPLACE FUNCTION public.set_credential_members(
+CREATE OR REPLACE FUNCTION pm.set_credential_members(
   p_credential_id uuid,
   p_member_ids uuid[]
 )
 RETURNS void
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
 DECLARE
   credential_project_id uuid;
 BEGIN
   SELECT project_id INTO credential_project_id
-  FROM public.project_credentials WHERE id = p_credential_id;
+  FROM pm.project_credentials WHERE id = p_credential_id;
   IF credential_project_id IS NULL
-    OR NOT public.has_permission('credentials.manage', 'app')
-    OR NOT public.can_access_project(credential_project_id) THEN
+    OR NOT pm.has_permission('credentials.manage', 'app')
+    OR NOT pm.can_access_project(credential_project_id) THEN
     RAISE EXCEPTION 'Permission denied';
   END IF;
   IF EXISTS (
     SELECT 1 FROM unnest(COALESCE(p_member_ids, ARRAY[]::uuid[])) requested(member_id)
     WHERE NOT EXISTS (
-      SELECT 1 FROM public.project_members assignment
+      SELECT 1 FROM pm.project_members assignment
       WHERE assignment.project_id = credential_project_id
         AND assignment.member_id = requested.member_id
     )
@@ -5748,9 +5757,9 @@ BEGIN
     RAISE EXCEPTION 'Credentials can only be shared with assigned project members';
   END IF;
 
-  DELETE FROM public.project_credential_members WHERE credential_id = p_credential_id;
-  INSERT INTO public.project_credential_members (credential_id, member_id, granted_by)
-  SELECT p_credential_id, requested.member_id, public.current_team_member_id()
+  DELETE FROM pm.project_credential_members WHERE credential_id = p_credential_id;
+  INSERT INTO pm.project_credential_members (credential_id, member_id, granted_by)
+  SELECT p_credential_id, requested.member_id, pm.current_team_member_id()
   FROM unnest(COALESCE(p_member_ids, ARRAY[]::uuid[])) requested(member_id)
   ON CONFLICT DO NOTHING;
 END;
@@ -5760,22 +5769,22 @@ $$;
 -- Restrictive RLS policies
 -- ---------------------------------------------------------------------------
 
-ALTER TABLE public.role_permissions ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.team_member_permissions ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.team_member_hourly_rates ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.team_member_earning_adjustments ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.team_member_payouts ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.team_member_payout_allocations ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.project_retainers ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.project_retainer_amounts ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.project_retainer_shares ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.project_retainer_periods ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.invoice_line_shares ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.team_member_share_earnings ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.project_credential_members ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.webhook_endpoints ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.webhook_events ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.webhook_deliveries ENABLE ROW LEVEL SECURITY;
+ALTER TABLE pm.role_permissions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE pm.team_member_permissions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE pm.team_member_hourly_rates ENABLE ROW LEVEL SECURITY;
+ALTER TABLE pm.team_member_earning_adjustments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE pm.team_member_payouts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE pm.team_member_payout_allocations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE pm.project_retainers ENABLE ROW LEVEL SECURITY;
+ALTER TABLE pm.project_retainer_amounts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE pm.project_retainer_shares ENABLE ROW LEVEL SECURITY;
+ALTER TABLE pm.project_retainer_periods ENABLE ROW LEVEL SECURITY;
+ALTER TABLE pm.invoice_line_shares ENABLE ROW LEVEL SECURITY;
+ALTER TABLE pm.team_member_share_earnings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE pm.project_credential_members ENABLE ROW LEVEL SECURITY;
+ALTER TABLE pm.webhook_endpoints ENABLE ROW LEVEL SECURITY;
+ALTER TABLE pm.webhook_events ENABLE ROW LEVEL SECURITY;
+ALTER TABLE pm.webhook_deliveries ENABLE ROW LEVEL SECURITY;
 
 DO $$
 DECLARE
@@ -5795,310 +5804,310 @@ BEGIN
     'team_member_payout_allocations','project_credential_members',
     'task_acceptance_criteria','task_dependencies','task_reviews'
   ] LOOP
-    IF to_regclass('public.' || table_name) IS NOT NULL THEN
+    IF to_regclass('pm.' || table_name) IS NOT NULL THEN
       FOR policy_name IN
-        SELECT policyname FROM pg_policies WHERE schemaname = 'public' AND tablename = table_name
+        SELECT policyname FROM pg_policies WHERE schemaname = 'pm' AND tablename = table_name
       LOOP
-        EXECUTE format('DROP POLICY IF EXISTS %I ON public.%I', policy_name, table_name);
+        EXECUTE format('DROP POLICY IF EXISTS %I ON pm.%I', policy_name, table_name);
       END LOOP;
     END IF;
   END LOOP;
 END;
 $$;
 
-CREATE POLICY team_members_self_or_manage_select ON public.team_members FOR SELECT TO authenticated
-  USING (id = public.current_team_member_id() OR public.has_permission('team.manage'));
+CREATE POLICY team_members_self_or_manage_select ON pm.team_members FOR SELECT TO authenticated
+  USING (id = pm.current_team_member_id() OR pm.has_permission('team.manage'));
 -- Team member writes go through guarded server routes. Direct authenticated
 -- writes are Owner-only so a member cannot change their own role or status and
 -- an Admin cannot elevate themselves or modify the Owner.
-CREATE POLICY team_members_owner_write ON public.team_members FOR ALL TO authenticated
-  USING (public.current_team_member_role() = 'owner')
-  WITH CHECK (public.current_team_member_role() = 'owner');
+CREATE POLICY team_members_owner_write ON pm.team_members FOR ALL TO authenticated
+  USING (pm.current_team_member_role() = 'owner')
+  WITH CHECK (pm.current_team_member_role() = 'owner');
 
-CREATE POLICY role_permissions_owner ON public.role_permissions FOR ALL TO authenticated
-  USING (public.current_team_member_role() = 'owner')
-  WITH CHECK (public.current_team_member_role() = 'owner');
-CREATE POLICY member_permissions_owner ON public.team_member_permissions FOR ALL TO authenticated
-  USING (public.current_team_member_role() = 'owner')
-  WITH CHECK (public.current_team_member_role() = 'owner');
+CREATE POLICY role_permissions_owner ON pm.role_permissions FOR ALL TO authenticated
+  USING (pm.current_team_member_role() = 'owner')
+  WITH CHECK (pm.current_team_member_role() = 'owner');
+CREATE POLICY member_permissions_owner ON pm.team_member_permissions FOR ALL TO authenticated
+  USING (pm.current_team_member_role() = 'owner')
+  WITH CHECK (pm.current_team_member_role() = 'owner');
 
 -- Everyone signed in may read both (the app shows what is on). Nobody
 -- writes through the API: the Owner switches modules in Settings, whose one
 -- server route keeps dependencies whole and records the change.
-ALTER TABLE public.workspace_modules ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.permission_modules ENABLE ROW LEVEL SECURITY;
+ALTER TABLE pm.workspace_modules ENABLE ROW LEVEL SECURITY;
+ALTER TABLE pm.permission_modules ENABLE ROW LEVEL SECURITY;
 
-DROP POLICY IF EXISTS workspace_modules_read ON public.workspace_modules;
-CREATE POLICY workspace_modules_read ON public.workspace_modules FOR SELECT TO authenticated
+DROP POLICY IF EXISTS workspace_modules_read ON pm.workspace_modules;
+CREATE POLICY workspace_modules_read ON pm.workspace_modules FOR SELECT TO authenticated
   USING (true);
-DROP POLICY IF EXISTS permission_modules_read ON public.permission_modules;
-CREATE POLICY permission_modules_read ON public.permission_modules FOR SELECT TO authenticated
+DROP POLICY IF EXISTS permission_modules_read ON pm.permission_modules;
+CREATE POLICY permission_modules_read ON pm.permission_modules FOR SELECT TO authenticated
   USING (true);
 
-REVOKE ALL ON public.workspace_modules FROM anon;
-REVOKE ALL ON public.permission_modules FROM anon;
-REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON public.workspace_modules FROM authenticated;
-REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON public.permission_modules FROM authenticated;
+REVOKE ALL ON pm.workspace_modules FROM anon;
+REVOKE ALL ON pm.permission_modules FROM anon;
+REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON pm.workspace_modules FROM authenticated;
+REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON pm.permission_modules FROM authenticated;
 
-CREATE POLICY contacts_select ON public.contacts FOR SELECT TO authenticated
-  USING (public.has_permission('contacts.read_all') OR (
-    public.has_permission('contacts.read') AND EXISTS (
-      SELECT 1 FROM public.project_contacts pc
-      WHERE pc.contact_id = contacts.id AND public.can_access_project(pc.project_id)
+CREATE POLICY contacts_select ON pm.contacts FOR SELECT TO authenticated
+  USING (pm.has_permission('contacts.read_all') OR (
+    pm.has_permission('contacts.read') AND EXISTS (
+      SELECT 1 FROM pm.project_contacts pc
+      WHERE pc.contact_id = contacts.id AND pm.can_access_project(pc.project_id)
     )
   ));
-CREATE POLICY contacts_manage ON public.contacts FOR ALL TO authenticated
-  USING (public.has_permission('contacts.manage')) WITH CHECK (public.has_permission('contacts.manage'));
+CREATE POLICY contacts_manage ON pm.contacts FOR ALL TO authenticated
+  USING (pm.has_permission('contacts.manage')) WITH CHECK (pm.has_permission('contacts.manage'));
 
-CREATE POLICY projects_management_select ON public.projects FOR SELECT TO authenticated
-  USING (public.has_permission('projects.read_all') OR (
-    public.has_permission('projects.read') AND public.can_access_project(id)
+CREATE POLICY projects_management_select ON pm.projects FOR SELECT TO authenticated
+  USING (pm.has_permission('projects.read_all') OR (
+    pm.has_permission('projects.read') AND pm.can_access_project(id)
   ));
-CREATE POLICY projects_manage ON public.projects FOR ALL TO authenticated
-  USING (public.has_permission('projects.manage')) WITH CHECK (public.has_permission('projects.manage'));
+CREATE POLICY projects_manage ON pm.projects FOR ALL TO authenticated
+  USING (pm.has_permission('projects.manage')) WITH CHECK (pm.has_permission('projects.manage'));
 
-CREATE POLICY project_members_select ON public.project_members FOR SELECT TO authenticated
-  USING (public.can_access_project(project_id));
-CREATE POLICY project_members_manage ON public.project_members FOR ALL TO authenticated
-  USING (public.has_permission('project_members.manage') AND public.can_access_project(project_id))
-  WITH CHECK (public.has_permission('project_members.manage') AND public.can_access_project(project_id));
+CREATE POLICY project_members_select ON pm.project_members FOR SELECT TO authenticated
+  USING (pm.can_access_project(project_id));
+CREATE POLICY project_members_manage ON pm.project_members FOR ALL TO authenticated
+  USING (pm.has_permission('project_members.manage') AND pm.can_access_project(project_id))
+  WITH CHECK (pm.has_permission('project_members.manage') AND pm.can_access_project(project_id));
 
-CREATE POLICY project_contacts_select ON public.project_contacts FOR SELECT TO authenticated
-  USING (public.can_access_project(project_id) AND public.has_permission('contacts.read'));
-CREATE POLICY project_contacts_manage ON public.project_contacts FOR ALL TO authenticated
-  USING (public.has_permission('contacts.manage')) WITH CHECK (public.has_permission('contacts.manage'));
+CREATE POLICY project_contacts_select ON pm.project_contacts FOR SELECT TO authenticated
+  USING (pm.can_access_project(project_id) AND pm.has_permission('contacts.read'));
+CREATE POLICY project_contacts_manage ON pm.project_contacts FOR ALL TO authenticated
+  USING (pm.has_permission('contacts.manage')) WITH CHECK (pm.has_permission('contacts.manage'));
 
-CREATE POLICY tasks_select ON public.tasks FOR SELECT TO authenticated
-  USING (public.can_read_task_row(id, project_id, created_by));
-CREATE POLICY tasks_insert ON public.tasks FOR INSERT TO authenticated
-  WITH CHECK (public.has_permission('tasks.create') AND public.can_access_project(project_id)
-    AND created_by = public.current_team_member_id());
+CREATE POLICY tasks_select ON pm.tasks FOR SELECT TO authenticated
+  USING (pm.can_read_task_row(id, project_id, created_by));
+CREATE POLICY tasks_insert ON pm.tasks FOR INSERT TO authenticated
+  WITH CHECK (pm.has_permission('tasks.create') AND pm.can_access_project(project_id)
+    AND created_by = pm.current_team_member_id());
 -- Assigned work includes the subtasks of a task you are on.
-CREATE POLICY tasks_update ON public.tasks FOR UPDATE TO authenticated
-  USING (public.can_access_project(project_id) AND (public.has_permission('tasks.manage_all') OR (
-    public.has_permission('tasks.manage_assigned') AND EXISTS (
-      SELECT 1 FROM public.task_assignees ta
-      WHERE ta.task_id IN (tasks.id, tasks.parent_task_id) AND ta.member_id = public.current_team_member_id()
+CREATE POLICY tasks_update ON pm.tasks FOR UPDATE TO authenticated
+  USING (pm.can_access_project(project_id) AND (pm.has_permission('tasks.manage_all') OR (
+    pm.has_permission('tasks.manage_assigned') AND EXISTS (
+      SELECT 1 FROM pm.task_assignees ta
+      WHERE ta.task_id IN (tasks.id, tasks.parent_task_id) AND ta.member_id = pm.current_team_member_id()
     )
   )));
-CREATE POLICY tasks_delete ON public.tasks FOR DELETE TO authenticated
-  USING (public.has_permission('tasks.manage_all') AND public.can_access_project(project_id));
+CREATE POLICY tasks_delete ON pm.tasks FOR DELETE TO authenticated
+  USING (pm.has_permission('tasks.manage_all') AND pm.can_access_project(project_id));
 
-CREATE POLICY task_assignees_select ON public.task_assignees FOR SELECT TO authenticated
-  USING (public.can_access_task(task_id));
-CREATE POLICY task_assignees_manage ON public.task_assignees FOR ALL TO authenticated
-  USING (public.has_permission('tasks.manage_all')) WITH CHECK (public.has_permission('tasks.manage_all'));
-CREATE POLICY task_assignees_creator_self_insert ON public.task_assignees FOR INSERT TO authenticated
-  WITH CHECK (member_id = public.current_team_member_id() AND EXISTS (
-    SELECT 1 FROM public.tasks task
-    WHERE task.id = task_id AND task.created_by = public.current_team_member_id()
+CREATE POLICY task_assignees_select ON pm.task_assignees FOR SELECT TO authenticated
+  USING (pm.can_access_task(task_id));
+CREATE POLICY task_assignees_manage ON pm.task_assignees FOR ALL TO authenticated
+  USING (pm.has_permission('tasks.manage_all')) WITH CHECK (pm.has_permission('tasks.manage_all'));
+CREATE POLICY task_assignees_creator_self_insert ON pm.task_assignees FOR INSERT TO authenticated
+  WITH CHECK (member_id = pm.current_team_member_id() AND EXISTS (
+    SELECT 1 FROM pm.tasks task
+    WHERE task.id = task_id AND task.created_by = pm.current_team_member_id()
   ));
 
-CREATE POLICY task_subtasks_select ON public.task_subtasks FOR SELECT TO authenticated
-  USING (public.can_access_task(task_id));
-CREATE POLICY task_subtasks_manage ON public.task_subtasks FOR ALL TO authenticated
-  USING (public.can_access_task(task_id) AND (
-    public.has_permission('tasks.manage_all') OR (
-      public.has_permission('tasks.manage_assigned') AND EXISTS (
-        SELECT 1 FROM public.task_assignees assignment
+CREATE POLICY task_subtasks_select ON pm.task_subtasks FOR SELECT TO authenticated
+  USING (pm.can_access_task(task_id));
+CREATE POLICY task_subtasks_manage ON pm.task_subtasks FOR ALL TO authenticated
+  USING (pm.can_access_task(task_id) AND (
+    pm.has_permission('tasks.manage_all') OR (
+      pm.has_permission('tasks.manage_assigned') AND EXISTS (
+        SELECT 1 FROM pm.task_assignees assignment
         WHERE assignment.task_id = task_subtasks.task_id
-          AND assignment.member_id = public.current_team_member_id()
+          AND assignment.member_id = pm.current_team_member_id()
       )
     )
-  )) WITH CHECK (public.can_access_task(task_id) AND (
-    public.has_permission('tasks.manage_all') OR EXISTS (
-      SELECT 1 FROM public.task_assignees assignment
+  )) WITH CHECK (pm.can_access_task(task_id) AND (
+    pm.has_permission('tasks.manage_all') OR EXISTS (
+      SELECT 1 FROM pm.task_assignees assignment
       WHERE assignment.task_id = task_subtasks.task_id
-        AND assignment.member_id = public.current_team_member_id()
+        AND assignment.member_id = pm.current_team_member_id()
     )
   ));
 
-CREATE POLICY task_acceptance_criteria_select ON public.task_acceptance_criteria FOR SELECT TO authenticated
-  USING (public.can_access_task(task_id));
-CREATE POLICY task_acceptance_criteria_manage ON public.task_acceptance_criteria FOR ALL TO authenticated
-  USING (public.can_access_task(task_id) AND (
-    public.has_permission('tasks.manage_all') OR (
-      public.has_permission('tasks.manage_assigned') AND EXISTS (
-        SELECT 1 FROM public.task_assignees assignment
+CREATE POLICY task_acceptance_criteria_select ON pm.task_acceptance_criteria FOR SELECT TO authenticated
+  USING (pm.can_access_task(task_id));
+CREATE POLICY task_acceptance_criteria_manage ON pm.task_acceptance_criteria FOR ALL TO authenticated
+  USING (pm.can_access_task(task_id) AND (
+    pm.has_permission('tasks.manage_all') OR (
+      pm.has_permission('tasks.manage_assigned') AND EXISTS (
+        SELECT 1 FROM pm.task_assignees assignment
         WHERE assignment.task_id = task_acceptance_criteria.task_id
-          AND assignment.member_id = public.current_team_member_id()
+          AND assignment.member_id = pm.current_team_member_id()
       )
     )
-  )) WITH CHECK (public.can_access_task(task_id) AND (
-    public.has_permission('tasks.manage_all') OR EXISTS (
-      SELECT 1 FROM public.task_assignees assignment
+  )) WITH CHECK (pm.can_access_task(task_id) AND (
+    pm.has_permission('tasks.manage_all') OR EXISTS (
+      SELECT 1 FROM pm.task_assignees assignment
       WHERE assignment.task_id = task_acceptance_criteria.task_id
-        AND assignment.member_id = public.current_team_member_id()
+        AND assignment.member_id = pm.current_team_member_id()
     )
   ));
 
 -- Reviews: read-only for humans; the reviewer agent writes via the service
 -- client, so there is intentionally no authenticated write policy.
-CREATE POLICY task_reviews_select ON public.task_reviews FOR SELECT TO authenticated
-  USING (public.can_access_task(task_id));
-CREATE POLICY agent_health_select ON public.agent_health FOR SELECT TO authenticated
-  USING ((select public.current_team_member_id()) IS NOT NULL AND (select public.module_enabled('agents')));
+CREATE POLICY task_reviews_select ON pm.task_reviews FOR SELECT TO authenticated
+  USING (pm.can_access_task(task_id));
+CREATE POLICY agent_health_select ON pm.agent_health FOR SELECT TO authenticated
+  USING ((select pm.current_team_member_id()) IS NOT NULL AND (select pm.module_enabled('agents')));
 -- Written by the trigger under the service client; signed-in members read.
-CREATE POLICY agent_health_history_select ON public.agent_health_history FOR SELECT TO authenticated
-  USING ((select public.current_team_member_id()) IS NOT NULL AND (select public.module_enabled('agents')));
+CREATE POLICY agent_health_history_select ON pm.agent_health_history FOR SELECT TO authenticated
+  USING ((select pm.current_team_member_id()) IS NOT NULL AND (select pm.module_enabled('agents')));
 
-CREATE POLICY task_dependencies_select ON public.task_dependencies FOR SELECT TO authenticated
-  USING (public.can_access_task(task_id));
-CREATE POLICY task_dependencies_manage ON public.task_dependencies FOR ALL TO authenticated
-  USING (public.can_access_task(task_id) AND (
-    public.has_permission('tasks.manage_all') OR (
-      public.has_permission('tasks.manage_assigned') AND EXISTS (
-        SELECT 1 FROM public.task_assignees assignment
+CREATE POLICY task_dependencies_select ON pm.task_dependencies FOR SELECT TO authenticated
+  USING (pm.can_access_task(task_id));
+CREATE POLICY task_dependencies_manage ON pm.task_dependencies FOR ALL TO authenticated
+  USING (pm.can_access_task(task_id) AND (
+    pm.has_permission('tasks.manage_all') OR (
+      pm.has_permission('tasks.manage_assigned') AND EXISTS (
+        SELECT 1 FROM pm.task_assignees assignment
         WHERE assignment.task_id = task_dependencies.task_id
-          AND assignment.member_id = public.current_team_member_id()
+          AND assignment.member_id = pm.current_team_member_id()
       )
     )
-  )) WITH CHECK (public.can_access_task(task_id) AND (
-    public.has_permission('tasks.manage_all') OR EXISTS (
-      SELECT 1 FROM public.task_assignees assignment
+  )) WITH CHECK (pm.can_access_task(task_id) AND (
+    pm.has_permission('tasks.manage_all') OR EXISTS (
+      SELECT 1 FROM pm.task_assignees assignment
       WHERE assignment.task_id = task_dependencies.task_id
-        AND assignment.member_id = public.current_team_member_id()
+        AND assignment.member_id = pm.current_team_member_id()
     )
   ));
 
-CREATE POLICY task_comments_select ON public.task_comments FOR SELECT TO authenticated
-  USING (public.can_access_task(task_id));
-CREATE POLICY task_comments_insert ON public.task_comments FOR INSERT TO authenticated
-  WITH CHECK (public.can_access_task(task_id) AND user_id = public.current_team_member_id());
-CREATE POLICY task_comments_update_delete ON public.task_comments FOR ALL TO authenticated
-  USING (user_id = public.current_team_member_id() OR public.has_permission('tasks.manage_all'));
+CREATE POLICY task_comments_select ON pm.task_comments FOR SELECT TO authenticated
+  USING (pm.can_access_task(task_id));
+CREATE POLICY task_comments_insert ON pm.task_comments FOR INSERT TO authenticated
+  WITH CHECK (pm.can_access_task(task_id) AND user_id = pm.current_team_member_id());
+CREATE POLICY task_comments_update_delete ON pm.task_comments FOR ALL TO authenticated
+  USING (user_id = pm.current_team_member_id() OR pm.has_permission('tasks.manage_all'));
 
-CREATE POLICY leads_select ON public.leads FOR SELECT TO authenticated
-  USING (public.can_access_lead(id));
-CREATE POLICY leads_manage ON public.leads FOR ALL TO authenticated
-  USING (public.has_permission('leads.manage')) WITH CHECK (public.has_permission('leads.manage'));
-CREATE POLICY lead_members_select ON public.lead_members FOR SELECT TO authenticated
-  USING (public.can_access_lead(lead_id));
-CREATE POLICY lead_members_manage ON public.lead_members FOR ALL TO authenticated
-  USING (public.has_permission('leads.manage')) WITH CHECK (public.has_permission('leads.manage'));
-CREATE POLICY lead_interactions_access ON public.lead_interactions FOR ALL TO authenticated
-  USING (public.can_access_lead(lead_id)) WITH CHECK (public.can_access_lead(lead_id));
-CREATE POLICY lead_proposals_access ON public.lead_proposals FOR ALL TO authenticated
-  USING (public.can_access_lead(lead_id)) WITH CHECK (public.can_access_lead(lead_id));
-CREATE POLICY lead_fields_access ON public.lead_fields FOR ALL TO authenticated
-  USING (public.can_access_lead(lead_id)) WITH CHECK (public.can_access_lead(lead_id));
-CREATE POLICY lead_contacts_access ON public.lead_contacts FOR ALL TO authenticated
-  USING (public.can_access_lead(lead_id)) WITH CHECK (public.can_access_lead(lead_id));
+CREATE POLICY leads_select ON pm.leads FOR SELECT TO authenticated
+  USING (pm.can_access_lead(id));
+CREATE POLICY leads_manage ON pm.leads FOR ALL TO authenticated
+  USING (pm.has_permission('leads.manage')) WITH CHECK (pm.has_permission('leads.manage'));
+CREATE POLICY lead_members_select ON pm.lead_members FOR SELECT TO authenticated
+  USING (pm.can_access_lead(lead_id));
+CREATE POLICY lead_members_manage ON pm.lead_members FOR ALL TO authenticated
+  USING (pm.has_permission('leads.manage')) WITH CHECK (pm.has_permission('leads.manage'));
+CREATE POLICY lead_interactions_access ON pm.lead_interactions FOR ALL TO authenticated
+  USING (pm.can_access_lead(lead_id)) WITH CHECK (pm.can_access_lead(lead_id));
+CREATE POLICY lead_proposals_access ON pm.lead_proposals FOR ALL TO authenticated
+  USING (pm.can_access_lead(lead_id)) WITH CHECK (pm.can_access_lead(lead_id));
+CREATE POLICY lead_fields_access ON pm.lead_fields FOR ALL TO authenticated
+  USING (pm.can_access_lead(lead_id)) WITH CHECK (pm.can_access_lead(lead_id));
+CREATE POLICY lead_contacts_access ON pm.lead_contacts FOR ALL TO authenticated
+  USING (pm.can_access_lead(lead_id)) WITH CHECK (pm.can_access_lead(lead_id));
 
-CREATE POLICY portal_settings_access ON public.portal_settings FOR ALL TO authenticated
-  USING (public.has_permission('portal.read') AND public.can_access_project(project_id))
-  WITH CHECK (public.has_permission('portal.manage') AND public.can_access_project(project_id));
-CREATE POLICY client_communications_access ON public.client_communications FOR ALL TO authenticated
-  USING (public.has_permission('communications.read') AND public.can_access_project(project_id))
-  WITH CHECK (public.has_permission('communications.manage') AND public.can_access_project(project_id));
-CREATE POLICY portal_updates_access ON public.portal_updates FOR ALL TO authenticated
-  USING (public.has_permission('portal.read') AND public.can_access_project(project_id))
-  WITH CHECK (public.has_permission('portal.manage') AND public.can_access_project(project_id));
-CREATE POLICY portal_update_attachments_access ON public.portal_update_attachments FOR ALL TO authenticated
-  USING (EXISTS (SELECT 1 FROM public.portal_updates pu WHERE pu.id = update_id AND public.has_permission('portal.read')))
-  WITH CHECK (public.has_permission('portal.manage'));
-CREATE POLICY portal_events_access ON public.portal_events FOR SELECT TO authenticated
-  USING (public.has_permission('portal.read'));
+CREATE POLICY portal_settings_access ON pm.portal_settings FOR ALL TO authenticated
+  USING (pm.has_permission('portal.read') AND pm.can_access_project(project_id))
+  WITH CHECK (pm.has_permission('portal.manage') AND pm.can_access_project(project_id));
+CREATE POLICY client_communications_access ON pm.client_communications FOR ALL TO authenticated
+  USING (pm.has_permission('communications.read') AND pm.can_access_project(project_id))
+  WITH CHECK (pm.has_permission('communications.manage') AND pm.can_access_project(project_id));
+CREATE POLICY portal_updates_access ON pm.portal_updates FOR ALL TO authenticated
+  USING (pm.has_permission('portal.read') AND pm.can_access_project(project_id))
+  WITH CHECK (pm.has_permission('portal.manage') AND pm.can_access_project(project_id));
+CREATE POLICY portal_update_attachments_access ON pm.portal_update_attachments FOR ALL TO authenticated
+  USING (EXISTS (SELECT 1 FROM pm.portal_updates pu WHERE pu.id = update_id AND pm.has_permission('portal.read')))
+  WITH CHECK (pm.has_permission('portal.manage'));
+CREATE POLICY portal_events_access ON pm.portal_events FOR SELECT TO authenticated
+  USING (pm.has_permission('portal.read'));
 
-CREATE POLICY entity_files_select ON public.entity_files FOR SELECT TO authenticated
-  USING (public.has_permission('files.read') AND (
-    (entity_type = 'project' AND public.can_access_project(entity_id)) OR
-    (entity_type = 'task' AND public.can_access_task(entity_id)) OR
-    public.has_permission('files.manage')
+CREATE POLICY entity_files_select ON pm.entity_files FOR SELECT TO authenticated
+  USING (pm.has_permission('files.read') AND (
+    (entity_type = 'project' AND pm.can_access_project(entity_id)) OR
+    (entity_type = 'task' AND pm.can_access_task(entity_id)) OR
+    pm.has_permission('files.manage')
   ));
-CREATE POLICY entity_files_insert ON public.entity_files FOR INSERT TO authenticated
-  WITH CHECK (public.has_permission('files.upload') AND uploaded_by = public.current_team_member_id());
-CREATE POLICY entity_files_update_delete ON public.entity_files FOR ALL TO authenticated
-  USING (public.has_permission('files.manage') OR (
-    uploaded_by = public.current_team_member_id() AND visibility = 'internal'
+CREATE POLICY entity_files_insert ON pm.entity_files FOR INSERT TO authenticated
+  WITH CHECK (pm.has_permission('files.upload') AND uploaded_by = pm.current_team_member_id());
+CREATE POLICY entity_files_update_delete ON pm.entity_files FOR ALL TO authenticated
+  USING (pm.has_permission('files.manage') OR (
+    uploaded_by = pm.current_team_member_id() AND visibility = 'internal'
   ));
 
-CREATE POLICY api_keys_select ON public.api_keys FOR SELECT TO authenticated
-  USING (team_member_id = public.current_team_member_id()
-    OR created_by = public.current_team_member_id()
-    OR public.has_permission('api_keys.manage_all'));
+CREATE POLICY api_keys_select ON pm.api_keys FOR SELECT TO authenticated
+  USING (team_member_id = pm.current_team_member_id()
+    OR created_by = pm.current_team_member_id()
+    OR pm.has_permission('api_keys.manage_all'));
 -- Keys are created and revoked by server routes (service role) only; members
 -- read the keys they own or created, holders of api_keys.manage_all read all.
-REVOKE ALL ON public.api_keys FROM anon, authenticated;
-GRANT SELECT ON public.api_keys TO authenticated;
+REVOKE ALL ON pm.api_keys FROM anon, authenticated;
+GRANT SELECT ON pm.api_keys TO authenticated;
 
-CREATE POLICY webhook_endpoints_manage ON public.webhook_endpoints FOR ALL TO authenticated
-  USING (public.has_permission('webhooks.manage'))
-  WITH CHECK (public.has_permission('webhooks.manage'));
-CREATE POLICY webhook_events_select ON public.webhook_events FOR SELECT TO authenticated
-  USING (public.has_permission('webhooks.manage'));
-CREATE POLICY webhook_deliveries_select ON public.webhook_deliveries FOR SELECT TO authenticated
-  USING (public.has_permission('webhooks.manage'));
-CREATE POLICY webhook_deliveries_requeue ON public.webhook_deliveries FOR UPDATE TO authenticated
-  USING (public.has_permission('webhooks.manage'))
-  WITH CHECK (public.has_permission('webhooks.manage'));
+CREATE POLICY webhook_endpoints_manage ON pm.webhook_endpoints FOR ALL TO authenticated
+  USING (pm.has_permission('webhooks.manage'))
+  WITH CHECK (pm.has_permission('webhooks.manage'));
+CREATE POLICY webhook_events_select ON pm.webhook_events FOR SELECT TO authenticated
+  USING (pm.has_permission('webhooks.manage'));
+CREATE POLICY webhook_deliveries_select ON pm.webhook_deliveries FOR SELECT TO authenticated
+  USING (pm.has_permission('webhooks.manage'));
+CREATE POLICY webhook_deliveries_requeue ON pm.webhook_deliveries FOR UPDATE TO authenticated
+  USING (pm.has_permission('webhooks.manage'))
+  WITH CHECK (pm.has_permission('webhooks.manage'));
 
-CREATE POLICY time_entries_management_select ON public.project_time_entries FOR SELECT TO authenticated
-  USING (public.has_permission('time.read_all') AND public.can_access_project(project_id));
-CREATE POLICY time_entries_own_select ON public.project_time_entries FOR SELECT TO authenticated
-  USING (public.has_permission('time.manage_own')
-    AND member_id = public.current_team_member_id()
-    AND public.can_access_project(project_id));
-CREATE POLICY time_entries_insert ON public.project_time_entries FOR INSERT TO authenticated
-  WITH CHECK (public.can_access_project(project_id) AND (
-    (public.has_permission('time.manage_own') AND member_id = public.current_team_member_id())
-    OR public.has_permission('time.manage_all')
+CREATE POLICY time_entries_management_select ON pm.project_time_entries FOR SELECT TO authenticated
+  USING (pm.has_permission('time.read_all') AND pm.can_access_project(project_id));
+CREATE POLICY time_entries_own_select ON pm.project_time_entries FOR SELECT TO authenticated
+  USING (pm.has_permission('time.manage_own')
+    AND member_id = pm.current_team_member_id()
+    AND pm.can_access_project(project_id));
+CREATE POLICY time_entries_insert ON pm.project_time_entries FOR INSERT TO authenticated
+  WITH CHECK (pm.can_access_project(project_id) AND (
+    (pm.has_permission('time.manage_own') AND member_id = pm.current_team_member_id())
+    OR pm.has_permission('time.manage_all')
   ));
-CREATE POLICY time_entries_update ON public.project_time_entries FOR UPDATE TO authenticated
-  USING (public.can_access_project(project_id) AND (
-    public.has_permission('time.manage_all') OR (
-      public.has_permission('time.manage_own')
-      AND member_id = public.current_team_member_id()
+CREATE POLICY time_entries_update ON pm.project_time_entries FOR UPDATE TO authenticated
+  USING (pm.can_access_project(project_id) AND (
+    pm.has_permission('time.manage_all') OR (
+      pm.has_permission('time.manage_own')
+      AND member_id = pm.current_team_member_id()
       AND approval_status IN ('draft', 'pending', 'rejected')
     )
   ));
-CREATE POLICY time_entries_delete ON public.project_time_entries FOR DELETE TO authenticated
-  USING (public.has_permission('time.manage_all') OR (
-    public.has_permission('time.manage_own')
-    AND member_id = public.current_team_member_id()
+CREATE POLICY time_entries_delete ON pm.project_time_entries FOR DELETE TO authenticated
+  USING (pm.has_permission('time.manage_all') OR (
+    pm.has_permission('time.manage_own')
+    AND member_id = pm.current_team_member_id()
     AND approval_status IN ('draft', 'pending', 'rejected')
   ));
 
-CREATE POLICY hourly_rates_manage ON public.project_hourly_rates FOR ALL TO authenticated
-  USING (public.has_permission('billing.manage') AND public.can_access_project(project_id))
-  WITH CHECK (public.has_permission('billing.manage') AND public.can_access_project(project_id));
-CREATE POLICY invoice_allocations_access ON public.invoice_time_entry_allocations FOR ALL TO authenticated
-  USING (public.has_permission('invoices.read') AND EXISTS (
-    SELECT 1 FROM public.project_invoices invoice WHERE invoice.id = invoice_id AND public.can_access_project(invoice.project_id)
-  )) WITH CHECK (public.has_permission('invoices.manage'));
-CREATE POLICY invoices_access ON public.project_invoices FOR ALL TO authenticated
-  USING (public.has_permission('invoices.read') AND public.can_access_project(project_id))
-  WITH CHECK (public.has_permission('invoices.manage') AND public.can_access_project(project_id));
+CREATE POLICY hourly_rates_manage ON pm.project_hourly_rates FOR ALL TO authenticated
+  USING (pm.has_permission('billing.manage') AND pm.can_access_project(project_id))
+  WITH CHECK (pm.has_permission('billing.manage') AND pm.can_access_project(project_id));
+CREATE POLICY invoice_allocations_access ON pm.invoice_time_entry_allocations FOR ALL TO authenticated
+  USING (pm.has_permission('invoices.read') AND EXISTS (
+    SELECT 1 FROM pm.project_invoices invoice WHERE invoice.id = invoice_id AND pm.can_access_project(invoice.project_id)
+  )) WITH CHECK (pm.has_permission('invoices.manage'));
+CREATE POLICY invoices_access ON pm.project_invoices FOR ALL TO authenticated
+  USING (pm.has_permission('invoices.read') AND pm.can_access_project(project_id))
+  WITH CHECK (pm.has_permission('invoices.manage') AND pm.can_access_project(project_id));
 
-CREATE POLICY credentials_management ON public.project_credentials FOR ALL TO authenticated
-  USING (public.has_permission('credentials.manage') AND public.can_access_project(project_id))
-  WITH CHECK (public.has_permission('credentials.manage') AND public.can_access_project(project_id));
-CREATE POLICY credential_members_management ON public.project_credential_members FOR ALL TO authenticated
-  USING (public.has_permission('credentials.manage')) WITH CHECK (public.has_permission('credentials.manage'));
+CREATE POLICY credentials_management ON pm.project_credentials FOR ALL TO authenticated
+  USING (pm.has_permission('credentials.manage') AND pm.can_access_project(project_id))
+  WITH CHECK (pm.has_permission('credentials.manage') AND pm.can_access_project(project_id));
+CREATE POLICY credential_members_management ON pm.project_credential_members FOR ALL TO authenticated
+  USING (pm.has_permission('credentials.manage')) WITH CHECK (pm.has_permission('credentials.manage'));
 
-CREATE POLICY notifications_own_select ON public.team_member_notifications FOR SELECT TO authenticated
-  USING (user_id = public.current_team_member_id());
-CREATE POLICY notifications_own_update ON public.team_member_notifications FOR UPDATE TO authenticated
-  USING (user_id = public.current_team_member_id());
-CREATE POLICY notifications_own_delete ON public.team_member_notifications FOR DELETE TO authenticated
-  USING (user_id = public.current_team_member_id());
+CREATE POLICY notifications_own_select ON pm.team_member_notifications FOR SELECT TO authenticated
+  USING (user_id = pm.current_team_member_id());
+CREATE POLICY notifications_own_update ON pm.team_member_notifications FOR UPDATE TO authenticated
+  USING (user_id = pm.current_team_member_id());
+CREATE POLICY notifications_own_delete ON pm.team_member_notifications FOR DELETE TO authenticated
+  USING (user_id = pm.current_team_member_id());
 
-CREATE POLICY project_context_select ON public.project_context FOR SELECT TO authenticated
-  USING (public.has_permission('project_context.read') AND public.can_access_project(project_id));
-CREATE POLICY project_context_manage ON public.project_context FOR ALL TO authenticated
-  USING (public.has_permission('project_context.manage') AND public.can_access_project(project_id))
-  WITH CHECK (public.has_permission('project_context.manage') AND public.can_access_project(project_id));
-CREATE POLICY budget_history_access ON public.project_budget_history FOR SELECT TO authenticated
-  USING (public.has_permission('billing.manage'));
+CREATE POLICY project_context_select ON pm.project_context FOR SELECT TO authenticated
+  USING (pm.has_permission('project_context.read') AND pm.can_access_project(project_id));
+CREATE POLICY project_context_manage ON pm.project_context FOR ALL TO authenticated
+  USING (pm.has_permission('project_context.manage') AND pm.can_access_project(project_id))
+  WITH CHECK (pm.has_permission('project_context.manage') AND pm.can_access_project(project_id));
+CREATE POLICY budget_history_access ON pm.project_budget_history FOR SELECT TO authenticated
+  USING (pm.has_permission('billing.manage'));
 
-CREATE POLICY business_settings_access ON public.business_settings FOR ALL TO authenticated
-  USING (public.has_permission('settings.manage')) WITH CHECK (public.has_permission('settings.manage'));
+CREATE POLICY business_settings_access ON pm.business_settings FOR ALL TO authenticated
+  USING (pm.has_permission('settings.manage')) WITH CHECK (pm.has_permission('settings.manage'));
 
 -- Owner-only settings on the business row. Admins manage the rest of it
 -- (settings.manage), so a column check guards the two only an Owner may
 -- change: this switch, and whether Owners read personal inboxes (1.6).
 -- The app's own server (service role) and direct database sessions pass.
-CREATE OR REPLACE FUNCTION public.business_settings_owner_columns()
+CREATE OR REPLACE FUNCTION pm.business_settings_owner_columns()
 RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -6111,7 +6120,7 @@ BEGIN
   IF (TG_OP = 'INSERT' AND (NEW.auto_migrate IS DISTINCT FROM true OR NEW.owners_read_personal_inboxes IS DISTINCT FROM false))
      OR (TG_OP = 'UPDATE' AND (NEW.auto_migrate IS DISTINCT FROM OLD.auto_migrate
        OR NEW.owners_read_personal_inboxes IS DISTINCT FROM OLD.owners_read_personal_inboxes)) THEN
-    IF COALESCE(public.current_team_member_role(), '') <> 'owner' THEN
+    IF COALESCE(pm.current_team_member_role(), '') <> 'owner' THEN
       RAISE EXCEPTION 'Only an Owner can change this setting' USING ERRCODE = '42501';
     END IF;
   END IF;
@@ -6119,96 +6128,96 @@ BEGIN
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.business_settings_owner_columns() FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION pm.business_settings_owner_columns() FROM PUBLIC, anon, authenticated;
 
-DROP TRIGGER IF EXISTS business_settings_owner_columns ON public.business_settings;
+DROP TRIGGER IF EXISTS business_settings_owner_columns ON pm.business_settings;
 CREATE TRIGGER business_settings_owner_columns
-  BEFORE INSERT OR UPDATE ON public.business_settings
-  FOR EACH ROW EXECUTE FUNCTION public.business_settings_owner_columns();
+  BEFORE INSERT OR UPDATE ON pm.business_settings
+  FOR EACH ROW EXECUTE FUNCTION pm.business_settings_owner_columns();
 
-CREATE POLICY smtp_accounts_access ON public.smtp_accounts FOR ALL TO authenticated
-  USING (public.has_permission('smtp.manage')) WITH CHECK (public.has_permission('smtp.manage'));
+CREATE POLICY smtp_accounts_access ON pm.smtp_accounts FOR ALL TO authenticated
+  USING (pm.has_permission('smtp.manage')) WITH CHECK (pm.has_permission('smtp.manage'));
 
-CREATE POLICY member_rates_own_or_manage ON public.team_member_hourly_rates FOR SELECT TO authenticated
-  USING (member_id = public.current_team_member_id() OR public.has_permission('compensation.manage'));
-CREATE POLICY member_rates_manage ON public.team_member_hourly_rates FOR ALL TO authenticated
-  USING (public.has_permission('compensation.manage')) WITH CHECK (public.has_permission('compensation.manage'));
-CREATE POLICY adjustments_own_or_manage ON public.team_member_earning_adjustments FOR SELECT TO authenticated
-  USING (member_id = public.current_team_member_id() OR public.has_permission('compensation.manage'));
-CREATE POLICY adjustments_manage ON public.team_member_earning_adjustments FOR ALL TO authenticated
-  USING (public.has_permission('compensation.manage')) WITH CHECK (public.has_permission('compensation.manage'));
-CREATE POLICY payouts_own_or_manage ON public.team_member_payouts FOR SELECT TO authenticated
-  USING (member_id = public.current_team_member_id() OR public.has_permission('payouts.manage'));
-CREATE POLICY payouts_manage ON public.team_member_payouts FOR ALL TO authenticated
-  USING (public.has_permission('payouts.manage')) WITH CHECK (public.has_permission('payouts.manage'));
-CREATE POLICY payout_allocations_own_or_manage ON public.team_member_payout_allocations FOR SELECT TO authenticated
+CREATE POLICY member_rates_own_or_manage ON pm.team_member_hourly_rates FOR SELECT TO authenticated
+  USING (member_id = pm.current_team_member_id() OR pm.has_permission('compensation.manage'));
+CREATE POLICY member_rates_manage ON pm.team_member_hourly_rates FOR ALL TO authenticated
+  USING (pm.has_permission('compensation.manage')) WITH CHECK (pm.has_permission('compensation.manage'));
+CREATE POLICY adjustments_own_or_manage ON pm.team_member_earning_adjustments FOR SELECT TO authenticated
+  USING (member_id = pm.current_team_member_id() OR pm.has_permission('compensation.manage'));
+CREATE POLICY adjustments_manage ON pm.team_member_earning_adjustments FOR ALL TO authenticated
+  USING (pm.has_permission('compensation.manage')) WITH CHECK (pm.has_permission('compensation.manage'));
+CREATE POLICY payouts_own_or_manage ON pm.team_member_payouts FOR SELECT TO authenticated
+  USING (member_id = pm.current_team_member_id() OR pm.has_permission('payouts.manage'));
+CREATE POLICY payouts_manage ON pm.team_member_payouts FOR ALL TO authenticated
+  USING (pm.has_permission('payouts.manage')) WITH CHECK (pm.has_permission('payouts.manage'));
+CREATE POLICY payout_allocations_own_or_manage ON pm.team_member_payout_allocations FOR SELECT TO authenticated
   USING (EXISTS (
-    SELECT 1 FROM public.team_member_payouts payout
+    SELECT 1 FROM pm.team_member_payouts payout
     WHERE payout.id = payout_id
-      AND (payout.member_id = public.current_team_member_id() OR public.has_permission('payouts.manage'))
+      AND (payout.member_id = pm.current_team_member_id() OR pm.has_permission('payouts.manage'))
   ));
-CREATE POLICY payout_allocations_manage ON public.team_member_payout_allocations FOR ALL TO authenticated
-  USING (public.has_permission('payouts.manage')) WITH CHECK (public.has_permission('payouts.manage'));
+CREATE POLICY payout_allocations_manage ON pm.team_member_payout_allocations FOR ALL TO authenticated
+  USING (pm.has_permission('payouts.manage')) WITH CHECK (pm.has_permission('payouts.manage'));
 
 -- ---------------------------------------------------------------------------
 -- Function privileges and final validation
 -- ---------------------------------------------------------------------------
 
-REVOKE ALL ON FUNCTION public.current_team_member_id() FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.current_team_member_role() FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.has_permission(text, text) FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.module_enabled(text) FROM PUBLIC, anon;
-REVOKE ALL ON FUNCTION public.can_access_project(uuid) FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.can_access_lead(uuid) FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.can_access_task(uuid) FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.can_read_all_tasks() FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.can_read_task_row(uuid, uuid, uuid) FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.can_access_credential(uuid) FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.get_my_access_context() FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.get_team_directory() FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.get_accessible_time_entries(uuid) FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.get_accessible_credential_metadata(uuid) FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.resolve_team_member_hourly_rate(uuid, timestamptz) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.review_time_entries(uuid[], text, text, jsonb) FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.record_team_member_payout(uuid, text, numeric, text, text, text, jsonb) FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.set_credential_members(uuid, uuid[]) FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.protect_project_billing_fields() FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.validate_team_member_payout(uuid) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION pm.current_team_member_id() FROM PUBLIC;
+REVOKE ALL ON FUNCTION pm.current_team_member_role() FROM PUBLIC;
+REVOKE ALL ON FUNCTION pm.has_permission(text, text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION pm.module_enabled(text) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION pm.can_access_project(uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION pm.can_access_lead(uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION pm.can_access_task(uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION pm.can_read_all_tasks() FROM PUBLIC;
+REVOKE ALL ON FUNCTION pm.can_read_task_row(uuid, uuid, uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION pm.can_access_credential(uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION pm.get_my_access_context() FROM PUBLIC;
+REVOKE ALL ON FUNCTION pm.get_team_directory() FROM PUBLIC;
+REVOKE ALL ON FUNCTION pm.get_accessible_time_entries(uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION pm.get_accessible_credential_metadata(uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION pm.resolve_team_member_hourly_rate(uuid, timestamptz) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION pm.review_time_entries(uuid[], text, text, jsonb) FROM PUBLIC;
+REVOKE ALL ON FUNCTION pm.record_team_member_payout(uuid, text, numeric, text, text, text, jsonb) FROM PUBLIC;
+REVOKE ALL ON FUNCTION pm.set_credential_members(uuid, uuid[]) FROM PUBLIC;
+REVOKE ALL ON FUNCTION pm.protect_project_billing_fields() FROM PUBLIC;
+REVOKE ALL ON FUNCTION pm.validate_team_member_payout(uuid) FROM PUBLIC, anon, authenticated;
 
-GRANT EXECUTE ON FUNCTION public.current_team_member_id() TO authenticated, service_role;
-GRANT EXECUTE ON FUNCTION public.current_team_member_role() TO authenticated, service_role;
-GRANT EXECUTE ON FUNCTION public.has_permission(text, text) TO authenticated, service_role;
-GRANT EXECUTE ON FUNCTION public.module_enabled(text) TO authenticated, service_role;
-GRANT EXECUTE ON FUNCTION public.can_access_project(uuid) TO authenticated, service_role;
-GRANT EXECUTE ON FUNCTION public.can_access_lead(uuid) TO authenticated, service_role;
-GRANT EXECUTE ON FUNCTION public.can_access_task(uuid) TO authenticated, service_role;
-GRANT EXECUTE ON FUNCTION public.can_read_all_tasks() TO authenticated, service_role;
-GRANT EXECUTE ON FUNCTION public.can_read_task_row(uuid, uuid, uuid) TO authenticated, service_role;
-GRANT EXECUTE ON FUNCTION public.can_access_credential(uuid) TO authenticated, service_role;
-GRANT EXECUTE ON FUNCTION public.get_my_access_context() TO authenticated;
-GRANT EXECUTE ON FUNCTION public.get_team_directory() TO authenticated;
-GRANT EXECUTE ON FUNCTION public.get_accessible_time_entries(uuid) TO authenticated;
-GRANT EXECUTE ON FUNCTION public.get_accessible_credential_metadata(uuid) TO authenticated;
-GRANT EXECUTE ON FUNCTION public.resolve_team_member_hourly_rate(uuid, timestamptz) TO service_role;
-GRANT EXECUTE ON FUNCTION public.review_time_entries(uuid[], text, text, jsonb) TO authenticated;
-GRANT EXECUTE ON FUNCTION public.record_team_member_payout(uuid, text, numeric, text, text, text, jsonb) TO authenticated;
-GRANT EXECUTE ON FUNCTION public.set_credential_members(uuid, uuid[]) TO authenticated;
-GRANT EXECUTE ON FUNCTION public.validate_team_member_payout(uuid) TO service_role;
+GRANT EXECUTE ON FUNCTION pm.current_team_member_id() TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.current_team_member_role() TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.has_permission(text, text) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.module_enabled(text) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.can_access_project(uuid) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.can_access_lead(uuid) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.can_access_task(uuid) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.can_read_all_tasks() TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.can_read_task_row(uuid, uuid, uuid) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.can_access_credential(uuid) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.get_my_access_context() TO authenticated;
+GRANT EXECUTE ON FUNCTION pm.get_team_directory() TO authenticated;
+GRANT EXECUTE ON FUNCTION pm.get_accessible_time_entries(uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION pm.get_accessible_credential_metadata(uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION pm.resolve_team_member_hourly_rate(uuid, timestamptz) TO service_role;
+GRANT EXECUTE ON FUNCTION pm.review_time_entries(uuid[], text, text, jsonb) TO authenticated;
+GRANT EXECUTE ON FUNCTION pm.record_team_member_payout(uuid, text, numeric, text, text, text, jsonb) TO authenticated;
+GRANT EXECUTE ON FUNCTION pm.set_credential_members(uuid, uuid[]) TO authenticated;
+GRANT EXECUTE ON FUNCTION pm.validate_team_member_payout(uuid) TO service_role;
 
 -- Integrity checks. (A fresh install has no members yet: its first sign-in
 -- becomes the Owner, so no Owner check runs here.)
 DO $$
 BEGIN
   IF EXISTS (
-    SELECT 1 FROM public.project_time_entries
+    SELECT 1 FROM pm.project_time_entries
     WHERE approval_status = 'approved' AND compensation_rate <> 0
   ) THEN
     RAISE EXCEPTION 'Historical Owner compensation backfill must remain zero';
   END IF;
   IF EXISTS (
     SELECT 1
-    FROM public.invoice_time_entry_allocations allocation
-    LEFT JOIN public.project_time_entries entry ON entry.id = allocation.time_entry_id
+    FROM pm.invoice_time_entry_allocations allocation
+    LEFT JOIN pm.project_time_entries entry ON entry.id = allocation.time_entry_id
     WHERE entry.id IS NULL
   ) THEN
     RAISE EXCEPTION 'Invoice allocation integrity check failed';
@@ -6222,7 +6231,7 @@ BEGIN;
 
 -- Owners and AI agents never accrue employee compensation, even if an old or
 -- mistakenly-created rate row exists for them.
-CREATE OR REPLACE FUNCTION public.resolve_team_member_hourly_rate(
+CREATE OR REPLACE FUNCTION pm.resolve_team_member_hourly_rate(
   p_member_id uuid,
   p_effective_at timestamptz
 )
@@ -6230,22 +6239,22 @@ RETURNS numeric
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
   SELECT CASE WHEN member.role IN ('owner', 'agent') THEN 0 ELSE COALESCE((
     SELECT rate.hourly_rate
-    FROM public.team_member_hourly_rates rate
+    FROM pm.team_member_hourly_rates rate
     WHERE rate.member_id = p_member_id AND rate.effective_at <= p_effective_at
     ORDER BY rate.effective_at DESC
     LIMIT 1
   ), 0) END
-  FROM public.team_members member
+  FROM pm.team_members member
   WHERE member.id = p_member_id
 $$;
 
 -- Existing deployments already ran the initial access migration. Add the
 -- app-facing Agent defaults idempotently so assigned work is usable there too.
-INSERT INTO public.role_permissions (role, permission_key, access_channel) VALUES
+INSERT INTO pm.role_permissions (role, permission_key, access_channel) VALUES
   ('agent','team.read','app'), ('agent','projects.read','app'),
   ('agent','tasks.read','app'), ('agent','tasks.create','app'),
   ('agent','tasks.manage_assigned','app'), ('agent','files.read','app'),
@@ -6254,7 +6263,7 @@ INSERT INTO public.role_permissions (role, permission_key, access_channel) VALUE
   ('agent','goals.manage','app'), ('agent','suggestions.manage','app')
 ON CONFLICT DO NOTHING;
 
-INSERT INTO public.role_permissions (role, permission_key, access_channel) VALUES
+INSERT INTO pm.role_permissions (role, permission_key, access_channel) VALUES
   ('admin','notifications.manage_own','api'),
   ('member','notifications.manage_own','api'),
   ('guest','notifications.manage_own','api'),
@@ -6264,33 +6273,33 @@ INSERT INTO public.role_permissions (role, permission_key, access_channel) VALUE
 ON CONFLICT DO NOTHING;
 
 -- Preserve access for legacy lead assignments that predate lead_members.
-INSERT INTO public.lead_members (lead_id, member_id)
+INSERT INTO pm.lead_members (lead_id, member_id)
 SELECT lead.id, lead.assigned_to
-FROM public.leads lead
+FROM pm.leads lead
 WHERE lead.assigned_to IS NOT NULL
 ON CONFLICT DO NOTHING;
 
-CREATE OR REPLACE FUNCTION public.can_access_lead(p_lead_id uuid)
+CREATE OR REPLACE FUNCTION pm.can_access_lead(p_lead_id uuid)
 RETURNS boolean
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
-  SELECT EXISTS (SELECT 1 FROM public.leads WHERE id = p_lead_id AND deleted_at IS NULL)
+  SELECT EXISTS (SELECT 1 FROM pm.leads WHERE id = p_lead_id AND deleted_at IS NULL)
     AND (
-      public.has_permission('leads.read_all', 'app')
+      pm.has_permission('leads.read_all', 'app')
       OR (
-        public.has_permission('leads.read', 'app')
+        pm.has_permission('leads.read', 'app')
         AND EXISTS (
-          SELECT 1 FROM public.leads lead
+          SELECT 1 FROM pm.leads lead
           WHERE lead.id = p_lead_id
             AND (
-              lead.assigned_to = public.current_team_member_id()
+              lead.assigned_to = pm.current_team_member_id()
               OR EXISTS (
-                SELECT 1 FROM public.lead_members assignment
+                SELECT 1 FROM pm.lead_members assignment
                 WHERE assignment.lead_id = lead.id
-                  AND assignment.member_id = public.current_team_member_id()
+                  AND assignment.member_id = pm.current_team_member_id()
               )
             )
         )
@@ -6298,26 +6307,26 @@ AS $$
     )
 $$;
 
-CREATE OR REPLACE FUNCTION public.can_access_file_entity(p_entity_type text, p_entity_id uuid)
+CREATE OR REPLACE FUNCTION pm.can_access_file_entity(p_entity_type text, p_entity_id uuid)
 RETURNS boolean
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
   SELECT CASE p_entity_type
-    WHEN 'project' THEN public.can_access_project(p_entity_id)
-    WHEN 'lead' THEN public.can_access_lead(p_entity_id)
+    WHEN 'project' THEN pm.can_access_project(p_entity_id)
+    WHEN 'lead' THEN pm.can_access_lead(p_entity_id)
     WHEN 'contact' THEN
-      EXISTS (SELECT 1 FROM public.contacts WHERE id = p_entity_id AND deleted_at IS NULL)
+      EXISTS (SELECT 1 FROM pm.contacts WHERE id = p_entity_id AND deleted_at IS NULL)
       AND (
-        public.has_permission('contacts.read_all', 'app')
+        pm.has_permission('contacts.read_all', 'app')
         OR (
-          public.has_permission('contacts.read', 'app')
+          pm.has_permission('contacts.read', 'app')
           AND EXISTS (
-            SELECT 1 FROM public.project_contacts link
+            SELECT 1 FROM pm.project_contacts link
             WHERE link.contact_id = p_entity_id
-              AND public.can_access_project(link.project_id)
+              AND pm.can_access_project(link.project_id)
           )
         )
       )
@@ -6327,11 +6336,11 @@ $$;
 
 -- Editing a rejected completed entry resubmits it for review. Without this,
 -- rejected work can be corrected but remains permanently excluded from pay.
-CREATE OR REPLACE FUNCTION public.apply_time_entry_compensation()
+CREATE OR REPLACE FUNCTION pm.apply_time_entry_compensation()
 RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
 DECLARE
   member_role text;
@@ -6340,7 +6349,7 @@ BEGIN
   IF TG_OP = 'UPDATE' AND NEW.deleted_at IS DISTINCT FROM OLD.deleted_at THEN
     RETURN NEW;
   END IF;
-  SELECT role INTO member_role FROM public.team_members WHERE id = NEW.member_id;
+  SELECT role INTO member_role FROM pm.team_members WHERE id = NEW.member_id;
 
   IF TG_OP = 'INSERT' OR NEW.start_time IS DISTINCT FROM OLD.start_time OR NEW.member_id IS DISTINCT FROM OLD.member_id THEN
     -- The lock guards entries with real compensation behind them. Owner
@@ -6353,14 +6362,14 @@ BEGIN
     -- its owner can still correct it. (Invoiced time has its own lock in
     -- protect_invoiced_time_entry.)
     IF TG_OP = 'UPDATE' AND OLD.approval_status = 'approved' AND member_role <> 'owner'
-      AND (public.module_enabled('billing') OR public.module_enabled('team_pay')) THEN
+      AND (pm.module_enabled('billing') OR pm.module_enabled('team_pay')) THEN
       RAISE EXCEPTION 'Approved time entry compensation is locked';
     END IF;
     IF member_role = 'owner' THEN
       -- Owners have no hourly compensation to resolve or to lock.
       NEW.compensation_rate := 0;
     ELSE
-      NEW.compensation_rate := public.resolve_team_member_hourly_rate(NEW.member_id, NEW.start_time);
+      NEW.compensation_rate := pm.resolve_team_member_hourly_rate(NEW.member_id, NEW.start_time);
     END IF;
   END IF;
 
@@ -6371,7 +6380,7 @@ BEGIN
     NEW.approved_by := NULL;
   ELSIF TG_OP = 'INSERT' OR OLD.end_time IS NULL THEN
     NEW.submitted_at := now();
-    IF NOT public.module_enabled('billing') AND NOT public.module_enabled('team_pay') THEN
+    IF NOT pm.module_enabled('billing') AND NOT pm.module_enabled('team_pay') THEN
       -- With Client invoicing and Team pay both off no money rides on the
       -- hours, so there is nothing to review: finished time from every role,
       -- agents included, is approved as it is logged. approved_by NULL marks
@@ -6385,7 +6394,7 @@ BEGIN
       NEW.approved_by := NEW.member_id;
       NEW.compensation_rate := 0;
     ELSIF member_role <> 'agent'
-      AND COALESCE((SELECT auto_approve_human_hours FROM public.business_settings LIMIT 1), true) THEN
+      AND COALESCE((SELECT auto_approve_human_hours FROM pm.business_settings LIMIT 1), true) THEN
       -- Auto-approved by workspace policy; approved_by NULL marks it as
       -- system-approved rather than reviewed by a person.
       NEW.approval_status := 'approved';
@@ -6412,51 +6421,51 @@ BEGIN
 END;
 $$;
 
-CREATE OR REPLACE FUNCTION public.review_time_entries(
+CREATE OR REPLACE FUNCTION pm.review_time_entries(
   p_entry_ids uuid[],
   p_decision text,
   p_reason text DEFAULT NULL,
   p_adjustments jsonb DEFAULT NULL
 )
-RETURNS SETOF public.project_time_entries
+RETURNS SETOF pm.project_time_entries
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
 DECLARE
   v_id uuid;
 BEGIN
-  IF NOT public.has_permission('time.approve', 'app') THEN
+  IF NOT pm.has_permission('time.approve', 'app') THEN
     RAISE EXCEPTION 'Permission denied';
   END IF;
   IF p_decision NOT IN ('approved', 'rejected') THEN
     RAISE EXCEPTION 'Invalid review decision';
   END IF;
   IF EXISTS (
-    SELECT 1 FROM public.project_time_entries
+    SELECT 1 FROM pm.project_time_entries
     WHERE id = ANY(p_entry_ids)
-      AND member_id = public.current_team_member_id()
+      AND member_id = pm.current_team_member_id()
   ) THEN
     RAISE EXCEPTION 'Time entries cannot be self-approved';
   END IF;
   IF EXISTS (
-    SELECT 1 FROM public.project_time_entries
+    SELECT 1 FROM pm.project_time_entries
     WHERE id = ANY(p_entry_ids)
-      AND NOT public.can_access_project(project_id)
+      AND NOT pm.can_access_project(project_id)
   ) THEN
     RAISE EXCEPTION 'Project access denied';
   END IF;
   -- Pay is Team pay's: with it off, approving time needs no compensation
   -- rate and sets none.
-  IF p_decision = 'approved' AND public.module_enabled('team_pay') AND EXISTS (
+  IF p_decision = 'approved' AND pm.module_enabled('team_pay') AND EXISTS (
     SELECT 1
-    FROM public.project_time_entries entry
-    JOIN public.team_members member ON member.id = entry.member_id
+    FROM pm.project_time_entries entry
+    JOIN pm.team_members member ON member.id = entry.member_id
     WHERE entry.id = ANY(p_entry_ids)
       AND entry.approval_status IN ('pending', 'rejected')
       AND member.role NOT IN ('owner', 'agent')
       AND NOT EXISTS (
-        SELECT 1 FROM public.team_member_hourly_rates rate
+        SELECT 1 FROM pm.team_member_hourly_rates rate
         WHERE rate.member_id = entry.member_id
           AND rate.effective_at <= entry.start_time
       )
@@ -6464,13 +6473,13 @@ BEGIN
     RAISE EXCEPTION 'Compensation rate missing for one or more time entries';
   END IF;
 
-  UPDATE public.project_time_entries entry
+  UPDATE pm.project_time_entries entry
   SET approval_status = p_decision,
-      compensation_rate = CASE WHEN p_decision = 'approved' AND public.module_enabled('team_pay')
-        THEN public.resolve_team_member_hourly_rate(entry.member_id, entry.start_time)
+      compensation_rate = CASE WHEN p_decision = 'approved' AND pm.module_enabled('team_pay')
+        THEN pm.resolve_team_member_hourly_rate(entry.member_id, entry.start_time)
         ELSE entry.compensation_rate END,
       approved_at = CASE WHEN p_decision = 'approved' THEN now() ELSE NULL END,
-      approved_by = CASE WHEN p_decision = 'approved' THEN public.current_team_member_id() ELSE NULL END,
+      approved_by = CASE WHEN p_decision = 'approved' THEN pm.current_team_member_id() ELSE NULL END,
       rejection_reason = CASE WHEN p_decision = 'rejected' THEN COALESCE(p_reason, '') ELSE NULL END,
       updated_at = now()
   WHERE entry.id = ANY(p_entry_ids)
@@ -6481,9 +6490,9 @@ BEGIN
   -- Approved agent entries convert to their billed continuous slot here,
   -- optionally with the reviewer's adjusted worked minutes per entry id
   -- (Client invoicing only).
-  IF p_decision = 'approved' AND public.module_enabled('billing') THEN
+  IF p_decision = 'approved' AND pm.module_enabled('billing') THEN
     FOREACH v_id IN ARRAY p_entry_ids LOOP
-      PERFORM public.apply_agent_billing_conversion(
+      PERFORM pm.apply_agent_billing_conversion(
         v_id,
         CASE WHEN p_adjustments IS NOT NULL AND p_adjustments ? v_id::text
           THEN (p_adjustments->>v_id::text)::numeric
@@ -6493,13 +6502,13 @@ BEGIN
   END IF;
 
   RETURN QUERY
-  SELECT * FROM public.project_time_entries WHERE id = ANY(p_entry_ids) AND deleted_at IS NULL;
+  SELECT * FROM pm.project_time_entries WHERE id = ANY(p_entry_ids) AND deleted_at IS NULL;
 END;
 $$;
 
 -- Adding or backdating a rate repairs every affected unpaid snapshot. Entries
 -- with any payout allocation remain immutable so recorded payroll never moves.
-CREATE OR REPLACE FUNCTION public.schedule_team_member_hourly_rate(
+CREATE OR REPLACE FUNCTION pm.schedule_team_member_hourly_rate(
   p_member_id uuid,
   p_hourly_rate numeric,
   p_effective_at timestamptz,
@@ -6508,21 +6517,21 @@ CREATE OR REPLACE FUNCTION public.schedule_team_member_hourly_rate(
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
 DECLARE
   member_role text;
-  inserted_rate public.team_member_hourly_rates%ROWTYPE;
+  inserted_rate pm.team_member_hourly_rates%ROWTYPE;
   updated_entries integer;
 BEGIN
-  IF auth.role() <> 'service_role' AND NOT public.has_permission('compensation.manage', 'app') THEN
+  IF auth.role() <> 'service_role' AND NOT pm.has_permission('compensation.manage', 'app') THEN
     RAISE EXCEPTION 'Permission denied';
   END IF;
   IF p_hourly_rate IS NULL OR p_hourly_rate < 0 OR p_effective_at IS NULL THEN
     RAISE EXCEPTION 'Valid rate and effective date are required';
   END IF;
 
-  SELECT role INTO member_role FROM public.team_members WHERE id = p_member_id;
+  SELECT role INTO member_role FROM pm.team_members WHERE id = p_member_id;
   IF member_role IS NULL THEN
     RAISE EXCEPTION 'Team member not found';
   END IF;
@@ -6530,24 +6539,24 @@ BEGIN
     RAISE EXCEPTION 'Owners and AI agents cannot receive compensation rates';
   END IF;
 
-  INSERT INTO public.team_member_hourly_rates (
+  INSERT INTO pm.team_member_hourly_rates (
     member_id, hourly_rate, effective_at, created_by
   ) VALUES (
     p_member_id, p_hourly_rate, p_effective_at,
-    COALESCE(public.current_team_member_id(), p_created_by)
+    COALESCE(pm.current_team_member_id(), p_created_by)
   )
   RETURNING * INTO inserted_rate;
 
-  UPDATE public.project_time_entries entry
-  SET compensation_rate = public.resolve_team_member_hourly_rate(entry.member_id, entry.start_time),
+  UPDATE pm.project_time_entries entry
+  SET compensation_rate = pm.resolve_team_member_hourly_rate(entry.member_id, entry.start_time),
       updated_at = now()
   WHERE entry.member_id = p_member_id
     AND entry.start_time >= p_effective_at
     AND NOT EXISTS (
-      SELECT 1 FROM public.team_member_payout_allocations allocation
+      SELECT 1 FROM pm.team_member_payout_allocations allocation
       WHERE allocation.time_entry_id = entry.id
     )
-    AND entry.compensation_rate IS DISTINCT FROM public.resolve_team_member_hourly_rate(entry.member_id, entry.start_time);
+    AND entry.compensation_rate IS DISTINCT FROM pm.resolve_team_member_hourly_rate(entry.member_id, entry.start_time);
   GET DIAGNOSTICS updated_entries = ROW_COUNT;
 
   RETURN jsonb_build_object(
@@ -6558,299 +6567,299 @@ END;
 $$;
 
 -- Lead readers may read related records, but only lead managers may mutate them.
-DROP POLICY IF EXISTS lead_interactions_access ON public.lead_interactions;
-DROP POLICY IF EXISTS lead_proposals_access ON public.lead_proposals;
-DROP POLICY IF EXISTS lead_fields_access ON public.lead_fields;
-DROP POLICY IF EXISTS lead_contacts_access ON public.lead_contacts;
-DROP POLICY IF EXISTS lead_interactions_select ON public.lead_interactions;
-DROP POLICY IF EXISTS lead_interactions_manage ON public.lead_interactions;
-DROP POLICY IF EXISTS lead_proposals_select ON public.lead_proposals;
-DROP POLICY IF EXISTS lead_proposals_manage ON public.lead_proposals;
-DROP POLICY IF EXISTS lead_fields_select ON public.lead_fields;
-DROP POLICY IF EXISTS lead_fields_manage ON public.lead_fields;
-DROP POLICY IF EXISTS lead_contacts_select ON public.lead_contacts;
-DROP POLICY IF EXISTS lead_contacts_manage ON public.lead_contacts;
+DROP POLICY IF EXISTS lead_interactions_access ON pm.lead_interactions;
+DROP POLICY IF EXISTS lead_proposals_access ON pm.lead_proposals;
+DROP POLICY IF EXISTS lead_fields_access ON pm.lead_fields;
+DROP POLICY IF EXISTS lead_contacts_access ON pm.lead_contacts;
+DROP POLICY IF EXISTS lead_interactions_select ON pm.lead_interactions;
+DROP POLICY IF EXISTS lead_interactions_manage ON pm.lead_interactions;
+DROP POLICY IF EXISTS lead_proposals_select ON pm.lead_proposals;
+DROP POLICY IF EXISTS lead_proposals_manage ON pm.lead_proposals;
+DROP POLICY IF EXISTS lead_fields_select ON pm.lead_fields;
+DROP POLICY IF EXISTS lead_fields_manage ON pm.lead_fields;
+DROP POLICY IF EXISTS lead_contacts_select ON pm.lead_contacts;
+DROP POLICY IF EXISTS lead_contacts_manage ON pm.lead_contacts;
 
-CREATE POLICY lead_interactions_select ON public.lead_interactions FOR SELECT TO authenticated
-  USING (public.can_access_lead(lead_id));
-CREATE POLICY lead_interactions_manage ON public.lead_interactions FOR ALL TO authenticated
-  USING (public.has_permission('leads.manage') AND public.can_access_lead(lead_id))
-  WITH CHECK (public.has_permission('leads.manage') AND public.can_access_lead(lead_id));
-CREATE POLICY lead_proposals_select ON public.lead_proposals FOR SELECT TO authenticated
-  USING (public.can_access_lead(lead_id));
-CREATE POLICY lead_proposals_manage ON public.lead_proposals FOR ALL TO authenticated
-  USING (public.has_permission('leads.manage') AND public.can_access_lead(lead_id))
-  WITH CHECK (public.has_permission('leads.manage') AND public.can_access_lead(lead_id));
-CREATE POLICY lead_fields_select ON public.lead_fields FOR SELECT TO authenticated
-  USING (public.can_access_lead(lead_id));
-CREATE POLICY lead_fields_manage ON public.lead_fields FOR ALL TO authenticated
-  USING (public.has_permission('leads.manage') AND public.can_access_lead(lead_id))
-  WITH CHECK (public.has_permission('leads.manage') AND public.can_access_lead(lead_id));
-CREATE POLICY lead_contacts_select ON public.lead_contacts FOR SELECT TO authenticated
-  USING (public.can_access_lead(lead_id));
-CREATE POLICY lead_contacts_manage ON public.lead_contacts FOR ALL TO authenticated
-  USING (public.has_permission('leads.manage') AND public.can_access_lead(lead_id))
-  WITH CHECK (public.has_permission('leads.manage') AND public.can_access_lead(lead_id));
+CREATE POLICY lead_interactions_select ON pm.lead_interactions FOR SELECT TO authenticated
+  USING (pm.can_access_lead(lead_id));
+CREATE POLICY lead_interactions_manage ON pm.lead_interactions FOR ALL TO authenticated
+  USING (pm.has_permission('leads.manage') AND pm.can_access_lead(lead_id))
+  WITH CHECK (pm.has_permission('leads.manage') AND pm.can_access_lead(lead_id));
+CREATE POLICY lead_proposals_select ON pm.lead_proposals FOR SELECT TO authenticated
+  USING (pm.can_access_lead(lead_id));
+CREATE POLICY lead_proposals_manage ON pm.lead_proposals FOR ALL TO authenticated
+  USING (pm.has_permission('leads.manage') AND pm.can_access_lead(lead_id))
+  WITH CHECK (pm.has_permission('leads.manage') AND pm.can_access_lead(lead_id));
+CREATE POLICY lead_fields_select ON pm.lead_fields FOR SELECT TO authenticated
+  USING (pm.can_access_lead(lead_id));
+CREATE POLICY lead_fields_manage ON pm.lead_fields FOR ALL TO authenticated
+  USING (pm.has_permission('leads.manage') AND pm.can_access_lead(lead_id))
+  WITH CHECK (pm.has_permission('leads.manage') AND pm.can_access_lead(lead_id));
+CREATE POLICY lead_contacts_select ON pm.lead_contacts FOR SELECT TO authenticated
+  USING (pm.can_access_lead(lead_id));
+CREATE POLICY lead_contacts_manage ON pm.lead_contacts FOR ALL TO authenticated
+  USING (pm.has_permission('leads.manage') AND pm.can_access_lead(lead_id))
+  WITH CHECK (pm.has_permission('leads.manage') AND pm.can_access_lead(lead_id));
 
 -- Split read and write policies so read access never authorizes deletes.
-DROP POLICY IF EXISTS portal_settings_access ON public.portal_settings;
-DROP POLICY IF EXISTS client_communications_access ON public.client_communications;
-DROP POLICY IF EXISTS portal_updates_access ON public.portal_updates;
-DROP POLICY IF EXISTS portal_update_attachments_access ON public.portal_update_attachments;
-DROP POLICY IF EXISTS portal_events_access ON public.portal_events;
-DROP POLICY IF EXISTS portal_settings_select ON public.portal_settings;
-DROP POLICY IF EXISTS portal_settings_manage ON public.portal_settings;
-DROP POLICY IF EXISTS client_communications_select ON public.client_communications;
-DROP POLICY IF EXISTS client_communications_manage ON public.client_communications;
-DROP POLICY IF EXISTS portal_updates_select ON public.portal_updates;
-DROP POLICY IF EXISTS portal_updates_manage ON public.portal_updates;
-DROP POLICY IF EXISTS portal_update_attachments_select ON public.portal_update_attachments;
-DROP POLICY IF EXISTS portal_update_attachments_manage ON public.portal_update_attachments;
-DROP POLICY IF EXISTS portal_events_select ON public.portal_events;
+DROP POLICY IF EXISTS portal_settings_access ON pm.portal_settings;
+DROP POLICY IF EXISTS client_communications_access ON pm.client_communications;
+DROP POLICY IF EXISTS portal_updates_access ON pm.portal_updates;
+DROP POLICY IF EXISTS portal_update_attachments_access ON pm.portal_update_attachments;
+DROP POLICY IF EXISTS portal_events_access ON pm.portal_events;
+DROP POLICY IF EXISTS portal_settings_select ON pm.portal_settings;
+DROP POLICY IF EXISTS portal_settings_manage ON pm.portal_settings;
+DROP POLICY IF EXISTS client_communications_select ON pm.client_communications;
+DROP POLICY IF EXISTS client_communications_manage ON pm.client_communications;
+DROP POLICY IF EXISTS portal_updates_select ON pm.portal_updates;
+DROP POLICY IF EXISTS portal_updates_manage ON pm.portal_updates;
+DROP POLICY IF EXISTS portal_update_attachments_select ON pm.portal_update_attachments;
+DROP POLICY IF EXISTS portal_update_attachments_manage ON pm.portal_update_attachments;
+DROP POLICY IF EXISTS portal_events_select ON pm.portal_events;
 
-CREATE POLICY portal_settings_select ON public.portal_settings FOR SELECT TO authenticated
-  USING (public.has_permission('portal.read') AND public.can_access_project(project_id));
-CREATE POLICY portal_settings_manage ON public.portal_settings FOR ALL TO authenticated
-  USING (public.has_permission('portal.manage') AND public.can_access_project(project_id))
-  WITH CHECK (public.has_permission('portal.manage') AND public.can_access_project(project_id));
-CREATE POLICY client_communications_select ON public.client_communications FOR SELECT TO authenticated
-  USING (public.has_permission('communications.read') AND public.can_access_project(project_id));
-CREATE POLICY client_communications_manage ON public.client_communications FOR ALL TO authenticated
-  USING (public.has_permission('communications.manage') AND public.can_access_project(project_id))
-  WITH CHECK (public.has_permission('communications.manage') AND public.can_access_project(project_id));
-CREATE POLICY portal_updates_select ON public.portal_updates FOR SELECT TO authenticated
-  USING (public.has_permission('portal.read') AND public.can_access_project(project_id));
-CREATE POLICY portal_updates_manage ON public.portal_updates FOR ALL TO authenticated
-  USING (public.has_permission('portal.manage') AND public.can_access_project(project_id))
-  WITH CHECK (public.has_permission('portal.manage') AND public.can_access_project(project_id));
-CREATE POLICY portal_update_attachments_select ON public.portal_update_attachments FOR SELECT TO authenticated
-  USING (public.has_permission('portal.read') AND EXISTS (
-    SELECT 1 FROM public.portal_updates update_row
-    WHERE update_row.id = update_id AND public.can_access_project(update_row.project_id)
+CREATE POLICY portal_settings_select ON pm.portal_settings FOR SELECT TO authenticated
+  USING (pm.has_permission('portal.read') AND pm.can_access_project(project_id));
+CREATE POLICY portal_settings_manage ON pm.portal_settings FOR ALL TO authenticated
+  USING (pm.has_permission('portal.manage') AND pm.can_access_project(project_id))
+  WITH CHECK (pm.has_permission('portal.manage') AND pm.can_access_project(project_id));
+CREATE POLICY client_communications_select ON pm.client_communications FOR SELECT TO authenticated
+  USING (pm.has_permission('communications.read') AND pm.can_access_project(project_id));
+CREATE POLICY client_communications_manage ON pm.client_communications FOR ALL TO authenticated
+  USING (pm.has_permission('communications.manage') AND pm.can_access_project(project_id))
+  WITH CHECK (pm.has_permission('communications.manage') AND pm.can_access_project(project_id));
+CREATE POLICY portal_updates_select ON pm.portal_updates FOR SELECT TO authenticated
+  USING (pm.has_permission('portal.read') AND pm.can_access_project(project_id));
+CREATE POLICY portal_updates_manage ON pm.portal_updates FOR ALL TO authenticated
+  USING (pm.has_permission('portal.manage') AND pm.can_access_project(project_id))
+  WITH CHECK (pm.has_permission('portal.manage') AND pm.can_access_project(project_id));
+CREATE POLICY portal_update_attachments_select ON pm.portal_update_attachments FOR SELECT TO authenticated
+  USING (pm.has_permission('portal.read') AND EXISTS (
+    SELECT 1 FROM pm.portal_updates update_row
+    WHERE update_row.id = update_id AND pm.can_access_project(update_row.project_id)
   ));
-CREATE POLICY portal_update_attachments_manage ON public.portal_update_attachments FOR ALL TO authenticated
-  USING (public.has_permission('portal.manage') AND EXISTS (
-    SELECT 1 FROM public.portal_updates update_row
-    WHERE update_row.id = update_id AND public.can_access_project(update_row.project_id)
+CREATE POLICY portal_update_attachments_manage ON pm.portal_update_attachments FOR ALL TO authenticated
+  USING (pm.has_permission('portal.manage') AND EXISTS (
+    SELECT 1 FROM pm.portal_updates update_row
+    WHERE update_row.id = update_id AND pm.can_access_project(update_row.project_id)
   ))
-  WITH CHECK (public.has_permission('portal.manage') AND EXISTS (
-    SELECT 1 FROM public.portal_updates update_row
-    WHERE update_row.id = update_id AND public.can_access_project(update_row.project_id)
+  WITH CHECK (pm.has_permission('portal.manage') AND EXISTS (
+    SELECT 1 FROM pm.portal_updates update_row
+    WHERE update_row.id = update_id AND pm.can_access_project(update_row.project_id)
   ));
-CREATE POLICY portal_events_select ON public.portal_events FOR SELECT TO authenticated
-  USING (public.has_permission('portal.read') AND public.can_access_project(project_id));
+CREATE POLICY portal_events_select ON pm.portal_events FOR SELECT TO authenticated
+  USING (pm.has_permission('portal.read') AND pm.can_access_project(project_id));
 
-DROP POLICY IF EXISTS entity_files_select ON public.entity_files;
-DROP POLICY IF EXISTS entity_files_insert ON public.entity_files;
-DROP POLICY IF EXISTS entity_files_update_delete ON public.entity_files;
-CREATE POLICY entity_files_select ON public.entity_files FOR SELECT TO authenticated
-  USING (public.has_permission('files.read') AND public.can_access_file_entity(entity_type, entity_id));
-CREATE POLICY entity_files_insert ON public.entity_files FOR INSERT TO authenticated
+DROP POLICY IF EXISTS entity_files_select ON pm.entity_files;
+DROP POLICY IF EXISTS entity_files_insert ON pm.entity_files;
+DROP POLICY IF EXISTS entity_files_update_delete ON pm.entity_files;
+CREATE POLICY entity_files_select ON pm.entity_files FOR SELECT TO authenticated
+  USING (pm.has_permission('files.read') AND pm.can_access_file_entity(entity_type, entity_id));
+CREATE POLICY entity_files_insert ON pm.entity_files FOR INSERT TO authenticated
   WITH CHECK (
-    public.has_permission('files.upload')
-    AND uploaded_by = public.current_team_member_id()
-    AND public.can_access_file_entity(entity_type, entity_id)
+    pm.has_permission('files.upload')
+    AND uploaded_by = pm.current_team_member_id()
+    AND pm.can_access_file_entity(entity_type, entity_id)
   );
-CREATE POLICY entity_files_update_delete ON public.entity_files FOR ALL TO authenticated
+CREATE POLICY entity_files_update_delete ON pm.entity_files FOR ALL TO authenticated
   USING (
-    public.can_access_file_entity(entity_type, entity_id)
-    AND (public.has_permission('files.manage') OR (
-      uploaded_by = public.current_team_member_id() AND visibility = 'internal'
+    pm.can_access_file_entity(entity_type, entity_id)
+    AND (pm.has_permission('files.manage') OR (
+      uploaded_by = pm.current_team_member_id() AND visibility = 'internal'
     ))
   )
   WITH CHECK (
-    public.can_access_file_entity(entity_type, entity_id)
-    AND (public.has_permission('files.manage') OR uploaded_by = public.current_team_member_id())
+    pm.can_access_file_entity(entity_type, entity_id)
+    AND (pm.has_permission('files.manage') OR uploaded_by = pm.current_team_member_id())
   );
 
 -- A project manager without assignment-management access can still retain
 -- access to a project they personally create.
-DROP POLICY IF EXISTS project_members_creator_self_insert ON public.project_members;
-CREATE POLICY project_members_creator_self_insert ON public.project_members FOR INSERT TO authenticated
+DROP POLICY IF EXISTS project_members_creator_self_insert ON pm.project_members;
+CREATE POLICY project_members_creator_self_insert ON pm.project_members FOR INSERT TO authenticated
   WITH CHECK (
-    member_id = public.current_team_member_id()
+    member_id = pm.current_team_member_id()
     AND EXISTS (
-      SELECT 1 FROM public.projects project
+      SELECT 1 FROM pm.projects project
       WHERE project.id = project_id
-        AND project.created_by = public.current_team_member_id()
+        AND project.created_by = pm.current_team_member_id()
     )
   );
 
-DROP POLICY IF EXISTS invoice_allocations_access ON public.invoice_time_entry_allocations;
-DROP POLICY IF EXISTS invoices_access ON public.project_invoices;
-DROP POLICY IF EXISTS invoice_allocations_select ON public.invoice_time_entry_allocations;
-DROP POLICY IF EXISTS invoice_allocations_manage ON public.invoice_time_entry_allocations;
-DROP POLICY IF EXISTS invoices_select ON public.project_invoices;
-DROP POLICY IF EXISTS invoices_manage ON public.project_invoices;
-CREATE POLICY invoice_allocations_select ON public.invoice_time_entry_allocations FOR SELECT TO authenticated
-  USING (public.has_permission('invoices.read') AND EXISTS (
-    SELECT 1 FROM public.project_invoices invoice
-    WHERE invoice.id = invoice_id AND public.can_access_project(invoice.project_id)
+DROP POLICY IF EXISTS invoice_allocations_access ON pm.invoice_time_entry_allocations;
+DROP POLICY IF EXISTS invoices_access ON pm.project_invoices;
+DROP POLICY IF EXISTS invoice_allocations_select ON pm.invoice_time_entry_allocations;
+DROP POLICY IF EXISTS invoice_allocations_manage ON pm.invoice_time_entry_allocations;
+DROP POLICY IF EXISTS invoices_select ON pm.project_invoices;
+DROP POLICY IF EXISTS invoices_manage ON pm.project_invoices;
+CREATE POLICY invoice_allocations_select ON pm.invoice_time_entry_allocations FOR SELECT TO authenticated
+  USING (pm.has_permission('invoices.read') AND EXISTS (
+    SELECT 1 FROM pm.project_invoices invoice
+    WHERE invoice.id = invoice_id AND pm.can_access_project(invoice.project_id)
   ));
-CREATE POLICY invoice_allocations_manage ON public.invoice_time_entry_allocations FOR ALL TO authenticated
-  USING (public.has_permission('invoices.manage') AND EXISTS (
-    SELECT 1 FROM public.project_invoices invoice
-    WHERE invoice.id = invoice_id AND public.can_access_project(invoice.project_id)
+CREATE POLICY invoice_allocations_manage ON pm.invoice_time_entry_allocations FOR ALL TO authenticated
+  USING (pm.has_permission('invoices.manage') AND EXISTS (
+    SELECT 1 FROM pm.project_invoices invoice
+    WHERE invoice.id = invoice_id AND pm.can_access_project(invoice.project_id)
   ))
-  WITH CHECK (public.has_permission('invoices.manage') AND EXISTS (
-    SELECT 1 FROM public.project_invoices invoice
-    WHERE invoice.id = invoice_id AND public.can_access_project(invoice.project_id)
+  WITH CHECK (pm.has_permission('invoices.manage') AND EXISTS (
+    SELECT 1 FROM pm.project_invoices invoice
+    WHERE invoice.id = invoice_id AND pm.can_access_project(invoice.project_id)
   ));
-CREATE POLICY invoices_select ON public.project_invoices FOR SELECT TO authenticated
-  USING (public.has_permission('invoices.read') AND public.can_access_project(project_id));
-CREATE POLICY invoices_manage ON public.project_invoices FOR ALL TO authenticated
-  USING (public.has_permission('invoices.manage') AND public.can_access_project(project_id))
-  WITH CHECK (public.has_permission('invoices.manage') AND public.can_access_project(project_id));
+CREATE POLICY invoices_select ON pm.project_invoices FOR SELECT TO authenticated
+  USING (pm.has_permission('invoices.read') AND pm.can_access_project(project_id));
+CREATE POLICY invoices_manage ON pm.project_invoices FOR ALL TO authenticated
+  USING (pm.has_permission('invoices.manage') AND pm.can_access_project(project_id))
+  WITH CHECK (pm.has_permission('invoices.manage') AND pm.can_access_project(project_id));
 
-DROP POLICY IF EXISTS time_entries_delete ON public.project_time_entries;
-CREATE POLICY time_entries_delete ON public.project_time_entries FOR DELETE TO authenticated
-  USING (public.can_access_project(project_id) AND (
-    public.has_permission('time.manage_all') OR (
-      public.has_permission('time.manage_own')
-      AND member_id = public.current_team_member_id()
+DROP POLICY IF EXISTS time_entries_delete ON pm.project_time_entries;
+CREATE POLICY time_entries_delete ON pm.project_time_entries FOR DELETE TO authenticated
+  USING (pm.can_access_project(project_id) AND (
+    pm.has_permission('time.manage_all') OR (
+      pm.has_permission('time.manage_own')
+      AND member_id = pm.current_team_member_id()
       AND approval_status IN ('draft', 'pending', 'rejected')
     )
   ));
 
 -- Personal compensation is visible only when own-earnings access is enabled.
-DROP POLICY IF EXISTS member_rates_own_or_manage ON public.team_member_hourly_rates;
-DROP POLICY IF EXISTS adjustments_own_or_manage ON public.team_member_earning_adjustments;
-DROP POLICY IF EXISTS payouts_own_or_manage ON public.team_member_payouts;
-DROP POLICY IF EXISTS payout_allocations_own_or_manage ON public.team_member_payout_allocations;
-CREATE POLICY member_rates_own_or_manage ON public.team_member_hourly_rates FOR SELECT TO authenticated
-  USING ((member_id = public.current_team_member_id() AND public.has_permission('earnings.own.read'))
-    OR public.has_permission('compensation.manage'));
-CREATE POLICY adjustments_own_or_manage ON public.team_member_earning_adjustments FOR SELECT TO authenticated
-  USING ((member_id = public.current_team_member_id() AND public.has_permission('earnings.own.read'))
-    OR public.has_permission('compensation.manage'));
-CREATE POLICY payouts_own_or_manage ON public.team_member_payouts FOR SELECT TO authenticated
-  USING ((member_id = public.current_team_member_id() AND public.has_permission('earnings.own.read'))
-    OR public.has_permission('payouts.manage'));
-CREATE POLICY payout_allocations_own_or_manage ON public.team_member_payout_allocations FOR SELECT TO authenticated
+DROP POLICY IF EXISTS member_rates_own_or_manage ON pm.team_member_hourly_rates;
+DROP POLICY IF EXISTS adjustments_own_or_manage ON pm.team_member_earning_adjustments;
+DROP POLICY IF EXISTS payouts_own_or_manage ON pm.team_member_payouts;
+DROP POLICY IF EXISTS payout_allocations_own_or_manage ON pm.team_member_payout_allocations;
+CREATE POLICY member_rates_own_or_manage ON pm.team_member_hourly_rates FOR SELECT TO authenticated
+  USING ((member_id = pm.current_team_member_id() AND pm.has_permission('earnings.own.read'))
+    OR pm.has_permission('compensation.manage'));
+CREATE POLICY adjustments_own_or_manage ON pm.team_member_earning_adjustments FOR SELECT TO authenticated
+  USING ((member_id = pm.current_team_member_id() AND pm.has_permission('earnings.own.read'))
+    OR pm.has_permission('compensation.manage'));
+CREATE POLICY payouts_own_or_manage ON pm.team_member_payouts FOR SELECT TO authenticated
+  USING ((member_id = pm.current_team_member_id() AND pm.has_permission('earnings.own.read'))
+    OR pm.has_permission('payouts.manage'));
+CREATE POLICY payout_allocations_own_or_manage ON pm.team_member_payout_allocations FOR SELECT TO authenticated
   USING (EXISTS (
-    SELECT 1 FROM public.team_member_payouts payout
+    SELECT 1 FROM pm.team_member_payouts payout
     WHERE payout.id = payout_id AND (
-      (payout.member_id = public.current_team_member_id() AND public.has_permission('earnings.own.read'))
-      OR public.has_permission('payouts.manage')
+      (payout.member_id = pm.current_team_member_id() AND pm.has_permission('earnings.own.read'))
+      OR pm.has_permission('payouts.manage')
     )
   ));
 
 -- Project retainers and revenue splits.
-DROP POLICY IF EXISTS retainers_select ON public.project_retainers;
-DROP POLICY IF EXISTS retainers_manage ON public.project_retainers;
-CREATE POLICY retainers_select ON public.project_retainers FOR SELECT TO authenticated
-  USING (public.has_permission('invoices.read') AND public.can_access_project(project_id));
-CREATE POLICY retainers_manage ON public.project_retainers FOR ALL TO authenticated
-  USING (public.has_permission('invoices.manage') AND public.can_access_project(project_id))
-  WITH CHECK (public.has_permission('invoices.manage') AND public.can_access_project(project_id));
+DROP POLICY IF EXISTS retainers_select ON pm.project_retainers;
+DROP POLICY IF EXISTS retainers_manage ON pm.project_retainers;
+CREATE POLICY retainers_select ON pm.project_retainers FOR SELECT TO authenticated
+  USING (pm.has_permission('invoices.read') AND pm.can_access_project(project_id));
+CREATE POLICY retainers_manage ON pm.project_retainers FOR ALL TO authenticated
+  USING (pm.has_permission('invoices.manage') AND pm.can_access_project(project_id))
+  WITH CHECK (pm.has_permission('invoices.manage') AND pm.can_access_project(project_id));
 
-DROP POLICY IF EXISTS retainer_amounts_select ON public.project_retainer_amounts;
-DROP POLICY IF EXISTS retainer_amounts_manage ON public.project_retainer_amounts;
-CREATE POLICY retainer_amounts_select ON public.project_retainer_amounts FOR SELECT TO authenticated
-  USING (public.has_permission('invoices.read') AND EXISTS (
-    SELECT 1 FROM public.project_retainers retainer
-    WHERE retainer.id = retainer_id AND public.can_access_project(retainer.project_id)
+DROP POLICY IF EXISTS retainer_amounts_select ON pm.project_retainer_amounts;
+DROP POLICY IF EXISTS retainer_amounts_manage ON pm.project_retainer_amounts;
+CREATE POLICY retainer_amounts_select ON pm.project_retainer_amounts FOR SELECT TO authenticated
+  USING (pm.has_permission('invoices.read') AND EXISTS (
+    SELECT 1 FROM pm.project_retainers retainer
+    WHERE retainer.id = retainer_id AND pm.can_access_project(retainer.project_id)
   ));
-CREATE POLICY retainer_amounts_manage ON public.project_retainer_amounts FOR ALL TO authenticated
-  USING (public.has_permission('invoices.manage') AND EXISTS (
-    SELECT 1 FROM public.project_retainers retainer
-    WHERE retainer.id = retainer_id AND public.can_access_project(retainer.project_id)
+CREATE POLICY retainer_amounts_manage ON pm.project_retainer_amounts FOR ALL TO authenticated
+  USING (pm.has_permission('invoices.manage') AND EXISTS (
+    SELECT 1 FROM pm.project_retainers retainer
+    WHERE retainer.id = retainer_id AND pm.can_access_project(retainer.project_id)
   ))
-  WITH CHECK (public.has_permission('invoices.manage') AND EXISTS (
-    SELECT 1 FROM public.project_retainers retainer
-    WHERE retainer.id = retainer_id AND public.can_access_project(retainer.project_id)
+  WITH CHECK (pm.has_permission('invoices.manage') AND EXISTS (
+    SELECT 1 FROM pm.project_retainers retainer
+    WHERE retainer.id = retainer_id AND pm.can_access_project(retainer.project_id)
   ));
 
-DROP POLICY IF EXISTS retainer_periods_select ON public.project_retainer_periods;
-DROP POLICY IF EXISTS retainer_periods_manage ON public.project_retainer_periods;
-CREATE POLICY retainer_periods_select ON public.project_retainer_periods FOR SELECT TO authenticated
-  USING (public.has_permission('invoices.read') AND EXISTS (
-    SELECT 1 FROM public.project_retainers retainer
-    WHERE retainer.id = retainer_id AND public.can_access_project(retainer.project_id)
+DROP POLICY IF EXISTS retainer_periods_select ON pm.project_retainer_periods;
+DROP POLICY IF EXISTS retainer_periods_manage ON pm.project_retainer_periods;
+CREATE POLICY retainer_periods_select ON pm.project_retainer_periods FOR SELECT TO authenticated
+  USING (pm.has_permission('invoices.read') AND EXISTS (
+    SELECT 1 FROM pm.project_retainers retainer
+    WHERE retainer.id = retainer_id AND pm.can_access_project(retainer.project_id)
   ));
-CREATE POLICY retainer_periods_manage ON public.project_retainer_periods FOR ALL TO authenticated
-  USING (public.has_permission('invoices.manage') AND EXISTS (
-    SELECT 1 FROM public.project_retainers retainer
-    WHERE retainer.id = retainer_id AND public.can_access_project(retainer.project_id)
+CREATE POLICY retainer_periods_manage ON pm.project_retainer_periods FOR ALL TO authenticated
+  USING (pm.has_permission('invoices.manage') AND EXISTS (
+    SELECT 1 FROM pm.project_retainers retainer
+    WHERE retainer.id = retainer_id AND pm.can_access_project(retainer.project_id)
   ))
-  WITH CHECK (public.has_permission('invoices.manage') AND EXISTS (
-    SELECT 1 FROM public.project_retainers retainer
-    WHERE retainer.id = retainer_id AND public.can_access_project(retainer.project_id)
+  WITH CHECK (pm.has_permission('invoices.manage') AND EXISTS (
+    SELECT 1 FROM pm.project_retainers retainer
+    WHERE retainer.id = retainer_id AND pm.can_access_project(retainer.project_id)
   ));
 
 -- Splits are compensation. Holding invoices.manage alone does not reveal them.
-DROP POLICY IF EXISTS retainer_shares_manage ON public.project_retainer_shares;
-CREATE POLICY retainer_shares_manage ON public.project_retainer_shares FOR ALL TO authenticated
-  USING (public.has_permission('compensation.manage'))
-  WITH CHECK (public.has_permission('compensation.manage'));
+DROP POLICY IF EXISTS retainer_shares_manage ON pm.project_retainer_shares;
+CREATE POLICY retainer_shares_manage ON pm.project_retainer_shares FOR ALL TO authenticated
+  USING (pm.has_permission('compensation.manage'))
+  WITH CHECK (pm.has_permission('compensation.manage'));
 
-DROP POLICY IF EXISTS invoice_line_shares_manage ON public.invoice_line_shares;
-CREATE POLICY invoice_line_shares_manage ON public.invoice_line_shares FOR ALL TO authenticated
-  USING (public.has_permission('compensation.manage'))
-  WITH CHECK (public.has_permission('compensation.manage'));
+DROP POLICY IF EXISTS invoice_line_shares_manage ON pm.invoice_line_shares;
+CREATE POLICY invoice_line_shares_manage ON pm.invoice_line_shares FOR ALL TO authenticated
+  USING (pm.has_permission('compensation.manage'))
+  WITH CHECK (pm.has_permission('compensation.manage'));
 
 -- Earnings are written by triggers only; members read their own.
-DROP POLICY IF EXISTS share_earnings_own_or_manage ON public.team_member_share_earnings;
-CREATE POLICY share_earnings_own_or_manage ON public.team_member_share_earnings FOR SELECT TO authenticated
-  USING ((member_id = public.current_team_member_id() AND public.has_permission('earnings.own.read'))
-    OR public.has_permission('compensation.manage')
-    OR public.has_permission('payouts.manage'));
+DROP POLICY IF EXISTS share_earnings_own_or_manage ON pm.team_member_share_earnings;
+CREATE POLICY share_earnings_own_or_manage ON pm.team_member_share_earnings FOR SELECT TO authenticated
+  USING ((member_id = pm.current_team_member_id() AND pm.has_permission('earnings.own.read'))
+    OR pm.has_permission('compensation.manage')
+    OR pm.has_permission('payouts.manage'));
 
-REVOKE ALL ON FUNCTION public.workspace_today() FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.retainer_periods(uuid, date, date) FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.retainer_due_periods_internal(uuid, date) FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.retainer_due_periods(uuid) FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.next_project_invoice_number(uuid) FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.create_retainer_draft_internal(uuid, jsonb, date, boolean) FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.generate_retainer_drafts(date) FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.generate_retainer_period(uuid, date) FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.retire_share_earning(uuid, text) FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.sync_invoice_share_earnings(uuid) FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.assert_share_member(uuid) FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.save_project_retainer(uuid, jsonb) FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.schedule_retainer_amount(uuid, numeric, date) FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.set_retainer_shares(uuid, jsonb, date) FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.set_invoice_line_shares(uuid, jsonb) FROM PUBLIC;
+REVOKE ALL ON FUNCTION pm.workspace_today() FROM PUBLIC;
+REVOKE ALL ON FUNCTION pm.retainer_periods(uuid, date, date) FROM PUBLIC;
+REVOKE ALL ON FUNCTION pm.retainer_due_periods_internal(uuid, date) FROM PUBLIC;
+REVOKE ALL ON FUNCTION pm.retainer_due_periods(uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION pm.next_project_invoice_number(uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION pm.create_retainer_draft_internal(uuid, jsonb, date, boolean) FROM PUBLIC;
+REVOKE ALL ON FUNCTION pm.generate_retainer_drafts(date) FROM PUBLIC;
+REVOKE ALL ON FUNCTION pm.generate_retainer_period(uuid, date) FROM PUBLIC;
+REVOKE ALL ON FUNCTION pm.retire_share_earning(uuid, text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION pm.sync_invoice_share_earnings(uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION pm.assert_share_member(uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION pm.save_project_retainer(uuid, jsonb) FROM PUBLIC;
+REVOKE ALL ON FUNCTION pm.schedule_retainer_amount(uuid, numeric, date) FROM PUBLIC;
+REVOKE ALL ON FUNCTION pm.set_retainer_shares(uuid, jsonb, date) FROM PUBLIC;
+REVOKE ALL ON FUNCTION pm.set_invoice_line_shares(uuid, jsonb) FROM PUBLIC;
 
 -- Supabase grants new public functions to anon and authenticated by default.
-REVOKE ALL ON FUNCTION public.retainer_periods(uuid, date, date) FROM anon, authenticated;
-REVOKE ALL ON FUNCTION public.retainer_due_periods_internal(uuid, date) FROM anon, authenticated;
-REVOKE ALL ON FUNCTION public.next_project_invoice_number(uuid) FROM anon, authenticated;
-REVOKE ALL ON FUNCTION public.suggest_project_invoice_number(uuid) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.suggest_project_invoice_number(uuid) TO authenticated;
-REVOKE ALL ON FUNCTION public.create_retainer_draft_internal(uuid, jsonb, date, boolean) FROM anon, authenticated;
-REVOKE ALL ON FUNCTION public.generate_retainer_drafts(date) FROM anon, authenticated;
-REVOKE ALL ON FUNCTION public.retire_share_earning(uuid, text) FROM anon, authenticated;
-REVOKE ALL ON FUNCTION public.sync_invoice_share_earnings(uuid) FROM anon, authenticated;
-REVOKE ALL ON FUNCTION public.assert_share_member(uuid) FROM anon, authenticated;
-REVOKE ALL ON FUNCTION public.retainer_line_json(uuid, integer, numeric, text, date, date) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.retainer_due_periods(uuid) FROM anon;
-REVOKE ALL ON FUNCTION public.generate_retainer_period(uuid, date) FROM anon;
-REVOKE ALL ON FUNCTION public.save_project_retainer(uuid, jsonb) FROM anon;
-REVOKE ALL ON FUNCTION public.schedule_retainer_amount(uuid, numeric, date) FROM anon;
-REVOKE ALL ON FUNCTION public.set_retainer_shares(uuid, jsonb, date) FROM anon;
-REVOKE ALL ON FUNCTION public.set_invoice_line_shares(uuid, jsonb) FROM anon;
+REVOKE ALL ON FUNCTION pm.retainer_periods(uuid, date, date) FROM anon, authenticated;
+REVOKE ALL ON FUNCTION pm.retainer_due_periods_internal(uuid, date) FROM anon, authenticated;
+REVOKE ALL ON FUNCTION pm.next_project_invoice_number(uuid) FROM anon, authenticated;
+REVOKE ALL ON FUNCTION pm.suggest_project_invoice_number(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION pm.suggest_project_invoice_number(uuid) TO authenticated;
+REVOKE ALL ON FUNCTION pm.create_retainer_draft_internal(uuid, jsonb, date, boolean) FROM anon, authenticated;
+REVOKE ALL ON FUNCTION pm.generate_retainer_drafts(date) FROM anon, authenticated;
+REVOKE ALL ON FUNCTION pm.retire_share_earning(uuid, text) FROM anon, authenticated;
+REVOKE ALL ON FUNCTION pm.sync_invoice_share_earnings(uuid) FROM anon, authenticated;
+REVOKE ALL ON FUNCTION pm.assert_share_member(uuid) FROM anon, authenticated;
+REVOKE ALL ON FUNCTION pm.retainer_line_json(uuid, integer, numeric, text, date, date) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION pm.retainer_due_periods(uuid) FROM anon;
+REVOKE ALL ON FUNCTION pm.generate_retainer_period(uuid, date) FROM anon;
+REVOKE ALL ON FUNCTION pm.save_project_retainer(uuid, jsonb) FROM anon;
+REVOKE ALL ON FUNCTION pm.schedule_retainer_amount(uuid, numeric, date) FROM anon;
+REVOKE ALL ON FUNCTION pm.set_retainer_shares(uuid, jsonb, date) FROM anon;
+REVOKE ALL ON FUNCTION pm.set_invoice_line_shares(uuid, jsonb) FROM anon;
 
-GRANT EXECUTE ON FUNCTION public.workspace_today() TO authenticated, service_role;
-GRANT EXECUTE ON FUNCTION public.retainer_due_periods(uuid) TO authenticated, service_role;
-GRANT EXECUTE ON FUNCTION public.generate_retainer_period(uuid, date) TO authenticated, service_role;
-GRANT EXECUTE ON FUNCTION public.save_project_retainer(uuid, jsonb) TO authenticated, service_role;
-GRANT EXECUTE ON FUNCTION public.schedule_retainer_amount(uuid, numeric, date) TO authenticated, service_role;
-GRANT EXECUTE ON FUNCTION public.set_retainer_shares(uuid, jsonb, date) TO authenticated, service_role;
-GRANT EXECUTE ON FUNCTION public.set_invoice_line_shares(uuid, jsonb) TO authenticated, service_role;
-GRANT EXECUTE ON FUNCTION public.generate_retainer_drafts(date) TO service_role;
-REVOKE ALL ON FUNCTION public.retainer_accruing_lines() FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.retainer_accruing_lines() TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.workspace_today() TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.retainer_due_periods(uuid) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.generate_retainer_period(uuid, date) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.save_project_retainer(uuid, jsonb) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.schedule_retainer_amount(uuid, numeric, date) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.set_retainer_shares(uuid, jsonb, date) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.set_invoice_line_shares(uuid, jsonb) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.generate_retainer_drafts(date) TO service_role;
+REVOKE ALL ON FUNCTION pm.retainer_accruing_lines() FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION pm.retainer_accruing_lines() TO authenticated, service_role;
 
-REVOKE ALL ON FUNCTION public.can_access_file_entity(text, uuid) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.can_access_file_entity(text, uuid) TO authenticated, service_role;
-REVOKE ALL ON FUNCTION public.schedule_team_member_hourly_rate(uuid, numeric, timestamptz, uuid) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.schedule_team_member_hourly_rate(uuid, numeric, timestamptz, uuid) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.can_access_file_entity(text, uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION pm.can_access_file_entity(text, uuid) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.schedule_team_member_hourly_rate(uuid, numeric, timestamptz, uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION pm.schedule_team_member_hourly_rate(uuid, numeric, timestamptz, uuid) TO authenticated, service_role;
 
 -- Project and time mutations are handled by permission-aware server routes.
 -- Keep direct authenticated reads limited to non-financial columns so RLS
 -- cannot expose client billing rates or employee compensation rates.
-REVOKE SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER ON public.projects FROM authenticated;
+REVOKE SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER ON pm.projects FROM authenticated;
 GRANT SELECT (
   id, name, description, color, status, start_date, due_date,
   hourly_tracking, time_tracking_enabled, created_by, created_at, updated_at, archived_at,
@@ -6859,30 +6868,30 @@ GRANT SELECT (
   -- Agent columns, read by the live floor from the client: a feature flag
   -- and a branch name, neither financial (20260811_grant_agent_project_columns).
   autonomous_enabled, integration_branch
-) ON public.projects TO authenticated;
+) ON pm.projects TO authenticated;
 
-REVOKE SELECT, INSERT, UPDATE, TRUNCATE, REFERENCES, TRIGGER ON public.project_time_entries FROM authenticated;
+REVOKE SELECT, INSERT, UPDATE, TRUNCATE, REFERENCES, TRIGGER ON pm.project_time_entries FROM authenticated;
 GRANT SELECT (
   id, project_id, member_id, start_time, end_time, description,
   created_at, updated_at, segments, work_type, approval_status,
   submitted_at, approved_at, approved_by, rejection_reason, deleted_at, deleted_by
-) ON public.project_time_entries TO authenticated;
-GRANT DELETE ON public.project_time_entries TO authenticated;
+) ON pm.project_time_entries TO authenticated;
+GRANT DELETE ON pm.project_time_entries TO authenticated;
 
 COMMIT;
 -- API scope integrity follow-up (20260721_api_scope_integrity.sql)
 BEGIN;
 
-DELETE FROM public.role_permissions
+DELETE FROM pm.role_permissions
 WHERE role = 'agent'
   AND permission_key = 'suggestions.manage';
 
-INSERT INTO public.role_permissions (role, permission_key, access_channel) VALUES
+INSERT INTO pm.role_permissions (role, permission_key, access_channel) VALUES
   ('agent', 'suggestions.create', 'api'),
   ('agent', 'agent_activity.write', 'api')
 ON CONFLICT DO NOTHING;
 
-UPDATE public.api_keys key
+UPDATE pm.api_keys key
 SET scopes = ARRAY(
   SELECT DISTINCT scope
   FROM unnest(
@@ -6893,42 +6902,42 @@ SET scopes = ARRAY(
 )
 WHERE EXISTS (
   SELECT 1
-  FROM public.team_members member
+  FROM pm.team_members member
   WHERE member.id = key.team_member_id
     AND member.role = 'agent'
 );
 
-CREATE OR REPLACE FUNCTION public.review_time_entries_api(
+CREATE OR REPLACE FUNCTION pm.review_time_entries_api(
   p_project_id uuid,
   p_entry_ids uuid[],
   p_decision text,
   p_reason text,
   p_reviewer_id uuid
 )
-RETURNS SETOF public.project_time_entries
+RETURNS SETOF pm.project_time_entries
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
 BEGIN
   IF auth.role() <> 'service_role' THEN RAISE EXCEPTION 'Service role required'; END IF;
   IF COALESCE(array_length(p_entry_ids, 1), 0) = 0 THEN RAISE EXCEPTION 'Select at least one time entry'; END IF;
   IF p_decision NOT IN ('approved', 'rejected') THEN RAISE EXCEPTION 'Invalid review decision'; END IF;
-  IF NOT EXISTS (SELECT 1 FROM public.team_members WHERE id = p_reviewer_id AND status = 'active') THEN RAISE EXCEPTION 'Active reviewer not found'; END IF;
-  IF (SELECT count(*) FROM public.project_time_entries WHERE id = ANY(p_entry_ids) AND deleted_at IS NULL) <> cardinality(p_entry_ids) THEN RAISE EXCEPTION 'One or more time entries were not found'; END IF;
-  IF EXISTS (SELECT 1 FROM public.project_time_entries WHERE id = ANY(p_entry_ids) AND project_id IS DISTINCT FROM p_project_id) THEN RAISE EXCEPTION 'Time entry does not belong to the project'; END IF;
-  IF EXISTS (SELECT 1 FROM public.project_time_entries WHERE id = ANY(p_entry_ids) AND member_id = p_reviewer_id) THEN RAISE EXCEPTION 'Time entries cannot be self-approved'; END IF;
+  IF NOT EXISTS (SELECT 1 FROM pm.team_members WHERE id = p_reviewer_id AND status = 'active') THEN RAISE EXCEPTION 'Active reviewer not found'; END IF;
+  IF (SELECT count(*) FROM pm.project_time_entries WHERE id = ANY(p_entry_ids) AND deleted_at IS NULL) <> cardinality(p_entry_ids) THEN RAISE EXCEPTION 'One or more time entries were not found'; END IF;
+  IF EXISTS (SELECT 1 FROM pm.project_time_entries WHERE id = ANY(p_entry_ids) AND project_id IS DISTINCT FROM p_project_id) THEN RAISE EXCEPTION 'Time entry does not belong to the project'; END IF;
+  IF EXISTS (SELECT 1 FROM pm.project_time_entries WHERE id = ANY(p_entry_ids) AND member_id = p_reviewer_id) THEN RAISE EXCEPTION 'Time entries cannot be self-approved'; END IF;
   -- With Team pay off, approval needs no rate and sets none.
-  IF p_decision = 'approved' AND public.module_enabled('team_pay') AND EXISTS (
-    SELECT 1 FROM public.project_time_entries entry
-    JOIN public.team_members member ON member.id = entry.member_id
+  IF p_decision = 'approved' AND pm.module_enabled('team_pay') AND EXISTS (
+    SELECT 1 FROM pm.project_time_entries entry
+    JOIN pm.team_members member ON member.id = entry.member_id
     WHERE entry.id = ANY(p_entry_ids) AND entry.approval_status = 'pending'
       AND member.role NOT IN ('owner', 'agent')
-      AND NOT EXISTS (SELECT 1 FROM public.team_member_hourly_rates rate WHERE rate.member_id = entry.member_id AND rate.effective_at <= entry.start_time)
+      AND NOT EXISTS (SELECT 1 FROM pm.team_member_hourly_rates rate WHERE rate.member_id = entry.member_id AND rate.effective_at <= entry.start_time)
   ) THEN RAISE EXCEPTION 'Compensation rate missing for one or more time entries'; END IF;
-  UPDATE public.project_time_entries entry
+  UPDATE pm.project_time_entries entry
   SET approval_status = p_decision,
-      compensation_rate = CASE WHEN p_decision = 'approved' AND public.module_enabled('team_pay') THEN public.resolve_team_member_hourly_rate(entry.member_id, entry.start_time) ELSE entry.compensation_rate END,
+      compensation_rate = CASE WHEN p_decision = 'approved' AND pm.module_enabled('team_pay') THEN pm.resolve_team_member_hourly_rate(entry.member_id, entry.start_time) ELSE entry.compensation_rate END,
       approved_at = CASE WHEN p_decision = 'approved' THEN now() ELSE NULL END,
       approved_by = CASE WHEN p_decision = 'approved' THEN p_reviewer_id ELSE NULL END,
       rejection_reason = CASE WHEN p_decision = 'rejected' THEN COALESCE(p_reason, '') ELSE NULL END,
@@ -6936,27 +6945,27 @@ BEGIN
   WHERE entry.id = ANY(p_entry_ids) AND entry.project_id = p_project_id
     AND entry.approval_status = 'pending' AND entry.end_time IS NOT NULL;
   -- Agent billed-time conversion is Client invoicing's.
-  IF p_decision = 'approved' AND public.module_enabled('billing') THEN
-    PERFORM public.apply_agent_billing_conversion(entry_id, NULL)
+  IF p_decision = 'approved' AND pm.module_enabled('billing') THEN
+    PERFORM pm.apply_agent_billing_conversion(entry_id, NULL)
     FROM unnest(p_entry_ids) AS entry_id;
   END IF;
   RETURN QUERY
-  SELECT * FROM public.project_time_entries
+  SELECT * FROM pm.project_time_entries
   WHERE id = ANY(p_entry_ids) AND project_id = p_project_id;
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.review_time_entries_api(uuid, uuid[], text, text, uuid) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.review_time_entries_api(uuid, uuid[], text, text, uuid) TO service_role;
+REVOKE ALL ON FUNCTION pm.review_time_entries_api(uuid, uuid[], text, text, uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION pm.review_time_entries_api(uuid, uuid[], text, text, uuid) TO service_role;
 
-CREATE TABLE IF NOT EXISTS public.api_rate_limit_windows (
-  api_key_id uuid PRIMARY KEY REFERENCES public.api_keys(id) ON DELETE CASCADE,
+CREATE TABLE IF NOT EXISTS pm.api_rate_limit_windows (
+  api_key_id uuid PRIMARY KEY REFERENCES pm.api_keys(id) ON DELETE CASCADE,
   window_start timestamptz NOT NULL,
   request_count integer NOT NULL CHECK (request_count > 0)
 );
-ALTER TABLE public.api_rate_limit_windows ENABLE ROW LEVEL SECURITY;
+ALTER TABLE pm.api_rate_limit_windows ENABLE ROW LEVEL SECURITY;
 
-CREATE OR REPLACE FUNCTION public.consume_api_rate_limit(
+CREATE OR REPLACE FUNCTION pm.consume_api_rate_limit(
   p_api_key_id uuid,
   p_limit integer DEFAULT 120,
   p_window_seconds integer DEFAULT 60
@@ -6964,15 +6973,15 @@ CREATE OR REPLACE FUNCTION public.consume_api_rate_limit(
 RETURNS TABLE (allowed boolean, remaining integer, reset_at timestamptz)
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
 DECLARE
-  rate_window public.api_rate_limit_windows%ROWTYPE;
+  rate_window pm.api_rate_limit_windows%ROWTYPE;
   v_now timestamptz := clock_timestamp();
 BEGIN
   IF auth.role() <> 'service_role' THEN RAISE EXCEPTION 'Service role required'; END IF;
   IF p_limit <= 0 OR p_window_seconds <= 0 THEN RAISE EXCEPTION 'Invalid rate limit'; END IF;
-  INSERT INTO public.api_rate_limit_windows (api_key_id, window_start, request_count)
+  INSERT INTO pm.api_rate_limit_windows (api_key_id, window_start, request_count)
   VALUES (p_api_key_id, v_now, 1)
   ON CONFLICT (api_key_id) DO UPDATE
   SET window_start = CASE WHEN api_rate_limit_windows.window_start + make_interval(secs => p_window_seconds) <= v_now THEN v_now ELSE api_rate_limit_windows.window_start END,
@@ -6985,25 +6994,25 @@ BEGIN
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.consume_api_rate_limit(uuid, integer, integer) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.consume_api_rate_limit(uuid, integer, integer) TO service_role;
+REVOKE ALL ON FUNCTION pm.consume_api_rate_limit(uuid, integer, integer) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION pm.consume_api_rate_limit(uuid, integer, integer) TO service_role;
 
 -- Team invites (20261121061500_team_invites.sql): the app's own
 -- set-your-password links. Only the sha256 of the token is stored; a link
 -- lasts 7 days and works once, and a new invite or resend deletes the
 -- person's unused ones. Service role only.
-CREATE TABLE IF NOT EXISTS public.team_invites (
+CREATE TABLE IF NOT EXISTS pm.team_invites (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  member_id uuid NOT NULL REFERENCES public.team_members(id) ON DELETE CASCADE,
+  member_id uuid NOT NULL REFERENCES pm.team_members(id) ON DELETE CASCADE,
   token_hash text NOT NULL UNIQUE,
-  created_by uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
+  created_by uuid REFERENCES pm.team_members(id) ON DELETE SET NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
   expires_at timestamptz NOT NULL DEFAULT (now() + interval '7 days'),
   used_at timestamptz
 );
-CREATE INDEX IF NOT EXISTS idx_team_invites_member ON public.team_invites(member_id);
-ALTER TABLE public.team_invites ENABLE ROW LEVEL SECURITY;
-REVOKE ALL ON TABLE public.team_invites FROM anon, authenticated;
+CREATE INDEX IF NOT EXISTS idx_team_invites_member ON pm.team_invites(member_id);
+ALTER TABLE pm.team_invites ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE pm.team_invites FROM anon, authenticated;
 
 COMMIT;
 
@@ -7039,7 +7048,7 @@ COMMIT;
 -- 1. Helpers
 -- ============================================================
 
-CREATE OR REPLACE FUNCTION public.email_is_address(p_value text)
+CREATE OR REPLACE FUNCTION pm.email_is_address(p_value text)
 RETURNS boolean
 LANGUAGE sql
 IMMUTABLE
@@ -7053,7 +7062,7 @@ $$;
 -- would map every stranger on that service to the project. The app keeps the
 -- fuller list (src/lib/communications/email/public-domains.ts) and refuses first;
 -- this is the backstop.
-CREATE OR REPLACE FUNCTION public.email_domain_is_public(p_domain text)
+CREATE OR REPLACE FUNCTION pm.email_domain_is_public(p_domain text)
 RETURNS boolean
 LANGUAGE sql
 IMMUTABLE
@@ -7068,7 +7077,7 @@ AS $$
     OR lower(p_domain) ~ '^(gmx|hotmail|outlook|live|yahoo|ymail|aol|msn|windowslive)\.[a-z]{2,3}(\.[a-z]{2})?$'
 $$;
 
-CREATE OR REPLACE FUNCTION public.email_inbox_verification_code()
+CREATE OR REPLACE FUNCTION pm.email_inbox_verification_code()
 RETURNS text
 LANGUAGE sql
 VOLATILE
@@ -7083,10 +7092,10 @@ $$;
 -- One contact, several addresses; one address may belong to several
 -- contacts (unique per contact, not globally). Stored lowercased.
 
-CREATE TABLE public.contact_emails (
+CREATE TABLE pm.contact_emails (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  contact_id uuid NOT NULL REFERENCES public.contacts(id) ON DELETE CASCADE,
-  email text NOT NULL CHECK (email = lower(btrim(email)) AND public.email_is_address(email)),
+  contact_id uuid NOT NULL REFERENCES pm.contacts(id) ON DELETE CASCADE,
+  email text NOT NULL CHECK (email = lower(btrim(email)) AND pm.email_is_address(email)),
   is_primary boolean NOT NULL DEFAULT false,
   label text CHECK (label IS NULL OR length(label) BETWEEN 1 AND 60),
   created_at timestamptz NOT NULL DEFAULT now(),
@@ -7094,28 +7103,28 @@ CREATE TABLE public.contact_emails (
 );
 
 CREATE UNIQUE INDEX contact_emails_contact_email_key
-  ON public.contact_emails (contact_id, lower(email));
+  ON pm.contact_emails (contact_id, lower(email));
 CREATE UNIQUE INDEX contact_emails_one_primary
-  ON public.contact_emails (contact_id) WHERE is_primary;
-CREATE INDEX idx_contact_emails_email ON public.contact_emails (email);
+  ON pm.contact_emails (contact_id) WHERE is_primary;
+CREATE INDEX idx_contact_emails_email ON pm.contact_emails (email);
 
 -- Lowercase the address; the first address a contact gets is its primary;
 -- promoting one demotes the others (before the one-primary index checks).
-CREATE OR REPLACE FUNCTION public.contact_emails_before_write()
+CREATE OR REPLACE FUNCTION pm.contact_emails_before_write()
 RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
 BEGIN
   NEW.email := lower(btrim(NEW.email));
   IF TG_OP = 'INSERT' AND NOT NEW.is_primary AND NOT EXISTS (
-    SELECT 1 FROM public.contact_emails WHERE contact_id = NEW.contact_id AND is_primary
+    SELECT 1 FROM pm.contact_emails WHERE contact_id = NEW.contact_id AND is_primary
   ) THEN
     NEW.is_primary := true;
   END IF;
   IF NEW.is_primary AND (TG_OP = 'INSERT' OR NOT OLD.is_primary OR OLD.contact_id IS DISTINCT FROM NEW.contact_id) THEN
-    UPDATE public.contact_emails SET is_primary = false
+    UPDATE pm.contact_emails SET is_primary = false
     WHERE contact_id = NEW.contact_id AND is_primary AND id <> NEW.id;
   END IF;
   IF TG_OP = 'UPDATE' THEN NEW.updated_at := now(); END IF;
@@ -7127,39 +7136,39 @@ $$;
 -- alone so a form keeps the spelling it saved. With no primary, a valid
 -- address in contacts.email is cleared; anything that is not an address
 -- (legacy free text) is left as it is.
-CREATE OR REPLACE FUNCTION public.sync_contact_email_mirror(p_contact_id uuid)
+CREATE OR REPLACE FUNCTION pm.sync_contact_email_mirror(p_contact_id uuid)
 RETURNS void
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
 DECLARE
   v_current text;
   v_primary text;
 BEGIN
-  SELECT email INTO v_current FROM public.contacts WHERE id = p_contact_id;
+  SELECT email INTO v_current FROM pm.contacts WHERE id = p_contact_id;
   IF NOT FOUND THEN RETURN; END IF;
-  SELECT email INTO v_primary FROM public.contact_emails WHERE contact_id = p_contact_id AND is_primary;
+  SELECT email INTO v_primary FROM pm.contact_emails WHERE contact_id = p_contact_id AND is_primary;
   IF v_primary IS NOT NULL THEN
     IF lower(btrim(COALESCE(v_current, ''))) IS DISTINCT FROM v_primary THEN
-      UPDATE public.contacts SET email = v_primary WHERE id = p_contact_id;
+      UPDATE pm.contacts SET email = v_primary WHERE id = p_contact_id;
     END IF;
-  ELSIF public.email_is_address(lower(btrim(COALESCE(v_current, '')))) THEN
-    UPDATE public.contacts SET email = '' WHERE id = p_contact_id;
+  ELSIF pm.email_is_address(lower(btrim(COALESCE(v_current, '')))) THEN
+    UPDATE pm.contacts SET email = '' WHERE id = p_contact_id;
   END IF;
 END;
 $$;
 
-CREATE OR REPLACE FUNCTION public.contact_emails_after_write()
+CREATE OR REPLACE FUNCTION pm.contact_emails_after_write()
 RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
 BEGIN
-  IF TG_OP IN ('UPDATE', 'DELETE') THEN PERFORM public.sync_contact_email_mirror(OLD.contact_id); END IF;
+  IF TG_OP IN ('UPDATE', 'DELETE') THEN PERFORM pm.sync_contact_email_mirror(OLD.contact_id); END IF;
   IF TG_OP IN ('INSERT', 'UPDATE') AND (TG_OP = 'INSERT' OR NEW.contact_id IS DISTINCT FROM OLD.contact_id OR NEW.email IS DISTINCT FROM OLD.email OR NEW.is_primary IS DISTINCT FROM OLD.is_primary) THEN
-    PERFORM public.sync_contact_email_mirror(NEW.contact_id);
+    PERFORM pm.sync_contact_email_mirror(NEW.contact_id);
   END IF;
   RETURN NULL;
 END;
@@ -7170,41 +7179,41 @@ $$;
 -- row takes the new address, otherwise one is added. Clearing it, or saving
 -- something that is not an address, removes the primary row. Changes made by
 -- the mirror itself (a nested trigger) are not echoed back.
-CREATE OR REPLACE FUNCTION public.contacts_sync_primary_email()
+CREATE OR REPLACE FUNCTION pm.contacts_sync_primary_email()
 RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
 DECLARE
   v_email text := lower(btrim(COALESCE(NEW.email, '')));
 BEGIN
   IF pg_trigger_depth() > 1 THEN RETURN NULL; END IF;
   IF TG_OP = 'UPDATE' AND lower(btrim(COALESCE(OLD.email, ''))) = v_email THEN RETURN NULL; END IF;
-  IF NOT public.email_is_address(v_email) THEN
-    DELETE FROM public.contact_emails WHERE contact_id = NEW.id AND is_primary;
-  ELSIF EXISTS (SELECT 1 FROM public.contact_emails WHERE contact_id = NEW.id AND email = v_email) THEN
-    UPDATE public.contact_emails SET is_primary = true WHERE contact_id = NEW.id AND email = v_email AND NOT is_primary;
-  ELSIF EXISTS (SELECT 1 FROM public.contact_emails WHERE contact_id = NEW.id AND is_primary) THEN
-    UPDATE public.contact_emails SET email = v_email WHERE contact_id = NEW.id AND is_primary;
+  IF NOT pm.email_is_address(v_email) THEN
+    DELETE FROM pm.contact_emails WHERE contact_id = NEW.id AND is_primary;
+  ELSIF EXISTS (SELECT 1 FROM pm.contact_emails WHERE contact_id = NEW.id AND email = v_email) THEN
+    UPDATE pm.contact_emails SET is_primary = true WHERE contact_id = NEW.id AND email = v_email AND NOT is_primary;
+  ELSIF EXISTS (SELECT 1 FROM pm.contact_emails WHERE contact_id = NEW.id AND is_primary) THEN
+    UPDATE pm.contact_emails SET email = v_email WHERE contact_id = NEW.id AND is_primary;
   ELSE
-    INSERT INTO public.contact_emails (contact_id, email, is_primary) VALUES (NEW.id, v_email, true);
+    INSERT INTO pm.contact_emails (contact_id, email, is_primary) VALUES (NEW.id, v_email, true);
   END IF;
   RETURN NULL;
 END;
 $$;
 
 CREATE TRIGGER contact_emails_before_write
-  BEFORE INSERT OR UPDATE ON public.contact_emails
-  FOR EACH ROW EXECUTE FUNCTION public.contact_emails_before_write();
+  BEFORE INSERT OR UPDATE ON pm.contact_emails
+  FOR EACH ROW EXECUTE FUNCTION pm.contact_emails_before_write();
 
 CREATE TRIGGER contact_emails_after_write
-  AFTER INSERT OR UPDATE OR DELETE ON public.contact_emails
-  FOR EACH ROW EXECUTE FUNCTION public.contact_emails_after_write();
+  AFTER INSERT OR UPDATE OR DELETE ON pm.contact_emails
+  FOR EACH ROW EXECUTE FUNCTION pm.contact_emails_after_write();
 
 CREATE TRIGGER contacts_sync_primary_email
-  AFTER INSERT OR UPDATE OF email ON public.contacts
-  FOR EACH ROW EXECUTE FUNCTION public.contacts_sync_primary_email();
+  AFTER INSERT OR UPDATE OF email ON pm.contacts
+  FOR EACH ROW EXECUTE FUNCTION pm.contacts_sync_primary_email();
 
 -- ============================================================
 -- 3. Inboxes, access, client domains
@@ -7214,25 +7223,20 @@ CREATE TRIGGER contacts_sync_primary_email
 -- reaches the tables under RLS (their policies decide), anon nothing. Every
 -- function that reads or writes is granted to the service role alone, one by
 -- one below.
-CREATE SCHEMA IF NOT EXISTS communications;
-REVOKE ALL ON SCHEMA communications FROM PUBLIC, anon;
-GRANT USAGE ON SCHEMA communications TO authenticated, service_role;
-ALTER DEFAULT PRIVILEGES IN SCHEMA communications GRANT ALL ON TABLES TO service_role;
-ALTER DEFAULT PRIVILEGES IN SCHEMA communications GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO authenticated;
 
-CREATE TABLE communications.inboxes (
+CREATE TABLE pm.inboxes (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   name text NOT NULL CHECK (length(btrim(name)) BETWEEN 1 AND 100),
   -- The public address clients write to, e.g. ashley@valiancemedia.com.
-  address text NOT NULL CHECK (address = lower(btrim(address)) AND public.email_is_address(address)),
+  address text NOT NULL CHECK (address = lower(btrim(address)) AND pm.email_is_address(address)),
   -- <local>@<domain>, where the forwarder delivers and what ingestion looks
   -- up. The domain defaults to business_settings.inbound_email_domain and the
   -- local part to the address's, when left empty (inboxes_before_write).
   -- Changing either clears verified_at: the forwarder target changed.
-  routing_domain text NOT NULL CHECK (routing_domain = lower(btrim(routing_domain)) AND public.email_is_hostname(routing_domain)),
+  routing_domain text NOT NULL CHECK (routing_domain = lower(btrim(routing_domain)) AND pm.email_is_hostname(routing_domain)),
   routing_local_part text NOT NULL CHECK (routing_local_part ~ '^[a-z0-9]([a-z0-9._-]{0,62}[a-z0-9])?$'),
   routing_address text GENERATED ALWAYS AS (routing_local_part || '@' || routing_domain) STORED,
-  handler_member_id uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
+  handler_member_id uuid REFERENCES pm.team_members(id) ON DELETE SET NULL,
   enabled boolean NOT NULL DEFAULT true,
   retention_days integer NOT NULL DEFAULT 90 CHECK (retention_days BETWEEN 1 AND 3650),
   max_attachment_mb integer NOT NULL DEFAULT 25 CHECK (max_attachment_mb BETWEEN 1 AND 50),
@@ -7240,13 +7244,13 @@ CREATE TABLE communications.inboxes (
     CHECK (agent_readable_types <@ ARRAY['image', 'pdf', 'text']::text[]),
   summary_interval_minutes integer NOT NULL DEFAULT 30 CHECK (summary_interval_minutes BETWEEN 5 AND 1440),
   filter_auto_mail boolean NOT NULL DEFAULT true,
-  verification_code text NOT NULL DEFAULT public.email_inbox_verification_code()
+  verification_code text NOT NULL DEFAULT pm.email_inbox_verification_code()
     CHECK (verification_code ~ '^VM-[A-Z0-9]{4}$'),
   verified_at timestamptz,
   last_received_at timestamptz,
   last_error text,
   last_error_at timestamptz,
-  created_by uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
+  created_by uuid REFERENCES pm.team_members(id) ON DELETE SET NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
   -- Addresses that reach the inbox without being its own (a personal address
@@ -7261,26 +7265,26 @@ CREATE TABLE communications.inboxes (
   -- granted, and those who manage inboxes only while
   -- business_settings.owners_read_personal_inboxes is on. RESTRICT: deleting
   -- its owner's member row is refused, so it never turns shared.
-  owner_member_id uuid REFERENCES public.team_members(id) ON DELETE RESTRICT,
+  owner_member_id uuid REFERENCES pm.team_members(id) ON DELETE RESTRICT,
   CONSTRAINT email_inboxes_routing_address_key UNIQUE (routing_address),
   CONSTRAINT email_inboxes_verification_code_key UNIQUE (verification_code)
 );
 
-CREATE TABLE communications.inbox_access (
-  inbox_id uuid NOT NULL REFERENCES communications.inboxes(id) ON DELETE CASCADE,
-  member_id uuid NOT NULL REFERENCES public.team_members(id) ON DELETE CASCADE,
-  created_by uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
+CREATE TABLE pm.inbox_access (
+  inbox_id uuid NOT NULL REFERENCES pm.inboxes(id) ON DELETE CASCADE,
+  member_id uuid NOT NULL REFERENCES pm.team_members(id) ON DELETE CASCADE,
+  created_by uuid REFERENCES pm.team_members(id) ON DELETE SET NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (inbox_id, member_id)
 );
-CREATE INDEX idx_email_inbox_access_member ON communications.inbox_access (member_id);
-CREATE INDEX idx_inboxes_owner_member ON communications.inboxes (owner_member_id) WHERE owner_member_id IS NOT NULL;
+CREATE INDEX idx_email_inbox_access_member ON pm.inbox_access (member_id);
+CREATE INDEX idx_inboxes_owner_member ON pm.inboxes (owner_member_id) WHERE owner_member_id IS NOT NULL;
 
-CREATE OR REPLACE FUNCTION communications.inboxes_before_write()
+CREATE OR REPLACE FUNCTION pm.inboxes_before_write()
 RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = communications, public
+SET search_path = pm
 AS $$
 DECLARE
   v_base text;
@@ -7288,7 +7292,7 @@ DECLARE
 BEGIN
   NEW.address := lower(btrim(NEW.address));
   IF NEW.routing_domain IS NULL OR btrim(NEW.routing_domain) = '' THEN
-    SELECT inbound_email_domain INTO NEW.routing_domain FROM public.business_settings LIMIT 1;
+    SELECT inbound_email_domain INTO NEW.routing_domain FROM pm.business_settings LIMIT 1;
   END IF;
   NEW.routing_domain := lower(btrim(NEW.routing_domain));
   IF NEW.routing_local_part IS NULL OR btrim(NEW.routing_local_part) = '' THEN
@@ -7297,10 +7301,10 @@ BEGIN
     v_base := left(v_base, 50);
     v_candidate := v_base;
     WHILE EXISTS (
-      SELECT 1 FROM communications.inboxes
+      SELECT 1 FROM pm.inboxes
       WHERE routing_local_part = v_candidate AND routing_domain = NEW.routing_domain AND id <> NEW.id
     ) OR EXISTS (
-      SELECT 1 FROM communications.endpoints
+      SELECT 1 FROM pm.endpoints
       WHERE routing_local_part = v_candidate AND routing_domain = NEW.routing_domain
     ) LOOP
       v_candidate := v_base || '-' || substr(md5(random()::text), 1, 4);
@@ -7322,15 +7326,15 @@ END;
 $$;
 
 -- The handler always reads its own inbox.
-CREATE OR REPLACE FUNCTION communications.inboxes_grant_handler()
+CREATE OR REPLACE FUNCTION pm.inboxes_grant_handler()
 RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = communications, public
+SET search_path = pm
 AS $$
 BEGIN
   IF NEW.handler_member_id IS NOT NULL THEN
-    INSERT INTO communications.inbox_access (inbox_id, member_id) VALUES (NEW.id, NEW.handler_member_id)
+    INSERT INTO pm.inbox_access (inbox_id, member_id) VALUES (NEW.id, NEW.handler_member_id)
     ON CONFLICT DO NOTHING;
   END IF;
   RETURN NULL;
@@ -7338,26 +7342,26 @@ END;
 $$;
 
 CREATE TRIGGER inboxes_before_write
-  BEFORE INSERT OR UPDATE ON communications.inboxes
-  FOR EACH ROW EXECUTE FUNCTION communications.inboxes_before_write();
+  BEFORE INSERT OR UPDATE ON pm.inboxes
+  FOR EACH ROW EXECUTE FUNCTION pm.inboxes_before_write();
 
 CREATE TRIGGER inboxes_grant_handler
-  AFTER INSERT OR UPDATE OF handler_member_id ON communications.inboxes
-  FOR EACH ROW EXECUTE FUNCTION communications.inboxes_grant_handler();
+  AFTER INSERT OR UPDATE OF handler_member_id ON pm.inboxes
+  FOR EACH ROW EXECUTE FUNCTION pm.inboxes_grant_handler();
 
 -- An inbox never changes hands: a shared one stays shared, a personal one
 -- its owner's (whose member row cannot be deleted while it exists: ON DELETE
 -- RESTRICT). Someone else's personal inbox is only switched off or on, never
 -- edited: managing inboxes may turn it off when its owner leaves. Server code
 -- (the service role, no member) checks for itself.
-CREATE OR REPLACE FUNCTION communications.inboxes_guard_personal()
+CREATE OR REPLACE FUNCTION pm.inboxes_guard_personal()
 RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = communications, public
+SET search_path = pm
 AS $$
 DECLARE
-  v_actor uuid := public.current_team_member_id();
+  v_actor uuid := pm.current_team_member_id();
 BEGIN
   IF v_actor IS NULL THEN
     RETURN NEW;
@@ -7378,40 +7382,40 @@ BEGIN
 END;
 $$;
 
-REVOKE ALL ON FUNCTION communications.inboxes_guard_personal() FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION pm.inboxes_guard_personal() FROM PUBLIC, anon, authenticated;
 
 CREATE TRIGGER inboxes_guard_personal
-  BEFORE UPDATE ON communications.inboxes
-  FOR EACH ROW EXECUTE FUNCTION communications.inboxes_guard_personal();
+  BEFORE UPDATE ON pm.inboxes
+  FOR EACH ROW EXECUTE FUNCTION pm.inboxes_guard_personal();
 
 -- Mail from any address at a client's domain maps to the project. A domain may
 -- map to several projects (one client, several companies).
-CREATE TABLE communications.client_domains (
+CREATE TABLE pm.client_domains (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   domain text NOT NULL CHECK (
     domain = lower(btrim(domain))
-    AND public.email_is_hostname(domain)
-    AND NOT public.email_domain_is_public(domain)
+    AND pm.email_is_hostname(domain)
+    AND NOT pm.email_domain_is_public(domain)
   ),
-  project_id uuid NOT NULL REFERENCES public.projects(id) ON DELETE CASCADE,
-  created_by uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
+  project_id uuid NOT NULL REFERENCES pm.projects(id) ON DELETE CASCADE,
+  created_by uuid REFERENCES pm.team_members(id) ON DELETE SET NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT email_client_domains_domain_project_key UNIQUE (domain, project_id)
 );
-CREATE INDEX idx_email_client_domains_project ON communications.client_domains (project_id);
+CREATE INDEX idx_email_client_domains_project ON pm.client_domains (project_id);
 
 -- Mail from one exact client address maps to the project, without making the
 -- person a contact. Public email services are allowed here (a client who
 -- writes from bob@gmail.com). An address may map to several projects.
-CREATE TABLE communications.client_addresses (
+CREATE TABLE pm.client_addresses (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  project_id uuid NOT NULL REFERENCES public.projects(id) ON DELETE CASCADE,
-  address text NOT NULL CHECK (address = lower(btrim(address)) AND public.email_is_address(address)),
-  created_by uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
+  project_id uuid NOT NULL REFERENCES pm.projects(id) ON DELETE CASCADE,
+  address text NOT NULL CHECK (address = lower(btrim(address)) AND pm.email_is_address(address)),
+  created_by uuid REFERENCES pm.team_members(id) ON DELETE SET NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT email_client_addresses_project_address_key UNIQUE (project_id, address)
 );
-CREATE INDEX idx_email_client_addresses_address ON communications.client_addresses (address);
+CREATE INDEX idx_email_client_addresses_address ON pm.client_addresses (address);
 
 -- A project's own addresses: mail to one lands in its inbox, filed on the
 -- project. Several per project, so an address can change without dropping
@@ -7420,25 +7424,25 @@ CREATE INDEX idx_email_client_addresses_address ON communications.client_address
 -- sent to it is that project's, through its own relay address. Without one,
 -- it is an address of yours or the company's that forwards to the inbox's
 -- routing address and has no relay address of its own.
-CREATE TABLE communications.endpoints (
+CREATE TABLE pm.endpoints (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  project_id uuid REFERENCES public.projects(id) ON DELETE CASCADE,
+  project_id uuid REFERENCES pm.projects(id) ON DELETE CASCADE,
   -- The inbox that receives the mail; its handler triages it.
-  inbox_id uuid NOT NULL REFERENCES communications.inboxes(id) ON DELETE CASCADE,
+  inbox_id uuid NOT NULL REFERENCES pm.inboxes(id) ON DELETE CASCADE,
   -- <local>@<domain>, where the forwarder delivers and what ingestion looks
   -- up, as on inboxes. For a project address the domain defaults to
   -- business_settings.inbound_email_domain and the local part to the public
   -- address's, when left empty (endpoints_before_write).
-  routing_domain text CHECK (routing_domain IS NULL OR (routing_domain = lower(btrim(routing_domain)) AND public.email_is_hostname(routing_domain))),
+  routing_domain text CHECK (routing_domain IS NULL OR (routing_domain = lower(btrim(routing_domain)) AND pm.email_is_hostname(routing_domain))),
   routing_local_part text CHECK (routing_local_part ~ '^[a-z0-9]([a-z0-9._-]{0,62}[a-z0-9])?$'),
   routing_address text GENERATED ALWAYS AS (routing_local_part || '@' || routing_domain) STORED,
   -- What clients write to, e.g. ciaran@plan4thefuture.com. Mail sent to it
   -- reads as written to us (delivery_of).
-  public_address text CHECK (public_address IS NULL OR (public_address = lower(btrim(public_address)) AND public.email_is_address(public_address))),
+  public_address text CHECK (public_address IS NULL OR (public_address = lower(btrim(public_address)) AND pm.email_is_address(public_address))),
   enabled boolean NOT NULL DEFAULT true,
   -- When mail last came through this address (email_complete_message).
   last_received_at timestamptz,
-  created_by uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
+  created_by uuid REFERENCES pm.team_members(id) ON DELETE SET NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
   -- Where messages arrive: an email routing address today; a phone number or
@@ -7446,7 +7450,7 @@ CREATE TABLE communications.endpoints (
   channel text NOT NULL DEFAULT 'email' CONSTRAINT endpoints_channel_check CHECK (channel IN ('email')),
   -- Whose address it is: a person, or the company when null. A person's
   -- addresses are theirs as a sender too.
-  owner_member_id uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
+  owner_member_id uuid REFERENCES pm.team_members(id) ON DELETE SET NULL,
   CONSTRAINT email_project_addresses_routing_address_key UNIQUE (routing_address),
   -- A project address needs its own relay address: that is how mail is known
   -- to be the project's. Every address has a relay or a public address.
@@ -7454,42 +7458,42 @@ CREATE TABLE communications.endpoints (
   CONSTRAINT endpoints_has_address CHECK (routing_local_part IS NOT NULL OR public_address IS NOT NULL),
   CONSTRAINT endpoints_routing_whole CHECK ((routing_local_part IS NULL) = (routing_domain IS NULL))
 );
-CREATE INDEX idx_email_project_addresses_project ON communications.endpoints (project_id);
-CREATE INDEX idx_email_project_addresses_inbox ON communications.endpoints (inbox_id);
-CREATE UNIQUE INDEX endpoints_public_address_key ON communications.endpoints (public_address) WHERE public_address IS NOT NULL;
-CREATE INDEX idx_endpoints_owner ON communications.endpoints (owner_member_id) WHERE owner_member_id IS NOT NULL;
+CREATE INDEX idx_email_project_addresses_project ON pm.endpoints (project_id);
+CREATE INDEX idx_email_project_addresses_inbox ON pm.endpoints (inbox_id);
+CREATE UNIQUE INDEX endpoints_public_address_key ON pm.endpoints (public_address) WHERE public_address IS NOT NULL;
+CREATE INDEX idx_endpoints_owner ON pm.endpoints (owner_member_id) WHERE owner_member_id IS NOT NULL;
 
 -- Your domains: a catch-all, so mail written to any address on one reads as
 -- written to you, listed or not. A specific address still wins.
-CREATE TABLE communications.own_domains (
+CREATE TABLE pm.own_domains (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   domain text NOT NULL CONSTRAINT own_domains_domain_check CHECK (
-    domain = lower(btrim(domain)) AND public.email_is_hostname(domain) AND NOT public.email_domain_is_public(domain)
+    domain = lower(btrim(domain)) AND pm.email_is_hostname(domain) AND NOT pm.email_domain_is_public(domain)
   ),
-  created_by uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
+  created_by uuid REFERENCES pm.team_members(id) ON DELETE SET NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT own_domains_domain_key UNIQUE (domain)
 );
 
 -- Addresses marked as not yours (or removed): never suggested again.
-CREATE TABLE communications.ignored_addresses (
-  address text PRIMARY KEY CONSTRAINT ignored_addresses_address_check CHECK (address = lower(btrim(address)) AND public.email_is_address(address)),
-  ignored_by uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
+CREATE TABLE pm.ignored_addresses (
+  address text PRIMARY KEY CONSTRAINT ignored_addresses_address_check CHECK (address = lower(btrim(address)) AND pm.email_is_address(address)),
+  ignored_by uuid REFERENCES pm.team_members(id) ON DELETE SET NULL,
   created_at timestamptz NOT NULL DEFAULT now()
 );
 
-ALTER TABLE communications.own_domains ENABLE ROW LEVEL SECURITY;
-ALTER TABLE communications.ignored_addresses ENABLE ROW LEVEL SECURITY;
-CREATE POLICY own_domains_select ON communications.own_domains FOR SELECT TO authenticated
-  USING (public.has_permission('inbound_email.read') OR public.has_permission('inbound_email.manage'));
-CREATE POLICY ignored_addresses_select ON communications.ignored_addresses FOR SELECT TO authenticated
-  USING (public.has_permission('inbound_email.manage'));
+ALTER TABLE pm.own_domains ENABLE ROW LEVEL SECURITY;
+ALTER TABLE pm.ignored_addresses ENABLE ROW LEVEL SECURITY;
+CREATE POLICY own_domains_select ON pm.own_domains FOR SELECT TO authenticated
+  USING (pm.has_permission('inbound_email.read') OR pm.has_permission('inbound_email.manage'));
+CREATE POLICY ignored_addresses_select ON pm.ignored_addresses FOR SELECT TO authenticated
+  USING (pm.has_permission('inbound_email.manage'));
 
-CREATE OR REPLACE FUNCTION communications.endpoints_before_write()
+CREATE OR REPLACE FUNCTION pm.endpoints_before_write()
 RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = communications, public
+SET search_path = pm
 AS $$
 DECLARE
   v_base text;
@@ -7502,7 +7506,7 @@ BEGIN
     NEW.routing_domain := NULL;
   ELSE
     IF NEW.routing_domain IS NULL OR btrim(NEW.routing_domain) = '' THEN
-      SELECT inbound_email_domain INTO NEW.routing_domain FROM public.business_settings LIMIT 1;
+      SELECT inbound_email_domain INTO NEW.routing_domain FROM pm.business_settings LIMIT 1;
     END IF;
     NEW.routing_domain := lower(btrim(NEW.routing_domain));
     IF (NEW.routing_local_part IS NULL OR btrim(NEW.routing_local_part) = '') AND NEW.public_address IS NOT NULL THEN
@@ -7526,27 +7530,27 @@ END;
 $$;
 
 CREATE TRIGGER endpoints_before_write
-  BEFORE INSERT OR UPDATE ON communications.endpoints
-  FOR EACH ROW EXECUTE FUNCTION communications.endpoints_before_write();
+  BEFORE INSERT OR UPDATE ON pm.endpoints
+  FOR EACH ROW EXECUTE FUNCTION pm.endpoints_before_write();
 
 -- After the row is written, so the generated routing_address is final. The
 -- advisory lock takes writers to either table one at a time, so two
 -- concurrent writes of the same address cannot both pass.
-CREATE OR REPLACE FUNCTION communications.routing_address_guard()
+CREATE OR REPLACE FUNCTION pm.routing_address_guard()
 RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = communications, public
+SET search_path = pm
 AS $$
 BEGIN
   IF TG_OP = 'UPDATE' AND NEW.routing_address IS NOT DISTINCT FROM OLD.routing_address THEN RETURN NULL; END IF;
-  PERFORM pg_advisory_xact_lock(hashtext('public.email_routing_address'));
+  PERFORM pg_advisory_xact_lock(hashtext('pm.email_routing_address'));
   IF TG_TABLE_NAME = 'inboxes' THEN
-    IF EXISTS (SELECT 1 FROM communications.endpoints WHERE routing_address = NEW.routing_address) THEN
+    IF EXISTS (SELECT 1 FROM pm.endpoints WHERE routing_address = NEW.routing_address) THEN
       RAISE EXCEPTION 'EMAIL_ROUTING_ADDRESS_TAKEN: % is a project email address', NEW.routing_address
         USING ERRCODE = '23505', CONSTRAINT = 'email_routing_address_guard';
     END IF;
-  ELSIF EXISTS (SELECT 1 FROM communications.inboxes WHERE routing_address = NEW.routing_address) THEN
+  ELSIF EXISTS (SELECT 1 FROM pm.inboxes WHERE routing_address = NEW.routing_address) THEN
     RAISE EXCEPTION 'EMAIL_ROUTING_ADDRESS_TAKEN: % is an inbox routing address', NEW.routing_address
       USING ERRCODE = '23505', CONSTRAINT = 'email_routing_address_guard';
   END IF;
@@ -7555,20 +7559,20 @@ END;
 $$;
 
 CREATE TRIGGER email_inboxes_routing_address_guard
-  AFTER INSERT OR UPDATE ON communications.inboxes
-  FOR EACH ROW EXECUTE FUNCTION communications.routing_address_guard();
+  AFTER INSERT OR UPDATE ON pm.inboxes
+  FOR EACH ROW EXECUTE FUNCTION pm.routing_address_guard();
 
 CREATE TRIGGER email_project_addresses_routing_address_guard
-  AFTER INSERT OR UPDATE ON communications.endpoints
-  FOR EACH ROW EXECUTE FUNCTION communications.routing_address_guard();
+  AFTER INSERT OR UPDATE ON pm.endpoints
+  FOR EACH ROW EXECUTE FUNCTION pm.routing_address_guard();
 
 -- ============================================================
 -- 4. Threads and messages
 -- ============================================================
 
-CREATE TABLE communications.conversations (
+CREATE TABLE pm.conversations (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  inbox_id uuid NOT NULL REFERENCES communications.inboxes(id) ON DELETE RESTRICT,
+  inbox_id uuid NOT NULL REFERENCES pm.inboxes(id) ON DELETE RESTRICT,
   subject_normalized text NOT NULL DEFAULT '',
   -- A copy of the conversation's strongest project (conversation_projects,
   -- conversation_projects_sync), for older readers until they go. mapped:
@@ -7576,11 +7580,11 @@ CREATE TABLE communications.conversations (
   -- among the mapping candidates; guessed: chosen by the agent for an email
   -- with no candidates; person: set by a person; address: sent to one of the
   -- project's own addresses (a person's mapping, final like person).
-  project_id uuid REFERENCES public.projects(id) ON DELETE SET NULL,
+  project_id uuid REFERENCES pm.projects(id) ON DELETE SET NULL,
   project_source text,
   -- The project address that filed the thread, while its source is
   -- 'address'. A deleted address leaves the project in place.
-  project_address_id uuid REFERENCES communications.endpoints(id) ON DELETE SET NULL,
+  project_address_id uuid REFERENCES pm.endpoints(id) ON DELETE SET NULL,
   -- One line on where the conversation stands, kept by the agent at triage.
   summary text CONSTRAINT email_threads_summary_check CHECK (summary IS NULL OR length(summary) BETWEEN 1 AND 300),
   summary_at timestamptz,
@@ -7590,19 +7594,19 @@ CREATE TABLE communications.conversations (
   channel text NOT NULL DEFAULT 'email' CONSTRAINT conversations_channel_check CHECK (channel IN ('email', 'meeting')),
   -- A person asked to ignore it: no plans for its new messages.
   muted_at timestamptz,
-  muted_by uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
+  muted_by uuid REFERENCES pm.team_members(id) ON DELETE SET NULL,
   CONSTRAINT email_threads_project_source_check CHECK (project_source IN ('mapped', 'inferred', 'guessed', 'person', 'address')),
   CONSTRAINT email_threads_project_pair_check CHECK ((project_id IS NULL) = (project_source IS NULL)),
   CONSTRAINT email_threads_project_address_check CHECK (project_address_id IS NULL OR project_source = 'address')
 );
-CREATE INDEX idx_email_threads_inbox_last ON communications.conversations (inbox_id, last_message_at DESC);
-CREATE INDEX idx_email_threads_inbox_subject ON communications.conversations (inbox_id, subject_normalized);
-CREATE INDEX idx_email_threads_project ON communications.conversations (project_id) WHERE project_id IS NOT NULL;
-CREATE INDEX idx_email_threads_project_address ON communications.conversations (project_address_id) WHERE project_address_id IS NOT NULL;
+CREATE INDEX idx_email_threads_inbox_last ON pm.conversations (inbox_id, last_message_at DESC);
+CREATE INDEX idx_email_threads_inbox_subject ON pm.conversations (inbox_id, subject_normalized);
+CREATE INDEX idx_email_threads_project ON pm.conversations (project_id) WHERE project_id IS NOT NULL;
+CREATE INDEX idx_email_threads_project_address ON pm.conversations (project_address_id) WHERE project_address_id IS NOT NULL;
 
 -- A deleted project nulls project_id (ON DELETE SET NULL); its source goes
 -- too. Any other source than 'address' drops the address.
-CREATE OR REPLACE FUNCTION communications.conversations_before_update()
+CREATE OR REPLACE FUNCTION pm.conversations_before_update()
 RETURNS trigger
 LANGUAGE plpgsql
 AS $$
@@ -7615,13 +7619,13 @@ END;
 $$;
 
 CREATE TRIGGER conversations_before_update
-  BEFORE UPDATE ON communications.conversations
-  FOR EACH ROW EXECUTE FUNCTION communications.conversations_before_update();
+  BEFORE UPDATE ON pm.conversations
+  FOR EACH ROW EXECUTE FUNCTION pm.conversations_before_update();
 
 -- Sender rules (20261023194940_inbox_sorting_and_relations.sql): an address
 -- or domain, optionally one topic, and what to do with its mail. People and
 -- the agent (from patterns) create them; they are switched off, never deleted.
-CREATE TABLE communications.sender_rules (
+CREATE TABLE pm.sender_rules (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   match_kind text NOT NULL CHECK (match_kind IN ('address', 'domain')),
   match_value text NOT NULL CHECK (match_value = lower(btrim(match_value)) AND length(match_value) BETWEEN 3 AND 320),
@@ -7631,13 +7635,13 @@ CREATE TABLE communications.sender_rules (
   source text NOT NULL CHECK (source IN ('person', 'agent')),
   -- Why the rule exists, in a sentence (the agent always gives one).
   reason text NOT NULL DEFAULT '' CHECK (length(reason) <= 500),
-  created_by uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
+  created_by uuid REFERENCES pm.team_members(id) ON DELETE SET NULL,
   hit_count integer NOT NULL DEFAULT 0 CHECK (hit_count >= 0),
   last_hit_at timestamptz,
   -- Rules are switched off, never deleted, so a filtered email can still
   -- say which rule filtered it.
   disabled_at timestamptz,
-  disabled_by uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
+  disabled_by uuid REFERENCES pm.team_members(id) ON DELETE SET NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
   -- NULL: mail to any address. Set: only mail sent (To or Cc) to this one, such
@@ -7646,17 +7650,17 @@ CREATE TABLE communications.sender_rules (
     CHECK (recipient IS NULL OR (recipient = lower(btrim(recipient)) AND length(recipient) BETWEEN 3 AND 320 AND position('@' in recipient) > 1))
 );
 CREATE UNIQUE INDEX email_sender_rules_live_key
-  ON communications.sender_rules (match_kind, match_value, COALESCE(topic, ''), COALESCE(recipient, '')) WHERE disabled_at IS NULL;
+  ON pm.sender_rules (match_kind, match_value, COALESCE(topic, ''), COALESCE(recipient, '')) WHERE disabled_at IS NULL;
 
 CREATE TRIGGER set_email_sender_rules_updated_at
-  BEFORE UPDATE ON communications.sender_rules
-  FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
+  BEFORE UPDATE ON pm.sender_rules
+  FOR EACH ROW EXECUTE FUNCTION pm.handle_updated_at();
 
-CREATE TABLE communications.messages (
+CREATE TABLE pm.messages (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  inbox_id uuid NOT NULL REFERENCES communications.inboxes(id) ON DELETE RESTRICT,
+  inbox_id uuid NOT NULL REFERENCES pm.inboxes(id) ON DELETE RESTRICT,
   -- Set when the message completes; a receiving row has none yet.
-  thread_id uuid REFERENCES communications.conversations(id) ON DELETE RESTRICT,
+  thread_id uuid REFERENCES pm.conversations(id) ON DELETE RESTRICT,
   status text NOT NULL DEFAULT 'receiving'
     CONSTRAINT email_messages_status_check CHECK (status IN ('receiving', 'new', 'handled', 'ignored', 'needs_human')),
   -- Where the message came from: the receiving provider and its id for the
@@ -7701,7 +7705,7 @@ CREATE TABLE communications.messages (
   -- stays the verdict on the outer message.
   routing_basis text NOT NULL DEFAULT 'sender'
     CHECK (routing_basis IN ('sender', 'forwarded_original', 'team_recipients')),
-  forwarded_by_member_id uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
+  forwarded_by_member_id uuid REFERENCES pm.team_members(id) ON DELETE SET NULL,
   original_from_address text
     CHECK (original_from_address IS NULL OR (original_from_address = lower(btrim(original_from_address)) AND length(original_from_address) BETWEEN 3 AND 320)),
   original_from_name text CHECK (original_from_name IS NULL OR length(original_from_name) <= 300),
@@ -7710,7 +7714,7 @@ CREATE TABLE communications.messages (
   -- reply waits in "Needs reply" until then; sending the message back to
   -- the agent clears it.
   reviewed_at timestamptz,
-  reviewed_by uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
+  reviewed_by uuid REFERENCES pm.team_members(id) ON DELETE SET NULL,
   -- How it was sorted on arrival: what it is (kind), what machine mail is
   -- about (topic), and what sorting did (sort_action: ignore = Filtered and
   -- never triaged, fyi = triaged lightly, always = full triage, triage = the
@@ -7719,19 +7723,19 @@ CREATE TABLE communications.messages (
   topic text CONSTRAINT email_messages_topic_check CHECK (topic IN ('money', 'account_risk', 'security', 'usage', 'event', 'newsletter', 'promotion', 'update', 'receipt', 'calendar', 'survey', 'code')),
   sort_action text CONSTRAINT email_messages_sort_action_check CHECK (sort_action IN ('ignore', 'fyi', 'always', 'triage')),
   sort_reason text CONSTRAINT email_messages_sort_reason_check CHECK (sort_reason IS NULL OR length(sort_reason) <= 300),
-  sender_rule_id uuid REFERENCES communications.sender_rules(id) ON DELETE SET NULL,
+  sender_rule_id uuid REFERENCES pm.sender_rules(id) ON DELETE SET NULL,
   -- A newer alert from the same sender on the same topic.
-  superseded_by uuid REFERENCES communications.messages(id) ON DELETE SET NULL,
+  superseded_by uuid REFERENCES pm.messages(id) ON DELETE SET NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
   channel text NOT NULL DEFAULT 'email' CONSTRAINT messages_channel_check CHECK (channel IN ('email', 'meeting')),
   -- The verified teammate behind the message: who wrote it, or who forwarded
   -- or copied it in (email: an active person, not an agent, whose From
   -- address passed DKIM). Null for everyone else.
-  sender_member_id uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
+  sender_member_id uuid REFERENCES pm.team_members(id) ON DELETE SET NULL,
   -- The channel vouches for the sender (email: auth trust 'trusted').
   sender_verified boolean NOT NULL DEFAULT false,
-  -- How it reached us (communications.delivery_of): direct, group, cc, bcc,
+  -- How it reached us (pm.delivery_of): direct, group, cc, bcc,
   -- forwarded or broadcast; null while receiving.
   delivery text CONSTRAINT messages_delivery_check
     CHECK (delivery IN ('direct', 'group', 'cc', 'bcc', 'forwarded', 'broadcast')),
@@ -7749,43 +7753,43 @@ CREATE TABLE communications.messages (
     AND (forwarded_by_member_id IS NULL OR routing_basis <> 'sender')
   )
 );
-CREATE INDEX idx_email_messages_sender_rule ON communications.messages (sender_rule_id) WHERE sender_rule_id IS NOT NULL;
-CREATE INDEX idx_email_messages_superseded_by ON communications.messages (superseded_by) WHERE superseded_by IS NOT NULL;
-CREATE INDEX idx_email_messages_inbox_status ON communications.messages (inbox_id, status, received_at DESC);
-CREATE INDEX idx_email_messages_inbox_received ON communications.messages (inbox_id, received_at DESC);
-CREATE INDEX idx_email_messages_thread ON communications.messages (thread_id, received_at);
-CREATE INDEX idx_email_messages_forwarded_by ON communications.messages (forwarded_by_member_id) WHERE forwarded_by_member_id IS NOT NULL;
-CREATE UNIQUE INDEX email_messages_raw_storage_path_key ON communications.messages (raw_storage_path) WHERE raw_storage_path IS NOT NULL;
+CREATE INDEX idx_email_messages_sender_rule ON pm.messages (sender_rule_id) WHERE sender_rule_id IS NOT NULL;
+CREATE INDEX idx_email_messages_superseded_by ON pm.messages (superseded_by) WHERE superseded_by IS NOT NULL;
+CREATE INDEX idx_email_messages_inbox_status ON pm.messages (inbox_id, status, received_at DESC);
+CREATE INDEX idx_email_messages_inbox_received ON pm.messages (inbox_id, received_at DESC);
+CREATE INDEX idx_email_messages_thread ON pm.messages (thread_id, received_at);
+CREATE INDEX idx_email_messages_forwarded_by ON pm.messages (forwarded_by_member_id) WHERE forwarded_by_member_id IS NOT NULL;
+CREATE UNIQUE INDEX email_messages_raw_storage_path_key ON pm.messages (raw_storage_path) WHERE raw_storage_path IS NOT NULL;
 
 CREATE TRIGGER set_email_messages_updated_at
-  BEFORE UPDATE ON communications.messages
-  FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
+  BEFORE UPDATE ON pm.messages
+  FOR EACH ROW EXECUTE FUNCTION pm.handle_updated_at();
 
 -- Sender and recipients as rows. contact_id is set when exactly one contact
 -- has the address.
-CREATE TABLE communications.participants (
+CREATE TABLE pm.participants (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  message_id uuid NOT NULL REFERENCES communications.messages(id) ON DELETE CASCADE,
+  message_id uuid NOT NULL REFERENCES pm.messages(id) ON DELETE CASCADE,
   -- attendee: a meeting's guest (the organizer is its 'from').
   kind text NOT NULL CONSTRAINT participants_kind_check CHECK (kind IN ('from', 'to', 'cc', 'reply_to', 'attendee')),
   address text NOT NULL CHECK (address = lower(btrim(address)) AND length(address) BETWEEN 3 AND 320),
   name text NOT NULL DEFAULT '' CHECK (length(name) <= 300),
-  contact_id uuid REFERENCES public.contacts(id) ON DELETE SET NULL,
+  contact_id uuid REFERENCES pm.contacts(id) ON DELETE SET NULL,
   position integer NOT NULL DEFAULT 0,
   CONSTRAINT email_message_recipients_message_kind_address_key UNIQUE (message_id, kind, address)
 );
-CREATE UNIQUE INDEX email_message_recipients_one_from ON communications.participants (message_id) WHERE kind = 'from';
-CREATE INDEX idx_email_message_recipients_address ON communications.participants (address);
-CREATE INDEX idx_email_message_recipients_contact ON communications.participants (contact_id) WHERE contact_id IS NOT NULL;
+CREATE UNIQUE INDEX email_message_recipients_one_from ON pm.participants (message_id) WHERE kind = 'from';
+CREATE INDEX idx_email_message_recipients_address ON pm.participants (address);
+CREATE INDEX idx_email_message_recipients_contact ON pm.participants (contact_id) WHERE contact_id IS NOT NULL;
 
 -- A meeting (20261112042424_meetings_channel.sql): one conversation with
 -- channel 'meeting', one message per package the meeting script posts (the
 -- transcript is the message's text file). What only a meeting has, and its
 -- key, so a late transcript joins its meeting. Meetings are kept: retention
 -- deletes email only.
-CREATE TABLE communications.meetings (
-  conversation_id uuid PRIMARY KEY REFERENCES communications.conversations(id) ON DELETE CASCADE,
-  inbox_id uuid NOT NULL REFERENCES communications.inboxes(id) ON DELETE RESTRICT,
+CREATE TABLE pm.meetings (
+  conversation_id uuid PRIMARY KEY REFERENCES pm.conversations(id) ON DELETE CASCADE,
+  inbox_id uuid NOT NULL REFERENCES pm.inboxes(id) ON DELETE RESTRICT,
   -- The script's key for the meeting: its calendar event and start, else
   -- its notes Doc. One meeting per key per inbox.
   meeting_key text NOT NULL CONSTRAINT meetings_key_check CHECK (length(meeting_key) BETWEEN 1 AND 300),
@@ -7801,18 +7805,18 @@ CREATE TABLE communications.meetings (
   -- "Nothing to do" (20261117161849_meeting_nothing_to_do.sql): who said the
   -- meeting asked for no new work, and when. Cleared by Undo.
   dismissed_at timestamptz,
-  dismissed_by uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
+  dismissed_by uuid REFERENCES pm.team_members(id) ON DELETE SET NULL,
   CONSTRAINT meetings_times_check CHECK (ends_at IS NULL OR starts_at IS NULL OR ends_at >= starts_at),
   CONSTRAINT meetings_inbox_key UNIQUE (inbox_id, meeting_key),
   CONSTRAINT meetings_dismissed_check CHECK (dismissed_by IS NULL OR dismissed_at IS NOT NULL)
 );
 
 CREATE TRIGGER set_meetings_updated_at
-  BEFORE UPDATE ON communications.meetings
-  FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
+  BEFORE UPDATE ON pm.meetings
+  FOR EACH ROW EXECUTE FUNCTION pm.handle_updated_at();
 
 -- Thread participants are derived, never stored.
-CREATE OR REPLACE VIEW communications.conversation_participants
+CREATE OR REPLACE VIEW pm.conversation_participants
 WITH (security_invoker = true) AS
 SELECT
   m.thread_id,
@@ -7821,46 +7825,46 @@ SELECT
   (array_agg(r.contact_id) FILTER (WHERE r.contact_id IS NOT NULL))[1] AS contact_id,
   count(*)::integer AS appearances,
   max(m.received_at) AS last_seen_at
-FROM communications.participants r
-JOIN communications.messages m ON m.id = r.message_id
+FROM pm.participants r
+JOIN pm.messages m ON m.id = r.message_id
 WHERE m.thread_id IS NOT NULL
 GROUP BY m.thread_id, r.address;
 
 -- Projects the sender maps to: through a contact address, a client domain or
 -- a client sender address.
-CREATE TABLE communications.message_candidates (
-  message_id uuid NOT NULL REFERENCES communications.messages(id) ON DELETE CASCADE,
-  project_id uuid NOT NULL REFERENCES public.projects(id) ON DELETE CASCADE,
+CREATE TABLE pm.message_candidates (
+  message_id uuid NOT NULL REFERENCES pm.messages(id) ON DELETE CASCADE,
+  project_id uuid NOT NULL REFERENCES pm.projects(id) ON DELETE CASCADE,
   reason text NOT NULL CHECK (reason IN ('contact', 'domain', 'sender')),
   created_at timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (message_id, project_id, reason)
 );
-CREATE INDEX idx_email_message_candidates_project ON communications.message_candidates (project_id);
+CREATE INDEX idx_email_message_candidates_project ON pm.message_candidates (project_id);
 
 -- The projects a conversation is about, any number of them, each with how it
 -- got there (the sources of conversations.project_source) and, for address,
 -- the endpoint that filed it (20261026093748_conversation_projects_scope.sql:
 -- one conversation, several projects, each item filed on its own within the
--- message's scope, communications.scope_source).
-CREATE TABLE communications.conversation_projects (
-  conversation_id uuid NOT NULL REFERENCES communications.conversations(id) ON DELETE CASCADE,
-  project_id uuid NOT NULL REFERENCES public.projects(id) ON DELETE CASCADE,
+-- message's scope, pm.scope_source).
+CREATE TABLE pm.conversation_projects (
+  conversation_id uuid NOT NULL REFERENCES pm.conversations(id) ON DELETE CASCADE,
+  project_id uuid NOT NULL REFERENCES pm.projects(id) ON DELETE CASCADE,
   source text NOT NULL CONSTRAINT conversation_projects_source_check
     CHECK (source IN ('mapped', 'inferred', 'guessed', 'person', 'address')),
-  endpoint_id uuid REFERENCES communications.endpoints(id) ON DELETE SET NULL,
+  endpoint_id uuid REFERENCES pm.endpoints(id) ON DELETE SET NULL,
   -- The message that brought it, and the person who set it.
-  message_id uuid REFERENCES communications.messages(id) ON DELETE SET NULL,
-  added_by uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
+  message_id uuid REFERENCES pm.messages(id) ON DELETE SET NULL,
+  added_by uuid REFERENCES pm.team_members(id) ON DELETE SET NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (conversation_id, project_id),
   CONSTRAINT conversation_projects_endpoint_check CHECK (endpoint_id IS NULL OR source = 'address')
 );
-CREATE INDEX idx_conversation_projects_project ON communications.conversation_projects (project_id);
-CREATE INDEX idx_conversation_projects_message ON communications.conversation_projects (message_id) WHERE message_id IS NOT NULL;
+CREATE INDEX idx_conversation_projects_project ON pm.conversation_projects (project_id);
+CREATE INDEX idx_conversation_projects_message ON pm.conversation_projects (message_id) WHERE message_id IS NOT NULL;
 
 -- How strongly a project is known: a person's word first, a guess last.
-CREATE OR REPLACE FUNCTION communications.project_source_rank(p_source text)
+CREATE OR REPLACE FUNCTION pm.project_source_rank(p_source text)
 RETURNS integer
 LANGUAGE sql
 IMMUTABLE
@@ -7870,11 +7874,11 @@ $$;
 
 -- Keeps conversations.project_id/project_source/project_address_id a copy of
 -- the conversation's strongest project, for older readers.
-CREATE OR REPLACE FUNCTION communications.conversation_projects_sync()
+CREATE OR REPLACE FUNCTION pm.conversation_projects_sync()
 RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = communications, public
+SET search_path = pm
 AS $$
 DECLARE
   v_id uuid;
@@ -7890,11 +7894,11 @@ BEGIN
   LOOP
     SELECT p.project_id, p.source, CASE WHEN p.source = 'address' THEN p.endpoint_id END
     INTO v_project, v_source, v_endpoint
-    FROM communications.conversation_projects p
+    FROM pm.conversation_projects p
     WHERE p.conversation_id = v_id
-    ORDER BY communications.project_source_rank(p.source), p.created_at, p.project_id
+    ORDER BY pm.project_source_rank(p.source), p.created_at, p.project_id
     LIMIT 1;
-    UPDATE communications.conversations
+    UPDATE pm.conversations
     SET project_id = v_project, project_source = v_source, project_address_id = v_endpoint
     WHERE id = v_id
       AND (project_id, project_source, project_address_id) IS DISTINCT FROM (v_project, v_source, v_endpoint);
@@ -7904,30 +7908,30 @@ END;
 $$;
 
 CREATE TRIGGER conversation_projects_sync
-  AFTER INSERT OR UPDATE OR DELETE ON communications.conversation_projects
-  FOR EACH ROW EXECUTE FUNCTION communications.conversation_projects_sync();
+  AFTER INSERT OR UPDATE OR DELETE ON pm.conversation_projects
+  FOR EACH ROW EXECUTE FUNCTION pm.conversation_projects_sync();
 
 CREATE TRIGGER set_conversation_projects_updated_at
-  BEFORE UPDATE ON communications.conversation_projects
-  FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
+  BEFORE UPDATE ON pm.conversation_projects
+  FOR EACH ROW EXECUTE FUNCTION pm.handle_updated_at();
 
 -- Every project endpoint a message arrived through (mail to two project
 -- addresses at once came through both).
-CREATE TABLE communications.message_endpoints (
-  message_id uuid NOT NULL REFERENCES communications.messages(id) ON DELETE CASCADE,
-  endpoint_id uuid NOT NULL REFERENCES communications.endpoints(id) ON DELETE CASCADE,
+CREATE TABLE pm.message_endpoints (
+  message_id uuid NOT NULL REFERENCES pm.messages(id) ON DELETE CASCADE,
+  endpoint_id uuid NOT NULL REFERENCES pm.endpoints(id) ON DELETE CASCADE,
   PRIMARY KEY (message_id, endpoint_id)
 );
-CREATE INDEX idx_message_endpoints_endpoint ON communications.message_endpoints (endpoint_id);
+CREATE INDEX idx_message_endpoints_endpoint ON pm.message_endpoints (endpoint_id);
 
 -- Stored email files: one per distinct file per inbox. An attachment points
 -- at the copy of its bytes (file_id), so the same signature logo or quoted
 -- screenshot across many emails is stored once. Each copy has its own path,
 -- {inbox_id}/files/{id}: a copy being deleted (deleting_at) is never reused,
 -- a new one takes its place. Server only (service role).
-CREATE TABLE communications.files (
+CREATE TABLE pm.files (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  inbox_id uuid NOT NULL REFERENCES communications.inboxes(id) ON DELETE RESTRICT,
+  inbox_id uuid NOT NULL REFERENCES pm.inboxes(id) ON DELETE RESTRICT,
   sha256 text NOT NULL CHECK (sha256 ~ '^[0-9a-f]{64}$'),
   size_bytes bigint NOT NULL CHECK (size_bytes >= 0),
   storage_path text NOT NULL UNIQUE,
@@ -7938,12 +7942,12 @@ CREATE TABLE communications.files (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 -- One live copy of the same bytes per inbox.
-CREATE UNIQUE INDEX email_files_live_key ON communications.files (inbox_id, sha256) WHERE deleting_at IS NULL;
-CREATE INDEX idx_email_files_deleting ON communications.files (deleting_at) WHERE deleting_at IS NOT NULL;
+CREATE UNIQUE INDEX email_files_live_key ON pm.files (inbox_id, sha256) WHERE deleting_at IS NULL;
+CREATE INDEX idx_email_files_deleting ON pm.files (deleting_at) WHERE deleting_at IS NOT NULL;
 
-CREATE TABLE communications.attachments (
+CREATE TABLE pm.attachments (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  message_id uuid NOT NULL REFERENCES communications.messages(id) ON DELETE CASCADE,
+  message_id uuid NOT NULL REFERENCES pm.messages(id) ON DELETE CASCADE,
   position integer NOT NULL CHECK (position >= 0),
   filename text NOT NULL DEFAULT '' CHECK (length(filename) <= 255),
   content_type text NOT NULL DEFAULT 'application/octet-stream' CHECK (length(content_type) BETWEEN 1 AND 255),
@@ -7969,29 +7973,29 @@ CREATE TABLE communications.attachments (
   updated_at timestamptz NOT NULL DEFAULT now(),
   -- The copy its bytes are stored in (files); null for files stored
   -- the old way (their own path) and for files not stored.
-  file_id uuid REFERENCES communications.files(id) ON DELETE RESTRICT,
+  file_id uuid REFERENCES pm.files(id) ON DELETE RESTRICT,
   CONSTRAINT email_attachments_message_position_key UNIQUE (message_id, position),
   CONSTRAINT email_attachments_uploaded_needs_path CHECK (uploaded_at IS NULL OR (storage_path IS NOT NULL AND sha256 IS NOT NULL AND size_bytes IS NOT NULL)),
   CONSTRAINT email_attachments_stored_or_skipped CHECK (storage_path IS NULL OR skipped_reason IS NULL),
   CONSTRAINT email_attachments_file_not_skipped CHECK (file_id IS NULL OR skipped_reason IS NULL)
 );
 -- Many attachments share a copy's path; a path of its own stays unique.
-CREATE UNIQUE INDEX email_attachments_storage_path_key ON communications.attachments (storage_path) WHERE storage_path IS NOT NULL AND file_id IS NULL;
-CREATE INDEX idx_email_attachments_file ON communications.attachments (file_id) WHERE file_id IS NOT NULL;
+CREATE UNIQUE INDEX email_attachments_storage_path_key ON pm.attachments (storage_path) WHERE storage_path IS NOT NULL AND file_id IS NULL;
+CREATE INDEX idx_email_attachments_file ON pm.attachments (file_id) WHERE file_id IS NOT NULL;
 
 CREATE TRIGGER set_email_attachments_updated_at
-  BEFORE UPDATE ON communications.attachments
-  FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
+  BEFORE UPDATE ON pm.attachments
+  FOR EACH ROW EXECUTE FUNCTION pm.handle_updated_at();
 
 -- ============================================================
 -- 5. Triage and task links
 -- ============================================================
 
 -- Every triage is kept; the newest per message wins.
-CREATE TABLE communications.triage (
+CREATE TABLE pm.triage (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  message_id uuid NOT NULL REFERENCES communications.messages(id) ON DELETE CASCADE,
-  member_id uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
+  message_id uuid NOT NULL REFERENCES pm.messages(id) ON DELETE CASCADE,
+  member_id uuid REFERENCES pm.team_members(id) ON DELETE SET NULL,
   outcome text NOT NULL CONSTRAINT email_triage_outcome_check CHECK (outcome IN ('no_action', 'task', 'needs_reply', 'needs_human')),
   urgent boolean NOT NULL DEFAULT false,
   summary text NOT NULL CHECK (length(btrim(summary)) BETWEEN 1 AND 4000),
@@ -8002,7 +8006,7 @@ CREATE TABLE communications.triage (
   suggested_reply text CHECK (suggested_reply IS NULL OR length(suggested_reply) <= 20000),
   -- The single project an older triage chose when the thread had none
   -- (project_ids holds every project a triage files on).
-  project_id uuid REFERENCES public.projects(id) ON DELETE SET NULL,
+  project_id uuid REFERENCES pm.projects(id) ON DELETE SET NULL,
   summarized_at timestamptz,
   -- The caller's retry key (the API takes 8 to 100 characters): the same key
   -- on the same email returns this triage instead of recording another.
@@ -8027,35 +8031,35 @@ CREATE TABLE communications.triage (
     CHECK (questions IS NULL OR (jsonb_typeof(questions) = 'array' AND jsonb_array_length(questions) BETWEEN 1 AND 3)),
   CONSTRAINT email_triage_key_has_hash CHECK (idempotency_key IS NULL OR request_hash IS NOT NULL)
 );
-CREATE INDEX idx_email_triage_message ON communications.triage (message_id, created_at DESC);
-CREATE INDEX idx_email_triage_unsummarized ON communications.triage (message_id) WHERE summarized_at IS NULL;
-CREATE UNIQUE INDEX email_triage_message_idempotency_key ON communications.triage (message_id, idempotency_key) WHERE idempotency_key IS NOT NULL;
+CREATE INDEX idx_email_triage_message ON pm.triage (message_id, created_at DESC);
+CREATE INDEX idx_email_triage_unsummarized ON pm.triage (message_id) WHERE summarized_at IS NULL;
+CREATE UNIQUE INDEX email_triage_message_idempotency_key ON pm.triage (message_id, idempotency_key) WHERE idempotency_key IS NOT NULL;
 
-CREATE TABLE communications.task_links (
+CREATE TABLE pm.task_links (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  message_id uuid NOT NULL REFERENCES communications.messages(id) ON DELETE CASCADE,
-  task_id uuid NOT NULL REFERENCES public.tasks(id) ON DELETE CASCADE,
+  message_id uuid NOT NULL REFERENCES pm.messages(id) ON DELETE CASCADE,
+  task_id uuid NOT NULL REFERENCES pm.tasks(id) ON DELETE CASCADE,
   -- related: about the task, asks for no change. A person's link has no triage.
   relation text NOT NULL CONSTRAINT email_task_links_relation_check CHECK (relation IN ('created', 'updated', 'related')),
-  triage_id uuid REFERENCES communications.triage(id) ON DELETE SET NULL,
-  linked_by uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
+  triage_id uuid REFERENCES pm.triage(id) ON DELETE SET NULL,
+  linked_by uuid REFERENCES pm.team_members(id) ON DELETE SET NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT email_task_links_message_task_relation_key UNIQUE (message_id, task_id, relation)
 );
-CREATE INDEX idx_email_task_links_task ON communications.task_links (task_id);
+CREATE INDEX idx_email_task_links_task ON pm.task_links (task_id);
 
 -- Reply drafts: a person asks, the agent writes, the person copies it into
 -- their own mail. Nothing is ever sent.
-CREATE TABLE communications.reply_drafts (
+CREATE TABLE pm.reply_drafts (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  thread_id uuid NOT NULL REFERENCES communications.conversations(id) ON DELETE CASCADE,
+  thread_id uuid NOT NULL REFERENCES pm.conversations(id) ON DELETE CASCADE,
   -- The email the reply answers (the newest when it was asked for).
-  message_id uuid NOT NULL REFERENCES communications.messages(id) ON DELETE CASCADE,
-  requested_by uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
+  message_id uuid NOT NULL REFERENCES pm.messages(id) ON DELETE CASCADE,
+  requested_by uuid REFERENCES pm.team_members(id) ON DELETE SET NULL,
   instructions text NOT NULL DEFAULT '' CHECK (length(instructions) <= 2000),
   status text NOT NULL DEFAULT 'requested' CHECK (status IN ('requested', 'ready', 'failed')),
   body text CHECK (body IS NULL OR length(body) BETWEEN 1 AND 20000),
-  drafted_by uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
+  drafted_by uuid REFERENCES pm.team_members(id) ON DELETE SET NULL,
   failure text CHECK (failure IS NULL OR length(failure) <= 500),
   completed_at timestamptz,
   created_at timestamptz NOT NULL DEFAULT now(),
@@ -8067,24 +8071,24 @@ CREATE TABLE communications.reply_drafts (
   CONSTRAINT email_reply_drafts_done_has_time CHECK ((status = 'requested') = (completed_at IS NULL)),
   CONSTRAINT email_reply_drafts_copied_is_ready CHECK (copied_at IS NULL OR status = 'ready')
 );
-CREATE INDEX idx_email_reply_drafts_thread ON communications.reply_drafts (thread_id, created_at DESC);
-CREATE INDEX idx_email_reply_drafts_requested ON communications.reply_drafts (created_at) WHERE status = 'requested';
+CREATE INDEX idx_email_reply_drafts_thread ON pm.reply_drafts (thread_id, created_at DESC);
+CREATE INDEX idx_email_reply_drafts_requested ON pm.reply_drafts (created_at) WHERE status = 'requested';
 
 CREATE TRIGGER set_email_reply_drafts_updated_at
-  BEFORE UPDATE ON communications.reply_drafts
-  FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
+  BEFORE UPDATE ON pm.reply_drafts
+  FOR EACH ROW EXECUTE FUNCTION pm.handle_updated_at();
 
 -- An answer a person gave to the agent's question on a triage; the email goes back to the agent.
-CREATE TABLE communications.answers (
+CREATE TABLE pm.answers (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  message_id uuid NOT NULL REFERENCES communications.messages(id) ON DELETE CASCADE,
+  message_id uuid NOT NULL REFERENCES pm.messages(id) ON DELETE CASCADE,
   -- The triage whose question this answers.
-  triage_id uuid NOT NULL REFERENCES communications.triage(id) ON DELETE CASCADE,
+  triage_id uuid NOT NULL REFERENCES pm.triage(id) ON DELETE CASCADE,
   answer text NOT NULL CHECK (length(answer) BETWEEN 1 AND 2000),
-  answered_by uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
+  answered_by uuid REFERENCES pm.team_members(id) ON DELETE SET NULL,
   created_at timestamptz NOT NULL DEFAULT now()
 );
-CREATE INDEX idx_email_question_answers_message ON communications.answers (message_id, created_at DESC);
+CREATE INDEX idx_email_question_answers_message ON pm.answers (message_id, created_at DESC);
 
 -- ============================================================
 -- 6. Server-side writes (service role only)
@@ -8095,7 +8099,7 @@ CREATE INDEX idx_email_question_answers_message ON communications.answers (messa
 -- size cap), in one transaction, before any file is written. Idempotent on the provider's
 -- id and on (inbox, Message-ID): a retried or duplicate delivery returns the
 -- existing rows.
-CREATE OR REPLACE FUNCTION communications.email_start_message(
+CREATE OR REPLACE FUNCTION pm.email_start_message(
   p_inbox_id uuid,
   p_message jsonb,
   p_recipients jsonb,
@@ -8105,7 +8109,7 @@ CREATE OR REPLACE FUNCTION communications.email_start_message(
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = communications, public
+SET search_path = pm
 AS $$
 DECLARE
   v_id uuid;
@@ -8118,11 +8122,11 @@ DECLARE
 BEGIN
   IF COALESCE(auth.role(), '') <> 'service_role' THEN RAISE EXCEPTION 'Service role required' USING ERRCODE = '42501'; END IF;
 
-  SELECT id INTO v_id FROM communications.messages
+  SELECT id INTO v_id FROM pm.messages
   WHERE inbox_id = p_inbox_id AND provider = p_message->>'provider' AND provider_email_id = p_message->>'provider_email_id';
 
   IF v_id IS NULL THEN
-    INSERT INTO communications.messages (
+    INSERT INTO pm.messages (
       inbox_id, provider, provider_email_id, internet_message_id, in_reply_to, reference_ids,
       subject, subject_normalized, sent_at, received_at, text_body, html_body, new_text, is_forward,
       auth, auto_mail_reason, channel
@@ -8150,16 +8154,16 @@ BEGIN
 
     IF v_id IS NULL THEN
       -- The same message, delivered again under another provider id.
-      SELECT id INTO v_id FROM communications.messages
+      SELECT id INTO v_id FROM pm.messages
       WHERE inbox_id = p_inbox_id AND internet_message_id = p_message->>'internet_message_id';
     ELSE
       v_created := true;
-      UPDATE communications.messages
+      UPDATE pm.messages
       SET raw_storage_path = CASE WHEN COALESCE((p_message->>'has_raw')::boolean, false)
                                   THEN p_inbox_id::text || '/' || v_id::text || '/raw.eml' END
       WHERE id = v_id;
 
-      INSERT INTO communications.participants (message_id, kind, address, name, position)
+      INSERT INTO pm.participants (message_id, kind, address, name, position)
       SELECT v_id, r.value->>'kind', lower(btrim(r.value->>'address')), left(COALESCE(r.value->>'name', ''), 300), (r.ordinality - 1)::integer
       FROM jsonb_array_elements(COALESCE(p_recipients, '[]'::jsonb)) WITH ORDINALITY AS r(value, ordinality)
       ON CONFLICT DO NOTHING;
@@ -8168,7 +8172,7 @@ BEGIN
         v_attachment_id := gen_random_uuid();
         v_size := (v_attachment->>'size_bytes')::bigint;
         v_over := v_size IS NOT NULL AND v_size > p_max_attachment_bytes;
-        INSERT INTO communications.attachments (
+        INSERT INTO pm.attachments (
           id, message_id, position, filename, content_type, size_bytes, disposition, content_id,
           provider_attachment_id, skipped_reason
         ) VALUES (
@@ -8191,14 +8195,14 @@ BEGIN
     'message', (
       SELECT jsonb_build_object('id', m.id, 'inbox_id', m.inbox_id, 'status', m.status,
         'raw_storage_path', m.raw_storage_path, 'raw_uploaded_at', m.raw_uploaded_at)
-      FROM communications.messages m WHERE m.id = v_id
+      FROM pm.messages m WHERE m.id = v_id
     ),
     'attachments', COALESCE((
       SELECT jsonb_agg(jsonb_build_object('id', a.id, 'position', a.position, 'filename', a.filename,
         'content_type', a.content_type, 'size_bytes', a.size_bytes, 'provider_attachment_id', a.provider_attachment_id,
         'storage_path', a.storage_path, 'skipped_reason', a.skipped_reason, 'uploaded_at', a.uploaded_at,
         'file_id', a.file_id) ORDER BY a.position)
-      FROM communications.attachments a WHERE a.message_id = v_id
+      FROM pm.attachments a WHERE a.message_id = v_id
     ), '[]'::jsonb)
   );
 END;
@@ -8217,14 +8221,14 @@ $$;
 --   forwarded_by_member_id?: uuid (the verified teammate, when not sender),
 --   original_from_address?, original_from_name? (forwarded_original only),
 --   candidates: [{project_id, reason}], recipient_contacts: [{address, contact_id}] }
-CREATE OR REPLACE FUNCTION communications.email_complete_message(p_message_id uuid, p_decision jsonb)
+CREATE OR REPLACE FUNCTION pm.email_complete_message(p_message_id uuid, p_decision jsonb)
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = communications, public
+SET search_path = pm
 AS $$
 DECLARE
-  v_message communications.messages;
+  v_message pm.messages;
   v_thread uuid;
   v_status text := p_decision->>'status';
   v_source text := COALESCE(p_decision->>'project_source', 'mapped');
@@ -8239,24 +8243,24 @@ BEGIN
     RAISE EXCEPTION 'email_complete_message: routing_basis must be sender, forwarded_original or team_recipients' USING ERRCODE = '22023';
   END IF;
 
-  SELECT * INTO v_message FROM communications.messages WHERE id = p_message_id FOR UPDATE;
+  SELECT * INTO v_message FROM pm.messages WHERE id = p_message_id FOR UPDATE;
   IF NOT FOUND THEN RAISE EXCEPTION 'EMAIL_NOT_FOUND: message %', p_message_id USING ERRCODE = 'P0002'; END IF;
   IF v_message.status <> 'receiving' THEN
     RETURN jsonb_build_object('already_complete', true, 'status', v_message.status, 'thread_id', v_message.thread_id);
   END IF;
   IF (v_message.raw_storage_path IS NOT NULL AND v_message.raw_uploaded_at IS NULL)
-    OR EXISTS (SELECT 1 FROM communications.attachments WHERE message_id = p_message_id AND uploaded_at IS NULL AND skipped_reason IS NULL) THEN
+    OR EXISTS (SELECT 1 FROM pm.attachments WHERE message_id = p_message_id AND uploaded_at IS NULL AND skipped_reason IS NULL) THEN
     RAISE EXCEPTION 'EMAIL_FILES_PENDING: message % still has files to store', p_message_id USING ERRCODE = 'P0001';
   END IF;
 
   IF p_decision->>'thread_id' IS NOT NULL THEN
-    SELECT id INTO v_thread FROM communications.conversations
+    SELECT id INTO v_thread FROM pm.conversations
     WHERE id = (p_decision->>'thread_id')::uuid AND inbox_id = v_message.inbox_id
     FOR UPDATE;
     IF v_thread IS NULL THEN RAISE EXCEPTION 'email_complete_message: thread is not in this inbox' USING ERRCODE = '22023'; END IF;
-    UPDATE communications.conversations SET last_message_at = GREATEST(last_message_at, v_message.received_at) WHERE id = v_thread;
+    UPDATE pm.conversations SET last_message_at = GREATEST(last_message_at, v_message.received_at) WHERE id = v_thread;
   ELSE
-    INSERT INTO communications.conversations (inbox_id, subject_normalized, last_message_at)
+    INSERT INTO pm.conversations (inbox_id, subject_normalized, last_message_at)
     VALUES (v_message.inbox_id, v_message.subject_normalized, v_message.received_at)
     RETURNING id INTO v_thread;
   END IF;
@@ -8265,38 +8269,38 @@ BEGIN
   -- locked above or new). An address deleted since it was matched still
   -- files the project, without the address.
   IF p_decision->>'project_id' IS NOT NULL
-    AND NOT EXISTS (SELECT 1 FROM communications.conversation_projects WHERE conversation_id = v_thread) THEN
-    INSERT INTO communications.conversation_projects (conversation_id, project_id, source, endpoint_id, message_id)
+    AND NOT EXISTS (SELECT 1 FROM pm.conversation_projects WHERE conversation_id = v_thread) THEN
+    INSERT INTO pm.conversation_projects (conversation_id, project_id, source, endpoint_id, message_id)
     VALUES (
       v_thread, (p_decision->>'project_id')::uuid, v_source,
       CASE WHEN v_source = 'address' THEN (
-        SELECT a.id FROM communications.endpoints a WHERE a.id = (p_decision->>'project_address_id')::uuid
+        SELECT a.id FROM pm.endpoints a WHERE a.id = (p_decision->>'project_address_id')::uuid
       ) END,
       p_message_id
     )
     ON CONFLICT DO NOTHING;
   END IF;
   -- Every project endpoint it came through (the scope's endpoint basis).
-  INSERT INTO communications.message_endpoints (message_id, endpoint_id)
-  SELECT p_message_id, a.id FROM communications.endpoints a
+  INSERT INTO pm.message_endpoints (message_id, endpoint_id)
+  SELECT p_message_id, a.id FROM pm.endpoints a
   WHERE a.inbox_id = v_message.inbox_id AND (
     a.id = (p_decision->>'received_via_address_id')::uuid
     OR a.id::text IN (SELECT jsonb_array_elements_text(COALESCE(p_decision->'received_via_address_ids', '[]'::jsonb)))
   )
   ON CONFLICT DO NOTHING;
 
-  INSERT INTO communications.message_candidates (message_id, project_id, reason)
+  INSERT INTO pm.message_candidates (message_id, project_id, reason)
   SELECT p_message_id, (c->>'project_id')::uuid, c->>'reason'
   FROM jsonb_array_elements(COALESCE(p_decision->'candidates', '[]'::jsonb)) AS c
   ON CONFLICT DO NOTHING;
 
-  UPDATE communications.participants r
+  UPDATE pm.participants r
   SET contact_id = (x->>'contact_id')::uuid
   FROM jsonb_array_elements(COALESCE(p_decision->'recipient_contacts', '[]'::jsonb)) AS x
   WHERE r.message_id = p_message_id AND r.address = x->>'address';
 
   -- A rule switched off since ingestion read it is still the rule that sorted it.
-  IF v_rule IS NOT NULL AND NOT EXISTS (SELECT 1 FROM communications.sender_rules WHERE id = v_rule) THEN
+  IF v_rule IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pm.sender_rules WHERE id = v_rule) THEN
     v_rule := NULL;
   END IF;
 
@@ -8304,9 +8308,9 @@ BEGIN
   -- teammate is also the message's sender_member_id: the verified teammate
   -- behind it, whatever the channel.
   v_forwarder := CASE WHEN v_basis <> 'sender' THEN (
-    SELECT tm.id FROM public.team_members tm WHERE tm.id = (p_decision->>'forwarded_by_member_id')::uuid
+    SELECT tm.id FROM pm.team_members tm WHERE tm.id = (p_decision->>'forwarded_by_member_id')::uuid
   ) END;
-  UPDATE communications.messages
+  UPDATE pm.messages
   SET thread_id = v_thread,
       status = v_status,
       completed_at = now(),
@@ -8325,12 +8329,12 @@ BEGIN
   WHERE id = p_message_id;
 
   IF v_rule IS NOT NULL THEN
-    UPDATE communications.sender_rules SET hit_count = hit_count + 1, last_hit_at = now() WHERE id = v_rule;
+    UPDATE pm.sender_rules SET hit_count = hit_count + 1, last_hit_at = now() WHERE id = v_rule;
   END IF;
 
-  UPDATE communications.inboxes SET last_received_at = now() WHERE id = v_message.inbox_id;
-  UPDATE communications.endpoints e SET last_received_at = now()
-  FROM communications.message_endpoints me
+  UPDATE pm.inboxes SET last_received_at = now() WHERE id = v_message.inbox_id;
+  UPDATE pm.endpoints e SET last_received_at = now()
+  FROM pm.message_endpoints me
   WHERE me.message_id = p_message_id AND e.id = me.endpoint_id;
 
   RETURN jsonb_build_object('already_complete', false, 'status', v_status, 'thread_id', v_thread);
@@ -8346,7 +8350,7 @@ $$;
 -- staying in receiving until retention deletes it. A copy an attachment had
 -- claimed is let go (retention releases it once nothing points at it);
 -- anything already stored under a dropped path is an orphan for the weekly sweep.
-CREATE OR REPLACE FUNCTION communications.files_failed(
+CREATE OR REPLACE FUNCTION pm.files_failed(
   p_message_id uuid,
   p_attachment_ids jsonb,
   p_raw boolean,
@@ -8356,15 +8360,15 @@ CREATE OR REPLACE FUNCTION communications.files_failed(
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = communications, public
+SET search_path = pm
 AS $$
 DECLARE
-  v_message communications.messages;
+  v_message pm.messages;
   v_give_up boolean;
 BEGIN
   IF COALESCE(auth.role(), '') <> 'service_role' THEN RAISE EXCEPTION 'Service role required' USING ERRCODE = '42501'; END IF;
 
-  UPDATE communications.messages SET file_failures = file_failures + 1
+  UPDATE pm.messages SET file_failures = file_failures + 1
   WHERE id = p_message_id AND status = 'receiving'
   RETURNING * INTO v_message;
   IF NOT FOUND THEN RETURN jsonb_build_object('receiving', false, 'gave_up', false, 'failures', 0); END IF;
@@ -8372,12 +8376,12 @@ BEGIN
   v_give_up := v_message.file_failures >= p_max_failures
     OR v_message.created_at < now() - make_interval(mins => p_max_age_minutes);
   IF v_give_up THEN
-    UPDATE communications.attachments
+    UPDATE pm.attachments
     SET storage_path = NULL, file_id = NULL, skipped_reason = 'download_failed'
     WHERE message_id = p_message_id AND uploaded_at IS NULL AND skipped_reason IS NULL
       AND id IN (SELECT value::uuid FROM jsonb_array_elements_text(COALESCE(p_attachment_ids, '[]'::jsonb)));
     IF p_raw THEN
-      UPDATE communications.messages SET raw_storage_path = NULL WHERE id = p_message_id AND raw_uploaded_at IS NULL;
+      UPDATE pm.messages SET raw_storage_path = NULL WHERE id = p_message_id AND raw_uploaded_at IS NULL;
     END IF;
   END IF;
 
@@ -8391,16 +8395,16 @@ $$;
 -- locks a copy and re-checks before releasing it). A retry keeps the copy it
 -- already points at. A copy being deleted is never reused: a new one, at its
 -- own path, takes its place.
-CREATE OR REPLACE FUNCTION communications.claim_file(p_attachment_id uuid, p_sha256 text, p_size_bytes bigint)
+CREATE OR REPLACE FUNCTION pm.claim_file(p_attachment_id uuid, p_sha256 text, p_size_bytes bigint)
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = communications, public
+SET search_path = pm
 AS $$
 DECLARE
   v_inbox uuid;
   v_current uuid;
-  v_file communications.files;
+  v_file pm.files;
 BEGIN
   IF COALESCE(auth.role(), '') <> 'service_role' THEN RAISE EXCEPTION 'Service role required' USING ERRCODE = '42501'; END IF;
   IF p_sha256 IS NULL OR p_sha256 !~ '^[0-9a-f]{64}$' THEN
@@ -8409,53 +8413,53 @@ BEGIN
   IF p_size_bytes IS NULL OR p_size_bytes < 0 THEN RAISE EXCEPTION 'claim_file: size_bytes must be 0 or more' USING ERRCODE = '22023'; END IF;
 
   SELECT m.inbox_id, a.file_id INTO v_inbox, v_current
-  FROM communications.attachments a
-  JOIN communications.messages m ON m.id = a.message_id
+  FROM pm.attachments a
+  JOIN pm.messages m ON m.id = a.message_id
   WHERE a.id = p_attachment_id AND a.uploaded_at IS NULL AND a.skipped_reason IS NULL
   FOR UPDATE OF a;
   IF NOT FOUND THEN RAISE EXCEPTION 'EMAIL_ATTACHMENT_NOT_PENDING: %', p_attachment_id USING ERRCODE = 'P0002'; END IF;
 
   IF v_current IS NOT NULL THEN
-    SELECT * INTO v_file FROM communications.files WHERE id = v_current AND sha256 = p_sha256 FOR UPDATE;
+    SELECT * INTO v_file FROM pm.files WHERE id = v_current AND sha256 = p_sha256 FOR UPDATE;
   END IF;
   IF v_file.id IS NULL THEN
-    SELECT * INTO v_file FROM communications.files
+    SELECT * INTO v_file FROM pm.files
     WHERE inbox_id = v_inbox AND sha256 = p_sha256 AND deleting_at IS NULL
     FOR UPDATE;
   END IF;
   IF v_file.id IS NULL THEN
     -- Two emails with the same new file: one insert wins, the other waits for it and takes it.
-    INSERT INTO communications.files (id, inbox_id, sha256, size_bytes, storage_path)
+    INSERT INTO pm.files (id, inbox_id, sha256, size_bytes, storage_path)
     SELECT n.id, v_inbox, p_sha256, p_size_bytes, v_inbox::text || '/files/' || n.id::text
     FROM (SELECT gen_random_uuid() AS id) n
     ON CONFLICT (inbox_id, sha256) WHERE deleting_at IS NULL DO NOTHING;
-    SELECT * INTO v_file FROM communications.files
+    SELECT * INTO v_file FROM pm.files
     WHERE inbox_id = v_inbox AND sha256 = p_sha256 AND deleting_at IS NULL
     FOR UPDATE;
   END IF;
 
-  UPDATE communications.attachments SET file_id = v_file.id WHERE id = p_attachment_id;
+  UPDATE pm.attachments SET file_id = v_file.id WHERE id = p_attachment_id;
   RETURN jsonb_build_object('file_id', v_file.id, 'storage_path', v_file.storage_path, 'stored', v_file.stored_at IS NOT NULL);
 END;
 $$;
 
 -- Ingestion, once the copy's bytes are in the bucket (uploaded now, or there
 -- already): the copy is stored, and so is the attachment, at the copy's path.
-CREATE OR REPLACE FUNCTION communications.file_stored(p_attachment_id uuid)
+CREATE OR REPLACE FUNCTION pm.file_stored(p_attachment_id uuid)
 RETURNS void
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = communications, public
+SET search_path = pm
 AS $$
 BEGIN
   IF COALESCE(auth.role(), '') <> 'service_role' THEN RAISE EXCEPTION 'Service role required' USING ERRCODE = '42501'; END IF;
-  UPDATE communications.files f SET stored_at = COALESCE(f.stored_at, now())
-  FROM communications.attachments a
+  UPDATE pm.files f SET stored_at = COALESCE(f.stored_at, now())
+  FROM pm.attachments a
   WHERE a.id = p_attachment_id AND f.id = a.file_id;
   IF NOT FOUND THEN RAISE EXCEPTION 'EMAIL_FILE_NOT_CLAIMED: %', p_attachment_id USING ERRCODE = 'P0002'; END IF;
-  UPDATE communications.attachments a
+  UPDATE pm.attachments a
   SET storage_path = f.storage_path, sha256 = f.sha256, size_bytes = f.size_bytes, uploaded_at = COALESCE(a.uploaded_at, now())
-  FROM communications.files f
+  FROM pm.files f
   WHERE a.id = p_attachment_id AND f.id = a.file_id;
 END;
 $$;
@@ -8465,11 +8469,11 @@ $$;
 -- just claimed it keeps it), then marked deleting: never reused from then
 -- on. Returns those and any left marked by an earlier run, for their bytes
 -- to be removed; files_forget drops the rows once they are.
-CREATE OR REPLACE FUNCTION communications.files_release(p_limit integer)
+CREATE OR REPLACE FUNCTION pm.files_release(p_limit integer)
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = communications, public
+SET search_path = pm
 AS $$
 DECLARE
   v_limit integer := GREATEST(1, LEAST(COALESCE(p_limit, 200), 1000));
@@ -8477,20 +8481,20 @@ DECLARE
 BEGIN
   IF COALESCE(auth.role(), '') <> 'service_role' THEN RAISE EXCEPTION 'Service role required' USING ERRCODE = '42501'; END IF;
   FOR v_id IN
-    SELECT f.id FROM communications.files f
-    WHERE f.deleting_at IS NULL AND NOT EXISTS (SELECT 1 FROM communications.attachments a WHERE a.file_id = f.id)
+    SELECT f.id FROM pm.files f
+    WHERE f.deleting_at IS NULL AND NOT EXISTS (SELECT 1 FROM pm.attachments a WHERE a.file_id = f.id)
     ORDER BY f.created_at, f.id
     LIMIT v_limit
   LOOP
-    PERFORM 1 FROM communications.files WHERE id = v_id AND deleting_at IS NULL FOR UPDATE SKIP LOCKED;
+    PERFORM 1 FROM pm.files WHERE id = v_id AND deleting_at IS NULL FOR UPDATE SKIP LOCKED;
     CONTINUE WHEN NOT FOUND;
-    UPDATE communications.files SET deleting_at = now()
-    WHERE id = v_id AND NOT EXISTS (SELECT 1 FROM communications.attachments a WHERE a.file_id = v_id);
+    UPDATE pm.files SET deleting_at = now()
+    WHERE id = v_id AND NOT EXISTS (SELECT 1 FROM pm.attachments a WHERE a.file_id = v_id);
   END LOOP;
   RETURN (
     SELECT COALESCE(jsonb_agg(jsonb_build_object('id', d.id, 'path', d.storage_path) ORDER BY d.deleting_at, d.id), '[]'::jsonb)
     FROM (
-      SELECT id, storage_path, deleting_at FROM communications.files
+      SELECT id, storage_path, deleting_at FROM pm.files
       WHERE deleting_at IS NOT NULL ORDER BY deleting_at, id LIMIT v_limit
     ) d
   );
@@ -8499,20 +8503,20 @@ $$;
 
 -- Retention, once released copies' bytes are removed from the bucket: their
 -- rows. Never one something points at.
-CREATE OR REPLACE FUNCTION communications.files_forget(p_ids jsonb)
+CREATE OR REPLACE FUNCTION pm.files_forget(p_ids jsonb)
 RETURNS integer
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = communications, public
+SET search_path = pm
 AS $$
 DECLARE
   v_count integer;
 BEGIN
   IF COALESCE(auth.role(), '') <> 'service_role' THEN RAISE EXCEPTION 'Service role required' USING ERRCODE = '42501'; END IF;
-  DELETE FROM communications.files f
+  DELETE FROM pm.files f
   WHERE f.id IN (SELECT (value)::uuid FROM jsonb_array_elements_text(COALESCE(p_ids, '[]'::jsonb)))
     AND f.deleting_at IS NOT NULL
-    AND NOT EXISTS (SELECT 1 FROM communications.attachments a WHERE a.file_id = f.id);
+    AND NOT EXISTS (SELECT 1 FROM pm.attachments a WHERE a.file_id = f.id);
   GET DIAGNOSTICS v_count = ROW_COUNT;
   RETURN v_count;
 END;
@@ -8524,7 +8528,7 @@ $$;
 -- chose one for a thread without it. With an idempotency key already used on
 -- this email it changes nothing: the same request hash returns the first
 -- triage (replayed), another one is refused.
-CREATE OR REPLACE FUNCTION communications.record_triage(
+CREATE OR REPLACE FUNCTION pm.record_triage(
   p_message_id uuid,
   p_member_id uuid,
   p_triage jsonb,
@@ -8537,23 +8541,23 @@ CREATE OR REPLACE FUNCTION communications.record_triage(
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = communications, public
+SET search_path = pm
 AS $$
 DECLARE
-  v_message communications.messages;
-  v_triage communications.triage;
+  v_message pm.messages;
+  v_triage pm.triage;
 BEGIN
   IF COALESCE(auth.role(), '') <> 'service_role' THEN RAISE EXCEPTION 'Service role required' USING ERRCODE = '42501'; END IF;
   IF p_status NOT IN ('handled', 'needs_human') THEN RAISE EXCEPTION 'record_triage: invalid status' USING ERRCODE = '22023'; END IF;
 
-  SELECT * INTO v_message FROM communications.messages WHERE id = p_message_id FOR UPDATE;
+  SELECT * INTO v_message FROM pm.messages WHERE id = p_message_id FOR UPDATE;
   IF NOT FOUND OR v_message.status = 'receiving' THEN
     RAISE EXCEPTION 'EMAIL_NOT_FOUND: message %', p_message_id USING ERRCODE = 'P0002';
   END IF;
 
   -- The message row lock above serializes retries of one key.
   IF p_idempotency_key IS NOT NULL THEN
-    SELECT * INTO v_triage FROM communications.triage
+    SELECT * INTO v_triage FROM pm.triage
     WHERE message_id = p_message_id AND idempotency_key = p_idempotency_key;
     IF FOUND THEN
       IF v_triage.request_hash IS DISTINCT FROM p_request_hash THEN
@@ -8563,7 +8567,7 @@ BEGIN
         'triage', to_jsonb(v_triage) - 'request_hash',
         'status', v_message.status,
         'thread', (SELECT jsonb_build_object('id', t.id, 'project_id', t.project_id, 'project_source', t.project_source)
-                   FROM communications.conversations t WHERE t.id = v_message.thread_id),
+                   FROM pm.conversations t WHERE t.id = v_message.thread_id),
         'replayed', true
       );
     END IF;
@@ -8574,29 +8578,29 @@ BEGIN
   -- message's mapping candidates; guessed: the message had none, so nothing
   -- in it matched a project.
   IF p_project_id IS NOT NULL THEN
-    PERFORM 1 FROM communications.conversations WHERE id = v_message.thread_id FOR UPDATE;
-    IF NOT EXISTS (SELECT 1 FROM communications.conversation_projects WHERE conversation_id = v_message.thread_id) THEN
-      INSERT INTO communications.conversation_projects (conversation_id, project_id, source, message_id, added_by)
+    PERFORM 1 FROM pm.conversations WHERE id = v_message.thread_id FOR UPDATE;
+    IF NOT EXISTS (SELECT 1 FROM pm.conversation_projects WHERE conversation_id = v_message.thread_id) THEN
+      INSERT INTO pm.conversation_projects (conversation_id, project_id, source, message_id, added_by)
       VALUES (
         v_message.thread_id, p_project_id,
         CASE
           WHEN EXISTS (
-            SELECT 1 FROM communications.answers a
-            JOIN communications.messages m ON m.id = a.message_id
+            SELECT 1 FROM pm.answers a
+            JOIN pm.messages m ON m.id = a.message_id
             WHERE m.thread_id = v_message.thread_id
           ) THEN 'person'
-          WHEN EXISTS (SELECT 1 FROM communications.message_candidates c WHERE c.message_id = p_message_id) THEN 'inferred'
+          WHEN EXISTS (SELECT 1 FROM pm.message_candidates c WHERE c.message_id = p_message_id) THEN 'inferred'
           ELSE 'guessed' END,
         p_message_id, p_member_id
       );
     ELSIF NOT EXISTS (
-      SELECT 1 FROM communications.conversation_projects WHERE conversation_id = v_message.thread_id AND project_id = p_project_id
+      SELECT 1 FROM pm.conversation_projects WHERE conversation_id = v_message.thread_id AND project_id = p_project_id
     ) THEN
       RAISE EXCEPTION 'EMAIL_THREAD_PROJECT_SET: the thread already belongs to another project' USING ERRCODE = 'P0001';
     END IF;
   END IF;
 
-  INSERT INTO communications.triage (
+  INSERT INTO pm.triage (
     message_id, member_id, outcome, urgent, summary, question_for_human, suggested_reply, project_id, idempotency_key, request_hash
   )
   VALUES (
@@ -8606,15 +8610,15 @@ BEGIN
   )
   RETURNING * INTO v_triage;
 
-  INSERT INTO communications.task_links (message_id, task_id, relation, triage_id, linked_by)
+  INSERT INTO pm.task_links (message_id, task_id, relation, triage_id, linked_by)
   SELECT p_message_id, (l->>'task_id')::uuid, l->>'relation', v_triage.id, p_member_id
   FROM jsonb_array_elements(COALESCE(p_links, '[]'::jsonb)) AS l
   ON CONFLICT (message_id, task_id, relation) DO NOTHING;
 
-  UPDATE communications.messages SET status = p_status WHERE id = p_message_id;
+  UPDATE pm.messages SET status = p_status WHERE id = p_message_id;
 
   IF NULLIF(btrim(COALESCE(p_triage->>'thread_summary', '')), '') IS NOT NULL THEN
-    UPDATE communications.conversations
+    UPDATE pm.conversations
     SET summary = left(btrim(p_triage->>'thread_summary'), 300), summary_at = now()
     WHERE id = v_message.thread_id;
   END IF;
@@ -8623,7 +8627,7 @@ BEGIN
     'triage', to_jsonb(v_triage) - 'request_hash',
     'status', p_status,
     'thread', (SELECT jsonb_build_object('id', t.id, 'project_id', t.project_id, 'project_source', t.project_source)
-               FROM communications.conversations t WHERE t.id = v_message.thread_id),
+               FROM pm.conversations t WHERE t.id = v_message.thread_id),
     'replayed', false
   );
 END;
@@ -8631,40 +8635,40 @@ $$;
 
 -- For the host dispatcher: is there new mail, and is anything waiting for
 -- the batched summary. p_inbox_ids is a JSON array of inbox ids.
-CREATE OR REPLACE FUNCTION communications.signal(p_inbox_ids jsonb)
+CREATE OR REPLACE FUNCTION pm.signal(p_inbox_ids jsonb)
 RETURNS jsonb
 LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
-SET search_path = communications, public
+SET search_path = pm
 AS $$
 BEGIN
   IF COALESCE(auth.role(), '') <> 'service_role' THEN RAISE EXCEPTION 'Service role required' USING ERRCODE = '42501'; END IF;
   RETURN (
   WITH inboxes AS (SELECT (value)::uuid AS id FROM jsonb_array_elements_text(COALESCE(p_inbox_ids, '[]'::jsonb)))
   SELECT jsonb_build_object(
-    'new_count', (SELECT count(*) FROM communications.messages m WHERE m.inbox_id IN (SELECT id FROM inboxes) AND m.status = 'new'),
-    'newest_received_at', (SELECT max(m.received_at) FROM communications.messages m WHERE m.inbox_id IN (SELECT id FROM inboxes) AND m.status = 'new'),
+    'new_count', (SELECT count(*) FROM pm.messages m WHERE m.inbox_id IN (SELECT id FROM inboxes) AND m.status = 'new'),
+    'newest_received_at', (SELECT max(m.received_at) FROM pm.messages m WHERE m.inbox_id IN (SELECT id FROM inboxes) AND m.status = 'new'),
     'unsummarized_count', (
       SELECT count(*) FROM (
         SELECT DISTINCT ON (t.message_id) t.id
-        FROM communications.triage t
-        JOIN communications.messages m ON m.id = t.message_id
+        FROM pm.triage t
+        JOIN pm.messages m ON m.id = t.message_id
         WHERE m.inbox_id IN (SELECT id FROM inboxes)
-          AND EXISTS (SELECT 1 FROM communications.triage u WHERE u.message_id = t.message_id AND u.summarized_at IS NULL AND u.created_at > now() - interval '14 days')
+          AND EXISTS (SELECT 1 FROM pm.triage u WHERE u.message_id = t.message_id AND u.summarized_at IS NULL AND u.created_at > now() - interval '14 days')
         ORDER BY t.message_id, t.created_at DESC, t.id DESC
       ) latest
-      WHERE communications.triage_is_news(latest.id)
+      WHERE pm.triage_is_news(latest.id)
     ),
     'waiting_count', (
-      SELECT count(*) FROM communications.messages m
+      SELECT count(*) FROM pm.messages m
       WHERE m.inbox_id IN (SELECT id FROM inboxes) AND m.status = 'needs_human'
-        AND (SELECT t.question_for_human FROM communications.triage t
+        AND (SELECT t.question_for_human FROM pm.triage t
              WHERE t.message_id = m.id ORDER BY t.created_at DESC, t.id DESC LIMIT 1) IS NOT NULL
     ),
     'drafts_requested', (
-      SELECT count(*) FROM communications.reply_drafts d
-      JOIN communications.messages m ON m.id = d.message_id
+      SELECT count(*) FROM pm.reply_drafts d
+      JOIN pm.messages m ON m.id = d.message_id
       WHERE m.inbox_id IN (SELECT id FROM inboxes) AND d.status = 'requested'
     )
   ));
@@ -8674,11 +8678,11 @@ $$;
 -- Marks triage rows as summarized, with any older unsummarized triage of the
 -- same messages (superseded, latest wins). All or nothing: an id outside
 -- p_inbox_ids marks nothing and comes back in `missing`.
-CREATE OR REPLACE FUNCTION communications.mark_triage_summarized(p_triage_ids jsonb, p_inbox_ids jsonb)
+CREATE OR REPLACE FUNCTION pm.mark_triage_summarized(p_triage_ids jsonb, p_inbox_ids jsonb)
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = communications, public
+SET search_path = pm
 AS $$
 DECLARE
   v_ids uuid[] := ARRAY(SELECT DISTINCT (value)::uuid FROM jsonb_array_elements_text(COALESCE(p_triage_ids, '[]'::jsonb)));
@@ -8690,16 +8694,16 @@ BEGIN
   SELECT COALESCE(jsonb_agg(i), '[]'::jsonb) INTO v_missing
   FROM unnest(v_ids) AS i
   WHERE NOT EXISTS (
-    SELECT 1 FROM communications.triage t JOIN communications.messages m ON m.id = t.message_id
+    SELECT 1 FROM pm.triage t JOIN pm.messages m ON m.id = t.message_id
     WHERE t.id = i AND m.inbox_id = ANY(v_inboxes)
   );
   IF jsonb_array_length(v_missing) > 0 THEN
     RETURN jsonb_build_object('marked', 0, 'missing', v_missing);
   END IF;
 
-  WITH chosen AS (SELECT id, message_id, created_at FROM communications.triage WHERE id = ANY(v_ids)),
+  WITH chosen AS (SELECT id, message_id, created_at FROM pm.triage WHERE id = ANY(v_ids)),
   marked AS (
-    UPDATE communications.triage t SET summarized_at = now()
+    UPDATE pm.triage t SET summarized_at = now()
     WHERE t.summarized_at IS NULL AND (
       t.id = ANY(v_ids)
       OR EXISTS (SELECT 1 FROM chosen c WHERE c.message_id = t.message_id AND t.created_at <= c.created_at)
@@ -8715,7 +8719,7 @@ $$;
 -- projects it already has (taking one off is remove_conversation_project,
 -- with its checks). p_only_if_none files it only when the conversation has no
 -- project yet. Returns whether it filed it.
-CREATE OR REPLACE FUNCTION communications.set_conversation_project(
+CREATE OR REPLACE FUNCTION pm.set_conversation_project(
   p_conversation_id uuid,
   p_project_id uuid,
   p_member_id uuid,
@@ -8724,16 +8728,16 @@ CREATE OR REPLACE FUNCTION communications.set_conversation_project(
 RETURNS boolean
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = communications, public
+SET search_path = pm
 AS $$
 BEGIN
   IF COALESCE(auth.role(), '') <> 'service_role' THEN RAISE EXCEPTION 'Service role required' USING ERRCODE = '42501'; END IF;
-  PERFORM 1 FROM communications.conversations WHERE id = p_conversation_id FOR UPDATE;
+  PERFORM 1 FROM pm.conversations WHERE id = p_conversation_id FOR UPDATE;
   IF NOT FOUND THEN RAISE EXCEPTION 'EMAIL_NOT_FOUND: conversation %', p_conversation_id USING ERRCODE = 'P0002'; END IF;
-  IF p_only_if_none AND EXISTS (SELECT 1 FROM communications.conversation_projects WHERE conversation_id = p_conversation_id) THEN
+  IF p_only_if_none AND EXISTS (SELECT 1 FROM pm.conversation_projects WHERE conversation_id = p_conversation_id) THEN
     RETURN false;
   END IF;
-  INSERT INTO communications.conversation_projects (conversation_id, project_id, source, added_by)
+  INSERT INTO pm.conversation_projects (conversation_id, project_id, source, added_by)
   VALUES (p_conversation_id, p_project_id, 'person', p_member_id)
   ON CONFLICT (conversation_id, project_id) DO UPDATE
   SET source = 'person', endpoint_id = NULL, added_by = EXCLUDED.added_by;
@@ -8741,8 +8745,8 @@ BEGIN
 END;
 $$;
 
-REVOKE ALL ON FUNCTION communications.set_conversation_project(uuid, uuid, uuid, boolean) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION communications.set_conversation_project(uuid, uuid, uuid, boolean) TO service_role;
+REVOKE ALL ON FUNCTION pm.set_conversation_project(uuid, uuid, uuid, boolean) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION pm.set_conversation_project(uuid, uuid, uuid, boolean) TO service_role;
 
 -- ── A message's project scope (20261026093748_conversation_projects_scope.sql)
 -- Who sent a message decides which projects it may touch; the agent decides,
@@ -8759,21 +8763,21 @@ GRANT EXECUTE ON FUNCTION communications.set_conversation_project(uuid, uuid, uu
 
 -- Open for new mail: live, active and not archived. A project already on a
 -- conversation stays reachable from it whatever its state.
-CREATE OR REPLACE FUNCTION communications.project_accepts_messages(p_project_id uuid)
+CREATE OR REPLACE FUNCTION pm.project_accepts_messages(p_project_id uuid)
 RETURNS boolean
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
-SET search_path = communications, public
+SET search_path = pm
 AS $$
   SELECT EXISTS (
-    SELECT 1 FROM public.projects
+    SELECT 1 FROM pm.projects
     WHERE id = p_project_id AND deleted_at IS NULL AND archived_at IS NULL AND status = 'active'
   )
 $$;
 
 -- The stronger of two sources (a person's word first, a guess last).
-CREATE OR REPLACE FUNCTION communications.stronger_source(p_a text, p_b text)
+CREATE OR REPLACE FUNCTION pm.stronger_source(p_a text, p_b text)
 RETURNS text
 LANGUAGE sql
 IMMUTABLE
@@ -8781,52 +8785,52 @@ AS $$
   SELECT CASE
     WHEN p_a IS NULL THEN p_b
     WHEN p_b IS NULL THEN p_a
-    WHEN communications.project_source_rank(p_b) < communications.project_source_rank(p_a) THEN p_b
+    WHEN pm.project_source_rank(p_b) < pm.project_source_rank(p_a) THEN p_b
     ELSE p_a END
 $$;
 
 -- Whether a message may touch a project, and as what: the source it files
 -- the project with, or null when it may not.
-CREATE OR REPLACE FUNCTION communications.scope_source(p_message_id uuid, p_project_id uuid)
+CREATE OR REPLACE FUNCTION pm.scope_source(p_message_id uuid, p_project_id uuid)
 RETURNS text
 LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
-SET search_path = communications, public
+SET search_path = pm
 AS $$
 DECLARE
-  v_message communications.messages;
+  v_message pm.messages;
   v_best text;
   v_existing text;
   v_candidates integer;
 BEGIN
-  SELECT * INTO v_message FROM communications.messages WHERE id = p_message_id;
+  SELECT * INTO v_message FROM pm.messages WHERE id = p_message_id;
   IF NOT FOUND OR p_project_id IS NULL OR v_message.thread_id IS NULL THEN RETURN NULL; END IF;
 
-  SELECT source INTO v_existing FROM communications.conversation_projects
+  SELECT source INTO v_existing FROM pm.conversation_projects
   WHERE conversation_id = v_message.thread_id AND project_id = p_project_id;
   IF v_existing IS NOT NULL AND (v_existing <> 'guessed' OR v_message.sender_member_id IS NOT NULL) THEN
     v_best := v_existing;
   END IF;
-  IF NOT communications.project_accepts_messages(p_project_id) THEN RETURN v_best; END IF;
+  IF NOT pm.project_accepts_messages(p_project_id) THEN RETURN v_best; END IF;
 
   IF EXISTS (
-    SELECT 1 FROM communications.message_endpoints me
-    JOIN communications.endpoints e ON e.id = me.endpoint_id
+    SELECT 1 FROM pm.message_endpoints me
+    JOIN pm.endpoints e ON e.id = me.endpoint_id
     WHERE me.message_id = p_message_id AND e.project_id = p_project_id
   ) THEN
-    v_best := communications.stronger_source(v_best, 'address');
+    v_best := pm.stronger_source(v_best, 'address');
   END IF;
-  IF EXISTS (SELECT 1 FROM communications.message_candidates WHERE message_id = p_message_id AND project_id = p_project_id) THEN
-    SELECT count(DISTINCT project_id) INTO v_candidates FROM communications.message_candidates WHERE message_id = p_message_id;
-    v_best := communications.stronger_source(v_best, CASE WHEN v_candidates = 1 THEN 'mapped' ELSE 'inferred' END);
+  IF EXISTS (SELECT 1 FROM pm.message_candidates WHERE message_id = p_message_id AND project_id = p_project_id) THEN
+    SELECT count(DISTINCT project_id) INTO v_candidates FROM pm.message_candidates WHERE message_id = p_message_id;
+    v_best := pm.stronger_source(v_best, CASE WHEN v_candidates = 1 THEN 'mapped' ELSE 'inferred' END);
   END IF;
   -- A person answered the agent's question on this very email.
-  IF EXISTS (SELECT 1 FROM communications.answers a WHERE a.message_id = p_message_id) THEN
-    v_best := communications.stronger_source(v_best, 'person');
+  IF EXISTS (SELECT 1 FROM pm.answers a WHERE a.message_id = p_message_id) THEN
+    v_best := pm.stronger_source(v_best, 'person');
   END IF;
   IF v_message.sender_member_id IS NOT NULL OR (v_message.kind = 'meeting_notes' AND v_message.sender_verified) THEN
-    v_best := communications.stronger_source(v_best, 'guessed');
+    v_best := pm.stronger_source(v_best, 'guessed');
   END IF;
   RETURN v_best;
 END;
@@ -8836,33 +8840,33 @@ $$;
 -- name, and whether it may touch any project taking mail (and as what).
 -- { bases: [conversation|endpoint|mapped|team|meeting_notes|answered],
 --   projects: [{ project_id, source }], any_project: bool, any_source: person|guessed|null }
-CREATE OR REPLACE FUNCTION communications.message_scope(p_message_id uuid)
+CREATE OR REPLACE FUNCTION pm.message_scope(p_message_id uuid)
 RETURNS jsonb
 LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
-SET search_path = communications, public
+SET search_path = pm
 AS $$
 DECLARE
-  v_message communications.messages;
+  v_message pm.messages;
   v_bases text[] := '{}';
   v_answered boolean;
   v_team boolean;
   v_notes boolean;
 BEGIN
-  SELECT * INTO v_message FROM communications.messages WHERE id = p_message_id;
+  SELECT * INTO v_message FROM pm.messages WHERE id = p_message_id;
   IF NOT FOUND OR v_message.thread_id IS NULL THEN
     RETURN jsonb_build_object('bases', '[]'::jsonb, 'projects', '[]'::jsonb, 'any_project', false, 'any_source', NULL);
   END IF;
-  v_answered := EXISTS (SELECT 1 FROM communications.answers a WHERE a.message_id = p_message_id);
+  v_answered := EXISTS (SELECT 1 FROM pm.answers a WHERE a.message_id = p_message_id);
   v_team := v_message.sender_member_id IS NOT NULL;
   v_notes := v_message.kind = 'meeting_notes' AND v_message.sender_verified;
   IF EXISTS (
-    SELECT 1 FROM communications.conversation_projects
+    SELECT 1 FROM pm.conversation_projects
     WHERE conversation_id = v_message.thread_id AND (source <> 'guessed' OR v_team)
   ) THEN v_bases := array_append(v_bases, 'conversation'); END IF;
-  IF EXISTS (SELECT 1 FROM communications.message_endpoints WHERE message_id = p_message_id) THEN v_bases := array_append(v_bases, 'endpoint'); END IF;
-  IF EXISTS (SELECT 1 FROM communications.message_candidates WHERE message_id = p_message_id) THEN v_bases := array_append(v_bases, 'mapped'); END IF;
+  IF EXISTS (SELECT 1 FROM pm.message_endpoints WHERE message_id = p_message_id) THEN v_bases := array_append(v_bases, 'endpoint'); END IF;
+  IF EXISTS (SELECT 1 FROM pm.message_candidates WHERE message_id = p_message_id) THEN v_bases := array_append(v_bases, 'mapped'); END IF;
   IF v_team THEN v_bases := array_append(v_bases, 'team'); END IF;
   IF v_notes THEN v_bases := array_append(v_bases, 'meeting_notes'); END IF;
   IF v_answered THEN v_bases := array_append(v_bases, 'answered'); END IF;
@@ -8871,12 +8875,12 @@ BEGIN
     'projects', COALESCE((
       SELECT jsonb_agg(jsonb_build_object('project_id', x.project_id, 'source', x.source) ORDER BY x.project_id)
       FROM (
-        SELECT p.project_id, communications.scope_source(p_message_id, p.project_id) AS source
+        SELECT p.project_id, pm.scope_source(p_message_id, p.project_id) AS source
         FROM (
-          SELECT project_id FROM communications.conversation_projects WHERE conversation_id = v_message.thread_id
-          UNION SELECT e.project_id FROM communications.message_endpoints me
-            JOIN communications.endpoints e ON e.id = me.endpoint_id WHERE me.message_id = p_message_id
-          UNION SELECT project_id FROM communications.message_candidates WHERE message_id = p_message_id
+          SELECT project_id FROM pm.conversation_projects WHERE conversation_id = v_message.thread_id
+          UNION SELECT e.project_id FROM pm.message_endpoints me
+            JOIN pm.endpoints e ON e.id = me.endpoint_id WHERE me.message_id = p_message_id
+          UNION SELECT project_id FROM pm.message_candidates WHERE message_id = p_message_id
         ) p
       ) x
       WHERE x.source IS NOT NULL
@@ -8893,7 +8897,7 @@ $$;
 -- a person did it, so it is in scope and recorded as person. Locks the
 -- conversation, as record_triage does, so filings on one conversation run in
 -- turn.
-CREATE OR REPLACE FUNCTION communications.file_message_project(
+CREATE OR REPLACE FUNCTION pm.file_message_project(
   p_message_id uuid,
   p_project_id uuid,
   p_member_id uuid,
@@ -8902,40 +8906,40 @@ CREATE OR REPLACE FUNCTION communications.file_message_project(
 RETURNS text
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = communications, public
+SET search_path = pm
 AS $$
 DECLARE
   v_thread uuid;
   v_source text;
 BEGIN
   IF COALESCE(auth.role(), '') <> 'service_role' THEN RAISE EXCEPTION 'Service role required' USING ERRCODE = '42501'; END IF;
-  SELECT thread_id INTO v_thread FROM communications.messages WHERE id = p_message_id AND status <> 'receiving';
+  SELECT thread_id INTO v_thread FROM pm.messages WHERE id = p_message_id AND status <> 'receiving';
   IF v_thread IS NULL THEN RAISE EXCEPTION 'EMAIL_NOT_FOUND: message %', p_message_id USING ERRCODE = 'P0002'; END IF;
-  PERFORM 1 FROM communications.conversations WHERE id = v_thread FOR UPDATE;
-  v_source := CASE WHEN p_as_person THEN 'person' ELSE communications.scope_source(p_message_id, p_project_id) END;
+  PERFORM 1 FROM pm.conversations WHERE id = v_thread FOR UPDATE;
+  v_source := CASE WHEN p_as_person THEN 'person' ELSE pm.scope_source(p_message_id, p_project_id) END;
   IF v_source IS NULL THEN
     RAISE EXCEPTION 'EMAIL_PROJECT_OUT_OF_SCOPE: this message may not touch project %', p_project_id
       USING ERRCODE = 'P0001', DETAIL = p_project_id::text;
   END IF;
-  INSERT INTO communications.conversation_projects AS cp (conversation_id, project_id, source, endpoint_id, message_id, added_by)
+  INSERT INTO pm.conversation_projects AS cp (conversation_id, project_id, source, endpoint_id, message_id, added_by)
   VALUES (
     v_thread, p_project_id, v_source,
     CASE WHEN v_source = 'address' THEN (
-      SELECT e.id FROM communications.message_endpoints me JOIN communications.endpoints e ON e.id = me.endpoint_id
+      SELECT e.id FROM pm.message_endpoints me JOIN pm.endpoints e ON e.id = me.endpoint_id
       WHERE me.message_id = p_message_id AND e.project_id = p_project_id ORDER BY e.created_at LIMIT 1
     ) END,
     p_message_id, p_member_id
   )
   ON CONFLICT (conversation_id, project_id) DO UPDATE
   SET source = EXCLUDED.source, endpoint_id = EXCLUDED.endpoint_id, message_id = EXCLUDED.message_id, added_by = EXCLUDED.added_by
-  WHERE communications.project_source_rank(EXCLUDED.source) < communications.project_source_rank(cp.source);
-  RETURN (SELECT source FROM communications.conversation_projects WHERE conversation_id = v_thread AND project_id = p_project_id);
+  WHERE pm.project_source_rank(EXCLUDED.source) < pm.project_source_rank(cp.source);
+  RETURN (SELECT source FROM pm.conversation_projects WHERE conversation_id = v_thread AND project_id = p_project_id);
 END;
 $$;
 
 -- Links a task to a message (a person's link, or an agent's before its
 -- triage), filing the task's project on the conversation as the scope allows.
-CREATE OR REPLACE FUNCTION communications.link_message_task(
+CREATE OR REPLACE FUNCTION pm.link_message_task(
   p_message_id uuid,
   p_task_id uuid,
   p_relation text,
@@ -8945,7 +8949,7 @@ CREATE OR REPLACE FUNCTION communications.link_message_task(
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = communications, public
+SET search_path = pm
 AS $$
 DECLARE
   v_project uuid;
@@ -8953,13 +8957,13 @@ DECLARE
 BEGIN
   IF COALESCE(auth.role(), '') <> 'service_role' THEN RAISE EXCEPTION 'Service role required' USING ERRCODE = '42501'; END IF;
   IF p_relation NOT IN ('created', 'updated', 'related') THEN RAISE EXCEPTION 'link_message_task: invalid relation' USING ERRCODE = '22023'; END IF;
-  SELECT project_id INTO v_project FROM public.tasks WHERE id = p_task_id AND deleted_at IS NULL;
+  SELECT project_id INTO v_project FROM pm.tasks WHERE id = p_task_id AND deleted_at IS NULL;
   IF v_project IS NULL THEN
     RAISE EXCEPTION 'EMAIL_LINK_TASK_NOT_FOUND: task %', p_task_id USING ERRCODE = 'P0001', DETAIL = p_task_id::text;
   END IF;
-  PERFORM 1 FROM communications.messages WHERE id = p_message_id FOR UPDATE;
-  v_source := communications.file_message_project(p_message_id, v_project, p_member_id, p_as_person);
-  INSERT INTO communications.task_links (message_id, task_id, relation, triage_id, linked_by)
+  PERFORM 1 FROM pm.messages WHERE id = p_message_id FOR UPDATE;
+  v_source := pm.file_message_project(p_message_id, v_project, p_member_id, p_as_person);
+  INSERT INTO pm.task_links (message_id, task_id, relation, triage_id, linked_by)
   VALUES (p_message_id, p_task_id, p_relation, NULL, p_member_id)
   ON CONFLICT (message_id, task_id, relation) DO NOTHING;
   RETURN jsonb_build_object('task_id', p_task_id, 'project_id', v_project, 'source', v_source);
@@ -8971,7 +8975,7 @@ $$;
 -- scope (else EMAIL_PROJECT_OUT_OF_SCOPE, and nothing is written). With an
 -- idempotency key already used on this email it changes nothing: the same
 -- request hash returns the first triage (replayed), another one is refused.
-CREATE OR REPLACE FUNCTION communications.record_triage(
+CREATE OR REPLACE FUNCTION pm.record_triage(
   p_message_id uuid,
   p_member_id uuid,
   p_triage jsonb,
@@ -8984,11 +8988,11 @@ CREATE OR REPLACE FUNCTION communications.record_triage(
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = communications, public
+SET search_path = pm
 AS $$
 DECLARE
-  v_message communications.messages;
-  v_triage communications.triage;
+  v_message pm.messages;
+  v_triage pm.triage;
   v_projects uuid[];
   v_project uuid;
   v_link jsonb;
@@ -9001,14 +9005,14 @@ BEGIN
     RAISE EXCEPTION 'record_triage: only outreach is filtered' USING ERRCODE = '22023';
   END IF;
 
-  SELECT * INTO v_message FROM communications.messages WHERE id = p_message_id FOR UPDATE;
+  SELECT * INTO v_message FROM pm.messages WHERE id = p_message_id FOR UPDATE;
   IF NOT FOUND OR v_message.status = 'receiving' THEN
     RAISE EXCEPTION 'EMAIL_NOT_FOUND: message %', p_message_id USING ERRCODE = 'P0002';
   END IF;
 
   -- The message row lock above serializes retries of one key.
   IF p_idempotency_key IS NOT NULL THEN
-    SELECT * INTO v_triage FROM communications.triage
+    SELECT * INTO v_triage FROM pm.triage
     WHERE message_id = p_message_id AND idempotency_key = p_idempotency_key;
     IF FOUND THEN
       IF v_triage.request_hash IS DISTINCT FROM p_request_hash THEN
@@ -9017,7 +9021,7 @@ BEGIN
       RETURN jsonb_build_object(
         'triage', to_jsonb(v_triage) - 'request_hash',
         'status', v_message.status,
-        'thread', communications.conversation_projects_json(v_message.thread_id),
+        'thread', pm.conversation_projects_json(v_message.thread_id),
         'replayed', true
       );
     END IF;
@@ -9026,7 +9030,7 @@ BEGIN
   -- Every project it files on: the named ones, then each linked task's.
   v_projects := COALESCE(p_project_ids, '{}');
   FOR v_link IN SELECT value FROM jsonb_array_elements(COALESCE(p_links, '[]'::jsonb)) LOOP
-    SELECT project_id INTO v_task_project FROM public.tasks WHERE id = (v_link->>'task_id')::uuid AND deleted_at IS NULL;
+    SELECT project_id INTO v_task_project FROM pm.tasks WHERE id = (v_link->>'task_id')::uuid AND deleted_at IS NULL;
     IF v_task_project IS NULL THEN
       RAISE EXCEPTION 'EMAIL_LINK_TASK_NOT_FOUND: task %', v_link->>'task_id' USING ERRCODE = 'P0001', DETAIL = v_link->>'task_id';
     END IF;
@@ -9034,12 +9038,12 @@ BEGIN
   END LOOP;
   v_projects := ARRAY(SELECT DISTINCT x FROM unnest(v_projects) AS x ORDER BY x);
 
-  PERFORM 1 FROM communications.conversations WHERE id = v_message.thread_id FOR UPDATE;
+  PERFORM 1 FROM pm.conversations WHERE id = v_message.thread_id FOR UPDATE;
   FOREACH v_project IN ARRAY v_projects LOOP
-    PERFORM communications.file_message_project(p_message_id, v_project, p_member_id);
+    PERFORM pm.file_message_project(p_message_id, v_project, p_member_id);
   END LOOP;
 
-  INSERT INTO communications.triage (
+  INSERT INTO pm.triage (
     message_id, member_id, outcome, urgent, summary, question_for_human, suggested_reply, project_id, project_ids,
     idempotency_key, request_hash, category, questions
   )
@@ -9051,15 +9055,15 @@ BEGIN
   )
   RETURNING * INTO v_triage;
 
-  INSERT INTO communications.task_links (message_id, task_id, relation, triage_id, linked_by)
+  INSERT INTO pm.task_links (message_id, task_id, relation, triage_id, linked_by)
   SELECT p_message_id, (l->>'task_id')::uuid, l->>'relation', v_triage.id, p_member_id
   FROM jsonb_array_elements(COALESCE(p_links, '[]'::jsonb)) AS l
   ON CONFLICT (message_id, task_id, relation) DO NOTHING;
 
-  UPDATE communications.messages SET status = p_status WHERE id = p_message_id;
+  UPDATE pm.messages SET status = p_status WHERE id = p_message_id;
 
   IF NULLIF(btrim(COALESCE(p_triage->>'thread_summary', '')), '') IS NOT NULL THEN
-    UPDATE communications.conversations
+    UPDATE pm.conversations
     SET summary = left(btrim(p_triage->>'thread_summary'), 300), summary_at = now()
     WHERE id = v_message.thread_id;
   END IF;
@@ -9067,7 +9071,7 @@ BEGIN
   RETURN jsonb_build_object(
     'triage', to_jsonb(v_triage) - 'request_hash',
     'status', p_status,
-    'thread', communications.conversation_projects_json(v_message.thread_id),
+    'thread', pm.conversation_projects_json(v_message.thread_id),
     'replayed', false
   );
 END;
@@ -9075,37 +9079,37 @@ $$;
 
 -- A conversation's id with its strongest project (project_id,
 -- project_source, as older readers know it) and every project it is filed on.
-CREATE OR REPLACE FUNCTION communications.conversation_projects_json(p_conversation_id uuid)
+CREATE OR REPLACE FUNCTION pm.conversation_projects_json(p_conversation_id uuid)
 RETURNS jsonb
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
-SET search_path = communications, public
+SET search_path = pm
 AS $$
   SELECT jsonb_build_object(
     'id', c.id, 'project_id', c.project_id, 'project_source', c.project_source,
     'projects', COALESCE((
       SELECT jsonb_agg(jsonb_build_object('project_id', p.project_id, 'source', p.source)
-        ORDER BY communications.project_source_rank(p.source), p.created_at, p.project_id)
-      FROM communications.conversation_projects p WHERE p.conversation_id = c.id
+        ORDER BY pm.project_source_rank(p.source), p.created_at, p.project_id)
+      FROM pm.conversation_projects p WHERE p.conversation_id = c.id
     ), '[]'::jsonb)
   )
-  FROM communications.conversations c WHERE c.id = p_conversation_id
+  FROM pm.conversations c WHERE c.id = p_conversation_id
 $$;
 
 -- A person adds a project to a conversation, or confirms one the agent
 -- guessed: it is theirs from here on (person), the others stay.
-CREATE OR REPLACE FUNCTION communications.add_conversation_project(p_conversation_id uuid, p_project_id uuid, p_member_id uuid)
+CREATE OR REPLACE FUNCTION pm.add_conversation_project(p_conversation_id uuid, p_project_id uuid, p_member_id uuid)
 RETURNS void
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = communications, public
+SET search_path = pm
 AS $$
 BEGIN
   IF COALESCE(auth.role(), '') <> 'service_role' THEN RAISE EXCEPTION 'Service role required' USING ERRCODE = '42501'; END IF;
-  PERFORM 1 FROM communications.conversations WHERE id = p_conversation_id FOR UPDATE;
+  PERFORM 1 FROM pm.conversations WHERE id = p_conversation_id FOR UPDATE;
   IF NOT FOUND THEN RAISE EXCEPTION 'EMAIL_NOT_FOUND: conversation %', p_conversation_id USING ERRCODE = 'P0002'; END IF;
-  INSERT INTO communications.conversation_projects (conversation_id, project_id, source, added_by)
+  INSERT INTO pm.conversation_projects (conversation_id, project_id, source, added_by)
   VALUES (p_conversation_id, p_project_id, 'person', p_member_id)
   ON CONFLICT (conversation_id, project_id) DO UPDATE
   SET source = 'person', endpoint_id = NULL, added_by = EXCLUDED.added_by;
@@ -9115,48 +9119,48 @@ $$;
 -- A person takes a project off a conversation. Refused
 -- (EMAIL_PROJECT_HAS_TASKS) while one of its emails is linked to a task on
 -- that project: unlink or move the task first.
-CREATE OR REPLACE FUNCTION communications.remove_conversation_project(p_conversation_id uuid, p_project_id uuid)
+CREATE OR REPLACE FUNCTION pm.remove_conversation_project(p_conversation_id uuid, p_project_id uuid)
 RETURNS boolean
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = communications, public
+SET search_path = pm
 AS $$
 BEGIN
   IF COALESCE(auth.role(), '') <> 'service_role' THEN RAISE EXCEPTION 'Service role required' USING ERRCODE = '42501'; END IF;
-  PERFORM 1 FROM communications.conversations WHERE id = p_conversation_id FOR UPDATE;
+  PERFORM 1 FROM pm.conversations WHERE id = p_conversation_id FOR UPDATE;
   IF EXISTS (
-    SELECT 1 FROM communications.task_links k
-    JOIN communications.messages m ON m.id = k.message_id
-    JOIN public.tasks t ON t.id = k.task_id
+    SELECT 1 FROM pm.task_links k
+    JOIN pm.messages m ON m.id = k.message_id
+    JOIN pm.tasks t ON t.id = k.task_id
     WHERE m.thread_id = p_conversation_id AND t.project_id = p_project_id AND t.deleted_at IS NULL
   ) THEN
     RAISE EXCEPTION 'EMAIL_PROJECT_HAS_TASKS: a task on that project is linked to this conversation' USING ERRCODE = 'P0001';
   END IF;
-  DELETE FROM communications.conversation_projects WHERE conversation_id = p_conversation_id AND project_id = p_project_id;
+  DELETE FROM pm.conversation_projects WHERE conversation_id = p_conversation_id AND project_id = p_project_id;
   RETURN FOUND;
 END;
 $$;
 
 -- A message's delivery and audience, from its recipients.
-CREATE OR REPLACE FUNCTION communications.delivery_of(p_message_id uuid, p_forwarded boolean)
+CREATE OR REPLACE FUNCTION pm.delivery_of(p_message_id uuid, p_forwarded boolean)
 RETURNS TABLE (delivery text, audience_size integer)
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
-SET search_path = communications, public
+SET search_path = pm
 AS $$
   WITH ours AS (
-    SELECT lower(address) AS address FROM communications.inboxes
-    UNION SELECT lower(routing_address) FROM communications.inboxes
-    UNION SELECT lower(routing_address) FROM communications.endpoints WHERE routing_address IS NOT NULL
-    UNION SELECT lower(public_address) FROM communications.endpoints WHERE public_address IS NOT NULL
-    UNION SELECT lower(btrim(email)) FROM public.team_members WHERE email IS NOT NULL AND btrim(email) <> ''
+    SELECT lower(address) AS address FROM pm.inboxes
+    UNION SELECT lower(routing_address) FROM pm.inboxes
+    UNION SELECT lower(routing_address) FROM pm.endpoints WHERE routing_address IS NOT NULL
+    UNION SELECT lower(public_address) FROM pm.endpoints WHERE public_address IS NOT NULL
+    UNION SELECT lower(btrim(email)) FROM pm.team_members WHERE email IS NOT NULL AND btrim(email) <> ''
   ),
   recipients AS (
     SELECT p.kind, p.address,
       (p.address IN (SELECT address FROM ours)
-        OR split_part(p.address, '@', 2) IN (SELECT domain FROM communications.own_domains)) IS TRUE AS is_ours
-    FROM communications.participants p
+        OR split_part(p.address, '@', 2) IN (SELECT domain FROM pm.own_domains)) IS TRUE AS is_ours
+    FROM pm.participants p
     WHERE p.message_id = p_message_id AND p.kind IN ('to', 'cc')
   )
   SELECT
@@ -9169,72 +9173,72 @@ AS $$
       ELSE 'bcc'
     END,
     (SELECT count(DISTINCT address)::integer FROM recipients)
-  FROM communications.messages m
+  FROM pm.messages m
   WHERE m.id = p_message_id
 $$;
 
 -- Records a message's delivery (ingest, once its recipients are stored).
-CREATE OR REPLACE FUNCTION communications.set_message_delivery(p_message_id uuid, p_forwarded boolean DEFAULT false)
+CREATE OR REPLACE FUNCTION pm.set_message_delivery(p_message_id uuid, p_forwarded boolean DEFAULT false)
 RETURNS text
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = communications, public
+SET search_path = pm
 AS $$
 DECLARE
   v record;
 BEGIN
   IF COALESCE(auth.role(), '') <> 'service_role' THEN RAISE EXCEPTION 'Service role required' USING ERRCODE = '42501'; END IF;
-  SELECT * INTO v FROM communications.delivery_of(p_message_id, p_forwarded);
+  SELECT * INTO v FROM pm.delivery_of(p_message_id, p_forwarded);
   IF NOT FOUND THEN RETURN NULL; END IF;
-  UPDATE communications.messages SET delivery = v.delivery, audience_size = v.audience_size WHERE id = p_message_id;
+  UPDATE pm.messages SET delivery = v.delivery, audience_size = v.audience_size WHERE id = p_message_id;
   RETURN v.delivery;
 END;
 $$;
 
-REVOKE ALL ON FUNCTION communications.delivery_of(uuid, boolean) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION communications.set_message_delivery(uuid, boolean) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION communications.delivery_of(uuid, boolean) TO service_role;
-GRANT EXECUTE ON FUNCTION communications.set_message_delivery(uuid, boolean) TO service_role;
+REVOKE ALL ON FUNCTION pm.delivery_of(uuid, boolean) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION pm.set_message_delivery(uuid, boolean) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION pm.delivery_of(uuid, boolean) TO service_role;
+GRANT EXECUTE ON FUNCTION pm.set_message_delivery(uuid, boolean) TO service_role;
 
-REVOKE ALL ON FUNCTION communications.add_conversation_project(uuid, uuid, uuid) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION communications.remove_conversation_project(uuid, uuid) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION communications.add_conversation_project(uuid, uuid, uuid) TO service_role;
-GRANT EXECUTE ON FUNCTION communications.remove_conversation_project(uuid, uuid) TO service_role;
-REVOKE ALL ON FUNCTION communications.project_accepts_messages(uuid) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION communications.scope_source(uuid, uuid) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION communications.message_scope(uuid) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION communications.file_message_project(uuid, uuid, uuid, boolean) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION communications.link_message_task(uuid, uuid, text, uuid, boolean) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION communications.record_triage(uuid, uuid, jsonb, jsonb, uuid[], text, text, text) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION communications.conversation_projects_json(uuid) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION communications.project_accepts_messages(uuid) TO service_role;
-GRANT EXECUTE ON FUNCTION communications.scope_source(uuid, uuid) TO service_role;
-GRANT EXECUTE ON FUNCTION communications.message_scope(uuid) TO service_role;
-GRANT EXECUTE ON FUNCTION communications.file_message_project(uuid, uuid, uuid, boolean) TO service_role;
-GRANT EXECUTE ON FUNCTION communications.link_message_task(uuid, uuid, text, uuid, boolean) TO service_role;
-GRANT EXECUTE ON FUNCTION communications.record_triage(uuid, uuid, jsonb, jsonb, uuid[], text, text, text) TO service_role;
-GRANT EXECUTE ON FUNCTION communications.conversation_projects_json(uuid) TO service_role;
-REVOKE ALL ON FUNCTION communications.email_start_message(uuid, jsonb, jsonb, jsonb, bigint) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION communications.email_complete_message(uuid, jsonb) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION communications.files_failed(uuid, jsonb, boolean, integer, integer) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION communications.record_triage(uuid, uuid, jsonb, jsonb, uuid, text, text, text) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION communications.signal(jsonb) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION communications.mark_triage_summarized(jsonb, jsonb) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION communications.email_start_message(uuid, jsonb, jsonb, jsonb, bigint) TO service_role;
-GRANT EXECUTE ON FUNCTION communications.email_complete_message(uuid, jsonb) TO service_role;
-GRANT EXECUTE ON FUNCTION communications.files_failed(uuid, jsonb, boolean, integer, integer) TO service_role;
-REVOKE ALL ON FUNCTION communications.claim_file(uuid, text, bigint) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION communications.file_stored(uuid) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION communications.files_release(integer) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION communications.files_forget(jsonb) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION communications.claim_file(uuid, text, bigint) TO service_role;
-GRANT EXECUTE ON FUNCTION communications.file_stored(uuid) TO service_role;
-GRANT EXECUTE ON FUNCTION communications.files_release(integer) TO service_role;
-GRANT EXECUTE ON FUNCTION communications.files_forget(jsonb) TO service_role;
-GRANT EXECUTE ON FUNCTION communications.record_triage(uuid, uuid, jsonb, jsonb, uuid, text, text, text) TO service_role;
-GRANT EXECUTE ON FUNCTION communications.signal(jsonb) TO service_role;
-GRANT EXECUTE ON FUNCTION communications.mark_triage_summarized(jsonb, jsonb) TO service_role;
-REVOKE ALL ON FUNCTION public.sync_contact_email_mirror(uuid) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION pm.add_conversation_project(uuid, uuid, uuid) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION pm.remove_conversation_project(uuid, uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION pm.add_conversation_project(uuid, uuid, uuid) TO service_role;
+GRANT EXECUTE ON FUNCTION pm.remove_conversation_project(uuid, uuid) TO service_role;
+REVOKE ALL ON FUNCTION pm.project_accepts_messages(uuid) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION pm.scope_source(uuid, uuid) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION pm.message_scope(uuid) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION pm.file_message_project(uuid, uuid, uuid, boolean) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION pm.link_message_task(uuid, uuid, text, uuid, boolean) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION pm.record_triage(uuid, uuid, jsonb, jsonb, uuid[], text, text, text) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION pm.conversation_projects_json(uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION pm.project_accepts_messages(uuid) TO service_role;
+GRANT EXECUTE ON FUNCTION pm.scope_source(uuid, uuid) TO service_role;
+GRANT EXECUTE ON FUNCTION pm.message_scope(uuid) TO service_role;
+GRANT EXECUTE ON FUNCTION pm.file_message_project(uuid, uuid, uuid, boolean) TO service_role;
+GRANT EXECUTE ON FUNCTION pm.link_message_task(uuid, uuid, text, uuid, boolean) TO service_role;
+GRANT EXECUTE ON FUNCTION pm.record_triage(uuid, uuid, jsonb, jsonb, uuid[], text, text, text) TO service_role;
+GRANT EXECUTE ON FUNCTION pm.conversation_projects_json(uuid) TO service_role;
+REVOKE ALL ON FUNCTION pm.email_start_message(uuid, jsonb, jsonb, jsonb, bigint) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION pm.email_complete_message(uuid, jsonb) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION pm.files_failed(uuid, jsonb, boolean, integer, integer) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION pm.record_triage(uuid, uuid, jsonb, jsonb, uuid, text, text, text) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION pm.signal(jsonb) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION pm.mark_triage_summarized(jsonb, jsonb) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION pm.email_start_message(uuid, jsonb, jsonb, jsonb, bigint) TO service_role;
+GRANT EXECUTE ON FUNCTION pm.email_complete_message(uuid, jsonb) TO service_role;
+GRANT EXECUTE ON FUNCTION pm.files_failed(uuid, jsonb, boolean, integer, integer) TO service_role;
+REVOKE ALL ON FUNCTION pm.claim_file(uuid, text, bigint) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION pm.file_stored(uuid) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION pm.files_release(integer) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION pm.files_forget(jsonb) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION pm.claim_file(uuid, text, bigint) TO service_role;
+GRANT EXECUTE ON FUNCTION pm.file_stored(uuid) TO service_role;
+GRANT EXECUTE ON FUNCTION pm.files_release(integer) TO service_role;
+GRANT EXECUTE ON FUNCTION pm.files_forget(jsonb) TO service_role;
+GRANT EXECUTE ON FUNCTION pm.record_triage(uuid, uuid, jsonb, jsonb, uuid, text, text, text) TO service_role;
+GRANT EXECUTE ON FUNCTION pm.signal(jsonb) TO service_role;
+GRANT EXECUTE ON FUNCTION pm.mark_triage_summarized(jsonb, jsonb) TO service_role;
+REVOKE ALL ON FUNCTION pm.sync_contact_email_mirror(uuid) FROM PUBLIC, anon, authenticated;
 
 -- ============================================================
 -- 7. Row level security (people in the app; agents use the service client)
@@ -9244,43 +9248,43 @@ REVOKE ALL ON FUNCTION public.sync_contact_email_mirror(uuid) FROM PUBLIC, anon,
 -- inbound_email.manage reads every one, inbound_email.read the granted ones.
 -- Personal: its owner and the people it was shared with; managing inboxes
 -- only while the workspace allows Owners to read personal inboxes.
-CREATE OR REPLACE FUNCTION communications.can_read_inbox(p_inbox_id uuid)
+CREATE OR REPLACE FUNCTION pm.can_read_inbox(p_inbox_id uuid)
 RETURNS boolean
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
-SET search_path = communications, public
+SET search_path = pm
 AS $$
   SELECT EXISTS (
-    SELECT 1 FROM communications.inboxes i
+    SELECT 1 FROM pm.inboxes i
     WHERE i.id = p_inbox_id
       AND CASE
         -- Shared: inbound_email.manage reads every one; inbound_email.read the granted ones.
         WHEN i.owner_member_id IS NULL THEN
-          public.has_permission('inbound_email.manage', 'app')
+          pm.has_permission('inbound_email.manage', 'app')
           OR (
-            public.has_permission('inbound_email.read', 'app')
+            pm.has_permission('inbound_email.read', 'app')
             AND EXISTS (
-              SELECT 1 FROM communications.inbox_access a
-              WHERE a.inbox_id = i.id AND a.member_id = public.current_team_member_id()
+              SELECT 1 FROM pm.inbox_access a
+              WHERE a.inbox_id = i.id AND a.member_id = pm.current_team_member_id()
             )
           )
         -- Personal: its owner and the people it was shared with, while the
         -- Inbox is on; managing inboxes only while the workspace allows it.
         ELSE
           (
-            public.module_enabled('inbox')
+            pm.module_enabled('inbox')
             AND (
-              i.owner_member_id = public.current_team_member_id()
+              i.owner_member_id = pm.current_team_member_id()
               OR EXISTS (
-                SELECT 1 FROM communications.inbox_access a
-                WHERE a.inbox_id = i.id AND a.member_id = public.current_team_member_id()
+                SELECT 1 FROM pm.inbox_access a
+                WHERE a.inbox_id = i.id AND a.member_id = pm.current_team_member_id()
               )
             )
           )
           OR (
-            public.has_permission('inbound_email.manage', 'app')
-            AND COALESCE((SELECT s.owners_read_personal_inboxes FROM public.business_settings s LIMIT 1), false)
+            pm.has_permission('inbound_email.manage', 'app')
+            AND COALESCE((SELECT s.owners_read_personal_inboxes FROM pm.business_settings s LIMIT 1), false)
           )
       END
   )
@@ -9288,160 +9292,158 @@ $$;
 
 -- Who changes an inbox and sees its grants: managing inboxes for a shared
 -- one, its owner (with inbound_email.personal) for a personal one.
-CREATE OR REPLACE FUNCTION communications.can_manage_inbox(p_inbox_id uuid)
+CREATE OR REPLACE FUNCTION pm.can_manage_inbox(p_inbox_id uuid)
 RETURNS boolean
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
-SET search_path = communications, public
+SET search_path = pm
 AS $$
   SELECT EXISTS (
-    SELECT 1 FROM communications.inboxes i
+    SELECT 1 FROM pm.inboxes i
     WHERE i.id = p_inbox_id
       AND CASE
-        WHEN i.owner_member_id IS NULL THEN public.has_permission('inbound_email.manage', 'app')
-        ELSE i.owner_member_id = public.current_team_member_id() AND public.has_permission('inbound_email.personal', 'app')
+        WHEN i.owner_member_id IS NULL THEN pm.has_permission('inbound_email.manage', 'app')
+        ELSE i.owner_member_id = pm.current_team_member_id() AND pm.has_permission('inbound_email.personal', 'app')
       END
   )
 $$;
 
-CREATE OR REPLACE FUNCTION communications.can_read_message(p_message_id uuid)
+CREATE OR REPLACE FUNCTION pm.can_read_message(p_message_id uuid)
 RETURNS boolean
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
-SET search_path = communications, public
+SET search_path = pm
 AS $$
   SELECT EXISTS (
-    SELECT 1 FROM communications.messages m
-    WHERE m.id = p_message_id AND communications.can_read_inbox(m.inbox_id)
+    SELECT 1 FROM pm.messages m
+    WHERE m.id = p_message_id AND pm.can_read_inbox(m.inbox_id)
   )
 $$;
 
-REVOKE ALL ON FUNCTION communications.can_read_inbox(uuid) FROM PUBLIC, anon;
-REVOKE ALL ON FUNCTION communications.can_read_message(uuid) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION communications.can_read_inbox(uuid) TO authenticated, service_role;
-GRANT EXECUTE ON FUNCTION communications.can_read_message(uuid) TO authenticated, service_role;
-REVOKE ALL ON FUNCTION communications.can_manage_inbox(uuid) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION communications.can_manage_inbox(uuid) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.can_read_inbox(uuid) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION pm.can_read_message(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION pm.can_read_inbox(uuid) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.can_read_message(uuid) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.can_manage_inbox(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION pm.can_manage_inbox(uuid) TO authenticated, service_role;
 
-GRANT ALL ON ALL TABLES IN SCHEMA communications TO service_role;
-GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA communications TO authenticated;
 
-ALTER TABLE public.contact_emails ENABLE ROW LEVEL SECURITY;
-ALTER TABLE communications.inboxes ENABLE ROW LEVEL SECURITY;
-ALTER TABLE communications.inbox_access ENABLE ROW LEVEL SECURITY;
-ALTER TABLE communications.client_domains ENABLE ROW LEVEL SECURITY;
-ALTER TABLE communications.client_addresses ENABLE ROW LEVEL SECURITY;
-ALTER TABLE communications.endpoints ENABLE ROW LEVEL SECURITY;
-ALTER TABLE communications.conversations ENABLE ROW LEVEL SECURITY;
-ALTER TABLE communications.messages ENABLE ROW LEVEL SECURITY;
-ALTER TABLE communications.participants ENABLE ROW LEVEL SECURITY;
-ALTER TABLE communications.message_candidates ENABLE ROW LEVEL SECURITY;
-ALTER TABLE communications.attachments ENABLE ROW LEVEL SECURITY;
-ALTER TABLE communications.files ENABLE ROW LEVEL SECURITY;
-REVOKE ALL ON communications.files FROM anon, authenticated;
-GRANT ALL ON communications.files TO service_role;
-ALTER TABLE communications.triage ENABLE ROW LEVEL SECURITY;
-ALTER TABLE communications.task_links ENABLE ROW LEVEL SECURITY;
-ALTER TABLE communications.sender_rules ENABLE ROW LEVEL SECURITY;
-ALTER TABLE communications.reply_drafts ENABLE ROW LEVEL SECURITY;
-ALTER TABLE communications.answers ENABLE ROW LEVEL SECURITY;
-ALTER TABLE communications.conversation_projects ENABLE ROW LEVEL SECURITY;
-ALTER TABLE communications.message_endpoints ENABLE ROW LEVEL SECURITY;
+ALTER TABLE pm.contact_emails ENABLE ROW LEVEL SECURITY;
+ALTER TABLE pm.inboxes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE pm.inbox_access ENABLE ROW LEVEL SECURITY;
+ALTER TABLE pm.client_domains ENABLE ROW LEVEL SECURITY;
+ALTER TABLE pm.client_addresses ENABLE ROW LEVEL SECURITY;
+ALTER TABLE pm.endpoints ENABLE ROW LEVEL SECURITY;
+ALTER TABLE pm.conversations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE pm.messages ENABLE ROW LEVEL SECURITY;
+ALTER TABLE pm.participants ENABLE ROW LEVEL SECURITY;
+ALTER TABLE pm.message_candidates ENABLE ROW LEVEL SECURITY;
+ALTER TABLE pm.attachments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE pm.files ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON pm.files FROM anon, authenticated;
+GRANT ALL ON pm.files TO service_role;
+ALTER TABLE pm.triage ENABLE ROW LEVEL SECURITY;
+ALTER TABLE pm.task_links ENABLE ROW LEVEL SECURITY;
+ALTER TABLE pm.sender_rules ENABLE ROW LEVEL SECURITY;
+ALTER TABLE pm.reply_drafts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE pm.answers ENABLE ROW LEVEL SECURITY;
+ALTER TABLE pm.conversation_projects ENABLE ROW LEVEL SECURITY;
+ALTER TABLE pm.message_endpoints ENABLE ROW LEVEL SECURITY;
 
 -- contact_emails mirrors contacts.
-CREATE POLICY contact_emails_select ON public.contact_emails FOR SELECT TO authenticated
-  USING (public.has_permission('contacts.read_all') OR (
-    public.has_permission('contacts.read') AND EXISTS (
-      SELECT 1 FROM public.project_contacts pc
-      WHERE pc.contact_id = contact_emails.contact_id AND public.can_access_project(pc.project_id)
+CREATE POLICY contact_emails_select ON pm.contact_emails FOR SELECT TO authenticated
+  USING (pm.has_permission('contacts.read_all') OR (
+    pm.has_permission('contacts.read') AND EXISTS (
+      SELECT 1 FROM pm.project_contacts pc
+      WHERE pc.contact_id = contact_emails.contact_id AND pm.can_access_project(pc.project_id)
     )
   ));
-CREATE POLICY contact_emails_manage ON public.contact_emails FOR ALL TO authenticated
-  USING (public.has_permission('contacts.manage')) WITH CHECK (public.has_permission('contacts.manage'));
+CREATE POLICY contact_emails_manage ON pm.contact_emails FOR ALL TO authenticated
+  USING (pm.has_permission('contacts.manage')) WITH CHECK (pm.has_permission('contacts.manage'));
 
 -- Managing inboxes sees every inbox row (a personal one's name, address and
 -- health); its mail follows can_read_inbox().
-CREATE POLICY email_inboxes_select ON communications.inboxes FOR SELECT TO authenticated
-  USING (communications.can_read_inbox(id) OR public.has_permission('inbound_email.manage'));
-CREATE POLICY email_inboxes_manage ON communications.inboxes FOR ALL TO authenticated
-  USING (owner_member_id IS NULL AND public.has_permission('inbound_email.manage'))
-  WITH CHECK (owner_member_id IS NULL AND public.has_permission('inbound_email.manage'));
+CREATE POLICY email_inboxes_select ON pm.inboxes FOR SELECT TO authenticated
+  USING (pm.can_read_inbox(id) OR pm.has_permission('inbound_email.manage'));
+CREATE POLICY email_inboxes_manage ON pm.inboxes FOR ALL TO authenticated
+  USING (owner_member_id IS NULL AND pm.has_permission('inbound_email.manage'))
+  WITH CHECK (owner_member_id IS NULL AND pm.has_permission('inbound_email.manage'));
 -- A person creates personal inboxes only for themselves, and changes only their own.
-CREATE POLICY email_inboxes_personal ON communications.inboxes FOR ALL TO authenticated
-  USING (owner_member_id = public.current_team_member_id() AND public.has_permission('inbound_email.personal'))
-  WITH CHECK (owner_member_id = public.current_team_member_id() AND public.has_permission('inbound_email.personal'));
+CREATE POLICY email_inboxes_personal ON pm.inboxes FOR ALL TO authenticated
+  USING (owner_member_id = pm.current_team_member_id() AND pm.has_permission('inbound_email.personal'))
+  WITH CHECK (owner_member_id = pm.current_team_member_id() AND pm.has_permission('inbound_email.personal'));
 -- Offboarding: turning someone's personal inbox off or on (inboxes_guard_personal allows nothing else).
-CREATE POLICY email_inboxes_switch_personal ON communications.inboxes FOR UPDATE TO authenticated
-  USING (owner_member_id IS NOT NULL AND public.has_permission('inbound_email.manage'))
-  WITH CHECK (owner_member_id IS NOT NULL AND public.has_permission('inbound_email.manage'));
+CREATE POLICY email_inboxes_switch_personal ON pm.inboxes FOR UPDATE TO authenticated
+  USING (owner_member_id IS NOT NULL AND pm.has_permission('inbound_email.manage'))
+  WITH CHECK (owner_member_id IS NOT NULL AND pm.has_permission('inbound_email.manage'));
 
-CREATE POLICY email_inbox_access_select ON communications.inbox_access FOR SELECT TO authenticated
-  USING (member_id = public.current_team_member_id() OR communications.can_manage_inbox(inbox_id));
-CREATE POLICY email_inbox_access_manage ON communications.inbox_access FOR ALL TO authenticated
-  USING (communications.can_manage_inbox(inbox_id))
-  WITH CHECK (communications.can_manage_inbox(inbox_id));
+CREATE POLICY email_inbox_access_select ON pm.inbox_access FOR SELECT TO authenticated
+  USING (member_id = pm.current_team_member_id() OR pm.can_manage_inbox(inbox_id));
+CREATE POLICY email_inbox_access_manage ON pm.inbox_access FOR ALL TO authenticated
+  USING (pm.can_manage_inbox(inbox_id))
+  WITH CHECK (pm.can_manage_inbox(inbox_id));
 
-CREATE POLICY email_client_domains_select ON communications.client_domains FOR SELECT TO authenticated
-  USING (public.can_access_project(project_id) AND (
-    public.has_permission('contacts.read') OR public.has_permission('inbound_email.read')
+CREATE POLICY email_client_domains_select ON pm.client_domains FOR SELECT TO authenticated
+  USING (pm.can_access_project(project_id) AND (
+    pm.has_permission('contacts.read') OR pm.has_permission('inbound_email.read')
   ));
-CREATE POLICY email_client_domains_manage ON communications.client_domains FOR ALL TO authenticated
-  USING ((public.has_permission('contacts.manage') OR public.has_permission('inbound_email.manage')) AND public.can_access_project(project_id))
-  WITH CHECK ((public.has_permission('contacts.manage') OR public.has_permission('inbound_email.manage')) AND public.can_access_project(project_id));
+CREATE POLICY email_client_domains_manage ON pm.client_domains FOR ALL TO authenticated
+  USING ((pm.has_permission('contacts.manage') OR pm.has_permission('inbound_email.manage')) AND pm.can_access_project(project_id))
+  WITH CHECK ((pm.has_permission('contacts.manage') OR pm.has_permission('inbound_email.manage')) AND pm.can_access_project(project_id));
 
-CREATE POLICY email_client_addresses_select ON communications.client_addresses FOR SELECT TO authenticated
-  USING (public.can_access_project(project_id) AND (
-    public.has_permission('contacts.read') OR public.has_permission('inbound_email.read')
+CREATE POLICY email_client_addresses_select ON pm.client_addresses FOR SELECT TO authenticated
+  USING (pm.can_access_project(project_id) AND (
+    pm.has_permission('contacts.read') OR pm.has_permission('inbound_email.read')
   ));
-CREATE POLICY email_client_addresses_manage ON communications.client_addresses FOR ALL TO authenticated
-  USING ((public.has_permission('contacts.manage') OR public.has_permission('inbound_email.manage')) AND public.can_access_project(project_id))
-  WITH CHECK ((public.has_permission('contacts.manage') OR public.has_permission('inbound_email.manage')) AND public.can_access_project(project_id));
+CREATE POLICY email_client_addresses_manage ON pm.client_addresses FOR ALL TO authenticated
+  USING ((pm.has_permission('contacts.manage') OR pm.has_permission('inbound_email.manage')) AND pm.can_access_project(project_id))
+  WITH CHECK ((pm.has_permission('contacts.manage') OR pm.has_permission('inbound_email.manage')) AND pm.can_access_project(project_id));
 
 -- An address with no project is the inbox team's to read and manage.
-CREATE POLICY email_project_addresses_select ON communications.endpoints FOR SELECT TO authenticated
+CREATE POLICY email_project_addresses_select ON pm.endpoints FOR SELECT TO authenticated
   USING (
-    (project_id IS NULL AND (public.has_permission('inbound_email.read') OR public.has_permission('inbound_email.manage')))
-    OR (public.can_access_project(project_id) AND (public.has_permission('contacts.read') OR public.has_permission('inbound_email.read')))
+    (project_id IS NULL AND (pm.has_permission('inbound_email.read') OR pm.has_permission('inbound_email.manage')))
+    OR (pm.can_access_project(project_id) AND (pm.has_permission('contacts.read') OR pm.has_permission('inbound_email.read')))
   );
-CREATE POLICY email_project_addresses_manage ON communications.endpoints FOR ALL TO authenticated
+CREATE POLICY email_project_addresses_manage ON pm.endpoints FOR ALL TO authenticated
   USING (
-    (project_id IS NULL AND public.has_permission('inbound_email.manage'))
-    OR ((public.has_permission('contacts.manage') OR public.has_permission('inbound_email.manage')) AND public.can_access_project(project_id))
+    (project_id IS NULL AND pm.has_permission('inbound_email.manage'))
+    OR ((pm.has_permission('contacts.manage') OR pm.has_permission('inbound_email.manage')) AND pm.can_access_project(project_id))
   )
   WITH CHECK (
-    (project_id IS NULL AND public.has_permission('inbound_email.manage'))
-    OR ((public.has_permission('contacts.manage') OR public.has_permission('inbound_email.manage')) AND public.can_access_project(project_id))
+    (project_id IS NULL AND pm.has_permission('inbound_email.manage'))
+    OR ((pm.has_permission('contacts.manage') OR pm.has_permission('inbound_email.manage')) AND pm.can_access_project(project_id))
   );
 
-CREATE POLICY email_threads_select ON communications.conversations FOR SELECT TO authenticated
-  USING (communications.can_read_inbox(inbox_id));
-CREATE POLICY email_messages_select ON communications.messages FOR SELECT TO authenticated
-  USING (communications.can_read_inbox(inbox_id));
-CREATE POLICY email_message_recipients_select ON communications.participants FOR SELECT TO authenticated
-  USING (communications.can_read_message(message_id));
-CREATE POLICY email_message_candidates_select ON communications.message_candidates FOR SELECT TO authenticated
-  USING (communications.can_read_message(message_id));
-CREATE POLICY email_attachments_select ON communications.attachments FOR SELECT TO authenticated
-  USING (communications.can_read_message(message_id));
-CREATE POLICY email_triage_select ON communications.triage FOR SELECT TO authenticated
-  USING (communications.can_read_message(message_id));
-CREATE POLICY email_task_links_select ON communications.task_links FOR SELECT TO authenticated
-  USING (communications.can_read_message(message_id));
-CREATE POLICY email_sender_rules_select ON communications.sender_rules FOR SELECT TO authenticated
-  USING (public.has_permission('inbound_email.read') OR public.has_permission('inbound_email.manage'));
-CREATE POLICY email_reply_drafts_select ON communications.reply_drafts FOR SELECT TO authenticated
-  USING (communications.can_read_message(message_id));
-CREATE POLICY email_question_answers_select ON communications.answers FOR SELECT TO authenticated
-  USING (communications.can_read_message(message_id));
-CREATE POLICY conversation_projects_select ON communications.conversation_projects FOR SELECT TO authenticated
+CREATE POLICY email_threads_select ON pm.conversations FOR SELECT TO authenticated
+  USING (pm.can_read_inbox(inbox_id));
+CREATE POLICY email_messages_select ON pm.messages FOR SELECT TO authenticated
+  USING (pm.can_read_inbox(inbox_id));
+CREATE POLICY email_message_recipients_select ON pm.participants FOR SELECT TO authenticated
+  USING (pm.can_read_message(message_id));
+CREATE POLICY email_message_candidates_select ON pm.message_candidates FOR SELECT TO authenticated
+  USING (pm.can_read_message(message_id));
+CREATE POLICY email_attachments_select ON pm.attachments FOR SELECT TO authenticated
+  USING (pm.can_read_message(message_id));
+CREATE POLICY email_triage_select ON pm.triage FOR SELECT TO authenticated
+  USING (pm.can_read_message(message_id));
+CREATE POLICY email_task_links_select ON pm.task_links FOR SELECT TO authenticated
+  USING (pm.can_read_message(message_id));
+CREATE POLICY email_sender_rules_select ON pm.sender_rules FOR SELECT TO authenticated
+  USING (pm.has_permission('inbound_email.read') OR pm.has_permission('inbound_email.manage'));
+CREATE POLICY email_reply_drafts_select ON pm.reply_drafts FOR SELECT TO authenticated
+  USING (pm.can_read_message(message_id));
+CREATE POLICY email_question_answers_select ON pm.answers FOR SELECT TO authenticated
+  USING (pm.can_read_message(message_id));
+CREATE POLICY conversation_projects_select ON pm.conversation_projects FOR SELECT TO authenticated
   USING (EXISTS (
-    SELECT 1 FROM communications.conversations c
-    WHERE c.id = conversation_id AND communications.can_read_inbox(c.inbox_id)
+    SELECT 1 FROM pm.conversations c
+    WHERE c.id = conversation_id AND pm.can_read_inbox(c.inbox_id)
   ));
-CREATE POLICY message_endpoints_select ON communications.message_endpoints FOR SELECT TO authenticated
-  USING (communications.can_read_message(message_id));
+CREATE POLICY message_endpoints_select ON pm.message_endpoints FOR SELECT TO authenticated
+  USING (pm.can_read_message(message_id));
 
 -- ============================================================
 -- 8. Private storage bucket
@@ -9450,7 +9452,7 @@ CREATE POLICY message_endpoints_select ON communications.message_endpoints FOR S
 -- it (server-side copies from the provider, and short-lived signed reads).
 -- 50 MiB per object; larger raw messages and attachments are not stored.
 INSERT INTO storage.buckets (id, name, public, file_size_limit)
-VALUES ('inbound-email', 'inbound-email', false, 52428800)
+VALUES ('pm-inbound-email', 'pm-inbound-email', false, 52428800)
 ON CONFLICT (id) DO NOTHING;
 
 -- ============================================================
@@ -9461,7 +9463,7 @@ ON CONFLICT (id) DO NOTHING;
 -- inbound_email.personal connects your own inbox (Admins and Members; Owners
 -- hold every permission). API: read, triage and signal, always narrowed to
 -- the key member's granted inboxes.
-INSERT INTO public.role_permissions (role, permission_key, access_channel) VALUES
+INSERT INTO pm.role_permissions (role, permission_key, access_channel) VALUES
   ('admin', 'inbound_email.read', 'app'),
   ('admin', 'inbound_email.manage', 'app'),
   ('admin', 'inbound_email.personal', 'app'),
@@ -9474,7 +9476,7 @@ ON CONFLICT DO NOTHING;
 -- Fleet host alerts (20261010210652_agent_telemetry.sql): the scope the
 -- dispatcher's key carries to post alerts that name no agent. No key gets it
 -- automatically.
-INSERT INTO public.role_permissions (role, permission_key, access_channel) VALUES
+INSERT INTO pm.role_permissions (role, permission_key, access_channel) VALUES
   ('agent', 'fleet_alerts.write', 'api')
 ON CONFLICT DO NOTHING;
 
@@ -9488,7 +9490,7 @@ ON CONFLICT DO NOTHING;
 -- touched: an email's task links go with it, the tasks stay.
 
 -- The last run of each job, for the inbox settings status.
-CREATE TABLE communications.maintenance_runs (
+CREATE TABLE pm.maintenance_runs (
   kind text PRIMARY KEY CHECK (kind IN ('retention', 'orphan_sweep')),
   started_at timestamptz NOT NULL,
   finished_at timestamptz NOT NULL,
@@ -9510,13 +9512,12 @@ CREATE TABLE communications.maintenance_runs (
   last_error text CHECK (last_error IS NULL OR length(last_error) <= 2000)
 );
 
-ALTER TABLE communications.maintenance_runs ENABLE ROW LEVEL SECURITY;
-CREATE POLICY email_maintenance_runs_select ON communications.maintenance_runs FOR SELECT TO authenticated
-  USING (public.has_permission('inbound_email.manage'));
+ALTER TABLE pm.maintenance_runs ENABLE ROW LEVEL SECURITY;
+CREATE POLICY email_maintenance_runs_select ON pm.maintenance_runs FOR SELECT TO authenticated
+  USING (pm.has_permission('inbound_email.manage'));
 
 -- Tables added to this schema from here on are read-only for signed-in
 -- members unless their migration grants more.
-ALTER DEFAULT PRIVILEGES IN SCHEMA communications REVOKE INSERT, UPDATE, DELETE ON TABLES FROM authenticated;
 
 -- ---------------------------------------------------------------------------
 -- Triage plans (20261026200925_triage_plans.sql): what the agent made of a
@@ -9524,12 +9525,12 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA communications REVOKE INSERT, UPDATE, DELETE 
 -- propose, reject). Shadow plans apply nothing. reply_points: what someone is
 -- waiting on Ciaran (or the agent) for, kept per conversation.
 -- ---------------------------------------------------------------------------
-CREATE TABLE communications.plans (
+CREATE TABLE pm.plans (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  message_id uuid NOT NULL REFERENCES communications.messages(id) ON DELETE CASCADE,
-  conversation_id uuid NOT NULL REFERENCES communications.conversations(id) ON DELETE CASCADE,
+  message_id uuid NOT NULL REFERENCES pm.messages(id) ON DELETE CASCADE,
+  conversation_id uuid NOT NULL REFERENCES pm.conversations(id) ON DELETE CASCADE,
   -- The agent that made it.
-  member_id uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
+  member_id uuid REFERENCES pm.team_members(id) ON DELETE SET NULL,
   mode text NOT NULL CONSTRAINT plans_mode_check CHECK (mode IN ('live', 'shadow')),
   status text NOT NULL DEFAULT 'applying' CONSTRAINT plans_status_check
     CHECK (status IN ('applying', 'applied', 'partial', 'undone')),
@@ -9543,24 +9544,24 @@ CREATE TABLE communications.plans (
   flags text[] NOT NULL DEFAULT '{}'
     CONSTRAINT plans_flags_check CHECK (flags <@ ARRAY['context_incomplete', 'content_unreadable']::text[]),
   -- The triage row a live plan records (summary feed, questions, answers).
-  triage_id uuid REFERENCES communications.triage(id) ON DELETE SET NULL,
+  triage_id uuid REFERENCES pm.triage(id) ON DELETE SET NULL,
   idempotency_key text CONSTRAINT plans_idempotency_key_check CHECK (idempotency_key IS NULL OR length(idempotency_key) BETWEEN 1 AND 200),
   request_hash text,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT plans_key_has_hash CHECK (idempotency_key IS NULL OR request_hash IS NOT NULL)
 );
-CREATE INDEX idx_plans_message ON communications.plans (message_id, created_at DESC);
-CREATE INDEX idx_plans_conversation ON communications.plans (conversation_id, created_at DESC);
-CREATE UNIQUE INDEX plans_message_idempotency_key ON communications.plans (message_id, mode, idempotency_key)
+CREATE INDEX idx_plans_message ON pm.plans (message_id, created_at DESC);
+CREATE INDEX idx_plans_conversation ON pm.plans (conversation_id, created_at DESC);
+CREATE UNIQUE INDEX plans_message_idempotency_key ON pm.plans (message_id, mode, idempotency_key)
   WHERE idempotency_key IS NOT NULL;
 
-CREATE TABLE communications.plan_items (
+CREATE TABLE pm.plan_items (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  plan_id uuid NOT NULL REFERENCES communications.plans(id) ON DELETE CASCADE,
+  plan_id uuid NOT NULL REFERENCES pm.plans(id) ON DELETE CASCADE,
   position integer NOT NULL CONSTRAINT plan_items_position_check CHECK (position >= 0),
   -- Copies of the plan's, so per-conversation rules can be indexed.
-  conversation_id uuid NOT NULL REFERENCES communications.conversations(id) ON DELETE CASCADE,
+  conversation_id uuid NOT NULL REFERENCES pm.conversations(id) ON DELETE CASCADE,
   mode text NOT NULL CONSTRAINT plan_items_mode_check CHECK (mode IN ('live', 'shadow')),
   type text NOT NULL CONSTRAINT plan_items_type_check CHECK (type IN (
     'create_task', 'update_task', 'comment', 'attach_file',
@@ -9572,13 +9573,13 @@ CREATE TABLE communications.plan_items (
     'new_work', 'change', 'handoff', 'waiting_on', 'commitment', 'reply_owed',
     'owner_instruction', 'new_business', 'money', 'account_risk', 'context', 'noise'
   )),
-  project_id uuid REFERENCES public.projects(id) ON DELETE SET NULL,
+  project_id uuid REFERENCES pm.projects(id) ON DELETE SET NULL,
   -- The task it acts on, or the one it created.
-  task_id uuid REFERENCES public.tasks(id) ON DELETE SET NULL,
+  task_id uuid REFERENCES pm.tasks(id) ON DELETE SET NULL,
   -- Who the work is aimed at.
   addressee text NOT NULL DEFAULT 'ciaran'
     CONSTRAINT plan_items_addressee_check CHECK (addressee IN ('ciaran', 'agency', 'teammate', 'client', 'other')),
-  addressee_member_id uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
+  addressee_member_id uuid REFERENCES pm.team_members(id) ON DELETE SET NULL,
   payload jsonb NOT NULL DEFAULT '{}'::jsonb,
   -- The words (or the attachment) that justify it.
   evidence text CONSTRAINT plan_items_evidence_check CHECK (evidence IS NULL OR length(evidence) <= 1000),
@@ -9595,27 +9596,27 @@ CREATE TABLE communications.plan_items (
   -- What applying it did: ids it created, the values it replaced.
   result jsonb NOT NULL DEFAULT '{}'::jsonb,
   error text CONSTRAINT plan_items_error_check CHECK (error IS NULL OR length(error) <= 1000),
-  resolved_by uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
+  resolved_by uuid REFERENCES pm.team_members(id) ON DELETE SET NULL,
   resolved_at timestamptz,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT plan_items_plan_position_key UNIQUE (plan_id, position)
 );
-CREATE INDEX idx_plan_items_conversation ON communications.plan_items (conversation_id, created_at DESC);
-CREATE INDEX idx_plan_items_project ON communications.plan_items (project_id, created_at DESC) WHERE project_id IS NOT NULL;
-CREATE INDEX idx_plan_items_task ON communications.plan_items (task_id) WHERE task_id IS NOT NULL;
-CREATE INDEX idx_plan_items_pending ON communications.plan_items (created_at) WHERE state = 'pending';
+CREATE INDEX idx_plan_items_conversation ON pm.plan_items (conversation_id, created_at DESC);
+CREATE INDEX idx_plan_items_project ON pm.plan_items (project_id, created_at DESC) WHERE project_id IS NOT NULL;
+CREATE INDEX idx_plan_items_task ON pm.plan_items (task_id) WHERE task_id IS NOT NULL;
+CREATE INDEX idx_plan_items_pending ON pm.plan_items (created_at) WHERE state = 'pending';
 -- At most one question waiting per conversation.
-CREATE UNIQUE INDEX plan_items_one_open_ask ON communications.plan_items (conversation_id)
+CREATE UNIQUE INDEX plan_items_one_open_ask ON pm.plan_items (conversation_id)
   WHERE type = 'ask' AND state = 'pending' AND mode = 'live';
 
-CREATE TABLE communications.reply_points (
+CREATE TABLE pm.reply_points (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  conversation_id uuid NOT NULL REFERENCES communications.conversations(id) ON DELETE CASCADE,
+  conversation_id uuid NOT NULL REFERENCES pm.conversations(id) ON DELETE CASCADE,
   -- The message that raised it (or last amended it).
-  message_id uuid REFERENCES communications.messages(id) ON DELETE SET NULL,
-  plan_item_id uuid REFERENCES communications.plan_items(id) ON DELETE SET NULL,
-  project_id uuid REFERENCES public.projects(id) ON DELETE SET NULL,
+  message_id uuid REFERENCES pm.messages(id) ON DELETE SET NULL,
+  plan_item_id uuid REFERENCES pm.plan_items(id) ON DELETE SET NULL,
+  project_id uuid REFERENCES pm.projects(id) ON DELETE SET NULL,
   -- Who is waiting, and on what.
   who text NOT NULL CONSTRAINT reply_points_who_check CHECK (length(who) BETWEEN 1 AND 200),
   what text NOT NULL CONSTRAINT reply_points_what_check CHECK (length(what) BETWEEN 1 AND 1000),
@@ -9626,56 +9627,56 @@ CREATE TABLE communications.reply_points (
   by_when date,
   urgent boolean NOT NULL DEFAULT false,
   state text NOT NULL DEFAULT 'open' CONSTRAINT reply_points_state_check CHECK (state IN ('open', 'resolved', 'expired')),
-  resolved_by uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
+  resolved_by uuid REFERENCES pm.team_members(id) ON DELETE SET NULL,
   resolved_at timestamptz,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
-CREATE INDEX idx_reply_points_conversation ON communications.reply_points (conversation_id, created_at DESC);
-CREATE INDEX idx_reply_points_open ON communications.reply_points (by_when NULLS LAST, created_at) WHERE state = 'open';
+CREATE INDEX idx_reply_points_conversation ON pm.reply_points (conversation_id, created_at DESC);
+CREATE INDEX idx_reply_points_open ON pm.reply_points (by_when NULLS LAST, created_at) WHERE state = 'open';
 
-ALTER TABLE communications.triage ADD CONSTRAINT triage_plan_id_fkey
-  FOREIGN KEY (plan_id) REFERENCES communications.plans(id) ON DELETE SET NULL;
+ALTER TABLE pm.triage ADD CONSTRAINT triage_plan_id_fkey
+  FOREIGN KEY (plan_id) REFERENCES pm.plans(id) ON DELETE SET NULL;
 
-CREATE TRIGGER set_plans_updated_at BEFORE UPDATE ON communications.plans
-  FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
-CREATE TRIGGER set_plan_items_updated_at BEFORE UPDATE ON communications.plan_items
-  FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
-CREATE TRIGGER set_reply_points_updated_at BEFORE UPDATE ON communications.reply_points
-  FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
+CREATE TRIGGER set_plans_updated_at BEFORE UPDATE ON pm.plans
+  FOR EACH ROW EXECUTE FUNCTION pm.handle_updated_at();
+CREATE TRIGGER set_plan_items_updated_at BEFORE UPDATE ON pm.plan_items
+  FOR EACH ROW EXECUTE FUNCTION pm.handle_updated_at();
+CREATE TRIGGER set_reply_points_updated_at BEFORE UPDATE ON pm.reply_points
+  FOR EACH ROW EXECUTE FUNCTION pm.handle_updated_at();
 
 -- Read under RLS by whoever can read the message; written only by the server.
-ALTER TABLE communications.plans ENABLE ROW LEVEL SECURITY;
-ALTER TABLE communications.plan_items ENABLE ROW LEVEL SECURITY;
-ALTER TABLE communications.reply_points ENABLE ROW LEVEL SECURITY;
-CREATE POLICY plans_select ON communications.plans FOR SELECT TO authenticated
-  USING (communications.can_read_message(message_id));
-CREATE POLICY plan_items_select ON communications.plan_items FOR SELECT TO authenticated
-  USING (EXISTS (SELECT 1 FROM communications.plans p WHERE p.id = plan_id AND communications.can_read_message(p.message_id)));
-CREATE POLICY reply_points_select ON communications.reply_points FOR SELECT TO authenticated
+ALTER TABLE pm.plans ENABLE ROW LEVEL SECURITY;
+ALTER TABLE pm.plan_items ENABLE ROW LEVEL SECURITY;
+ALTER TABLE pm.reply_points ENABLE ROW LEVEL SECURITY;
+CREATE POLICY plans_select ON pm.plans FOR SELECT TO authenticated
+  USING (pm.can_read_message(message_id));
+CREATE POLICY plan_items_select ON pm.plan_items FOR SELECT TO authenticated
+  USING (EXISTS (SELECT 1 FROM pm.plans p WHERE p.id = plan_id AND pm.can_read_message(p.message_id)));
+CREATE POLICY reply_points_select ON pm.reply_points FOR SELECT TO authenticated
   USING (EXISTS (
-    SELECT 1 FROM communications.messages m
-    WHERE m.thread_id = conversation_id AND communications.can_read_message(m.id)
+    SELECT 1 FROM pm.messages m
+    WHERE m.thread_id = conversation_id AND pm.can_read_message(m.id)
   ));
-REVOKE ALL ON communications.plans, communications.plan_items, communications.reply_points FROM PUBLIC, anon, authenticated;
-GRANT SELECT ON communications.plans, communications.plan_items, communications.reply_points TO authenticated;
-GRANT ALL ON communications.plans, communications.plan_items, communications.reply_points TO service_role;
+REVOKE ALL ON pm.plans, pm.plan_items, pm.reply_points FROM PUBLIC, anon, authenticated;
+GRANT SELECT ON pm.plans, pm.plan_items, pm.reply_points TO authenticated;
+GRANT ALL ON pm.plans, pm.plan_items, pm.reply_points TO service_role;
 -- Meetings: read by whoever can read the inbox; written only by the server.
-ALTER TABLE communications.meetings ENABLE ROW LEVEL SECURITY;
-REVOKE ALL ON communications.meetings FROM PUBLIC, anon, authenticated;
-GRANT SELECT ON communications.meetings TO authenticated;
-GRANT ALL ON communications.meetings TO service_role;
-CREATE POLICY meetings_select ON communications.meetings FOR SELECT TO authenticated
-  USING (communications.can_read_inbox(inbox_id));
+ALTER TABLE pm.meetings ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON pm.meetings FROM PUBLIC, anon, authenticated;
+GRANT SELECT ON pm.meetings TO authenticated;
+GRANT ALL ON pm.meetings TO service_role;
+CREATE POLICY meetings_select ON pm.meetings FOR SELECT TO authenticated
+  USING (pm.can_read_inbox(inbox_id));
 
 -- The meeting's conversation: found by its key, or created with its
 -- details. A later package updates the details it knows (a transcript knows
 -- the times when the notes did not). Service role only.
-CREATE OR REPLACE FUNCTION communications.meeting_conversation(p_inbox_id uuid, p_meeting jsonb)
+CREATE OR REPLACE FUNCTION pm.meeting_conversation(p_inbox_id uuid, p_meeting jsonb)
 RETURNS uuid
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = communications, public
+SET search_path = pm
 AS $$
 DECLARE
   v_key text := btrim(COALESCE(p_meeting->>'meeting_key', ''));
@@ -9695,22 +9696,22 @@ BEGIN
   -- Two packages of one meeting arriving at once: one creates, one waits.
   PERFORM pg_advisory_xact_lock(hashtextextended(p_inbox_id::text || ':' || v_key, 0));
 
-  SELECT conversation_id INTO v_conversation FROM communications.meetings
+  SELECT conversation_id INTO v_conversation FROM pm.meetings
   WHERE inbox_id = p_inbox_id AND meeting_key = v_key;
 
   IF v_conversation IS NULL THEN
     -- No subject: subject threading must never pull an email into a meeting.
-    INSERT INTO communications.conversations (inbox_id, subject_normalized, channel, last_message_at)
+    INSERT INTO pm.conversations (inbox_id, subject_normalized, channel, last_message_at)
     VALUES (p_inbox_id, '', 'meeting', COALESCE((p_meeting->>'starts_at')::timestamptz, now()))
     RETURNING id INTO v_conversation;
-    INSERT INTO communications.meetings (conversation_id, inbox_id, meeting_key, title, starts_at, ends_at, organizer_address, doc_url)
+    INSERT INTO pm.meetings (conversation_id, inbox_id, meeting_key, title, starts_at, ends_at, organizer_address, doc_url)
     VALUES (
       v_conversation, p_inbox_id, v_key, v_title, v_starts,
       CASE WHEN v_ends >= v_starts OR v_starts IS NULL THEN v_ends END,
       v_organizer, v_doc
     );
   ELSE
-    UPDATE communications.meetings SET
+    UPDATE pm.meetings SET
       starts_at = COALESCE(starts_at, v_starts),
       ends_at = COALESCE(ends_at, CASE WHEN v_ends >= COALESCE(starts_at, v_starts) OR COALESCE(starts_at, v_starts) IS NULL THEN v_ends END),
       organizer_address = COALESCE(organizer_address, v_organizer),
@@ -9720,25 +9721,25 @@ BEGIN
   RETURN v_conversation;
 END;
 $$;
-REVOKE ALL ON FUNCTION communications.meeting_conversation(uuid, jsonb) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION communications.meeting_conversation(uuid, jsonb) TO service_role;
+REVOKE ALL ON FUNCTION pm.meeting_conversation(uuid, jsonb) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION pm.meeting_conversation(uuid, jsonb) TO service_role;
 
 -- Your domains and ignored addresses: written by the app's service role only.
-REVOKE ALL ON communications.own_domains, communications.ignored_addresses FROM PUBLIC, anon, authenticated;
-GRANT SELECT ON communications.own_domains, communications.ignored_addresses TO authenticated;
-GRANT ALL ON communications.own_domains, communications.ignored_addresses TO service_role;
+REVOKE ALL ON pm.own_domains, pm.ignored_addresses FROM PUBLIC, anon, authenticated;
+GRANT SELECT ON pm.own_domains, pm.ignored_addresses TO authenticated;
+GRANT ALL ON pm.own_domains, pm.ignored_addresses TO service_role;
 
 -- The next batch of messages due for deletion, oldest first, with every file
 -- path they own: the raw .eml and attachments stored the old way. Shared
 -- copies are released after the rows go (files_release). Due: email past the inbox's retention_days (any status but
 -- receiving; meetings are kept), or stuck in receiving for over 24 hours. p_exclude skips
 -- messages whose files failed to delete earlier in the same run.
-CREATE OR REPLACE FUNCTION communications.retention_due(p_limit integer, p_exclude jsonb DEFAULT '[]'::jsonb)
+CREATE OR REPLACE FUNCTION pm.retention_due(p_limit integer, p_exclude jsonb DEFAULT '[]'::jsonb)
 RETURNS jsonb
 LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
-SET search_path = communications, public
+SET search_path = pm
 AS $$
 BEGIN
   IF COALESCE(auth.role(), '') <> 'service_role' THEN RAISE EXCEPTION 'Service role required' USING ERRCODE = '42501'; END IF;
@@ -9748,8 +9749,8 @@ BEGIN
     ),
     due AS (
       SELECT m.id, m.inbox_id, m.raw_storage_path, m.status, m.received_at, m.created_at
-      FROM communications.messages m
-      JOIN communications.inboxes i ON i.id = m.inbox_id
+      FROM pm.messages m
+      JOIN pm.inboxes i ON i.id = m.inbox_id
       WHERE (
           (m.status <> 'receiving' AND m.channel = 'email' AND m.received_at < now() - make_interval(days => i.retention_days))
           OR (m.status = 'receiving' AND m.created_at < now() - interval '24 hours')
@@ -9764,7 +9765,7 @@ BEGIN
       'reason', CASE WHEN d.status = 'receiving' THEN 'stuck_receiving' ELSE 'retention' END,
       'paths', to_jsonb(
         array_remove(ARRAY[d.raw_storage_path], NULL)
-        || ARRAY(SELECT a.storage_path FROM communications.attachments a
+        || ARRAY(SELECT a.storage_path FROM pm.attachments a
                  WHERE a.message_id = d.id AND a.storage_path IS NOT NULL AND a.file_id IS NULL ORDER BY a.position)
       )
     ) ORDER BY LEAST(d.received_at, d.created_at), d.id), '[]'::jsonb)
@@ -9779,11 +9780,11 @@ $$;
 -- retention_due; a stuck email that completed during this run still
 -- goes, since its files are gone). Meetings and their conversations are
 -- kept. Tasks are never touched.
-CREATE OR REPLACE FUNCTION communications.retention_delete(p_message_ids jsonb)
+CREATE OR REPLACE FUNCTION pm.retention_delete(p_message_ids jsonb)
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = communications, public
+SET search_path = pm
 AS $$
 DECLARE
   v_requested uuid[] := ARRAY(SELECT DISTINCT (value)::uuid FROM jsonb_array_elements_text(COALESCE(p_message_ids, '[]'::jsonb)));
@@ -9797,7 +9798,7 @@ BEGIN
   IF COALESCE(auth.role(), '') <> 'service_role' THEN RAISE EXCEPTION 'Service role required' USING ERRCODE = '42501'; END IF;
 
   -- Lock first, so ingestion cannot complete one of them halfway through.
-  PERFORM 1 FROM communications.messages WHERE id = ANY(v_requested) ORDER BY id FOR UPDATE;
+  PERFORM 1 FROM pm.messages WHERE id = ANY(v_requested) ORDER BY id FOR UPDATE;
 
   SELECT
     COALESCE(array_agg(m.id), '{}'),
@@ -9808,8 +9809,8 @@ BEGIN
                      THEN 'retention' ELSE 'stuck_receiving' END
     )), '[]'::jsonb)
   INTO v_ids, v_threads, v_deleted
-  FROM communications.messages m
-  JOIN communications.inboxes i ON i.id = m.inbox_id
+  FROM pm.messages m
+  JOIN pm.inboxes i ON i.id = m.inbox_id
   WHERE m.id = ANY(v_requested)
     AND (
       (m.status <> 'receiving' AND m.channel = 'email' AND m.received_at < now() - make_interval(days => i.retention_days))
@@ -9817,19 +9818,19 @@ BEGIN
           AND (m.status = 'receiving' OR (m.channel = 'email' AND m.completed_at > now() - interval '15 minutes')))
     );
 
-  DELETE FROM communications.attachments WHERE message_id = ANY(v_ids);
+  DELETE FROM pm.attachments WHERE message_id = ANY(v_ids);
   GET DIAGNOSTICS v_attachments = ROW_COUNT;
-  DELETE FROM communications.task_links WHERE message_id = ANY(v_ids);
-  DELETE FROM communications.triage WHERE message_id = ANY(v_ids);
-  DELETE FROM communications.participants WHERE message_id = ANY(v_ids);
-  DELETE FROM communications.message_candidates WHERE message_id = ANY(v_ids);
-  DELETE FROM communications.messages WHERE id = ANY(v_ids);
+  DELETE FROM pm.task_links WHERE message_id = ANY(v_ids);
+  DELETE FROM pm.triage WHERE message_id = ANY(v_ids);
+  DELETE FROM pm.participants WHERE message_id = ANY(v_ids);
+  DELETE FROM pm.message_candidates WHERE message_id = ANY(v_ids);
+  DELETE FROM pm.messages WHERE id = ANY(v_ids);
 
   FOREACH v_thread IN ARRAY v_threads LOOP
     BEGIN
-      DELETE FROM communications.conversations t
+      DELETE FROM pm.conversations t
       WHERE t.id = v_thread AND t.channel = 'email'
-        AND NOT EXISTS (SELECT 1 FROM communications.messages m WHERE m.thread_id = t.id);
+        AND NOT EXISTS (SELECT 1 FROM pm.messages m WHERE m.thread_id = t.id);
       IF FOUND THEN v_threads_deleted := v_threads_deleted + 1; END IF;
     EXCEPTION WHEN foreign_key_violation THEN
       NULL; -- a new message joined the thread meanwhile; it stays
@@ -9848,12 +9849,12 @@ $$;
 -- Of the given bucket paths, the ones a row still owns: a message's raw .eml,
 -- an attachment's file, a stored copy, or anything under a message still being received
 -- (created in the last 24 hours). Everything else is an orphan.
-CREATE OR REPLACE FUNCTION communications.storage_known_paths(p_paths jsonb)
+CREATE OR REPLACE FUNCTION pm.storage_known_paths(p_paths jsonb)
 RETURNS jsonb
 LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
-SET search_path = communications, public
+SET search_path = pm
 AS $$
 BEGIN
   IF COALESCE(auth.role(), '') <> 'service_role' THEN RAISE EXCEPTION 'Service role required' USING ERRCODE = '42501'; END IF;
@@ -9863,11 +9864,11 @@ BEGIN
     )
     SELECT COALESCE(jsonb_agg(g.path ORDER BY g.path), '[]'::jsonb)
     FROM given g
-    WHERE EXISTS (SELECT 1 FROM communications.messages m WHERE m.raw_storage_path = g.path)
-      OR EXISTS (SELECT 1 FROM communications.attachments a WHERE a.storage_path = g.path)
-      OR EXISTS (SELECT 1 FROM communications.files f WHERE f.storage_path = g.path)
+    WHERE EXISTS (SELECT 1 FROM pm.messages m WHERE m.raw_storage_path = g.path)
+      OR EXISTS (SELECT 1 FROM pm.attachments a WHERE a.storage_path = g.path)
+      OR EXISTS (SELECT 1 FROM pm.files f WHERE f.storage_path = g.path)
       OR EXISTS (
-        SELECT 1 FROM communications.messages m
+        SELECT 1 FROM pm.messages m
         WHERE m.status = 'receiving'
           AND m.created_at >= now() - interval '24 hours'
           AND m.inbox_id::text = split_part(g.path, '/', 1)
@@ -9877,15 +9878,15 @@ BEGIN
 END;
 $$;
 
-CREATE OR REPLACE FUNCTION communications.record_maintenance_run(p_kind text, p_run jsonb)
+CREATE OR REPLACE FUNCTION pm.record_maintenance_run(p_kind text, p_run jsonb)
 RETURNS void
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = communications, public
+SET search_path = pm
 AS $$
 BEGIN
   IF COALESCE(auth.role(), '') <> 'service_role' THEN RAISE EXCEPTION 'Service role required' USING ERRCODE = '42501'; END IF;
-  INSERT INTO communications.maintenance_runs AS r (
+  INSERT INTO pm.maintenance_runs AS r (
     kind, started_at, finished_at, outcome, more_pending, messages_deleted, stuck_deleted,
     threads_deleted, files_deleted, objects_scanned, failures, last_error
   ) VALUES (
@@ -9911,74 +9912,74 @@ BEGIN
 END;
 $$;
 
-REVOKE ALL ON FUNCTION communications.retention_due(integer, jsonb) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION communications.retention_delete(jsonb) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION communications.storage_known_paths(jsonb) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION communications.record_maintenance_run(text, jsonb) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION communications.retention_due(integer, jsonb) TO service_role;
-GRANT EXECUTE ON FUNCTION communications.retention_delete(jsonb) TO service_role;
-GRANT EXECUTE ON FUNCTION communications.storage_known_paths(jsonb) TO service_role;
-GRANT EXECUTE ON FUNCTION communications.record_maintenance_run(text, jsonb) TO service_role;
+REVOKE ALL ON FUNCTION pm.retention_due(integer, jsonb) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION pm.retention_delete(jsonb) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION pm.storage_known_paths(jsonb) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION pm.record_maintenance_run(text, jsonb) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION pm.retention_due(integer, jsonb) TO service_role;
+GRANT EXECUTE ON FUNCTION pm.retention_delete(jsonb) TO service_role;
+GRANT EXECUTE ON FUNCTION pm.storage_known_paths(jsonb) TO service_role;
+GRANT EXECUTE ON FUNCTION pm.record_maintenance_run(text, jsonb) TO service_role;
 
 -- ─────────────────────────────────────────────────────────────
 -- Task reopens (20261010212024_agent_analytics_reviews.sql). A task leaving `done` was not finished after all, and
 -- nothing recorded that: completed_at is cleared on the way out, so the
 -- history was lost. From this migration on every reopen is one row, written
 -- by the database whoever moves the task (the app, the API, an agent).
-CREATE TABLE public.task_reopens (
+CREATE TABLE pm.task_reopens (
   id uuid primary key default gen_random_uuid(),
-  task_id uuid not null references public.tasks(id) on delete cascade,
-  project_id uuid references public.projects(id) on delete set null,
+  task_id uuid not null references pm.tasks(id) on delete cascade,
+  project_id uuid references pm.projects(id) on delete set null,
   to_status text not null,
-  reopened_by uuid references public.team_members(id) on delete set null,
+  reopened_by uuid references pm.team_members(id) on delete set null,
   reopened_at timestamptz not null default now()
 );
 
-CREATE INDEX idx_task_reopens_reopened_at on public.task_reopens (reopened_at desc);
+CREATE INDEX idx_task_reopens_reopened_at on pm.task_reopens (reopened_at desc);
 
-alter table public.task_reopens enable row level security;
+alter table pm.task_reopens enable row level security;
 
-create policy task_reopens_read on public.task_reopens for select to authenticated
-  using (public.has_permission('agents.manage') and public.can_access_project(project_id));
+create policy task_reopens_read on pm.task_reopens for select to authenticated
+  using (pm.has_permission('agents.manage') and pm.can_access_project(project_id));
 
-grant select on public.task_reopens to authenticated;
+grant select on pm.task_reopens to authenticated;
 
-create or replace function public.record_task_reopen()
+create or replace function pm.record_task_reopen()
 returns trigger
 language plpgsql
 security definer
-set search_path = public
+set search_path = pm
 as $$
 begin
   if old.status = 'done' and new.status is distinct from 'done' then
-    insert into public.task_reopens (task_id, project_id, to_status, reopened_by)
-    values (new.id, new.project_id, new.status, public.current_team_member_id());
+    insert into pm.task_reopens (task_id, project_id, to_status, reopened_by)
+    values (new.id, new.project_id, new.status, pm.current_team_member_id());
   end if;
   return new;
 end;
 $$;
 
-revoke all on function public.record_task_reopen() from public;
+revoke all on function pm.record_task_reopen() from public;
 
 create trigger record_task_reopen
-  after update of status on public.tasks
-  for each row execute function public.record_task_reopen();
+  after update of status on pm.tasks
+  for each row execute function pm.record_task_reopen();
 
 -- When each recorder began (same migration): a metric recorded from a moment
 -- on reads as "not measured" before it, never as zero.
-CREATE TABLE public.analytics_tracking_starts (
+CREATE TABLE pm.analytics_tracking_starts (
   metric text primary key,
   started_at timestamptz not null default now()
 );
 
-alter table public.analytics_tracking_starts enable row level security;
+alter table pm.analytics_tracking_starts enable row level security;
 
-create policy analytics_tracking_starts_read on public.analytics_tracking_starts for select to authenticated
-  using (public.has_permission('agents.manage'));
+create policy analytics_tracking_starts_read on pm.analytics_tracking_starts for select to authenticated
+  using (pm.has_permission('agents.manage'));
 
-grant select on public.analytics_tracking_starts to authenticated;
+grant select on pm.analytics_tracking_starts to authenticated;
 
-insert into public.analytics_tracking_starts (metric) values ('task_reopens')
+insert into pm.analytics_tracking_starts (metric) values ('task_reopens')
 on conflict (metric) do nothing;
 
 
@@ -9998,9 +9999,9 @@ BEGIN
   CREATE EXTENSION IF NOT EXISTS pg_cron;
 
   PERFORM cron.schedule(
-    'retainer-drafts',
+    'pm-retainer-drafts',
     '7 * * * *',
-    $job$SELECT public.generate_retainer_drafts() WHERE public.module_enabled('billing');$job$
+    $job$SELECT pm.generate_retainer_drafts() WHERE pm.module_enabled('billing');$job$
   );
 END;
 $do$;
@@ -10011,8 +10012,8 @@ $do$;
 -- ---------------------------------------------------------------------------
 -- -- Tables ----------------------------------------------------------------
 
-CREATE TABLE IF NOT EXISTS public.project_billing_plans (
-  project_id uuid PRIMARY KEY REFERENCES public.projects(id) ON DELETE CASCADE,
+CREATE TABLE IF NOT EXISTS pm.project_billing_plans (
+  project_id uuid PRIMARY KEY REFERENCES pm.projects(id) ON DELETE CASCADE,
   payment_terms_days integer NOT NULL DEFAULT 0 CHECK (payment_terms_days BETWEEN 0 AND 120),
   hours_trigger text NOT NULL DEFAULT 'manual'
     CHECK (hours_trigger IN ('manual', 'days_of_month', 'every_weeks', 'reaches_amount', 'fixed_blocks')),
@@ -10031,31 +10032,31 @@ CREATE TABLE IF NOT EXISTS public.project_billing_plans (
   -- turning it on never back-drafts) or after ends_on.
   starts_on date,
   ends_on date,
-  created_by uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
+  created_by uuid REFERENCES pm.team_members(id) ON DELETE SET NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
   -- Added by 20261121070000; last, as on a migrated database (billing_forecast_internal builds this row by position).
-  currency text NOT NULL DEFAULT public.workspace_currency() CHECK (currency ~ '^[A-Z]{3}$'),
+  currency text NOT NULL DEFAULT pm.workspace_currency() CHECK (currency ~ '^[A-Z]{3}$'),
   CONSTRAINT project_billing_plans_weeks_anchor CHECK (hours_trigger <> 'every_weeks' OR weeks_anchor IS NOT NULL),
   CONSTRAINT project_billing_plans_amount CHECK (hours_trigger NOT IN ('reaches_amount', 'fixed_blocks') OR trigger_amount IS NOT NULL),
   CONSTRAINT project_billing_plans_cap CHECK (cap_mode = 'none' OR cap_value IS NOT NULL),
   CONSTRAINT project_billing_plans_dates CHECK (ends_on IS NULL OR starts_on IS NULL OR ends_on >= starts_on)
 );
 
-DROP TRIGGER IF EXISTS set_project_billing_plans_updated_at ON public.project_billing_plans;
+DROP TRIGGER IF EXISTS set_project_billing_plans_updated_at ON pm.project_billing_plans;
 CREATE TRIGGER set_project_billing_plans_updated_at
-  BEFORE UPDATE ON public.project_billing_plans
-  FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
+  BEFORE UPDATE ON pm.project_billing_plans
+  FOR EACH ROW EXECUTE FUNCTION pm.handle_updated_at();
 
 -- One row per scheduled date (run_key 'day:YYYY-MM-DD') or amount draft
 -- ('amount:YYYY-MM-DD:n'). The unique key is the no-double-drafting guard.
-CREATE TABLE IF NOT EXISTS public.project_billing_runs (
+CREATE TABLE IF NOT EXISTS pm.project_billing_runs (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  project_id uuid NOT NULL REFERENCES public.projects(id) ON DELETE CASCADE,
+  project_id uuid NOT NULL REFERENCES pm.projects(id) ON DELETE CASCADE,
   run_key text NOT NULL,
   run_date date NOT NULL,
   outcome text NOT NULL CHECK (outcome IN ('drafted', 'merged', 'nothing_due', 'below_minimum', 'failed')),
-  invoice_id uuid REFERENCES public.project_invoices(id) ON DELETE SET NULL,
+  invoice_id uuid REFERENCES pm.project_invoices(id) ON DELETE SET NULL,
   hours numeric(14,6),
   amount numeric(12,2),
   -- Time left out because it was not approved yet at the cutoff.
@@ -10065,47 +10066,47 @@ CREATE TABLE IF NOT EXISTS public.project_billing_runs (
   created_at timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT project_billing_runs_project_key UNIQUE (project_id, run_key)
 );
-CREATE INDEX IF NOT EXISTS idx_project_billing_runs_invoice ON public.project_billing_runs (invoice_id) WHERE invoice_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_project_billing_runs_project_date ON public.project_billing_runs (project_id, run_date DESC);
+CREATE INDEX IF NOT EXISTS idx_project_billing_runs_invoice ON pm.project_billing_runs (invoice_id) WHERE invoice_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_project_billing_runs_project_date ON pm.project_billing_runs (project_id, run_date DESC);
 
 -- Every auto draft (retainer or hours) waiting to be announced by email and
 -- by the PM agent. Rows go when the invoice goes.
-CREATE TABLE IF NOT EXISTS public.billing_draft_notices (
-  invoice_id uuid PRIMARY KEY REFERENCES public.project_invoices(id) ON DELETE CASCADE,
-  project_id uuid NOT NULL REFERENCES public.projects(id) ON DELETE CASCADE,
+CREATE TABLE IF NOT EXISTS pm.billing_draft_notices (
+  invoice_id uuid PRIMARY KEY REFERENCES pm.project_invoices(id) ON DELETE CASCADE,
+  project_id uuid NOT NULL REFERENCES pm.projects(id) ON DELETE CASCADE,
   summary text NOT NULL DEFAULT '',
   emailed_at timestamptz,
   relayed_at timestamptz,
   created_at timestamptz NOT NULL DEFAULT now()
 );
 
-ALTER TABLE public.project_billing_plans ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.project_billing_runs ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.billing_draft_notices ENABLE ROW LEVEL SECURITY;
+ALTER TABLE pm.project_billing_plans ENABLE ROW LEVEL SECURITY;
+ALTER TABLE pm.project_billing_runs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE pm.billing_draft_notices ENABLE ROW LEVEL SECURITY;
 
-DROP POLICY IF EXISTS project_billing_plans_select ON public.project_billing_plans;
-CREATE POLICY project_billing_plans_select ON public.project_billing_plans FOR SELECT TO authenticated
-  USING (public.has_permission('invoices.read') AND public.can_access_project(project_id));
-DROP POLICY IF EXISTS project_billing_runs_select ON public.project_billing_runs;
-CREATE POLICY project_billing_runs_select ON public.project_billing_runs FOR SELECT TO authenticated
-  USING (public.has_permission('invoices.read') AND public.can_access_project(project_id));
+DROP POLICY IF EXISTS project_billing_plans_select ON pm.project_billing_plans;
+CREATE POLICY project_billing_plans_select ON pm.project_billing_plans FOR SELECT TO authenticated
+  USING (pm.has_permission('invoices.read') AND pm.can_access_project(project_id));
+DROP POLICY IF EXISTS project_billing_runs_select ON pm.project_billing_runs;
+CREATE POLICY project_billing_runs_select ON pm.project_billing_runs FOR SELECT TO authenticated
+  USING (pm.has_permission('invoices.read') AND pm.can_access_project(project_id));
 -- Plans are written through save_project_billing_plan; runs and notices by the job.
 
 -- -- Helpers ---------------------------------------------------------------
 
 -- Approved-later time: stopped client time on the project that is not approved
 -- (and not rejected), started before the cutoff. Reported, never drafted.
-CREATE OR REPLACE FUNCTION public.billing_pending_time(p_project_id uuid, p_through timestamptz)
+CREATE OR REPLACE FUNCTION pm.billing_pending_time(p_project_id uuid, p_through timestamptz)
 RETURNS TABLE (hours numeric, amount numeric)
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
   SELECT
-    COALESCE(sum(public.time_entry_worked_hours(e.segments, e.start_time, e.end_time)), 0),
-    COALESCE(round(sum(public.time_entry_worked_hours(e.segments, e.start_time, e.end_time) * e.hourly_rate), 2), 0)
-  FROM public.project_time_entries e
+    COALESCE(sum(pm.time_entry_worked_hours(e.segments, e.start_time, e.end_time)), 0),
+    COALESCE(round(sum(pm.time_entry_worked_hours(e.segments, e.start_time, e.end_time) * e.hourly_rate), 2), 0)
+  FROM pm.project_time_entries e
   WHERE e.project_id = p_project_id
     AND e.end_time IS NOT NULL
     AND e.work_type <> 'internal'
@@ -10115,7 +10116,7 @@ AS $$
 $$;
 
 -- The most recent scheduled date on or before p_as_of, within the plan's dates.
-CREATE OR REPLACE FUNCTION public.billing_plan_last_date(p_plan public.project_billing_plans, p_as_of date)
+CREATE OR REPLACE FUNCTION pm.billing_plan_last_date(p_plan pm.project_billing_plans, p_as_of date)
 RETURNS date
 LANGUAGE plpgsql
 IMMUTABLE
@@ -10147,7 +10148,7 @@ END;
 $$;
 
 -- Scheduled dates in [p_from, p_to], in order (for the forecast).
-CREATE OR REPLACE FUNCTION public.billing_plan_dates(p_plan public.project_billing_plans, p_from date, p_to date)
+CREATE OR REPLACE FUNCTION pm.billing_plan_dates(p_plan pm.project_billing_plans, p_from date, p_to date)
 RETURNS SETOF date
 LANGUAGE plpgsql
 IMMUTABLE
@@ -10187,29 +10188,29 @@ $$;
 -- Announce an auto draft: one bell per owner and admin, keyed to the invoice
 -- (a project key would overwrite other unread notices about the project),
 -- and a notice row for the email digest and the PM agent.
-CREATE OR REPLACE FUNCTION public.announce_billing_draft(p_invoice_id uuid, p_title text, p_message text)
+CREATE OR REPLACE FUNCTION pm.announce_billing_draft(p_invoice_id uuid, p_title text, p_message text)
 RETURNS void
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
 DECLARE
-  invoice public.project_invoices;
+  invoice pm.project_invoices;
   recipient uuid;
 BEGIN
-  SELECT * INTO invoice FROM public.project_invoices WHERE id = p_invoice_id;
+  SELECT * INTO invoice FROM pm.project_invoices WHERE id = p_invoice_id;
   IF NOT FOUND THEN RETURN; END IF;
   FOR recipient IN
-    SELECT id FROM public.team_members WHERE status = 'active'
-          AND (public.member_has_permission(id, 'invoices.read') OR public.member_has_permission(id, 'invoices.manage'))
+    SELECT id FROM pm.team_members WHERE status = 'active'
+          AND (pm.member_has_permission(id, 'invoices.read') OR pm.member_has_permission(id, 'invoices.manage'))
   LOOP
-    PERFORM public.upsert_notification(
+    PERFORM pm.upsert_notification(
       recipient, p_title, p_message,
       '/projects/' || invoice.project_id::text || '?tab=invoices',
       'invoice', invoice.id::text
     );
   END LOOP;
-  INSERT INTO public.billing_draft_notices (invoice_id, project_id, summary)
+  INSERT INTO pm.billing_draft_notices (invoice_id, project_id, summary)
   VALUES (invoice.id, invoice.project_id, p_message)
   ON CONFLICT (invoice_id) DO UPDATE SET summary = EXCLUDED.summary, emailed_at = NULL, relayed_at = NULL;
 END;
@@ -10217,36 +10218,36 @@ $$;
 
 -- "Ready to review and send" holds only while the invoice is a draft. A new
 -- retainer draft answers the last "Retainer draft failed" on its project.
-CREATE OR REPLACE FUNCTION public.sync_invoice_notification()
+CREATE OR REPLACE FUNCTION pm.sync_invoice_notification()
 RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
 BEGIN
   IF TG_OP = 'INSERT' THEN
     IF NEW.auto_generated THEN
-      PERFORM public.set_notifications_cleared('project', NEW.project_id::text, true, 'Retainer draft failed');
+      PERFORM pm.set_notifications_cleared('project', NEW.project_id::text, true, 'Retainer draft failed');
     END IF;
   ELSE
-    PERFORM public.set_notifications_cleared('invoice', NEW.id::text, NEW.status <> 'draft' OR NEW.deleted_at IS NOT NULL);
+    PERFORM pm.set_notifications_cleared('invoice', NEW.id::text, NEW.status <> 'draft' OR NEW.deleted_at IS NOT NULL);
   END IF;
   RETURN NULL;
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.sync_invoice_notification() FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION pm.sync_invoice_notification() FROM PUBLIC, anon, authenticated;
 
-DROP TRIGGER IF EXISTS sync_invoice_notification ON public.project_invoices;
+DROP TRIGGER IF EXISTS sync_invoice_notification ON pm.project_invoices;
 CREATE TRIGGER sync_invoice_notification
-  AFTER INSERT ON public.project_invoices
-  FOR EACH ROW EXECUTE FUNCTION public.sync_invoice_notification();
-DROP TRIGGER IF EXISTS sync_invoice_notification_update ON public.project_invoices;
+  AFTER INSERT ON pm.project_invoices
+  FOR EACH ROW EXECUTE FUNCTION pm.sync_invoice_notification();
+DROP TRIGGER IF EXISTS sync_invoice_notification_update ON pm.project_invoices;
 CREATE TRIGGER sync_invoice_notification_update
-  AFTER UPDATE ON public.project_invoices
+  AFTER UPDATE ON pm.project_invoices
   FOR EACH ROW
   WHEN (NEW.status IS DISTINCT FROM OLD.status OR NEW.deleted_at IS DISTINCT FROM OLD.deleted_at)
-  EXECUTE FUNCTION public.sync_invoice_notification();
+  EXECUTE FUNCTION pm.sync_invoice_notification();
 
 -- The retainer drafter, unchanged except: the due date follows the project's
 -- payment terms, and the announcement is per invoice (announce_billing_draft).
@@ -10255,7 +10256,7 @@ CREATE TRIGGER sync_invoice_notification_update
 -- Put a drafted hours line (invoice_hours_draft_internal's result) on an
 -- invoice dated p_date: onto the project's untouched retainer auto draft of
 -- that date when p_combine, else a new draft. Returns (invoice id, merged).
-CREATE OR REPLACE FUNCTION public.place_hours_draft(
+CREATE OR REPLACE FUNCTION pm.place_hours_draft(
   p_project_id uuid,
   p_draft jsonb,
   p_date date,
@@ -10265,10 +10266,10 @@ CREATE OR REPLACE FUNCTION public.place_hours_draft(
 )
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
 DECLARE
-  target public.project_invoices;
+  target pm.project_invoices;
   terms integer;
   project_name text;
   line jsonb;
@@ -10276,13 +10277,13 @@ DECLARE
   draft_currency text;
 BEGIN
   PERFORM pg_advisory_xact_lock(hashtext('retainer-draft:' || p_project_id::text));
-  SELECT COALESCE(payment_terms_days, 0), currency INTO terms, draft_currency FROM public.project_billing_plans WHERE project_id = p_project_id;
-  draft_currency := COALESCE(draft_currency, public.workspace_currency());
-  SELECT name INTO project_name FROM public.projects WHERE id = p_project_id;
+  SELECT COALESCE(payment_terms_days, 0), currency INTO terms, draft_currency FROM pm.project_billing_plans WHERE project_id = p_project_id;
+  draft_currency := COALESCE(draft_currency, pm.workspace_currency());
+  SELECT name INTO project_name FROM pm.projects WHERE id = p_project_id;
   merged := false;
 
   IF p_combine THEN
-    SELECT * INTO target FROM public.project_invoices i
+    SELECT * INTO target FROM pm.project_invoices i
     WHERE i.project_id = p_project_id AND i.status = 'draft' AND i.auto_generated AND i.deleted_at IS NULL
       AND i.date = to_char(p_date, 'YYYY-MM-DD')
       AND i.currency = draft_currency
@@ -10304,18 +10305,18 @@ BEGIN
   );
 
   IF merged THEN
-    UPDATE public.project_invoices
+    UPDATE pm.project_invoices
     SET line_items = line_items || jsonb_build_array(line),
         amount = amount + (p_draft->>'amount')::numeric
     WHERE id = target.id;
     invoice_id := target.id;
   ELSE
-    INSERT INTO public.project_invoices (
+    INSERT INTO pm.project_invoices (
       project_id, invoice_number, amount, status, invoice_type, line_items,
       date, due_date, description, auto_generated, created_by, currency
     ) VALUES (
       p_project_id,
-      public.next_project_invoice_number(p_project_id),
+      pm.next_project_invoice_number(p_project_id),
       (p_draft->>'amount')::numeric,
       'draft',
       'hourly',
@@ -10330,33 +10331,33 @@ BEGIN
     RETURNING id INTO invoice_id;
   END IF;
 
-  INSERT INTO public.invoice_time_entry_allocations (invoice_id, line_item_id, time_entry_id, start_offset_hours, allocated_hours, allocated_amount)
+  INSERT INTO pm.invoice_time_entry_allocations (invoice_id, line_item_id, time_entry_id, start_offset_hours, allocated_hours, allocated_amount)
   SELECT invoice_id, line_id, (a->>'time_entry_id')::uuid, (a->>'start_offset_hours')::numeric,
          (a->>'allocated_hours')::numeric, (a->>'allocated_amount')::numeric
   FROM jsonb_array_elements(p_draft->'allocations') a;
-  PERFORM public.validate_invoice_time_allocations(invoice_id);
+  PERFORM pm.validate_invoice_time_allocations(invoice_id);
 
-  PERFORM public.announce_billing_draft(
+  PERFORM pm.announce_billing_draft(
     invoice_id,
     CASE WHEN merged THEN 'Hours added to a drafted invoice' ELSE 'Invoice drafted' END,
-    (SELECT invoice_number FROM public.project_invoices WHERE id = invoice_id) || ' for ' || COALESCE(project_name, 'a project')
+    (SELECT invoice_number FROM pm.project_invoices WHERE id = invoice_id) || ' for ' || COALESCE(project_name, 'a project')
       || CASE WHEN merged THEN ' now includes ' ELSE ' covers ' END
       || rtrim(rtrim(to_char(round((p_draft->>'hours')::numeric, 2), 'FM999999990.00'), '0'), '.') || ' h ('
-      || public.format_money((p_draft->>'amount')::numeric, draft_currency, true) || '). Ready to review and send.'
+      || pm.format_money((p_draft->>'amount')::numeric, draft_currency, true) || '). Ready to review and send.'
   );
 END;
 $$;
 
 -- One project's due hours drafting at p_as_of. Called by the job, each
 -- project in its own subtransaction.
-CREATE OR REPLACE FUNCTION public.run_project_billing(p_plan public.project_billing_plans, p_as_of date)
+CREATE OR REPLACE FUNCTION pm.run_project_billing(p_plan pm.project_billing_plans, p_as_of date)
 RETURNS integer
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
 DECLARE
-  zone text := public.workspace_timezone();
+  zone text := pm.workspace_timezone();
   run_day date;
   through timestamptz;
   draft jsonb;
@@ -10369,29 +10370,29 @@ DECLARE
   unbilled jsonb;
 BEGIN
   IF p_plan.hours_trigger IN ('days_of_month', 'every_weeks') THEN
-    run_day := public.billing_plan_last_date(p_plan, p_as_of);
+    run_day := pm.billing_plan_last_date(p_plan, p_as_of);
     IF run_day IS NULL THEN RETURN 0; END IF;
     key := 'day:' || to_char(run_day, 'YYYY-MM-DD');
-    IF EXISTS (SELECT 1 FROM public.project_billing_runs WHERE project_id = p_plan.project_id AND run_key = key) THEN RETURN 0; END IF;
+    IF EXISTS (SELECT 1 FROM pm.project_billing_runs WHERE project_id = p_plan.project_id AND run_key = key) THEN RETURN 0; END IF;
 
     through := (run_day::timestamp) AT TIME ZONE zone;
-    draft := public.invoice_hours_draft_internal(p_plan.project_id, mode, CASE WHEN mode = 'all' THEN NULL ELSE p_plan.cap_value END, NULL, through);
-    SELECT * INTO pending FROM public.billing_pending_time(p_plan.project_id, through);
+    draft := pm.invoice_hours_draft_internal(p_plan.project_id, mode, CASE WHEN mode = 'all' THEN NULL ELSE p_plan.cap_value END, NULL, through);
+    SELECT * INTO pending FROM pm.billing_pending_time(p_plan.project_id, through);
 
     IF draft IS NULL THEN
-      INSERT INTO public.project_billing_runs (project_id, run_key, run_date, outcome, pending_hours, pending_amount)
+      INSERT INTO pm.project_billing_runs (project_id, run_key, run_date, outcome, pending_hours, pending_amount)
       VALUES (p_plan.project_id, key, run_day, 'nothing_due', pending.hours, pending.amount);
       RETURN 0;
     END IF;
     IF (draft->>'amount')::numeric < p_plan.min_amount THEN
-      INSERT INTO public.project_billing_runs (project_id, run_key, run_date, outcome, hours, amount, pending_hours, pending_amount, detail)
+      INSERT INTO pm.project_billing_runs (project_id, run_key, run_date, outcome, hours, amount, pending_hours, pending_amount, detail)
       VALUES (p_plan.project_id, key, run_day, 'below_minimum', (draft->>'hours')::numeric, (draft->>'amount')::numeric,
-              pending.hours, pending.amount, 'Under the ' || public.format_money(p_plan.min_amount, p_plan.currency, true) || ' minimum; the hours wait for the next draft.');
+              pending.hours, pending.amount, 'Under the ' || pm.format_money(p_plan.min_amount, p_plan.currency, true) || ' minimum; the hours wait for the next draft.');
       RETURN 0;
     END IF;
 
-    SELECT * INTO placed FROM public.place_hours_draft(p_plan.project_id, draft, run_day, p_plan.combine_with_retainer);
-    INSERT INTO public.project_billing_runs (project_id, run_key, run_date, outcome, invoice_id, hours, amount, pending_hours, pending_amount)
+    SELECT * INTO placed FROM pm.place_hours_draft(p_plan.project_id, draft, run_day, p_plan.combine_with_retainer);
+    INSERT INTO pm.project_billing_runs (project_id, run_key, run_date, outcome, invoice_id, hours, amount, pending_hours, pending_amount)
     VALUES (p_plan.project_id, key, run_day, CASE WHEN placed.merged THEN 'merged' ELSE 'drafted' END, placed.invoice_id,
             (draft->>'hours')::numeric, (draft->>'amount')::numeric, pending.hours, pending.amount);
     RETURN 1;
@@ -10403,21 +10404,21 @@ BEGIN
     END IF;
     -- Up to 12 blocks a run, so a long backlog drafts in a few runs, not one burst.
     WHILE n < 12 LOOP
-      unbilled := public.invoice_hours_draft_internal(p_plan.project_id, 'all');
+      unbilled := pm.invoice_hours_draft_internal(p_plan.project_id, 'all');
       EXIT WHEN unbilled IS NULL OR (unbilled->>'amount')::numeric + 0.005 < p_plan.trigger_amount;
       IF p_plan.hours_trigger = 'fixed_blocks' THEN
-        draft := public.invoice_hours_draft_internal(p_plan.project_id, 'amount', p_plan.trigger_amount);
+        draft := pm.invoice_hours_draft_internal(p_plan.project_id, 'amount', p_plan.trigger_amount);
       ELSE
         draft := CASE WHEN mode = 'all' THEN unbilled
-                      ELSE public.invoice_hours_draft_internal(p_plan.project_id, mode, p_plan.cap_value) END;
+                      ELSE pm.invoice_hours_draft_internal(p_plan.project_id, mode, p_plan.cap_value) END;
       END IF;
       EXIT WHEN draft IS NULL;
       n := n + 1;
       key := 'amount:' || to_char(p_as_of, 'YYYY-MM-DD') || ':'
-        || (SELECT count(*) + 1 FROM public.project_billing_runs WHERE project_id = p_plan.project_id AND run_key LIKE 'amount:' || to_char(p_as_of, 'YYYY-MM-DD') || ':%');
-      SELECT * INTO pending FROM public.billing_pending_time(p_plan.project_id, NULL);
-      SELECT * INTO placed FROM public.place_hours_draft(p_plan.project_id, draft, p_as_of, false);
-      INSERT INTO public.project_billing_runs (project_id, run_key, run_date, outcome, invoice_id, hours, amount, pending_hours, pending_amount)
+        || (SELECT count(*) + 1 FROM pm.project_billing_runs WHERE project_id = p_plan.project_id AND run_key LIKE 'amount:' || to_char(p_as_of, 'YYYY-MM-DD') || ':%');
+      SELECT * INTO pending FROM pm.billing_pending_time(p_plan.project_id, NULL);
+      SELECT * INTO placed FROM pm.place_hours_draft(p_plan.project_id, draft, p_as_of, false);
+      INSERT INTO pm.project_billing_runs (project_id, run_key, run_date, outcome, invoice_id, hours, amount, pending_hours, pending_amount)
       VALUES (p_plan.project_id, key, p_as_of, 'drafted', placed.invoice_id, (draft->>'hours')::numeric, (draft->>'amount')::numeric,
               pending.hours, pending.amount);
       drafted := drafted + 1;
@@ -10431,27 +10432,27 @@ $$;
 
 -- The job: every active plan, each project isolated (one failure is recorded
 -- and the others still run). Returns the number of drafts made or topped up.
-CREATE OR REPLACE FUNCTION public.generate_billing_drafts(p_as_of date DEFAULT NULL)
+CREATE OR REPLACE FUNCTION pm.generate_billing_drafts(p_as_of date DEFAULT NULL)
 RETURNS integer
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
 DECLARE
-  as_of date := COALESCE(p_as_of, public.workspace_today());
-  plan public.project_billing_plans;
+  as_of date := COALESCE(p_as_of, pm.workspace_today());
+  plan pm.project_billing_plans;
   total integer := 0;
 BEGIN
   FOR plan IN
-    SELECT p.* FROM public.project_billing_plans p
-    JOIN public.projects project ON project.id = p.project_id
+    SELECT p.* FROM pm.project_billing_plans p
+    JOIN pm.projects project ON project.id = p.project_id
     WHERE p.hours_trigger <> 'manual' AND NOT p.paused
       AND project.archived_at IS NULL AND project.deleted_at IS NULL AND COALESCE(project.status, 'active') NOT IN ('completed', 'archived', 'cancelled')
   LOOP
     BEGIN
-      total := total + public.run_project_billing(plan, as_of);
+      total := total + pm.run_project_billing(plan, as_of);
     EXCEPTION WHEN OTHERS THEN
-      INSERT INTO public.project_billing_runs (project_id, run_key, run_date, outcome, detail)
+      INSERT INTO pm.project_billing_runs (project_id, run_key, run_date, outcome, detail)
       VALUES (plan.project_id, 'failed:' || to_char(as_of, 'YYYY-MM-DD'), as_of, 'failed', left(SQLERRM, 500))
       ON CONFLICT (project_id, run_key) DO UPDATE SET detail = EXCLUDED.detail, created_at = now();
     END;
@@ -10463,25 +10464,25 @@ $$;
 -- Save a project's billing plan (payment terms and hours drafting). Turning
 -- drafting on (or changing its trigger) starts it today unless starts_on is
 -- given, so it never drafts dates that already passed.
-CREATE OR REPLACE FUNCTION public.save_project_billing_plan(p_project_id uuid, p_plan jsonb)
-RETURNS public.project_billing_plans
+CREATE OR REPLACE FUNCTION pm.save_project_billing_plan(p_project_id uuid, p_plan jsonb)
+RETURNS pm.project_billing_plans
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
 DECLARE
-  existing public.project_billing_plans;
-  saved public.project_billing_plans;
+  existing pm.project_billing_plans;
+  saved pm.project_billing_plans;
   next_trigger text;
 BEGIN
   IF COALESCE(auth.role(), '') <> 'service_role'
-     AND NOT (public.has_permission('invoices.manage', 'app') AND public.can_access_project(p_project_id)) THEN
+     AND NOT (pm.has_permission('invoices.manage', 'app') AND pm.can_access_project(p_project_id)) THEN
     RAISE EXCEPTION 'Not allowed to change billing on this project' USING ERRCODE = '42501';
   END IF;
-  SELECT * INTO existing FROM public.project_billing_plans WHERE project_id = p_project_id;
+  SELECT * INTO existing FROM pm.project_billing_plans WHERE project_id = p_project_id;
   next_trigger := COALESCE(p_plan->>'hours_trigger', existing.hours_trigger, 'manual');
 
-  INSERT INTO public.project_billing_plans AS plan (
+  INSERT INTO pm.project_billing_plans AS plan (
     project_id, payment_terms_days, hours_trigger, days_of_month, every_weeks, weeks_anchor,
     trigger_amount, cap_mode, cap_value, min_amount, combine_with_retainer, paused, starts_on, ends_on, created_by
   ) VALUES (
@@ -10502,11 +10503,11 @@ BEGIN
     CASE
       WHEN p_plan ? 'starts_on' THEN (p_plan->>'starts_on')::date
       WHEN next_trigger <> 'manual' AND (existing.project_id IS NULL OR existing.hours_trigger IS DISTINCT FROM next_trigger)
-        THEN public.workspace_today()
+        THEN pm.workspace_today()
       ELSE existing.starts_on
     END,
     CASE WHEN p_plan ? 'ends_on' THEN (p_plan->>'ends_on')::date ELSE existing.ends_on END,
-    public.current_team_member_id()
+    pm.current_team_member_id()
   )
   ON CONFLICT (project_id) DO UPDATE SET
     payment_terms_days = EXCLUDED.payment_terms_days,
@@ -10537,15 +10538,15 @@ $$;
 -- disagree with what is later drafted.
 --   [{ date, kind, status, invoice_id, invoice_number, exact, estimated,
 --      lines: [{ kind, label, amount, estimated, note }], notes: [] }]
-CREATE OR REPLACE FUNCTION public.billing_forecast_internal(p_project_id uuid, p_from date, p_until date, p_plan jsonb DEFAULT NULL)
+CREATE OR REPLACE FUNCTION pm.billing_forecast_internal(p_project_id uuid, p_from date, p_until date, p_plan jsonb DEFAULT NULL)
 RETURNS jsonb
 LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
 DECLARE
-  plan public.project_billing_plans;
+  plan pm.project_billing_plans;
   items jsonb := '[]'::jsonb;
   r record;
   p record;
@@ -10568,20 +10569,20 @@ DECLARE
   k text;
 BEGIN
   -- The saved plan, or the one being edited (live preview before Save).
-  SELECT * INTO plan FROM public.project_billing_plans WHERE project_id = p_project_id;
+  SELECT * INTO plan FROM pm.project_billing_plans WHERE project_id = p_project_id;
   IF p_plan IS NOT NULL THEN
-    plan := jsonb_populate_record(COALESCE(plan, ROW(p_project_id, 0, 'manual', '{1}', 2, NULL, NULL, 'none', NULL, 0, true, false, NULL, NULL, NULL, now(), now(), public.workspace_currency())::public.project_billing_plans), p_plan);
-    IF plan.hours_trigger <> 'manual' AND plan.starts_on IS NULL THEN plan.starts_on := public.workspace_today(); END IF;
+    plan := jsonb_populate_record(COALESCE(plan, ROW(p_project_id, 0, 'manual', '{1}', 2, NULL, NULL, 'none', NULL, 0, true, false, NULL, NULL, NULL, now(), now(), pm.workspace_currency())::pm.project_billing_plans), p_plan);
+    IF plan.hours_trigger <> 'manual' AND plan.starts_on IS NULL THEN plan.starts_on := pm.workspace_today(); END IF;
   END IF;
 
   -- Retainers: each period whose bill date falls in the window.
-  FOR r IN SELECT * FROM public.project_retainers WHERE project_id = p_project_id AND deleted_at IS NULL ORDER BY start_date LOOP
-    FOR p IN SELECT * FROM public.retainer_periods(r.id, p_from - 62, p_until) LOOP
+  FOR r IN SELECT * FROM pm.project_retainers WHERE project_id = p_project_id AND deleted_at IS NULL ORDER BY start_date LOOP
+    FOR p IN SELECT * FROM pm.retainer_periods(r.id, p_from - 62, p_until) LOOP
       CONTINUE WHEN p.bill_date < p_from OR p.bill_date > p_until;
       inv_id := NULL; inv_number := NULL; inv_status := NULL; period_status := NULL;
       SELECT rp.status, i.id, i.invoice_number, i.status INTO period_status, inv_id, inv_number, inv_status
-      FROM public.project_retainer_periods rp
-      LEFT JOIN public.project_invoices i ON i.id = rp.invoice_id AND i.deleted_at IS NULL
+      FROM pm.project_retainer_periods rp
+      LEFT JOIN pm.project_invoices i ON i.id = rp.invoice_id AND i.deleted_at IS NULL
       WHERE rp.retainer_id = r.id AND rp.period_start = p.period_start;
       items := items || jsonb_build_object(
         'date', p.bill_date,
@@ -10605,20 +10606,20 @@ BEGIN
   END LOOP;
 
   -- Hours: the pace of approved client work over the last 90 days, per day.
-  SELECT COALESCE(sum(public.time_entry_worked_hours(e.segments, e.start_time, e.end_time) * e.hourly_rate), 0) / 90
+  SELECT COALESCE(sum(pm.time_entry_worked_hours(e.segments, e.start_time, e.end_time) * e.hourly_rate), 0) / 90
   INTO pace
-  FROM public.project_time_entries e
+  FROM pm.project_time_entries e
   WHERE e.project_id = p_project_id AND e.end_time IS NOT NULL AND e.work_type <> 'internal'
     AND e.approval_status = 'approved' AND e.deleted_at IS NULL AND e.start_time >= now() - interval '90 days';
-  so_far := public.invoice_hours_draft_internal(p_project_id, 'all');
+  so_far := pm.invoice_hours_draft_internal(p_project_id, 'all');
 
   IF plan.project_id IS NOT NULL AND plan.hours_trigger IN ('days_of_month', 'every_weeks') THEN
-    prev := public.workspace_today();
-    FOR d IN SELECT * FROM public.billing_plan_dates(plan, p_from, p_until) LOOP
+    prev := pm.workspace_today();
+    FOR d IN SELECT * FROM pm.billing_plan_dates(plan, p_from, p_until) LOOP
       -- A drafted invoice since moved to Trash reads as if it was deleted.
       SELECT r2.*, i.id AS live_invoice_id, i.status AS live_status, i.invoice_number AS live_number INTO handled
-      FROM public.project_billing_runs r2
-      LEFT JOIN public.project_invoices i ON i.id = r2.invoice_id AND i.deleted_at IS NULL
+      FROM pm.project_billing_runs r2
+      LEFT JOIN pm.project_invoices i ON i.id = r2.invoice_id AND i.deleted_at IS NULL
       WHERE r2.project_id = p_project_id AND r2.run_key = 'day:' || to_char(d, 'YYYY-MM-DD');
       IF FOUND THEN
         items := items || jsonb_build_object('date', d, 'source', 'hours',
@@ -10650,14 +10651,14 @@ BEGIN
   ELSIF plan.project_id IS NOT NULL AND plan.hours_trigger IN ('reaches_amount', 'fixed_blocks') AND plan.trigger_amount IS NOT NULL THEN
     remaining := plan.trigger_amount - COALESCE((so_far->>'amount')::numeric, 0);
     IF pace > 0 THEN
-      next_block := public.workspace_today() + GREATEST(0, ceil(remaining / pace))::integer;
+      next_block := pm.workspace_today() + GREATEST(0, ceil(remaining / pace))::integer;
       WHILE next_block <= p_until LOOP
         IF next_block >= p_from THEN
           items := items || jsonb_build_object('date', next_block, 'source', 'hours', 'status', CASE WHEN plan.paused THEN 'paused' ELSE 'upcoming' END,
             'line', jsonb_build_object('kind', 'hours',
               'label', CASE WHEN plan.hours_trigger = 'fixed_blocks' THEN 'Block of hours (est. date)' ELSE 'Hours (est. date)' END,
               'amount', plan.trigger_amount, 'estimated', true,
-              'note', 'When unbilled hours reach ' || public.format_money(plan.trigger_amount, plan.currency) || ', at the last 90 days'' pace'));
+              'note', 'When unbilled hours reach ' || pm.format_money(plan.trigger_amount, plan.currency) || ', at the last 90 days'' pace'));
         END IF;
         next_block := next_block + GREATEST(1, ceil(plan.trigger_amount / pace))::integer;
       END LOOP;
@@ -10701,15 +10702,15 @@ $$;
 -- What a person may read: one project (invoices.read and project access), or
 -- every project they can open (the billing calendar). p_plan previews unsaved
 -- settings for one project.
-CREATE OR REPLACE FUNCTION public.billing_forecast(p_project_id uuid, p_from date DEFAULT NULL, p_until date DEFAULT NULL, p_plan jsonb DEFAULT NULL)
+CREATE OR REPLACE FUNCTION pm.billing_forecast(p_project_id uuid, p_from date DEFAULT NULL, p_until date DEFAULT NULL, p_plan jsonb DEFAULT NULL)
 RETURNS jsonb
 LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
 DECLARE
-  from_day date := COALESCE(p_from, public.workspace_today());
+  from_day date := COALESCE(p_from, pm.workspace_today());
   until_day date := COALESCE(p_until, from_day + 365);
   project record;
   out jsonb := '[]'::jsonb;
@@ -10717,26 +10718,26 @@ BEGIN
   IF until_day > from_day + 800 THEN until_day := from_day + 800; END IF;
   IF p_project_id IS NOT NULL THEN
     IF COALESCE(auth.role(), '') <> 'service_role'
-       AND NOT (public.has_permission('invoices.read', 'app') AND public.can_access_project(p_project_id)) THEN
+       AND NOT (pm.has_permission('invoices.read', 'app') AND pm.can_access_project(p_project_id)) THEN
       RAISE EXCEPTION 'Not allowed to read billing on this project' USING ERRCODE = '42501';
     END IF;
-    RETURN public.billing_forecast_internal(p_project_id, from_day, until_day, p_plan);
+    RETURN pm.billing_forecast_internal(p_project_id, from_day, until_day, p_plan);
   END IF;
-  IF COALESCE(auth.role(), '') <> 'service_role' AND NOT public.has_permission('invoices.read', 'app') THEN
+  IF COALESCE(auth.role(), '') <> 'service_role' AND NOT pm.has_permission('invoices.read', 'app') THEN
     RAISE EXCEPTION 'Not allowed to read billing' USING ERRCODE = '42501';
   END IF;
   FOR project IN
-    SELECT pr.id, pr.name FROM public.projects pr
+    SELECT pr.id, pr.name FROM pm.projects pr
     WHERE pr.archived_at IS NULL
       AND pr.deleted_at IS NULL
-      AND (COALESCE(auth.role(), '') = 'service_role' OR public.can_access_project(pr.id))
-      AND (EXISTS (SELECT 1 FROM public.project_retainers rt WHERE rt.project_id = pr.id AND rt.deleted_at IS NULL)
-        OR EXISTS (SELECT 1 FROM public.project_billing_plans bp WHERE bp.project_id = pr.id AND bp.hours_trigger <> 'manual'))
+      AND (COALESCE(auth.role(), '') = 'service_role' OR pm.can_access_project(pr.id))
+      AND (EXISTS (SELECT 1 FROM pm.project_retainers rt WHERE rt.project_id = pr.id AND rt.deleted_at IS NULL)
+        OR EXISTS (SELECT 1 FROM pm.project_billing_plans bp WHERE bp.project_id = pr.id AND bp.hours_trigger <> 'manual'))
     ORDER BY pr.name
   LOOP
     SELECT out || COALESCE(jsonb_agg(item || jsonb_build_object('project_id', project.id, 'project_name', project.name)), '[]'::jsonb)
     INTO out
-    FROM jsonb_array_elements(public.billing_forecast_internal(project.id, from_day, until_day)) item;
+    FROM jsonb_array_elements(pm.billing_forecast_internal(project.id, from_day, until_day)) item;
   END LOOP;
   RETURN out;
 END;
@@ -10744,22 +10745,22 @@ $$;
 
 -- -- Grants and schedule ---------------------------------------------------
 
-REVOKE ALL ON FUNCTION public.billing_pending_time(uuid, timestamptz) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.billing_plan_last_date(public.project_billing_plans, date) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.billing_plan_dates(public.project_billing_plans, date, date) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.announce_billing_draft(uuid, text, text) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.create_retainer_draft_internal(uuid, jsonb, date, boolean) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.place_hours_draft(uuid, jsonb, date, boolean) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.run_project_billing(public.project_billing_plans, date) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.generate_billing_drafts(date) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.billing_forecast_internal(uuid, date, date, jsonb) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.save_project_billing_plan(uuid, jsonb) FROM PUBLIC, anon;
-REVOKE ALL ON FUNCTION public.billing_forecast(uuid, date, date, jsonb) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.save_project_billing_plan(uuid, jsonb) TO authenticated, service_role;
-GRANT EXECUTE ON FUNCTION public.billing_forecast(uuid, date, date, jsonb) TO authenticated, service_role;
-GRANT EXECUTE ON FUNCTION public.generate_billing_drafts(date) TO service_role;
-GRANT SELECT ON public.project_billing_plans, public.project_billing_runs TO authenticated;
-GRANT ALL ON public.project_billing_plans, public.project_billing_runs, public.billing_draft_notices TO service_role;
+REVOKE ALL ON FUNCTION pm.billing_pending_time(uuid, timestamptz) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION pm.billing_plan_last_date(pm.project_billing_plans, date) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION pm.billing_plan_dates(pm.project_billing_plans, date, date) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION pm.announce_billing_draft(uuid, text, text) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION pm.create_retainer_draft_internal(uuid, jsonb, date, boolean) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION pm.place_hours_draft(uuid, jsonb, date, boolean) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION pm.run_project_billing(pm.project_billing_plans, date) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION pm.generate_billing_drafts(date) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION pm.billing_forecast_internal(uuid, date, date, jsonb) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION pm.save_project_billing_plan(uuid, jsonb) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION pm.billing_forecast(uuid, date, date, jsonb) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION pm.save_project_billing_plan(uuid, jsonb) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.billing_forecast(uuid, date, date, jsonb) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.generate_billing_drafts(date) TO service_role;
+GRANT SELECT ON pm.project_billing_plans, pm.project_billing_runs TO authenticated;
+GRANT ALL ON pm.project_billing_plans, pm.project_billing_runs, pm.billing_draft_notices TO service_role;
 
 -- Hourly at :17, ten minutes after the retainer job (:07), so a retainer
 -- draft for the day exists before hours are combined onto it.
@@ -10770,7 +10771,7 @@ BEGIN
     RETURN;
   END IF;
   CREATE EXTENSION IF NOT EXISTS pg_cron;
-  PERFORM cron.schedule('billing-drafts', '17 * * * *', $job$SELECT public.generate_billing_drafts() WHERE public.module_enabled('billing');$job$);
+  PERFORM cron.schedule('pm-billing-drafts', '17 * * * *', $job$SELECT pm.generate_billing_drafts() WHERE pm.module_enabled('billing');$job$);
 END;
 $do$;
 
@@ -10781,9 +10782,9 @@ $do$;
 -- ---------------------------------------------------------------------------
 -- -- Table ------------------------------------------------------------------
 
-CREATE TABLE IF NOT EXISTS public.invoice_payments (
+CREATE TABLE IF NOT EXISTS pm.invoice_payments (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  invoice_id uuid NOT NULL REFERENCES public.project_invoices(id) ON DELETE CASCADE,
+  invoice_id uuid NOT NULL REFERENCES pm.project_invoices(id) ON DELETE CASCADE,
   amount numeric(12,2) NOT NULL CHECK (amount > 0),
   paid_date date NOT NULL,
   method text CHECK (method IN ('ach', 'wire', 'check', 'card', 'cash', 'other')),
@@ -10791,42 +10792,42 @@ CREATE TABLE IF NOT EXISTS public.invoice_payments (
   -- The caller's own id for this payment: replaying it returns the same row.
   external_id text,
   recorded_via text NOT NULL DEFAULT 'app' CHECK (recorded_via IN ('app', 'api')),
-  api_key_id uuid REFERENCES public.api_keys(id) ON DELETE SET NULL,
-  created_by uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
+  api_key_id uuid REFERENCES pm.api_keys(id) ON DELETE SET NULL,
+  created_by uuid REFERENCES pm.team_members(id) ON DELETE SET NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
   -- Trash: when it was deleted and by whom (null = live). Rows are never
   -- removed; see the Soft delete section.
   deleted_at timestamptz,
-  deleted_by uuid references public.team_members(id) on delete set null
+  deleted_by uuid references pm.team_members(id) on delete set null
 );
 
 -- Among live rows: a row in Trash does not block a new one.
 CREATE UNIQUE INDEX invoice_payments_live_external_key
-  ON public.invoice_payments (invoice_id, external_id) WHERE deleted_at IS NULL;
+  ON pm.invoice_payments (invoice_id, external_id) WHERE deleted_at IS NULL;
 
-DROP TRIGGER IF EXISTS set_invoice_payments_updated_at ON public.invoice_payments;
+DROP TRIGGER IF EXISTS set_invoice_payments_updated_at ON pm.invoice_payments;
 CREATE TRIGGER set_invoice_payments_updated_at
-  BEFORE UPDATE ON public.invoice_payments
-  FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
+  BEFORE UPDATE ON pm.invoice_payments
+  FOR EACH ROW EXECUTE FUNCTION pm.handle_updated_at();
 
 -- Read with the invoice; written only through the functions below.
-ALTER TABLE public.invoice_payments ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS invoice_payments_select ON public.invoice_payments;
-CREATE POLICY invoice_payments_select ON public.invoice_payments FOR SELECT TO authenticated
-  USING ((public.has_permission('invoices.read') OR public.has_permission('invoices.manage')) AND EXISTS (
-    SELECT 1 FROM public.project_invoices invoice
-    WHERE invoice.id = invoice_id AND public.can_access_project(invoice.project_id)
+ALTER TABLE pm.invoice_payments ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS invoice_payments_select ON pm.invoice_payments;
+CREATE POLICY invoice_payments_select ON pm.invoice_payments FOR SELECT TO authenticated
+  USING ((pm.has_permission('invoices.read') OR pm.has_permission('invoices.manage')) AND EXISTS (
+    SELECT 1 FROM pm.project_invoices invoice
+    WHERE invoice.id = invoice_id AND pm.can_access_project(invoice.project_id)
   ));
-REVOKE ALL ON public.invoice_payments FROM anon, authenticated;
-GRANT SELECT ON public.invoice_payments TO authenticated;
-GRANT ALL ON public.invoice_payments TO service_role;
+REVOKE ALL ON pm.invoice_payments FROM anon, authenticated;
+GRANT SELECT ON pm.invoice_payments TO authenticated;
+GRANT ALL ON pm.invoice_payments TO service_role;
 
 -- -- Permission -------------------------------------------------------------
 
 -- Owners hold every permission; admins record payments in the app. API keys
 -- get it only from an Owner (or an explicit override).
-INSERT INTO public.role_permissions (role, permission_key, access_channel) VALUES
+INSERT INTO pm.role_permissions (role, permission_key, access_channel) VALUES
   ('admin', 'invoices.record_payments', 'app')
 ON CONFLICT DO NOTHING;
 
@@ -10834,11 +10835,11 @@ ON CONFLICT DO NOTHING;
 
 -- An invoice's TEXT date as a date: the leading YYYY-MM-DD, or null when
 -- there is none or it is not a real day.
-CREATE OR REPLACE FUNCTION public.invoice_text_date(p_value text)
+CREATE OR REPLACE FUNCTION pm.invoice_text_date(p_value text)
 RETURNS date
 LANGUAGE plpgsql
 IMMUTABLE
-SET search_path = public
+SET search_path = pm
 AS $$
 BEGIN
   IF p_value IS NULL OR p_value !~ '^\d{4}-\d{2}-\d{2}' THEN RETURN NULL; END IF;
@@ -10852,12 +10853,12 @@ $$;
 -- (lib/invoice-pdf/buildInvoiceData.ts): the amount, plus tax at the
 -- project's current rate on every line except reimbursements. A line-less
 -- (legacy) invoice is one line of its invoice_type.
-CREATE OR REPLACE FUNCTION public.invoice_total(p_invoice public.project_invoices)
+CREATE OR REPLACE FUNCTION pm.invoice_total(p_invoice pm.project_invoices)
 RETURNS numeric
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
   SELECT p_invoice.amount + COALESCE(ROUND(
     CASE
@@ -10870,23 +10871,23 @@ AS $$
       )
     END * project.tax_rate / 100, 2), 0)
   FROM (SELECT 1) one
-  LEFT JOIN public.projects project ON project.id = p_invoice.project_id
+  LEFT JOIN pm.projects project ON project.id = p_invoice.project_id
 $$;
 
 -- True when a live revenue-split earning on the invoice is already in a
 -- payout that was not voided.
-CREATE OR REPLACE FUNCTION public.invoice_share_earnings_paid_out(p_invoice_id uuid)
+CREATE OR REPLACE FUNCTION pm.invoice_share_earnings_paid_out(p_invoice_id uuid)
 RETURNS boolean
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
   SELECT EXISTS (
     SELECT 1
-    FROM public.team_member_share_earnings earning
-    JOIN public.team_member_payout_allocations allocation ON allocation.share_earning_id = earning.id
-    JOIN public.team_member_payouts payout ON payout.id = allocation.payout_id
+    FROM pm.team_member_share_earnings earning
+    JOIN pm.team_member_payout_allocations allocation ON allocation.share_earning_id = earning.id
+    JOIN pm.team_member_payouts payout ON payout.id = allocation.payout_id
     WHERE earning.invoice_id = p_invoice_id
       AND earning.voided_at IS NULL AND earning.reversed_at IS NULL
       AND payout.voided_at IS NULL
@@ -10895,15 +10896,15 @@ $$;
 
 -- What a payment event adds to the invoice payload. Amounts are what the
 -- client paid (gross), whatever basis the endpoint receives.
-CREATE OR REPLACE FUNCTION public.invoice_payment_event_data(
-  p_payment public.invoice_payments,
-  p_invoice public.project_invoices
+CREATE OR REPLACE FUNCTION pm.invoice_payment_event_data(
+  p_payment pm.invoice_payments,
+  p_invoice pm.project_invoices
 )
 RETURNS jsonb
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
   SELECT jsonb_build_object(
     'payment', jsonb_build_object(
@@ -10916,13 +10917,13 @@ AS $$
       'recorded_via', p_payment.recorded_via,
       'created_at', p_payment.created_at
     ),
-    'total', public.invoice_total(p_invoice),
+    'total', pm.invoice_total(p_invoice),
     'paid_total', paid.total,
-    'outstanding', GREATEST(public.invoice_total(p_invoice) - paid.total, 0)
+    'outstanding', GREATEST(pm.invoice_total(p_invoice) - paid.total, 0)
   )
   FROM (
     SELECT COALESCE(sum(amount), 0) AS total
-    FROM public.invoice_payments WHERE invoice_id = p_invoice.id AND deleted_at IS NULL
+    FROM pm.invoice_payments WHERE invoice_id = p_invoice.id AND deleted_at IS NULL
   ) paid
 $$;
 
@@ -10930,22 +10931,22 @@ $$;
 
 -- After a payment is added, changed or removed. Skipped while the invoice
 -- side (or the backfill) is writing payments itself: app.invoice_payment_sync.
-CREATE OR REPLACE FUNCTION public.sync_invoice_payment_status()
+CREATE OR REPLACE FUNCTION pm.sync_invoice_payment_status()
 RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
 DECLARE
-  v_invoice public.project_invoices;
-  v_row public.project_invoices;
+  v_invoice pm.project_invoices;
+  v_row pm.project_invoices;
   v_paid numeric;
   v_last date;
 BEGIN
   IF current_setting('app.invoice_payment_sync', true) = 'on' THEN RETURN NULL; END IF;
 
   SELECT * INTO v_invoice
-  FROM public.project_invoices
+  FROM pm.project_invoices
   WHERE id = CASE WHEN TG_OP = 'DELETE' THEN OLD.invoice_id ELSE NEW.invoice_id END
   FOR UPDATE;
   IF NOT FOUND THEN RETURN NULL; END IF;
@@ -10953,20 +10954,20 @@ BEGIN
   IF TG_OP = 'UPDATE' AND OLD.deleted_at IS NOT NULL AND NEW.deleted_at IS NOT NULL THEN RETURN NULL; END IF;
 
   SELECT COALESCE(sum(amount), 0), max(paid_date) INTO v_paid, v_last
-  FROM public.invoice_payments WHERE invoice_id = v_invoice.id AND deleted_at IS NULL;
+  FROM pm.invoice_payments WHERE invoice_id = v_invoice.id AND deleted_at IS NULL;
 
   v_row := v_invoice;
-  IF v_invoice.status IN ('sent', 'overdue', 'paid') AND v_paid > 0 AND v_paid >= public.invoice_total(v_invoice) THEN
+  IF v_invoice.status IN ('sent', 'overdue', 'paid') AND v_paid > 0 AND v_paid >= pm.invoice_total(v_invoice) THEN
     v_row.status := 'paid';
-    IF public.invoice_text_date(v_invoice.paid_date) IS DISTINCT FROM v_last THEN
+    IF pm.invoice_text_date(v_invoice.paid_date) IS DISTINCT FROM v_last THEN
       v_row.paid_date := to_char(v_last, 'YYYY-MM-DD');
     END IF;
   ELSIF v_invoice.status = 'paid' THEN
-    IF public.invoice_share_earnings_paid_out(v_invoice.id) THEN
+    IF pm.invoice_share_earnings_paid_out(v_invoice.id) THEN
       RAISE EXCEPTION 'PAYMENT_SHARES_PAID_OUT: This invoice''s revenue split is already paid out, so it cannot become unpaid. Void that payout first.';
     END IF;
     v_row.status := CASE
-      WHEN public.invoice_text_date(v_invoice.due_date) < public.workspace_today() THEN 'overdue'
+      WHEN pm.invoice_text_date(v_invoice.due_date) < pm.workspace_today() THEN 'overdue'
       ELSE 'sent'
     END;
     v_row.paid_date := NULL;
@@ -10978,41 +10979,41 @@ BEGIN
   -- Moving a payment to Trash removes it; restoring it records it again.
   IF (TG_OP = 'INSERT' AND NEW.deleted_at IS NULL)
      OR (TG_OP = 'UPDATE' AND OLD.deleted_at IS NOT NULL AND NEW.deleted_at IS NULL) THEN
-    PERFORM public.emit_invoice_webhook_event(v_row, 'invoice.payment_recorded', public.invoice_payment_event_data(NEW, v_row));
+    PERFORM pm.emit_invoice_webhook_event(v_row, 'invoice.payment_recorded', pm.invoice_payment_event_data(NEW, v_row));
   ELSIF TG_OP = 'UPDATE' AND OLD.deleted_at IS NULL AND NEW.deleted_at IS NOT NULL THEN
-    PERFORM public.emit_invoice_webhook_event(v_row, 'invoice.payment_removed', public.invoice_payment_event_data(NEW, v_row));
+    PERFORM pm.emit_invoice_webhook_event(v_row, 'invoice.payment_removed', pm.invoice_payment_event_data(NEW, v_row));
   ELSIF TG_OP = 'DELETE' THEN
-    PERFORM public.emit_invoice_webhook_event(v_row, 'invoice.payment_removed', public.invoice_payment_event_data(OLD, v_row));
+    PERFORM pm.emit_invoice_webhook_event(v_row, 'invoice.payment_removed', pm.invoice_payment_event_data(OLD, v_row));
   END IF;
 
   PERFORM set_config('app.invoice_payment_sync', 'on', true);
   IF v_row.status IS DISTINCT FROM v_invoice.status OR v_row.paid_date IS DISTINCT FROM v_invoice.paid_date THEN
-    UPDATE public.project_invoices
+    UPDATE pm.project_invoices
     SET status = v_row.status, paid_date = v_row.paid_date
     WHERE id = v_invoice.id;
   ELSE
     -- Outstanding changed: readers that sync by updated_at see it.
-    UPDATE public.project_invoices SET updated_at = now() WHERE id = v_invoice.id;
+    UPDATE pm.project_invoices SET updated_at = now() WHERE id = v_invoice.id;
   END IF;
   PERFORM set_config('app.invoice_payment_sync', '', true);
   RETURN NULL;
 END;
 $$;
 
-DROP TRIGGER IF EXISTS sync_invoice_payment_status ON public.invoice_payments;
+DROP TRIGGER IF EXISTS sync_invoice_payment_status ON pm.invoice_payments;
 CREATE TRIGGER sync_invoice_payment_status
-  AFTER INSERT OR UPDATE OR DELETE ON public.invoice_payments
-  FOR EACH ROW EXECUTE FUNCTION public.sync_invoice_payment_status();
+  AFTER INSERT OR UPDATE OR DELETE ON pm.invoice_payments
+  FOR EACH ROW EXECUTE FUNCTION pm.sync_invoice_payment_status();
 
 -- -- Payments follow the status ---------------------------------------------
 
 -- BEFORE UPDATE on the invoice, because people (and the invoices_manage RLS
 -- policy, FOR ALL) still write status, amount, lines and paid_date directly.
-CREATE OR REPLACE FUNCTION public.sync_invoice_payments_from_invoice()
+CREATE OR REPLACE FUNCTION pm.sync_invoice_payments_from_invoice()
 RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
 DECLARE
   v_api integer;
@@ -11021,7 +11022,7 @@ DECLARE
   v_last date;
   v_on date;
   v_total numeric;
-  v_payment public.invoice_payments;
+  v_payment pm.invoice_payments;
   v_follows boolean := false;
 BEGIN
   IF current_setting('app.invoice_payment_sync', true) = 'on' THEN RETURN NEW; END IF;
@@ -11031,22 +11032,22 @@ BEGIN
      AND NEW.paid_date IS NOT DISTINCT FROM OLD.paid_date THEN
     RETURN NEW;
   END IF;
-  v_total := public.invoice_total(NEW);
+  v_total := pm.invoice_total(NEW);
 
   SELECT count(*) FILTER (WHERE recorded_via = 'api'),
          count(*) FILTER (WHERE recorded_via = 'app'),
          COALESCE(sum(amount), 0), max(paid_date)
   INTO v_api, v_app, v_paid, v_last
-  FROM public.invoice_payments WHERE invoice_id = OLD.id AND deleted_at IS NULL;
+  FROM pm.invoice_payments WHERE invoice_id = OLD.id AND deleted_at IS NULL;
 
   IF NEW.status = 'paid' THEN
-    v_on := COALESCE(public.invoice_text_date(NEW.paid_date), public.workspace_today());
+    v_on := COALESCE(pm.invoice_text_date(NEW.paid_date), pm.workspace_today());
     -- Still paid, and the only payment is the bare one that stands for
     -- "paid" (as marking it paid, or the backfill, made it): it follows the
     -- invoice. A payment with a method, reference or external_id was recorded
     -- on purpose and is never rewritten.
     IF OLD.status = 'paid' AND v_api = 0 AND v_app = 1 THEN
-      SELECT * INTO v_payment FROM public.invoice_payments WHERE invoice_id = OLD.id AND deleted_at IS NULL;
+      SELECT * INTO v_payment FROM pm.invoice_payments WHERE invoice_id = OLD.id AND deleted_at IS NULL;
       v_follows := v_payment.method IS NULL AND v_payment.reference IS NULL AND v_payment.external_id IS NULL;
     END IF;
     IF OLD.status = 'paid' AND v_api + v_app > 0 AND NOT v_follows THEN
@@ -11054,11 +11055,11 @@ BEGIN
       IF v_paid >= v_total THEN
         NEW.paid_date := to_char(v_last, 'YYYY-MM-DD');
       ELSE
-        IF public.invoice_share_earnings_paid_out(NEW.id) THEN
+        IF pm.invoice_share_earnings_paid_out(NEW.id) THEN
           RAISE EXCEPTION 'PAYMENT_SHARES_PAID_OUT: This invoice''s revenue split is already paid out, so it cannot become unpaid. Void that payout first.';
         END IF;
         NEW.status := CASE
-          WHEN public.invoice_text_date(NEW.due_date) < public.workspace_today() THEN 'overdue'
+          WHEN pm.invoice_text_date(NEW.due_date) < pm.workspace_today() THEN 'overdue'
           ELSE 'sent'
         END;
         NEW.paid_date := NULL;
@@ -11069,22 +11070,22 @@ BEGIN
     PERFORM set_config('app.invoice_payment_sync', 'on', true);
     IF v_follows THEN
       IF v_total > 0 THEN
-        UPDATE public.invoice_payments
+        UPDATE pm.invoice_payments
         SET amount = v_total, paid_date = v_on
         WHERE invoice_id = NEW.id AND deleted_at IS NULL AND (amount <> v_total OR paid_date <> v_on);
       ELSE
         -- Let go payments move to Trash, as removing one by hand does.
-        FOR v_payment IN UPDATE public.invoice_payments
-          SET deleted_at = now(), deleted_by = public.current_team_member_id()
+        FOR v_payment IN UPDATE pm.invoice_payments
+          SET deleted_at = now(), deleted_by = pm.current_team_member_id()
           WHERE invoice_id = NEW.id AND deleted_at IS NULL RETURNING * LOOP
-          PERFORM public.emit_invoice_webhook_event(NEW, 'invoice.payment_removed', public.invoice_payment_event_data(v_payment, NEW));
+          PERFORM pm.emit_invoice_webhook_event(NEW, 'invoice.payment_removed', pm.invoice_payment_event_data(v_payment, NEW));
         END LOOP;
       END IF;
     ELSIF v_paid < v_total THEN
-      INSERT INTO public.invoice_payments (invoice_id, amount, paid_date, recorded_via, created_by)
-      VALUES (NEW.id, v_total - v_paid, v_on, 'app', public.current_team_member_id())
+      INSERT INTO pm.invoice_payments (invoice_id, amount, paid_date, recorded_via, created_by)
+      VALUES (NEW.id, v_total - v_paid, v_on, 'app', pm.current_team_member_id())
       RETURNING * INTO v_payment;
-      PERFORM public.emit_invoice_webhook_event(NEW, 'invoice.payment_recorded', public.invoice_payment_event_data(v_payment, NEW));
+      PERFORM pm.emit_invoice_webhook_event(NEW, 'invoice.payment_recorded', pm.invoice_payment_event_data(v_payment, NEW));
     END IF;
     PERFORM set_config('app.invoice_payment_sync', '', true);
     RETURN NEW;
@@ -11097,10 +11098,10 @@ BEGIN
       RAISE EXCEPTION 'PAYMENT_RECORDED_ELSEWHERE: This invoice has payments recorded by an accounting connection. Remove them there first.';
     END IF;
     PERFORM set_config('app.invoice_payment_sync', 'on', true);
-    FOR v_payment IN UPDATE public.invoice_payments
-      SET deleted_at = now(), deleted_by = public.current_team_member_id()
+    FOR v_payment IN UPDATE pm.invoice_payments
+      SET deleted_at = now(), deleted_by = pm.current_team_member_id()
       WHERE invoice_id = NEW.id AND deleted_at IS NULL RETURNING * LOOP
-      PERFORM public.emit_invoice_webhook_event(NEW, 'invoice.payment_removed', public.invoice_payment_event_data(v_payment, NEW));
+      PERFORM pm.emit_invoice_webhook_event(NEW, 'invoice.payment_removed', pm.invoice_payment_event_data(v_payment, NEW));
     END LOOP;
     PERFORM set_config('app.invoice_payment_sync', '', true);
     RETURN NEW;
@@ -11115,52 +11116,52 @@ BEGIN
 END;
 $$;
 
-DROP TRIGGER IF EXISTS sync_invoice_payments_from_invoice ON public.project_invoices;
+DROP TRIGGER IF EXISTS sync_invoice_payments_from_invoice ON pm.project_invoices;
 CREATE TRIGGER sync_invoice_payments_from_invoice
-  BEFORE UPDATE OF status, amount, line_items, paid_date ON public.project_invoices
-  FOR EACH ROW EXECUTE FUNCTION public.sync_invoice_payments_from_invoice();
+  BEFORE UPDATE OF status, amount, line_items, paid_date ON pm.project_invoices
+  FOR EACH ROW EXECUTE FUNCTION pm.sync_invoice_payments_from_invoice();
 
 -- An invoice created as paid gets a paid date (BEFORE) and its payment
 -- (AFTER). The AFTER trigger sorts before emit_invoice_webhook, so the
 -- payment event comes ahead of the invoice event, as on an update.
-CREATE OR REPLACE FUNCTION public.record_payment_for_paid_invoice()
+CREATE OR REPLACE FUNCTION pm.record_payment_for_paid_invoice()
 RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
 DECLARE
-  v_payment public.invoice_payments;
+  v_payment pm.invoice_payments;
   v_total numeric;
 BEGIN
   IF TG_WHEN = 'BEFORE' THEN
     IF NEW.status = 'paid' AND NEW.paid_date IS NULL THEN
-      NEW.paid_date := to_char(public.workspace_today(), 'YYYY-MM-DD');
+      NEW.paid_date := to_char(pm.workspace_today(), 'YYYY-MM-DD');
     END IF;
     RETURN NEW;
   END IF;
   IF current_setting('app.invoice_payment_sync', true) = 'on' THEN RETURN NULL; END IF;
-  v_total := public.invoice_total(NEW);
+  v_total := pm.invoice_total(NEW);
   IF NEW.status <> 'paid' OR v_total <= 0 THEN RETURN NULL; END IF;
   PERFORM set_config('app.invoice_payment_sync', 'on', true);
-  INSERT INTO public.invoice_payments (invoice_id, amount, paid_date, recorded_via, created_by)
-  VALUES (NEW.id, v_total, COALESCE(public.invoice_text_date(NEW.paid_date), public.workspace_today()), 'app', public.current_team_member_id())
+  INSERT INTO pm.invoice_payments (invoice_id, amount, paid_date, recorded_via, created_by)
+  VALUES (NEW.id, v_total, COALESCE(pm.invoice_text_date(NEW.paid_date), pm.workspace_today()), 'app', pm.current_team_member_id())
   RETURNING * INTO v_payment;
   PERFORM set_config('app.invoice_payment_sync', '', true);
-  PERFORM public.emit_invoice_webhook_event(NEW, 'invoice.payment_recorded', public.invoice_payment_event_data(v_payment, NEW));
+  PERFORM pm.emit_invoice_webhook_event(NEW, 'invoice.payment_recorded', pm.invoice_payment_event_data(v_payment, NEW));
   RETURN NULL;
 END;
 $$;
 
-DROP TRIGGER IF EXISTS record_payment_for_paid_invoice ON public.project_invoices;
-DROP TRIGGER IF EXISTS apply_paid_date_for_paid_invoice ON public.project_invoices;
+DROP TRIGGER IF EXISTS record_payment_for_paid_invoice ON pm.project_invoices;
+DROP TRIGGER IF EXISTS apply_paid_date_for_paid_invoice ON pm.project_invoices;
 CREATE TRIGGER apply_paid_date_for_paid_invoice
-  BEFORE INSERT ON public.project_invoices
-  FOR EACH ROW EXECUTE FUNCTION public.record_payment_for_paid_invoice();
-DROP TRIGGER IF EXISTS apply_payment_for_paid_invoice ON public.project_invoices;
+  BEFORE INSERT ON pm.project_invoices
+  FOR EACH ROW EXECUTE FUNCTION pm.record_payment_for_paid_invoice();
+DROP TRIGGER IF EXISTS apply_payment_for_paid_invoice ON pm.project_invoices;
 CREATE TRIGGER apply_payment_for_paid_invoice
-  AFTER INSERT ON public.project_invoices
-  FOR EACH ROW EXECUTE FUNCTION public.record_payment_for_paid_invoice();
+  AFTER INSERT ON pm.project_invoices
+  FOR EACH ROW EXECUTE FUNCTION pm.record_payment_for_paid_invoice();
 
 -- -- Recording and removing -------------------------------------------------
 
@@ -11170,17 +11171,17 @@ CREATE TRIGGER apply_payment_for_paid_invoice
 -- Errors start with a code the API maps: INVOICE_NOT_FOUND,
 -- INVOICE_NOT_PAYABLE, PAYMENT_INVALID, PAYMENT_EXCEEDS_OUTSTANDING,
 -- PAYMENT_EXTERNAL_ID_CONFLICT, PAYMENT_FORBIDDEN.
-CREATE OR REPLACE FUNCTION public.record_invoice_payment(p_invoice_id uuid, p_payment jsonb)
+CREATE OR REPLACE FUNCTION pm.record_invoice_payment(p_invoice_id uuid, p_payment jsonb)
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
 DECLARE
   v_service boolean := COALESCE(auth.role(), '') = 'service_role';
-  v_invoice public.project_invoices;
-  v_existing public.invoice_payments;
-  v_saved public.invoice_payments;
+  v_invoice pm.project_invoices;
+  v_existing pm.invoice_payments;
+  v_saved pm.invoice_payments;
   v_amount numeric;
   v_date date;
   v_method text := NULLIF(btrim(p_payment->>'method'), '');
@@ -11190,13 +11191,13 @@ DECLARE
   v_paid numeric;
   v_total numeric;
 BEGIN
-  IF NOT v_service AND NOT (public.has_permission('invoices.record_payments') OR public.has_permission('invoices.manage')) THEN
+  IF NOT v_service AND NOT (pm.has_permission('invoices.record_payments') OR pm.has_permission('invoices.manage')) THEN
     RAISE EXCEPTION 'PAYMENT_FORBIDDEN: Missing permission to record invoice payments';
   END IF;
 
-  SELECT * INTO v_invoice FROM public.project_invoices WHERE id = p_invoice_id FOR UPDATE;
-  IF NOT FOUND OR v_invoice.deleted_at IS NOT NULL OR NOT public.project_is_live(v_invoice.project_id)
-     OR (NOT v_service AND NOT public.can_access_project(v_invoice.project_id)) THEN
+  SELECT * INTO v_invoice FROM pm.project_invoices WHERE id = p_invoice_id FOR UPDATE;
+  IF NOT FOUND OR v_invoice.deleted_at IS NOT NULL OR NOT pm.project_is_live(v_invoice.project_id)
+     OR (NOT v_service AND NOT pm.can_access_project(v_invoice.project_id)) THEN
     RAISE EXCEPTION 'INVOICE_NOT_FOUND: Invoice not found';
   END IF;
 
@@ -11217,7 +11218,7 @@ BEGIN
   v_via := CASE WHEN v_service THEN COALESCE(NULLIF(p_payment->>'recorded_via', ''), 'api') ELSE 'app' END;
 
   IF v_external IS NOT NULL THEN
-    SELECT * INTO v_existing FROM public.invoice_payments
+    SELECT * INTO v_existing FROM pm.invoice_payments
     WHERE invoice_id = p_invoice_id AND external_id = v_external AND deleted_at IS NULL;
     IF FOUND THEN
       IF v_existing.amount = v_amount AND v_existing.paid_date = v_date
@@ -11232,19 +11233,19 @@ BEGIN
   IF v_invoice.status NOT IN ('sent', 'overdue', 'paid') THEN
     RAISE EXCEPTION 'INVOICE_NOT_PAYABLE: Only a sent, overdue or paid invoice takes payments (this one is %)', v_invoice.status;
   END IF;
-  SELECT COALESCE(sum(amount), 0) INTO v_paid FROM public.invoice_payments
+  SELECT COALESCE(sum(amount), 0) INTO v_paid FROM pm.invoice_payments
   WHERE invoice_id = p_invoice_id AND deleted_at IS NULL;
-  v_total := public.invoice_total(v_invoice);
+  v_total := pm.invoice_total(v_invoice);
   IF v_amount > v_total - v_paid THEN
     RAISE EXCEPTION 'PAYMENT_EXCEEDS_OUTSTANDING: The payment is more than the % outstanding', GREATEST(v_total - v_paid, 0);
   END IF;
 
-  INSERT INTO public.invoice_payments (
+  INSERT INTO pm.invoice_payments (
     invoice_id, amount, paid_date, method, reference, external_id, recorded_via, api_key_id, created_by
   ) VALUES (
     p_invoice_id, v_amount, v_date, v_method, v_reference, v_external, v_via,
     CASE WHEN v_service THEN NULLIF(p_payment->>'api_key_id', '')::uuid END,
-    CASE WHEN v_service THEN NULLIF(p_payment->>'created_by', '')::uuid ELSE public.current_team_member_id() END
+    CASE WHEN v_service THEN NULLIF(p_payment->>'created_by', '')::uuid ELSE pm.current_team_member_id() END
   )
   RETURNING * INTO v_saved;
   RETURN jsonb_build_object('payment', to_jsonb(v_saved), 'replayed', false);
@@ -11255,26 +11256,26 @@ $$;
 -- passes p_recorded_via = 'api' so a key removes only what keys recorded.
 -- Errors: PAYMENT_NOT_FOUND, PAYMENT_RECORDED_ELSEWHERE, PAYMENT_FORBIDDEN,
 -- and PAYMENT_SHARES_PAID_OUT from the status trigger.
-CREATE OR REPLACE FUNCTION public.remove_invoice_payment(p_payment_id uuid, p_recorded_via text DEFAULT NULL)
+CREATE OR REPLACE FUNCTION pm.remove_invoice_payment(p_payment_id uuid, p_recorded_via text DEFAULT NULL)
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
 DECLARE
   v_service boolean := COALESCE(auth.role(), '') = 'service_role';
-  v_payment public.invoice_payments;
+  v_payment pm.invoice_payments;
   v_project uuid;
   v_only text := CASE WHEN v_service THEN p_recorded_via ELSE 'app' END;
 BEGIN
-  IF NOT v_service AND NOT (public.has_permission('invoices.record_payments') OR public.has_permission('invoices.manage')) THEN
+  IF NOT v_service AND NOT (pm.has_permission('invoices.record_payments') OR pm.has_permission('invoices.manage')) THEN
     RAISE EXCEPTION 'PAYMENT_FORBIDDEN: Missing permission to remove invoice payments';
   END IF;
-  SELECT * INTO v_payment FROM public.invoice_payments WHERE id = p_payment_id AND deleted_at IS NULL;
-  SELECT project_id INTO v_project FROM public.project_invoices
-  WHERE id = v_payment.invoice_id AND deleted_at IS NULL AND public.project_is_live(project_id)
+  SELECT * INTO v_payment FROM pm.invoice_payments WHERE id = p_payment_id AND deleted_at IS NULL;
+  SELECT project_id INTO v_project FROM pm.project_invoices
+  WHERE id = v_payment.invoice_id AND deleted_at IS NULL AND pm.project_is_live(project_id)
   FOR UPDATE;
-  IF v_project IS NULL OR (NOT v_service AND NOT public.can_access_project(v_project)) THEN
+  IF v_project IS NULL OR (NOT v_service AND NOT pm.can_access_project(v_project)) THEN
     RAISE EXCEPTION 'PAYMENT_NOT_FOUND: Payment not found';
   END IF;
   IF v_only IS NOT NULL AND v_payment.recorded_via <> v_only THEN
@@ -11283,8 +11284,8 @@ BEGIN
       ELSE 'This payment was recorded by hand in the app. Remove it there.' END;
   END IF;
   -- Removed means moved to Trash; the status trigger sends payment_removed.
-  UPDATE public.invoice_payments
-  SET deleted_at = now(), deleted_by = public.current_team_member_id()
+  UPDATE pm.invoice_payments
+  SET deleted_at = now(), deleted_by = pm.current_team_member_id()
   WHERE id = p_payment_id
   RETURNING * INTO v_payment;
   RETURN to_jsonb(v_payment);
@@ -11293,7 +11294,7 @@ $$;
 
 -- A project's payments with the name of the key that recorded each (keys are
 -- not readable by most members).
-CREATE OR REPLACE FUNCTION public.project_invoice_payments(p_project_id uuid)
+CREATE OR REPLACE FUNCTION pm.project_invoice_payments(p_project_id uuid)
 RETURNS TABLE (
   id uuid,
   invoice_id uuid,
@@ -11312,21 +11313,21 @@ RETURNS TABLE (
 LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
 BEGIN
   IF COALESCE(auth.role(), '') <> 'service_role'
-     AND NOT ((public.has_permission('invoices.read') OR public.has_permission('invoices.manage'))
-              AND public.can_access_project(p_project_id)) THEN
+     AND NOT ((pm.has_permission('invoices.read') OR pm.has_permission('invoices.manage'))
+              AND pm.can_access_project(p_project_id)) THEN
     RAISE EXCEPTION 'Not allowed to read payments on this project' USING ERRCODE = '42501';
   END IF;
   RETURN QUERY
   SELECT payment.id, payment.invoice_id, payment.amount, payment.paid_date, payment.method,
          payment.reference, payment.external_id, payment.recorded_via, payment.api_key_id,
          key.name, payment.created_by, payment.created_at, payment.updated_at
-  FROM public.invoice_payments payment
-  JOIN public.project_invoices invoice ON invoice.id = payment.invoice_id
-  LEFT JOIN public.api_keys key ON key.id = payment.api_key_id
+  FROM pm.invoice_payments payment
+  JOIN pm.project_invoices invoice ON invoice.id = payment.invoice_id
+  LEFT JOIN pm.api_keys key ON key.id = payment.api_key_id
   WHERE invoice.project_id = p_project_id
     AND invoice.deleted_at IS NULL
     AND payment.deleted_at IS NULL
@@ -11336,21 +11337,21 @@ $$;
 
 -- -- Grants -----------------------------------------------------------------
 
-REVOKE ALL ON FUNCTION public.invoice_text_date(text) FROM PUBLIC, anon;
-REVOKE ALL ON FUNCTION public.invoice_total(public.project_invoices) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.invoice_share_earnings_paid_out(uuid) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.invoice_payment_event_data(public.invoice_payments, public.project_invoices) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.sync_invoice_payment_status() FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.sync_invoice_payments_from_invoice() FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.record_payment_for_paid_invoice() FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.record_invoice_payment(uuid, jsonb) FROM PUBLIC, anon;
-REVOKE ALL ON FUNCTION public.remove_invoice_payment(uuid, text) FROM PUBLIC, anon;
-REVOKE ALL ON FUNCTION public.project_invoice_payments(uuid) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.invoice_text_date(text) TO authenticated, service_role;
-GRANT EXECUTE ON FUNCTION public.invoice_total(public.project_invoices) TO service_role;
-GRANT EXECUTE ON FUNCTION public.record_invoice_payment(uuid, jsonb) TO authenticated, service_role;
-GRANT EXECUTE ON FUNCTION public.remove_invoice_payment(uuid, text) TO authenticated, service_role;
-GRANT EXECUTE ON FUNCTION public.project_invoice_payments(uuid) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.invoice_text_date(text) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION pm.invoice_total(pm.project_invoices) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION pm.invoice_share_earnings_paid_out(uuid) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION pm.invoice_payment_event_data(pm.invoice_payments, pm.project_invoices) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION pm.sync_invoice_payment_status() FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION pm.sync_invoice_payments_from_invoice() FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION pm.record_payment_for_paid_invoice() FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION pm.record_invoice_payment(uuid, jsonb) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION pm.remove_invoice_payment(uuid, text) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION pm.project_invoice_payments(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION pm.invoice_text_date(text) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.invoice_total(pm.project_invoices) TO service_role;
+GRANT EXECUTE ON FUNCTION pm.record_invoice_payment(uuid, jsonb) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.remove_invoice_payment(uuid, text) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.project_invoice_payments(uuid) TO authenticated, service_role;
 
 -- ---------------------------------------------------------------------------
 -- Earned work and invoice totals for accounting tools
@@ -11359,16 +11360,16 @@ GRANT EXECUTE ON FUNCTION public.project_invoice_payments(uuid) TO authenticated
 -- counts); scheduled is started retainer periods with no issued invoice.
 -- ---------------------------------------------------------------------------
 
-CREATE OR REPLACE FUNCTION public.billing_earned_work(p_from date, p_to date)
+CREATE OR REPLACE FUNCTION pm.billing_earned_work(p_from date, p_to date)
 RETURNS jsonb
 LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
 DECLARE
-  zone text := public.workspace_timezone();
-  today date := public.workspace_today();
+  zone text := pm.workspace_timezone();
+  today date := pm.workspace_today();
   result jsonb;
 BEGIN
   IF COALESCE(auth.role(), '') <> 'service_role' THEN
@@ -11384,10 +11385,10 @@ BEGIN
   WITH sessions AS (
     SELECT entry.project_id,
            (entry.start_time AT TIME ZONE zone)::date AS day,
-           public.time_entry_worked_hours(entry.segments, entry.start_time, entry.end_time) AS hours,
+           pm.time_entry_worked_hours(entry.segments, entry.start_time, entry.end_time) AS hours,
            entry.hourly_rate AS rate
-    FROM public.project_time_entries entry
-    JOIN public.projects project ON project.id = entry.project_id
+    FROM pm.project_time_entries entry
+    JOIN pm.projects project ON project.id = entry.project_id
     WHERE project.client_time_billing = 'hourly'
       AND project.deleted_at IS NULL
       AND entry.deleted_at IS NULL
@@ -11422,14 +11423,14 @@ BEGIN
       'billing_timing', retainer.billing_timing,
       'draft_invoice_id', invoice.id
     ) AS row, retainer.project_id, period.period_start AS sort_day
-    FROM public.project_retainers retainer
-    CROSS JOIN LATERAL public.retainer_periods(retainer.id, p_from, LEAST(p_to, today)) period
-    LEFT JOIN public.project_retainer_periods handled
+    FROM pm.project_retainers retainer
+    CROSS JOIN LATERAL pm.retainer_periods(retainer.id, p_from, LEAST(p_to, today)) period
+    LEFT JOIN pm.project_retainer_periods handled
       ON handled.retainer_id = retainer.id AND handled.period_start = period.period_start
-    LEFT JOIN public.project_invoices invoice ON invoice.id = handled.invoice_id
+    LEFT JOIN pm.project_invoices invoice ON invoice.id = handled.invoice_id
     WHERE retainer.status = 'active'
       AND retainer.deleted_at IS NULL
-      AND public.project_is_live(retainer.project_id)
+      AND pm.project_is_live(retainer.project_id)
       AND period.period_start <= today
       AND period.period_end >= p_from
       AND period.amount > 0
@@ -11445,25 +11446,25 @@ $$;
 
 -- Total owed (invoice_total) and paid so far, for a page of invoices
 -- (p_invoice_ids: a JSON array of ids).
-CREATE OR REPLACE FUNCTION public.invoice_payment_totals(p_invoice_ids jsonb)
+CREATE OR REPLACE FUNCTION pm.invoice_payment_totals(p_invoice_ids jsonb)
 RETURNS jsonb
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
   SELECT COALESCE(jsonb_object_agg(invoice.id, jsonb_build_object(
-    'total', public.invoice_total(invoice),
-    'paid_total', COALESCE((SELECT sum(payment.amount) FROM public.invoice_payments payment WHERE payment.invoice_id = invoice.id AND payment.deleted_at IS NULL), 0)
+    'total', pm.invoice_total(invoice),
+    'paid_total', COALESCE((SELECT sum(payment.amount) FROM pm.invoice_payments payment WHERE payment.invoice_id = invoice.id AND payment.deleted_at IS NULL), 0)
   )), '{}'::jsonb)
-  FROM public.project_invoices invoice
+  FROM pm.project_invoices invoice
   WHERE invoice.id::text IN (SELECT jsonb_array_elements_text(p_invoice_ids))
 $$;
 
-REVOKE ALL ON FUNCTION public.billing_earned_work(date, date) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.invoice_payment_totals(jsonb) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.billing_earned_work(date, date) TO service_role;
-GRANT EXECUTE ON FUNCTION public.invoice_payment_totals(jsonb) TO service_role;
+REVOKE ALL ON FUNCTION pm.billing_earned_work(date, date) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION pm.invoice_payment_totals(jsonb) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION pm.billing_earned_work(date, date) TO service_role;
+GRANT EXECUTE ON FUNCTION pm.invoice_payment_totals(jsonb) TO service_role;
 
 -- ---------------------------------------------------------------------------
 -- Reminders (20261021215512_create_reminders.sql)
@@ -11482,28 +11483,28 @@ GRANT EXECUTE ON FUNCTION public.invoice_payment_totals(jsonb) TO service_role;
 -- moves back out of done.
 -- ============================================================
 
-CREATE TABLE IF NOT EXISTS public.reminders (
+CREATE TABLE IF NOT EXISTS pm.reminders (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   title text NOT NULL CHECK (length(btrim(title)) BETWEEN 1 AND 500),
   notes text NOT NULL DEFAULT '' CHECK (length(notes) <= 5000),
   remind_on date,
   remind_at time,
   -- Whose reminder it is: the person the bell goes to.
-  owner_id uuid NOT NULL REFERENCES public.team_members(id) ON DELETE CASCADE,
+  owner_id uuid NOT NULL REFERENCES pm.team_members(id) ON DELETE CASCADE,
   -- A task reminder always carries its task's project (set by the trigger).
-  project_id uuid REFERENCES public.projects(id) ON DELETE CASCADE,
-  task_id uuid REFERENCES public.tasks(id) ON DELETE CASCADE,
+  project_id uuid REFERENCES pm.projects(id) ON DELETE CASCADE,
+  task_id uuid REFERENCES pm.tasks(id) ON DELETE CASCADE,
   status text NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'done')),
   completed_at timestamptz,
-  completed_by uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
+  completed_by uuid REFERENCES pm.team_members(id) ON DELETE SET NULL,
   -- Closed because its task moved to done; reopened if the task moves back.
   closed_by_task boolean NOT NULL DEFAULT false,
   -- When the due bell went out; cleared when the date or time changes.
   notified_at timestamptz,
   source text NOT NULL DEFAULT 'manual' CHECK (source IN ('manual', 'agent', 'email')),
   -- The email it came from, when it came from one.
-  source_message_id uuid REFERENCES communications.messages(id) ON DELETE SET NULL,
-  created_by uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
+  source_message_id uuid REFERENCES pm.messages(id) ON DELETE SET NULL,
+  created_by uuid REFERENCES pm.team_members(id) ON DELETE SET NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT reminders_time_needs_date CHECK (remind_at IS NULL OR remind_on IS NOT NULL),
@@ -11512,9 +11513,9 @@ CREATE TABLE IF NOT EXISTS public.reminders (
   -- Trash: when it was deleted and by whom (null = live). Rows are never
   -- removed; see the Soft delete section.
   deleted_at timestamptz,
-  deleted_by uuid references public.team_members(id) on delete set null
+  deleted_by uuid references pm.team_members(id) on delete set null
 );
-CREATE INDEX IF NOT EXISTS idx_reminders_source_message ON public.reminders (source_message_id) WHERE source_message_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_reminders_source_message ON pm.reminders (source_message_id) WHERE source_message_id IS NOT NULL;
 
 -- Defined after reminders, which it reads (the reminders an email set).
 -- The newest unsummarized triage per message, oldest message first, with
@@ -11524,40 +11525,40 @@ CREATE INDEX IF NOT EXISTS idx_reminders_source_message ON public.reminders (sou
 -- and left alone never wakes a summary. A task it is only about (a related
 -- link) is not an outcome, and a person's later reminder on such an email does
 -- not count: only what the agent itself set.
-CREATE OR REPLACE FUNCTION communications.triage_is_news(p_triage_id uuid)
+CREATE OR REPLACE FUNCTION pm.triage_is_news(p_triage_id uuid)
 RETURNS boolean
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
-SET search_path = communications, public
+SET search_path = pm
 AS $$
   SELECT EXISTS (
     SELECT 1
-    FROM communications.triage t
-    JOIN communications.messages m ON m.id = t.message_id
+    FROM pm.triage t
+    JOIN pm.messages m ON m.id = t.message_id
     WHERE t.id = p_triage_id
       AND (
         m.status = 'needs_human'
         OR (t.outcome = 'needs_reply' AND m.reviewed_at IS NULL AND m.status NOT IN ('new', 'ignored'))
         OR t.outcome = 'task'
-        OR EXISTS (SELECT 1 FROM communications.task_links k WHERE k.triage_id = t.id AND k.relation <> 'related')
+        OR EXISTS (SELECT 1 FROM pm.task_links k WHERE k.triage_id = t.id AND k.relation <> 'related')
         OR EXISTS (
-          SELECT 1 FROM public.reminders rm
+          SELECT 1 FROM pm.reminders rm
           WHERE rm.source_message_id = m.id AND rm.created_by = t.member_id
             AND rm.deleted_at IS NULL AND rm.status = 'open'
         )
       )
   );
 $$;
-REVOKE ALL ON FUNCTION communications.triage_is_news(uuid) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION communications.triage_is_news(uuid) TO service_role;
+REVOKE ALL ON FUNCTION pm.triage_is_news(uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION pm.triage_is_news(uuid) TO service_role;
 
-CREATE OR REPLACE FUNCTION communications.unsummarized_triage(p_inbox_ids jsonb, p_limit integer DEFAULT 200)
+CREATE OR REPLACE FUNCTION pm.unsummarized_triage(p_inbox_ids jsonb, p_limit integer DEFAULT 200)
 RETURNS jsonb
 LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
-SET search_path = communications, public
+SET search_path = pm
 AS $$
 BEGIN
   IF COALESCE(auth.role(), '') <> 'service_role' THEN RAISE EXCEPTION 'Service role required' USING ERRCODE = '42501'; END IF;
@@ -11565,11 +11566,11 @@ BEGIN
   WITH inboxes AS (SELECT (value)::uuid AS id FROM jsonb_array_elements_text(COALESCE(p_inbox_ids, '[]'::jsonb))),
   latest AS (
     SELECT DISTINCT ON (t.message_id) t.*
-    FROM communications.triage t
-    JOIN communications.messages m ON m.id = t.message_id
+    FROM pm.triage t
+    JOIN pm.messages m ON m.id = t.message_id
     WHERE m.inbox_id IN (SELECT id FROM inboxes)
       -- Quiet triage is never marked summarized, so the look-back keeps this read small.
-      AND EXISTS (SELECT 1 FROM communications.triage u WHERE u.message_id = t.message_id AND u.summarized_at IS NULL AND u.created_at > now() - interval '14 days')
+      AND EXISTS (SELECT 1 FROM pm.triage u WHERE u.message_id = t.message_id AND u.summarized_at IS NULL AND u.created_at > now() - interval '14 days')
     ORDER BY t.message_id, t.created_at DESC, t.id DESC
   )
   SELECT COALESCE(jsonb_agg(item ORDER BY (item->>'created_at')), '[]'::jsonb)
@@ -11585,7 +11586,7 @@ BEGIN
       'has_suggested_reply', l.suggested_reply IS NOT NULL,
       'project_id', l.project_id,
       'superseded_triage_ids', COALESCE((
-        SELECT jsonb_agg(o.id) FROM communications.triage o
+        SELECT jsonb_agg(o.id) FROM pm.triage o
         WHERE o.message_id = l.message_id AND o.id <> l.id AND o.summarized_at IS NULL
       ), '[]'::jsonb),
       'message', jsonb_build_object(
@@ -11593,11 +11594,11 @@ BEGIN
         'subject', m.subject, 'received_at', m.received_at,
         'kind', m.kind, 'topic', m.topic, 'sort_action', m.sort_action,
         'from', (SELECT jsonb_build_object('address', r.address, 'name', r.name)
-                 FROM communications.participants r WHERE r.message_id = m.id AND r.kind = 'from'),
+                 FROM pm.participants r WHERE r.message_id = m.id AND r.kind = 'from'),
         'routing_basis', m.routing_basis,
         'forwarded_by', CASE WHEN m.routing_basis <> 'sender' AND m.forwarded_by_member_id IS NOT NULL THEN jsonb_build_object(
           'member_id', m.forwarded_by_member_id,
-          'name', (SELECT tm.name FROM public.team_members tm WHERE tm.id = m.forwarded_by_member_id)) END,
+          'name', (SELECT tm.name FROM pm.team_members tm WHERE tm.id = m.forwarded_by_member_id)) END,
         'original_sender', CASE WHEN m.routing_basis = 'forwarded_original' THEN jsonb_build_object(
           'address', m.original_from_address, 'name', COALESCE(m.original_from_name, '')) END
       ),
@@ -11606,51 +11607,51 @@ BEGIN
       'project_ids', to_jsonb(l.project_ids),
       'projects', COALESCE((
         SELECT jsonb_agg(jsonb_build_object('id', cp.project_id, 'name', cpp.name, 'source', cp.source)
-          ORDER BY communications.project_source_rank(cp.source), cp.created_at, cp.project_id)
-        FROM communications.conversation_projects cp JOIN public.projects cpp ON cpp.id = cp.project_id
+          ORDER BY pm.project_source_rank(cp.source), cp.created_at, cp.project_id)
+        FROM pm.conversation_projects cp JOIN pm.projects cpp ON cpp.id = cp.project_id
         WHERE cp.conversation_id = th.id
       ), '[]'::jsonb),
       'thread_summary', th.summary,
       'links', COALESCE((
         SELECT jsonb_agg(jsonb_build_object('task_id', k.task_id, 'relation', k.relation, 'title', tk.title, 'status', tk.status,
           'project_id', tk.project_id, 'project_name', tkp.name) ORDER BY k.created_at)
-        FROM communications.task_links k JOIN public.tasks tk ON tk.id = k.task_id
-        JOIN public.projects tkp ON tkp.id = tk.project_id
+        FROM pm.task_links k JOIN pm.tasks tk ON tk.id = k.task_id
+        JOIN pm.projects tkp ON tkp.id = tk.project_id
         WHERE k.message_id = m.id AND tk.deleted_at IS NULL
       ), '[]'::jsonb),
       'reminders', COALESCE((
         SELECT jsonb_agg(jsonb_build_object('id', rm.id, 'title', rm.title, 'remind_on', rm.remind_on, 'task_id', rm.task_id) ORDER BY rm.created_at)
-        FROM public.reminders rm
+        FROM pm.reminders rm
         WHERE rm.source_message_id = m.id AND rm.deleted_at IS NULL AND rm.status = 'open'
       ), '[]'::jsonb)
     ) AS item
     FROM latest l
-    JOIN communications.messages m ON m.id = l.message_id
-    LEFT JOIN communications.conversations th ON th.id = m.thread_id
-    LEFT JOIN public.projects p ON p.id = th.project_id
-    WHERE communications.triage_is_news(l.id)
+    JOIN pm.messages m ON m.id = l.message_id
+    LEFT JOIN pm.conversations th ON th.id = m.thread_id
+    LEFT JOIN pm.projects p ON p.id = th.project_id
+    WHERE pm.triage_is_news(l.id)
     ORDER BY l.created_at
     LIMIT GREATEST(1, LEAST(COALESCE(p_limit, 200), 500))
   ) items);
 END;
 $$;
-REVOKE ALL ON FUNCTION communications.unsummarized_triage(jsonb, integer) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION communications.unsummarized_triage(jsonb, integer) TO service_role;
+REVOKE ALL ON FUNCTION pm.unsummarized_triage(jsonb, integer) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION pm.unsummarized_triage(jsonb, integer) TO service_role;
 
-CREATE INDEX IF NOT EXISTS idx_reminders_owner_status ON public.reminders (owner_id, status);
-CREATE INDEX IF NOT EXISTS idx_reminders_task ON public.reminders (task_id) WHERE task_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_reminders_project ON public.reminders (project_id) WHERE project_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_reminders_due ON public.reminders (remind_on)
+CREATE INDEX IF NOT EXISTS idx_reminders_owner_status ON pm.reminders (owner_id, status);
+CREATE INDEX IF NOT EXISTS idx_reminders_task ON pm.reminders (task_id) WHERE task_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_reminders_project ON pm.reminders (project_id) WHERE project_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_reminders_due ON pm.reminders (remind_on)
   WHERE status = 'open' AND notified_at IS NULL AND remind_on IS NOT NULL;
 
 -- ------------------------------------------------------------
 -- Normalise every write: the task's project, completion stamps, the due
 -- bell reset, and the fields a later edit may not change.
 -- ------------------------------------------------------------
-CREATE OR REPLACE FUNCTION public.handle_reminder_before_write()
+CREATE OR REPLACE FUNCTION pm.handle_reminder_before_write()
 RETURNS trigger
 LANGUAGE plpgsql
-SET search_path = public
+SET search_path = pm
 AS $$
 DECLARE
   task_project uuid;
@@ -11658,14 +11659,14 @@ BEGIN
   NEW.title := btrim(NEW.title);
 
   IF NEW.task_id IS NOT NULL THEN
-    SELECT project_id INTO task_project FROM public.tasks WHERE id = NEW.task_id;
+    SELECT project_id INTO task_project FROM pm.tasks WHERE id = NEW.task_id;
     IF task_project IS NOT NULL THEN
       NEW.project_id := task_project;
     END IF;
   END IF;
 
   IF TG_OP = 'INSERT' THEN
-    NEW.created_by := COALESCE(NEW.created_by, public.current_team_member_id());
+    NEW.created_by := COALESCE(NEW.created_by, pm.current_team_member_id());
   ELSE
     NEW.created_by := OLD.created_by;
     NEW.source := OLD.source;
@@ -11677,7 +11678,7 @@ BEGIN
 
   IF NEW.status = 'done' AND (TG_OP = 'INSERT' OR OLD.status <> 'done') THEN
     NEW.completed_at := COALESCE(NEW.completed_at, now());
-    NEW.completed_by := COALESCE(NEW.completed_by, public.current_team_member_id());
+    NEW.completed_by := COALESCE(NEW.completed_by, pm.current_team_member_id());
   ELSIF NEW.status = 'open' THEN
     NEW.completed_at := NULL;
     NEW.completed_by := NULL;
@@ -11689,10 +11690,10 @@ BEGIN
 END;
 $$;
 
-DROP TRIGGER IF EXISTS reminders_before_write ON public.reminders;
+DROP TRIGGER IF EXISTS reminders_before_write ON pm.reminders;
 CREATE TRIGGER reminders_before_write
-  BEFORE INSERT OR UPDATE ON public.reminders
-  FOR EACH ROW EXECUTE FUNCTION public.handle_reminder_before_write();
+  BEFORE INSERT OR UPDATE ON pm.reminders
+  FOR EACH ROW EXECUTE FUNCTION pm.handle_reminder_before_write();
 
 -- ------------------------------------------------------------
 -- A task moved to done is finished, and so are its open reminders: most
@@ -11700,22 +11701,22 @@ CREATE TRIGGER reminders_before_write
 -- task moves back out of done; ones a person closed stay closed. A task
 -- moved to another project takes its reminders along.
 -- ------------------------------------------------------------
-CREATE OR REPLACE FUNCTION public.sync_task_reminders_with_status()
+CREATE OR REPLACE FUNCTION pm.sync_task_reminders_with_status()
 RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
 BEGIN
   IF NEW.project_id IS DISTINCT FROM OLD.project_id THEN
-    UPDATE public.reminders SET project_id = NEW.project_id WHERE task_id = NEW.id;
+    UPDATE pm.reminders SET project_id = NEW.project_id WHERE task_id = NEW.id;
   END IF;
   IF NEW.status = 'done' AND OLD.status IS DISTINCT FROM 'done' THEN
-    UPDATE public.reminders
+    UPDATE pm.reminders
     SET status = 'done', closed_by_task = true
     WHERE task_id = NEW.id AND status = 'open';
   ELSIF OLD.status = 'done' AND NEW.status IS DISTINCT FROM 'done' THEN
-    UPDATE public.reminders
+    UPDATE pm.reminders
     SET status = 'open'
     WHERE task_id = NEW.id AND status = 'done' AND closed_by_task;
   END IF;
@@ -11723,129 +11724,129 @@ BEGIN
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.sync_task_reminders_with_status() FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION pm.sync_task_reminders_with_status() FROM PUBLIC, anon, authenticated;
 
-DROP TRIGGER IF EXISTS tasks_sync_reminders_with_status ON public.tasks;
+DROP TRIGGER IF EXISTS tasks_sync_reminders_with_status ON pm.tasks;
 CREATE TRIGGER tasks_sync_reminders_with_status
-  AFTER UPDATE OF status, project_id ON public.tasks
+  AFTER UPDATE OF status, project_id ON pm.tasks
   FOR EACH ROW
   WHEN (NEW.status IS DISTINCT FROM OLD.status OR NEW.project_id IS DISTINCT FROM OLD.project_id)
-  EXECUTE FUNCTION public.sync_task_reminders_with_status();
+  EXECUTE FUNCTION pm.sync_task_reminders_with_status();
 
 -- A reminder's bell goes when it closes, is deleted or moves to a later time
 -- (the new time rings again). Reopened or restored, its bell comes back.
-CREATE OR REPLACE FUNCTION public.sync_reminder_notification()
+CREATE OR REPLACE FUNCTION pm.sync_reminder_notification()
 RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
 BEGIN
   IF NEW.status <> 'open' OR NEW.deleted_at IS NOT NULL OR NEW.notified_at IS NULL THEN
-    PERFORM public.set_notifications_cleared('reminder', NEW.id::text, true);
+    PERFORM pm.set_notifications_cleared('reminder', NEW.id::text, true);
   ELSIF OLD.status <> 'open' OR OLD.deleted_at IS NOT NULL THEN
-    PERFORM public.set_notifications_cleared('reminder', NEW.id::text, false);
+    PERFORM pm.set_notifications_cleared('reminder', NEW.id::text, false);
   END IF;
   RETURN NULL;
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.sync_reminder_notification() FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION pm.sync_reminder_notification() FROM PUBLIC, anon, authenticated;
 
-DROP TRIGGER IF EXISTS sync_reminder_notification ON public.reminders;
+DROP TRIGGER IF EXISTS sync_reminder_notification ON pm.reminders;
 CREATE TRIGGER sync_reminder_notification
-  AFTER UPDATE ON public.reminders
+  AFTER UPDATE ON pm.reminders
   FOR EACH ROW
   WHEN (NEW.status IS DISTINCT FROM OLD.status
     OR NEW.deleted_at IS DISTINCT FROM OLD.deleted_at
     OR NEW.notified_at IS DISTINCT FROM OLD.notified_at)
-  EXECUTE FUNCTION public.sync_reminder_notification();
+  EXECUTE FUNCTION pm.sync_reminder_notification();
 
 -- ------------------------------------------------------------
 -- Row level security
 -- ------------------------------------------------------------
-ALTER TABLE public.reminders ENABLE ROW LEVEL SECURITY;
+ALTER TABLE pm.reminders ENABLE ROW LEVEL SECURITY;
 
 -- One rule for "can see this reminder", shared by every policy.
-CREATE OR REPLACE FUNCTION public.can_see_reminder(p_owner_id uuid, p_project_id uuid, p_task_id uuid)
+CREATE OR REPLACE FUNCTION pm.can_see_reminder(p_owner_id uuid, p_project_id uuid, p_task_id uuid)
 RETURNS boolean
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
-  SELECT (p_task_id IS NULL OR EXISTS (SELECT 1 FROM public.tasks WHERE id = p_task_id AND deleted_at IS NULL))
-    AND (p_project_id IS NULL OR EXISTS (SELECT 1 FROM public.projects WHERE id = p_project_id AND deleted_at IS NULL))
+  SELECT (p_task_id IS NULL OR EXISTS (SELECT 1 FROM pm.tasks WHERE id = p_task_id AND deleted_at IS NULL))
+    AND (p_project_id IS NULL OR EXISTS (SELECT 1 FROM pm.projects WHERE id = p_project_id AND deleted_at IS NULL))
     AND (
-      p_owner_id = public.current_team_member_id()
-      OR (p_task_id IS NOT NULL AND public.can_access_task(p_task_id))
-      OR (p_task_id IS NULL AND p_project_id IS NOT NULL AND public.can_access_project(p_project_id))
+      p_owner_id = pm.current_team_member_id()
+      OR (p_task_id IS NOT NULL AND pm.can_access_task(p_task_id))
+      OR (p_task_id IS NULL AND p_project_id IS NOT NULL AND pm.can_access_project(p_project_id))
     )
 $$;
 
-REVOKE ALL ON FUNCTION public.can_see_reminder(uuid, uuid, uuid) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.can_see_reminder(uuid, uuid, uuid) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.can_see_reminder(uuid, uuid, uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION pm.can_see_reminder(uuid, uuid, uuid) TO authenticated, service_role;
 
-DROP POLICY IF EXISTS reminders_select ON public.reminders;
-CREATE POLICY reminders_select ON public.reminders FOR SELECT TO authenticated
-  USING (public.can_see_reminder(owner_id, project_id, task_id));
+DROP POLICY IF EXISTS reminders_select ON pm.reminders;
+CREATE POLICY reminders_select ON pm.reminders FOR SELECT TO authenticated
+  USING (pm.can_see_reminder(owner_id, project_id, task_id));
 
 -- Anyone may write their own standalone reminder. A shared one needs access to
 -- its task or project, and only a shared one may belong to someone else.
-DROP POLICY IF EXISTS reminders_insert ON public.reminders;
-CREATE POLICY reminders_insert ON public.reminders FOR INSERT TO authenticated
+DROP POLICY IF EXISTS reminders_insert ON pm.reminders;
+CREATE POLICY reminders_insert ON pm.reminders FOR INSERT TO authenticated
   WITH CHECK (
-    created_by = public.current_team_member_id()
-    AND (task_id IS NULL OR public.can_access_task(task_id))
-    AND (project_id IS NULL OR public.can_access_project(project_id))
-    AND (owner_id = public.current_team_member_id() OR project_id IS NOT NULL)
+    created_by = pm.current_team_member_id()
+    AND (task_id IS NULL OR pm.can_access_task(task_id))
+    AND (project_id IS NULL OR pm.can_access_project(project_id))
+    AND (owner_id = pm.current_team_member_id() OR project_id IS NOT NULL)
   );
 
 -- Anyone who can see a shared reminder can tick it off or move it; a
 -- standalone one only its owner.
-DROP POLICY IF EXISTS reminders_update ON public.reminders;
-CREATE POLICY reminders_update ON public.reminders FOR UPDATE TO authenticated
-  USING (public.can_see_reminder(owner_id, project_id, task_id))
+DROP POLICY IF EXISTS reminders_update ON pm.reminders;
+CREATE POLICY reminders_update ON pm.reminders FOR UPDATE TO authenticated
+  USING (pm.can_see_reminder(owner_id, project_id, task_id))
   WITH CHECK (
-    (task_id IS NULL OR public.can_access_task(task_id))
-    AND (project_id IS NULL OR public.can_access_project(project_id))
-    AND (owner_id = public.current_team_member_id() OR project_id IS NOT NULL)
+    (task_id IS NULL OR pm.can_access_task(task_id))
+    AND (project_id IS NULL OR pm.can_access_project(project_id))
+    AND (owner_id = pm.current_team_member_id() OR project_id IS NOT NULL)
   );
 
-DROP POLICY IF EXISTS reminders_delete ON public.reminders;
-CREATE POLICY reminders_delete ON public.reminders FOR DELETE TO authenticated
+DROP POLICY IF EXISTS reminders_delete ON pm.reminders;
+CREATE POLICY reminders_delete ON pm.reminders FOR DELETE TO authenticated
   USING (
-    public.can_see_reminder(owner_id, project_id, task_id)
-    AND (owner_id = public.current_team_member_id()
-      OR created_by = public.current_team_member_id()
-      OR public.has_permission('tasks.manage_all'))
+    pm.can_see_reminder(owner_id, project_id, task_id)
+    AND (owner_id = pm.current_team_member_id()
+      OR created_by = pm.current_team_member_id()
+      OR pm.has_permission('tasks.manage_all'))
   );
 
-GRANT SELECT, INSERT, UPDATE, DELETE ON public.reminders TO authenticated;
-GRANT ALL ON public.reminders TO service_role;
+GRANT SELECT, INSERT, UPDATE, DELETE ON pm.reminders TO authenticated;
+GRANT ALL ON pm.reminders TO service_role;
 
 -- ------------------------------------------------------------
 -- Due bells. Every five minutes, each open reminder whose moment has come
 -- (its date at its time, or 8 am, in the workspace time zone) rings its
 -- owner's bell once.
 -- ------------------------------------------------------------
-CREATE OR REPLACE FUNCTION public.send_due_reminders(p_now timestamptz DEFAULT now())
+CREATE OR REPLACE FUNCTION pm.send_due_reminders(p_now timestamptz DEFAULT now())
 RETURNS integer
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
 DECLARE
-  zone text := public.workspace_timezone();
+  zone text := pm.workspace_timezone();
   due record;
   sent integer := 0;
 BEGIN
   FOR due IN
     SELECT r.id, r.owner_id, r.title, r.project_id, r.task_id,
            t.title AS task_title, p.name AS project_name
-    FROM public.reminders r
-    LEFT JOIN public.tasks t ON t.id = r.task_id
-    LEFT JOIN public.projects p ON p.id = r.project_id
+    FROM pm.reminders r
+    LEFT JOIN pm.tasks t ON t.id = r.task_id
+    LEFT JOIN pm.projects p ON p.id = r.project_id
     WHERE r.status = 'open'
       AND r.deleted_at IS NULL
       AND (r.task_id IS NULL OR t.deleted_at IS NULL)
@@ -11856,7 +11857,7 @@ BEGIN
     ORDER BY r.remind_on, r.remind_at NULLS FIRST
     FOR UPDATE OF r SKIP LOCKED
   LOOP
-    PERFORM public.upsert_notification(
+    PERFORM pm.upsert_notification(
       due.owner_id,
       'Reminder',
       due.title || CASE
@@ -11871,15 +11872,15 @@ BEGIN
       'reminder',
       due.id::text
     );
-    UPDATE public.reminders SET notified_at = p_now WHERE id = due.id;
+    UPDATE pm.reminders SET notified_at = p_now WHERE id = due.id;
     sent := sent + 1;
   END LOOP;
   RETURN sent;
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.send_due_reminders(timestamptz) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.send_due_reminders(timestamptz) TO service_role;
+REVOKE ALL ON FUNCTION pm.send_due_reminders(timestamptz) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION pm.send_due_reminders(timestamptz) TO service_role;
 
 -- Schedule the due bells. Skipped where pg_cron is unavailable (local fixtures).
 DO $do$
@@ -11888,7 +11889,7 @@ BEGIN
     RETURN;
   END IF;
   CREATE EXTENSION IF NOT EXISTS pg_cron;
-  PERFORM cron.schedule('reminders-due', '*/5 * * * *', $job$SELECT public.send_due_reminders();$job$);
+  PERFORM cron.schedule('pm-reminders-due', '*/5 * * * *', $job$SELECT pm.send_due_reminders();$job$);
 END;
 $do$;
 
@@ -11904,22 +11905,22 @@ $do$;
 -- (status), never deleted.
 
 -- Trash lists deleted rows newest first; live reads never use these.
-CREATE INDEX IF NOT EXISTS idx_projects_deleted_at ON public.projects (deleted_at DESC) WHERE deleted_at IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_tasks_deleted_at ON public.tasks (deleted_at DESC) WHERE deleted_at IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_task_subtasks_deleted_at ON public.task_subtasks (deleted_at DESC) WHERE deleted_at IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_task_comments_deleted_at ON public.task_comments (deleted_at DESC) WHERE deleted_at IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_reminders_deleted_at ON public.reminders (deleted_at DESC) WHERE deleted_at IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_project_credentials_deleted_at ON public.project_credentials (deleted_at DESC) WHERE deleted_at IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_entity_files_deleted_at ON public.entity_files (deleted_at DESC) WHERE deleted_at IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_portal_updates_deleted_at ON public.portal_updates (deleted_at DESC) WHERE deleted_at IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_portal_update_attachments_deleted_at ON public.portal_update_attachments (deleted_at DESC) WHERE deleted_at IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_contacts_deleted_at ON public.contacts (deleted_at DESC) WHERE deleted_at IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_leads_deleted_at ON public.leads (deleted_at DESC) WHERE deleted_at IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_lead_interactions_deleted_at ON public.lead_interactions (deleted_at DESC) WHERE deleted_at IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_lead_proposals_deleted_at ON public.lead_proposals (deleted_at DESC) WHERE deleted_at IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_lead_fields_deleted_at ON public.lead_fields (deleted_at DESC) WHERE deleted_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_projects_deleted_at ON pm.projects (deleted_at DESC) WHERE deleted_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_tasks_deleted_at ON pm.tasks (deleted_at DESC) WHERE deleted_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_task_subtasks_deleted_at ON pm.task_subtasks (deleted_at DESC) WHERE deleted_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_task_comments_deleted_at ON pm.task_comments (deleted_at DESC) WHERE deleted_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_reminders_deleted_at ON pm.reminders (deleted_at DESC) WHERE deleted_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_project_credentials_deleted_at ON pm.project_credentials (deleted_at DESC) WHERE deleted_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_entity_files_deleted_at ON pm.entity_files (deleted_at DESC) WHERE deleted_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_portal_updates_deleted_at ON pm.portal_updates (deleted_at DESC) WHERE deleted_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_portal_update_attachments_deleted_at ON pm.portal_update_attachments (deleted_at DESC) WHERE deleted_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_contacts_deleted_at ON pm.contacts (deleted_at DESC) WHERE deleted_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_leads_deleted_at ON pm.leads (deleted_at DESC) WHERE deleted_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_lead_interactions_deleted_at ON pm.lead_interactions (deleted_at DESC) WHERE deleted_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_lead_proposals_deleted_at ON pm.lead_proposals (deleted_at DESC) WHERE deleted_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_lead_fields_deleted_at ON pm.lead_fields (deleted_at DESC) WHERE deleted_at IS NOT NULL;
 
-CREATE OR REPLACE FUNCTION public.forbid_hard_delete()
+CREATE OR REPLACE FUNCTION pm.forbid_hard_delete()
 RETURNS trigger
 LANGUAGE plpgsql
 AS $$
@@ -11929,280 +11930,280 @@ BEGIN
 END;
 $$;
 
-CREATE TRIGGER forbid_hard_delete BEFORE DELETE ON public.projects
-  FOR EACH ROW EXECUTE FUNCTION public.forbid_hard_delete();
-CREATE TRIGGER forbid_truncate BEFORE TRUNCATE ON public.projects
-  FOR EACH STATEMENT EXECUTE FUNCTION public.forbid_hard_delete();
-CREATE TRIGGER forbid_hard_delete BEFORE DELETE ON public.tasks
-  FOR EACH ROW EXECUTE FUNCTION public.forbid_hard_delete();
-CREATE TRIGGER forbid_truncate BEFORE TRUNCATE ON public.tasks
-  FOR EACH STATEMENT EXECUTE FUNCTION public.forbid_hard_delete();
-CREATE TRIGGER forbid_hard_delete BEFORE DELETE ON public.task_subtasks
-  FOR EACH ROW EXECUTE FUNCTION public.forbid_hard_delete();
-CREATE TRIGGER forbid_truncate BEFORE TRUNCATE ON public.task_subtasks
-  FOR EACH STATEMENT EXECUTE FUNCTION public.forbid_hard_delete();
-CREATE TRIGGER forbid_hard_delete BEFORE DELETE ON public.task_comments
-  FOR EACH ROW EXECUTE FUNCTION public.forbid_hard_delete();
-CREATE TRIGGER forbid_truncate BEFORE TRUNCATE ON public.task_comments
-  FOR EACH STATEMENT EXECUTE FUNCTION public.forbid_hard_delete();
-CREATE TRIGGER forbid_hard_delete BEFORE DELETE ON public.reminders
-  FOR EACH ROW EXECUTE FUNCTION public.forbid_hard_delete();
-CREATE TRIGGER forbid_truncate BEFORE TRUNCATE ON public.reminders
-  FOR EACH STATEMENT EXECUTE FUNCTION public.forbid_hard_delete();
-CREATE TRIGGER forbid_hard_delete BEFORE DELETE ON public.project_credentials
-  FOR EACH ROW EXECUTE FUNCTION public.forbid_hard_delete();
-CREATE TRIGGER forbid_truncate BEFORE TRUNCATE ON public.project_credentials
-  FOR EACH STATEMENT EXECUTE FUNCTION public.forbid_hard_delete();
-CREATE TRIGGER forbid_hard_delete BEFORE DELETE ON public.entity_files
-  FOR EACH ROW EXECUTE FUNCTION public.forbid_hard_delete();
-CREATE TRIGGER forbid_truncate BEFORE TRUNCATE ON public.entity_files
-  FOR EACH STATEMENT EXECUTE FUNCTION public.forbid_hard_delete();
-CREATE TRIGGER forbid_hard_delete BEFORE DELETE ON public.portal_updates
-  FOR EACH ROW EXECUTE FUNCTION public.forbid_hard_delete();
-CREATE TRIGGER forbid_truncate BEFORE TRUNCATE ON public.portal_updates
-  FOR EACH STATEMENT EXECUTE FUNCTION public.forbid_hard_delete();
-CREATE TRIGGER forbid_hard_delete BEFORE DELETE ON public.portal_update_attachments
-  FOR EACH ROW EXECUTE FUNCTION public.forbid_hard_delete();
-CREATE TRIGGER forbid_truncate BEFORE TRUNCATE ON public.portal_update_attachments
-  FOR EACH STATEMENT EXECUTE FUNCTION public.forbid_hard_delete();
-CREATE TRIGGER forbid_hard_delete BEFORE DELETE ON public.contacts
-  FOR EACH ROW EXECUTE FUNCTION public.forbid_hard_delete();
-CREATE TRIGGER forbid_truncate BEFORE TRUNCATE ON public.contacts
-  FOR EACH STATEMENT EXECUTE FUNCTION public.forbid_hard_delete();
-CREATE TRIGGER forbid_hard_delete BEFORE DELETE ON public.leads
-  FOR EACH ROW EXECUTE FUNCTION public.forbid_hard_delete();
-CREATE TRIGGER forbid_truncate BEFORE TRUNCATE ON public.leads
-  FOR EACH STATEMENT EXECUTE FUNCTION public.forbid_hard_delete();
-CREATE TRIGGER forbid_hard_delete BEFORE DELETE ON public.lead_interactions
-  FOR EACH ROW EXECUTE FUNCTION public.forbid_hard_delete();
-CREATE TRIGGER forbid_truncate BEFORE TRUNCATE ON public.lead_interactions
-  FOR EACH STATEMENT EXECUTE FUNCTION public.forbid_hard_delete();
-CREATE TRIGGER forbid_hard_delete BEFORE DELETE ON public.lead_proposals
-  FOR EACH ROW EXECUTE FUNCTION public.forbid_hard_delete();
-CREATE TRIGGER forbid_truncate BEFORE TRUNCATE ON public.lead_proposals
-  FOR EACH STATEMENT EXECUTE FUNCTION public.forbid_hard_delete();
-CREATE TRIGGER forbid_hard_delete BEFORE DELETE ON public.lead_fields
-  FOR EACH ROW EXECUTE FUNCTION public.forbid_hard_delete();
-CREATE TRIGGER forbid_truncate BEFORE TRUNCATE ON public.lead_fields
-  FOR EACH STATEMENT EXECUTE FUNCTION public.forbid_hard_delete();
-CREATE TRIGGER forbid_hard_delete BEFORE DELETE ON public.team_members
-  FOR EACH ROW EXECUTE FUNCTION public.forbid_hard_delete();
-CREATE TRIGGER forbid_truncate BEFORE TRUNCATE ON public.team_members
-  FOR EACH STATEMENT EXECUTE FUNCTION public.forbid_hard_delete();
-CREATE TRIGGER forbid_hard_delete BEFORE DELETE ON public.client_communications
-  FOR EACH ROW EXECUTE FUNCTION public.forbid_hard_delete();
-CREATE TRIGGER forbid_truncate BEFORE TRUNCATE ON public.client_communications
-  FOR EACH STATEMENT EXECUTE FUNCTION public.forbid_hard_delete();
+CREATE TRIGGER forbid_hard_delete BEFORE DELETE ON pm.projects
+  FOR EACH ROW EXECUTE FUNCTION pm.forbid_hard_delete();
+CREATE TRIGGER forbid_truncate BEFORE TRUNCATE ON pm.projects
+  FOR EACH STATEMENT EXECUTE FUNCTION pm.forbid_hard_delete();
+CREATE TRIGGER forbid_hard_delete BEFORE DELETE ON pm.tasks
+  FOR EACH ROW EXECUTE FUNCTION pm.forbid_hard_delete();
+CREATE TRIGGER forbid_truncate BEFORE TRUNCATE ON pm.tasks
+  FOR EACH STATEMENT EXECUTE FUNCTION pm.forbid_hard_delete();
+CREATE TRIGGER forbid_hard_delete BEFORE DELETE ON pm.task_subtasks
+  FOR EACH ROW EXECUTE FUNCTION pm.forbid_hard_delete();
+CREATE TRIGGER forbid_truncate BEFORE TRUNCATE ON pm.task_subtasks
+  FOR EACH STATEMENT EXECUTE FUNCTION pm.forbid_hard_delete();
+CREATE TRIGGER forbid_hard_delete BEFORE DELETE ON pm.task_comments
+  FOR EACH ROW EXECUTE FUNCTION pm.forbid_hard_delete();
+CREATE TRIGGER forbid_truncate BEFORE TRUNCATE ON pm.task_comments
+  FOR EACH STATEMENT EXECUTE FUNCTION pm.forbid_hard_delete();
+CREATE TRIGGER forbid_hard_delete BEFORE DELETE ON pm.reminders
+  FOR EACH ROW EXECUTE FUNCTION pm.forbid_hard_delete();
+CREATE TRIGGER forbid_truncate BEFORE TRUNCATE ON pm.reminders
+  FOR EACH STATEMENT EXECUTE FUNCTION pm.forbid_hard_delete();
+CREATE TRIGGER forbid_hard_delete BEFORE DELETE ON pm.project_credentials
+  FOR EACH ROW EXECUTE FUNCTION pm.forbid_hard_delete();
+CREATE TRIGGER forbid_truncate BEFORE TRUNCATE ON pm.project_credentials
+  FOR EACH STATEMENT EXECUTE FUNCTION pm.forbid_hard_delete();
+CREATE TRIGGER forbid_hard_delete BEFORE DELETE ON pm.entity_files
+  FOR EACH ROW EXECUTE FUNCTION pm.forbid_hard_delete();
+CREATE TRIGGER forbid_truncate BEFORE TRUNCATE ON pm.entity_files
+  FOR EACH STATEMENT EXECUTE FUNCTION pm.forbid_hard_delete();
+CREATE TRIGGER forbid_hard_delete BEFORE DELETE ON pm.portal_updates
+  FOR EACH ROW EXECUTE FUNCTION pm.forbid_hard_delete();
+CREATE TRIGGER forbid_truncate BEFORE TRUNCATE ON pm.portal_updates
+  FOR EACH STATEMENT EXECUTE FUNCTION pm.forbid_hard_delete();
+CREATE TRIGGER forbid_hard_delete BEFORE DELETE ON pm.portal_update_attachments
+  FOR EACH ROW EXECUTE FUNCTION pm.forbid_hard_delete();
+CREATE TRIGGER forbid_truncate BEFORE TRUNCATE ON pm.portal_update_attachments
+  FOR EACH STATEMENT EXECUTE FUNCTION pm.forbid_hard_delete();
+CREATE TRIGGER forbid_hard_delete BEFORE DELETE ON pm.contacts
+  FOR EACH ROW EXECUTE FUNCTION pm.forbid_hard_delete();
+CREATE TRIGGER forbid_truncate BEFORE TRUNCATE ON pm.contacts
+  FOR EACH STATEMENT EXECUTE FUNCTION pm.forbid_hard_delete();
+CREATE TRIGGER forbid_hard_delete BEFORE DELETE ON pm.leads
+  FOR EACH ROW EXECUTE FUNCTION pm.forbid_hard_delete();
+CREATE TRIGGER forbid_truncate BEFORE TRUNCATE ON pm.leads
+  FOR EACH STATEMENT EXECUTE FUNCTION pm.forbid_hard_delete();
+CREATE TRIGGER forbid_hard_delete BEFORE DELETE ON pm.lead_interactions
+  FOR EACH ROW EXECUTE FUNCTION pm.forbid_hard_delete();
+CREATE TRIGGER forbid_truncate BEFORE TRUNCATE ON pm.lead_interactions
+  FOR EACH STATEMENT EXECUTE FUNCTION pm.forbid_hard_delete();
+CREATE TRIGGER forbid_hard_delete BEFORE DELETE ON pm.lead_proposals
+  FOR EACH ROW EXECUTE FUNCTION pm.forbid_hard_delete();
+CREATE TRIGGER forbid_truncate BEFORE TRUNCATE ON pm.lead_proposals
+  FOR EACH STATEMENT EXECUTE FUNCTION pm.forbid_hard_delete();
+CREATE TRIGGER forbid_hard_delete BEFORE DELETE ON pm.lead_fields
+  FOR EACH ROW EXECUTE FUNCTION pm.forbid_hard_delete();
+CREATE TRIGGER forbid_truncate BEFORE TRUNCATE ON pm.lead_fields
+  FOR EACH STATEMENT EXECUTE FUNCTION pm.forbid_hard_delete();
+CREATE TRIGGER forbid_hard_delete BEFORE DELETE ON pm.team_members
+  FOR EACH ROW EXECUTE FUNCTION pm.forbid_hard_delete();
+CREATE TRIGGER forbid_truncate BEFORE TRUNCATE ON pm.team_members
+  FOR EACH STATEMENT EXECUTE FUNCTION pm.forbid_hard_delete();
+CREATE TRIGGER forbid_hard_delete BEFORE DELETE ON pm.client_communications
+  FOR EACH ROW EXECUTE FUNCTION pm.forbid_hard_delete();
+CREATE TRIGGER forbid_truncate BEFORE TRUNCATE ON pm.client_communications
+  FOR EACH STATEMENT EXECUTE FUNCTION pm.forbid_hard_delete();
 
 -- Signed-in members never see or change a deleted row. RESTRICTIVE, so it
 -- narrows every policy above, including the FOR ALL manage policies.
-CREATE POLICY projects_not_deleted ON public.projects AS RESTRICTIVE FOR ALL TO authenticated
+CREATE POLICY projects_not_deleted ON pm.projects AS RESTRICTIVE FOR ALL TO authenticated
   USING (deleted_at IS NULL) WITH CHECK (deleted_at IS NULL);
-CREATE POLICY tasks_not_deleted ON public.tasks AS RESTRICTIVE FOR ALL TO authenticated
+CREATE POLICY tasks_not_deleted ON pm.tasks AS RESTRICTIVE FOR ALL TO authenticated
   USING (deleted_at IS NULL) WITH CHECK (deleted_at IS NULL);
-CREATE POLICY task_subtasks_not_deleted ON public.task_subtasks AS RESTRICTIVE FOR ALL TO authenticated
+CREATE POLICY task_subtasks_not_deleted ON pm.task_subtasks AS RESTRICTIVE FOR ALL TO authenticated
   USING (deleted_at IS NULL) WITH CHECK (deleted_at IS NULL);
-CREATE POLICY task_comments_not_deleted ON public.task_comments AS RESTRICTIVE FOR ALL TO authenticated
+CREATE POLICY task_comments_not_deleted ON pm.task_comments AS RESTRICTIVE FOR ALL TO authenticated
   USING (deleted_at IS NULL) WITH CHECK (deleted_at IS NULL);
-CREATE POLICY reminders_not_deleted ON public.reminders AS RESTRICTIVE FOR ALL TO authenticated
+CREATE POLICY reminders_not_deleted ON pm.reminders AS RESTRICTIVE FOR ALL TO authenticated
   USING (deleted_at IS NULL) WITH CHECK (deleted_at IS NULL);
-CREATE POLICY project_credentials_not_deleted ON public.project_credentials AS RESTRICTIVE FOR ALL TO authenticated
+CREATE POLICY project_credentials_not_deleted ON pm.project_credentials AS RESTRICTIVE FOR ALL TO authenticated
   USING (deleted_at IS NULL) WITH CHECK (deleted_at IS NULL);
-CREATE POLICY entity_files_not_deleted ON public.entity_files AS RESTRICTIVE FOR ALL TO authenticated
+CREATE POLICY entity_files_not_deleted ON pm.entity_files AS RESTRICTIVE FOR ALL TO authenticated
   USING (deleted_at IS NULL) WITH CHECK (deleted_at IS NULL);
-CREATE POLICY portal_updates_not_deleted ON public.portal_updates AS RESTRICTIVE FOR ALL TO authenticated
+CREATE POLICY portal_updates_not_deleted ON pm.portal_updates AS RESTRICTIVE FOR ALL TO authenticated
   USING (deleted_at IS NULL) WITH CHECK (deleted_at IS NULL);
-CREATE POLICY portal_update_attachments_not_deleted ON public.portal_update_attachments AS RESTRICTIVE FOR ALL TO authenticated
+CREATE POLICY portal_update_attachments_not_deleted ON pm.portal_update_attachments AS RESTRICTIVE FOR ALL TO authenticated
   USING (deleted_at IS NULL) WITH CHECK (deleted_at IS NULL);
-CREATE POLICY contacts_not_deleted ON public.contacts AS RESTRICTIVE FOR ALL TO authenticated
+CREATE POLICY contacts_not_deleted ON pm.contacts AS RESTRICTIVE FOR ALL TO authenticated
   USING (deleted_at IS NULL) WITH CHECK (deleted_at IS NULL);
-CREATE POLICY leads_not_deleted ON public.leads AS RESTRICTIVE FOR ALL TO authenticated
+CREATE POLICY leads_not_deleted ON pm.leads AS RESTRICTIVE FOR ALL TO authenticated
   USING (deleted_at IS NULL) WITH CHECK (deleted_at IS NULL);
-CREATE POLICY lead_interactions_not_deleted ON public.lead_interactions AS RESTRICTIVE FOR ALL TO authenticated
+CREATE POLICY lead_interactions_not_deleted ON pm.lead_interactions AS RESTRICTIVE FOR ALL TO authenticated
   USING (deleted_at IS NULL) WITH CHECK (deleted_at IS NULL);
-CREATE POLICY lead_proposals_not_deleted ON public.lead_proposals AS RESTRICTIVE FOR ALL TO authenticated
+CREATE POLICY lead_proposals_not_deleted ON pm.lead_proposals AS RESTRICTIVE FOR ALL TO authenticated
   USING (deleted_at IS NULL) WITH CHECK (deleted_at IS NULL);
-CREATE POLICY lead_fields_not_deleted ON public.lead_fields AS RESTRICTIVE FOR ALL TO authenticated
+CREATE POLICY lead_fields_not_deleted ON pm.lead_fields AS RESTRICTIVE FOR ALL TO authenticated
   USING (deleted_at IS NULL) WITH CHECK (deleted_at IS NULL);
 
 -- Children of a deleted parent are out of reach, whatever else allows them.
 -- Not covered on purpose: team member earnings (pay survives a deleted
 -- project), email threads, triage and recipients (the inbox's own record),
 -- and a lead whose linked contact was deleted.
-CREATE OR REPLACE FUNCTION public.project_is_live(p_project_id uuid)
+CREATE OR REPLACE FUNCTION pm.project_is_live(p_project_id uuid)
 RETURNS boolean
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
-  SELECT EXISTS (SELECT 1 FROM public.projects WHERE id = p_project_id AND deleted_at IS NULL)
+  SELECT EXISTS (SELECT 1 FROM pm.projects WHERE id = p_project_id AND deleted_at IS NULL)
 $$;
 
-CREATE OR REPLACE FUNCTION public.task_is_live(p_task_id uuid)
+CREATE OR REPLACE FUNCTION pm.task_is_live(p_task_id uuid)
 RETURNS boolean
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
   SELECT EXISTS (
-    SELECT 1 FROM public.tasks task
-    JOIN public.projects project ON project.id = task.project_id
-    LEFT JOIN public.tasks parent ON parent.id = task.parent_task_id
+    SELECT 1 FROM pm.tasks task
+    JOIN pm.projects project ON project.id = task.project_id
+    LEFT JOIN pm.tasks parent ON parent.id = task.parent_task_id
     WHERE task.id = p_task_id AND task.deleted_at IS NULL AND project.deleted_at IS NULL
       AND (task.parent_task_id IS NULL OR parent.deleted_at IS NULL)
   )
 $$;
 
-CREATE OR REPLACE FUNCTION public.lead_is_live(p_lead_id uuid)
+CREATE OR REPLACE FUNCTION pm.lead_is_live(p_lead_id uuid)
 RETURNS boolean
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
-  SELECT EXISTS (SELECT 1 FROM public.leads WHERE id = p_lead_id AND deleted_at IS NULL)
+  SELECT EXISTS (SELECT 1 FROM pm.leads WHERE id = p_lead_id AND deleted_at IS NULL)
 $$;
 
-CREATE OR REPLACE FUNCTION public.contact_is_live(p_contact_id uuid)
+CREATE OR REPLACE FUNCTION pm.contact_is_live(p_contact_id uuid)
 RETURNS boolean
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
-  SELECT EXISTS (SELECT 1 FROM public.contacts WHERE id = p_contact_id AND deleted_at IS NULL)
+  SELECT EXISTS (SELECT 1 FROM pm.contacts WHERE id = p_contact_id AND deleted_at IS NULL)
 $$;
 
-CREATE OR REPLACE FUNCTION public.credential_is_live(p_credential_id uuid)
+CREATE OR REPLACE FUNCTION pm.credential_is_live(p_credential_id uuid)
 RETURNS boolean
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
   SELECT EXISTS (
-    SELECT 1 FROM public.project_credentials credential
-    JOIN public.projects project ON project.id = credential.project_id
+    SELECT 1 FROM pm.project_credentials credential
+    JOIN pm.projects project ON project.id = credential.project_id
     WHERE credential.id = p_credential_id AND credential.deleted_at IS NULL AND project.deleted_at IS NULL
   )
 $$;
 
-CREATE OR REPLACE FUNCTION public.portal_update_is_live(p_update_id uuid)
+CREATE OR REPLACE FUNCTION pm.portal_update_is_live(p_update_id uuid)
 RETURNS boolean
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
   SELECT EXISTS (
-    SELECT 1 FROM public.portal_updates update_row
-    JOIN public.projects project ON project.id = update_row.project_id
+    SELECT 1 FROM pm.portal_updates update_row
+    JOIN pm.projects project ON project.id = update_row.project_id
     WHERE update_row.id = p_update_id AND update_row.deleted_at IS NULL AND project.deleted_at IS NULL
   )
 $$;
 
-CREATE OR REPLACE FUNCTION public.file_entity_is_live(p_entity_type text, p_entity_id uuid)
+CREATE OR REPLACE FUNCTION pm.file_entity_is_live(p_entity_type text, p_entity_id uuid)
 RETURNS boolean
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
   SELECT CASE p_entity_type
-    WHEN 'project' THEN public.project_is_live(p_entity_id)
-    WHEN 'lead' THEN public.lead_is_live(p_entity_id)
-    WHEN 'contact' THEN public.contact_is_live(p_entity_id)
+    WHEN 'project' THEN pm.project_is_live(p_entity_id)
+    WHEN 'lead' THEN pm.lead_is_live(p_entity_id)
+    WHEN 'contact' THEN pm.contact_is_live(p_entity_id)
     ELSE true
   END
 $$;
 
-CREATE POLICY tasks_parent_live ON public.tasks AS RESTRICTIVE FOR ALL TO authenticated
-  USING (public.project_is_live(project_id));
-CREATE POLICY tasks_parent_task_live ON public.tasks AS RESTRICTIVE FOR ALL TO authenticated
-  USING (parent_task_id IS NULL OR public.task_is_live(parent_task_id));
-CREATE POLICY project_time_entries_parent_live ON public.project_time_entries AS RESTRICTIVE FOR ALL TO authenticated
-  USING (public.project_is_live(project_id));
-CREATE POLICY project_invoices_parent_live ON public.project_invoices AS RESTRICTIVE FOR ALL TO authenticated
-  USING (public.project_is_live(project_id));
-CREATE POLICY project_members_parent_live ON public.project_members AS RESTRICTIVE FOR ALL TO authenticated
-  USING (public.project_is_live(project_id));
-CREATE POLICY project_credentials_parent_live ON public.project_credentials AS RESTRICTIVE FOR ALL TO authenticated
-  USING (public.project_is_live(project_id));
-CREATE POLICY portal_settings_parent_live ON public.portal_settings AS RESTRICTIVE FOR ALL TO authenticated
-  USING (public.project_is_live(project_id));
-CREATE POLICY portal_updates_parent_live ON public.portal_updates AS RESTRICTIVE FOR ALL TO authenticated
-  USING (public.project_is_live(project_id));
-CREATE POLICY portal_events_parent_live ON public.portal_events AS RESTRICTIVE FOR ALL TO authenticated
-  USING (public.project_is_live(project_id));
-CREATE POLICY client_communications_parent_live ON public.client_communications AS RESTRICTIVE FOR ALL TO authenticated
-  USING (public.project_is_live(project_id));
-CREATE POLICY project_hourly_rates_parent_live ON public.project_hourly_rates AS RESTRICTIVE FOR ALL TO authenticated
-  USING (public.project_is_live(project_id));
-CREATE POLICY project_retainers_parent_live ON public.project_retainers AS RESTRICTIVE FOR ALL TO authenticated
-  USING (public.project_is_live(project_id));
-CREATE POLICY project_billing_plans_parent_live ON public.project_billing_plans AS RESTRICTIVE FOR ALL TO authenticated
-  USING (public.project_is_live(project_id));
-CREATE POLICY project_billing_runs_parent_live ON public.project_billing_runs AS RESTRICTIVE FOR ALL TO authenticated
-  USING (public.project_is_live(project_id));
-CREATE POLICY project_budget_history_parent_live ON public.project_budget_history AS RESTRICTIVE FOR ALL TO authenticated
-  USING (public.project_is_live(project_id));
-CREATE POLICY project_context_parent_live ON public.project_context AS RESTRICTIVE FOR ALL TO authenticated
-  USING (public.project_is_live(project_id));
-CREATE POLICY email_client_addresses_parent_live ON communications.client_addresses AS RESTRICTIVE FOR ALL TO authenticated
-  USING (public.project_is_live(project_id));
-CREATE POLICY email_client_domains_parent_live ON communications.client_domains AS RESTRICTIVE FOR ALL TO authenticated
-  USING (public.project_is_live(project_id));
-CREATE POLICY email_project_addresses_parent_live ON communications.endpoints AS RESTRICTIVE FOR ALL TO authenticated
-  USING (project_id IS NULL OR public.project_is_live(project_id));
-CREATE POLICY email_message_candidates_parent_live ON communications.message_candidates AS RESTRICTIVE FOR ALL TO authenticated
-  USING (public.project_is_live(project_id));
-CREATE POLICY conversation_projects_parent_live ON communications.conversation_projects AS RESTRICTIVE FOR ALL TO authenticated
-  USING (public.project_is_live(project_id));
-CREATE POLICY project_contacts_parent_live ON public.project_contacts AS RESTRICTIVE FOR ALL TO authenticated
-  USING (public.project_is_live(project_id) AND public.contact_is_live(contact_id));
-CREATE POLICY task_subtasks_parent_live ON public.task_subtasks AS RESTRICTIVE FOR ALL TO authenticated
-  USING (public.task_is_live(task_id));
-CREATE POLICY task_comments_parent_live ON public.task_comments AS RESTRICTIVE FOR ALL TO authenticated
-  USING (public.task_is_live(task_id));
-CREATE POLICY task_acceptance_criteria_parent_live ON public.task_acceptance_criteria AS RESTRICTIVE FOR ALL TO authenticated
-  USING (public.task_is_live(task_id));
-CREATE POLICY task_assignees_parent_live ON public.task_assignees AS RESTRICTIVE FOR ALL TO authenticated
-  USING (public.task_is_live(task_id));
-CREATE POLICY task_dependencies_parent_live ON public.task_dependencies AS RESTRICTIVE FOR ALL TO authenticated
-  USING (public.task_is_live(task_id) AND public.task_is_live(blocked_by_task_id));
-CREATE POLICY task_reviews_parent_live ON public.task_reviews AS RESTRICTIVE FOR ALL TO authenticated
-  USING (public.task_is_live(task_id));
-CREATE POLICY task_reopens_parent_live ON public.task_reopens AS RESTRICTIVE FOR ALL TO authenticated
-  USING (public.task_is_live(task_id));
-CREATE POLICY email_task_links_parent_live ON communications.task_links AS RESTRICTIVE FOR ALL TO authenticated
-  USING (public.task_is_live(task_id));
-CREATE POLICY reminders_parent_live ON public.reminders AS RESTRICTIVE FOR ALL TO authenticated
-  USING ((task_id IS NULL OR public.task_is_live(task_id)) AND (project_id IS NULL OR public.project_is_live(project_id)));
-CREATE POLICY lead_interactions_parent_live ON public.lead_interactions AS RESTRICTIVE FOR ALL TO authenticated
-  USING (public.lead_is_live(lead_id));
-CREATE POLICY lead_proposals_parent_live ON public.lead_proposals AS RESTRICTIVE FOR ALL TO authenticated
-  USING (public.lead_is_live(lead_id));
-CREATE POLICY lead_fields_parent_live ON public.lead_fields AS RESTRICTIVE FOR ALL TO authenticated
-  USING (public.lead_is_live(lead_id));
-CREATE POLICY lead_members_parent_live ON public.lead_members AS RESTRICTIVE FOR ALL TO authenticated
-  USING (public.lead_is_live(lead_id));
-CREATE POLICY lead_contacts_parent_live ON public.lead_contacts AS RESTRICTIVE FOR ALL TO authenticated
-  USING (public.lead_is_live(lead_id) AND public.contact_is_live(contact_id));
-CREATE POLICY contact_emails_parent_live ON public.contact_emails AS RESTRICTIVE FOR ALL TO authenticated
-  USING (public.contact_is_live(contact_id));
-CREATE POLICY project_credential_members_parent_live ON public.project_credential_members AS RESTRICTIVE FOR ALL TO authenticated
-  USING (public.credential_is_live(credential_id));
-CREATE POLICY portal_update_attachments_parent_live ON public.portal_update_attachments AS RESTRICTIVE FOR ALL TO authenticated
-  USING (public.portal_update_is_live(update_id));
-CREATE POLICY entity_files_parent_live ON public.entity_files AS RESTRICTIVE FOR ALL TO authenticated
-  USING (public.file_entity_is_live(entity_type, entity_id));
+CREATE POLICY tasks_parent_live ON pm.tasks AS RESTRICTIVE FOR ALL TO authenticated
+  USING (pm.project_is_live(project_id));
+CREATE POLICY tasks_parent_task_live ON pm.tasks AS RESTRICTIVE FOR ALL TO authenticated
+  USING (parent_task_id IS NULL OR pm.task_is_live(parent_task_id));
+CREATE POLICY project_time_entries_parent_live ON pm.project_time_entries AS RESTRICTIVE FOR ALL TO authenticated
+  USING (pm.project_is_live(project_id));
+CREATE POLICY project_invoices_parent_live ON pm.project_invoices AS RESTRICTIVE FOR ALL TO authenticated
+  USING (pm.project_is_live(project_id));
+CREATE POLICY project_members_parent_live ON pm.project_members AS RESTRICTIVE FOR ALL TO authenticated
+  USING (pm.project_is_live(project_id));
+CREATE POLICY project_credentials_parent_live ON pm.project_credentials AS RESTRICTIVE FOR ALL TO authenticated
+  USING (pm.project_is_live(project_id));
+CREATE POLICY portal_settings_parent_live ON pm.portal_settings AS RESTRICTIVE FOR ALL TO authenticated
+  USING (pm.project_is_live(project_id));
+CREATE POLICY portal_updates_parent_live ON pm.portal_updates AS RESTRICTIVE FOR ALL TO authenticated
+  USING (pm.project_is_live(project_id));
+CREATE POLICY portal_events_parent_live ON pm.portal_events AS RESTRICTIVE FOR ALL TO authenticated
+  USING (pm.project_is_live(project_id));
+CREATE POLICY client_communications_parent_live ON pm.client_communications AS RESTRICTIVE FOR ALL TO authenticated
+  USING (pm.project_is_live(project_id));
+CREATE POLICY project_hourly_rates_parent_live ON pm.project_hourly_rates AS RESTRICTIVE FOR ALL TO authenticated
+  USING (pm.project_is_live(project_id));
+CREATE POLICY project_retainers_parent_live ON pm.project_retainers AS RESTRICTIVE FOR ALL TO authenticated
+  USING (pm.project_is_live(project_id));
+CREATE POLICY project_billing_plans_parent_live ON pm.project_billing_plans AS RESTRICTIVE FOR ALL TO authenticated
+  USING (pm.project_is_live(project_id));
+CREATE POLICY project_billing_runs_parent_live ON pm.project_billing_runs AS RESTRICTIVE FOR ALL TO authenticated
+  USING (pm.project_is_live(project_id));
+CREATE POLICY project_budget_history_parent_live ON pm.project_budget_history AS RESTRICTIVE FOR ALL TO authenticated
+  USING (pm.project_is_live(project_id));
+CREATE POLICY project_context_parent_live ON pm.project_context AS RESTRICTIVE FOR ALL TO authenticated
+  USING (pm.project_is_live(project_id));
+CREATE POLICY email_client_addresses_parent_live ON pm.client_addresses AS RESTRICTIVE FOR ALL TO authenticated
+  USING (pm.project_is_live(project_id));
+CREATE POLICY email_client_domains_parent_live ON pm.client_domains AS RESTRICTIVE FOR ALL TO authenticated
+  USING (pm.project_is_live(project_id));
+CREATE POLICY email_project_addresses_parent_live ON pm.endpoints AS RESTRICTIVE FOR ALL TO authenticated
+  USING (project_id IS NULL OR pm.project_is_live(project_id));
+CREATE POLICY email_message_candidates_parent_live ON pm.message_candidates AS RESTRICTIVE FOR ALL TO authenticated
+  USING (pm.project_is_live(project_id));
+CREATE POLICY conversation_projects_parent_live ON pm.conversation_projects AS RESTRICTIVE FOR ALL TO authenticated
+  USING (pm.project_is_live(project_id));
+CREATE POLICY project_contacts_parent_live ON pm.project_contacts AS RESTRICTIVE FOR ALL TO authenticated
+  USING (pm.project_is_live(project_id) AND pm.contact_is_live(contact_id));
+CREATE POLICY task_subtasks_parent_live ON pm.task_subtasks AS RESTRICTIVE FOR ALL TO authenticated
+  USING (pm.task_is_live(task_id));
+CREATE POLICY task_comments_parent_live ON pm.task_comments AS RESTRICTIVE FOR ALL TO authenticated
+  USING (pm.task_is_live(task_id));
+CREATE POLICY task_acceptance_criteria_parent_live ON pm.task_acceptance_criteria AS RESTRICTIVE FOR ALL TO authenticated
+  USING (pm.task_is_live(task_id));
+CREATE POLICY task_assignees_parent_live ON pm.task_assignees AS RESTRICTIVE FOR ALL TO authenticated
+  USING (pm.task_is_live(task_id));
+CREATE POLICY task_dependencies_parent_live ON pm.task_dependencies AS RESTRICTIVE FOR ALL TO authenticated
+  USING (pm.task_is_live(task_id) AND pm.task_is_live(blocked_by_task_id));
+CREATE POLICY task_reviews_parent_live ON pm.task_reviews AS RESTRICTIVE FOR ALL TO authenticated
+  USING (pm.task_is_live(task_id));
+CREATE POLICY task_reopens_parent_live ON pm.task_reopens AS RESTRICTIVE FOR ALL TO authenticated
+  USING (pm.task_is_live(task_id));
+CREATE POLICY email_task_links_parent_live ON pm.task_links AS RESTRICTIVE FOR ALL TO authenticated
+  USING (pm.task_is_live(task_id));
+CREATE POLICY reminders_parent_live ON pm.reminders AS RESTRICTIVE FOR ALL TO authenticated
+  USING ((task_id IS NULL OR pm.task_is_live(task_id)) AND (project_id IS NULL OR pm.project_is_live(project_id)));
+CREATE POLICY lead_interactions_parent_live ON pm.lead_interactions AS RESTRICTIVE FOR ALL TO authenticated
+  USING (pm.lead_is_live(lead_id));
+CREATE POLICY lead_proposals_parent_live ON pm.lead_proposals AS RESTRICTIVE FOR ALL TO authenticated
+  USING (pm.lead_is_live(lead_id));
+CREATE POLICY lead_fields_parent_live ON pm.lead_fields AS RESTRICTIVE FOR ALL TO authenticated
+  USING (pm.lead_is_live(lead_id));
+CREATE POLICY lead_members_parent_live ON pm.lead_members AS RESTRICTIVE FOR ALL TO authenticated
+  USING (pm.lead_is_live(lead_id));
+CREATE POLICY lead_contacts_parent_live ON pm.lead_contacts AS RESTRICTIVE FOR ALL TO authenticated
+  USING (pm.lead_is_live(lead_id) AND pm.contact_is_live(contact_id));
+CREATE POLICY contact_emails_parent_live ON pm.contact_emails AS RESTRICTIVE FOR ALL TO authenticated
+  USING (pm.contact_is_live(contact_id));
+CREATE POLICY project_credential_members_parent_live ON pm.project_credential_members AS RESTRICTIVE FOR ALL TO authenticated
+  USING (pm.credential_is_live(credential_id));
+CREATE POLICY portal_update_attachments_parent_live ON pm.portal_update_attachments AS RESTRICTIVE FOR ALL TO authenticated
+  USING (pm.portal_update_is_live(update_id));
+CREATE POLICY entity_files_parent_live ON pm.entity_files AS RESTRICTIVE FOR ALL TO authenticated
+  USING (pm.file_entity_is_live(entity_type, entity_id));
 
 -- Move to Trash and Restore. Signed-in members need the record's delete
 -- permission (the same people the old DELETE policies allowed); server
 -- routes (service role) check permissions themselves and pass the actor.
-CREATE OR REPLACE FUNCTION public.trash_record_types()
+CREATE OR REPLACE FUNCTION pm.trash_record_types()
 RETURNS text[]
 LANGUAGE sql
 IMMUTABLE
@@ -12216,15 +12217,15 @@ AS $$
   ]
 $$;
 
-CREATE OR REPLACE FUNCTION public.can_trash_record(p_table text, p_id uuid)
+CREATE OR REPLACE FUNCTION pm.can_trash_record(p_table text, p_id uuid)
 RETURNS boolean
 LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
 DECLARE
-  me uuid := public.current_team_member_id();
+  me uuid := pm.current_team_member_id();
   allowed boolean := false;
 BEGIN
   IF me IS NULL THEN
@@ -12232,92 +12233,92 @@ BEGIN
   END IF;
   CASE p_table
     WHEN 'projects' THEN
-      SELECT public.has_permission('projects.manage') AND (
-        public.has_permission('projects.read_all')
-        OR EXISTS (SELECT 1 FROM public.project_members WHERE project_id = p_id AND member_id = me)
+      SELECT pm.has_permission('projects.manage') AND (
+        pm.has_permission('projects.read_all')
+        OR EXISTS (SELECT 1 FROM pm.project_members WHERE project_id = p_id AND member_id = me)
       ) INTO allowed;
     WHEN 'tasks' THEN
       -- A subtask can also go by whoever manages its parent as an assignee.
-      SELECT public.can_access_project(project_id) AND (
-        public.has_permission('tasks.manage_all') OR (
-          parent_task_id IS NOT NULL AND public.has_permission('tasks.manage_assigned') AND EXISTS (
-            SELECT 1 FROM public.task_assignees assignment
+      SELECT pm.can_access_project(project_id) AND (
+        pm.has_permission('tasks.manage_all') OR (
+          parent_task_id IS NOT NULL AND pm.has_permission('tasks.manage_assigned') AND EXISTS (
+            SELECT 1 FROM pm.task_assignees assignment
             WHERE assignment.task_id = tasks.parent_task_id AND assignment.member_id = me
           )
         )
-      ) INTO allowed FROM public.tasks WHERE id = p_id;
+      ) INTO allowed FROM pm.tasks WHERE id = p_id;
     WHEN 'task_comments' THEN
-      SELECT public.can_access_task(task_id) AND (user_id = me OR public.has_permission('tasks.manage_all'))
-      INTO allowed FROM public.task_comments WHERE id = p_id;
+      SELECT pm.can_access_task(task_id) AND (user_id = me OR pm.has_permission('tasks.manage_all'))
+      INTO allowed FROM pm.task_comments WHERE id = p_id;
     WHEN 'task_files' THEN
-      SELECT public.can_access_task(task_id) AND (added_by = me OR public.has_permission('files.manage'))
-      INTO allowed FROM public.task_files WHERE id = p_id;
+      SELECT pm.can_access_task(task_id) AND (added_by = me OR pm.has_permission('files.manage'))
+      INTO allowed FROM pm.task_files WHERE id = p_id;
     WHEN 'reminders' THEN
-      SELECT public.can_see_reminder(owner_id, project_id, task_id)
-        AND (owner_id = me OR created_by = me OR public.has_permission('tasks.manage_all'))
-      INTO allowed FROM public.reminders WHERE id = p_id;
+      SELECT pm.can_see_reminder(owner_id, project_id, task_id)
+        AND (owner_id = me OR created_by = me OR pm.has_permission('tasks.manage_all'))
+      INTO allowed FROM pm.reminders WHERE id = p_id;
     WHEN 'project_credentials' THEN
-      SELECT public.has_permission('credentials.manage') AND public.can_access_project(project_id)
-      INTO allowed FROM public.project_credentials WHERE id = p_id;
+      SELECT pm.has_permission('credentials.manage') AND pm.can_access_project(project_id)
+      INTO allowed FROM pm.project_credentials WHERE id = p_id;
     WHEN 'entity_files' THEN
-      SELECT public.can_access_file_entity(entity_type, entity_id) AND (
-        public.has_permission('files.manage') OR (uploaded_by = me AND visibility = 'internal')
-      ) INTO allowed FROM public.entity_files WHERE id = p_id;
+      SELECT pm.can_access_file_entity(entity_type, entity_id) AND (
+        pm.has_permission('files.manage') OR (uploaded_by = me AND visibility = 'internal')
+      ) INTO allowed FROM pm.entity_files WHERE id = p_id;
     WHEN 'portal_updates' THEN
-      SELECT public.has_permission('portal.manage') AND public.can_access_project(project_id)
-      INTO allowed FROM public.portal_updates WHERE id = p_id;
+      SELECT pm.has_permission('portal.manage') AND pm.can_access_project(project_id)
+      INTO allowed FROM pm.portal_updates WHERE id = p_id;
     WHEN 'portal_update_attachments' THEN
-      SELECT public.has_permission('portal.manage') AND public.can_access_project(update_row.project_id)
+      SELECT pm.has_permission('portal.manage') AND pm.can_access_project(update_row.project_id)
       INTO allowed
-      FROM public.portal_update_attachments attachment
-      JOIN public.portal_updates update_row ON update_row.id = attachment.update_id
+      FROM pm.portal_update_attachments attachment
+      JOIN pm.portal_updates update_row ON update_row.id = attachment.update_id
       WHERE attachment.id = p_id AND update_row.deleted_at IS NULL;
     WHEN 'contacts' THEN
-      SELECT public.has_permission('contacts.manage') INTO allowed;
+      SELECT pm.has_permission('contacts.manage') INTO allowed;
     WHEN 'leads' THEN
-      SELECT public.has_permission('leads.manage') INTO allowed;
+      SELECT pm.has_permission('leads.manage') INTO allowed;
     WHEN 'lead_interactions' THEN
-      SELECT public.has_permission('leads.manage') AND public.can_access_lead(lead_id)
-      INTO allowed FROM public.lead_interactions WHERE id = p_id;
+      SELECT pm.has_permission('leads.manage') AND pm.can_access_lead(lead_id)
+      INTO allowed FROM pm.lead_interactions WHERE id = p_id;
     WHEN 'lead_proposals' THEN
-      SELECT public.has_permission('leads.manage') AND public.can_access_lead(lead_id)
-      INTO allowed FROM public.lead_proposals WHERE id = p_id;
+      SELECT pm.has_permission('leads.manage') AND pm.can_access_lead(lead_id)
+      INTO allowed FROM pm.lead_proposals WHERE id = p_id;
     WHEN 'lead_fields' THEN
-      SELECT public.has_permission('leads.manage') AND public.can_access_lead(lead_id)
-      INTO allowed FROM public.lead_fields WHERE id = p_id;
+      SELECT pm.has_permission('leads.manage') AND pm.can_access_lead(lead_id)
+      INTO allowed FROM pm.lead_fields WHERE id = p_id;
     WHEN 'project_time_entries' THEN
-      SELECT public.can_access_project(project_id) AND (
-        public.has_permission('time.manage_all') OR (
-          public.has_permission('time.manage_own')
+      SELECT pm.can_access_project(project_id) AND (
+        pm.has_permission('time.manage_all') OR (
+          pm.has_permission('time.manage_own')
           AND member_id = me
           AND approval_status IN ('draft', 'pending', 'rejected')
         )
-      ) INTO allowed FROM public.project_time_entries WHERE id = p_id;
+      ) INTO allowed FROM pm.project_time_entries WHERE id = p_id;
     WHEN 'project_invoices' THEN
-      SELECT public.has_permission('invoices.manage') AND public.can_access_project(project_id)
-      INTO allowed FROM public.project_invoices WHERE id = p_id;
+      SELECT pm.has_permission('invoices.manage') AND pm.can_access_project(project_id)
+      INTO allowed FROM pm.project_invoices WHERE id = p_id;
     WHEN 'invoice_payments' THEN
       -- People remove only payments recorded by hand, as remove_invoice_payment.
-      SELECT (public.has_permission('invoices.record_payments') OR public.has_permission('invoices.manage'))
-        AND public.can_access_project(invoice.project_id)
+      SELECT (pm.has_permission('invoices.record_payments') OR pm.has_permission('invoices.manage'))
+        AND pm.can_access_project(invoice.project_id)
         AND invoice.deleted_at IS NULL
         AND payment.recorded_via = 'app'
       INTO allowed
-      FROM public.invoice_payments payment
-      JOIN public.project_invoices invoice ON invoice.id = payment.invoice_id
+      FROM pm.invoice_payments payment
+      JOIN pm.project_invoices invoice ON invoice.id = payment.invoice_id
       WHERE payment.id = p_id;
     WHEN 'project_hourly_rates' THEN
-      SELECT public.has_permission('billing.manage') AND public.can_access_project(project_id)
-      INTO allowed FROM public.project_hourly_rates WHERE id = p_id;
+      SELECT pm.has_permission('billing.manage') AND pm.can_access_project(project_id)
+      INTO allowed FROM pm.project_hourly_rates WHERE id = p_id;
     WHEN 'project_retainers' THEN
-      SELECT public.has_permission('invoices.manage') AND public.can_access_project(project_id)
-      INTO allowed FROM public.project_retainers WHERE id = p_id;
+      SELECT pm.has_permission('invoices.manage') AND pm.can_access_project(project_id)
+      INTO allowed FROM pm.project_retainers WHERE id = p_id;
     WHEN 'project_retainer_amounts' THEN
-      SELECT public.has_permission('invoices.manage') AND public.can_access_project(retainer.project_id)
+      SELECT pm.has_permission('invoices.manage') AND pm.can_access_project(retainer.project_id)
         AND retainer.deleted_at IS NULL
       INTO allowed
-      FROM public.project_retainer_amounts amount
-      JOIN public.project_retainers retainer ON retainer.id = amount.retainer_id
+      FROM pm.project_retainer_amounts amount
+      JOIN pm.project_retainers retainer ON retainer.id = amount.retainer_id
       WHERE amount.id = p_id;
     ELSE
       allowed := false;
@@ -12329,87 +12330,87 @@ $$;
 -- What must still exist before a record can come back from Trash, or what it
 -- would clash with that was added while it was away, as a sentence for the
 -- person restoring it; null when nothing blocks it.
-CREATE OR REPLACE FUNCTION public.trash_restore_blocker(p_table text, p_id uuid)
+CREATE OR REPLACE FUNCTION pm.trash_restore_blocker(p_table text, p_id uuid)
 RETURNS text
 LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
 DECLARE
   project_gone boolean := false;
   task_gone boolean := false;
   lead_gone boolean := false;
   parent_gone boolean := false;
-  payment public.invoice_payments;
-  invoice public.project_invoices;
+  payment pm.invoice_payments;
+  invoice pm.project_invoices;
   v_number text;
 BEGIN
   CASE p_table
     WHEN 'tasks' THEN
       -- A subtask comes back after its parent.
       SELECT p.deleted_at IS NOT NULL, coalesce(parent.deleted_at IS NOT NULL, false) INTO project_gone, task_gone
-      FROM public.tasks t JOIN public.projects p ON p.id = t.project_id
-      LEFT JOIN public.tasks parent ON parent.id = t.parent_task_id
+      FROM pm.tasks t JOIN pm.projects p ON p.id = t.project_id
+      LEFT JOIN pm.tasks parent ON parent.id = t.parent_task_id
       WHERE t.id = p_id;
     WHEN 'task_comments', 'task_files' THEN
       EXECUTE format('SELECT t.deleted_at IS NOT NULL OR coalesce(parent.deleted_at IS NOT NULL, false), p.deleted_at IS NOT NULL
-        FROM public.%I c JOIN public.tasks t ON t.id = c.task_id JOIN public.projects p ON p.id = t.project_id
-        LEFT JOIN public.tasks parent ON parent.id = t.parent_task_id
+        FROM pm.%I c JOIN pm.tasks t ON t.id = c.task_id JOIN pm.projects p ON p.id = t.project_id
+        LEFT JOIN pm.tasks parent ON parent.id = t.parent_task_id
         WHERE c.id = $1', p_table)
       INTO task_gone, project_gone USING p_id;
     WHEN 'reminders' THEN
       SELECT coalesce(t.deleted_at IS NOT NULL OR parent.deleted_at IS NOT NULL, false), coalesce(p.deleted_at IS NOT NULL, false)
       INTO task_gone, project_gone
-      FROM public.reminders r
-      LEFT JOIN public.tasks t ON t.id = r.task_id
-      LEFT JOIN public.tasks parent ON parent.id = t.parent_task_id
-      LEFT JOIN public.projects p ON p.id = r.project_id
+      FROM pm.reminders r
+      LEFT JOIN pm.tasks t ON t.id = r.task_id
+      LEFT JOIN pm.tasks parent ON parent.id = t.parent_task_id
+      LEFT JOIN pm.projects p ON p.id = r.project_id
       WHERE r.id = p_id;
     WHEN 'project_credentials', 'portal_updates', 'project_time_entries', 'project_invoices',
          'project_hourly_rates', 'project_retainers' THEN
-      EXECUTE format('SELECT p.deleted_at IS NOT NULL FROM public.%I c
-        JOIN public.projects p ON p.id = c.project_id WHERE c.id = $1', p_table)
+      EXECUTE format('SELECT p.deleted_at IS NOT NULL FROM pm.%I c
+        JOIN pm.projects p ON p.id = c.project_id WHERE c.id = $1', p_table)
       INTO project_gone USING p_id;
     WHEN 'portal_update_attachments' THEN
       SELECT u.deleted_at IS NOT NULL INTO parent_gone
-      FROM public.portal_update_attachments a JOIN public.portal_updates u ON u.id = a.update_id WHERE a.id = p_id;
+      FROM pm.portal_update_attachments a JOIN pm.portal_updates u ON u.id = a.update_id WHERE a.id = p_id;
       IF parent_gone THEN
         RETURN 'Restore the portal update it belongs to first.';
       END IF;
     WHEN 'invoice_payments' THEN
       SELECT p.deleted_at IS NOT NULL, i.deleted_at IS NOT NULL INTO project_gone, parent_gone
-      FROM public.invoice_payments pay
-      JOIN public.project_invoices i ON i.id = pay.invoice_id
-      JOIN public.projects p ON p.id = i.project_id
+      FROM pm.invoice_payments pay
+      JOIN pm.project_invoices i ON i.id = pay.invoice_id
+      JOIN pm.projects p ON p.id = i.project_id
       WHERE pay.id = p_id;
       IF parent_gone AND NOT project_gone THEN
         RETURN 'Restore the invoice it belongs to first.';
       END IF;
     WHEN 'project_retainer_amounts' THEN
       SELECT p.deleted_at IS NOT NULL, r.deleted_at IS NOT NULL INTO project_gone, parent_gone
-      FROM public.project_retainer_amounts a
-      JOIN public.project_retainers r ON r.id = a.retainer_id
-      JOIN public.projects p ON p.id = r.project_id
+      FROM pm.project_retainer_amounts a
+      JOIN pm.project_retainers r ON r.id = a.retainer_id
+      JOIN pm.projects p ON p.id = r.project_id
       WHERE a.id = p_id;
       IF parent_gone AND NOT project_gone THEN
         RETURN 'Restore the retainer it belongs to first.';
       END IF;
     WHEN 'entity_files' THEN
       SELECT CASE f.entity_type
-          WHEN 'project' THEN EXISTS (SELECT 1 FROM public.projects WHERE id = f.entity_id AND deleted_at IS NOT NULL)
-          WHEN 'lead' THEN EXISTS (SELECT 1 FROM public.leads WHERE id = f.entity_id AND deleted_at IS NOT NULL)
-          WHEN 'contact' THEN EXISTS (SELECT 1 FROM public.contacts WHERE id = f.entity_id AND deleted_at IS NOT NULL)
+          WHEN 'project' THEN EXISTS (SELECT 1 FROM pm.projects WHERE id = f.entity_id AND deleted_at IS NOT NULL)
+          WHEN 'lead' THEN EXISTS (SELECT 1 FROM pm.leads WHERE id = f.entity_id AND deleted_at IS NOT NULL)
+          WHEN 'contact' THEN EXISTS (SELECT 1 FROM pm.contacts WHERE id = f.entity_id AND deleted_at IS NOT NULL)
           ELSE false
         END
       INTO parent_gone
-      FROM public.entity_files f WHERE f.id = p_id;
+      FROM pm.entity_files f WHERE f.id = p_id;
       IF parent_gone THEN
         RETURN 'Restore the project, lead or contact this file belongs to first.';
       END IF;
     WHEN 'lead_interactions', 'lead_proposals', 'lead_fields' THEN
-      EXECUTE format('SELECT l.deleted_at IS NOT NULL FROM public.%I c
-        JOIN public.leads l ON l.id = c.lead_id WHERE c.id = $1', p_table)
+      EXECUTE format('SELECT l.deleted_at IS NOT NULL FROM pm.%I c
+        JOIN pm.leads l ON l.id = c.lead_id WHERE c.id = $1', p_table)
       INTO lead_gone USING p_id;
     ELSE
       NULL;
@@ -12426,8 +12427,8 @@ BEGIN
   CASE p_table
     WHEN 'project_time_entries' THEN
       IF EXISTS (
-        SELECT 1 FROM public.project_time_entries entry
-        JOIN public.project_time_entries other
+        SELECT 1 FROM pm.project_time_entries entry
+        JOIN pm.project_time_entries other
           ON other.project_id = entry.project_id AND other.member_id = entry.member_id AND other.id <> entry.id
         WHERE entry.id = p_id AND entry.end_time IS NULL
           AND other.end_time IS NULL AND other.deleted_at IS NULL
@@ -12435,13 +12436,13 @@ BEGIN
         RETURN 'This timer is still running and a newer one is running on the same project. Stop that one first.';
       END IF;
     WHEN 'project_invoices' THEN
-      SELECT * INTO invoice FROM public.project_invoices WHERE id = p_id;
+      SELECT * INTO invoice FROM pm.project_invoices WHERE id = p_id;
       IF invoice.status <> 'cancelled' THEN
         SELECT other.invoice_number INTO v_number
-        FROM public.invoice_time_entry_allocations mine
-        JOIN public.invoice_time_entry_allocations theirs
+        FROM pm.invoice_time_entry_allocations mine
+        JOIN pm.invoice_time_entry_allocations theirs
           ON theirs.time_entry_id = mine.time_entry_id AND theirs.invoice_id <> mine.invoice_id
-        JOIN public.project_invoices other ON other.id = theirs.invoice_id
+        JOIN pm.project_invoices other ON other.id = theirs.invoice_id
         WHERE mine.invoice_id = p_id AND other.status <> 'cancelled' AND other.deleted_at IS NULL
           AND mine.start_offset_hours < theirs.start_offset_hours + theirs.allocated_hours - 0.000001
           AND theirs.start_offset_hours < mine.start_offset_hours + mine.allocated_hours - 0.000001
@@ -12450,8 +12451,8 @@ BEGIN
           RETURN 'Some of its hours are on invoice ' || v_number || ' now. Take them off that invoice first.';
         END IF;
         IF EXISTS (
-          SELECT 1 FROM public.invoice_time_entry_allocations allocation
-          JOIN public.project_time_entries entry ON entry.id = allocation.time_entry_id
+          SELECT 1 FROM pm.invoice_time_entry_allocations allocation
+          JOIN pm.project_time_entries entry ON entry.id = allocation.time_entry_id
           WHERE allocation.invoice_id = p_id AND entry.deleted_at IS NOT NULL
         ) THEN
           RETURN 'Some of its time is in Trash. Restore that time first.';
@@ -12459,8 +12460,8 @@ BEGIN
         IF EXISTS (
           SELECT 1
           FROM jsonb_array_elements(COALESCE(NULLIF(invoice.line_items, 'null'::jsonb), '[]'::jsonb)) line
-          JOIN public.project_retainers retainer ON retainer.id::text = line.value->>'retainer_id' AND retainer.deleted_at IS NULL
-          JOIN public.project_retainer_periods handled
+          JOIN pm.project_retainers retainer ON retainer.id::text = line.value->>'retainer_id' AND retainer.deleted_at IS NULL
+          JOIN pm.project_retainer_periods handled
             ON handled.retainer_id = retainer.id
            AND handled.period_start = GREATEST(date_trunc('month', (line.value->>'service_start_date')::date)::date, retainer.start_date)
           WHERE COALESCE(line.value->>'service_start_date', '') ~ '^\d{4}-\d{2}-\d{2}$'
@@ -12474,16 +12475,16 @@ BEGIN
       IF invoice.status = 'paid'
          AND (
            (jsonb_array_length(COALESCE(NULLIF(invoice.line_items, 'null'::jsonb), '[]'::jsonb)) = 0 AND invoice.invoice_type = 'hourly'
-            AND NOT EXISTS (SELECT 1 FROM public.invoice_time_entry_allocations a WHERE a.invoice_id = p_id))
+            AND NOT EXISTS (SELECT 1 FROM pm.invoice_time_entry_allocations a WHERE a.invoice_id = p_id))
            OR EXISTS (
              SELECT 1 FROM jsonb_array_elements(COALESCE(NULLIF(invoice.line_items, 'null'::jsonb), '[]'::jsonb)) line
              WHERE line.value->>'item_type' = 'hourly'
-               AND NOT EXISTS (SELECT 1 FROM public.invoice_time_entry_allocations a
+               AND NOT EXISTS (SELECT 1 FROM pm.invoice_time_entry_allocations a
                                WHERE a.invoice_id = p_id AND a.line_item_id = line.value->>'id')
            )
          )
          AND EXISTS (
-           SELECT 1 FROM public.project_invoices other
+           SELECT 1 FROM pm.project_invoices other
            WHERE other.project_id = invoice.project_id AND other.id <> p_id AND other.deleted_at IS NULL
              AND other.status <> 'cancelled' AND other.created_at > invoice.deleted_at
              AND (other.invoice_type = 'hourly' OR EXISTS (
@@ -12494,8 +12495,8 @@ BEGIN
       END IF;
     WHEN 'project_hourly_rates' THEN
       IF EXISTS (
-        SELECT 1 FROM public.project_hourly_rates rate
-        JOIN public.project_hourly_rates other
+        SELECT 1 FROM pm.project_hourly_rates rate
+        JOIN pm.project_hourly_rates other
           ON other.project_id = rate.project_id AND other.effective_at = rate.effective_at AND other.id <> rate.id
         WHERE rate.id = p_id AND other.deleted_at IS NULL
       ) THEN
@@ -12503,8 +12504,8 @@ BEGIN
       END IF;
     WHEN 'lead_fields' THEN
       IF EXISTS (
-        SELECT 1 FROM public.lead_fields field
-        JOIN public.lead_fields other
+        SELECT 1 FROM pm.lead_fields field
+        JOIN pm.lead_fields other
           ON other.lead_id = field.lead_id AND other.field_key = field.field_key AND other.id <> field.id
         WHERE field.id = p_id AND other.deleted_at IS NULL
       ) THEN
@@ -12512,27 +12513,27 @@ BEGIN
       END IF;
     WHEN 'project_retainer_amounts' THEN
       IF EXISTS (
-        SELECT 1 FROM public.project_retainer_amounts amount
-        JOIN public.project_retainer_amounts other
+        SELECT 1 FROM pm.project_retainer_amounts amount
+        JOIN pm.project_retainer_amounts other
           ON other.retainer_id = amount.retainer_id AND other.effective_date = amount.effective_date AND other.id <> amount.id
         WHERE amount.id = p_id AND other.deleted_at IS NULL
       ) THEN
         RETURN 'Another amount now starts on the same date. Change or delete that one first.';
       END IF;
     WHEN 'invoice_payments' THEN
-      SELECT * INTO payment FROM public.invoice_payments WHERE id = p_id;
-      SELECT * INTO invoice FROM public.project_invoices WHERE id = payment.invoice_id;
+      SELECT * INTO payment FROM pm.invoice_payments WHERE id = p_id;
+      SELECT * INTO invoice FROM pm.project_invoices WHERE id = payment.invoice_id;
       IF invoice.status NOT IN ('sent', 'overdue', 'paid') THEN
         RETURN 'Its invoice is ' || invoice.status || ' now, so it cannot take a payment.';
       END IF;
-      IF payment.amount > public.invoice_total(invoice) - COALESCE((
-        SELECT sum(other.amount) FROM public.invoice_payments other
+      IF payment.amount > pm.invoice_total(invoice) - COALESCE((
+        SELECT sum(other.amount) FROM pm.invoice_payments other
         WHERE other.invoice_id = invoice.id AND other.deleted_at IS NULL
       ), 0) + 0.005 THEN
         RETURN 'Its invoice no longer has enough outstanding for this payment.';
       END IF;
       IF payment.external_id IS NOT NULL AND EXISTS (
-        SELECT 1 FROM public.invoice_payments other
+        SELECT 1 FROM pm.invoice_payments other
         WHERE other.invoice_id = payment.invoice_id AND other.external_id = payment.external_id
           AND other.deleted_at IS NULL AND other.id <> payment.id
       ) THEN
@@ -12546,7 +12547,7 @@ END;
 $$;
 
 -- The audit log's name for a record type (the same names the API logs).
-CREATE OR REPLACE FUNCTION public.trash_entity_type(p_table text)
+CREATE OR REPLACE FUNCTION pm.trash_entity_type(p_table text)
 RETURNS text
 LANGUAGE sql
 IMMUTABLE
@@ -12579,24 +12580,24 @@ $$;
 
 -- One audit row for a Trash move or restore by a signed-in member (the app).
 -- Server routes on the service role log their own, with the API key.
-CREATE OR REPLACE FUNCTION public.audit_trash_change(
+CREATE OR REPLACE FUNCTION pm.audit_trash_change(
   p_table text, p_id uuid, p_restore boolean, p_before jsonb, p_after jsonb
 )
 RETURNS void
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
 DECLARE
   hidden text[] := ARRAY['encrypted_data', 'iv', 'hourly_rate', 'compensation_rate', 'billing_multiplier',
     'budget_type', 'budget_value', 'billing_address', 'billing_email', 'tax_rate', 'invoice_pdf_options'];
 BEGIN
-  INSERT INTO public.api_audit_log (
+  INSERT INTO pm.api_audit_log (
     method, endpoint, entity_type, entity_id, team_member_id, before_snapshot, after_snapshot, status_code, via
   ) VALUES (
     CASE WHEN p_restore THEN 'POST' ELSE 'DELETE' END,
     '/app/trash/' || p_table || '/' || p_id::text || CASE WHEN p_restore THEN '/restore' ELSE '' END,
-    public.trash_entity_type(p_table), p_id, public.current_team_member_id(),
+    pm.trash_entity_type(p_table), p_id, pm.current_team_member_id(),
     -- Not the credential secrets, client rates or pay rates: audit readers
     -- are not necessarily allowed to see those.
     p_before - hidden, p_after - hidden, 200, 'app'
@@ -12604,11 +12605,11 @@ BEGIN
 END;
 $$;
 
-CREATE OR REPLACE FUNCTION public.soft_delete_record(p_table text, p_id uuid, p_actor uuid DEFAULT NULL)
+CREATE OR REPLACE FUNCTION pm.soft_delete_record(p_table text, p_id uuid, p_actor uuid DEFAULT NULL)
 RETURNS boolean
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
 DECLARE
   is_service boolean := coalesce(auth.role(), '') = 'service_role';
@@ -12618,37 +12619,37 @@ DECLARE
   before jsonb;
   after jsonb;
 BEGIN
-  IF NOT p_table = ANY (public.trash_record_types()) THEN
+  IF NOT p_table = ANY (pm.trash_record_types()) THEN
     RAISE EXCEPTION 'Trash does not handle %', p_table USING ERRCODE = '22023';
   END IF;
-  EXECUTE format('SELECT EXISTS (SELECT 1 FROM public.%I WHERE id = $1)', p_table) INTO found_row USING p_id;
+  EXECUTE format('SELECT EXISTS (SELECT 1 FROM pm.%I WHERE id = $1)', p_table) INTO found_row USING p_id;
   IF NOT found_row THEN
     RAISE EXCEPTION 'Record not found' USING ERRCODE = 'P0002';
   END IF;
   IF is_service THEN
     actor := p_actor;
   ELSE
-    IF NOT public.can_trash_record(p_table, p_id) THEN
+    IF NOT pm.can_trash_record(p_table, p_id) THEN
       RAISE EXCEPTION 'You do not have permission to delete this' USING ERRCODE = '42501';
     END IF;
-    actor := public.current_team_member_id();
+    actor := pm.current_team_member_id();
   END IF;
-  EXECUTE format('SELECT to_jsonb(t) FROM public.%I t WHERE id = $1', p_table) INTO before USING p_id;
-  EXECUTE format('UPDATE public.%I t SET deleted_at = now(), deleted_by = $1 WHERE id = $2 AND deleted_at IS NULL RETURNING to_jsonb(t)', p_table)
+  EXECUTE format('SELECT to_jsonb(t) FROM pm.%I t WHERE id = $1', p_table) INTO before USING p_id;
+  EXECUTE format('UPDATE pm.%I t SET deleted_at = now(), deleted_by = $1 WHERE id = $2 AND deleted_at IS NULL RETURNING to_jsonb(t)', p_table)
     INTO after USING actor, p_id;
   changed := CASE WHEN after IS NULL THEN 0 ELSE 1 END;
   IF changed > 0 AND NOT is_service THEN
-    PERFORM public.audit_trash_change(p_table, p_id, false, before, after);
+    PERFORM pm.audit_trash_change(p_table, p_id, false, before, after);
   END IF;
   RETURN changed > 0;
 END;
 $$;
 
-CREATE OR REPLACE FUNCTION public.restore_record(p_table text, p_id uuid, p_actor uuid DEFAULT NULL)
+CREATE OR REPLACE FUNCTION pm.restore_record(p_table text, p_id uuid, p_actor uuid DEFAULT NULL)
 RETURNS boolean
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
 DECLARE
   is_service boolean := coalesce(auth.role(), '') = 'service_role';
@@ -12658,75 +12659,75 @@ DECLARE
   before jsonb;
   after jsonb;
 BEGIN
-  IF NOT p_table = ANY (public.trash_record_types()) THEN
+  IF NOT p_table = ANY (pm.trash_record_types()) THEN
     RAISE EXCEPTION 'Trash does not handle %', p_table USING ERRCODE = '22023';
   END IF;
-  EXECUTE format('SELECT EXISTS (SELECT 1 FROM public.%I WHERE id = $1)', p_table) INTO found_row USING p_id;
+  EXECUTE format('SELECT EXISTS (SELECT 1 FROM pm.%I WHERE id = $1)', p_table) INTO found_row USING p_id;
   IF NOT found_row THEN
     RAISE EXCEPTION 'Record not found' USING ERRCODE = 'P0002';
   END IF;
-  blocker := public.trash_restore_blocker(p_table, p_id);
+  blocker := pm.trash_restore_blocker(p_table, p_id);
   IF blocker IS NOT NULL THEN
     RAISE EXCEPTION '%', blocker USING ERRCODE = '55000';
   END IF;
-  IF NOT is_service AND NOT public.can_trash_record(p_table, p_id) THEN
+  IF NOT is_service AND NOT pm.can_trash_record(p_table, p_id) THEN
     RAISE EXCEPTION 'You do not have permission to restore this' USING ERRCODE = '42501';
   END IF;
   -- Restoring re-runs the record's own rules (an invoice links its hours
   -- and retainer period again); a clash with what happened meanwhile
   -- refuses it, saying why.
-  EXECUTE format('SELECT to_jsonb(t) FROM public.%I t WHERE id = $1', p_table) INTO before USING p_id;
+  EXECUTE format('SELECT to_jsonb(t) FROM pm.%I t WHERE id = $1', p_table) INTO before USING p_id;
   BEGIN
-    EXECUTE format('UPDATE public.%I t SET deleted_at = NULL, deleted_by = NULL WHERE id = $1 AND deleted_at IS NOT NULL RETURNING to_jsonb(t)', p_table)
+    EXECUTE format('UPDATE pm.%I t SET deleted_at = NULL, deleted_by = NULL WHERE id = $1 AND deleted_at IS NOT NULL RETURNING to_jsonb(t)', p_table)
       INTO after USING p_id;
     changed := CASE WHEN after IS NULL THEN 0 ELSE 1 END;
   EXCEPTION WHEN raise_exception THEN
     RAISE EXCEPTION 'It cannot come back as it was: %', SQLERRM USING ERRCODE = '55000';
   END;
   IF changed > 0 AND NOT is_service THEN
-    PERFORM public.audit_trash_change(p_table, p_id, true, before, after);
+    PERFORM pm.audit_trash_change(p_table, p_id, true, before, after);
   END IF;
   -- Retainer months that came due while it (or its project) was in Trash
   -- are skipped, as a pause skips them: restoring never back-bills.
   IF changed > 0 AND p_table IN ('projects', 'project_retainers') THEN
-    INSERT INTO public.project_retainer_periods (retainer_id, period_start, period_end, status)
+    INSERT INTO pm.project_retainer_periods (retainer_id, period_start, period_end, status)
     SELECT due.retainer_id, due.period_start, due.period_end, 'skipped'
-    FROM public.retainer_due_periods_internal(
+    FROM pm.retainer_due_periods_internal(
       CASE WHEN p_table = 'projects' THEN p_id ELSE (after->>'project_id')::uuid END,
-      public.workspace_today()) due
+      pm.workspace_today()) due
     WHERE (p_table = 'projects' OR due.retainer_id = p_id)
-      AND due.bill_date >= ((before->>'deleted_at')::timestamptz AT TIME ZONE public.workspace_timezone())::date
+      AND due.bill_date >= ((before->>'deleted_at')::timestamptz AT TIME ZONE pm.workspace_timezone())::date
     ON CONFLICT (retainer_id, period_start) DO NOTHING;
   END IF;
   RETURN changed > 0;
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.project_is_live(uuid) FROM PUBLIC, anon;
-REVOKE ALL ON FUNCTION public.task_is_live(uuid) FROM PUBLIC, anon;
-REVOKE ALL ON FUNCTION public.lead_is_live(uuid) FROM PUBLIC, anon;
-REVOKE ALL ON FUNCTION public.contact_is_live(uuid) FROM PUBLIC, anon;
-REVOKE ALL ON FUNCTION public.credential_is_live(uuid) FROM PUBLIC, anon;
-REVOKE ALL ON FUNCTION public.portal_update_is_live(uuid) FROM PUBLIC, anon;
-REVOKE ALL ON FUNCTION public.file_entity_is_live(text, uuid) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.project_is_live(uuid) TO authenticated, service_role;
-GRANT EXECUTE ON FUNCTION public.task_is_live(uuid) TO authenticated, service_role;
-GRANT EXECUTE ON FUNCTION public.lead_is_live(uuid) TO authenticated, service_role;
-GRANT EXECUTE ON FUNCTION public.contact_is_live(uuid) TO authenticated, service_role;
-GRANT EXECUTE ON FUNCTION public.credential_is_live(uuid) TO authenticated, service_role;
-GRANT EXECUTE ON FUNCTION public.portal_update_is_live(uuid) TO authenticated, service_role;
-GRANT EXECUTE ON FUNCTION public.file_entity_is_live(text, uuid) TO authenticated, service_role;
-REVOKE ALL ON FUNCTION public.forbid_hard_delete() FROM PUBLIC, anon;
-REVOKE ALL ON FUNCTION public.trash_record_types() FROM PUBLIC, anon;
-REVOKE ALL ON FUNCTION public.can_trash_record(text, uuid) FROM PUBLIC, anon;
-REVOKE ALL ON FUNCTION public.trash_restore_blocker(text, uuid) FROM PUBLIC, anon;
-REVOKE ALL ON FUNCTION public.soft_delete_record(text, uuid, uuid) FROM PUBLIC, anon;
-REVOKE ALL ON FUNCTION public.restore_record(text, uuid, uuid) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.trash_record_types() TO authenticated, service_role;
-GRANT EXECUTE ON FUNCTION public.can_trash_record(text, uuid) TO authenticated, service_role;
-GRANT EXECUTE ON FUNCTION public.trash_restore_blocker(text, uuid) TO authenticated, service_role;
-GRANT EXECUTE ON FUNCTION public.soft_delete_record(text, uuid, uuid) TO authenticated, service_role;
-GRANT EXECUTE ON FUNCTION public.restore_record(text, uuid, uuid) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.project_is_live(uuid) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION pm.task_is_live(uuid) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION pm.lead_is_live(uuid) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION pm.contact_is_live(uuid) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION pm.credential_is_live(uuid) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION pm.portal_update_is_live(uuid) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION pm.file_entity_is_live(text, uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION pm.project_is_live(uuid) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.task_is_live(uuid) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.lead_is_live(uuid) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.contact_is_live(uuid) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.credential_is_live(uuid) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.portal_update_is_live(uuid) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.file_entity_is_live(text, uuid) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.forbid_hard_delete() FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION pm.trash_record_types() FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION pm.can_trash_record(text, uuid) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION pm.trash_restore_blocker(text, uuid) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION pm.soft_delete_record(text, uuid, uuid) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION pm.restore_record(text, uuid, uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION pm.trash_record_types() TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.can_trash_record(text, uuid) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.trash_restore_blocker(text, uuid) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.soft_delete_record(text, uuid, uuid) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.restore_record(text, uuid, uuid) TO authenticated, service_role;
 
 -- ---------------------------------------------------------------------------
 -- Soft delete, billing (migration 20261022041249_soft_delete_billing.sql)
@@ -12738,122 +12739,122 @@ GRANT EXECUTE ON FUNCTION public.restore_record(text, uuid, uuid) TO authenticat
 -- invoice or in a payout, and an invoice with payments recorded by an
 -- accounting connection, cannot go to Trash (guard_trash).
 
-CREATE INDEX IF NOT EXISTS idx_project_time_entries_deleted_at ON public.project_time_entries (deleted_at DESC) WHERE deleted_at IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_project_invoices_deleted_at ON public.project_invoices (deleted_at DESC) WHERE deleted_at IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_invoice_payments_deleted_at ON public.invoice_payments (deleted_at DESC) WHERE deleted_at IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_project_hourly_rates_deleted_at ON public.project_hourly_rates (deleted_at DESC) WHERE deleted_at IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_project_retainers_deleted_at ON public.project_retainers (deleted_at DESC) WHERE deleted_at IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_project_retainer_amounts_deleted_at ON public.project_retainer_amounts (deleted_at DESC) WHERE deleted_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_project_time_entries_deleted_at ON pm.project_time_entries (deleted_at DESC) WHERE deleted_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_project_invoices_deleted_at ON pm.project_invoices (deleted_at DESC) WHERE deleted_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_invoice_payments_deleted_at ON pm.invoice_payments (deleted_at DESC) WHERE deleted_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_project_hourly_rates_deleted_at ON pm.project_hourly_rates (deleted_at DESC) WHERE deleted_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_project_retainers_deleted_at ON pm.project_retainers (deleted_at DESC) WHERE deleted_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_project_retainer_amounts_deleted_at ON pm.project_retainer_amounts (deleted_at DESC) WHERE deleted_at IS NOT NULL;
 
-CREATE TRIGGER forbid_hard_delete BEFORE DELETE ON public.project_time_entries
-  FOR EACH ROW EXECUTE FUNCTION public.forbid_hard_delete();
-CREATE TRIGGER forbid_truncate BEFORE TRUNCATE ON public.project_time_entries
-  FOR EACH STATEMENT EXECUTE FUNCTION public.forbid_hard_delete();
-CREATE TRIGGER forbid_hard_delete BEFORE DELETE ON public.project_invoices
-  FOR EACH ROW EXECUTE FUNCTION public.forbid_hard_delete();
-CREATE TRIGGER forbid_truncate BEFORE TRUNCATE ON public.project_invoices
-  FOR EACH STATEMENT EXECUTE FUNCTION public.forbid_hard_delete();
-CREATE TRIGGER forbid_hard_delete BEFORE DELETE ON public.invoice_payments
-  FOR EACH ROW EXECUTE FUNCTION public.forbid_hard_delete();
-CREATE TRIGGER forbid_truncate BEFORE TRUNCATE ON public.invoice_payments
-  FOR EACH STATEMENT EXECUTE FUNCTION public.forbid_hard_delete();
-CREATE TRIGGER forbid_hard_delete BEFORE DELETE ON public.project_hourly_rates
-  FOR EACH ROW EXECUTE FUNCTION public.forbid_hard_delete();
-CREATE TRIGGER forbid_truncate BEFORE TRUNCATE ON public.project_hourly_rates
-  FOR EACH STATEMENT EXECUTE FUNCTION public.forbid_hard_delete();
-CREATE TRIGGER forbid_hard_delete BEFORE DELETE ON public.project_retainers
-  FOR EACH ROW EXECUTE FUNCTION public.forbid_hard_delete();
-CREATE TRIGGER forbid_truncate BEFORE TRUNCATE ON public.project_retainers
-  FOR EACH STATEMENT EXECUTE FUNCTION public.forbid_hard_delete();
-CREATE TRIGGER forbid_hard_delete BEFORE DELETE ON public.project_retainer_amounts
-  FOR EACH ROW EXECUTE FUNCTION public.forbid_hard_delete();
-CREATE TRIGGER forbid_truncate BEFORE TRUNCATE ON public.project_retainer_amounts
-  FOR EACH STATEMENT EXECUTE FUNCTION public.forbid_hard_delete();
+CREATE TRIGGER forbid_hard_delete BEFORE DELETE ON pm.project_time_entries
+  FOR EACH ROW EXECUTE FUNCTION pm.forbid_hard_delete();
+CREATE TRIGGER forbid_truncate BEFORE TRUNCATE ON pm.project_time_entries
+  FOR EACH STATEMENT EXECUTE FUNCTION pm.forbid_hard_delete();
+CREATE TRIGGER forbid_hard_delete BEFORE DELETE ON pm.project_invoices
+  FOR EACH ROW EXECUTE FUNCTION pm.forbid_hard_delete();
+CREATE TRIGGER forbid_truncate BEFORE TRUNCATE ON pm.project_invoices
+  FOR EACH STATEMENT EXECUTE FUNCTION pm.forbid_hard_delete();
+CREATE TRIGGER forbid_hard_delete BEFORE DELETE ON pm.invoice_payments
+  FOR EACH ROW EXECUTE FUNCTION pm.forbid_hard_delete();
+CREATE TRIGGER forbid_truncate BEFORE TRUNCATE ON pm.invoice_payments
+  FOR EACH STATEMENT EXECUTE FUNCTION pm.forbid_hard_delete();
+CREATE TRIGGER forbid_hard_delete BEFORE DELETE ON pm.project_hourly_rates
+  FOR EACH ROW EXECUTE FUNCTION pm.forbid_hard_delete();
+CREATE TRIGGER forbid_truncate BEFORE TRUNCATE ON pm.project_hourly_rates
+  FOR EACH STATEMENT EXECUTE FUNCTION pm.forbid_hard_delete();
+CREATE TRIGGER forbid_hard_delete BEFORE DELETE ON pm.project_retainers
+  FOR EACH ROW EXECUTE FUNCTION pm.forbid_hard_delete();
+CREATE TRIGGER forbid_truncate BEFORE TRUNCATE ON pm.project_retainers
+  FOR EACH STATEMENT EXECUTE FUNCTION pm.forbid_hard_delete();
+CREATE TRIGGER forbid_hard_delete BEFORE DELETE ON pm.project_retainer_amounts
+  FOR EACH ROW EXECUTE FUNCTION pm.forbid_hard_delete();
+CREATE TRIGGER forbid_truncate BEFORE TRUNCATE ON pm.project_retainer_amounts
+  FOR EACH STATEMENT EXECUTE FUNCTION pm.forbid_hard_delete();
 
-CREATE POLICY project_time_entries_not_deleted ON public.project_time_entries AS RESTRICTIVE FOR ALL TO authenticated
+CREATE POLICY project_time_entries_not_deleted ON pm.project_time_entries AS RESTRICTIVE FOR ALL TO authenticated
   USING (deleted_at IS NULL) WITH CHECK (deleted_at IS NULL);
-CREATE POLICY project_invoices_not_deleted ON public.project_invoices AS RESTRICTIVE FOR ALL TO authenticated
+CREATE POLICY project_invoices_not_deleted ON pm.project_invoices AS RESTRICTIVE FOR ALL TO authenticated
   USING (deleted_at IS NULL) WITH CHECK (deleted_at IS NULL);
-CREATE POLICY invoice_payments_not_deleted ON public.invoice_payments AS RESTRICTIVE FOR ALL TO authenticated
+CREATE POLICY invoice_payments_not_deleted ON pm.invoice_payments AS RESTRICTIVE FOR ALL TO authenticated
   USING (deleted_at IS NULL) WITH CHECK (deleted_at IS NULL);
-CREATE POLICY project_hourly_rates_not_deleted ON public.project_hourly_rates AS RESTRICTIVE FOR ALL TO authenticated
+CREATE POLICY project_hourly_rates_not_deleted ON pm.project_hourly_rates AS RESTRICTIVE FOR ALL TO authenticated
   USING (deleted_at IS NULL) WITH CHECK (deleted_at IS NULL);
-CREATE POLICY project_retainers_not_deleted ON public.project_retainers AS RESTRICTIVE FOR ALL TO authenticated
+CREATE POLICY project_retainers_not_deleted ON pm.project_retainers AS RESTRICTIVE FOR ALL TO authenticated
   USING (deleted_at IS NULL) WITH CHECK (deleted_at IS NULL);
-CREATE POLICY project_retainer_amounts_not_deleted ON public.project_retainer_amounts AS RESTRICTIVE FOR ALL TO authenticated
+CREATE POLICY project_retainer_amounts_not_deleted ON pm.project_retainer_amounts AS RESTRICTIVE FOR ALL TO authenticated
   USING (deleted_at IS NULL) WITH CHECK (deleted_at IS NULL);
 
-CREATE OR REPLACE FUNCTION public.invoice_is_live(p_invoice_id uuid)
+CREATE OR REPLACE FUNCTION pm.invoice_is_live(p_invoice_id uuid)
 RETURNS boolean
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
   SELECT EXISTS (
-    SELECT 1 FROM public.project_invoices invoice
-    JOIN public.projects project ON project.id = invoice.project_id
+    SELECT 1 FROM pm.project_invoices invoice
+    JOIN pm.projects project ON project.id = invoice.project_id
     WHERE invoice.id = p_invoice_id AND invoice.deleted_at IS NULL AND project.deleted_at IS NULL
   )
 $$;
 
-CREATE OR REPLACE FUNCTION public.time_entry_is_live(p_entry_id uuid)
+CREATE OR REPLACE FUNCTION pm.time_entry_is_live(p_entry_id uuid)
 RETURNS boolean
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
   SELECT EXISTS (
-    SELECT 1 FROM public.project_time_entries entry
-    JOIN public.projects project ON project.id = entry.project_id
+    SELECT 1 FROM pm.project_time_entries entry
+    JOIN pm.projects project ON project.id = entry.project_id
     WHERE entry.id = p_entry_id AND entry.deleted_at IS NULL AND project.deleted_at IS NULL
   )
 $$;
 
-CREATE OR REPLACE FUNCTION public.retainer_is_live(p_retainer_id uuid)
+CREATE OR REPLACE FUNCTION pm.retainer_is_live(p_retainer_id uuid)
 RETURNS boolean
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
   SELECT EXISTS (
-    SELECT 1 FROM public.project_retainers retainer
-    JOIN public.projects project ON project.id = retainer.project_id
+    SELECT 1 FROM pm.project_retainers retainer
+    JOIN pm.projects project ON project.id = retainer.project_id
     WHERE retainer.id = p_retainer_id AND retainer.deleted_at IS NULL AND project.deleted_at IS NULL
   )
 $$;
 
-CREATE POLICY invoice_payments_parent_live ON public.invoice_payments AS RESTRICTIVE FOR ALL TO authenticated
-  USING (public.invoice_is_live(invoice_id));
-CREATE POLICY invoice_time_entry_allocations_parent_live ON public.invoice_time_entry_allocations AS RESTRICTIVE FOR ALL TO authenticated
-  USING (public.invoice_is_live(invoice_id));
-CREATE POLICY invoice_line_shares_parent_live ON public.invoice_line_shares AS RESTRICTIVE FOR ALL TO authenticated
-  USING (public.invoice_is_live(invoice_id));
-CREATE POLICY billing_draft_notices_parent_live ON public.billing_draft_notices AS RESTRICTIVE FOR ALL TO authenticated
-  USING (public.project_is_live(project_id) AND public.invoice_is_live(invoice_id));
-CREATE POLICY project_retainer_amounts_parent_live ON public.project_retainer_amounts AS RESTRICTIVE FOR ALL TO authenticated
-  USING (public.retainer_is_live(retainer_id));
-CREATE POLICY project_retainer_shares_parent_live ON public.project_retainer_shares AS RESTRICTIVE FOR ALL TO authenticated
-  USING (public.retainer_is_live(retainer_id));
-CREATE POLICY project_retainer_periods_parent_live ON public.project_retainer_periods AS RESTRICTIVE FOR ALL TO authenticated
-  USING (public.retainer_is_live(retainer_id));
-CREATE POLICY time_entry_tasks_parent_live ON public.time_entry_tasks AS RESTRICTIVE FOR ALL TO authenticated
-  USING (public.task_is_live(task_id) AND public.time_entry_is_live(time_entry_id));
+CREATE POLICY invoice_payments_parent_live ON pm.invoice_payments AS RESTRICTIVE FOR ALL TO authenticated
+  USING (pm.invoice_is_live(invoice_id));
+CREATE POLICY invoice_time_entry_allocations_parent_live ON pm.invoice_time_entry_allocations AS RESTRICTIVE FOR ALL TO authenticated
+  USING (pm.invoice_is_live(invoice_id));
+CREATE POLICY invoice_line_shares_parent_live ON pm.invoice_line_shares AS RESTRICTIVE FOR ALL TO authenticated
+  USING (pm.invoice_is_live(invoice_id));
+CREATE POLICY billing_draft_notices_parent_live ON pm.billing_draft_notices AS RESTRICTIVE FOR ALL TO authenticated
+  USING (pm.project_is_live(project_id) AND pm.invoice_is_live(invoice_id));
+CREATE POLICY project_retainer_amounts_parent_live ON pm.project_retainer_amounts AS RESTRICTIVE FOR ALL TO authenticated
+  USING (pm.retainer_is_live(retainer_id));
+CREATE POLICY project_retainer_shares_parent_live ON pm.project_retainer_shares AS RESTRICTIVE FOR ALL TO authenticated
+  USING (pm.retainer_is_live(retainer_id));
+CREATE POLICY project_retainer_periods_parent_live ON pm.project_retainer_periods AS RESTRICTIVE FOR ALL TO authenticated
+  USING (pm.retainer_is_live(retainer_id));
+CREATE POLICY time_entry_tasks_parent_live ON pm.time_entry_tasks AS RESTRICTIVE FOR ALL TO authenticated
+  USING (pm.task_is_live(task_id) AND pm.time_entry_is_live(time_entry_id));
 -- Which tasks a time entry covers is Time tracking's.
-CREATE POLICY time_entry_tasks_module_on ON public.time_entry_tasks AS RESTRICTIVE FOR ALL TO authenticated
-  USING ((select public.module_enabled('time')));
+CREATE POLICY time_entry_tasks_module_on ON pm.time_entry_tasks AS RESTRICTIVE FOR ALL TO authenticated
+  USING ((select pm.module_enabled('time')));
 
 -- Why a record cannot go to Trash, as a sentence for the person deleting
 -- it; null when nothing stops it. The rules the foreign keys and DELETE
 -- triggers used to enforce.
-CREATE OR REPLACE FUNCTION public.trash_delete_blocker(p_table text, p_id uuid)
+CREATE OR REPLACE FUNCTION pm.trash_delete_blocker(p_table text, p_id uuid)
 RETURNS text
 LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
 DECLARE
   v_number text;
@@ -12861,8 +12862,8 @@ BEGIN
   CASE p_table
     WHEN 'project_time_entries' THEN
       SELECT invoice.invoice_number INTO v_number
-      FROM public.invoice_time_entry_allocations allocation
-      JOIN public.project_invoices invoice ON invoice.id = allocation.invoice_id
+      FROM pm.invoice_time_entry_allocations allocation
+      JOIN pm.project_invoices invoice ON invoice.id = allocation.invoice_id
       WHERE allocation.time_entry_id = p_id AND invoice.deleted_at IS NULL
       ORDER BY invoice.created_at
       LIMIT 1;
@@ -12870,15 +12871,15 @@ BEGIN
         RETURN 'This time is on invoice ' || v_number || '. Take it off the invoice first.';
       END IF;
       IF EXISTS (
-        SELECT 1 FROM public.team_member_payout_allocations allocation
-        JOIN public.team_member_payouts payout ON payout.id = allocation.payout_id
+        SELECT 1 FROM pm.team_member_payout_allocations allocation
+        JOIN pm.team_member_payouts payout ON payout.id = allocation.payout_id
         WHERE allocation.time_entry_id = p_id AND payout.voided_at IS NULL
       ) THEN
         RETURN 'This time is in a team member payout. Void the payout first.';
       END IF;
     WHEN 'project_invoices' THEN
       IF EXISTS (
-        SELECT 1 FROM public.invoice_payments
+        SELECT 1 FROM pm.invoice_payments
         WHERE invoice_id = p_id AND recorded_via = 'api' AND deleted_at IS NULL
       ) THEN
         RETURN 'PAYMENT_RECORDED_ELSEWHERE: This invoice has payments recorded by an accounting connection. Remove them there first.';
@@ -12893,17 +12894,17 @@ $$;
 -- Every way into Trash (the RPC, a server route, a trigger) meets the same
 -- rules, so time on an invoice or an invoice pinned by an accounting
 -- connection cannot slip in through a direct update.
-CREATE OR REPLACE FUNCTION public.guard_trash()
+CREATE OR REPLACE FUNCTION pm.guard_trash()
 RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
 DECLARE
   blocker text;
 BEGIN
   IF OLD.deleted_at IS NULL AND NEW.deleted_at IS NOT NULL THEN
-    blocker := public.trash_delete_blocker(TG_TABLE_NAME, OLD.id);
+    blocker := pm.trash_delete_blocker(TG_TABLE_NAME, OLD.id);
     IF blocker IS NOT NULL THEN
       RAISE EXCEPTION '%', blocker USING ERRCODE = '55000';
     END IF;
@@ -12912,29 +12913,29 @@ BEGIN
 END;
 $$;
 
-CREATE TRIGGER guard_trash BEFORE UPDATE OF deleted_at ON public.project_time_entries
-  FOR EACH ROW EXECUTE FUNCTION public.guard_trash();
-CREATE TRIGGER guard_trash BEFORE UPDATE OF deleted_at ON public.project_invoices
-  FOR EACH ROW EXECUTE FUNCTION public.guard_trash();
+CREATE TRIGGER guard_trash BEFORE UPDATE OF deleted_at ON pm.project_time_entries
+  FOR EACH ROW EXECUTE FUNCTION pm.guard_trash();
+CREATE TRIGGER guard_trash BEFORE UPDATE OF deleted_at ON pm.project_invoices
+  FOR EACH ROW EXECUTE FUNCTION pm.guard_trash();
 
-REVOKE ALL ON FUNCTION public.invoice_is_live(uuid) FROM PUBLIC, anon;
-REVOKE ALL ON FUNCTION public.time_entry_is_live(uuid) FROM PUBLIC, anon;
-REVOKE ALL ON FUNCTION public.retainer_is_live(uuid) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.invoice_is_live(uuid) TO authenticated, service_role;
-GRANT EXECUTE ON FUNCTION public.time_entry_is_live(uuid) TO authenticated, service_role;
-GRANT EXECUTE ON FUNCTION public.retainer_is_live(uuid) TO authenticated, service_role;
-REVOKE ALL ON FUNCTION public.trash_delete_blocker(text, uuid) FROM PUBLIC, anon;
-REVOKE ALL ON FUNCTION public.guard_trash() FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.trash_delete_blocker(text, uuid) TO authenticated, service_role;
-REVOKE ALL ON FUNCTION public.trash_entity_type(text) FROM PUBLIC, anon;
-REVOKE ALL ON FUNCTION public.audit_trash_change(text, uuid, boolean, jsonb, jsonb) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.trash_entity_type(text) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.invoice_is_live(uuid) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION pm.time_entry_is_live(uuid) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION pm.retainer_is_live(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION pm.invoice_is_live(uuid) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.time_entry_is_live(uuid) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.retainer_is_live(uuid) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.trash_delete_blocker(text, uuid) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION pm.guard_trash() FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION pm.trash_delete_blocker(text, uuid) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.trash_entity_type(text) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION pm.audit_trash_change(text, uuid, boolean, jsonb, jsonb) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION pm.trash_entity_type(text) TO authenticated, service_role;
 
 -- ---------------------------------------------------------------------------
 -- The Trash list (migration 20261022053626_list_trash.sql): what the caller
 -- may restore, with where it lived, who deleted it and what blocks a restore.
 -- ---------------------------------------------------------------------------
-CREATE OR REPLACE FUNCTION public.list_trash(p_types text[] DEFAULT NULL, p_limit integer DEFAULT 500)
+CREATE OR REPLACE FUNCTION pm.list_trash(p_types text[] DEFAULT NULL, p_limit integer DEFAULT 500)
 RETURNS TABLE (
   record_type text,
   id uuid,
@@ -12949,59 +12950,59 @@ RETURNS TABLE (
 LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
 DECLARE
   spec record;
   is_service boolean := coalesce(auth.role(), '') = 'service_role';
 BEGIN
-  IF NOT is_service AND public.current_team_member_id() IS NULL THEN
+  IF NOT is_service AND pm.current_team_member_id() IS NULL THEN
     RETURN;
   END IF;
   FOR spec IN
     SELECT * FROM (VALUES
       ('projects', 'r.name', 'NULL', 'r.id', ''),
       ('tasks', 'r.title', 'CASE WHEN parent.id IS NULL THEN p.name ELSE ''Subtask of '' || parent.title END', 'r.project_id',
-        'LEFT JOIN public.projects p ON p.id = r.project_id LEFT JOIN public.tasks parent ON parent.id = r.parent_task_id'),
-      ('task_comments', 'left(r.text, 120)', 't.title', 't.project_id', 'LEFT JOIN public.tasks t ON t.id = r.task_id'),
-      ('task_files', 'r.name', 't.title', 't.project_id', 'LEFT JOIN public.tasks t ON t.id = r.task_id'),
+        'LEFT JOIN pm.projects p ON p.id = r.project_id LEFT JOIN pm.tasks parent ON parent.id = r.parent_task_id'),
+      ('task_comments', 'left(r.text, 120)', 't.title', 't.project_id', 'LEFT JOIN pm.tasks t ON t.id = r.task_id'),
+      ('task_files', 'r.name', 't.title', 't.project_id', 'LEFT JOIN pm.tasks t ON t.id = r.task_id'),
       ('reminders', 'r.title', 'coalesce(t.title, p.name)', 'r.project_id',
-        'LEFT JOIN public.tasks t ON t.id = r.task_id LEFT JOIN public.projects p ON p.id = r.project_id'),
-      ('project_credentials', 'r.label', 'p.name', 'r.project_id', 'LEFT JOIN public.projects p ON p.id = r.project_id'),
+        'LEFT JOIN pm.tasks t ON t.id = r.task_id LEFT JOIN pm.projects p ON p.id = r.project_id'),
+      ('project_credentials', 'r.label', 'p.name', 'r.project_id', 'LEFT JOIN pm.projects p ON p.id = r.project_id'),
       ('entity_files', 'r.name',
-        'CASE r.entity_type WHEN ''project'' THEN (SELECT name FROM public.projects WHERE id = r.entity_id)
-           WHEN ''lead'' THEN (SELECT name FROM public.leads WHERE id = r.entity_id)
-           WHEN ''contact'' THEN (SELECT name FROM public.contacts WHERE id = r.entity_id) END',
+        'CASE r.entity_type WHEN ''project'' THEN (SELECT name FROM pm.projects WHERE id = r.entity_id)
+           WHEN ''lead'' THEN (SELECT name FROM pm.leads WHERE id = r.entity_id)
+           WHEN ''contact'' THEN (SELECT name FROM pm.contacts WHERE id = r.entity_id) END',
         'CASE WHEN r.entity_type = ''project'' THEN r.entity_id END', ''),
-      ('portal_updates', 'r.title', 'p.name', 'r.project_id', 'LEFT JOIN public.projects p ON p.id = r.project_id'),
-      ('portal_update_attachments', 'r.name', 'u.title', 'u.project_id', 'LEFT JOIN public.portal_updates u ON u.id = r.update_id'),
+      ('portal_updates', 'r.title', 'p.name', 'r.project_id', 'LEFT JOIN pm.projects p ON p.id = r.project_id'),
+      ('portal_update_attachments', 'r.name', 'u.title', 'u.project_id', 'LEFT JOIN pm.portal_updates u ON u.id = r.update_id'),
       ('contacts', 'r.name', 'NULL', 'NULL', ''),
       ('leads', 'r.name', 'NULL', 'NULL', ''),
-      ('lead_interactions', 'r.title', 'l.name', 'NULL', 'LEFT JOIN public.leads l ON l.id = r.lead_id'),
-      ('lead_proposals', 'r.title', 'l.name', 'NULL', 'LEFT JOIN public.leads l ON l.id = r.lead_id'),
-      ('lead_fields', 'r.field_key || '': '' || left(r.value, 80)', 'l.name', 'NULL', 'LEFT JOIN public.leads l ON l.id = r.lead_id'),
+      ('lead_interactions', 'r.title', 'l.name', 'NULL', 'LEFT JOIN pm.leads l ON l.id = r.lead_id'),
+      ('lead_proposals', 'r.title', 'l.name', 'NULL', 'LEFT JOIN pm.leads l ON l.id = r.lead_id'),
+      ('lead_fields', 'r.field_key || '': '' || left(r.value, 80)', 'l.name', 'NULL', 'LEFT JOIN pm.leads l ON l.id = r.lead_id'),
       ('project_time_entries',
-        'coalesce(nullif(btrim(r.description), ''''), ''Time entry'') || '' ('' || to_char(r.start_time AT TIME ZONE public.workspace_timezone(), ''Mon FMDD, YYYY'') || '')''',
-        'p.name', 'r.project_id', 'LEFT JOIN public.projects p ON p.id = r.project_id'),
-      ('project_invoices', 'r.invoice_number || '' ('' || public.format_money(r.amount, r.currency, true) || '')''', 'p.name', 'r.project_id',
-        'LEFT JOIN public.projects p ON p.id = r.project_id'),
-      ('invoice_payments', '''Payment of '' || public.format_money(r.amount, i.currency, true) || '' on '' || i.invoice_number', 'p.name', 'i.project_id',
-        'LEFT JOIN public.project_invoices i ON i.id = r.invoice_id LEFT JOIN public.projects p ON p.id = i.project_id'),
-      ('project_hourly_rates', 'public.format_money(r.hourly_rate, NULL, true) || ''/hr from '' || to_char(r.effective_at AT TIME ZONE public.workspace_timezone(), ''Mon FMDD, YYYY'')',
-        'p.name', 'r.project_id', 'LEFT JOIN public.projects p ON p.id = r.project_id'),
-      ('project_retainers', 'r.name', 'p.name', 'r.project_id', 'LEFT JOIN public.projects p ON p.id = r.project_id'),
-      ('project_retainer_amounts', 'rt.name || '': '' || public.format_money(r.amount, rt.currency, true) || '' from '' || to_char(r.effective_date, ''Mon FMDD, YYYY'')',
+        'coalesce(nullif(btrim(r.description), ''''), ''Time entry'') || '' ('' || to_char(r.start_time AT TIME ZONE pm.workspace_timezone(), ''Mon FMDD, YYYY'') || '')''',
+        'p.name', 'r.project_id', 'LEFT JOIN pm.projects p ON p.id = r.project_id'),
+      ('project_invoices', 'r.invoice_number || '' ('' || pm.format_money(r.amount, r.currency, true) || '')''', 'p.name', 'r.project_id',
+        'LEFT JOIN pm.projects p ON p.id = r.project_id'),
+      ('invoice_payments', '''Payment of '' || pm.format_money(r.amount, i.currency, true) || '' on '' || i.invoice_number', 'p.name', 'i.project_id',
+        'LEFT JOIN pm.project_invoices i ON i.id = r.invoice_id LEFT JOIN pm.projects p ON p.id = i.project_id'),
+      ('project_hourly_rates', 'pm.format_money(r.hourly_rate, NULL, true) || ''/hr from '' || to_char(r.effective_at AT TIME ZONE pm.workspace_timezone(), ''Mon FMDD, YYYY'')',
+        'p.name', 'r.project_id', 'LEFT JOIN pm.projects p ON p.id = r.project_id'),
+      ('project_retainers', 'r.name', 'p.name', 'r.project_id', 'LEFT JOIN pm.projects p ON p.id = r.project_id'),
+      ('project_retainer_amounts', 'rt.name || '': '' || pm.format_money(r.amount, rt.currency, true) || '' from '' || to_char(r.effective_date, ''Mon FMDD, YYYY'')',
         'p.name', 'rt.project_id',
-        'LEFT JOIN public.project_retainers rt ON rt.id = r.retainer_id LEFT JOIN public.projects p ON p.id = rt.project_id')
+        'LEFT JOIN pm.project_retainers rt ON rt.id = r.retainer_id LEFT JOIN pm.projects p ON p.id = rt.project_id')
     ) AS specs(record_type, label_sql, context_sql, project_sql, join_sql)
   LOOP
     CONTINUE WHEN p_types IS NOT NULL AND NOT spec.record_type = ANY (p_types);
     RETURN QUERY EXECUTE format(
       'SELECT %L::text, r.id, (%s)::text, (%s)::text, (%s)::uuid, r.deleted_at, r.deleted_by, m.name::text,
-              public.trash_restore_blocker(%L, r.id)
-       FROM public.%I r %s
-       LEFT JOIN public.team_members m ON m.id = r.deleted_by
-       WHERE r.deleted_at IS NOT NULL AND ($1 OR public.can_trash_record(%L, r.id))
+              pm.trash_restore_blocker(%L, r.id)
+       FROM pm.%I r %s
+       LEFT JOIN pm.team_members m ON m.id = r.deleted_by
+       WHERE r.deleted_at IS NOT NULL AND ($1 OR pm.can_trash_record(%L, r.id))
        ORDER BY r.deleted_at DESC
        LIMIT %s',
       spec.record_type, spec.label_sql, spec.context_sql, spec.project_sql, spec.record_type,
@@ -13011,8 +13012,8 @@ BEGIN
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.list_trash(text[], integer) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.list_trash(text[], integer) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.list_trash(text[], integer) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION pm.list_trash(text[], integer) TO authenticated, service_role;
 
 -- ---------------------------------------------------------------------------
 -- Soft delete review fixes (migration 20261022063149_soft_delete_review_fixes.sql)
@@ -13021,24 +13022,24 @@ GRANT EXECUTE ON FUNCTION public.list_trash(text[], integer) TO authenticated, s
 -- them back), but it must not hold the one primary client slot: setting a
 -- new primary client lets go of a trashed one, which the person setting it
 -- cannot see.
-CREATE OR REPLACE FUNCTION public.release_trashed_primary_client()
+CREATE OR REPLACE FUNCTION pm.release_trashed_primary_client()
 RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
 BEGIN
   IF NEW.is_primary_client THEN
     IF TG_TABLE_NAME = 'project_contacts' THEN
-      UPDATE public.project_contacts link
+      UPDATE pm.project_contacts link
       SET is_primary_client = false
-      FROM public.contacts contact
+      FROM pm.contacts contact
       WHERE link.project_id = NEW.project_id AND link.id <> NEW.id AND link.is_primary_client
         AND contact.id = link.contact_id AND contact.deleted_at IS NOT NULL;
     ELSE
-      UPDATE public.lead_contacts link
+      UPDATE pm.lead_contacts link
       SET is_primary_client = false
-      FROM public.contacts contact
+      FROM pm.contacts contact
       WHERE link.lead_id = NEW.lead_id AND link.id <> NEW.id AND link.is_primary_client
         AND contact.id = link.contact_id AND contact.deleted_at IS NOT NULL;
     END IF;
@@ -13048,119 +13049,119 @@ END;
 $$;
 
 CREATE TRIGGER release_trashed_primary_client
-  BEFORE INSERT OR UPDATE OF is_primary_client ON public.project_contacts
-  FOR EACH ROW EXECUTE FUNCTION public.release_trashed_primary_client();
+  BEFORE INSERT OR UPDATE OF is_primary_client ON pm.project_contacts
+  FOR EACH ROW EXECUTE FUNCTION pm.release_trashed_primary_client();
 CREATE TRIGGER release_trashed_primary_client
-  BEFORE INSERT OR UPDATE OF is_primary_client ON public.lead_contacts
-  FOR EACH ROW EXECUTE FUNCTION public.release_trashed_primary_client();
+  BEFORE INSERT OR UPDATE OF is_primary_client ON pm.lead_contacts
+  FOR EACH ROW EXECUTE FUNCTION pm.release_trashed_primary_client();
 
 -- Trash moves and restores, as pings for live sync. A soft delete is an
 -- UPDATE that the viewer can no longer see, so it never reaches other open
 -- screens through the table itself; this row does. Only the table and id.
-CREATE TABLE IF NOT EXISTS public.trash_events (
+CREATE TABLE IF NOT EXISTS pm.trash_events (
   id bigserial PRIMARY KEY,
   table_name text NOT NULL,
   record_id uuid NOT NULL,
   restored boolean NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now()
 );
-ALTER TABLE public.trash_events ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS trash_events_select ON public.trash_events;
-CREATE POLICY trash_events_select ON public.trash_events FOR SELECT TO authenticated USING ((select public.current_team_member_id()) IS NOT NULL);
-REVOKE ALL ON public.trash_events FROM anon, authenticated;
-GRANT SELECT ON public.trash_events TO authenticated;
-GRANT ALL ON public.trash_events TO service_role;
+ALTER TABLE pm.trash_events ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS trash_events_select ON pm.trash_events;
+CREATE POLICY trash_events_select ON pm.trash_events FOR SELECT TO authenticated USING ((select pm.current_team_member_id()) IS NOT NULL);
+REVOKE ALL ON pm.trash_events FROM anon, authenticated;
+GRANT SELECT ON pm.trash_events TO authenticated;
+GRANT ALL ON pm.trash_events TO service_role;
 
-CREATE OR REPLACE FUNCTION public.record_trash_event()
+CREATE OR REPLACE FUNCTION pm.record_trash_event()
 RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
 BEGIN
-  INSERT INTO public.trash_events (table_name, record_id, restored)
+  INSERT INTO pm.trash_events (table_name, record_id, restored)
   VALUES (TG_TABLE_NAME, NEW.id, NEW.deleted_at IS NULL);
   RETURN NULL;
 END;
 $$;
 
-CREATE TRIGGER record_trash_event AFTER UPDATE OF deleted_at ON public.projects
+CREATE TRIGGER record_trash_event AFTER UPDATE OF deleted_at ON pm.projects
   FOR EACH ROW WHEN (OLD.deleted_at IS DISTINCT FROM NEW.deleted_at)
-  EXECUTE FUNCTION public.record_trash_event();
-CREATE TRIGGER record_trash_event AFTER UPDATE OF deleted_at ON public.tasks
+  EXECUTE FUNCTION pm.record_trash_event();
+CREATE TRIGGER record_trash_event AFTER UPDATE OF deleted_at ON pm.tasks
   FOR EACH ROW WHEN (OLD.deleted_at IS DISTINCT FROM NEW.deleted_at)
-  EXECUTE FUNCTION public.record_trash_event();
-CREATE TRIGGER record_trash_event AFTER UPDATE OF deleted_at ON public.task_subtasks
+  EXECUTE FUNCTION pm.record_trash_event();
+CREATE TRIGGER record_trash_event AFTER UPDATE OF deleted_at ON pm.task_subtasks
   FOR EACH ROW WHEN (OLD.deleted_at IS DISTINCT FROM NEW.deleted_at)
-  EXECUTE FUNCTION public.record_trash_event();
-CREATE TRIGGER record_trash_event AFTER UPDATE OF deleted_at ON public.task_comments
+  EXECUTE FUNCTION pm.record_trash_event();
+CREATE TRIGGER record_trash_event AFTER UPDATE OF deleted_at ON pm.task_comments
   FOR EACH ROW WHEN (OLD.deleted_at IS DISTINCT FROM NEW.deleted_at)
-  EXECUTE FUNCTION public.record_trash_event();
-CREATE TRIGGER record_trash_event AFTER UPDATE OF deleted_at ON public.reminders
+  EXECUTE FUNCTION pm.record_trash_event();
+CREATE TRIGGER record_trash_event AFTER UPDATE OF deleted_at ON pm.reminders
   FOR EACH ROW WHEN (OLD.deleted_at IS DISTINCT FROM NEW.deleted_at)
-  EXECUTE FUNCTION public.record_trash_event();
-CREATE TRIGGER record_trash_event AFTER UPDATE OF deleted_at ON public.project_credentials
+  EXECUTE FUNCTION pm.record_trash_event();
+CREATE TRIGGER record_trash_event AFTER UPDATE OF deleted_at ON pm.project_credentials
   FOR EACH ROW WHEN (OLD.deleted_at IS DISTINCT FROM NEW.deleted_at)
-  EXECUTE FUNCTION public.record_trash_event();
-CREATE TRIGGER record_trash_event AFTER UPDATE OF deleted_at ON public.entity_files
+  EXECUTE FUNCTION pm.record_trash_event();
+CREATE TRIGGER record_trash_event AFTER UPDATE OF deleted_at ON pm.entity_files
   FOR EACH ROW WHEN (OLD.deleted_at IS DISTINCT FROM NEW.deleted_at)
-  EXECUTE FUNCTION public.record_trash_event();
-CREATE TRIGGER record_trash_event AFTER UPDATE OF deleted_at ON public.portal_updates
+  EXECUTE FUNCTION pm.record_trash_event();
+CREATE TRIGGER record_trash_event AFTER UPDATE OF deleted_at ON pm.portal_updates
   FOR EACH ROW WHEN (OLD.deleted_at IS DISTINCT FROM NEW.deleted_at)
-  EXECUTE FUNCTION public.record_trash_event();
-CREATE TRIGGER record_trash_event AFTER UPDATE OF deleted_at ON public.portal_update_attachments
+  EXECUTE FUNCTION pm.record_trash_event();
+CREATE TRIGGER record_trash_event AFTER UPDATE OF deleted_at ON pm.portal_update_attachments
   FOR EACH ROW WHEN (OLD.deleted_at IS DISTINCT FROM NEW.deleted_at)
-  EXECUTE FUNCTION public.record_trash_event();
-CREATE TRIGGER record_trash_event AFTER UPDATE OF deleted_at ON public.contacts
+  EXECUTE FUNCTION pm.record_trash_event();
+CREATE TRIGGER record_trash_event AFTER UPDATE OF deleted_at ON pm.contacts
   FOR EACH ROW WHEN (OLD.deleted_at IS DISTINCT FROM NEW.deleted_at)
-  EXECUTE FUNCTION public.record_trash_event();
-CREATE TRIGGER record_trash_event AFTER UPDATE OF deleted_at ON public.leads
+  EXECUTE FUNCTION pm.record_trash_event();
+CREATE TRIGGER record_trash_event AFTER UPDATE OF deleted_at ON pm.leads
   FOR EACH ROW WHEN (OLD.deleted_at IS DISTINCT FROM NEW.deleted_at)
-  EXECUTE FUNCTION public.record_trash_event();
-CREATE TRIGGER record_trash_event AFTER UPDATE OF deleted_at ON public.lead_interactions
+  EXECUTE FUNCTION pm.record_trash_event();
+CREATE TRIGGER record_trash_event AFTER UPDATE OF deleted_at ON pm.lead_interactions
   FOR EACH ROW WHEN (OLD.deleted_at IS DISTINCT FROM NEW.deleted_at)
-  EXECUTE FUNCTION public.record_trash_event();
-CREATE TRIGGER record_trash_event AFTER UPDATE OF deleted_at ON public.lead_proposals
+  EXECUTE FUNCTION pm.record_trash_event();
+CREATE TRIGGER record_trash_event AFTER UPDATE OF deleted_at ON pm.lead_proposals
   FOR EACH ROW WHEN (OLD.deleted_at IS DISTINCT FROM NEW.deleted_at)
-  EXECUTE FUNCTION public.record_trash_event();
-CREATE TRIGGER record_trash_event AFTER UPDATE OF deleted_at ON public.lead_fields
+  EXECUTE FUNCTION pm.record_trash_event();
+CREATE TRIGGER record_trash_event AFTER UPDATE OF deleted_at ON pm.lead_fields
   FOR EACH ROW WHEN (OLD.deleted_at IS DISTINCT FROM NEW.deleted_at)
-  EXECUTE FUNCTION public.record_trash_event();
-CREATE TRIGGER record_trash_event AFTER UPDATE OF deleted_at ON public.project_time_entries
+  EXECUTE FUNCTION pm.record_trash_event();
+CREATE TRIGGER record_trash_event AFTER UPDATE OF deleted_at ON pm.project_time_entries
   FOR EACH ROW WHEN (OLD.deleted_at IS DISTINCT FROM NEW.deleted_at)
-  EXECUTE FUNCTION public.record_trash_event();
-CREATE TRIGGER record_trash_event AFTER UPDATE OF deleted_at ON public.project_invoices
+  EXECUTE FUNCTION pm.record_trash_event();
+CREATE TRIGGER record_trash_event AFTER UPDATE OF deleted_at ON pm.project_invoices
   FOR EACH ROW WHEN (OLD.deleted_at IS DISTINCT FROM NEW.deleted_at)
-  EXECUTE FUNCTION public.record_trash_event();
-CREATE TRIGGER record_trash_event AFTER UPDATE OF deleted_at ON public.invoice_payments
+  EXECUTE FUNCTION pm.record_trash_event();
+CREATE TRIGGER record_trash_event AFTER UPDATE OF deleted_at ON pm.invoice_payments
   FOR EACH ROW WHEN (OLD.deleted_at IS DISTINCT FROM NEW.deleted_at)
-  EXECUTE FUNCTION public.record_trash_event();
-CREATE TRIGGER record_trash_event AFTER UPDATE OF deleted_at ON public.project_hourly_rates
+  EXECUTE FUNCTION pm.record_trash_event();
+CREATE TRIGGER record_trash_event AFTER UPDATE OF deleted_at ON pm.project_hourly_rates
   FOR EACH ROW WHEN (OLD.deleted_at IS DISTINCT FROM NEW.deleted_at)
-  EXECUTE FUNCTION public.record_trash_event();
-CREATE TRIGGER record_trash_event AFTER UPDATE OF deleted_at ON public.project_retainers
+  EXECUTE FUNCTION pm.record_trash_event();
+CREATE TRIGGER record_trash_event AFTER UPDATE OF deleted_at ON pm.project_retainers
   FOR EACH ROW WHEN (OLD.deleted_at IS DISTINCT FROM NEW.deleted_at)
-  EXECUTE FUNCTION public.record_trash_event();
-CREATE TRIGGER record_trash_event AFTER UPDATE OF deleted_at ON public.project_retainer_amounts
+  EXECUTE FUNCTION pm.record_trash_event();
+CREATE TRIGGER record_trash_event AFTER UPDATE OF deleted_at ON pm.project_retainer_amounts
   FOR EACH ROW WHEN (OLD.deleted_at IS DISTINCT FROM NEW.deleted_at)
-  EXECUTE FUNCTION public.record_trash_event();
+  EXECUTE FUNCTION pm.record_trash_event();
 
 DO $$
 BEGIN
   IF EXISTS (SELECT 1 FROM pg_publication WHERE pubname = 'supabase_realtime')
      AND NOT EXISTS (SELECT 1 FROM pg_publication_tables
-                     WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'trash_events') THEN
-    ALTER PUBLICATION supabase_realtime ADD TABLE public.trash_events;
+                     WHERE pubname = 'supabase_realtime' AND schemaname = 'pm' AND tablename = 'trash_events') THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE pm.trash_events;
   END IF;
 END $$;
 
-REVOKE ALL ON FUNCTION public.release_trashed_primary_client() FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.record_trash_event() FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION pm.release_trashed_primary_client() FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION pm.record_trash_event() FROM PUBLIC, anon, authenticated;
 
 -- ---------------------------------------------------------------------------
 -- Team activity log (migration 20261022074722_team_activity_log.sql)
 -- ---------------------------------------------------------------------------
--- What people on the team do is logged in public.activities, apart from the
+-- What people on the team do is logged in pm.activities, apart from the
 -- agents' own typed log (agent_activities). Triggers write it, so every path
 -- is covered: the browser, the session routes, the v1 API and MCP. Each row
 -- carries a sentence composed when it happened (names as they were then) and
@@ -13176,19 +13177,19 @@ REVOKE ALL ON FUNCTION public.record_trash_event() FROM PUBLIC, anon, authentica
 -- ---------------------------------------------------------------------------
 -- The person behind the current write, or NULL when it is an agent, a cron
 -- job or anything else without a person behind it.
-CREATE OR REPLACE FUNCTION public.activity_actor()
+CREATE OR REPLACE FUNCTION pm.activity_actor()
 RETURNS uuid
 LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
 DECLARE
   v_member uuid;
   v_header text;
 BEGIN
   IF auth.uid() IS NOT NULL THEN
-    v_member := public.current_team_member_id();
+    v_member := pm.current_team_member_id();
   ELSIF coalesce(auth.role(), '') = 'service_role' THEN
     BEGIN
       v_header := nullif(current_setting('request.headers', true), '')::json ->> 'x-actor-member-id';
@@ -13203,7 +13204,7 @@ BEGIN
     RETURN NULL;
   END IF;
   -- Agents keep their own typed log; only people land here.
-  IF NOT EXISTS (SELECT 1 FROM public.team_members WHERE id = v_member AND role <> 'agent') THEN
+  IF NOT EXISTS (SELECT 1 FROM pm.team_members WHERE id = v_member AND role <> 'agent') THEN
     RETURN NULL;
   END IF;
   RETURN v_member;
@@ -13212,11 +13213,11 @@ $$;
 
 -- Where the write came from: the app for a signed-in member, otherwise what
 -- the server said (api or mcp).
-CREATE OR REPLACE FUNCTION public.activity_source()
+CREATE OR REPLACE FUNCTION pm.activity_source()
 RETURNS text
 LANGUAGE plpgsql
 STABLE
-SET search_path = public
+SET search_path = pm
 AS $$
 DECLARE
   v_via text;
@@ -13236,7 +13237,7 @@ $$;
 -- ---------------------------------------------------------------------------
 -- Small formatting helpers for the sentences
 -- ---------------------------------------------------------------------------
-CREATE OR REPLACE FUNCTION public.activity_hours_label(p_hours numeric)
+CREATE OR REPLACE FUNCTION pm.activity_hours_label(p_hours numeric)
 RETURNS text
 LANGUAGE sql
 IMMUTABLE
@@ -13249,15 +13250,15 @@ AS $$
   END
 $$;
 
-CREATE OR REPLACE FUNCTION public.activity_money_label(p_amount numeric)
+CREATE OR REPLACE FUNCTION pm.activity_money_label(p_amount numeric)
 RETURNS text
 LANGUAGE sql
 STABLE
 AS $$
-  SELECT public.format_money(p_amount, NULL, true)
+  SELECT pm.format_money(p_amount, NULL, true)
 $$;
 
-CREATE OR REPLACE FUNCTION public.activity_status_label(p_status text)
+CREATE OR REPLACE FUNCTION pm.activity_status_label(p_status text)
 RETURNS text
 LANGUAGE sql
 IMMUTABLE
@@ -13268,19 +13269,19 @@ AS $$
   END
 $$;
 
-CREATE OR REPLACE FUNCTION public.activity_member_name(p_member_id uuid)
+CREATE OR REPLACE FUNCTION pm.activity_member_name(p_member_id uuid)
 RETURNS text
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
-  SELECT coalesce((SELECT name FROM public.team_members WHERE id = p_member_id), 'someone')
+  SELECT coalesce((SELECT name FROM pm.team_members WHERE id = p_member_id), 'someone')
 $$;
 
 -- Columns whose values differ between two versions of a row, leaving out the
 -- ones that change on their own (timestamps, ordering) or are logged apart.
-CREATE OR REPLACE FUNCTION public.activity_changed_fields(p_new jsonb, p_old jsonb, p_ignore text[])
+CREATE OR REPLACE FUNCTION pm.activity_changed_fields(p_new jsonb, p_old jsonb, p_ignore text[])
 RETURNS text[]
 LANGUAGE sql
 IMMUTABLE
@@ -13292,7 +13293,7 @@ AS $$
 $$;
 
 -- The activity entity name for a Trash table.
-CREATE OR REPLACE FUNCTION public.activity_entity_type(p_table text)
+CREATE OR REPLACE FUNCTION pm.activity_entity_type(p_table text)
 RETURNS text
 LANGUAGE sql
 IMMUTABLE
@@ -13302,11 +13303,11 @@ AS $$
     WHEN 'task_files' THEN 'file'
     WHEN 'invoice_payments' THEN 'payment'
     WHEN 'project_hourly_rates' THEN 'hourly_rate'
-    ELSE public.trash_entity_type(p_table)
+    ELSE pm.trash_entity_type(p_table)
   END
 $$;
 
-CREATE OR REPLACE FUNCTION public.activity_entity_noun(p_entity_type text)
+CREATE OR REPLACE FUNCTION pm.activity_entity_noun(p_entity_type text)
 RETURNS text
 LANGUAGE sql
 IMMUTABLE
@@ -13330,7 +13331,7 @@ $$;
 -- Logs one thing a person did. Repeated edits ("*.updated") by the same
 -- person on the same record within 15 minutes fold into one row, moved up to
 -- the latest edit, so typing in a description does not flood the feed.
-CREATE OR REPLACE FUNCTION public.log_team_activity(
+CREATE OR REPLACE FUNCTION pm.log_team_activity(
   p_type text,
   p_entity_type text,
   p_entity_id text,
@@ -13341,10 +13342,10 @@ CREATE OR REPLACE FUNCTION public.log_team_activity(
 RETURNS void
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
 DECLARE
-  v_actor uuid := public.activity_actor();
+  v_actor uuid := pm.activity_actor();
   v_existing uuid;
 BEGIN
   IF v_actor IS NULL THEN
@@ -13353,13 +13354,13 @@ BEGIN
 
   IF p_type LIKE '%.updated' THEN
     SELECT id INTO v_existing
-    FROM public.activities
+    FROM pm.activities
     WHERE user_id = v_actor AND type = p_type AND entity_id = p_entity_id
       AND updated_at > now() - interval '15 minutes'
     ORDER BY updated_at DESC
     LIMIT 1;
     IF v_existing IS NOT NULL THEN
-      UPDATE public.activities
+      UPDATE pm.activities
       SET description = p_description,
           metadata = metadata || coalesce(p_metadata, '{}'::jsonb) || jsonb_build_object('fields', (
             SELECT coalesce(jsonb_agg(DISTINCT field ORDER BY field), '[]'::jsonb)
@@ -13372,8 +13373,8 @@ BEGIN
     END IF;
   END IF;
 
-  INSERT INTO public.activities (type, entity_type, entity_id, project_id, user_id, description, metadata, source)
-  VALUES (p_type, p_entity_type, p_entity_id, p_project_id, v_actor, p_description, coalesce(p_metadata, '{}'::jsonb), public.activity_source());
+  INSERT INTO pm.activities (type, entity_type, entity_id, project_id, user_id, description, metadata, source)
+  VALUES (p_type, p_entity_type, p_entity_id, p_project_id, v_actor, p_description, coalesce(p_metadata, '{}'::jsonb), pm.activity_source());
 END;
 $$;
 
@@ -13383,7 +13384,7 @@ $$;
 -- Anyone who can open the project sees its team activity, except money, time
 -- and credential events, which need the permission that shows those things.
 -- A project in Trash hides its activity; standalone reminders stay private.
-CREATE OR REPLACE FUNCTION public.can_read_activity(
+CREATE OR REPLACE FUNCTION pm.can_read_activity(
   p_entity_type text,
   p_entity_id text,
   p_project_id uuid,
@@ -13394,47 +13395,47 @@ RETURNS boolean
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
   SELECT CASE
-    WHEN p_project_id IS NOT NULL AND NOT public.project_is_live(p_project_id) THEN false
-    WHEN p_actor = public.current_team_member_id() THEN true
+    WHEN p_project_id IS NOT NULL AND NOT pm.project_is_live(p_project_id) THEN false
+    WHEN p_actor = pm.current_team_member_id() THEN true
     WHEN p_entity_type = 'reminder' AND p_project_id IS NULL THEN false
-    WHEN public.has_permission('audit.read') THEN true
+    WHEN pm.has_permission('audit.read') THEN true
     WHEN p_project_id IS NULL THEN CASE
-      WHEN p_entity_type = 'contact' THEN public.has_permission('contacts.read_all')
-      WHEN p_metadata ? 'lead_id' THEN public.can_access_lead((p_metadata ->> 'lead_id')::uuid)
+      WHEN p_entity_type = 'contact' THEN pm.has_permission('contacts.read_all')
+      WHEN p_metadata ? 'lead_id' THEN pm.can_access_lead((p_metadata ->> 'lead_id')::uuid)
       ELSE false
     END
-    WHEN NOT (public.has_permission('projects.read_all')
-      OR (public.has_permission('projects.read') AND public.can_access_project(p_project_id))) THEN false
+    WHEN NOT (pm.has_permission('projects.read_all')
+      OR (pm.has_permission('projects.read') AND pm.can_access_project(p_project_id))) THEN false
     ELSE CASE
       WHEN p_entity_type IN ('task', 'subtask', 'comment') THEN
-        public.has_permission('tasks.read')
-        OR coalesce(public.can_access_task((p_metadata ->> 'task_id')::uuid), false)
-      WHEN p_entity_type = 'time_entry' THEN public.has_permission('time.read_all')
-      WHEN p_entity_type IN ('invoice', 'payment', 'hourly_rate', 'retainer', 'retainer_amount') THEN public.has_permission('invoices.read')
-      WHEN p_entity_type = 'credential' THEN public.has_permission('credentials.manage')
-      WHEN p_entity_type = 'file' THEN public.has_permission('files.read')
-      WHEN p_entity_type IN ('portal_update', 'portal_update_attachment') THEN public.has_permission('portal.read')
-      WHEN p_entity_type = 'communication' THEN public.has_permission('communications.read')
-      WHEN p_entity_type = 'contact' THEN public.has_permission('contacts.read') OR public.has_permission('contacts.read_all')
+        pm.has_permission('tasks.read')
+        OR coalesce(pm.can_access_task((p_metadata ->> 'task_id')::uuid), false)
+      WHEN p_entity_type = 'time_entry' THEN pm.has_permission('time.read_all')
+      WHEN p_entity_type IN ('invoice', 'payment', 'hourly_rate', 'retainer', 'retainer_amount') THEN pm.has_permission('invoices.read')
+      WHEN p_entity_type = 'credential' THEN pm.has_permission('credentials.manage')
+      WHEN p_entity_type = 'file' THEN pm.has_permission('files.read')
+      WHEN p_entity_type IN ('portal_update', 'portal_update_attachment') THEN pm.has_permission('portal.read')
+      WHEN p_entity_type = 'communication' THEN pm.has_permission('communications.read')
+      WHEN p_entity_type = 'contact' THEN pm.has_permission('contacts.read') OR pm.has_permission('contacts.read_all')
       ELSE true
     END
   END
 $$;
 
-CREATE POLICY activities_select ON public.activities FOR SELECT TO authenticated
-  USING (public.can_read_activity(entity_type, entity_id, project_id, user_id, metadata));
+CREATE POLICY activities_select ON pm.activities FOR SELECT TO authenticated
+  USING (pm.can_read_activity(entity_type, entity_id, project_id, user_id, metadata));
 
 -- ---------------------------------------------------------------------------
 -- What gets logged
 -- ---------------------------------------------------------------------------
-CREATE OR REPLACE FUNCTION public.log_task_activity()
+CREATE OR REPLACE FUNCTION pm.log_task_activity()
 RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
 DECLARE
   v_meta jsonb := jsonb_build_object('task_id', NEW.id, 'task_title', NEW.title);
@@ -13443,15 +13444,15 @@ DECLARE
   v_parent record;
 BEGIN
   IF NEW.parent_task_id IS NOT NULL THEN
-    SELECT id, title INTO v_parent FROM public.tasks WHERE id = NEW.parent_task_id;
+    SELECT id, title INTO v_parent FROM pm.tasks WHERE id = NEW.parent_task_id;
     v_meta := v_meta || jsonb_build_object('parent_task_id', v_parent.id, 'parent_task_title', v_parent.title);
   END IF;
   IF TG_OP = 'INSERT' THEN
     IF NEW.parent_task_id IS NOT NULL THEN
-      PERFORM public.log_team_activity('subtask.added', 'task', NEW.id::text, NEW.project_id,
+      PERFORM pm.log_team_activity('subtask.added', 'task', NEW.id::text, NEW.project_id,
         format('Added subtask "%s" to "%s"', NEW.title, v_parent.title), v_meta);
     ELSE
-      PERFORM public.log_team_activity('task.created', 'task', NEW.id::text, NEW.project_id,
+      PERFORM pm.log_team_activity('task.created', 'task', NEW.id::text, NEW.project_id,
         format('Created task "%s"', NEW.title), v_meta);
     END IF;
     RETURN NULL;
@@ -13463,24 +13464,24 @@ BEGIN
 
   IF NEW.status IS DISTINCT FROM OLD.status THEN
     IF NEW.status = 'done' THEN
-      PERFORM public.log_team_activity('task.completed', 'task', NEW.id::text, NEW.project_id,
+      PERFORM pm.log_team_activity('task.completed', 'task', NEW.id::text, NEW.project_id,
         format('Completed task "%s"', NEW.title), v_meta);
     ELSIF OLD.status = 'done' THEN
-      PERFORM public.log_team_activity('task.reopened', 'task', NEW.id::text, NEW.project_id,
+      PERFORM pm.log_team_activity('task.reopened', 'task', NEW.id::text, NEW.project_id,
         format('Reopened task "%s"', NEW.title), v_meta);
     ELSE
-      PERFORM public.log_team_activity('task.moved', 'task', NEW.id::text, NEW.project_id,
-        format('Moved task "%s" to %s', NEW.title, public.activity_status_label(NEW.status)),
+      PERFORM pm.log_team_activity('task.moved', 'task', NEW.id::text, NEW.project_id,
+        format('Moved task "%s" to %s', NEW.title, pm.activity_status_label(NEW.status)),
         v_meta || jsonb_build_object('from', OLD.status, 'to', NEW.status));
     END IF;
   END IF;
 
   IF NEW.parent_task_id IS DISTINCT FROM OLD.parent_task_id THEN
     IF NEW.parent_task_id IS NOT NULL THEN
-      PERFORM public.log_team_activity('task.nested', 'task', NEW.id::text, NEW.project_id,
+      PERFORM pm.log_team_activity('task.nested', 'task', NEW.id::text, NEW.project_id,
         format('Moved "%s" under "%s"', NEW.title, v_parent.title), v_meta);
     ELSE
-      PERFORM public.log_team_activity('task.promoted', 'task', NEW.id::text, NEW.project_id,
+      PERFORM pm.log_team_activity('task.promoted', 'task', NEW.id::text, NEW.project_id,
         format('Made "%s" a top-level task', NEW.title), v_meta || jsonb_build_object('from_parent_task_id', OLD.parent_task_id));
     END IF;
   END IF;
@@ -13490,9 +13491,9 @@ BEGIN
   IF NEW.parent_task_id IS NOT NULL THEN
     v_ignore := v_ignore || ARRAY['project_id', 'project_goal_id'];
   END IF;
-  v_fields := public.activity_changed_fields(to_jsonb(NEW), to_jsonb(OLD), v_ignore);
+  v_fields := pm.activity_changed_fields(to_jsonb(NEW), to_jsonb(OLD), v_ignore);
   IF cardinality(v_fields) > 0 THEN
-    PERFORM public.log_team_activity('task.updated', 'task', NEW.id::text, NEW.project_id,
+    PERFORM pm.log_team_activity('task.updated', 'task', NEW.id::text, NEW.project_id,
       format('Edited task "%s"', NEW.title), v_meta || jsonb_build_object('fields', to_jsonb(v_fields)));
   END IF;
   RETURN NULL;
@@ -13501,11 +13502,11 @@ $$;
 
 -- Assignments. A task's own creation already says "Created task", so the
 -- assignees saved with it are not logged again.
-CREATE OR REPLACE FUNCTION public.log_task_assignee_activity()
+CREATE OR REPLACE FUNCTION pm.log_task_assignee_activity()
 RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
 DECLARE
   v_task_id uuid;
@@ -13520,86 +13521,86 @@ BEGIN
     v_task_id := OLD.task_id;
     v_member := OLD.member_id;
   END IF;
-  SELECT id, title, project_id, created_at, deleted_at INTO v_task FROM public.tasks WHERE id = v_task_id;
+  SELECT id, title, project_id, created_at, deleted_at INTO v_task FROM pm.tasks WHERE id = v_task_id;
   IF v_task.id IS NULL OR v_task.deleted_at IS NOT NULL OR v_task.created_at >= now() THEN
     RETURN NULL;
   END IF;
-  v_self := v_member = public.activity_actor();
+  v_self := v_member = pm.activity_actor();
   IF TG_OP = 'INSERT' THEN
-    PERFORM public.log_team_activity('task.assigned', 'task', v_task.id::text, v_task.project_id,
+    PERFORM pm.log_team_activity('task.assigned', 'task', v_task.id::text, v_task.project_id,
       CASE WHEN v_self THEN format('Took on task "%s"', v_task.title)
-        ELSE format('Assigned %s to task "%s"', public.activity_member_name(v_member), v_task.title) END,
+        ELSE format('Assigned %s to task "%s"', pm.activity_member_name(v_member), v_task.title) END,
       jsonb_build_object('task_id', v_task.id, 'task_title', v_task.title, 'member_id', v_member));
   ELSE
-    PERFORM public.log_team_activity('task.unassigned', 'task', v_task.id::text, v_task.project_id,
+    PERFORM pm.log_team_activity('task.unassigned', 'task', v_task.id::text, v_task.project_id,
       CASE WHEN v_self THEN format('Stepped off task "%s"', v_task.title)
-        ELSE format('Unassigned %s from task "%s"', public.activity_member_name(v_member), v_task.title) END,
+        ELSE format('Unassigned %s from task "%s"', pm.activity_member_name(v_member), v_task.title) END,
       jsonb_build_object('task_id', v_task.id, 'task_title', v_task.title, 'member_id', v_member));
   END IF;
   RETURN NULL;
 END;
 $$;
 
-CREATE OR REPLACE FUNCTION public.log_subtask_activity()
+CREATE OR REPLACE FUNCTION pm.log_subtask_activity()
 RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
 DECLARE
   v_task record;
   v_meta jsonb;
 BEGIN
-  SELECT id, title, project_id, created_at INTO v_task FROM public.tasks WHERE id = NEW.task_id;
+  SELECT id, title, project_id, created_at INTO v_task FROM pm.tasks WHERE id = NEW.task_id;
   IF v_task.id IS NULL THEN
     RETURN NULL;
   END IF;
   v_meta := jsonb_build_object('task_id', v_task.id, 'task_title', v_task.title, 'subtask_title', NEW.title);
   IF TG_OP = 'INSERT' THEN
     IF v_task.created_at < now() THEN
-      PERFORM public.log_team_activity('subtask.added', 'subtask', NEW.id::text, v_task.project_id,
+      PERFORM pm.log_team_activity('subtask.added', 'subtask', NEW.id::text, v_task.project_id,
         format('Added subtask "%s" to "%s"', NEW.title, v_task.title), v_meta);
     END IF;
   ELSIF NEW.deleted_at IS NOT DISTINCT FROM OLD.deleted_at AND NEW.completed AND NOT OLD.completed THEN
-    PERFORM public.log_team_activity('subtask.completed', 'subtask', NEW.id::text, v_task.project_id,
+    PERFORM pm.log_team_activity('subtask.completed', 'subtask', NEW.id::text, v_task.project_id,
       format('Checked off "%s" on "%s"', NEW.title, v_task.title), v_meta);
   END IF;
   RETURN NULL;
 END;
 $$;
 
-CREATE OR REPLACE FUNCTION public.log_comment_activity()
+CREATE OR REPLACE FUNCTION pm.log_comment_activity()
 RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
 DECLARE
   v_task record;
 BEGIN
-  SELECT id, title, project_id INTO v_task FROM public.tasks WHERE id = NEW.task_id;
+  SELECT id, title, project_id INTO v_task FROM pm.tasks WHERE id = NEW.task_id;
   IF v_task.id IS NULL THEN
     RETURN NULL;
   END IF;
-  PERFORM public.log_team_activity('comment.added', 'comment', NEW.id::text, v_task.project_id,
+  PERFORM pm.log_team_activity('comment.added', 'comment', NEW.id::text, v_task.project_id,
     format('Commented on "%s"', v_task.title),
     jsonb_build_object('task_id', v_task.id, 'task_title', v_task.title, 'preview', left(NEW.text, 140)));
   RETURN NULL;
 END;
 $$;
 
-CREATE OR REPLACE FUNCTION public.log_project_activity()
+CREATE OR REPLACE FUNCTION pm.log_project_activity()
 RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
 DECLARE
   v_meta jsonb := jsonb_build_object('project_name', NEW.name);
   v_fields text[];
 BEGIN
   IF TG_OP = 'INSERT' THEN
-    PERFORM public.log_team_activity('project.created', 'project', NEW.id::text, NEW.id,
+    PERFORM pm.log_team_activity('project.created', 'project', NEW.id::text, NEW.id,
       format('Created project "%s"', NEW.name), v_meta);
     RETURN NULL;
   END IF;
@@ -13608,7 +13609,7 @@ BEGIN
   END IF;
 
   IF NEW.status IS DISTINCT FROM OLD.status THEN
-    PERFORM public.log_team_activity('project.status', 'project', NEW.id::text, NEW.id,
+    PERFORM pm.log_team_activity('project.status', 'project', NEW.id::text, NEW.id,
       CASE NEW.status
         WHEN 'completed' THEN format('Marked project "%s" completed', NEW.name)
         WHEN 'archived' THEN format('Archived project "%s"', NEW.name)
@@ -13617,10 +13618,10 @@ BEGIN
       v_meta || jsonb_build_object('from', OLD.status, 'to', NEW.status));
   END IF;
 
-  v_fields := public.activity_changed_fields(to_jsonb(NEW), to_jsonb(OLD),
+  v_fields := pm.activity_changed_fields(to_jsonb(NEW), to_jsonb(OLD),
     ARRAY['status', 'archived_at', 'created_at', 'updated_at', 'deleted_at', 'deleted_by']);
   IF cardinality(v_fields) > 0 THEN
-    PERFORM public.log_team_activity('project.updated', 'project', NEW.id::text, NEW.id,
+    PERFORM pm.log_team_activity('project.updated', 'project', NEW.id::text, NEW.id,
       format('Edited project "%s"', NEW.name), v_meta || jsonb_build_object('fields', to_jsonb(v_fields)));
   END IF;
   RETURN NULL;
@@ -13629,11 +13630,11 @@ $$;
 
 -- Members and linked contacts. The ones saved with a new project come with
 -- "Created project", so the first two minutes of a project are not logged.
-CREATE OR REPLACE FUNCTION public.log_project_member_activity()
+CREATE OR REPLACE FUNCTION pm.log_project_member_activity()
 RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
 DECLARE
   v_project_id uuid;
@@ -13647,50 +13648,50 @@ BEGIN
     v_project_id := OLD.project_id;
     v_member := OLD.member_id;
   END IF;
-  SELECT id, name, created_at, deleted_at INTO v_project FROM public.projects WHERE id = v_project_id;
+  SELECT id, name, created_at, deleted_at INTO v_project FROM pm.projects WHERE id = v_project_id;
   IF v_project.id IS NULL OR v_project.deleted_at IS NOT NULL OR v_project.created_at > now() - interval '2 minutes' THEN
     RETURN NULL;
   END IF;
   IF TG_OP = 'INSERT' THEN
-    PERFORM public.log_team_activity('member.added', 'member', v_member::text, v_project.id,
-      format('Added %s to project "%s"', public.activity_member_name(v_member), v_project.name),
+    PERFORM pm.log_team_activity('member.added', 'member', v_member::text, v_project.id,
+      format('Added %s to project "%s"', pm.activity_member_name(v_member), v_project.name),
       jsonb_build_object('member_id', v_member, 'project_name', v_project.name));
   ELSE
-    PERFORM public.log_team_activity('member.removed', 'member', v_member::text, v_project.id,
-      format('Removed %s from project "%s"', public.activity_member_name(v_member), v_project.name),
+    PERFORM pm.log_team_activity('member.removed', 'member', v_member::text, v_project.id,
+      format('Removed %s from project "%s"', pm.activity_member_name(v_member), v_project.name),
       jsonb_build_object('member_id', v_member, 'project_name', v_project.name));
   END IF;
   RETURN NULL;
 END;
 $$;
 
-CREATE OR REPLACE FUNCTION public.log_project_contact_activity()
+CREATE OR REPLACE FUNCTION pm.log_project_contact_activity()
 RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
 DECLARE
   v_project record;
   v_contact_name text;
 BEGIN
-  SELECT id, name, created_at, deleted_at INTO v_project FROM public.projects WHERE id = NEW.project_id;
+  SELECT id, name, created_at, deleted_at INTO v_project FROM pm.projects WHERE id = NEW.project_id;
   IF v_project.id IS NULL OR v_project.deleted_at IS NOT NULL OR v_project.created_at > now() - interval '2 minutes' THEN
     RETURN NULL;
   END IF;
-  SELECT name INTO v_contact_name FROM public.contacts WHERE id = NEW.contact_id;
-  PERFORM public.log_team_activity('contact.linked', 'contact', NEW.contact_id::text, v_project.id,
+  SELECT name INTO v_contact_name FROM pm.contacts WHERE id = NEW.contact_id;
+  PERFORM pm.log_team_activity('contact.linked', 'contact', NEW.contact_id::text, v_project.id,
     format('Linked %s to project "%s"', coalesce(v_contact_name, 'a contact'), v_project.name),
     jsonb_build_object('contact_id', NEW.contact_id, 'project_name', v_project.name));
   RETURN NULL;
 END;
 $$;
 
-CREATE OR REPLACE FUNCTION public.log_time_entry_activity()
+CREATE OR REPLACE FUNCTION pm.log_time_entry_activity()
 RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
 DECLARE
   v_hours numeric;
@@ -13701,28 +13702,28 @@ BEGIN
   IF TG_OP = 'UPDATE' AND NEW.deleted_at IS DISTINCT FROM OLD.deleted_at THEN
     RETURN NULL;
   END IF;
-  v_hours := public.time_entry_worked_hours(NEW.segments, NEW.start_time, NEW.end_time);
-  SELECT name INTO v_project_name FROM public.projects WHERE id = NEW.project_id;
+  v_hours := pm.time_entry_worked_hours(NEW.segments, NEW.start_time, NEW.end_time);
+  SELECT name INTO v_project_name FROM pm.projects WHERE id = NEW.project_id;
   v_meta := jsonb_build_object('time_entry_id', NEW.id, 'member_id', NEW.member_id, 'hours', round(v_hours, 2),
     'note', left(coalesce(NEW.description, ''), 140), 'project_name', v_project_name);
-  v_for := CASE WHEN NEW.member_id = public.activity_actor() THEN ''
-    ELSE ' for ' || public.activity_member_name(NEW.member_id) END;
+  v_for := CASE WHEN NEW.member_id = pm.activity_actor() THEN ''
+    ELSE ' for ' || pm.activity_member_name(NEW.member_id) END;
 
   -- Time is "logged" when it has an end: entered whole, or a timer stopped.
   IF NEW.end_time IS NOT NULL AND (TG_OP = 'INSERT' OR OLD.end_time IS NULL) THEN
-    PERFORM public.log_team_activity('time.logged', 'time_entry', NEW.id::text, NEW.project_id,
-      format('Logged %s%s', public.activity_hours_label(v_hours), v_for), v_meta);
+    PERFORM pm.log_team_activity('time.logged', 'time_entry', NEW.id::text, NEW.project_id,
+      format('Logged %s%s', pm.activity_hours_label(v_hours), v_for), v_meta);
   END IF;
 
   -- A review decision on finished time. The approval the workspace grants by
   -- itself as time is logged (owners, auto-approve) is not a person's review.
   IF TG_OP = 'UPDATE' AND OLD.end_time IS NOT NULL AND NEW.approval_status IS DISTINCT FROM OLD.approval_status THEN
     IF NEW.approval_status = 'approved' THEN
-      PERFORM public.log_team_activity('time.approved', 'time_entry', NEW.id::text, NEW.project_id,
-        format('Approved %s from %s', public.activity_hours_label(v_hours), public.activity_member_name(NEW.member_id)), v_meta);
+      PERFORM pm.log_team_activity('time.approved', 'time_entry', NEW.id::text, NEW.project_id,
+        format('Approved %s from %s', pm.activity_hours_label(v_hours), pm.activity_member_name(NEW.member_id)), v_meta);
     ELSIF NEW.approval_status = 'rejected' THEN
-      PERFORM public.log_team_activity('time.rejected', 'time_entry', NEW.id::text, NEW.project_id,
-        format('Sent back %s from %s', public.activity_hours_label(v_hours), public.activity_member_name(NEW.member_id)),
+      PERFORM pm.log_team_activity('time.rejected', 'time_entry', NEW.id::text, NEW.project_id,
+        format('Sent back %s from %s', pm.activity_hours_label(v_hours), pm.activity_member_name(NEW.member_id)),
         v_meta || jsonb_build_object('reason', left(coalesce(NEW.rejection_reason, ''), 200)));
     END IF;
   END IF;
@@ -13730,24 +13731,24 @@ BEGIN
 END;
 $$;
 
-CREATE OR REPLACE FUNCTION public.log_invoice_activity()
+CREATE OR REPLACE FUNCTION pm.log_invoice_activity()
 RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
 DECLARE
   v_meta jsonb := jsonb_build_object('invoice_id', NEW.id, 'invoice_number', NEW.invoice_number, 'amount', NEW.amount);
 BEGIN
   IF TG_OP = 'INSERT' THEN
-    PERFORM public.log_team_activity('invoice.created', 'invoice', NEW.id::text, NEW.project_id,
+    PERFORM pm.log_team_activity('invoice.created', 'invoice', NEW.id::text, NEW.project_id,
       format('Created invoice %s', NEW.invoice_number), v_meta);
     RETURN NULL;
   END IF;
   IF NEW.deleted_at IS DISTINCT FROM OLD.deleted_at OR NEW.status IS NOT DISTINCT FROM OLD.status THEN
     RETURN NULL;
   END IF;
-  PERFORM public.log_team_activity('invoice.' || NEW.status, 'invoice', NEW.id::text, NEW.project_id,
+  PERFORM pm.log_team_activity('invoice.' || NEW.status, 'invoice', NEW.id::text, NEW.project_id,
     CASE NEW.status
       WHEN 'sent' THEN format('Sent invoice %s', NEW.invoice_number)
       WHEN 'paid' THEN format('Marked invoice %s paid', NEW.invoice_number)
@@ -13760,31 +13761,31 @@ BEGIN
 END;
 $$;
 
-CREATE OR REPLACE FUNCTION public.log_payment_activity()
+CREATE OR REPLACE FUNCTION pm.log_payment_activity()
 RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
 DECLARE
   v_invoice record;
 BEGIN
-  SELECT id, project_id, invoice_number, currency INTO v_invoice FROM public.project_invoices WHERE id = NEW.invoice_id;
+  SELECT id, project_id, invoice_number, currency INTO v_invoice FROM pm.project_invoices WHERE id = NEW.invoice_id;
   IF v_invoice.id IS NULL THEN
     RETURN NULL;
   END IF;
-  PERFORM public.log_team_activity('payment.recorded', 'payment', NEW.id::text, v_invoice.project_id,
-    format('Recorded a %s payment on invoice %s', public.format_money(NEW.amount, v_invoice.currency, true), v_invoice.invoice_number),
+  PERFORM pm.log_team_activity('payment.recorded', 'payment', NEW.id::text, v_invoice.project_id,
+    format('Recorded a %s payment on invoice %s', pm.format_money(NEW.amount, v_invoice.currency, true), v_invoice.invoice_number),
     jsonb_build_object('invoice_id', v_invoice.id, 'invoice_number', v_invoice.invoice_number, 'amount', NEW.amount));
   RETURN NULL;
 END;
 $$;
 
-CREATE OR REPLACE FUNCTION public.log_file_activity()
+CREATE OR REPLACE FUNCTION pm.log_file_activity()
 RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
 DECLARE
   v_project_id uuid;
@@ -13795,12 +13796,12 @@ BEGIN
   IF NEW.entity_type = 'project' THEN
     v_project_id := NEW.entity_id;
   ELSIF NEW.entity_type = 'task' THEN
-    SELECT id, title, project_id INTO v_task_id, v_task_title, v_project_id FROM public.tasks WHERE id = NEW.entity_id;
+    SELECT id, title, project_id INTO v_task_id, v_task_title, v_project_id FROM pm.tasks WHERE id = NEW.entity_id;
     v_meta := v_meta || jsonb_build_object('task_id', v_task_id, 'task_title', v_task_title);
   ELSIF NEW.entity_type = 'lead' THEN
     v_meta := v_meta || jsonb_build_object('lead_id', NEW.entity_id);
   END IF;
-  PERFORM public.log_team_activity('file.uploaded', 'file', NEW.id::text, v_project_id,
+  PERFORM pm.log_team_activity('file.uploaded', 'file', NEW.id::text, v_project_id,
     CASE WHEN v_task_id IS NOT NULL THEN format('Uploaded "%s" to task "%s"', NEW.name, v_task_title)
       ELSE format('Uploaded "%s"', NEW.name) END,
     v_meta);
@@ -13808,69 +13809,69 @@ BEGIN
 END;
 $$;
 
-CREATE OR REPLACE FUNCTION public.log_portal_update_activity()
+CREATE OR REPLACE FUNCTION pm.log_portal_update_activity()
 RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
 BEGIN
-  PERFORM public.log_team_activity('portal_update.posted', 'portal_update', NEW.id::text, NEW.project_id,
+  PERFORM pm.log_team_activity('portal_update.posted', 'portal_update', NEW.id::text, NEW.project_id,
     format('Posted portal update "%s"', NEW.title), jsonb_build_object('portal_update_id', NEW.id));
   RETURN NULL;
 END;
 $$;
 
 -- Only the label: never anything from the secret itself.
-CREATE OR REPLACE FUNCTION public.log_credential_activity()
+CREATE OR REPLACE FUNCTION pm.log_credential_activity()
 RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
 BEGIN
-  PERFORM public.log_team_activity('credential.added', 'credential', NEW.id::text, NEW.project_id,
+  PERFORM pm.log_team_activity('credential.added', 'credential', NEW.id::text, NEW.project_id,
     format('Added credential "%s"', NEW.label), jsonb_build_object('credential_id', NEW.id));
   RETURN NULL;
 END;
 $$;
 
-CREATE OR REPLACE FUNCTION public.log_reminder_activity()
+CREATE OR REPLACE FUNCTION pm.log_reminder_activity()
 RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
 DECLARE
   v_project_id uuid := NEW.project_id;
   v_meta jsonb := jsonb_build_object('reminder_id', NEW.id);
 BEGIN
   IF NEW.task_id IS NOT NULL THEN
-    SELECT coalesce(v_project_id, project_id) INTO v_project_id FROM public.tasks WHERE id = NEW.task_id;
+    SELECT coalesce(v_project_id, project_id) INTO v_project_id FROM pm.tasks WHERE id = NEW.task_id;
     v_meta := v_meta || jsonb_build_object('task_id', NEW.task_id);
   END IF;
   IF TG_OP = 'INSERT' THEN
-    PERFORM public.log_team_activity('reminder.created', 'reminder', NEW.id::text, v_project_id,
+    PERFORM pm.log_team_activity('reminder.created', 'reminder', NEW.id::text, v_project_id,
       format('Added reminder "%s"', NEW.title), v_meta);
   ELSIF NEW.deleted_at IS NOT DISTINCT FROM OLD.deleted_at
     AND NEW.status = 'done' AND OLD.status IS DISTINCT FROM 'done' AND NOT coalesce(NEW.closed_by_task, false) THEN
     -- A reminder closed by its task finishing is covered by "Completed task".
-    PERFORM public.log_team_activity('reminder.completed', 'reminder', NEW.id::text, v_project_id,
+    PERFORM pm.log_team_activity('reminder.completed', 'reminder', NEW.id::text, v_project_id,
       format('Completed reminder "%s"', NEW.title), v_meta);
   END IF;
   RETURN NULL;
 END;
 $$;
 
-CREATE OR REPLACE FUNCTION public.log_communication_activity()
+CREATE OR REPLACE FUNCTION pm.log_communication_activity()
 RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
 BEGIN
   IF NEW.status = 'sent' AND (TG_OP = 'INSERT' OR OLD.status IS DISTINCT FROM 'sent') THEN
-    PERFORM public.log_team_activity('communication.sent', 'communication', NEW.id::text, NEW.project_id,
+    PERFORM pm.log_team_activity('communication.sent', 'communication', NEW.id::text, NEW.project_id,
       format('Sent "%s" to the client', coalesce(nullif(NEW.subject, ''), 'an email')),
       jsonb_build_object('communication_id', NEW.id, 'notification_type', NEW.notification_type));
   END IF;
@@ -13878,34 +13879,34 @@ BEGIN
 END;
 $$;
 
-CREATE OR REPLACE FUNCTION public.log_contact_activity()
+CREATE OR REPLACE FUNCTION pm.log_contact_activity()
 RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
 BEGIN
-  PERFORM public.log_team_activity('contact.created', 'contact', NEW.id::text, NULL,
+  PERFORM pm.log_team_activity('contact.created', 'contact', NEW.id::text, NULL,
     format('Added contact "%s"', NEW.name), jsonb_build_object('contact_id', NEW.id));
   RETURN NULL;
 END;
 $$;
 
-CREATE OR REPLACE FUNCTION public.log_lead_activity()
+CREATE OR REPLACE FUNCTION pm.log_lead_activity()
 RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
 DECLARE
   v_meta jsonb := jsonb_build_object('lead_id', NEW.id, 'lead_name', NEW.name);
 BEGIN
   IF TG_OP = 'INSERT' THEN
-    PERFORM public.log_team_activity('lead.created', 'lead', NEW.id::text, NULL,
+    PERFORM pm.log_team_activity('lead.created', 'lead', NEW.id::text, NULL,
       format('Added lead "%s"', NEW.name), v_meta);
   ELSIF NEW.deleted_at IS NOT DISTINCT FROM OLD.deleted_at AND NEW.status IS DISTINCT FROM OLD.status THEN
-    PERFORM public.log_team_activity('lead.status', 'lead', NEW.id::text, NULL,
-      format('Moved lead "%s" to %s', NEW.name, public.activity_status_label(NEW.status)),
+    PERFORM pm.log_team_activity('lead.status', 'lead', NEW.id::text, NULL,
+      format('Moved lead "%s" to %s', NEW.name, pm.activity_status_label(NEW.status)),
       v_meta || jsonb_build_object('from', OLD.status, 'to', NEW.status));
   END IF;
   RETURN NULL;
@@ -13915,15 +13916,15 @@ $$;
 -- Moves to Trash and restores, for every Trash table. The project a record
 -- belongs to comes from the record or its parent, so a project's feed shows
 -- it.
-CREATE OR REPLACE FUNCTION public.log_trash_activity()
+CREATE OR REPLACE FUNCTION pm.log_trash_activity()
 RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
 DECLARE
   rec jsonb := to_jsonb(NEW);
-  v_entity text := public.activity_entity_type(TG_TABLE_NAME);
+  v_entity text := pm.activity_entity_type(TG_TABLE_NAME);
   v_project uuid;
   v_label text;
   v_meta jsonb := jsonb_build_object('record_type', TG_TABLE_NAME);
@@ -13944,7 +13945,7 @@ BEGIN
   IF rec ? 'task_id' THEN
     v_meta := v_meta || jsonb_build_object('task_id', rec ->> 'task_id');
     IF v_project IS NULL THEN
-      SELECT project_id INTO v_project FROM public.tasks WHERE id = (rec ->> 'task_id')::uuid;
+      SELECT project_id INTO v_project FROM pm.tasks WHERE id = (rec ->> 'task_id')::uuid;
     END IF;
   END IF;
   IF TG_TABLE_NAME = 'tasks' THEN
@@ -13952,20 +13953,20 @@ BEGIN
   END IF;
   IF rec ? 'invoice_id' AND v_project IS NULL THEN
     SELECT project_id, invoice_number, currency INTO v_project, v_label, v_currency
-    FROM public.project_invoices WHERE id = (rec ->> 'invoice_id')::uuid;
-    v_label := public.format_money((rec ->> 'amount')::numeric, v_currency, true) || ' on ' || coalesce(v_label, 'an invoice');
+    FROM pm.project_invoices WHERE id = (rec ->> 'invoice_id')::uuid;
+    v_label := pm.format_money((rec ->> 'amount')::numeric, v_currency, true) || ' on ' || coalesce(v_label, 'an invoice');
   END IF;
   IF rec ? 'update_id' AND v_project IS NULL THEN
-    SELECT project_id INTO v_project FROM public.portal_updates WHERE id = (rec ->> 'update_id')::uuid;
+    SELECT project_id INTO v_project FROM pm.portal_updates WHERE id = (rec ->> 'update_id')::uuid;
   END IF;
   IF rec ? 'retainer_id' AND v_project IS NULL THEN
-    SELECT project_id INTO v_project FROM public.project_retainers WHERE id = (rec ->> 'retainer_id')::uuid;
+    SELECT project_id INTO v_project FROM pm.project_retainers WHERE id = (rec ->> 'retainer_id')::uuid;
   END IF;
   IF TG_TABLE_NAME = 'entity_files' THEN
     IF rec ->> 'entity_type' = 'project' THEN
       v_project := (rec ->> 'entity_id')::uuid;
     ELSIF rec ->> 'entity_type' = 'task' THEN
-      SELECT project_id INTO v_project FROM public.tasks WHERE id = (rec ->> 'entity_id')::uuid;
+      SELECT project_id INTO v_project FROM pm.tasks WHERE id = (rec ->> 'entity_id')::uuid;
       v_meta := v_meta || jsonb_build_object('task_id', rec ->> 'entity_id');
     ELSIF rec ->> 'entity_type' = 'lead' THEN
       v_meta := v_meta || jsonb_build_object('lead_id', rec ->> 'entity_id');
@@ -13977,16 +13978,16 @@ BEGIN
     v_meta := v_meta || jsonb_build_object('lead_id', rec ->> 'lead_id');
   END IF;
   IF TG_TABLE_NAME = 'project_time_entries' THEN
-    v_label := public.activity_hours_label(public.time_entry_worked_hours(NEW.segments, NEW.start_time, NEW.end_time))
-      || ' from ' || public.activity_member_name(NEW.member_id);
+    v_label := pm.activity_hours_label(pm.time_entry_worked_hours(NEW.segments, NEW.start_time, NEW.end_time))
+      || ' from ' || pm.activity_member_name(NEW.member_id);
   END IF;
 
-  PERFORM public.log_team_activity(
+  PERFORM pm.log_team_activity(
     CASE WHEN v_restored THEN 'record.restored' ELSE 'record.trashed' END,
     v_entity, NEW.id::text, v_project,
     format('%s %s%s%s',
       CASE WHEN v_restored THEN 'Restored' ELSE 'Moved' END,
-      public.activity_entity_noun(v_entity),
+      pm.activity_entity_noun(v_entity),
       CASE WHEN v_label IS NULL THEN '' ELSE format(' "%s"', v_label) END,
       CASE WHEN v_restored THEN '' ELSE ' to Trash' END),
     v_meta);
@@ -13997,57 +13998,57 @@ $$;
 -- ---------------------------------------------------------------------------
 -- Triggers
 -- ---------------------------------------------------------------------------
-DROP TRIGGER IF EXISTS log_task_activity ON public.tasks;
-CREATE TRIGGER log_task_activity AFTER INSERT OR UPDATE ON public.tasks
-  FOR EACH ROW EXECUTE FUNCTION public.log_task_activity();
-DROP TRIGGER IF EXISTS log_task_assignee_activity ON public.task_assignees;
-CREATE TRIGGER log_task_assignee_activity AFTER INSERT OR DELETE ON public.task_assignees
-  FOR EACH ROW EXECUTE FUNCTION public.log_task_assignee_activity();
-DROP TRIGGER IF EXISTS log_subtask_activity ON public.task_subtasks;
-CREATE TRIGGER log_subtask_activity AFTER INSERT OR UPDATE ON public.task_subtasks
-  FOR EACH ROW EXECUTE FUNCTION public.log_subtask_activity();
-DROP TRIGGER IF EXISTS log_comment_activity ON public.task_comments;
-CREATE TRIGGER log_comment_activity AFTER INSERT ON public.task_comments
-  FOR EACH ROW EXECUTE FUNCTION public.log_comment_activity();
-DROP TRIGGER IF EXISTS log_project_activity ON public.projects;
-CREATE TRIGGER log_project_activity AFTER INSERT OR UPDATE ON public.projects
-  FOR EACH ROW EXECUTE FUNCTION public.log_project_activity();
-DROP TRIGGER IF EXISTS log_project_member_activity ON public.project_members;
-CREATE TRIGGER log_project_member_activity AFTER INSERT OR DELETE ON public.project_members
-  FOR EACH ROW EXECUTE FUNCTION public.log_project_member_activity();
-DROP TRIGGER IF EXISTS log_project_contact_activity ON public.project_contacts;
-CREATE TRIGGER log_project_contact_activity AFTER INSERT ON public.project_contacts
-  FOR EACH ROW EXECUTE FUNCTION public.log_project_contact_activity();
-DROP TRIGGER IF EXISTS log_time_entry_activity ON public.project_time_entries;
-CREATE TRIGGER log_time_entry_activity AFTER INSERT OR UPDATE ON public.project_time_entries
-  FOR EACH ROW EXECUTE FUNCTION public.log_time_entry_activity();
-DROP TRIGGER IF EXISTS log_invoice_activity ON public.project_invoices;
-CREATE TRIGGER log_invoice_activity AFTER INSERT OR UPDATE ON public.project_invoices
-  FOR EACH ROW EXECUTE FUNCTION public.log_invoice_activity();
-DROP TRIGGER IF EXISTS log_payment_activity ON public.invoice_payments;
-CREATE TRIGGER log_payment_activity AFTER INSERT ON public.invoice_payments
-  FOR EACH ROW EXECUTE FUNCTION public.log_payment_activity();
-DROP TRIGGER IF EXISTS log_file_activity ON public.entity_files;
-CREATE TRIGGER log_file_activity AFTER INSERT ON public.entity_files
-  FOR EACH ROW EXECUTE FUNCTION public.log_file_activity();
-DROP TRIGGER IF EXISTS log_portal_update_activity ON public.portal_updates;
-CREATE TRIGGER log_portal_update_activity AFTER INSERT ON public.portal_updates
-  FOR EACH ROW EXECUTE FUNCTION public.log_portal_update_activity();
-DROP TRIGGER IF EXISTS log_credential_activity ON public.project_credentials;
-CREATE TRIGGER log_credential_activity AFTER INSERT ON public.project_credentials
-  FOR EACH ROW EXECUTE FUNCTION public.log_credential_activity();
-DROP TRIGGER IF EXISTS log_reminder_activity ON public.reminders;
-CREATE TRIGGER log_reminder_activity AFTER INSERT OR UPDATE ON public.reminders
-  FOR EACH ROW EXECUTE FUNCTION public.log_reminder_activity();
-DROP TRIGGER IF EXISTS log_communication_activity ON public.client_communications;
-CREATE TRIGGER log_communication_activity AFTER INSERT OR UPDATE ON public.client_communications
-  FOR EACH ROW EXECUTE FUNCTION public.log_communication_activity();
-DROP TRIGGER IF EXISTS log_contact_activity ON public.contacts;
-CREATE TRIGGER log_contact_activity AFTER INSERT ON public.contacts
-  FOR EACH ROW EXECUTE FUNCTION public.log_contact_activity();
-DROP TRIGGER IF EXISTS log_lead_activity ON public.leads;
-CREATE TRIGGER log_lead_activity AFTER INSERT OR UPDATE ON public.leads
-  FOR EACH ROW EXECUTE FUNCTION public.log_lead_activity();
+DROP TRIGGER IF EXISTS log_task_activity ON pm.tasks;
+CREATE TRIGGER log_task_activity AFTER INSERT OR UPDATE ON pm.tasks
+  FOR EACH ROW EXECUTE FUNCTION pm.log_task_activity();
+DROP TRIGGER IF EXISTS log_task_assignee_activity ON pm.task_assignees;
+CREATE TRIGGER log_task_assignee_activity AFTER INSERT OR DELETE ON pm.task_assignees
+  FOR EACH ROW EXECUTE FUNCTION pm.log_task_assignee_activity();
+DROP TRIGGER IF EXISTS log_subtask_activity ON pm.task_subtasks;
+CREATE TRIGGER log_subtask_activity AFTER INSERT OR UPDATE ON pm.task_subtasks
+  FOR EACH ROW EXECUTE FUNCTION pm.log_subtask_activity();
+DROP TRIGGER IF EXISTS log_comment_activity ON pm.task_comments;
+CREATE TRIGGER log_comment_activity AFTER INSERT ON pm.task_comments
+  FOR EACH ROW EXECUTE FUNCTION pm.log_comment_activity();
+DROP TRIGGER IF EXISTS log_project_activity ON pm.projects;
+CREATE TRIGGER log_project_activity AFTER INSERT OR UPDATE ON pm.projects
+  FOR EACH ROW EXECUTE FUNCTION pm.log_project_activity();
+DROP TRIGGER IF EXISTS log_project_member_activity ON pm.project_members;
+CREATE TRIGGER log_project_member_activity AFTER INSERT OR DELETE ON pm.project_members
+  FOR EACH ROW EXECUTE FUNCTION pm.log_project_member_activity();
+DROP TRIGGER IF EXISTS log_project_contact_activity ON pm.project_contacts;
+CREATE TRIGGER log_project_contact_activity AFTER INSERT ON pm.project_contacts
+  FOR EACH ROW EXECUTE FUNCTION pm.log_project_contact_activity();
+DROP TRIGGER IF EXISTS log_time_entry_activity ON pm.project_time_entries;
+CREATE TRIGGER log_time_entry_activity AFTER INSERT OR UPDATE ON pm.project_time_entries
+  FOR EACH ROW EXECUTE FUNCTION pm.log_time_entry_activity();
+DROP TRIGGER IF EXISTS log_invoice_activity ON pm.project_invoices;
+CREATE TRIGGER log_invoice_activity AFTER INSERT OR UPDATE ON pm.project_invoices
+  FOR EACH ROW EXECUTE FUNCTION pm.log_invoice_activity();
+DROP TRIGGER IF EXISTS log_payment_activity ON pm.invoice_payments;
+CREATE TRIGGER log_payment_activity AFTER INSERT ON pm.invoice_payments
+  FOR EACH ROW EXECUTE FUNCTION pm.log_payment_activity();
+DROP TRIGGER IF EXISTS log_file_activity ON pm.entity_files;
+CREATE TRIGGER log_file_activity AFTER INSERT ON pm.entity_files
+  FOR EACH ROW EXECUTE FUNCTION pm.log_file_activity();
+DROP TRIGGER IF EXISTS log_portal_update_activity ON pm.portal_updates;
+CREATE TRIGGER log_portal_update_activity AFTER INSERT ON pm.portal_updates
+  FOR EACH ROW EXECUTE FUNCTION pm.log_portal_update_activity();
+DROP TRIGGER IF EXISTS log_credential_activity ON pm.project_credentials;
+CREATE TRIGGER log_credential_activity AFTER INSERT ON pm.project_credentials
+  FOR EACH ROW EXECUTE FUNCTION pm.log_credential_activity();
+DROP TRIGGER IF EXISTS log_reminder_activity ON pm.reminders;
+CREATE TRIGGER log_reminder_activity AFTER INSERT OR UPDATE ON pm.reminders
+  FOR EACH ROW EXECUTE FUNCTION pm.log_reminder_activity();
+DROP TRIGGER IF EXISTS log_communication_activity ON pm.client_communications;
+CREATE TRIGGER log_communication_activity AFTER INSERT OR UPDATE ON pm.client_communications
+  FOR EACH ROW EXECUTE FUNCTION pm.log_communication_activity();
+DROP TRIGGER IF EXISTS log_contact_activity ON pm.contacts;
+CREATE TRIGGER log_contact_activity AFTER INSERT ON pm.contacts
+  FOR EACH ROW EXECUTE FUNCTION pm.log_contact_activity();
+DROP TRIGGER IF EXISTS log_lead_activity ON pm.leads;
+CREATE TRIGGER log_lead_activity AFTER INSERT OR UPDATE ON pm.leads
+  FOR EACH ROW EXECUTE FUNCTION pm.log_lead_activity();
 
 DO $$
 DECLARE
@@ -14056,21 +14057,21 @@ BEGIN
   FOREACH t IN ARRAY ARRAY[
     'projects', 'tasks', 'task_subtasks', 'task_comments', 'reminders', 'project_credentials', 'entity_files', 'portal_updates', 'portal_update_attachments', 'contacts', 'leads', 'lead_interactions', 'lead_proposals', 'lead_fields', 'project_time_entries', 'project_invoices', 'invoice_payments', 'project_hourly_rates', 'project_retainers', 'project_retainer_amounts'
   ] LOOP
-    EXECUTE format('DROP TRIGGER IF EXISTS log_trash_activity ON public.%I', t);
-    EXECUTE format('CREATE TRIGGER log_trash_activity AFTER UPDATE OF deleted_at ON public.%I
+    EXECUTE format('DROP TRIGGER IF EXISTS log_trash_activity ON pm.%I', t);
+    EXECUTE format('CREATE TRIGGER log_trash_activity AFTER UPDATE OF deleted_at ON pm.%I
       FOR EACH ROW WHEN (OLD.deleted_at IS DISTINCT FROM NEW.deleted_at)
-      EXECUTE FUNCTION public.log_trash_activity()', t);
+      EXECUTE FUNCTION pm.log_trash_activity()', t);
   END LOOP;
 END $$;
 
 -- ---------------------------------------------------------------------------
 -- Grants
 -- ---------------------------------------------------------------------------
-REVOKE ALL ON FUNCTION public.activity_actor() FROM PUBLIC, anon;
-REVOKE ALL ON FUNCTION public.log_team_activity(text, text, text, uuid, text, jsonb) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.can_read_activity(text, text, uuid, uuid, jsonb) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.activity_actor() TO authenticated, service_role;
-GRANT EXECUTE ON FUNCTION public.can_read_activity(text, text, uuid, uuid, jsonb) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.activity_actor() FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION pm.log_team_activity(text, text, text, uuid, text, jsonb) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION pm.can_read_activity(text, text, uuid, uuid, jsonb) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION pm.activity_actor() TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.can_read_activity(text, text, uuid, uuid, jsonb) TO authenticated, service_role;
 DO $$
 DECLARE
   fn text;
@@ -14082,7 +14083,7 @@ BEGIN
     'log_portal_update_activity', 'log_credential_activity', 'log_reminder_activity',
     'log_communication_activity', 'log_contact_activity', 'log_lead_activity', 'log_trash_activity'
   ] LOOP
-    EXECUTE format('REVOKE ALL ON FUNCTION public.%I() FROM PUBLIC, anon, authenticated', fn);
+    EXECUTE format('REVOKE ALL ON FUNCTION pm.%I() FROM PUBLIC, anon, authenticated', fn);
   END LOOP;
 END $$;
 
@@ -14092,17 +14093,17 @@ END $$;
 -- How each task was made (app, api, mcp, system; unknown before tracking), the
 -- API key behind it, and each member's last look at it. The server names the
 -- key in x-actor-key-id (service role only, like x-actor-member-id).
-ALTER TABLE public.tasks ADD CONSTRAINT tasks_created_by_key_id_fkey
-  FOREIGN KEY (created_by_key_id) REFERENCES public.api_keys(id) ON DELETE SET NULL;
-CREATE INDEX idx_tasks_created_by_key ON public.tasks (created_by_key_id) WHERE created_by_key_id IS NOT NULL;
+ALTER TABLE pm.tasks ADD CONSTRAINT tasks_created_by_key_id_fkey
+  FOREIGN KEY (created_by_key_id) REFERENCES pm.api_keys(id) ON DELETE SET NULL;
+CREATE INDEX idx_tasks_created_by_key ON pm.tasks (created_by_key_id) WHERE created_by_key_id IS NOT NULL;
 
 -- How the current insert was made. Never trusts the row: a caller cannot
 -- claim to be the app or another key by setting the columns itself.
-CREATE OR REPLACE FUNCTION public.stamp_task_source()
+CREATE OR REPLACE FUNCTION pm.stamp_task_source()
 RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
 DECLARE
   v_headers json;
@@ -14139,7 +14140,7 @@ BEGIN
   NEW.created_via := CASE WHEN v_via IN ('app', 'api', 'mcp') THEN v_via ELSE 'system' END;
   IF NEW.created_via IN ('api', 'mcp')
      AND v_key ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
-     AND EXISTS (SELECT 1 FROM public.api_keys WHERE id = v_key::uuid) THEN
+     AND EXISTS (SELECT 1 FROM pm.api_keys WHERE id = v_key::uuid) THEN
     NEW.created_by_key_id := v_key::uuid;
   END IF;
   IF NEW.created_via = 'app' THEN
@@ -14150,57 +14151,57 @@ END;
 $$;
 
 CREATE TRIGGER stamp_task_source
-  BEFORE INSERT OR UPDATE OF created_via, created_by_key_id, created_note ON public.tasks
-  FOR EACH ROW EXECUTE FUNCTION public.stamp_task_source();
+  BEFORE INSERT OR UPDATE OF created_via, created_by_key_id, created_note ON pm.tasks
+  FOR EACH ROW EXECUTE FUNCTION pm.stamp_task_source();
 
-REVOKE ALL ON FUNCTION public.stamp_task_source() FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION pm.stamp_task_source() FROM PUBLIC, anon, authenticated;
 
 -- ---------------------------------------------------------------------------
 -- Seen
 -- ---------------------------------------------------------------------------
-CREATE TABLE public.task_views (
-  task_id uuid NOT NULL REFERENCES public.tasks(id) ON DELETE CASCADE,
-  member_id uuid NOT NULL REFERENCES public.team_members(id) ON DELETE CASCADE,
+CREATE TABLE pm.task_views (
+  task_id uuid NOT NULL REFERENCES pm.tasks(id) ON DELETE CASCADE,
+  member_id uuid NOT NULL REFERENCES pm.team_members(id) ON DELETE CASCADE,
   seen_at timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (task_id, member_id)
 );
-CREATE INDEX idx_task_views_member ON public.task_views (member_id);
+CREATE INDEX idx_task_views_member ON pm.task_views (member_id);
 
-ALTER TABLE public.task_views ENABLE ROW LEVEL SECURITY;
+ALTER TABLE pm.task_views ENABLE ROW LEVEL SECURITY;
 
 -- Each member reads and writes only their own views, and only of tasks they can open.
-CREATE POLICY task_views_select ON public.task_views FOR SELECT TO authenticated
-  USING (member_id = public.current_team_member_id());
-CREATE POLICY task_views_insert ON public.task_views FOR INSERT TO authenticated
-  WITH CHECK (member_id = public.current_team_member_id()
-    AND EXISTS (SELECT 1 FROM public.tasks t WHERE t.id = task_id));
-CREATE POLICY task_views_update ON public.task_views FOR UPDATE TO authenticated
-  USING (member_id = public.current_team_member_id())
-  WITH CHECK (member_id = public.current_team_member_id());
+CREATE POLICY task_views_select ON pm.task_views FOR SELECT TO authenticated
+  USING (member_id = pm.current_team_member_id());
+CREATE POLICY task_views_insert ON pm.task_views FOR INSERT TO authenticated
+  WITH CHECK (member_id = pm.current_team_member_id()
+    AND EXISTS (SELECT 1 FROM pm.tasks t WHERE t.id = task_id));
+CREATE POLICY task_views_update ON pm.task_views FOR UPDATE TO authenticated
+  USING (member_id = pm.current_team_member_id())
+  WITH CHECK (member_id = pm.current_team_member_id());
 
 -- Opening a task marks it seen for the signed-in member (once, then the time moves).
-CREATE OR REPLACE FUNCTION public.mark_task_seen(p_task_id uuid)
+CREATE OR REPLACE FUNCTION pm.mark_task_seen(p_task_id uuid)
 RETURNS void
 LANGUAGE sql
 SECURITY INVOKER
-SET search_path = public
+SET search_path = pm
 AS $$
-  INSERT INTO public.task_views (task_id, member_id)
-  VALUES (p_task_id, public.current_team_member_id())
+  INSERT INTO pm.task_views (task_id, member_id)
+  VALUES (p_task_id, pm.current_team_member_id())
   ON CONFLICT (task_id, member_id) DO UPDATE SET seen_at = now();
 $$;
 
-REVOKE ALL ON FUNCTION public.mark_task_seen(uuid) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.mark_task_seen(uuid) TO authenticated;
+REVOKE ALL ON FUNCTION pm.mark_task_seen(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION pm.mark_task_seen(uuid) TO authenticated;
 
 -- ---------------------------------------------------------------------------
 -- Task files
 -- ---------------------------------------------------------------------------
 -- A task's own uploads (private task-files bucket, stored once per project by
 -- content) and links to email attachments and project files, never copies.
-CREATE TABLE public.task_files (
+CREATE TABLE pm.task_files (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  task_id uuid NOT NULL REFERENCES public.tasks(id) ON DELETE CASCADE,
+  task_id uuid NOT NULL REFERENCES pm.tasks(id) ON DELETE CASCADE,
   -- upload: the task's own file. email_attachment, project_file: a link to a
   -- file that already exists, never a copy. link: a web address (a Loom, a
   -- Claude artifact, a shared doc); nothing is stored but the address.
@@ -14211,8 +14212,8 @@ CREATE TABLE public.task_files (
   sha256 text CHECK (sha256 IS NULL OR sha256 ~ '^[0-9a-f]{64}$'),
   -- A linked email attachment or project file. RESTRICT: neither may vanish
   -- under a task (email retention moves a linked attachment to the task first).
-  email_attachment_id uuid REFERENCES communications.attachments(id) ON DELETE RESTRICT,
-  entity_file_id uuid REFERENCES public.entity_files(id) ON DELETE RESTRICT,
+  email_attachment_id uuid REFERENCES pm.attachments(id) ON DELETE RESTRICT,
+  entity_file_id uuid REFERENCES pm.entity_files(id) ON DELETE RESTRICT,
   -- link only: the address, as the server cleaned it.
   url text CHECK (url IS NULL OR (url ~ '^https?://' AND length(url) <= 2048)),
   name text NOT NULL CHECK (length(name) BETWEEN 1 AND 255),
@@ -14220,12 +14221,12 @@ CREATE TABLE public.task_files (
   file_size bigint NOT NULL DEFAULT 0 CHECK (file_size >= 0),
   -- Why it is on the task, in a few words ("the screenshot Ciaran sent").
   note text CHECK (note IS NULL OR length(note) BETWEEN 1 AND 500),
-  added_by uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
+  added_by uuid REFERENCES pm.team_members(id) ON DELETE SET NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
   -- Trash: when it was deleted and by whom (null = live). Rows are never removed.
   deleted_at timestamptz,
-  deleted_by uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
+  deleted_by uuid REFERENCES pm.team_members(id) ON DELETE SET NULL,
   CONSTRAINT task_files_one_source CHECK (
     (kind = 'upload' AND storage_path IS NOT NULL AND sha256 IS NOT NULL AND email_attachment_id IS NULL AND entity_file_id IS NULL AND url IS NULL)
     OR (kind = 'email_attachment' AND email_attachment_id IS NOT NULL AND storage_path IS NULL AND sha256 IS NULL AND entity_file_id IS NULL AND url IS NULL)
@@ -14233,24 +14234,24 @@ CREATE TABLE public.task_files (
     OR (kind = 'link' AND url IS NOT NULL AND storage_path IS NULL AND sha256 IS NULL AND email_attachment_id IS NULL AND entity_file_id IS NULL)
   )
 );
-CREATE INDEX idx_task_files_task ON public.task_files (task_id);
-CREATE INDEX idx_task_files_deleted_at ON public.task_files (deleted_at DESC) WHERE deleted_at IS NOT NULL;
-CREATE INDEX idx_task_files_storage_path ON public.task_files (storage_path) WHERE storage_path IS NOT NULL;
-CREATE INDEX idx_task_files_email_attachment ON public.task_files (email_attachment_id) WHERE email_attachment_id IS NOT NULL;
-CREATE INDEX idx_task_files_entity_file ON public.task_files (entity_file_id) WHERE entity_file_id IS NOT NULL;
+CREATE INDEX idx_task_files_task ON pm.task_files (task_id);
+CREATE INDEX idx_task_files_deleted_at ON pm.task_files (deleted_at DESC) WHERE deleted_at IS NOT NULL;
+CREATE INDEX idx_task_files_storage_path ON pm.task_files (storage_path) WHERE storage_path IS NOT NULL;
+CREATE INDEX idx_task_files_email_attachment ON pm.task_files (email_attachment_id) WHERE email_attachment_id IS NOT NULL;
+CREATE INDEX idx_task_files_entity_file ON pm.task_files (entity_file_id) WHERE entity_file_id IS NOT NULL;
 -- One live entry per file per task: adding the same file twice adds nothing.
-CREATE UNIQUE INDEX task_files_live_upload ON public.task_files (task_id, sha256) WHERE kind = 'upload' AND deleted_at IS NULL;
-CREATE UNIQUE INDEX task_files_live_email_attachment ON public.task_files (task_id, email_attachment_id) WHERE kind = 'email_attachment' AND deleted_at IS NULL;
-CREATE UNIQUE INDEX task_files_live_project_file ON public.task_files (task_id, entity_file_id) WHERE kind = 'project_file' AND deleted_at IS NULL;
-CREATE UNIQUE INDEX task_files_live_link ON public.task_files (task_id, url) WHERE kind = 'link' AND deleted_at IS NULL;
+CREATE UNIQUE INDEX task_files_live_upload ON pm.task_files (task_id, sha256) WHERE kind = 'upload' AND deleted_at IS NULL;
+CREATE UNIQUE INDEX task_files_live_email_attachment ON pm.task_files (task_id, email_attachment_id) WHERE kind = 'email_attachment' AND deleted_at IS NULL;
+CREATE UNIQUE INDEX task_files_live_project_file ON pm.task_files (task_id, entity_file_id) WHERE kind = 'project_file' AND deleted_at IS NULL;
+CREATE UNIQUE INDEX task_files_live_link ON pm.task_files (task_id, url) WHERE kind = 'link' AND deleted_at IS NULL;
 
 -- Private, like inbound-email: only the server reads and writes it, and hands
 -- out short signed links. No storage.objects policies on purpose.
 INSERT INTO storage.buckets (id, name, public, file_size_limit)
-VALUES ('task-files', 'task-files', false, 52428800)
+VALUES ('pm-task-files', 'pm-task-files', false, 52428800)
 ON CONFLICT (id) DO NOTHING;
 
-ALTER TABLE public.task_files ENABLE ROW LEVEL SECURITY;
+ALTER TABLE pm.task_files ENABLE ROW LEVEL SECURITY;
 
 -- Read with the task and the file permission; written only by the server
 -- (20261024074521_task_files_server_writes.sql), which checks what the
@@ -14259,53 +14260,53 @@ ALTER TABLE public.task_files ENABLE ROW LEVEL SECURITY;
 -- bytes in the task's project. Trash and restore go through
 -- soft_delete_record and restore_record (can_trash_record: your own, or any
 -- with files.manage).
-CREATE POLICY task_files_select ON public.task_files FOR SELECT TO authenticated
-  USING (public.has_permission('files.read') AND public.can_access_task(task_id));
-CREATE POLICY task_files_not_deleted ON public.task_files AS RESTRICTIVE FOR ALL TO authenticated
+CREATE POLICY task_files_select ON pm.task_files FOR SELECT TO authenticated
+  USING (pm.has_permission('files.read') AND pm.can_access_task(task_id));
+CREATE POLICY task_files_not_deleted ON pm.task_files AS RESTRICTIVE FOR ALL TO authenticated
   USING (deleted_at IS NULL) WITH CHECK (deleted_at IS NULL);
-CREATE POLICY task_files_parent_live ON public.task_files AS RESTRICTIVE FOR ALL TO authenticated
-  USING (public.task_is_live(task_id));
+CREATE POLICY task_files_parent_live ON pm.task_files AS RESTRICTIVE FOR ALL TO authenticated
+  USING (pm.task_is_live(task_id));
 
 -- Task reads fast path (20261117231500): someone with tasks.read and
 -- projects.read_all reads every task whose project is live, exactly what the
 -- full check returns for them. (SELECT ...) runs that check once per
 -- statement, so they pass on it plus one indexed lookup a row instead of the
 -- full check per task, comment, assignee, checklist item, review and blocker.
-DROP POLICY IF EXISTS tasks_select ON public.tasks;
-CREATE POLICY tasks_select ON public.tasks FOR SELECT TO authenticated
-  USING (((SELECT public.can_read_all_tasks()) AND public.project_is_live(project_id))
-    OR public.can_read_task_row(id, project_id, created_by));
-DROP POLICY IF EXISTS task_assignees_select ON public.task_assignees;
-CREATE POLICY task_assignees_select ON public.task_assignees FOR SELECT TO authenticated
-  USING (((SELECT public.can_read_all_tasks()) AND public.task_is_live(task_id)) OR public.can_access_task(task_id));
-DROP POLICY IF EXISTS task_acceptance_criteria_select ON public.task_acceptance_criteria;
-CREATE POLICY task_acceptance_criteria_select ON public.task_acceptance_criteria FOR SELECT TO authenticated
-  USING (((SELECT public.can_read_all_tasks()) AND public.task_is_live(task_id)) OR public.can_access_task(task_id));
-DROP POLICY IF EXISTS task_reviews_select ON public.task_reviews;
-CREATE POLICY task_reviews_select ON public.task_reviews FOR SELECT TO authenticated
-  USING (((SELECT public.can_read_all_tasks()) AND public.task_is_live(task_id)) OR public.can_access_task(task_id));
-DROP POLICY IF EXISTS task_dependencies_select ON public.task_dependencies;
-CREATE POLICY task_dependencies_select ON public.task_dependencies FOR SELECT TO authenticated
-  USING (((SELECT public.can_read_all_tasks()) AND public.task_is_live(task_id)) OR public.can_access_task(task_id));
-DROP POLICY IF EXISTS task_comments_select ON public.task_comments;
-CREATE POLICY task_comments_select ON public.task_comments FOR SELECT TO authenticated
-  USING (((SELECT public.can_read_all_tasks()) AND public.task_is_live(task_id)) OR public.can_access_task(task_id));
-REVOKE ALL ON public.task_files FROM anon, authenticated;
-GRANT SELECT ON public.task_files TO authenticated;
-GRANT ALL ON public.task_files TO service_role;
+DROP POLICY IF EXISTS tasks_select ON pm.tasks;
+CREATE POLICY tasks_select ON pm.tasks FOR SELECT TO authenticated
+  USING (((SELECT pm.can_read_all_tasks()) AND pm.project_is_live(project_id))
+    OR pm.can_read_task_row(id, project_id, created_by));
+DROP POLICY IF EXISTS task_assignees_select ON pm.task_assignees;
+CREATE POLICY task_assignees_select ON pm.task_assignees FOR SELECT TO authenticated
+  USING (((SELECT pm.can_read_all_tasks()) AND pm.task_is_live(task_id)) OR pm.can_access_task(task_id));
+DROP POLICY IF EXISTS task_acceptance_criteria_select ON pm.task_acceptance_criteria;
+CREATE POLICY task_acceptance_criteria_select ON pm.task_acceptance_criteria FOR SELECT TO authenticated
+  USING (((SELECT pm.can_read_all_tasks()) AND pm.task_is_live(task_id)) OR pm.can_access_task(task_id));
+DROP POLICY IF EXISTS task_reviews_select ON pm.task_reviews;
+CREATE POLICY task_reviews_select ON pm.task_reviews FOR SELECT TO authenticated
+  USING (((SELECT pm.can_read_all_tasks()) AND pm.task_is_live(task_id)) OR pm.can_access_task(task_id));
+DROP POLICY IF EXISTS task_dependencies_select ON pm.task_dependencies;
+CREATE POLICY task_dependencies_select ON pm.task_dependencies FOR SELECT TO authenticated
+  USING (((SELECT pm.can_read_all_tasks()) AND pm.task_is_live(task_id)) OR pm.can_access_task(task_id));
+DROP POLICY IF EXISTS task_comments_select ON pm.task_comments;
+CREATE POLICY task_comments_select ON pm.task_comments FOR SELECT TO authenticated
+  USING (((SELECT pm.can_read_all_tasks()) AND pm.task_is_live(task_id)) OR pm.can_access_task(task_id));
+REVOKE ALL ON pm.task_files FROM anon, authenticated;
+GRANT SELECT ON pm.task_files TO authenticated;
+GRANT ALL ON pm.task_files TO service_role;
 
-CREATE OR REPLACE FUNCTION public.log_task_file_activity()
+CREATE OR REPLACE FUNCTION pm.log_task_file_activity()
 RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
 DECLARE
   v_title text;
   v_project_id uuid;
 BEGIN
-  SELECT title, project_id INTO v_title, v_project_id FROM public.tasks WHERE id = NEW.task_id;
-  PERFORM public.log_team_activity(
+  SELECT title, project_id INTO v_title, v_project_id FROM pm.tasks WHERE id = NEW.task_id;
+  PERFORM pm.log_team_activity(
     CASE WHEN NEW.kind = 'upload' THEN 'file.uploaded' ELSE 'file.attached' END,
     'file', NEW.id::text, v_project_id,
     format(CASE NEW.kind
@@ -14318,30 +14319,30 @@ BEGIN
 END;
 $$;
 
-CREATE TRIGGER set_task_files_updated_at BEFORE UPDATE ON public.task_files
-  FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
-CREATE TRIGGER forbid_hard_delete BEFORE DELETE ON public.task_files
-  FOR EACH ROW EXECUTE FUNCTION public.forbid_hard_delete();
-CREATE TRIGGER forbid_truncate BEFORE TRUNCATE ON public.task_files
-  FOR EACH STATEMENT EXECUTE FUNCTION public.forbid_hard_delete();
-CREATE TRIGGER record_trash_event AFTER UPDATE OF deleted_at ON public.task_files
+CREATE TRIGGER set_task_files_updated_at BEFORE UPDATE ON pm.task_files
+  FOR EACH ROW EXECUTE FUNCTION pm.handle_updated_at();
+CREATE TRIGGER forbid_hard_delete BEFORE DELETE ON pm.task_files
+  FOR EACH ROW EXECUTE FUNCTION pm.forbid_hard_delete();
+CREATE TRIGGER forbid_truncate BEFORE TRUNCATE ON pm.task_files
+  FOR EACH STATEMENT EXECUTE FUNCTION pm.forbid_hard_delete();
+CREATE TRIGGER record_trash_event AFTER UPDATE OF deleted_at ON pm.task_files
   FOR EACH ROW WHEN (OLD.deleted_at IS DISTINCT FROM NEW.deleted_at)
-  EXECUTE FUNCTION public.record_trash_event();
-CREATE TRIGGER log_trash_activity AFTER UPDATE OF deleted_at ON public.task_files
+  EXECUTE FUNCTION pm.record_trash_event();
+CREATE TRIGGER log_trash_activity AFTER UPDATE OF deleted_at ON pm.task_files
   FOR EACH ROW WHEN (OLD.deleted_at IS DISTINCT FROM NEW.deleted_at)
-  EXECUTE FUNCTION public.log_trash_activity();
-CREATE TRIGGER log_task_file_activity AFTER INSERT ON public.task_files
-  FOR EACH ROW EXECUTE FUNCTION public.log_task_file_activity();
+  EXECUTE FUNCTION pm.log_trash_activity();
+CREATE TRIGGER log_task_file_activity AFTER INSERT ON pm.task_files
+  FOR EACH ROW EXECUTE FUNCTION pm.log_task_file_activity();
 
-REVOKE ALL ON FUNCTION public.log_task_file_activity() FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION pm.log_task_file_activity() FROM PUBLIC, anon, authenticated;
 
 -- Live sync: a task's files reach open screens as they change.
 DO $$
 BEGIN
   IF EXISTS (SELECT 1 FROM pg_publication WHERE pubname = 'supabase_realtime')
      AND NOT EXISTS (SELECT 1 FROM pg_publication_tables
-                     WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'task_files') THEN
-    ALTER PUBLICATION supabase_realtime ADD TABLE public.task_files;
+                     WHERE pubname = 'supabase_realtime' AND schemaname = 'pm' AND tablename = 'task_files') THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE pm.task_files;
   END IF;
 END $$;
 
@@ -14354,38 +14355,38 @@ END $$;
 -- stamp). Kept apart from tasks so it never moves updated_at, the team log or
 -- a webhook. A task is updated for a member when it has an event after their
 -- last look that is not their own (made in the app as them).
-CREATE TABLE public.task_events (
+CREATE TABLE pm.task_events (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  task_id uuid NOT NULL REFERENCES public.tasks(id) ON DELETE CASCADE,
+  task_id uuid NOT NULL REFERENCES pm.tasks(id) ON DELETE CASCADE,
   at timestamptz NOT NULL DEFAULT now(),
   -- The person or agent behind it, when known; null for a key with no
   -- member, the email pipeline, or SQL run directly.
-  member_id uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
+  member_id uuid REFERENCES pm.team_members(id) ON DELETE SET NULL,
   via text NOT NULL CONSTRAINT task_events_via_check CHECK (via IN ('app', 'api', 'mcp', 'system')),
   kind text NOT NULL CONSTRAINT task_events_kind_check
     CHECK (kind IN ('edit', 'status', 'comment', 'email', 'meeting', 'file', 'subtask', 'assignee', 'review'))
 );
-CREATE INDEX idx_task_events_task_at ON public.task_events (task_id, at DESC);
+CREATE INDEX idx_task_events_task_at ON pm.task_events (task_id, at DESC);
 
-ALTER TABLE public.task_events ENABLE ROW LEVEL SECURITY;
+ALTER TABLE pm.task_events ENABLE ROW LEVEL SECURITY;
 
 -- Readable with the task; only the triggers below write.
-CREATE POLICY task_events_select ON public.task_events FOR SELECT TO authenticated
-  USING (EXISTS (SELECT 1 FROM public.tasks t WHERE t.id = task_id));
+CREATE POLICY task_events_select ON pm.task_events FOR SELECT TO authenticated
+  USING (EXISTS (SELECT 1 FROM pm.tasks t WHERE t.id = task_id));
 
-REVOKE ALL ON public.task_events FROM anon, authenticated;
-GRANT SELECT ON public.task_events TO authenticated;
-GRANT ALL ON public.task_events TO service_role;
+REVOKE ALL ON pm.task_events FROM anon, authenticated;
+GRANT SELECT ON pm.task_events TO authenticated;
+GRANT ALL ON pm.task_events TO service_role;
 
 -- Records one change on a task. A task's own creation is not a change (its
 -- assignees, subtasks and email saved with it included), nor is anything on a
 -- task in Trash. One event per kind per actor per transaction: a save that
 -- rewrites five criteria is one edit.
-CREATE OR REPLACE FUNCTION public.record_task_event(p_task_id uuid, p_kind text)
+CREATE OR REPLACE FUNCTION pm.record_task_event(p_task_id uuid, p_kind text)
 RETURNS void
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
 DECLARE
   v_headers json;
@@ -14394,14 +14395,14 @@ DECLARE
   v_header text;
 BEGIN
   IF NOT EXISTS (
-    SELECT 1 FROM public.tasks
+    SELECT 1 FROM pm.tasks
     WHERE id = p_task_id AND deleted_at IS NULL AND created_at < now()
   ) THEN
     RETURN;
   END IF;
 
   IF auth.uid() IS NOT NULL THEN
-    v_member := public.current_team_member_id();
+    v_member := pm.current_team_member_id();
     v_via := 'app';
   ELSIF coalesce(auth.role(), '') = 'service_role' THEN
     BEGIN
@@ -14413,7 +14414,7 @@ BEGIN
     v_via := CASE WHEN v_via IN ('app', 'api', 'mcp') THEN v_via ELSE 'system' END;
     v_header := v_headers ->> 'x-actor-member-id';
     IF v_header ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN
-      SELECT id INTO v_member FROM public.team_members WHERE id = v_header::uuid;
+      SELECT id INTO v_member FROM pm.team_members WHERE id = v_header::uuid;
     END IF;
     -- The app's routes always act for a person; without one it is the server.
     IF v_via = 'app' AND v_member IS NULL THEN
@@ -14424,25 +14425,25 @@ BEGIN
   END IF;
 
   IF EXISTS (
-    SELECT 1 FROM public.task_events
+    SELECT 1 FROM pm.task_events
     WHERE task_id = p_task_id AND at = now() AND kind = p_kind
       AND via = v_via AND member_id IS NOT DISTINCT FROM v_member
   ) THEN
     RETURN;
   END IF;
 
-  INSERT INTO public.task_events (task_id, member_id, via, kind)
+  INSERT INTO pm.task_events (task_id, member_id, via, kind)
   VALUES (p_task_id, v_member, v_via, p_kind);
 END;
 $$;
 
 -- The task's own fields. Reordering, the completion stamp, Trash and the
 -- source stamp are not changes anyone needs to read.
-CREATE OR REPLACE FUNCTION public.record_task_row_event()
+CREATE OR REPLACE FUNCTION pm.record_task_row_event()
 RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
 DECLARE
   v_ignore text[] := ARRAY['sort_order', 'completed_at', 'created_at', 'updated_at', 'deleted_at', 'deleted_by',
@@ -14456,84 +14457,84 @@ BEGIN
     v_ignore := v_ignore || ARRAY['project_id', 'project_goal_id'];
   END IF;
   IF NEW.status IS DISTINCT FROM OLD.status THEN
-    PERFORM public.record_task_event(NEW.id, 'status');
-  ELSIF cardinality(public.activity_changed_fields(to_jsonb(NEW), to_jsonb(OLD), v_ignore)) > 0 THEN
-    PERFORM public.record_task_event(NEW.id, 'edit');
+    PERFORM pm.record_task_event(NEW.id, 'status');
+  ELSIF cardinality(pm.activity_changed_fields(to_jsonb(NEW), to_jsonb(OLD), v_ignore)) > 0 THEN
+    PERFORM pm.record_task_event(NEW.id, 'edit');
   END IF;
   RETURN NULL;
 END;
 $$;
 
 -- Everything kept beside the task. TG_ARGV[0] is the kind.
-CREATE OR REPLACE FUNCTION public.record_task_child_event()
+CREATE OR REPLACE FUNCTION pm.record_task_child_event()
 RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
 BEGIN
   IF TG_OP = 'DELETE' THEN
-    PERFORM public.record_task_event(OLD.task_id, TG_ARGV[0]);
+    PERFORM pm.record_task_event(OLD.task_id, TG_ARGV[0]);
   ELSE
-    PERFORM public.record_task_event(NEW.task_id, TG_ARGV[0]);
+    PERFORM pm.record_task_event(NEW.task_id, TG_ARGV[0]);
   END IF;
   RETURN NULL;
 END;
 $$;
 
-CREATE TRIGGER record_task_event AFTER UPDATE ON public.tasks
-  FOR EACH ROW EXECUTE FUNCTION public.record_task_row_event();
+CREATE TRIGGER record_task_event AFTER UPDATE ON pm.tasks
+  FOR EACH ROW EXECUTE FUNCTION pm.record_task_row_event();
 
-CREATE TRIGGER record_task_event AFTER INSERT ON public.task_comments
-  FOR EACH ROW EXECUTE FUNCTION public.record_task_child_event('comment');
+CREATE TRIGGER record_task_event AFTER INSERT ON pm.task_comments
+  FOR EACH ROW EXECUTE FUNCTION pm.record_task_child_event('comment');
 
 -- A linked email or meeting, said as which it is.
-CREATE OR REPLACE FUNCTION public.record_task_link_event()
+CREATE OR REPLACE FUNCTION pm.record_task_link_event()
 RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
 BEGIN
-  PERFORM public.record_task_event(NEW.task_id, CASE
-    WHEN EXISTS (SELECT 1 FROM communications.messages m WHERE m.id = NEW.message_id AND m.channel = 'meeting') THEN 'meeting'
+  PERFORM pm.record_task_event(NEW.task_id, CASE
+    WHEN EXISTS (SELECT 1 FROM pm.messages m WHERE m.id = NEW.message_id AND m.channel = 'meeting') THEN 'meeting'
     ELSE 'email'
   END);
   RETURN NULL;
 END;
 $$;
 
-CREATE TRIGGER record_task_event AFTER INSERT ON communications.task_links
-  FOR EACH ROW EXECUTE FUNCTION public.record_task_link_event();
+CREATE TRIGGER record_task_event AFTER INSERT ON pm.task_links
+  FOR EACH ROW EXECUTE FUNCTION pm.record_task_link_event();
 
-CREATE TRIGGER record_task_event AFTER INSERT ON public.task_files
+CREATE TRIGGER record_task_event AFTER INSERT ON pm.task_files
   FOR EACH ROW WHEN (NEW.deleted_at IS NULL)
-  EXECUTE FUNCTION public.record_task_child_event('file');
+  EXECUTE FUNCTION pm.record_task_child_event('file');
 
-CREATE TRIGGER record_task_event AFTER INSERT OR UPDATE OF title, completed ON public.task_subtasks
-  FOR EACH ROW EXECUTE FUNCTION public.record_task_child_event('subtask');
+CREATE TRIGGER record_task_event AFTER INSERT OR UPDATE OF title, completed ON pm.task_subtasks
+  FOR EACH ROW EXECUTE FUNCTION pm.record_task_child_event('subtask');
 
-CREATE TRIGGER record_task_event AFTER INSERT OR DELETE ON public.task_assignees
-  FOR EACH ROW EXECUTE FUNCTION public.record_task_child_event('assignee');
+CREATE TRIGGER record_task_event AFTER INSERT OR DELETE ON pm.task_assignees
+  FOR EACH ROW EXECUTE FUNCTION pm.record_task_child_event('assignee');
 
-CREATE TRIGGER record_task_event AFTER INSERT OR DELETE ON public.task_dependencies
-  FOR EACH ROW EXECUTE FUNCTION public.record_task_child_event('edit');
+CREATE TRIGGER record_task_event AFTER INSERT OR DELETE ON pm.task_dependencies
+  FOR EACH ROW EXECUTE FUNCTION pm.record_task_child_event('edit');
 
-CREATE TRIGGER record_task_event AFTER INSERT OR DELETE OR UPDATE OF criterion, satisfied ON public.task_acceptance_criteria
-  FOR EACH ROW EXECUTE FUNCTION public.record_task_child_event('edit');
+CREATE TRIGGER record_task_event AFTER INSERT OR DELETE OR UPDATE OF criterion, satisfied ON pm.task_acceptance_criteria
+  FOR EACH ROW EXECUTE FUNCTION pm.record_task_child_event('edit');
 
-CREATE TRIGGER record_task_event AFTER INSERT ON public.task_reviews
-  FOR EACH ROW EXECUTE FUNCTION public.record_task_child_event('review');
+CREATE TRIGGER record_task_event AFTER INSERT ON pm.task_reviews
+  FOR EACH ROW EXECUTE FUNCTION pm.record_task_child_event('review');
 
-REVOKE ALL ON FUNCTION public.record_task_event(uuid, text) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.record_task_row_event() FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.record_task_child_event() FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.record_task_link_event() FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION pm.record_task_event(uuid, text) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION pm.record_task_row_event() FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION pm.record_task_child_event() FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION pm.record_task_link_event() FROM PUBLIC, anon, authenticated;
 
 -- Every live task the signed-in member can see with changes they have not
 -- seen: when they last looked (null if never), how many changes of each
 -- kind, and the latest one.
-CREATE OR REPLACE FUNCTION public.my_task_updates()
+CREATE OR REPLACE FUNCTION pm.my_task_updates()
 RETURNS TABLE (
   task_id uuid,
   seen_at timestamptz,
@@ -14547,16 +14548,16 @@ RETURNS TABLE (
 LANGUAGE sql
 STABLE
 SECURITY INVOKER
-SET search_path = public
+SET search_path = pm
 AS $$
   WITH me AS (
-    SELECT public.current_team_member_id() AS id
+    SELECT pm.current_team_member_id() AS id
   ), unseen AS (
     SELECT e.id, e.task_id, e.at, e.member_id, e.via, e.kind, v.seen_at
-    FROM public.task_events e
-    JOIN public.tasks t ON t.id = e.task_id AND t.deleted_at IS NULL
+    FROM pm.task_events e
+    JOIN pm.tasks t ON t.id = e.task_id AND t.deleted_at IS NULL
     CROSS JOIN me
-    LEFT JOIN public.task_views v ON v.task_id = e.task_id AND v.member_id = me.id
+    LEFT JOIN pm.task_views v ON v.task_id = e.task_id AND v.member_id = me.id
     WHERE me.id IS NOT NULL
       AND e.at > coalesce(v.seen_at, '-infinity'::timestamptz)
       AND NOT (e.via = 'app' AND e.member_id IS NOT DISTINCT FROM me.id)
@@ -14574,16 +14575,16 @@ AS $$
   JOIN per_kind p ON p.task_id = l.task_id
 $$;
 
-REVOKE ALL ON FUNCTION public.my_task_updates() FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.my_task_updates() TO authenticated;
+REVOKE ALL ON FUNCTION pm.my_task_updates() FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION pm.my_task_updates() TO authenticated;
 
 -- Mark all read: many tasks seen at once. Tasks the member cannot see are
 -- skipped, never an error.
-CREATE OR REPLACE FUNCTION public.mark_tasks_seen(p_task_ids uuid[])
+CREATE OR REPLACE FUNCTION pm.mark_tasks_seen(p_task_ids uuid[])
 RETURNS integer
 LANGUAGE plpgsql
 SECURITY INVOKER
-SET search_path = public
+SET search_path = pm
 AS $$
 DECLARE
   v_count integer;
@@ -14591,9 +14592,9 @@ BEGIN
   IF cardinality(p_task_ids) > 1000 THEN
     RAISE EXCEPTION 'Mark at most 1000 tasks at once' USING ERRCODE = '22023';
   END IF;
-  INSERT INTO public.task_views (task_id, member_id)
-  SELECT t.id, public.current_team_member_id()
-  FROM public.tasks t
+  INSERT INTO pm.task_views (task_id, member_id)
+  SELECT t.id, pm.current_team_member_id()
+  FROM pm.tasks t
   WHERE t.id = ANY (coalesce(p_task_ids, ARRAY[]::uuid[]))
   ON CONFLICT (task_id, member_id) DO UPDATE SET seen_at = now();
   GET DIAGNOSTICS v_count = ROW_COUNT;
@@ -14601,8 +14602,8 @@ BEGIN
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.mark_tasks_seen(uuid[]) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.mark_tasks_seen(uuid[]) TO authenticated;
+REVOKE ALL ON FUNCTION pm.mark_tasks_seen(uuid[]) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION pm.mark_tasks_seen(uuid[]) TO authenticated;
 
 -- Live: a change shows on the cards as it happens, and a look on one device
 -- clears it on the others.
@@ -14613,8 +14614,8 @@ BEGIN
   IF EXISTS (SELECT 1 FROM pg_publication WHERE pubname = 'supabase_realtime') THEN
     FOREACH t IN ARRAY ARRAY['task_events', 'task_views'] LOOP
       IF NOT EXISTS (SELECT 1 FROM pg_publication_tables
-                     WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = t) THEN
-        EXECUTE format('ALTER PUBLICATION supabase_realtime ADD TABLE public.%I', t);
+                     WHERE pubname = 'supabase_realtime' AND schemaname = 'pm' AND tablename = t) THEN
+        EXECUTE format('ALTER PUBLICATION supabase_realtime ADD TABLE pm.%I', t);
       END IF;
     END LOOP;
   END IF;
@@ -14633,7 +14634,7 @@ END $$;
 
 -- task_subtasks (the old text subtasks, copied into tasks) is read-only; the
 -- app and API write tasks. A later migration drops it.
-CREATE OR REPLACE FUNCTION public.forbid_text_subtask_writes()
+CREATE OR REPLACE FUNCTION pm.forbid_text_subtask_writes()
 RETURNS trigger
 LANGUAGE plpgsql
 AS $$
@@ -14642,47 +14643,47 @@ BEGIN
     USING ERRCODE = '55000';
 END;
 $$;
-REVOKE ALL ON FUNCTION public.forbid_text_subtask_writes() FROM PUBLIC, anon, authenticated;
-CREATE TRIGGER forbid_text_subtask_writes BEFORE INSERT OR UPDATE ON public.task_subtasks
-  FOR EACH ROW EXECUTE FUNCTION public.forbid_text_subtask_writes();
+REVOKE ALL ON FUNCTION pm.forbid_text_subtask_writes() FROM PUBLIC, anon, authenticated;
+CREATE TRIGGER forbid_text_subtask_writes BEFORE INSERT OR UPDATE ON pm.task_subtasks
+  FOR EACH ROW EXECUTE FUNCTION pm.forbid_text_subtask_writes();
 
 -- ---------------------------------------------------------------------------
 -- Who may manage a task
 -- ---------------------------------------------------------------------------
 -- The signed-in member may change it: manage all tasks, or manage assigned
 -- ones and be on it or on its parent.
-CREATE OR REPLACE FUNCTION public.can_manage_task(p_task_id uuid)
+CREATE OR REPLACE FUNCTION pm.can_manage_task(p_task_id uuid)
 RETURNS boolean
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
-  SELECT public.can_access_task(p_task_id) AND (
-    public.has_permission('tasks.manage_all') OR (
-      public.has_permission('tasks.manage_assigned') AND EXISTS (
-        SELECT 1 FROM public.tasks task
-        JOIN public.task_assignees assignment
+  SELECT pm.can_access_task(p_task_id) AND (
+    pm.has_permission('tasks.manage_all') OR (
+      pm.has_permission('tasks.manage_assigned') AND EXISTS (
+        SELECT 1 FROM pm.tasks task
+        JOIN pm.task_assignees assignment
           ON assignment.task_id IN (task.id, task.parent_task_id)
-        WHERE task.id = p_task_id AND assignment.member_id = public.current_team_member_id()
+        WHERE task.id = p_task_id AND assignment.member_id = pm.current_team_member_id()
       )
     )
   )
 $$;
-REVOKE ALL ON FUNCTION public.can_manage_task(uuid) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.can_manage_task(uuid) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.can_manage_task(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION pm.can_manage_task(uuid) TO authenticated, service_role;
 
 -- ---------------------------------------------------------------------------
 -- The rules, for every writer
 -- ---------------------------------------------------------------------------
-CREATE OR REPLACE FUNCTION public.enforce_task_parent()
+CREATE OR REPLACE FUNCTION pm.enforce_task_parent()
 RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
 DECLARE
-  v_parent public.tasks;
+  v_parent pm.tasks;
   v_children integer;
   v_parent_changed boolean := TG_OP = 'INSERT' OR NEW.parent_task_id IS DISTINCT FROM OLD.parent_task_id;
 BEGIN
@@ -14695,7 +14696,7 @@ BEGIN
   END IF;
 
   -- Locked so a parent cannot become a subtask while a subtask joins it.
-  SELECT * INTO v_parent FROM public.tasks WHERE id = NEW.parent_task_id FOR SHARE;
+  SELECT * INTO v_parent FROM pm.tasks WHERE id = NEW.parent_task_id FOR SHARE;
   IF v_parent.id IS NULL OR v_parent.deleted_at IS NOT NULL THEN
     RAISE EXCEPTION 'The parent task is not there or is in Trash.' USING ERRCODE = 'P0002';
   END IF;
@@ -14703,7 +14704,7 @@ BEGIN
     RAISE EXCEPTION 'Subtasks go one level deep: "%" is itself a subtask.', v_parent.title USING ERRCODE = '23514';
   END IF;
   IF TG_OP = 'UPDATE' THEN
-    SELECT count(*) INTO v_children FROM public.tasks WHERE parent_task_id = NEW.id AND deleted_at IS NULL;
+    SELECT count(*) INTO v_children FROM pm.tasks WHERE parent_task_id = NEW.id AND deleted_at IS NULL;
     IF v_children > 0 THEN
       RAISE EXCEPTION 'It has % subtask%. Make them top-level or move them first.',
         v_children, CASE WHEN v_children = 1 THEN '' ELSE 's' END USING ERRCODE = '23514';
@@ -14715,57 +14716,57 @@ BEGIN
   END IF;
   -- A signed-in member needs to be able to manage the parent; the server
   -- routes check a key's rights themselves.
-  IF v_parent_changed AND auth.uid() IS NOT NULL AND NOT public.can_manage_task(v_parent.id) THEN
+  IF v_parent_changed AND auth.uid() IS NOT NULL AND NOT pm.can_manage_task(v_parent.id) THEN
     RAISE EXCEPTION 'You cannot add subtasks to "%".', v_parent.title USING ERRCODE = '42501';
   END IF;
   RETURN NEW;
 END;
 $$;
-REVOKE ALL ON FUNCTION public.enforce_task_parent() FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION pm.enforce_task_parent() FROM PUBLIC, anon, authenticated;
 CREATE TRIGGER enforce_task_parent
-  BEFORE INSERT OR UPDATE OF parent_task_id, project_id, deleted_at ON public.tasks
-  FOR EACH ROW EXECUTE FUNCTION public.enforce_task_parent();
+  BEFORE INSERT OR UPDATE OF parent_task_id, project_id, deleted_at ON pm.tasks
+  FOR EACH ROW EXECUTE FUNCTION pm.enforce_task_parent();
 
 -- A parent's subtasks follow it to another project (those in Trash too, so a
 -- restore lands them beside it) and take its goal, since the old project's
 -- goals do not apply there.
-CREATE OR REPLACE FUNCTION public.move_subtasks_with_parent()
+CREATE OR REPLACE FUNCTION pm.move_subtasks_with_parent()
 RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
 BEGIN
-  UPDATE public.tasks
+  UPDATE pm.tasks
   SET project_id = NEW.project_id, project_goal_id = NEW.project_goal_id
   WHERE parent_task_id = NEW.id AND project_id IS DISTINCT FROM NEW.project_id;
   RETURN NULL;
 END;
 $$;
-REVOKE ALL ON FUNCTION public.move_subtasks_with_parent() FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION pm.move_subtasks_with_parent() FROM PUBLIC, anon, authenticated;
 CREATE TRIGGER move_subtasks_with_parent
-  AFTER UPDATE OF project_id ON public.tasks
+  AFTER UPDATE OF project_id ON pm.tasks
   FOR EACH ROW WHEN (NEW.project_id IS DISTINCT FROM OLD.project_id AND NEW.parent_task_id IS NULL)
-  EXECUTE FUNCTION public.move_subtasks_with_parent();
+  EXECUTE FUNCTION pm.move_subtasks_with_parent();
 
 -- Nest a task under a parent (p_parent_id) or make it top-level (null). It
 -- goes last among its new siblings. Under a parent in another project it
 -- moves there and takes the parent's goal; that needs tasks.manage_all for a
 -- signed-in member, and no blocker links (they must stay inside one project).
 -- Runs as the caller, so the task's own update rules still apply.
-CREATE OR REPLACE FUNCTION public.set_task_parent(p_task_id uuid, p_parent_id uuid)
+CREATE OR REPLACE FUNCTION pm.set_task_parent(p_task_id uuid, p_parent_id uuid)
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY INVOKER
-SET search_path = public
+SET search_path = pm
 AS $$
 DECLARE
-  v_task public.tasks;
-  v_parent public.tasks;
+  v_task pm.tasks;
+  v_parent pm.tasks;
   v_goal uuid;
   v_order integer;
 BEGIN
-  SELECT * INTO v_task FROM public.tasks WHERE id = p_task_id AND deleted_at IS NULL FOR UPDATE;
+  SELECT * INTO v_task FROM pm.tasks WHERE id = p_task_id AND deleted_at IS NULL FOR UPDATE;
   IF v_task.id IS NULL THEN
     RAISE EXCEPTION 'Task not found' USING ERRCODE = 'P0002';
   END IF;
@@ -14774,32 +14775,32 @@ BEGIN
   END IF;
 
   IF p_parent_id IS NULL THEN
-    SELECT coalesce(max(sort_order) + 1, 0) INTO v_order FROM public.tasks
+    SELECT coalesce(max(sort_order) + 1, 0) INTO v_order FROM pm.tasks
     WHERE project_id = v_task.project_id AND parent_task_id IS NULL AND status = v_task.status AND deleted_at IS NULL;
-    UPDATE public.tasks SET parent_task_id = NULL, sort_order = v_order
+    UPDATE pm.tasks SET parent_task_id = NULL, sort_order = v_order
     WHERE id = p_task_id RETURNING * INTO v_task;
   ELSE
     IF p_parent_id = p_task_id THEN
       RAISE EXCEPTION 'A task cannot be its own subtask.' USING ERRCODE = '23514';
     END IF;
-    SELECT * INTO v_parent FROM public.tasks WHERE id = p_parent_id AND deleted_at IS NULL;
+    SELECT * INTO v_parent FROM pm.tasks WHERE id = p_parent_id AND deleted_at IS NULL;
     IF v_parent.id IS NULL THEN
       RAISE EXCEPTION 'The parent task is not there or is in Trash.' USING ERRCODE = 'P0002';
     END IF;
     v_goal := v_task.project_goal_id;
     IF v_parent.project_id <> v_task.project_id THEN
-      IF auth.uid() IS NOT NULL AND NOT public.has_permission('tasks.manage_all') THEN
+      IF auth.uid() IS NOT NULL AND NOT pm.has_permission('tasks.manage_all') THEN
         RAISE EXCEPTION 'Moving a task to another project needs permission to manage all tasks.' USING ERRCODE = '42501';
       END IF;
-      IF EXISTS (SELECT 1 FROM public.task_dependencies WHERE task_id = p_task_id OR blocked_by_task_id = p_task_id) THEN
+      IF EXISTS (SELECT 1 FROM pm.task_dependencies WHERE task_id = p_task_id OR blocked_by_task_id = p_task_id) THEN
         RAISE EXCEPTION 'It is blocked by, or blocks, tasks in its own project. Remove those links before moving it to another project.'
           USING ERRCODE = '23514';
       END IF;
       v_goal := v_parent.project_goal_id;
     END IF;
-    SELECT coalesce(max(sort_order) + 1, 0) INTO v_order FROM public.tasks
+    SELECT coalesce(max(sort_order) + 1, 0) INTO v_order FROM pm.tasks
     WHERE parent_task_id = p_parent_id AND deleted_at IS NULL;
-    UPDATE public.tasks
+    UPDATE pm.tasks
     SET parent_task_id = p_parent_id, project_id = v_parent.project_id, project_goal_id = v_goal, sort_order = v_order
     WHERE id = p_task_id RETURNING * INTO v_task;
   END IF;
@@ -14810,47 +14811,47 @@ BEGIN
   RETURN to_jsonb(v_task);
 END;
 $$;
-REVOKE ALL ON FUNCTION public.set_task_parent(uuid, uuid) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.set_task_parent(uuid, uuid) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.set_task_parent(uuid, uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION pm.set_task_parent(uuid, uuid) TO authenticated, service_role;
 
 -- A subtask added, finished or reopened, renamed, sent to Trash or back, or
 -- moved in or out is news on its parent too (as "subtask"), besides being
 -- the subtask's own change.
-CREATE OR REPLACE FUNCTION public.record_subtask_parent_event()
+CREATE OR REPLACE FUNCTION pm.record_subtask_parent_event()
 RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
 BEGIN
   IF TG_OP = 'INSERT' THEN
     IF NEW.parent_task_id IS NOT NULL AND NEW.deleted_at IS NULL THEN
-      PERFORM public.record_task_event(NEW.parent_task_id, 'subtask');
+      PERFORM pm.record_task_event(NEW.parent_task_id, 'subtask');
     END IF;
     RETURN NULL;
   END IF;
   IF NEW.parent_task_id IS DISTINCT FROM OLD.parent_task_id THEN
     IF OLD.parent_task_id IS NOT NULL THEN
-      PERFORM public.record_task_event(OLD.parent_task_id, 'subtask');
+      PERFORM pm.record_task_event(OLD.parent_task_id, 'subtask');
     END IF;
     IF NEW.parent_task_id IS NOT NULL THEN
-      PERFORM public.record_task_event(NEW.parent_task_id, 'subtask');
+      PERFORM pm.record_task_event(NEW.parent_task_id, 'subtask');
     END IF;
   ELSIF NEW.parent_task_id IS NOT NULL AND (
     (NEW.status = 'done') IS DISTINCT FROM (OLD.status = 'done')
     OR NEW.deleted_at IS DISTINCT FROM OLD.deleted_at
     OR NEW.title IS DISTINCT FROM OLD.title
   ) THEN
-    PERFORM public.record_task_event(NEW.parent_task_id, 'subtask');
+    PERFORM pm.record_task_event(NEW.parent_task_id, 'subtask');
   END IF;
   RETURN NULL;
 END;
 $$;
-REVOKE ALL ON FUNCTION public.record_subtask_parent_event() FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION pm.record_subtask_parent_event() FROM PUBLIC, anon, authenticated;
 
 CREATE TRIGGER record_subtask_parent_event
-  AFTER INSERT OR UPDATE OF parent_task_id, status, deleted_at, title ON public.tasks
-  FOR EACH ROW EXECUTE FUNCTION public.record_subtask_parent_event();
+  AFTER INSERT OR UPDATE OF parent_task_id, status, deleted_at, title ON pm.tasks
+  FOR EACH ROW EXECUTE FUNCTION pm.record_subtask_parent_event();
 
 -- ============================================================
 -- AI AGENT TABLES, API KEYS FOR AGENTS AND THE API AUDIT LOG
@@ -14861,68 +14862,68 @@ CREATE TRIGGER record_subtask_parent_event
 -- ============================================================
 
 -- 1a. Add 'agent' role to team_members
-ALTER TABLE public.team_members
+ALTER TABLE pm.team_members
   DROP CONSTRAINT IF EXISTS team_members_role_check,
   ADD CONSTRAINT team_members_role_check CHECK (role IN ('owner', 'admin', 'member', 'guest', 'agent'));
 
 -- 1b. Add team_member_id to api_keys (links API key to an agent member)
-ALTER TABLE public.api_keys
-  ADD COLUMN IF NOT EXISTS team_member_id uuid REFERENCES public.team_members(id) ON DELETE SET NULL;
+ALTER TABLE pm.api_keys
+  ADD COLUMN IF NOT EXISTS team_member_id uuid REFERENCES pm.team_members(id) ON DELETE SET NULL;
 
-CREATE INDEX IF NOT EXISTS idx_api_keys_team_member_id ON public.api_keys(team_member_id);
+CREATE INDEX IF NOT EXISTS idx_api_keys_team_member_id ON pm.api_keys(team_member_id);
 
 -- 1c. Add 'suggestion', 'goal', and 'question' to team_member_notifications entity_type
 -- (the full current list, same as schema.sql: 'invoice' and 'reminder' came later).
-ALTER TABLE public.team_member_notifications
+ALTER TABLE pm.team_member_notifications
   DROP CONSTRAINT IF EXISTS team_member_notifications_entity_type_check;
-ALTER TABLE public.team_member_notifications
+ALTER TABLE pm.team_member_notifications
   ADD CONSTRAINT team_member_notifications_entity_type_check
     CHECK (entity_type IN ('task', 'project', 'lead', 'comment', 'member', 'contact', 'suggestion', 'goal', 'question', 'invoice', 'reminder'));
 
 -- ============================================================
 -- 2. PROJECT GOALS
 -- ============================================================
-CREATE TABLE public.project_goals (
+CREATE TABLE pm.project_goals (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  project_id uuid NOT NULL REFERENCES public.projects(id) ON DELETE CASCADE,
+  project_id uuid NOT NULL REFERENCES pm.projects(id) ON DELETE CASCADE,
   title text NOT NULL,
   description text NOT NULL DEFAULT '',
   target_date text,
   status text NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'achieved', 'paused', 'abandoned')),
-  created_by uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
+  created_by uuid REFERENCES pm.team_members(id) ON DELETE SET NULL,
   archived_at timestamptz,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE INDEX idx_project_goals_project_id ON public.project_goals(project_id);
-CREATE INDEX idx_project_goals_status ON public.project_goals(status);
-CREATE INDEX idx_project_goals_archived_at ON public.project_goals(archived_at) WHERE archived_at IS NULL;
+CREATE INDEX idx_project_goals_project_id ON pm.project_goals(project_id);
+CREATE INDEX idx_project_goals_status ON pm.project_goals(status);
+CREATE INDEX idx_project_goals_archived_at ON pm.project_goals(archived_at) WHERE archived_at IS NULL;
 
-ALTER TABLE public.project_goals ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "project_goals_all" ON public.project_goals FOR ALL TO authenticated USING (true) WITH CHECK (true);
-CREATE TRIGGER set_project_goals_updated_at BEFORE UPDATE ON public.project_goals FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
+ALTER TABLE pm.project_goals ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "project_goals_all" ON pm.project_goals FOR ALL TO authenticated USING (true) WITH CHECK (true);
+CREATE TRIGGER set_project_goals_updated_at BEFORE UPDATE ON pm.project_goals FOR EACH ROW EXECUTE FUNCTION pm.handle_updated_at();
 
 -- ============================================================
 -- 3. TASK SUGGESTIONS
 -- ============================================================
-CREATE TABLE public.task_suggestions (
+CREATE TABLE pm.task_suggestions (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  project_id uuid NOT NULL REFERENCES public.projects(id) ON DELETE CASCADE,
-  goal_id uuid NOT NULL REFERENCES public.project_goals(id) ON DELETE CASCADE,
-  proposed_by uuid NOT NULL REFERENCES public.team_members(id) ON DELETE CASCADE,
-  assigned_to uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
+  project_id uuid NOT NULL REFERENCES pm.projects(id) ON DELETE CASCADE,
+  goal_id uuid NOT NULL REFERENCES pm.project_goals(id) ON DELETE CASCADE,
+  proposed_by uuid NOT NULL REFERENCES pm.team_members(id) ON DELETE CASCADE,
+  assigned_to uuid REFERENCES pm.team_members(id) ON DELETE SET NULL,
   title text NOT NULL,
   description text NOT NULL,
   reasoning text NOT NULL,
   priority text NOT NULL DEFAULT 'medium' CHECK (priority IN ('low', 'medium', 'high', 'urgent')),
   effort_estimate text CHECK (effort_estimate IN ('small', 'medium', 'large') OR effort_estimate IS NULL),
   status text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'needs_info', 'approved', 'rejected', 'declined')),
-  reviewed_by uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
+  reviewed_by uuid REFERENCES pm.team_members(id) ON DELETE SET NULL,
   reviewed_at timestamptz,
   rejection_reason text,
   info_request text,
-  converted_task_id uuid REFERENCES public.tasks(id) ON DELETE SET NULL,
+  converted_task_id uuid REFERENCES pm.tasks(id) ON DELETE SET NULL,
   metadata jsonb NOT NULL DEFAULT '{}',
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
@@ -14931,62 +14932,62 @@ CREATE TABLE public.task_suggestions (
   -- approving a subset composes ONE task. NULL means unbundled.
   bundle_key uuid);
 
-CREATE INDEX idx_task_suggestions_project_id ON public.task_suggestions(project_id);
-CREATE INDEX idx_task_suggestions_bundle ON public.task_suggestions(bundle_key) WHERE bundle_key IS NOT NULL;
-CREATE INDEX idx_task_suggestions_goal_id ON public.task_suggestions(goal_id);
-CREATE INDEX idx_task_suggestions_proposed_by ON public.task_suggestions(proposed_by);
-CREATE INDEX idx_task_suggestions_status ON public.task_suggestions(status);
-CREATE INDEX idx_task_suggestions_converted_task_id ON public.task_suggestions(converted_task_id) WHERE converted_task_id IS NOT NULL;
+CREATE INDEX idx_task_suggestions_project_id ON pm.task_suggestions(project_id);
+CREATE INDEX idx_task_suggestions_bundle ON pm.task_suggestions(bundle_key) WHERE bundle_key IS NOT NULL;
+CREATE INDEX idx_task_suggestions_goal_id ON pm.task_suggestions(goal_id);
+CREATE INDEX idx_task_suggestions_proposed_by ON pm.task_suggestions(proposed_by);
+CREATE INDEX idx_task_suggestions_status ON pm.task_suggestions(status);
+CREATE INDEX idx_task_suggestions_converted_task_id ON pm.task_suggestions(converted_task_id) WHERE converted_task_id IS NOT NULL;
 
-ALTER TABLE public.task_suggestions ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "task_suggestions_all" ON public.task_suggestions FOR ALL TO authenticated USING (true) WITH CHECK (true);
+ALTER TABLE pm.task_suggestions ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "task_suggestions_all" ON pm.task_suggestions FOR ALL TO authenticated USING (true) WITH CHECK (true);
 -- Greg's nudge says a project's findings wait on a review. It goes once none do.
-CREATE OR REPLACE FUNCTION public.sync_findings_notification()
+CREATE OR REPLACE FUNCTION pm.sync_findings_notification()
 RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
 BEGIN
   IF NOT EXISTS (
-    SELECT 1 FROM public.task_suggestions
+    SELECT 1 FROM pm.task_suggestions
     WHERE project_id = NEW.project_id AND status IN ('pending', 'needs_info')
   ) THEN
-    PERFORM public.set_notifications_cleared('project', NEW.project_id::text, true, 'Greg''s findings are waiting on you');
+    PERFORM pm.set_notifications_cleared('project', NEW.project_id::text, true, 'Greg''s findings are waiting on you');
   END IF;
   RETURN NULL;
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.sync_findings_notification() FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION pm.sync_findings_notification() FROM PUBLIC, anon, authenticated;
 
-DROP TRIGGER IF EXISTS sync_findings_notification ON public.task_suggestions;
+DROP TRIGGER IF EXISTS sync_findings_notification ON pm.task_suggestions;
 CREATE TRIGGER sync_findings_notification
-  AFTER UPDATE OF status ON public.task_suggestions
+  AFTER UPDATE OF status ON pm.task_suggestions
   FOR EACH ROW
   WHEN (NEW.status IS DISTINCT FROM OLD.status)
-  EXECUTE FUNCTION public.sync_findings_notification();
+  EXECUTE FUNCTION pm.sync_findings_notification();
 
-CREATE TRIGGER set_task_suggestions_updated_at BEFORE UPDATE ON public.task_suggestions FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
+CREATE TRIGGER set_task_suggestions_updated_at BEFORE UPDATE ON pm.task_suggestions FOR EACH ROW EXECUTE FUNCTION pm.handle_updated_at();
 
 -- ============================================================
 -- 4. Add goal_id and source_task_suggestion_id to tasks
 -- ============================================================
-ALTER TABLE public.tasks
-  ADD COLUMN IF NOT EXISTS project_goal_id uuid REFERENCES public.project_goals(id) ON DELETE SET NULL,
-  ADD COLUMN IF NOT EXISTS source_task_suggestion_id uuid REFERENCES public.task_suggestions(id) ON DELETE SET NULL;
+ALTER TABLE pm.tasks
+  ADD COLUMN IF NOT EXISTS project_goal_id uuid REFERENCES pm.project_goals(id) ON DELETE SET NULL,
+  ADD COLUMN IF NOT EXISTS source_task_suggestion_id uuid REFERENCES pm.task_suggestions(id) ON DELETE SET NULL;
 
-CREATE INDEX IF NOT EXISTS idx_tasks_project_goal_id ON public.tasks(project_goal_id) WHERE project_goal_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_tasks_source_task_suggestion_id ON public.tasks(source_task_suggestion_id) WHERE source_task_suggestion_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_tasks_project_goal_id ON pm.tasks(project_goal_id) WHERE project_goal_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_tasks_source_task_suggestion_id ON pm.tasks(source_task_suggestion_id) WHERE source_task_suggestion_id IS NOT NULL;
 
 -- ============================================================
 -- 5. AGENT ACTIVITY
 -- ============================================================
-CREATE TABLE public.agent_activities (
+CREATE TABLE pm.agent_activities (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   -- Null only for a fleet host alert, which names no agent (see the check below).
-  agent_id uuid REFERENCES public.team_members(id) ON DELETE CASCADE,
-  project_id uuid REFERENCES public.projects(id) ON DELETE SET NULL,
+  agent_id uuid REFERENCES pm.team_members(id) ON DELETE CASCADE,
+  project_id uuid REFERENCES pm.projects(id) ON DELETE SET NULL,
   -- Legacy values are grandfathered; the typed vocabulary is owned by
   -- src/lib/agent-events.ts (payload schemas + server-generated titles).
   activity_type text NOT NULL CHECK (activity_type IN (
@@ -15022,43 +15023,43 @@ CREATE TABLE public.agent_activities (
   )
 );
 
-CREATE INDEX idx_agent_activities_agent_id ON public.agent_activities(agent_id);
-CREATE INDEX idx_agent_activities_project_id ON public.agent_activities(project_id);
-CREATE INDEX idx_agent_activities_activity_type ON public.agent_activities(activity_type);
-CREATE INDEX idx_agent_activities_created_at ON public.agent_activities(created_at DESC);
+CREATE INDEX idx_agent_activities_agent_id ON pm.agent_activities(agent_id);
+CREATE INDEX idx_agent_activities_project_id ON pm.agent_activities(project_id);
+CREATE INDEX idx_agent_activities_activity_type ON pm.agent_activities(activity_type);
+CREATE INDEX idx_agent_activities_created_at ON pm.agent_activities(created_at DESC);
 -- Retry-safe identity for events whose source can resend after an ambiguous
 -- network failure. Exact-string pr_url uniqueness is intentional; syntactic
 -- variants are deduplicated downstream by the analytics read model.
-CREATE UNIQUE INDEX idx_agent_activities_usage_identity ON public.agent_activities(agent_id, (metadata->>'source_usage_id'))
+CREATE UNIQUE INDEX idx_agent_activities_usage_identity ON pm.agent_activities(agent_id, (metadata->>'source_usage_id'))
   WHERE activity_type = 'usage.recorded' AND metadata->>'source_usage_id' IS NOT NULL;
-CREATE UNIQUE INDEX idx_agent_activities_merged_pr_identity ON public.agent_activities(agent_id, (metadata->>'pr_url'))
+CREATE UNIQUE INDEX idx_agent_activities_merged_pr_identity ON pm.agent_activities(agent_id, (metadata->>'pr_url'))
   WHERE activity_type = 'pr.merged' AND metadata->>'pr_url' IS NOT NULL;
-CREATE UNIQUE INDEX idx_agent_activities_turn_identity ON public.agent_activities(agent_id, (metadata->>'source_turn_id'))
+CREATE UNIQUE INDEX idx_agent_activities_turn_identity ON pm.agent_activities(agent_id, (metadata->>'source_turn_id'))
   WHERE activity_type = 'turn.completed' AND metadata->>'source_turn_id' IS NOT NULL;
 -- One identity space for host records; fleet rows share the zero uuid.
-CREATE UNIQUE INDEX idx_agent_activities_source_identity ON public.agent_activities(
+CREATE UNIQUE INDEX idx_agent_activities_source_identity ON pm.agent_activities(
   COALESCE(agent_id, '00000000-0000-0000-0000-000000000000'::uuid), activity_type, source_key)
   WHERE source_key IS NOT NULL;
 -- Runtime rollups read one agent's turns over a date window.
-CREATE INDEX idx_agent_activities_turn_created ON public.agent_activities(agent_id, created_at DESC)
+CREATE INDEX idx_agent_activities_turn_created ON pm.agent_activities(agent_id, created_at DESC)
   WHERE activity_type = 'turn.completed';
 
-ALTER TABLE public.agent_activities ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "agent_activities_all" ON public.agent_activities FOR ALL TO authenticated USING (true) WITH CHECK (true);
+ALTER TABLE pm.agent_activities ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "agent_activities_all" ON pm.agent_activities FOR ALL TO authenticated USING (true) WITH CHECK (true);
 
 -- Agent Analytics in one round trip (20261011033458_agent_analytics_window.sql).
 -- Range reads by type: every branch below filters activity_type then created_at.
 CREATE INDEX idx_agent_activities_type_created
-  on public.agent_activities (activity_type, created_at desc);
+  on pm.agent_activities (activity_type, created_at desc);
 
 -- Resend lookups for host records match agent, type and source_key exactly.
 CREATE INDEX idx_agent_activities_agent_source_key
-  on public.agent_activities (agent_id, activity_type, source_key)
+  on pm.agent_activities (agent_id, activity_type, source_key)
   where source_key is not null;
 
 -- A timestamp from a payload, or null when it does not parse, so one odd row
 -- can never fail the whole report.
-create or replace function public.agent_analytics_ts(p_value text)
+create or replace function pm.agent_analytics_ts(p_value text)
 returns timestamptz
 language plpgsql
 stable
@@ -15071,7 +15072,7 @@ end;
 $$;
 
 -- A non-negative integer from a payload, or 0.
-create or replace function public.agent_analytics_int(p_value text)
+create or replace function pm.agent_analytics_int(p_value text)
 returns bigint
 language plpgsql
 immutable
@@ -15083,7 +15084,7 @@ exception when others then
 end;
 $$;
 
-create or replace function public.agent_analytics_num(p_value text)
+create or replace function pm.agent_analytics_num(p_value text)
 returns numeric
 language plpgsql
 immutable
@@ -15099,12 +15100,12 @@ $$;
 -- p_late_to extends the read for telemetry recorded after the range (backfills
 -- post rows weeks after the event they describe). Security invoker: the
 -- caller's row-level security applies exactly as it does to a plain select.
-create or replace function public.agent_analytics_window(p_from timestamptz, p_to timestamptz, p_late_to timestamptz)
+create or replace function pm.agent_analytics_window(p_from timestamptz, p_to timestamptz, p_late_to timestamptz)
 returns jsonb
 language sql
 stable
 security invoker
-set search_path = public
+set search_path = pm
 as $$
   with turns as (
     select a.id, a.agent_id, a.created_at, a.metadata as m
@@ -15181,62 +15182,62 @@ as $$
   );
 $$;
 
-revoke all on function public.agent_analytics_window(timestamptz, timestamptz, timestamptz) from public;
-grant execute on function public.agent_analytics_window(timestamptz, timestamptz, timestamptz) to authenticated, service_role;
+revoke all on function pm.agent_analytics_window(timestamptz, timestamptz, timestamptz) from public;
+grant execute on function pm.agent_analytics_window(timestamptz, timestamptz, timestamptz) to authenticated, service_role;
 
 -- Billing gap reviews (20261010212024_agent_analytics_reviews.sql). The billing audit posts each stretch of Jeff's work
 -- that no time entry segment covers (agent_activities, billing.gap). Ciaran
 -- marks each one reconciled (he logged the time) or dismissed (it was not
 -- billable), with a note. A review never creates or changes a time entry, and
 -- the gap row itself stays immutable telemetry.
-CREATE TABLE public.agent_billing_gap_reviews (
-  activity_id uuid primary key references public.agent_activities(id) on delete cascade,
+CREATE TABLE pm.agent_billing_gap_reviews (
+  activity_id uuid primary key references pm.agent_activities(id) on delete cascade,
   status text not null check (status in ('reconciled', 'dismissed')),
   note text not null default '' check (char_length(note) <= 1000),
-  reviewed_by uuid references public.team_members(id) on delete set null,
+  reviewed_by uuid references pm.team_members(id) on delete set null,
   reviewed_at timestamptz not null default now()
 );
 
-alter table public.agent_billing_gap_reviews enable row level security;
+alter table pm.agent_billing_gap_reviews enable row level security;
 
-create policy agent_billing_gap_reviews_access on public.agent_billing_gap_reviews for all to authenticated
-  using (public.has_permission('agents.manage'))
-  with check (public.has_permission('agents.manage'));
+create policy agent_billing_gap_reviews_access on pm.agent_billing_gap_reviews for all to authenticated
+  using (pm.has_permission('agents.manage'))
+  with check (pm.has_permission('agents.manage'));
 
-grant select, insert, update, delete on public.agent_billing_gap_reviews to authenticated;
+grant select, insert, update, delete on pm.agent_billing_gap_reviews to authenticated;
 
 -- Who reviewed and when is the database's to say, not the client's.
-create or replace function public.stamp_billing_gap_review()
+create or replace function pm.stamp_billing_gap_review()
 returns trigger
 language plpgsql
 security definer
-set search_path = public
+set search_path = pm
 as $$
 begin
-  new.reviewed_by := public.current_team_member_id();
+  new.reviewed_by := pm.current_team_member_id();
   new.reviewed_at := now();
   return new;
 end;
 $$;
 
-revoke all on function public.stamp_billing_gap_review() from public;
+revoke all on function pm.stamp_billing_gap_review() from public;
 
 create trigger stamp_billing_gap_review
-  before insert or update on public.agent_billing_gap_reviews
-  for each row execute function public.stamp_billing_gap_review();
+  before insert or update on pm.agent_billing_gap_reviews
+  for each row execute function pm.stamp_billing_gap_review();
 
 -- ============================================================
 -- 6. API AUDIT LOG (NOT gated behind ENABLE_AGENTS)
 -- ============================================================
-CREATE TABLE public.api_audit_log (
+CREATE TABLE pm.api_audit_log (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   timestamp timestamptz NOT NULL DEFAULT now(),
   method text NOT NULL,
   endpoint text NOT NULL,
   entity_type text,
   entity_id uuid,
-  api_key_id uuid REFERENCES public.api_keys(id) ON DELETE SET NULL,
-  team_member_id uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
+  api_key_id uuid REFERENCES pm.api_keys(id) ON DELETE SET NULL,
+  team_member_id uuid REFERENCES pm.team_members(id) ON DELETE SET NULL,
   request_body jsonb,
   before_snapshot jsonb,
   after_snapshot jsonb,
@@ -15246,28 +15247,28 @@ CREATE TABLE public.api_audit_log (
   via text NOT NULL DEFAULT 'rest' CHECK (via IN ('rest', 'mcp', 'app'))
 );
 
-CREATE INDEX idx_api_audit_log_timestamp ON public.api_audit_log(timestamp DESC);
-CREATE INDEX idx_api_audit_log_entity ON public.api_audit_log(entity_type, entity_id);
-CREATE INDEX idx_api_audit_log_team_member ON public.api_audit_log(team_member_id);
-CREATE INDEX idx_api_audit_log_api_key ON public.api_audit_log(api_key_id);
+CREATE INDEX idx_api_audit_log_timestamp ON pm.api_audit_log(timestamp DESC);
+CREATE INDEX idx_api_audit_log_entity ON pm.api_audit_log(entity_type, entity_id);
+CREATE INDEX idx_api_audit_log_team_member ON pm.api_audit_log(team_member_id);
+CREATE INDEX idx_api_audit_log_api_key ON pm.api_audit_log(api_key_id);
 
-ALTER TABLE public.api_audit_log ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "api_audit_log_all" ON public.api_audit_log FOR ALL TO authenticated USING (true) WITH CHECK (true);
+ALTER TABLE pm.api_audit_log ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "api_audit_log_all" ON pm.api_audit_log FOR ALL TO authenticated USING (true) WITH CHECK (true);
 
 -- ============================================================
 -- 7. AUTONOMOUS MODE FOR PROJECTS
 -- ============================================================
-ALTER TABLE public.projects
+ALTER TABLE pm.projects
   ADD COLUMN IF NOT EXISTS autonomous_enabled boolean NOT NULL DEFAULT false;
 
 -- ============================================================
 -- 8. TASK TYPE FOR TASKS AND SUGGESTIONS
 -- ============================================================
-ALTER TABLE public.tasks
+ALTER TABLE pm.tasks
   ADD COLUMN IF NOT EXISTS task_type text
     CHECK (task_type IN ('engineering','research','audit','marketing','copywriting','operations','general') OR task_type IS NULL);
 
-ALTER TABLE public.task_suggestions
+ALTER TABLE pm.task_suggestions
   ADD COLUMN IF NOT EXISTS task_type text
     CHECK (task_type IN ('engineering','research','audit','marketing','copywriting','operations','general') OR task_type IS NULL);
 
@@ -15281,7 +15282,7 @@ ALTER TABLE public.task_suggestions
 -- ============================================================
 -- 10. DEPLOYMENT POLICY FOR PROJECTS
 -- ============================================================
-ALTER TABLE public.projects
+ALTER TABLE pm.projects
   ADD COLUMN IF NOT EXISTS deployment_policy text NOT NULL DEFAULT 'production'
     CHECK (deployment_policy IN ('playground', 'production'));
 
@@ -15290,12 +15291,12 @@ ALTER TABLE public.projects
 -- what belongs to a project in Trash is out of reach with it.
 -- project_is_live() is defined in schema.sql.
 -- ------------------------------------------------------------
-CREATE POLICY project_goals_parent_live ON public.project_goals AS RESTRICTIVE FOR ALL TO authenticated
-  USING (public.project_is_live(project_id));
-CREATE POLICY task_suggestions_parent_live ON public.task_suggestions AS RESTRICTIVE FOR ALL TO authenticated
-  USING (public.project_is_live(project_id));
-CREATE POLICY agent_activities_parent_live ON public.agent_activities AS RESTRICTIVE FOR ALL TO authenticated
-  USING (project_id IS NULL OR public.project_is_live(project_id));
+CREATE POLICY project_goals_parent_live ON pm.project_goals AS RESTRICTIVE FOR ALL TO authenticated
+  USING (pm.project_is_live(project_id));
+CREATE POLICY task_suggestions_parent_live ON pm.task_suggestions AS RESTRICTIVE FOR ALL TO authenticated
+  USING (pm.project_is_live(project_id));
+CREATE POLICY agent_activities_parent_live ON pm.agent_activities AS RESTRICTIVE FOR ALL TO authenticated
+  USING (project_id IS NULL OR pm.project_is_live(project_id));
 
 -- ------------------------------------------------------------
 -- Workspace modules (migration 20261120201517_module_guards.sql): with the
@@ -15307,12 +15308,12 @@ DO $$
 DECLARE
   agent_table text;
 BEGIN
-  IF to_regprocedure('public.module_enabled(text)') IS NULL THEN
+  IF to_regprocedure('pm.module_enabled(text)') IS NULL THEN
     RETURN;
   END IF;
   FOREACH agent_table IN ARRAY ARRAY['project_goals', 'task_suggestions', 'agent_activities'] LOOP
-    EXECUTE format('DROP POLICY IF EXISTS %I ON public.%I', agent_table || '_module_on', agent_table);
-    EXECUTE format('CREATE POLICY %I ON public.%I AS RESTRICTIVE FOR ALL TO authenticated USING ((select public.module_enabled(%L)))',
+    EXECUTE format('DROP POLICY IF EXISTS %I ON pm.%I', agent_table || '_module_on', agent_table);
+    EXECUTE format('CREATE POLICY %I ON pm.%I AS RESTRICTIVE FOR ALL TO authenticated USING ((select pm.module_enabled(%L)))',
       agent_table || '_module_on', agent_table, 'agents');
   END LOOP;
 END;
@@ -15323,28 +15324,28 @@ $$;
 -- the open policies the tables were created with above.
 DO $$
 BEGIN
-  IF to_regclass('public.project_goals') IS NOT NULL THEN
-    EXECUTE 'DROP POLICY IF EXISTS "project_goals_all" ON public.project_goals';
-    EXECUTE 'CREATE POLICY project_goals_access ON public.project_goals FOR ALL TO authenticated
-      USING (public.has_permission(''goals.read'') AND public.can_access_project(project_id))
-      WITH CHECK (public.has_permission(''goals.manage'') AND public.can_access_project(project_id))';
+  IF to_regclass('pm.project_goals') IS NOT NULL THEN
+    EXECUTE 'DROP POLICY IF EXISTS "project_goals_all" ON pm.project_goals';
+    EXECUTE 'CREATE POLICY project_goals_access ON pm.project_goals FOR ALL TO authenticated
+      USING (pm.has_permission(''goals.read'') AND pm.can_access_project(project_id))
+      WITH CHECK (pm.has_permission(''goals.manage'') AND pm.can_access_project(project_id))';
   END IF;
-  IF to_regclass('public.task_suggestions') IS NOT NULL THEN
-    EXECUTE 'DROP POLICY IF EXISTS "task_suggestions_all" ON public.task_suggestions';
-    EXECUTE 'CREATE POLICY task_suggestions_access ON public.task_suggestions FOR ALL TO authenticated
-      USING (public.has_permission(''suggestions.manage'') AND public.can_access_project(project_id))
-      WITH CHECK (public.has_permission(''suggestions.manage'') AND public.can_access_project(project_id))';
+  IF to_regclass('pm.task_suggestions') IS NOT NULL THEN
+    EXECUTE 'DROP POLICY IF EXISTS "task_suggestions_all" ON pm.task_suggestions';
+    EXECUTE 'CREATE POLICY task_suggestions_access ON pm.task_suggestions FOR ALL TO authenticated
+      USING (pm.has_permission(''suggestions.manage'') AND pm.can_access_project(project_id))
+      WITH CHECK (pm.has_permission(''suggestions.manage'') AND pm.can_access_project(project_id))';
   END IF;
-  IF to_regclass('public.agent_activities') IS NOT NULL THEN
-    EXECUTE 'DROP POLICY IF EXISTS "agent_activities_all" ON public.agent_activities';
-    EXECUTE 'CREATE POLICY agent_activities_access ON public.agent_activities FOR ALL TO authenticated
-      USING (public.has_permission(''agents.manage'') OR agent_id = public.current_team_member_id())
-      WITH CHECK (public.has_permission(''agents.manage'') OR agent_id = public.current_team_member_id())';
+  IF to_regclass('pm.agent_activities') IS NOT NULL THEN
+    EXECUTE 'DROP POLICY IF EXISTS "agent_activities_all" ON pm.agent_activities';
+    EXECUTE 'CREATE POLICY agent_activities_access ON pm.agent_activities FOR ALL TO authenticated
+      USING (pm.has_permission(''agents.manage'') OR agent_id = pm.current_team_member_id())
+      WITH CHECK (pm.has_permission(''agents.manage'') OR agent_id = pm.current_team_member_id())';
   END IF;
-  IF to_regclass('public.api_audit_log') IS NOT NULL THEN
-    EXECUTE 'DROP POLICY IF EXISTS "api_audit_log_all" ON public.api_audit_log';
-    EXECUTE 'CREATE POLICY api_audit_log_access ON public.api_audit_log FOR SELECT TO authenticated
-      USING (public.has_permission(''audit.read''))';
+  IF to_regclass('pm.api_audit_log') IS NOT NULL THEN
+    EXECUTE 'DROP POLICY IF EXISTS "api_audit_log_all" ON pm.api_audit_log';
+    EXECUTE 'CREATE POLICY api_audit_log_access ON pm.api_audit_log FOR SELECT TO authenticated
+      USING (pm.has_permission(''audit.read''))';
   END IF;
 END;
 $$;
@@ -15355,9 +15356,9 @@ DECLARE
   agent_table text;
 BEGIN
   FOREACH agent_table IN ARRAY ARRAY['project_goals', 'task_suggestions', 'agent_activities'] LOOP
-    IF to_regclass('public.' || agent_table) IS NOT NULL THEN
-      EXECUTE format('DROP POLICY IF EXISTS %I ON public.%I', agent_table || '_module_on', agent_table);
-      EXECUTE format('CREATE POLICY %I ON public.%I AS RESTRICTIVE FOR ALL TO authenticated USING ((select public.module_enabled(%L)))',
+    IF to_regclass('pm.' || agent_table) IS NOT NULL THEN
+      EXECUTE format('DROP POLICY IF EXISTS %I ON pm.%I', agent_table || '_module_on', agent_table);
+      EXECUTE format('CREATE POLICY %I ON pm.%I AS RESTRICTIVE FOR ALL TO authenticated USING ((select pm.module_enabled(%L)))',
         agent_table || '_module_on', agent_table, 'agents');
     END IF;
   END LOOP;
@@ -15367,7 +15368,7 @@ $$;
 -- Owners only, by default (20261121040000_owner_only_defaults.sql): the Admin
 -- role does not start with money or workspace-setup permissions, and the last
 -- active Owner cannot be demoted, suspended or deleted.
-DELETE FROM public.role_permissions
+DELETE FROM pm.role_permissions
 WHERE role = 'admin'
   AND permission_key IN (
     'settings.manage', 'smtp.manage', 'webhooks.manage', 'inbound_email.manage',
@@ -15375,19 +15376,19 @@ WHERE role = 'admin'
     'invoices.record_payments', 'compensation.manage', 'payouts.manage'
   );
 
-CREATE OR REPLACE FUNCTION public.keep_an_active_owner()
+CREATE OR REPLACE FUNCTION pm.keep_an_active_owner()
 RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
 BEGIN
   IF OLD.role = 'owner' AND OLD.status = 'active'
      AND (TG_OP = 'DELETE' OR NEW.role IS DISTINCT FROM 'owner' OR NEW.status IS DISTINCT FROM 'active') THEN
     -- Lock the Owners' rows first, so two Owners leaving at once cannot both pass.
-    PERFORM 1 FROM public.team_members WHERE role = 'owner' FOR UPDATE;
+    PERFORM 1 FROM pm.team_members WHERE role = 'owner' FOR UPDATE;
     IF NOT EXISTS (
-      SELECT 1 FROM public.team_members
+      SELECT 1 FROM pm.team_members
       WHERE role = 'owner' AND status = 'active' AND id <> OLD.id
     ) THEN
       RAISE EXCEPTION 'At least one active Owner is required. Make someone else an Owner first.'
@@ -15398,44 +15399,44 @@ BEGIN
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.keep_an_active_owner() FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION pm.keep_an_active_owner() FROM PUBLIC, anon, authenticated;
 
-DROP TRIGGER IF EXISTS keep_an_active_owner ON public.team_members;
+DROP TRIGGER IF EXISTS keep_an_active_owner ON pm.team_members;
 CREATE TRIGGER keep_an_active_owner
-  BEFORE UPDATE OF role, status OR DELETE ON public.team_members
-  FOR EACH ROW EXECUTE FUNCTION public.keep_an_active_owner();
+  BEFORE UPDATE OF role, status OR DELETE ON pm.team_members
+  FOR EACH ROW EXECUTE FUNCTION pm.keep_an_active_owner();
 
 -- Invoice drafts reach the people who may see invoices: Owners, and anyone
 -- an Owner granted invoices.read or invoices.manage (no longer every Admin).
 -- One member's effective permission (role default, per-person override,
 -- module switch), for server-side code that picks people rather than acting
 -- as them: who gets an invoice draft email or bell, for instance.
-CREATE OR REPLACE FUNCTION public.member_has_permission(p_member_id uuid, p_permission_key text, p_access_channel text DEFAULT 'app')
+CREATE OR REPLACE FUNCTION pm.member_has_permission(p_member_id uuid, p_permission_key text, p_access_channel text DEFAULT 'app')
 RETURNS boolean
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pm
 AS $$
   WITH member AS (
-    SELECT id, role FROM public.team_members WHERE id = p_member_id AND status = 'active'
+    SELECT id, role FROM pm.team_members WHERE id = p_member_id AND status = 'active'
   )
   SELECT COALESCE(
     (SELECT module.enabled
-     FROM public.permission_modules permission_module
-     JOIN public.workspace_modules module ON module.module_id = permission_module.module_id
+     FROM pm.permission_modules permission_module
+     JOIN pm.workspace_modules module ON module.module_id = permission_module.module_id
      WHERE permission_module.permission_key = p_permission_key),
     true
   ) AND (
     COALESCE((SELECT role = 'owner' FROM member), false)
     OR COALESCE(
       (SELECT effect = 'allow'
-       FROM public.team_member_permissions override_permission, member
+       FROM pm.team_member_permissions override_permission, member
        WHERE override_permission.member_id = member.id
          AND override_permission.permission_key = p_permission_key
          AND override_permission.access_channel = p_access_channel),
       EXISTS (
-        SELECT 1 FROM public.role_permissions role_permission, member
+        SELECT 1 FROM pm.role_permissions role_permission, member
         WHERE role_permission.role = member.role
           AND role_permission.permission_key = p_permission_key
           AND role_permission.access_channel = p_access_channel
@@ -15444,8 +15445,8 @@ AS $$
   )
 $$;
 
-REVOKE ALL ON FUNCTION public.member_has_permission(uuid, text, text) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.member_has_permission(uuid, text, text) TO service_role;
+REVOKE ALL ON FUNCTION pm.member_has_permission(uuid, text, text) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION pm.member_has_permission(uuid, text, text) TO service_role;
 
 
 -- ─────────────────────────────────────────────────────────────
@@ -15485,9 +15486,9 @@ begin
   ] loop
     if not exists (
       select 1 from pg_publication_tables
-      where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = t
+      where pubname = 'supabase_realtime' and schemaname = 'pm' and tablename = t
     ) then
-      execute format('alter publication supabase_realtime add table public.%I', t);
+      execute format('alter publication supabase_realtime add table pm.%I', t);
     end if;
   end loop;
 
@@ -15499,9 +15500,9 @@ begin
   ] loop
     if not exists (
       select 1 from pg_publication_tables
-      where pubname = 'supabase_realtime' and schemaname = 'communications' and tablename = t
+      where pubname = 'supabase_realtime' and schemaname = 'pm' and tablename = t
     ) then
-      execute format('alter publication supabase_realtime add table communications.%I', t);
+      execute format('alter publication supabase_realtime add table pm.%I', t);
     end if;
   end loop;
 end $$;
@@ -15511,7 +15512,7 @@ end $$;
 -- Integration secrets set in the app, sealed with APP_ENCRYPTION_KEY by the
 -- server (service role only), and the Vault writer for webhook retries.
 -- ============================================================
-CREATE TABLE IF NOT EXISTS public.app_secrets (
+CREATE TABLE IF NOT EXISTS pm.app_secrets (
   name text PRIMARY KEY CHECK (name IN (
     'resend_api_key',
     'resend_webhook_secret',
@@ -15521,15 +15522,15 @@ CREATE TABLE IF NOT EXISTS public.app_secrets (
   )),
   value text NOT NULL CHECK (value LIKE 'pm1:%'),
   updated_at timestamptz NOT NULL DEFAULT now(),
-  updated_by uuid REFERENCES public.team_members(id) ON DELETE SET NULL
+  updated_by uuid REFERENCES pm.team_members(id) ON DELETE SET NULL
 );
 
-COMMENT ON TABLE public.app_secrets IS
+COMMENT ON TABLE pm.app_secrets IS
   'Integration secrets set in the app, sealed with APP_ENCRYPTION_KEY by the server. Service role only.';
 
-ALTER TABLE public.app_secrets ENABLE ROW LEVEL SECURITY;
-REVOKE ALL ON public.app_secrets FROM PUBLIC, anon, authenticated;
-GRANT SELECT, INSERT, UPDATE, DELETE ON public.app_secrets TO service_role;
+ALTER TABLE pm.app_secrets ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON pm.app_secrets FROM PUBLIC, anon, authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON pm.app_secrets TO service_role;
 
 -- Vault is a Supabase extension; without it the function is not made and the
 -- app says webhook retries need it.
@@ -15537,7 +15538,7 @@ DO $do$
 BEGIN
   IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'supabase_vault') THEN
     EXECUTE $fn$
-      CREATE OR REPLACE FUNCTION public.store_webhook_scheduler(p_url text, p_secret text)
+      CREATE OR REPLACE FUNCTION pm.store_webhook_scheduler(p_url text, p_secret text)
       RETURNS void
       LANGUAGE plpgsql
       SECURITY DEFINER
@@ -15552,24 +15553,24 @@ BEGIN
         IF p_secret IS NULL OR length(p_secret) < 32 OR length(p_secret) > 512 THEN
           RAISE EXCEPTION 'The scheduler secret must be 32 to 512 characters';
         END IF;
-        -- Only these two names, which public.webhook_retry_kick() reads.
-        SELECT id INTO existing FROM vault.secrets WHERE name = 'webhook_scheduler_url';
+        -- Only these two names, which pm.webhook_retry_kick() reads.
+        SELECT id INTO existing FROM vault.secrets WHERE name = 'pm_webhook_scheduler_url';
         IF existing IS NULL THEN
-          PERFORM vault.create_secret(p_url, 'webhook_scheduler_url', 'PM app: where webhook retries are sent');
+          PERFORM vault.create_secret(p_url, 'pm_webhook_scheduler_url', 'PM app: where webhook retries are sent');
         ELSE
           PERFORM vault.update_secret(existing, p_url);
         END IF;
-        SELECT id INTO existing FROM vault.secrets WHERE name = 'webhook_scheduler_secret';
+        SELECT id INTO existing FROM vault.secrets WHERE name = 'pm_webhook_scheduler_secret';
         IF existing IS NULL THEN
-          PERFORM vault.create_secret(p_secret, 'webhook_scheduler_secret', 'PM app: bearer secret for webhook retries');
+          PERFORM vault.create_secret(p_secret, 'pm_webhook_scheduler_secret', 'PM app: bearer secret for webhook retries');
         ELSE
           PERFORM vault.update_secret(existing, p_secret);
         END IF;
       END;
       $body$
     $fn$;
-    EXECUTE 'REVOKE ALL ON FUNCTION public.store_webhook_scheduler(text, text) FROM PUBLIC, anon, authenticated';
-    EXECUTE 'GRANT EXECUTE ON FUNCTION public.store_webhook_scheduler(text, text) TO service_role';
+    EXECUTE 'REVOKE ALL ON FUNCTION pm.store_webhook_scheduler(text, text) FROM PUBLIC, anon, authenticated';
+    EXECUTE 'GRANT EXECUTE ON FUNCTION pm.store_webhook_scheduler(text, text) TO service_role';
   END IF;
 END
 $do$;
@@ -15622,35 +15623,997 @@ $expose$;
 -- membership, replacing the bucket-only policies above.
 -- Storage: uploads, changes and deletes need an active membership. Public
 -- reads of the public buckets are unchanged (their links keep working).
-DROP POLICY IF EXISTS "Authenticated users can upload avatars" ON storage.objects;
-CREATE POLICY "Authenticated users can upload avatars" ON storage.objects FOR INSERT TO authenticated
-  WITH CHECK (bucket_id = 'avatars' AND (select public.current_team_member_id()) IS NOT NULL);
-DROP POLICY IF EXISTS "Authenticated users can update avatars" ON storage.objects;
-CREATE POLICY "Authenticated users can update avatars" ON storage.objects FOR UPDATE TO authenticated
-  USING (bucket_id = 'avatars' AND (select public.current_team_member_id()) IS NOT NULL);
-DROP POLICY IF EXISTS "Authenticated users can delete avatars" ON storage.objects;
-CREATE POLICY "Authenticated users can delete avatars" ON storage.objects FOR DELETE TO authenticated
-  USING (bucket_id = 'avatars' AND (select public.current_team_member_id()) IS NOT NULL);
+DROP POLICY IF EXISTS "pm: Authenticated users can upload avatars" ON storage.objects;
+CREATE POLICY "pm: Authenticated users can upload avatars" ON storage.objects FOR INSERT TO authenticated
+  WITH CHECK (bucket_id = 'pm-avatars' AND (select pm.current_team_member_id()) IS NOT NULL);
+DROP POLICY IF EXISTS "pm: Authenticated users can update avatars" ON storage.objects;
+CREATE POLICY "pm: Authenticated users can update avatars" ON storage.objects FOR UPDATE TO authenticated
+  USING (bucket_id = 'pm-avatars' AND (select pm.current_team_member_id()) IS NOT NULL);
+DROP POLICY IF EXISTS "pm: Authenticated users can delete avatars" ON storage.objects;
+CREATE POLICY "pm: Authenticated users can delete avatars" ON storage.objects FOR DELETE TO authenticated
+  USING (bucket_id = 'pm-avatars' AND (select pm.current_team_member_id()) IS NOT NULL);
 
-DROP POLICY IF EXISTS "Authenticated users can upload portal files" ON storage.objects;
-CREATE POLICY "Authenticated users can upload portal files" ON storage.objects FOR INSERT TO authenticated
-  WITH CHECK (bucket_id = 'portal-files' AND (select public.current_team_member_id()) IS NOT NULL);
-DROP POLICY IF EXISTS "Authenticated users can update portal files" ON storage.objects;
-CREATE POLICY "Authenticated users can update portal files" ON storage.objects FOR UPDATE TO authenticated
-  USING (bucket_id = 'portal-files' AND (select public.current_team_member_id()) IS NOT NULL);
-DROP POLICY IF EXISTS "Authenticated users can delete portal files" ON storage.objects;
-CREATE POLICY "Authenticated users can delete portal files" ON storage.objects FOR DELETE TO authenticated
-  USING (bucket_id = 'portal-files' AND (select public.current_team_member_id()) IS NOT NULL);
+DROP POLICY IF EXISTS "pm: Authenticated users can upload portal files" ON storage.objects;
+CREATE POLICY "pm: Authenticated users can upload portal files" ON storage.objects FOR INSERT TO authenticated
+  WITH CHECK (bucket_id = 'pm-portal-files' AND (select pm.current_team_member_id()) IS NOT NULL);
+DROP POLICY IF EXISTS "pm: Authenticated users can update portal files" ON storage.objects;
+CREATE POLICY "pm: Authenticated users can update portal files" ON storage.objects FOR UPDATE TO authenticated
+  USING (bucket_id = 'pm-portal-files' AND (select pm.current_team_member_id()) IS NOT NULL);
+DROP POLICY IF EXISTS "pm: Authenticated users can delete portal files" ON storage.objects;
+CREATE POLICY "pm: Authenticated users can delete portal files" ON storage.objects FOR DELETE TO authenticated
+  USING (bucket_id = 'pm-portal-files' AND (select pm.current_team_member_id()) IS NOT NULL);
 
-DROP POLICY IF EXISTS "Authenticated users can upload entity files" ON storage.objects;
-CREATE POLICY "Authenticated users can upload entity files" ON storage.objects FOR INSERT TO authenticated
-  WITH CHECK (bucket_id = 'entity-files' AND (select public.current_team_member_id()) IS NOT NULL);
-DROP POLICY IF EXISTS "Authenticated users can update entity files" ON storage.objects;
-CREATE POLICY "Authenticated users can update entity files" ON storage.objects FOR UPDATE TO authenticated
-  USING (bucket_id = 'entity-files' AND (select public.current_team_member_id()) IS NOT NULL);
-DROP POLICY IF EXISTS "Authenticated users can delete entity files" ON storage.objects;
-CREATE POLICY "Authenticated users can delete entity files" ON storage.objects FOR DELETE TO authenticated
-  USING (bucket_id = 'entity-files' AND (select public.current_team_member_id()) IS NOT NULL);
-DROP POLICY IF EXISTS "Authenticated users can read entity files" ON storage.objects;
-CREATE POLICY "Authenticated users can read entity files" ON storage.objects FOR SELECT TO authenticated
-  USING (bucket_id = 'entity-files' AND (select public.current_team_member_id()) IS NOT NULL);
+DROP POLICY IF EXISTS "pm: Authenticated users can upload entity files" ON storage.objects;
+CREATE POLICY "pm: Authenticated users can upload entity files" ON storage.objects FOR INSERT TO authenticated
+  WITH CHECK (bucket_id = 'pm-entity-files' AND (select pm.current_team_member_id()) IS NOT NULL);
+DROP POLICY IF EXISTS "pm: Authenticated users can update entity files" ON storage.objects;
+CREATE POLICY "pm: Authenticated users can update entity files" ON storage.objects FOR UPDATE TO authenticated
+  USING (bucket_id = 'pm-entity-files' AND (select pm.current_team_member_id()) IS NOT NULL);
+DROP POLICY IF EXISTS "pm: Authenticated users can delete entity files" ON storage.objects;
+CREATE POLICY "pm: Authenticated users can delete entity files" ON storage.objects FOR DELETE TO authenticated
+  USING (bucket_id = 'pm-entity-files' AND (select pm.current_team_member_id()) IS NOT NULL);
+DROP POLICY IF EXISTS "pm: Authenticated users can read entity files" ON storage.objects;
+CREATE POLICY "pm: Authenticated users can read entity files" ON storage.objects FOR SELECT TO authenticated
+  USING (bucket_id = 'pm-entity-files' AND (select pm.current_team_member_id()) IS NOT NULL);
+
+-- ============================================================
+-- GRANTS: every object in pm, exactly (generated by scripts/release/pm-schema.ts
+-- from a 1.x database after the move, so fresh and upgraded installs match).
+-- ============================================================
+REVOKE ALL ON pm.activities FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.activities TO anon;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.activities TO authenticated;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.activities TO service_role;
+REVOKE ALL ON pm.agent_activities FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.agent_activities TO anon;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.agent_activities TO authenticated;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.agent_activities TO service_role;
+REVOKE ALL ON pm.agent_billing_gap_reviews FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.agent_billing_gap_reviews TO anon;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.agent_billing_gap_reviews TO authenticated;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.agent_billing_gap_reviews TO service_role;
+REVOKE ALL ON pm.agent_health FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.agent_health TO anon;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.agent_health TO authenticated;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.agent_health TO service_role;
+REVOKE ALL ON pm.agent_health_history FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.agent_health_history TO anon;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.agent_health_history TO authenticated;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.agent_health_history TO service_role;
+REVOKE ALL ON pm.analytics_tracking_starts FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.analytics_tracking_starts TO anon;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.analytics_tracking_starts TO authenticated;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.analytics_tracking_starts TO service_role;
+REVOKE ALL ON pm.answers FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE ON pm.answers TO authenticated;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.answers TO service_role;
+REVOKE ALL ON pm.api_audit_log FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.api_audit_log TO anon;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.api_audit_log TO authenticated;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.api_audit_log TO service_role;
+REVOKE ALL ON pm.api_keys FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.api_keys TO service_role;
+GRANT SELECT ON pm.api_keys TO authenticated;
+REVOKE ALL ON pm.api_rate_limit_windows FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.api_rate_limit_windows TO anon;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.api_rate_limit_windows TO authenticated;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.api_rate_limit_windows TO service_role;
+REVOKE ALL ON pm.app_secrets FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.app_secrets TO service_role;
+REVOKE ALL ON pm.attachments FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE ON pm.attachments TO authenticated;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.attachments TO service_role;
+REVOKE ALL ON pm.billing_draft_notices FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.billing_draft_notices TO anon;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.billing_draft_notices TO authenticated;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.billing_draft_notices TO service_role;
+REVOKE ALL ON pm.business_settings FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.business_settings TO anon;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.business_settings TO authenticated;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.business_settings TO service_role;
+REVOKE ALL ON pm.client_addresses FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE ON pm.client_addresses TO authenticated;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.client_addresses TO service_role;
+REVOKE ALL ON pm.client_communications FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.client_communications TO anon;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.client_communications TO authenticated;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.client_communications TO service_role;
+REVOKE ALL ON pm.client_domains FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE ON pm.client_domains TO authenticated;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.client_domains TO service_role;
+REVOKE ALL ON pm.contact_emails FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.contact_emails TO anon;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.contact_emails TO authenticated;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.contact_emails TO service_role;
+REVOKE ALL ON pm.contacts FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.contacts TO anon;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.contacts TO authenticated;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.contacts TO service_role;
+REVOKE ALL ON pm.conversation_participants FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE ON pm.conversation_participants TO authenticated;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.conversation_participants TO service_role;
+REVOKE ALL ON pm.conversation_projects FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE ON pm.conversation_projects TO authenticated;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.conversation_projects TO service_role;
+REVOKE ALL ON pm.conversations FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE ON pm.conversations TO authenticated;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.conversations TO service_role;
+REVOKE ALL ON pm.endpoints FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE ON pm.endpoints TO authenticated;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.endpoints TO service_role;
+REVOKE ALL ON pm.entity_files FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.entity_files TO anon;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.entity_files TO authenticated;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.entity_files TO service_role;
+REVOKE ALL ON pm.files FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.files TO service_role;
+REVOKE ALL ON pm.ignored_addresses FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.ignored_addresses TO service_role;
+GRANT SELECT ON pm.ignored_addresses TO authenticated;
+REVOKE ALL ON pm.inbox_access FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE ON pm.inbox_access TO authenticated;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.inbox_access TO service_role;
+REVOKE ALL ON pm.inboxes FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE ON pm.inboxes TO authenticated;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.inboxes TO service_role;
+REVOKE ALL ON pm.invoice_line_shares FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.invoice_line_shares TO anon;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.invoice_line_shares TO authenticated;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.invoice_line_shares TO service_role;
+REVOKE ALL ON pm.invoice_payments FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.invoice_payments TO service_role;
+GRANT SELECT ON pm.invoice_payments TO authenticated;
+REVOKE ALL ON pm.invoice_time_entry_allocations FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.invoice_time_entry_allocations TO anon;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.invoice_time_entry_allocations TO authenticated;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.invoice_time_entry_allocations TO service_role;
+REVOKE ALL ON pm.lead_contacts FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.lead_contacts TO anon;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.lead_contacts TO authenticated;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.lead_contacts TO service_role;
+REVOKE ALL ON pm.lead_fields FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.lead_fields TO anon;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.lead_fields TO authenticated;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.lead_fields TO service_role;
+REVOKE ALL ON pm.lead_interactions FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.lead_interactions TO anon;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.lead_interactions TO authenticated;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.lead_interactions TO service_role;
+REVOKE ALL ON pm.lead_members FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.lead_members TO anon;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.lead_members TO authenticated;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.lead_members TO service_role;
+REVOKE ALL ON pm.lead_proposals FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.lead_proposals TO anon;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.lead_proposals TO authenticated;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.lead_proposals TO service_role;
+REVOKE ALL ON pm.leads FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.leads TO anon;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.leads TO authenticated;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.leads TO service_role;
+REVOKE ALL ON pm.maintenance_runs FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE ON pm.maintenance_runs TO authenticated;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.maintenance_runs TO service_role;
+REVOKE ALL ON pm.meetings FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.meetings TO service_role;
+GRANT SELECT ON pm.meetings TO authenticated;
+REVOKE ALL ON pm.message_candidates FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE ON pm.message_candidates TO authenticated;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.message_candidates TO service_role;
+REVOKE ALL ON pm.message_endpoints FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE ON pm.message_endpoints TO authenticated;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.message_endpoints TO service_role;
+REVOKE ALL ON pm.messages FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE ON pm.messages TO authenticated;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.messages TO service_role;
+REVOKE ALL ON pm.own_domains FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.own_domains TO service_role;
+GRANT SELECT ON pm.own_domains TO authenticated;
+REVOKE ALL ON pm.participants FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE ON pm.participants TO authenticated;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.participants TO service_role;
+REVOKE ALL ON pm.permission_modules FROM PUBLIC, anon, authenticated, service_role;
+GRANT SELECT, REFERENCES, TRIGGER, MAINTAIN ON pm.permission_modules TO authenticated;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.permission_modules TO service_role;
+REVOKE ALL ON pm.plan_items FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.plan_items TO service_role;
+GRANT SELECT ON pm.plan_items TO authenticated;
+REVOKE ALL ON pm.plans FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.plans TO service_role;
+GRANT SELECT ON pm.plans TO authenticated;
+REVOKE ALL ON pm.portal_events FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.portal_events TO anon;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.portal_events TO authenticated;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.portal_events TO service_role;
+REVOKE ALL ON pm.portal_settings FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.portal_settings TO anon;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.portal_settings TO authenticated;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.portal_settings TO service_role;
+REVOKE ALL ON pm.portal_update_attachments FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.portal_update_attachments TO anon;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.portal_update_attachments TO authenticated;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.portal_update_attachments TO service_role;
+REVOKE ALL ON pm.portal_updates FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.portal_updates TO anon;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.portal_updates TO authenticated;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.portal_updates TO service_role;
+REVOKE ALL ON pm.project_billing_plans FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.project_billing_plans TO anon;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.project_billing_plans TO authenticated;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.project_billing_plans TO service_role;
+REVOKE ALL ON pm.project_billing_runs FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.project_billing_runs TO anon;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.project_billing_runs TO authenticated;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.project_billing_runs TO service_role;
+REVOKE ALL ON pm.project_budget_history FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.project_budget_history TO anon;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.project_budget_history TO authenticated;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.project_budget_history TO service_role;
+REVOKE ALL ON pm.project_contacts FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.project_contacts TO anon;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.project_contacts TO authenticated;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.project_contacts TO service_role;
+REVOKE ALL ON pm.project_context FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.project_context TO anon;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.project_context TO authenticated;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.project_context TO service_role;
+REVOKE ALL ON pm.project_credential_members FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.project_credential_members TO anon;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.project_credential_members TO authenticated;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.project_credential_members TO service_role;
+REVOKE ALL ON pm.project_credentials FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.project_credentials TO anon;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.project_credentials TO authenticated;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.project_credentials TO service_role;
+REVOKE ALL ON pm.project_goals FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.project_goals TO anon;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.project_goals TO authenticated;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.project_goals TO service_role;
+REVOKE ALL ON pm.project_hourly_rates FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.project_hourly_rates TO anon;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.project_hourly_rates TO authenticated;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.project_hourly_rates TO service_role;
+REVOKE ALL ON pm.project_invoices FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.project_invoices TO anon;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.project_invoices TO authenticated;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.project_invoices TO service_role;
+REVOKE ALL ON pm.project_members FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.project_members TO anon;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.project_members TO authenticated;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.project_members TO service_role;
+REVOKE ALL ON pm.project_retainer_amounts FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.project_retainer_amounts TO anon;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.project_retainer_amounts TO authenticated;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.project_retainer_amounts TO service_role;
+REVOKE ALL ON pm.project_retainer_periods FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.project_retainer_periods TO anon;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.project_retainer_periods TO authenticated;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.project_retainer_periods TO service_role;
+REVOKE ALL ON pm.project_retainer_shares FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.project_retainer_shares TO anon;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.project_retainer_shares TO authenticated;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.project_retainer_shares TO service_role;
+REVOKE ALL ON pm.project_retainers FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.project_retainers TO anon;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.project_retainers TO authenticated;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.project_retainers TO service_role;
+REVOKE ALL ON pm.project_time_entries FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.project_time_entries TO anon;
+GRANT DELETE, MAINTAIN ON pm.project_time_entries TO authenticated;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.project_time_entries TO service_role;
+REVOKE ALL ON pm.projects FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.projects TO anon;
+GRANT MAINTAIN ON pm.projects TO authenticated;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.projects TO service_role;
+REVOKE ALL ON pm.reminders FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.reminders TO anon;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.reminders TO authenticated;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.reminders TO service_role;
+REVOKE ALL ON pm.reply_drafts FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE ON pm.reply_drafts TO authenticated;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.reply_drafts TO service_role;
+REVOKE ALL ON pm.reply_points FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.reply_points TO service_role;
+GRANT SELECT ON pm.reply_points TO authenticated;
+REVOKE ALL ON pm.role_permissions FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.role_permissions TO anon;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.role_permissions TO authenticated;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.role_permissions TO service_role;
+REVOKE ALL ON pm.sender_rules FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE ON pm.sender_rules TO authenticated;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.sender_rules TO service_role;
+REVOKE ALL ON pm.smtp_accounts FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.smtp_accounts TO anon;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.smtp_accounts TO authenticated;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.smtp_accounts TO service_role;
+REVOKE ALL ON pm.task_acceptance_criteria FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.task_acceptance_criteria TO anon;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.task_acceptance_criteria TO authenticated;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.task_acceptance_criteria TO service_role;
+REVOKE ALL ON pm.task_assignees FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.task_assignees TO anon;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.task_assignees TO authenticated;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.task_assignees TO service_role;
+REVOKE ALL ON pm.task_comments FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.task_comments TO anon;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.task_comments TO authenticated;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.task_comments TO service_role;
+REVOKE ALL ON pm.task_dependencies FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.task_dependencies TO anon;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.task_dependencies TO authenticated;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.task_dependencies TO service_role;
+REVOKE ALL ON pm.task_events FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.task_events TO service_role;
+GRANT SELECT ON pm.task_events TO authenticated;
+REVOKE ALL ON pm.task_files FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.task_files TO service_role;
+GRANT SELECT ON pm.task_files TO authenticated;
+REVOKE ALL ON pm.task_links FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE ON pm.task_links TO authenticated;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.task_links TO service_role;
+REVOKE ALL ON pm.task_reopens FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.task_reopens TO anon;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.task_reopens TO authenticated;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.task_reopens TO service_role;
+REVOKE ALL ON pm.task_reviews FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.task_reviews TO anon;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.task_reviews TO authenticated;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.task_reviews TO service_role;
+REVOKE ALL ON pm.task_subtasks FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.task_subtasks TO anon;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.task_subtasks TO authenticated;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.task_subtasks TO service_role;
+REVOKE ALL ON pm.task_suggestions FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.task_suggestions TO anon;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.task_suggestions TO authenticated;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.task_suggestions TO service_role;
+REVOKE ALL ON pm.task_views FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.task_views TO anon;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.task_views TO authenticated;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.task_views TO service_role;
+REVOKE ALL ON pm.tasks FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.tasks TO anon;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.tasks TO authenticated;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.tasks TO service_role;
+REVOKE ALL ON pm.team_invites FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.team_invites TO service_role;
+REVOKE ALL ON pm.team_member_earning_adjustments FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.team_member_earning_adjustments TO anon;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.team_member_earning_adjustments TO authenticated;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.team_member_earning_adjustments TO service_role;
+REVOKE ALL ON pm.team_member_hourly_rates FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.team_member_hourly_rates TO anon;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.team_member_hourly_rates TO authenticated;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.team_member_hourly_rates TO service_role;
+REVOKE ALL ON pm.team_member_notifications FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.team_member_notifications TO anon;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.team_member_notifications TO authenticated;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.team_member_notifications TO service_role;
+REVOKE ALL ON pm.team_member_payout_allocations FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.team_member_payout_allocations TO anon;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.team_member_payout_allocations TO authenticated;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.team_member_payout_allocations TO service_role;
+REVOKE ALL ON pm.team_member_payouts FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.team_member_payouts TO anon;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.team_member_payouts TO authenticated;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.team_member_payouts TO service_role;
+REVOKE ALL ON pm.team_member_permissions FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.team_member_permissions TO anon;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.team_member_permissions TO authenticated;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.team_member_permissions TO service_role;
+REVOKE ALL ON pm.team_member_share_earnings FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.team_member_share_earnings TO anon;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.team_member_share_earnings TO authenticated;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.team_member_share_earnings TO service_role;
+REVOKE ALL ON pm.team_members FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.team_members TO anon;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.team_members TO authenticated;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.team_members TO service_role;
+REVOKE ALL ON pm.time_entry_tasks FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.time_entry_tasks TO anon;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.time_entry_tasks TO authenticated;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.time_entry_tasks TO service_role;
+REVOKE ALL ON pm.trash_events FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.trash_events TO service_role;
+GRANT SELECT ON pm.trash_events TO authenticated;
+REVOKE ALL ON SEQUENCE pm.trash_events_id_seq FROM PUBLIC, anon, authenticated, service_role;
+GRANT SELECT, UPDATE, USAGE ON SEQUENCE pm.trash_events_id_seq TO anon;
+GRANT SELECT, UPDATE, USAGE ON SEQUENCE pm.trash_events_id_seq TO authenticated;
+GRANT SELECT, UPDATE, USAGE ON SEQUENCE pm.trash_events_id_seq TO service_role;
+REVOKE ALL ON pm.triage FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE ON pm.triage TO authenticated;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.triage TO service_role;
+REVOKE ALL ON pm.webhook_deliveries FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.webhook_deliveries TO anon;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.webhook_deliveries TO authenticated;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.webhook_deliveries TO service_role;
+REVOKE ALL ON pm.webhook_endpoints FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.webhook_endpoints TO anon;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.webhook_endpoints TO authenticated;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.webhook_endpoints TO service_role;
+REVOKE ALL ON SEQUENCE pm.webhook_event_seq FROM PUBLIC, anon, authenticated, service_role;
+GRANT SELECT, UPDATE, USAGE ON SEQUENCE pm.webhook_event_seq TO anon;
+GRANT SELECT, UPDATE, USAGE ON SEQUENCE pm.webhook_event_seq TO authenticated;
+GRANT SELECT, UPDATE, USAGE ON SEQUENCE pm.webhook_event_seq TO service_role;
+REVOKE ALL ON pm.webhook_events FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.webhook_events TO anon;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.webhook_events TO authenticated;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.webhook_events TO service_role;
+REVOKE ALL ON pm.workspace_brand FROM PUBLIC, anon, authenticated, service_role;
+GRANT SELECT, REFERENCES, TRIGGER, MAINTAIN ON pm.workspace_brand TO anon;
+GRANT SELECT, REFERENCES, TRIGGER, MAINTAIN ON pm.workspace_brand TO authenticated;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.workspace_brand TO service_role;
+REVOKE ALL ON pm.workspace_modules FROM PUBLIC, anon, authenticated, service_role;
+GRANT SELECT, REFERENCES, TRIGGER, MAINTAIN ON pm.workspace_modules TO authenticated;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.workspace_modules TO service_role;
+REVOKE ALL ON pm.workspace_region FROM PUBLIC, anon, authenticated, service_role;
+GRANT INSERT, SELECT, UPDATE, REFERENCES, TRIGGER, MAINTAIN ON pm.workspace_region TO authenticated;
+GRANT INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON pm.workspace_region TO service_role;
+GRANT SELECT (approval_status, approved_at, approved_by, created_at, deleted_at, deleted_by, description, end_time, id, member_id, project_id, rejection_reason, segments, start_time, submitted_at, updated_at, work_type) ON pm.project_time_entries TO authenticated;
+GRANT SELECT (archived_at, autonomous_enabled, color, created_at, created_by, deleted_at, deleted_by, description, due_date, hourly_tracking, id, integration_branch, name, start_date, status, time_tracking_enabled, updated_at) ON pm.projects TO authenticated;
+REVOKE ALL ON FUNCTION pm.activity_actor() FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.activity_actor() TO authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.activity_changed_fields(jsonb,jsonb,text[]) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.activity_changed_fields(jsonb,jsonb,text[]) TO PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.activity_entity_noun(text) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.activity_entity_noun(text) TO PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.activity_entity_type(text) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.activity_entity_type(text) TO PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.activity_hours_label(numeric) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.activity_hours_label(numeric) TO PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.activity_member_name(uuid) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.activity_member_name(uuid) TO PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.activity_money_label(numeric) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.activity_money_label(numeric) TO PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.activity_source() FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.activity_source() TO PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.activity_status_label(text) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.activity_status_label(text) TO PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.add_conversation_project(uuid,uuid,uuid) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.add_conversation_project(uuid,uuid,uuid) TO service_role;
+REVOKE ALL ON FUNCTION pm.agent_analytics_int(text) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.agent_analytics_int(text) TO PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.agent_analytics_num(text) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.agent_analytics_num(text) TO PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.agent_analytics_ts(text) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.agent_analytics_ts(text) TO PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.agent_analytics_window(timestamp with time zone,timestamp with time zone,timestamp with time zone) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.agent_analytics_window(timestamp with time zone,timestamp with time zone,timestamp with time zone) TO anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.announce_billing_draft(uuid,text,text) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.announce_billing_draft(uuid,text,text) TO service_role;
+REVOKE ALL ON FUNCTION pm.api_keys_guard() FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.api_keys_guard() TO service_role;
+REVOKE ALL ON FUNCTION pm.apply_agent_billing_conversion(uuid,numeric) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.apply_agent_billing_conversion(uuid,numeric) TO service_role;
+REVOKE ALL ON FUNCTION pm.apply_time_entry_compensation() FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.apply_time_entry_compensation() TO PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.assert_share_member(uuid) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.assert_share_member(uuid) TO service_role;
+REVOKE ALL ON FUNCTION pm.audit_trash_change(text,uuid,boolean,jsonb,jsonb) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.audit_trash_change(text,uuid,boolean,jsonb,jsonb) TO service_role;
+REVOKE ALL ON FUNCTION pm.billing_earned_work(date,date) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.billing_earned_work(date,date) TO service_role;
+REVOKE ALL ON FUNCTION pm.billing_forecast(uuid,date,date,jsonb) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.billing_forecast(uuid,date,date,jsonb) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.billing_forecast_internal(uuid,date,date,jsonb) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.billing_forecast_internal(uuid,date,date,jsonb) TO service_role;
+REVOKE ALL ON FUNCTION pm.billing_pending_time(uuid,timestamp with time zone) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.billing_pending_time(uuid,timestamp with time zone) TO service_role;
+REVOKE ALL ON FUNCTION pm.billing_plan_dates(pm.project_billing_plans,date,date) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.billing_plan_dates(pm.project_billing_plans,date,date) TO service_role;
+REVOKE ALL ON FUNCTION pm.billing_plan_last_date(pm.project_billing_plans,date) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.billing_plan_last_date(pm.project_billing_plans,date) TO service_role;
+REVOKE ALL ON FUNCTION pm.business_settings_owner_columns() FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.business_settings_owner_columns() TO service_role;
+REVOKE ALL ON FUNCTION pm.can_access_credential(uuid) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.can_access_credential(uuid) TO anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.can_access_file_entity(text,uuid) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.can_access_file_entity(text,uuid) TO anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.can_access_lead(uuid) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.can_access_lead(uuid) TO anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.can_access_project(uuid) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.can_access_project(uuid) TO anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.can_access_task(uuid) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.can_access_task(uuid) TO anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.can_manage_inbox(uuid) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.can_manage_inbox(uuid) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.can_manage_task(uuid) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.can_manage_task(uuid) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.can_read_activity(text,text,uuid,uuid,jsonb) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.can_read_activity(text,text,uuid,uuid,jsonb) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.can_read_all_tasks() FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.can_read_all_tasks() TO anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.can_read_inbox(uuid) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.can_read_inbox(uuid) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.can_read_message(uuid) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.can_read_message(uuid) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.can_read_task_row(uuid,uuid,uuid) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.can_read_task_row(uuid,uuid,uuid) TO anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.can_see_reminder(uuid,uuid,uuid) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.can_see_reminder(uuid,uuid,uuid) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.can_trash_record(text,uuid) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.can_trash_record(text,uuid) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.claim_file(uuid,text,bigint) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.claim_file(uuid,text,bigint) TO service_role;
+REVOKE ALL ON FUNCTION pm.claim_webhook_deliveries(integer) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.claim_webhook_deliveries(integer) TO service_role;
+REVOKE ALL ON FUNCTION pm.complete_webhook_delivery(uuid,uuid,integer,text,text) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.complete_webhook_delivery(uuid,uuid,integer,text,text) TO service_role;
+REVOKE ALL ON FUNCTION pm.consume_api_rate_limit(uuid,integer,integer) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.consume_api_rate_limit(uuid,integer,integer) TO anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.contact_emails_after_write() FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.contact_emails_after_write() TO PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.contact_emails_before_write() FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.contact_emails_before_write() TO PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.contact_is_live(uuid) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.contact_is_live(uuid) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.contacts_sync_primary_email() FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.contacts_sync_primary_email() TO PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.conversation_projects_json(uuid) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.conversation_projects_json(uuid) TO service_role;
+REVOKE ALL ON FUNCTION pm.conversation_projects_sync() FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.conversation_projects_sync() TO PUBLIC;
+REVOKE ALL ON FUNCTION pm.conversations_before_update() FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.conversations_before_update() TO PUBLIC;
+REVOKE ALL ON FUNCTION pm.convert_lead(uuid,text,text,text,uuid) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.convert_lead(uuid,text,text,text,uuid) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.create_retainer_draft_internal(uuid,jsonb,date,boolean) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.create_retainer_draft_internal(uuid,jsonb,date,boolean) TO service_role;
+REVOKE ALL ON FUNCTION pm.credential_is_live(uuid) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.credential_is_live(uuid) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.current_team_member_id() FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.current_team_member_id() TO anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.current_team_member_role() FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.current_team_member_role() TO anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.delivery_of(uuid,boolean) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.delivery_of(uuid,boolean) TO service_role;
+REVOKE ALL ON FUNCTION pm.email_complete_message(uuid,jsonb) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.email_complete_message(uuid,jsonb) TO service_role;
+REVOKE ALL ON FUNCTION pm.email_domain_is_public(text) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.email_domain_is_public(text) TO PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.email_inbox_verification_code() FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.email_inbox_verification_code() TO PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.email_is_address(text) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.email_is_address(text) TO PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.email_is_hostname(text) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.email_is_hostname(text) TO PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.email_start_message(uuid,jsonb,jsonb,jsonb,bigint) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.email_start_message(uuid,jsonb,jsonb,jsonb,bigint) TO service_role;
+REVOKE ALL ON FUNCTION pm.emit_invoice_webhook() FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.emit_invoice_webhook() TO PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.emit_invoice_webhook_event(pm.project_invoices,text,jsonb) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.emit_invoice_webhook_event(pm.project_invoices,text,jsonb) TO service_role;
+REVOKE ALL ON FUNCTION pm.emit_invoice_webhook_for_shares() FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.emit_invoice_webhook_for_shares() TO service_role;
+REVOKE ALL ON FUNCTION pm.endpoints_before_write() FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.endpoints_before_write() TO PUBLIC;
+REVOKE ALL ON FUNCTION pm.enforce_retainer_share_rules() FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.enforce_retainer_share_rules() TO PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.enforce_task_parent() FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.enforce_task_parent() TO service_role;
+REVOKE ALL ON FUNCTION pm.enforce_team_member_payout_integrity() FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.enforce_team_member_payout_integrity() TO PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.file_entity_is_live(text,uuid) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.file_entity_is_live(text,uuid) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.file_message_project(uuid,uuid,uuid,boolean) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.file_message_project(uuid,uuid,uuid,boolean) TO service_role;
+REVOKE ALL ON FUNCTION pm.file_stored(uuid) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.file_stored(uuid) TO service_role;
+REVOKE ALL ON FUNCTION pm.files_failed(uuid,jsonb,boolean,integer,integer) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.files_failed(uuid,jsonb,boolean,integer,integer) TO service_role;
+REVOKE ALL ON FUNCTION pm.files_forget(jsonb) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.files_forget(jsonb) TO service_role;
+REVOKE ALL ON FUNCTION pm.files_release(integer) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.files_release(integer) TO service_role;
+REVOKE ALL ON FUNCTION pm.forbid_hard_delete() FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.forbid_hard_delete() TO authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.forbid_text_subtask_writes() FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.forbid_text_subtask_writes() TO service_role;
+REVOKE ALL ON FUNCTION pm.format_money(numeric,text,boolean) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.format_money(numeric,text,boolean) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.generate_billing_drafts(date) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.generate_billing_drafts(date) TO service_role;
+REVOKE ALL ON FUNCTION pm.generate_retainer_drafts(date) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.generate_retainer_drafts(date) TO service_role;
+REVOKE ALL ON FUNCTION pm.generate_retainer_period(uuid,date) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.generate_retainer_period(uuid,date) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.get_accessible_credential_metadata(uuid) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.get_accessible_credential_metadata(uuid) TO anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.get_accessible_time_entries(uuid) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.get_accessible_time_entries(uuid) TO anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.get_my_access_context() FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.get_my_access_context() TO anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.get_team_directory() FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.get_team_directory() TO anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.guard_trash() FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.guard_trash() TO service_role;
+REVOKE ALL ON FUNCTION pm.handle_new_user() FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.handle_new_user() TO PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.handle_reminder_before_write() FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.handle_reminder_before_write() TO PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.handle_task_before_insert() FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.handle_task_before_insert() TO PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.handle_task_before_update() FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.handle_task_before_update() TO PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.handle_updated_at() FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.handle_updated_at() TO PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.has_permission(text,text) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.has_permission(text,text) TO anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.inboxes_before_write() FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.inboxes_before_write() TO PUBLIC;
+REVOKE ALL ON FUNCTION pm.inboxes_grant_handler() FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.inboxes_grant_handler() TO PUBLIC;
+REVOKE ALL ON FUNCTION pm.inboxes_guard_personal() FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.invoice_billed_hourly_pool(uuid,uuid) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.invoice_billed_hourly_pool(uuid,uuid) TO service_role;
+REVOKE ALL ON FUNCTION pm.invoice_hours_draft(uuid,text,numeric,timestamp with time zone,timestamp with time zone,uuid) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.invoice_hours_draft(uuid,text,numeric,timestamp with time zone,timestamp with time zone,uuid) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.invoice_hours_draft_internal(uuid,text,numeric,timestamp with time zone,timestamp with time zone,uuid) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.invoice_hours_draft_internal(uuid,text,numeric,timestamp with time zone,timestamp with time zone,uuid) TO service_role;
+REVOKE ALL ON FUNCTION pm.invoice_is_live(uuid) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.invoice_is_live(uuid) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.invoice_net_amounts(pm.project_invoices) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.invoice_net_amounts(pm.project_invoices) TO service_role;
+REVOKE ALL ON FUNCTION pm.invoice_paid_hourly_pool(uuid,uuid) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.invoice_paid_hourly_pool(uuid,uuid) TO service_role;
+REVOKE ALL ON FUNCTION pm.invoice_payment_event_data(pm.invoice_payments,pm.project_invoices) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.invoice_payment_event_data(pm.invoice_payments,pm.project_invoices) TO service_role;
+REVOKE ALL ON FUNCTION pm.invoice_payment_totals(jsonb) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.invoice_payment_totals(jsonb) TO service_role;
+REVOKE ALL ON FUNCTION pm.invoice_share_earnings_paid_out(uuid) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.invoice_share_earnings_paid_out(uuid) TO service_role;
+REVOKE ALL ON FUNCTION pm.invoice_text_date(text) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.invoice_text_date(text) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.invoice_total(pm.project_invoices) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.invoice_total(pm.project_invoices) TO service_role;
+REVOKE ALL ON FUNCTION pm.invoice_unbilled_slices(uuid,uuid) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.invoice_unbilled_slices(uuid,uuid) TO service_role;
+REVOKE ALL ON FUNCTION pm.is_admin() FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.is_admin() TO PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.keep_an_active_owner() FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.keep_an_active_owner() TO service_role;
+REVOKE ALL ON FUNCTION pm.lead_is_live(uuid) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.lead_is_live(uuid) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.link_done_task_to_running_timer() FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.link_done_task_to_running_timer() TO service_role;
+REVOKE ALL ON FUNCTION pm.link_message_task(uuid,uuid,text,uuid,boolean) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.link_message_task(uuid,uuid,text,uuid,boolean) TO service_role;
+REVOKE ALL ON FUNCTION pm.list_trash(text[],integer) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.list_trash(text[],integer) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.log_agent_health_change() FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.log_agent_health_change() TO PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.log_comment_activity() FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.log_comment_activity() TO service_role;
+REVOKE ALL ON FUNCTION pm.log_communication_activity() FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.log_communication_activity() TO service_role;
+REVOKE ALL ON FUNCTION pm.log_contact_activity() FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.log_contact_activity() TO service_role;
+REVOKE ALL ON FUNCTION pm.log_credential_activity() FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.log_credential_activity() TO service_role;
+REVOKE ALL ON FUNCTION pm.log_file_activity() FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.log_file_activity() TO service_role;
+REVOKE ALL ON FUNCTION pm.log_invoice_activity() FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.log_invoice_activity() TO service_role;
+REVOKE ALL ON FUNCTION pm.log_lead_activity() FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.log_lead_activity() TO service_role;
+REVOKE ALL ON FUNCTION pm.log_payment_activity() FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.log_payment_activity() TO service_role;
+REVOKE ALL ON FUNCTION pm.log_portal_update_activity() FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.log_portal_update_activity() TO service_role;
+REVOKE ALL ON FUNCTION pm.log_project_activity() FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.log_project_activity() TO service_role;
+REVOKE ALL ON FUNCTION pm.log_project_contact_activity() FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.log_project_contact_activity() TO service_role;
+REVOKE ALL ON FUNCTION pm.log_project_member_activity() FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.log_project_member_activity() TO service_role;
+REVOKE ALL ON FUNCTION pm.log_reminder_activity() FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.log_reminder_activity() TO service_role;
+REVOKE ALL ON FUNCTION pm.log_subtask_activity() FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.log_subtask_activity() TO service_role;
+REVOKE ALL ON FUNCTION pm.log_task_activity() FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.log_task_activity() TO service_role;
+REVOKE ALL ON FUNCTION pm.log_task_assignee_activity() FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.log_task_assignee_activity() TO service_role;
+REVOKE ALL ON FUNCTION pm.log_task_file_activity() FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.log_task_file_activity() TO service_role;
+REVOKE ALL ON FUNCTION pm.log_team_activity(text,text,text,uuid,text,jsonb) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.log_team_activity(text,text,text,uuid,text,jsonb) TO service_role;
+REVOKE ALL ON FUNCTION pm.log_time_entry_activity() FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.log_time_entry_activity() TO service_role;
+REVOKE ALL ON FUNCTION pm.log_trash_activity() FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.log_trash_activity() TO service_role;
+REVOKE ALL ON FUNCTION pm.mark_task_seen(uuid) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.mark_task_seen(uuid) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.mark_tasks_seen(uuid[]) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.mark_tasks_seen(uuid[]) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.mark_triage_summarized(jsonb,jsonb) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.mark_triage_summarized(jsonb,jsonb) TO service_role;
+REVOKE ALL ON FUNCTION pm.meeting_conversation(uuid,jsonb) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.meeting_conversation(uuid,jsonb) TO service_role;
+REVOKE ALL ON FUNCTION pm.member_has_permission(uuid,text,text) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.member_has_permission(uuid,text,text) TO service_role;
+REVOKE ALL ON FUNCTION pm.message_scope(uuid) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.message_scope(uuid) TO service_role;
+REVOKE ALL ON FUNCTION pm.module_enabled(text) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.module_enabled(text) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.move_subtasks_with_parent() FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.move_subtasks_with_parent() TO service_role;
+REVOKE ALL ON FUNCTION pm.my_task_updates() FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.my_task_updates() TO authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.next_project_invoice_number(uuid) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.next_project_invoice_number(uuid) TO service_role;
+REVOKE ALL ON FUNCTION pm.place_hours_draft(uuid,jsonb,date,boolean) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.place_hours_draft(uuid,jsonb,date,boolean) TO service_role;
+REVOKE ALL ON FUNCTION pm.portal_update_is_live(uuid) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.portal_update_is_live(uuid) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.project_accepts_messages(uuid) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.project_accepts_messages(uuid) TO service_role;
+REVOKE ALL ON FUNCTION pm.project_invoice_payments(uuid) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.project_invoice_payments(uuid) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.project_is_live(uuid) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.project_is_live(uuid) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.project_source_rank(text) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.project_source_rank(text) TO PUBLIC;
+REVOKE ALL ON FUNCTION pm.protect_invoiced_time_entry() FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.protect_invoiced_time_entry() TO PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.protect_project_billing_fields() FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.protect_project_billing_fields() TO anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.reconcile_invoice_retainer_lines() FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.reconcile_invoice_retainer_lines() TO PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.record_invoice_payment(uuid,jsonb) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.record_invoice_payment(uuid,jsonb) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.record_maintenance_run(text,jsonb) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.record_maintenance_run(text,jsonb) TO service_role;
+REVOKE ALL ON FUNCTION pm.record_payment_for_paid_invoice() FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.record_payment_for_paid_invoice() TO service_role;
+REVOKE ALL ON FUNCTION pm.record_subtask_parent_event() FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.record_subtask_parent_event() TO service_role;
+REVOKE ALL ON FUNCTION pm.record_task_child_event() FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.record_task_child_event() TO service_role;
+REVOKE ALL ON FUNCTION pm.record_task_event(uuid,text) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.record_task_event(uuid,text) TO service_role;
+REVOKE ALL ON FUNCTION pm.record_task_link_event() FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.record_task_link_event() TO service_role;
+REVOKE ALL ON FUNCTION pm.record_task_reopen() FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.record_task_reopen() TO anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.record_task_row_event() FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.record_task_row_event() TO service_role;
+REVOKE ALL ON FUNCTION pm.record_team_member_payout(uuid,text,numeric,text,text,text,jsonb) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.record_team_member_payout(uuid,text,numeric,text,text,text,jsonb) TO anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.record_trash_event() FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.record_trash_event() TO service_role;
+REVOKE ALL ON FUNCTION pm.record_triage(uuid,uuid,jsonb,jsonb,uuid,text,text,text) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.record_triage(uuid,uuid,jsonb,jsonb,uuid,text,text,text) TO service_role;
+REVOKE ALL ON FUNCTION pm.record_triage(uuid,uuid,jsonb,jsonb,uuid[],text,text,text) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.record_triage(uuid,uuid,jsonb,jsonb,uuid[],text,text,text) TO service_role;
+REVOKE ALL ON FUNCTION pm.release_trashed_primary_client() FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.release_trashed_primary_client() TO service_role;
+REVOKE ALL ON FUNCTION pm.remove_conversation_project(uuid,uuid) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.remove_conversation_project(uuid,uuid) TO service_role;
+REVOKE ALL ON FUNCTION pm.remove_invoice_payment(uuid,text) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.remove_invoice_payment(uuid,text) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.requeue_webhook_delivery(uuid) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.requeue_webhook_delivery(uuid) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.resolve_team_member_hourly_rate(uuid,timestamp with time zone) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.resolve_team_member_hourly_rate(uuid,timestamp with time zone) TO service_role;
+REVOKE ALL ON FUNCTION pm.restore_record(text,uuid,uuid) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.restore_record(text,uuid,uuid) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.retainer_accruing_lines() FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.retainer_accruing_lines() TO authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.retainer_due_periods(uuid) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.retainer_due_periods(uuid) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.retainer_due_periods_internal(uuid,date) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.retainer_due_periods_internal(uuid,date) TO service_role;
+REVOKE ALL ON FUNCTION pm.retainer_is_live(uuid) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.retainer_is_live(uuid) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.retainer_line_json(uuid,integer,numeric,text,date,date) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.retainer_line_json(uuid,integer,numeric,text,date,date) TO service_role;
+REVOKE ALL ON FUNCTION pm.retainer_periods(uuid,date,date) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.retainer_periods(uuid,date,date) TO service_role;
+REVOKE ALL ON FUNCTION pm.retention_delete(jsonb) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.retention_delete(jsonb) TO service_role;
+REVOKE ALL ON FUNCTION pm.retention_due(integer,jsonb) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.retention_due(integer,jsonb) TO service_role;
+REVOKE ALL ON FUNCTION pm.retire_share_earning(uuid,text) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.retire_share_earning(uuid,text) TO service_role;
+REVOKE ALL ON FUNCTION pm.review_time_entries(uuid[],text,text,jsonb) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.review_time_entries(uuid[],text,text,jsonb) TO anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.review_time_entries_api(uuid,uuid[],text,text,uuid) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.review_time_entries_api(uuid,uuid[],text,text,uuid) TO anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.routing_address_guard() FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.routing_address_guard() TO PUBLIC;
+REVOKE ALL ON FUNCTION pm.run_project_billing(pm.project_billing_plans,date) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.run_project_billing(pm.project_billing_plans,date) TO service_role;
+REVOKE ALL ON FUNCTION pm.save_project_billing_plan(uuid,jsonb) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.save_project_billing_plan(uuid,jsonb) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.save_project_invoice_with_allocations(uuid,jsonb,jsonb) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.save_project_invoice_with_allocations(uuid,jsonb,jsonb) TO anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.save_project_retainer(uuid,jsonb) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.save_project_retainer(uuid,jsonb) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.save_task(uuid,jsonb,uuid[],text[],uuid[]) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.save_task(uuid,jsonb,uuid[],text[],uuid[]) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.schedule_retainer_amount(uuid,numeric,date) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.schedule_retainer_amount(uuid,numeric,date) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.schedule_team_member_hourly_rate(uuid,numeric,timestamp with time zone,uuid) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.schedule_team_member_hourly_rate(uuid,numeric,timestamp with time zone,uuid) TO anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.scope_source(uuid,uuid) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.scope_source(uuid,uuid) TO service_role;
+REVOKE ALL ON FUNCTION pm.send_due_reminders(timestamp with time zone) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.send_due_reminders(timestamp with time zone) TO service_role;
+REVOKE ALL ON FUNCTION pm.set_conversation_project(uuid,uuid,uuid,boolean) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.set_conversation_project(uuid,uuid,uuid,boolean) TO service_role;
+REVOKE ALL ON FUNCTION pm.set_credential_members(uuid,uuid[]) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.set_credential_members(uuid,uuid[]) TO anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.set_invoice_line_shares(uuid,jsonb) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.set_invoice_line_shares(uuid,jsonb) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.set_message_delivery(uuid,boolean) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.set_message_delivery(uuid,boolean) TO service_role;
+REVOKE ALL ON FUNCTION pm.set_notifications_cleared(text,text,boolean,text) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.set_notifications_cleared(text,text,boolean,text) TO service_role;
+REVOKE ALL ON FUNCTION pm.set_retainer_shares(uuid,jsonb,date) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.set_retainer_shares(uuid,jsonb,date) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.set_task_parent(uuid,uuid) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.set_task_parent(uuid,uuid) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.signal(jsonb) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.signal(jsonb) TO service_role;
+REVOKE ALL ON FUNCTION pm.soft_delete_record(text,uuid,uuid) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.soft_delete_record(text,uuid,uuid) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.stamp_billing_gap_review() FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.stamp_billing_gap_review() TO anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.stamp_task_source() FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.stamp_task_source() TO service_role;
+REVOKE ALL ON FUNCTION pm.storage_known_paths(jsonb) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.storage_known_paths(jsonb) TO service_role;
+REVOKE ALL ON FUNCTION pm.stronger_source(text,text) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.stronger_source(text,text) TO PUBLIC;
+REVOKE ALL ON FUNCTION pm.suggest_project_invoice_number(uuid) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.suggest_project_invoice_number(uuid) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.sync_contact_email_mirror(uuid) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.sync_contact_email_mirror(uuid) TO service_role;
+REVOKE ALL ON FUNCTION pm.sync_findings_notification() FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.sync_findings_notification() TO service_role;
+REVOKE ALL ON FUNCTION pm.sync_invoice_notification() FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.sync_invoice_notification() TO service_role;
+REVOKE ALL ON FUNCTION pm.sync_invoice_payment_status() FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.sync_invoice_payment_status() TO service_role;
+REVOKE ALL ON FUNCTION pm.sync_invoice_payments_from_invoice() FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.sync_invoice_payments_from_invoice() TO service_role;
+REVOKE ALL ON FUNCTION pm.sync_invoice_share_earnings(uuid) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.sync_invoice_share_earnings(uuid) TO service_role;
+REVOKE ALL ON FUNCTION pm.sync_reminder_notification() FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.sync_reminder_notification() TO service_role;
+REVOKE ALL ON FUNCTION pm.sync_share_earnings_from_line_shares() FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.sync_share_earnings_from_line_shares() TO PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.sync_task_reminders_with_status() FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.sync_task_reminders_with_status() TO service_role;
+REVOKE ALL ON FUNCTION pm.task_is_live(uuid) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.task_is_live(uuid) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.time_entry_is_live(uuid) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.time_entry_is_live(uuid) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.time_entry_worked_hours(jsonb,timestamp with time zone,timestamp with time zone) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.time_entry_worked_hours(jsonb,timestamp with time zone,timestamp with time zone) TO PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.trash_delete_blocker(text,uuid) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.trash_delete_blocker(text,uuid) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.trash_entity_type(text) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.trash_entity_type(text) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.trash_record_types() FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.trash_record_types() TO authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.trash_restore_blocker(text,uuid) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.trash_restore_blocker(text,uuid) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.triage_is_news(uuid) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.triage_is_news(uuid) TO service_role;
+REVOKE ALL ON FUNCTION pm.unsummarized_triage(jsonb,integer) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.unsummarized_triage(jsonb,integer) TO service_role;
+REVOKE ALL ON FUNCTION pm.upsert_notification(uuid,text,text,text,text,text) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.upsert_notification(uuid,text,text,text,text,text) TO service_role;
+REVOKE ALL ON FUNCTION pm.validate_invoice_time_allocations(uuid) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.validate_invoice_time_allocations(uuid) TO anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.validate_team_member_payout(uuid) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.validate_team_member_payout(uuid) TO service_role;
+REVOKE ALL ON FUNCTION pm.webhook_payload_for_endpoint(jsonb,jsonb,text) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.webhook_payload_for_endpoint(jsonb,jsonb,text) TO service_role;
+REVOKE ALL ON FUNCTION pm.webhook_retry_kick() FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.workspace_currency() FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.workspace_currency() TO authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.workspace_timezone() FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.workspace_timezone() TO service_role;
+REVOKE ALL ON FUNCTION pm.workspace_today() FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.workspace_today() TO anon, authenticated, service_role;
+
+-- @AFTER-THE-MOVE: sections below are later 2.0 migrations, kept as written when
+-- scripts/release/pm-schema.ts regenerates everything above.
+-- ============================================================
+-- TEAM MEMBERS FROM THE SERVER (20261123000100_team_members_from_server.sql)
+-- No trigger on auth.users: the server adds members (pm.add_team_member).
+-- login_owned: the app made the login, so it may change it.
+-- ============================================================
+ALTER TABLE pm.team_members
+  ADD COLUMN IF NOT EXISTS login_owned boolean NOT NULL DEFAULT true;
+
+COMMENT ON COLUMN pm.team_members.login_owned IS
+  'The app created this login, so it may change its email or password. False for a login another app made.';
+
+CREATE OR REPLACE FUNCTION pm.add_team_member(
+  p_auth_user_id uuid,
+  p_email text,
+  p_name text,
+  p_role text DEFAULT 'member',
+  p_login_owned boolean DEFAULT true,
+  p_first_owner boolean DEFAULT false
+)
+RETURNS pm.team_members
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+DECLARE
+  others boolean;
+  member pm.team_members;
+BEGIN
+  IF p_auth_user_id IS NULL OR coalesce(btrim(p_email), '') = '' THEN
+    RAISE EXCEPTION 'A login and an email are required' USING ERRCODE = '22023';
+  END IF;
+  -- One at a time decides who is first (the same lock the sign-up trigger takes).
+  PERFORM pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtext('pm.handle_new_user'));
+  others := EXISTS (SELECT 1 FROM pm.team_members WHERE auth_user_id IS DISTINCT FROM p_auth_user_id);
+  IF p_first_owner AND others THEN
+    RAISE EXCEPTION 'This workspace already has an Owner' USING ERRCODE = 'P0001';
+  END IF;
+  SELECT * INTO member FROM pm.team_members WHERE auth_user_id = p_auth_user_id;
+  IF member.id IS NULL THEN
+    INSERT INTO pm.team_members (auth_user_id, name, email, role, login_owned)
+    VALUES (
+      p_auth_user_id,
+      coalesce(nullif(btrim(p_name), ''), split_part(p_email, '@', 1)),
+      p_email,
+      CASE WHEN p_first_owner THEN 'owner' ELSE coalesce(p_role, 'member') END,
+      p_login_owned
+    )
+    RETURNING * INTO member;
+  ELSE
+    UPDATE pm.team_members SET
+      name = coalesce(nullif(btrim(p_name), ''), name),
+      role = CASE WHEN p_first_owner THEN 'owner' ELSE coalesce(p_role, role) END,
+      login_owned = p_login_owned
+    WHERE id = member.id
+    RETURNING * INTO member;
+  END IF;
+  RETURN member;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION pm.add_team_member(uuid, text, text, text, boolean, boolean) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION pm.add_team_member(uuid, text, text, text, boolean, boolean) TO service_role;
+
+-- The login an email already has in this Supabase project, if any (another
+-- app's user being invited to PM). Service role only.
+CREATE OR REPLACE FUNCTION pm.login_for_email(p_email text, p_confirmed_only boolean DEFAULT false)
+RETURNS uuid
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+  SELECT u.id FROM auth.users u
+  WHERE lower(u.email) = lower(btrim(p_email))
+    AND (NOT p_confirmed_only OR u.email_confirmed_at IS NOT NULL)
+  ORDER BY u.created_at LIMIT 1
+$$;
+
+REVOKE ALL ON FUNCTION pm.login_for_email(text, boolean) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION pm.login_for_email(text, boolean) TO service_role;
+
+-- Whether this Supabase project already has logins (another app's users):
+-- then claiming the first Owner needs the host's setup code. Service role only.
+CREATE OR REPLACE FUNCTION pm.logins_exist()
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+  SELECT EXISTS (SELECT 1 FROM auth.users)
+$$;
+
+REVOKE ALL ON FUNCTION pm.logins_exist() FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION pm.logins_exist() TO service_role;

@@ -62,9 +62,9 @@ The `checkout` line starts you on the newest release. The public `main` branch c
 
 ### 2. Set up the database
 
-1. In Supabase, open the SQL Editor and run `supabase/schema.sql`. It is the whole database in one file; features you switch off later simply go unused.
-2. In Supabase, open Project Settings, then Data API, and check **Exposed schemas** lists `communications`, `pm` and `pm_custom` (keep `public` and `graphql_public`). `schema.sql` adds `pm` and `pm_custom` itself when the list is kept in the database; add any that are missing. The Inbox lives in `communications`; the next major release moves the app into `pm`.
-3. In Supabase, open Authentication, then Sign In / Providers, and turn off **Allow new users to sign up**. The app creates every account itself (the setup wizard and invitations), and with sign-ups on, anyone with your public key could make themselves a member.
+1. In Supabase, open the SQL Editor and run `supabase/schema.sql`. It is the whole database in one file, in its own schemas: `pm` (the app) and `pm_custom` (your own tables). It creates nothing in `public`, so it also fits a project that already holds other apps (see "Using a database you already have"). Features you switch off later simply go unused.
+2. In Supabase, open Project Settings, then Data API, and check **Exposed schemas** lists `pm` and `pm_custom` (keep the ones already there). `schema.sql` adds them itself when the list is kept in the database; add any that are missing. The setup wizard checks this too.
+3. In Supabase, open Authentication, then Sign In / Providers, and turn off **Allow new users to sign up** unless another app on the project needs it. The app creates every account itself (the setup wizard and invitations), and nobody becomes a member just by signing up.
 4. Copy `.env.example` to `.env.local`. Set `SUPABASE_DB_URL`: your database's session or direct connection string (Supabase, Connect, port 5432). Not the port 6543 transaction pooler. (`DATABASE_URL` also works and wins if both are set.)
 5. Record the database as up to date:
    ```bash
@@ -100,6 +100,15 @@ Open your app right after it deploys. On a fresh database it goes straight to th
 5. **Your team** and **First projects**, then you are in.
 
 Everything can be changed later in Settings. Owners can look through the wizard again any time from **Settings > Workspace > Features > Preview setup**; a preview saves nothing.
+
+### Using a database you already have
+
+The app can live in a Supabase project your company already uses for other apps, so it can read your own data (for an install's own pages, in `pm_custom`) and share logins:
+
+- Everything the app makes is in `pm` and `pm_custom`, with `pm-` storage buckets and `pm-` scheduled jobs. Nothing in `public` or your other schemas is created, changed or read by the app or its updates.
+- Logins are shared, roles are not: someone becomes a PM member only when invited, with their own PM role. An invited person who already has a confirmed login signs in with it (an unconfirmed one is never linked: it could be someone else's sign-up); the app never changes the email or password of a login it did not create.
+- Before anyone can claim the Owner account on such a project, the setup wizard asks for a setup code: set `PM_SETUP_CODE` (any long random text) in your host first. Someone who already has a login can claim with it.
+- Add your app's address to Supabase, Authentication, URL Configuration, Redirect URLs. Password reset emails use the project's own email templates.
 
 To try the app without a database, set `NEXT_PUBLIC_DEMO_MODE=true` and `DEMO_MODE=true`. Both are required: the server-only `DEMO_MODE` stops a stray public variable from turning off sign-in on a real deployment.
 

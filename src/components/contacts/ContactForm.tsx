@@ -16,6 +16,8 @@ import { TextInput } from '@/components/ui/inputs/TextInput';
 import { fieldLabelClass } from '@/components/ui/inputs/_shared';
 import { formatPhone } from '@/lib/format-phone';
 import { useBrand } from '@/lib/brand/context';
+import { pmStorage } from '@/lib/supabase/storage';
+import { BUCKETS } from '@/lib/supabase/schema';
 
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -183,12 +185,12 @@ export function ContactForm({ isOpen, onClose, contact }: ContactFormProps) {
         } else {
           // Fixed path per contact: upsert replaces previous file, no storage bloat
           const path = `contacts/${contact.id}.jpg`;
-          const { error: uploadError } = await supabase.storage
-            .from('avatars')
+          const { error: uploadError } = await pmStorage(supabase)
+            .from(BUCKETS.avatars)
             .upload(path, blob, { upsert: true, contentType: 'image/jpeg' });
           if (uploadError) throw uploadError;
 
-          const { data: { publicUrl } } = supabase.storage.from('avatars').getPublicUrl(path);
+          const { data: { publicUrl } } = pmStorage(supabase).from(BUCKETS.avatars).getPublicUrl(path);
           const url = `${publicUrl}?t=${Date.now()}`;
           setAvatarPreview(url);
           await updateContact(contact.id, { avatar_url: url });
@@ -259,11 +261,11 @@ export function ContactForm({ isOpen, onClose, contact }: ContactFormProps) {
           } else {
             // Fixed path per contact: upsert replaces previous file, no storage bloat
             const path = `contacts/${newContact.id}.jpg`;
-            const { error: uploadError } = await supabase.storage
-              .from('avatars')
+            const { error: uploadError } = await pmStorage(supabase)
+              .from(BUCKETS.avatars)
               .upload(path, avatarBlob, { upsert: true, contentType: 'image/jpeg' });
             if (!uploadError) {
-              const { data: { publicUrl } } = supabase.storage.from('avatars').getPublicUrl(path);
+              const { data: { publicUrl } } = pmStorage(supabase).from(BUCKETS.avatars).getPublicUrl(path);
               await updateContact(newContact.id, { avatar_url: `${publicUrl}?t=${Date.now()}` });
             }
           }

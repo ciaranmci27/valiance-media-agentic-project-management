@@ -30,6 +30,8 @@ import { Button } from '@/components/ui/Button';
 import { EmptyCard, NoMatches } from './TabLayout';
 import type { PortalUpdate, PortalUpdateType, PortalUpdateAttachment } from '@/lib/types';
 import { appLocale } from '@/lib/region';
+import { pmStorage } from '@/lib/supabase/storage';
+import { BUCKETS } from '@/lib/supabase/schema';
 
 interface PortalUpdatesPanelProps {
   projectId: string;
@@ -347,13 +349,13 @@ export function PortalUpdatesPanel({ projectId, isAdding, onAddingChange: setIsA
 
     for (const f of files) {
       const path = `updates/${projectId}/${Date.now()}-${f.name}`;
-      const { error: uploadError } = await supabase.storage
-        .from('portal-files')
+      const { error: uploadError } = await pmStorage(supabase)
+        .from(BUCKETS.portalFiles)
         .upload(path, f.file);
 
       if (uploadError) throw uploadError;
 
-      const { data: urlData } = supabase.storage.from('portal-files').getPublicUrl(path);
+      const { data: urlData } = pmStorage(supabase).from(BUCKETS.portalFiles).getPublicUrl(path);
 
       results.push({
         name: f.name,

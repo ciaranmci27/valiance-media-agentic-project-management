@@ -48,39 +48,39 @@ const ids = {
 
 async function seed(db: PGlite) {
   await db.exec(`
-    INSERT INTO public.team_members (id, name, email, role) VALUES
+    INSERT INTO pm.team_members (id, name, email, role) VALUES
       ('${ids.owner}', 'Ciaran Mcintyre', 'owner@agency.example', 'owner'),
       ('${ids.ashley}', 'Ashley P.', 'ashley-bot@agency.example', 'agent');
-    INSERT INTO public.projects (id, name, status) VALUES ('${ids.acme}', 'Acme', 'active');
-    INSERT INTO public.tasks (id, project_id, title, created_by) VALUES ('${ids.existingTask}', '${ids.acme}', 'Homepage refresh', '${ids.owner}');
-    INSERT INTO communications.inboxes (id, name, address, handler_member_id, triage_mode)
+    INSERT INTO pm.projects (id, name, status) VALUES ('${ids.acme}', 'Acme', 'active');
+    INSERT INTO pm.tasks (id, project_id, title, created_by) VALUES ('${ids.existingTask}', '${ids.acme}', 'Homepage refresh', '${ids.owner}');
+    INSERT INTO pm.inboxes (id, name, address, handler_member_id, triage_mode)
       VALUES ('${ids.inbox}', 'Ashley', 'ashley@agency.example', '${ids.ashley}', 'plans');
   `);
   const conversation = async (conversationId: string, channel: 'email' | 'meeting', title: string, minutesAgo: number) => {
-    await db.query(`INSERT INTO communications.conversations (id, inbox_id, subject_normalized, channel, project_id, project_source, last_message_at)
+    await db.query(`INSERT INTO pm.conversations (id, inbox_id, subject_normalized, channel, project_id, project_source, last_message_at)
       VALUES ($1, $2, $3, $4, $5, 'mapped', now() - make_interval(mins => $6))`,
     [conversationId, ids.inbox, channel === 'meeting' ? '' : title.toLowerCase(), channel, ids.acme, minutesAgo]);
-    await db.query("INSERT INTO communications.conversation_projects (conversation_id, project_id, source) VALUES ($1, $2, 'mapped') ON CONFLICT DO NOTHING",
+    await db.query("INSERT INTO pm.conversation_projects (conversation_id, project_id, source) VALUES ($1, $2, 'mapped') ON CONFLICT DO NOTHING",
       [conversationId, ids.acme]);
     if (channel === 'meeting') {
-      await db.query(`INSERT INTO communications.meetings (conversation_id, inbox_id, meeting_key, title, starts_at, ends_at, organizer_address, doc_url)
+      await db.query(`INSERT INTO pm.meetings (conversation_id, inbox_id, meeting_key, title, starts_at, ends_at, organizer_address, doc_url)
         VALUES ($1, $2, $3, $4, '2026-11-11T22:00:00Z', '2026-11-11T23:00:00Z', 'dana@acme.example', 'https://docs.google.com/document/d/abc/edit')`,
       [conversationId, ids.inbox, `key-${conversationId}`, title]);
     }
   };
   const message = async (messageId: string, thread: string, channel: string, subject: string, minutesAgo: number, status = 'needs_human') => {
-    await db.query(`INSERT INTO communications.messages (id, inbox_id, thread_id, channel, status, provider, provider_email_id, internet_message_id,
+    await db.query(`INSERT INTO pm.messages (id, inbox_id, thread_id, channel, status, provider, provider_email_id, internet_message_id,
         received_at, subject, kind, auth, text_body, new_text)
       VALUES ($1, $2, $3, $4, $9, 'test', $5, $5, now() - make_interval(mins => $6), $7, $8, '{"trust":"trusted"}', 'Body', 'Body')`,
     [messageId, ids.inbox, thread, channel, `m-${messageId}`, minutesAgo, subject, channel === 'meeting' ? 'meeting_notes' : 'person', status]);
-    await db.query("INSERT INTO communications.participants (message_id, kind, address, name, position) VALUES ($1, 'from', $2, $3, 0)",
+    await db.query("INSERT INTO pm.participants (message_id, kind, address, name, position) VALUES ($1, 'from', $2, $3, 0)",
       [messageId, channel === 'meeting' ? 'owner@agency.example' : 'dana@acme.example', channel === 'meeting' ? 'Ciaran Mcintyre' : 'Dana']);
   };
   await conversation(ids.weekly, 'meeting', 'Weekly review', 10);
   await message(ids.transcript, ids.weekly, 'meeting', 'Meeting transcript: Weekly review (2026-11-11)', 10);
   await message(ids.notes, ids.weekly, 'meeting', 'Meeting summary: Weekly review (2026-11-11)', 5, 'handled');
   for (const [position, address, name] of [[1, 'dana@acme.example', 'Dana'], [2, 'owner@agency.example', ''], [3, 'joe@acme.example', 'Joe']] as const) {
-    await db.query("INSERT INTO communications.participants (message_id, kind, address, name, position) VALUES ($1, 'attendee', $2, $3, $4)",
+    await db.query("INSERT INTO pm.participants (message_id, kind, address, name, position) VALUES ($1, 'attendee', $2, $3, $4)",
       [ids.transcript, address, name, position]);
   }
   await conversation(ids.catchUp, 'meeting', 'Friday catch-up', 30);
@@ -91,10 +91,10 @@ async function seed(db: PGlite) {
   await message(ids.emailMessage, ids.email, 'email', 'Hero image', 60);
 
   const plan = async (planId: string, messageId: string, conversationId: string) => db.query(
-    `INSERT INTO communications.plans (id, message_id, conversation_id, member_id, mode, status, summary) VALUES ($1, $2, $3, $4, 'live', 'partial', 'Suggestions')`,
+    `INSERT INTO pm.plans (id, message_id, conversation_id, member_id, mode, status, summary) VALUES ($1, $2, $3, $4, 'live', 'partial', 'Suggestions')`,
     [planId, messageId, conversationId, ids.ashley]);
   const item = async (itemId: string, planId: string, position: number, conversationId: string, payload: Row, state = 'pending', decision = 'propose') => db.query(
-    `INSERT INTO communications.plan_items (id, plan_id, position, conversation_id, mode, type, intent, project_id, task_id, payload, decision, state)
+    `INSERT INTO pm.plan_items (id, plan_id, position, conversation_id, mode, type, intent, project_id, task_id, payload, decision, state)
       VALUES ($1, $2, $3, $4, 'live', $5, $6, $7, $8, $9, $10, $11)`,
     [itemId, planId, position, conversationId, payload.type, payload.intent, payload.project_id ?? (payload.task_id ? ids.acme : null), payload.task_id ?? null,
       JSON.stringify(payload), decision, state]);
@@ -120,7 +120,7 @@ async function seed(db: PGlite) {
   await item(ids.kickoffReminder, ids.kickoffPlan, 2, ids.kickoff, { type: 'add_reminder', intent: 'waiting_on', project_id: ids.acme, title: 'Chase the kickoff notes', remind_on: '2026-11-22' });
   // Two accepts that claimed an item and never finished: one ten minutes ago (stuck), one just now (still running).
   for (const [itemId, position, title, minutesAgo] of [[ids.stuckAccept, 3, 'Book the photographer', 10], [ids.freshAccept, 4, 'Order the prints', 0]] as const) {
-    await db.query(`INSERT INTO communications.plan_items (id, plan_id, position, conversation_id, mode, type, intent, project_id, payload, decision, state, updated_at)
+    await db.query(`INSERT INTO pm.plan_items (id, plan_id, position, conversation_id, mode, type, intent, project_id, payload, decision, state, updated_at)
       VALUES ($1, $2, $3, $4, 'live', 'create_task', 'new_work', $5, $6, 'propose', 'accepting', now() - make_interval(mins => $7))`,
     [itemId, ids.kickoffPlan, position, ids.kickoff, ids.acme, JSON.stringify({ type: 'create_task', intent: 'new_work', project_id: ids.acme, title }), minutesAgo]);
   }
@@ -139,7 +139,7 @@ async function main() {
     await db.exec('RESET ROLE');
     return (await db.query<T>(sql, params)).rows;
   };
-  const state = async (itemId: string) => (await q('SELECT state, resolved_by FROM communications.plan_items WHERE id = $1', [itemId]))[0];
+  const state = async (itemId: string) => (await q('SELECT state, resolved_by FROM pm.plan_items WHERE id = $1', [itemId]))[0];
   const count = async (sql: string, params: unknown[] = []) => (await q<{ n: number }>(sql, params))[0].n;
 
   try {
@@ -147,10 +147,10 @@ async function main() {
     const linkedTo = id(98);
     // Created a minute ago: record_task_event skips a task created at the same
     // instant (its creation is the event), and two quick statements can share a timestamp.
-    await q(`INSERT INTO public.tasks (id, project_id, title, created_by, created_at) VALUES ($1, $2, 'Linked both ways', $3, now() - interval '1 minute')`, [linkedTo, ids.acme, ids.owner]);
-    await q(`INSERT INTO communications.task_links (message_id, task_id, relation) VALUES ($1, $3, 'related'), ($2, $3, 'related')`,
+    await q(`INSERT INTO pm.tasks (id, project_id, title, created_by, created_at) VALUES ($1, $2, 'Linked both ways', $3, now() - interval '1 minute')`, [linkedTo, ids.acme, ids.owner]);
+    await q(`INSERT INTO pm.task_links (message_id, task_id, relation) VALUES ($1, $3, 'related'), ($2, $3, 'related')`,
       [ids.kickoffTranscript, ids.emailMessage, linkedTo]);
-    const kinds = (await q<{ kind: string }>('SELECT kind FROM public.task_events WHERE task_id = $1 ORDER BY kind', [linkedTo])).map((row) => row.kind);
+    const kinds = (await q<{ kind: string }>('SELECT kind FROM pm.task_events WHERE task_id = $1 ORDER BY kind', [linkedTo])).map((row) => row.kind);
     check('linking a meeting logs a meeting event and an email an email event', JSON.stringify(kinds) === JSON.stringify(['email', 'meeting']), kinds);
 
     const { addAllSuggestions, dismissMeeting, undoMeetingDismissal } = await import('../src/lib/communications/meeting/suggestions');
@@ -182,7 +182,7 @@ async function main() {
     const emailItem = await state(ids.emailTask);
     check('email: Add all and Nothing to do refuse an email conversation (409) and leave it',
       emailAdd === 409 && emailDismiss === 409 && emailItem.state === 'pending'
-        && (await count("SELECT count(*)::int AS n FROM public.tasks WHERE title = 'Swap the hero image'")) === 0,
+        && (await count("SELECT count(*)::int AS n FROM pm.tasks WHERE title = 'Swap the hero image'")) === 0,
       { emailAdd, emailDismiss, emailItem });
 
     // ---- Add all ----------------------------------------------------------------------------------
@@ -190,16 +190,16 @@ async function main() {
     check('add all: every waiting suggestion is added, in order, none failing',
       JSON.stringify(added.added) === JSON.stringify([ids.task, ids.reminder, ids.comment]) && added.failed.length === 0, added);
     check('add all: exactly one task, one reminder and one comment exist',
-      (await count("SELECT count(*)::int AS n FROM public.tasks WHERE title = 'Send the proposal' AND deleted_at IS NULL")) === 1
-        && (await count("SELECT count(*)::int AS n FROM public.reminders WHERE title = 'Chase Dana for the logo' AND deleted_at IS NULL")) === 1
-        && (await count("SELECT count(*)::int AS n FROM public.task_comments WHERE task_id = $1 AND text LIKE 'Dana wants%' AND deleted_at IS NULL", [ids.existingTask])) === 1);
+      (await count("SELECT count(*)::int AS n FROM pm.tasks WHERE title = 'Send the proposal' AND deleted_at IS NULL")) === 1
+        && (await count("SELECT count(*)::int AS n FROM pm.reminders WHERE title = 'Chase Dana for the logo' AND deleted_at IS NULL")) === 1
+        && (await count("SELECT count(*)::int AS n FROM pm.task_comments WHERE task_id = $1 AND text LIKE 'Dana wants%' AND deleted_at IS NULL", [ids.existingTask])) === 1);
     const states = await Promise.all([ids.task, ids.reminder, ids.comment].map(state));
     check('add all: each is accepted as the person\'s', states.every((s) => s.state === 'accepted' && s.resolved_by === ids.owner), states);
     check('add all: the question and the applied link are left as they were',
       (await state(ids.question)).state === 'pending' && (await state(ids.linked)).state === 'done');
     const again = await addAllSuggestions(owner, ids.weekly);
     check('add all: a second time adds nothing', again.added.length === 0 && again.failed.length === 0
-      && (await count("SELECT count(*)::int AS n FROM public.tasks WHERE title = 'Send the proposal'")) === 1, again);
+      && (await count("SELECT count(*)::int AS n FROM pm.tasks WHERE title = 'Send the proposal'")) === 1, again);
 
     // ---- The Inbox reads the meeting --------------------------------------------------------------
     const detail = await inbox.threadDetail(owner, ids.weekly);
@@ -219,8 +219,8 @@ async function main() {
     check('list: a meeting row carries its title and what it holds', row?.channel === 'meeting' && row.subject === 'Weekly review'
       && row.meeting?.title === 'Weekly review' && row.snippet === "Transcript and Gemini's notes", row);
     check('list: an email row is email', list.threads.find((thread) => thread.id === ids.email)?.channel === 'email');
-    const madeTask = (await q("SELECT id FROM public.tasks WHERE title = 'Send the proposal'"))[0].id as string;
-    const madeNote = (await q("SELECT created_note FROM public.tasks WHERE id = $1", [madeTask]))[0]?.created_note;
+    const madeTask = (await q("SELECT id FROM pm.tasks WHERE title = 'Send the proposal'"))[0].id as string;
+    const madeNote = (await q("SELECT created_note FROM pm.tasks WHERE id = $1", [madeTask]))[0]?.created_note;
     check('a task added from a meeting says it came from the meeting', madeNote === 'From the meeting "Weekly review (2026-11-11)"', madeNote);
     const sources = await inbox.taskSourceEmails(owner, madeTask);
     check('task source: a task added from a meeting names the meeting and when it ran', sources.emails[0]?.channel === 'meeting' && sources.emails[0].meeting_title === 'Weekly review'
@@ -230,7 +230,7 @@ async function main() {
     for (const itemId of [...added.added].reverse()) await inboxPlans.undoPlanItem(owner, itemId);
     const undone = await Promise.all(added.added.map(state));
     check('add all undo: every added suggestion is undone and the task is in Trash',
-      undone.every((s) => s.state === 'undone') && (await count("SELECT count(*)::int AS n FROM public.tasks WHERE title = 'Send the proposal' AND deleted_at IS NULL")) === 0,
+      undone.every((s) => s.state === 'undone') && (await count("SELECT count(*)::int AS n FROM pm.tasks WHERE title = 'Send the proposal' AND deleted_at IS NULL")) === 0,
       undone);
 
     // ---- Two Add all at once: each item applies once ----------------------------------------------
@@ -240,40 +240,40 @@ async function main() {
       JSON.stringify(together) === JSON.stringify([ids.kickoffTask, ids.kickoffTask2, ids.kickoffReminder].sort())
         && first.failed.length === 0 && second.failed.length === 0, { first, second });
     check('add all at once: exactly one task and one reminder per suggestion',
-      (await count("SELECT count(*)::int AS n FROM public.tasks WHERE title = 'Draft the sitemap'")) === 1
-        && (await count("SELECT count(*)::int AS n FROM public.tasks WHERE title = 'Collect the brand assets'")) === 1
-        && (await count("SELECT count(*)::int AS n FROM public.reminders WHERE title = 'Chase the kickoff notes'")) === 1
+      (await count("SELECT count(*)::int AS n FROM pm.tasks WHERE title = 'Draft the sitemap'")) === 1
+        && (await count("SELECT count(*)::int AS n FROM pm.tasks WHERE title = 'Collect the brand assets'")) === 1
+        && (await count("SELECT count(*)::int AS n FROM pm.reminders WHERE title = 'Chase the kickoff notes'")) === 1
         && (await Promise.all([ids.kickoffTask, ids.kickoffTask2, ids.kickoffReminder].map(state))).every((s) => s.state === 'accepted'));
 
     // ---- A stuck claim is taken over; a fresh one is not ----------------------------------------
     const stuckAccepted = await refused(() => inboxPlans.acceptPlanItem(owner, ids.stuckAccept));
     check('stuck accept: an item claimed over five minutes ago and never finished is accepted, once',
       stuckAccepted === 0 && (await state(ids.stuckAccept)).state === 'accepted'
-        && (await count("SELECT count(*)::int AS n FROM public.tasks WHERE title = 'Book the photographer'")) === 1, stuckAccepted);
+        && (await count("SELECT count(*)::int AS n FROM pm.tasks WHERE title = 'Book the photographer'")) === 1, stuckAccepted);
     const freshAccepted = await refused(() => inboxPlans.acceptPlanItem(owner, ids.freshAccept));
     check('stuck accept: an item another accept claimed just now is refused (409) and left to it',
       freshAccepted === 409 && (await state(ids.freshAccept)).state === 'accepting'
-        && (await count("SELECT count(*)::int AS n FROM public.tasks WHERE title = 'Order the prints'")) === 0, freshAccepted);
+        && (await count("SELECT count(*)::int AS n FROM pm.tasks WHERE title = 'Order the prints'")) === 0, freshAccepted);
 
     // ---- Nothing to do ----------------------------------------------------------------------------
     await inboxPlans.acceptPlanItem(owner, ids.catchUpReply);
-    const replyReminder = async () => (await q("SELECT id, status, completed_at, deleted_at FROM public.reminders WHERE title = 'Reply to Dana about the footer'"))[0];
+    const replyReminder = async () => (await q("SELECT id, status, completed_at, deleted_at FROM pm.reminders WHERE title = 'Reply to Dana about the footer'"))[0];
     const replyBefore = await replyReminder();
     check('setup: the person added a reply reminder from a suggestion', replyBefore?.status === 'open', replyBefore);
-    const tasksBefore = await count('SELECT count(*)::int AS n FROM public.tasks');
-    const trashedBefore = await count('SELECT count(*)::int AS n FROM public.tasks WHERE deleted_at IS NOT NULL');
+    const tasksBefore = await count('SELECT count(*)::int AS n FROM pm.tasks');
+    const trashedBefore = await count('SELECT count(*)::int AS n FROM pm.tasks WHERE deleted_at IS NOT NULL');
     const dismissed = await dismissMeeting(owner, ids.catchUp);
     check('nothing to do: the waiting suggestion and the question are skipped, by the person',
       JSON.stringify([...dismissed.skipped].sort()) === JSON.stringify([ids.catchUpTask, ids.catchUpQuestion].sort())
         && (await state(ids.catchUpTask)).state === 'dismissed' && (await state(ids.catchUpQuestion)).resolved_by === ids.owner, dismissed);
     check('nothing to do: an accepted suggestion stays accepted', (await state(ids.catchUpAccepted)).state === 'accepted');
     check('nothing to do: nothing is created or trashed',
-      (await count('SELECT count(*)::int AS n FROM public.tasks')) === tasksBefore
-        && (await count('SELECT count(*)::int AS n FROM public.tasks WHERE deleted_at IS NOT NULL')) === trashedBefore);
-    const [handled] = await q('SELECT status, reviewed_by FROM communications.messages WHERE id = $1', [ids.catchUpTranscript]);
+      (await count('SELECT count(*)::int AS n FROM pm.tasks')) === tasksBefore
+        && (await count('SELECT count(*)::int AS n FROM pm.tasks WHERE deleted_at IS NOT NULL')) === trashedBefore);
+    const [handled] = await q('SELECT status, reviewed_by FROM pm.messages WHERE id = $1', [ids.catchUpTranscript]);
     check('nothing to do: the meeting\'s messages are handled and reviewed by the person', handled.status === 'handled' && handled.reviewed_by === ids.owner
       && dismissed.handled.length === 1 && dismissed.handled[0].status === 'needs_human' && dismissed.handled[0].unreviewed, { handled, list: dismissed.handled });
-    const [mark] = await q('SELECT dismissed_at, dismissed_by FROM communications.meetings WHERE conversation_id = $1', [ids.catchUp]);
+    const [mark] = await q('SELECT dismissed_at, dismissed_by FROM pm.meetings WHERE conversation_id = $1', [ids.catchUp]);
     check('nothing to do: the meeting records who said so and when', !!mark.dismissed_at && mark.dismissed_by === ids.owner
       && dismissed.dismissed.by?.name === 'Ciaran Mcintyre', { mark, dismissed: dismissed.dismissed });
     const replyAfter = await replyReminder();
@@ -284,8 +284,8 @@ async function main() {
 
     // ---- Its Undo ---------------------------------------------------------------------------------
     const cleared = await undoMeetingDismissal(owner, ids.catchUp, { skipped: dismissed.skipped, handled: dismissed.handled });
-    const [back] = await q('SELECT status, reviewed_at FROM communications.messages WHERE id = $1', [ids.catchUpTranscript]);
-    const [unmarked] = await q('SELECT dismissed_at, dismissed_by FROM communications.meetings WHERE conversation_id = $1', [ids.catchUp]);
+    const [back] = await q('SELECT status, reviewed_at FROM pm.messages WHERE id = $1', [ids.catchUpTranscript]);
+    const [unmarked] = await q('SELECT dismissed_at, dismissed_by FROM pm.meetings WHERE conversation_id = $1', [ids.catchUp]);
     check('nothing to do undo: the suggestions wait again, the message is as it was and the mark is cleared',
       cleared.cleared && (await state(ids.catchUpTask)).state === 'pending' && (await state(ids.catchUpQuestion)).state === 'pending'
         && (await state(ids.catchUpAccepted)).state === 'accepted'

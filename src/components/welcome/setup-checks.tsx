@@ -30,7 +30,7 @@ export const setupChecksRead: Read<SetupChecks> = {
 export const SCHEMA_FIX_STEPS = [
   'Open your project in Supabase.',
   'Go to Project Settings, then Data API.',
-  'Under Exposed schemas, add communications.',
+  'Under Exposed schemas, add pm and pm_custom (keep the ones already there).',
   'Save, then press Check again here.',
 ];
 

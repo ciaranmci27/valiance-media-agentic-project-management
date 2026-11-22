@@ -4,6 +4,7 @@ import { sessionUser } from './session-user';
 import { safeNextPath } from './next-path';
 import customPublicPaths from '@/custom/middleware';
 import { matchesPublicPath } from '@/lib/extensions/registry';
+import { PM_DB } from '@/lib/supabase/schema';
 
 function isPublicRoute(pathname: string) {
   return (
@@ -94,6 +95,7 @@ export async function updateSession(request: NextRequest) {
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
+      db: PM_DB,
       cookies: {
         getAll() {
           return request.cookies.getAll();
@@ -118,7 +120,7 @@ export async function updateSession(request: NextRequest) {
   // on every request.
   let user = null;
   try {
-    user = await sessionUser(supabase);
+    user = await sessionUser(supabase as unknown as Parameters<typeof sessionUser>[0]);
   } catch {
     // If auth check fails, treat as unauthenticated
   }

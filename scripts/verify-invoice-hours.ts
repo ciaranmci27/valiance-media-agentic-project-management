@@ -231,7 +231,7 @@ async function main() {
   check('numbers: an invoice number is unique within a project', /duplicate key/.test(refused), refused);
 
   await db.query("SET test.role = 'authenticated'");
-  await db.exec(`CREATE OR REPLACE FUNCTION public.has_permission(text, text DEFAULT 'app') RETURNS boolean LANGUAGE sql AS $$ SELECT false $$`);
+  await db.exec(`CREATE OR REPLACE FUNCTION pm.has_permission(text, text DEFAULT 'app') RETURNS boolean LANGUAGE sql AS $$ SELECT false $$`);
   refused = '';
   try { await db.query('SELECT invoice_hours_draft($1)', [project]); } catch (e) { refused = (e as Error).message; }
   check('access: a member without invoices.manage cannot draft', /Not allowed/.test(refused), refused);

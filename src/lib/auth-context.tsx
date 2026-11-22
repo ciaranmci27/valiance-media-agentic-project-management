@@ -8,6 +8,7 @@ import { useDemo } from '@/lib/demo-context';
 import { DEMO_USER_ID, DEMO_ADMIN_TEAM_MEMBER_ID } from '@/lib/demo-data';
 import type { AccessContext } from '@/lib/access-control';
 import { MODULE_IDS, type ModuleId } from '@/lib/modules/registry';
+import { PM_SCHEMA } from '@/lib/supabase/schema';
 
 interface AuthContextType {
   user: User | null;
@@ -177,7 +178,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!user || isEnvForcedDemo) return;
     const channel = supabase
       .channel('workspace-modules')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'workspace_modules' }, () => {
+      .on('postgres_changes', { event: '*', schema: PM_SCHEMA, table: 'workspace_modules' }, () => {
         void loadWorkspaceIdentity().catch(() => {});
       })
       .subscribe();

@@ -121,7 +121,8 @@ import { hasPermission, canOpenInbox, canReadTasks, isModuleEnabled } from '@/li
 import { loadRetainerFinanceInputs } from '@/lib/finance/use-retainer-finance';
 import { rollbackScope } from '@/lib/optimistic';
 import { INBOX_TABLES, INBOX_UPDATED_EVENT } from '@/lib/communications/inbox-types';
-import { COMMS_SCHEMA } from '@/lib/communications/db';
+import { INBOX_CACHE_PREFIX, INBOX_TABLE_NAMES } from '@/lib/communications/db';
+import { PM_SCHEMA } from '@/lib/supabase/schema';
 import { parsePaymentRuleError } from '@/lib/invoice-payments';
 import { restoreFromTrash, TRASH_TABLES, TrashError, type TrashTable } from '@/lib/supabase/trash';
 
@@ -233,7 +234,7 @@ const REALTIME_TABLE_SLICES: Record<string, RealtimeSlice> = {
   // Its own slice: a contact_emails failure must never make contacts look failed.
   contact_emails: 'contactEmails',
   // The Inbox reads through session routes; these are invalidation pings
-  // (the communications schema, named schema-qualified).
+  // (Inbox tables, in pm since 2.0, keep their communications.<name> labels).
   ...Object.fromEntries(INBOX_TABLES.map((table) => [table, 'emails'])),
 };
 
@@ -1195,7 +1196,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
     // nothing.
     const channel = supabase
       .channel(`workspace-live-sync-${Math.random().toString(36).slice(2)}`)
-      .on('postgres_changes', { event: '*', schema: 'public' }, (payload) => {
+      .on('postgres_changes', { event: '*', schema: PM_SCHEMA }, (payload) => {
+        // The Inbox's tables (in pm since 2.0) keep their communications.<name> labels.
+        if (INBOX_TABLE_NAMES.has(payload.table)) {
+          const table = `${INBOX_CACHE_PREFIX}.${payload.table}`;
+          invalidateTables([table]);
+          const slice = REALTIME_TABLE_SLICES[table];
+          if (slice) queue(slice);
+          return;
+        }
         // Realtime checks RLS on the new row, so a record moved to Trash
         // sends nobody an update; trash_events is the ping that it moved.
         if (payload.table === 'trash_events') {
@@ -1221,15 +1230,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const slice = REALTIME_TABLE_SLICES[payload.table];
         if (!slice) return;
         queue(slice);
-      })
-      // The Inbox's tables live in the communications schema; they are named
-      // schema-qualified here, in the slices and in the reads, so a bare name
-      // never collides with a public table.
-      .on('postgres_changes', { event: '*', schema: COMMS_SCHEMA }, (payload) => {
-        const table = `${COMMS_SCHEMA}.${payload.table}`;
-        invalidateTables([table]);
-        const slice = REALTIME_TABLE_SLICES[table];
-        if (slice) queue(slice);
       })
       .subscribe((status, err) => {
         if (disposed) return;

@@ -12,7 +12,8 @@
  *      release merged yet, commits outside every release tag count.
  *      package.json, package-lock.json and vercel.json are core files an
  *      install may change; the upgrade merges them.
- *   2. A custom migration creates, alters or drops anything outside schema custom.
+ *   2. A custom migration creates, alters or drops anything outside schema pm_custom
+ *      (custom for files dated before 2.0).
  *
  * In the source monorepo (the releases are cut from it) there is nothing to
  * police: it says so and exits 0.
@@ -22,7 +23,7 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { isAllowedInstallChange, isSourceMonorepo } from './lib/core-paths';
-import { checkCustomSql, type SqlViolation } from './lib/custom-sql';
+import { checkCustomSql, customSchemaFor, type SqlViolation } from './lib/custom-sql';
 import { byName } from './lib/migrations';
 import { git, gitRun, lines, releaseTags, uncommittedPaths } from './lib/git';
 
@@ -82,23 +83,23 @@ export function checkCore(root: string): CoreCheckResult {
     }
   }
 
-  // 2. Custom migrations stay in schema custom.
+  // 2. Custom migrations stay in the install's schema (pm_custom; custom before 2.0).
   const customDir = join(root, 'supabase', 'migrations', 'custom');
   const files = existsSync(customDir) ? readdirSync(customDir).filter(name => name.endsWith('.sql')).sort(byName) : [];
   for (const file of files) {
     const path = `supabase/migrations/custom/${file}`;
-    for (const violation of checkCustomSql(readFileSync(join(customDir, file), 'utf8'))) {
+    for (const violation of checkCustomSql(readFileSync(join(customDir, file), 'utf8'), customSchemaFor(file))) {
       result.sqlViolations.push({ file: path, ...violation });
     }
   }
   if (result.sqlViolations.length) {
-    say(`Custom migrations reach outside schema custom (${result.sqlViolations.length}):`);
+    say(`Custom migrations reach outside schema pm_custom (${result.sqlViolations.length}):`);
     for (const v of result.sqlViolations) say(`  ${v.file}: ${v.reason}\n    ${v.statement}`);
-    say('Keep install tables, functions and policies in schema custom; a change to a core table belongs upstream.');
+    say('Keep install tables, functions and policies in schema pm_custom; a change to a core table belongs upstream.');
     result.exitCode = 1;
   }
 
-  if (result.exitCode === 0) say(`Core is untouched and ${files.length} custom migration(s) stay in schema custom.`);
+  if (result.exitCode === 0) say(`Core is untouched and ${files.length} custom migration(s) stay in schema pm_custom.`);
   return result;
 }
 

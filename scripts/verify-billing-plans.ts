@@ -251,7 +251,7 @@ async function main() {
   try { await plan(manual, { hours_trigger: 'fixed_blocks' }); } catch (e) { refused = (e as Error).message; }
   check('validation: a block size is required for fixed blocks', /project_billing_plans_amount/.test(refused), refused);
   await db.query("SET test.role = 'authenticated'");
-  await db.exec(`CREATE OR REPLACE FUNCTION public.has_permission(text, text DEFAULT 'app') RETURNS boolean LANGUAGE sql AS $$ SELECT false $$`);
+  await db.exec(`CREATE OR REPLACE FUNCTION pm.has_permission(text, text DEFAULT 'app') RETURNS boolean LANGUAGE sql AS $$ SELECT false $$`);
   refused = '';
   try { await plan(manual, { payment_terms_days: 30 }); } catch (e) { refused = (e as Error).message; }
   check('access: only invoices.manage changes a plan', /Not allowed/.test(refused), refused);

@@ -54,6 +54,13 @@ function pgliteDb(db: PGlite): MigrationDb {
   };
 }
 
+/** An empty database with the API roles every Supabase project has (the tracking table revokes from them). */
+async function supabaseDb(): Promise<PGlite> {
+  const db = new PGlite();
+  await db.exec('CREATE ROLE anon; CREATE ROLE authenticated;');
+  return db;
+}
+
 const root = mkdtempSync(join(tmpdir(), 'vm-db-migrate-'));
 const dirs: MigrationDirs = { coreDir: join(root, 'migrations'), customDir: join(root, 'migrations', 'custom') };
 mkdirSync(dirs.customDir, { recursive: true });
@@ -75,7 +82,7 @@ async function main() {
   const log = (line: string) => logs.push(line);
 
   // 0. Whose database is it? The runner makes its table only where the app lives.
-  const bare = new PGlite();
+  const bare = await supabaseDb();
   const bareRun = await rejects(() => baselineMigrations(pgliteDb(bare), listMigrationFiles(dirs), { log }));
   check('a database without the app is refused (nothing is made)', bareRun instanceof Error && /does not hold the PM app/.test(bareRun.message) && !(await tableExists(bare, 'public.app_migrations')), String(bareRun));
   await bare.exec(`CREATE TABLE public.workspace_modules (module_id text); CREATE TABLE public.business_settings (id int);
@@ -86,7 +93,7 @@ async function main() {
   check('status reads nothing from it either', (await migrationStatus(pgliteDb(bare), listMigrationFiles(dirs))).applied.length === 0);
   await bare.close();
 
-  const moved = new PGlite();
+  const moved = await supabaseDb();
   await moved.exec('CREATE SCHEMA pm; CREATE TABLE pm.workspace_modules (module_id text); CREATE TABLE pm.business_settings (id int);');
   const movedTable = await trackingTable(pgliteDb(moved));
   check('with the app in pm, the table goes in pm', movedTable?.table === 'pm.app_migrations' && movedTable.exists === false, movedTable);
@@ -95,7 +102,7 @@ async function main() {
   await moved.close();
 
   // A shared database: another app owns public.app_migrations, the PM app lives in pm.
-  const shared = new PGlite();
+  const shared = await supabaseDb();
   await shared.exec('CREATE TABLE public.app_migrations (id serial, version text); INSERT INTO public.app_migrations (version) VALUES ("v9"); CREATE SCHEMA pm; CREATE TABLE pm.workspace_modules (module_id text); CREATE TABLE pm.business_settings (id int);'.replace(/"/g, "'"));
   await baselineMigrations(pgliteDb(shared), listMigrationFiles(dirs), { log });
   check('a shared database: the baseline lands in pm, the other app\x27s table untouched', await tableExists(shared, 'pm.app_migrations')
@@ -103,7 +110,17 @@ async function main() {
     && Number(((await shared.query<{ n: number }>('SELECT count(*)::int AS n FROM public.app_migrations')).rows[0]).n) === 1);
   await shared.close();
 
-  const pg = new PGlite();
+  // A look-alike: the other app's public.app_migrations has the runner's very columns.
+  const lookalike = await supabaseDb();
+  await lookalike.exec(`CREATE TABLE public.app_migrations (name text PRIMARY KEY, kind text, checksum text); INSERT INTO public.app_migrations VALUES ('theirs.sql', 'core', 'x');
+    CREATE SCHEMA pm; CREATE TABLE pm.workspace_modules (module_id text); CREATE TABLE pm.business_settings (id int);`);
+  const lookalikeTable = await trackingTable(pgliteDb(lookalike));
+  check('a look-alike public.app_migrations beside the app in pm: the table goes in pm', lookalikeTable?.table === 'pm.app_migrations', lookalikeTable);
+  await baselineMigrations(pgliteDb(lookalike), listMigrationFiles(dirs), { log });
+  check('and the baseline writes nothing into theirs', Number((await lookalike.query<{ n: number }>('SELECT count(*)::int AS n FROM public.app_migrations')).rows[0].n) === 1);
+  await lookalike.close();
+
+  const pg = await supabaseDb();
   // The app's own tables, so this reads as the app's database.
   await pg.exec('CREATE TABLE public.workspace_modules (module_id text); CREATE TABLE public.business_settings (id int);');
   const db = pgliteDb(pg);
@@ -202,7 +219,7 @@ async function main() {
   // 10. Connection settings.
   // The 2.0 move: a file that moves the app, tracking table included, into pm
   // is recorded in pm, in the same transaction.
-  const mover = new PGlite();
+  const mover = await supabaseDb();
   await mover.exec('CREATE TABLE public.workspace_modules (module_id text); CREATE TABLE public.business_settings (id int);');
   await baselineMigrations(pgliteDb(mover), listMigrationFiles(dirs), { log });
   core('20991231000000_move_to_pm.sql', 'CREATE SCHEMA pm; ALTER TABLE public.app_migrations SET SCHEMA pm; ALTER TABLE public.workspace_modules SET SCHEMA pm; ALTER TABLE public.business_settings SET SCHEMA pm;');

@@ -18,7 +18,7 @@ Webhooks, which shows each delivery's attempts, last error and next try.
   it is marked `failed` and waits for a manual re-send (which restarts the
   attempt budget).
 - Supabase pg_cron checks every minute and, when a delivery is due, POSTs to
-  `/api/internal/webhooks/scheduled` (`public.webhook_retry_kick`). Not a
+  `/api/internal/webhooks/scheduled` (`pm.webhook_retry_kick`). Not a
   Vercel cron: the app is on Hobby, which only allows daily crons. Setup:
   `WEBHOOK_SCHEDULER_ENABLED=true` and `WEBHOOK_SCHEDULER_SECRET` in the app,
   and the same secret plus the app URL in Supabase Vault as

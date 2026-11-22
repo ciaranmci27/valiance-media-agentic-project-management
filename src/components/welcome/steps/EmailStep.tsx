@@ -42,7 +42,7 @@ function InboxCheck({ state, onReload, revalidating }: { state: SetupChecks['com
   if (state === 'not_exposed') {
     return (
       <CheckRow icon={Inbox} title="Inbox needs one Supabase setting" tone="warning">
-        <p>The Inbox lives in the communications schema, which a new Supabase project does not share with the app. To fix it:</p>
+        <p>The Inbox lives in the app's schema (pm), which Supabase does not share with the app yet. To fix it:</p>
         <ol className="mt-2 list-decimal space-y-1 pl-4 text-zinc-300">
           {SCHEMA_FIX_STEPS.map((step) => <li key={step}>{step}</li>)}
         </ol>
@@ -73,7 +73,7 @@ function InboxCheck({ state, onReload, revalidating }: { state: SetupChecks['com
  * Step 4, optional: whether email works. Invitations go out through an SMTP
  * account; without one, the team step hands over links to copy instead.
  * Connect email sets one up in place (Google, Resend or any SMTP server).
- * With the Inbox on, it checks Supabase shares the communications schema
+ * With the Inbox on, it checks Supabase shares the app's schema (pm)
  * and gives the exact fix when it does not. Inboxes themselves are set up
  * after the wizard, in Settings > Email.
  */

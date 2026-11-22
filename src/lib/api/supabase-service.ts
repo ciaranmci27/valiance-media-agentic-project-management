@@ -1,5 +1,6 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { currentApiKeyId } from './request-context';
+import { createPmClient } from '@/lib/supabase/pm-client';
 
 let serviceClient: SupabaseClient | null = null;
 const actorClients = new Map<string, SupabaseClient>();
@@ -17,9 +18,9 @@ export function getServiceClient(): SupabaseClient {
       throw new Error('SUPABASE_SERVICE_ROLE_KEY is required in production');
     }
     // Fallback to anon key for demo/dev only
-    serviceClient = createClient(url, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!);
+    serviceClient = createPmClient(url, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!);
   } else {
-    serviceClient = createClient(url, key);
+    serviceClient = createPmClient(url, key);
   }
 
   return serviceClient;
@@ -44,7 +45,7 @@ export function getActorClient(memberId: string | null | undefined, via: ActorVi
   if (!key && process.env.NODE_ENV === 'production') {
     throw new Error('SUPABASE_SERVICE_ROLE_KEY is required in production');
   }
-  const client = createClient(url, key ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, {
+  const client = createPmClient(url, key ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, {
     auth: { persistSession: false, autoRefreshToken: false },
     global: {
       headers: {

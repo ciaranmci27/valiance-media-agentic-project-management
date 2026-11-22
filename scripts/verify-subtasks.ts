@@ -49,10 +49,23 @@ function schemaBefore(): string {
   }
 }
 
-type Db = { db: PGlite; q: <T = Record<string, unknown>>(sql: string, params?: unknown[]) => Promise<T[]> };
+type Db = {
+  db: PGlite;
+  q: <T = Record<string, unknown>>(sql: string, params?: unknown[]) => Promise<T[]>;
+  attempt: (sql: string, params?: unknown[]) => Promise<string | null>;
+};
 
-function wrap(db: PGlite): Db {
-  return { db, q: async (sql, params = []) => (await db.query(sql, params)).rows as never };
+/**
+ * The queries name the schema before 2.0 (public); on a 2.0 database (schema.sql
+ * today) the same tables and functions are in pm.
+ */
+function wrap(db: PGlite, schema: 'public' | 'pm' = 'public'): Db {
+  const at = (sql: string) => (schema === 'pm' ? sql.replace(/\bpublic\./g, 'pm.') : sql);
+  return {
+    db,
+    q: async (sql, params = []) => (await db.query(at(sql), params)).rows as never,
+    attempt: (sql, params = []) => attempt(db, at(sql), params),
+  };
 }
 
 async function superuser(db: PGlite) {
@@ -69,12 +82,12 @@ async function seedPeople({ db, q }: Db) {
   const owner = id(OWNER_USER);
   const manager = id(MANAGER_USER);
   const reader = id(READER_USER);
-  await db.query(`INSERT INTO public.team_member_permissions (member_id, permission_key, access_channel, effect)
+  await q(`INSERT INTO public.team_member_permissions (member_id, permission_key, access_channel, effect)
     SELECT $1, key, 'app', 'allow' FROM unnest(ARRAY['projects.read', 'tasks.read', 'tasks.create', 'tasks.manage_all']) AS key`, [manager]);
-  await db.query(`INSERT INTO public.team_member_permissions (member_id, permission_key, access_channel, effect)
+  await q(`INSERT INTO public.team_member_permissions (member_id, permission_key, access_channel, effect)
     SELECT $1, key, 'app', 'allow' FROM unnest(ARRAY['projects.read', 'tasks.read_assigned', 'tasks.create', 'tasks.manage_assigned']) AS key`, [reader]);
   // Only their own tasks: whatever the member role grants by default.
-  await db.query(`INSERT INTO public.team_member_permissions (member_id, permission_key, access_channel, effect)
+  await q(`INSERT INTO public.team_member_permissions (member_id, permission_key, access_channel, effect)
     SELECT $1, key, 'app', 'deny' FROM unnest(ARRAY['tasks.read', 'tasks.manage_all', 'projects.read_all']) AS key`, [reader]);
   return { owner, manager, reader };
 }
@@ -132,9 +145,9 @@ async function migratedCopy() {
 }
 
 // --- The rules -----------------------------------------------------------------
-async function rules(db: PGlite, label: string) {
-  const w = wrap(db);
-  const { q } = w;
+async function rules(db: PGlite, label: string, schema: 'public' | 'pm') {
+  const w = wrap(db, schema);
+  const { q, attempt } = w;
   const { owner, manager, reader } = await seedPeople(w);
   const P = await project(w, 'Apex', [manager, reader]);
   const Q = await project(w, 'Brightside', [manager, reader]);
@@ -162,15 +175,15 @@ async function rules(db: PGlite, label: string) {
   // The rules.
   await actAs(db, MANAGER_USER);
   check(`${label}: one level deep`,
-    err(await attempt(db, "INSERT INTO public.tasks (project_id, title, parent_task_id, created_by) VALUES ($1, 'Too deep', $2, $3)", [P, sub, manager]), 'one level deep'));
+    err(await attempt("INSERT INTO public.tasks (project_id, title, parent_task_id, created_by) VALUES ($1, 'Too deep', $2, $3)", [P, sub, manager]), 'one level deep'));
   check(`${label}: a subtask stays in its parent's project`,
-    err(await attempt(db, "INSERT INTO public.tasks (project_id, title, parent_task_id, created_by) VALUES ($1, 'Wrong place', $2, $3)", [Q, parent, manager]), "parent task's project"));
+    err(await attempt("INSERT INTO public.tasks (project_id, title, parent_task_id, created_by) VALUES ($1, 'Wrong place', $2, $3)", [Q, parent, manager]), "parent task's project"));
   check(`${label}: a subtask cannot move projects on its own`,
-    err(await attempt(db, 'UPDATE public.tasks SET project_id = $1 WHERE id = $2', [Q, sub]), "parent task's project"));
+    err(await attempt('UPDATE public.tasks SET project_id = $1 WHERE id = $2', [Q, sub]), "parent task's project"));
   check(`${label}: a task with subtasks cannot become one`,
-    err(await attempt(db, 'SELECT public.set_task_parent($1, $2)', [parent, other]), 'It has 1 subtask.'));
-  check(`${label}: not under itself`, err(await attempt(db, 'SELECT public.set_task_parent($1, $1)', [other]), 'its own subtask'));
-  check(`${label}: not under a subtask`, err(await attempt(db, 'SELECT public.set_task_parent($1, $2)', [other, sub]), 'one level deep'));
+    err(await attempt('SELECT public.set_task_parent($1, $2)', [parent, other]), 'It has 1 subtask.'));
+  check(`${label}: not under itself`, err(await attempt('SELECT public.set_task_parent($1, $1)', [other]), 'its own subtask'));
+  check(`${label}: not under a subtask`, err(await attempt('SELECT public.set_task_parent($1, $2)', [other, sub]), 'one level deep'));
 
   // Nest and promote.
   await q('SELECT public.set_task_parent($1, $2)', [other, parent]);
@@ -188,11 +201,11 @@ async function rules(db: PGlite, label: string) {
   // Across projects.
   await actAs(db, READER_USER);
   check(`${label}: moving across projects needs manage_all`,
-    err(await attempt(db, 'SELECT public.set_task_parent($1, $2)', [elsewhere, parent]), 'manage all tasks')
-      || err(await attempt(db, 'SELECT public.set_task_parent($1, $2)', [elsewhere, parent]), 'not found'));
+    err(await attempt('SELECT public.set_task_parent($1, $2)', [elsewhere, parent]), 'manage all tasks')
+      || err(await attempt('SELECT public.set_task_parent($1, $2)', [elsewhere, parent]), 'not found'));
   await actAs(db, MANAGER_USER);
   check(`${label}: a task with blocker links stays in its project`,
-    err(await attempt(db, 'SELECT public.set_task_parent($1, $2)', [blocked, parent]), 'blocked by, or blocks'));
+    err(await attempt('SELECT public.set_task_parent($1, $2)', [blocked, parent]), 'blocked by, or blocks'));
   const free = await (async () => { await superuser(db); return task(w, Q, 'Favicon', { createdBy: owner }); })();
   await actAs(db, MANAGER_USER);
   await q('SELECT public.set_task_parent($1, $2)', [free, parent]);
@@ -220,7 +233,7 @@ async function rules(db: PGlite, label: string) {
   check(`${label}: an assigned-only reader sees the subtasks of their task`, visible.has(parent) && visible.has(sub) && visible.has(free), [...visible]);
   check(`${label}: and can work them`, (await q('UPDATE public.tasks SET status = $1 WHERE id = $2 RETURNING id', ['done', sub])).length === 1);
   check(`${label}: and add one`,
-    (await attempt(db, "INSERT INTO public.tasks (project_id, title, parent_task_id, created_by) VALUES ($1, 'Alt text', $2, $3)", [P, parent, reader])) === null);
+    (await attempt("INSERT INTO public.tasks (project_id, title, parent_task_id, created_by) VALUES ($1, 'Alt text', $2, $3)", [P, parent, reader])) === null);
   await superuser(db);
   const theirs = await task(w, P, 'Pricing page', { createdBy: owner });
   const mine = await task(w, P, 'Pricing table', { parent: theirs, createdBy: owner });
@@ -231,7 +244,7 @@ async function rules(db: PGlite, label: string) {
   check(`${label}: on a subtask, they read its parent for context but not its other subtasks`,
     seen.has(mine) && seen.has(theirs) && !seen.has(notMine), { mine: seen.has(mine), theirs: seen.has(theirs), notMine: seen.has(notMine) });
   check(`${label}: but cannot add subtasks to a parent they do not manage`,
-    err(await attempt(db, "INSERT INTO public.tasks (project_id, title, parent_task_id, created_by) VALUES ($1, 'Sneaky', $2, $3)", [P, theirs, reader]), 'cannot add subtasks'));
+    err(await attempt("INSERT INTO public.tasks (project_id, title, parent_task_id, created_by) VALUES ($1, 'Sneaky', $2, $3)", [P, theirs, reader]), 'cannot add subtasks'));
 
   // Trash.
   await actAs(db, READER_USER);
@@ -240,11 +253,11 @@ async function rules(db: PGlite, label: string) {
   await actAs(db, MANAGER_USER);
   check(`${label}: a subtask comes back after its parent`,
     (await q("SELECT public.soft_delete_record('tasks', $1)", [parent])).length === 1
-      && err(await attempt(db, "SELECT public.restore_record('tasks', $1)", [sub]), 'Restore the task it belongs to first'));
+      && err(await attempt("SELECT public.restore_record('tasks', $1)", [sub]), 'Restore the task it belongs to first'));
   const hidden = new Set((await q<{ id: string }>('SELECT id FROM public.tasks')).map((r) => r.id));
   check(`${label}: a parent in Trash hides its subtasks`, !hidden.has(free) && !hidden.has(parent), [...hidden]);
   check(`${label}: and nothing new can join it`,
-    err(await attempt(db, "INSERT INTO public.tasks (project_id, title, parent_task_id, created_by) VALUES ($1, 'Late', $2, $3)", [P, parent, manager]), ''));
+    err(await attempt("INSERT INTO public.tasks (project_id, title, parent_task_id, created_by) VALUES ($1, 'Late', $2, $3)", [P, parent, manager]), ''));
   await q("SELECT public.restore_record('tasks', $1)", [parent]);
   await q("SELECT public.restore_record('tasks', $1)", [sub]);
   check(`${label}: restoring the parent then the subtask brings both back`,
@@ -259,7 +272,7 @@ async function rules(db: PGlite, label: string) {
   await q("SELECT public.soft_delete_record('tasks', $1)", [leftover]);
   await q('SELECT public.set_task_parent($1, $2)', [lone, host]);
   check(`${label}: a subtask whose parent became a subtask cannot come back under it`,
-    err(await attempt(db, "SELECT public.restore_record('tasks', $1)", [leftover]), 'one level deep'));
+    err(await attempt("SELECT public.restore_record('tasks', $1)", [leftover]), 'one level deep'));
 
   // Unread on the parent.
   await superuser(db);
@@ -285,11 +298,11 @@ async function main() {
     const sql = readFileSync(join(__dirname, '..', 'supabase', 'migrations', MIGRATION), 'utf8');
     await db.exec(sql);
     await db.exec(sql);
-    await rules(db, 'migrated');
+    await rules(db, 'migrated', 'public');
     await db.close();
   }
   const fresh = await createFullSchemaDatabase();
-  await rules(fresh, 'schema.sql');
+  await rules(fresh, 'schema.sql', 'pm');
   await fresh.close();
 
   if (failures.length) {

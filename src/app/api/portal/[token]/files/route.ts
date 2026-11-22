@@ -1,7 +1,11 @@
 import { createClient } from '@supabase/supabase-js';
+import { createPmClient } from '@/lib/supabase/pm-client';
 import { NextRequest, NextResponse } from 'next/server';
 import { checkPortalPin, pinFailureResponse } from '@/lib/portal-pin';
 import { enabledModuleSet } from '@/lib/modules/server';
+import { PM_DB } from '@/lib/supabase/schema';
+import { pmStorage } from '@/lib/supabase/storage';
+import { BUCKETS } from '@/lib/supabase/schema';
 
 export const dynamic = 'force-dynamic';
 
@@ -16,9 +20,9 @@ function getServiceClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!key) {
-    return createClient(url, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!);
+    return createPmClient(url, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!);
   }
-  return createClient(url, key);
+  return createPmClient(url, key);
 }
 
 export async function POST(
@@ -83,16 +87,16 @@ export async function POST(
   // Sanitize filename for storage path to prevent traversal
   const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 200);
   const storagePath = `project/${settings.project_id}/${Date.now()}-${safeName}`;
-  const { error: uploadError } = await supabase.storage
-    .from('entity-files')
+  const { error: uploadError } = await pmStorage(supabase)
+    .from(BUCKETS.entityFiles)
     .upload(storagePath, file, { contentType: file.type || 'application/octet-stream' });
 
   if (uploadError) {
     return NextResponse.json({ error: 'Upload failed' }, { status: 500 });
   }
 
-  const { data: { publicUrl } } = supabase.storage
-    .from('entity-files')
+  const { data: { publicUrl } } = pmStorage(supabase)
+    .from(BUCKETS.entityFiles)
     .getPublicUrl(storagePath);
 
   // Insert entity_files row

@@ -6,6 +6,7 @@ import { nullableNumber } from '@/lib/communications/agent-read';
 import { attachmentKind } from '@/lib/communications/attachments';
 import { INBOUND_EMAIL_BUCKET } from '@/lib/communications/email/ingest';
 import { comms } from '@/lib/communications/db';
+import { pmStorage } from '@/lib/supabase/storage';
 
 export const dynamic = 'force-dynamic';
 
@@ -49,7 +50,7 @@ export const GET = withApi<unknown, { id: string; aid: string }>(async ({ supaba
     });
   }
   // trash-checked: a Storage bucket, not a table.
-  const { data: signed, error: signError } = await supabase.storage
+  const { data: signed, error: signError } = await pmStorage(supabase)
     .from(INBOUND_EMAIL_BUCKET)
     .createSignedUrl(attachment.storage_path, SIGNED_URL_SECONDS);
   // The file was deleted (with its email or by retention) after the row was read.

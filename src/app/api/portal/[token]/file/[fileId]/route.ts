@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { createPmClient } from '@/lib/supabase/pm-client';
 import { NextRequest, NextResponse } from 'next/server';
 import { demoPortalSettings, demoEntityFiles, demoProjects } from '@/lib/demo-data';
 import type { Brand } from '@/lib/brand';
@@ -11,9 +12,9 @@ function getServiceClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!key) {
-    return createClient(url, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!);
+    return createPmClient(url, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!);
   }
-  return createClient(url, key);
+  return createPmClient(url, key);
 }
 
 export async function GET(

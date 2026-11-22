@@ -1,13 +1,14 @@
 /**
  * Polices an install's own migrations (supabase/migrations/custom/*.sql): they
- * may create, alter and drop objects in schema `custom` only, so core's schema
- * stays exactly what each release expects and core migrations never collide
- * with an install's tables.
+ * may create, alter and drop objects in the install's own schema only
+ * (`pm_custom` since 2.0; files dated before 2.0 used `custom`, which the
+ * 2.0 move renamed), so core's schema stays exactly what each release expects
+ * and core migrations never collide with an install's tables.
  *
- * Allowed: CREATE SCHEMA [IF NOT EXISTS] custom; tables, views, functions,
- * types and the rest named custom.<name>; indexes, policies and triggers ON
- * custom.<table>; grants on schema custom or its objects; data changes to
- * custom tables; foreign keys that reference public tables (the target of a
+ * Allowed: CREATE SCHEMA [IF NOT EXISTS] pm_custom; tables, views, functions,
+ * types and the rest named pm_custom.<name>; indexes, policies and triggers ON
+ * pm_custom.<table>; grants on schema pm_custom or its objects; data changes
+ * to its tables; foreign keys that reference pm tables (the target of a
  * statement is checked, not what it reads or references). Transaction
  * control, SET, SELECT and NOTIFY pass. Anything else fails with the statement.
  *
@@ -126,7 +127,9 @@ const DATABASE_WIDE = new Set([
   'cast', 'language', 'server', 'event', 'operator', 'transform', 'access', 'conversion', 'owned', 'system', 'large',
 ]);
 
-const ONLY_CUSTOM = 'custom migrations may only change objects in schema custom';
+/** The install's own schema the file is checked against (set by checkCustomSql). */
+let schema = 'pm_custom';
+const onlyCustom = () => `custom migrations may only change objects in schema ${schema}`;
 
 class Reader {
   i = 0;
@@ -203,9 +206,9 @@ const label = (parts: string[]) => parts.join('.');
 
 /** Reason string when a target is not in schema custom; null when it is. */
 function target(parts: string[] | undefined, what = 'an object'): string | null {
-  if (!parts) return `could not read the name of ${what}; ${ONLY_CUSTOM}`;
-  if (parts.length < 2) return `names ${label(parts)} without a schema; write custom.${parts[0]}`;
-  if (parts[0] !== 'custom') return `touches ${label(parts)}; ${ONLY_CUSTOM}`;
+  if (!parts) return `could not read the name of ${what}; ${onlyCustom()}`;
+  if (parts.length < 2) return `names ${label(parts)} without a schema; write ${schema}.${parts[0]}`;
+  if (parts[0] !== schema) return `touches ${label(parts)}; ${onlyCustom()}`;
   return null;
 }
 
@@ -219,15 +222,15 @@ function targets(list: string[][], what?: string): string | null {
 }
 
 function schemas(list: string[][]): string | null {
-  if (!list.length) return `could not read the schema name; ${ONLY_CUSTOM}`;
-  const other = list.find(parts => parts.length !== 1 || parts[0] !== 'custom');
-  return other ? `touches schema ${label(other)}; ${ONLY_CUSTOM}` : null;
+  if (!list.length) return `could not read the schema name; ${onlyCustom()}`;
+  const other = list.find(parts => parts.length !== 1 || parts[0] !== schema);
+  return other ? `touches schema ${label(other)}; ${onlyCustom()}` : null;
 }
 
 function checkCreate(r: Reader): string | null {
   while (r.accept('or', 'replace') || ['temp', 'temporary', 'unlogged', 'unique', 'materialized', 'recursive', 'constraint', 'trusted', 'procedural'].some(w => r.accept(w)));
   const kind = r.word();
-  if (!kind) return `could not read what this creates; ${ONLY_CUSTOM}`;
+  if (!kind) return `could not read what this creates; ${onlyCustom()}`;
   r.i++;
   if (kind === 'schema') {
     r.accept('if', 'not', 'exists');
@@ -237,18 +240,18 @@ function checkCreate(r: Reader): string | null {
     r.accept('concurrently');
     r.accept('if', 'not', 'exists');
     if (r.word() !== 'on') r.ident();
-    if (!r.accept('on')) return `could not read the indexed table; ${ONLY_CUSTOM}`;
+    if (!r.accept('on')) return `could not read the indexed table; ${onlyCustom()}`;
     r.accept('only');
     return target(r.qname(), 'the indexed table');
   }
   if (kind === 'policy' || kind === 'trigger') {
     r.ident();
-    if (!r.seek('on')) return `could not read the ${kind}'s table; ${ONLY_CUSTOM}`;
+    if (!r.seek('on')) return `could not read the ${kind}'s table; ${onlyCustom()}`;
     return target(r.qname(), `the ${kind}'s table`);
   }
   if (kind === 'rule') {
     r.ident();
-    if (!r.seek('to')) return `could not read the rule's table; ${ONLY_CUSTOM}`;
+    if (!r.seek('to')) return `could not read the rule's table; ${onlyCustom()}`;
     return target(r.qname(), "the rule's table");
   }
   if (kind === 'foreign' && r.accept('table')) {
@@ -259,34 +262,34 @@ function checkCreate(r: Reader): string | null {
     r.accept('if', 'not', 'exists');
     return target(r.qname());
   }
-  if (DATABASE_WIDE.has(kind) || kind === 'foreign') return `creates a database-wide object (${kind}); ${ONLY_CUSTOM}`;
-  return `creates a ${kind}, which custom migrations cannot; ${ONLY_CUSTOM}`;
+  if (DATABASE_WIDE.has(kind) || kind === 'foreign') return `creates a database-wide object (${kind}); ${onlyCustom()}`;
+  return `creates a ${kind}, which custom migrations cannot; ${onlyCustom()}`;
 }
 
 function checkAlter(r: Reader): string | null {
   const kind = r.word();
-  if (!kind) return `could not read what this alters; ${ONLY_CUSTOM}`;
+  if (!kind) return `could not read what this alters; ${onlyCustom()}`;
   r.i++;
   if (kind === 'table' || kind === 'index' || kind === 'view' || kind === 'sequence') {
     r.accept('if', 'exists');
     r.accept('only');
-    if (r.word() === 'all') return `alters every ${kind} in a tablespace; ${ONLY_CUSTOM}`;
+    if (r.word() === 'all') return `alters every ${kind} in a tablespace; ${onlyCustom()}`;
     return target(r.qname());
   }
   if (kind === 'schema') return schemas([r.qname() ?? []].filter(p => p.length));
   if (kind === 'policy' || kind === 'trigger' || kind === 'rule') {
     r.ident();
-    if (!r.accept('on')) return `could not read the ${kind}'s table; ${ONLY_CUSTOM}`;
+    if (!r.accept('on')) return `could not read the ${kind}'s table; ${onlyCustom()}`;
     return target(r.qname(), `the ${kind}'s table`);
   }
   if (kind === 'default' && r.accept('privileges')) {
-    if (!r.seek('in') || !r.accept('schema')) return `alters default privileges for every schema; limit it with IN SCHEMA custom`;
+    if (!r.seek('in') || !r.accept('schema')) return `alters default privileges for every schema; limit it with IN SCHEMA ${schema}`;
     return schemas(r.nameList());
   }
   if (kind === 'publication') {
     // Realtime for an install's tables: adding or dropping custom tables only, never SET (it would replace core's list).
     r.ident();
-    if (!(r.accept('add') || r.accept('drop'))) return `changes a publication's settings or table list; only ADD TABLE / DROP TABLE of custom tables is allowed`;
+    if (!(r.accept('add') || r.accept('drop'))) return `changes a publication's settings or table list; only ADD TABLE / DROP TABLE of ${schema} tables is allowed`;
     if (r.accept('tables', 'in', 'schema')) return schemas(r.nameList());
     r.accept('table');
     return targets(r.nameList(), 'a published table');
@@ -304,12 +307,12 @@ function checkAlter(r: Reader): string | null {
     r.accept('if', 'exists');
     return target(r.qname());
   }
-  return `alters a ${kind}, which is outside schema custom; ${ONLY_CUSTOM}`;
+  return `alters a ${kind}, which is outside schema ${schema}; ${onlyCustom()}`;
 }
 
 function checkDrop(r: Reader): string | null {
   const kind = r.word();
-  if (!kind) return `could not read what this drops; ${ONLY_CUSTOM}`;
+  if (!kind) return `could not read what this drops; ${onlyCustom()}`;
   r.i++;
   if (kind === 'schema') {
     r.accept('if', 'exists');
@@ -318,7 +321,7 @@ function checkDrop(r: Reader): string | null {
   if (kind === 'policy' || kind === 'trigger' || kind === 'rule') {
     r.accept('if', 'exists');
     r.ident();
-    if (!r.accept('on')) return `could not read the ${kind}'s table; ${ONLY_CUSTOM}`;
+    if (!r.accept('on')) return `could not read the ${kind}'s table; ${onlyCustom()}`;
     return target(r.qname(), `the ${kind}'s table`);
   }
   if ((kind === 'materialized' && r.accept('view')) || (kind === 'foreign' && r.accept('table')) || GENERIC_KINDS.has(kind)) {
@@ -326,43 +329,43 @@ function checkDrop(r: Reader): string | null {
     r.accept('if', 'exists');
     return targets(r.nameList());
   }
-  return `drops a ${kind}, which is outside schema custom; ${ONLY_CUSTOM}`;
+  return `drops a ${kind}, which is outside schema ${schema}; ${onlyCustom()}`;
 }
 
 function checkComment(r: Reader): string | null {
-  if (!r.accept('on')) return `could not read what this comments on; ${ONLY_CUSTOM}`;
+  if (!r.accept('on')) return `could not read what this comments on; ${onlyCustom()}`;
   const kind = r.word();
-  if (!kind) return `could not read what this comments on; ${ONLY_CUSTOM}`;
+  if (!kind) return `could not read what this comments on; ${onlyCustom()}`;
   r.i++;
   if (kind === 'column') {
     const parts = r.qname();
-    if (!parts || parts.length < 3) return `comments on column ${parts ? label(parts) : '?'} without a schema; write custom.<table>.<column>`;
+    if (!parts || parts.length < 3) return `comments on column ${parts ? label(parts) : '?'} without a schema; write ${schema}.<table>.<column>`;
     return target(parts);
   }
   if (kind === 'schema') return schemas([r.qname() ?? []].filter(p => p.length));
   if (kind === 'policy' || kind === 'trigger' || kind === 'rule' || kind === 'constraint') {
     r.ident();
-    if (!r.accept('on')) return `could not read the ${kind}'s table; ${ONLY_CUSTOM}`;
+    if (!r.accept('on')) return `could not read the ${kind}'s table; ${onlyCustom()}`;
     r.accept('domain');
     return target(r.qname(), `the ${kind}'s table`);
   }
   if ((kind === 'materialized' && r.accept('view')) || (kind === 'foreign' && r.accept('table')) || GENERIC_KINDS.has(kind)) {
     return target(r.qname());
   }
-  return `comments on a ${kind}, which is outside schema custom; ${ONLY_CUSTOM}`;
+  return `comments on a ${kind}, which is outside schema ${schema}; ${onlyCustom()}`;
 }
 
 function checkGrant(r: Reader): string | null {
-  if (!r.seek('on')) return `grants or revokes a role membership; ${ONLY_CUSTOM}`;
+  if (!r.seek('on')) return `grants or revokes a role membership; ${onlyCustom()}`;
   if (r.accept('schema')) return schemas(r.nameList());
   if (r.accept('all')) {
     r.i++; // tables | sequences | functions | procedures | routines
-    if (!r.accept('in', 'schema')) return `could not read the schema of this grant; ${ONLY_CUSTOM}`;
+    if (!r.accept('in', 'schema')) return `could not read the schema of this grant; ${onlyCustom()}`;
     return schemas(r.nameList());
   }
   const kind = r.word();
   if (kind && ['database', 'tablespace', 'language', 'large', 'parameter', 'foreign'].includes(kind) && !(kind === 'foreign' && r.word(1) === 'table')) {
-    return `grants on a database-wide object (${kind}); ${ONLY_CUSTOM}`;
+    return `grants on a database-wide object (${kind}); ${onlyCustom()}`;
   }
   if (kind === 'foreign') r.i += 2;
   else if (kind && ['table', 'sequence', 'function', 'procedure', 'routine', 'type', 'domain'].includes(kind)) r.i++;
@@ -394,7 +397,7 @@ function checkDataChanges(tokens: Token[]): string | null {
 function checkStatement(tokens: Token[]): string | null {
   const r = new Reader(tokens);
   const head = r.word();
-  if (!head) return `could not read this statement; ${ONLY_CUSTOM}`;
+  if (!head) return `could not read this statement; ${onlyCustom()}`;
   r.i++;
   switch (head) {
     case 'begin': case 'commit': case 'end': case 'start': case 'rollback': case 'savepoint': case 'release':
@@ -416,7 +419,7 @@ function checkStatement(tokens: Token[]): string | null {
       return checkPlpgsql(body.value);
     }
     default:
-      return `${head.toUpperCase()} statements are not allowed in custom migrations; ${ONLY_CUSTOM}`;
+      return `${head.toUpperCase()} statements are not allowed in custom migrations; ${onlyCustom()}`;
   }
 }
 
@@ -459,8 +462,18 @@ function snippet(source: string, tokens: Token[]): string {
   return text.length > 160 ? `${text.slice(0, 157)}...` : text;
 }
 
-/** Every statement in the file that steps outside schema custom. */
-export function checkCustomSql(sql: string): SqlViolation[] {
+/** Custom migrations dated before 2.0 were written for schema `custom`. */
+export const PM_CUSTOM_FROM = '20261123000000';
+
+/** The schema a custom migration file is checked against, from its name's date. */
+export function customSchemaFor(fileName: string): 'custom' | 'pm_custom' {
+  const date = /^(\d{8,14})/.exec(fileName)?.[1];
+  return date && date.padEnd(14, '0') < PM_CUSTOM_FROM ? 'custom' : 'pm_custom';
+}
+
+/** Every statement in the file that steps outside the install's schema (pm_custom; `custom` for files before 2.0). */
+export function checkCustomSql(sql: string, ownSchema: 'custom' | 'pm_custom' = 'pm_custom'): SqlViolation[] {
+  schema = ownSchema;
   const violations: SqlViolation[] = [];
   for (const statement of splitStatements(tokenize(sql))) {
     const reason = checkStatement(statement);

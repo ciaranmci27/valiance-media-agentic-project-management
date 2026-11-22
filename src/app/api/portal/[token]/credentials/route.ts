@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { createPmClient } from '@/lib/supabase/pm-client';
 import { NextRequest, NextResponse } from 'next/server';
 import { portalSubmitCredentialSchema, payloadFromBody } from '@/lib/schemas/credentials';
 import { encrypt, isEncryptionConfigured } from '@/lib/api/encryption';
@@ -6,14 +7,15 @@ import type { CredentialPayload } from '@/lib/types';
 import { recordPortalEvent, getOrCreateSessionId } from '@/lib/portal-analytics';
 import { checkPortalPin, pinFailureResponse } from '@/lib/portal-pin';
 import { enabledModuleSet } from '@/lib/modules/server';
+import { PM_DB } from '@/lib/supabase/schema';
 
 function getServiceClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!key) {
-    return createClient(url, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!);
+    return createPmClient(url, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!);
   }
-  return createClient(url, key);
+  return createPmClient(url, key);
 }
 
 export async function POST(

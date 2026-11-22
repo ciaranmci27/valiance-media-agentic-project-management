@@ -140,15 +140,15 @@ async function main() {
   check('owners and admins take the fast path; members, assigned readers and guests do not',
     await fast(users.owner) && await fast(users.admin) && !(await fast(users.member)) && !(await fast(users.assigned)) && !(await fast(users.guest)));
 
-  // schema.sql carries the same policies the migration makes.
+  // schema.sql (2.0, schema pm) carries the same policies the migration makes.
   const schema = readFileSync(join(__dirname, '..', 'supabase', 'schema.sql'), 'utf8').replace(/\r/g, '');
   // The re-created policies come after the soft-delete helpers they call, and the helpers are defined once.
-  const helpers = schema.indexOf('CREATE OR REPLACE FUNCTION public.task_is_live(');
+  const helpers = schema.indexOf('CREATE OR REPLACE FUNCTION pm.task_is_live(');
   check('schema.sql mirrors the migration', TABLES.every((table) => {
-    const at = schema.indexOf(`DROP POLICY IF EXISTS ${table}_select ON public.${table};\nCREATE POLICY ${table}_select`);
+    const at = schema.indexOf(`DROP POLICY IF EXISTS ${table}_select ON pm.${table};\nCREATE POLICY ${table}_select`);
     return at > helpers && schema.slice(at, schema.indexOf(';', schema.indexOf('USING', at))).includes('can_read_all_tasks');
-  }) && helpers > 0 && schema.split('CREATE OR REPLACE FUNCTION public.task_is_live(').length === 2
-    && schema.split('CREATE OR REPLACE FUNCTION public.project_is_live(').length === 2);
+  }) && helpers > 0 && schema.split('CREATE OR REPLACE FUNCTION pm.task_is_live(').length === 2
+    && schema.split('CREATE OR REPLACE FUNCTION pm.project_is_live(').length === 2);
 
   await db.close();
   if (failures.length) {

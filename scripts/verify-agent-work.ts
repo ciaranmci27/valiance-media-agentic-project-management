@@ -40,25 +40,25 @@ async function main() {
   const db = await createFullSchemaDatabase();
   await db.exec('RESET ROLE');
   await db.exec(`
-    INSERT INTO public.team_members (id, name, email, role) VALUES
+    INSERT INTO pm.team_members (id, name, email, role) VALUES
       ('${ids.owner}', 'Ciaran Mcintyre', 'owner@agency.example', 'owner'),
       ('${ids.ashley}', 'Ashley P.', 'ashley-bot@agency.example', 'agent');
-    INSERT INTO public.projects (id, name, status) VALUES ('${ids.acme}', 'Acme', 'active');
-    INSERT INTO communications.inboxes (id, name, address, handler_member_id) VALUES ('${ids.inbox}', 'Ashley', 'ashley@agency.example', '${ids.ashley}');
+    INSERT INTO pm.projects (id, name, status) VALUES ('${ids.acme}', 'Acme', 'active');
+    INSERT INTO pm.inboxes (id, name, address, handler_member_id) VALUES ('${ids.inbox}', 'Ashley', 'ashley@agency.example', '${ids.ashley}');
   `);
   for (const [conversation, message, subject] of [[ids.legacy, ids.legacyMessage, 'Logo files'], [ids.planned, ids.plannedMessage, 'Hero image'], [ids.other, ids.otherMessage, 'Other']]) {
-    await db.query(`INSERT INTO communications.conversations (id, inbox_id, subject_normalized, channel, project_id, project_source, last_message_at)
+    await db.query(`INSERT INTO pm.conversations (id, inbox_id, subject_normalized, channel, project_id, project_source, last_message_at)
       VALUES ($1, $2, $3, 'email', $4, 'mapped', now())`, [conversation, ids.inbox, subject.toLowerCase(), ids.acme]);
-    await db.query("INSERT INTO communications.conversation_projects (conversation_id, project_id, source) VALUES ($1, $2, 'mapped')", [conversation, ids.acme]);
-    await db.query(`INSERT INTO communications.messages (id, inbox_id, thread_id, channel, status, provider, provider_email_id, internet_message_id,
+    await db.query("INSERT INTO pm.conversation_projects (conversation_id, project_id, source) VALUES ($1, $2, 'mapped')", [conversation, ids.acme]);
+    await db.query(`INSERT INTO pm.messages (id, inbox_id, thread_id, channel, status, provider, provider_email_id, internet_message_id,
         received_at, subject, kind, auth, text_body, new_text)
       VALUES ($1, $2, $3, 'email', 'handled', 'test', $4, $4, now(), $5, 'person', '{"trust":"trusted"}', 'Body', 'Body')`,
     [message, ids.inbox, conversation, `m-${message}`, subject]);
   }
-  await db.query(`INSERT INTO communications.triage (id, message_id, member_id, outcome, summary) VALUES ($1, $2, $3, 'task', 'Dana sent the logo files.')`,
+  await db.query(`INSERT INTO pm.triage (id, message_id, member_id, outcome, summary) VALUES ($1, $2, $3, 'task', 'Dana sent the logo files.')`,
     [ids.triage, ids.legacyMessage, ids.ashley]);
   const task = (taskId: string, title: string, by: string, status = 'todo') => db.query(
-    'INSERT INTO public.tasks (id, project_id, title, created_by, status) VALUES ($1, $2, $3, $4, $5)', [taskId, ids.acme, title, by, status]);
+    'INSERT INTO pm.tasks (id, project_id, title, created_by, status) VALUES ($1, $2, $3, $4, $5)', [taskId, ids.acme, title, by, status]);
   await task(ids.madeTask, 'Upload the logo', ids.ashley);
   await task(ids.doneTask, 'Reply to Dana', ids.ashley, 'done');
   await task(ids.aboutTask, 'Brand guide', ids.owner);
@@ -66,7 +66,7 @@ async function main() {
   await task(ids.personTask, 'Invoice', ids.owner);
   await task(ids.otherTask, 'Somewhere else', ids.ashley);
   const link = (message: string, taskId: string, relation: string, triage: string | null) => db.query(
-    'INSERT INTO communications.task_links (message_id, task_id, relation, triage_id, linked_by) VALUES ($1, $2, $3, $4, $5)',
+    'INSERT INTO pm.task_links (message_id, task_id, relation, triage_id, linked_by) VALUES ($1, $2, $3, $4, $5)',
     [message, taskId, relation, triage, triage ? ids.ashley : ids.owner]);
   await link(ids.legacyMessage, ids.madeTask, 'created', ids.triage);
   await link(ids.legacyMessage, ids.doneTask, 'created', ids.triage);
@@ -74,20 +74,20 @@ async function main() {
   await link(ids.legacyMessage, ids.editedTask, 'updated', ids.triage);
   await link(ids.legacyMessage, ids.personTask, 'related', null);
   const reminder = (reminderId: string, title: string, by: string, status = 'open') => db.query(
-    'INSERT INTO public.reminders (id, title, source_message_id, owner_id, created_by, status) VALUES ($1, $2, $3, $4, $5, $6)',
+    'INSERT INTO pm.reminders (id, title, source_message_id, owner_id, created_by, status) VALUES ($1, $2, $3, $4, $5, $6)',
     [reminderId, title, ids.legacyMessage, ids.owner, by, status]);
   await reminder(ids.reminder, 'Chase the vector logo', ids.ashley);
   await reminder(ids.doneReminder, 'Check the favicon', ids.ashley, 'done');
   await reminder(ids.ownReminder, 'My own note', ids.owner);
   // An email with a plan: a task and a reminder to accept, one to skip.
-  await db.query(`INSERT INTO communications.plans (id, message_id, conversation_id, member_id, mode, status, summary) VALUES ($1, $2, $3, $4, 'live', 'partial', 'Plan')`,
+  await db.query(`INSERT INTO pm.plans (id, message_id, conversation_id, member_id, mode, status, summary) VALUES ($1, $2, $3, $4, 'live', 'partial', 'Plan')`,
     [ids.plan, ids.plannedMessage, ids.planned, ids.ashley]);
   for (const [itemId, position, payload] of [
     [ids.planTask, 0, { type: 'create_task', intent: 'new_work', project_id: ids.acme, title: 'Swap the hero' }],
     [ids.planReminder, 1, { type: 'add_reminder', intent: 'waiting_on', project_id: ids.acme, title: 'Chase the hero photo', remind_on: '2026-12-01' }],
     [ids.planSkip, 2, { type: 'create_task', intent: 'new_work', project_id: ids.acme, title: 'Not wanted' }],
   ] as const) {
-    await db.query(`INSERT INTO communications.plan_items (id, plan_id, position, conversation_id, mode, type, intent, project_id, payload, decision, state)
+    await db.query(`INSERT INTO pm.plan_items (id, plan_id, position, conversation_id, mode, type, intent, project_id, payload, decision, state)
       VALUES ($1, $2, $3, $4, 'live', $5, $6, $7, $8, 'propose', 'pending')`,
     [itemId, ids.plan, position, ids.planned, payload.type, payload.intent, ids.acme, JSON.stringify(payload)]);
   }
@@ -98,10 +98,10 @@ async function main() {
     await db.exec('RESET ROLE');
     return (await db.query<T>(sql, params)).rows;
   };
-  const live = async (table: 'tasks' | 'reminders', rowId: string) => (await q(`SELECT deleted_at FROM public.${table} WHERE id = $1`, [rowId]))[0]?.deleted_at === null;
+  const live = async (table: 'tasks' | 'reminders', rowId: string) => (await q(`SELECT deleted_at FROM pm.${table} WHERE id = $1`, [rowId]))[0]?.deleted_at === null;
   const links = async (message: string) => (await q<{ task_id: string; relation: string; triage_id: string | null }>(
-    'SELECT task_id, relation, triage_id FROM communications.task_links WHERE message_id = $1 ORDER BY task_id, relation', [message]));
-  const state = async (itemId: string) => (await q('SELECT state FROM communications.plan_items WHERE id = $1', [itemId]))[0]?.state;
+    'SELECT task_id, relation, triage_id FROM pm.task_links WHERE message_id = $1 ORDER BY task_id, relation', [message]));
+  const state = async (itemId: string) => (await q('SELECT state FROM pm.plan_items WHERE id = $1', [itemId]))[0]?.state;
 
   try {
     const { undoAgentWork, restoreAgentWork } = await import('../src/lib/communications/agent-work');
@@ -149,10 +149,10 @@ async function main() {
     check('restore: a task from another conversation is refused (422) and nothing comes back', stranger === 422 && !(await live('tasks', ids.madeTask)), stranger);
 
     // A person's own reminder, binned by hand, is not Restore all's to bring back.
-    await q('UPDATE public.reminders SET deleted_at = now() WHERE id = $1', [ids.ownReminder]);
+    await q('UPDATE pm.reminders SET deleted_at = now() WHERE id = $1', [ids.ownReminder]);
     const ownBack = await refused(() => restoreAgentWork(owner, ids.legacy, { plan_items: [], tasks: [], reminders: [ids.ownReminder], links: [] }));
     check('restore: a person\'s own reminder is refused (422) and stays in Trash', ownBack === 422 && !(await live('reminders', ids.ownReminder)), ownBack);
-    await q('UPDATE public.reminders SET deleted_at = NULL WHERE id = $1', [ids.ownReminder]);
+    await q('UPDATE pm.reminders SET deleted_at = NULL WHERE id = $1', [ids.ownReminder]);
 
     // ---- Restore all ------------------------------------------------------------------------------
     const restored = await restoreAgentWork(owner, ids.legacy, undo);
@@ -166,7 +166,7 @@ async function main() {
     await inboxPlans.acceptPlanItem(owner, ids.planTask);
     await inboxPlans.acceptPlanItem(owner, ids.planReminder);
     await inboxPlans.dismissPlanItem(owner, ids.planSkip);
-    const madePlanTask = (await q("SELECT id FROM public.tasks WHERE title = 'Swap the hero'"))[0].id as string;
+    const madePlanTask = (await q("SELECT id FROM pm.tasks WHERE title = 'Swap the hero'"))[0].id as string;
     const planUndo = await undoAgentWork(owner, ids.planned, { message_ids: null, task_id: null });
     check('plan: Undo all undoes its applied items through the plan', JSON.stringify([...planUndo.plan_items].sort()) === JSON.stringify([ids.planTask, ids.planReminder].sort())
       && await state(ids.planTask) === 'undone' && await state(ids.planReminder) === 'undone' && !(await live('tasks', madePlanTask))
@@ -174,17 +174,17 @@ async function main() {
     // One put back on its own first: Restore all leaves it and brings the rest.
     await inboxPlans.restorePlanItem(owner, ids.planReminder);
     const planBack = await restoreAgentWork(owner, ids.planned, planUndo);
-    const [planRow] = await q('SELECT status FROM communications.plans WHERE id = $1', [ids.plan]);
+    const [planRow] = await q('SELECT status FROM pm.plans WHERE id = $1', [ids.plan]);
     check('plan: Restore all brings the rest back, skips the one already back, and the items read accepted again', planBack.restored === 1 && planBack.kept.length === 0
       && await state(ids.planTask) === 'accepted' && await state(ids.planReminder) === 'accepted' && await live('tasks', madePlanTask)
       && planRow.status === 'applied', { planBack, planRow });
 
     // ---- A finished task reads as done on its plan row ---------------------------------------------
     const openRow = (await inbox.threadDetail(owner, ids.planned)).messages[0].plan?.items.find((i) => i.id === ids.planTask);
-    await q("UPDATE public.tasks SET status = 'done' WHERE id = $1", [madePlanTask]);
+    await q("UPDATE pm.tasks SET status = 'done' WHERE id = $1", [madePlanTask]);
     const doneRow = (await inbox.threadDetail(owner, ids.planned)).messages[0].plan?.items.find((i) => i.id === ids.planTask);
     check('plan row: an open task is not done, the same task once finished is', openRow?.target_done === false && doneRow?.target_done === true, { openRow, doneRow });
-    await q("UPDATE public.tasks SET status = 'todo' WHERE id = $1", [madePlanTask]);
+    await q("UPDATE pm.tasks SET status = 'todo' WHERE id = $1", [madePlanTask]);
 
     // ---- One plan item: an undo, and a skip, taken back -------------------------------------------
     await inboxPlans.undoPlanItem(owner, ids.planTask);

@@ -9,6 +9,34 @@ Each section starts with `## X.Y.Z (YYYY-MM-DD)` and uses these headings, leavin
 - `### Database`: the core migration files in the release, one per line. `npm run db:migrate` applies them.
 - `### Breaking`: what an install must do when it takes this release.
 
+## 2.0.0 (2026-11-23)
+
+The app moves into its own schema, so it can share a Supabase project with a company's other apps: their tables, logins and data stay theirs, and the app's updates only ever change the app's own schema.
+
+### Added
+- Everything the app makes lives in schema `pm` (an install's own tables in `pm_custom`). Nothing of the app is created in `public`. Supabase-global names carry a prefix: storage buckets `pm-<name>`, storage policies `pm: <name>`, scheduled jobs `pm-<name>`, Vault entries `pm_<name>`.
+- Install into a Supabase project that already has other apps ("Using a database you already have" in the README). Logins are shared and roles are not: an invited person who already has a confirmed login signs in with it, with their own PM role, and the app never changes the email or password of a login it did not create.
+- On such a project, claiming the Owner account needs a setup code from the host (`PM_SETUP_CODE`); someone who already has a login can claim with it.
+- `npm run test:pm-schema`: a fresh install matches an upgraded one, and installing next to another app changes nothing of theirs.
+- `npm run storage:copy-to-pm` and `npm run fix:custom-schema` (see Breaking).
+
+### Changed
+- Team members are added by the app's server (`pm.add_team_member`), never by a sign-up: nobody becomes a member just by having a login. Fresh installs have no trigger on `auth.users`; upgraded ones keep theirs until 2.1.
+- Production builds apply database changes after the app has built, then check the database can serve the new version before it goes live. A failed build never leaves the database ahead of the live version.
+- check:core reads custom migrations against `pm_custom` (files dated before 2.0 against `custom`).
+
+### Database
+- `20261123000000_move_to_pm.sql`: moves every table, view, sequence and function of the app from `public` and `communications` into `pm`, with its data, indexes, constraints, row security, triggers and realtime. Only the app's own objects move (named in the file). Also: prefixed jobs, Vault entries and storage buckets (with their policies; the old buckets stay until 2.1), `custom` into `pm_custom`, and a bridge for the previous version during the deploy (views and wrappers in the old places, removed in 2.1).
+- `20261123000100_team_members_from_server.sql`: `pm.add_team_member`, `pm.login_for_email`, `pm.logins_exist` (service role only) and `team_members.login_owned`.
+
+### Breaking
+- Take 1.11 first: it creates `pm` and `pm_custom` and adds them to Supabase's exposed schemas. Settings > Updates says if they are missing; the 2.0 build refuses to deploy until they are there, and the live version keeps running.
+- The move runs with the update when your host has `SUPABASE_DB_URL` (automatic database updates). Otherwise run `npm run db:migrate` against production right after merging; until the move has run, the 2.0 build refuses to go live.
+- Files: the build copies your files into the `pm-` buckets (or run `npm run storage:copy-to-pm`). Until it finishes, reads fall back to the old buckets, and links already sent keep working. The brand logos are linked from `pm-brand` directly, so if they cannot be copied the build stops and the live version keeps running.
+- Your own code: run `npm run fix:custom-schema` (it changes `custom` to `pm_custom` in `src/custom`). New custom migrations use `pm_custom`.
+- Anything outside the app that reads your Supabase tables directly (a script, another tool) must read schema `pm` instead of `public`. The app's own API (`/api/v1`) and its MCP server are unchanged.
+- During the deploy, browser tabs still on the previous version stop getting live updates, and members' reads of projects and time entries there can fail until the tab reloads.
+
 ## 1.11.0 (2026-11-22)
 
 ### Added

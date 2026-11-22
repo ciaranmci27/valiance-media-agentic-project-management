@@ -32,6 +32,8 @@ import { Button } from '@/components/ui/Button';
 import { RailCard } from '@/components/projects/TabLayout';
 import { createClient } from '@/lib/supabase/client';
 import { useBrand } from '@/lib/brand/context';
+import { pmStorage } from '@/lib/supabase/storage';
+import { BUCKETS } from '@/lib/supabase/schema';
 
 interface PortalSettingsPanelProps {
   projectId: string;
@@ -162,16 +164,16 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
       const path = `portal/${projectId}.${ext}`;
       // Remove the other format if it exists (switching between png/jpg)
       const oldPath = `portal/${projectId}.${isPng ? 'jpg' : 'png'}`;
-      await supabase.storage.from('avatars').remove([oldPath]);
-      const { error: uploadError } = await supabase.storage
-        .from('avatars')
+      await pmStorage(supabase).from(BUCKETS.avatars).remove([oldPath]);
+      const { error: uploadError } = await pmStorage(supabase)
+        .from(BUCKETS.avatars)
         .upload(path, blob, { upsert: true, contentType: blob.type });
 
       if (uploadError) throw uploadError;
 
       const {
         data: { publicUrl },
-      } = supabase.storage.from('avatars').getPublicUrl(path);
+      } = pmStorage(supabase).from(BUCKETS.avatars).getPublicUrl(path);
 
       const url = `${publicUrl}?t=${Date.now()}`;
       handleSettingChange('logo_url', url);

@@ -9,7 +9,7 @@ import { ALREADY_OWNED, MAX_PASSWORD, MIN_PASSWORD } from '@/lib/setup/first-own
 import { WELCOME_PATH } from '@/lib/setup/gate';
 import { StepFrame } from '../StepFrame';
 
-type Field = 'name' | 'email' | 'password' | 'confirm';
+type Field = 'name' | 'email' | 'password' | 'confirm' | 'setup_code';
 type Errors = Partial<Record<Field | 'form', string>>;
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -19,6 +19,10 @@ const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
  * fresh install. The server makes it (confirmed, no email needed), the page
  * signs in with it and the wizard carries on at Your workspace. If someone
  * else got there first, it says so and points to sign in.
+ *
+ * On a Supabase project that already has other apps' accounts, the server
+ * also asks for the host's setup code (PM_SETUP_CODE): the field appears
+ * then, and someone with an existing account may use its email and password.
  */
 export function AccountStep() {
   const router = useRouter();
@@ -29,6 +33,8 @@ export function AccountStep() {
   const [errors, setErrors] = useState<Errors>({});
   const [owned, setOwned] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [setupCode, setSetupCode] = useState('');
+  const [needsCode, setNeedsCode] = useState(false);
 
   const submit = async () => {
     if (busy) return;
@@ -47,7 +53,7 @@ export function AccountStep() {
       const response = await fetch('/api/welcome/owner', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, email, password }),
+        body: JSON.stringify({ name, email, password, ...(needsCode ? { setup_code: setupCode } : {}) }),
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) {
@@ -57,6 +63,7 @@ export function AccountStep() {
           return;
         }
         const field = payload.field as Field | undefined;
+        if (field === 'setup_code') setNeedsCode(true);
         setErrors(field ? { [field]: payload.error } : { form: payload.error || 'Something went wrong. Try again.' });
         return;
       }
@@ -91,7 +98,9 @@ export function AccountStep() {
   return (
     <StepFrame
       title="Create your account"
-      description="You will be the Owner: you set everything up and invite your team. You sign in with this email and password."
+      description={needsCode
+        ? 'You will be the Owner. This Supabase project already has accounts from other apps: enter the setup code from your host. If you already have an account there, use its email and password.'
+        : 'You will be the Owner: you set everything up and invite your team. You sign in with this email and password.'}
       onSubmit={() => { void submit(); }}
       busy={busy}
       busyLabel="Creating your account"
@@ -99,6 +108,18 @@ export function AccountStep() {
       error={errors.form}
     >
       <div className="space-y-4">
+        {needsCode && (
+          <PasswordInput
+            label="Setup code"
+            value={setupCode}
+            onChange={setSetupCode}
+            placeholder="PM_SETUP_CODE from your host"
+            autoComplete="off"
+            showIcon={false}
+            error={errors.setup_code}
+            disabled={busy}
+          />
+        )}
         <TextInput
           label="Your name"
           value={name}

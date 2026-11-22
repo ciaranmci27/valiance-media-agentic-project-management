@@ -1,9 +1,10 @@
 import { DEFAULT_BRAND } from './defaults';
 import { generateShades, isHexColor } from './shades';
 import { BRAND_SHADES, type Brand, type BrandScale, type BrandSettings } from './types';
+import { BUCKETS } from '@/lib/supabase/schema';
 
 /** The storage bucket logos and favicons are uploaded to (public read). */
-export const BRAND_BUCKET = 'brand';
+export const BRAND_BUCKET = BUCKETS.brand;
 
 /** A row of public.workspace_brand, as PostgREST returns it. */
 export interface WorkspaceBrandRow {

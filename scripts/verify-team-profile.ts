@@ -13,7 +13,7 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { PGlite } from '@electric-sql/pglite';
-import { createClient } from '@supabase/supabase-js';
+import { createPmClient } from '../src/lib/supabase/pm-client';
 import { createFullSchemaDatabase } from './full-schema-db';
 import { startFakePostgrest } from './fake-postgrest';
 
@@ -47,11 +47,11 @@ async function seedPeople(db: PGlite): Promise<Record<Who, string>> {
     const { role, auth } = PEOPLE[who];
     await db.query('INSERT INTO auth.users (id, email) VALUES ($1, $2) ON CONFLICT DO NOTHING', [auth, `${who}@example.com`]);
     const updated = await db.query<{ id: string }>(
-      `UPDATE public.team_members SET role = $2, status = 'active', name = $3, timezone = 'UTC' WHERE auth_user_id = $1 RETURNING id`,
+      `UPDATE pm.team_members SET role = $2, status = 'active', name = $3, timezone = 'UTC' WHERE auth_user_id = $1 RETURNING id`,
       [auth, role, who],
     );
     ids[who] = updated.rows[0]?.id ?? (await db.query<{ id: string }>(
-      `INSERT INTO public.team_members (auth_user_id, name, email, role, status, timezone) VALUES ($1, $2, $3, $4, 'active', 'UTC') RETURNING id`,
+      `INSERT INTO pm.team_members (auth_user_id, name, email, role, status, timezone) VALUES ($1, $2, $3, $4, 'active', 'UTC') RETURNING id`,
       [auth, who, `${who}@example.com`, role],
     )).rows[0].id;
   }
@@ -82,7 +82,7 @@ async function main() {
     const service = getServiceClient();
     const ids = await seedPeople(db);
 
-    const readerFor = (who: Who) => createClient(server.url, 'fake-anon-key', {
+    const readerFor = (who: Who) => createPmClient(server.url, 'fake-anon-key', {
       auth: { persistSession: false, autoRefreshToken: false },
       global: { headers: { [USER_HEADER]: PEOPLE[who].auth } },
     });
@@ -94,8 +94,8 @@ async function main() {
 
     // ---- Seed ---------------------------------------------------------------
     const project = async (name: string, members: Who[], trashed = false) => {
-      const id = (await q<{ id: string }>('INSERT INTO public.projects (name, deleted_at) VALUES ($1, $2) RETURNING id', [name, trashed ? at('2026-11-10T00:00:00Z') : null]))[0].id;
-      for (const who of members) await q('INSERT INTO public.project_members (project_id, member_id) VALUES ($1, $2)', [id, ids[who]]);
+      const id = (await q<{ id: string }>('INSERT INTO pm.projects (name, deleted_at) VALUES ($1, $2) RETURNING id', [name, trashed ? at('2026-11-10T00:00:00Z') : null]))[0].id;
+      for (const who of members) await q('INSERT INTO pm.project_members (project_id, member_id) VALUES ($1, $2)', [id, ids[who]]);
       return id;
     };
     const shared = await project('Shared work', ['owner', 'viewer', 'maya', 'guest', 'agent']);
@@ -104,9 +104,9 @@ async function main() {
     await project('Elsewhere', ['outsider']);
 
     const task = async (projectId: string, title: string, status: string, due: string | null, assignee: Who, completedAt: string | null = null) => {
-      const id = (await q<{ id: string }>('INSERT INTO public.tasks (project_id, title, status, due_date, completed_at) VALUES ($1, $2, $3, $4, $5) RETURNING id',
+      const id = (await q<{ id: string }>('INSERT INTO pm.tasks (project_id, title, status, due_date, completed_at) VALUES ($1, $2, $3, $4, $5) RETURNING id',
         [projectId, title, status, due, completedAt]))[0].id;
-      await q('INSERT INTO public.task_assignees (task_id, member_id) VALUES ($1, $2)', [id, ids[assignee]]);
+      await q('INSERT INTO pm.task_assignees (task_id, member_id) VALUES ($1, $2)', [id, ids[assignee]]);
       return id;
     };
     await task(shared, 'Overdue in shared', 'in_progress', '2026-11-18', 'maya');
@@ -116,19 +116,19 @@ async function main() {
     await task(trashed, 'Open in Trash', 'todo', '2026-11-01', 'maya');
     await task(shared, 'Someone else', 'todo', null, 'viewer');
     // A subtask of Maya's whose parent is in Trash: hidden everywhere, so not hers to count.
-    const trashedParent = (await q<{ id: string }>("INSERT INTO public.tasks (project_id, title, status) VALUES ($1, 'Trashed parent', 'todo') RETURNING id", [shared]))[0].id;
-    const orphan = (await q<{ id: string }>("INSERT INTO public.tasks (project_id, title, status, due_date, parent_task_id) VALUES ($1, 'Subtask of a trashed parent', 'todo', '2026-11-02', $2) RETURNING id", [shared, trashedParent]))[0].id;
-    await q('INSERT INTO public.task_assignees (task_id, member_id) VALUES ($1, $2)', [orphan, ids.maya]);
+    const trashedParent = (await q<{ id: string }>("INSERT INTO pm.tasks (project_id, title, status) VALUES ($1, 'Trashed parent', 'todo') RETURNING id", [shared]))[0].id;
+    const orphan = (await q<{ id: string }>("INSERT INTO pm.tasks (project_id, title, status, due_date, parent_task_id) VALUES ($1, 'Subtask of a trashed parent', 'todo', '2026-11-02', $2) RETURNING id", [shared, trashedParent]))[0].id;
+    await q('INSERT INTO pm.task_assignees (task_id, member_id) VALUES ($1, $2)', [orphan, ids.maya]);
     // Then the parent goes to Trash; the subtask keeps deleted_at empty, as in the app.
-    await q('UPDATE public.tasks SET deleted_at = $2 WHERE id = $1', [trashedParent, at('2026-11-12T00:00:00Z')]);
+    await q('UPDATE pm.tasks SET deleted_at = $2 WHERE id = $1', [trashedParent, at('2026-11-12T00:00:00Z')]);
 
     const entry = async (projectId: string, start: string, end: string) => q(
-      `INSERT INTO public.project_time_entries (project_id, member_id, start_time, end_time, segments) VALUES ($1, $2, $3, $4, $5::jsonb)`,
+      `INSERT INTO pm.project_time_entries (project_id, member_id, start_time, end_time, segments) VALUES ($1, $2, $3, $4, $5::jsonb)`,
       [projectId, ids.maya, at(start), at(end), JSON.stringify([{ start: at(start), end: at(end) }])],
     );
     await entry(shared, '2026-11-17T09:00:00Z', '2026-11-17T11:00:00Z'); // 2 h this week
     // A converted agent entry: 1 h worked, rewritten to a 3 h billed slot (multiplier 3).
-    await q(`INSERT INTO public.project_time_entries (project_id, member_id, start_time, end_time, segments, billing_converted_at, raw_time_snapshot)
+    await q(`INSERT INTO pm.project_time_entries (project_id, member_id, start_time, end_time, segments, billing_converted_at, raw_time_snapshot)
       VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7::jsonb)`, [shared, ids.agent, at('2026-11-18T09:00:00Z'), at('2026-11-18T12:00:00Z'),
       JSON.stringify([{ start: at('2026-11-18T09:00:00Z'), end: at('2026-11-18T12:00:00Z') }]), at('2026-11-18T13:00:00Z'),
       JSON.stringify({ version: 1, start_time: at('2026-11-18T09:00:00Z'), end_time: at('2026-11-18T10:00:00Z'), segments: [{ start: at('2026-11-18T09:00:00Z'), end: at('2026-11-18T10:00:00Z') }], worked_ms: 3_600_000, captured_at: at('2026-11-18T13:00:00Z') })]);
@@ -139,14 +139,14 @@ async function main() {
     const days = ['2026-11-20', '2026-11-12', '2026-11-03'];
     for (let i = 0; i < 35; i++) {
       const created = at(`${days[i % 3]}T${String(10 + Math.floor(i / 3)).padStart(2, '0')}:00:00Z`);
-      await q(`INSERT INTO public.activities (type, entity_type, entity_id, project_id, user_id, description, metadata, created_at)
+      await q(`INSERT INTO pm.activities (type, entity_type, entity_id, project_id, user_id, description, metadata, created_at)
                VALUES ('task_updated', 'task', $1, $2, $3, $4, '{}'::jsonb, $5)`,
       [`t${i}`, i % 2 ? shared : private_, ids.maya, `Updated task number ${i}`, created]);
     }
-    await q(`INSERT INTO public.activities (type, entity_type, entity_id, project_id, user_id, description, created_at)
+    await q(`INSERT INTO pm.activities (type, entity_type, entity_id, project_id, user_id, description, created_at)
              VALUES ('task_updated', 'task', 'old', $1, $2, 'Updated an old task', $3)`, [shared, ids.maya, at('2026-10-11T10:00:00Z')]);
 
-    await q(`INSERT INTO public.agent_activities (agent_id, project_id, activity_type, title, created_at) VALUES
+    await q(`INSERT INTO pm.agent_activities (agent_id, project_id, activity_type, title, created_at) VALUES
       ($1, $2, 'work.done', 'Finished the import', $3),
       ($1, $2, 'turn.completed', 'Telemetry turn', $4)`, [ids.agent, shared, at('2026-11-19T10:00:00Z'), at('2026-11-19T11:00:00Z')]);
 
@@ -207,12 +207,12 @@ async function main() {
       && agent.activity.items[0].text === 'Finished the import', agent?.activity);
 
     // ---- Time switched off -----------------------------------------------------
-    await q("UPDATE public.workspace_modules SET enabled = false WHERE module_id = 'time'");
+    await q("UPDATE pm.workspace_modules SET enabled = false WHERE module_id = 'time'");
     const ownerTimeOff = await view('owner', ids.maya);
     const selfTimeOff = await view('maya', ids.maya);
     check('time off: no hours for anyone', ownerTimeOff !== null && !('time' in ownerTimeOff) && selfTimeOff !== null && !('time' in selfTimeOff));
     check('time off: the rest stays', ownerTimeOff?.work?.open === 2 && ownerTimeOff.usage?.active_days === 3);
-    await q("UPDATE public.workspace_modules SET enabled = true WHERE module_id = 'time'");
+    await q("UPDATE pm.workspace_modules SET enabled = true WHERE module_id = 'time'");
   } finally {
     await server.close();
     await db.close();

@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { copyAttachmentToProject, TASK_FILES_BUCKET } from './service';
 import { comms } from '@/lib/communications/db';
+import { pmStorage } from '@/lib/supabase/storage';
 
 /**
  * Before retention deletes an email, every task file linking one of its
@@ -119,7 +120,7 @@ export async function sweepAbandonedUploads(
   const startedAt = now();
   const budgetMs = options.budgetMs ?? 20_000;
   const summary: AbandonedUploadsSummary = { objects_scanned: 0, uploads_removed: 0, more_pending: false, outcome: 'complete', last_error: null };
-  const bucket = supabase.storage.from(TASK_FILES_BUCKET);
+  const bucket = pmStorage(supabase).from(TASK_FILES_BUCKET);
   try {
     let cursor: string | undefined;
     do {

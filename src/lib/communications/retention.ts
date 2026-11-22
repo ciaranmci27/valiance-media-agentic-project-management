@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { keepLinkedTaskFiles } from '@/lib/task-files/retention';
 import { INBOUND_EMAIL_BUCKET, recordInboxError } from './email/ingest';
 import { comms } from '@/lib/communications/db';
+import { pmStorage } from '@/lib/supabase/storage';
 
 /**
  * Retention and the orphan sweep for the inbound-email bucket, run by Vercel
@@ -126,7 +127,7 @@ const errorText = (error: unknown) => (error instanceof Error ? error.message : 
 async function removePaths(supabase: SupabaseClient, paths: string[]): Promise<{ ok: true; removed: number } | { ok: false; error: string }> {
   let removed = 0;
   for (let i = 0; i < paths.length; i += REMOVE_CHUNK) {
-    const { data, error } = await supabase.storage.from(INBOUND_EMAIL_BUCKET).remove(paths.slice(i, i + REMOVE_CHUNK));
+    const { data, error } = await pmStorage(supabase).from(INBOUND_EMAIL_BUCKET).remove(paths.slice(i, i + REMOVE_CHUNK));
     if (error) return { ok: false, error: error.message };
     removed += data?.length ?? 0;
   }
@@ -139,7 +140,7 @@ function finish<T extends MaintenanceSummary>(summary: T, now: () => number): T 
   return summary;
 }
 
-/** One structured log line per run, then the run's row in communications.maintenance_runs. */
+/** One structured log line per run, then the run's row in pm.maintenance_runs. */
 async function report(supabase: SupabaseClient, summary: RetentionSummary | OrphanSweepSummary): Promise<void> {
   const line = JSON.stringify({ event: `inbound_email.${summary.kind}`, ...summary });
   if (summary.outcome === 'failed') console.error(line);
@@ -305,7 +306,7 @@ export async function runOrphanSweep(supabase: SupabaseClient, options: Maintena
   const budgetMs = options.budgetMs ?? DEFAULT_BUDGET_MS;
   const pageSize = Math.min(options.batchSize ?? 1000, 1000);
   const summary: OrphanSweepSummary = { ...emptySummary('orphan_sweep', startedAt), unrecognized: 0 };
-  const bucket = supabase.storage.from(INBOUND_EMAIL_BUCKET);
+  const bucket = pmStorage(supabase).from(INBOUND_EMAIL_BUCKET);
 
   try {
     let cursor: string | undefined;

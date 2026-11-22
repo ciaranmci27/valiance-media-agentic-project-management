@@ -20,7 +20,7 @@ test -f "$(git rev-parse --show-toplevel)/app/package.json" && echo source || ec
 | Path | What goes there |
 |---|---|
 | `src/custom/` | Code: pages, tabs, cards, settings, API routes, theme, Next config, env docs |
-| `supabase/migrations/custom/` | SQL, only in the database schema `custom` |
+| `supabase/migrations/custom/` | SQL, only in the database schema `pm_custom` (core lives in `pm`) |
 | `public/custom/` | Public files (images, downloads), served at `/custom/<name>` |
 | `.claude/skills/<name>/` | Your own agent skills; any name not starting with `pm-` |
 | `.claude/agents/<name>`, `.claude/commands/<name>` | Your own agent definitions and commands, files or folders; any name not starting with `pm-` |
@@ -107,11 +107,12 @@ After a release with a `### Database` section in `CHANGELOG.md`, apply its migra
 |---|---|
 | `npx tsc --noEmit` | Types across the app, `src/custom` and `scripts` |
 | `npx eslint src/custom` | ESLint with the Next.js rules, on this install's own code |
-| `npm run check:core` | No core file changed; custom migrations stay in schema `custom`. In the source monorepo it says there is nothing to check. |
+| `npm run check:core` | No core file changed; custom migrations stay in schema `pm_custom` (files dated before 2.0: `custom`). In the source monorepo it says there is nothing to check. |
 | `npm run test:core` | Core's test suite on an in-memory database: permissions, modules, plug-in points, upgrade, migrations, the agent guard. No network or database needed. |
 
 ## Release rules (source monorepo only)
 
+- **The app lives in schema `pm`** (2.0): every table, view, function and policy is `pm.<name>`, and nothing of the app is created in `public`, so the app can share a Supabase project with other apps. Supabase-global names carry a prefix: storage buckets `pm-<name>`, storage policies `pm: <name>`, cron jobs `pm-<name>`, Vault entries `pm_<name>`. Members are added by the server (`pm.add_team_member`), never by a trigger on `auth.users`. `npm run test:pm-schema` checks a fresh install against an upgraded one and against a database that already holds another app.
 - **Migrations** go in `supabase/migrations/<YYYYMMDDHHMMSS>_<name>.sql`. Each is additive, safe to run twice, and works with the previous release's code: installs apply it before or after deploying the new code. Never edit a migration that has shipped; add a new one.
 - **`supabase/schema.sql`** is updated in place in the same commit, so a fresh install gets the same database.
 - **A new permission** gets its module in `PERMISSION_MODULE` (`src/lib/modules/registry.ts`) and its `permission_modules` row in the migration.

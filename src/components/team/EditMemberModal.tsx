@@ -19,6 +19,8 @@ import { NumberInput } from '@/components/ui/inputs/NumberInput';
 import Modal from '@/components/ui/Modal';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { toast } from '@/components/ui/Toast';
+import { pmStorage } from '@/lib/supabase/storage';
+import { BUCKETS } from '@/lib/supabase/schema';
 
 /**
  * Edit a team member: name, title, email, role (Owner only), account status
@@ -170,14 +172,14 @@ function EditMemberForm({ member, onClose }: { member: TeamMember; onClose: () =
       } else {
         // Fixed path per member ; upsert replaces previous file, no storage bloat
         const path = `team/${member.id}.jpg`;
-        const { error: uploadError } = await supabase.storage
-          .from('avatars')
+        const { error: uploadError } = await pmStorage(supabase)
+          .from(BUCKETS.avatars)
           .upload(path, blob, { upsert: true, contentType: 'image/jpeg' });
         if (uploadError) throw uploadError;
 
         const {
           data: { publicUrl },
-        } = supabase.storage.from('avatars').getPublicUrl(path);
+        } = pmStorage(supabase).from(BUCKETS.avatars).getPublicUrl(path);
         const url = `${publicUrl}?t=${Date.now()}`;
         updateTeamMember(member.id, { avatar: url });
         setAvatar(url);

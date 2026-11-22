@@ -16,6 +16,7 @@
  */
 import { createHash, randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
+import { splitSqlStatements } from './full-schema-db';
 import { NextRequest } from 'next/server';
 import { PGlite } from '@electric-sql/pglite';
 import { startFakePostgrest } from './fake-postgrest';
@@ -27,7 +28,7 @@ function check(label: string, ok: boolean, detail?: unknown) {
   else failures.push(detail === undefined ? label : `${label}: ${JSON.stringify(detail)?.slice(0, 500)}`);
 }
 
-const GUARD_MIGRATION = new URL('../supabase/migrations/20261002083507_api_keys_server_only.sql', import.meta.url);
+const SCHEMA = new URL('../supabase/schema.sql', import.meta.url);
 const OWNER = randomUUID();
 const ADMIN = randomUUID();
 const MEMBER = randomUUID();
@@ -39,36 +40,42 @@ const hash = (key: string) => createHash('sha256').update(key).digest('hex');
 async function seed(db: PGlite) {
   await db.exec(`
     CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role BYPASSRLS;
-    GRANT USAGE ON SCHEMA public TO service_role;
-    CREATE TABLE public.team_members (id uuid PRIMARY KEY, name text NOT NULL, role text NOT NULL, status text NOT NULL DEFAULT 'active');
-    CREATE TABLE public.api_keys (
+    CREATE SCHEMA pm; SET search_path TO pm, public;
+    GRANT USAGE ON SCHEMA pm TO service_role;
+    CREATE TABLE pm.team_members (id uuid PRIMARY KEY, name text NOT NULL, role text NOT NULL, status text NOT NULL DEFAULT 'active');
+    CREATE TABLE pm.api_keys (
       id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
       name text NOT NULL,
       key_prefix text NOT NULL,
       key_hash text NOT NULL,
-      created_by uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
+      created_by uuid REFERENCES pm.team_members(id) ON DELETE SET NULL,
       permissions text NOT NULL DEFAULT 'scoped',
       last_used_at timestamptz,
       revoked_at timestamptz,
       created_at timestamptz NOT NULL DEFAULT now(),
       updated_at timestamptz NOT NULL DEFAULT now(),
-      team_member_id uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
+      team_member_id uuid REFERENCES pm.team_members(id) ON DELETE SET NULL,
       scopes text[] NOT NULL DEFAULT '{}',
       expires_at timestamptz,
       disabled_at timestamptz
     );
-    CREATE TABLE public.business_settings (id serial PRIMARY KEY, api_enabled boolean NOT NULL DEFAULT true);
-    CREATE TABLE public.role_permissions (role text, permission_key text, access_channel text);
-    CREATE TABLE public.team_member_permissions (member_id uuid, permission_key text, access_channel text, effect text);
-    CREATE TABLE public.project_members (member_id uuid, project_id uuid);
-    CREATE FUNCTION public.consume_api_rate_limit(p_api_key_id uuid, p_limit integer, p_window_seconds integer) RETURNS jsonb
+    CREATE TABLE pm.business_settings (id serial PRIMARY KEY, api_enabled boolean NOT NULL DEFAULT true);
+    CREATE TABLE pm.role_permissions (role text, permission_key text, access_channel text);
+    CREATE TABLE pm.team_member_permissions (member_id uuid, permission_key text, access_channel text, effect text);
+    CREATE TABLE pm.project_members (member_id uuid, project_id uuid);
+    CREATE FUNCTION pm.consume_api_rate_limit(p_api_key_id uuid, p_limit integer, p_window_seconds integer) RETURNS jsonb
       LANGUAGE sql AS $$ SELECT jsonb_build_object('allowed', true, 'remaining', p_limit - 1, 'reset_at', now() + make_interval(secs => p_window_seconds)) $$;
-    GRANT ALL ON ALL TABLES IN SCHEMA public TO service_role;
-    GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO service_role;
-    INSERT INTO public.business_settings DEFAULT VALUES;
+    GRANT ALL ON ALL TABLES IN SCHEMA pm TO service_role;
+    GRANT ALL ON ALL SEQUENCES IN SCHEMA pm TO service_role;
+    INSERT INTO pm.business_settings DEFAULT VALUES;
   `);
-  // The real guard: a revoke is final, the secret never changes, a key never moves.
-  await db.exec(await readFile(GUARD_MIGRATION, 'utf8'));
+  // The real guard, as schema.sql ships it: a revoke is final, the secret never
+  // changes, a key never moves. Plus its table grants.
+  const schema = (await readFile(SCHEMA, 'utf8')).replace(/\r\n/g, '\n');
+  const guard = splitSqlStatements(schema).filter((statement) =>
+    /pm\.api_keys_guard\(\)/.test(statement) || /^(REVOKE|GRANT) [A-Z, ]+ ON pm\.api_keys (FROM|TO) /m.test(statement));
+  if (guard.length < 4) throw new Error(`api_keys guard not found in schema.sql (${guard.length} statements)`);
+  for (const statement of guard) await db.exec(statement);
   await db.query(
     `INSERT INTO team_members(id, name, role) VALUES
       ($1, 'Owner', 'owner'), ($2, 'Ada', 'admin'), ($3, 'Mia', 'member'), ($4, 'Otto', 'member'), ($5, 'Jeff', 'agent'), ($6, 'Gus', 'member')`,

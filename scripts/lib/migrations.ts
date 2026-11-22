@@ -87,6 +87,7 @@ CREATE TABLE IF NOT EXISTS public.app_migrations (
 );
 -- Bookkeeping for the migration runner only: no API role reads or writes it.
 ALTER TABLE public.app_migrations ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.app_migrations FROM PUBLIC, anon, authenticated;
 `;
 
 /** sha256 of the file with CRLF normalized, so a Windows checkout records the same checksum as Linux. */
@@ -132,11 +133,11 @@ export function listMigrationFiles(dirs: MigrationDirs, options: { coreOnly?: bo
 
 /**
  * Where the tracking table is, or should be:
- * - `pm.app_migrations` once it exists (2.0 and later);
+ * - `pm.app_migrations` once it exists, or (to make) when the app's tables
+ *   are in `pm` (2.0 and later);
  * - else `public.app_migrations`, but only when it is the app's: it has the
  *   runner's columns (name, kind, checksum), or, not made yet, `public`
- *   holds the app's own tables (workspace_modules and business_settings);
- * - else, when the app's tables are in `pm`, `pm.app_migrations` (to make).
+ *   holds the app's own tables (workspace_modules and business_settings).
  * Null means this database does not hold the app yet (or `public`'s table of
  * that name is someone else's): the runner refuses rather than guess.
  */
@@ -149,10 +150,13 @@ export async function trackingTable(db: MigrationDb): Promise<{ table: string; e
            to_regclass('public.workspace_modules') IS NOT NULL AND to_regclass('public.business_settings') IS NOT NULL AS public_app,
            to_regclass('pm.workspace_modules') IS NOT NULL AND to_regclass('pm.business_settings') IS NOT NULL AS pm_app`);
   if (row?.pm_table) return { table: 'pm.app_migrations', exists: true };
-  // Another app's public.app_migrations is never ours; the app may still live in pm.
+  // The app in pm tracks in pm, even beside a look-alike public.app_migrations
+  // (another app's, with the same columns). The move takes the app's own
+  // table into pm with its tables, so a 1.x install never reaches this.
+  if (row?.pm_app) return { table: 'pm.app_migrations', exists: false };
+  // Another app's public.app_migrations is never ours.
   if (row?.public_table && row.public_ours) return { table: 'public.app_migrations', exists: true };
   if (row?.public_app && !row.public_table) return { table: 'public.app_migrations', exists: false };
-  if (row?.pm_app) return { table: 'pm.app_migrations', exists: false };
   return null;
 }
 

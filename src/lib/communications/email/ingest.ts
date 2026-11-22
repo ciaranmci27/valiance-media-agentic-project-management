@@ -14,6 +14,7 @@ import { INBOUND_EMAIL_BUCKET, MAX_OBJECT_BYTES } from './storage-limits';
 import { verifiedTeamSender, type TeamMemberRow } from './team-sender';
 import { ingestMeetingPackage } from '../meeting/ingest';
 import { meetingEmailOf, meetingPackageFromEmail, memberCanReadInbox, type MeetingEmail } from '../meeting/email';
+import { pmStorage } from '@/lib/supabase/storage';
 
 /**
  * The provider-agnostic ingestion core. A transport hands it one received
@@ -289,7 +290,7 @@ async function fetchFile(file: InboundFile, label: string): Promise<Response> {
 }
 
 async function upload(supabase: SupabaseClient, path: string, bytes: Buffer, contentType: string): Promise<void> {
-  const { error } = await supabase.storage.from(INBOUND_EMAIL_BUCKET).upload(path, bytes, {
+  const { error } = await pmStorage(supabase).from(INBOUND_EMAIL_BUCKET).upload(path, bytes, {
     contentType: contentType || 'application/octet-stream',
     // A row owns this path: a retry after a partial run, or two emails
     // storing the same new copy at once, write the same bytes.
@@ -440,7 +441,7 @@ async function ingestIntoInbox(
     const paths = [started.message.raw_storage_path, ...started.attachments.filter((a) => !a.file_id).map((a) => a.storage_path)]
       .filter((p): p is string => !!p);
     if (paths.length) {
-      const { error: removeError } = await supabase.storage.from(INBOUND_EMAIL_BUCKET).remove(paths);
+      const { error: removeError } = await pmStorage(supabase).from(INBOUND_EMAIL_BUCKET).remove(paths);
       if (removeError) throw new Error(`could not delete the verification email's files: ${removeError.message}`);
     }
     const { error: deleteError } = await comms(supabase).from('messages').delete().eq('id', messageId);
@@ -487,7 +488,7 @@ async function attachedForwardSender(supabase: SupabaseClient, messageId: string
   if (!row) return null;
   try {
     if (row.storage_path && row.uploaded_at) {
-      const stored = await supabase.storage.from(INBOUND_EMAIL_BUCKET).download(row.storage_path);
+      const stored = await pmStorage(supabase).from(INBOUND_EMAIL_BUCKET).download(row.storage_path);
       if (stored.error) throw stored.error;
       return fromRfc822Head(new Uint8Array(await stored.data.slice(0, ATTACHED_HEAD_BYTES).arrayBuffer()));
     }

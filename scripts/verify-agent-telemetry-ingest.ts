@@ -38,28 +38,29 @@ const hash = (key: string) => createHash('sha256').update(key).digest('hex');
 async function seed(db: PGlite) {
   await db.exec(`
     CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role BYPASSRLS;
-    GRANT USAGE ON SCHEMA public TO service_role;
-    CREATE TABLE public.team_members (id uuid PRIMARY KEY, name text NOT NULL, role text NOT NULL, status text NOT NULL DEFAULT 'active');
-    CREATE TABLE public.projects (id uuid PRIMARY KEY, name text NOT NULL);
-    CREATE TABLE public.api_keys (
+    CREATE SCHEMA pm; SET search_path TO pm, public;
+    GRANT USAGE ON SCHEMA pm TO service_role;
+    CREATE TABLE pm.team_members (id uuid PRIMARY KEY, name text NOT NULL, role text NOT NULL, status text NOT NULL DEFAULT 'active');
+    CREATE TABLE pm.projects (id uuid PRIMARY KEY, name text NOT NULL);
+    CREATE TABLE pm.api_keys (
       id uuid PRIMARY KEY DEFAULT gen_random_uuid(), name text NOT NULL DEFAULT 'key', key_hash text NOT NULL,
       permissions text NOT NULL DEFAULT 'scoped', team_member_id uuid, scopes text[] NOT NULL DEFAULT '{}',
       expires_at timestamptz, disabled_at timestamptz, revoked_at timestamptz, last_used_at timestamptz);
-    CREATE TABLE public.business_settings (id serial PRIMARY KEY, api_enabled boolean NOT NULL DEFAULT true);
-    CREATE TABLE public.role_permissions (role text, permission_key text, access_channel text, PRIMARY KEY (role, permission_key, access_channel));
-    CREATE TABLE public.team_member_permissions (member_id uuid, permission_key text, access_channel text, effect text);
-    CREATE TABLE public.project_members (member_id uuid, project_id uuid);
-    CREATE TABLE public.api_audit_log (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), method text, endpoint text, entity_type text,
+    CREATE TABLE pm.business_settings (id serial PRIMARY KEY, api_enabled boolean NOT NULL DEFAULT true);
+    CREATE TABLE pm.role_permissions (role text, permission_key text, access_channel text, PRIMARY KEY (role, permission_key, access_channel));
+    CREATE TABLE pm.team_member_permissions (member_id uuid, permission_key text, access_channel text, effect text);
+    CREATE TABLE pm.project_members (member_id uuid, project_id uuid);
+    CREATE TABLE pm.api_audit_log (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), method text, endpoint text, entity_type text,
       entity_id uuid, api_key_id uuid, team_member_id uuid, request_body jsonb, before_snapshot jsonb, after_snapshot jsonb,
       status_code integer, error text, via text NOT NULL DEFAULT 'rest');
-    CREATE FUNCTION public.consume_api_rate_limit(p_api_key_id uuid, p_limit integer, p_window_seconds integer) RETURNS jsonb
+    CREATE FUNCTION pm.consume_api_rate_limit(p_api_key_id uuid, p_limit integer, p_window_seconds integer) RETURNS jsonb
       LANGUAGE sql AS $$ SELECT jsonb_build_object('allowed', true, 'remaining', p_limit - 1, 'reset_at', now() + make_interval(secs => p_window_seconds)) $$;
 
     -- agent_activities as production has it before the telemetry migration.
-    CREATE TABLE public.agent_activities (
+    CREATE TABLE pm.agent_activities (
       id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-      agent_id uuid NOT NULL REFERENCES public.team_members(id) ON DELETE CASCADE,
-      project_id uuid REFERENCES public.projects(id) ON DELETE SET NULL,
+      agent_id uuid NOT NULL REFERENCES pm.team_members(id) ON DELETE CASCADE,
+      project_id uuid REFERENCES pm.projects(id) ON DELETE SET NULL,
       activity_type text NOT NULL,
       title text NOT NULL,
       description text NOT NULL DEFAULT '',
@@ -72,18 +73,19 @@ async function seed(db: PGlite) {
         'turn.completed', 'review.started', 'review.verdict', 'audit.finding', 'audit.no_work', 'spec.completed',
         'queue.empty', 'blocked', 'billing.started', 'billing.paused', 'billing.resumed', 'billing.stopped', 'email.triaged'))
     );
-    CREATE UNIQUE INDEX idx_agent_activities_turn_identity ON public.agent_activities(agent_id, (metadata->>'source_turn_id'))
+    CREATE UNIQUE INDEX idx_agent_activities_turn_identity ON pm.agent_activities(agent_id, (metadata->>'source_turn_id'))
       WHERE activity_type = 'turn.completed' AND metadata->>'source_turn_id' IS NOT NULL;
-    CREATE UNIQUE INDEX idx_agent_activities_usage_identity ON public.agent_activities(agent_id, (metadata->>'source_usage_id'))
+    CREATE UNIQUE INDEX idx_agent_activities_usage_identity ON pm.agent_activities(agent_id, (metadata->>'source_usage_id'))
       WHERE activity_type = 'usage.recorded' AND metadata->>'source_usage_id' IS NOT NULL;
-    INSERT INTO public.business_settings DEFAULT VALUES;
+    INSERT INTO pm.business_settings DEFAULT VALUES;
   `);
-  const migration = await readFile(MIGRATION, 'utf8');
+  // The 1.x migration as 2.0 holds it: the same objects, in schema pm (what 20261123000000_move_to_pm does).
+  const migration = (await readFile(MIGRATION, 'utf8')).replace(/\bpublic\./g, 'pm.');
   await db.exec(migration);
   await db.exec(migration); // safe to re-run
   await db.exec(`
-    GRANT ALL ON ALL TABLES IN SCHEMA public TO service_role;
-    GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO service_role;
+    GRANT ALL ON ALL TABLES IN SCHEMA pm TO service_role;
+    GRANT ALL ON ALL SEQUENCES IN SCHEMA pm TO service_role;
   `);
   await db.query(`INSERT INTO team_members(id, name, role) VALUES ($1, 'Jeff', 'agent'), ($2, 'John', 'agent'), ($3, 'Ciaran', 'owner')`, [JEFF, JOHN, OWNER]);
   for (const key of ['tasks.read', 'projects.read', 'agent_activity.write'])

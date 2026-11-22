@@ -4,7 +4,7 @@
  * the install's dependencies, scripts and crons while taking the release's;
  * the history is a true merge; the summary lists the release's migrations;
  * check:core catches core edits and custom migrations that reach outside
- * schema custom; and a real conflict aborts cleanly with exit code 2.
+ * schema pm_custom; and a real conflict aborts cleanly with exit code 2.
  *
  * Builds scratch git repos (an "upstream" and a "client" cloned from it) in a
  * temp folder and deletes them afterwards. Also unit-tests the JSON merge, the
@@ -18,7 +18,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { checkCore } from './check-core';
 import { isAllowedInstallChange, isClientOwned } from './lib/core-paths';
-import { checkCustomSql } from './lib/custom-sql';
+import { checkCustomSql, customSchemaFor } from './lib/custom-sql';
 import { git, gitRun } from './lib/git';
 import { mergeJson, mergeJsonText, type Json } from './lib/json-merge';
 import { clearGeneratedTypes, normalizeRemote, upgrade, type UpgradeSummary } from './upgrade';
@@ -145,51 +145,55 @@ function rulesCases() {
     const v = checkCustomSql(sql);
     check(`sql refused: ${sql.slice(0, 70)}`, v.length > 0 && pattern.test(v[0].reason), v);
   };
-  ok('CREATE SCHEMA IF NOT EXISTS custom;');
-  ok('create table if not exists custom.notes (id uuid primary key, task_id uuid references public.tasks(id) on delete cascade, note text);');
-  ok('CREATE UNIQUE INDEX IF NOT EXISTS notes_task ON custom.notes (task_id);');
-  ok('create index on only custom.notes using btree (note);');
-  ok('alter table custom.notes enable row level security;');
-  ok('CREATE POLICY "notes read" ON custom.notes FOR SELECT TO authenticated USING (exists (select 1 from public.team_members m where m.id = auth.uid()));');
-  ok('drop policy if exists "notes read" on custom.notes;');
-  ok('CREATE OR REPLACE FUNCTION custom.touch() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN UPDATE public.tasks SET updated_at = now(); RETURN NEW; END $$;');
-  ok('create trigger notes_touch before insert or update on custom.notes for each row execute function custom.touch();');
-  ok('GRANT USAGE ON SCHEMA custom TO authenticated; GRANT SELECT, INSERT ON custom.notes TO authenticated; GRANT ALL ON ALL TABLES IN SCHEMA custom TO service_role;');
-  ok('grant execute on function custom.touch() to authenticated;');
-  ok('ALTER DEFAULT PRIVILEGES IN SCHEMA custom GRANT SELECT ON TABLES TO authenticated;');
-  ok('comment on table custom.notes is \'Notes; with a semicolon\'; comment on column custom.notes.note is \'text\';');
-  ok('insert into custom.notes (note) values (\'x\') on conflict do nothing; update custom.notes set note = \'y\'; delete from custom.notes where note is null;');
-  ok('DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = \'fk\') THEN ALTER TABLE custom.notes ADD CONSTRAINT fk FOREIGN KEY (task_id) REFERENCES public.tasks(id); END IF; END $$;');
-  ok('alter publication supabase_realtime add table custom.notes;');
+  ok('CREATE SCHEMA IF NOT EXISTS pm_custom;');
+  // Files dated before 2.0 were written for schema custom (the move renamed it), and still pass.
+  check('sql: a file dated before 2.0 is checked against schema custom', customSchemaFor('20260201000000_old.sql') === 'custom' && customSchemaFor('20270101000000_new.sql') === 'pm_custom');
+  check('sql: and custom is allowed there', checkCustomSql('create table custom.notes (id int);', 'custom').length === 0);
+  check('sql: but not in a 2.0 file', checkCustomSql('create table custom.notes (id int);').length === 1);
+  ok('create table if not exists pm_custom.notes (id uuid primary key, task_id uuid references pm.tasks(id) on delete cascade, note text);');
+  ok('CREATE UNIQUE INDEX IF NOT EXISTS notes_task ON pm_custom.notes (task_id);');
+  ok('create index on only pm_custom.notes using btree (note);');
+  ok('alter table pm_custom.notes enable row level security;');
+  ok('CREATE POLICY "notes read" ON pm_custom.notes FOR SELECT TO authenticated USING (exists (select 1 from pm.team_members m where m.id = auth.uid()));');
+  ok('drop policy if exists "notes read" on pm_custom.notes;');
+  ok('CREATE OR REPLACE FUNCTION pm_custom.touch() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN UPDATE pm.tasks SET updated_at = now(); RETURN NEW; END $$;');
+  ok('create trigger notes_touch before insert or update on pm_custom.notes for each row execute function pm_custom.touch();');
+  ok('GRANT USAGE ON SCHEMA pm_custom TO authenticated; GRANT SELECT, INSERT ON pm_custom.notes TO authenticated; GRANT ALL ON ALL TABLES IN SCHEMA pm_custom TO service_role;');
+  ok('grant execute on function pm_custom.touch() to authenticated;');
+  ok('ALTER DEFAULT PRIVILEGES IN SCHEMA pm_custom GRANT SELECT ON TABLES TO authenticated;');
+  ok('comment on table pm_custom.notes is \'Notes; with a semicolon\'; comment on column pm_custom.notes.note is \'text\';');
+  ok('insert into pm_custom.notes (note) values (\'x\') on conflict do nothing; update pm_custom.notes set note = \'y\'; delete from pm_custom.notes where note is null;');
+  ok('DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = \'fk\') THEN ALTER TABLE pm_custom.notes ADD CONSTRAINT fk FOREIGN KEY (task_id) REFERENCES pm.tasks(id); END IF; END $$;');
+  ok('alter publication supabase_realtime add table pm_custom.notes;');
   ok('BEGIN; set local search_path = custom, public; select 1; notify pgrst, \'reload schema\'; COMMIT;');
-  ok('drop table if exists custom.old_notes, custom.older_notes cascade; drop function if exists custom.touch(uuid, text);');
-  ok('-- ALTER TABLE public.tasks ADD COLUMN x int;\n/* drop table public.tasks; */ select 1;');
-  bad('ALTER TABLE public.tasks ADD COLUMN acme text;', /public\.tasks/);
+  ok('drop table if exists pm_custom.old_notes, pm_custom.older_notes cascade; drop function if exists pm_custom.touch(uuid, text);');
+  ok('-- ALTER TABLE pm.tasks ADD COLUMN x int;\n/* drop table pm.tasks; */ select 1;');
+  bad('ALTER TABLE pm.tasks ADD COLUMN acme text;', /pm.tasks/);
   bad('create table notes (id int);', /without a schema/);
-  bad('CREATE INDEX tasks_acme ON public.tasks (title);', /public\.tasks/);
-  bad('create policy p on public.tasks for select using (true);', /public\.tasks/);
-  bad('create trigger t after insert on public.tasks for each row execute function custom.f();', /public\.tasks/);
-  bad('CREATE OR REPLACE FUNCTION public.has_permission(text) RETURNS boolean LANGUAGE sql AS $$ select true $$;', /public\.has_permission/);
-  bad('drop table if exists custom.a, public.tasks;', /public\.tasks/);
+  bad('CREATE INDEX tasks_acme ON pm.tasks (title);', /pm.tasks/);
+  bad('create policy p on pm.tasks for select using (true);', /pm.tasks/);
+  bad('create trigger t after insert on pm.tasks for each row execute function pm_custom.f();', /pm.tasks/);
+  bad('CREATE OR REPLACE FUNCTION pm.has_permission(text) RETURNS boolean LANGUAGE sql AS $$ select true $$;', /pm.has_permission/);
+  bad('drop table if exists pm_custom.a, pm.tasks;', /pm.tasks/);
   bad('create schema acme;', /schema acme/);
   bad('create extension if not exists pg_trgm;', /database-wide/);
-  bad('grant select on public.tasks to anon;', /public\.tasks/);
+  bad('grant select on pm.tasks to anon;', /pm.tasks/);
   bad('grant authenticated to acme_role;', /role membership/);
-  bad('insert into public.settings (key) values (\'x\');', /public\.settings/);
-  bad('update public.tasks set title = \'x\';', /public\.tasks/);
-  bad('truncate public.tasks;', /public\.tasks/);
-  bad('DO $$ BEGIN ALTER TABLE public.tasks ADD COLUMN x int; END $$;', /inside DO.*public\.tasks/);
+  bad('insert into pm.settings (key) values (\'x\');', /pm.settings/);
+  bad('update pm.tasks set title = \'x\';', /pm.tasks/);
+  bad('truncate pm.tasks;', /pm.tasks/);
+  bad('DO $$ BEGIN ALTER TABLE pm.tasks ADD COLUMN x int; END $$;', /inside DO.*pm.tasks/);
   bad('DO $$ BEGIN EXECUTE format(\'drop table %I\', \'tasks\'); END $$;', /dynamic SQL/);
-  bad('DO $$ BEGIN EXECUTE \'drop table public.tasks\'; END $$;', /public\.tasks/);
-  bad('alter publication supabase_realtime set table custom.notes;', /ADD TABLE/);
-  bad('ALTER DEFAULT PRIVILEGES GRANT SELECT ON TABLES TO anon;', /IN SCHEMA custom/);
+  bad('DO $$ BEGIN EXECUTE \'drop table pm.tasks\'; END $$;', /pm.tasks/);
+  bad('alter publication supabase_realtime set table pm_custom.notes;', /ADD TABLE/);
+  bad('ALTER DEFAULT PRIVILEGES GRANT SELECT ON TABLES TO anon;', /IN SCHEMA pm_custom/);
   bad('comment on column notes.note is \'x\';', /without a schema/);
-  bad('VACUUM public.tasks;', /not allowed/);
+  bad('VACUUM pm.tasks;', /not allowed/);
 
   const owned = ['src/custom/index.ts', 'supabase/migrations/custom/1.sql', 'public/custom/logo.svg', '.claude/settings.local.json',
     '.claude/skills/acme-sales/SKILL.md', '.env.local', '.env.production'];
   const core = ['src/core.ts', 'src/customer.ts', 'supabase/migrations/1.sql', '.claude/settings.json', '.claude/skills/pm-review/SKILL.md',
-    '.env.example', 'package.json', 'AGENTS.md', '.github/workflows/ci.yml', 'public/custom.svg'];
+    '.env.example', 'package.json', 'AGENTS.md', '.github/workflows/ci.yml', 'public/pm_custom.svg'];
   check('paths: client-owned paths are recognised', owned.every(isClientOwned), owned.filter(p => !isClientOwned(p)));
   check('paths: core paths are not client-owned', core.every(p => !isClientOwned(p)), core.filter(isClientOwned));
   check('paths: package.json, package-lock.json and vercel.json are allowed install changes',
@@ -267,17 +271,17 @@ const VERCEL_V1 = `{
 }
 `;
 const CUSTOM_MIGRATION = `-- Acme's notes on tasks.
-CREATE SCHEMA IF NOT EXISTS custom;
-GRANT USAGE ON SCHEMA custom TO authenticated;
-CREATE TABLE IF NOT EXISTS custom.acme_notes (
+CREATE SCHEMA IF NOT EXISTS pm_custom;
+GRANT USAGE ON SCHEMA pm_custom TO authenticated;
+CREATE TABLE IF NOT EXISTS pm_custom.acme_notes (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  task_id uuid NOT NULL REFERENCES public.tasks(id) ON DELETE CASCADE,
+  task_id uuid NOT NULL REFERENCES pm.tasks(id) ON DELETE CASCADE,
   body text NOT NULL
 );
-CREATE INDEX IF NOT EXISTS acme_notes_task ON custom.acme_notes (task_id);
-ALTER TABLE custom.acme_notes ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "members read notes" ON custom.acme_notes;
-CREATE POLICY "members read notes" ON custom.acme_notes FOR SELECT TO authenticated USING (true);
+CREATE INDEX IF NOT EXISTS acme_notes_task ON pm_custom.acme_notes (task_id);
+ALTER TABLE pm_custom.acme_notes ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "members read notes" ON pm_custom.acme_notes;
+CREATE POLICY "members read notes" ON pm_custom.acme_notes FOR SELECT TO authenticated USING (true);
 `;
 
 function runCli(args: string[]): { code: number; output: string } {
@@ -302,7 +306,7 @@ function scenario() {
   put(upstream, 'src/custom/index.ts', 'export const plugins = [];\n');
   put(upstream, 'public/custom/.gitkeep', '');
   put(upstream, 'supabase/migrations/custom/.gitkeep', '');
-  put(upstream, 'supabase/migrations/20260101000000_init.sql', 'CREATE TABLE IF NOT EXISTS public.tasks (id uuid PRIMARY KEY);\n');
+  put(upstream, 'supabase/migrations/20260101000000_init.sql', 'CREATE TABLE IF NOT EXISTS pm.tasks (id uuid PRIMARY KEY);\n');
   put(upstream, '.github/workflows/ci.yml', 'name: CI\non: [push]\n');
   put(upstream, '.claude/skills/pm-core/SKILL.md', '# Core skill\n');
   put(upstream, '.env.example', 'DATABASE_URL=\n');
@@ -313,7 +317,7 @@ function scenario() {
   git(tmp, ['clone', '-q', upstream, client]);
   put(client, 'src/custom/index.ts', 'import { sync } from \'./sync\';\nexport const plugins = [sync];\n');
   put(client, 'src/custom/sync.ts', 'export const sync = () => \'acme\';\n');
-  put(client, 'supabase/migrations/custom/20260201000000_acme_notes.sql', CUSTOM_MIGRATION);
+  put(client, 'supabase/migrations/custom/20270201000000_acme_notes.sql', CUSTOM_MIGRATION);
   put(client, 'public/custom/logo.svg', '<svg xmlns="http://www.w3.org/2000/svg"/>\n');
   put(client, '.claude/settings.local.json', '{ "permissions": {} }\n');
   put(client, '.claude/skills/acme-sales/SKILL.md', '# Acme sales\n');
@@ -339,7 +343,7 @@ function scenario() {
   put(upstream, 'AGENTS.md', '# Agent instructions\n\nCore rules, revised.\n');
   put(upstream, '.github/workflows/ci.yml', 'name: CI\non: [push, pull_request]\n');
   put(upstream, '.claude/skills/pm-core/SKILL.md', '# Core skill v2\n');
-  put(upstream, 'supabase/migrations/20260301000000_add_column.sql', 'ALTER TABLE public.tasks ADD COLUMN IF NOT EXISTS title text;\n');
+  put(upstream, 'supabase/migrations/20260301000000_add_column.sql', 'ALTER TABLE pm.tasks ADD COLUMN IF NOT EXISTS title text;\n');
   put(upstream, 'package.json', read(upstream, 'package.json')
     .replace('"dev": "next dev -p 3009"', '"dev": "next dev --turbopack -p 3009"')
     .replace('"next": "16.0.0"', '"next": "16.1.0"'));
@@ -382,7 +386,7 @@ function scenario() {
     read(client, 'src/core.ts').startsWith('export const core = 2;') && read(client, '.github/workflows/ci.yml').includes('pull_request') && read(client, 'AGENTS.md').includes('revised'));
   check('upgrade 1: client-owned files are untouched',
     read(client, 'src/custom/index.ts').includes('sync') && existsSync(join(client, '.claude/skills/acme-sales/SKILL.md')) &&
-    read(client, 'supabase/migrations/custom/20260201000000_acme_notes.sql') === CUSTOM_MIGRATION && existsSync(join(client, 'public/custom/logo.svg')));
+    read(client, 'supabase/migrations/custom/20270201000000_acme_notes.sql') === CUSTOM_MIGRATION && existsSync(join(client, 'public/custom/logo.svg')));
   const core1 = checkCore(client);
   check('check:core passes after the upgrade', core1.exitCode === 0, core1.messages);
 
@@ -392,7 +396,7 @@ function scenario() {
 
   // Upstream v1.2.0 while the client keeps working.
   put(upstream, 'src/core.ts', 'export const core = 3;\nexport const other = 1;\n');
-  put(upstream, 'supabase/migrations/20260401000000_more.sql', 'CREATE TABLE IF NOT EXISTS public.more (id int);\n');
+  put(upstream, 'supabase/migrations/20260401000000_more.sql', 'CREATE TABLE IF NOT EXISTS pm.more (id int);\n');
   editJson(upstream, 'package.json', p => { (p.dependencies as Record<string, string>)['lucide-react'] = '1.0.0'; p.dependencies = Object.fromEntries(Object.entries(p.dependencies as object).sort()); });
   put(upstream, 'vercel.json', read(upstream, 'vercel.json').replace('"0 4 * * *"', '"15 4 * * *"'));
   release('1.2.0');
@@ -430,12 +434,12 @@ function scenario() {
   check('check:core passes once the core file matches the release again', restored.exitCode === 0, restored.messages);
 
   // check:core: a custom migration that alters a public table fails with the file and statement.
-  put(client, 'supabase/migrations/custom/20260501000000_bad.sql', 'CREATE TABLE IF NOT EXISTS custom.ok (id int);\nALTER TABLE public.tasks ADD COLUMN acme_code text;\n');
+  put(client, 'supabase/migrations/custom/20270501000000_bad.sql', 'CREATE TABLE IF NOT EXISTS pm_custom.ok (id int);\nALTER TABLE pm.tasks ADD COLUMN acme_code text;\n');
   const badSql = checkCore(client);
   check('check:core fails on a custom migration touching public', badSql.exitCode === 1 && badSql.sqlViolations.length === 1, badSql.sqlViolations);
   check('check:core names the file and the statement',
-    badSql.sqlViolations[0]?.file === 'supabase/migrations/custom/20260501000000_bad.sql' && /ALTER TABLE public\.tasks/.test(badSql.sqlViolations[0]?.statement ?? ''), badSql.sqlViolations);
-  rmSync(join(client, 'supabase/migrations/custom/20260501000000_bad.sql'));
+    badSql.sqlViolations[0]?.file === 'supabase/migrations/custom/20270501000000_bad.sql' && /ALTER TABLE pm\.tasks/.test(badSql.sqlViolations[0]?.statement ?? ''), badSql.sqlViolations);
+  rmSync(join(client, 'supabase/migrations/custom/20270501000000_bad.sql'));
 
   // A real conflict in a core file: aborted cleanly, exit 2, the file listed, nothing changed.
   put(upstream, 'src/core.ts', 'export const core = 4;\nexport const other = 1;\n');

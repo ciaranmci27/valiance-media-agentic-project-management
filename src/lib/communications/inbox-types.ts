@@ -780,8 +780,8 @@ export interface ProjectEmailAddressInput {
 export const INBOX_UPDATED_EVENT = 'inbox-updated';
 
 /**
- * The tables inbox views read from (communications schema, named
- * schema-qualified as live sync reports them): a cached inbox read goes stale
+ * The tables inbox views read from (in pm since 2.0, labelled
+ * communications.<name> as live sync reports them): a cached inbox read goes stale
  * when any of them changes.
  */
 export const INBOX_TABLES = [

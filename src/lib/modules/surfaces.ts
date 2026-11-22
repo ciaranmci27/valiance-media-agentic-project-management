@@ -17,9 +17,9 @@ import { MODULE_IDS, type ModuleId } from '@/lib/modules/registry';
  */
 
 export interface ModuleSurface {
-  /** Tables (schema-qualified outside public) holding the module's data. */
+  /** Tables (in schema pm) holding the module's data. */
   tables: string[];
-  /** Database functions of the module (schema-qualified outside public). */
+  /** Database functions of the module (in schema pm). */
   rpcs: string[];
   /** Route folders under src/app; a folder claims everything beneath it. */
   routes: string[];
@@ -90,17 +90,17 @@ export const MODULE_SURFACES: Record<ModuleId, ModuleSurface> = {
   inbox: {
     tables: [
       'client_communications',
-      'communications.answers', 'communications.attachments', 'communications.client_addresses',
-      'communications.client_domains', 'communications.conversation_projects', 'communications.conversations',
-      'communications.endpoints', 'communications.files', 'communications.ignored_addresses',
-      'communications.inbox_access', 'communications.inboxes', 'communications.maintenance_runs',
-      'communications.meetings', 'communications.message_candidates', 'communications.message_endpoints',
-      'communications.messages', 'communications.own_domains', 'communications.participants',
-      'communications.plan_items', 'communications.plans', 'communications.reply_drafts',
-      'communications.reply_points', 'communications.sender_rules', 'communications.task_links',
-      'communications.triage',
+      'answers', 'attachments', 'client_addresses',
+      'client_domains', 'conversation_projects', 'conversations',
+      'endpoints', 'files', 'ignored_addresses',
+      'inbox_access', 'inboxes', 'maintenance_runs',
+      'meetings', 'message_candidates', 'message_endpoints',
+      'messages', 'own_domains', 'participants',
+      'plan_items', 'plans', 'reply_drafts',
+      'reply_points', 'sender_rules', 'task_links',
+      'triage',
     ],
-    rpcs: ['communications.can_read_inbox', 'communications.can_read_message', 'communications.can_manage_inbox'],
+    rpcs: ['can_read_inbox', 'can_read_message', 'can_manage_inbox'],
     routes: [
       'api/v1/inbound-emails', 'api/v1/inbox', 'api/v1/projects/[id]/communications',
       'api/v1/projects/[id]/client-notifications', 'api/v1/tasks/[id]/emails', 'api/v1/tasks/[id]/messages',

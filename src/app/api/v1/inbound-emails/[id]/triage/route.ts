@@ -148,7 +148,7 @@ async function filtersAsOutreach(
  * and it is not a notification left alone; otherwise handled.
  * A triage files the email on every project it names (project_ids, or the
  * older project_id) and on every linked task's project, each within the
- * email's project scope (communications.scope_source: the conversation's
+ * email's project scope (pm.scope_source: the conversation's
  * projects, its project addresses, its sender's mappings, and any project
  * taking mail once a verified teammate, verified meeting notes or a person's
  * answer is behind it). The database refuses anything else and writes

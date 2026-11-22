@@ -11,6 +11,8 @@ import { Input } from '@/components/ui/Input';
 import { AvatarUpload } from '@/components/ui/AvatarUpload';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { toast } from '@/components/ui/Toast';
+import { pmStorage } from '@/lib/supabase/storage';
+import { BUCKETS } from '@/lib/supabase/schema';
 
 /** Avatar, display name and login email (an email change asks first). */
 export function ProfileSection() {
@@ -64,14 +66,14 @@ export function ProfileSection() {
       } else {
         // Fixed path per member ; upsert replaces previous file, no storage bloat
         const path = `team/${teamMemberId}.jpg`;
-        const { error: uploadError } = await supabase.storage
-          .from('avatars')
+        const { error: uploadError } = await pmStorage(supabase)
+          .from(BUCKETS.avatars)
           .upload(path, blob, { upsert: true, contentType: 'image/jpeg' });
         if (uploadError) throw uploadError;
 
         const {
           data: { publicUrl },
-        } = supabase.storage.from('avatars').getPublicUrl(path);
+        } = pmStorage(supabase).from(BUCKETS.avatars).getPublicUrl(path);
         const url = `${publicUrl}?t=${Date.now()}`;
         setAvatarSrc(url);
         await updateTeamMember(teamMemberId, { avatar: url });

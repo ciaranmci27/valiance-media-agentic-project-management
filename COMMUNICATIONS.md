@@ -20,15 +20,16 @@ channel webhook -> adapter (one per channel) -> communications core -> agent API
 
 ## Reaching the schema
 
-`communications` is an exposed schema, served by the Data API next to
-`public`. Code reaches it through one accessor (`src/lib/communications/db.ts`):
+Since 2.0 the Inbox's tables, views and functions live in the app's own
+schema, `pm`, with everything else (they were in `communications` until
+1.11). Every Supabase client the app makes reads `pm` by default; Inbox code
+still goes through one accessor (`src/lib/communications/db.ts`), so it reads
+the same:
 
 ```ts
 comms(client).from('messages')
 comms(client).rpc('message_scope', { p_message_id })
 ```
-
-Never write `client.from('messages')`: that queries `public`.
 
 Grants:
 
@@ -40,26 +41,19 @@ Grants:
 - Every write goes through the server, and the functions that write check
   `auth.role() = 'service_role'` themselves.
 
-Live sync: `store.tsx` subscribes to `postgres_changes` on the
-`communications` schema and keys tables schema-qualified
-(`communications.messages`), so a bare name never collides with a `public`
-table. `INBOX_TABLES` in `inbox-types.ts` lists them.
+Live sync: `store.tsx` subscribes to `postgres_changes` on `pm` and labels
+the Inbox's tables `communications.<name>` (`INBOX_TABLE_NAMES` in
+`communications/db.ts`), so cached Inbox reads and core reads never share a
+key. `INBOX_TABLES` in `inbox-types.ts` lists those labels.
 
-**Exposing it (done once, 2026-10-26).** Dashboard > Data API > Exposed
-schemas lists `communications`. The dashboard setting alone did not reach the
-API server, because the database role holds its own copy, so it is also set
-there:
+**Exposing it.** Supabase's API must serve `pm` and `pm_custom`
+(Dashboard > Data API > Exposed schemas). The 1.11 migration adds them to the
+database role's own copy of that list, keeping every schema already on it:
 
 ```sql
-ALTER ROLE authenticator SET pgrst.db_schemas = 'public, graphql_public, communications';
+ALTER ROLE authenticator SET pgrst.db_schemas = '<the existing list>, pm, pm_custom';
 NOTIFY pgrst, 'reload config';
-NOTIFY pgrst, 'reload schema';
 ```
-
-Any schema added to the API later must be added to that line too.
-`communications_legacy` (a frozen copy of the 17 tables from before the move,
-kept for recovery) is deliberately not exposed and is dropped by the contract
-migration.
 
 ## Tables
 
@@ -102,8 +96,8 @@ never the other way:
 
 The safety rule is about the sender: a client's email must never file work on
 another client's project. It lives in SQL only, in
-`communications.scope_source(message, project)` and
-`communications.message_scope(message)`.
+`pm.scope_source(message, project)` and
+`pm.message_scope(message)`.
 
 A message may touch:
 
@@ -197,7 +191,7 @@ one pure policy (`triage-policy.ts`), then applies, stores and undoes them
 - tasks: `create_task`, `update_task`, `comment`, `attach_file`. A `create_task` with `parent_task_id` makes a subtask of an open, top-level task in the same project (a new piece of work that task covers); the context lists each open task with its open subtasks under it, so subtasks never crowd the task list.
 - reminders: `add_reminder`, `update_reminder`, `complete_reminder`
 - filing and links: `link_task`, `file_project`
-- what Ciaran owes: `reply_owed`, a point on `communications.reply_points`, one per thing owed, amended rather than repeated
+- what Ciaran owes: `reply_owed`, a point on `pm.reply_points`, one per thing owed, amended rather than repeated
 - corrections: `revert_item`, `mute_conversation`
 - facts and leads: `add_context`, `propose_mapping`, `create_lead`, `log_interaction`
 - `ask`: filing only, at most one open per conversation, and only when there is no default

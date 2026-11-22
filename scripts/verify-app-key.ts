@@ -120,7 +120,7 @@ async function database() {
     setEnv({ APP_ENCRYPTION_KEY: KEY_A });
     await store.writeSecret(service, 'resend_api_key', '  re_saved  ', null);
     check('secrets: saved in the app answers first (trimmed)', await store.readSecret(service, 'resend_api_key') === 're_saved');
-    const stored = (await db.query<{ value: string }>("SELECT value FROM public.app_secrets WHERE name = 'resend_api_key'")).rows[0]?.value ?? '';
+    const stored = (await db.query<{ value: string }>("SELECT value FROM pm.app_secrets WHERE name = 'resend_api_key'")).rows[0]?.value ?? '';
     check('secrets: the database holds only ciphertext', isAppSealed(stored) && !stored.includes('re_saved'));
     const after = (await store.secretStatuses(service)).find((s) => s.name === 'resend_api_key');
     check('secrets: says it is saved in the app, with a date', after?.source === 'app' && !!after.updatedAt && !after.unreadable);
@@ -141,12 +141,12 @@ async function database() {
     await store.writeSecret(service, 'github_token', 'ghp_x', null);
     await actAs(db, '00000000-0000-0000-0000-0000000000c1');
     let denied = '';
-    try { await db.query('SELECT * FROM public.app_secrets'); } catch (error) { denied = (error as Error).message; }
+    try { await db.query('SELECT * FROM pm.app_secrets'); } catch (error) { denied = (error as Error).message; }
     await actAs(db, null);
     await db.exec('RESET ROLE');
     check('secrets: a signed-in member (even the Owner) cannot read the table', /permission denied/.test(denied), denied);
     let plain = '';
-    try { await db.exec("INSERT INTO public.app_secrets (name, value) VALUES ('github_repo', 'acme/app')"); } catch (error) { plain = (error as Error).message; }
+    try { await db.exec("INSERT INTO pm.app_secrets (name, value) VALUES ('github_repo', 'acme/app')"); } catch (error) { plain = (error as Error).message; }
     check('secrets: the table refuses an unsealed value', /check constraint/.test(plain), plain);
 
     // Re-encrypt: rows sealed under the older keys move onto the app key.
@@ -154,18 +154,18 @@ async function database() {
     const legacyPassword = smtp.encrypt('pw-1');
     const legacyCredential = await creds.encrypt({ secret: 'c-1' });
     setEnv({ APP_ENCRYPTION_KEY: KEY_A });
-    const project = (await db.query<{ id: string }>("INSERT INTO public.projects (name) VALUES ('P') RETURNING id")).rows[0].id;
-    await db.query(`INSERT INTO public.smtp_accounts (label, host, port, secure, username, encrypted_password, from_name, from_email)
+    const project = (await db.query<{ id: string }>("INSERT INTO pm.projects (name) VALUES ('P') RETURNING id")).rows[0].id;
+    await db.query(`INSERT INTO pm.smtp_accounts (label, host, port, secure, username, encrypted_password, from_name, from_email)
       VALUES ('Old', 'smtp.x.co', 465, true, 'u', $1, 'X', 'x@x.co')`, [legacyPassword]);
-    await db.query(`INSERT INTO public.project_credentials (project_id, label, encrypted_data, iv) VALUES ($1, 'Old', $2, $3)`,
+    await db.query(`INSERT INTO pm.project_credentials (project_id, label, encrypted_data, iv) VALUES ($1, 'Old', $2, $3)`,
       [project, legacyCredential.encrypted_data, legacyCredential.iv]);
     const status = await encryptionStatus(service);
     check('re-encrypt: counts what still uses the older keys', status.remaining.smtp === 1 && status.remaining.credentials === 1, status);
     check('re-encrypt: names the older keys the host still has', status.legacyKeys.includes('SMTP_ENCRYPTION_KEY') && status.appKey === 'set');
     const moved = await reencryptAll(service);
     check('re-encrypt: moves both', moved.moved.smtp === 1 && moved.moved.credentials === 1 && moved.status.remaining.smtp === 0 && moved.status.remaining.credentials === 0, moved);
-    const row = (await db.query<{ encrypted_password: string }>("SELECT encrypted_password FROM public.smtp_accounts WHERE label = 'Old'")).rows[0];
-    const cred = (await db.query<{ encrypted_data: string; iv: string }>("SELECT encrypted_data, iv FROM public.project_credentials WHERE label = 'Old'")).rows[0];
+    const row = (await db.query<{ encrypted_password: string }>("SELECT encrypted_password FROM pm.smtp_accounts WHERE label = 'Old'")).rows[0];
+    const cred = (await db.query<{ encrypted_data: string; iv: string }>("SELECT encrypted_data, iv FROM pm.project_credentials WHERE label = 'Old'")).rows[0];
     check('re-encrypt: values are the same, now on the app key', isAppSealed(row.encrypted_password) && smtp.decrypt(row.encrypted_password) === 'pw-1'
       && isAppSealed(cred.encrypted_data) && (await creds.decrypt<{ secret: string }>(cred.encrypted_data, cred.iv)).secret === 'c-1');
     setEnv({ SMTP_ENCRYPTION_KEY: undefined, PROJECT_CREDENTIALS_ENCRYPTION_KEY: undefined });
@@ -175,14 +175,14 @@ async function database() {
 
     // Rows the older keys can't open are left alone, counted, and never stop the rest.
     for (let i = 0; i < 4; i += 1) {
-      await db.query(`INSERT INTO public.smtp_accounts (label, host, port, secure, username, encrypted_password, from_name, from_email)
+      await db.query(`INSERT INTO pm.smtp_accounts (label, host, port, secure, username, encrypted_password, from_name, from_email)
         VALUES ($1, 'smtp.x.co', 465, true, 'u', $2, 'X', 'x@x.co')`, [`Broken ${i}`, 'aa:bb:cc']);
     }
     setEnv({ SMTP_ENCRYPTION_KEY: LEGACY_SMTP });
     setEnv({ APP_ENCRYPTION_KEY: undefined });
     const goodLegacy = smtp.encrypt('pw-ok');
     setEnv({ APP_ENCRYPTION_KEY: KEY_A });
-    await db.query(`INSERT INTO public.smtp_accounts (label, host, port, secure, username, encrypted_password, from_name, from_email)
+    await db.query(`INSERT INTO pm.smtp_accounts (label, host, port, secure, username, encrypted_password, from_name, from_email)
       VALUES ('Good', 'smtp.x.co', 465, true, 'u', $1, 'X', 'x@x.co')`, [goodLegacy]);
     const mixed = await reencryptAll(service);
     check('re-encrypt: unopenable rows are counted and the rest still move', mixed.failed.smtp.length === 4 && mixed.moved.smtp === 1 && mixed.status.remaining.smtp === 4, { moved: mixed.moved, failed: mixed.failed.smtp.length, remaining: mixed.status.remaining });

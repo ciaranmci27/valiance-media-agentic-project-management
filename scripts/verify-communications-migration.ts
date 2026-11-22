@@ -6,10 +6,14 @@
  *   applied twice: every row keeps its id, the foreign keys into the moved
  *   tables follow, the projects land in conversation_projects, the new
  *   columns are filled, nothing is left in public;
- * - the result matches schema.sql loaded on its own: tables and columns,
- *   constraints, indexes, functions (body, security, settings), triggers,
- *   policies, views and the grants of anon, authenticated and service_role;
+ * - the result matches the last 1.x schema.sql loaded on its own: tables and
+ *   columns, constraints, indexes, functions (body, security, settings),
+ *   triggers, policies, views and the grants of anon, authenticated and
+ *   service_role;
  * - a signed-in person reaches the tables only through RLS and runs no service function.
+ *
+ * This is a 1.x migration: it runs up to the 2.0 move into pm and is compared
+ * with 1.x. The move itself is test:pm-schema's (upgraded against fresh).
  *
  * Run: npx tsx --tsconfig tsconfig.mcp-test.json scripts/verify-communications-migration.ts
  */
@@ -17,7 +21,7 @@ import { execFileSync } from 'node:child_process';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { PGlite } from '@electric-sql/pglite';
-import { applyMigrationsFrom, createFullSchemaDatabase, SCHEMA_PATH, schemaAt } from './full-schema-db';
+import { createFullSchemaDatabase, schemaAt, schemaBeforeMigration } from './full-schema-db';
 
 let passed = 0;
 const failures: string[] = [];
@@ -34,6 +38,27 @@ function schemaBefore(): string {
   const git = (args: string[]) => execFileSync('git', args, { cwd: join(__dirname, '..'), encoding: 'utf8' }).trim();
   const added = git(['log', '--diff-filter=A', '--format=%H', '--', `supabase/migrations/${MIGRATION}`]).split('\n').filter(Boolean).pop();
   return schemaAt(added ? `${added}^` : 'HEAD');
+}
+
+/** 2.0 moves the app into pm: this 1.x test stops before it. */
+const MOVE_TO_PM = '20261123000000_move_to_pm.sql';
+
+/** The last 1.x schema.sql: the copy before the 2.0 move, or HEAD while the move is uncommitted. */
+function schemaBefore20(): string {
+  try {
+    return schemaBeforeMigration(MOVE_TO_PM);
+  } catch {
+    return schemaAt('HEAD');
+  }
+}
+
+/** This migration and every 1.x one after it, each twice in a row (they re-run safely). */
+async function applyMigrationsUpTo20(db: PGlite): Promise<void> {
+  for (const name of readdirSync(MIGRATIONS).filter((file) => file.endsWith('.sql') && file >= MIGRATION && file < MOVE_TO_PM).sort()) {
+    const sql = readFileSync(join(MIGRATIONS, name), 'utf8');
+    await db.exec(sql);
+    await db.exec(sql);
+  }
 }
 
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
@@ -127,8 +152,8 @@ async function main() {
     const counts = await rows(before, `SELECT
       (SELECT count(*) FROM public.email_messages)::int AS messages, (SELECT count(*) FROM public.email_attachments)::int AS attachments,
       (SELECT count(*) FROM public.email_task_links)::int AS links`);
-    // This migration and every one after it, each twice (safe to re-run).
-    await applyMigrationsFrom(before, MIGRATION);
+    // This migration and every 1.x one after it, each twice (safe to re-run).
+    await applyMigrationsUpTo20(before);
 
     const [moved] = await rows(before, `SELECT
       (SELECT count(*) FROM communications.messages)::int AS messages, (SELECT count(*) FROM communications.attachments)::int AS attachments,
@@ -175,8 +200,8 @@ async function main() {
       && (await rows(before, 'SELECT communications.set_conversation_project($1, $2, $3, true) AS done', [ids.thread2, ids.project, ids.owner]))[0].done === true);
     await before.exec('RESET ROLE');
 
-    // ---- Matches schema.sql loaded on its own ---------------------------
-    const fresh = await createFullSchemaDatabase({ schemaSql: readFileSync(SCHEMA_PATH, 'utf8') });
+    // ---- Matches the last 1.x schema.sql loaded on its own --------------
+    const fresh = await createFullSchemaDatabase({ schemaSql: schemaBefore20() });
     try {
       const migrated = await describe(before);
       const declared = await describe(fresh);

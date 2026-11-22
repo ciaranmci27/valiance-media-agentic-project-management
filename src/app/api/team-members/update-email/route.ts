@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { accessAllows, requireSessionAccess } from '@/lib/api/access';
 import { canChangeSignInEmail } from '@/lib/team/invite-rules';
+import { NOT_OUR_LOGIN } from '@/lib/team/invite';
 
 const updateEmailSchema = z.object({
   team_member_id: z.string().uuid(),
@@ -35,7 +36,7 @@ export async function POST(req: NextRequest) {
   // 5. Get the target team member's auth_user_id
   const { data: targetMember } = await service
     .from('team_members')
-    .select('id, auth_user_id, email, role')
+    .select('id, auth_user_id, email, role, login_owned')
     .eq('id', body.team_member_id)
     .single();
 
@@ -54,6 +55,10 @@ export async function POST(req: NextRequest) {
 
   if (!targetMember.auth_user_id) {
     return NextResponse.json({ error: 'This team member has no linked auth account' }, { status: 400 });
+  }
+  // A login PM did not make (another app's user) is changed only in that app.
+  if (targetMember.login_owned === false) {
+    return NextResponse.json({ error: NOT_OUR_LOGIN }, { status: 409 });
   }
 
   // 6. Check for duplicate email

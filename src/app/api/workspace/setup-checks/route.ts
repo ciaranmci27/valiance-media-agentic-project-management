@@ -7,7 +7,7 @@ import vercelConfig from '../../../../../vercel.json';
 
 /**
  * The setup wizard's checks, Owner only: each environment variable as set
- * or not (never its value), the communications schema's exposure, and
+ * or not (never its value), whether the Inbox's tables (in pm) are served, and
  * whether an SMTP account exists for invitation emails.
  */
 export async function GET() {

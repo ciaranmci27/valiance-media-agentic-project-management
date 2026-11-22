@@ -5,6 +5,7 @@ import { comms } from '@/lib/communications/db';
 import { INBOUND_EMAIL_BUCKET, MAX_OBJECT_BYTES } from '../email/storage-limits';
 import { mapAddresses } from '../map-addresses';
 import { threadProjectDecision } from '../mapping';
+import { pmStorage } from '@/lib/supabase/storage';
 
 /**
  * The meeting adapter. The meeting script (Apps Script in a teammate's Google
@@ -218,7 +219,7 @@ export async function ingestMeetingPackage(
     if (claimError) throw claimError;
     const copy = claimed as { storage_path: string; stored: boolean };
     if (!copy.stored) {
-      const { error: uploadError } = await supabase.storage.from(INBOUND_EMAIL_BUCKET)
+      const { error: uploadError } = await pmStorage(supabase).from(INBOUND_EMAIL_BUCKET)
         .upload(copy.storage_path, bytes, { contentType: row.content_type || 'text/plain', upsert: true });
       if (uploadError) throw new Error(`storing ${copy.storage_path} failed: ${uploadError.message}`);
     }

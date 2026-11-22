@@ -15,7 +15,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { PGlite } from '@electric-sql/pglite';
-import { actAs, createFullSchemaDatabase } from './full-schema-db';
+import { actAs, createFullSchemaDatabase, schemaBeforeMigration } from './full-schema-db';
 import {
   BRAND_SHADES,
   DEFAULT_BRAND,
@@ -140,49 +140,56 @@ async function failure(db: PGlite, sql: string): Promise<string | null> {
   }
 }
 
+/** The 1.x migrations on the schema before them (in public, as 1.x had it): they run, and re-run safely. */
+async function upgrade() {
+  const db = await createFullSchemaDatabase({ schemaSql: schemaBeforeMigration('20261121001500_workspace_brand.sql') });
+  await db.exec(MIGRATION_SQL);
+  await db.exec(MIGRATION_SQL);
+  await db.exec(SIDEBAR_SQL);
+  await db.exec(SIDEBAR_SQL);
+  const rows = await db.query<{ n: number; s: string }>('SELECT count(*)::int AS n, min(sidebar_projects) AS s FROM public.workspace_brand');
+  check('upgrade: the migrations re-run and leave one brand row, projects as a list', rows.rows[0].n === 1 && rows.rows[0].s === 'list', rows.rows);
+  await db.close();
+}
+
 async function database() {
   const db = await createFullSchemaDatabase();
-  // The migration re-runs safely on a database that already has it.
-  await db.exec(MIGRATION_SQL);
-  await db.exec(MIGRATION_SQL);
-  await db.exec(SIDEBAR_SQL);
-  await db.exec(SIDEBAR_SQL);
 
   await actAs(db, null);
-  const rows = await db.query<{ n: number }>('SELECT count(*)::int AS n FROM public.workspace_brand');
+  const rows = await db.query<{ n: number }>('SELECT count(*)::int AS n FROM pm.workspace_brand');
   check('db: the brand table has exactly one row', rows.rows[0].n === 1, rows.rows);
-  const fresh = await db.query<{ name: string | null; brand_color: string | null }>('SELECT name, brand_color FROM public.workspace_brand');
+  const fresh = await db.query<{ name: string | null; brand_color: string | null }>('SELECT name, brand_color FROM pm.workspace_brand');
   check('db: the row starts empty (core\'s defaults)', fresh.rows[0].name === null && fresh.rows[0].brand_color === null, fresh.rows);
-  check('db: a second row is refused', !!(await failure(db, 'INSERT INTO public.workspace_brand (id) VALUES (false)')));
+  check('db: a second row is refused', !!(await failure(db, 'INSERT INTO pm.workspace_brand (id) VALUES (false)')));
 
   // Storage belongs to the database owner in the stand-ins, as on Supabase.
   await db.exec('RESET ROLE');
-  const bucket = await db.query<{ public: boolean; allowed_mime_types: string[] }>("SELECT public, allowed_mime_types FROM storage.buckets WHERE id = 'brand'");
+  const bucket = await db.query<{ public: boolean; allowed_mime_types: string[] }>("SELECT public, allowed_mime_types FROM storage.buckets WHERE id = 'pm-brand'");
   check('db: the brand bucket is public and refuses SVG', bucket.rows[0]?.public === true && !bucket.rows[0].allowed_mime_types.some((type) => type.includes('svg')), bucket.rows);
 
   await db.exec('RESET ROLE');
   await db.exec('SET ROLE anon');
-  const anon = await db.query('SELECT name FROM public.workspace_brand');
+  const anon = await db.query('SELECT name FROM pm.workspace_brand');
   check('db: anon can read the brand (sign-in page, portal)', anon.rows.length === 1);
-  check('db: anon cannot change it', !!(await failure(db, "UPDATE public.workspace_brand SET name = 'x'")));
+  check('db: anon cannot change it', !!(await failure(db, "UPDATE pm.workspace_brand SET name = 'x'")));
 
   await actAs(db, '00000000-0000-0000-0000-00000000b001');
-  const member = await db.query('SELECT name FROM public.workspace_brand');
+  const member = await db.query('SELECT name FROM pm.workspace_brand');
   check('db: a signed-in member can read the brand', member.rows.length === 1);
-  check('db: a signed-in member cannot insert', !!(await failure(db, 'INSERT INTO public.workspace_brand (id) VALUES (true) ON CONFLICT DO NOTHING')));
-  check('db: a signed-in member cannot update', !!(await failure(db, "UPDATE public.workspace_brand SET name = 'Hijacked'")));
-  check('db: a signed-in member cannot delete', !!(await failure(db, 'DELETE FROM public.workspace_brand')));
+  check('db: a signed-in member cannot insert', !!(await failure(db, 'INSERT INTO pm.workspace_brand (id) VALUES (true) ON CONFLICT DO NOTHING')));
+  check('db: a signed-in member cannot update', !!(await failure(db, "UPDATE pm.workspace_brand SET name = 'Hijacked'")));
+  check('db: a signed-in member cannot delete', !!(await failure(db, 'DELETE FROM pm.workspace_brand')));
 
   await actAs(db, null);
-  check('db: the service role can update', (await failure(db, "UPDATE public.workspace_brand SET name = 'Acme', brand_color = '#4F46E5'")) === null);
-  check('db: a bad brand color is refused', !!(await failure(db, "UPDATE public.workspace_brand SET brand_color = 'red'")));
-  check('db: a bad accent color is refused', !!(await failure(db, "UPDATE public.workspace_brand SET accent_color = '#12345'")));
-  check('db: a name over 60 characters is refused', !!(await failure(db, `UPDATE public.workspace_brand SET name = '${'x'.repeat(61)}'`)));
-  check('db: projects start as a list', (await db.query<{ s: string }>('SELECT sidebar_projects AS s FROM public.workspace_brand')).rows[0]?.s === 'list');
-  check('db: projects as a menu is stored', (await failure(db, "UPDATE public.workspace_brand SET sidebar_projects = 'menu'")) === null);
-  check('db: an unknown projects style is refused', !!(await failure(db, "UPDATE public.workspace_brand SET sidebar_projects = 'grid'")));
-  check('db: shades that are not an object are refused', !!(await failure(db, `UPDATE public.workspace_brand SET brand_shades = '["#FFFFFF"]'`)));
-  const after = await db.query<{ name: string; brand_color: string }>('SELECT name, brand_color FROM public.workspace_brand');
+  check('db: the service role can update', (await failure(db, "UPDATE pm.workspace_brand SET name = 'Acme', brand_color = '#4F46E5'")) === null);
+  check('db: a bad brand color is refused', !!(await failure(db, "UPDATE pm.workspace_brand SET brand_color = 'red'")));
+  check('db: a bad accent color is refused', !!(await failure(db, "UPDATE pm.workspace_brand SET accent_color = '#12345'")));
+  check('db: a name over 60 characters is refused', !!(await failure(db, `UPDATE pm.workspace_brand SET name = '${'x'.repeat(61)}'`)));
+  check('db: projects start as a list', (await db.query<{ s: string }>('SELECT sidebar_projects AS s FROM pm.workspace_brand')).rows[0]?.s === 'list');
+  check('db: projects as a menu is stored', (await failure(db, "UPDATE pm.workspace_brand SET sidebar_projects = 'menu'")) === null);
+  check('db: an unknown projects style is refused', !!(await failure(db, "UPDATE pm.workspace_brand SET sidebar_projects = 'grid'")));
+  check('db: shades that are not an object are refused', !!(await failure(db, `UPDATE pm.workspace_brand SET brand_shades = '["#FFFFFF"]'`)));
+  const after = await db.query<{ name: string; brand_color: string }>('SELECT name, brand_color FROM pm.workspace_brand');
   check('db: a refused write leaves the row as it was', after.rows[0].name === 'Acme' && after.rows[0].brand_color === '#4F46E5', after.rows);
   await db.close();
 }
@@ -193,6 +200,7 @@ async function main() {
   parsing();
   cleaning();
   sniffing();
+  await upgrade();
   await database();
 
   console.log(`${passed} checks passed`);

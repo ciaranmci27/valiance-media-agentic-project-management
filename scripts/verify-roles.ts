@@ -34,9 +34,9 @@ async function seed(db: PGlite) {
   await db.exec('RESET ROLE');
   for (const who of Object.keys(USERS) as Who[]) {
     await db.query('INSERT INTO auth.users (id, email) VALUES ($1, $2) ON CONFLICT DO NOTHING', [USERS[who], `${who}@example.com`]);
-    const updated = await db.query(`UPDATE public.team_members SET role = $2, status = 'active' WHERE auth_user_id = $1`, [USERS[who], ROLE[who]]);
+    const updated = await db.query(`UPDATE pm.team_members SET role = $2, status = 'active' WHERE auth_user_id = $1`, [USERS[who], ROLE[who]]);
     if (!updated.affectedRows) {
-      await db.query(`INSERT INTO public.team_members (auth_user_id, name, email, role, status) VALUES ($1, $2, $3, $4, 'active')`,
+      await db.query(`INSERT INTO pm.team_members (auth_user_id, name, email, role, status) VALUES ($1, $2, $3, $4, 'active')`,
         [USERS[who], who, `${who}@example.com`, ROLE[who]]);
     }
   }
@@ -44,7 +44,7 @@ async function seed(db: PGlite) {
 
 async function memberId(db: PGlite, who: Who): Promise<string> {
   await db.exec('RESET ROLE');
-  return (await db.query<{ id: string }>('SELECT id FROM public.team_members WHERE auth_user_id = $1', [USERS[who]])).rows[0].id;
+  return (await db.query<{ id: string }>('SELECT id FROM pm.team_members WHERE auth_user_id = $1', [USERS[who]])).rows[0].id;
 }
 
 /** Runs `sql` as `who` inside a transaction that is always rolled back; returns the error message or rows changed. */
@@ -75,7 +75,7 @@ async function main() {
 
   // ---- Admin defaults ------------------------------------------------------
   await db.exec('RESET ROLE');
-  const adminPerms = (await db.query<{ permission_key: string }>("SELECT permission_key FROM public.role_permissions WHERE role = 'admin'")).rows.map((r) => r.permission_key);
+  const adminPerms = (await db.query<{ permission_key: string }>("SELECT permission_key FROM pm.role_permissions WHERE role = 'admin'")).rows.map((r) => r.permission_key);
   const leaked = OWNER_ONLY.filter((key) => adminPerms.includes(key));
   check('admin: starts without money or workspace-setup permissions', leaked.length === 0, leaked);
   check('admin: still runs the team and the projects', ['team.manage', 'projects.manage', 'tasks.manage_all', 'time.approve'].every((key) => adminPerms.includes(key)));
@@ -83,21 +83,21 @@ async function main() {
   // ---- At least one active Owner --------------------------------------------
   const owner2 = await memberId(db, 'owner2');
   const owner = await memberId(db, 'owner');
-  const demoteOther = await attempt(db, 'owner', "UPDATE public.team_members SET role = 'admin' WHERE id = $1", [owner2]);
+  const demoteOther = await attempt(db, 'owner', "UPDATE pm.team_members SET role = 'admin' WHERE id = $1", [owner2]);
   check('owner: can demote another Owner while one remains', !demoteOther.error && demoteOther.rows === 1, demoteOther);
 
   const lastOwner = await attempt(db, null, `
-    UPDATE public.team_members SET role = 'admin' WHERE id = '${owner2}';
-    UPDATE public.team_members SET role = 'admin' WHERE id = '${owner}';`);
+    UPDATE pm.team_members SET role = 'admin' WHERE id = '${owner2}';
+    UPDATE pm.team_members SET role = 'admin' WHERE id = '${owner}';`);
   check('owner: the last active Owner cannot be demoted', !!lastOwner.error && lastOwner.error.includes('At least one active Owner'), lastOwner);
 
-  const suspendAll = await attempt(db, null, "UPDATE public.team_members SET status = 'suspended' WHERE role = 'owner'");
+  const suspendAll = await attempt(db, null, "UPDATE pm.team_members SET status = 'suspended' WHERE role = 'owner'");
   check('owner: suspending every Owner is refused', !!suspendAll.error && suspendAll.error.includes('At least one active Owner'), suspendAll);
 
-  const suspendOne = await attempt(db, null, "UPDATE public.team_members SET status = 'suspended' WHERE id = $1", [owner2]);
+  const suspendOne = await attempt(db, null, "UPDATE pm.team_members SET status = 'suspended' WHERE id = $1", [owner2]);
   check('owner: suspending one of two Owners is allowed', !suspendOne.error && suspendOne.rows === 1, suspendOne);
 
-  const rename = await attempt(db, null, "UPDATE public.team_members SET name = 'Renamed' WHERE id = $1", [owner]);
+  const rename = await attempt(db, null, "UPDATE pm.team_members SET name = 'Renamed' WHERE id = $1", [owner]);
   check('owner: other edits to the last Owner are unaffected', !rename.error && rename.rows === 1, rename);
 
   // ---- Invoice drafts reach people who may see invoices ---------------------
@@ -105,26 +105,26 @@ async function main() {
   const adminId = await memberId(db, 'admin');
   const ownerId = await memberId(db, 'owner');
   const holds = async (id: string, key: string) =>
-    (await db.query<{ ok: boolean }>('SELECT public.member_has_permission($1, $2) AS ok', [id, key])).rows[0].ok;
+    (await db.query<{ ok: boolean }>('SELECT pm.member_has_permission($1, $2) AS ok', [id, key])).rows[0].ok;
   check('member_has_permission: an Owner holds invoices.read', await holds(ownerId, 'invoices.read'));
   check('member_has_permission: an Admin does not by default', !(await holds(adminId, 'invoices.read')));
   check('member_has_permission: an Admin still holds team.manage', await holds(adminId, 'team.manage'));
-  const project = (await db.query<{ id: string }>("INSERT INTO public.projects (name) VALUES ('Billing project') RETURNING id")).rows[0].id;
-  const invoice = (await db.query<{ id: string }>("INSERT INTO public.project_invoices (project_id, invoice_number, date, amount, status) VALUES ($1, 'INV-9', '2026-11-21', 100, 'draft') RETURNING id", [project])).rows[0].id;
-  const bells = async () => (await db.query<{ user_id: string }>("SELECT user_id FROM public.team_member_notifications WHERE entity_type = 'invoice' AND entity_id = $1", [invoice])).rows.map((row) => row.user_id);
-  await db.query("SELECT public.announce_billing_draft($1, 'Invoice drafted', 'INV-9 is ready')", [invoice]);
+  const project = (await db.query<{ id: string }>("INSERT INTO pm.projects (name) VALUES ('Billing project') RETURNING id")).rows[0].id;
+  const invoice = (await db.query<{ id: string }>("INSERT INTO pm.project_invoices (project_id, invoice_number, date, amount, status) VALUES ($1, 'INV-9', '2026-11-21', 100, 'draft') RETURNING id", [project])).rows[0].id;
+  const bells = async () => (await db.query<{ user_id: string }>("SELECT user_id FROM pm.team_member_notifications WHERE entity_type = 'invoice' AND entity_id = $1", [invoice])).rows.map((row) => row.user_id);
+  await db.query("SELECT pm.announce_billing_draft($1, 'Invoice drafted', 'INV-9 is ready')", [invoice]);
   const first = await bells();
   check('invoice draft bell: Owners get it, an Admin without the grant does not', first.includes(ownerId) && !first.includes(adminId), first);
-  await db.query("INSERT INTO public.team_member_permissions (member_id, permission_key, access_channel, effect) VALUES ($1, 'invoices.read', 'app', 'allow')", [adminId]);
-  await db.query("SELECT public.announce_billing_draft($1, 'Invoice drafted', 'INV-9 is ready')", [invoice]);
+  await db.query("INSERT INTO pm.team_member_permissions (member_id, permission_key, access_channel, effect) VALUES ($1, 'invoices.read', 'app', 'allow')", [adminId]);
+  await db.query("SELECT pm.announce_billing_draft($1, 'Invoice drafted', 'INV-9 is ready')", [invoice]);
   check('invoice draft bell: an Admin granted invoices.read gets it', (await bells()).includes(adminId));
 
   // ---- Nobody raises their own access --------------------------------------
   const admin = await memberId(db, 'admin');
-  const selfPromote = await attempt(db, 'admin', "UPDATE public.team_members SET role = 'owner' WHERE id = $1", [admin]);
+  const selfPromote = await attempt(db, 'admin', "UPDATE pm.team_members SET role = 'owner' WHERE id = $1", [admin]);
   check('admin: cannot make themselves an Owner', !!selfPromote.error || selfPromote.rows === 0, selfPromote);
   const member = await memberId(db, 'member');
-  const memberPromote = await attempt(db, 'member', "UPDATE public.team_members SET role = 'admin' WHERE id = $1", [member]);
+  const memberPromote = await attempt(db, 'member', "UPDATE pm.team_members SET role = 'admin' WHERE id = $1", [member]);
   check('member: cannot make themselves an Admin', !!memberPromote.error || memberPromote.rows === 0, memberPromote);
 
   await db.close();

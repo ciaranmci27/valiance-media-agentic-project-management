@@ -193,7 +193,7 @@ export async function startFakePostgrest(db: PGlite, options: { maxRows?: number
     // on a write or rpc, as PostgREST reads them.
     const reading = request.method === "GET" || request.method === "HEAD";
     const profile = request.headers[reading ? "accept-profile" : "content-profile"];
-    const schemaName = (Array.isArray(profile) ? profile[0] : profile) || "public";
+    const schemaName = (Array.isArray(profile) ? profile[0] : profile) || "pm";
 
     try {
       if (options.handle && (await options.handle(request, response, url))) return;
@@ -213,14 +213,15 @@ export async function startFakePostgrest(db: PGlite, options: { maxRows?: number
           return `${ident(key)} => $${params.length}`;
         });
         const call = `${schema}.${ident(fn)}(${named.join(", ")})`;
-        // A set-returning function (returns table / setof) comes back as an array of rows, as from PostgREST.
-        const setReturning = await db.query<{ s: boolean }>(
-          "SELECT bool_or(proretset) AS s FROM pg_proc WHERE proname = $1 AND pronamespace = $2::regnamespace",
+        // A set-returning function (returns table / setof) comes back as an array of rows, and one
+        // that returns a table row as one JSON object, as from PostgREST.
+        const shape = await db.query<{ s: boolean; c: boolean }>(
+          "SELECT bool_or(p.proretset) AS s, bool_or(t.typtype = 'c') AS c FROM pg_proc p JOIN pg_type t ON t.oid = p.prorettype WHERE p.proname = $1 AND p.pronamespace = $2::regnamespace",
           [fn, schemaName],
         );
-        const sql = setReturning.rows[0]?.s
+        const sql = shape.rows[0]?.s
           ? `SELECT coalesce(json_agg(t), '[]'::json) AS r FROM ${call} t`
-          : `SELECT ${call} AS r`;
+          : shape.rows[0]?.c ? `SELECT to_json(t) AS r FROM ${call} t` : `SELECT ${call} AS r`;
         const result = await asService(request.headers, () => db.query<{ r: unknown }>(sql, params));
         return send(200, result.rows[0]?.r ?? null);
       }

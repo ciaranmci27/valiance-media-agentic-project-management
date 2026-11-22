@@ -49,6 +49,8 @@ import { ModuleReadError, enabledModuleSet, moduleEnabled, readEnabledModules } 
 const APP = join(__dirname, '..');
 const MIGRATION = '20261120201517_module_guards.sql';
 const FOUNDATION = '20261120194316_workspace_modules.sql';
+/** 2.0's move of the app into schema pm: from here on migrations target pm. */
+const PM_MOVE = '20261123000000_move_to_pm.sql';
 const MIGRATION_SQL = readFileSync(join(APP, 'supabase', 'migrations', MIGRATION), 'utf8');
 const FOUNDATION_SQL = readFileSync(join(APP, 'supabase', 'migrations', FOUNDATION), 'utf8');
 const SCHEMA_SQL = readFileSync(join(APP, 'supabase', 'schema.sql'), 'utf8');
@@ -76,7 +78,7 @@ async function asDatabaseOwner(db: PGlite) {
 async function setModules(db: PGlite, enabled: readonly ModuleId[]) {
   await asDatabaseOwner(db);
   for (const id of MODULE_IDS) {
-    await db.query('UPDATE public.workspace_modules SET enabled = $2 WHERE module_id = $1', [id, enabled.includes(id)]);
+    await db.query('UPDATE pm.workspace_modules SET enabled = $2 WHERE module_id = $1', [id, enabled.includes(id)]);
   }
 }
 /** Everything on except `id` and what needs it, as the Settings switch leaves it. */
@@ -98,10 +100,10 @@ async function readFunctions(db: PGlite): Promise<FunctionRow[]> {
       has_function_privilege('authenticated', p.oid, 'EXECUTE') AS auth,
       has_function_privilege('anon', p.oid, 'EXECUTE') AS anon, p.prosrc
     FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-    WHERE n.nspname IN ('public', 'communications') AND p.prokind = 'f'`)).rows;
+    WHERE n.nspname = 'pm' AND p.prokind = 'f'`)).rows;
 }
 
-const qualified = (schema: string, name: string) => (schema === 'public' ? name : `${schema}.${name}`);
+const qualified = (schema: string, name: string) => (schema === 'pm' ? name : `${schema}.${name}`);
 
 /** Whether SQL text asks for one of the module's permissions or module_enabled(), directly or through a helper it calls. */
 function asksForModule(text: string, id: ModuleId, bodies: Map<string, string>, depth = 0): boolean {
@@ -123,11 +125,11 @@ async function staticChecks(db: PGlite) {
   const bodies = new Map<string, string>();
   for (const fn of functions) bodies.set(fn.proname, `${bodies.get(fn.proname) ?? ''}\n${fn.prosrc}`);
   const policies = (await db.query<PolicyRow>(`SELECT schemaname, tablename, policyname, permissive, cmd, qual, with_check
-    FROM pg_policies WHERE schemaname IN ('public', 'communications')`)).rows;
+    FROM pg_policies WHERE schemaname = 'pm'`)).rows;
   const tables = (await db.query<{ name: string; rls: boolean }>(`
-    SELECT CASE WHEN n.nspname = 'public' THEN c.relname ELSE n.nspname || '.' || c.relname END AS name, c.relrowsecurity AS rls
+    SELECT CASE WHEN n.nspname = 'pm' THEN c.relname ELSE n.nspname || '.' || c.relname END AS name, c.relrowsecurity AS rls
     FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-    WHERE n.nspname IN ('public', 'communications') AND c.relkind IN ('r', 'p')`)).rows;
+    WHERE n.nspname = 'pm' AND c.relkind IN ('r', 'p')`)).rows;
 
   // Every table is claimed once.
   const claimed = new Map<string, string>();
@@ -147,7 +149,7 @@ async function staticChecks(db: PGlite) {
     const row = tables.find((t) => t.name === table);
     if (!row) continue;
     check(`rls: ${table} has row level security`, row.rls);
-    const [schema, name] = table.includes('.') ? table.split('.') : ['public', table];
+    const [schema, name] = table.includes('.') ? table.split('.') : ['pm', table];
     const own = policies.filter((p) => p.schemaname === schema && p.tablename === name);
     const gate = own.find((p) => p.permissive === 'RESTRICTIVE' && p.cmd === 'ALL' && (p.qual ?? '').includes(`module_enabled('${id}'`));
     if (gate) { passed++; continue; }
@@ -183,17 +185,21 @@ async function staticChecks(db: PGlite) {
 
 /** Policies, function bodies and function privileges: what schema.sql and the migration must agree on. */
 async function schemaLines(db: PGlite): Promise<string[]> {
+  // Names print schema-qualified whatever path a session was left on (a migration may set one).
+  const path = (await db.query<{ search_path: string }>('SHOW search_path')).rows[0].search_path;
+  await db.exec('SET search_path TO pg_catalog');
   const rows = (await db.query<{ line: string }>(`
     SELECT 'policy ' || schemaname || '.' || tablename || '.' || policyname || ' ' || permissive || ' ' || cmd
       || ' using=' || coalesce(qual, '') || ' check=' || coalesce(with_check, '') AS line
-    FROM pg_policies WHERE schemaname IN ('public', 'communications')
+    FROM pg_policies WHERE schemaname = 'pm'
       AND policyname NOT IN ('project_goals_module_on', 'task_suggestions_module_on', 'agent_activities_module_on')
     UNION ALL
     SELECT 'function ' || p.oid::regprocedure::text || ' ' || md5(replace(p.prosrc, chr(13), ''))
       || ' auth=' || has_function_privilege('authenticated', p.oid, 'EXECUTE')::text
       || ' anon=' || has_function_privilege('anon', p.oid, 'EXECUTE')::text
     FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-    WHERE n.nspname IN ('public', 'communications') AND p.prokind = 'f'`)).rows;
+    WHERE n.nspname = 'pm' AND p.prokind = 'f'`)).rows;
+  await db.query('SELECT set_config($1, $2, false)', ['search_path', path]);
   return rows.map((r) => r.line).sort();
 }
 
@@ -218,14 +224,15 @@ async function migrationChecks(applied: PGlite, fromSchema: PGlite) {
   await before.exec(FOUNDATION_SQL);
   await before.exec(MIGRATION_SQL);
   await before.exec(MIGRATION_SQL);
-  // Later migrations are in schema.sql too, so they are applied after this one.
+  // Later migrations are in schema.sql too, so they are applied after this one
+  // (2.0's move among them, which takes the app into pm).
   for (const later of laterMigrations()) await before.exec(later.sql);
   const [a, b] = [await schemaLines(fromSchema), await schemaLines(before)];
   const onlySchema = a.filter((line) => !b.includes(line));
   const onlyMigration = b.filter((line) => !a.includes(line));
   check('mirror: schema.sql holds exactly what the migration does', onlySchema.length === 0 && onlyMigration.length === 0,
     { onlySchema: onlySchema.slice(0, 6), onlyMigration: onlyMigration.slice(0, 6) });
-  check('mirror: applying the migration and the ones after it on schema.sql changes nothing', JSON.stringify(await schemaLines(applied)) === JSON.stringify(a));
+  check('mirror: applying the 2.0 migrations on schema.sql changes nothing', JSON.stringify(await schemaLines(applied)) === JSON.stringify(a));
   await before.close();
 
   // The agent tables' gate lands where those tables exist (production applies migrations after both schema files).
@@ -236,11 +243,14 @@ async function migrationChecks(applied: PGlite, fromSchema: PGlite) {
   // Scheduled jobs: each command runs its function only while the module is on.
   const jobs = [...MIGRATION_SQL.matchAll(/cron\.schedule\('([a-z-]+)', '[^']+', \$job\$(.*?)\$job\$\)/g)].map((m) => ({ name: m[1], command: m[2] }));
   check('cron: the migration reschedules the three module jobs', JSON.stringify(jobs.map((j) => j.name).sort()) === JSON.stringify(['billing-drafts', 'retainer-drafts', 'webhook-retries']), jobs);
+  // Since 2.0 the jobs are named pm-<name> and call pm functions: those are what a fresh install runs.
+  const scheduled: Array<{ name: string; command: string }> = [];
   for (const name of ['retainer-drafts', 'billing-drafts', 'webhook-retries']) {
-    const inSchema = [...SCHEMA_SQL.replace(/\r\n/g, '\n').matchAll(new RegExp(`cron\\.schedule\\(\\s*'${name}',\\s*'[^']+',\\s*\\$job\\$(.*?)\\$job\\$`, 'g'))].map((m) => m[1]);
-    check(`cron: schema.sql schedules ${name} only while its module is on`, inSchema.length === 1 && inSchema[0].includes('module_enabled('), inSchema);
+    const inSchema = [...SCHEMA_SQL.replace(/\r\n/g, '\n').matchAll(new RegExp(`cron\\.schedule\\(\\s*'pm-${name}',\\s*'[^']+',\\s*\\$job\\$(.*?)\\$job\\$`, 'g'))].map((m) => m[1]);
+    check(`cron: schema.sql schedules pm-${name} only while its module is on`, inSchema.length === 1 && inSchema[0].includes('module_enabled('), inSchema);
+    if (inSchema[0]) scheduled.push({ name, command: inSchema[0] });
   }
-  for (const job of jobs) {
+  for (const job of scheduled) {
     const mod: ModuleId = job.name === 'webhook-retries' ? 'webhooks' : 'billing';
     await setModules(applied, allBut(mod));
     const off = await applied.query(job.command.replace(/;$/, ''));
@@ -261,46 +271,46 @@ async function seed(db: PGlite): Promise<Seeded> {
   await asDatabaseOwner(db);
   const member = async (user: string, role: string, name: string) => {
     await db.query('INSERT INTO auth.users (id, email) VALUES ($1, $2) ON CONFLICT DO NOTHING', [user, `${name}@example.com`]);
-    const updated = await db.query(`UPDATE public.team_members SET role = $2, status = 'active', name = $3 WHERE auth_user_id = $1`, [user, role, name]);
+    const updated = await db.query(`UPDATE pm.team_members SET role = $2, status = 'active', name = $3 WHERE auth_user_id = $1`, [user, role, name]);
     if (!updated.affectedRows) {
-      await db.query(`INSERT INTO public.team_members (auth_user_id, name, email, role, status) VALUES ($1, $3, $4, $2, 'active')`, [user, role, name, `${name}@example.com`]);
+      await db.query(`INSERT INTO pm.team_members (auth_user_id, name, email, role, status) VALUES ($1, $3, $4, $2, 'active')`, [user, role, name, `${name}@example.com`]);
     }
-    return (await db.query<{ id: string }>('SELECT id FROM public.team_members WHERE auth_user_id = $1', [user])).rows[0].id;
+    return (await db.query<{ id: string }>('SELECT id FROM pm.team_members WHERE auth_user_id = $1', [user])).rows[0].id;
   };
   const owner = await member(OWNER_USER, 'owner', 'Owner');
   const memberId = await member(MEMBER_USER, 'member', 'Mia');
-  await db.query(`INSERT INTO public.team_members (id, name, email, role, status) VALUES ($1, 'Ashley', 'ashley@example.com', 'agent', 'active')`, [AGENT_MEMBER]);
+  await db.query(`INSERT INTO pm.team_members (id, name, email, role, status) VALUES ($1, 'Ashley', 'ashley@example.com', 'agent', 'active')`, [AGENT_MEMBER]);
   // The member holds every module permission used below, so only the switch can take it away.
   for (const key of ['time.manage_own', 'time.read_all', 'invoices.read', 'contacts.read_all', 'portal.read', 'credentials.manage', 'agents.manage', 'goals.read', 'suggestions.manage', 'projects.read_all', 'leads.read_all'])
-    await db.query(`INSERT INTO public.team_member_permissions (member_id, permission_key, access_channel, effect) VALUES ($1, $2, 'app', 'allow') ON CONFLICT DO NOTHING`, [memberId, key]);
-  await db.query('UPDATE public.business_settings SET auto_approve_human_hours = false');
+    await db.query(`INSERT INTO pm.team_member_permissions (member_id, permission_key, access_channel, effect) VALUES ($1, $2, 'app', 'allow') ON CONFLICT DO NOTHING`, [memberId, key]);
+  await db.query('UPDATE pm.business_settings SET auto_approve_human_hours = false');
 
-  const project = (await db.query<{ id: string }>("INSERT INTO public.projects (name, client_time_billing) VALUES ('Acme Roofing', 'hourly') RETURNING id")).rows[0].id;
-  await db.query('INSERT INTO public.project_members (project_id, member_id) VALUES ($1, $2)', [project, memberId]);
-  await db.query(`INSERT INTO public.webhook_endpoints (name, url, secret, events) VALUES ('Books', 'https://example.test/hook', 'whsec_x',
+  const project = (await db.query<{ id: string }>("INSERT INTO pm.projects (name, client_time_billing) VALUES ('Acme Roofing', 'hourly') RETURNING id")).rows[0].id;
+  await db.query('INSERT INTO pm.project_members (project_id, member_id) VALUES ($1, $2)', [project, memberId]);
+  await db.query(`INSERT INTO pm.webhook_endpoints (name, url, secret, events) VALUES ('Books', 'https://example.test/hook', 'whsec_x',
     ARRAY['invoice.paid', 'invoice.updated', 'invoice.deleted', 'invoice.payment_recorded', 'invoice.payment_removed'])`);
-  await db.query(`INSERT INTO public.project_invoices (project_id, invoice_number, amount, status, invoice_type, date, due_date)
+  await db.query(`INSERT INTO pm.project_invoices (project_id, invoice_number, amount, status, invoice_type, date, due_date)
     VALUES ($1, 'INV-001', 100, 'sent', 'fixed', '2026-11-01', '2999-01-01')`, [project]);
   const start = '2026-11-02T16:00:00.000Z';
   const end = '2026-11-02T18:00:00.000Z';
-  const entry = (await db.query<{ id: string }>(`INSERT INTO public.project_time_entries (project_id, member_id, start_time, end_time, segments, work_type)
+  const entry = (await db.query<{ id: string }>(`INSERT INTO pm.project_time_entries (project_id, member_id, start_time, end_time, segments, work_type)
     VALUES ($1, $2, $3, $4, $5::jsonb, 'client') RETURNING id`, [project, memberId, start, end, JSON.stringify([{ start, end }])])).rows[0].id;
-  const task = (await db.query<{ id: string }>("INSERT INTO public.tasks (project_id, title) VALUES ($1, 'Fix the gutter') RETURNING id", [project])).rows[0].id;
-  await db.query('INSERT INTO public.time_entry_tasks (time_entry_id, task_id) VALUES ($1, $2)', [entry, task]);
-  const contact = (await db.query<{ id: string }>("INSERT INTO public.contacts (name, email) VALUES ('Dana Wu', 'dana@acme.example') RETURNING id")).rows[0].id;
-  await db.query("INSERT INTO public.project_contacts (project_id, contact_id, role, is_primary_client) VALUES ($1, $2, 'Client', true)", [project, contact]);
+  const task = (await db.query<{ id: string }>("INSERT INTO pm.tasks (project_id, title) VALUES ($1, 'Fix the gutter') RETURNING id", [project])).rows[0].id;
+  await db.query('INSERT INTO pm.time_entry_tasks (time_entry_id, task_id) VALUES ($1, $2)', [entry, task]);
+  const contact = (await db.query<{ id: string }>("INSERT INTO pm.contacts (name, email) VALUES ('Dana Wu', 'dana@acme.example') RETURNING id")).rows[0].id;
+  await db.query("INSERT INTO pm.project_contacts (project_id, contact_id, role, is_primary_client) VALUES ($1, $2, 'Client', true)", [project, contact]);
   const token = randomUUID().replace(/-/g, '');
-  await db.query(`INSERT INTO public.portal_settings (project_id, token, enabled, show_hours, show_invoices, show_credentials)
+  await db.query(`INSERT INTO pm.portal_settings (project_id, token, enabled, show_hours, show_invoices, show_credentials)
     VALUES ($1, $2, true, true, true, true)`, [project, token]);
-  await db.query("INSERT INTO public.agent_health (member_id, container) VALUES ($1, 'ashley')", [AGENT_MEMBER]);
-  await db.query("INSERT INTO public.project_credentials (project_id, label, encrypted_data, iv) VALUES ($1, 'Hosting', 'cipher', 'nonce')", [project]);
-  const goal = (await db.query<{ id: string }>("INSERT INTO public.project_goals (project_id, title) VALUES ($1, 'Launch') RETURNING id", [project])).rows[0].id;
-  await db.query("INSERT INTO public.task_suggestions (project_id, goal_id, proposed_by, title, description, reasoning) VALUES ($1, $2, $3, 'Add a sitemap', 'For search', 'Missing')", [project, goal, AGENT_MEMBER]);
-  await db.query("INSERT INTO public.leads (name) VALUES ('Birch Partners')");
+  await db.query("INSERT INTO pm.agent_health (member_id, container) VALUES ($1, 'ashley')", [AGENT_MEMBER]);
+  await db.query("INSERT INTO pm.project_credentials (project_id, label, encrypted_data, iv) VALUES ($1, 'Hosting', 'cipher', 'nonce')", [project]);
+  const goal = (await db.query<{ id: string }>("INSERT INTO pm.project_goals (project_id, title) VALUES ($1, 'Launch') RETURNING id", [project])).rows[0].id;
+  await db.query("INSERT INTO pm.task_suggestions (project_id, goal_id, proposed_by, title, description, reasoning) VALUES ($1, $2, $3, 'Add a sitemap', 'For search', 'Missing')", [project, goal, AGENT_MEMBER]);
+  await db.query("INSERT INTO pm.leads (name) VALUES ('Birch Partners')");
   // Paid in full: the invoice.paid event queues a webhook delivery.
-  const invoice = (await db.query<{ id: string }>('SELECT id FROM public.project_invoices WHERE project_id = $1', [project])).rows[0].id;
+  const invoice = (await db.query<{ id: string }>('SELECT id FROM pm.project_invoices WHERE project_id = $1', [project])).rows[0].id;
   await actAs(db, OWNER_USER);
-  await db.query(`SELECT public.record_invoice_payment($1, '{"amount": 100, "paid_date": "2026-11-03"}'::jsonb)`, [invoice]);
+  await db.query(`SELECT pm.record_invoice_payment($1, '{"amount": 100, "paid_date": "2026-11-03"}'::jsonb)`, [invoice]);
   await asDatabaseOwner(db);
   return { owner, member: memberId, project, token, entry, invoice };
 }
@@ -316,27 +326,27 @@ async function attempt(db: PGlite, sql: string, params: unknown[] = []): Promise
 
 async function rowChecks(db: PGlite, s: Seeded) {
   const cases: Array<{ mod: ModuleId; table: string; write?: [string, unknown[]] }> = [
-    { mod: 'billing', table: 'project_invoices', write: [`INSERT INTO public.project_invoices (project_id, invoice_number, amount, status, invoice_type, date, due_date) VALUES ($1, 'INV-900', 5, 'draft', 'fixed', '2026-11-03', '2026-12-03')`, [s.project]] },
-    { mod: 'time', table: 'project_time_entries', write: [`INSERT INTO public.project_time_entries (project_id, member_id, start_time, segments) SELECT $1, id, now(), '[]'::jsonb FROM public.team_members WHERE auth_user_id = auth.uid()`, [s.project]] },
-    { mod: 'time', table: 'time_entry_tasks', write: ['DELETE FROM public.time_entry_tasks', []] },
-    { mod: 'contacts', table: 'contacts', write: ["INSERT INTO public.contacts (name, email) VALUES ('New', 'new@client.example')", []] },
+    { mod: 'billing', table: 'project_invoices', write: [`INSERT INTO pm.project_invoices (project_id, invoice_number, amount, status, invoice_type, date, due_date) VALUES ($1, 'INV-900', 5, 'draft', 'fixed', '2026-11-03', '2026-12-03')`, [s.project]] },
+    { mod: 'time', table: 'project_time_entries', write: [`INSERT INTO pm.project_time_entries (project_id, member_id, start_time, segments) SELECT $1, id, now(), '[]'::jsonb FROM pm.team_members WHERE auth_user_id = auth.uid()`, [s.project]] },
+    { mod: 'time', table: 'time_entry_tasks', write: ['DELETE FROM pm.time_entry_tasks', []] },
+    { mod: 'contacts', table: 'contacts', write: ["INSERT INTO pm.contacts (name, email) VALUES ('New', 'new@client.example')", []] },
     { mod: 'contacts', table: 'project_contacts' },
-    { mod: 'portal', table: 'portal_settings', write: ["UPDATE public.portal_settings SET welcome_message = 'Hi'", []] },
+    { mod: 'portal', table: 'portal_settings', write: ["UPDATE pm.portal_settings SET welcome_message = 'Hi'", []] },
     { mod: 'agents', table: 'agent_health' },
-    { mod: 'agents', table: 'project_goals', write: ["INSERT INTO public.project_goals (project_id, title) VALUES ($1, 'More')", [s.project]] },
-    { mod: 'agents', table: 'task_suggestions', write: ["UPDATE public.task_suggestions SET title = 'Changed'", []] },
-    { mod: 'credentials', table: 'project_credentials', write: ["INSERT INTO public.project_credentials (project_id, label, encrypted_data, iv) VALUES ($1, 'More', 'c', 'n')", [s.project]] },
-    { mod: 'sales', table: 'leads', write: ["INSERT INTO public.leads (name) VALUES ('Another')", []] },
+    { mod: 'agents', table: 'project_goals', write: ["INSERT INTO pm.project_goals (project_id, title) VALUES ($1, 'More')", [s.project]] },
+    { mod: 'agents', table: 'task_suggestions', write: ["UPDATE pm.task_suggestions SET title = 'Changed'", []] },
+    { mod: 'credentials', table: 'project_credentials', write: ["INSERT INTO pm.project_credentials (project_id, label, encrypted_data, iv) VALUES ($1, 'More', 'c', 'n')", [s.project]] },
+    { mod: 'sales', table: 'leads', write: ["INSERT INTO pm.leads (name) VALUES ('Another')", []] },
   ];
   for (const c of cases) {
     await setModules(db, MODULE_IDS);
     await actAs(db, OWNER_USER);
-    const seen = (await db.query<{ n: number }>(`SELECT count(*)::int AS n FROM public.${c.table}`)).rows[0].n;
+    const seen = (await db.query<{ n: number }>(`SELECT count(*)::int AS n FROM pm.${c.table}`)).rows[0].n;
     check(`rows: owner reads ${c.table} with ${c.mod} on`, seen > 0, seen);
     await setModules(db, allBut(c.mod));
     for (const [who, user] of [['owner', OWNER_USER], ['member', MEMBER_USER]] as const) {
       await actAs(db, user);
-      const n = (await db.query<{ n: number }>(`SELECT count(*)::int AS n FROM public.${c.table}`)).rows[0].n;
+      const n = (await db.query<{ n: number }>(`SELECT count(*)::int AS n FROM pm.${c.table}`)).rows[0].n;
       check(`rows: ${who} reads no ${c.table} with ${c.mod} off`, n === 0, n);
       if (c.write) {
         await db.exec('BEGIN');
@@ -358,7 +368,7 @@ async function rowChecks(db: PGlite, s: Seeded) {
     // Distinct start times, so no two entries of one member overlap.
     const start = new Date(Date.UTC(2026, 10, 4, 6, 0) + (minute++) * 7_200_000).toISOString();
     const end = new Date(Date.parse(start) + 3600_000).toISOString();
-    return (await db.query<{ id: string; approval_status: string; approved_by: string | null }>(`INSERT INTO public.project_time_entries (project_id, member_id, start_time, end_time, segments, work_type)
+    return (await db.query<{ id: string; approval_status: string; approved_by: string | null }>(`INSERT INTO pm.project_time_entries (project_id, member_id, start_time, end_time, segments, work_type)
       VALUES ($1, $2, $3, $4, $5::jsonb, 'client') RETURNING id, approval_status, approved_by`,
     [s.project, memberId, start, finished ? end : null, JSON.stringify(finished ? [{ start, end }] : [{ start }])])).rows[0];
   };
@@ -366,11 +376,11 @@ async function rowChecks(db: PGlite, s: Seeded) {
   const entryRow = async (id: string) => {
     await asDatabaseOwner(db);
     return (await db.query<{ approval_status: string; approved_by: string | null; compensation_rate: string; billing_converted_at: string | null }>(
-      'SELECT approval_status, approved_by, compensation_rate, billing_converted_at FROM public.project_time_entries WHERE id = $1', [id])).rows[0];
+      'SELECT approval_status, approved_by, compensation_rate, billing_converted_at FROM pm.project_time_entries WHERE id = $1', [id])).rows[0];
   };
   const review = async (ids: string[]) => {
     await actAs(db, OWNER_USER);
-    const result = await attempt(db, "SELECT id FROM public.review_time_entries($1::uuid[], 'approved')", [ids]);
+    const result = await attempt(db, "SELECT id FROM pm.review_time_entries($1::uuid[], 'approved')", [ids]);
     await asDatabaseOwner(db);
     return result;
   };
@@ -393,20 +403,20 @@ async function rowChecks(db: PGlite, s: Seeded) {
     agentLogged.approval_status === 'approved' && agentLogged.approved_by === null, agentLogged);
   const timer = await logged(AGENT_MEMBER, false);
   check('approval: a running timer stays a draft', timer.approval_status === 'draft', timer);
-  await db.query(`UPDATE public.project_time_entries SET end_time = start_time + interval '30 minutes',
+  await db.query(`UPDATE pm.project_time_entries SET end_time = start_time + interval '30 minutes',
     segments = jsonb_build_array(jsonb_build_object('start', start_time, 'end', start_time + interval '30 minutes')) WHERE id = $1`, [timer.id]);
   const stopped = await entryRow(timer.id);
   check('approval: stopping an agent timer with no money modules approves it', stopped.approval_status === 'approved' && stopped.approved_by === null, stopped);
   check('approval: and converts nothing', stopped.billing_converted_at === null, stopped);
   // With no pay attached, an approved entry can still be corrected by its member.
   await asDatabaseOwner(db);
-  const correct = await attempt(db, "UPDATE public.project_time_entries SET start_time = start_time - interval '15 minutes' WHERE id = $1", [memberLogged.id]);
+  const correct = await attempt(db, "UPDATE pm.project_time_entries SET start_time = start_time - interval '15 minutes' WHERE id = $1", [memberLogged.id]);
   check('lock: with Team pay off the time of an approved entry can be corrected', correct.ok, correct);
 
   // Either money module on: today's review rules.
   await setModules(db, allBut('team_pay'));
   await asDatabaseOwner(db);
-  const billedLock = await attempt(db, "UPDATE public.project_time_entries SET start_time = start_time - interval '15 minutes' WHERE id = $1", [memberLogged.id]);
+  const billedLock = await attempt(db, "UPDATE pm.project_time_entries SET start_time = start_time - interval '15 minutes' WHERE id = $1", [memberLogged.id]);
   check('lock: with Client invoicing on (Team pay off) the time of an approved entry is locked', !billedLock.ok && /compensation is locked/.test(billedLock.error ?? ''), billedLock);
   const agentWaits = await logged(AGENT_MEMBER);
   check('approval: with Client invoicing on an agent entry waits for review', agentWaits.approval_status === 'pending', agentWaits);
@@ -421,7 +431,7 @@ async function rowChecks(db: PGlite, s: Seeded) {
 
   await setModules(db, allBut('billing'));
   await asDatabaseOwner(db);
-  const lockedNow = await attempt(db, "UPDATE public.project_time_entries SET start_time = start_time - interval '15 minutes' WHERE id = $1", [memberLogged.id]);
+  const lockedNow = await attempt(db, "UPDATE pm.project_time_entries SET start_time = start_time - interval '15 minutes' WHERE id = $1", [memberLogged.id]);
   check('lock: with Team pay on the time of an approved entry is locked', !lockedNow.ok && /compensation is locked/.test(lockedNow.error ?? ''), lockedNow);
   const payOnlyAgent = await logged(AGENT_MEMBER);
   check('approval: with Team pay on an agent entry waits for review', payOnlyAgent.approval_status === 'pending', payOnlyAgent);
@@ -434,7 +444,7 @@ async function rowChecks(db: PGlite, s: Seeded) {
   check('approval: Team pay alone approves an agent with no conversion',
     payOnlyAgentReview.ok && payOnlyAgentAfter.approval_status === 'approved' && payOnlyAgentAfter.billing_converted_at === null, { payOnlyAgentReview, payOnlyAgentAfter });
   await actAs(db, null);
-  const apiPayOnly = await attempt(db, "SELECT id FROM public.review_time_entries_api($1, ARRAY[$2]::uuid[], 'approved', NULL, $3)", [s.project, payOnlyMember.id, s.owner]);
+  const apiPayOnly = await attempt(db, "SELECT id FROM pm.review_time_entries_api($1, ARRAY[$2]::uuid[], 'approved', NULL, $3)", [s.project, payOnlyMember.id, s.owner]);
   check('approval: the API review asks for a rate with Team pay on', !apiPayOnly.ok && /Compensation rate missing/.test(apiPayOnly.error ?? ''), apiPayOnly);
 
   await setModules(db, MODULE_IDS);
@@ -444,29 +454,29 @@ async function rowChecks(db: PGlite, s: Seeded) {
   check('approval: with Billing on a missing rate still blocks approval', !withBilling.ok && /Compensation rate missing/.test(withBilling.error ?? ''), withBilling);
   await setModules(db, allBut('team_pay'));
   await actAs(db, null);
-  const apiReview = await attempt(db, "SELECT id FROM public.review_time_entries_api($1, ARRAY[$2]::uuid[], 'approved', NULL, $3)", [s.project, second.id, s.owner]);
+  const apiReview = await attempt(db, "SELECT id FROM pm.review_time_entries_api($1, ARRAY[$2]::uuid[], 'approved', NULL, $3)", [s.project, second.id, s.owner]);
   check('approval: the API review needs no rate with Team pay off', apiReview.ok, apiReview);
   await setModules(db, MODULE_IDS);
 
   // The webhook claim hands out nothing while Webhooks is off; the delivery waits untouched.
   await asDatabaseOwner(db);
-  const due = (await db.query<{ n: number }>("SELECT count(*)::int AS n FROM public.webhook_deliveries WHERE status = 'pending'")).rows[0].n;
+  const due = (await db.query<{ n: number }>("SELECT count(*)::int AS n FROM pm.webhook_deliveries WHERE status = 'pending'")).rows[0].n;
   check('webhooks: an invoice change queued a delivery', due > 0, due);
   await setModules(db, allBut('webhooks'));
   await actAs(db, null);
-  const offClaim = (await db.query('SELECT * FROM public.claim_webhook_deliveries(20)')).rows.length;
+  const offClaim = (await db.query('SELECT * FROM pm.claim_webhook_deliveries(20)')).rows.length;
   await setModules(db, allBut('billing'));
   await actAs(db, null);
-  const noBillingClaim = (await db.query('SELECT * FROM public.claim_webhook_deliveries(20)')).rows.length;
+  const noBillingClaim = (await db.query('SELECT * FROM pm.claim_webhook_deliveries(20)')).rows.length;
   await asDatabaseOwner(db);
-  const untouched = (await db.query<{ n: number }>("SELECT count(*)::int AS n FROM public.webhook_deliveries WHERE status = 'pending' AND attempts = 0")).rows[0].n;
+  const untouched = (await db.query<{ n: number }>("SELECT count(*)::int AS n FROM pm.webhook_deliveries WHERE status = 'pending' AND attempts = 0")).rows[0].n;
   check('webhooks: nothing is claimed with Webhooks off', offClaim === 0, offClaim);
   check('webhooks: nothing is claimed with Billing off', noBillingClaim === 0, noBillingClaim);
   check('webhooks: the waiting delivery keeps its attempts', untouched === due, { untouched, due });
   await setModules(db, MODULE_IDS);
   await actAs(db, null);
   await db.exec('BEGIN');
-  const onClaim = (await db.query('SELECT * FROM public.claim_webhook_deliveries(20)')).rows.length;
+  const onClaim = (await db.query('SELECT * FROM pm.claim_webhook_deliveries(20)')).rows.length;
   await db.exec('ROLLBACK');
   check('webhooks: with both on it is claimed', onClaim > 0, onClaim);
 }
@@ -553,18 +563,18 @@ const hash = (key: string) => createHash('sha256').update(key).digest('hex');
 async function routeChecks(db: PGlite, s: Seeded) {
   await asDatabaseOwner(db);
   const keys = { owner: `pk_live_${randomUUID()}`, ownerNarrow: `pk_live_${randomUUID()}` };
-  const ownerKey = (await db.query<{ id: string }>(`INSERT INTO public.api_keys (name, key_prefix, key_hash, team_member_id, created_by, scopes)
+  const ownerKey = (await db.query<{ id: string }>(`INSERT INTO pm.api_keys (name, key_prefix, key_hash, team_member_id, created_by, scopes)
     VALUES ('Owner', 'pk_live_owner', $1, $2, $2, $3) RETURNING id`,
   [hash(keys.owner), s.owner, ['invoices.read', 'notifications.send', 'projects.read', 'goals.read', 'tasks.read']])).rows[0].id;
-  await db.query(`INSERT INTO public.api_keys (name, key_prefix, key_hash, team_member_id, created_by, scopes)
+  await db.query(`INSERT INTO pm.api_keys (name, key_prefix, key_hash, team_member_id, created_by, scopes)
     VALUES ('Narrow', 'pk_live_narrow', $1, $2, $2, $3)`, [hash(keys.ownerNarrow), s.owner, ['tasks.read']]);
   const inbox = randomUUID();
-  await db.query('UPDATE public.business_settings SET inbound_email_domain = $1', [RELAY]);
-  await db.query(`INSERT INTO communications.inboxes (id, name, address, handler_member_id, verification_code) VALUES ($1, 'Ashley', 'ashley@agency.example', $2, 'VM-7K2Q')`, [inbox, AGENT_MEMBER]);
+  await db.query('UPDATE pm.business_settings SET inbound_email_domain = $1', [RELAY]);
+  await db.query(`INSERT INTO pm.inboxes (id, name, address, handler_member_id, verification_code) VALUES ($1, 'Ashley', 'ashley@agency.example', $2, 'VM-7K2Q')`, [inbox, AGENT_MEMBER]);
 
   // The API's rate limit, in the jsonb shape fake-postgrest serves (as the other route tests stub it).
-  await db.exec(`DROP FUNCTION public.consume_api_rate_limit(uuid, integer, integer);
-    CREATE FUNCTION public.consume_api_rate_limit(p_api_key_id uuid, p_limit integer, p_window_seconds integer) RETURNS jsonb
+  await db.exec(`DROP FUNCTION pm.consume_api_rate_limit(uuid, integer, integer);
+    CREATE FUNCTION pm.consume_api_rate_limit(p_api_key_id uuid, p_limit integer, p_window_seconds integer) RETURNS jsonb
       LANGUAGE sql AS $$ SELECT jsonb_build_object('allowed', true, 'remaining', p_limit - 1, 'reset_at', now() + make_interval(secs => p_window_seconds)) $$;`);
   const storage = new FakeStorage();
   const server = await startFakePostgrest(db, { handle: (request, response, url) => storage.handler(request, response, url) });
@@ -709,7 +719,7 @@ async function routeChecks(db: PGlite, s: Seeded) {
     // Mail with the Inbox off is still taken in and stored, and nothing acts on it.
     await setModules(db, allBut('inbox'));
     await asDatabaseOwner(db);
-    const notificationsBefore = (await db.query<{ n: number }>('SELECT count(*)::int AS n FROM public.team_member_notifications')).rows[0].n;
+    const notificationsBefore = (await db.query<{ n: number }>('SELECT count(*)::int AS n FROM pm.team_member_notifications')).rows[0].n;
     resend.add(await resendFixture(await readEml('owner-original.eml'), { emailId: 're_module_off', deliveredTo: [`ashley@${RELAY}`] }));
     const body = JSON.stringify({ type: 'email.received', created_at: '2026-11-20T18:00:00Z', data: { email_id: 're_module_off' } });
     const timestamp = Math.floor(Date.now() / 1000);
@@ -720,10 +730,10 @@ async function routeChecks(db: PGlite, s: Seeded) {
     }));
     const deliveredBody = await delivered.json() as Payload;
     await asDatabaseOwner(db);
-    const stored = (await db.query<{ n: number }>("SELECT count(*)::int AS n FROM communications.messages WHERE provider_email_id = 're_module_off'")).rows[0].n;
-    const plans = (await db.query<{ n: number }>('SELECT count(*)::int AS n FROM communications.plans')).rows[0].n;
-    const triage = (await db.query<{ n: number }>('SELECT count(*)::int AS n FROM communications.triage')).rows[0].n;
-    const notificationsAfter = (await db.query<{ n: number }>('SELECT count(*)::int AS n FROM public.team_member_notifications')).rows[0].n;
+    const stored = (await db.query<{ n: number }>("SELECT count(*)::int AS n FROM pm.messages WHERE provider_email_id = 're_module_off'")).rows[0].n;
+    const plans = (await db.query<{ n: number }>('SELECT count(*)::int AS n FROM pm.plans')).rows[0].n;
+    const triage = (await db.query<{ n: number }>('SELECT count(*)::int AS n FROM pm.triage')).rows[0].n;
+    const notificationsAfter = (await db.query<{ n: number }>('SELECT count(*)::int AS n FROM pm.team_member_notifications')).rows[0].n;
     check('inbox off: the webhook still takes the mail in', delivered.status === 200 && deliveredBody.status === 'ingested', deliveredBody);
     check('inbox off: and stores it', stored === 1, stored);
     check('inbox off: no plan, triage or notification follows', plans === 0 && triage === 0 && notificationsAfter === notificationsBefore, { plans, triage, notificationsBefore, notificationsAfter });
@@ -806,14 +816,16 @@ async function main() {
   await readerChecks();
   surfaceWalk();
 
+  // A fresh 2.0 install (schema.sql, the app in pm). The 1.x migration itself
+  // is checked on the release before it, upgraded to today (migrationChecks).
   const fromSchema = await createFullSchemaDatabase();
   const applied = await createFullSchemaDatabase();
   await asDatabaseOwner(applied);
-  await applied.exec(MIGRATION_SQL);
-  await applied.exec(MIGRATION_SQL);
-  // The migrations after it in order, as an install applies them: a later
-  // one may redefine a function this one wrote (team pay redefines review).
-  for (const later of laterMigrations()) await applied.exec(later.sql);
+  // The 2.0 migrations re-run on a fresh install change nothing.
+  for (const later of laterMigrations().filter((m) => m.name >= PM_MOVE)) {
+    await applied.exec(later.sql);
+    await applied.exec(later.sql);
+  }
   await staticChecks(applied);
   await migrationChecks(applied, fromSchema);
   await fromSchema.close();

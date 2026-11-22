@@ -22,6 +22,7 @@ import { recordPortalEvent, getOrCreateSessionId } from '@/lib/portal-analytics'
 import { checkPortalPin, pinFailureResponse } from '@/lib/portal-pin';
 import { resolveProjectHourlyRate } from '@/lib/supabase/queries';
 import { enabledModuleSet } from '@/lib/modules/server';
+import { createPmClient } from '@/lib/supabase/pm-client';
 
 /**
  * Pause duration within an entry: the part of the [start_time, end_time] span
@@ -78,9 +79,9 @@ function getServiceClient() {
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!key) {
     // Fallback to anon key for demo mode or when service key isn't set
-    return createClient(url, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!);
+    return createPmClient(url, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!);
   }
-  return createClient(url, key);
+  return createPmClient(url, key);
 }
 
 export async function GET(

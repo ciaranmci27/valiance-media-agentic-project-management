@@ -11,7 +11,7 @@ import type { PermissionKey } from '@/lib/access-control';
  * applies it in the app. Switching a module off hides it; nothing is deleted.
  *
  * Adding a module or a permission: add it here, then seed
- * `public.workspace_modules` / `public.permission_modules` in the same
+ * `pm.workspace_modules` / `pm.permission_modules` in the same
  * release's migration (a module needs its row: the app counts a missing row
  * as on, `get_my_access_context()` as off). `npm run test:modules` fails until
  * the two agree.

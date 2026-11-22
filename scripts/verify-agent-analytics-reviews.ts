@@ -25,7 +25,7 @@ const JEFF = randomUUID();
 const PROJECT = randomUUID();
 
 async function main() {
-  const db = await createEmailDatabase();
+  const db = await createEmailDatabase('migration', { before20: true });
   // Production order: the telemetry vocabulary lands before this migration.
   await db.exec(await readMigration('../supabase/migrations/20261010210652_agent_telemetry.sql'));
   const migration = await readMigration('../supabase/migrations/20261010212024_agent_analytics_reviews.sql');

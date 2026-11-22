@@ -5,6 +5,7 @@ import { foreignOrigin, isDemoWorkspace, isSchemaMissing, migrationMissing, requ
 import { BRAND_BUCKET, DEFAULT_BRAND, LOGO_KINDS, resolveBrand, type LogoKind } from '@/lib/brand';
 import { expireBrand, readStoredBrand } from '@/lib/brand/server';
 import { LOGO_MAX_BYTES, sniffImage } from '@/lib/brand/validate';
+import { pmStorage } from '@/lib/supabase/storage';
 
 /**
  * Settings > Workspace > Brand: upload (POST, multipart `file`) or remove
@@ -94,7 +95,7 @@ export async function POST(request: NextRequest) {
   if (before.error) return before.error;
 
   const path = `${kind}-${Date.now()}.${image.ext}`;
-  const upload = await service.storage.from(BRAND_BUCKET).upload(path, bytes, {
+  const upload = await pmStorage(service).from(BRAND_BUCKET).upload(path, bytes, {
     contentType: image.contentType,
     // The name is unique per upload, so the file itself never changes.
     cacheControl: '31536000',
@@ -105,10 +106,10 @@ export async function POST(request: NextRequest) {
   const { error } = await service.from('workspace_brand')
     .upsert({ id: true, [COLUMN[kind]]: path, updated_by: memberId }, { onConflict: 'id' });
   if (error) {
-    await service.storage.from(BRAND_BUCKET).remove([path]);
+    await pmStorage(service).from(BRAND_BUCKET).remove([path]);
     return isSchemaMissing(error) ? migrationMissing() : NextResponse.json({ error: error.message }, { status: 500 });
   }
-  if (before.path && before.path !== path) await service.storage.from(BRAND_BUCKET).remove([before.path]);
+  if (before.path && before.path !== path) await pmStorage(service).from(BRAND_BUCKET).remove([before.path]);
 
   expireBrand();
   audit(service, memberId, 'POST', kind, before.path, path);
@@ -125,7 +126,7 @@ export async function DELETE(request: NextRequest) {
   if (before.path) {
     const { error } = await service.from('workspace_brand').update({ [COLUMN[kind]]: null, updated_by: memberId }).eq('id', true);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-    await service.storage.from(BRAND_BUCKET).remove([before.path]);
+    await pmStorage(service).from(BRAND_BUCKET).remove([before.path]);
     expireBrand();
     audit(service, memberId, 'DELETE', kind, before.path, null);
   }

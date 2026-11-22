@@ -34,17 +34,17 @@ async function main() {
   const db = await createFullSchemaDatabase();
   await db.exec('RESET ROLE');
   // Rate limiting is not under test here (the other API suites stub it the same way).
-  await db.exec(`DROP FUNCTION public.consume_api_rate_limit(uuid, integer, integer);
-    CREATE FUNCTION public.consume_api_rate_limit(p_api_key_id uuid, p_limit integer, p_window_seconds integer)
+  await db.exec(`DROP FUNCTION pm.consume_api_rate_limit(uuid, integer, integer);
+    CREATE FUNCTION pm.consume_api_rate_limit(p_api_key_id uuid, p_limit integer, p_window_seconds integer)
     RETURNS jsonb LANGUAGE sql AS $$ SELECT jsonb_build_object('allowed', true, 'remaining', p_limit - 1,
       'reset_at', now() + make_interval(secs => p_window_seconds)) $$;`);
   await db.query('INSERT INTO auth.users (id, email) VALUES ($1, $2), ($3, $4)',
     [OWNER_USER, 'owner@example.com', MEMBER_USER, 'member@example.com']);
-  const members = (await db.query<{ id: string; auth_user_id: string }>('SELECT id, auth_user_id FROM public.team_members')).rows;
+  const members = (await db.query<{ id: string; auth_user_id: string }>('SELECT id, auth_user_id FROM pm.team_members')).rows;
   const owner = members.find((m) => m.auth_user_id === OWNER_USER)!.id;
   const member = members.find((m) => m.auth_user_id === MEMBER_USER)!.id;
   const secret = `pk_live_${randomUUID().replace(/-/g, '')}`;
-  await db.query(`INSERT INTO public.api_keys (name, key_prefix, key_hash, team_member_id, scopes, permissions)
+  await db.query(`INSERT INTO pm.api_keys (name, key_prefix, key_hash, team_member_id, scopes, permissions)
     VALUES ('Owner key', 'pk_live', $1, $2, $3, 'scoped')`, [hash(secret), owner,
     ['projects.read', 'projects.read_all', 'projects.manage', 'tasks.read', 'tasks.manage_all', 'leads.read', 'leads.read_all',
       'leads.manage', 'team.read', 'team.manage', 'time.manage_own', 'time.manage_all', 'time.read_all']]);
@@ -77,9 +77,9 @@ async function main() {
     const teamMember = await import('../src/app/api/v1/team-members/[id]/route');
 
     // -- Seed ---------------------------------------------------------------
-    const P = (await q<{ id: string }>("INSERT INTO public.projects (name) VALUES ('Plan4TheFuture.com') RETURNING id"))[0].id;
-    const T1 = (await q<{ id: string }>("INSERT INTO public.tasks (project_id, title) VALUES ($1, 'Capture plan domicile state') RETURNING id", [P]))[0].id;
-    const T2 = (await q<{ id: string }>("INSERT INTO public.tasks (project_id, title) VALUES ($1, 'Update local delivery wording') RETURNING id", [P]))[0].id;
+    const P = (await q<{ id: string }>("INSERT INTO pm.projects (name) VALUES ('Plan4TheFuture.com') RETURNING id"))[0].id;
+    const T1 = (await q<{ id: string }>("INSERT INTO pm.tasks (project_id, title) VALUES ($1, 'Capture plan domicile state') RETURNING id", [P]))[0].id;
+    const T2 = (await q<{ id: string }>("INSERT INTO pm.tasks (project_id, title) VALUES ($1, 'Update local delivery wording') RETURNING id", [P]))[0].id;
     const taskIds = async (projectId: string) =>
       ((await call(tasks.GET, 'GET', `/api/v1/tasks?project_id=${projectId}`)).json.data ?? []).map((row: { id: string }) => row.id);
 
@@ -88,7 +88,7 @@ async function main() {
     check('a live task is listed', (await taskIds(P)).includes(T1));
     const deleted = await call(task.DELETE, 'DELETE', `/api/v1/tasks/${T1}`, { id: T1 });
     check('DELETE answers { deleted: true }', deleted.status === 200 && deleted.json.data?.deleted === true, deleted.json);
-    const row = (await q<{ deleted_at: string | null; deleted_by: string | null }>('SELECT deleted_at, deleted_by FROM public.tasks WHERE id = $1', [T1]))[0];
+    const row = (await q<{ deleted_at: string | null; deleted_by: string | null }>('SELECT deleted_at, deleted_by FROM pm.tasks WHERE id = $1', [T1]))[0];
     check('the task is still there, in Trash, stamped with the key\'s member', !!row?.deleted_at && row.deleted_by === owner, row);
     const gone = await call(task.GET, 'GET', `/api/v1/tasks/${T1}`, { id: T1 });
     check('it then reads as missing', gone.status === 404 && gone.json.error?.details?.reason === 'not_found_or_in_trash', gone);
@@ -97,13 +97,13 @@ async function main() {
     check('deleting it again is not found, not an error', twice.status === 404, twice);
 
     // -- Time on an invoice stays -----------------------------------------------
-    const entry = (await q<{ id: string }>(`INSERT INTO public.project_time_entries
+    const entry = (await q<{ id: string }>(`INSERT INTO pm.project_time_entries
       (project_id, member_id, start_time, end_time, segments, hourly_rate, approval_status, work_type)
       VALUES ($1, $2, '2026-10-01T16:00:00Z', '2026-10-01T18:00:00Z',
         '[{"start": "2026-10-01T16:00:00Z", "end": "2026-10-01T18:00:00Z"}]', 100, 'approved', 'client') RETURNING id`, [P, owner]))[0].id;
-    const invoice = (await q<{ id: string }>(`INSERT INTO public.project_invoices (project_id, invoice_number, amount, status, date, line_items)
+    const invoice = (await q<{ id: string }>(`INSERT INTO pm.project_invoices (project_id, invoice_number, amount, status, date, line_items)
       VALUES ($1, 'INV-001', 200, 'draft', '2026-10-05', '[{"id": "l1", "item_type": "hourly", "amount": 200}]') RETURNING id`, [P]))[0].id;
-    await q(`INSERT INTO public.invoice_time_entry_allocations (invoice_id, line_item_id, time_entry_id, start_offset_hours, allocated_hours, allocated_amount)
+    await q(`INSERT INTO pm.invoice_time_entry_allocations (invoice_id, line_item_id, time_entry_id, start_offset_hours, allocated_hours, allocated_amount)
       VALUES ($1, 'l1', $2, 0, 2, 200)`, [invoice, entry]);
     const invoiced = await call(timeEntry.DELETE, 'DELETE', `/api/v1/projects/${P}/time-entries/${entry}`, { id: P, entryId: entry });
     check('time on an invoice cannot be deleted (409, with the reason)',
@@ -119,11 +119,11 @@ async function main() {
     check('it is not listed, archived or not', !(await projectIds()).includes(P));
     check('what it owns is out of reach', (await call(timeEntries.GET, 'GET', `/api/v1/projects/${P}/time-entries`, { id: P })).status === 404);
     check('its tasks too', (await call(task.GET, 'GET', `/api/v1/tasks/${T2}`, { id: T2 })).status === 404);
-    const untouched = (await q<{ n: number }>('SELECT count(*)::int AS n FROM public.tasks WHERE project_id = $1 AND deleted_at IS NULL', [P]))[0].n;
+    const untouched = (await q<{ n: number }>('SELECT count(*)::int AS n FROM pm.tasks WHERE project_id = $1 AND deleted_at IS NULL', [P]))[0].n;
     check('its tasks are untouched underneath', untouched === 1, untouched);
 
     await actAs(db, null);
-    await db.query("SELECT public.restore_record('projects', $1)", [P]);
+    await db.query("SELECT pm.restore_record('projects', $1)", [P]);
     await db.exec('RESET ROLE');
     check('restored, it reads again with its task', (await call(project.GET, 'GET', `/api/v1/projects/${P}`, { id: P })).status === 200
       && JSON.stringify(await taskIds(P)) === JSON.stringify([T2]));
@@ -131,14 +131,14 @@ async function main() {
     // -- The client portal goes with its project -----------------------------------
     const portal = await import('../src/app/api/portal/[token]/route');
     const token = `p${randomUUID().replace(/-/g, '')}`;
-    await q('INSERT INTO public.portal_settings (project_id, token, enabled) VALUES ($1, $2, true)', [P, token]);
+    await q('INSERT INTO pm.portal_settings (project_id, token, enabled) VALUES ($1, $2, true)', [P, token]);
     const openPortal = async () => (await portal.GET(new NextRequest(`http://localhost/api/portal/${token}`),
       { params: Promise.resolve({ token }) })).status;
     check('the client portal opens', await openPortal() === 200);
     await call(project.DELETE, 'DELETE', `/api/v1/projects/${P}`, { id: P });
     check('a project in Trash has no portal', await openPortal() === 404);
     await actAs(db, null);
-    await db.query("SELECT public.restore_record('projects', $1)", [P]);
+    await db.query("SELECT pm.restore_record('projects', $1)", [P]);
     await db.exec('RESET ROLE');
     check('restored, the portal opens again', await openPortal() === 200);
 
@@ -147,11 +147,11 @@ async function main() {
     check('archiving sets archived_at', archived.status === 200 && archived.json.data?.archived === true && !!archived.json.data?.archived_at, archived.json);
     check('an archived project still reads', (await call(project.GET, 'GET', `/api/v1/projects/${P}`, { id: P })).status === 200);
     const unarchived = await call(archive.DELETE, 'DELETE', `/api/v1/projects/${P}/archive`, { id: P });
-    const archivedAt = (await q<{ archived_at: string | null }>('SELECT archived_at FROM public.projects WHERE id = $1', [P]))[0].archived_at;
+    const archivedAt = (await q<{ archived_at: string | null }>('SELECT archived_at FROM pm.projects WHERE id = $1', [P]))[0].archived_at;
     check('unarchiving clears it', unarchived.json.data?.archived === false && archivedAt === null, unarchived.json);
 
     // -- A lead ------------------------------------------------------------------------
-    const L = (await q<{ id: string }>("INSERT INTO public.leads (name) VALUES ('Mike''s Bikes') RETURNING id"))[0].id;
+    const L = (await q<{ id: string }>("INSERT INTO pm.leads (name) VALUES ('Mike''s Bikes') RETURNING id"))[0].id;
     const leadArchived = await call(leadArchive.POST, 'POST', `/api/v1/leads/${L}/archive`, { id: L });
     check('a lead archives on its own action', leadArchived.json.data?.archived === true, leadArchived.json);
     const leadDeleted = await call(lead.DELETE, 'DELETE', `/api/v1/leads/${L}`, { id: L });
@@ -160,7 +160,7 @@ async function main() {
 
     // -- Team members are suspended, never deleted ------------------------------------------
     const removed = await call(teamMember.DELETE, 'DELETE', `/api/v1/team-members/${member}`, { id: member });
-    const memberRow = (await q<{ status: string }>('SELECT status FROM public.team_members WHERE id = $1', [member]))[0];
+    const memberRow = (await q<{ status: string }>('SELECT status FROM pm.team_members WHERE id = $1', [member]))[0];
     check('removing a team member suspends them and keeps the row',
       removed.json.data?.suspended === true && memberRow?.status === 'suspended', { removed: removed.json, memberRow });
   } finally {

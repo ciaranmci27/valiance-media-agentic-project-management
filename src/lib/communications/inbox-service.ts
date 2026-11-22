@@ -22,6 +22,8 @@ import type {
 import type { TriageCategory } from './outreach';
 import { comms } from '@/lib/communications/db';
 import { memberTriagesInbox, ownerColumnRead, ownersReadPersonalInboxes, readableInboxIdsFor } from './inbox-visibility';
+import { pmStorage } from '@/lib/supabase/storage';
+import { BUCKETS } from '@/lib/supabase/schema';
 
 /**
  * The Inbox for people signed in to the app (session routes). Reads use the
@@ -968,7 +970,7 @@ export async function attachmentDownloadUrl(ctx: InboxContext, attachmentId: str
     throw new InboxError(409, 'This file was not stored (it was over the size limit), so there is nothing to download.');
   }
   const expiresIn = options.inline ? 300 : 60;
-  const { data, error } = await ctx.service.storage.from('inbound-email')
+  const { data, error } = await pmStorage(ctx.service).from(BUCKETS.inboundEmail)
     .createSignedUrl(attachment.storage_path, expiresIn, options.inline ? undefined : { download: attachment.filename || true });
   if (error || !data?.signedUrl) throw new InboxError(502, 'Could not create a download link');
   return { url: data.signedUrl, filename: attachment.filename, expires_in: expiresIn };

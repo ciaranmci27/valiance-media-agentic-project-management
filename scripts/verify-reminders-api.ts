@@ -15,6 +15,8 @@ import { startFakePostgrest } from './fake-postgrest';
 
 const MIGRATION = join(__dirname, '..', 'supabase', 'migrations', '20261021215512_create_reminders.sql');
 const PERMISSION_MIGRATION = join(__dirname, '..', 'supabase', 'migrations', '20261021223505_reminders_api_permission.sql');
+/** A 1.x migration as 2.0 holds it: the same objects, in schema pm (what 20261123000000_move_to_pm does). */
+const inPm = (sql: string) => sql.replace(/\bpublic\./g, 'pm.').replace(/search_path = public\b/g, 'search_path = pm');
 
 let passed = 0;
 const failures: string[] = [];
@@ -36,42 +38,43 @@ const hash = (key: string) => createHash('sha256').update(key).digest('hex');
 async function seed(db: PGlite) {
   await db.exec(`
     CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role BYPASSRLS;
-    GRANT USAGE ON SCHEMA public TO service_role;
+    CREATE SCHEMA pm; SET search_path TO pm, public;
+    GRANT USAGE ON SCHEMA pm TO service_role;
     CREATE SCHEMA auth;
     CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $$ SELECT NULL::uuid $$;
-    CREATE TABLE public.team_members (id uuid PRIMARY KEY, name text NOT NULL, role text NOT NULL, status text NOT NULL DEFAULT 'active',
+    CREATE TABLE pm.team_members (id uuid PRIMARY KEY, name text NOT NULL, role text NOT NULL, status text NOT NULL DEFAULT 'active',
       agent_profile text NOT NULL DEFAULT 'generic', auth_user_id uuid);
-    CREATE TABLE public.api_keys (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), key_hash text NOT NULL, permissions text NOT NULL DEFAULT 'scoped',
+    CREATE TABLE pm.api_keys (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), key_hash text NOT NULL, permissions text NOT NULL DEFAULT 'scoped',
       team_member_id uuid, scopes text[] NOT NULL DEFAULT '{}', expires_at timestamptz, disabled_at timestamptz, revoked_at timestamptz,
       last_used_at timestamptz);
-    CREATE TABLE public.business_settings (id serial PRIMARY KEY, api_enabled boolean NOT NULL DEFAULT true);
-    CREATE TABLE public.role_permissions (role text, permission_key text, access_channel text, PRIMARY KEY (role, permission_key, access_channel));
-    CREATE TABLE public.team_member_permissions (member_id uuid, permission_key text, access_channel text, effect text);
-    CREATE TABLE public.api_audit_log (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), method text, endpoint text, entity_type text,
+    CREATE TABLE pm.business_settings (id serial PRIMARY KEY, api_enabled boolean NOT NULL DEFAULT true);
+    CREATE TABLE pm.role_permissions (role text, permission_key text, access_channel text, PRIMARY KEY (role, permission_key, access_channel));
+    CREATE TABLE pm.team_member_permissions (member_id uuid, permission_key text, access_channel text, effect text);
+    CREATE TABLE pm.api_audit_log (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), method text, endpoint text, entity_type text,
       entity_id uuid, api_key_id uuid, team_member_id uuid, request_body jsonb, before_snapshot jsonb, after_snapshot jsonb,
       status_code integer, error text, via text NOT NULL DEFAULT 'rest');
-    CREATE FUNCTION public.consume_api_rate_limit(p_api_key_id uuid, p_limit integer, p_window_seconds integer) RETURNS jsonb
+    CREATE FUNCTION pm.consume_api_rate_limit(p_api_key_id uuid, p_limit integer, p_window_seconds integer) RETURNS jsonb
       LANGUAGE sql AS $$ SELECT jsonb_build_object('allowed', true, 'remaining', p_limit - 1, 'reset_at', now() + make_interval(secs => p_window_seconds)) $$;
-    CREATE TABLE public.projects (id uuid PRIMARY KEY, name text NOT NULL, deleted_at timestamptz);
-    CREATE TABLE public.project_members (member_id uuid, project_id uuid REFERENCES public.projects(id));
-    CREATE TABLE public.tasks (id uuid PRIMARY KEY, project_id uuid NOT NULL REFERENCES public.projects(id), title text NOT NULL,
+    CREATE TABLE pm.projects (id uuid PRIMARY KEY, name text NOT NULL, deleted_at timestamptz);
+    CREATE TABLE pm.project_members (member_id uuid, project_id uuid REFERENCES pm.projects(id));
+    CREATE TABLE pm.tasks (id uuid PRIMARY KEY, project_id uuid NOT NULL REFERENCES pm.projects(id), title text NOT NULL,
       status text NOT NULL DEFAULT 'todo', deleted_at timestamptz);
-    CREATE TABLE public.team_member_notifications (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid NOT NULL, title text NOT NULL,
+    CREATE TABLE pm.team_member_notifications (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid NOT NULL, title text NOT NULL,
       message text, link text, is_read boolean NOT NULL DEFAULT false, entity_type text, entity_id text, created_at timestamptz NOT NULL DEFAULT now());
     -- What the reminders migration leans on (RLS helpers the service role bypasses anyway).
-    CREATE FUNCTION public.current_team_member_id() RETURNS uuid LANGUAGE sql STABLE AS $$ SELECT NULL::uuid $$;
-    CREATE FUNCTION public.can_access_project(p uuid) RETURNS boolean LANGUAGE sql STABLE AS $$ SELECT false $$;
-    CREATE FUNCTION public.can_access_task(t uuid) RETURNS boolean LANGUAGE sql STABLE AS $$ SELECT false $$;
-    CREATE FUNCTION public.has_permission(k text, c text DEFAULT 'app') RETURNS boolean LANGUAGE sql STABLE AS $$ SELECT false $$;
-    CREATE FUNCTION public.workspace_timezone() RETURNS text LANGUAGE sql STABLE AS $$ SELECT 'America/Phoenix' $$;
-    CREATE FUNCTION public.upsert_notification(uuid, text, text, text, text, text) RETURNS void LANGUAGE sql AS $$ SELECT $$;
-    INSERT INTO public.business_settings DEFAULT VALUES;
+    CREATE FUNCTION pm.current_team_member_id() RETURNS uuid LANGUAGE sql STABLE AS $$ SELECT NULL::uuid $$;
+    CREATE FUNCTION pm.can_access_project(p uuid) RETURNS boolean LANGUAGE sql STABLE AS $$ SELECT false $$;
+    CREATE FUNCTION pm.can_access_task(t uuid) RETURNS boolean LANGUAGE sql STABLE AS $$ SELECT false $$;
+    CREATE FUNCTION pm.has_permission(k text, c text DEFAULT 'app') RETURNS boolean LANGUAGE sql STABLE AS $$ SELECT false $$;
+    CREATE FUNCTION pm.workspace_timezone() RETURNS text LANGUAGE sql STABLE AS $$ SELECT 'America/Phoenix' $$;
+    CREATE FUNCTION pm.upsert_notification(uuid, text, text, text, text, text) RETURNS void LANGUAGE sql AS $$ SELECT $$;
+    INSERT INTO pm.business_settings DEFAULT VALUES;
   `);
-  await db.exec(readFileSync(MIGRATION, 'utf8'));
-  await db.exec(readFileSync(PERMISSION_MIGRATION, 'utf8'));
-  await db.exec(readFileSync(PERMISSION_MIGRATION, 'utf8'));
+  await db.exec(inPm(readFileSync(MIGRATION, 'utf8')));
+  await db.exec(inPm(readFileSync(PERMISSION_MIGRATION, 'utf8')));
+  await db.exec(inPm(readFileSync(PERMISSION_MIGRATION, 'utf8')));
   // Trash (the soft delete migrations add these to the real tables).
-  await db.exec('ALTER TABLE public.reminders ADD COLUMN deleted_at timestamptz, ADD COLUMN deleted_by uuid;');
+  await db.exec('ALTER TABLE pm.reminders ADD COLUMN deleted_at timestamptz, ADD COLUMN deleted_by uuid;');
   // DELETE moves a reminder to Trash through the real function (service-role path).
   await db.exec(`CREATE SCHEMA IF NOT EXISTS auth;
     CREATE OR REPLACE FUNCTION auth.role() RETURNS text LANGUAGE sql STABLE
@@ -79,11 +82,11 @@ async function seed(db: PGlite) {
     GRANT USAGE ON SCHEMA auth TO service_role;`);
   const schema = readFileSync(join(__dirname, '..', 'supabase', 'schema.sql'), 'utf8').replace(/\r\n/g, '\n');
   for (const name of ['trash_record_types', 'soft_delete_record']) {
-    const sql = schema.match(new RegExp('^CREATE OR REPLACE FUNCTION public\\.' + name + '\\([\\s\\S]*?^\\$\\$;', 'm'))?.[0];
+    const sql = schema.match(new RegExp('^CREATE OR REPLACE FUNCTION pm\\.' + name + '\\([\\s\\S]*?^\\$\\$;', 'm'))?.[0];
     if (!sql) throw new Error(`function ${name} in schema.sql`);
     await db.exec(sql);
   }
-  await db.exec('GRANT ALL ON ALL TABLES IN SCHEMA public TO service_role; GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO service_role;');
+  await db.exec('GRANT ALL ON ALL TABLES IN SCHEMA pm TO service_role; GRANT ALL ON ALL SEQUENCES IN SCHEMA pm TO service_role;');
   await db.query(
     "INSERT INTO team_members(id,name,role) VALUES ($1,'Ciaran','owner'),($2,'Ashley','agent'),($3,'Mate','member'),($4,'Outsider','member')",
     [OWNER, AGENT, MATE, OUTSIDER],

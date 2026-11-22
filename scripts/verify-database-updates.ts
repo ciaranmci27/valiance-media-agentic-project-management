@@ -20,7 +20,7 @@ import { carriedMigrations, databaseMode, databaseUpdates, pendingMigrations, re
 import { getUpdates, postDatabase, type AuditEntry, type DatabaseStore, type UpdatesDeps } from '../src/lib/updates/handlers';
 import { clearReleaseCache } from '../src/lib/updates/releases';
 import { clearConnectionCache } from '../src/lib/updates/connection';
-import { shouldMigrate } from './build';
+import { copyFiles, pmState, settledPmState, shouldMigrate } from './build';
 import { envChecks, pmSchemasState } from '../src/lib/setup/checks';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { automaticUpdatesOn } from './db-migrate';
@@ -58,7 +58,7 @@ function rules() {
   check('state: never carries the connection string', !JSON.stringify(state).includes('postgres://'));
 
   check('record: an empty table is no record', recordedMigrations({ data: [], error: null }) === null);
-  check('record: a missing table is no record', recordedMigrations({ data: null, error: { code: 'PGRST205', message: 'Could not find the table public.app_migrations' } }) === null);
+  check('record: a missing table is no record', recordedMigrations({ data: null, error: { code: 'PGRST205', message: 'Could not find the table pm.app_migrations' } }) === null);
   check('record: names when there are some', JSON.stringify(recordedMigrations({ data: [{ name: 'a.sql' }], error: null })) === JSON.stringify(['a.sql']));
   let thrown = false;
   try { recordedMigrations({ data: null, error: { code: '42501', message: 'permission denied for table app_migrations' } }); } catch { thrown = true; }
@@ -171,10 +171,10 @@ async function databaseChecks() {
   const db = await createFullSchemaDatabase();
   const runner = { query: async <T>(sql: string) => (await db.query<T>(sql)).rows, exec: async (sql: string) => { await db.exec(sql); } };
   check('runner: a fresh install is on', await automaticUpdatesOn(runner));
-  check('schema: the switch defaults to on', (await db.query<{ v: boolean }>('SELECT auto_migrate AS v FROM public.business_settings')).rows[0].v === true);
+  check('schema: the switch defaults to on', (await db.query<{ v: boolean }>('SELECT auto_migrate AS v FROM pm.business_settings')).rows[0].v === true);
 
   await db.exec(`INSERT INTO auth.users (id, email) VALUES ('00000000-0000-0000-0000-0000000000a1', 'owner@x.co'), ('00000000-0000-0000-0000-0000000000a2', 'admin@x.co')`);
-  await db.exec(`UPDATE public.team_members SET role = 'admin' WHERE email = 'admin@x.co'`);
+  await db.exec(`UPDATE pm.team_members SET role = 'admin' WHERE email = 'admin@x.co'`);
   // Signed in as that person (their JWT claims), with row security set aside so the
   // guard itself is what is tested: in production Admins hold settings.manage.
   const attempt = async (who: string | null, sql: string): Promise<string | null> => {
@@ -192,16 +192,16 @@ async function databaseChecks() {
   };
   const ADMIN = '00000000-0000-0000-0000-0000000000a2';
   const OWNER = '00000000-0000-0000-0000-0000000000a1';
-  const adminSwitch = await attempt(ADMIN, 'UPDATE public.business_settings SET auto_migrate = false');
+  const adminSwitch = await attempt(ADMIN, 'UPDATE pm.business_settings SET auto_migrate = false');
   check('guard: an Admin cannot turn the switch off', /Only an Owner/.test(adminSwitch ?? ''), adminSwitch);
-  const adminInboxes = await attempt(ADMIN, 'UPDATE public.business_settings SET owners_read_personal_inboxes = true');
+  const adminInboxes = await attempt(ADMIN, 'UPDATE pm.business_settings SET owners_read_personal_inboxes = true');
   check('guard: nor change the personal inbox policy', /Only an Owner/.test(adminInboxes ?? ''), adminInboxes);
-  const adminName = await attempt(ADMIN, "UPDATE public.business_settings SET business_name = 'Acme Co'");
+  const adminName = await attempt(ADMIN, "UPDATE pm.business_settings SET business_name = 'Acme Co'");
   check('guard: an Admin still edits the rest of the business row', adminName === null, adminName);
-  const ownerSwitch = await attempt(OWNER, 'UPDATE public.business_settings SET auto_migrate = false');
+  const ownerSwitch = await attempt(OWNER, 'UPDATE pm.business_settings SET auto_migrate = false');
   check('guard: an Owner turns it off', ownerSwitch === null, ownerSwitch);
   check('runner: off means the deploy skips', !(await automaticUpdatesOn(runner)));
-  const service = await attempt(null, 'UPDATE public.business_settings SET auto_migrate = true');
+  const service = await attempt(null, 'UPDATE pm.business_settings SET auto_migrate = true');
   check('guard: the app\'s server (service role) can change it', service === null, service);
   check('runner: back on', await automaticUpdatesOn(runner));
   await db.close();
@@ -237,8 +237,51 @@ async function schemas() {
   check('schemas: Settings > Updates gets the state', state.schemas === 'not_exposed');
 }
 
+// The 2.0 gate: is the database ready for this version?
+async function gate() {
+  const env = { NEXT_PUBLIC_SUPABASE_URL: 'https://x.supabase.co', SUPABASE_SERVICE_ROLE_KEY: 'k' } as unknown as NodeJS.ProcessEnv;
+  const answer = (status: number, body: unknown) => (async () => new Response(JSON.stringify(body), { status })) as unknown as typeof fetch;
+  check('gate: the app in pm and served is ready', await pmState(env, answer(200, [])) === 'ready');
+  check('gate: pm not shared with the API', await pmState(env, answer(406, { code: 'PGRST106' })) === 'not_exposed');
+  check('gate: pm served but the app not moved yet', await pmState(env, answer(404, { code: 'PGRST205' })) === 'not_moved');
+  check('gate: anything else is unknown (never blocks a deploy)', await pmState(env, answer(500, {})) === 'unknown');
+  check('gate: without the Supabase settings it does not guess', await pmState({} as unknown as NodeJS.ProcessEnv, answer(200, [])) === 'unknown');
+  // Supabase's API reloads its schema a moment after the move commits.
+  let calls = 0;
+  const lagging = (async () => (++calls < 3
+    ? new Response(JSON.stringify({ code: 'PGRST205' }), { status: 404 })
+    : new Response('[]', { status: 200 }))) as unknown as typeof fetch;
+  check('gate: a move the API has not caught up with yet settles to ready', await settledPmState(env, lagging, { tries: 5, delayMs: 1 }) === 'ready' && calls === 3, calls);
+  calls = 0;
+  const never = (async () => { calls++; return new Response(JSON.stringify({ code: 'PGRST205' }), { status: 404 }); }) as unknown as typeof fetch;
+  check('gate: a database that never moves still fails, after the retries', await settledPmState(env, never, { tries: 4, delayMs: 1 }) === 'not_moved' && calls === 4, calls);
+  calls = 0;
+  const ready = (async () => { calls++; return new Response('[]', { status: 200 }); }) as unknown as typeof fetch;
+  check('gate: a ready database is asked once', await settledPmState(env, ready, { tries: 4, delayMs: 1 }) === 'ready' && calls === 1, calls);
+  // Storage copy after the move: only the brand's logos (public links to pm-brand) can stop a deploy.
+  const result = (bucket: string, failed: string[] = []) => ({ bucket, copied: 1, skipped: 0, failed });
+  const quiet = console.log, loud = console.error;
+  console.log = () => {}; console.error = () => {};
+  try {
+    let runs = 0;
+    const flaky = async () => (++runs === 1 ? [result('pm-brand', ['light.png'])] : [result('pm-brand')]);
+    check('copy: a logo that fails once is retried, and the deploy goes on', await copyFiles(env, flaky) === true && runs === 2, runs);
+    check('copy: a logo that never copies stops the deploy', await copyFiles(env, async () => [result('pm-brand', ['light.png']), result('pm-task-files')]) === false);
+    check('copy: other files that fail do not (they read from the old bucket)', await copyFiles(env, async () => [result('pm-brand'), result('pm-inbound-email', ['a.eml'])]) === true);
+    check('copy: storage unreachable twice stops the deploy', await copyFiles(env, async () => { throw new Error('down'); }) === false);
+    check('copy: nothing to copy (a fresh install) is fine', await copyFiles(env, async () => []) === true);
+  } finally {
+    console.log = quiet; console.error = loud;
+  }
+  const source = readFileSync(join(__dirname, 'build.ts'), 'utf8');
+  const nextAt = source.indexOf("[next, 'build'");
+  const migrateAt = source.indexOf("migrate(['--if-enabled'])");
+  check('gate: migrations run after the app has built', nextAt > 0 && migrateAt > nextAt);
+}
+
 async function main() {
   rules();
+  await gate();
   await schemas();
   build();
   await route();

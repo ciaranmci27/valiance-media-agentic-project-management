@@ -40,29 +40,30 @@ const hash = (key: string) => createHash('sha256').update(key).digest('hex');
 async function seed(db: PGlite) {
   await db.exec(`
     CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role BYPASSRLS;
-    GRANT USAGE ON SCHEMA public TO service_role;
-    CREATE TABLE public.team_members (id uuid PRIMARY KEY, name text NOT NULL, role text NOT NULL, status text NOT NULL DEFAULT 'active',
+    CREATE SCHEMA pm; SET search_path TO pm, public;
+    GRANT USAGE ON SCHEMA pm TO service_role;
+    CREATE TABLE pm.team_members (id uuid PRIMARY KEY, name text NOT NULL, role text NOT NULL, status text NOT NULL DEFAULT 'active',
       agent_profile text NOT NULL DEFAULT 'generic');
-    CREATE TABLE public.api_keys (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), key_hash text NOT NULL, permissions text NOT NULL DEFAULT 'scoped',
+    CREATE TABLE pm.api_keys (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), key_hash text NOT NULL, permissions text NOT NULL DEFAULT 'scoped',
       team_member_id uuid, scopes text[] NOT NULL DEFAULT '{}', expires_at timestamptz, disabled_at timestamptz, revoked_at timestamptz,
       last_used_at timestamptz);
-    CREATE TABLE public.business_settings (id serial PRIMARY KEY, api_enabled boolean NOT NULL DEFAULT true);
-    CREATE TABLE public.role_permissions (role text, permission_key text, access_channel text);
-    CREATE TABLE public.team_member_permissions (member_id uuid, permission_key text, access_channel text, effect text);
-    CREATE TABLE public.project_members (member_id uuid, project_id uuid);
-    CREATE TABLE public.notifications (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid, title text, message text, link text,
+    CREATE TABLE pm.business_settings (id serial PRIMARY KEY, api_enabled boolean NOT NULL DEFAULT true);
+    CREATE TABLE pm.role_permissions (role text, permission_key text, access_channel text);
+    CREATE TABLE pm.team_member_permissions (member_id uuid, permission_key text, access_channel text, effect text);
+    CREATE TABLE pm.project_members (member_id uuid, project_id uuid);
+    CREATE TABLE pm.notifications (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid, title text, message text, link text,
       entity_type text, entity_id text);
-    CREATE TABLE public.api_audit_log (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), method text, endpoint text, entity_type text,
+    CREATE TABLE pm.api_audit_log (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), method text, endpoint text, entity_type text,
       entity_id uuid, api_key_id uuid, team_member_id uuid, request_body jsonb, before_snapshot jsonb, after_snapshot jsonb,
       status_code integer, error text, via text NOT NULL DEFAULT 'rest');
-    CREATE FUNCTION public.consume_api_rate_limit(p_api_key_id uuid, p_limit integer, p_window_seconds integer) RETURNS jsonb
+    CREATE FUNCTION pm.consume_api_rate_limit(p_api_key_id uuid, p_limit integer, p_window_seconds integer) RETURNS jsonb
       LANGUAGE sql AS $$ SELECT jsonb_build_object('allowed', true, 'remaining', p_limit - 1, 'reset_at', now() + make_interval(secs => p_window_seconds)) $$;
-    CREATE FUNCTION public.upsert_notification(p_user_id uuid, p_title text, p_message text, p_link text, p_entity_type text, p_entity_id text)
-      RETURNS void LANGUAGE sql AS $$ INSERT INTO public.notifications(user_id, title, message, link, entity_type, entity_id)
+    CREATE FUNCTION pm.upsert_notification(p_user_id uuid, p_title text, p_message text, p_link text, p_entity_type text, p_entity_id text)
+      RETURNS void LANGUAGE sql AS $$ INSERT INTO pm.notifications(user_id, title, message, link, entity_type, entity_id)
       VALUES (p_user_id, p_title, p_message, p_link, p_entity_type, p_entity_id) $$;
-    GRANT ALL ON ALL TABLES IN SCHEMA public TO service_role;
-    GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO service_role;
-    INSERT INTO public.business_settings DEFAULT VALUES;
+    GRANT ALL ON ALL TABLES IN SCHEMA pm TO service_role;
+    GRANT ALL ON ALL SEQUENCES IN SCHEMA pm TO service_role;
+    INSERT INTO pm.business_settings DEFAULT VALUES;
   `);
   await db.query(
     "INSERT INTO team_members(id,name,role,agent_profile) VALUES ($1,'Owner','owner','generic'),($2,'Jeff','agent','builder'),($3,'Ada','admin','generic')",

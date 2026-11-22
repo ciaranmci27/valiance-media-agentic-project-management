@@ -24,26 +24,26 @@ function check(label: string, ok: boolean, detail?: unknown) {
 
 async function seed(db: PGlite) {
   const q = async <T = Record<string, unknown>>(sql: string, params: unknown[] = []) => (await db.query<T>(sql, params)).rows;
-  await db.exec(`DROP FUNCTION public.consume_api_rate_limit(uuid, integer, integer);
-    CREATE FUNCTION public.consume_api_rate_limit(p_api_key_id uuid, p_limit integer, p_window_seconds integer)
+  await db.exec(`DROP FUNCTION pm.consume_api_rate_limit(uuid, integer, integer);
+    CREATE FUNCTION pm.consume_api_rate_limit(p_api_key_id uuid, p_limit integer, p_window_seconds integer)
     RETURNS jsonb LANGUAGE sql AS $$ SELECT jsonb_build_object('allowed', true, 'remaining', p_limit - 1,
       'reset_at', now() + make_interval(secs => p_window_seconds)) $$;`);
   const member = async (name: string) =>
-    (await q<{ id: string }>("INSERT INTO public.team_members (name, email, role) VALUES ($1, $2, 'agent') RETURNING id", [name, `${name}@example.com`]))[0].id;
+    (await q<{ id: string }>("INSERT INTO pm.team_members (name, email, role) VALUES ($1, $2, 'agent') RETURNING id", [name, `${name}@example.com`]))[0].id;
   const ashley = await member('ashley');
   const jeff = await member('jeff');
   const project = async (name: string, members: string[]) => {
-    const id = (await q<{ id: string }>('INSERT INTO public.projects (name) VALUES ($1) RETURNING id', [name]))[0].id;
-    for (const m of members) await q('INSERT INTO public.project_members (project_id, member_id) VALUES ($1, $2)', [id, m]);
+    const id = (await q<{ id: string }>('INSERT INTO pm.projects (name) VALUES ($1) RETURNING id', [name]))[0].id;
+    for (const m of members) await q('INSERT INTO pm.project_members (project_id, member_id) VALUES ($1, $2)', [id, m]);
     return id;
   };
   const apex = await project('Apex', [ashley, jeff]);
   const bright = await project('Brightside', [ashley]);
   const key = async (memberId: string, scopes: string[]) => {
     const secret = `pk_live_${randomUUID().replace(/-/g, '')}`;
-    await q(`INSERT INTO public.api_keys (name, key_prefix, key_hash, team_member_id, scopes, permissions)
+    await q(`INSERT INTO pm.api_keys (name, key_prefix, key_hash, team_member_id, scopes, permissions)
       VALUES ('Key', 'pk_live', $1, $2, $3, 'scoped')`, [createHash('sha256').update(secret).digest('hex'), memberId, scopes]);
-    await q(`INSERT INTO public.team_member_permissions (member_id, permission_key, access_channel, effect)
+    await q(`INSERT INTO pm.team_member_permissions (member_id, permission_key, access_channel, effect)
       SELECT $1, key, 'api', 'allow' FROM unnest($2::text[]) AS key ON CONFLICT DO NOTHING`, [memberId, scopes]);
     return secret;
   };
@@ -51,8 +51,8 @@ async function seed(db: PGlite) {
   const ashleyKey = await key(ashley, ['tasks.read', 'tasks.create', 'tasks.manage_all', 'tasks.manage_assigned', 'projects.read', 'projects.read_all']);
   const jeffKey = await key(jeff, ['tasks.read', 'tasks.create', 'tasks.manage_assigned', 'projects.read']);
   const task = async (projectId: string, title: string, assignee?: string) => {
-    const id = (await q<{ id: string }>('INSERT INTO public.tasks (project_id, title) VALUES ($1, $2) RETURNING id', [projectId, title]))[0].id;
-    if (assignee) await q('INSERT INTO public.task_assignees (task_id, member_id) VALUES ($1, $2)', [id, assignee]);
+    const id = (await q<{ id: string }>('INSERT INTO pm.tasks (project_id, title) VALUES ($1, $2) RETURNING id', [projectId, title]))[0].id;
+    if (assignee) await q('INSERT INTO pm.task_assignees (task_id, member_id) VALUES ($1, $2)', [id, assignee]);
     return id;
   };
   return {
@@ -171,12 +171,12 @@ async function main() {
     check('GET /subtasks lists them', legacyList.body.meta?.total === 5, legacyList.body.meta);
     const order = [secondId, firstId];
     const ordered = await call(legacyOrder.PUT, 'PUT', `/api/v1/tasks/${s.launch}/subtasks/reorder`, { id: s.launch }, { subtask_ids: order });
-    const afterOrder = await s.q<{ id: string; sort_order: number }>('SELECT id, sort_order FROM public.tasks WHERE id = ANY($1) ORDER BY sort_order', [order]);
+    const afterOrder = await s.q<{ id: string; sort_order: number }>('SELECT id, sort_order FROM pm.tasks WHERE id = ANY($1) ORDER BY sort_order', [order]);
     check('PUT /subtasks/reorder orders them', ordered.status === 200 && afterOrder.map((r) => r.id).join() === order.join(), afterOrder);
-    const topBefore = JSON.stringify(await s.q('SELECT id, sort_order FROM public.tasks WHERE parent_task_id IS NULL ORDER BY id'));
+    const topBefore = JSON.stringify(await s.q('SELECT id, sort_order FROM pm.tasks WHERE parent_task_id IS NULL ORDER BY id'));
     const moved = await call(reorder.POST, 'POST', '/api/v1/tasks/reorder', {}, { task_id: firstId, new_sort_order: 0 });
-    const order2 = await s.q<{ id: string }>('SELECT id FROM public.tasks WHERE parent_task_id = $1 AND deleted_at IS NULL ORDER BY sort_order', [s.launch]);
-    const topAfter = JSON.stringify(await s.q('SELECT id, sort_order FROM public.tasks WHERE parent_task_id IS NULL ORDER BY id'));
+    const order2 = await s.q<{ id: string }>('SELECT id FROM pm.tasks WHERE parent_task_id = $1 AND deleted_at IS NULL ORDER BY sort_order', [s.launch]);
+    const topAfter = JSON.stringify(await s.q('SELECT id, sort_order FROM pm.tasks WHERE parent_task_id IS NULL ORDER BY id'));
     check('reordering a subtask stays among its siblings',
       moved.status === 200 && order2[0]?.id === firstId && topBefore === topAfter, { status: moved.status, first: order2[0]?.id === firstId, top: topBefore === topAfter });
     const removed = await call(legacyOne.DELETE, 'DELETE', `/api/v1/tasks/${s.pricing}/subtasks/${quickId}`, { id: s.pricing, subtaskId: quickId });

@@ -88,6 +88,8 @@ import {
   formatUnpaidHoursDescription,
   type UnpaidHoursLineItemDraft,
 } from '@/lib/invoice-utils';
+import { pmStorage } from '@/lib/supabase/storage';
+import { BUCKETS } from '@/lib/supabase/schema';
 
 interface InvoicesPanelProps {
   projectId: string;
@@ -992,14 +994,14 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
   } | null> => {
     const supabase = createClient();
     const path = `invoices/${projectId}/${Date.now()}-${file.name}`;
-    const { error } = await supabase.storage.from('entity-files').upload(path, file);
+    const { error } = await pmStorage(supabase).from(BUCKETS.entityFiles).upload(path, file);
     if (error) {
       toast('error', 'Failed to upload file');
       return null;
     }
     const {
       data: { publicUrl },
-    } = supabase.storage.from('entity-files').getPublicUrl(path);
+    } = pmStorage(supabase).from(BUCKETS.entityFiles).getPublicUrl(path);
     return {
       file_url: publicUrl,
       file_name: file.name,

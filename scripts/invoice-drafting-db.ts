@@ -4,10 +4,15 @@
  * schema.sql), the retainer migration, the invoice save and validation
  * functions, then the drafting migrations under test, each applied twice.
  * auth.role() reads the test.role setting (service_role unless set).
+ *
+ * Everything is in schema pm, as on 2.0. The migrations were written for 1.x
+ * (public): each is applied as 2.0 has it, through the same rewrite that
+ * turned the 1.x schema.sql into the 2.0 one (inPm).
  */
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { PGlite } from '@electric-sql/pglite';
+import { rewriteSchema } from './release/pm-schema';
 
 export const RETAINER_MIGRATION = '../supabase/migrations/20260919050750_create_project_retainers.sql';
 export const HELD_HOURS_MIGRATION = '../supabase/migrations/20261018172146_invoice_hours_held_by_drafts.sql';
@@ -18,11 +23,25 @@ async function read(path: string) {
 }
 export const readSql = read;
 
+/**
+ * SQL written for 1.x (public, communications) as 2.0 has it: the rewrite
+ * that made the 2.0 schema.sql, without the file header it adds.
+ */
+export function inPm(sql: string): string {
+  const rewritten = rewriteSchema(sql);
+  const headerEnd = '\nSET search_path = pm, extensions;\n\n';
+  const body = rewritten.indexOf(headerEnd);
+  assert.ok(body > 0, 'the 2.0 header ends with its search path');
+  return rewritten.slice(body + headerEnd.length);
+}
+/** A migration file, as 2.0 has it (inPm). */
+export const readMigrationInPm = async (path: string) => inPm(await read(path));
+
 export async function createDraftingDatabase(extraMigrations: string[] = []): Promise<PGlite> {
   const db = new PGlite();
   const canonical = await read('../supabase/schema.sql');
   const table = (name: string) => {
-    const sql = canonical.match(new RegExp('create table public\\.' + name + ' \\([\\s\\S]*?^\\);', 'mi'))?.[0];
+    const sql = canonical.match(new RegExp('create table pm\\.' + name + ' \\([\\s\\S]*?^\\);', 'mi'))?.[0];
     assert.ok(sql, `table ${name} in schema.sql`);
     return sql;
   };
@@ -35,7 +54,7 @@ export async function createDraftingDatabase(extraMigrations: string[] = []): Pr
     return check;
   };
   const fn = (name: string) => {
-    const sql = canonical.match(new RegExp('create or replace function public\\.' + name + '\\([\\s\\S]*?^\\$\\$;', 'mi'))?.[0];
+    const sql = canonical.match(new RegExp('create or replace function pm\\.' + name + '\\([\\s\\S]*?^\\$\\$;', 'mi'))?.[0];
     assert.ok(sql, `function ${name} in schema.sql`);
     return sql;
   };
@@ -43,45 +62,48 @@ export async function createDraftingDatabase(extraMigrations: string[] = []): Pr
   await db.exec(`
     CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role BYPASSRLS;
     CREATE SCHEMA auth;
+    CREATE SCHEMA pm;
+    -- As the app sees it on 2.0: unqualified names are the app's.
+    SET search_path = pm, public;
     CREATE FUNCTION auth.role() RETURNS text LANGUAGE sql
       AS $$ SELECT COALESCE(NULLIF(current_setting('test.role', true), ''), 'service_role') $$;
     CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql AS $$ SELECT NULL::uuid $$;
-    CREATE TABLE public.team_members (
+    CREATE TABLE pm.team_members (
       id uuid PRIMARY KEY, name text NOT NULL DEFAULT '', email text NOT NULL DEFAULT '', role text NOT NULL,
       status text NOT NULL DEFAULT 'active', timezone text NOT NULL DEFAULT 'UTC',
       email_notifications_enabled boolean NOT NULL DEFAULT false,
       email_notification_prefs jsonb NOT NULL DEFAULT '{}'::jsonb,
       created_at timestamptz NOT NULL DEFAULT now()
     );
-    CREATE TABLE public.projects (
+    CREATE TABLE pm.projects (
       id uuid PRIMARY KEY, name text NOT NULL, status text NOT NULL DEFAULT 'active', archived_at timestamptz,
       deleted_at timestamptz, deleted_by uuid
     );
-    CREATE TABLE public.project_time_entries (
+    CREATE TABLE pm.project_time_entries (
       id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-      project_id uuid REFERENCES public.projects(id) ON DELETE CASCADE,
+      project_id uuid REFERENCES pm.projects(id) ON DELETE CASCADE,
       member_id uuid, start_time timestamptz NOT NULL, end_time timestamptz,
       segments jsonb NOT NULL DEFAULT '[]'::jsonb, hourly_rate numeric(10,2) NOT NULL DEFAULT 0,
       work_type text NOT NULL DEFAULT 'client', approval_status text NOT NULL DEFAULT 'approved',
       compensation_rate numeric, deleted_at timestamptz, deleted_by uuid
     );
-    CREATE FUNCTION public.project_is_live(uuid) RETURNS boolean LANGUAGE sql
-      AS $$ SELECT EXISTS (SELECT 1 FROM public.projects WHERE id = $1 AND deleted_at IS NULL) $$;
-    CREATE TABLE public.notifications_log (user_id uuid, title text, message text, link text,
+    CREATE FUNCTION pm.project_is_live(uuid) RETURNS boolean LANGUAGE sql
+      AS $$ SELECT EXISTS (SELECT 1 FROM pm.projects WHERE id = $1 AND deleted_at IS NULL) $$;
+    CREATE TABLE pm.notifications_log (user_id uuid, title text, message text, link text,
       entity_type text ${notificationTypeCheck()}, entity_id text);
-    CREATE FUNCTION public.upsert_notification(uuid, text, text, text, text, text) RETURNS void LANGUAGE sql
-      AS $$ INSERT INTO public.notifications_log VALUES ($1, $2, $3, $4, $5, $6) $$;
-    CREATE FUNCTION public.handle_updated_at() RETURNS trigger LANGUAGE plpgsql
+    CREATE FUNCTION pm.upsert_notification(uuid, text, text, text, text, text) RETURNS void LANGUAGE sql
+      AS $$ INSERT INTO pm.notifications_log VALUES ($1, $2, $3, $4, $5, $6) $$;
+    CREATE FUNCTION pm.handle_updated_at() RETURNS trigger LANGUAGE plpgsql
       AS $$ BEGIN NEW.updated_at = now(); RETURN NEW; END $$;
-    CREATE FUNCTION public.current_team_member_id() RETURNS uuid LANGUAGE sql AS $$ SELECT NULL::uuid $$;
-    CREATE FUNCTION public.has_permission(text, text DEFAULT 'app') RETURNS boolean LANGUAGE sql AS $$ SELECT true $$;
-    CREATE FUNCTION public.can_access_project(uuid) RETURNS boolean LANGUAGE sql AS $$ SELECT true $$;
+    CREATE FUNCTION pm.current_team_member_id() RETURNS uuid LANGUAGE sql AS $$ SELECT NULL::uuid $$;
+    CREATE FUNCTION pm.has_permission(text, text DEFAULT 'app') RETURNS boolean LANGUAGE sql AS $$ SELECT true $$;
+    CREATE FUNCTION pm.can_access_project(uuid) RETURNS boolean LANGUAGE sql AS $$ SELECT true $$;
     -- Stand-in for who may see invoices: Owners, plus a per-person grant (role defaults omitted;
     -- since 1.3.0 Admins do not start with invoice permissions).
-    CREATE TABLE public.team_member_permissions (member_id uuid, permission_key text, access_channel text DEFAULT 'app', effect text DEFAULT 'allow');
-    CREATE FUNCTION public.member_has_permission(p_member_id uuid, p_permission_key text, p_access_channel text DEFAULT 'app') RETURNS boolean LANGUAGE sql AS $$
-      SELECT EXISTS (SELECT 1 FROM public.team_members WHERE id = p_member_id AND role = 'owner' AND status = 'active')
-        OR EXISTS (SELECT 1 FROM public.team_member_permissions WHERE member_id = p_member_id AND permission_key = p_permission_key
+    CREATE TABLE pm.team_member_permissions (member_id uuid, permission_key text, access_channel text DEFAULT 'app', effect text DEFAULT 'allow');
+    CREATE FUNCTION pm.member_has_permission(p_member_id uuid, p_permission_key text, p_access_channel text DEFAULT 'app') RETURNS boolean LANGUAGE sql AS $$
+      SELECT EXISTS (SELECT 1 FROM pm.team_members WHERE id = p_member_id AND role = 'owner' AND status = 'active')
+        OR EXISTS (SELECT 1 FROM pm.team_member_permissions WHERE member_id = p_member_id AND permission_key = p_permission_key
           AND access_channel = p_access_channel AND effect = 'allow')
     $$;
   `);
@@ -89,32 +111,32 @@ export async function createDraftingDatabase(extraMigrations: string[] = []): Pr
     await db.exec(table(name));
   }
   await db.exec(`
-    CREATE TABLE public.team_member_payout_allocations (
+    CREATE TABLE pm.team_member_payout_allocations (
       id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-      payout_id uuid NOT NULL REFERENCES public.team_member_payouts(id) ON DELETE CASCADE,
-      time_entry_id uuid REFERENCES public.project_time_entries(id) ON DELETE RESTRICT,
-      adjustment_id uuid REFERENCES public.team_member_earning_adjustments(id) ON DELETE RESTRICT,
+      payout_id uuid NOT NULL REFERENCES pm.team_member_payouts(id) ON DELETE CASCADE,
+      time_entry_id uuid REFERENCES pm.project_time_entries(id) ON DELETE RESTRICT,
+      adjustment_id uuid REFERENCES pm.team_member_earning_adjustments(id) ON DELETE RESTRICT,
       allocated_amount numeric(12,2) NOT NULL CHECK (allocated_amount <> 0),
       created_at timestamptz NOT NULL DEFAULT now(),
       CHECK (num_nonnulls(time_entry_id, adjustment_id) = 1),
       UNIQUE NULLS NOT DISTINCT (payout_id, time_entry_id, adjustment_id)
     );
   `);
-  await db.exec(await read(RETAINER_MIGRATION));
+  await db.exec(await readMigrationInPm(RETAINER_MIGRATION));
   // The invoice save path as production has it (validate is replaced below).
   await db.exec(fn('validate_invoice_time_allocations'));
   await db.exec(fn('save_project_invoice_with_allocations'));
   for (const path of [HELD_HOURS_MIGRATION, UNALLOCATED_HOURS_MIGRATION, ...extraMigrations]) {
-    const sql = await read(path);
+    const sql = await readMigrationInPm(path);
     await db.exec(sql);
     await db.exec(sql); // safe to re-run
   }
   // What fake-postgrest's service-role requests need (Supabase grants these).
   await db.exec(`
-    GRANT USAGE ON SCHEMA public, auth TO service_role, authenticated;
-    GRANT ALL ON ALL TABLES IN SCHEMA public TO service_role;
-    GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO service_role;
-    GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public, auth TO service_role;
+    GRANT USAGE ON SCHEMA pm, auth TO service_role, authenticated;
+    GRANT ALL ON ALL TABLES IN SCHEMA pm TO service_role;
+    GRANT ALL ON ALL SEQUENCES IN SCHEMA pm TO service_role;
+    GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA pm, auth TO service_role;
   `);
   return db;
 }

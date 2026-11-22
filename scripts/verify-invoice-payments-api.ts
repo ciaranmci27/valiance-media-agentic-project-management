@@ -35,19 +35,19 @@ const hash = (key: string) => createHash('sha256').update(key).digest('hex');
 
 async function seedAccess(db: PGlite) {
   await db.exec(`
-    CREATE TABLE IF NOT EXISTS public.business_settings (id serial PRIMARY KEY, api_enabled boolean NOT NULL DEFAULT true);
-    INSERT INTO public.business_settings DEFAULT VALUES;
+    CREATE TABLE IF NOT EXISTS pm.business_settings (id serial PRIMARY KEY, api_enabled boolean NOT NULL DEFAULT true);
+    INSERT INTO pm.business_settings DEFAULT VALUES;
     -- The drafting database may already carry this stand-in (same columns).
-    CREATE TABLE IF NOT EXISTS public.team_member_permissions (member_id uuid, permission_key text, access_channel text, effect text);
-    CREATE TABLE public.project_members (member_id uuid, project_id uuid REFERENCES public.projects(id));
-    CREATE TABLE public.api_audit_log (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), method text, endpoint text, entity_type text,
+    CREATE TABLE IF NOT EXISTS pm.team_member_permissions (member_id uuid, permission_key text, access_channel text, effect text);
+    CREATE TABLE pm.project_members (member_id uuid, project_id uuid REFERENCES pm.projects(id));
+    CREATE TABLE pm.api_audit_log (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), method text, endpoint text, entity_type text,
       entity_id uuid, api_key_id uuid, team_member_id uuid, request_body jsonb, before_snapshot jsonb, after_snapshot jsonb,
       status_code integer, error text, via text NOT NULL DEFAULT 'rest', created_at timestamptz NOT NULL DEFAULT now());
-    CREATE FUNCTION public.consume_api_rate_limit(p_api_key_id uuid, p_limit integer, p_window_seconds integer) RETURNS jsonb
+    CREATE FUNCTION pm.consume_api_rate_limit(p_api_key_id uuid, p_limit integer, p_window_seconds integer) RETURNS jsonb
       LANGUAGE sql AS $$ SELECT jsonb_build_object('allowed', true, 'remaining', p_limit - 1, 'reset_at', now() + make_interval(secs => p_window_seconds)) $$;
-    GRANT ALL ON ALL TABLES IN SCHEMA public TO service_role;
-    GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO service_role;
-    GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO service_role;
+    GRANT ALL ON ALL TABLES IN SCHEMA pm TO service_role;
+    GRANT ALL ON ALL SEQUENCES IN SCHEMA pm TO service_role;
+    GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA pm TO service_role;
   `);
   await db.query("INSERT INTO team_members(id, name, role) VALUES ($1, 'Owner', 'owner'), ($2, 'Books bot', 'member')", [OWNER, MEMBER]);
   // A member who sees only P1, allowed the invoice scopes on the API by override.

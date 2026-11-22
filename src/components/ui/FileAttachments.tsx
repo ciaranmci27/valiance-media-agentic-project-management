@@ -32,6 +32,8 @@ import { NewNoteModal } from '@/components/ui/NewNoteModal';
 import type { EntityFileType, EntityFile } from '@/lib/types';
 import { hasPermission } from '@/lib/access-control';
 import { EmptyCard, NoMatches, SubNav, TabToolbar, ToolbarButton } from '@/components/projects/TabLayout';
+import { pmStorage } from '@/lib/supabase/storage';
+import { BUCKETS } from '@/lib/supabase/schema';
 
 function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -169,13 +171,13 @@ export function FileAttachments({ entityType, entityId, layout = 'list' }: FileA
     try {
       const supabase = createClient();
       const fileName = `${entityType}/${entityId}/${Date.now()}-${file.name}`;
-      const { error: uploadError } = await supabase.storage
-        .from('entity-files')
+      const { error: uploadError } = await pmStorage(supabase)
+        .from(BUCKETS.entityFiles)
         .upload(fileName, file);
 
       if (uploadError) throw uploadError;
 
-      const { data: urlData } = supabase.storage.from('entity-files').getPublicUrl(fileName);
+      const { data: urlData } = pmStorage(supabase).from(BUCKETS.entityFiles).getPublicUrl(fileName);
 
       addEntityFile({
         entity_type: entityType,
@@ -244,14 +246,14 @@ export function FileAttachments({ entityType, entityId, layout = 'list' }: FileA
     const supabase = isDemoMode ? null : createClient();
     if (supabase) {
       storagePath = `${entityType}/${entityId}/${Date.now()}-${fileName}`;
-      const { error: uploadError } = await supabase.storage
-        .from('entity-files')
+      const { error: uploadError } = await pmStorage(supabase)
+        .from(BUCKETS.entityFiles)
         .upload(storagePath, blob, { contentType: mimeType });
       if (uploadError) {
         toast('error', 'Failed to save note');
         throw uploadError;
       }
-      fileUrl = supabase.storage.from('entity-files').getPublicUrl(storagePath).data.publicUrl;
+      fileUrl = pmStorage(supabase).from(BUCKETS.entityFiles).getPublicUrl(storagePath).data.publicUrl;
     }
 
     // An edit updates the existing row in place: nothing is removed until the
@@ -270,7 +272,7 @@ export function FileAttachments({ entityType, entityId, layout = 'list' }: FileA
     if (!saved) {
       // The row never pointed at this upload; do not leave it behind.
       if (supabase && storagePath) {
-        supabase.storage.from('entity-files').remove([storagePath]).then(() => {}, () => {});
+        pmStorage(supabase).from(BUCKETS.entityFiles).remove([storagePath]).then(() => {}, () => {});
       }
       throw new Error('Failed to save note');
     }

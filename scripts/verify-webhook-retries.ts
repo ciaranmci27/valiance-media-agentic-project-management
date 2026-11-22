@@ -7,7 +7,9 @@
  *
  * The database starts at the webhook schema as it was before the retry
  * migration (with a delivery stuck in 'delivering'), then the migration is
- * applied twice.
+ * applied twice. The migrations were written for 1.x (public); each is
+ * applied as 2.0 has it, in schema pm (inPm, the rewrite that made the 2.0
+ * schema.sql), and the Vault entries the kick reads are pm_-prefixed.
  *
  *   npm run -s test:webhook-retries
  */
@@ -18,6 +20,7 @@ import { createServer, type IncomingMessage } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { PGlite } from '@electric-sql/pglite';
 import { startFakePostgrest } from './fake-postgrest';
+import { inPm } from './invoice-drafting-db';
 
 const CREATE_MIGRATION = '../supabase/migrations/20260725154128_create_webhooks.sql';
 const AMOUNT_BASIS_MIGRATION = '../supabase/migrations/20260919213826_webhook_amount_basis.sql';
@@ -35,7 +38,7 @@ async function read(path: string) {
   return (await readFile(new URL(path, import.meta.url), 'utf8')).replace(/\r\n/g, '\n');
 }
 function fn(sql: string, name: string) {
-  const found = sql.match(new RegExp('create or replace function public\\.' + name + '\\([\\s\\S]*?^\\$\\$;', 'mi'))?.[0];
+  const found = sql.match(new RegExp('create or replace function pm\\.' + name + '\\([\\s\\S]*?^\\$\\$;', 'mi'))?.[0];
   assert.ok(found, `function ${name}`);
   return found;
 }
@@ -77,18 +80,21 @@ function readBody(request: IncomingMessage): Promise<string> {
 
 async function createDatabase() {
   const db = new PGlite();
-  const create = await read(CREATE_MIGRATION);
-  const basis = await read(AMOUNT_BASIS_MIGRATION);
+  const create = inPm(await read(CREATE_MIGRATION));
+  const basis = inPm(await read(AMOUNT_BASIS_MIGRATION));
   const canonical = await read('../supabase/schema.sql');
   await db.exec(`
     CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role BYPASSRLS;
     CREATE SCHEMA auth;
+    CREATE SCHEMA pm;
+    -- As the app sees it on 2.0: unqualified names are the app's.
+    SET search_path = pm, public;
     CREATE FUNCTION auth.role() RETURNS text LANGUAGE sql AS $$ SELECT 'service_role' $$;
     CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql AS $$ SELECT NULL::uuid $$;
-    CREATE TABLE public.team_members (id uuid PRIMARY KEY);
-    CREATE FUNCTION public.handle_updated_at() RETURNS trigger LANGUAGE plpgsql
+    CREATE TABLE pm.team_members (id uuid PRIMARY KEY);
+    CREATE FUNCTION pm.handle_updated_at() RETURNS trigger LANGUAGE plpgsql
       AS $$ BEGIN NEW.updated_at = now(); RETURN NEW; END $$;
-    GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
+    GRANT USAGE ON SCHEMA pm TO anon, authenticated, service_role;
     -- Stand-ins for Supabase Vault and pg_net: webhook_retry_kick reads the one and calls the other.
     CREATE SCHEMA vault;
     CREATE TABLE vault.decrypted_secrets (name text PRIMARY KEY, decrypted_secret text);
@@ -100,14 +106,14 @@ async function createDatabase() {
       AS $$ INSERT INTO net.requests (url, headers, body, timeout_milliseconds) VALUES (url, headers, body, timeout_milliseconds) RETURNING id $$;
   `);
   // The webhook tables exactly as the first migration made them, then the amount_basis columns.
-  const tables = create.slice(create.indexOf('CREATE SEQUENCE IF NOT EXISTS public.webhook_event_seq'), create.indexOf('-- updated_at bumps'));
+  const tables = create.slice(create.indexOf('CREATE SEQUENCE IF NOT EXISTS pm.webhook_event_seq'), create.indexOf('-- updated_at bumps'));
   await db.exec(tables);
   await db.exec(`
-    CREATE TRIGGER set_webhook_deliveries_updated_at BEFORE UPDATE ON public.webhook_deliveries
-      FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
-    ALTER TABLE public.webhook_endpoints ADD COLUMN IF NOT EXISTS amount_basis text NOT NULL DEFAULT 'gross';
-    ALTER TABLE public.webhook_events ADD COLUMN IF NOT EXISTS net_amounts jsonb;
-    GRANT ALL ON public.webhook_endpoints, public.webhook_events, public.webhook_deliveries TO service_role;
+    CREATE TRIGGER set_webhook_deliveries_updated_at BEFORE UPDATE ON pm.webhook_deliveries
+      FOR EACH ROW EXECUTE FUNCTION pm.handle_updated_at();
+    ALTER TABLE pm.webhook_endpoints ADD COLUMN IF NOT EXISTS amount_basis text NOT NULL DEFAULT 'gross';
+    ALTER TABLE pm.webhook_events ADD COLUMN IF NOT EXISTS net_amounts jsonb;
+    GRANT ALL ON pm.webhook_endpoints, pm.webhook_events, pm.webhook_deliveries TO service_role;
   `);
   await db.exec(fn(canonical, 'webhook_payload_for_endpoint'));
   await db.exec(fn(basis, 'claim_webhook_deliveries'));
@@ -154,7 +160,7 @@ async function main() {
   };
   // One event for an invoice, delivered to the given endpoints. Returns its sequence.
   const emit = async (invoiceId: string, type: string, endpointIds: string[]) => {
-    const seq = Number((await q<{ s: string }>("SELECT nextval('public.webhook_event_seq') s"))[0].s);
+    const seq = Number((await q<{ s: string }>("SELECT nextval('pm.webhook_event_seq') s"))[0].s);
     const eventId = 'evt_' + randomUUID().replace(/-/g, '');
     const payload = {
       id: eventId, type, sequence: seq, created_at: new Date().toISOString(),
@@ -188,7 +194,7 @@ async function main() {
   const stuckSeq = await emit(stuckInvoice, 'invoice.paid', [stuckEndpoint]);
   await q("UPDATE webhook_deliveries SET status = 'delivering', attempts = 1, last_attempt_at = now() - interval '1 hour' WHERE endpoint_id = $1", [stuckEndpoint]);
 
-  const migration = await read(RETRY_MIGRATION);
+  const migration = inPm(await read(RETRY_MIGRATION));
   await db.exec(migration);
   await db.exec(migration);
   check('migration is safe to re-run', true);
@@ -199,7 +205,7 @@ async function main() {
 
   // The schema snapshot carries the same functions as the migration; the
   // claim function was redefined since, to wait while webhooks are switched off.
-  const guards = await read(MODULE_GUARDS_MIGRATION);
+  const guards = inPm(await read(MODULE_GUARDS_MIGRATION));
   for (const name of ['claim_webhook_deliveries', 'complete_webhook_delivery', 'requeue_webhook_delivery', 'webhook_retry_kick']) {
     const latest = name === 'claim_webhook_deliveries' ? guards : migration;
     check(`schema.sql ${name} matches its latest migration`, fn(canonical, name) === fn(latest, name));
@@ -338,7 +344,7 @@ async function main() {
     respond = () => 500;
     const k1 = await emit(randomUUID(), 'invoice.paid', [kickEndpoint]);
     check('due but no Vault secrets: the kick sends nothing', (await kick()) === null && (await requests()).length === 0);
-    await q("INSERT INTO vault.decrypted_secrets VALUES ('webhook_scheduler_url', 'https://app.example.test/'), ('webhook_scheduler_secret', $1)", ['s'.repeat(40)]);
+    await q("INSERT INTO vault.decrypted_secrets VALUES ('pm_webhook_scheduler_url', 'https://app.example.test/'), ('pm_webhook_scheduler_secret', $1)", ['s'.repeat(40)]);
     check('a new delivery the in-app kick missed is due: the kick posts', (await kick()) !== null);
     const [request] = await requests();
     check('the kick posts to the scheduled route with the bearer secret',

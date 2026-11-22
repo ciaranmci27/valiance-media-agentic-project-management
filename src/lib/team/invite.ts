@@ -136,6 +136,8 @@ export async function redeemInvite(
 ): Promise<{ email: string }> {
   const now = input.now ?? new Date();
   const { invite, member, authEmail } = await liveInvite(service, input.token, now);
+  const { data: owned } = await service.from('team_members').select('login_owned').eq('id', member.id).maybeSingle();
+  if ((owned as { login_owned?: boolean } | null)?.login_owned === false) throw new InviteError(409, NOT_OUR_LOGIN);
   const { data: claimed, error: claimError } = await service
     .from('team_invites')
     .update({ used_at: now.toISOString() })
@@ -206,15 +208,31 @@ async function deliver(
     : { link, emailed: false, emailStatus: 'failed', emailError: result.error || 'The email could not be sent' };
 }
 
-/** The team_members row the new-user trigger makes, waited for briefly. */
-async function memberForAuthUser(service: SupabaseClient, authUserId: string) {
-  for (let attempt = 0; attempt < 5; attempt++) {
-    const { data } = await service.from('team_members').select('*').eq('auth_user_id', authUserId).maybeSingle();
-    if (data) return data as Record<string, unknown> & { id: string };
-    await new Promise((resolve) => setTimeout(resolve, 300));
-  }
-  return null;
+type MemberRow = Record<string, unknown> & { id: string };
+
+/**
+ * Makes (or, on an install that still has the sign-up trigger, finds and
+ * updates) the team member for a login, through the server-only
+ * pm.add_team_member. Members are never made by a sign-up.
+ */
+async function addMember(service: SupabaseClient, args: { authUserId: string; email: string; name: string; role: Role; loginOwned: boolean }): Promise<MemberRow> {
+  const { data, error } = await service.rpc('add_team_member', {
+    p_auth_user_id: args.authUserId,
+    p_email: args.email,
+    p_name: args.name,
+    p_role: args.role,
+    p_login_owned: args.loginOwned,
+  });
+  const row = (Array.isArray(data) ? data[0] : data) as MemberRow | null;
+  if (error || !row?.id) throw new InviteError(500, error?.message || 'Could not add the team member');
+  return row;
 }
+
+/** A login PM did not make (another app's user): PM never changes its email, password or links. */
+export const NOT_OUR_LOGIN = 'This person signs in with an account from another app, so it is managed there.';
+
+/** The email has a login on this project that was never confirmed: never linked. */
+export const UNCONFIRMED_LOGIN = 'This email already has an account in another app here, but it has not been confirmed. Ask them to confirm their email in that app, then invite them again.';
 
 export interface InviteResult {
   member: Record<string, unknown> & { id: string };
@@ -240,24 +258,14 @@ export async function inviteMember(options: DeliveryOptions & {
   if (createError) {
     const message = createError.message?.toLowerCase() ?? '';
     if (message.includes('already been registered') || message.includes('already exists')) {
-      throw new InviteError(409, 'A user with this email already exists');
+      return addExistingLogin(options);
     }
     if (message.includes('password')) throw new InviteError(422, createError.message);
     throw new InviteError(500, createError.message || 'Failed to create user');
   }
   if (!created?.user) throw new InviteError(500, 'Failed to create user');
 
-  const row = await memberForAuthUser(service, created.user.id);
-  if (!row) {
-    throw new InviteError(500, 'User created but team member row was not auto-generated. Check the handle_new_user trigger.');
-  }
-  const { data: patched } = await service
-    .from('team_members')
-    .update({ name: input.name, role: input.role })
-    .eq('id', row.id)
-    .select('*')
-    .single();
-  const member = (patched as InviteResult['member'] | null) ?? { ...row, name: input.name, role: input.role };
+  const member = await addMember(service, { authUserId: created.user.id, email: input.email, name: input.name, role: input.role, loginOwned: true });
 
   if (input.password) return { member, invite: null };
   try {
@@ -269,6 +277,44 @@ export async function inviteMember(options: DeliveryOptions & {
       invite: { link: '', emailed: false, emailStatus: 'failed', emailError: error instanceof Error ? error.message : 'Could not make the invite link' },
     };
   }
+}
+
+/**
+ * The email already has a login in this Supabase project (another app's
+ * user, on a shared project): it becomes a member with its own PM role,
+ * marked as a login PM did not make, and is told to sign in with it. No
+ * password is set and no set-password link is made.
+ */
+async function addExistingLogin(options: DeliveryOptions & { access: AccessContext; input: InviteInput }): Promise<InviteResult> {
+  const { service, input } = options;
+  const { data: anyLogin, error } = await service.rpc('login_for_email', { p_email: input.email });
+  if (error || typeof anyLogin !== 'string') throw new InviteError(409, 'A user with this email already exists');
+  const { data: existing } = await service.from('team_members').select('id').eq('auth_user_id', anyLogin).maybeSingle();
+  if (existing) throw new InviteError(409, 'This person is already on the team');
+  // Only a confirmed login is linked: an unconfirmed one may be someone else's
+  // sign-up (in another app on this project) under this person's address.
+  const { data: authUserId, error: confirmedError } = await service.rpc('login_for_email', { p_email: input.email, p_confirmed_only: true });
+  if (confirmedError) throw new InviteError(500, 'Could not look up the existing account. Try again.');
+  if (typeof authUserId !== 'string') throw new InviteError(409, UNCONFIRMED_LOGIN);
+  if (input.password) throw new InviteError(409, 'This email already has an account. Invite them without a password: they sign in with the one they have.');
+  const member = await addMember(service, { authUserId, email: input.email, name: input.name, role: input.role, loginOwned: false });
+
+  const link = `${options.appUrl.replace(/\/$/, '')}/login`;
+  if (input.role === 'agent') return { member, invite: { link, emailed: false, emailStatus: 'skipped' } };
+  if (!(await emailConfigured(service))) return { member, invite: { link, emailed: false, emailStatus: 'not_configured' } };
+  const [{ getBrand }, { buildInviteEmail }] = await Promise.all([
+    import('@/lib/brand/server'),
+    import('@/lib/email/templates/team/invite'),
+  ]);
+  const roleLabel = input.role.charAt(0).toUpperCase() + input.role.slice(1);
+  const email = buildInviteEmail({ brand: await getBrand(), name: input.name, inviterName: options.inviterName, roleLabel, link, existingAccount: true });
+  const result = await (options.mailer ?? defaultMailer)({ to: input.email, ...email });
+  return {
+    member,
+    invite: result.success
+      ? { link, emailed: true, emailStatus: 'sent' }
+      : { link, emailed: false, emailStatus: 'failed', emailError: result.error || 'The email could not be sent' },
+  };
 }
 
 /**
@@ -284,11 +330,12 @@ export async function reissueInvite(options: DeliveryOptions & {
   const { service, access, memberId } = options;
   const { data: member, error } = await service
     .from('team_members')
-    .select('id, auth_user_id, name, email, role, status')
+    .select('id, auth_user_id, name, email, role, status, login_owned')
     .eq('id', memberId)
     .maybeSingle();
   if (error) throw new InviteError(500, error.message);
   if (!member) throw new InviteError(404, 'Team member not found');
+  if (member.login_owned === false) throw new InviteError(409, NOT_OUR_LOGIN);
   if (!canInviteRole(access.role, member.role)) throw new InviteError(403, 'Only an Owner can invite an Owner, an Admin or an agent');
   if (!member.auth_user_id || !member.email) throw new InviteError(422, 'This person has no sign-in account');
   if (member.status !== 'active') throw new InviteError(422, 'Reactivate this person before inviting them again');

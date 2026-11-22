@@ -100,8 +100,9 @@ for (const file of SCOPE.flatMap(files)) {
   }
 
   // A query on a table named at runtime cannot be checked here. (Buffer.from,
-  // Array.from and storage buckets are not queries.)
-  for (const match of source.matchAll(/(?<!Buffer|Array|storage|Uint8Array)\s*\.from\(([a-zA-Z_][\w.]*)\)/g)) {
+  // Array.from and storage buckets are not queries: `storage.from(bucket)`, or
+  // since 2.0 `pmStorage(client).from(bucket)`, the chain on its own line or not.)
+  for (const match of source.matchAll(/(?<!Buffer|Array|storage|Uint8Array)\s*(?<!\bpmStorage\([^()]*\)\s*)\.from\(([a-zA-Z_][\w.]*)\)/g)) {
     const { line, label } = where(match.index!);
     if (!marked(lines, line) && !/trash-checked:/.test(lines.slice(Math.max(0, line - 2), line + 1).join('\n'))) {
       problems.push(`${label} queries a table named at runtime (${match[1]}); mark it "// trash-checked: <why>"`);

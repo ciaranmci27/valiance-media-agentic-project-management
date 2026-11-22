@@ -26,7 +26,7 @@ const SUPABASE_STANDINS = `
   CREATE SCHEMA auth;
   GRANT USAGE ON SCHEMA auth TO authenticated, anon, service_role;
   CREATE TABLE auth.users (id uuid PRIMARY KEY, email text, raw_user_meta_data jsonb DEFAULT '{}'::jsonb,
-    raw_app_meta_data jsonb DEFAULT '{}'::jsonb,
+    raw_app_meta_data jsonb DEFAULT '{}'::jsonb, email_confirmed_at timestamptz,
     created_at timestamptz DEFAULT now());
   CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE
     AS $$ SELECT nullif(current_setting('request.jwt.claim.sub', true), '')::uuid $$;
@@ -52,6 +52,8 @@ const SUPABASE_STANDINS = `
           RETURNING jobid $$;
   CREATE FUNCTION cron.unschedule(p_name text) RETURNS boolean LANGUAGE sql
     AS $$ DELETE FROM cron.job WHERE jobname = p_name RETURNING true $$;
+  CREATE FUNCTION cron.unschedule(p_jobid bigint) RETURNS boolean LANGUAGE sql
+    AS $$ DELETE FROM cron.job WHERE jobid = p_jobid RETURNING true $$;
   CREATE SCHEMA net;
   CREATE FUNCTION net.http_post(url text, body jsonb DEFAULT '{}'::jsonb, params jsonb DEFAULT '{}'::jsonb,
     headers jsonb DEFAULT '{}'::jsonb, timeout_milliseconds int DEFAULT 5000) RETURNS bigint LANGUAGE sql
@@ -159,10 +161,19 @@ export async function createFullSchemaDatabase(options: { schemaSql?: string; ag
   // The file as it ships installs on a fresh database with no error; an older copy may not.
   await applySchema(db, options.schemaSql ?? readFileSync(SCHEMA_PATH, 'utf8'), { strict: options.schemaSql === undefined });
   if (options.agentSchemaSql) await applySchema(db, options.agentSchemaSql);
+  // Seeding: tests insert a login and get a member, as installs before 2.0
+  // did. Installs have no trigger on auth.users since 2.0 (the server adds
+  // members); test:pm-schema checks a real install without it.
+  if (options.schemaSql === undefined) {
+    await db.exec('CREATE TRIGGER on_auth_user_created AFTER INSERT ON auth.users FOR EACH ROW EXECUTE FUNCTION pm.handle_new_user()');
+  }
   if (options.schemaSql !== undefined || options.agentSchemaSql) {
     // Older agent files re-added the role check without 'owner'; production has it.
-    await db.exec(`ALTER TABLE public.team_members DROP CONSTRAINT IF EXISTS team_members_role_check,
-      ADD CONSTRAINT team_members_role_check CHECK (role IN ('owner', 'admin', 'member', 'guest', 'agent'))`);
+    // Only for a 1.x copy (2.0 has no public.team_members).
+    await db.exec(`DO $fix$ BEGIN IF to_regclass('public.team_members') IS NOT NULL THEN
+      ALTER TABLE public.team_members DROP CONSTRAINT IF EXISTS team_members_role_check,
+        ADD CONSTRAINT team_members_role_check CHECK (role IN ('owner', 'admin', 'member', 'guest', 'agent'));
+    END IF; END $fix$`);
   }
   return db;
 }

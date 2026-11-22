@@ -1,13 +1,16 @@
 import { createServerClient } from '@supabase/ssr';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { cookies } from 'next/headers';
+import { PM_DB } from '@/lib/supabase/schema';
 
-export async function createClient() {
+export async function createClient(): Promise<SupabaseClient> {
   const cookieStore = await cookies();
 
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
+      db: PM_DB,
       cookies: {
         getAll() {
           return cookieStore.getAll();
@@ -24,5 +27,5 @@ export async function createClient() {
         },
       },
     }
-  );
+  ) as unknown as SupabaseClient;
 }

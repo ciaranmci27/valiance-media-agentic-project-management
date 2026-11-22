@@ -144,13 +144,13 @@ async function people(db: PGlite) {
   await db.exec('RESET ROLE');
   await db.query('INSERT INTO auth.users (id, email) VALUES ($1, $2), ($3, $4) ON CONFLICT DO NOTHING',
     [OWNER_AUTH, 'owner@region.example', MEMBER_AUTH, 'member@region.example']);
-  await db.query("UPDATE public.team_members SET role = 'owner', status = 'active' WHERE auth_user_id = $1", [OWNER_AUTH]);
-  await db.query("UPDATE public.team_members SET role = 'member', status = 'active' WHERE auth_user_id = $1", [MEMBER_AUTH]);
+  await db.query("UPDATE pm.team_members SET role = 'owner', status = 'active' WHERE auth_user_id = $1", [OWNER_AUTH]);
+  await db.query("UPDATE pm.team_members SET role = 'member', status = 'active' WHERE auth_user_id = $1", [MEMBER_AUTH]);
 }
 
 async function newInvoice(db: PGlite, project: string, number: string): Promise<string> {
   await actAs(db, null);
-  const rows = await db.query<{ currency: string }>('SELECT (public.save_project_invoice_with_allocations(NULL, $1::jsonb, $2::jsonb)).currency', [
+  const rows = await db.query<{ currency: string }>('SELECT (pm.save_project_invoice_with_allocations(NULL, $1::jsonb, $2::jsonb)).currency', [
     JSON.stringify({ project_id: project, invoice_number: number, amount: 100, status: 'draft', invoice_type: 'fixed', line_items: [], date: '2026-11-21' }),
     '[]',
   ]);
@@ -160,73 +160,71 @@ async function newInvoice(db: PGlite, project: string, number: string): Promise<
 async function database() {
   const db = await createFullSchemaDatabase();
   await db.exec('RESET ROLE');
-  await db.exec(MIGRATION_SQL);
-  await db.exec(MIGRATION_SQL);
   await people(db);
 
   const rows = await db.query<{ n: number; currency: string; locale: string; week_start: number }>(
-    'SELECT count(*) OVER ()::int AS n, currency, locale, week_start FROM public.workspace_region');
+    'SELECT count(*) OVER ()::int AS n, currency, locale, week_start FROM pm.workspace_region');
   check('db: one row, USD, en-US, Monday', rows.rows.length === 1 && rows.rows[0].currency === 'USD' && rows.rows[0].locale === 'en-US' && rows.rows[0].week_start === 1, rows.rows);
-  check('db: a second row is refused', !!(await failure(db, 'INSERT INTO public.workspace_region (id) VALUES (false)')));
+  check('db: a second row is refused', !!(await failure(db, 'INSERT INTO pm.workspace_region (id) VALUES (false)')));
 
   await db.exec('SET ROLE anon');
-  check('db: anon cannot read it', !!(await failure(db, 'SELECT currency FROM public.workspace_region')));
+  check('db: anon cannot read it', !!(await failure(db, 'SELECT currency FROM pm.workspace_region')));
 
   await actAs(db, MEMBER_AUTH);
-  const read = await db.query('SELECT currency FROM public.workspace_region');
+  const read = await db.query('SELECT currency FROM pm.workspace_region');
   check('db: a member reads it', read.rows.length === 1);
-  await db.query("UPDATE public.workspace_region SET currency = 'EUR'");
+  await db.query("UPDATE pm.workspace_region SET currency = 'EUR'");
   await actAs(db, null);
-  same('db: a member\'s update changes nothing', (await db.query<{ c: string }>('SELECT currency AS c FROM public.workspace_region')).rows[0].c, 'USD');
+  same('db: a member\'s update changes nothing', (await db.query<{ c: string }>('SELECT currency AS c FROM pm.workspace_region')).rows[0].c, 'USD');
   await actAs(db, MEMBER_AUTH);
-  check('db: a member cannot insert', !!(await failure(db, 'INSERT INTO public.workspace_region (id) VALUES (true) ON CONFLICT (id) DO UPDATE SET currency = \'EUR\'')));
-  check('db: a member cannot delete', !!(await failure(db, 'DELETE FROM public.workspace_region')));
+  check('db: a member cannot insert', !!(await failure(db, 'INSERT INTO pm.workspace_region (id) VALUES (true) ON CONFLICT (id) DO UPDATE SET currency = \'EUR\'')));
+  check('db: a member cannot delete', !!(await failure(db, 'DELETE FROM pm.workspace_region')));
 
   await actAs(db, OWNER_AUTH);
-  check('db: an Owner can update', (await failure(db, "UPDATE public.workspace_region SET currency = 'EUR', locale = 'de-DE'")) === null);
+  check('db: an Owner can update', (await failure(db, "UPDATE pm.workspace_region SET currency = 'EUR', locale = 'de-DE'")) === null);
   await actAs(db, null);
-  same('db: the Owner\'s update is stored', (await db.query<{ c: string }>('SELECT currency AS c FROM public.workspace_region')).rows[0].c, 'EUR');
+  same('db: the Owner\'s update is stored', (await db.query<{ c: string }>('SELECT currency AS c FROM pm.workspace_region')).rows[0].c, 'EUR');
   await actAs(db, OWNER_AUTH);
-  check('db: even an Owner cannot delete it', !!(await failure(db, 'DELETE FROM public.workspace_region')));
-  check('db: a bad currency is refused', !!(await failure(db, "UPDATE public.workspace_region SET currency = 'euro'")));
-  check('db: a bad week start is refused', !!(await failure(db, 'UPDATE public.workspace_region SET week_start = 3')));
-  check('db: a bad locale is refused', !!(await failure(db, "UPDATE public.workspace_region SET locale = 'de DE; drop'")));
+  check('db: even an Owner cannot delete it', !!(await failure(db, 'DELETE FROM pm.workspace_region')));
+  check('db: a bad currency is refused', !!(await failure(db, "UPDATE pm.workspace_region SET currency = 'euro'")));
+  check('db: a bad week start is refused', !!(await failure(db, 'UPDATE pm.workspace_region SET week_start = 3')));
+  check('db: a bad locale is refused', !!(await failure(db, "UPDATE pm.workspace_region SET locale = 'de DE; drop'")));
 
   // Stamped at creation, kept after a change.
   await db.exec('RESET ROLE');
-  const project = (await db.query<{ id: string }>("INSERT INTO public.projects (name) VALUES ('Region test') RETURNING id")).rows[0].id;
+  const project = (await db.query<{ id: string }>("INSERT INTO pm.projects (name) VALUES ('Region test') RETURNING id")).rows[0].id;
   same('invoice: a new invoice takes the workspace currency', await newInvoice(db, project, 'INV-1'), 'EUR');
   await db.exec('RESET ROLE');
-  await db.exec("UPDATE public.workspace_region SET currency = 'GBP', locale = 'en-GB'");
-  const kept = await db.query<{ currency: string }>("SELECT currency FROM public.project_invoices WHERE invoice_number = 'INV-1'");
+  await db.exec("UPDATE pm.workspace_region SET currency = 'GBP', locale = 'en-GB'");
+  const kept = await db.query<{ currency: string }>("SELECT currency FROM pm.project_invoices WHERE invoice_number = 'INV-1'");
   same('invoice: a workspace change never relabels it', kept.rows[0].currency, 'EUR');
   same('invoice: the next one takes the new currency', await newInvoice(db, project, 'INV-2'), 'GBP');
   await db.exec('RESET ROLE');
   const retainer = await db.query<{ currency: string }>(
-    "INSERT INTO public.project_retainers (project_id, name, start_date) VALUES ($1, 'Monthly', '2026-11-01') RETURNING currency", [project]);
+    "INSERT INTO pm.project_retainers (project_id, name, start_date) VALUES ($1, 'Monthly', '2026-11-01') RETURNING currency", [project]);
   same('retainer: stamped with the workspace currency', retainer.rows[0].currency, 'GBP');
   const plan = await db.query<{ currency: string }>(
-    'INSERT INTO public.project_billing_plans (project_id) VALUES ($1) RETURNING currency', [project]);
+    'INSERT INTO pm.project_billing_plans (project_id) VALUES ($1) RETURNING currency', [project]);
   same('billing plan: stamped with the workspace currency', plan.rows[0].currency, 'GBP');
 
   // The activity line for a payment is in its invoice's currency.
-  await db.exec("UPDATE public.workspace_region SET currency = 'USD', locale = 'en-US', money_format = $1::jsonb".replace('$1', `'${JSON.stringify(moneyFormatPattern('USD', 'en-US'))}'`));
-  const invoiceId = (await db.query<{ id: string }>("SELECT id FROM public.project_invoices WHERE invoice_number = 'INV-1'")).rows[0].id;
+  await db.exec("UPDATE pm.workspace_region SET currency = 'USD', locale = 'en-US', money_format = $1::jsonb".replace('$1', `'${JSON.stringify(moneyFormatPattern('USD', 'en-US'))}'`));
+  const invoiceId = (await db.query<{ id: string }>("SELECT id FROM pm.project_invoices WHERE invoice_number = 'INV-1'")).rows[0].id;
   // Recorded by the Owner: the activity log needs someone who did it.
   await db.query("SELECT set_config('request.jwt.claim.sub', $1, false)", [OWNER_AUTH]);
-  await db.query("INSERT INTO public.invoice_payments (invoice_id, amount, paid_date) VALUES ($1, 40, '2026-11-21')", [invoiceId]);
+  await db.query("INSERT INTO pm.invoice_payments (invoice_id, amount, paid_date) VALUES ($1, 40, '2026-11-21')", [invoiceId]);
   await db.query("SELECT set_config('request.jwt.claim.sub', '', false)");
-  const activity = await db.query<{ description: string }>("SELECT description FROM public.activities WHERE type = 'payment.recorded' ORDER BY created_at DESC LIMIT 1");
+  const activity = await db.query<{ description: string }>("SELECT description FROM pm.activities WHERE type = 'payment.recorded' ORDER BY created_at DESC LIMIT 1");
   same('activity: a euro payment says euros in a dollar workspace', activity.rows[0]?.description, `Recorded a EUR${NBSP}40.00 payment on invoice INV-1`);
   // One amount keeps its cents from 1,000 up, as before this release.
   await newInvoice(db, project, 'INV-3');
   await db.exec('RESET ROLE');
-  const usdInvoice = (await db.query<{ id: string }>("SELECT id FROM public.project_invoices WHERE invoice_number = 'INV-3'")).rows[0].id;
+  const usdInvoice = (await db.query<{ id: string }>("SELECT id FROM pm.project_invoices WHERE invoice_number = 'INV-3'")).rows[0].id;
   await db.query("SELECT set_config('request.jwt.claim.sub', $1, false)", [OWNER_AUTH]);
-  await db.query("INSERT INTO public.invoice_payments (invoice_id, amount, paid_date) VALUES ($1, 1234.56, '2026-11-21')", [usdInvoice]);
+  await db.query("INSERT INTO pm.invoice_payments (invoice_id, amount, paid_date) VALUES ($1, 1234.56, '2026-11-21')", [usdInvoice]);
   await db.query("SELECT set_config('request.jwt.claim.sub', '', false)");
   const exactLine = await db.query<{ description: string }>(
-    "SELECT description FROM public.activities WHERE type = 'payment.recorded' AND description LIKE '%INV-3' ORDER BY created_at DESC LIMIT 1");
+    "SELECT description FROM pm.activities WHERE type = 'payment.recorded' AND description LIKE '%INV-3' ORDER BY created_at DESC LIMIT 1");
   same('activity: a $1,234.56 payment keeps its cents', exactLine.rows[0]?.description, 'Recorded a $1,234.56 payment on invoice INV-3');
 
   // SQL writes what the app writes.
@@ -238,13 +236,13 @@ async function database() {
   const mismatches: string[] = [];
   const exactMismatches: string[] = [];
   for (const [currency, locale] of regions) {
-    await db.query('UPDATE public.workspace_region SET currency = $1, locale = $2, money_format = $3::jsonb',
+    await db.query('UPDATE pm.workspace_region SET currency = $1, locale = $2, money_format = $3::jsonb',
       [currency, locale, JSON.stringify(moneyFormatPattern(currency, locale))]);
     for (const amount of amounts) {
-      const sql = (await db.query<{ t: string }>('SELECT public.format_money($1::numeric) AS t', [amount])).rows[0].t;
+      const sql = (await db.query<{ t: string }>('SELECT pm.format_money($1::numeric) AS t', [amount])).rows[0].t;
       const js = formatMoney(amount, { currency, locale });
       if (sql !== js) mismatches.push(`${currency} ${locale} ${amount}: sql ${JSON.stringify(sql)} js ${JSON.stringify(js)}`);
-      const sqlExact = await db.query<{ t: string }>('SELECT public.format_money($1::numeric, NULL, true) AS t', [amount])
+      const sqlExact = await db.query<{ t: string }>('SELECT pm.format_money($1::numeric, NULL, true) AS t', [amount])
         .then((result) => result.rows[0].t, (error: Error) => `error: ${error.message}`);
       const jsExact = formatMoneyExact(amount, { currency, locale });
       if (sqlExact !== jsExact) exactMismatches.push(`${currency} ${locale} ${amount}: sql ${JSON.stringify(sqlExact)} js ${JSON.stringify(jsExact)}`);
@@ -252,11 +250,11 @@ async function database() {
   }
   check('sql: format_money matches formatMoney across 11 regions', mismatches.length === 0, mismatches);
   check('sql: exact format_money matches formatMoneyExact across 11 regions', exactMismatches.length === 0, exactMismatches);
-  await db.query('UPDATE public.workspace_region SET currency = $1, locale = $2, money_format = $3::jsonb',
+  await db.query('UPDATE pm.workspace_region SET currency = $1, locale = $2, money_format = $3::jsonb',
     ['EUR', 'de-DE', JSON.stringify(moneyFormatPattern('EUR', 'de-DE'))]);
-  same('sql: another currency shows its code where the symbol goes', (await db.query<{ t: string }>("SELECT public.format_money(1234.5, 'USD') AS t")).rows[0].t, `1.235${NBSP}USD`);
-  same('sql: and keeps its own decimals below 1,000', (await db.query<{ t: string }>("SELECT public.format_money(12.5, 'JPY') AS t")).rows[0].t, `13${NBSP}JPY`);
-  const foreignExact = await db.query<{ t: string }>("SELECT public.format_money(1234.5, 'USD', true) AS t")
+  same('sql: another currency shows its code where the symbol goes', (await db.query<{ t: string }>("SELECT pm.format_money(1234.5, 'USD') AS t")).rows[0].t, `1.235${NBSP}USD`);
+  same('sql: and keeps its own decimals below 1,000', (await db.query<{ t: string }>("SELECT pm.format_money(12.5, 'JPY') AS t")).rows[0].t, `13${NBSP}JPY`);
+  const foreignExact = await db.query<{ t: string }>("SELECT pm.format_money(1234.5, 'USD', true) AS t")
     .then((result) => result.rows[0].t, (error: Error) => `error: ${error.message}`);
   same('sql: exact keeps the cents of another currency', foreignExact, `1.234,50${NBSP}USD`);
   await db.close();
@@ -266,28 +264,27 @@ async function database() {
 async function retainerDrafts() {
   const db = await createFullSchemaDatabase();
   await db.exec('RESET ROLE');
-  await db.exec(MIGRATION_SQL);
-  const project = (await db.query<{ id: string }>("INSERT INTO public.projects (name) VALUES ('Two currencies') RETURNING id")).rows[0].id;
+  const project = (await db.query<{ id: string }>("INSERT INTO pm.projects (name) VALUES ('Two currencies') RETURNING id")).rows[0].id;
   const retainer = async (name: string, currency: string, amount: number) => {
     const id = (await db.query<{ id: string }>(
-      "INSERT INTO public.project_retainers (project_id, name, start_date, currency) VALUES ($1, $2, '2026-11-01', $3) RETURNING id",
+      "INSERT INTO pm.project_retainers (project_id, name, start_date, currency) VALUES ($1, $2, '2026-11-01', $3) RETURNING id",
       [project, name, currency])).rows[0].id;
-    await db.query("INSERT INTO public.project_retainer_amounts (retainer_id, amount, effective_date) VALUES ($1, $2, '2026-11-01')", [id, amount]);
+    await db.query("INSERT INTO pm.project_retainer_amounts (retainer_id, amount, effective_date) VALUES ($1, $2, '2026-11-01')", [id, amount]);
   };
   await retainer('US support', 'USD', 1000);
   await retainer('EU support', 'EUR', 800);
-  await db.query("SELECT public.generate_retainer_drafts('2026-11-21')");
+  await db.query("SELECT pm.generate_retainer_drafts('2026-11-21')");
   const drafts = await db.query<{ currency: string; amount: string; lines: number }>(
-    `SELECT currency, amount::text, jsonb_array_length(line_items)::int AS lines FROM public.project_invoices
+    `SELECT currency, amount::text, jsonb_array_length(line_items)::int AS lines FROM pm.project_invoices
      WHERE project_id = $1 AND auto_generated ORDER BY currency`, [project]);
   const shape = drafts.rows.map((r) => `${r.currency} ${Number(r.amount)} x${r.lines}`).join(', ');
   same('retainers: one draft per currency, each its own sum', shape, 'EUR 800 x1, USD 1000 x1');
-  const failed = await db.query<{ n: number }>("SELECT count(*)::int AS n FROM public.project_billing_runs WHERE project_id = $1 AND outcome = 'failed'", [project]);
+  const failed = await db.query<{ n: number }>("SELECT count(*)::int AS n FROM pm.project_billing_runs WHERE project_id = $1 AND outcome = 'failed'", [project]);
   same('retainers: neither draft failed', failed.rows[0].n, 0);
   // A hand-built mix is refused rather than labelled with one currency.
-  const ids = (await db.query<{ id: string }>('SELECT id FROM public.project_retainers WHERE project_id = $1', [project])).rows.map((r) => r.id);
+  const ids = (await db.query<{ id: string }>('SELECT id FROM pm.project_retainers WHERE project_id = $1', [project])).rows.map((r) => r.id);
   const mixed = JSON.stringify(ids.map((id, i) => ({ id: `mix-${i}`, position: i, item_type: 'recurring', amount: 10, description: 'Mix', retainer_id: id })));
-  const refused = await failure(db, "SELECT public.create_retainer_draft_internal($1, $2::jsonb, '2026-11-21', false)", [project, mixed]);
+  const refused = await failure(db, "SELECT pm.create_retainer_draft_internal($1, $2::jsonb, '2026-11-21', false)", [project, mixed]);
   check('retainers: one draft for two currencies is refused', /different currencies/.test(refused ?? ''), refused);
   await db.close();
 }

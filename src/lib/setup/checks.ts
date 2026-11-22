@@ -4,7 +4,7 @@ import { appKeyState } from '@/lib/crypto/app-key';
 /**
  * Day-one checks for a fresh install, shown in the setup wizard: which
  * environment variables are set (true or false only, never a value), whether
- * Supabase exposes the communications schema the Inbox lives in, and whether
+ * Supabase serves the Inbox's tables (in the app's schema, pm), and whether
  * an SMTP account can send invitation emails.
  */
 
@@ -100,10 +100,11 @@ export async function pmSchemasState(service: SupabaseClient): Promise<PmSchemas
 
 export type SchemaState = 'ready' | 'not_exposed' | 'missing' | 'unknown';
 
-/** Whether Supabase's API serves the communications schema (PGRST106 when it is not exposed). */
+/** Whether Supabase's API serves the Inbox's tables, in schema pm (PGRST106 when pm is not exposed). */
 export async function communicationsSchemaState(service: SupabaseClient): Promise<SchemaState> {
   try {
-    const { error } = await service.schema('communications').from('inboxes').select('id').limit(1);
+    // The Inbox lives in the app's schema (pm) since 2.0.
+    const { error } = await service.schema('pm').from('inboxes').select('id').limit(1);
     if (!error) return 'ready';
     if (error.code === 'PGRST106') return 'not_exposed';
     if (['42P01', 'PGRST205', '3F000'].includes(error.code ?? '')) return 'missing';
