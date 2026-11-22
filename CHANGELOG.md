@@ -9,6 +9,11 @@ Each section starts with `## X.Y.Z (YYYY-MM-DD)` and uses these headings, leavin
 - `### Database`: the core migration files in the release, one per line. `npm run db:migrate` applies them.
 - `### Breaking`: what an install must do when it takes this release.
 
+## 2.0.1 (2026-11-22)
+
+### Changed
+- Core checks pass on installs and the public repo again: the task source test no longer rebuilds an old schema from this repo's own git history, which differs there.
+
 ## 2.0.0 (2026-11-23)
 
 The app moves into its own schema, so it can share a Supabase project with a company's other apps: their tables, logins and data stay theirs, and the app's updates only ever change the app's own schema.

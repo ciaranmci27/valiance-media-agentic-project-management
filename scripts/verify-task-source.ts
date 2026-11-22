@@ -17,6 +17,7 @@ import { join } from 'node:path';
 import type { PGlite } from '@electric-sql/pglite';
 import { NextRequest } from 'next/server';
 import { actAs, createFullSchemaDatabase, schemaBeforeMigration } from './full-schema-db';
+import { MOVE_MIGRATION } from './release/pm-schema';
 import { startFakePostgrest } from './fake-postgrest';
 
 const MIGRATION_FILE = '20261024065232_task_source_and_seen.sql';
@@ -41,6 +42,22 @@ async function attempt(db: PGlite, sql: string, params: unknown[] = []) {
 }
 
 type Source = { created_via: string; created_by_key_id: string | null; created_note: string | null; created_by: string | null };
+
+/**
+ * The schema before this migration, as 1.x installs had it: the last 1.x
+ * schema.sql (just before the 2.0 move) without the task source columns and
+ * section, so the migration is tested on top of it. Never git history by this
+ * migration's own commit: the public repo's history differs.
+ */
+function schemaBeforeThisMigration(): string {
+  // A Windows checkout may carry CRLF; the markers below are LF.
+  const sql = schemaBeforeMigration(MOVE_MIGRATION).replace(/\r\n/g, '\n');
+  const section = sql.indexOf('\n-- ---------------------------------------------------------------------------\n-- Task source and seen');
+  const columns = sql.indexOf('  -- Where it came from, stamped on insert');
+  const columnsEnd = sql.indexOf(');', columns);
+  if (section < 0 || columns < 0) throw new Error('the 1.x schema no longer has the task source pieces this test removes');
+  return sql.slice(0, columns).replace(/,\s*$/, '\n') + sql.slice(columnsEnd, section);
+}
 
 /**
  * Every check, on a database in `schema`. The queries name the schema before
@@ -193,9 +210,9 @@ async function throughTheApi(db: PGlite) {
 }
 
 async function main() {
-  // On the schema just before this migration was committed: migration twice, then every check.
+  // On the 1.x schema without this migration's pieces: migration twice, then every check.
   {
-    const db = await createFullSchemaDatabase({ schemaSql: schemaBeforeMigration(MIGRATION_FILE) });
+    const db = await createFullSchemaDatabase({ schemaSql: schemaBeforeThisMigration() });
     await db.exec('RESET ROLE');
     const old = (await db.query<{ id: string }>("INSERT INTO public.projects (name) VALUES ('Old') RETURNING id")).rows[0].id;
     const legacy = (await db.query<{ id: string }>("INSERT INTO public.tasks (project_id, title) VALUES ($1, 'From before') RETURNING id", [old])).rows[0].id;
