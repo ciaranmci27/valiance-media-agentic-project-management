@@ -15,22 +15,22 @@ export const AGENT_PROFILES = [
   {
     value: 'coordinator',
     label: 'Coordinator',
-    description: 'Plans and assigns work, keeps projects and leads current (Ashley).',
+    description: 'Plans and assigns work, keeps projects and leads current',
   },
   {
     value: 'builder',
     label: 'Builder',
-    description: 'Works assigned tasks, tracks time and raises blockers (Jeff).',
+    description: 'Works assigned tasks, tracks time and raises blockers',
   },
   {
     value: 'auditor',
     label: 'Auditor',
-    description: 'Audits projects against their goals and proposes tasks (Greg).',
+    description: 'Audits projects against their goals and proposes tasks',
   },
   {
     value: 'reviewer',
     label: 'Reviewer',
-    description: 'Reviews finished work and records verdicts (John).',
+    description: 'Reviews finished work and records verdicts',
   },
 ] as const;
 

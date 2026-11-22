@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useSyncExternalStore } from 'react';
 import { useBrand } from '@/lib/brand/context';
 import type { Brand } from '@/lib/brand';
 import { elapsedLabel, type AgentMood } from '@/lib/agent-status';
@@ -19,7 +19,11 @@ type Mood = AgentMood;
  * and keeps only what is scene-specific: stations, geometry, and the queue.
  */
 
-export type AgentKey = 'greg' | 'ashley' | 'jeff' | 'john';
+/**
+ * The four stations, named for the role each one plays in the pipeline.
+ * Which workspace member sits at which one is decided by `seatCrew`.
+ */
+export type AgentKey = 'auditor' | 'planner' | 'builder' | 'reviewer';
 
 export type { AgentMood as Mood } from '@/lib/agent-status';
 export { moodLabel, statusSentence, elapsedLabel } from '@/lib/agent-status';
@@ -29,6 +33,8 @@ export type Member = {
   name: string;
   title: string | null;
   avatar: string | null;
+  /** team_members.role. The roster loads agents only; the public window omits it. */
+  role?: string | null;
 };
 
 export type CrewTask = {
@@ -69,7 +75,7 @@ export type CrewReview = {
   at: number;
 };
 
-/** One of Greg's audit findings, before anyone turns it into a task. */
+/** One of the auditor's findings, before anyone turns it into a task. */
 export type CrewSuggestion = {
   id: string;
   title: string;
@@ -82,9 +88,9 @@ export type CrewSuggestion = {
  * The per-station specifics the monitors draw, kept apart from `task` and
  * `queue` because they are a different kind of fact.
  *
- * Greg is the reason this exists. His work produces `task_suggestions` rather
- * than moving task rows, so `stageOwner` never assigns him anything and his
- * station had no content at all. His findings live here, as output — they are
+ * The auditor is the reason this exists. Its work produces `task_suggestions`
+ * rather than moving task rows, so `stageOwner` never assigns it anything and
+ * its station had no content at all. Its findings live here, as output — they are
  * deliberately NOT folded into `queue`, which counts work waiting to be picked
  * up. Presenting an agent's output as its backlog is the same category error
  * that once drew an untouched task as 94 hours of continuous work.
@@ -181,12 +187,19 @@ export type ScreenKind = 'audit' | 'spec' | 'code' | 'terminal' | 'review';
 
 export type StationDef = {
   key: AgentKey;
-  /** Matches team_members.name, lowercased. */
+  /** The role as a display name, shown wherever no member sits at the desk. */
+  title: string;
+  /**
+   * Matches team_members.name, lowercased. The first way a member is seated,
+   * so an install whose agents carry these first names keeps its layout.
+   */
   match: (name: string) => boolean;
+  /** Matches team_members.title, lowercased. The second way. */
+  titleMatch: RegExp;
   craft: string;
   /**
    * Which workspace their primary monitor runs. One per craft, plus
-   * `terminal` for Jeff's second panel — see `Screens.tsx`.
+   * `terminal` for the builder's second panel. See `Screens.tsx`.
    */
   screen: ScreenKind;
   /** How they physically work: the craft layer on the character. */
@@ -207,8 +220,10 @@ const DEG = Math.PI / 180;
  */
 export const STATIONS: StationDef[] = [
   {
-    key: 'greg',
+    key: 'auditor',
+    title: 'Auditor',
     match: (n) => n.startsWith('greg'),
+    titleMatch: /\bauditors?\b/,
     craft: 'audits the codebase, proposes what to fix',
     screen: 'audit',
     behavior: 'read',
@@ -217,8 +232,10 @@ export const STATIONS: StationDef[] = [
     busyMood: 'working',
   },
   {
-    key: 'ashley',
+    key: 'planner',
+    title: 'Planner',
     match: (n) => n.startsWith('ashley'),
+    titleMatch: /\b(planners?|specs?)\b/,
     craft: 'turns approved ideas into buildable specs',
     screen: 'spec',
     behavior: 'plan',
@@ -227,8 +244,10 @@ export const STATIONS: StationDef[] = [
     busyMood: 'working',
   },
   {
-    key: 'jeff',
+    key: 'builder',
+    title: 'Builder',
     match: (n) => n.startsWith('jeff'),
+    titleMatch: /\b(builders?|engineers?|developers?)\b/,
     craft: 'writes the code, opens the PR',
     screen: 'code',
     behavior: 'type',
@@ -237,8 +256,10 @@ export const STATIONS: StationDef[] = [
     busyMood: 'working',
   },
   {
-    key: 'john',
+    key: 'reviewer',
+    title: 'Reviewer',
     match: (n) => n.startsWith('john'),
+    titleMatch: /\breviewers?\b/,
     craft: 'reviews adversarially, approves or bounces',
     screen: 'review',
     behavior: 'inspect',
@@ -248,7 +269,87 @@ export const STATIONS: StationDef[] = [
   },
 ];
 
-export const AGENT_KEYS: AgentKey[] = ['greg', 'ashley', 'jeff', 'john'];
+export const AGENT_KEYS: AgentKey[] = ['auditor', 'planner', 'builder', 'reviewer'];
+
+/** Who sits where, both ways round. */
+export type CrewSeats = {
+  byStation: Partial<Record<AgentKey, Member>>;
+  byMember: Map<string, AgentKey>;
+};
+
+const seatCache = new WeakMap<Member[], CrewSeats>();
+
+/**
+ * Seats the roster at the stations. The one place that decides it, so the
+ * activity feed, the desks and the celebrations can never disagree.
+ *
+ * Three passes, each filling only stations and agents still free:
+ * 1. By name (`StationDef.match`).
+ * 2. By job title containing the role word (`StationDef.titleMatch`).
+ * 3. Any station still empty goes to the remaining agents, by name, so a
+ *    fresh install's agents fill the room whatever they are called.
+ *
+ * Cached per roster array, because the feed asks once per activity row.
+ */
+export function seatCrew(members: Member[]): CrewSeats {
+  const cached = seatCache.get(members);
+  if (cached) return cached;
+
+  const byStation: Partial<Record<AgentKey, Member>> = {};
+  const byMember = new Map<string, AgentKey>();
+  const agents = members
+    .filter((m) => m.role == null || m.role === 'agent')
+    .sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
+  const free = (m: Member) => !byMember.has(m.id);
+  const pass = (pick: (station: StationDef, m: Member) => boolean) => {
+    for (const station of STATIONS) {
+      if (byStation[station.key]) continue;
+      const member = agents.find((m) => free(m) && pick(station, m));
+      if (!member) continue;
+      byStation[station.key] = member;
+      byMember.set(member.id, station.key);
+    }
+  };
+
+  pass((s, m) => s.match(m.name.trim().toLowerCase()));
+  pass((s, m) => s.titleMatch.test((m.title ?? '').toLowerCase()));
+  pass(() => true);
+
+  const seats = { byStation, byMember };
+  seatCache.set(members, seats);
+  return seats;
+}
+
+/** What a desk is called: the seated member's name, or the role when empty. */
+export function stationLabel(station: StationDef, member: Member | undefined): string {
+  return member?.name.trim() || station.title;
+}
+
+/**
+ * Desk labels in `STATIONS` order, for surfaces mounted without crew props
+ * (the fleet board on the wall). `useCrewData` publishes; readers subscribe.
+ */
+let labelSnapshot: string[] = STATIONS.map((s) => s.title);
+const labelListeners = new Set<() => void>();
+
+export function publishStationLabels(next: string[]): void {
+  if (next.length === labelSnapshot.length && next.every((l, i) => l === labelSnapshot[i])) return;
+  labelSnapshot = next;
+  labelListeners.forEach((fn) => fn());
+}
+
+function subscribeLabels(fn: () => void): () => void {
+  labelListeners.add(fn);
+  return () => {
+    labelListeners.delete(fn);
+  };
+}
+
+const readLabels = () => labelSnapshot;
+
+export function useStationLabels(): string[] {
+  return useSyncExternalStore(subscribeLabels, readLabels, readLabels);
+}
 
 /**
  * Furniture geometry, in one place because the chair and the person who sits

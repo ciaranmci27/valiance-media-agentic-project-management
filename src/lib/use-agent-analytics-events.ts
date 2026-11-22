@@ -140,7 +140,7 @@ export type BillingGapReviewRow = Awaited<ReturnType<typeof fetchBillingGapRevie
 const NO_REVIEWS: BillingGapReviewRow[] = [];
 
 /**
- * Ciaran's Reconciled / Dismissed marks on billing gaps. `available` is false
+ * The Owner's Reconciled / Dismissed marks on billing gaps. `available` is false
  * when the reviews table cannot be read (its migration is not applied yet).
  */
 export function useBillingGapReviews(options?: { enabled?: boolean }): {

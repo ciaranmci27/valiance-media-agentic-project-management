@@ -9,6 +9,16 @@ Each section starts with `## X.Y.Z (YYYY-MM-DD)` and uses these headings, leavin
 - `### Database`: the core migration files in the release, one per line. `npm run db:migrate` applies them.
 - `### Breaking`: what an install must do when it takes this release.
 
+## 2.0.5 (2026-11-22)
+
+### Changed
+- The live agent room (Agent > Live) seats any workspace's agents: four stations by role (auditor, planner, builder, reviewer), filled by name, then by job title, then by any agent left, and labelled with each agent's own name or the role.
+- Triage plans name who work is aimed at as `owner` or `company` (with `teammate`, `client`, `other`). Agents that still send the older `ciaran` and `agency` keep working: they read as `owner` and `company`.
+- Review, inbox and settings text no longer names one company's people or clients: "Reviewed and waiting on your merge", example addresses like `acme@yourdomain.com`, neutral MCP profile descriptions.
+
+### Database
+- `20261123000300_neutral_addressee.sql`: `plan_items.addressee` accepts `owner` and `company` (the older values stay valid) and defaults to `owner`.
+
 ## 2.0.4 (2026-11-22)
 
 ### Changed

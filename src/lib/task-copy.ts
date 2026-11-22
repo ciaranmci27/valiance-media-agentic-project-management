@@ -6,7 +6,7 @@ import { toast } from '@/components/ui/Toast';
 
 /**
  * A task as text, for pasting somewhere else: an AI chat that needs the
- * context, a message to a teammate, or Ashley ("add a reminder to this").
+ * context, a message to a teammate, or your agent ("add a reminder to this").
  * Markdown, because chat tools render it and it still reads as plain text.
  */
 

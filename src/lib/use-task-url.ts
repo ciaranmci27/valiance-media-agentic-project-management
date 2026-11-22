@@ -4,7 +4,7 @@ import { useCallback } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 
 /**
- * The open task lives in the URL (`?task=<id>`), so every task link (Ashley's
+ * The open task lives in the URL (`?task=<id>`), so every task link (an agent's
  * Telegram messages, the Inbox, the activity feed, a pasted link) opens the
  * task panel, a link clicked while already on the page opens it too, and the
  * address bar always holds a shareable link to the task on screen.

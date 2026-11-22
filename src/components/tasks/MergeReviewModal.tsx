@@ -76,7 +76,7 @@ export function MergeReviewModal({
               <ShieldCheck size={15} className="text-emerald-300 mt-0.5 flex-shrink-0" aria-hidden="true" />
               <div>
                 <p className="text-sm text-emerald-200 font-medium">
-                  Approved by John · round {profile.reviewerVerdict.round}
+                  Approved by the reviewer · round {profile.reviewerVerdict.round}
                 </p>
                 {profile.reviewerVerdict.summary && (
                   <p className="text-xs text-zinc-300 mt-1 leading-relaxed">{profile.reviewerVerdict.summary}</p>
@@ -88,7 +88,7 @@ export function MergeReviewModal({
               <ShieldAlert size={15} className="text-red-300 mt-0.5 flex-shrink-0" aria-hidden="true" />
               <div>
                 <p className="text-sm text-red-200 font-medium">
-                  John requested changes · round {profile.reviewerVerdict.round}
+                  The reviewer requested changes · round {profile.reviewerVerdict.round}
                 </p>
                 {profile.reviewerVerdict.summary && (
                   <p className="text-xs text-zinc-300 mt-1 leading-relaxed">{profile.reviewerVerdict.summary}</p>
@@ -98,7 +98,7 @@ export function MergeReviewModal({
           )
         ) : (
           <p className="text-xs text-zinc-500 leading-relaxed">
-            Not independently reviewed yet. John reviews agent PRs on his next pass; merging now means you are the only reviewer.
+            Not independently reviewed yet. Your reviewer agent checks agent PRs on its next pass; merging now means you are the only reviewer.
           </p>
         )}
 

@@ -81,9 +81,9 @@ function StepNumber({ n }: { n: number }) {
 }
 
 export interface EmailConnectChecklistProps {
-  /** Where the forwarder delivers, e.g. p4tf@relay.yourdomain.com. */
+  /** Where the forwarder delivers, e.g. acme@relay.yourdomain.com. */
   routingAddress: string;
-  /** What clients write to, e.g. p4tf@yourdomain.com; null when there is none. */
+  /** What clients write to, e.g. acme@yourdomain.com; null when there is none. */
   publicAddress: string | null;
   /** When mail last arrived; null until the first email. */
   lastReceivedAt: string | null;

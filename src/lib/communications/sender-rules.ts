@@ -75,7 +75,7 @@ export function describeRule(rule: Pick<SenderRuleRow, 'match_value' | 'topic'> 
   return `${rule.topic ? TOPIC_PLURALS[rule.topic] : 'Mail'} from ${rule.match_value}${rule.recipient ? ` to ${rule.recipient}` : ''}`;
 }
 
-/** Topics no rule from the agent may name: Ciaran always sees this mail. */
+/** Topics no rule from the agent may name: the Owner always sees this mail. */
 export const PROTECTED_TOPICS: readonly MailTopic[] = ['money', 'receipt', 'account_risk', 'security'];
 
 function sameOrUnder(domain: string, parent: string): boolean {

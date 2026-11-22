@@ -174,8 +174,8 @@ export function ProjectEmailAddresses({ isOpen, projectId }: ProjectEmailAddress
   const validate = (): FormErrors => {
     const next: FormErrors = {};
     if (local && !LOCAL_PART_PATTERN.test(local)) next.local = 'Use letters, numbers, dots, dashes or underscores';
-    if (!local && !publicAddress) next.local = 'Enter the relay address, such as p4tf';
-    if (publicAddress && !EMAIL_PATTERN.test(publicAddress)) next.publicAddress = 'Enter a full address, such as p4tf@yourdomain.com';
+    if (!local && !publicAddress) next.local = 'Enter the relay address, such as acme';
+    if (publicAddress && !EMAIL_PATTERN.test(publicAddress)) next.publicAddress = 'Enter a full address, such as acme@yourdomain.com';
     if (!form?.inboxId) next.inboxId = 'Choose the inbox that receives this mail';
     return next;
   };
@@ -364,7 +364,7 @@ export function ProjectEmailAddresses({ isOpen, projectId }: ProjectEmailAddress
               type="email"
               value={form.publicAddress}
               onChange={(value) => change('publicAddress', value)}
-              placeholder="p4tf@yourdomain.com"
+              placeholder="acme@yourdomain.com"
               autoComplete="off"
               spellCheck={false}
               error={errors.publicAddress}
@@ -374,7 +374,7 @@ export function ProjectEmailAddresses({ isOpen, projectId }: ProjectEmailAddress
               label="Relay address"
               value={form.local}
               onChange={(value) => change('local', value)}
-              placeholder={publicAddress ? effectiveLocal || 'p4tf' : 'p4tf'}
+              placeholder={publicAddress ? effectiveLocal || 'acme' : 'acme'}
               suffix={`@${domain}`}
               autoComplete="off"
               spellCheck={false}

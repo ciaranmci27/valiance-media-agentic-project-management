@@ -121,7 +121,7 @@ export const GET = withApi(async ({ supabase, params }) => {
       new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
     ),
     acceptance_criteria: (data.criteria || []).sort((a: any, b: any) => a.sort_order - b.sort_order),
-    // Newest review row is the task's current verdict; jeff-automerge reads
+    // Newest review row is the task's current verdict; an automerge script reads
     // this field and fails closed when it is null. Round breaks created_at
     // ties (same-millisecond rows would otherwise be nondeterministic).
     latest_review: (data.reviews || []).slice().sort((a: any, b: any) =>

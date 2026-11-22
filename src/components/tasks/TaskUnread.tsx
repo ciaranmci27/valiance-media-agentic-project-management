@@ -53,7 +53,7 @@ const DID: Record<TaskEventKind, string> = {
 };
 
 /**
- * "2 comments, 1 email and 3 changes since you looked. Latest: Ashley
+ * "2 comments, 1 email and 3 changes since you looked. Latest: your agent
  * commented 20m ago." Comments, emails, meetings and files are counted by
  * name; the rest are changes.
  */
@@ -93,7 +93,7 @@ const KIND_ICON: Record<TaskEventKind, LucideIcon> = {
 
 /**
  * The line on an unread card or row that says what happened, in words:
- * "New from Ashley", "Ashley commented 20m ago +2". The whole story is on
+ * "New from Planner", "Planner commented 20m ago +2". The whole story is on
  * hover. Text, not a pill: the card's own wash is what makes it stand out.
  */
 export function UnreadLabel({ task }: { task: Task }) {

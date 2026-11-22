@@ -172,7 +172,7 @@ export function computeNeedsYou(input: {
 
   // Agent PRs sitting in review: the build is done and the only remaining
   // step is (or may be) your merge click. The reviewer verdict rides along
-  // so the row can say whether John has signed off yet; the item itself
+  // so the row can say whether the reviewer has signed off yet; the item itself
   // always surfaces, because a reviewer outage must never bury a held merge.
   for (const task of tasks) {
     if (!oversight || task.status !== 'in_review') continue;

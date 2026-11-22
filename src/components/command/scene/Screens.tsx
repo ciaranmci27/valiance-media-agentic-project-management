@@ -13,10 +13,11 @@ import { ensureFonts, fontRevision, fontsReady, measure, mono, sans, text } from
 /**
  * Monitor content: a composed workspace per craft, drawn to a canvas texture.
  *
- * Each agent runs the tool their job actually uses. Greg has an audit pass
- * with a findings ledger, Ashley a board and a spec, Jeff an editor and a
- * terminal, John a diff and the pull request under review. The layout is the
- * craft; watching for a minute should tell you who is who without a label.
+ * Each agent runs the tool their job actually uses. The auditor has an audit
+ * pass with a findings ledger, the planner a board and a spec, the builder an
+ * editor and a terminal, the reviewer a diff and the pull request under
+ * review. The layout is the craft; watching for a minute should tell you who
+ * is who without a label.
  *
  * Two rules divide what is drawn here.
  *
@@ -284,7 +285,7 @@ function tokenLine(ctx: CanvasRenderingContext2D, x: number, y: number, rnd: () 
 
 /* ------------------------------------------------------------- workspaces */
 
-/** Greg: tree, a source pane under a travelling scan, and the findings ledger. */
+/** The auditor: tree, a source pane under a travelling scan, and the findings ledger. */
 const drawAudit: Drawer = (ctx, m, s) => {
   const box = chrome(ctx, m, s);
   const treeW = u(250);
@@ -322,7 +323,7 @@ const drawAudit: Drawer = (ctx, m, s) => {
     fill(ctx, srcX - u(6), y, srcW + u(12), u(1), INK.teal);
   }
 
-  // Findings: his real open suggestions.
+  // Findings: the auditor's real open suggestions.
   const ly = box.y + box.h - ledgerH;
   fill(ctx, box.x, ly, box.w, ledgerH, INK.panel);
   fill(ctx, box.x, ly, box.w, u(1), INK.line);
@@ -335,7 +336,7 @@ const drawAudit: Drawer = (ctx, m, s) => {
   statusBar(ctx, m, s);
 };
 
-/** Ashley: board columns on the left, the spec being written on the right. */
+/** The planner: board columns on the left, the spec being written on the right. */
 const drawSpec: Drawer = (ctx, m, s) => {
   const box = chrome(ctx, m, s);
   const boardW = box.w * 0.52;
@@ -372,7 +373,7 @@ const drawSpec: Drawer = (ctx, m, s) => {
     }
   }
 
-  // Spec pane: the real task facts, then body text that grows as she types.
+  // Spec pane: the real task facts, then body text that grows as the planner types.
   const sx = box.x + boardW + u(10);
   const sw = box.w - boardW - u(22);
   fill(ctx, sx, box.y + u(8), sw, box.h - u(16), INK.panel);
@@ -389,7 +390,7 @@ const drawSpec: Drawer = (ctx, m, s) => {
   statusBar(ctx, m, s);
 };
 
-/** Jeff, primary: the editor, tabbed with the real thing he is building. */
+/** The builder, primary: the editor, tabbed with the real thing being built. */
 const drawCode: Drawer = (ctx, m, s) => {
   const box = chrome(ctx, m, s);
   const lineH = u(24);
@@ -429,10 +430,10 @@ const drawCode: Drawer = (ctx, m, s) => {
 };
 
 /**
- * Jeff, secondary: the terminal.
+ * The builder, secondary: the terminal.
  *
  * The most animated surface in the room, and the one that most needed to stop
- * being a duplicate of Greg's file tree. Lines are seeded shapes rather than
+ * being a duplicate of the auditor's file tree. Lines are seeded shapes rather than
  * invented command output; what is real is the branch on the prompt and
  * whether the run is currently passing, which comes from the review verdict.
  */
@@ -475,7 +476,7 @@ const drawTerminal: Drawer = (ctx, m, s) => {
   statusBar(ctx, m, s);
 };
 
-/** John: the diff on the left, the real pull request on the right. */
+/** The reviewer: the diff on the left, the real pull request on the right. */
 const drawReview: Drawer = (ctx, m, s) => {
   const box = chrome(ctx, m, s);
   const panelW = Math.min(box.w * 0.38, u(360));
@@ -484,7 +485,7 @@ const drawReview: Drawer = (ctx, m, s) => {
   const rnd = mulberry32(11);
   const lineH = u(22);
   const rows = Math.floor(box.h / lineH) + 1;
-  // The diff moves when he scrolls it, at reading pace, not typing pace.
+  // The diff moves when the reviewer scrolls it, at reading pace, not typing pace.
   const scroll = (s.scroll * u(90)) % lineH;
   for (let i = 0; i < rows; i++) {
     const y = box.y + u(10) + i * lineH - scroll;

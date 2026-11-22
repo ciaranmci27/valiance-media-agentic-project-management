@@ -76,7 +76,7 @@ export const SILENT_TYPES = new Set(['heartbeat', 'system_check']);
  * rather than our inference, which makes it the best signal available. The
  * leading tokens are the fleet's silence protocol (each agent ends an idle
  * run with one); the phrases cover the same reports written as sentences,
- * e.g. Greg's "NO_WORK - all autonomous projects ineligible" and John's
+ * e.g. the auditor's "NO_WORK - all autonomous projects ineligible" and the reviewer's
  * "Independent review cycle: queue empty".
  */
 export const NO_WORK_PHRASE =

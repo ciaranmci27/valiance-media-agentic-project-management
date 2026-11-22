@@ -83,7 +83,7 @@ const validAddress = (value: string | null | undefined) => {
   return parsed.success ? parsed.data : null;
 };
 
-/** The subject Ashley and the Inbox know a package by: "Meeting transcript: Title (2026-11-11)". */
+/** The subject the agent and the Inbox know a package by: "Meeting transcript: Title (2026-11-11)". */
 export function meetingSubject(input: Pick<MeetingPackage, 'kind' | 'title' | 'date'>): string {
   return `${input.kind === 'transcript' ? 'Meeting transcript' : 'Meeting summary'}: ${oneLine(input.title, 500)} (${input.date})`;
 }

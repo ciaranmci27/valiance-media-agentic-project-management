@@ -103,9 +103,10 @@ const POSE: Record<Activity, PoseParams> = {
 };
 
 /**
- * How each craft spends its time. Weights, not scripts: Jeff mostly types,
- * Greg mostly reads and scrolls, John reads then scrolls a diff, Ashley moves
- * between board and notes. Watching for a minute should tell you who is who.
+ * How each craft spends its time. Weights, not scripts: the builder mostly
+ * types, the auditor mostly reads and scrolls, the reviewer reads then scrolls
+ * a diff, the planner moves between board and notes. Watching for a minute
+ * should tell you who is who.
  */
 const MIX: Record<CraftBehavior, [Activity, number][]> = {
   type: [

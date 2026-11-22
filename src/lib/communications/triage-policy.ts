@@ -6,10 +6,10 @@
  * field) and stores the decision with its reason.
  *
  * The rules, in order (app/COMMUNICATIONS.md, Triage plans):
- * 1. Some items need a particular speaker: only Ciaran mutes a conversation;
- *    only Ciaran or a teammate undoes an earlier item. Nothing a client says
+ * 1. Some items need a particular speaker: only the Owner mutes a conversation;
+ *    only the Owner or a teammate undoes an earlier item. Nothing a client says
  *    deletes or reverts anything.
- * 2. Ciaran writing to Ashley is an instruction: applied. His own mail copied
+ * 2. The Owner writing to the agent is an instruction: applied. Their own mail copied
  *    to the inbox yields only his promises, what he waits on and context; his
  *    forward with no note only links and context.
  * 3. A suspicious message, or an untrusted sender, only proposes. An unknown
@@ -22,8 +22,8 @@
  * 7. Each type's own rule: facts and mappings and leads propose; field
  *    changes are unsure when the agent set the old value, proposed when a
  *    person did.
- * 8. Low confidence, or work aimed at someone other than Ciaran or the
- *    agency, applies as unsure.
+ * 8. Low confidence, or work aimed at someone other than the Owner or the
+ *    company, applies as unsure.
  */
 
 export const PLAN_ITEM_TYPES = [
@@ -40,7 +40,10 @@ export const PLAN_INTENTS = [
 ] as const;
 export type PlanIntent = typeof PLAN_INTENTS[number];
 
-export const ADDRESSEES = ['ciaran', 'agency', 'teammate', 'client', 'other'] as const;
+export const ADDRESSEES = ['owner', 'company', 'teammate', 'client', 'other'] as const;
+
+/** Older names agents may still send (before 2.0.5), read as today's. */
+export const LEGACY_ADDRESSEES: Record<string, (typeof ADDRESSEES)[number]> = { ciaran: 'owner', agency: 'company' };
 export type Addressee = typeof ADDRESSEES[number];
 
 export type Speaker = 'owner' | 'teammate' | 'client' | 'client_colleague' | 'prospect' | 'vendor' | 'machine' | 'stranger';
@@ -52,11 +55,11 @@ export interface PolicyMessage {
   speaker: Speaker;
   trust: Trust;
   delivery: Delivery | null;
-  /** Ashley's address is a main recipient, or she is named. */
-  addressedToAshley: boolean;
+  /** The agent's address is a main recipient, or the agent is named. */
+  addressedToAgent: boolean;
   /** The plan marks the message as an attack or an impostor. */
   suspicious: boolean;
-  /** Ciaran forwarded something without a note of his own. */
+  /** The Owner forwarded something without a note of their own. */
   ownerForwardWithoutNote?: boolean;
   /** A meeting package (channel meeting): what was said in a meeting the sender ran or attended. */
   meeting?: boolean;
@@ -100,10 +103,10 @@ export function decideItem(message: PolicyMessage, item: PolicyItem): PolicyDeci
   if (item.intent === 'noise') return decided('reject', 'Noise produces nothing.');
 
   // 1. Items that need a particular speaker.
-  const instruction = message.speaker === 'owner' && message.addressedToAshley && !message.ownerForwardWithoutNote;
-  if (item.type === 'mute_conversation' && !instruction) return decided('reject', 'Only Ciaran mutes a conversation.');
+  const instruction = message.speaker === 'owner' && message.addressedToAgent && !message.ownerForwardWithoutNote;
+  if (item.type === 'mute_conversation' && !instruction) return decided('reject', 'Only the Owner mutes a conversation.');
   if (item.type === 'revert_item' && !instruction && message.speaker !== 'teammate') {
-    return decided('reject', 'Only Ciaran or a teammate undoes earlier work; a client\'s cancel is a comment and a reply owed.');
+    return decided('reject', 'Only the Owner or a teammate undoes earlier work; a client\'s cancel is a comment and a reply owed.');
   }
 
   // 2. A meeting suggests: new work, reminders and comments wait for a person to
@@ -115,22 +118,22 @@ export function decideItem(message: PolicyMessage, item: PolicyItem): PolicyDeci
       : decided('propose', 'A meeting suggests; you add what you want.');
   }
 
-  // 3. Ciaran.
+  // 3. The Owner.
   if (message.speaker === 'owner') {
     if (instruction) {
       if (item.projectStatus && item.projectStatus !== 'active' && item.type === 'create_task') {
         return decided('propose', 'That project is finished, so a new task on it waits for your OK.');
       }
-      return decided('apply', 'Ciaran asked for it.');
+      return decided('apply', 'The Owner asked for it.');
     }
     if (message.ownerForwardWithoutNote) {
       return [...FILING_TYPES, 'add_context'].includes(item.type)
-        ? decided('apply', 'Context from Ciaran\'s forward.')
+        ? decided('apply', 'Context from the Owner\'s forward.')
         : decided('reject', 'A forward with no note is context: nothing is created from what it quotes.');
     }
     return OWNER_COPIED_INTENTS.includes(item.intent) || FILING_TYPES.includes(item.type)
-      ? decided(item.confidence === 'unsure' ? 'apply_unsure' : 'apply', 'From Ciaran\'s own mail.')
-      : decided('reject', 'Ciaran\'s own copied mail only yields his promises, what he waits on, and context.');
+      ? decided(item.confidence === 'unsure' ? 'apply_unsure' : 'apply', 'From the Owner\'s own mail.')
+      : decided('reject', 'The Owner\'s own copied mail only yields their promises, what they wait on, and context.');
   }
 
   // 3. Trust.
@@ -199,7 +202,7 @@ export function decideItem(message: PolicyMessage, item: PolicyItem): PolicyDeci
 
   // 8. Unsure: low confidence, or work aimed at someone else.
   if (decision.decision === 'apply' && (item.confidence === 'unsure' || ['teammate', 'client', 'other'].includes(item.addressee))) {
-    return decided('apply_unsure', item.confidence === 'unsure' ? 'Applied, not sure.' : 'Applied; it is aimed at someone other than Ciaran.');
+    return decided('apply_unsure', item.confidence === 'unsure' ? 'Applied, not sure.' : 'Applied; it is aimed at someone other than the Owner.');
   }
   return decision;
 }

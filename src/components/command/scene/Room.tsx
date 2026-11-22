@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import * as THREE from 'three';
 import { RectAreaLightUniformsLib } from 'three/examples/jsm/lights/RectAreaLightUniformsLib.js';
 import { useBrand } from '@/lib/brand/context';
-import { useScenePalette } from './crew';
+import { useScenePalette, useStationLabels } from './crew';
 import { OfficeProp, Prop } from './Prop';
 import { roundedMetricBox } from './metricGeometry';
 import { type TimeOfDay } from './timeOfDay';
@@ -43,8 +43,8 @@ RectAreaLightUniformsLib.init();
  * A corkboard of reference material: printouts and sticky notes, the kind of
  * thing an auditor actually pins up. Exists because the camera move that
  * raised the shot over the chair backs also exposed a stretch of bare upper
- * wall behind Greg with nothing on it; this fills it with something specific
- * to his craft instead of a generic poster.
+ * wall behind the auditor with nothing on it; this fills it with something
+ * specific to that craft instead of a generic poster.
  */
 function useCorkboardTexture(): THREE.CanvasTexture {
   return useMemo(() => {
@@ -436,6 +436,7 @@ function useFleetBoardTexture(): THREE.CanvasTexture {
   const brand = useBrand();
   const palette = useScenePalette();
   const img = useLogoImage(brand.logos.dark);
+  const labels = useStationLabels();
 
   return useMemo(() => {
     const w = 1024;
@@ -476,18 +477,23 @@ function useFleetBoardTexture(): THREE.CanvasTexture {
     ctx.fillStyle = 'rgba(255,255,255,0.10)';
     ctx.fillRect(48, 108, w - 96, 1);
 
-    // Four crew rows, matching the floor.
+    // Four crew rows, matching the floor: whoever sits at each desk, or the
+    // role while it is empty.
     const rows = [
-      { name: 'GREG A.', role: 'AUDIT', pct: 0.72 },
-      { name: 'ASHLEY P.', role: 'SPEC', pct: 0.54 },
-      { name: 'JEFF D.', role: 'BUILD', pct: 0.88 },
-      { name: 'JOHN R.', role: 'REVIEW', pct: 0.41 },
-    ];
+      { role: 'AUDIT', pct: 0.72 },
+      { role: 'SPEC', pct: 0.54 },
+      { role: 'BUILD', pct: 0.88 },
+      { role: 'REVIEW', pct: 0.41 },
+    ].map((r, i) => ({ ...r, name: (labels[i] ?? '').toUpperCase() }));
     rows.forEach((r, i) => {
       const y = 158 + i * 62;
       ctx.fillStyle = '#aeb7c4';
       ctx.font = '500 20px "DM Mono", ui-monospace, monospace';
-      ctx.fillText(r.name, 48, y + 14);
+      // A long name stops short of the role column rather than running into it.
+      let name = r.name;
+      while (name.length > 1 && ctx.measureText(name).width > 154) name = name.slice(0, -1);
+      if (name !== r.name) name = `${name.slice(0, -1).trimEnd()}…`;
+      ctx.fillText(name, 48, y + 14);
       ctx.fillStyle = '#5d6674';
       ctx.font = '400 15px "DM Mono", ui-monospace, monospace';
       ctx.fillText(r.role, 214, y + 13);
@@ -532,7 +538,7 @@ function useFleetBoardTexture(): THREE.CanvasTexture {
     return tex;
     // Depends on the logo: the board has to redraw once the image loads,
     // or it keeps whichever header it happened to compose first.
-  }, [img, brand.name, palette]);
+  }, [img, brand.name, palette, labels]);
 }
 
 function WallScreen({ position, rotationY }: { position: [number, number, number]; rotationY: number }) {
@@ -649,7 +655,7 @@ export function Room({ time }: { time: TimeOfDay }) {
           kind of screen an operations floor actually has. */}
       <WallScreen position={[ROOM.rightX - 0.06, 1.95, -3.0]} rotationY={-Math.PI / 2} />
 
-      {/* Greg's corkboard: printouts, sticky notes, red string. On the
+      {/* The auditor's corkboard: printouts, sticky notes, red string. On the
           right wall's free stretch between the fleet board and the fluted
           panel, since the shelf run took the front wall to full height. */}
       <mesh position={[ROOM.rightX - 0.02, 1.7, -0.7]} rotation={[0, -Math.PI / 2, 0]} castShadow>
@@ -691,7 +697,7 @@ export function Room({ time }: { time: TimeOfDay }) {
           Photographed furniture (Poly Haven, CC0) where the kit used to be;
           see `OfficeProp`. Collision boxes in `collision.ts` follow these. */}
 
-      {/* Greg's research wall on the front wall: three steel-framed shelf
+      {/* The auditor's research wall on the front wall: three steel-framed shelf
           units in a run, books and ceramics on them. Same footprint as the
           bookcase run it replaced, so the walkable floor is unchanged. */}
       {SHELF_XS.map((x) => (
@@ -704,8 +710,8 @@ export function Room({ time }: { time: TimeOfDay }) {
       <OfficeProp file="ceramic_vase_03.glb" height={0.36} position={[SHELF_XS[2] + 0.3, 0.56, SHELF_Z]} />
       <OfficeProp file="potted_plant_04.glb" height={0.27} position={[SHELF_XS[0] + 0.3, 1.56, SHELF_Z]} />
 
-      {/* Whiteboard on the front wall, the nearest wall surface to Ashley
-          (CC-BY: model by jeremy). */}
+      {/* Whiteboard on the front wall, the nearest wall surface to the
+          planner (CC-BY: model by jeremy). */}
       <Prop
         file="whiteboard.glb"
         position={[0.4, 1.05, 6.25]}

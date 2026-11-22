@@ -9,6 +9,7 @@ import { HUD_SURFACE } from './hudSurface';
 import {
   STATIONS,
   elapsedLabel,
+  stationLabel,
   statusSentence,
   type CrewState,
   type FeedItem,
@@ -71,7 +72,7 @@ function FeedFace({ crew, agent }: { crew: CrewState; agent: FeedItem['agent'] }
 }
 
 /**
- * The member's name exactly as the team roster records it ("John R."), same
+ * The member's name exactly as the team roster records it ("Sam R."), same
  * as the dashboard timeline: one identity, spelled one way, everywhere. The
  * row truncates the log text, never the name.
  */
@@ -211,7 +212,7 @@ export function ActivityHUD({
         )}
         <div className="min-w-0 flex-1">
           <p className="text-[11px] font-semibold text-zinc-100 truncate">
-            {member?.name ?? station?.key ?? 'System'}
+            {station ? stationLabel(station, member) : 'System'}
           </p>
           {/* A toast wraps rather than truncates, so `break-words` is what
               keeps that promise: a PR link is one unbreakable token, and
@@ -401,7 +402,7 @@ export function ActivityHUD({
                 )}
                 <div className="min-w-0">
                   <div className="flex items-center gap-1.5">
-                    <p className="text-[12px] font-semibold text-white truncate">{snap.member?.name ?? s.key}</p>
+                    <p className="text-[12px] font-semibold text-white truncate">{stationLabel(s, snap.member)}</p>
                     {/* The negative margin cancels the padding, so the hit and
                         focus area is comfortably larger than the 8px dot
                         without the dot itself shifting the row. */}
@@ -467,7 +468,7 @@ export function ActivityHUD({
                           phone can open. The dot still moves after the name to
                           match the desktop bar. */}
                       <div className="flex items-center gap-1.5 flex-wrap">
-                        <p className="text-[12px] font-semibold text-white truncate">{snap.member?.name ?? s.key}</p>
+                        <p className="text-[12px] font-semibold text-white truncate">{stationLabel(s, snap.member)}</p>
                         <span className={`w-2 h-2 rounded-full ${style.dot}`} aria-hidden="true" />
                         <span className={`text-[9px] font-mono uppercase tracking-wider ${style.text}`}>
                           {status}

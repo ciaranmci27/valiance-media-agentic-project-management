@@ -16,6 +16,9 @@ import { PM_SCHEMA } from '@/lib/supabase/schema';
 import {
   STATIONS,
   emptyWork,
+  publishStationLabels,
+  seatCrew,
+  stationLabel,
   type AgentKey,
   type AgentSnapshot,
   type AgentWork,
@@ -94,7 +97,7 @@ type HealthRow = {
  */
 const PUBLIC_POLL_MS = 12_000;
 
-/** Suggestion states that still represent an open finding of Greg's. */
+/** Suggestion states that still represent an open finding of the auditor's. */
 const OPEN_SUGGESTION = new Set(['pending', 'needs_info']);
 
 /** How much narrative the HUD may ask for: the activity log shows 5
@@ -137,10 +140,10 @@ export function useCrewData(mock?: { mood?: Mood }, publicFeed?: boolean): CrewS
   const [members, setMembers] = useState<Member[]>([]);
   const [tasks, setTasks] = useState<CrewTask[]>([]);
   const [traces, setTraces] = useState<Record<AgentKey, AgentTrace>>({
-    greg: emptyTrace(),
-    ashley: emptyTrace(),
-    jeff: emptyTrace(),
-    john: emptyTrace(),
+    auditor: emptyTrace(),
+    planner: emptyTrace(),
+    builder: emptyTrace(),
+    reviewer: emptyTrace(),
   });
   const [feed, setFeed] = useState<FeedItem[]>([]);
   /**
@@ -178,9 +181,7 @@ export function useCrewData(mock?: { mood?: Mood }, publicFeed?: boolean): CrewS
       roster: Member[] = membersRef.current
     ): AgentKey | undefined => {
       if (!agentId) return undefined;
-      const m = roster.find((x) => x.id === agentId);
-      if (!m) return undefined;
-      return STATIONS.find((s) => s.match(m.name.toLowerCase()))?.key;
+      return seatCrew(roster).byMember.get(agentId);
     };
 
     const react = (key: AgentKey, mood: Mood, ms: number) => {
@@ -245,18 +246,18 @@ export function useCrewData(mock?: { mood?: Mood }, publicFeed?: boolean): CrewS
       setReviews((r) => [toReview(row), ...r].slice(0, REVIEW_LIMIT));
       setTraces((t) => ({
         ...t,
-        john: { ...t.john, lastLine: text, seenAt: Date.now(), workAt: Date.now() },
+        reviewer: { ...t.reviewer, lastLine: text, seenAt: Date.now(), workAt: Date.now() },
       }));
       setFeed((f) =>
         [
-          { id: `rev-${Date.now()}`, agent: 'john' as const, text, kind: approved ? ('good' as const) : ('warn' as const), at: Date.now() },
+          { id: `rev-${Date.now()}`, agent: 'reviewer' as const, text, kind: approved ? ('good' as const) : ('warn' as const), at: Date.now() },
           ...f,
         ].slice(0, FEED_LIMIT)
       );
       if (approved) {
         setCelebration(Date.now());
-        react('john', 'celebrating', 4200);
-        react('jeff', 'celebrating', 4200);
+        react('reviewer', 'celebrating', 4200);
+        react('builder', 'celebrating', 4200);
       }
     };
 
@@ -269,7 +270,7 @@ export function useCrewData(mock?: { mood?: Mood }, publicFeed?: boolean): CrewS
         { data: suggestionRows },
         { data: projectRows },
       ] = await Promise.all([
-        supabase.from('team_members').select('id, name, title, avatar').eq('role', 'agent'),
+        supabase.from('team_members').select('id, name, title, avatar, role').eq('role', 'agent'),
         supabase
           .from('tasks')
           .select('id, title, status, priority, updated_at, ai_readiness, task_assignees(member_id)')
@@ -288,23 +289,23 @@ export function useCrewData(mock?: { mood?: Mood }, publicFeed?: boolean): CrewS
           .order('created_at', { ascending: false })
           .limit(400),
         // Widened from one row of three columns. `pr_url` and `head_sha` are
-        // the only verifiable code references in the schema, and John's screen
+        // the only verifiable code references in the schema, and the reviewer's screen
         // is the one place in the scene where showing them means anything.
         supabase
           .from('task_reviews')
           .select('task_id, verdict, round, summary, pr_url, head_sha, created_at')
           .order('created_at', { ascending: false })
           .limit(REVIEW_LIMIT),
-        // Greg's actual output. Nothing read this before, which is why his
-        // station rendered with no content of its own at all.
+        // The auditor's actual output. Nothing read this before, which is why
+        // its station rendered with no content of its own at all.
         supabase
           .from('task_suggestions')
           .select('id, title, priority, effort_estimate, status, created_at')
           .in('status', [...OPEN_SUGGESTION])
           .order('created_at', { ascending: false })
           .limit(SUGGESTION_LIMIT),
-        // One autonomous project's branch names, for a real branch on Jeff's
-        // status bar instead of an invented one.
+        // One autonomous project's branch names, for a real branch on the
+        // builder's status bar instead of an invented one.
         supabase
           .from('projects')
           .select('id, name, integration_branch')
@@ -384,10 +385,10 @@ export function useCrewData(mock?: { mood?: Mood }, publicFeed?: boolean): CrewS
       if (first && rev) {
         setTraces((t) => ({
           ...t,
-          john: {
-            ...t.john,
+          reviewer: {
+            ...t.reviewer,
             lastLine:
-              t.john.lastLine ??
+              t.reviewer.lastLine ??
               (rev.verdict === 'approved' ? 'Approved. Ship it.' : `Changes requested, round ${rev.round}`),
           },
         }));
@@ -441,7 +442,7 @@ export function useCrewData(mock?: { mood?: Mood }, publicFeed?: boolean): CrewS
         });
         if (row.status === 'done') {
           setCelebration(Date.now());
-          const key = keyForAssignees(membersRef.current, row.id, tasksRef.current) ?? 'jeff';
+          const key = keyForAssignees(membersRef.current, row.id, tasksRef.current) ?? 'builder';
           react(key, 'celebrating', 4200);
         }
       })
@@ -453,9 +454,10 @@ export function useCrewData(mock?: { mood?: Mood }, publicFeed?: boolean): CrewS
         seenReviewKeys.add(reviewKey(row));
         reviewLanded(row);
       })
-      // Greg's findings ledger, kept live the same way John's verdicts are.
-      // `*` rather than INSERT because a suggestion leaving `pending` (someone
-      // approved or rejected it) has to drop off his screen, not linger.
+      // The auditor's findings ledger, kept live the same way the reviewer's
+      // verdicts are. `*` rather than INSERT because a suggestion leaving
+      // `pending` (someone approved or rejected it) has to drop off the
+      // auditor's screen, not linger.
       .on('postgres_changes', { event: '*', schema: PM_SCHEMA, table: 'task_suggestions' }, (p) => {
         const row = p.new as SuggestionRow | null;
         const gone = p.eventType === 'DELETE' || !row || !OPEN_SUGGESTION.has(row.status);
@@ -487,15 +489,15 @@ export function useCrewData(mock?: { mood?: Mood }, publicFeed?: boolean): CrewS
     setLive(true);
     const now = Date.now();
     setTasks([
-      mockTask('t1', 'Fix invoice rounding on multi-currency projects', 'in_progress', MOCK_IDS.jeff, now - 13 * 60_000),
-      mockTask('t2', 'Spec: client portal file uploads', 'todo', MOCK_IDS.ashley, now - 4 * 60_000),
-      mockTask('t3', 'Webhook retry backoff is wrong under burst load', 'in_review', MOCK_IDS.john, now - 7 * 60_000),
+      mockTask('t1', 'Fix invoice rounding on multi-currency projects', 'in_progress', MOCK_IDS.builder, now - 13 * 60_000),
+      mockTask('t2', 'Spec: client portal file uploads', 'todo', MOCK_IDS.planner, now - 4 * 60_000),
+      mockTask('t3', 'Webhook retry backoff is wrong under burst load', 'in_review', MOCK_IDS.reviewer, now - 7 * 60_000),
     ]);
     // Fixtures deliberately cover every branch of the state machine: working,
     // an explicit empty-queue report, and an agent that logs nothing at all
     // (idle with no duration to show, never a fault).
     setTraces({
-      greg: {
+      auditor: {
         lastLine: 'Started audit of app/src/lib/api',
         seenAt: now - 6 * 60_000,
         workAt: now - 6 * 60_000,
@@ -503,8 +505,8 @@ export function useCrewData(mock?: { mood?: Mood }, publicFeed?: boolean): CrewS
         blockedAt: 0,
       },
       // No telemetry at all: the scene must decline to guess.
-      ashley: emptyTrace(),
-      jeff: {
+      planner: emptyTrace(),
+      builder: {
         lastLine: 'Opened PR #142',
         seenAt: now - 13 * 60_000,
         workAt: now - 13 * 60_000,
@@ -512,7 +514,7 @@ export function useCrewData(mock?: { mood?: Mood }, publicFeed?: boolean): CrewS
         blockedAt: 0,
       },
       // Ran recently and reported nothing to do: idle, not reviewing.
-      john: {
+      reviewer: {
         lastLine: 'Independent review cycle: queue empty',
         seenAt: now - 7 * 60_000,
         workAt: now - 52 * 60_000,
@@ -521,19 +523,19 @@ export function useCrewData(mock?: { mood?: Mood }, publicFeed?: boolean): CrewS
       },
     });
     setFeed([
-      { id: 'f1', agent: 'john', text: 'Review round 2 started', kind: 'info', at: now - 7 * 60_000 },
-      { id: 'f2', agent: 'greg', text: 'Started audit of app/src/lib/api', kind: 'info', at: now - 6 * 60_000 },
-      { id: 'f3', agent: 'jeff', text: 'Opened PR #142', kind: 'info', at: now - 13 * 60_000 },
+      { id: 'f1', agent: 'reviewer', text: 'Review round 2 started', kind: 'info', at: now - 7 * 60_000 },
+      { id: 'f2', agent: 'auditor', text: 'Started audit of app/src/lib/api', kind: 'info', at: now - 6 * 60_000 },
+      { id: 'f3', agent: 'builder', text: 'Opened PR #142', kind: 'info', at: now - 13 * 60_000 },
     ]);
     // Artefacts for the monitors. Deliberately concrete: a real-looking PR
     // URL and SHA so the review panel's parsing is exercised offline, and a
-    // findings list so Greg's ledger is not empty in the preview.
+    // findings list so the auditor's ledger is not empty in the preview.
     setReviews([
       {
         taskId: 't3',
         verdict: 'changes_requested',
         round: 2,
-        prUrl: 'https://github.com/valiance/bloomwell-app/pull/142',
+        prUrl: 'https://github.com/example/example-app/pull/142',
         headSha: '9f3c1a4e77b2d0568ac91f3e2b7d4c8a09e1f6b3',
         summary: 'Backoff resets on every retry; the jitter window is never applied.',
         at: now - 7 * 60_000,
@@ -542,7 +544,7 @@ export function useCrewData(mock?: { mood?: Mood }, publicFeed?: boolean): CrewS
         taskId: 't3',
         verdict: 'changes_requested',
         round: 1,
-        prUrl: 'https://github.com/valiance/bloomwell-app/pull/142',
+        prUrl: 'https://github.com/example/example-app/pull/142',
         headSha: '1b8e05c9d4a37f26e0b5c8194da2367fbc40e9a1',
         summary: 'Missing coverage for the burst path.',
         at: now - 41 * 60_000,
@@ -554,27 +556,28 @@ export function useCrewData(mock?: { mood?: Mood }, publicFeed?: boolean): CrewS
       { id: 's3', title: 'Time entry segments are re-parsed per render', priority: 'medium', effort: 'small', at: now - 48 * 60_000 },
       { id: 's4', title: 'Portal share links never expire', priority: 'high', effort: 'medium', at: now - 96 * 60_000 },
     ]);
-    setBranch({ name: 'dev', project: 'Bloomwell' });
+    setBranch({ name: 'dev', project: 'Example App' });
   }, [mock]);
 
-  return useMemo(() => {
+  const state = useMemo<CrewState>(() => {
     const agentIds = new Set(members.map((m) => m.id));
     // A task sits with whoever owns its pipeline stage, not with whoever the
-    // assignee column names: John reviews every PR in review even though the
-    // row stays assigned to the agent who implemented it.
+    // assignee column names: the reviewer reviews every PR in review even
+    // though the row stays assigned to the agent who implemented it.
     //
     // Eligibility is the pipeline's own flag, not a guess. Treating unassigned
-    // work as the crew's swept every `human_only` task in the app onto Ashley's
-    // desk, which is how a four-day-old task for a person ended up rendered as
-    // her current job.
+    // work as the crew's swept every `human_only` task in the app onto the
+    // planner's desk, which is how a four-day-old task for a person ended up
+    // rendered as the planner's current job.
     const crewTasks = tasks.filter(
       (t) => t.ai_readiness === 'ai_ready' || t.assignees.some((id) => agentIds.has(id))
     );
     const now = Date.now();
 
+    const seats = seatCrew(members);
     const agents = {} as Record<AgentKey, AgentSnapshot>;
     for (const station of STATIONS) {
-      const member = members.find((m) => station.match(m.name.toLowerCase()));
+      const member = seats.byStation[station.key];
       const trace = traces[station.key];
       const deskTasks = crewTasks.filter((t) => stageOwner(t.status) === station.key);
       const task = deskTasks.sort(
@@ -624,6 +627,14 @@ export function useCrewData(mock?: { mood?: Mood }, publicFeed?: boolean): CrewS
     }
     return { agents, feed, tasksInFlight: crewTasks.length, celebration, live };
   }, [members, tasks, traces, feed, reactions, celebration, live, reviews, suggestions, branch, agentHealth, mock]);
+
+  // The fleet board on the wall is mounted without crew props; it reads the
+  // desk labels from here.
+  useEffect(() => {
+    publishStationLabels(STATIONS.map((s) => stationLabel(s, state.agents[s.key].member)));
+  }, [state.agents]);
+
+  return state;
 }
 
 /** Row shape to scene shape, in one place so the fetch and the realtime
@@ -667,10 +678,10 @@ function normalizeTasks(rows: unknown): CrewTask[] {
  * The artefacts a given station's monitors should show.
  *
  * Handed out by role rather than to everyone, because a screen showing facts
- * that belong to someone else's craft is noise: Greg has no PR to look at and
- * John has no findings to file. Reviews are narrowed to the task actually on
- * the desk where there is one, so John's panel tracks the PR he is reviewing
- * rather than whatever landed most recently anywhere.
+ * that belong to someone else's craft is noise: the auditor has no PR to look
+ * at and the reviewer has no findings to file. Reviews are narrowed to the
+ * task actually on the desk where there is one, so the reviewer's panel tracks
+ * the PR under review rather than whatever landed most recently anywhere.
  */
 function workFor(
   key: AgentKey,
@@ -682,13 +693,13 @@ function workFor(
   const base = emptyWork();
   base.branch = branch.name;
   base.project = branch.project;
-  if (key === 'greg') {
+  if (key === 'auditor') {
     base.suggestions = suggestions;
-  } else if (key === 'john') {
+  } else if (key === 'reviewer') {
     const mine = task ? reviews.filter((r) => r.taskId === task.id) : [];
     base.reviews = mine.length ? mine : reviews;
-  } else if (key === 'jeff') {
-    // The dev agent cares only about verdicts on what he built, and only to
+  } else if (key === 'builder') {
+    // The builder cares only about verdicts on what it built, and only to
     // know whether it bounced.
     base.reviews = task ? reviews.filter((r) => r.taskId === task.id) : [];
   }
@@ -696,15 +707,15 @@ function workFor(
 }
 
 /**
- * Which station owns a task, purely by pipeline stage. Greg is deliberately
- * absent: his work produces suggestions rather than moving task rows, so his
- * state comes from the activity stream instead, and his desk content comes
- * from `task_suggestions` via `workFor`.
+ * Which station owns a task, purely by pipeline stage. The auditor is
+ * deliberately absent: its work produces suggestions rather than moving task
+ * rows, so its state comes from the activity stream instead, and its desk
+ * content comes from `task_suggestions` via `workFor`.
  */
 function stageOwner(status: string): AgentKey | null {
-  if (status === 'in_review') return 'john';
-  if (status === 'in_progress') return 'jeff';
-  if (status === 'todo') return 'ashley';
+  if (status === 'in_review') return 'reviewer';
+  if (status === 'in_progress') return 'builder';
+  if (status === 'todo') return 'planner';
   return null;
 }
 
@@ -712,28 +723,27 @@ function keyForAssignees(members: Member[], taskId: string | undefined, tasks: C
   if (!taskId) return undefined;
   const task = tasks.find((t) => t.id === taskId);
   if (!task) return undefined;
+  const seats = seatCrew(members);
   for (const id of task.assignees) {
-    const m = members.find((x) => x.id === id);
-    if (!m) continue;
-    const s = STATIONS.find((st) => st.match(m.name.toLowerCase()));
-    if (s) return s.key;
+    const key = seats.byMember.get(id);
+    if (key) return key;
   }
   return undefined;
 }
 
-// Fixed fixtures so the dev preview renders the real people without auth.
+// Fixed fixtures so the dev preview renders a full crew without auth.
 const MOCK_IDS = {
-  greg: '16553be9-40ac-4b38-b1e9-d3cfbae71a5b',
-  ashley: '656894b6-5ad3-498c-adad-1845eafe942a',
-  jeff: 'ef1951d2-fa74-4d2b-8b05-f15a69ac7ba8',
-  john: 'cbe473dc-8e2b-456a-8603-df500e16a6c1',
+  auditor: '00000000-0000-4000-8000-000000000001',
+  planner: '00000000-0000-4000-8000-000000000002',
+  builder: '00000000-0000-4000-8000-000000000003',
+  reviewer: '00000000-0000-4000-8000-000000000004',
 };
 
 const MOCK_MEMBERS: Member[] = [
-  { id: MOCK_IDS.greg, name: 'Greg A.', title: 'Technical Auditor', avatar: null },
-  { id: MOCK_IDS.ashley, name: 'Ashley P.', title: 'Project Manager', avatar: null },
-  { id: MOCK_IDS.jeff, name: 'Jeff D.', title: 'Senior Developer', avatar: null },
-  { id: MOCK_IDS.john, name: 'John R.', title: 'Code Reviewer', avatar: null },
+  { id: MOCK_IDS.auditor, name: 'Auditor', title: 'Technical Auditor', avatar: null, role: 'agent' },
+  { id: MOCK_IDS.planner, name: 'Planner', title: 'Spec Planner', avatar: null, role: 'agent' },
+  { id: MOCK_IDS.builder, name: 'Builder', title: 'Senior Developer', avatar: null, role: 'agent' },
+  { id: MOCK_IDS.reviewer, name: 'Reviewer', title: 'Code Reviewer', avatar: null, role: 'agent' },
 ];
 
 function mockTask(id: string, title: string, status: string, assignee: string, updatedAt: number): CrewTask {

@@ -14,7 +14,7 @@ export function useTaskSource(task: Task | null): TaskSourceData | null {
 }
 
 /**
- * Who or what made the task, in a few words: "you", "Ashley", "your Claude
+ * Who or what made the task, in a few words: "you", "your agent", "your Claude
  * Code key", "Maya's Time recap key", "an automation". A key is named by
  * itself, so a task an agent made through a person's key never reads as
  * that person's own.

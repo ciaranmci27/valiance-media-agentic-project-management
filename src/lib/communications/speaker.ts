@@ -1,6 +1,6 @@
 /**
  * Who is speaking in a message, worked out by the app so the agent never has
- * to guess it: the owner (Ciaran), a teammate, a client, a client's colleague,
+ * to guess it: the Owner, a teammate, a client, a client's colleague,
  * a prospect, a machine, or a stranger. Also whether the inbox's agent was
  * addressed (its address among the main recipients, or its name at the top),
  * and whether a forward from the owner carries a note of his.
@@ -69,7 +69,7 @@ export async function messageFacts(supabase: SupabaseClient, messageId: string):
   const ours = new Set([box.address, box.routing_address].map((a) => a.toLowerCase()));
   const opening = ((row.new_text as string | null) ?? (row.text_body as string | null) ?? '').trim().slice(0, 200);
   const named = agentName.length > 1 && new RegExp(`^(hi |hey |hello )?${agentName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(opening);
-  const addressedToAshley = recipients.some((r) => r.kind === 'to' && ours.has(r.address)) || named;
+  const addressedToAgent = recipients.some((r) => r.kind === 'to' && ours.has(r.address)) || named;
 
   const forwarded = row.routing_basis === 'forwarded_original';
   const note = forwarded ? forwardNote(row.subject as string | null, (row.text_body as string | null) ?? '') : null;
@@ -77,7 +77,7 @@ export async function messageFacts(supabase: SupabaseClient, messageId: string):
     speaker,
     trust: ((((row.auth ?? {}) as { trust?: string }).trust) ?? 'unknown') as Trust,
     delivery: (row.delivery as Delivery | null) ?? null,
-    addressedToAshley,
+    addressedToAgent,
     suspicious: false,
     ownerForwardWithoutNote: speaker === 'owner' && forwarded && (note ?? '').length < 3,
     meeting: row.channel === 'meeting',

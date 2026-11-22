@@ -137,7 +137,7 @@ export function ReviewQueue({ onApprove, onEdit }: ReviewQueueProps) {
     large: 'bg-rose-500/15 text-rose-300',
   };
 
-  // The tier is what Ciaran actually triages by: a bug risk and a feature idea
+  // The tier is what the Owner actually triages by: a bug risk and a feature idea
   // with the same priority are different decisions. Priority alone made every
   // row read as identical urgency.
   const tierConfig: Record<string, { label: string; classes: string }> = {
@@ -272,7 +272,7 @@ export function ReviewQueue({ onApprove, onEdit }: ReviewQueueProps) {
   // this exact marker (its plugin owns the format). Splitting on it lets the UI
   // show a clean description plus a real Q&A block, and, more importantly, show
   // WHO HOLDS THE BALL: an unanswered request waits on the agent, an answered
-  // one is back on Ciaran. Without this the two states are indistinguishable.
+  // one is back on the Owner. Without this the two states are indistinguishable.
   const ANSWER_MARKER = '\n\n--- Answer to info request ---';
   const splitAnswer = (s: TaskSuggestion): { description: string; answer: string | null } => {
     const idx = s.description.indexOf(ANSWER_MARKER);
@@ -746,8 +746,8 @@ export function ReviewQueue({ onApprove, onEdit }: ReviewQueueProps) {
                               Order mirrors how a finding is judged: what is wrong, why
                               it matters, the proof, the remedy, the definition of done. */}
                           {/* The billing case leads: the queue's standard is "would
-                              Ciaran sell this fix", so the sentence he could say to
-                              the client is the first thing he judges, with the
+                              the Owner sell this fix", so the sentence they could say to
+                              the client is the first thing they judge, with the
                               demonstrable-harm category beside it. Older suggestions
                               predate the field and simply omit the section. */}
                           {typeof suggestion.metadata?.billing_case === 'string' && suggestion.metadata.billing_case.trim() && (

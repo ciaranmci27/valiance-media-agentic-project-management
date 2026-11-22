@@ -4,7 +4,7 @@ import { useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import { useFrame } from '@react-three/fiber';
 import { MOOD_LIGHT_HEX } from '@/lib/agent-status';
-import { PALETTE, DESK_TOP, type AgentSnapshot, type Mood, type ScreenKind, type StationDef } from './crew';
+import { PALETTE, DESK_TOP, stationLabel, type AgentSnapshot, type Mood, type ScreenKind, type StationDef } from './crew';
 import { screenModel } from './screenContent';
 import { OfficeProp } from './Prop';
 import { ScreenSurface } from './Screens';
@@ -94,7 +94,7 @@ function Mug({ position }: { position: [number, number, number] }) {
   );
 }
 
-/** A few printed pages, squared up but not perfectly. John's exhibit. */
+/** A few printed pages, squared up but not perfectly. The reviewer's exhibit. */
 function PaperStack({ position, rotationY }: { position: [number, number, number]; rotationY: number }) {
   const sheets = useMemo(() => [0, 1, 2].map((i) => ({ i, rot: (i - 1) * 0.035, lift: i * 0.0016 })), []);
   return (
@@ -138,8 +138,8 @@ function Monitor({
   const { w, h, rake, centreY, centreZ } = SCREEN;
 
   // What this panel is entitled to say, rebuilt only when the snapshot moves.
-  // Two of Jeff's monitors read the same snapshot through different builders,
-  // which is the point of keying this on `screen` as well.
+  // The builder's two monitors read the same snapshot through different model
+  // builders, which is the point of keying this on `screen` as well.
   const model = useMemo(() => screenModel(screen, snapshot), [screen, snapshot]);
 
   // Scratch colour, allocated once. `lerp` needs a Color to read from, and
@@ -213,10 +213,10 @@ export function DeskStation({
   }, []);
 
   const mood = snapshot.mood;
-  const fit = CHAIR_FIT[station.key] ?? CHAIR_FIT.jeff;
+  const fit = CHAIR_FIT[station.key] ?? CHAIR_FIT.builder;
   const busy = mood === 'working' || mood === 'reviewing';
-  /** Whose desk this is, for the focus prompt. Falls back to the craft key. */
-  const who = snapshot.member?.name ?? station.key;
+  /** Whose desk this is, for the focus prompt. Falls back to the role. */
+  const who = stationLabel(station, snapshot.member);
 
   /**
    * One worker state per station, advanced once per frame here and read by
@@ -415,9 +415,9 @@ export function DeskStation({
       <primitive object={anchors.lapRight} />
       <primitive object={anchors.mug} />
 
-      {/* Primary monitor. Jeff runs a matched pair instead, so his sits off to
-          the left of centre rather than on it — see below. */}
-      {station.key !== 'jeff' && (
+      {/* Primary monitor. The builder runs a matched pair instead, so that
+          one sits off to the left of centre rather than on it. See below. */}
+      {station.key !== 'builder' && (
         <Monitor
           position={[-0.06, DESK_TOP, -0.14]}
           screen={station.screen}
@@ -430,7 +430,7 @@ export function DeskStation({
       )}
 
       {/* Per-craft dressing */}
-      {station.key === 'jeff' && (
+      {station.key === 'builder' && (
         <>
           {/* A real dual setup, not one monitor with a second angled off the
               side of it. The screen model is 0.747m wide at this scale, so the
@@ -448,7 +448,7 @@ export function DeskStation({
             worker={worker}
             label={`${who} · editor`}
           />
-          {/* The right panel used to duplicate Greg's file tree, which made
+          {/* The right panel used to duplicate the auditor's file tree, which made
               two agents' desks read as the same job. A terminal is what a dev
               actually keeps on the second screen, and it gives the room its
               most active surface. */}
@@ -464,24 +464,24 @@ export function DeskStation({
           />
         </>
       )}
-      {station.key === 'greg' && (
+      {station.key === 'auditor' && (
         <>
           {/* An articulated lamp clamped to the back edge, reaching over the
-              work, and his notebook open beside the keyboard. */}
+              work, and a notebook open beside the keyboard. */}
           <OfficeProp file="desk_lamp_arm_01.glb" tint={LAMP_TINT} height={0.62} position={[-0.6, DESK_TOP, -0.28]} rotation={[0, 0.6, 0]} />
           <OfficeProp file="binder_notebook.glb" height={0.03} position={[0.52, DESK_TOP, 0.05]} rotation={[0, -0.25, 0]} />
           <pointLight position={[-0.45, DESK_TOP + 0.45, -0.05]} color={PALETTE.warm} intensity={1} distance={2.8} decay={2} />
         </>
       )}
-      {station.key === 'ashley' && (
+      {station.key === 'planner' && (
         <OfficeProp file="potted_plant_04.glb" height={0.27} position={[-0.6, DESK_TOP, -0.15]} />
       )}
-      {station.key === 'john' && (
+      {station.key === 'reviewer' && (
         <>
           <OfficeProp file="desk_lamp_arm_01.glb" tint={LAMP_TINT} height={0.62} position={[0.6, DESK_TOP, -0.28]} rotation={[0, -0.6, 0]} />
           <OfficeProp file="office_notepads.glb" scale={0.32} position={[-0.52, DESK_TOP, -0.02]} rotation={[0, 0.2, 0]} />
           <pointLight position={[0.45, DESK_TOP + 0.45, -0.05]} color={PALETTE.warm} intensity={1} distance={2.8} decay={2} />
-          {/* The exhibit he is marking up, at actual A4 on the desk. */}
+          {/* The exhibit being marked up, at actual A4 on the desk. */}
           <PaperStack position={[-0.3, DESK_TOP, 0.42]} rotationY={-0.22} />
         </>
       )}

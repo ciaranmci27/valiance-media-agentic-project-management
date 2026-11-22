@@ -25,7 +25,7 @@ export type FocusKind = 'screen' | 'device';
 
 export type ScreenEntry = {
   mesh: THREE.Mesh;
-  /** Whose desk, for the focus prompt: "Jeff D. · terminal". */
+  /** Whose desk, for the focus prompt: "Builder · terminal". */
   label: string;
   kind: FocusKind;
 };

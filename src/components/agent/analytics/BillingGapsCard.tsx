@@ -14,11 +14,11 @@ const PHASES: Record<BillingGap['phase'], { label: string; hint: string }> = {
   mid_turn: { label: 'Mid turn', hint: 'The timer was paused while work went on. The most important kind.' },
   unbilled_turn: { label: 'Unbilled turn', hint: 'Work in a turn that no billing touched at all.' },
   after_timer: { label: 'After timer', hint: 'Work continued after the timer stopped.' },
-  before_timer: { label: 'Before timer', hint: 'Work before the timer started: often workspace setup (not billed by Jeff\'s rules), sometimes reading the task (billed).' },
+  before_timer: { label: 'Before timer', hint: 'Work before the timer started: often workspace setup (not billed by the billing rules), sometimes reading the task (billed).' },
 };
 
 /**
- * Work no billing segment covers, from the billing audit. Ciaran reconciles
+ * Work no billing segment covers, from the billing audit. The Owner reconciles
  * each gap (logs the time with pm-log-time on the VPS) or dismisses it with a
  * note. Nothing here creates or changes a time entry.
  */

@@ -102,6 +102,21 @@ async function message(db: PGlite, fields: {
 }
 
 async function main() {
+  // Who the work is aimed at: neutral names since 2.0.5; agents written
+  // before it send ciaran and agency, read as owner and company.
+  {
+    const { planItemSchema } = await import('../src/lib/communications/plan-schemas');
+    const { PLAN_INTENTS } = await import('../src/lib/communications/triage-policy');
+    const base = { type: 'add_context' as const, intent: PLAN_INTENTS[0], project_id: randomUUID(), category: 'business_context', content: 'Context.' };
+    const read = (addressee?: string) => {
+      const parsed = planItemSchema.safeParse(addressee === undefined ? base : { ...base, addressee });
+      return parsed.success ? (parsed.data as { addressee: string }).addressee : `invalid: ${parsed.error.issues[0]?.message}`;
+    };
+    check('addressee: left out, the Owner', read() === 'owner', read());
+    check('addressee: the older ciaran reads as owner', read('ciaran') === 'owner', read('ciaran'));
+    check('addressee: the older agency reads as company', read('agency') === 'company', read('agency'));
+    check('addressee: an unknown value is refused', read('boss').startsWith('invalid'), read('boss'));
+  }
   const db = await createFullSchemaDatabase();
   await db.exec('RESET ROLE');
   const key = await seed(db);

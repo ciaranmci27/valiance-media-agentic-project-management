@@ -60,7 +60,7 @@ export function ApproveModal({ suggestion, onClose, onApprove }: ApproveModalPro
   // Three outcomes, prefilled from the auditor's recommendation; the reviewer's
   // choice is the human confirmation and always wins.
   //   ai_ready:   dev agent claims it within one pickup cycle, auto-assigned.
-  //   human_only: Ciaran's own task.
+  //   human_only: a person's own task.
   //   needs_spec: readiness needs_spec, which the dev agent never claims;
   //               the spec agent's sweep starts the interview instead. This
   //               is the feature path: the auditor cannot spec a feature the

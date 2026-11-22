@@ -318,13 +318,13 @@ function RadarPageContent() {
       };
     }
     // The reviewer verdict sets expectations: approved means your merge click
-    // is genuinely the last step; anything else means John has not signed off
+    // is genuinely the last step; anything else means the reviewer has not signed off
     // yet, so the row stays visible but tells you not to reach for it.
     const verdict = item.kind === 'merge' ? item.reviewerVerdict : null;
     const mergeContext = verdict?.verdict === 'approved'
-      ? 'Reviewed by John and waiting on your merge'
+      ? 'Reviewed and waiting on your merge'
       : verdict?.verdict === 'changes_requested'
-        ? `John requested changes (round ${verdict.round})`
+        ? `Changes requested (round ${verdict.round})`
         : item.lane === 'needs_merge' ? 'Built and waiting on your merge' : 'In review; may be waiting on your merge';
     const meta = {
       merge: {

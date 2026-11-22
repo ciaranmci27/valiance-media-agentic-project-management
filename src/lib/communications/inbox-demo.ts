@@ -360,10 +360,10 @@ const ROUTING_LOCAL_PART = /^[a-z0-9]([a-z0-9._-]{0,62}[a-z0-9])?$/;
 /** The demo's checks mirror the server's: a valid local part, one owner per routing address. */
 function demoAddressRow(base: ProjectEmailAddress, input: Partial<ProjectEmailAddressInput>): ProjectEmailAddress {
   const publicAddress = input.public_address !== undefined ? (input.public_address?.trim().toLowerCase() || null) : base.public_address;
-  if (publicAddress && !normalizeAddress(publicAddress)) throw new Error('Enter the public address in full, such as p4tf@yourdomain.com.');
+  if (publicAddress && !normalizeAddress(publicAddress)) throw new Error('Enter the public address in full, such as acme@yourdomain.com.');
   const typed = input.routing_local_part !== undefined ? input.routing_local_part.trim().toLowerCase() : base.routing_local_part;
   const local = typed || (publicAddress ? publicAddress.split('@')[0].replace(/[^a-z0-9._-]/g, '') : '');
-  if (!local) throw new Error('Enter the routing address, such as p4tf, or a public address to take it from.');
+  if (!local) throw new Error('Enter the routing address, such as acme, or a public address to take it from.');
   if (!ROUTING_LOCAL_PART.test(local)) throw new Error('Use letters, numbers, dots, dashes or underscores');
   const routing = `${local}@${base.routing_domain}`;
   if (settings.some((inbox) => inbox.routing_address === routing)) throw new Error('An inbox already uses that routing address.');

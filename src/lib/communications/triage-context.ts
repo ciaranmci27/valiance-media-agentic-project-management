@@ -127,7 +127,7 @@ export async function triageContext(supabase: SupabaseClient, message: Accessibl
     speaker: facts.speaker,
     trust: facts.trust,
     delivery: facts.delivery,
-    addressed_to_agent: facts.addressedToAshley,
+    addressed_to_agent: facts.addressedToAgent,
     owner_forward_without_note: facts.ownerForwardWithoutNote ?? false,
     conversation: {
       id: conversationId,

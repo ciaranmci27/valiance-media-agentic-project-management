@@ -32,7 +32,7 @@ import { useAgentHealth } from '@/lib/use-agent-health';
  *
  * The strip then ADDS the one thing agent telemetry cannot carry: work sitting
  * unclaimed, which is a fact about the queue rather than the person. That
- * stays its own badge instead of overwriting the agent's state, because "Jeff
+ * stays its own badge instead of overwriting the agent's state, because "the agent
  * is idle AND work is stalling" is precisely the situation worth seeing plainly.
  *
  * Everything shown is member DATA: the name, the avatar, and the title all come
@@ -46,12 +46,8 @@ import { useAgentHealth } from '@/lib/use-agent-health';
 // whatever scheduler runs the agents, so this mirror is maintained by hand;
 // agents missing from it simply show no next-run time. Edit it to match your
 // own schedules (or empty it). Dies when cadence lands in the database.
-// Verified against /opt/data/cron/jobs.json on the VPS, 2026-08-11.
 const CRON_MIRROR: Record<string, { everyHours?: number; atMinutes?: number[] }> = {
-  greg: { atMinutes: [0] }, // Autonomous audit: 0 * * * *
-  jeff: { atMinutes: [0, 30] }, // Work check: */30 * * * *
-  ashley: { atMinutes: [15, 45] }, // Spec sweep: 15,45 * * * *
-  john: { atMinutes: [15, 45] }, // REVIEW CHECK: 15,45 * * * *
+  // e.g. builder: { atMinutes: [0, 30] }, // a work check every half hour
 };
 
 // Claimable work sitting past one missed pickup check reads as "behind";

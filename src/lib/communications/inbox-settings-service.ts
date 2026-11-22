@@ -164,7 +164,7 @@ export async function listInboxSettings(ctx: InboxContext): Promise<InboxSetting
 
 async function validate(ctx: InboxContext, input: InboxSettingsRequest) {
   const address = normalizeAddress(input.address);
-  if (!address) throw new InboxError(422, 'Enter the public address people write to, such as ashley@yourdomain.com.');
+  if (!address) throw new InboxError(422, 'Enter the public address people write to, such as hello@yourdomain.com.');
   if (input.routing_domain && !isHostname(input.routing_domain)) throw new InboxError(422, 'Enter a routing domain such as relay.yourdomain.com.');
   const memberIds = [...new Set([...input.access_member_ids, ...(input.handler_member_id ? [input.handler_member_id] : [])])];
   if (memberIds.length) {
@@ -569,7 +569,7 @@ export async function removeClientSender(ctx: InboxContext, projectId: string, s
 // whoever manages those manages these.
 
 const ADDRESS_COLUMNS = 'id, project_id, inbox_id, routing_local_part, routing_domain, routing_address, public_address, owner_member_id, enabled, last_received_at, created_at, updated_at';
-const NEEDS_ROUTING = 'Enter the relay address, such as p4tf, or a public address to take it from.';
+const NEEDS_ROUTING = 'Enter the relay address, such as acme, or a public address to take it from.';
 
 function presentAddress(row: Row): ProjectEmailAddress {
   return {
@@ -613,7 +613,7 @@ async function addressValues(ctx: InboxContext, input: ProjectAddressPatch): Pro
     if (!input.public_address) values.public_address = null;
     else {
       const address = normalizeAddress(input.public_address);
-      if (!address) throw new InboxError(422, 'Enter the public address in full, such as p4tf@yourdomain.com.');
+      if (!address) throw new InboxError(422, 'Enter the public address in full, such as acme@yourdomain.com.');
       values.public_address = address;
     }
   }
@@ -717,7 +717,7 @@ async function inboxChoices(service: SupabaseClient): Promise<InboxChoice[]> {
 /**
  * Addresses mail was written to lately that nobody listed or dismissed, by
  * domain: on a domain of an address of yours with no project, or an inbox's.
- * Never a client's domain (ciaran@client.com sits there, its staff are not
+ * Never a client's domain (owner@client.com sits there, its staff are not
  * yours), and nothing on a domain you already own (those are yours anyway).
  */
 async function unlistedAddresses(service: SupabaseClient, rows: Row[], inboxes: InboxChoice[], ownDomains: string[]): Promise<UnlistedDomain[]> {
@@ -832,8 +832,8 @@ function relayLocalPart(address: string, attempt: number): string {
 
 /**
  * Writes an address that is getting a project, giving it a relay address of
- * its own: hello@ and hello@ on two domains, or ashley@client.com beside the
- * inbox's ashley@, step around each other with a short suffix.
+ * its own: hello@ and hello@ on two domains, or hello@client.com beside the
+ * inbox's hello@, step around each other with a short suffix.
  */
 async function withRelayAddress(write: (localPart: string | undefined) => PromiseLike<{ data: unknown; error: unknown }>, address: string): Promise<unknown> {
   for (let attempt = 0; attempt < 4; attempt++) {

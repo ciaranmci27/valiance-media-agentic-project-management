@@ -139,7 +139,7 @@ export function Sidebar() {
 
   // Each tab's count: the number, what it means, and its tone (CountBadge).
   // Notifications are danger: since the notification pruning, one firing
-  // means an agent is blocked on a decision only Ciaran can make. The Inbox
+  // means an agent is blocked on a decision only the Owner can make. The Inbox
   // takes the tone of its most pressing thread.
   const myTasksCount = radarCount + remindersDue;
   const unreadTasks = [...unreadByProject.values()].reduce((sum, n) => sum + n, 0);

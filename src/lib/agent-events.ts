@@ -147,7 +147,7 @@ export const AGENT_EVENT_SCHEMAS = {
   }),
 
   // How long an agent actually RAN. An internal capacity metric, never a
-  // billing input: only Jeff bills, and only through project time entries tied
+  // billing input: only the builder agent bills, and only through project time entries tied
   // to real client work. Emitted by the host publisher from the scheduler's own
   // ledger (scheduled turns) and from message timing (directed turns), so a
   // 25 minute conversation with 15 minutes of processing records the 15.
@@ -191,7 +191,7 @@ export const AGENT_EVENT_SCHEMAS = {
     started_at: instant,
     deploy_commit: text(64).optional(),
   }),
-  // A message that reached Ciaran. Counted, never quoted: no text.
+  // A message that reached the Owner. Counted, never quoted: no text.
   'attention.message': hostPayload({
     ...sourceRef,
     kind: z.enum(['telegram_reply', 'cron_delivery', 'pm_notify', 'blocking_question', 'host_alert']),
@@ -212,7 +212,7 @@ export const AGENT_EVENT_SCHEMAS = {
     schedule_in_seconds: z.number().int().min(0).optional(),
   }),
   // Work no billing segment covers, found by the billing audit. It never
-  // creates or changes a time entry; Ciaran reconciles or dismisses it.
+  // creates or changes a time entry; the Owner reconciles or dismisses it.
   'billing.gap': hostPayload({
     start: instant,
     end: instant,
@@ -341,7 +341,7 @@ export function isTelemetryEvent(t: string): boolean {
 
 /**
  * Records the host writes about an agent after the fact (a restart, a wake, a
- * message that reached Ciaran, an audit finding, an eval run). Unlike a turn
+ * message that reached the Owner, an audit finding, an eval run). Unlike a turn
  * or a usage delta they prove nothing about whether the agent is alive now:
  * a billing gap can be posted days after the work, by hand.
  */

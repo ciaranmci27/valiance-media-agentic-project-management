@@ -38,7 +38,7 @@ export function AuditQuestionsCard({ projectId }: AuditQuestionsCardProps) {
 
   const questions = useMemo(() => {
     if (!selectionText) return [];
-    // Format written by Ashley's tool: "GREG_QUESTIONS: a, b, c. <prose...>".
+    // Format written by the agents' tool: "GREG_QUESTIONS: a, b, c. <prose...>".
     // The list ends at the first sentence break after the ids.
     const body = selectionText.slice(selectionText.indexOf(SELECTION_PREFIX) + SELECTION_PREFIX.length);
     const listPart = body.split(/[.\n]/)[0] ?? '';

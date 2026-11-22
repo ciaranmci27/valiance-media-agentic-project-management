@@ -674,7 +674,7 @@ export interface ProjectEmailAddress {
   routing_local_part: string;
   routing_domain: string;
   routing_address: string;
-  /** What clients write to, e.g. ciaran@plan4thefuture.com; mail to it reads as written to us. */
+  /** What clients write to, e.g. owner@yourcompany.com; mail to it reads as written to us. */
   public_address: string | null;
   /** Whose address it is: a person, or the company when null. */
   owner_member_id: string | null;

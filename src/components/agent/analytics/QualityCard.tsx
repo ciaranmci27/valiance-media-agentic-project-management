@@ -16,7 +16,7 @@ export function QualityCard({ quality, measuring }: { quality: Quality; measurin
   const tiles: { label: string; hint: string; value: string | null; empty: string; sub: string }[] = [
     {
       label: 'First-pass approval',
-      hint: 'Tasks John approved with no changes-requested round before it, over all tasks approved in range.',
+      hint: 'Tasks the reviewer approved with no changes-requested round before it, over all tasks approved in range.',
       value: q.firstPassRate === null ? null : fmtPct(q.firstPassRate),
       empty: 'No approvals',
       sub: q.approvals > 0 ? `${q.firstPass} of ${q.approvals} approved tasks` : 'none in range',

@@ -23,9 +23,10 @@ import { boxProject } from './ReflectionProbe';
  *  - Base: the authored seated idle (20 seconds of a real capture), played
  *    ping-pong so it never pops at a loop point, which supplies the weight
  *    shifts and breathing that make a figure read as a person.
- *  - Craft layer: procedural offsets after the mixer samples, so Jeff's
- *    hands reach the keyboard and patter, Greg bows into what he is reading,
- *    John sits back to think, Ashley looks between her screen and the board.
+ *  - Craft layer: procedural offsets after the mixer samples, so the
+ *    builder's hands reach the keyboard and patter, the auditor bows into
+ *    what it is reading, the reviewer sits back to think, and the planner
+ *    looks between the screen and the board.
  *
  * The craft layer works in the CHARACTER's axes (lean about its right axis,
  * turn the head about its up axis), not in bone-local Euler angles. A Biped's
@@ -52,10 +53,10 @@ type Look = {
 
 /** Wardrobe. Clothing and hair were graded into each file's own textures. */
 export const LOOKS: Record<string, Look> = {
-  greg: { file: 'greg.glb', clip: 'seated_m1.glb', build: 0.99 },
-  ashley: { file: 'ashley.glb', clip: 'seated_f1.glb', build: 0.98 },
-  jeff: { file: 'jeff.glb', clip: 'seated_m1.glb', build: 1.02, print: 'chrome-tee' },
-  john: { file: 'john.glb', clip: 'seated_m2.glb', build: 1.0 },
+  auditor: { file: 'greg.glb', clip: 'seated_m1.glb', build: 0.99 },
+  planner: { file: 'ashley.glb', clip: 'seated_f1.glb', build: 0.98 },
+  builder: { file: 'jeff.glb', clip: 'seated_m1.glb', build: 1.02, print: 'chrome-tee' },
+  reviewer: { file: 'john.glb', clip: 'seated_m2.glb', build: 1.0 },
 };
 
 export type CraftBehavior = 'type' | 'read' | 'plan' | 'inspect';
@@ -68,18 +69,18 @@ export type CraftBehavior = 'type' | 'read' | 'plan' | 'inspect';
  * `pull` moves chair and person together toward the desk.
  */
 export const CHAIR_FIT: Record<string, { seatTop: number; backZ: number; pull: number }> = {
-  greg: { seatTop: 0.43, backZ: 0.227, pull: 0 },
-  // Ashley is the smallest of the four and her capture sits furthest back,
-  // so at the shared chair position the keyboard was 5-16cm out of her
-  // reach (measured hand-to-target). She pulls her chair in further.
-  ashley: { seatTop: 0.47, backZ: 0.3, pull: 0.11 },
-  jeff: { seatTop: 0.46, backZ: 0.235, pull: 0 },
-  john: { seatTop: 0.45, backZ: 0.211, pull: 0 },
+  auditor: { seatTop: 0.43, backZ: 0.227, pull: 0 },
+  // The planner's figure is the smallest of the four and its capture sits
+  // furthest back, so at the shared chair position the keyboard was 5-16cm
+  // out of reach (measured hand-to-target). The chair pulls in further.
+  planner: { seatTop: 0.47, backZ: 0.3, pull: 0.11 },
+  builder: { seatTop: 0.46, backZ: 0.235, pull: 0 },
+  reviewer: { seatTop: 0.45, backZ: 0.211, pull: 0 },
 };
 
 /**
- * Jeff's reward: the Chrome Hearts horseshoe, front and back, riding the chest
- * bone so it follows the breathing and lean.
+ * The builder's reward: the Chrome Hearts horseshoe, front and back, riding
+ * the chest bone so it follows the breathing and lean.
  *
  * Curved, not flat: a flat plane on a torso either floats at the sides or
  * sinks in the middle. Each print is an open cylinder segment whose crest sits
@@ -134,7 +135,7 @@ export function AgentCharacter({
   /** Live second-to-second activity, advanced once per frame by the station. */
   worker: WorkerState;
 }) {
-  const look = LOOKS[agentKey] ?? LOOKS.jeff;
+  const look = LOOKS[agentKey] ?? LOOKS.builder;
   const gltf = useGLTF(`${DIR}/${look.file}`);
   const capture = useGLTF(`${DIR}/${look.clip}`);
   const phase = useMemo(() => hashPhase(agentKey), [agentKey]);
@@ -327,7 +328,7 @@ export function AgentCharacter({
 
   const groupRef = useRef<THREE.Group>(null);
 
-  // Jeff's print, on the chest bone in body axes. Built once the clone exists
+  // The builder's print, on the chest bone in body axes. Built once the clone exists
   // and positioned against the bind pose; see `buildChromeTee`.
   useEffect(() => {
     if (look.print !== 'chrome-tee' || !bones.chest) return;

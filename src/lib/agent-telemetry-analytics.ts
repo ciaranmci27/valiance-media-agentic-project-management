@@ -6,7 +6,7 @@ import { normalizePullRequestUrl } from '@/lib/agent-analytics';
 /**
  * The honest read model for host telemetry (docs/12-telemetry.md in the
  * agents repo): where every minute of agent runtime went, what the tokens
- * bought, how often Ciaran was interrupted, and how reliable the fleet was.
+ * bought, how often the Owner was interrupted, and how reliable the fleet was.
  *
  * Rules this file keeps:
  * - Every kind of time is tracked and labelled; none is folded into another.
@@ -179,7 +179,7 @@ export interface Quality {
   mergedPrs: number;
   /**
    * Reverts found among merge events, a LOWER BOUND: merge events come only
-   * from Jeff's merge scripts, and a revert is usually made and merged by a
+   * from the builder's merge scripts, and a revert is usually made and merged by a
    * person in GitHub, which sends no event. So a count of zero is never
    * claimed: null unless at least one revert was found.
    */
@@ -882,7 +882,7 @@ export function computeTelemetryAnalytics(input: TelemetryInput): TelemetryAnaly
 
   // -- Quality -----------------------------------------------------------
   // First pass: an approval at round 1 means no changes-requested round came
-  // before it in that review cycle. Verdicts are John's, so quality is
+  // before it in that review cycle. Verdicts are the reviewer's, so quality is
   // fleet-wide and follows only the project filter.
   const verdicts = input.activities.filter((a) =>
     a.activity_type === 'review.verdict' && includeProject(a.project_id) && inRange(Date.parse(a.created_at)));

@@ -37,8 +37,8 @@ const TOUR: { pos: [number, number, number]; look: [number, number, number] }[] 
   { pos: [0, 2.05, 4.5], look: [0, 1.15, -3.2] },
   // Drifting left, starting to come around the end of the desk row.
   { pos: [-3.2, 1.95, 3.3], look: [-1.2, 1.1, -2.0] },
-  // Was "down the left wall past Greg's research wall and the art" — that wall
-  // is glass now and the research wall moved to the front. So this waypoint
+  // Was "down the left wall past the auditor's research wall and the art". That
+  // wall is glass now and the research wall moved to the front. So this waypoint
   // does the opposite job: it holds back from the left glazing and looks
   // THROUGH it, which is the shot the corner suite exists for and the one angle
   // where the second aspect is the subject rather than the backdrop.

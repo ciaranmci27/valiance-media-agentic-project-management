@@ -7227,7 +7227,7 @@ CREATE TRIGGER contacts_sync_primary_email
 CREATE TABLE pm.inboxes (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   name text NOT NULL CHECK (length(btrim(name)) BETWEEN 1 AND 100),
-  -- The public address clients write to, e.g. ashley@valiancemedia.com.
+  -- The public address clients write to, e.g. hello@yourcompany.com.
   address text NOT NULL CHECK (address = lower(btrim(address)) AND pm.email_is_address(address)),
   -- <local>@<domain>, where the forwarder delivers and what ingestion looks
   -- up. The domain defaults to business_settings.inbound_email_domain and the
@@ -7436,7 +7436,7 @@ CREATE TABLE pm.endpoints (
   routing_domain text CHECK (routing_domain IS NULL OR (routing_domain = lower(btrim(routing_domain)) AND pm.email_is_hostname(routing_domain))),
   routing_local_part text CHECK (routing_local_part ~ '^[a-z0-9]([a-z0-9._-]{0,62}[a-z0-9])?$'),
   routing_address text GENERATED ALWAYS AS (routing_local_part || '@' || routing_domain) STORED,
-  -- What clients write to, e.g. ciaran@plan4thefuture.com. Mail sent to it
+  -- What clients write to, e.g. owner@yourcompany.com. Mail sent to it
   -- reads as written to us (delivery_of).
   public_address text CHECK (public_address IS NULL OR (public_address = lower(btrim(public_address)) AND pm.email_is_address(public_address))),
   enabled boolean NOT NULL DEFAULT true,
@@ -9523,7 +9523,7 @@ CREATE POLICY email_maintenance_runs_select ON pm.maintenance_runs FOR SELECT TO
 -- Triage plans (20261026200925_triage_plans.sql): what the agent made of a
 -- message, item by item, and what the app did with each (apply, apply unsure,
 -- propose, reject). Shadow plans apply nothing. reply_points: what someone is
--- waiting on Ciaran (or the agent) for, kept per conversation.
+-- waiting on the Owner (or the agent) for, kept per conversation.
 -- ---------------------------------------------------------------------------
 CREATE TABLE pm.plans (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -9577,8 +9577,8 @@ CREATE TABLE pm.plan_items (
   -- The task it acts on, or the one it created.
   task_id uuid REFERENCES pm.tasks(id) ON DELETE SET NULL,
   -- Who the work is aimed at.
-  addressee text NOT NULL DEFAULT 'ciaran'
-    CONSTRAINT plan_items_addressee_check CHECK (addressee IN ('ciaran', 'agency', 'teammate', 'client', 'other')),
+  addressee text NOT NULL DEFAULT 'owner'
+    CONSTRAINT plan_items_addressee_check CHECK (addressee IN ('owner', 'company', 'teammate', 'client', 'other', 'ciaran', 'agency')),
   addressee_member_id uuid REFERENCES pm.team_members(id) ON DELETE SET NULL,
   payload jsonb NOT NULL DEFAULT '{}'::jsonb,
   -- The words (or the attachment) that justify it.
@@ -14219,7 +14219,7 @@ CREATE TABLE pm.task_files (
   name text NOT NULL CHECK (length(name) BETWEEN 1 AND 255),
   mime_type text NOT NULL DEFAULT 'application/octet-stream',
   file_size bigint NOT NULL DEFAULT 0 CHECK (file_size >= 0),
-  -- Why it is on the task, in a few words ("the screenshot Ciaran sent").
+  -- Why it is on the task, in a few words ("the screenshot the Owner sent").
   note text CHECK (note IS NULL OR length(note) BETWEEN 1 AND 500),
   added_by uuid REFERENCES pm.team_members(id) ON DELETE SET NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
@@ -14941,7 +14941,7 @@ CREATE INDEX idx_task_suggestions_converted_task_id ON pm.task_suggestions(conve
 
 ALTER TABLE pm.task_suggestions ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "task_suggestions_all" ON pm.task_suggestions FOR ALL TO authenticated USING (true) WITH CHECK (true);
--- Greg's nudge says a project's findings wait on a review. It goes once none do.
+-- The auditor agent's nudge says a project's findings wait on a review (the text below matches its notification). It goes once none do.
 CREATE OR REPLACE FUNCTION pm.sync_findings_notification()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -15185,9 +15185,9 @@ $$;
 revoke all on function pm.agent_analytics_window(timestamptz, timestamptz, timestamptz) from public;
 grant execute on function pm.agent_analytics_window(timestamptz, timestamptz, timestamptz) to authenticated, service_role;
 
--- Billing gap reviews (20261010212024_agent_analytics_reviews.sql). The billing audit posts each stretch of Jeff's work
--- that no time entry segment covers (agent_activities, billing.gap). Ciaran
--- marks each one reconciled (he logged the time) or dismissed (it was not
+-- Billing gap reviews (20261010212024_agent_analytics_reviews.sql). The billing audit posts each stretch of the builder agent's work
+-- that no time entry segment covers (agent_activities, billing.gap). The Owner
+-- marks each one reconciled (they logged the time) or dismissed (it was not
 -- billable), with a note. A review never creates or changes a time entry, and
 -- the gap row itself stays immutable telemetry.
 CREATE TABLE pm.agent_billing_gap_reviews (
@@ -16629,3 +16629,15 @@ ALTER TABLE pm.workspace_brand
 
 COMMENT ON COLUMN pm.workspace_brand.sidebar_active_projects IS
   'The sidebar lists the first five active projects in a section of their own.';
+
+-- ============================================================
+-- NEUTRAL ADDRESSEE (20261123000300_neutral_addressee.sql)
+-- Who a triage plan item is aimed at: owner, company, teammate, client,
+-- other. The older ciaran and agency stay valid for agents that send them.
+-- ============================================================
+
+ALTER TABLE pm.plan_items DROP CONSTRAINT IF EXISTS plan_items_addressee_check;
+ALTER TABLE pm.plan_items
+  ADD CONSTRAINT plan_items_addressee_check
+  CHECK (addressee IN ('owner', 'company', 'teammate', 'client', 'other', 'ciaran', 'agency'));
+ALTER TABLE pm.plan_items ALTER COLUMN addressee SET DEFAULT 'owner';

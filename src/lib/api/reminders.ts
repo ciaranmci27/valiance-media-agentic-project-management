@@ -12,7 +12,7 @@ import { comms } from '@/lib/communications/db';
  * a caller sees their own reminders, ones they wrote (an agent following up
  * on a reminder it made for someone), and shared ones on projects they can
  * open. A reminder may belong to someone else only when an agent or a task
- * manager writes it: an agent turning an email into "remind Ciaran" is the
+ * manager writes it: an agent turning an email into "remind the Owner" is the
  * case this exists for.
  */
 

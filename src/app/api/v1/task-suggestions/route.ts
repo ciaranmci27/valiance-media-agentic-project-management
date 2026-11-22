@@ -85,7 +85,7 @@ export const POST = withApi(async ({ supabase, body, apiKeyId, teamMemberId, acc
   // Bundling: resolve the shared key server-side so the proposer cannot
   // invent keys or reach across projects. The target must be a PENDING
   // suggestion in the same project; anything else drops the bundle silently
-  // (a failed bundle must never block a valid finding). A target Ciaran
+  // (a failed bundle must never block a valid finding). A target the Owner
   // manually unbundled (metadata.unbundled) is left alone: his arrangement
   // always wins over the proposer's.
   const { bundle_with, ...suggestionBody } = body as Record<string, unknown> & { bundle_with?: string | null };

@@ -183,7 +183,7 @@ export default function WebhooksDocsPage() {
       "description": "",
       "updated_at": "2026-07-25T15:41:28.000Z"
     },
-    "project": { "id": "3ab2...", "name": "Plan for the Future" },
+    "project": { "id": "3ab2...", "name": "Acme Website" },
     "amount_basis": "gross",
     "line_items": [
       { "id": "li_1", "item_type": "recurring", "amount": 2000.00, "description": "Monthly retainer" },

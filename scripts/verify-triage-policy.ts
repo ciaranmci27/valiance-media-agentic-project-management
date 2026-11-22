@@ -11,9 +11,9 @@ import { outreachPlacement, type OutreachFacts } from '../src/lib/communications
 let passed = 0;
 const failures: string[] = [];
 
-const client: PolicyMessage = { speaker: 'client', trust: 'trusted', delivery: 'direct', addressedToAshley: true, suspicious: false };
+const client: PolicyMessage = { speaker: 'client', trust: 'trusted', delivery: 'direct', addressedToAgent: true, suspicious: false };
 const item = (fields: Partial<PolicyItem> = {}): PolicyItem => ({
-  type: 'create_task', intent: 'new_work', addressee: 'ciaran', confidence: 'sure',
+  type: 'create_task', intent: 'new_work', addressee: 'owner', confidence: 'sure',
   hasProject: true, projectSource: 'mapped', projectStatus: 'active', ...fields,
 });
 
@@ -63,17 +63,17 @@ const cases: [string, PolicyMessage, PolicyItem, Decision][] = [
   ['Ciaran asks Ashley for a lead: applied', { ...client, speaker: 'owner' }, item({ type: 'create_lead', intent: 'owner_instruction', hasProject: false, projectSource: null }), 'apply'],
   ['Ciaran mutes a conversation', { ...client, speaker: 'owner' }, item({ type: 'mute_conversation', intent: 'owner_instruction', hasProject: false }), 'apply'],
   ['Ciaran undoes an item', { ...client, speaker: 'owner' }, item({ type: 'revert_item', intent: 'owner_instruction', hasProject: false }), 'apply'],
-  ['Ciaran\'s copied promise sets a due date', { ...client, speaker: 'owner', addressedToAshley: false },
+  ['Ciaran\'s copied promise sets a due date', { ...client, speaker: 'owner', addressedToAgent: false },
     item({ type: 'update_task', intent: 'commitment', changes: ['due_date'] }), 'apply'],
-  ['Ciaran\'s copied mail to a client makes no task from his brainstorm', { ...client, speaker: 'owner', addressedToAshley: false }, item(), 'reject'],
+  ['Ciaran\'s copied mail to a client makes no task from his brainstorm', { ...client, speaker: 'owner', addressedToAgent: false }, item(), 'reject'],
   ['Ciaran\'s forward with no note is context only', { ...client, speaker: 'owner', ownerForwardWithoutNote: true }, item({ type: 'add_reminder', intent: 'commitment' }), 'reject'],
-  ['a meeting suggests new work, even his own commitment', { ...client, speaker: 'owner', addressedToAshley: false, delivery: null, meeting: true }, item({ type: 'create_task', intent: 'commitment' }), 'propose'],
-  ['a meeting suggests reminders', { ...client, speaker: 'owner', addressedToAshley: false, delivery: null, meeting: true }, item({ type: 'add_reminder', intent: 'waiting_on' }), 'propose'],
-  ['a meeting suggests comments on existing tasks', { ...client, speaker: 'owner', addressedToAshley: false, delivery: null, meeting: true }, item({ type: 'comment', intent: 'change' }), 'propose'],
-  ['a meeting links the tasks it discussed at once', { ...client, speaker: 'owner', addressedToAshley: false, delivery: null, meeting: true }, item({ type: 'link_task', intent: 'context' }), 'apply'],
-  ['a meeting is filed on its project at once', { ...client, speaker: 'owner', addressedToAshley: false, delivery: null, meeting: true }, item({ type: 'file_project', intent: 'context' }), 'apply'],
-  ['a teammate\'s meeting suggests too', { ...client, speaker: 'teammate', addressedToAshley: false, delivery: null, meeting: true }, item({ type: 'create_task', intent: 'new_work' }), 'propose'],
-  ['a meeting never undoes earlier work', { ...client, speaker: 'owner', addressedToAshley: false, delivery: null, meeting: true }, item({ type: 'revert_item', intent: 'change' }), 'reject'],
+  ['a meeting suggests new work, even his own commitment', { ...client, speaker: 'owner', addressedToAgent: false, delivery: null, meeting: true }, item({ type: 'create_task', intent: 'commitment' }), 'propose'],
+  ['a meeting suggests reminders', { ...client, speaker: 'owner', addressedToAgent: false, delivery: null, meeting: true }, item({ type: 'add_reminder', intent: 'waiting_on' }), 'propose'],
+  ['a meeting suggests comments on existing tasks', { ...client, speaker: 'owner', addressedToAgent: false, delivery: null, meeting: true }, item({ type: 'comment', intent: 'change' }), 'propose'],
+  ['a meeting links the tasks it discussed at once', { ...client, speaker: 'owner', addressedToAgent: false, delivery: null, meeting: true }, item({ type: 'link_task', intent: 'context' }), 'apply'],
+  ['a meeting is filed on its project at once', { ...client, speaker: 'owner', addressedToAgent: false, delivery: null, meeting: true }, item({ type: 'file_project', intent: 'context' }), 'apply'],
+  ['a teammate\'s meeting suggests too', { ...client, speaker: 'teammate', addressedToAgent: false, delivery: null, meeting: true }, item({ type: 'create_task', intent: 'new_work' }), 'propose'],
+  ['a meeting never undoes earlier work', { ...client, speaker: 'owner', addressedToAgent: false, delivery: null, meeting: true }, item({ type: 'revert_item', intent: 'change' }), 'reject'],
   ['Ciaran\'s forward with no note may add context', { ...client, speaker: 'owner', ownerForwardWithoutNote: true }, item({ type: 'add_context', intent: 'context' }), 'apply'],
   ['Ciaran asks for a task on a finished project: proposed', { ...client, speaker: 'owner' }, item({ intent: 'owner_instruction', projectStatus: 'completed' }), 'propose'],
 

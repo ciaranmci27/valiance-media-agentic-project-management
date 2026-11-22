@@ -93,7 +93,7 @@ function isAwake(snap: AgentSnapshot): boolean {
   return snap.mood === 'working' || snap.mood === 'reviewing' || snap.mood === 'celebrating';
 }
 
-/** Greg: a findings ledger of his own open suggestions. */
+/** The auditor: a findings ledger of their own open suggestions. */
 function auditModel(snap: AgentSnapshot): ScreenModel {
   const found = snap.work.suggestions;
   return {
@@ -110,7 +110,7 @@ function auditModel(snap: AgentSnapshot): ScreenModel {
   };
 }
 
-/** Ashley: the task she is specifying, and the shape of the spec. */
+/** The planner: the task being specified, and the shape of the spec. */
 function specModel(snap: AgentSnapshot): ScreenModel {
   const task = snap.task;
   const rows: ScreenRow[] = [];
@@ -132,7 +132,7 @@ function specModel(snap: AgentSnapshot): ScreenModel {
   };
 }
 
-/** Jeff, primary: the editor, titled with the real thing he is building. */
+/** The builder, primary: the editor, titled with the real thing being built. */
 function codeModel(snap: AgentSnapshot): ScreenModel {
   const task = snap.task;
   const bounced = snap.work.reviews.find((r) => r.verdict === 'changes_requested');
@@ -140,7 +140,7 @@ function codeModel(snap: AgentSnapshot): ScreenModel {
     windowTitle: task ? clip(task.title, TITLE_MAX) : 'nothing checked out',
     subtitle: snap.work.project ?? undefined,
     branch: snap.work.branch ?? undefined,
-    // A review that asked for changes is a real, current instruction to him,
+    // A review that asked for changes is a real, current instruction to the builder,
     // so it outranks the generic mood banner.
     banner: bounced
       ? { text: `CHANGES REQUESTED · ROUND ${bounced.round}`, tone: 'warn' }
@@ -150,7 +150,7 @@ function codeModel(snap: AgentSnapshot): ScreenModel {
   };
 }
 
-/** Jeff, secondary: the terminal. Titled by branch, since that is what runs. */
+/** The builder, secondary: the terminal. Titled by branch, since that is what runs. */
 function terminalModel(snap: AgentSnapshot): ScreenModel {
   return {
     windowTitle: snap.work.branch ? `~/${snap.work.project ?? 'repo'} · ${snap.work.branch}` : 'terminal',
@@ -161,7 +161,7 @@ function terminalModel(snap: AgentSnapshot): ScreenModel {
   };
 }
 
-/** John: the PR under review, with its real identity and verdict history. */
+/** The reviewer: the PR under review, with its real identity and verdict history. */
 function reviewModel(snap: AgentSnapshot): ScreenModel {
   const reviews = snap.work.reviews;
   const head = reviews[0];
@@ -222,6 +222,6 @@ export function modelKey(m: ScreenModel): string {
     m.awake ? '1' : '0',
     m.pr ? `${m.pr.number}${m.pr.sha}${m.pr.verdict}${m.pr.round}` : '',
     m.rows.length,
-    m.rows.map((r) => r.text).join(''),
-  ].join(' ');
+    m.rows.map((r) => r.text).join('\u0001'),
+  ].join('\u0000');
 }
