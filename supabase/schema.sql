@@ -3116,7 +3116,7 @@ CREATE TABLE IF NOT EXISTS pm.workspace_brand (
   favicon_path text,
   invert_logo_in_sidebar boolean NOT NULL DEFAULT false,
   show_name_under_logo boolean NOT NULL DEFAULT false,
-  -- How the sidebar lists projects: 'list' (the first few) or 'menu' (all active, under Projects).
+  -- How the Projects item works: 'list' opens the Projects page, 'menu' folds every active project under it.
   sidebar_projects text NOT NULL DEFAULT 'list' CONSTRAINT workspace_brand_sidebar_projects_check CHECK (sidebar_projects IN ('list', 'menu')),
   updated_by uuid REFERENCES pm.team_members(id) ON DELETE SET NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
@@ -16617,3 +16617,15 @@ $$;
 
 REVOKE ALL ON FUNCTION pm.logins_exist() FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION pm.logins_exist() TO service_role;
+
+-- ============================================================
+-- SIDEBAR ACTIVE PROJECTS (20261123000200_sidebar_active_projects.sql)
+-- Whether the sidebar lists active projects in a section of their own,
+-- apart from how the Projects item works (sidebar_projects).
+-- ============================================================
+
+ALTER TABLE pm.workspace_brand
+  ADD COLUMN IF NOT EXISTS sidebar_active_projects boolean NOT NULL DEFAULT true;
+
+COMMENT ON COLUMN pm.workspace_brand.sidebar_active_projects IS
+  'The sidebar lists the first five active projects in a section of their own.';

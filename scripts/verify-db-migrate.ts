@@ -97,8 +97,13 @@ async function main() {
   await moved.exec('CREATE SCHEMA pm; CREATE TABLE pm.workspace_modules (module_id text); CREATE TABLE pm.business_settings (id int);');
   const movedTable = await trackingTable(pgliteDb(moved));
   check('with the app in pm, the table goes in pm', movedTable?.table === 'pm.app_migrations' && movedTable.exists === false, movedTable);
+  await moved.exec(`CREATE SCHEMA cron; CREATE TABLE cron.job (jobid bigint PRIMARY KEY, jobname text, schedule text, touched int NOT NULL DEFAULT 0);
+    INSERT INTO cron.job VALUES (1, 'pm-webhook-retries', '* * * * *', 0);
+    CREATE FUNCTION cron.alter_job(job_id bigint, schedule text DEFAULT NULL) RETURNS void LANGUAGE sql
+      AS $$ UPDATE cron.job SET touched = touched + 1 WHERE jobid = job_id $$;`);
   await baselineMigrations(pgliteDb(moved), listMigrationFiles(dirs), { log });
   check('and the baseline lands there, nothing in public', await tableExists(moved, 'pm.app_migrations') && !(await tableExists(moved, 'public.app_migrations')));
+  check('a baseline refreshes the scheduled jobs too (a database just built from schema.sql)', Number((await moved.query<{ touched: number }>('SELECT touched FROM cron.job')).rows[0].touched) === 1);
   await moved.close();
 
   // A shared database: another app owns public.app_migrations, the PM app lives in pm.
@@ -179,6 +184,26 @@ async function main() {
   // 5. Applied files are skipped.
   const second = await runMigrations(db, listMigrationFiles(dirs), { log });
   check('a second run applies nothing', second.applied.length === 0 && second.pending.length === 0, second);
+
+  // 5b. Every run touches the app's scheduled jobs on their own, so pg_cron
+  // reloads them after a big migration (it misses changes made inside one).
+  logs.length = 0;
+  const noCron = await runMigrations(db, listMigrationFiles(dirs), { log });
+  check('without pg_cron, the refresh is skipped quietly', noCron.applied.length === 0 && !logs.some(l => /scheduled jobs/.test(l)), logs);
+  await pg.exec(`CREATE SCHEMA cron;
+    CREATE TABLE cron.job (jobid bigint PRIMARY KEY, jobname text, schedule text, touched int NOT NULL DEFAULT 0);
+    INSERT INTO cron.job (jobid, jobname, schedule) VALUES (1, 'pm-reminders-due', '*/5 * * * *'), (2, 'their-nightly-job', '0 3 * * *');
+    CREATE FUNCTION cron.alter_job(job_id bigint, schedule text DEFAULT NULL) RETURNS void LANGUAGE sql
+      AS $$ UPDATE cron.job SET touched = touched + 1, schedule = coalesce(alter_job.schedule, cron.job.schedule) WHERE jobid = job_id $$;`);
+  await runMigrations(db, listMigrationFiles(dirs), { log });
+  const { rows: jobs } = await pg.query<{ jobname: string; schedule: string; touched: number }>('SELECT jobname, schedule, touched FROM cron.job ORDER BY jobid');
+  check('a run touches the app jobs, keeping their schedules', jobs[0].touched === 1 && jobs[0].schedule === '*/5 * * * *', jobs);
+  check('and never another app job', jobs[1].touched === 0, jobs);
+  await pg.exec('DROP FUNCTION cron.alter_job(bigint, text)');
+  logs.length = 0;
+  const broken = await runMigrations(db, listMigrationFiles(dirs), { log });
+  check('a refresh that fails never fails the run, and says so', broken.applied.length === 0 && logs.some(l => /could not refresh the scheduled jobs/.test(l)), logs);
+  await pg.exec('DROP SCHEMA cron CASCADE');
 
   // 6. A changed file is reported, never re-run.
   core('20260301000000_create_tasks.sql', 'CREATE TABLE public.tasks (id int PRIMARY KEY); CREATE TABLE public.run_log (n serial, name text); INSERT INTO public.run_log (name) VALUES (\'create_tasks\'); -- edited');

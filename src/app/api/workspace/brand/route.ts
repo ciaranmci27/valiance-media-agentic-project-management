@@ -54,7 +54,7 @@ export async function PUT(request: NextRequest) {
   }
   if (!before.tableReady) return migrationMissing();
 
-  const { error } = await service.from('workspace_brand').upsert({
+  const row = {
     id: true,
     name: input.name,
     tagline: input.tagline,
@@ -68,8 +68,17 @@ export async function PUT(request: NextRequest) {
     // release's migration yet can still save the rest of its brand.
     ...(input.sidebarProjects !== undefined && input.sidebarProjects !== before.settings.sidebarProjects
       ? { sidebar_projects: input.sidebarProjects } : {}),
+    ...(input.sidebarActiveProjects !== undefined && input.sidebarActiveProjects !== before.settings.sidebarActiveProjects
+      ? { sidebar_active_projects: input.sidebarActiveProjects } : {}),
     updated_by: memberId,
-  }, { onConflict: 'id' });
+  };
+  let { error } = await service.from('workspace_brand').upsert(row, { onConflict: 'id' });
+  // Code deployed before its migration: save everything the table already has.
+  if (error && isSchemaMissing(error) && 'sidebar_active_projects' in row) {
+    const { sidebar_active_projects: _later, ...rest } = row;
+    void _later;
+    ({ error } = await service.from('workspace_brand').upsert(rest, { onConflict: 'id' }));
+  }
   if (error) return isSchemaMissing(error) ? migrationMissing() : NextResponse.json({ error: error.message }, { status: 500 });
 
   expireBrand();
@@ -94,8 +103,9 @@ export async function PUT(request: NextRequest) {
 }
 
 /**
- * Sets how the sidebar lists projects, and nothing else: the setup wizard
- * picks it from the preset without sending the whole brand form.
+ * Sets how the sidebar shows projects (the Projects item's style and, when
+ * sent, the active projects section), and nothing else: the setup wizard
+ * picks them from the preset without sending the whole brand form.
  */
 export async function PATCH(request: NextRequest) {
   if (isDemoWorkspace()) return NextResponse.json({ error: 'The demo workspace has no database. Changes last until you reload.' }, { status: 403 });
@@ -112,6 +122,8 @@ export async function PATCH(request: NextRequest) {
   }
   const style = (body as { sidebarProjects?: unknown } | null)?.sidebarProjects;
   if (style !== 'list' && style !== 'menu') return NextResponse.json({ error: 'sidebarProjects must be list or menu' }, { status: 400 });
+  const section = (body as { sidebarActiveProjects?: unknown } | null)?.sidebarActiveProjects;
+  if (section !== undefined && typeof section !== 'boolean') return NextResponse.json({ error: 'sidebarActiveProjects must be true or false' }, { status: 400 });
 
   let before;
   try {
@@ -120,23 +132,28 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ error: (error as Error).message }, { status: 500 });
   }
   if (!before.tableReady) return migrationMissing();
-  if (before.settings.sidebarProjects === style) return NextResponse.json(payload(before.settings));
+  const sectionChanges = section !== undefined && section !== before.settings.sidebarActiveProjects;
+  if (before.settings.sidebarProjects === style && !sectionChanges) return NextResponse.json(payload(before.settings));
 
-  const { error } = await service.from('workspace_brand').upsert(
-    { id: true, sidebar_projects: style, updated_by: memberId },
+  let { error } = await service.from('workspace_brand').upsert(
+    { id: true, sidebar_projects: style, ...(sectionChanges ? { sidebar_active_projects: section } : {}), updated_by: memberId },
     { onConflict: 'id' },
   );
+  // Code deployed before its migration: the style still saves.
+  if (error && isSchemaMissing(error) && sectionChanges) {
+    ({ error } = await service.from('workspace_brand').upsert({ id: true, sidebar_projects: style, updated_by: memberId }, { onConflict: 'id' }));
+  }
   if (error) return isSchemaMissing(error) ? migrationMissing() : NextResponse.json({ error: error.message }, { status: 500 });
 
   expireBrand();
-  const settings: BrandSettings = { ...before.settings, sidebarProjects: style };
+  const settings: BrandSettings = { ...before.settings, sidebarProjects: style, ...(sectionChanges ? { sidebarActiveProjects: section } : {}) };
   afterResponse('workspace brand audit', async () => {
     const { error: auditError } = await service.from('api_audit_log').insert({
       method: 'PATCH',
       endpoint: '/api/workspace/brand',
       entity_type: 'workspace_brand',
       team_member_id: memberId,
-      request_body: { sidebarProjects: style },
+      request_body: { sidebarProjects: style, ...(section === undefined ? {} : { sidebarActiveProjects: section }) },
       before_snapshot: before.settings,
       after_snapshot: settings,
       status_code: 200,

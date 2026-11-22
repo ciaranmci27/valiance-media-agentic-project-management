@@ -21,17 +21,21 @@ function newKey(): string {
 }
 
 /**
- * Settings > Workspace > Encryption (Owners only): whether the host has the
- * app key, and moving values saved under the older per-feature keys onto it.
- * Missing or invalid, it walks the Owner through making a key and adding it.
+ * Settings > Workspace > Encryption (Owners only), shown only while there is
+ * something to do: the host's app key is missing or invalid (it walks the
+ * Owner through making and adding one), or values saved under the older
+ * per-feature keys still need moving onto it. A move just made stays on
+ * screen as its result; on the next visit the section is gone.
  */
 export function EncryptionSection() {
   const read = useRead(encryptionRead);
   const [moving, setMoving] = useState(false);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const [failures, setFailures] = useState<ReencryptResult['failed'] | null>(null);
+  const [moved, setMoved] = useState<number | null>(null);
 
   const status = read.data;
+  const needed = !!status && (status.appKey !== 'set' || status.remaining.smtp + status.remaining.credentials > 0);
 
   const move = async () => {
     setMoving(true);
@@ -39,12 +43,13 @@ export function EncryptionSection() {
     setFailures(null);
     try {
       const result = await moveToAppKey();
-      const moved = result.moved.smtp + result.moved.credentials;
+      const count = result.moved.smtp + result.moved.credentials;
       const failed = result.failed.smtp.length + result.failed.credentials.length;
       if (failed > 0) setFailures(result.failed);
-      setOutcome(failed > 0 && moved === 0
+      setMoved(count);
+      setOutcome(failed > 0 && count === 0
         ? { tone: 'error', text: `None moved. ${plural(failed, 'value', 'values')} couldn't be opened with your old keys.` }
-        : { tone: 'done', text: `Moved ${plural(moved, 'value', 'values')} to the new key.` });
+        : { tone: 'done', text: `Moved ${plural(count, 'value', 'values')} to the new key.` });
     } catch (error) {
       setOutcome({ tone: 'error', text: `Not moved. ${error instanceof Error ? error.message : 'Try again.'}`, onRetry: () => { void move(); } });
     } finally {
@@ -52,16 +57,17 @@ export function EncryptionSection() {
     }
   };
 
+  // Nothing to do (and no move made on this visit): no section. While the
+  // check loads, nothing either, so a section that turns out not to be needed
+  // never flashes in and out.
+  if (read.loading) return null;
+  if (status && !needed && moved === null) return null;
+
   return (
-    <section className="glass-card rounded-xl p-4 lg:p-6" aria-labelledby="encryption-heading">
+    <section id="encryption" className="glass-card scroll-mt-6 rounded-xl p-4 lg:p-6" aria-labelledby="encryption-heading">
       <SettingsSectionHeader icon={ShieldCheck} title="Encryption" headingId="encryption-heading" description={DESCRIPTION} />
 
-      {read.loading ? (
-        <div aria-busy="true" aria-label="Loading encryption" className="space-y-3 motion-safe:animate-pulse">
-          <div className="h-12 rounded-lg bg-white/[0.03]" />
-          <div className="h-3 w-64 max-w-full rounded bg-white/[0.03]" />
-        </div>
-      ) : read.failed || !status ? (
+      {read.failed || !status ? (
         <div role="alert" className="flex flex-wrap items-center gap-3 rounded-lg bg-red-500/[0.1] px-3.5 py-3">
           <p className="min-w-0 flex-1 text-sm text-zinc-200">Couldn&apos;t check the app key.</p>
           <Button size="sm" variant="secondary" onClick={read.reload} icon={<RotateCw size={13} aria-hidden="true" />}>Try again</Button>
@@ -79,6 +85,7 @@ export function EncryptionSection() {
             <KeySet
               remaining={status.remaining}
               legacyKeys={status.legacyKeys}
+              moved={moved}
               moving={moving}
               outcome={outcome}
               failures={failures}
@@ -203,10 +210,11 @@ function AddKey({ invalid, legacy, checking, onCheck }: { invalid: boolean; lega
   );
 }
 
-/** Set: values still on the older keys and the button that moves them, or done. */
+/** Set: values still on the older keys and the button that moves them, or the move just made. */
 function KeySet({
   remaining,
   legacyKeys,
+  moved,
   moving,
   outcome,
   failures,
@@ -214,6 +222,8 @@ function KeySet({
 }: {
   remaining: { smtp: number; credentials: number };
   legacyKeys: string[];
+  /** Values the move on this visit put on the new key; null before one. */
+  moved: number | null;
   moving: boolean;
   outcome: Outcome | null;
   failures: ReencryptResult['failed'] | null;
@@ -242,15 +252,14 @@ function KeySet({
             <p>Your host no longer has the old keys, so these can&apos;t be opened. Add the old keys back to move them, or save them again.</p>
           )}
         </Notice>
-      ) : legacyKeys.length > 0 ? (
-        <Notice tone="quiet" title="Everything uses the new key">
-          <p className="[overflow-wrap:anywhere]">You can remove {joinAnd(legacyKeys)} from your host.</p>
-        </Notice>
       ) : (
-        <p className="flex items-center gap-2 text-sm text-zinc-300">
-          <Check size={14} className="flex-shrink-0 text-emerald-300" aria-hidden="true" />
-          All saved secrets use APP_ENCRYPTION_KEY.
-        </p>
+        <Notice tone="quiet" title="Everything uses the new key">
+          {moved !== null && <p>Moved {plural(moved, 'value', 'values')} to APP_ENCRYPTION_KEY.</p>}
+          {legacyKeys.length > 0 && (
+            <p className="[overflow-wrap:anywhere]">You can now remove {joinAnd(legacyKeys)} from your host.</p>
+          )}
+          <p>This section hides once you leave the page.</p>
+        </Notice>
       )}
 
       {left > 0 && (
@@ -262,7 +271,8 @@ function KeySet({
         </div>
       )}
 
-      {outcome && <OutcomeLine outcome={outcome} busy={moving} />}
+      {/* Done with nothing left: the notice above is the result. */}
+      {outcome && !(outcome.tone === 'done' && left === 0) && <OutcomeLine outcome={outcome} busy={moving} />}
 
       {failureNotes.length > 0 && (
         <div role="alert" className="rounded-lg bg-red-500/[0.1] px-3.5 py-3">

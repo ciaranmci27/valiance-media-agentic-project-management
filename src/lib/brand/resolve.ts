@@ -21,6 +21,8 @@ export interface WorkspaceBrandRow {
   show_name_under_logo: boolean | null;
   /** Missing until migration 20261121063000 is applied: read as 'list'. */
   sidebar_projects?: string | null;
+  /** Missing until migration 20261123000200 is applied: read as the section the style used to bring (on with 'list'). */
+  sidebar_active_projects?: boolean | null;
 }
 
 // Every column, so a column a newer release adds reads as its default until
@@ -40,6 +42,7 @@ export const EMPTY_BRAND_SETTINGS: BrandSettings = {
   invertLogoInSidebar: false,
   showNameUnderLogo: false,
   sidebarProjects: 'list',
+  sidebarActiveProjects: true,
 };
 
 /** The public URL of an object in the brand bucket. */
@@ -80,6 +83,7 @@ export function rowToSettings(row: WorkspaceBrandRow | null, supabaseUrl?: strin
     invertLogoInSidebar: row.invert_logo_in_sidebar === true,
     showNameUnderLogo: row.show_name_under_logo === true,
     sidebarProjects: row.sidebar_projects === 'menu' ? 'menu' : 'list',
+    sidebarActiveProjects: typeof row.sidebar_active_projects === 'boolean' ? row.sidebar_active_projects : row.sidebar_projects !== 'menu',
   };
 }
 
@@ -104,6 +108,7 @@ export function resolveBrand(settings: BrandSettings): Brand {
     invertLogoInSidebar: settings.invertLogoInSidebar,
     showNameUnderLogo: settings.showNameUnderLogo,
     sidebarProjects: settings.sidebarProjects,
+    sidebarActiveProjects: settings.sidebarActiveProjects,
   };
 }
 

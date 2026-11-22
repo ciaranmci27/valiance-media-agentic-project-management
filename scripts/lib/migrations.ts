@@ -280,8 +280,35 @@ export async function runMigrations(db: MigrationDb, files: MigrationFile[], opt
       applied.push(file.name);
     }
     if (!applied.length) log('Nothing to apply.');
+    await refreshScheduledJobs(db, log);
     return { applied, pending, changed };
   });
+}
+
+/**
+ * Touches the app's scheduled jobs (pg_cron) in a transaction of their own,
+ * so the scheduler reloads them. pg_cron learns about job changes from
+ * invalidation messages, and a transaction that also changes a lot of schema
+ * (the 2.0 move; schema.sql run in one go) can overflow that queue: the
+ * scheduler then keeps running the jobs as they were, deleted ones included,
+ * until the next change to cron.job. Run after every migration run, so each
+ * deploy heals it. Never fails the run: without pg_cron, or without rights
+ * on a job, it says so and goes on.
+ */
+export const REFRESH_SCHEDULED_JOBS_SQL = `DO $refresh$
+BEGIN
+  IF to_regclass('cron.job') IS NOT NULL THEN
+    PERFORM cron.alter_job(jobid, schedule := schedule) FROM cron.job WHERE jobname LIKE 'pm-%';
+  END IF;
+END
+$refresh$`;
+
+export async function refreshScheduledJobs(db: MigrationDb, log: Log = () => {}): Promise<void> {
+  try {
+    await db.exec(REFRESH_SCHEDULED_JOBS_SQL);
+  } catch (err) {
+    log(`Note: could not refresh the scheduled jobs (${err instanceof Error ? err.message : String(err)}). If reminders or webhook retries stop running, run npm run db:migrate again.`);
+  }
 }
 
 export interface BaselineOptions {
@@ -322,6 +349,8 @@ export async function baselineMigrations(db: MigrationDb, files: MigrationFile[]
       throw err;
     }
     log(`Recorded ${core.length} core migrations as applied (none were run).`);
+    // A database just built from schema.sql in one go: its jobs need the same refresh.
+    await refreshScheduledJobs(db, log);
     return core.map(file => file.name);
   });
 }

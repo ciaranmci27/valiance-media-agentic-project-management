@@ -109,12 +109,15 @@ export function UsageStep({ onNext, onSkip, onBack }: WizardStepProps) {
       setError(`Not saved, so nothing changed. ${result.message}`);
       return;
     }
-    // The preset also sets how the sidebar lists projects: an agency's many
-    // client projects as a list, a team's or a solo business's few as a menu.
-    // A custom mix keeps what is set. Best effort: Brand settings can change it.
+    // The preset also sets how the sidebar shows projects: an agency's many
+    // client projects open from the Projects page with the active ones listed
+    // in their own section; a team's or a solo business's few fold under
+    // Projects as a menu. A custom mix keeps what is set. Best effort: Brand
+    // settings can change it.
     const preset = presetFor(chosen);
     if (preset) {
-      const style = await saveSidebarProjects(preset === 'agency' ? 'list' : 'menu');
+      const agency = preset === 'agency';
+      const style = await saveSidebarProjects(agency ? 'list' : 'menu', agency);
       if (style.ok) router.refresh();
     }
     onNext();

@@ -9,6 +9,18 @@ Each section starts with `## X.Y.Z (YYYY-MM-DD)` and uses these headings, leavin
 - `### Database`: the core migration files in the release, one per line. `npm run db:migrate` applies them.
 - `### Breaking`: what an install must do when it takes this release.
 
+## 2.0.2 (2026-11-22)
+
+### Added
+- Settings > Workspace > Brand: "Show active projects" lists the first five active projects in their own section of the sidebar, now set apart from how the Projects item works (Page opens the Projects page, Menu folds the active projects under it). Each workspace keeps what its sidebar showed; the setup wizard's presets set both.
+
+### Changed
+- Settings > Workspace > Encryption shows only while there is something to do: the app key is missing or invalid, or saved values still use the older keys. After a move it shows the result, and it is gone on the next visit.
+- Every migration run refreshes the app's scheduled jobs (pg_cron) in a transaction of their own. A large migration, like the 2.0 move, could leave pg_cron running its jobs as they were before, so webhook retries failed. Installs already on 2.0 are fixed by their next deploy that applies database updates, or by running `npm run db:migrate` once.
+
+### Database
+- `20261123000200_sidebar_active_projects.sql`: `workspace_brand.sidebar_active_projects`, on where the sidebar listed projects (`sidebar_projects` = list), off where they were a menu.
+
 ## 2.0.1 (2026-11-22)
 
 ### Changed

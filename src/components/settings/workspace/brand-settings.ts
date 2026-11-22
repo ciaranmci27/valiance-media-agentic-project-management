@@ -99,12 +99,12 @@ export function saveBrand(input: BrandSettingsInput): Promise<BrandResult> {
   }));
 }
 
-/** Sets only how the sidebar lists projects (the setup wizard, from the preset). */
-export function saveSidebarProjects(sidebarProjects: SidebarProjectsStyle): Promise<BrandResult> {
+/** Sets only how the sidebar shows projects (the setup wizard, from the preset). */
+export function saveSidebarProjects(sidebarProjects: SidebarProjectsStyle, sidebarActiveProjects?: boolean): Promise<BrandResult> {
   return run(() => fetch('/api/workspace/brand', {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ sidebarProjects }),
+    body: JSON.stringify({ sidebarProjects, sidebarActiveProjects }),
   }));
 }
 
@@ -196,6 +196,7 @@ export const EMPTY_INPUT: BrandSettingsInput = {
   invertLogoInSidebar: false,
   showNameUnderLogo: false,
   sidebarProjects: 'list',
+  sidebarActiveProjects: true,
 };
 
 /** The fields the form saves, from what is stored. */
@@ -210,6 +211,7 @@ export function toInput(settings: BrandSettings): BrandSettingsInput {
     invertLogoInSidebar: settings.invertLogoInSidebar,
     showNameUnderLogo: settings.showNameUnderLogo,
     sidebarProjects: settings.sidebarProjects,
+    sidebarActiveProjects: settings.sidebarActiveProjects,
   };
 }
 
@@ -251,6 +253,7 @@ export function sameInput(a: BrandSettingsInput, b: BrandSettingsInput): boolean
     && x.invertLogoInSidebar === y.invertLogoInSidebar
     && x.showNameUnderLogo === y.showNameUnderLogo
     && x.sidebarProjects === y.sidebarProjects
+    && x.sidebarActiveProjects === y.sidebarActiveProjects
     && BRAND_SHADES.every((shade) => (x.brandShades?.[shade] ?? null) === (y.brandShades?.[shade] ?? null));
 }
 
@@ -288,6 +291,7 @@ export function settingsFromBrand(brand: Brand): BrandSettings {
     invertLogoInSidebar: brand.invertLogoInSidebar,
     showNameUnderLogo: brand.showNameUnderLogo,
     sidebarProjects: brand.sidebarProjects,
+    sidebarActiveProjects: brand.sidebarActiveProjects,
   };
 }
 

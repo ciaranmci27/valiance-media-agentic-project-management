@@ -107,6 +107,16 @@ function parsing() {
   check('row: a database without the column reads projects as a list', rowToSettings(oldRow).sidebarProjects === 'list');
   check('row: a stored menu reads as a menu', rowToSettings({ ...oldRow, sidebar_projects: 'menu' }).sidebarProjects === 'menu');
   check('resolve: the projects style carries to the brand', resolveBrand({ ...EMPTY_BRAND_SETTINGS, sidebarProjects: 'menu' }).sidebarProjects === 'menu' && DEFAULT_BRAND.sidebarProjects === 'list');
+  // The active projects section: its own option since 2.0.2, once part of the 'list' style.
+  check('parse: active projects left out stays out, so the stored value is kept', ok.data !== null && !('sidebarActiveProjects' in ok.data), ok.data);
+  check('parse: active projects off is accepted', parseBrandInput({ sidebarActiveProjects: false }).data?.sidebarActiveProjects === false);
+  check('parse: a non-boolean active projects is refused', parseBrandInput({ sidebarActiveProjects: 'yes' }).error !== null);
+  check('row: without the column, a list workspace keeps its section', rowToSettings(oldRow).sidebarActiveProjects === true);
+  check('row: without the column, a menu workspace keeps none', rowToSettings({ ...oldRow, sidebar_projects: 'menu' }).sidebarActiveProjects === false);
+  check('row: a stored value wins over the style', rowToSettings({ ...oldRow, sidebar_projects: 'menu', sidebar_active_projects: true }).sidebarActiveProjects === true
+    && rowToSettings({ ...oldRow, sidebar_projects: 'list', sidebar_active_projects: false }).sidebarActiveProjects === false);
+  check('resolve: active projects carry to the brand, on by default', resolveBrand({ ...EMPTY_BRAND_SETTINGS, sidebarActiveProjects: false }).sidebarActiveProjects === false
+    && DEFAULT_BRAND.sidebarActiveProjects === true && EMPTY_BRAND_SETTINGS.sidebarActiveProjects === true);
   check('parse: a body that is not an object is refused', parseBrandInput(null).error !== null && parseBrandInput([]).error !== null);
   check('parse: shades that are not an object are refused', parseBrandInput({ brandShades: ['#FFFFFF'] }).error !== null);
 }
@@ -188,10 +198,34 @@ async function database() {
   check('db: projects start as a list', (await db.query<{ s: string }>('SELECT sidebar_projects AS s FROM pm.workspace_brand')).rows[0]?.s === 'list');
   check('db: projects as a menu is stored', (await failure(db, "UPDATE pm.workspace_brand SET sidebar_projects = 'menu'")) === null);
   check('db: an unknown projects style is refused', !!(await failure(db, "UPDATE pm.workspace_brand SET sidebar_projects = 'grid'")));
+  check('db: active projects start shown', (await db.query<{ v: boolean }>('SELECT sidebar_active_projects AS v FROM pm.workspace_brand')).rows[0]?.v === true);
+  check('db: active projects off is stored', (await failure(db, 'UPDATE pm.workspace_brand SET sidebar_active_projects = false')) === null);
   check('db: shades that are not an object are refused', !!(await failure(db, `UPDATE pm.workspace_brand SET brand_shades = '["#FFFFFF"]'`)));
   const after = await db.query<{ name: string; brand_color: string }>('SELECT name, brand_color FROM pm.workspace_brand');
   check('db: a refused write leaves the row as it was', after.rows[0].name === 'Acme' && after.rows[0].brand_color === '#4F46E5', after.rows);
   await db.close();
+}
+
+/**
+ * 20261123000200 on a 2.0 database from before it: each workspace keeps what
+ * its sidebar showed (the section came with 'list' only), and a second run
+ * changes nothing.
+ */
+async function activeProjectsMigration() {
+  const migration = readFileSync(join(__dirname, '..', 'supabase', 'migrations', '20261123000200_sidebar_active_projects.sql'), 'utf8');
+  for (const style of ['list', 'menu'] as const) {
+    const db = await createFullSchemaDatabase();
+    await db.exec('ALTER TABLE pm.workspace_brand DROP COLUMN sidebar_active_projects');
+    await db.exec(`UPDATE pm.workspace_brand SET sidebar_projects = '${style}'`);
+    await db.exec(migration);
+    const first = (await db.query<{ v: boolean }>('SELECT sidebar_active_projects AS v FROM pm.workspace_brand')).rows[0]?.v;
+    check(`migration: a ${style} workspace ${style === 'list' ? 'keeps' : 'gets no'} active projects section`, first === (style === 'list'), first);
+    await db.exec('UPDATE pm.workspace_brand SET sidebar_active_projects = NOT sidebar_active_projects');
+    await db.exec(migration);
+    const second = (await db.query<{ v: boolean }>('SELECT sidebar_active_projects AS v FROM pm.workspace_brand')).rows[0]?.v;
+    check(`migration: a second run keeps a ${style} workspace's own choice`, second === (style !== 'list'), second);
+    await db.close();
+  }
 }
 
 async function main() {
@@ -202,6 +236,7 @@ async function main() {
   sniffing();
   await upgrade();
   await database();
+  await activeProjectsMigration();
 
   console.log(`${passed} checks passed`);
   if (failures.length) {

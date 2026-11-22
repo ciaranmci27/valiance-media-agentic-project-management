@@ -80,8 +80,10 @@ export function Sidebar() {
   const [agentOpen, setAgentOpen] = useState<boolean | null>(null);
   // With projects as a menu (Settings > Workspace > Brand), the Projects item
   // folds every active project under it. Closed each time the app loads; it
-  // stays as set while moving between pages.
+  // stays as set while moving between pages. The active projects section is
+  // its own option, with either style.
   const projectsAsMenu = brand.sidebarProjects === 'menu';
+  const showActiveProjects = brand.sidebarActiveProjects;
   const [projectsOpen, setProjectsOpen] = useState(false);
 
   // Listen for the Header's hamburger button event
@@ -393,11 +395,11 @@ export function Sidebar() {
             );
           })}
 
-          {/* Projects section (as a list; a menu lives under the Projects item) */}
-          {!projectsAsMenu && (loading || projects.length > 0) && (
+          {/* Active projects section (Settings > Workspace > Brand), with either Projects style */}
+          {showActiveProjects && (loading || projects.length > 0) && (
           <div className="pt-4">
             <div className="flex items-center justify-between px-3 mb-2">
-              <p className="text-xs text-zinc-600 uppercase tracking-wider font-medium">Projects</p>
+              <p className="text-xs text-zinc-600 uppercase tracking-wider font-medium">Active projects</p>
               {hasPermission(access, 'projects.manage') && (
                 <Link
                   href="/projects?new=true"

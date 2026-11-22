@@ -469,25 +469,31 @@ export function BrandSection() {
                     checked={form.invertLogoInSidebar}
                     onChange={(invertLogoInSidebar) => edit({ invertLogoInSidebar })}
                   />
-                  <li className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3 py-4 last:pb-0">
+                  <li className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3 py-4">
                     <div className="min-w-0 flex-1 basis-64">
-                      <p className="text-sm font-medium text-zinc-100">Projects in the sidebar</p>
+                      <p className="text-sm font-medium text-zinc-100">Projects item</p>
                       <p className="mt-0.5 text-xs leading-relaxed text-zinc-400">
-                        List shows your first five active projects in their own section, for many client projects. Menu folds every active project under Projects, for a team with a few.
+                        Page opens the Projects page, for many client projects. Menu folds every active project under Projects, so a team with a few opens one from anywhere.
                       </p>
                     </div>
                     <RadioGroup
-                      ariaLabel="Projects in the sidebar"
+                      ariaLabel="Projects item"
                       orientation="horizontal"
                       className="mt-0.5 flex-shrink-0"
                       value={form.sidebarProjects}
                       onChange={(sidebarProjects) => edit({ sidebarProjects })}
                       options={[
-                        { value: 'list', label: 'List' },
+                        { value: 'list', label: 'Page' },
                         { value: 'menu', label: 'Menu' },
                       ]}
                     />
                   </li>
+                  <SwitchRow
+                    label="Show active projects"
+                    description="Lists your first five active projects in their own section below the menu, one click from any page."
+                    checked={form.sidebarActiveProjects}
+                    onChange={(sidebarActiveProjects) => edit({ sidebarActiveProjects })}
+                  />
                 </ul>
               </Group>
             </fieldset>
@@ -501,7 +507,7 @@ export function BrandSection() {
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="min-w-0">
                 <p className="text-sm font-medium text-zinc-100">Reset to default</p>
-                <p className="mt-0.5 text-xs text-zinc-400">Sets the name, colors and sidebar options back to the defaults (projects as a list). Logos stay; remove them one by one above.</p>
+                <p className="mt-0.5 text-xs text-zinc-400">Sets the name, colors and sidebar options back to the defaults (the Projects page, with active projects shown). Logos stay; remove them one by one above.</p>
               </div>
               <Button
                 variant="secondary"

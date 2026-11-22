@@ -45,8 +45,10 @@ export interface Brand {
   invertLogoInSidebar: boolean;
   /** Prints the name under the logo in the sidebar. */
   showNameUnderLogo: boolean;
-  /** How the sidebar lists projects. */
+  /** How the Projects item works: 'list' opens the Projects page, 'menu' folds the active projects under it. */
   sidebarProjects: SidebarProjectsStyle;
+  /** The sidebar lists the first five active projects in a section of their own. */
+  sidebarActiveProjects: boolean;
 }
 
 /**
@@ -68,6 +70,7 @@ export interface BrandSettings {
   invertLogoInSidebar: boolean;
   showNameUnderLogo: boolean;
   sidebarProjects: SidebarProjectsStyle;
+  sidebarActiveProjects: boolean;
 }
 
 /** The fields the settings page saves (logos upload on their own route). */
