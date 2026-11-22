@@ -21,11 +21,8 @@ export default function DeveloperSettingsPage() {
       )}
 
       {/* Retrying failed deliveries on a schedule (Owners only, with webhooks on) */}
-      {show.webhookRetries && (
-        <div id="webhook-retries" className="scroll-mt-6">
-          <WebhookRetriesCard />
-        </div>
-      )}
+      {/* Carries its own anchor: it renders nothing once retries are on. */}
+      {show.webhookRetries && <WebhookRetriesCard />}
     </>
   );
 }

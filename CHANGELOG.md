@@ -9,6 +9,11 @@ Each section starts with `## X.Y.Z (YYYY-MM-DD)` and uses these headings, leavin
 - `### Database`: the core migration files in the release, one per line. `npm run db:migrate` applies them.
 - `### Breaking`: what an install must do when it takes this release.
 
+## 2.0.3 (2026-11-22)
+
+### Changed
+- Settings > Developers > Webhook retries shows only while retries are off. Turned on there, it shows the result, and it is gone on the next visit: once on, there is nothing to manage.
+
 ## 2.0.2 (2026-11-22)
 
 ### Added
