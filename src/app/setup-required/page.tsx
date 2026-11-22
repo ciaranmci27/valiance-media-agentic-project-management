@@ -5,11 +5,13 @@ import { Button } from '@/components/ui/Button';
 import { Logo } from '@/components/ui/Logo';
 import { CopyCode } from '@/components/settings/updates/parts';
 import { SUPABASE_VARS, supabaseConnected } from '@/lib/setup/checks';
+import { firstOwnerGate } from '@/lib/setup/first-owner-server';
+import { PM_SCHEMA_FIX_STEPS } from '@/lib/setup/schema-steps';
 
 // Reads the host's settings on every request, never at build time.
 export const dynamic = 'force-dynamic';
 
-export const metadata: Metadata = { title: 'Connect Supabase' };
+export const metadata: Metadata = { title: 'Set up Supabase' };
 
 const WHERE: Record<(typeof SUPABASE_VARS)[number], string> = {
   NEXT_PUBLIC_SUPABASE_URL: 'The Project URL.',
@@ -18,13 +20,19 @@ const WHERE: Record<(typeof SUPABASE_VARS)[number], string> = {
 };
 
 /**
- * Shown when the app cannot reach its database: the middleware sends every
+ * Shown when the app cannot use its database yet: the middleware sends every
  * page here while the Supabase URL or anon key is missing, and the setup
- * wizard does when any of the three is. It reads nothing and needs no
- * sign-in; it says set or not set per setting, never a value.
+ * wizard does when any of the three is. Once connected, sign-in sends a new
+ * install here while the database is not ready for the app (schema.sql not
+ * run, or schema pm not shared with Supabase's API). It needs no sign-in and
+ * says set or not set per setting, never a value.
  */
-export default function SetupRequiredPage() {
-  if (supabaseConnected(process.env)) redirect('/');
+export default async function SetupRequiredPage() {
+  if (supabaseConnected(process.env)) {
+    const gate = await firstOwnerGate();
+    if (gate === 'database_empty' || gate === 'database_not_exposed') return <DatabaseSetup state={gate} />;
+    redirect('/');
+  }
   const vars = SUPABASE_VARS.map((name) => ({ name, set: (process.env[name]?.trim() ?? '') !== '' }));
 
   return (
@@ -81,6 +89,63 @@ export default function SetupRequiredPage() {
 
           <div className="mt-10 flex justify-end border-t border-white/[0.06] pt-5">
             {/* Going to / runs the middleware and the server again, so they read the settings afresh. */}
+            <Button href="/">Check again</Button>
+          </div>
+        </div>
+      </main>
+    </div>
+  );
+}
+
+/**
+ * Connected, but the database is not ready for the app. Without schema.sql
+ * there is nothing to sign in to; without pm on the API's list the app cannot
+ * reach what schema.sql made. Hosted Supabase keeps that list in its
+ * dashboard, so most new installs need the second step.
+ */
+function DatabaseSetup({ state }: { state: 'database_empty' | 'database_not_exposed' }) {
+  const empty = state === 'database_empty';
+  return (
+    <div className="flex min-h-screen flex-col">
+      <header className="mx-auto flex w-full max-w-[46rem] items-center px-4 pb-2 pt-5 sm:px-8 sm:pt-8">
+        <div className="flex h-8 items-center">
+          <Logo className="h-7 w-auto max-w-[180px] dark:hidden" />
+          <Logo variant="dark" className="hidden h-7 w-auto max-w-[180px] dark:block" />
+        </div>
+      </header>
+
+      <main className="mx-auto w-full max-w-[46rem] flex-1 px-4 pb-16 pt-6 sm:px-8 sm:pt-10">
+        <div className="mx-auto max-w-2xl">
+          <h1 className="text-2xl font-semibold tracking-tight text-white sm:text-[28px] sm:leading-tight">Set up the database</h1>
+          <p className="mt-2 max-w-lg text-sm leading-relaxed text-zinc-400">
+            {empty
+              ? 'The app reaches Supabase, but its tables are not there yet.'
+              : "The app reaches Supabase, but Supabase does not share the app's schemas yet."}
+          </p>
+
+          <section aria-labelledby="schema-step" className="mt-8">
+            <h2 id="schema-step" className="text-sm font-medium text-zinc-100">
+              {empty ? "Create the app's tables" : "1. Create the app's tables, if you have not yet"}
+            </h2>
+            <ol className="mt-3 list-decimal space-y-1.5 pl-4 text-sm leading-relaxed text-zinc-300">
+              <li>In Supabase, open the SQL Editor and start a new query.</li>
+              <li>
+                Paste the whole of <span className="font-mono text-xs text-zinc-100">supabase/schema.sql</span> from this app&apos;s code and run it.
+              </li>
+              <li>It is safe to run again if you are unsure.</li>
+            </ol>
+          </section>
+
+          {!empty && (
+            <section aria-labelledby="expose-step" className="mt-8">
+              <h2 id="expose-step" className="text-sm font-medium text-zinc-100">2. Share the app&apos;s schemas with Supabase&apos;s API</h2>
+              <ol className="mt-3 list-decimal space-y-1.5 pl-4 text-sm leading-relaxed text-zinc-300">
+                {PM_SCHEMA_FIX_STEPS.slice(0, -1).map((step) => <li key={step}>{step}</li>)}
+              </ol>
+            </section>
+          )}
+
+          <div className="mt-10 flex justify-end border-t border-white/[0.06] pt-5">
             <Button href="/">Check again</Button>
           </div>
         </div>

@@ -3,7 +3,7 @@
 Mode: Converge
 Kind: application
 
-The PM and CRM app: projects, tasks, the Inbox (email and meetings), leads, contacts, team, the client portal. Dark first, with a light theme a person can switch to. Drafted from the code on 2026-11-17; the owner picks the reference screens.
+The PM and CRM app: projects, tasks, the Inbox (email and meetings), leads, contacts, team, the client portal. Dark first, with a light theme a person can switch to. Drafted from the code on 2026-11-17.
 
 ## Tokens
 
@@ -44,7 +44,7 @@ Inbox pieces, in `src/components/inbox/`: `inbox-badges.tsx` (state dots, trust,
 
 ## Reference screens
 
-Owner to pick 2 or 3. Candidates: the Inbox (list plus thread), a project's Tasks board, the task panel.
+Match new work to these: the Inbox (list plus thread), a project's Tasks board, the task panel.
 
 ## Still converging
 

@@ -11,7 +11,7 @@ An install never patches core: the next release would overwrite the patch or sto
 
 1. Re-read the plug-in points in `src/custom/README.md` and `src/lib/extensions/types.ts`.
 2. Check whether a module switch (Settings > Workspace > Features) or an existing setting already does it.
-3. Check whether a `custom` table keyed by a core row's id can hold the data.
+3. Check whether a `pm_custom` table keyed by a core row's id can hold the data.
 
 If any of these works, build it there instead (`pm-add-custom-feature`, `pm-add-custom-table`).
 

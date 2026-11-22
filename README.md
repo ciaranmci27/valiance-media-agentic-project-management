@@ -28,7 +28,7 @@ Core is always on. Everything else is a module an Owner can switch on or off.
 - **Contacts**: a shared address book linked to projects.
 - **Leads**: a sales pipeline with interactions, proposals and one-click conversion to a project.
 - **Client portal**: a private page per project where clients see progress, updates and files, with an optional PIN.
-- **Inbox**: client email and meetings sorted by project.
+- **Inbox**: client email sorted by project. Meeting notes can be posted in through the API too.
 - **AI agents**: agents join the team, suggest and work tasks, and people approve what they do.
 - **Credentials**: encrypted project logins, shared with the right people.
 - **Webhooks**: invoice events sent to your other systems.
@@ -63,7 +63,7 @@ The `checkout` line starts you on the newest release. The public `main` branch c
 ### 2. Set up the database
 
 1. In Supabase, open the SQL Editor and run `supabase/schema.sql`. It is the whole database in one file, in its own schemas: `pm` (the app) and `pm_custom` (your own tables). It creates nothing in `public`, so it also fits a project that already holds other apps (see "Using a database you already have"). Features you switch off later simply go unused.
-2. In Supabase, open Project Settings, then Data API, and check **Exposed schemas** lists `pm` and `pm_custom` (keep the ones already there). `schema.sql` adds them itself when the list is kept in the database; add any that are missing. The setup wizard checks this too.
+2. In Supabase, open Project Settings, then Data API, and add `pm` and `pm_custom` under **Exposed schemas** (keep the ones already there). On most projects this list lives in the dashboard, so this step is needed. If the app later opens on a **Set up the database** page, step 1 or 2 is not done yet; that page says which.
 3. In Supabase, open Authentication, then Sign In / Providers, and turn off **Allow new users to sign up** unless another app on the project needs it. The app creates every account itself (the setup wizard and invitations), and nobody becomes a member just by signing up.
 4. Copy `.env.example` to `.env.local`. Set `SUPABASE_DB_URL`: your database's session or direct connection string (Supabase, Connect, port 5432). Not the port 6543 transaction pooler. (`DATABASE_URL` also works and wins if both are set.)
 5. Record the database as up to date:
@@ -74,30 +74,39 @@ The `checkout` line starts you on the newest release. The public `main` branch c
 
 ### 3. Fill in the environment variables
 
-Fill in `.env.local` from `.env.example`. Each variable has a line saying what it is for. You need at least:
+Fill in `.env.local` from `.env.example`. Five are required:
 
 - `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY` (Supabase, Project Settings, API)
-- `APP_ENCRYPTION_KEY`: one key for everything the app saves encrypted (generate it with `openssl rand -hex 32`, or let the setup wizard make one). Keep a safe copy: if it is lost, saved passwords and keys cannot be recovered.
-- `NEXT_PUBLIC_APP_URL` (your app's address)
+- `APP_ENCRYPTION_KEY`: one key for everything the app saves encrypted. Leave it empty and the setup wizard makes one in your browser and shows where to put it (or run `openssl rand -hex 32`). Use the same key locally and in your host, and keep a safe copy: if it is lost, saved passwords and keys cannot be recovered.
+- `NEXT_PUBLIC_APP_URL`: `http://localhost:3009` locally.
+
+Everything else is optional, and integration keys (Resend, the GitHub update token, webhook retries) are set in the app's Settings, saved encrypted.
 
 Run it locally with `npm run dev`, then open http://localhost:3009.
 
 ### 4. Deploy on Vercel
 
 1. In Vercel, add a new project and import your repository.
-2. Add the same environment variables under Project, Settings, Environment Variables.
+2. Add the same environment variables under Project, Settings, Environment Variables, with `NEXT_PUBLIC_APP_URL` set to your real address (for example `https://pm.yourcompany.com`). Mark the keys Sensitive.
 3. Add `SUPABASE_DB_URL` too, so each production deploy applies its update's database changes first. Owners can turn that off in **Settings > Updates**.
-4. Deploy.
+4. Add `CRON_SECRET` (`openssl rand -hex 32`) to turn on the scheduled jobs in `vercel.json`: inbound email clean-up and the billing draft digest.
+5. Deploy.
 
 ### 5. First run
 
-Open your app right after it deploys. On a fresh database it goes straight to the setup wizard:
+Open your app right after it deploys. It checks what is missing and says what to do:
+
+- **Connect Supabase**: a Supabase setting is missing in your host.
+- **Set up the database**: `schema.sql` has not run, or `pm` and `pm_custom` are not exposed yet (step 2).
+- **Connect your server**: `APP_ENCRYPTION_KEY` or `NEXT_PUBLIC_APP_URL` is missing. It generates the key in your browser (never sent anywhere) and shows where to add it: your host and `.env.local`. Redeploy, then check again.
+
+Then the setup wizard:
 
 1. **Create your account.** The first account becomes the **Owner**. Until someone does this, every visit lands here, so do it before you share the address.
 2. **Your workspace**: name, logo and color.
 3. **How you will use it**: a preset or modules one by one (next section), and your currency and number format.
-4. **Email**: connect the account invites and notifications are sent from (Google, Resend or any SMTP server). It needs only `APP_ENCRYPTION_KEY` (see "Fill in the environment variables"); the wizard checks it before anything else and shows how to add it. You can do this later in **Settings > Email**.
-5. **Your team** and **First projects**, then you are in.
+4. **Email**: connect the account invites and notifications are sent from (Google, Resend or any SMTP server). You can do this later in **Settings > Email**.
+5. **Who invoices are from** (with Client invoicing on), **Your team** and **First projects**, then you are in.
 
 Everything can be changed later in Settings. Owners can look through the wizard again any time from **Settings > Workspace > Features > Preview setup**; a preview saves nothing.
 
@@ -108,7 +117,17 @@ The app can live in a Supabase project your company already uses for other apps,
 - Everything the app makes is in `pm` and `pm_custom`, with `pm-` storage buckets and `pm-` scheduled jobs. Nothing in `public` or your other schemas is created, changed or read by the app or its updates.
 - Logins are shared, roles are not: someone becomes a PM member only when invited, with their own PM role. An invited person who already has a confirmed login signs in with it (an unconfirmed one is never linked: it could be someone else's sign-up); the app never changes the email or password of a login it did not create.
 - Before anyone can claim the Owner account on such a project, the setup wizard asks for a setup code: set `PM_SETUP_CODE` (any long random text) in your host first. Someone who already has a login can claim with it.
-- Add your app's address to Supabase, Authentication, URL Configuration, Redirect URLs. Password reset emails use the project's own email templates.
+
+### Receiving client email (optional)
+
+The Inbox reads mail sent to your project addresses through [Resend](https://resend.com) receiving:
+
+1. In Resend, add a receiving domain (a subdomain such as `inbox.yourcompany.com` works well) and set its MX records.
+2. In Resend, Webhooks, add an `email.received` webhook pointing at `https://<your app>/api/inbound-email/resend`.
+3. In the app, **Settings > Email > Receiving**: paste a Resend API key that can read received email (starts with `re_`) and the webhook's signing secret (starts with `whsec_`). Both are saved encrypted.
+4. Add your addresses in **Settings > Email**, then send a test email.
+
+### Demo mode
 
 To try the app without a database, set `NEXT_PUBLIC_DEMO_MODE=true` and `DEMO_MODE=true`. Both are required: the server-only `DEMO_MODE` stops a stray public variable from turning off sign-in on a real deployment.
 
@@ -139,7 +158,7 @@ What turning a module off does:
 Your own code, tables and files live in a few client-owned paths:
 
 - `src/custom/`: pages, sidebar entries, project tabs, Dashboard cards, Settings pages, API routes, your theme and Next.js settings. Your name, colors and logos are set in Settings > Workspace > Brand, not in code.
-- `supabase/migrations/custom/`: your own tables, in a database schema named `custom`.
+- `supabase/migrations/custom/`: your own tables, in the database schema `pm_custom`.
 - `public/custom/`: your own public files.
 - `.claude/skills/`, `.claude/agents/` and `.claude/commands/`: your own agent skills, agents and commands, under any name that doesn't start with `pm-`.
 - `.github/workflows/custom-*.yml`: your own CI workflows.
@@ -147,7 +166,7 @@ Your own code, tables and files live in a few client-owned paths:
 
 How each plug-in point works: [`src/custom/README.md`](src/custom/README.md). Write your own notes there, not in this README.
 
-**Never edit core files** (everything outside those paths, apart from adding dependencies and scripts to `package.json` and crons to `vercel.json`). `.claude/settings.json`, the other workflows and this README are core too. Each release replaces core files, so an edit there is lost or stops the next update. `npm run check:core` lists any core file you changed. If you need core to change, ask for it (see Contributing to core).
+**Never edit core files** (everything outside those paths, apart from adding dependencies and scripts to `package.json` and `package-lock.json`, and crons to `vercel.json`). `.claude/settings.json`, the other workflows and this README are core too. Each release replaces core files, so an edit there is lost or stops the next update. `npm run check:core` lists any core file you changed. If you need core to change, ask for it (see Contributing to core).
 
 ---
 

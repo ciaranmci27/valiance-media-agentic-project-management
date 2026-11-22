@@ -14,7 +14,7 @@ SET search_path = pm, extensions;
 
 
 -- ============================================================
--- 1. TEAM MEMBERS (auto-created on auth signup, or manually added)
+-- 1. TEAM MEMBERS (added by the server through pm.add_team_member)
 -- ============================================================
 create table pm.team_members (
   id uuid primary key default gen_random_uuid(),
@@ -2649,8 +2649,8 @@ $$;
 -- pg_cron runs this every minute. When a delivery is due (a retry whose
 -- backoff has passed, a new one the in-app kick missed, or an expired lease)
 -- it asks the app to dispatch: POST /api/internal/webhooks/scheduled with
--- WEBHOOK_SCHEDULER_SECRET, read from Vault (webhook_scheduler_url,
--- webhook_scheduler_secret). Idle minutes make no request. Returns the
+-- the scheduler secret, read from Vault (pm_webhook_scheduler_url,
+-- pm_webhook_scheduler_secret). Idle minutes make no request. Returns the
 -- pg_net request id, or null when nothing was sent.
 CREATE OR REPLACE FUNCTION pm.webhook_retry_kick()
 RETURNS bigint

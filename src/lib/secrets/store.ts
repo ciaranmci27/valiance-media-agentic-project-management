@@ -2,7 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { appKeyReady, open, seal } from '@/lib/crypto/app-key';
 
 /**
- * Integration secrets an Owner sets in the app (public.app_secrets), with the
+ * Integration secrets an Owner sets in the app (pm.app_secrets), with the
  * host's environment variable as the fallback. Values are sealed with the app
  * key, bound to their name, before they reach the database, and are only ever
  * opened on the server. Reading prefers the app, then the environment, and

@@ -1,14 +1,14 @@
 # Webhooks
 
 Outbound webhooks let an external system react when invoices change, without a
-native integration. Create an endpoint under **Settings -> Webhooks**, subscribe
+native integration. Create an endpoint under **Settings > Developers**, subscribe
 it to one or more event types, and copy the signing secret into your receiver.
 
 Delivery uses a transactional outbox: a database trigger records the event and
 fans out one delivery per subscribed endpoint; a dispatcher signs and POSTs it
 immediately after the change. A failed attempt is retried automatically with
-backoff, up to 8 attempts; after that you can re-send it from Settings ->
-Webhooks, which shows each delivery's attempts, last error and next try.
+backoff, up to 8 attempts; after that you can re-send it from Settings >
+Developers, which shows each delivery's attempts, last error and next try.
 
 ## Retries and ordering
 
@@ -17,13 +17,23 @@ Webhooks, which shows each delivery's attempts, last error and next try.
   then 3, 9, 27 and 81 minutes, 4 hours, then 12 hours. After the 8th attempt
   it is marked `failed` and waits for a manual re-send (which restarts the
   attempt budget).
-- Supabase pg_cron checks every minute and, when a delivery is due, POSTs to
-  `/api/internal/webhooks/scheduled` (`pm.webhook_retry_kick`). Not a
-  Vercel cron: the app is on Hobby, which only allows daily crons. Setup:
-  `WEBHOOK_SCHEDULER_ENABLED=true` and `WEBHOOK_SCHEDULER_SECRET` in the app,
-  and the same secret plus the app URL in Supabase Vault as
-  `webhook_scheduler_secret` and `webhook_scheduler_url`. Without them,
-  retries only go out on the next invoice change or "send now".
+- Retries are sent on a schedule by the database. The Supabase pg_cron job
+  `pm-webhook-retries` checks every minute (`pm.webhook_retry_kick`) and, when
+  a delivery is due, POSTs to `/api/internal/webhooks/scheduled`. It is not a
+  Vercel cron because Vercel's Hobby plan allows only daily crons. It runs
+  only while the Webhooks and Client invoicing modules are on.
+- To set it up, an Owner presses **Turn on webhook retries** in Settings >
+  Developers. The server makes the scheduler secret, saves it encrypted in the
+  app, and writes it with the app's address to Supabase Vault as
+  `pm_webhook_scheduler_secret` and `pm_webhook_scheduler_url`. It needs
+  `APP_ENCRYPTION_KEY`, `NEXT_PUBLIC_APP_URL` set to the app's address, and
+  Supabase Vault; the card says which is missing. Until retries are on, a
+  failed delivery only goes out again on the next invoice change or when
+  someone presses "Send pending deliveries now" in the Webhooks section.
+- Older installs may instead set `WEBHOOK_SCHEDULER_ENABLED=true` and
+  `WEBHOOK_SCHEDULER_SECRET` in the host, with the same secret and the app URL
+  in Vault under the names above. The app reads these only as a fallback; a
+  secret saved in the app wins.
 - Each attempt holds a 2-minute lease. If a dispatcher run dies mid-delivery,
   the next run takes the delivery back once the lease expires, so nothing is
   left stuck in `delivering`. It counts as an attempt.

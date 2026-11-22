@@ -1,9 +1,9 @@
 # Communications
 
-Everything people send us (today email, next SMS, later Slack or Telegram) is
-data brought into the database for the agent to act on. It lives in its own
-Postgres schema, `communications`, built so a new channel adds an adapter and
-reuses everything else.
+Everything people send your team (today email, next SMS, later Slack or
+Telegram) is data brought into the database for the agent to act on. It lives
+in the app's Postgres schema, `pm`, with the rest of the app, built so a new
+channel adds an adapter and reuses everything else.
 
 ```
 channel webhook -> adapter (one per channel) -> communications core -> agent API + Inbox
@@ -14,15 +14,15 @@ channel webhook -> adapter (one per channel) -> communications core -> agent API
   outside that folder knows about MIME, Message-IDs or DKIM.
 - **Core**: conversations, messages, the projects a conversation is on, the
   sender's scope, triage, task links. The same for every channel.
-- **Consumers**: the agent (Ashley) through `/api/v1/inbox/*`, and people
+- **Consumers**: the triage agent through `/api/v1/inbox/*`, and people
   through the Inbox (`/api/workspace/inbox/*`). Neither cares which channel a
   message came from.
 
 ## Reaching the schema
 
 Since 2.0 the Inbox's tables, views and functions live in the app's own
-schema, `pm`, with everything else (they were in `communications` until
-1.11). Every Supabase client the app makes reads `pm` by default; Inbox code
+schema, `pm`, with everything else (2.0 moved them there from
+`communications`, in `20261123000000_move_to_pm.sql`). Every Supabase client the app makes reads `pm` by default; Inbox code
 still goes through one accessor (`src/lib/communications/db.ts`), so it reads
 the same:
 
@@ -59,13 +59,13 @@ NOTIFY pgrst, 'reload config';
 
 | Table | What it holds |
 | --- | --- |
-| `inboxes`, `inbox_access` | An agent's inbox (e.g. Ashley's relay address) and who may read it. |
-| `endpoints` | A project's own address (`hi@relay...`): mail through it belongs to that project. `channel` says which kind. |
+| `inboxes`, `inbox_access` | An agent's inbox (e.g. the triage agent's relay address) and who may read it. |
+| `endpoints` | A project's own address (`acme@relay...`): mail through it belongs to that project. `channel` says which kind. |
 | `client_domains`, `client_addresses` | Senders mapped to a project by domain or exact address. Contacts map through `contact_emails`. |
 | `conversations` | A thread. `channel`, subject, summary. |
 | `conversation_projects` | Every project a conversation is on, with its `source` (below). |
 | `messages` | One received message: sender, body, `kind` (person, team, meeting_notes, notification, marketing), `status`, `channel`, `external_id`, `sender_member_id`, `sender_verified`. Still keyed to its conversation by `thread_id`. |
-| `message_endpoints` | Every endpoint a message arrived through (mail to `hi@` and `p4tf@` at once keeps both). |
+| `message_endpoints` | Every endpoint a message arrived through (mail to `acme@` and `globex@` at once keeps both). |
 | `message_candidates` | The projects its sender maps to, and why (contact, domain, sender). |
 | `participants` | From, To, Cc. View `conversation_participants` rolls them up. |
 | `attachments`, `files` | Attachments; `files` stores each byte-identical file once per inbox. |
@@ -177,12 +177,12 @@ one pure policy (`triage-policy.ts`), then applies, stores and undoes them
 | `new_work` | someone asks for a deliverable |
 | `change` | alters tracked work: revision, date, cancellation |
 | `handoff` | what the work waited on arrived |
-| `waiting_on` | someone owes Ciaran something |
-| `commitment` | Ciaran promised or asked for something |
-| `reply_owed` | someone waits on Ciaran, or on the agent |
-| `owner_instruction` | Ciaran telling the agent what to do |
+| `waiting_on` | someone owes the Owner something |
+| `commitment` | the Owner promised or asked for something |
+| `reply_owed` | someone waits on the Owner, or on the agent |
+| `owner_instruction` | the Owner telling the agent what to do |
 | `new_business` | leads, referrals, partnerships |
-| `money` | our own books only |
+| `money` | the company's own books only |
 | `account_risk` | expiries, suspensions, security |
 | `context` | facts, advice, identity changes |
 | `noise` | nothing to do |
@@ -191,7 +191,7 @@ one pure policy (`triage-policy.ts`), then applies, stores and undoes them
 - tasks: `create_task`, `update_task`, `comment`, `attach_file`. A `create_task` with `parent_task_id` makes a subtask of an open, top-level task in the same project (a new piece of work that task covers); the context lists each open task with its open subtasks under it, so subtasks never crowd the task list.
 - reminders: `add_reminder`, `update_reminder`, `complete_reminder`
 - filing and links: `link_task`, `file_project`
-- what Ciaran owes: `reply_owed`, a point on `pm.reply_points`, one per thing owed, amended rather than repeated
+- what the Owner owes: `reply_owed`, a point on `pm.reply_points`, one per thing owed, amended rather than repeated
 - corrections: `revert_item`, `mute_conversation`
 - facts and leads: `add_context`, `propose_mapping`, `create_lead`, `log_interaction`
 - `ask`: filing only, at most one open per conversation, and only when there is no default
@@ -201,14 +201,14 @@ agent: owner, teammate, client, client_colleague, prospect, machine or
 stranger. The app also records whether the agent was addressed.
 
 **The policy, in order:**
-1. Only Ciaran mutes. Only Ciaran or a teammate undoes earlier work. A client's cancel becomes a comment and a reply owed.
-2. Ciaran writing to the agent is an instruction. His copied mail yields only his promises, what he waits on, and context. His forward with no note is context only.
+1. Only the Owner mutes. Only the Owner or a teammate undoes earlier work. A client's cancel becomes a comment and a reply owed.
+2. The Owner writing to the agent is an instruction. Mail the Owner is copied on yields only the Owner's promises, what the Owner waits on, and context. A forward from the Owner with no note is context only.
 3. A suspicious plan or an untrusted sender only proposes. An unknown sender proposes money and account matters.
 4. A blind copy only files. Bulk mail only feeds money, account risk and context.
 5. Strangers and prospects reach no client work.
 6. A completed or archived project takes no new task. A project outside the message's scope is proposed, never refused.
 7. Facts, mappings and leads propose. A field a person set is proposed; one the agent set changes as unsure. Assignment, readiness and status wait for a person, except a teammate putting their own task in review.
-8. Low confidence, or work aimed at someone other than Ciaran or the agency, applies as unsure.
+8. Low confidence, or work aimed at someone other than the Owner or the company, applies as unsure.
 
 **Live and shadow.** `inboxes.triage_mode` picks the triage an inbox runs:
 
@@ -226,12 +226,12 @@ The agent API:
 A live plan also writes a `triage` row (`triage.plan_id`), so the Inbox, the
 questions and the summary feed keep working unchanged.
 
-The full catalog of situations and expected outcomes is kept with the agent's
-evals (`evals/ashley-triage/catalog.md` in the agents repo). To add a
-situation:
+Keep a catalog of situations and their expected outcomes with your agent's
+evals, so a change to the policy or the instructions can be checked against
+real cases. To add a situation:
 1. If it needs one, add an intent or item type to `triage-policy.ts`, `plan-schemas.ts` and the `plan_items` checks.
 2. Write one paragraph in the agent's triage instructions.
-3. Add one eval case and one row to `scripts/verify-triage-policy.ts`.
+3. Add one case to your agent's evals and one row to `scripts/verify-triage-policy.ts`.
 
 ## Meetings
 
@@ -305,16 +305,16 @@ Every table and rule above is shared. A new channel needs:
    (the Twilio SID, the Slack `ts`), and records `message_endpoints`.
 4. **Register endpoints.** A Twilio number or a Slack channel becomes an
    `endpoints` row on its project, so `#client-acme` files on Acme the way
-   `hi@relay` files on Happy Innovations.
+   `acme@relay` does.
 5. **Show it.** A channel icon in the Inbox. Triage, scope, task links, the
-   agent API and Ashley need no change.
+   agent API and your agent need no change.
 
 A new email address for a project needs none of this: add it in the project's
 email settings (one `endpoints` row).
 
 ## Legacy names
 
-Until the contract migration ships (branch `communications-contract`):
+Until a later release removes these older names:
 
 - `conversations.project_id`, `project_source` and `project_address_id` are
   kept in step with `conversation_projects` by a trigger, for older readers.
@@ -323,7 +323,8 @@ Until the contract migration ships (branch `communications-contract`):
   `projects`.
 
 New code reads `conversation_projects`, `conversation_id` and `projects` only.
-Permission names stay `inbound_email.*`.
+Permission names stay `inbound_email.*`, plus `communications.read` and
+`communications.manage`.
 
 ## Tests
 

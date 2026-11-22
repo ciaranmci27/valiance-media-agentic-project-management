@@ -9,6 +9,12 @@ Each section starts with `## X.Y.Z (YYYY-MM-DD)` and uses these headings, leavin
 - `### Database`: the core migration files in the release, one per line. `npm run db:migrate` applies them.
 - `### Breaking`: what an install must do when it takes this release.
 
+## 2.0.4 (2026-11-22)
+
+### Changed
+- A new install whose database is not ready shows **Set up the database** with the steps (run `supabase/schema.sql`, add `pm` and `pm_custom` to Supabase's exposed schemas) instead of a sign-in page nobody can use.
+- The README, `.env.example`, agent skills and guides match 2.0: five required variables, the rest optional or set in Settings; the setup screens in order; receiving client email with Resend; your own tables in `pm_custom`; webhook retries turned on in Settings > Developers.
+
 ## 2.0.3 (2026-11-22)
 
 ### Changed

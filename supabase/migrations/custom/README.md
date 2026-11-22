@@ -4,9 +4,9 @@ This install's own database changes. `npm run db:migrate` runs every `*.sql` fil
 
 ## The rule
 
-Everything a custom migration creates, alters or drops lives in the `custom` schema. Core's tables stay exactly as each release expects, so core migrations never collide with yours. `npm run check:core` fails on any statement that reaches outside `custom`.
+Everything a custom migration creates, alters or drops lives in the `pm_custom` schema. Core's tables stay exactly as each release expects, so core migrations never collide with yours. `npm run check:core` fails on any statement that reaches outside `pm_custom`. Files dated before 2.0 are checked against `custom`, the schema's old name.
 
-Allowed: `pm_custom.<name>` tables, views, functions and types; indexes, policies and triggers on custom tables; grants on the schema or its objects; foreign keys that reference `public` tables. Not allowed: altering, dropping or adding policies to anything in `public`.
+Allowed: `pm_custom.<name>` tables, views, functions and types; indexes, policies and triggers on custom tables; grants on the schema or its objects; foreign keys that reference `pm` tables. Not allowed: creating, altering, dropping or adding policies to anything outside `pm_custom`. Core lives in `pm`.
 
 Name files with a timestamp so they sort in order: `20261201120000_project_scores.sql`.
 
@@ -39,4 +39,4 @@ grant select on pm_custom.project_scores to authenticated;
 grant all on pm_custom.project_scores to service_role;
 ```
 
-To read it through the Supabase client, add `custom` to the exposed schemas (Supabase dashboard, API settings), then `supabase.schema('custom').from('project_scores')`.
+To read it through the Supabase client: `supabase.schema('pm_custom').from('project_scores')`. Supabase already exposes `pm_custom` to its API. Only if the app's setup checks report it missing, add it under Exposed schemas (Project Settings, Data API).

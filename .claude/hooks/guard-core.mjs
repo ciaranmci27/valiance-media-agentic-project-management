@@ -122,7 +122,7 @@ function block(rel) {
     'Each release replaces core files, so an edit here would be lost or would stop the next update.',
     'Do this instead:',
     '  1. Put the change in a client-owned path: src/custom (pages, tabs, widgets, settings, API routes, theme),',
-    '     supabase/migrations/custom (SQL in schema custom), public/custom (files), .claude/skills, agents or commands',
+    '     supabase/migrations/custom (SQL in schema pm_custom), public/custom (files), .claude/skills, agents or commands',
     '     under a name not starting with pm-, or .github/workflows/custom-*.yml.',
     '     Skill: pm-add-custom-feature.',
     '  2. If no plug-in point can do it, write a core change proposal for Valiance Media instead. Skill: pm-propose-core-change.',

@@ -9,9 +9,9 @@ Install SQL lives only in `supabase/migrations/custom/` and only in the database
 
 ## Allowed and not
 
-- Allowed: `pm_custom.<name>` tables, views, functions and types; indexes, policies and triggers on custom tables; grants on schema `pm_custom`; foreign keys that reference `public` tables.
-- Not allowed: creating, altering or dropping anything in `public` (or any schema but `custom`), including policies on core tables. `npm run check:core` fails on it.
-- Need a column on a core table? Don't add it. Make a `custom` table keyed by the core row's id, or load `pm-propose-core-change`.
+- Allowed: `pm_custom.<name>` tables, views, functions and types; indexes, policies and triggers on custom tables; grants on schema `pm_custom`; foreign keys that reference `pm` tables.
+- Not allowed: creating, altering or dropping anything in `pm` (or any schema but `pm_custom`), including policies on core tables. `npm run check:core` fails on it. Files dated before 2.0 are checked against `custom`, the schema's old name.
+- Need a column on a core table? Don't add it. Make a `pm_custom` table keyed by the core row's id, or load `pm-propose-core-change`.
 
 ## Steps
 
@@ -49,7 +49,7 @@ Install SQL lives only in `supabase/migrations/custom/` and only in the database
    ```
    Each file runs once, in its own transaction, after core's migrations. A file edited after it ran is reported, never re-run.
 
-5. **Read it from code.** Server routes in `src/custom/api.ts`: `session.client.schema('custom').from('project_scores')`. For the browser client, add `custom` to the exposed schemas in Supabase (API settings) first.
+5. **Read it from code.** Server routes in `src/custom/api.ts`: `session.client.schema('pm_custom').from('project_scores')`. Supabase already exposes `pm_custom` to its API. Only if the app's setup checks report it missing, add it under Exposed schemas in Supabase (Project Settings, Data API).
 
 6. **Record it** under `## Our customizations` in `src/custom/AGENTS.md`.
 
