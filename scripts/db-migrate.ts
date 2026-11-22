@@ -78,11 +78,13 @@ function pgDb(client: Client): MigrationDb {
  * row: only an explicit off stops a deploy from migrating.
  */
 export async function automaticUpdatesOn(db: MigrationDb): Promise<boolean> {
-  const present = await db.query<{ present: boolean }>(
-    `SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'business_settings' AND column_name = 'auto_migrate') AS present`,
+  // The app's schema: pm once 2.0 has moved it there, public before.
+  const found = await db.query<{ schema: string }>(
+    `SELECT table_schema AS schema FROM information_schema.columns WHERE table_schema IN ('pm', 'public') AND table_name = 'business_settings' AND column_name = 'auto_migrate'
+     ORDER BY (table_schema = 'pm') DESC LIMIT 1`,
   );
-  if (!present[0]?.present) return true;
-  const rows = await db.query<{ auto_migrate: boolean | null }>('SELECT auto_migrate FROM public.business_settings ORDER BY created_at NULLS LAST LIMIT 1');
+  if (!found[0]) return true;
+  const rows = await db.query<{ auto_migrate: boolean | null }>(`SELECT auto_migrate FROM ${found[0].schema === 'pm' ? 'pm' : 'public'}.business_settings ORDER BY created_at NULLS LAST LIMIT 1`);
   return rows[0]?.auto_migrate !== false;
 }
 

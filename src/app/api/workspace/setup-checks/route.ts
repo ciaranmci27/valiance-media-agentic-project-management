@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { isDemoWorkspace, requireOwner } from '@/lib/api/owner-route';
-import { communicationsSchemaState, envChecks } from '@/lib/setup/checks';
+import { communicationsSchemaState, envChecks, pmSchemasState } from '@/lib/setup/checks';
 import { emailConfigured } from '@/lib/team/invite';
 import { isSmtpEncryptionConfigured } from '@/lib/email/crypto';
 import vercelConfig from '../../../../../vercel.json';
@@ -17,11 +17,12 @@ export async function GET() {
   const { service } = auth.data;
 
   const crons = Array.isArray((vercelConfig as { crons?: unknown[] }).crons) && (vercelConfig as { crons: unknown[] }).crons.length > 0;
-  const [communications, email] = await Promise.all([communicationsSchemaState(service), emailConfigured(service)]);
+  const [communications, email, pmSchemas] = await Promise.all([communicationsSchemaState(service), emailConfigured(service), pmSchemasState(service)]);
   return NextResponse.json({
     data: {
       env: envChecks(process.env, { crons }),
       communications,
+      pmSchemas,
       emailConfigured: email && isSmtpEncryptionConfigured(),
     },
   });

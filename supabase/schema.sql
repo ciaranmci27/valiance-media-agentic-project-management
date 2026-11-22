@@ -3639,12 +3639,12 @@ INSERT INTO public.workspace_region (id, money_format)
 VALUES (true, '{"prefix":"$","suffix":"","negative_prefix":"-$","negative_suffix":"","group":",","decimal":".","digits":2,"min_group":1,"secondary_group":3}'::jsonb)
 ON CONFLICT (id) DO NOTHING;
 
--- Every signed-in member reads it (every screen shows amounts); only Owners
+-- Every active member reads it (every screen shows amounts); only Owners
 -- write it. The client portal, emails and PDFs read it with the service role.
 ALTER TABLE public.workspace_region ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS workspace_region_read ON public.workspace_region;
 CREATE POLICY workspace_region_read ON public.workspace_region
-  FOR SELECT TO authenticated USING (true);
+  FOR SELECT TO authenticated USING ((select public.current_team_member_id()) IS NOT NULL);
 DROP POLICY IF EXISTS workspace_region_owner_insert ON public.workspace_region;
 CREATE POLICY workspace_region_owner_insert ON public.workspace_region
   FOR INSERT TO authenticated WITH CHECK (public.current_team_member_role() = 'owner');
@@ -5937,10 +5937,10 @@ CREATE POLICY task_acceptance_criteria_manage ON public.task_acceptance_criteria
 CREATE POLICY task_reviews_select ON public.task_reviews FOR SELECT TO authenticated
   USING (public.can_access_task(task_id));
 CREATE POLICY agent_health_select ON public.agent_health FOR SELECT TO authenticated
-  USING ((select public.module_enabled('agents')));
+  USING ((select public.current_team_member_id()) IS NOT NULL AND (select public.module_enabled('agents')));
 -- Written by the trigger under the service client; signed-in members read.
 CREATE POLICY agent_health_history_select ON public.agent_health_history FOR SELECT TO authenticated
-  USING ((select public.module_enabled('agents')));
+  USING ((select public.current_team_member_id()) IS NOT NULL AND (select public.module_enabled('agents')));
 
 CREATE POLICY task_dependencies_select ON public.task_dependencies FOR SELECT TO authenticated
   USING (public.can_access_task(task_id));
@@ -13066,7 +13066,7 @@ CREATE TABLE IF NOT EXISTS public.trash_events (
 );
 ALTER TABLE public.trash_events ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS trash_events_select ON public.trash_events;
-CREATE POLICY trash_events_select ON public.trash_events FOR SELECT TO authenticated USING (true);
+CREATE POLICY trash_events_select ON public.trash_events FOR SELECT TO authenticated USING ((select public.current_team_member_id()) IS NOT NULL);
 REVOKE ALL ON public.trash_events FROM anon, authenticated;
 GRANT SELECT ON public.trash_events TO authenticated;
 GRANT ALL ON public.trash_events TO service_role;
@@ -15573,3 +15573,84 @@ BEGIN
   END IF;
 END
 $do$;
+
+-- ============================================================
+-- PM SCHEMAS (20261122100000_pm_schemas_and_outsiders.sql)
+-- Empty until 2.0 moves the app into `pm`; `pm_custom` is an install's own.
+-- ============================================================
+CREATE SCHEMA IF NOT EXISTS pm;
+CREATE SCHEMA IF NOT EXISTS pm_custom;
+GRANT USAGE ON SCHEMA pm, pm_custom TO anon, authenticated, service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA pm GRANT ALL ON TABLES TO anon, authenticated, service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA pm GRANT ALL ON SEQUENCES TO anon, authenticated, service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA pm GRANT ALL ON FUNCTIONS TO anon, authenticated, service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA pm_custom GRANT ALL ON TABLES TO anon, authenticated, service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA pm_custom GRANT ALL ON SEQUENCES TO anon, authenticated, service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA pm_custom GRANT ALL ON FUNCTIONS TO anon, authenticated, service_role;
+COMMENT ON SCHEMA pm IS 'The PM app (core): changed only by its releases.';
+COMMENT ON SCHEMA pm_custom IS 'This install''s own PM app tables and functions: never changed by a release.';
+
+DO $expose$
+DECLARE
+  current_list text;
+  next_list text := '';
+  wanted text;
+BEGIN
+  SELECT substring(setting FROM 'pgrst.db_schemas=(.*)') INTO current_list
+  FROM pg_roles r, unnest(r.rolconfig) AS setting
+  WHERE r.rolname = 'authenticator' AND setting LIKE 'pgrst.db_schemas=%';
+  -- No list in the database: leave it to the host's own settings.
+  IF current_list IS NULL OR btrim(current_list) = '' THEN
+    RETURN;
+  END IF;
+  next_list := current_list;
+  FOREACH wanted IN ARRAY ARRAY['pm', 'pm_custom'] LOOP
+    IF NOT (wanted = ANY (SELECT btrim(s) FROM unnest(string_to_array(current_list, ',')) AS s)) THEN
+      next_list := next_list || ', ' || wanted;
+    END IF;
+  END LOOP;
+  IF next_list <> current_list THEN
+    EXECUTE format('ALTER ROLE authenticator SET pgrst.db_schemas = %L', next_list);
+    NOTIFY pgrst, 'reload config';
+  END IF;
+EXCEPTION WHEN insufficient_privilege THEN
+  RAISE NOTICE 'Could not add pm and pm_custom to the API''s schemas; add them in your Supabase API settings.';
+END
+$expose$;
+
+-- Outsiders get nothing (20261122100000): storage writes need an active
+-- membership, replacing the bucket-only policies above.
+-- Storage: uploads, changes and deletes need an active membership. Public
+-- reads of the public buckets are unchanged (their links keep working).
+DROP POLICY IF EXISTS "Authenticated users can upload avatars" ON storage.objects;
+CREATE POLICY "Authenticated users can upload avatars" ON storage.objects FOR INSERT TO authenticated
+  WITH CHECK (bucket_id = 'avatars' AND (select public.current_team_member_id()) IS NOT NULL);
+DROP POLICY IF EXISTS "Authenticated users can update avatars" ON storage.objects;
+CREATE POLICY "Authenticated users can update avatars" ON storage.objects FOR UPDATE TO authenticated
+  USING (bucket_id = 'avatars' AND (select public.current_team_member_id()) IS NOT NULL);
+DROP POLICY IF EXISTS "Authenticated users can delete avatars" ON storage.objects;
+CREATE POLICY "Authenticated users can delete avatars" ON storage.objects FOR DELETE TO authenticated
+  USING (bucket_id = 'avatars' AND (select public.current_team_member_id()) IS NOT NULL);
+
+DROP POLICY IF EXISTS "Authenticated users can upload portal files" ON storage.objects;
+CREATE POLICY "Authenticated users can upload portal files" ON storage.objects FOR INSERT TO authenticated
+  WITH CHECK (bucket_id = 'portal-files' AND (select public.current_team_member_id()) IS NOT NULL);
+DROP POLICY IF EXISTS "Authenticated users can update portal files" ON storage.objects;
+CREATE POLICY "Authenticated users can update portal files" ON storage.objects FOR UPDATE TO authenticated
+  USING (bucket_id = 'portal-files' AND (select public.current_team_member_id()) IS NOT NULL);
+DROP POLICY IF EXISTS "Authenticated users can delete portal files" ON storage.objects;
+CREATE POLICY "Authenticated users can delete portal files" ON storage.objects FOR DELETE TO authenticated
+  USING (bucket_id = 'portal-files' AND (select public.current_team_member_id()) IS NOT NULL);
+
+DROP POLICY IF EXISTS "Authenticated users can upload entity files" ON storage.objects;
+CREATE POLICY "Authenticated users can upload entity files" ON storage.objects FOR INSERT TO authenticated
+  WITH CHECK (bucket_id = 'entity-files' AND (select public.current_team_member_id()) IS NOT NULL);
+DROP POLICY IF EXISTS "Authenticated users can update entity files" ON storage.objects;
+CREATE POLICY "Authenticated users can update entity files" ON storage.objects FOR UPDATE TO authenticated
+  USING (bucket_id = 'entity-files' AND (select public.current_team_member_id()) IS NOT NULL);
+DROP POLICY IF EXISTS "Authenticated users can delete entity files" ON storage.objects;
+CREATE POLICY "Authenticated users can delete entity files" ON storage.objects FOR DELETE TO authenticated
+  USING (bucket_id = 'entity-files' AND (select public.current_team_member_id()) IS NOT NULL);
+DROP POLICY IF EXISTS "Authenticated users can read entity files" ON storage.objects;
+CREATE POLICY "Authenticated users can read entity files" ON storage.objects FOR SELECT TO authenticated
+  USING (bucket_id = 'entity-files' AND (select public.current_team_member_id()) IS NOT NULL);

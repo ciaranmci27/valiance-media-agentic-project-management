@@ -67,6 +67,17 @@ export class MigrationError extends Error {
 /** Fixed key for pg_advisory_lock: every migration run on any install takes this one. */
 export const MIGRATION_LOCK_KEY = 7_262_011_301;
 
+/**
+ * The runner's own bookkeeping table. It lives with the app's tables: in
+ * `public` until 2.0 moves the app into `pm`, then in `pm`. In a database
+ * the app shares with other apps, `public` belongs to someone else, so the
+ * runner never creates or trusts a table there unless it is provably the
+ * app's (see trackingTable).
+ */
+export function trackingTableSql(schema: 'public' | 'pm'): string {
+  return TRACKING_TABLE_SQL.split('public.app_migrations').join(`${schema}.app_migrations`);
+}
+
 export const TRACKING_TABLE_SQL = `
 CREATE TABLE IF NOT EXISTS public.app_migrations (
   name text PRIMARY KEY,
@@ -119,14 +130,46 @@ export function listMigrationFiles(dirs: MigrationDirs, options: { coreOnly?: bo
   return options.coreOnly ? core : [...core, ...readDir(dirs.customDir, 'custom')];
 }
 
-async function trackingTableExists(db: MigrationDb): Promise<boolean> {
-  const rows = await db.query<{ present: boolean }>(`SELECT to_regclass('public.app_migrations') IS NOT NULL AS present`);
-  return Boolean(rows[0]?.present);
+/**
+ * Where the tracking table is, or should be:
+ * - `pm.app_migrations` once it exists (2.0 and later);
+ * - else `public.app_migrations`, but only when it is the app's: it has the
+ *   runner's columns (name, kind, checksum), or, not made yet, `public`
+ *   holds the app's own tables (workspace_modules and business_settings);
+ * - else, when the app's tables are in `pm`, `pm.app_migrations` (to make).
+ * Null means this database does not hold the app yet (or `public`'s table of
+ * that name is someone else's): the runner refuses rather than guess.
+ */
+export async function trackingTable(db: MigrationDb): Promise<{ table: string; exists: boolean } | null> {
+  const [row] = await db.query<{ pm_table: boolean; public_table: boolean; public_ours: boolean; public_app: boolean; pm_app: boolean }>(`
+    SELECT to_regclass('pm.app_migrations') IS NOT NULL AS pm_table,
+           to_regclass('public.app_migrations') IS NOT NULL AS public_table,
+           (SELECT count(*) = 3 FROM information_schema.columns
+             WHERE table_schema = 'public' AND table_name = 'app_migrations' AND column_name IN ('name', 'kind', 'checksum')) AS public_ours,
+           to_regclass('public.workspace_modules') IS NOT NULL AND to_regclass('public.business_settings') IS NOT NULL AS public_app,
+           to_regclass('pm.workspace_modules') IS NOT NULL AND to_regclass('pm.business_settings') IS NOT NULL AS pm_app`);
+  if (row?.pm_table) return { table: 'pm.app_migrations', exists: true };
+  // Another app's public.app_migrations is never ours; the app may still live in pm.
+  if (row?.public_table && row.public_ours) return { table: 'public.app_migrations', exists: true };
+  if (row?.public_app && !row.public_table) return { table: 'public.app_migrations', exists: false };
+  if (row?.pm_app) return { table: 'pm.app_migrations', exists: false };
+  return null;
+}
+
+const NOT_THE_APP = 'This database does not hold the PM app\'s tables (or its public.app_migrations belongs to another app), so the runner will not create or read its tracking table here. Run supabase/schema.sql first.';
+
+/** Makes the tracking table where trackingTable says, and answers its name. */
+async function ensureTrackingTable(db: MigrationDb): Promise<string> {
+  const where = await trackingTable(db);
+  if (!where) throw new Error(NOT_THE_APP);
+  if (!where.exists) await db.exec(trackingTableSql(where.table.startsWith('pm.') ? 'pm' : 'public'));
+  return where.table;
 }
 
 async function appliedRows(db: MigrationDb): Promise<AppliedRow[]> {
-  if (!(await trackingTableExists(db))) return [];
-  return db.query<AppliedRow>(`SELECT name, kind, checksum, applied_at::text AS applied_at FROM public.app_migrations ORDER BY name`);
+  const where = await trackingTable(db);
+  if (!where?.exists) return [];
+  return db.query<AppliedRow>(`SELECT name, kind, checksum, applied_at::text AS applied_at FROM ${where.table} ORDER BY name`);
 }
 
 /** Read-only: never creates the tracking table. */
@@ -206,7 +249,7 @@ export async function runMigrations(db: MigrationDb, files: MigrationFile[], opt
     return { applied: [], pending, changed };
   }
 
-  await db.exec(TRACKING_TABLE_SQL);
+  await ensureTrackingTable(db);
   return withLock(db, log, async () => {
     // Read the status under the lock: a run that waited sees what the other one applied.
     const status = await migrationStatus(db, files);
@@ -218,8 +261,11 @@ export async function runMigrations(db: MigrationDb, files: MigrationFile[], opt
       await db.exec('BEGIN');
       try {
         await db.exec(file.sql);
+        // Found again after each file: the one that moves the app into pm moves this table too.
+        const table = (await trackingTable(db))?.table;
+        if (!table) throw new Error(NOT_THE_APP);
         await db.query(
-          'INSERT INTO public.app_migrations (name, kind, checksum) VALUES ($1, $2, $3)',
+          `INSERT INTO ${table} (name, kind, checksum) VALUES ($1, $2, $3)`,
           [file.name, file.kind, file.checksum],
         );
         await db.exec('COMMIT');
@@ -248,9 +294,9 @@ export interface BaselineOptions {
 export async function baselineMigrations(db: MigrationDb, files: MigrationFile[], options: BaselineOptions = {}): Promise<string[]> {
   const log = options.log ?? (() => {});
   const core = files.filter(file => file.kind === 'core');
-  await db.exec(TRACKING_TABLE_SQL);
+  const table = await ensureTrackingTable(db);
   return withLock(db, log, async () => {
-    const [{ count }] = await db.query<{ count: number }>('SELECT count(*)::int AS count FROM public.app_migrations');
+    const [{ count }] = await db.query<{ count: number }>(`SELECT count(*)::int AS count FROM ${table}`);
     if (count > 0 && !options.force) {
       throw new Error(
         `app_migrations already has ${count} rows, so this database is already tracked. ` +
@@ -261,7 +307,7 @@ export async function baselineMigrations(db: MigrationDb, files: MigrationFile[]
     try {
       for (const file of core) {
         await db.query(
-          `INSERT INTO public.app_migrations (name, kind, checksum) VALUES ($1, 'core', $2)
+          `INSERT INTO ${table} (name, kind, checksum) VALUES ($1, 'core', $2)
            ON CONFLICT (name) DO UPDATE SET checksum = EXCLUDED.checksum`,
           [file.name, file.checksum],
         );

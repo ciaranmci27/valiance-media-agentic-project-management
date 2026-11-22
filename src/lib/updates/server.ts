@@ -5,6 +5,7 @@ import { afterResponse } from '@/lib/api/after-response';
 import { currentVersion } from './config';
 import type { AuditEntry, UpdatesDeps } from './handlers';
 import { recordedMigrations } from './database';
+import { pmSchemasState } from '@/lib/setup/checks';
 import { getServiceClient } from '@/lib/api/supabase-service';
 import { clearSecretCache, readSecrets } from '@/lib/secrets/store';
 
@@ -48,15 +49,17 @@ export async function updatesDeps(): Promise<UpdatesDeps> {
       read: async () => {
         const client = service;
         if (!client) throw new Error('not authorized');
-        const [settings, applied] = await Promise.all([
+        const [settings, applied, schemas] = await Promise.all([
           client.from('business_settings').select('*').limit(1).maybeSingle(),
           client.from('app_migrations').select('name'),
+          pmSchemasState(client),
         ]);
         if (settings.error) throw settings.error;
         const raw = (settings.data as { auto_migrate?: unknown } | null)?.auto_migrate;
         return {
           switchOn: typeof raw === 'boolean' ? raw : null,
           applied: recordedMigrations({ data: applied.data as Array<{ name: string }> | null, error: applied.error }),
+          schemas,
         };
       },
       save: async (on: boolean) => {

@@ -9,6 +9,7 @@ import { Toggle } from '@/components/ui/inputs/Toggle';
 import { SettingsSectionHeader } from '@/components/settings/SettingsSectionHeader';
 import { OutcomeLine, type Outcome } from '@/components/settings/workspace/OutcomeLine';
 import { CopyCode, Mono } from './parts';
+import { PM_SCHEMA_FIX_STEPS } from '@/lib/setup/schema-steps';
 
 const DESCRIPTION = 'Whether each update changes your database on its own while it deploys.';
 
@@ -222,6 +223,18 @@ export function DatabaseCard({
       {outcome && <OutcomeLine outcome={outcome} busy={saving} className="mt-3" />}
 
       <div className="mt-5 border-t border-white/[0.06] pt-4" aria-live="polite">
+        {database.schemas === 'not_exposed' && (
+          <div role="status" className="mb-3 rounded-lg bg-amber-500/[0.1] px-3.5 py-3 ring-1 ring-inset ring-amber-500/20">
+            <p className="flex items-center gap-2 text-sm font-medium text-zinc-100">
+              <AlertTriangle size={14} className="flex-shrink-0 text-amber-300" aria-hidden="true" />
+              Share two schemas before the next major update
+            </p>
+            <p className="mt-1.5 text-sm text-zinc-300">The next major update moves the app into the pm and pm_custom schemas, and waits until Supabase shares them with the app.</p>
+            <ol className="mt-2 list-decimal space-y-1 pl-4 text-sm text-zinc-300">
+              {PM_SCHEMA_FIX_STEPS.map((step) => <li key={step}>{step}</li>)}
+            </ol>
+          </div>
+        )}
         <PendingStatus database={database} />
       </div>
 

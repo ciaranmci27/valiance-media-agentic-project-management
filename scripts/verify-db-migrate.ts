@@ -22,6 +22,7 @@ import {
   migrationStatus,
   resolveConnection,
   runMigrations,
+  trackingTable,
   type MigrationDb,
   type MigrationDirs,
 } from './lib/migrations';
@@ -70,10 +71,42 @@ async function recorded(db: PGlite) {
 }
 
 async function main() {
-  const pg = new PGlite();
-  const db = pgliteDb(pg);
   const logs: string[] = [];
   const log = (line: string) => logs.push(line);
+
+  // 0. Whose database is it? The runner makes its table only where the app lives.
+  const bare = new PGlite();
+  const bareRun = await rejects(() => baselineMigrations(pgliteDb(bare), listMigrationFiles(dirs), { log }));
+  check('a database without the app is refused (nothing is made)', bareRun instanceof Error && /does not hold the PM app/.test(bareRun.message) && !(await tableExists(bare, 'public.app_migrations')), String(bareRun));
+  await bare.exec(`CREATE TABLE public.workspace_modules (module_id text); CREATE TABLE public.business_settings (id int);
+    CREATE TABLE public.app_migrations (id serial, version text, ran_at timestamptz)`);
+  const theirs = await rejects(() => runMigrations(pgliteDb(bare), listMigrationFiles(dirs), { log }));
+  check('another app\'s public.app_migrations is never read or written', theirs instanceof Error && /belongs to another app/.test(theirs.message), String(theirs));
+  check('and it is left as it was', (await bare.query('SELECT 1 FROM public.app_migrations')).rows.length === 0);
+  check('status reads nothing from it either', (await migrationStatus(pgliteDb(bare), listMigrationFiles(dirs))).applied.length === 0);
+  await bare.close();
+
+  const moved = new PGlite();
+  await moved.exec('CREATE SCHEMA pm; CREATE TABLE pm.workspace_modules (module_id text); CREATE TABLE pm.business_settings (id int);');
+  const movedTable = await trackingTable(pgliteDb(moved));
+  check('with the app in pm, the table goes in pm', movedTable?.table === 'pm.app_migrations' && movedTable.exists === false, movedTable);
+  await baselineMigrations(pgliteDb(moved), listMigrationFiles(dirs), { log });
+  check('and the baseline lands there, nothing in public', await tableExists(moved, 'pm.app_migrations') && !(await tableExists(moved, 'public.app_migrations')));
+  await moved.close();
+
+  // A shared database: another app owns public.app_migrations, the PM app lives in pm.
+  const shared = new PGlite();
+  await shared.exec('CREATE TABLE public.app_migrations (id serial, version text); INSERT INTO public.app_migrations (version) VALUES ("v9"); CREATE SCHEMA pm; CREATE TABLE pm.workspace_modules (module_id text); CREATE TABLE pm.business_settings (id int);'.replace(/"/g, "'"));
+  await baselineMigrations(pgliteDb(shared), listMigrationFiles(dirs), { log });
+  check('a shared database: the baseline lands in pm, the other app\x27s table untouched', await tableExists(shared, 'pm.app_migrations')
+    && (await shared.query('SELECT count(*)::int AS n FROM public.app_migrations')).rows[0] !== undefined
+    && Number(((await shared.query<{ n: number }>('SELECT count(*)::int AS n FROM public.app_migrations')).rows[0]).n) === 1);
+  await shared.close();
+
+  const pg = new PGlite();
+  // The app's own tables, so this reads as the app's database.
+  await pg.exec('CREATE TABLE public.workspace_modules (module_id text); CREATE TABLE public.business_settings (id int);');
+  const db = pgliteDb(pg);
 
   // The files schema.sql already holds: a baseline must record them without running them.
   core('20260101000000_base.sql', 'CREATE TABLE public.baseline_must_not_run (id int);');
@@ -167,6 +200,19 @@ async function main() {
   await pg.close();
 
   // 10. Connection settings.
+  // The 2.0 move: a file that moves the app, tracking table included, into pm
+  // is recorded in pm, in the same transaction.
+  const mover = new PGlite();
+  await mover.exec('CREATE TABLE public.workspace_modules (module_id text); CREATE TABLE public.business_settings (id int);');
+  await baselineMigrations(pgliteDb(mover), listMigrationFiles(dirs), { log });
+  core('20991231000000_move_to_pm.sql', 'CREATE SCHEMA pm; ALTER TABLE public.app_migrations SET SCHEMA pm; ALTER TABLE public.workspace_modules SET SCHEMA pm; ALTER TABLE public.business_settings SET SCHEMA pm;');
+  const moveRun = await runMigrations(pgliteDb(mover), listMigrationFiles(dirs, { coreOnly: true }), { log });
+  const inPm = (await mover.query<{ name: string }>("SELECT name FROM pm.app_migrations WHERE name = '20991231000000_move_to_pm.sql'")).rows;
+  check('the move is recorded in pm, where the table now is', moveRun.applied.includes('20991231000000_move_to_pm.sql') && inPm.length === 1 && !(await tableExists(mover, 'public.app_migrations')), { applied: moveRun.applied, inPm });
+  const afterMove = await migrationStatus(pgliteDb(mover), listMigrationFiles(dirs, { coreOnly: true }));
+  check('and later runs read pm: nothing is pending', afterMove.pending.length === 0 && afterMove.applied.length > 0, afterMove.pending.map((p) => p.name));
+  await mover.close();
+
   const envFiles = (pairs: Record<string, string>) => Object.entries(pairs).map(([name, text]) => ({ name, text }));
   const fromEnv = resolveConnection({ DATABASE_URL: 'postgres://u:p@db.example.com:5432/postgres?sslmode=require' }, envFiles({ '.env.local': 'DATABASE_URL=postgres://other' }));
   check('the environment wins over env files', fromEnv.source === 'DATABASE_URL from the environment', fromEnv.source);

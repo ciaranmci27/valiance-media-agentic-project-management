@@ -4,11 +4,14 @@ import { useState } from 'react';
 import { AlertTriangle, Check, ChevronDown, Info, RotateCw, X } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import type { Read } from '@/lib/query-cache';
+import { PM_SCHEMA_FIX_STEPS } from '@/lib/setup/schema-steps';
 
 /** The setup wizard's checks, as /api/workspace/setup-checks answers them (never a value, only set or not). */
 export interface SetupChecks {
   env: Array<{ name: string; set: boolean; required: boolean; purpose: string }>;
   communications: 'ready' | 'not_exposed' | 'missing' | 'unknown';
+  /** Whether Supabase serves pm and pm_custom (needed from 2.0). */
+  pmSchemas?: 'ready' | 'not_exposed' | 'unknown';
   emailConfigured: boolean;
 }
 
@@ -62,6 +65,20 @@ export function EnvChecksPanel({ checks, loading, failed, onReload }: {
   const sorted = [...checks.env].sort((a, b) => Number(a.set) - Number(b.set) || Number(b.required) - Number(a.required));
 
   return (
+    <div className="space-y-2">
+    {checks.pmSchemas === 'not_exposed' && (
+      <div role="status" className="rounded-lg bg-amber-500/[0.1] px-3 py-2.5 text-xs text-zinc-200 ring-1 ring-inset ring-amber-500/20">
+        <p className="flex items-center gap-2 font-medium">
+          <AlertTriangle size={14} className="flex-shrink-0 text-amber-300" aria-hidden="true" />
+          Supabase doesn&apos;t share the pm and pm_custom schemas with the app yet
+        </p>
+        <p className="mt-1.5 text-zinc-400">Everything works today. The next major update moves the app into them, and waits until they are shared.</p>
+        <ol className="mt-2 list-decimal space-y-1 pl-4 text-zinc-300">
+          {PM_SCHEMA_FIX_STEPS.map((step) => <li key={step}>{step}</li>)}
+        </ol>
+        <Button type="button" size="sm" variant="ghost" className="mt-2 -ml-2.5" onClick={onReload} icon={<RotateCw size={12} aria-hidden="true" />}>Check again</Button>
+      </div>
+    )}
     <div className={`rounded-lg ${requiredMissing.length ? 'bg-red-500/[0.08]' : 'bg-white/[0.03]'}`}>
       <button
         type="button"
@@ -111,6 +128,7 @@ export function EnvChecksPanel({ checks, loading, failed, onReload }: {
           )}
         </div>
       )}
+    </div>
     </div>
   );
 }

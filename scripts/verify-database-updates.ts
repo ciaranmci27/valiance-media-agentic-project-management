@@ -21,7 +21,8 @@ import { getUpdates, postDatabase, type AuditEntry, type DatabaseStore, type Upd
 import { clearReleaseCache } from '../src/lib/updates/releases';
 import { clearConnectionCache } from '../src/lib/updates/connection';
 import { shouldMigrate } from './build';
-import { envChecks } from '../src/lib/setup/checks';
+import { envChecks, pmSchemasState } from '../src/lib/setup/checks';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { automaticUpdatesOn } from './db-migrate';
 import { actAs, createFullSchemaDatabase, schemaAt, schemaBeforeMigration } from './full-schema-db';
 
@@ -224,8 +225,21 @@ async function databaseChecks() {
   await old.close();
 }
 
+// The app's own schemas: shared with the API or not.
+async function schemas() {
+  const fake = (codes: Record<string, string | null>) => ({
+    schema: (name: string) => ({ from: () => ({ select: () => ({ limit: async () => ({ error: codes[name] ? { code: codes[name] } : null }) }) }) }),
+  }) as unknown as SupabaseClient;
+  check('schemas: served, tables not there yet', await pmSchemasState(fake({ pm: 'PGRST205', pm_custom: 'PGRST205' })) === 'ready');
+  check('schemas: one not shared is not_exposed', await pmSchemasState(fake({ pm: 'PGRST205', pm_custom: 'PGRST106' })) === 'not_exposed');
+  check('schemas: an unexpected answer is unknown', await pmSchemasState(fake({ pm: 'XX000', pm_custom: null })) === 'unknown');
+  const state = databaseUpdates({ SUPABASE_DB_URL: 'x' }, { switchOn: true, applied: null, schemas: 'not_exposed' });
+  check('schemas: Settings > Updates gets the state', state.schemas === 'not_exposed');
+}
+
 async function main() {
   rules();
+  await schemas();
   build();
   await route();
   await databaseChecks();

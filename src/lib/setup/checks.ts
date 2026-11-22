@@ -75,6 +75,29 @@ export function missingServerSettings(env: Record<string, string | undefined>): 
     }));
 }
 
+export type PmSchemasState = 'ready' | 'not_exposed' | 'unknown';
+
+/**
+ * Whether Supabase's API serves the app's own schemas, pm and pm_custom
+ * (2.0 moves the app into them; 1.11 makes them and normally adds them to the
+ * API itself). PGRST106 means a schema is not on the API's list. A table that
+ * isn't there yet (PGRST205) still means the schema is served.
+ */
+export async function pmSchemasState(service: SupabaseClient): Promise<PmSchemasState> {
+  try {
+    for (const schema of ['pm', 'pm_custom']) {
+      // Not a HEAD request: its error carries no body, so PGRST106 would be lost.
+      const { error } = await service.schema(schema).from('app_migrations').select('name').limit(1);
+      if (error?.code === 'PGRST106') return 'not_exposed';
+      if (error && !['PGRST205', '42P01', '42501'].includes(error.code ?? '')) return 'unknown';
+    }
+    return 'ready';
+  } catch {
+    return 'unknown';
+  }
+}
+
+
 export type SchemaState = 'ready' | 'not_exposed' | 'missing' | 'unknown';
 
 /** Whether Supabase's API serves the communications schema (PGRST106 when it is not exposed). */

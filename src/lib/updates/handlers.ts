@@ -32,7 +32,7 @@ export interface AuditEntry {
 /** The database side of updates: the Owner's switch and what the migration runner recorded. */
 export interface DatabaseStore {
   /** switchOn null: the setting is not there yet. applied null: no record kept (the runner never ran). */
-  read: () => Promise<{ switchOn: boolean | null; applied: string[] | null }>;
+  read: () => Promise<{ switchOn: boolean | null; applied: string[] | null; schemas?: 'ready' | 'not_exposed' | 'unknown' }>;
   save: (on: boolean) => Promise<{ ok: true } | { ok: false; message: string }>;
 }
 

@@ -26,6 +26,8 @@ export interface DatabaseUpdates {
   hostOff: boolean;
   /** Migration files this build carries that the database has not recorded. Null when it keeps no record. */
   pending: string[] | null;
+  /** Whether Supabase serves pm and pm_custom, which the next major release moves the app into. */
+  schemas?: 'ready' | 'not_exposed' | 'unknown';
 }
 
 export type DatabaseEnv = Partial<Record<'SUPABASE_DB_URL' | 'DATABASE_URL' | 'MIGRATE_ON_DEPLOY' | 'PM_MIGRATIONS', string | undefined>>;
@@ -74,8 +76,9 @@ export function recordedMigrations(read: { data: Array<{ name: string }> | null;
   return names.length ? names : null;
 }
 
-export function databaseUpdates(env: DatabaseEnv, read: { switchOn: boolean | null; applied: string[] | null }): DatabaseUpdates {
+export function databaseUpdates(env: DatabaseEnv, read: { switchOn: boolean | null; applied: string[] | null; schemas?: DatabaseUpdates['schemas'] }): DatabaseUpdates {
   return {
+    ...(read.schemas ? { schemas: read.schemas } : {}),
     mode: databaseMode(env, read.switchOn),
     switchOn: read.switchOn,
     hostOff: hostTurnedOff(env),

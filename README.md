@@ -63,7 +63,7 @@ The `checkout` line starts you on the newest release. The public `main` branch c
 ### 2. Set up the database
 
 1. In Supabase, open the SQL Editor and run `supabase/schema.sql`. It is the whole database in one file; features you switch off later simply go unused.
-2. In Supabase, open Project Settings, then Data API, and add `communications` to **Exposed schemas** (keep `public` and `graphql_public`). The Inbox lives in that schema.
+2. In Supabase, open Project Settings, then Data API, and check **Exposed schemas** lists `communications`, `pm` and `pm_custom` (keep `public` and `graphql_public`). `schema.sql` adds `pm` and `pm_custom` itself when the list is kept in the database; add any that are missing. The Inbox lives in `communications`; the next major release moves the app into `pm`.
 3. In Supabase, open Authentication, then Sign In / Providers, and turn off **Allow new users to sign up**. The app creates every account itself (the setup wizard and invitations), and with sign-ups on, anyone with your public key could make themselves a member.
 4. Copy `.env.example` to `.env.local`. Set `SUPABASE_DB_URL`: your database's session or direct connection string (Supabase, Connect, port 5432). Not the port 6543 transaction pooler. (`DATABASE_URL` also works and wins if both are set.)
 5. Record the database as up to date:

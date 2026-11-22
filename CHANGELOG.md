@@ -9,6 +9,19 @@ Each section starts with `## X.Y.Z (YYYY-MM-DD)` and uses these headings, leavin
 - `### Database`: the core migration files in the release, one per line. `npm run db:migrate` applies them.
 - `### Breaking`: what an install must do when it takes this release.
 
+## 1.11.0 (2026-11-22)
+
+### Added
+- The empty schemas `pm` (the app) and `pm_custom` (an install's own), ready for 2.0, which moves the app into them so it can share a database with a company's other apps. The migration adds both to Supabase's exposed schemas itself, keeping every schema already listed. The setup wizard and Settings > Updates say how to add them when it couldn't.
+- `npm run test:outsiders`: a signed-in account with no active membership reads and changes nothing in any of the app's tables.
+
+### Changed
+- Outsiders get nothing. An account with no active membership (another app's user on a shared Supabase project, or a deactivated member) could read the agent health, Trash event and region tables, and upload, change or delete files in the avatars, portal files and entity files buckets. Each now needs an active membership; members see no difference, and public file links keep working.
+- The migration runner keeps its tracking table with the app's tables and never creates or reads one in a database that doesn't hold the app (or whose `public.app_migrations` belongs to another app).
+
+### Database
+- `20261122100000_pm_schemas_and_outsiders.sql`: the `pm` and `pm_custom` schemas, their exposure, and the members-only policies.
+
 ## 1.10.0 (2026-11-22)
 
 ### Added
