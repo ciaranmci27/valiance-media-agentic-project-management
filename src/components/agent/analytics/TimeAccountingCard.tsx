@@ -157,8 +157,8 @@ export function TimeAccountingCard({
             )}
             <p className="text-[11px] text-zinc-500 mt-2.5">
               Summed turn time in range per {view}, so turns that ran at once each count. {view === 'trigger'
-                ? 'Scheduled ticks are the safety net; dispatcher wakes are hand-offs; directed turns came from Telegram.'
-                : 'Directed (Telegram) turns are always work.'}
+                ? 'Scheduled ticks are the safety net; dispatcher wakes are hand-offs; directed turns came from a person messaging the agent.'
+                : 'Directed turns are always work.'}
             </p>
           </div>
         </div>

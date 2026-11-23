@@ -650,9 +650,9 @@ export function TaskDetailPanel({ task, onClose, onDelete, variant = 'panel' }: 
           {task.ai_readiness && task.ai_readiness !== 'human_only' && (
             <p className="col-span-2 -mt-1 text-xs text-zinc-400">
               {task.ai_readiness === 'needs_spec'
-                ? 'Meant for the dev agent; the spec is not written yet.'
+                ? 'Meant for an agent; the spec is not written yet.'
                 : project?.autonomous_enabled
-                  ? 'The dev agent may pick this task up on its own.'
+                  ? 'An agent may pick this task up on its own.'
                   : 'Ready for the dev agent once this project runs on its own.'}
             </p>
           )}

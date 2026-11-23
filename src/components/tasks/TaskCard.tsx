@@ -234,7 +234,7 @@ export function TaskCard({ task, onView, onDelete, onMove }: TaskCardProps) {
           <UnreadLabel task={task} />
           {loudPriority && <PriorityBadge priority={task.priority} />}
           {needsSpec && (
-            <Tooltip content="Meant for the dev agent; needs a spec before it can start">
+            <Tooltip content="Meant for an agent; needs a spec before it can start">
               <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] lg:text-xs font-medium bg-sky-500/15 text-sky-300 border border-sky-500/30 rounded-full">
                 <FileQuestion size={10} aria-hidden="true" />
                 Needs spec

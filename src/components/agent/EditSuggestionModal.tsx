@@ -85,7 +85,7 @@ export function EditSuggestionModal({ suggestion, onClose, onSave }: EditSuggest
           onChange={setCriteriaText}
           rows={4}
           placeholder={
-            'Observable behavior, one per line. These become the task criteria and gate the dev agent.'
+            'Observable behavior, one per line. These become the task criteria an agent works to.'
           }
         />
 

@@ -118,7 +118,7 @@ export function AuditQuestionsCard({ projectId }: AuditQuestionsCardProps) {
             </div>
             <p className="text-[11px] text-zinc-500 leading-relaxed mt-3">
               These steer every audit cycle. The selection is the spec agent&apos;s job (its tool
-              enforces breadth rules), so to change it, ask her to reselect.
+              enforces breadth rules), so to change it, ask the agent to reselect.
             </p>
           </>
         )}

@@ -75,7 +75,7 @@ const UNLABELLED_STRIPE = 'bg-[repeating-linear-gradient(135deg,var(--color-zinc
 export const LINE_STYLE: Record<TimeLine, { label: string; bar: string; dot: string; hint: string }> = {
   work: {
     label: 'Work', bar: 'bg-runtime-work', dot: 'bg-runtime-work',
-    hint: 'Turns that changed something: any tool call beyond reading. Every directed (Telegram) turn is work.',
+    hint: 'Turns that changed something: any tool call beyond reading. Every directed turn (a person messaging the agent) is work.',
   },
   rework: {
     label: 'Rework on approved work', bar: 'bg-runtime-rework', dot: 'bg-runtime-rework',

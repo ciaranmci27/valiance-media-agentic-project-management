@@ -364,7 +364,7 @@ export default async function ApiDocsPage() {
                 </div>
                 <div>
                   <h2 className="font-semibold text-zinc-900">Connect an Agent (MCP)</h2>
-                  <p className="text-sm text-zinc-500">The same API as tools, for Hermes, Claude Code and other MCP clients</p>
+                  <p className="text-sm text-zinc-500">The same API as tools, for Claude Code, Codex, Hermes and any other MCP client</p>
                 </div>
               </div>
 
@@ -377,6 +377,19 @@ export default async function ApiDocsPage() {
                 rate limit are the same, writes are audited (marked MCP), and revoking the key closes both. A key sees
                 only the tools its scopes and member allow; read-only keys see no write tools.
               </p>
+
+              <div className="bg-zinc-900 rounded-lg p-4 mb-3">
+                <pre className="text-sm text-emerald-400 font-mono overflow-x-auto whitespace-pre">{`// Claude Code and most MCP clients: .mcp.json (the key in your environment as PM_API_KEY)
+{
+  "mcpServers": {
+    "pm": {
+      "type": "http",
+      "url": "https://${host}/api/mcp",
+      "headers": { "x-api-key": "\${PM_API_KEY}" }
+    }
+  }
+}`}</pre>
+              </div>
 
               <div className="bg-zinc-900 rounded-lg p-4 mb-4">
                 <pre className="text-sm text-emerald-400 font-mono overflow-x-auto whitespace-pre">{`# Hermes: config.yaml (the key lives in the profile's .env as PM_API_KEY)

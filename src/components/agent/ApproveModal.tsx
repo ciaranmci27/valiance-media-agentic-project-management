@@ -198,7 +198,7 @@ export function ApproveModal({ suggestion, onClose, onApprove }: ApproveModalPro
           </div>
           {criteriaCount === 0 && mode === 'ai_ready' && (
             <p className="mt-1.5 text-xs text-amber-400">
-              This suggestion has no acceptance criteria; the dev agent will refuse it.
+              This suggestion has no acceptance criteria; an agent will refuse to start it.
             </p>
           )}
         </div>

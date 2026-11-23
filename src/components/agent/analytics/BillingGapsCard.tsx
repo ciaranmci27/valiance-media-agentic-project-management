@@ -19,7 +19,7 @@ const PHASES: Record<BillingGap['phase'], { label: string; hint: string }> = {
 
 /**
  * Work no billing segment covers, from the billing audit. The Owner reconciles
- * each gap (logs the time with pm-log-time on the VPS) or dismisses it with a
+ * each gap (once the time is logged) or dismisses it with a
  * note. Nothing here creates or changes a time entry.
  */
 export function BillingGapsCard({ gaps, measuring, reviewsAvailable, withheldReason, taskTitle, agentName, onReview, onReopen }: {
@@ -123,7 +123,7 @@ export function BillingGapsCard({ gaps, measuring, reviewsAvailable, withheldRea
           <div className="space-y-4">
             <p className="text-sm text-zinc-400">
               {editing.status === 'reconciled'
-                ? 'Mark this gap as reconciled once the time is logged (pm-log-time on the VPS). This does not create a time entry.'
+                ? 'Mark this gap as reconciled once the time is logged. This does not create a time entry.'
                 : 'Dismiss this gap when the time was not billable. This does not change any time entry.'}
             </p>
             <p className="text-xs text-zinc-500">

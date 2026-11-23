@@ -267,7 +267,7 @@ export function AgentSettingsCard({ project, onUpdate }: AgentSettingsCardProps)
             />
           </div>
           <p className="text-[11px] text-zinc-500 leading-relaxed">
-            The dev agent branches from and PRs into the integration branch. The production branch
+            Agents branch from and open PRs into the integration branch. The production branch
             is a declaration that it ships to users: the merge gate refuses it, always.
           </p>
           <TextInput

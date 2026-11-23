@@ -74,7 +74,8 @@ export function ProjectPipelineStrip({ project }: ProjectPipelineStripProps) {
         (t.assignee_ids || []).some(id => agentIds.has(id)),
     );
     const lastMerge = agentActivity
-      .filter(a => a.project_id === project.id && a.title.startsWith('PR merged'))
+      // The typed event (pr.merged, titled "Merged PR #n"), or an older untyped row.
+      .filter(a => a.project_id === project.id && (a.activity_type === 'pr.merged' || a.title.startsWith('PR merged')))
       .reduce<string | null>((best, a) => (!best || a.created_at > best ? a.created_at : best), null);
 
     return { queued, cap, lastAuditStart, nextEligible, building, lastMerge };

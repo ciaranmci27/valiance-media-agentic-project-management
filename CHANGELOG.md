@@ -9,6 +9,13 @@ Each section starts with `## X.Y.Z (YYYY-MM-DD)` and uses these headings, leavin
 - `### Database`: the core migration files in the release, one per line. `npm run db:migrate` applies them.
 - `### Breaking`: what an install must do when it takes this release.
 
+## 2.0.9 (2026-11-22)
+
+### Changed
+- An agent project's pipeline strip shows its last merge again: it now reads the typed `pr.merged` event (older untyped rows still count).
+- Agent wording fits any team's agents: "an agent" instead of "the dev agent" in task tooltips, the API docs and the MCP guide; directed turns are "a person messaging the agent" rather than Telegram; no "on the VPS" instructions.
+- The API docs page shows a generic MCP config (`.mcp.json` for Claude Code and most clients) before the Hermes example.
+
 ## 2.0.8 (2026-11-22)
 
 ### Changed
