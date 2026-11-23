@@ -38,7 +38,7 @@ const cases: [string, PolicyMessage, PolicyItem, Decision][] = [
   // Trust.
   ['an untrusted sender only proposes', { ...client, trust: 'untrusted' }, item(), 'propose'],
   ['a suspicious message only proposes', { ...client, suspicious: true }, item(), 'propose'],
-  ['an unknown sender\'s money matter waits for Ciaran', { ...client, trust: 'unknown' }, item({ type: 'add_reminder', intent: 'money' }), 'propose'],
+  ['an unknown sender\'s money matter waits for Morgan', { ...client, trust: 'unknown' }, item({ type: 'add_reminder', intent: 'money' }), 'propose'],
   ['an unknown sender\'s plain request applies', { ...client, trust: 'unknown' }, item(), 'apply'],
   ['account-risk machine mail sets its reminder', { ...client, speaker: 'machine', trust: 'unknown', delivery: 'broadcast' },
     item({ type: 'add_reminder', intent: 'account_risk', hasProject: false, projectSource: null }), 'apply'],
@@ -58,15 +58,15 @@ const cases: [string, PolicyMessage, PolicyItem, Decision][] = [
   ['a new lead is proposed', client, item({ type: 'create_lead', intent: 'new_business', hasProject: false, projectSource: null }), 'propose'],
   ['a context entry is proposed', client, item({ type: 'add_context', intent: 'context' }), 'propose'],
 
-  // Ciaran.
-  ['Ciaran asks Ashley for a task: applied', { ...client, speaker: 'owner' }, item({ intent: 'owner_instruction', projectSource: null }), 'apply'],
-  ['Ciaran asks Ashley for a lead: applied', { ...client, speaker: 'owner' }, item({ type: 'create_lead', intent: 'owner_instruction', hasProject: false, projectSource: null }), 'apply'],
-  ['Ciaran mutes a conversation', { ...client, speaker: 'owner' }, item({ type: 'mute_conversation', intent: 'owner_instruction', hasProject: false }), 'apply'],
-  ['Ciaran undoes an item', { ...client, speaker: 'owner' }, item({ type: 'revert_item', intent: 'owner_instruction', hasProject: false }), 'apply'],
-  ['Ciaran\'s copied promise sets a due date', { ...client, speaker: 'owner', addressedToAgent: false },
+  // Morgan.
+  ['Morgan asks Planner for a task: applied', { ...client, speaker: 'owner' }, item({ intent: 'owner_instruction', projectSource: null }), 'apply'],
+  ['Morgan asks Planner for a lead: applied', { ...client, speaker: 'owner' }, item({ type: 'create_lead', intent: 'owner_instruction', hasProject: false, projectSource: null }), 'apply'],
+  ['Morgan mutes a conversation', { ...client, speaker: 'owner' }, item({ type: 'mute_conversation', intent: 'owner_instruction', hasProject: false }), 'apply'],
+  ['Morgan undoes an item', { ...client, speaker: 'owner' }, item({ type: 'revert_item', intent: 'owner_instruction', hasProject: false }), 'apply'],
+  ['Morgan\'s copied promise sets a due date', { ...client, speaker: 'owner', addressedToAgent: false },
     item({ type: 'update_task', intent: 'commitment', changes: ['due_date'] }), 'apply'],
-  ['Ciaran\'s copied mail to a client makes no task from his brainstorm', { ...client, speaker: 'owner', addressedToAgent: false }, item(), 'reject'],
-  ['Ciaran\'s forward with no note is context only', { ...client, speaker: 'owner', ownerForwardWithoutNote: true }, item({ type: 'add_reminder', intent: 'commitment' }), 'reject'],
+  ['Morgan\'s copied mail to a client makes no task from his brainstorm', { ...client, speaker: 'owner', addressedToAgent: false }, item(), 'reject'],
+  ['Morgan\'s forward with no note is context only', { ...client, speaker: 'owner', ownerForwardWithoutNote: true }, item({ type: 'add_reminder', intent: 'commitment' }), 'reject'],
   ['a meeting suggests new work, even his own commitment', { ...client, speaker: 'owner', addressedToAgent: false, delivery: null, meeting: true }, item({ type: 'create_task', intent: 'commitment' }), 'propose'],
   ['a meeting suggests reminders', { ...client, speaker: 'owner', addressedToAgent: false, delivery: null, meeting: true }, item({ type: 'add_reminder', intent: 'waiting_on' }), 'propose'],
   ['a meeting suggests comments on existing tasks', { ...client, speaker: 'owner', addressedToAgent: false, delivery: null, meeting: true }, item({ type: 'comment', intent: 'change' }), 'propose'],
@@ -74,8 +74,8 @@ const cases: [string, PolicyMessage, PolicyItem, Decision][] = [
   ['a meeting is filed on its project at once', { ...client, speaker: 'owner', addressedToAgent: false, delivery: null, meeting: true }, item({ type: 'file_project', intent: 'context' }), 'apply'],
   ['a teammate\'s meeting suggests too', { ...client, speaker: 'teammate', addressedToAgent: false, delivery: null, meeting: true }, item({ type: 'create_task', intent: 'new_work' }), 'propose'],
   ['a meeting never undoes earlier work', { ...client, speaker: 'owner', addressedToAgent: false, delivery: null, meeting: true }, item({ type: 'revert_item', intent: 'change' }), 'reject'],
-  ['Ciaran\'s forward with no note may add context', { ...client, speaker: 'owner', ownerForwardWithoutNote: true }, item({ type: 'add_context', intent: 'context' }), 'apply'],
-  ['Ciaran asks for a task on a finished project: proposed', { ...client, speaker: 'owner' }, item({ intent: 'owner_instruction', projectStatus: 'completed' }), 'propose'],
+  ['Morgan\'s forward with no note may add context', { ...client, speaker: 'owner', ownerForwardWithoutNote: true }, item({ type: 'add_context', intent: 'context' }), 'apply'],
+  ['Morgan asks for a task on a finished project: proposed', { ...client, speaker: 'owner' }, item({ intent: 'owner_instruction', projectStatus: 'completed' }), 'propose'],
 
   // Undo and mute need the right speaker.
   ['a client cannot undo anything', client, item({ type: 'revert_item', intent: 'change', hasProject: false }), 'reject'],
@@ -86,8 +86,8 @@ const cases: [string, PolicyMessage, PolicyItem, Decision][] = [
   // Field changes.
   ['a due date the agent set moves as unsure', client, item({ type: 'update_task', intent: 'change', changes: ['due_date'], changesPersonSet: false }), 'apply_unsure'],
   ['a due date a person set waits for them', client, item({ type: 'update_task', intent: 'change', changes: ['due_date'], changesPersonSet: true }), 'propose'],
-  ['assignment from a client waits for Ciaran', client, item({ type: 'update_task', intent: 'change', changes: ['assignee_ids'] }), 'propose'],
-  ['status from a client waits for Ciaran', client, item({ type: 'update_task', intent: 'change', changes: ['status'] }), 'propose'],
+  ['assignment from a client waits for Morgan', client, item({ type: 'update_task', intent: 'change', changes: ['assignee_ids'] }), 'propose'],
+  ['status from a client waits for Morgan', client, item({ type: 'update_task', intent: 'change', changes: ['status'] }), 'propose'],
   ['a teammate puts their own task in review', { ...client, speaker: 'teammate' }, item({ type: 'update_task', intent: 'handoff', changes: ['status'], teammateOwnReview: true }), 'apply_unsure'],
   ['an untouched draft takes the new copy', client, item({ type: 'update_task', intent: 'handoff', changes: ['description'], targetUntouched: true }), 'apply_unsure'],
   ['a worked-on task keeps its description', client, item({ type: 'update_task', intent: 'handoff', changes: ['description'], targetUntouched: false }), 'reject'],

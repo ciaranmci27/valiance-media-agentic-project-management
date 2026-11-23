@@ -1,5 +1,5 @@
 From: Tool Alerts <no-reply@tool.example>
-To: "Ashley P." <ashley@agency.example>
+To: "Planner P." <planner@agency.example>
 Subject: Your plan limit is at {{SUBJECT_PCT}}%
 Date: Tue, 06 Oct 2026 09:00:00 +0000
 Message-ID: <usage-{{ID_PCT}}@tool.example>

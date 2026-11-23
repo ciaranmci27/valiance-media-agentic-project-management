@@ -24,7 +24,7 @@ function check(label: string, ok: boolean, detail?: unknown) {
 
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const ids = {
-  owner: id(1), ashley: id(2), tom: id(3),
+  owner: id(1), planner: id(2), tom: id(3),
   acme: id(10), birch: id(11), cobalt: id(12), delta: id(13),
   inbox: id(20), hi: id(21),
   task: { acme: id(30), birch: id(31), cobalt: id(32), delta: id(33) },
@@ -69,7 +69,7 @@ const scope = async (db: PGlite, messageId: string, project: string) =>
   (await one(db, 'SELECT pm.scope_source($1, $2) AS s', [messageId, project])).s as string | null;
 const triage = (messageId: string, links: string[], projectIds: string[] = []) => [
   'SELECT pm.record_triage(p_message_id => $1, p_member_id => $2, p_triage => $3, p_links => $4, p_project_ids => $5, p_status => $6) AS r',
-  [messageId, ids.ashley, JSON.stringify({ outcome: 'task', summary: 'Filed' }), JSON.stringify(links.map((task) => ({ task_id: task, relation: 'created' }))), projectIds, 'handled'],
+  [messageId, ids.planner, JSON.stringify({ outcome: 'task', summary: 'Filed' }), JSON.stringify(links.map((task) => ({ task_id: task, relation: 'created' }))), projectIds, 'handled'],
 ] as [string, unknown[]];
 const projectsOf = async (db: PGlite, conversation: string) =>
   Object.fromEntries((await rows(db, 'SELECT project_id, source FROM pm.conversation_projects WHERE conversation_id = $1', [conversation]))
@@ -80,7 +80,7 @@ async function main() {
   try {
     await db.exec(`
       INSERT INTO pm.team_members (id, name, email, role) VALUES
-        ('${ids.owner}', 'Owner', 'owner@agency.example', 'owner'), ('${ids.ashley}', 'Ashley', 'ashley@agency.example', 'agent'),
+        ('${ids.owner}', 'Owner', 'owner@agency.example', 'owner'), ('${ids.planner}', 'Planner', 'planner@agency.example', 'agent'),
         ('${ids.tom}', 'Tom', 'tom@agency.example', 'member');
       INSERT INTO pm.projects (id, name, status) VALUES ('${ids.acme}', 'Acme', 'active'), ('${ids.birch}', 'Birch', 'active'),
         ('${ids.cobalt}', 'Cobalt', 'completed'), ('${ids.delta}', 'Delta', 'active');
@@ -88,7 +88,7 @@ async function main() {
         ('${ids.task.acme}', '${ids.acme}', 'Acme task', '${ids.owner}'), ('${ids.task.birch}', '${ids.birch}', 'Birch task', '${ids.owner}'),
         ('${ids.task.cobalt}', '${ids.cobalt}', 'Cobalt task', '${ids.owner}'), ('${ids.task.delta}', '${ids.delta}', 'Delta task', '${ids.owner}');
       UPDATE pm.business_settings SET inbound_email_domain = 'relay.example.test';
-      INSERT INTO pm.inboxes (id, name, address, handler_member_id) VALUES ('${ids.inbox}', 'Ashley', 'ashley@agency.example', '${ids.ashley}');
+      INSERT INTO pm.inboxes (id, name, address, handler_member_id) VALUES ('${ids.inbox}', 'Planner', 'planner@agency.example', '${ids.planner}');
       INSERT INTO pm.endpoints (id, project_id, inbox_id, public_address) VALUES ('${ids.hi}', '${ids.acme}', '${ids.inbox}', 'hi@acme.example');
     `);
     await actAs(db, null);
@@ -120,7 +120,7 @@ async function main() {
     const earlier = await message(db, { receivedAt: '2026-10-26T08:00:00Z' });
     const asked = await message(db, { conversation: earlier.conversation, receivedAt: '2026-10-26T09:00:00Z' });
     const [askedTriage] = await rows(db, `INSERT INTO pm.triage (message_id, member_id, outcome, summary, question_for_human)
-      VALUES ($1, $2, 'needs_human', 'Which project?', 'Acme or Delta?') RETURNING id`, [asked.message, ids.ashley]);
+      VALUES ($1, $2, 'needs_human', 'Which project?', 'Acme or Delta?') RETURNING id`, [asked.message, ids.planner]);
     await db.query(`INSERT INTO pm.answers (message_id, triage_id, answer, answered_by, created_at)
       VALUES ($1, $2, 'Delta', $3, '2026-10-26T09:30:00Z')`, [asked.message, askedTriage.id, ids.owner]);
     const later = await message(db, { conversation: asked.conversation, receivedAt: '2026-10-26T11:00:00Z' });
@@ -177,8 +177,8 @@ async function main() {
     check('link: a person links a task from any project, filing it as person', (personLink.r as Row).source === 'person'
       && (await projectsOf(db, stranger.conversation))[ids.cobalt] === 'person');
     check('link: the agent\'s link out of scope is refused',
-      /EMAIL_PROJECT_OUT_OF_SCOPE/.test(await fails(db, 'SELECT pm.link_message_task($1, $2, $3, $4)', [fakeNotes.message, ids.task.delta, 'created', ids.ashley])));
-    check('file: out of scope is refused', /EMAIL_PROJECT_OUT_OF_SCOPE/.test(await fails(db, 'SELECT pm.file_message_project($1, $2, $3)', [oneMapped.message, ids.acme, ids.ashley])));
+      /EMAIL_PROJECT_OUT_OF_SCOPE/.test(await fails(db, 'SELECT pm.link_message_task($1, $2, $3, $4)', [fakeNotes.message, ids.task.delta, 'created', ids.planner])));
+    check('file: out of scope is refused', /EMAIL_PROJECT_OUT_OF_SCOPE/.test(await fails(db, 'SELECT pm.file_message_project($1, $2, $3)', [oneMapped.message, ids.acme, ids.planner])));
     await db.query('SELECT pm.set_conversation_project($1, $2, $3)', [teammate.conversation, ids.birch, ids.owner]);
     const afterSet = await projectsOf(db, teammate.conversation);
     check('set: a person setting a project adds it and takes none off',
@@ -187,7 +187,7 @@ async function main() {
     // The single-project triage still files one project.
     const legacy = await message(db, { candidates: [ids.birch] });
     await db.query(`SELECT pm.record_triage(p_message_id => $1, p_member_id => $2, p_triage => $3, p_links => '[]'::jsonb,
-      p_project_id => $4, p_status => 'handled')`, [legacy.message, ids.ashley, JSON.stringify({ outcome: 'no_action', summary: 'Seen' }), ids.birch]);
+      p_project_id => $4, p_status => 'handled')`, [legacy.message, ids.planner, JSON.stringify({ outcome: 'no_action', summary: 'Seen' }), ids.birch]);
     check('legacy: the single-project triage still files its project', (await projectsOf(db, legacy.conversation))[ids.birch] === 'inferred');
 
     // ---- Delivery: how a message reached us ------------------------------------
@@ -207,19 +207,19 @@ async function main() {
       return one(db, 'SELECT * FROM pm.delivery_of($1, $2)', [sent.message, fields.forwarded ?? false]);
     };
     const client = (n: number) => `client${n}@acme.example`;
-    check('delivery: to the inbox with one other is direct', JSON.stringify(await delivered(['ashley@agency.example', client(1)]))
+    check('delivery: to the inbox with one other is direct', JSON.stringify(await delivered(['planner@agency.example', client(1)]))
       === JSON.stringify({ delivery: 'direct', audience_size: 2 }));
     check('delivery: to a project address, one of your addresses or any address on your domain is direct',
       (await delivered(['hi@acme.example'])).delivery === 'direct' && (await delivered(['me@personal.example'])).delivery === 'direct'
       && (await delivered(['anyone@ours.example'])).delivery === 'direct');
     check('delivery: to a teammate is direct', (await delivered(['tom@agency.example'])).delivery === 'direct');
-    check('delivery: to us among three others is a group', (await delivered(['ashley@agency.example', client(1), client(2)], [client(3)])).delivery === 'group');
-    check('delivery: only in copy is cc', (await delivered([client(1)], ['ashley@agency.example'])).delivery === 'cc');
+    check('delivery: to us among three others is a group', (await delivered(['planner@agency.example', client(1), client(2)], [client(3)])).delivery === 'group');
+    check('delivery: only in copy is cc', (await delivered([client(1)], ['planner@agency.example'])).delivery === 'cc');
     check('delivery: none of ours among the recipients is bcc', (await delivered([client(1)])).delivery === 'bcc');
-    check('delivery: a teammate\'s forward is forwarded', (await delivered(['ashley@agency.example'], [], { forwarded: true })).delivery === 'forwarded');
-    check('delivery: automated mail is broadcast', (await delivered(['ashley@agency.example'], [], { autoMail: true })).delivery === 'broadcast');
+    check('delivery: a teammate\'s forward is forwarded', (await delivered(['planner@agency.example'], [], { forwarded: true })).delivery === 'forwarded');
+    check('delivery: automated mail is broadcast', (await delivered(['planner@agency.example'], [], { autoMail: true })).delivery === 'broadcast');
     const recorded = await message(db);
-    await db.query("INSERT INTO pm.participants (message_id, kind, address) VALUES ($1, 'cc', 'ashley@agency.example')", [recorded.message]);
+    await db.query("INSERT INTO pm.participants (message_id, kind, address) VALUES ($1, 'cc', 'planner@agency.example')", [recorded.message]);
     await db.query('SELECT pm.set_message_delivery($1)', [recorded.message]);
     const [stored] = await rows(db, 'SELECT delivery, audience_size FROM pm.messages WHERE id = $1', [recorded.message]);
     check('delivery: set_message_delivery stores it on the message', stored.delivery === 'cc' && stored.audience_size === 1, stored);

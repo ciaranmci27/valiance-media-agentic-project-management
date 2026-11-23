@@ -28,7 +28,7 @@ type Row = Record<string, any>;
 
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const ids = {
-  owner: id(1), ashley: id(2), acme: id(10), inbox: id(20),
+  owner: id(1), planner: id(2), acme: id(10), inbox: id(20),
   legacy: id(30), legacyMessage: id(31), triage: id(32),
   madeTask: id(40), doneTask: id(41), aboutTask: id(42), editedTask: id(43), personTask: id(44),
   reminder: id(50), doneReminder: id(51), ownReminder: id(52),
@@ -41,10 +41,10 @@ async function main() {
   await db.exec('RESET ROLE');
   await db.exec(`
     INSERT INTO pm.team_members (id, name, email, role) VALUES
-      ('${ids.owner}', 'Ciaran Mcintyre', 'owner@agency.example', 'owner'),
-      ('${ids.ashley}', 'Ashley P.', 'ashley-bot@agency.example', 'agent');
+      ('${ids.owner}', 'Morgan Lee', 'owner@agency.example', 'owner'),
+      ('${ids.planner}', 'Planner P.', 'planner-bot@agency.example', 'agent');
     INSERT INTO pm.projects (id, name, status) VALUES ('${ids.acme}', 'Acme', 'active');
-    INSERT INTO pm.inboxes (id, name, address, handler_member_id) VALUES ('${ids.inbox}', 'Ashley', 'ashley@agency.example', '${ids.ashley}');
+    INSERT INTO pm.inboxes (id, name, address, handler_member_id) VALUES ('${ids.inbox}', 'Planner', 'planner@agency.example', '${ids.planner}');
   `);
   for (const [conversation, message, subject] of [[ids.legacy, ids.legacyMessage, 'Logo files'], [ids.planned, ids.plannedMessage, 'Hero image'], [ids.other, ids.otherMessage, 'Other']]) {
     await db.query(`INSERT INTO pm.conversations (id, inbox_id, subject_normalized, channel, project_id, project_source, last_message_at)
@@ -56,18 +56,18 @@ async function main() {
     [message, ids.inbox, conversation, `m-${message}`, subject]);
   }
   await db.query(`INSERT INTO pm.triage (id, message_id, member_id, outcome, summary) VALUES ($1, $2, $3, 'task', 'Dana sent the logo files.')`,
-    [ids.triage, ids.legacyMessage, ids.ashley]);
+    [ids.triage, ids.legacyMessage, ids.planner]);
   const task = (taskId: string, title: string, by: string, status = 'todo') => db.query(
     'INSERT INTO pm.tasks (id, project_id, title, created_by, status) VALUES ($1, $2, $3, $4, $5)', [taskId, ids.acme, title, by, status]);
-  await task(ids.madeTask, 'Upload the logo', ids.ashley);
-  await task(ids.doneTask, 'Reply to Dana', ids.ashley, 'done');
+  await task(ids.madeTask, 'Upload the logo', ids.planner);
+  await task(ids.doneTask, 'Reply to Dana', ids.planner, 'done');
   await task(ids.aboutTask, 'Brand guide', ids.owner);
   await task(ids.editedTask, 'Homepage', ids.owner);
   await task(ids.personTask, 'Invoice', ids.owner);
-  await task(ids.otherTask, 'Somewhere else', ids.ashley);
+  await task(ids.otherTask, 'Somewhere else', ids.planner);
   const link = (message: string, taskId: string, relation: string, triage: string | null) => db.query(
     'INSERT INTO pm.task_links (message_id, task_id, relation, triage_id, linked_by) VALUES ($1, $2, $3, $4, $5)',
-    [message, taskId, relation, triage, triage ? ids.ashley : ids.owner]);
+    [message, taskId, relation, triage, triage ? ids.planner : ids.owner]);
   await link(ids.legacyMessage, ids.madeTask, 'created', ids.triage);
   await link(ids.legacyMessage, ids.doneTask, 'created', ids.triage);
   await link(ids.legacyMessage, ids.aboutTask, 'related', ids.triage);
@@ -76,12 +76,12 @@ async function main() {
   const reminder = (reminderId: string, title: string, by: string, status = 'open') => db.query(
     'INSERT INTO pm.reminders (id, title, source_message_id, owner_id, created_by, status) VALUES ($1, $2, $3, $4, $5, $6)',
     [reminderId, title, ids.legacyMessage, ids.owner, by, status]);
-  await reminder(ids.reminder, 'Chase the vector logo', ids.ashley);
-  await reminder(ids.doneReminder, 'Check the favicon', ids.ashley, 'done');
+  await reminder(ids.reminder, 'Chase the vector logo', ids.planner);
+  await reminder(ids.doneReminder, 'Check the favicon', ids.planner, 'done');
   await reminder(ids.ownReminder, 'My own note', ids.owner);
   // An email with a plan: a task and a reminder to accept, one to skip.
   await db.query(`INSERT INTO pm.plans (id, message_id, conversation_id, member_id, mode, status, summary) VALUES ($1, $2, $3, $4, 'live', 'partial', 'Plan')`,
-    [ids.plan, ids.plannedMessage, ids.planned, ids.ashley]);
+    [ids.plan, ids.plannedMessage, ids.planned, ids.planner]);
   for (const [itemId, position, payload] of [
     [ids.planTask, 0, { type: 'create_task', intent: 'new_work', project_id: ids.acme, title: 'Swap the hero' }],
     [ids.planReminder, 1, { type: 'add_reminder', intent: 'waiting_on', project_id: ids.acme, title: 'Chase the hero photo', remind_on: '2026-12-01' }],

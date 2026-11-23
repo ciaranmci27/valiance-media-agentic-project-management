@@ -1,6 +1,6 @@
 /**
  * Runtime is elapsed time, so concurrent turns must not be added together.
- * Measured live, 19.8% of Jeff's summed turn time was wall-clock counted twice.
+ * Measured live, 19.8% of Builder's summed turn time was wall-clock counted twice.
  * These cases pin the merge.
  *
  * Run: npx tsx --tsconfig tsconfig.mcp-test.json scripts/verify-runtime-merge.ts

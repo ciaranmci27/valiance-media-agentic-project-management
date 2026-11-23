@@ -64,7 +64,7 @@ async function main() {
 
     INSERT INTO public.team_members (id, auth_user_id) VALUES
       ('${OWNER}', '${OWNER_USER}'), ('${MATE}', '${MATE_USER}'), ('${STRANGER}', '${STRANGER_USER}');
-    INSERT INTO public.projects VALUES ('${P1}', 'Plan4TheFuture'), ('${P2}', 'Happy Innovations');
+    INSERT INTO public.projects VALUES ('${P1}', 'Globex'), ('${P2}', 'Acme');
     INSERT INTO public.project_access VALUES ('${OWNER}', '${P1}'), ('${OWNER}', '${P2}'), ('${MATE}', '${P1}');
     INSERT INTO public.member_permissions VALUES ('${OWNER}', 'tasks.manage_all');
     GRANT SELECT ON public.tasks, public.projects, public.team_members TO authenticated;

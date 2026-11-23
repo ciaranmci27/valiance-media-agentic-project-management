@@ -40,7 +40,7 @@ const base = {
   now: Date.parse('2026-12-05T12:00:00Z'),
   timezone: 'UTC',
   range: { startKey: '2026-11-01', endKey: '2026-11-30' },
-  // Brennan's 50% sits on the retainer line only.
+  // Drew's 50% sits on the retainer line only.
   lineSharePercent: new Map([[lineShareKey('inv1', 'r1'), 50]]),
 };
 

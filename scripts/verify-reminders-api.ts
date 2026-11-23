@@ -88,12 +88,12 @@ async function seed(db: PGlite) {
   }
   await db.exec('GRANT ALL ON ALL TABLES IN SCHEMA pm TO service_role; GRANT ALL ON ALL SEQUENCES IN SCHEMA pm TO service_role;');
   await db.query(
-    "INSERT INTO team_members(id,name,role) VALUES ($1,'Ciaran','owner'),($2,'Ashley','agent'),($3,'Mate','member'),($4,'Outsider','member')",
+    "INSERT INTO team_members(id,name,role) VALUES ($1,'Morgan','owner'),($2,'Planner','agent'),($3,'Mate','member'),($4,'Outsider','member')",
     [OWNER, AGENT, MATE, OUTSIDER],
   );
   for (const role of ['agent', 'member'])
     await db.query("INSERT INTO role_permissions VALUES ($1,'projects.read','api')", [role]);
-  await db.query("INSERT INTO projects VALUES ($1,'Plan4TheFuture'),($2,'Happy Innovations')", [P1, P2]);
+  await db.query("INSERT INTO projects VALUES ($1,'Globex'),($2,'Acme')", [P1, P2]);
   await db.query("INSERT INTO tasks VALUES ($1,$2,'Update local delivery wording'),($3,$4,'Launch subscriptions')", [T1, P1, T2, P2]);
   await db.query('INSERT INTO project_members VALUES ($1,$3),($2,$3)', [AGENT, MATE, P1]);
 }

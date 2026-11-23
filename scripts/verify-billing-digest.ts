@@ -58,12 +58,12 @@ async function main() {
     check('nothing new: no email', (await runDraftDigest(service, send)).outcome === 'nothing_new' && sent.length === 0);
 
     const project = randomUUID();
-    await q("INSERT INTO projects(id, name) VALUES ($1, 'Plan4TheFuture')", [project]);
+    await q("INSERT INTO projects(id, name) VALUES ($1, 'Globex')", [project]);
     const draft = async (number: string, amount: number) => {
       const id = randomUUID();
       await q(`INSERT INTO project_invoices(id, project_id, invoice_number, amount, status, invoice_type, date, auto_generated, line_items)
                VALUES ($1, $2, $3, $4, 'draft', 'hourly', '2026-11-01', true, '[]')`, [id, project, number, amount]);
-      await q('SELECT announce_billing_draft($1, $2, $3)', [id, 'Invoice drafted', `${number} for Plan4TheFuture covers 10 h ($${amount}). Ready to review and send.`]);
+      await q('SELECT announce_billing_draft($1, $2, $3)', [id, 'Invoice drafted', `${number} for Globex covers 10 h ($${amount}). Ready to review and send.`]);
       return id;
     };
     const first = await draft('INV-021', 3700);

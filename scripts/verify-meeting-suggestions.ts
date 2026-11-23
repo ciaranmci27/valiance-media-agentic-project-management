@@ -32,7 +32,7 @@ type Row = Record<string, any>;
 
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const ids = {
-  owner: id(1), ashley: id(2),
+  owner: id(1), planner: id(2),
   acme: id(10), inbox: id(20),
   weekly: id(30), transcript: id(31), notes: id(32),
   catchUp: id(33), catchUpTranscript: id(34),
@@ -49,12 +49,12 @@ const ids = {
 async function seed(db: PGlite) {
   await db.exec(`
     INSERT INTO pm.team_members (id, name, email, role) VALUES
-      ('${ids.owner}', 'Ciaran Mcintyre', 'owner@agency.example', 'owner'),
-      ('${ids.ashley}', 'Ashley P.', 'ashley-bot@agency.example', 'agent');
+      ('${ids.owner}', 'Morgan Lee', 'owner@agency.example', 'owner'),
+      ('${ids.planner}', 'Planner P.', 'planner-bot@agency.example', 'agent');
     INSERT INTO pm.projects (id, name, status) VALUES ('${ids.acme}', 'Acme', 'active');
     INSERT INTO pm.tasks (id, project_id, title, created_by) VALUES ('${ids.existingTask}', '${ids.acme}', 'Homepage refresh', '${ids.owner}');
     INSERT INTO pm.inboxes (id, name, address, handler_member_id, triage_mode)
-      VALUES ('${ids.inbox}', 'Ashley', 'ashley@agency.example', '${ids.ashley}', 'plans');
+      VALUES ('${ids.inbox}', 'Planner', 'planner@agency.example', '${ids.planner}', 'plans');
   `);
   const conversation = async (conversationId: string, channel: 'email' | 'meeting', title: string, minutesAgo: number) => {
     await db.query(`INSERT INTO pm.conversations (id, inbox_id, subject_normalized, channel, project_id, project_source, last_message_at)
@@ -74,7 +74,7 @@ async function seed(db: PGlite) {
       VALUES ($1, $2, $3, $4, $9, 'test', $5, $5, now() - make_interval(mins => $6), $7, $8, '{"trust":"trusted"}', 'Body', 'Body')`,
     [messageId, ids.inbox, thread, channel, `m-${messageId}`, minutesAgo, subject, channel === 'meeting' ? 'meeting_notes' : 'person', status]);
     await db.query("INSERT INTO pm.participants (message_id, kind, address, name, position) VALUES ($1, 'from', $2, $3, 0)",
-      [messageId, channel === 'meeting' ? 'owner@agency.example' : 'dana@acme.example', channel === 'meeting' ? 'Ciaran Mcintyre' : 'Dana']);
+      [messageId, channel === 'meeting' ? 'owner@agency.example' : 'dana@acme.example', channel === 'meeting' ? 'Morgan Lee' : 'Dana']);
   };
   await conversation(ids.weekly, 'meeting', 'Weekly review', 10);
   await message(ids.transcript, ids.weekly, 'meeting', 'Meeting transcript: Weekly review (2026-11-11)', 10);
@@ -92,7 +92,7 @@ async function seed(db: PGlite) {
 
   const plan = async (planId: string, messageId: string, conversationId: string) => db.query(
     `INSERT INTO pm.plans (id, message_id, conversation_id, member_id, mode, status, summary) VALUES ($1, $2, $3, $4, 'live', 'partial', 'Suggestions')`,
-    [planId, messageId, conversationId, ids.ashley]);
+    [planId, messageId, conversationId, ids.planner]);
   const item = async (itemId: string, planId: string, position: number, conversationId: string, payload: Row, state = 'pending', decision = 'propose') => db.query(
     `INSERT INTO pm.plan_items (id, plan_id, position, conversation_id, mode, type, intent, project_id, task_id, payload, decision, state)
       VALUES ($1, $2, $3, $4, 'live', $5, $6, $7, $8, $9, $10, $11)`,
@@ -275,7 +275,7 @@ async function main() {
       && dismissed.handled.length === 1 && dismissed.handled[0].status === 'needs_human' && dismissed.handled[0].unreviewed, { handled, list: dismissed.handled });
     const [mark] = await q('SELECT dismissed_at, dismissed_by FROM pm.meetings WHERE conversation_id = $1', [ids.catchUp]);
     check('nothing to do: the meeting records who said so and when', !!mark.dismissed_at && mark.dismissed_by === ids.owner
-      && dismissed.dismissed.by?.name === 'Ciaran Mcintyre', { mark, dismissed: dismissed.dismissed });
+      && dismissed.dismissed.by?.name === 'Morgan Lee', { mark, dismissed: dismissed.dismissed });
     const replyAfter = await replyReminder();
     check('nothing to do: the reply reminder added from a suggestion stays open', replyAfter?.status === 'open' && replyAfter.completed_at === null
       && replyAfter.deleted_at === null, replyAfter);

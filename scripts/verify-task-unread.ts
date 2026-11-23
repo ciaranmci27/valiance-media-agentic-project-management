@@ -74,8 +74,8 @@ async function run(db: PGlite, label: string) {
   const member = people.find((m) => m.auth_user_id === MEMBER_USER)!.id;
   await db.query(`INSERT INTO pm.team_member_permissions (member_id, permission_key, access_channel, effect)
     SELECT $1, key, 'app', 'allow' FROM unnest(ARRAY['projects.read', 'tasks.read', 'tasks.manage_all']) AS key`, [member]);
-  const ashley = (await q<{ id: string }>("INSERT INTO pm.team_members (name, email, role) VALUES ('Ashley', 'ashley@example.com', 'agent') RETURNING id"))[0].id;
-  const project = (await q<{ id: string }>("INSERT INTO pm.projects (name) VALUES ('Happy Innovations') RETURNING id"))[0].id;
+  const planner = (await q<{ id: string }>("INSERT INTO pm.team_members (name, email, role) VALUES ('Planner', 'planner@example.com', 'agent') RETURNING id"))[0].id;
+  const project = (await q<{ id: string }>("INSERT INTO pm.projects (name) VALUES ('Acme') RETURNING id"))[0].id;
   await db.query('INSERT INTO pm.project_members (project_id, member_id) VALUES ($1, $2)', [project, member]);
   const task = (await q<{ id: string }>("INSERT INTO pm.tasks (project_id, title, created_by) VALUES ($1, 'Homepage hero', $2) RETURNING id", [project, owner]))[0].id;
   const other = (await q<{ id: string }>("INSERT INTO pm.tasks (project_id, title, created_by) VALUES ($1, 'Footer logo', $2) RETURNING id", [project, owner]))[0].id;
@@ -102,12 +102,12 @@ async function run(db: PGlite, label: string) {
   check(`${label}: it is unread to a teammate, as an edit by me in the app`,
     edit?.total === 1 && edit.kinds.edit === 1 && edit.last_member_id === owner && edit.last_via === 'app' && edit.seen_at === null, edit);
 
-  await asServer({ 'x-actor-member-id': ashley, 'x-actor-via': 'api' });
-  await db.query("INSERT INTO pm.task_comments (task_id, user_id, text) VALUES ($1, $2, 'Anthony prefers option B')", [task, ashley]);
+  await asServer({ 'x-actor-member-id': planner, 'x-actor-via': 'api' });
+  await db.query("INSERT INTO pm.task_comments (task_id, user_id, text) VALUES ($1, $2, 'Anthony prefers option B')", [task, planner]);
   owners = await updatesFor(OWNER_USER);
   const comment = owners.get(task);
   check(`${label}: an agent's comment is unread to everyone`,
-    comment?.total === 1 && comment.kinds.comment === 1 && comment.last_member_id === ashley && comment.last_via === 'api' && comment.last_kind === 'comment', comment);
+    comment?.total === 1 && comment.kinds.comment === 1 && comment.last_member_id === planner && comment.last_via === 'api' && comment.last_kind === 'comment', comment);
   members = await updatesFor(MEMBER_USER);
   check(`${label}: counts add up by kind`, members.get(task)?.total === 2 && members.get(task)?.kinds.comment === 1 && members.get(task)?.kinds.edit === 1, members.get(task));
 
@@ -149,8 +149,8 @@ async function run(db: PGlite, label: string) {
   await superuser();
   const updatedAt = (await q<{ updated_at: string }>('SELECT updated_at::text FROM pm.tasks WHERE id = $1', [task]))[0].updated_at;
   const logged = Number((await q<{ n: number }>("SELECT count(*)::int AS n FROM pm.activities WHERE type = 'task.updated' AND entity_id = $1", [task]))[0].n);
-  await asServer({ 'x-actor-member-id': ashley, 'x-actor-via': 'api' });
-  await db.query("INSERT INTO pm.task_comments (task_id, user_id, text) VALUES ($1, $2, 'One more')", [task, ashley]);
+  await asServer({ 'x-actor-member-id': planner, 'x-actor-via': 'api' });
+  await db.query("INSERT INTO pm.task_comments (task_id, user_id, text) VALUES ($1, $2, 'One more')", [task, planner]);
   await superuser();
   check(`${label}: recording a change never moves the task or the team log`,
     (await q<{ updated_at: string }>('SELECT updated_at::text FROM pm.tasks WHERE id = $1', [task]))[0].updated_at === updatedAt
@@ -164,8 +164,8 @@ async function run(db: PGlite, label: string) {
   members = await updatesFor(MEMBER_USER);
   check(`${label}: only for the one who opened it`, members.has(task));
 
-  await asServer({ 'x-actor-member-id': ashley, 'x-actor-via': 'api' });
-  await db.query("INSERT INTO pm.task_comments (task_id, user_id, text) VALUES ($1, $2, 'He signed off')", [task, ashley]);
+  await asServer({ 'x-actor-member-id': planner, 'x-actor-via': 'api' });
+  await db.query("INSERT INTO pm.task_comments (task_id, user_id, text) VALUES ($1, $2, 'He signed off')", [task, planner]);
   owners = await updatesFor(OWNER_USER);
   check(`${label}: a change after the look is unread again, with when I looked`,
     owners.get(task)?.total === 1 && owners.get(task)?.seen_at !== null, owners.get(task));
@@ -179,8 +179,8 @@ async function run(db: PGlite, label: string) {
     (await q('SELECT 1 FROM pm.task_views WHERE task_id = $1', [hidden])).length === 0);
 
   // --- Trash and access ---------------------------------------------------------
-  await asServer({ 'x-actor-member-id': ashley, 'x-actor-via': 'api' });
-  await db.query("INSERT INTO pm.task_comments (task_id, user_id, text) VALUES ($1, $2, 'Before Trash')", [other, ashley]);
+  await asServer({ 'x-actor-member-id': planner, 'x-actor-via': 'api' });
+  await db.query("INSERT INTO pm.task_comments (task_id, user_id, text) VALUES ($1, $2, 'Before Trash')", [other, planner]);
   const beforeTrash = await eventCount(other);
   await asServer({ 'x-actor-member-id': owner, 'x-actor-via': 'app' });
   await db.query('UPDATE pm.tasks SET deleted_at = now(), deleted_by = $2 WHERE id = $1', [other, owner]);
@@ -188,7 +188,7 @@ async function run(db: PGlite, label: string) {
   members = await updatesFor(MEMBER_USER);
   check(`${label}: a task in Trash is never unread`, !members.has(other));
 
-  await asServer({ 'x-actor-member-id': ashley, 'x-actor-via': 'api' });
+  await asServer({ 'x-actor-member-id': planner, 'x-actor-via': 'api' });
   await db.query("UPDATE pm.tasks SET title = 'Still hidden' WHERE id = $1", [hidden]);
   await actAs(db, MEMBER_USER);
   check(`${label}: nobody reads changes on a task they cannot see`,

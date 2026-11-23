@@ -109,7 +109,7 @@ async function migratedCopy() {
   const w = wrap(db);
   const { q } = w;
   const { owner } = await seedPeople(w);
-  const p = await project(w, 'Happy Innovations', []);
+  const p = await project(w, 'Acme', []);
   await superuser(db);
   const parent = (await q<{ id: string }>("INSERT INTO public.tasks (project_id, title, created_by) VALUES ($1, 'Launch site', $2) RETURNING id", [p, owner]))[0].id;
   const gone = (await q<{ id: string }>("INSERT INTO public.tasks (project_id, title, deleted_at) VALUES ($1, 'Old idea', now()) RETURNING id", [p]))[0].id;

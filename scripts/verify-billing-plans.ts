@@ -57,8 +57,8 @@ async function main() {
   const unbilled = async (projectId: string) =>
     Number((await q<{ h: string | null }>("SELECT invoice_hours_draft_internal($1)->>'hours' h", [projectId]))[0].h ?? 0);
 
-  // -- Plan4TheFuture: retainer + hours on the 1st and 16th, combined -------
-  const p4 = await project('Plan4TheFuture');
+  // -- Globex: retainer + hours on the 1st and 16th, combined -------
+  const p4 = await project('Globex');
   await q(`SELECT save_project_retainer(NULL, $1::jsonb)`, [JSON.stringify({
     project_id: p4, name: 'Monthly Marketing Retainer', billing_timing: 'advance', start_date: '2026-10-01', amount: 2000,
   })]);
@@ -99,7 +99,7 @@ async function main() {
   check('hours worked on the draft day wait for the next draft', await unbilled(p4) === 1);
 
   // -- Separate invoices, payment terms -----------------------------------
-  const happy = await project('Happy Innovations');
+  const happy = await project('Acme');
   await q(`SELECT save_project_retainer(NULL, $1::jsonb)`, [JSON.stringify({
     project_id: happy, name: 'Monthly Retainer', billing_timing: 'advance', start_date: '2026-11-01', amount: 2500,
   })]);
@@ -228,7 +228,7 @@ async function main() {
     preview.filter((i) => i.date === '2026-12-01').length === 2);
   const all = (await q<{ f: Array<ForecastItem & { project_name: string }> }>("SELECT billing_forecast(NULL, '2026-11-20', '2026-12-31') f"))[0].f;
   check('calendar: every project with a retainer or a plan, named',
-    new Set(all.map((i) => i.project_name)).has('Ending') && new Set(all.map((i) => i.project_name)).has('Plan4TheFuture') && !all.some((i) => i.project_name === 'Manual'));
+    new Set(all.map((i) => i.project_name)).has('Ending') && new Set(all.map((i) => i.project_name)).has('Globex') && !all.some((i) => i.project_name === 'Manual'));
   const doneForecast = (await q<{ f: ForecastItem[] }>("SELECT billing_forecast($1, '2026-11-01', '2026-11-30') f", [p4]))[0].f;
   check('forecast: a date already drafted shows its invoice and status',
     doneForecast.some((i) => i.date === '2026-11-01' && i.invoice_number && i.status === 'draft'), doneForecast);

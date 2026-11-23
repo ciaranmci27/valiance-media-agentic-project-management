@@ -39,7 +39,7 @@ const check = (actual: unknown, expected: unknown, label: string) => {
   checks++;
 };
 
-async function prepared(name: string, options: Parameters<typeof resendFixture>[1] = { emailId: 'e', deliveredTo: ['ashley@relay.example.test'] }) {
+async function prepared(name: string, options: Parameters<typeof resendFixture>[1] = { emailId: 'e', deliveredTo: ['planner@relay.example.test'] }) {
   const fake = new FakeResend();
   const fixture = await resendFixture(await readEml(name), options);
   fake.add(fixture);
@@ -129,17 +129,17 @@ async function main() {
   check(gmail.result.message.in_reply_to, ['orig-1@agency.example'], 'In-Reply-To read from the headers map');
   check(gmail.result.message.subject_normalized, 'homepage banner', 'normalized subject');
   check(gmail.result.recipients.map((r) => `${r.kind}:${r.address}:${r.name}`),
-    ['from:dana@acme-roofing.example:Dana Wu', 'to:owner@agency.example:Sam Owner', 'cc:ashley@agency.example:Ashley P.'], 'sender and recipients with names');
-  check(gmail.result.deliveredTo, ['ashley@relay.example.test', 'ashley@agency.example'], 'delivered-to: the provider to and cc lists');
+    ['from:dana@acme-roofing.example:Dana Wu', 'to:owner@agency.example:Sam Owner', 'cc:planner@agency.example:Planner P.'], 'sender and recipients with names');
+  check(gmail.result.deliveredTo, ['planner@relay.example.test', 'planner@agency.example'], 'delivered-to: the provider to and cc lists');
   check(gmail.result.message.is_forward, false, 'a reply is not a forward');
   const outlook = await prepared('outlook-reply.eml');
-  check(outlook.result.message.new_text, 'Hi Ashley,\n\nYes, please send the corrected invoice to accounts@birchpartners.example.\n\nBen Ortiz | Birch Partners', 'Outlook reply: header block stripped');
+  check(outlook.result.message.new_text, 'Hi Planner,\n\nYes, please send the corrected invoice to accounts@birchpartners.example.\n\nBen Ortiz | Birch Partners', 'Outlook reply: header block stripped');
   const forward = await prepared('forward-full-history.eml');
   check([forward.result.message.is_forward, forward.result.message.new_text], [true, 'Can you check this one?'], 'forward detected; new_text is the note');
   check(isForwardedMessage('Site down?', 'Begin forwarded message:\nFrom: x'), true, 'Apple Mail forward marker');
   const htmlOnly = await prepared('html-only.eml');
   check(htmlOnly.result.message.text_body, null, 'HTML-only has no text part');
-  check(htmlOnly.result.message.new_text, 'Hi Ashley,\n\nHere is the link to the new logo: logo folder (https://files.example/logo).\n\nPlease update the header & footer.', 'HTML to text: no script or style, link kept');
+  check(htmlOnly.result.message.new_text, 'Hi Planner,\n\nHere is the link to the new logo: logo folder (https://files.example/logo).\n\nPlease update the header & footer.', 'HTML to text: no script or style, link kept');
   check(htmlToText('<span>A&nbsp;&lt;b&gt; &#8211; &#x41;</span><br>B'), 'A <b> – A\nB', 'entities decode');
   check(extractNewText('> only quoted'), '> only quoted', 'all-quoted text falls back to the full text');
 
@@ -158,23 +158,23 @@ async function main() {
   check(sort('billing@vercel.com', 'Invoice receipt: payment due Nov 3'), ['triage', 'notification', 'money'], 'sort: an invoice is money, never a receipt');
   check(sort('updates@tool.example', 'Payment received, thank you', '', { autoMailReason: 'list: list-unsubscribe' }), ['fyi', 'notification', 'receipt'], 'sort: a receipt is never filtered as bulk mail');
   // Codes and calendar replies, whoever sends them (TikTok mails through a client's Google Group).
-  check(sort('tiktok.happysoles@suitupbrands.com', '807155 is your verification code', '', { knownPerson: true }), ['ignore', 'notification', 'code'], 'sort: a one-time code goes to Codes, even through a client group');
+  check(sort('tiktok.acmesoles@initech.example', '807155 is your verification code', '', { knownPerson: true }), ['ignore', 'notification', 'code'], 'sort: a one-time code goes to Codes, even through a client group');
   check(sort('no-reply@shopify.com', 'Your Shopify login code'), ['ignore', 'notification', 'code'], 'sort: a login code');
   check(sort('no-reply@okendo.io', 'Your one-time passcode', '', { filterAutoMail: false }), ['ignore', 'notification', 'code'], 'sort: a code waits in Codes even in an inbox that keeps bulk mail');
   check(sort('no-reply@accounts.google.com', 'Critical security alert'), ['triage', 'notification', 'security'], 'sort: a security alert is never a code');
   check(sort('no-reply@accounts.google.com', 'New sign-in: your verification code was used'), ['triage', 'notification', 'security'], 'sort: a new sign-in naming a code stays security');
-  check(sort('maria@suitupbrands.com', 'Fwd: 123456 is your verification code', '', { knownPerson: true }), ['triage', 'person', null], 'sort: a forwarded code is a person writing');
-  check(sort('shay@happyinnovations.com', 'Updated invitation: Customer service tickets @ Fri Oct 23, 2026', '', { knownPerson: true }), ['fyi', 'notification', 'calendar'], 'sort: an updated invitation is a calendar reply');
+  check(sort('maria@initech.example', 'Fwd: 123456 is your verification code', '', { knownPerson: true }), ['triage', 'person', null], 'sort: a forwarded code is a person writing');
+  check(sort('sasha@acme.example', 'Updated invitation: Customer service tickets @ Fri Oct 23, 2026', '', { knownPerson: true }), ['fyi', 'notification', 'calendar'], 'sort: an updated invitation is a calendar reply');
   check(sort('dana@client.example', 'Accepted: Kickoff call @ Mon Nov 2', '', { knownPerson: true }), ['fyi', 'notification', 'calendar'], 'sort: an acceptance is a calendar reply');
   check(sort('dana@client.example', 'Invitation: Kickoff call @ Mon Nov 2', '', { knownPerson: true }), ['triage', 'person', null], 'sort: a new invitation is still a person');
   check(sort('dana@client.example', 'Re: Accepted: Kickoff call', '', { knownPerson: true }), ['triage', 'person', null], 'sort: a reply about a calendar reply is a person');
   check(sort('workspacesupport@feedback.google.com', 'Quick reminder - [Managed user cannot sign in due to a conflicting unmanaged account] Your feedback matters for case #76845455'),
     ['fyi', 'notification', 'survey'], 'sort: a support survey is an update, not security');
   check(sort('gemini-notes@google.com', 'Notes: “Q4 All-Hands Meeting” Oct 23, 2026'), ['triage', 'meeting_notes', null], 'sort: Gemini notes are meeting notes');
-  check(sort('maria@suitupbrands.com', 'Re: Customer Support Update'), ['triage', 'person', null], 'sort: a person is triaged');
+  check(sort('maria@initech.example', 'Re: Customer Support Update'), ['triage', 'person', null], 'sort: a person is triaged');
   check(sort('info@smallclient.example', 'Quick question about the site'), ['triage', 'person', null], 'sort: info@ is a person until headers say otherwise');
   check(sort('news@brand.example', 'Our summer sale', '', { knownPerson: true }), ['triage', 'person', null], 'sort: a known contact is a person whatever the mailbox');
-  check(sort('ciaran@agency.example', 'Notes from today', '', { fromTeam: true }), ['triage', 'team', null], 'sort: a teammate');
+  check(sort('owner@agency.example', 'Notes from today', '', { fromTeam: true }), ['triage', 'team', null], 'sort: a teammate');
   const rules = [
     { id: 'r1', match_kind: 'domain' as const, match_value: 'okendo.io', topic: 'usage' as const, action: 'always' as const },
     { id: 'r2', match_kind: 'domain' as const, match_value: 'upwork.com', topic: null, action: 'ignore' as const },
@@ -184,14 +184,14 @@ async function main() {
   check(sort('upwork@t.upwork.com', 'New proposal', '', { rules }), ['ignore', 'notification', 'update'], 'sort: a domain rule covers subdomains');
   check(sort('no-reply@upwork.com', 'Shortlist ready', '', { rules }), ['fyi', 'notification', 'update'], 'sort: an exact address beats its domain');
   // A rule scoped to one recipient: Gemini's notes to the account the meeting script covers.
-  const geminiRule = { id: 'r-gemini', match_kind: 'address' as const, match_value: 'gemini-notes@google.com', topic: null, action: 'ignore' as const, recipient: 'ciaran@valiancemedia.com' };
+  const geminiRule = { id: 'r-gemini', match_kind: 'address' as const, match_value: 'gemini-notes@google.com', topic: null, action: 'ignore' as const, recipient: 'owner@example.com' };
   const notes = (to: string) => sortEmail({ fromAddress: 'gemini-notes@google.com', subject: 'Notes: “Weekly sync” Nov 11, 2026', text: '', autoMailReason: null,
     fromTeam: false, knownPerson: false, filterAutoMail: true, rules: [geminiRule], recipients: [to] });
-  check([notes('ciaran@valiancemedia.com').action, notes('ciaran@valiancemedia.com').reason],
-    ['ignore', 'Filtered by the rule for mail from gemini-notes@google.com to ciaran@valiancemedia.com.'], 'sorting: a recipient rule filters notes to the covered account');
-  check([notes('ciaran@happyinnovations.com').action, notes('ciaran@happyinnovations.com').kind], ['triage', 'meeting_notes'], 'sorting: notes to another account still reach the agent');
+  check([notes('owner@example.com').action, notes('owner@example.com').reason],
+    ['ignore', 'Filtered by the rule for mail from gemini-notes@google.com to owner@example.com.'], 'sorting: a recipient rule filters notes to the covered account');
+  check([notes('owner@acme.example').action, notes('owner@acme.example').kind], ['triage', 'meeting_notes'], 'sorting: notes to another account still reach the agent');
   check(sortEmail({ fromAddress: 'gemini-notes@google.com', subject: 'Notes: x', text: '', autoMailReason: null, fromTeam: false, knownPerson: false, filterAutoMail: true,
-    rules: [geminiRule, { ...geminiRule, id: 'r-any', recipient: null, action: 'always' as const }], recipients: ['ciaran@valiancemedia.com'] }).rule_id, 'r-gemini',
+    rules: [geminiRule, { ...geminiRule, id: 'r-any', recipient: null, action: 'always' as const }], recipients: ['owner@example.com'] }).rule_id, 'r-gemini',
     'sorting: the recipient rule wins over the same sender\'s rule for any address');
   check(sortEmail({ fromAddress: 'no-reply@okendo.io', subject: 'Plan Limit is at 90%', text: '', autoMailReason: null, fromTeam: false, knownPerson: false, filterAutoMail: true, rules }).reason,
     'Always triaged by the rule for a usage alert from okendo.io.', 'sort: the reason names the rule');
@@ -234,11 +234,11 @@ async function main() {
 
   // Trust.
   check(gmail.result.message.auth.trust, 'trusted', 'provider DKIM pass is trusted');
-  const fail = await prepared('gmail-reply.eml', { emailId: 'f', deliveredTo: ['ashley@relay.example.test'], authentication: { spf: 'pass', dkim: 'fail', dmarc: 'fail' } });
+  const fail = await prepared('gmail-reply.eml', { emailId: 'f', deliveredTo: ['planner@relay.example.test'], authentication: { spf: 'pass', dkim: 'fail', dmarc: 'fail' } });
   check(fail.result.message.auth.trust, 'untrusted', 'provider DKIM fail is untrusted');
-  const gray = await prepared('gmail-reply.eml', { emailId: 'g', deliveredTo: ['ashley@relay.example.test'], authentication: { spf: 'gray', dkim: 'gray', dmarc: 'gray' } });
+  const gray = await prepared('gmail-reply.eml', { emailId: 'g', deliveredTo: ['planner@relay.example.test'], authentication: { spf: 'gray', dkim: 'gray', dmarc: 'gray' } });
   check(gray.result.message.auth.trust, 'untrusted', 'provider DKIM gray (unsigned or misaligned) is untrusted');
-  const unknown = await prepared('gmail-reply.eml', { emailId: 'u', deliveredTo: ['ashley@relay.example.test'], authentication: null });
+  const unknown = await prepared('gmail-reply.eml', { emailId: 'u', deliveredTo: ['planner@relay.example.test'], authentication: null });
   check([unknown.result.message.auth.trust, unknown.result.message.auth.source], ['unknown', null], 'no provider verdict and no trusted header is unknown');
   const processing = evaluateAuth({ headers: [], fromAddress: 'a@b.example', trustedIds: [], providerAuth: { spf: null, dkim: 'processing_failed', dmarc: null } });
   check(processing.trust, 'unknown', 'processing_failed is unknown');
@@ -286,16 +286,16 @@ async function main() {
   check(viaUs(groupForward.filter((h) => h.name !== 'arc-seal')).trust, 'untrusted', 'forward: ARC results without seals are not a chain');
   check(viaUs(groupForward, ['ours.example'], 'someone@ours.example').trust, 'untrusted', 'forward: From on our own domain is judged on its own signature');
 
-  // A Workspace domain with no DKIM key of its own, through a Gmail forward, as Brennan's brief arrived.
-  const workspace = (stamp: string, from = 'brennan@designgroove.example', auth = gmailGray) =>
+  // A Workspace domain with no DKIM key of its own, through a Gmail forward, as Drew's brief arrived.
+  const workspace = (stamp: string, from = 'drew@hooli.example', auth = gmailGray) =>
     evaluateAuth({ headers: [{ name: 'authentication-results', value: stamp }], fromAddress: from, trustedIds: [], providerAuth: auth, ownDomains: ['ours.example'] });
-  const googleStamp = 'amazonses.com; spf=pass (spfCheck: ok) envelope-from=ciaran+caf_=hi=relay.ours.example@client.example; dkim=pass header.i=@designgroove-example.20260707.gappssmtp.com; dmarc=fail header.from=designgroove.example;';
-  check([workspace(googleStamp).trust, workspace(googleStamp).reason], ['trusted', 'signed by Google for the designgroove.example Workspace'], 'workspace: Google\'s signature for the From domain is trusted');
+  const googleStamp = 'amazonses.com; spf=pass (spfCheck: ok) envelope-from=owner+caf_=hi=relay.ours.example@client.example; dkim=pass header.i=@hooli-example.20260707.gappssmtp.com; dmarc=fail header.from=hooli.example;';
+  check([workspace(googleStamp).trust, workspace(googleStamp).reason], ['trusted', 'signed by Google for the hooli.example Workspace'], 'workspace: Google\'s signature for the From domain is trusted');
   check(workspace(googleStamp, 'spoof@other.example').trust, 'untrusted', 'workspace: a signature for another Workspace speaks for nobody else');
   check(workspace(googleStamp.replace('dkim=pass', 'dkim=fail')).trust, 'untrusted', 'workspace: a failed signature counts for nothing');
   check(workspace(googleStamp.replace('amazonses.com;', 'planted.example;')).trust, 'untrusted', 'workspace: a stamp from an unlisted receiver is ignored');
   check(workspace(googleStamp.replace('gappssmtp.com', 'gappssmtp.example.com')).trust, 'untrusted', 'workspace: only Google\'s own signing domain');
-  check(workspace(googleStamp.replace('@designgroove-example.', '@attacker.designgroove-example.')).trust, 'untrusted', 'workspace: an extra label is not the same signer');
+  check(workspace(googleStamp.replace('@hooli-example.', '@attacker.hooli-example.')).trust, 'untrusted', 'workspace: an extra label is not the same signer');
   check(workspace(googleStamp, undefined, { spf: 'pass', dkim: 'fail', dmarc: 'fail' }).trust, 'untrusted', 'workspace: a failed signature at the provider stays untrusted');
 
   // Decisions: what the panel offers, and the one answer it sends.
@@ -401,7 +401,7 @@ async function main() {
   ]), { total: 3, urgent: 1, decide: 1, reply: 1 }, 'attention: urgent, a decision, a reply; handled mail waits on nobody');
   check([matchesSearch('acme dana', ['Banner', 'Dana Wu', 'Acme Roofing']), matchesSearch('acme ben', ['Dana', 'Acme'])], [true, false], 'search needs every word');
   check(snippetOf('  Hello\n\nthere  ', 8), 'Hello t…', 'snippet flattens and trims');
-  check(snippetOf('[https://cdn.example/logo.png?v=1] https://www.okendo.io Hi Happy Nuts, see (https://t.example/x)'), 'Hi Happy Nuts, see', 'snippet drops links');
+  check(snippetOf('[https://cdn.example/logo.png?v=1] https://www.okendo.io Hi Acme Snacks, see (https://t.example/x)'), 'Hi Acme Snacks, see', 'snippet drops links');
   check(snippetOf('View the proposal ͏ ­ ͏ ­ more'), 'View the proposal more', 'snippet drops invisible preheader padding');
 
   // Downloads: identity encoding, and a decoded body is not held to Content-Length.

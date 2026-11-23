@@ -159,14 +159,14 @@ async function main() {
   await fresh.query(`UPDATE pm.team_members SET role = 'member' WHERE id = $1`, [member]);
   await fresh.query(`INSERT INTO pm.team_member_permissions (member_id, permission_key, access_channel, effect)
     SELECT $1, k, 'app', 'allow' FROM unnest(ARRAY['projects.read', 'tasks.read', 'tasks.create', 'tasks.manage_all']) AS k`, [member]);
-  const mine = (await q<{ id: string }>("INSERT INTO pm.projects (name) VALUES ('Happy Innovations') RETURNING id"))[0].id;
+  const mine = (await q<{ id: string }>("INSERT INTO pm.projects (name) VALUES ('Acme') RETURNING id"))[0].id;
   const theirs = (await q<{ id: string }>("INSERT INTO pm.projects (name) VALUES ('Apex Motor Coaches') RETURNING id"))[0].id;
   await fresh.query('INSERT INTO pm.project_members (project_id, member_id) VALUES ($1, $2)', [mine, member]);
   await fresh.query("INSERT INTO pm.tasks (project_id, title, created_by) VALUES ($1, 'Redesign the homepage', $3), ($2, 'Fleet brochure', $3)", [mine, theirs, owner]);
 
   await actAs(fresh, MEMBER);
   const projects = (await q<{ name: string }>('SELECT name FROM pm.projects ORDER BY name')).map((p) => p.name);
-  check('member: reads the project they are on, not the other', JSON.stringify(projects) === JSON.stringify(['Happy Innovations']), projects);
+  check('member: reads the project they are on, not the other', JSON.stringify(projects) === JSON.stringify(['Acme']), projects);
   const tasks = (await q<{ title: string }>('SELECT title FROM pm.tasks ORDER BY title')).map((t) => t.title);
   check('member: reads their project\'s tasks, not the other\'s', JSON.stringify(tasks) === JSON.stringify(['Redesign the homepage']), tasks);
   const saved = (await q<{ result: { task?: { id?: string } } }>('SELECT pm.save_task(NULL, $1::jsonb) AS result',

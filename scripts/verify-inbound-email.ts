@@ -44,14 +44,14 @@ function check(label: string, ok: boolean, detail?: unknown) {
 type Payload = Record<string, any>;
 
 const ids = {
-  owner: randomUUID(), ownerAuth: randomUUID(), ashley: randomUUID(), jeff: randomUUID(),
+  owner: randomUUID(), ownerAuth: randomUUID(), planner: randomUUID(), builder: randomUUID(),
   acme: randomUUID(), acme2: randomUUID(), birch: randomUUID(), other: randomUUID(),
   dana: randomUUID(), ben: randomUUID(), inboxA: randomUUID(), inboxB: randomUUID(), goal: randomUUID(),
 };
 const RELAY = 'relay.example.test';
 const SECRET = `whsec_${Buffer.from('inbound-email-test-signing-secret!').toString('base64')}`;
 const hash = (key: string) => createHash('sha256').update(key).digest('hex');
-const keys = { ashley: `pk_live_${randomUUID()}`, ashleyNoEmail: `pk_live_${randomUUID()}`, jeff: `pk_live_${randomUUID()}`, owner: `pk_live_${randomUUID()}` };
+const keys = { planner: `pk_live_${randomUUID()}`, plannerNoEmail: `pk_live_${randomUUID()}`, builder: `pk_live_${randomUUID()}`, owner: `pk_live_${randomUUID()}` };
 
 async function rows<T = Payload>(db: PGlite, sql: string, params: unknown[] = []): Promise<T[]> {
   return (await db.query<T>(sql, params)).rows;
@@ -60,8 +60,8 @@ async function rows<T = Payload>(db: PGlite, sql: string, params: unknown[] = []
 async function seed(db: PGlite) {
   await db.query("UPDATE business_settings SET inbound_email_domain = $1", [RELAY]);
   await db.query(
-    `INSERT INTO team_members(id, auth_user_id, name, role) VALUES ($1,$2,'Sam','owner'),($3,NULL,'Ashley P.','agent'),($4,NULL,'Jeff','agent')`,
-    [ids.owner, ids.ownerAuth, ids.ashley, ids.jeff],
+    `INSERT INTO team_members(id, auth_user_id, name, role) VALUES ($1,$2,'Sam','owner'),($3,NULL,'Planner P.','agent'),($4,NULL,'Builder','agent')`,
+    [ids.owner, ids.ownerAuth, ids.planner, ids.builder],
   );
   await db.query(`INSERT INTO projects(id, name) VALUES ($1,'Acme Roofing'),($2,'Acme Gutters LLC'),($3,'Birch Partners'),($4,'Other client')`,
     [ids.acme, ids.acme2, ids.birch, ids.other]);
@@ -71,19 +71,19 @@ async function seed(db: PGlite) {
   await db.query(`INSERT INTO project_contacts(project_id, contact_id) VALUES ($1,$3),($2,$3),($4,$5)`, [ids.acme, ids.acme2, ids.dana, ids.birch, ids.ben]);
   await db.query(`INSERT INTO pm.client_domains(domain, project_id) VALUES ('birchpartners.example',$1)`, [ids.birch]);
   // Inboxes: routing addresses come from the address and the default domain.
-  await db.query(`INSERT INTO pm.inboxes(id, name, address, handler_member_id, verification_code) VALUES ($1,'Ashley','ashley@agency.example',$2,'VM-7K2Q')`, [ids.inboxA, ids.ashley]);
-  await db.query(`INSERT INTO pm.inboxes(id, name, address, handler_member_id) VALUES ($1,'Billing','billing@agency.example',$2)`, [ids.inboxB, ids.jeff]);
+  await db.query(`INSERT INTO pm.inboxes(id, name, address, handler_member_id, verification_code) VALUES ($1,'Planner','planner@agency.example',$2,'VM-7K2Q')`, [ids.inboxA, ids.planner]);
+  await db.query(`INSERT INTO pm.inboxes(id, name, address, handler_member_id) VALUES ($1,'Billing','billing@agency.example',$2)`, [ids.inboxB, ids.builder]);
   // Agent permissions beyond the migration's email grants.
   for (const key of ['tasks.read', 'tasks.create', 'tasks.manage_assigned', 'projects.read', 'agent_activity.write'])
     await db.query("INSERT INTO role_permissions(role, permission_key, access_channel) VALUES ('agent',$1,'api') ON CONFLICT DO NOTHING", [key]);
-  for (const member of [ids.ashley, ids.jeff])
+  for (const member of [ids.planner, ids.builder])
     for (const key of ['tasks.manage_all', 'projects.read_all', 'suggestions.manage'])
       await db.query("INSERT INTO team_member_permissions(member_id, permission_key, access_channel, effect) VALUES ($1,$2,'api','allow')", [member, key]);
   const scopes = ['inbound_email.read', 'inbound_email.triage', 'inbound_email.signal', 'tasks.read', 'tasks.manage_all', 'projects.read', 'suggestions.manage'];
   await db.query('INSERT INTO api_keys(key_hash, team_member_id, scopes) VALUES ($1,$2,$3),($4,$2,$5),($6,$7,$3)', [
-    hash(keys.ashley), ids.ashley, scopes,
-    hash(keys.ashleyNoEmail), scopes.filter((s) => !s.startsWith('inbound_email')),
-    hash(keys.jeff), ids.jeff,
+    hash(keys.planner), ids.planner, scopes,
+    hash(keys.plannerNoEmail), scopes.filter((s) => !s.startsWith('inbound_email')),
+    hash(keys.builder), ids.builder,
   ]);
   // The owner's own read-only key: inbound_email.read but not triage, listed on no inbox.
   await db.query('INSERT INTO api_keys(key_hash, team_member_id, scopes) VALUES ($1,$2,$3)', [hash(keys.owner), ids.owner, ['inbound_email.read', 'tasks.read', 'projects.read']]);
@@ -136,7 +136,7 @@ async function main() {
       return { status: response.status, body: (await response.json()) as Payload };
     };
     const add = async (name: string, emailId: string, options: Partial<Parameters<typeof resendFixture>[1]> = {}, replacements: Record<string, string> = {}) => {
-      resend.add(await resendFixture(await readEml(name, replacements), { emailId, deliveredTo: [`ashley@${RELAY}`], ...options }));
+      resend.add(await resendFixture(await readEml(name, replacements), { emailId, deliveredTo: [`planner@${RELAY}`], ...options }));
     };
     const api = async (handler: (r: NextRequest, c: { params: Promise<never> }) => Promise<Response>, method: string, path: string, key: string, params: Record<string, string> = {}, body?: unknown) => {
       const response = await handler(new NextRequest(`http://localhost${path}`, {
@@ -151,12 +151,12 @@ async function main() {
 
     // ---- Inbox settings -------------------------------------------------
     const [inboxA] = await rows(db, 'SELECT * FROM pm.inboxes WHERE id = $1', [ids.inboxA]);
-    check('inbox: routing address from the address and the default relay domain', inboxA.routing_address === `ashley@${RELAY}` && inboxA.routing_domain === RELAY, inboxA);
-    check('inbox: the handler can read their inbox', (await rows(db, 'SELECT 1 FROM pm.inbox_access WHERE inbox_id=$1 AND member_id=$2', [ids.inboxA, ids.ashley])).length === 1);
-    const [generated] = await rows(db, "INSERT INTO pm.inboxes(name, address) VALUES ('Dup','ashley@elsewhere.example') RETURNING routing_local_part, verification_code");
-    check('inbox: a taken local part gets a suffix; a VM-XXXX code is generated', /^ashley-[0-9a-f]{4}$/.test(generated.routing_local_part) && /^VM-[A-Z0-9]{4}$/.test(generated.verification_code), generated);
+    check('inbox: routing address from the address and the default relay domain', inboxA.routing_address === `planner@${RELAY}` && inboxA.routing_domain === RELAY, inboxA);
+    check('inbox: the handler can read their inbox', (await rows(db, 'SELECT 1 FROM pm.inbox_access WHERE inbox_id=$1 AND member_id=$2', [ids.inboxA, ids.planner])).length === 1);
+    const [generated] = await rows(db, "INSERT INTO pm.inboxes(name, address) VALUES ('Dup','planner@elsewhere.example') RETURNING routing_local_part, verification_code");
+    check('inbox: a taken local part gets a suffix; a VM-XXXX code is generated', /^planner-[0-9a-f]{4}$/.test(generated.routing_local_part) && /^VM-[A-Z0-9]{4}$/.test(generated.verification_code), generated);
     await db.query("UPDATE business_settings SET inbound_email_domain = 'mail.other.test'");
-    check('inbox: changing the default domain never moves an inbox', (await rows(db, 'SELECT routing_address FROM pm.inboxes WHERE id=$1', [ids.inboxA]))[0].routing_address === `ashley@${RELAY}`);
+    check('inbox: changing the default domain never moves an inbox', (await rows(db, 'SELECT routing_address FROM pm.inboxes WHERE id=$1', [ids.inboxA]))[0].routing_address === `planner@${RELAY}`);
     await db.query('UPDATE business_settings SET inbound_email_domain = $1', [RELAY]);
     await db.query("DELETE FROM pm.inboxes WHERE name = 'Dup'");
     let refused = '';
@@ -305,20 +305,20 @@ async function main() {
     await db.query('UPDATE pm.inboxes SET max_attachment_mb = 25 WHERE id=$1', [ids.inboxA]);
 
     // Verification.
-    await add('verification.eml', 're_verify', { deliveredTo: [`ashley@${RELAY}`] });
+    await add('verification.eml', 're_verify', { deliveredTo: [`planner@${RELAY}`] });
     const objectsBefore = storage.objects.size;
     const verified = await deliver('re_verify');
     const [afterVerify] = await rows(db, 'SELECT verified_at FROM pm.inboxes WHERE id=$1', [ids.inboxA]);
     check('verification: the inbox is verified and the email is gone, files and row', verified.body.inboxes?.[0]?.outcome === 'verified' && !!afterVerify.verified_at
       && (await messageBy('verify-9@agency.example')).length === 0 && storage.objects.size === objectsBefore, verified.body);
     await db.query('UPDATE pm.inboxes SET last_received_at = NULL WHERE id=$1', [ids.inboxA]);
-    await add('verification.eml', 're_verify_again', { deliveredTo: [`ashley@${RELAY}`], messageId: '<verify-10@agency.example>' });
+    await add('verification.eml', 're_verify_again', { deliveredTo: [`planner@${RELAY}`], messageId: '<verify-10@agency.example>' });
     const verifiedAgain = await deliver('re_verify_again');
     const [codeMail] = await messageBy('verify-10@agency.example');
     check('verification: once verified, an email with the code is ordinary mail (kept, filed, the inbox hears from it)',
       verifiedAgain.body.inboxes?.[0]?.outcome === 'completed' && codeMail?.status === 'new'
       && !!(await rows(db, 'SELECT last_received_at FROM pm.inboxes WHERE id=$1', [ids.inboxA]))[0].last_received_at, verifiedAgain.body);
-    await db.query("UPDATE pm.inboxes SET routing_local_part = 'ashley2' WHERE id=$1", [ids.inboxB]);
+    await db.query("UPDATE pm.inboxes SET routing_local_part = 'planner2' WHERE id=$1", [ids.inboxB]);
     await db.query("UPDATE pm.inboxes SET verified_at = now(), last_received_at = now() WHERE id=$1", [ids.inboxB]);
     await db.query("UPDATE pm.inboxes SET routing_local_part = 'billing' WHERE id=$1", [ids.inboxB]);
     const [movedInbox] = await rows(db, 'SELECT verified_at, last_received_at FROM pm.inboxes WHERE id=$1', [ids.inboxB]);
@@ -328,17 +328,17 @@ async function main() {
     await add('owner-original.eml', 're_nobody', { deliveredTo: [`nobody@${RELAY}`], messageId: '<nobody@agency.example>' });
     const nobody = await deliver('re_nobody');
     check('routing: an unknown recipient stores nothing and is acknowledged', nobody.status === 200 && nobody.body.reason === 'no_inbox' && (await messageBy('nobody@agency.example')).length === 0, nobody.body);
-    await add('owner-original.eml', 're_two', { deliveredTo: [`ashley@${RELAY}`, `billing@${RELAY}`], messageId: '<two-inboxes@agency.example>' });
+    await add('owner-original.eml', 're_two', { deliveredTo: [`planner@${RELAY}`, `billing@${RELAY}`], messageId: '<two-inboxes@agency.example>' });
     await deliver('re_two');
     const two = await messageBy('two-inboxes@agency.example');
     check('routing: one email to two inboxes is a row in each', two.length === 2 && new Set(two.map((m) => m.inbox_id)).size === 2, two.map((m) => m.inbox_id));
-    await add('owner-original.eml', 're_public', { deliveredTo: ['ashley@agency.example'], messageId: '<public-only@agency.example>' });
+    await add('owner-original.eml', 're_public', { deliveredTo: ['planner@agency.example'], messageId: '<public-only@agency.example>' });
     const publicOnly = await deliver('re_public');
     check('routing: a public address alone never matches an inbox', publicOnly.body.reason === 'no_inbox' && (await messageBy('public-only@agency.example')).length === 0, publicOnly.body);
-    await add('owner-original.eml', 're_forwarded', { deliveredTo: ['ashley@agency.example'], receivedFor: [`ashley@${RELAY}`], messageId: '<forwarded@agency.example>' });
+    await add('owner-original.eml', 're_forwarded', { deliveredTo: ['planner@agency.example'], receivedFor: [`planner@${RELAY}`], messageId: '<forwarded@agency.example>' });
     await deliver('re_forwarded');
     check('routing: a forwarded message matches through received_for', (await messageBy('forwarded@agency.example'))[0]?.inbox_id === ids.inboxA);
-    await add('owner-original.eml', 're_upper', { deliveredTo: [`ASHLEY@${RELAY.toUpperCase()}`], messageId: '<upper@agency.example>' });
+    await add('owner-original.eml', 're_upper', { deliveredTo: [`PLANNER@${RELAY.toUpperCase()}`], messageId: '<upper@agency.example>' });
     await deliver('re_upper');
     check('routing: recipient matching ignores case', (await messageBy('upper@agency.example'))[0]?.inbox_id === ids.inboxA);
 
@@ -402,28 +402,28 @@ async function main() {
     check('files: every stored object belongs to a row (no orphans)', [...storage.objects.keys()].every((key) => paths.has(key)), [...storage.objects.keys()].filter((key) => !paths.has(key)));
 
     // ---- Agent API ------------------------------------------------------
-    const listed = await api(list.GET, 'GET', '/api/v1/inbound-emails?limit=100', keys.ashley);
+    const listed = await api(list.GET, 'GET', '/api/v1/inbound-emails?limit=100', keys.planner);
     const listedIds: string[] = listed.body.data.map((m: Payload) => m.id);
     const visibleA = (await rows(db, "SELECT id FROM pm.messages WHERE inbox_id=$1 AND status <> 'receiving'", [ids.inboxA])).map((r) => r.id);
     check('list: exactly the granted inbox, newest first, no bodies', listed.status === 200 && listedIds.length === visibleA.length && listedIds.every((id) => visibleA.includes(id))
       && !('text_body' in listed.body.data[0]) && listed.body.meta.total === visibleA.length, { status: listed.status, n: listedIds.length, expected: visibleA.length });
     const listedReply = listed.body.data.find((m: Payload) => m.id === reply.id);
     check('list: sender, trust and candidates', listedReply.from.address === 'dana@acme-roofing.example' && listedReply.trust === 'trusted' && listedReply.candidate_project_ids.length === 2, listedReply);
-    const byStatus = await api(list.GET, 'GET', '/api/v1/inbound-emails?status=ignored', keys.ashley);
+    const byStatus = await api(list.GET, 'GET', '/api/v1/inbound-emails?status=ignored', keys.planner);
     const ignoredInA = (await rows(db, "SELECT count(*)::int AS n FROM pm.messages WHERE status = 'ignored' AND inbox_id = $1", [ids.inboxA]))[0].n;
     check('list: status filter', byStatus.body.data.length === ignoredInA && ignoredInA >= 3 && byStatus.body.data.every((m: Payload) => m.status === 'ignored'), { listed: byStatus.body.data.length, ignoredInA });
-    const byProject = await api(list.GET, 'GET', `/api/v1/inbound-emails?project_id=${ids.birch}`, keys.ashley);
+    const byProject = await api(list.GET, 'GET', `/api/v1/inbound-emails?project_id=${ids.birch}`, keys.planner);
     check('list: project filter goes through the thread', byProject.body.data.length >= 1 && byProject.body.data.every((m: Payload) => m.project?.id === ids.birch), byProject.body.data.length);
-    const otherInbox = await api(list.GET, 'GET', `/api/v1/inbound-emails?inbox_id=${ids.inboxB}`, keys.ashley);
+    const otherInbox = await api(list.GET, 'GET', `/api/v1/inbound-emails?inbox_id=${ids.inboxB}`, keys.planner);
     check('scope: an explicit inbox_id not granted is 403 inbox_scope', otherInbox.status === 403 && otherInbox.body.error.details.reason === 'inbox_scope'
       && /Leave inbox_id out/.test(otherInbox.body.error.details.hint), otherInbox.body);
-    const jeffReads = await api(detail.GET, 'GET', `/api/v1/inbound-emails/${reply.id}`, keys.jeff, { id: reply.id });
+    const builderReads = await api(detail.GET, 'GET', `/api/v1/inbound-emails/${reply.id}`, keys.builder, { id: reply.id });
     const unknownId = randomUUID();
-    const unknownRead = await api(detail.GET, 'GET', `/api/v1/inbound-emails/${unknownId}`, keys.jeff, { id: unknownId });
-    check('scope: an email in an ungranted inbox is 404, the same answer as an unknown id', jeffReads.status === 404 && unknownRead.status === 404
-      && JSON.stringify(jeffReads.body) === JSON.stringify(unknownRead.body), [jeffReads.body, unknownRead.body]);
-    const jeffList = await api(list.GET, 'GET', '/api/v1/inbound-emails', keys.jeff);
-    check('scope: a member lists only their own inbox', jeffList.body.data.every((m: Payload) => m.inbox_id === ids.inboxB) && jeffList.body.data.length === 1, jeffList.body.data.length);
+    const unknownRead = await api(detail.GET, 'GET', `/api/v1/inbound-emails/${unknownId}`, keys.builder, { id: unknownId });
+    check('scope: an email in an ungranted inbox is 404, the same answer as an unknown id', builderReads.status === 404 && unknownRead.status === 404
+      && JSON.stringify(builderReads.body) === JSON.stringify(unknownRead.body), [builderReads.body, unknownRead.body]);
+    const builderList = await api(list.GET, 'GET', '/api/v1/inbound-emails', keys.builder);
+    check('scope: a member lists only their own inbox', builderList.body.data.every((m: Payload) => m.inbox_id === ids.inboxB) && builderList.body.data.length === 1, builderList.body.data.length);
     const ownerKeyList = await api(list.GET, 'GET', '/api/v1/inbound-emails?limit=100', keys.owner);
     const listedInboxes = new Set(ownerKeyList.body.data?.map((m: Payload) => m.inbox_id));
     check('scope: an owner key reads every inbox, as the owner does in the app, without being listed on any',
@@ -432,56 +432,56 @@ async function main() {
     check('scope: an owner key opens an email in any inbox', (await api(detail.GET, 'GET', `/api/v1/inbound-emails/${reply.id}`, keys.owner, { id: reply.id })).status === 200);
     const ownerTriage = await api(triage.POST, 'POST', `/api/v1/inbound-emails/${reply.id}/triage`, keys.owner, { id: reply.id }, { outcome: 'fyi', urgent: false, summary: 'x' });
     check('scope: reading every inbox never lets a read-only key triage', ownerTriage.status === 403, ownerTriage.body);
-    const noScope = await api(list.GET, 'GET', '/api/v1/inbound-emails', keys.ashleyNoEmail);
+    const noScope = await api(list.GET, 'GET', '/api/v1/inbound-emails', keys.plannerNoEmail);
     check('scope: a key without inbound_email.read is 403 missing_key_scope', noScope.status === 403 && noScope.body.error.details.reason === 'missing_key_scope', noScope.body);
-    const noSignal = await api(signal.GET, 'GET', '/api/v1/inbound-emails/signal', keys.ashleyNoEmail);
+    const noSignal = await api(signal.GET, 'GET', '/api/v1/inbound-emails/signal', keys.plannerNoEmail);
     check('scope: signal needs inbound_email.signal', noSignal.status === 403);
 
-    const shown = await api(detail.GET, 'GET', `/api/v1/inbound-emails/${reply.id}`, keys.ashley, { id: reply.id });
+    const shown = await api(detail.GET, 'GET', `/api/v1/inbound-emails/${reply.id}`, keys.planner, { id: reply.id });
     const d = shown.body.data;
     check('detail: the whole thread oldest first, with candidates and no project yet', shown.status === 200 && d.thread.messages.length >= 3 && d.thread.messages[0].id === orig.id
       && [reply.id, followup.id].every((id) => d.thread.messages.some((m: Payload) => m.id === id))
       && d.candidates.length === 2 && d.project === null && d.auth.trust === 'trusted' && d.from.name === 'Dana Wu', { status: shown.status, n: d?.thread?.messages?.map((m: Payload) => m.subject), c: d.candidates, p: d.project, a: d.auth, f: d.from });
     check('detail: text, HTML as text and new_text', d.text.includes('Looks great!') && d.html_text.includes('Make the phone number bigger.') && !/<(div|br|li|ol)\b/.test(d.html_text), d.html_text);
-    const manyDetail = (await api(detail.GET, 'GET', `/api/v1/inbound-emails/${many.id}`, keys.ashley, { id: many.id })).body.data;
+    const manyDetail = (await api(detail.GET, 'GET', `/api/v1/inbound-emails/${many.id}`, keys.planner, { id: many.id })).body.data;
     const readable = Object.fromEntries(manyDetail.attachments.map((a: Payload) => [a.filename, [a.kind, a.agent_readable]]));
     check('detail: attachment kinds and readability', JSON.stringify(readable) === JSON.stringify({ 'truck.png': ['image', true], 'signed-quote.pdf': ['pdf', true], 'notes.txt': ['text', true], 'prices.csv': ['text', true], 'old-brief.docx': ['other', false] }), readable);
     await db.query('UPDATE pm.attachments SET size_bytes = NULL WHERE id=$1', [noSize[0].id]);
-    const noSizeDetail = (await api(detail.GET, 'GET', `/api/v1/inbound-emails/${bigNoSize.id}`, keys.ashley, { id: bigNoSize.id })).body.data;
-    const noSizeLabel = await api(attachmentLabel.PATCH, 'PATCH', `/api/v1/inbound-emails/${bigNoSize.id}/attachments/${noSize[0].id}`, keys.ashley, { id: bigNoSize.id, aid: noSize[0].id }, { agent_label: 'Too big to keep' });
+    const noSizeDetail = (await api(detail.GET, 'GET', `/api/v1/inbound-emails/${bigNoSize.id}`, keys.planner, { id: bigNoSize.id })).body.data;
+    const noSizeLabel = await api(attachmentLabel.PATCH, 'PATCH', `/api/v1/inbound-emails/${bigNoSize.id}/attachments/${noSize[0].id}`, keys.planner, { id: bigNoSize.id, aid: noSize[0].id }, { agent_label: 'Too big to keep' });
     check('detail: an unknown attachment size is null, never 0; known sizes are numbers',
       noSizeDetail.attachments.find((a: Payload) => a.id === noSize[0].id)?.size_bytes === null && noSizeLabel.body.data?.size_bytes === null
       && manyDetail.attachments.every((a: Payload) => typeof a.size_bytes === 'number' && a.size_bytes > 0), [noSizeDetail.attachments, noSizeLabel.body]);
 
     const png = manyDetail.attachments.find((a: Payload) => a.filename === 'truck.png');
     const docx = manyDetail.attachments.find((a: Payload) => a.filename === 'old-brief.docx');
-    const pngUrl = await api(attachmentUrl.GET, 'GET', `/api/v1/inbound-emails/${many.id}/attachments/${png.id}/url`, keys.ashley, { id: many.id, aid: png.id });
+    const pngUrl = await api(attachmentUrl.GET, 'GET', `/api/v1/inbound-emails/${many.id}/attachments/${png.id}/url`, keys.planner, { id: many.id, aid: png.id });
     check('attachment url: a readable kind gets a five-minute signed URL', pngUrl.status === 200 && /\/storage\/v1\/object\/sign\/pm-inbound-email\//.test(pngUrl.body.data.url)
       && Math.abs(Date.parse(pngUrl.body.data.expires_at) - Date.now() - 300_000) < 5000, pngUrl.body);
-    const docxUrl = await api(attachmentUrl.GET, 'GET', `/api/v1/inbound-emails/${many.id}/attachments/${docx.id}/url`, keys.ashley, { id: many.id, aid: docx.id });
+    const docxUrl = await api(attachmentUrl.GET, 'GET', `/api/v1/inbound-emails/${many.id}/attachments/${docx.id}/url`, keys.planner, { id: many.id, aid: docx.id });
     check('attachment url: other kinds are 403 not_agent_readable', docxUrl.status === 403 && docxUrl.body.error.details.reason === 'not_agent_readable', docxUrl.body);
     await db.query("UPDATE pm.inboxes SET agent_readable_types = ARRAY['pdf'] WHERE id=$1", [ids.inboxA]);
-    const pngNow = await api(attachmentUrl.GET, 'GET', `/api/v1/inbound-emails/${many.id}/attachments/${png.id}/url`, keys.ashley, { id: many.id, aid: png.id });
+    const pngNow = await api(attachmentUrl.GET, 'GET', `/api/v1/inbound-emails/${many.id}/attachments/${png.id}/url`, keys.planner, { id: many.id, aid: png.id });
     check('attachment url: the inbox setting decides the readable kinds', pngNow.status === 403);
     await db.query("UPDATE pm.inboxes SET agent_readable_types = ARRAY['image','pdf','text'] WHERE id=$1", [ids.inboxA]);
-    const skippedUrl = await api(attachmentUrl.GET, 'GET', `/api/v1/inbound-emails/${bigMessage.id}/attachments/${bigAttachments[0].id}/url`, keys.ashley, { id: bigMessage.id, aid: bigAttachments[0].id });
+    const skippedUrl = await api(attachmentUrl.GET, 'GET', `/api/v1/inbound-emails/${bigMessage.id}/attachments/${bigAttachments[0].id}/url`, keys.planner, { id: bigMessage.id, aid: bigAttachments[0].id });
     check('attachment url: a skipped file is 409', skippedUrl.status === 409, skippedUrl.body);
-    const crossUrl = await api(attachmentUrl.GET, 'GET', `/api/v1/inbound-emails/${reply.id}/attachments/${png.id}/url`, keys.ashley, { id: reply.id, aid: png.id });
+    const crossUrl = await api(attachmentUrl.GET, 'GET', `/api/v1/inbound-emails/${reply.id}/attachments/${png.id}/url`, keys.planner, { id: reply.id, aid: png.id });
     check('attachment url: an attachment of another email is 404', crossUrl.status === 404);
-    const labelled = await api(attachmentLabel.PATCH, 'PATCH', `/api/v1/inbound-emails/${many.id}/attachments/${png.id}`, keys.ashley, { id: many.id, aid: png.id }, { agent_label: 'Red truck photo' });
-    const extraField = await api(attachmentLabel.PATCH, 'PATCH', `/api/v1/inbound-emails/${many.id}/attachments/${png.id}`, keys.ashley, { id: many.id, aid: png.id }, { agent_label: 'x', filename: 'evil.exe' });
+    const labelled = await api(attachmentLabel.PATCH, 'PATCH', `/api/v1/inbound-emails/${many.id}/attachments/${png.id}`, keys.planner, { id: many.id, aid: png.id }, { agent_label: 'Red truck photo' });
+    const extraField = await api(attachmentLabel.PATCH, 'PATCH', `/api/v1/inbound-emails/${many.id}/attachments/${png.id}`, keys.planner, { id: many.id, aid: png.id }, { agent_label: 'x', filename: 'evil.exe' });
     check('label: agent_label only', labelled.status === 200 && labelled.body.data.agent_label === 'Red truck photo' && extraField.status === 422, [labelled.status, extraField.status]);
-    const jeffUrl = await api(attachmentUrl.GET, 'GET', `/api/v1/inbound-emails/${many.id}/attachments/${png.id}/url`, keys.jeff, { id: many.id, aid: png.id });
-    const jeffLabel = await api(attachmentLabel.PATCH, 'PATCH', `/api/v1/inbound-emails/${many.id}/attachments/${png.id}`, keys.jeff, { id: many.id, aid: png.id }, { agent_label: 'x' });
-    check('scope: attachments of an email in an ungranted inbox are 404', jeffUrl.status === 404 && jeffLabel.status === 404 && jeffUrl.body.error.code === 'NOT_FOUND', [jeffUrl.body, jeffLabel.body]);
+    const builderUrl = await api(attachmentUrl.GET, 'GET', `/api/v1/inbound-emails/${many.id}/attachments/${png.id}/url`, keys.builder, { id: many.id, aid: png.id });
+    const builderLabel = await api(attachmentLabel.PATCH, 'PATCH', `/api/v1/inbound-emails/${many.id}/attachments/${png.id}`, keys.builder, { id: many.id, aid: png.id }, { agent_label: 'x' });
+    check('scope: attachments of an email in an ungranted inbox are 404', builderUrl.status === 404 && builderLabel.status === 404 && builderUrl.body.error.code === 'NOT_FOUND', [builderUrl.body, builderLabel.body]);
 
     // Tasks for links.
     const taskIn = async (project: string, title: string, readiness: string | null, createdBy: string) =>
       (await rows(db, 'INSERT INTO tasks(project_id, title, ai_readiness, created_by) VALUES ($1,$2,$3,$4) RETURNING id', [project, title, readiness, createdBy]))[0].id as string;
-    const acmeTask = await taskIn(ids.acme, 'Bigger phone number', null, ids.ashley);
+    const acmeTask = await taskIn(ids.acme, 'Bigger phone number', null, ids.planner);
     const otherTask = await taskIn(ids.other, 'Unrelated', null, ids.owner);
 
-    const triageOf = (id: string, body: unknown, key = keys.ashley) => api(triage.POST, 'POST', `/api/v1/inbound-emails/${id}/triage`, key, { id }, body);
+    const triageOf = (id: string, body: unknown, key = keys.planner) => api(triage.POST, 'POST', `/api/v1/inbound-emails/${id}/triage`, key, { id }, body);
     const notCandidate = await triageOf(reply.id, { outcome: 'task', urgent: false, summary: 'Two banner changes', project_id: ids.birch });
     check('triage: a project outside the email scope is 422 project_out_of_scope, with the scope (its two candidates)', notCandidate.status === 422
       && notCandidate.body.error.details.reason === 'project_out_of_scope' && notCandidate.body.error.details.project_scope.projects.length === 2, notCandidate.body);
@@ -496,22 +496,22 @@ async function main() {
     const [replyThread] = await rows(db, 'SELECT * FROM pm.conversations WHERE id=$1', [reply.thread_id]);
     check('triage: a candidate project sets the thread as inferred; trusted task is handled', firstTriage.status === 201 && replyThread.project_id === ids.acme && replyThread.project_source === 'inferred'
       && (await rows(db, 'SELECT status FROM pm.messages WHERE id=$1', [reply.id]))[0].status === 'handled', firstTriage.body);
-    check('triage: the link is stored with who linked it', (await rows(db, 'SELECT * FROM pm.task_links WHERE task_id=$1', [acmeTask]))[0]?.linked_by === ids.ashley);
+    check('triage: the link is stored with who linked it', (await rows(db, 'SELECT * FROM pm.task_links WHERE task_id=$1', [acmeTask]))[0]?.linked_by === ids.planner);
     // A linked task a person moved to Trash is named and marked, never left blank.
     await db.query('UPDATE pm.tasks SET deleted_at = now() WHERE id = $1', [acmeTask]);
-    const trashedLink = (await api(detail.GET, 'GET', `/api/v1/inbound-emails/${reply.id}`, keys.ashley, { id: reply.id })).body.data.linked_tasks.find((l: Payload) => l.task_id === acmeTask);
+    const trashedLink = (await api(detail.GET, 'GET', `/api/v1/inbound-emails/${reply.id}`, keys.planner, { id: reply.id })).body.data.linked_tasks.find((l: Payload) => l.task_id === acmeTask);
     check('detail: a linked task in Trash keeps its title and says in_trash', trashedLink?.in_trash === true && trashedLink.title === 'Bigger phone number' && trashedLink.status === null, trashedLink);
     await db.query('UPDATE pm.tasks SET deleted_at = NULL WHERE id = $1', [acmeTask]);
     const taskEmailsOf = (key: string) => api(taskEmailsRoute.GET, 'GET', `/api/v1/tasks/${acmeTask}/emails`, key, { id: acmeTask });
-    const linkedEmails = await taskEmailsOf(keys.ashley);
+    const linkedEmails = await taskEmailsOf(keys.planner);
     const [linkedEmail] = linkedEmails.body.data?.emails ?? [];
     check('task emails: the task lists the email it came from, with sender and how it is linked',
       linkedEmails.status === 200 && linkedEmails.body.data.link_count === 1 && linkedEmail?.id === reply.id && linkedEmail.thread_id === reply.thread_id
       && linkedEmail.relation === 'created' && linkedEmail.linked_by === 'agent' && !!linkedEmail.from?.address, linkedEmails.body);
-    const unreadableInbox = await taskEmailsOf(keys.jeff);
+    const unreadableInbox = await taskEmailsOf(keys.builder);
     check('task emails: an inbox the key cannot read hides the email but still counts the link',
       unreadableInbox.status === 200 && unreadableInbox.body.data.emails.length === 0 && unreadableInbox.body.data.link_count === 1, unreadableInbox.body);
-    check('task emails: a key without inbound_email.read is refused', (await taskEmailsOf(keys.ashleyNoEmail)).status === 403);
+    check('task emails: a key without inbound_email.read is refused', (await taskEmailsOf(keys.plannerNoEmail)).status === 403);
     const secondProject = await triageOf(reply.id, { outcome: 'task', urgent: false, summary: 'again', project_ids: [ids.acme2] });
     const replyProjects = await rows(db, 'SELECT project_id, source FROM pm.conversation_projects WHERE conversation_id=$1 ORDER BY created_at', [reply.thread_id]);
     check('triage: the other candidate files the thread on a second project; the first stays its strongest', secondProject.status === 201
@@ -565,44 +565,44 @@ async function main() {
     const clientPitch = await triageOf(reply.id, { outcome: 'no_action', urgent: false, summary: 'Client mentions a partner offer', category: 'outreach' });
     check('outreach: a client is never filtered', clientPitch.status === 201 && clientPitch.body.data.status === 'handled' && (await messageStatus(reply.id)) === 'handled', clientPitch.body);
     const filteredDirect = await asService(db, () => db.query("SELECT pm.record_triage($1, $2, $3::jsonb, '[]'::jsonb, '{}'::uuid[], 'ignored')",
-      [htmlOnly.id, ids.ashley, JSON.stringify({ outcome: 'no_action', summary: 'x', category: 'work' })])).then(() => 'ok', (e: Error) => e.message);
+      [htmlOnly.id, ids.planner, JSON.stringify({ outcome: 'no_action', summary: 'x', category: 'work' })])).then(() => 'ok', (e: Error) => e.message);
     check('outreach: the database filters only what was read as outreach', String(filteredDirect).includes('only outreach is filtered'), filteredDirect);
     // Back to how the tests below expect it.
     const restored = await triageOf(htmlOnly.id, { outcome: 'needs_reply', urgent: false, summary: 'Update header and footer', suggested_reply: 'Thanks Carla, on it.' });
     check('outreach: a later triage that is not outreach brings it back', restored.status === 201 && (await messageStatus(htmlOnly.id)) === 'handled', restored.body);
 
-    const jeffTriage = await triageOf(reply.id, { outcome: 'no_action', urgent: false, summary: 'x' }, keys.jeff);
-    check('scope: triage of an email in an ungranted inbox is 404 and records nothing', jeffTriage.status === 404
-      && (await rows(db, 'SELECT 1 FROM pm.triage WHERE member_id=$1', [ids.jeff])).length === 0, jeffTriage.body);
+    const builderTriage = await triageOf(reply.id, { outcome: 'no_action', urgent: false, summary: 'x' }, keys.builder);
+    check('scope: triage of an email in an ungranted inbox is 404 and records nothing', builderTriage.status === 404
+      && (await rows(db, 'SELECT 1 FROM pm.triage WHERE member_id=$1', [ids.builder])).length === 0, builderTriage.body);
     await settle();
     const activities = await rows(db, "SELECT * FROM agent_activities WHERE activity_type='email.triaged' ORDER BY created_at");
     check('activity: email.triaged per triage, with no email content in the title', activities.length >= 4 && activities.every((a) => /^(Urgent: t|T)riaged email: /.test(a.title) && !a.title.includes('banner'))
       && activities.some((a) => a.title === 'Urgent: triaged email: flagged for review'), activities.map((a) => a.title));
 
     // Summaries and signal.
-    const sig1 = (await api(signal.GET, 'GET', '/api/v1/inbound-emails/signal', keys.ashley)).body.data;
+    const sig1 = (await api(signal.GET, 'GET', '/api/v1/inbound-emails/signal', keys.planner)).body.data;
     const newCount = (await rows(db, "SELECT count(*)::int AS n FROM pm.messages WHERE inbox_id=$1 AND status='new'", [ids.inboxA]))[0].n;
     check('signal: new and unsummarized counts, an email left alone not among them', sig1.new_count === newCount && sig1.unsummarized_count === 3 && !!sig1.newest_received_at, sig1);
     const second = await triageOf(reply.id, { outcome: 'task', urgent: false, summary: 'Two banner changes, task linked' });
-    const pendingSummary = (await api(unsummarized.GET, 'GET', '/api/v1/inbound-emails/triage/unsummarized', keys.ashley)).body.data as Payload[];
+    const pendingSummary = (await api(unsummarized.GET, 'GET', '/api/v1/inbound-emails/triage/unsummarized', keys.planner)).body.data as Payload[];
     const replyItem = pendingSummary.find((item) => item.message.id === reply.id);
     const replyTriageCount = (await rows(db, 'SELECT count(*)::int AS n FROM pm.triage WHERE message_id=$1', [reply.id]))[0].n;
     check('unsummarized: newest triage per email, older ones listed as superseded', pendingSummary.length === 4 && replyItem?.triage_id === second.body.data.triage.id
       && replyItem?.superseded_triage_ids.length === replyTriageCount - 1 && replyItem.links.length === 1 && replyItem.project.id === ids.acme
       && replyItem.projects.length === 2 && replyItem.links[0].project_id === ids.acme && replyItem.links[0].project_name === 'Acme Roofing', pendingSummary.map((i) => i.message.id));
     const unsummarizedRows = (await rows(db, 'SELECT count(*)::int AS n FROM pm.triage WHERE summarized_at IS NULL'))[0].n;
-    const jeffMark = await api(markSummarized.POST, 'POST', '/api/v1/inbound-emails/triage/mark-summarized', keys.jeff, {}, { triage_ids: [replyItem!.triage_id] });
-    check('mark-summarized: another inbox\'s triage marks nothing (404)', jeffMark.status === 404 && (await rows(db, 'SELECT 1 FROM pm.triage WHERE summarized_at IS NOT NULL')).length === 0, jeffMark.body);
-    const marked = await api(markSummarized.POST, 'POST', '/api/v1/inbound-emails/triage/mark-summarized', keys.ashley, {}, { triage_ids: pendingSummary.map((i) => i.triage_id) });
+    const builderMark = await api(markSummarized.POST, 'POST', '/api/v1/inbound-emails/triage/mark-summarized', keys.builder, {}, { triage_ids: [replyItem!.triage_id] });
+    check('mark-summarized: another inbox\'s triage marks nothing (404)', builderMark.status === 404 && (await rows(db, 'SELECT 1 FROM pm.triage WHERE summarized_at IS NOT NULL')).length === 0, builderMark.body);
+    const marked = await api(markSummarized.POST, 'POST', '/api/v1/inbound-emails/triage/mark-summarized', keys.planner, {}, { triage_ids: pendingSummary.map((i) => i.triage_id) });
     check('mark-summarized: marks the listed and the superseded triage', marked.status === 200 && marked.body.data.marked === unsummarizedRows, [marked.body, unsummarizedRows]);
     await db.query(`UPDATE pm.messages SET auth = auth || '{"trust":"untrusted"}'::jsonb WHERE id=$1`, [usage90.id]);
     const quietAlert = await triageOf(usage90.id, { outcome: 'no_action', urgent: false, summary: 'Usage alert at 90%' });
     check('triage: an untrusted notification left alone settles as handled', quietAlert.status === 201 && quietAlert.body.data.status === 'handled', quietAlert.body);
     // Out of the summary counts the next checks make.
     await db.query('UPDATE pm.triage SET summarized_at = now() WHERE message_id=$1', [usage90.id]);
-    const sig2 = (await api(signal.GET, 'GET', '/api/v1/inbound-emails/signal', keys.ashley)).body.data;
-    check('signal: nothing left to summarize', sig2.unsummarized_count === 0 && (await api(unsummarized.GET, 'GET', '/api/v1/inbound-emails/triage/unsummarized', keys.ashley)).body.data.length === 0, sig2);
-    const sigB = (await api(signal.GET, 'GET', `/api/v1/inbound-emails/signal?inbox_id=${ids.inboxB}`, keys.jeff)).body.data;
+    const sig2 = (await api(signal.GET, 'GET', '/api/v1/inbound-emails/signal', keys.planner)).body.data;
+    check('signal: nothing left to summarize', sig2.unsummarized_count === 0 && (await api(unsummarized.GET, 'GET', '/api/v1/inbound-emails/triage/unsummarized', keys.planner)).body.data.length === 0, sig2);
+    const sigB = (await api(signal.GET, 'GET', `/api/v1/inbound-emails/signal?inbox_id=${ids.inboxB}`, keys.builder)).body.data;
     check('signal: per inbox', sigB.new_count === 1, sigB);
 
     // Idempotency keys.
@@ -646,21 +646,21 @@ async function main() {
     check('spec: the rule 3 guards are dropped', (await rows(db,
       "SELECT 1 FROM pg_proc WHERE proname IN ('email_task_ai_ready_guard', 'email_task_link_guard', 'is_human_session')")).length === 0
       && (await rows(db, "SELECT 1 FROM pg_trigger WHERE tgname IN ('email_task_ai_ready_guard', 'email_task_link_guard')")).length === 0);
-    const needsSpec = await patchTask(acmeTask, keys.ashley, { title: 'Bigger phone number in the banner', ai_readiness: 'needs_spec' });
+    const needsSpec = await patchTask(acmeTask, keys.planner, { title: 'Bigger phone number in the banner', ai_readiness: 'needs_spec' });
     check('spec: an email-linked task can be marked needs_spec', needsSpec.status === 200 && needsSpec.body.data.ai_readiness === 'needs_spec', needsSpec.body);
-    const hybrid = await patchTask(acmeTask, keys.ashley, { ai_readiness: 'hybrid' });
+    const hybrid = await patchTask(acmeTask, keys.planner, { ai_readiness: 'hybrid' });
     check('spec: hybrid is not a task state (422)', hybrid.status === 422, hybrid.body);
-    const ashleyReady = await patchTask(acmeTask, keys.ashley, { ai_readiness: 'ai_ready' });
-    check('spec: an agent can make an email-linked task ai_ready', ashleyReady.status === 200 && ashleyReady.body.data.ai_readiness === 'ai_ready', ashleyReady.body);
-    const cleared = await patchTask(acmeTask, keys.jeff, { ai_readiness: null });
+    const plannerReady = await patchTask(acmeTask, keys.planner, { ai_readiness: 'ai_ready' });
+    check('spec: an agent can make an email-linked task ai_ready', plannerReady.status === 200 && plannerReady.body.data.ai_readiness === 'ai_ready', plannerReady.body);
+    const cleared = await patchTask(acmeTask, keys.builder, { ai_readiness: null });
     check('spec: readiness clears back to a normal task', cleared.status === 200 && cleared.body.data.ai_readiness === null, cleared.body);
     await asService(db, () => db.query("UPDATE tasks SET ai_readiness = 'ai_ready' WHERE id = $1", [acmeTask]));
     check('spec: the database lets the service role mark it ai_ready',
       (await rows(db, 'SELECT ai_readiness FROM tasks WHERE id=$1', [acmeTask]))[0].ai_readiness === 'ai_ready');
 
     // An agent's own ai_ready task links to an email like any other.
-    const [suggestion] = await rows(db, "INSERT INTO task_suggestions(project_id, goal_id, proposed_by, title) VALUES ($1,$2,$3,'Swap banner photo') RETURNING id", [ids.acme, ids.goal, ids.ashley]);
-    const approved = await api(approve.POST, 'POST', `/api/v1/task-suggestions/${suggestion.id}/approve`, keys.ashley, { id: suggestion.id }, { ai_readiness: 'ai_ready' });
+    const [suggestion] = await rows(db, "INSERT INTO task_suggestions(project_id, goal_id, proposed_by, title) VALUES ($1,$2,$3,'Swap banner photo') RETURNING id", [ids.acme, ids.goal, ids.planner]);
+    const approved = await api(approve.POST, 'POST', `/api/v1/task-suggestions/${suggestion.id}/approve`, keys.planner, { id: suggestion.id }, { ai_readiness: 'ai_ready' });
     const approvedTask = approved.body.data?.task?.id as string;
     check('approve: an agent approval creates an ai_ready task', approved.status === 200 && approved.body.data.task.ai_readiness === 'ai_ready', approved.body);
     const linkCreated = await triageOf(reply.id, { outcome: 'task', urgent: false, summary: 'x', links: [{ task_id: approvedTask, relation: 'created' }] });
@@ -672,8 +672,8 @@ async function main() {
     const MARKER = '[Needs spec interview before development]';
     const suggest = async (title: string, metadata: Payload = {}) => (await rows(db,
       'INSERT INTO task_suggestions(project_id, goal_id, proposed_by, title, metadata) VALUES ($1,$2,$3,$4,$5::jsonb) RETURNING id',
-      [ids.acme, ids.goal, ids.ashley, title, JSON.stringify(metadata)]))[0].id as string;
-    const approveAs = (id: string, body: Payload) => api(approve.POST, 'POST', `/api/v1/task-suggestions/${id}/approve`, keys.ashley, { id }, body);
+      [ids.acme, ids.goal, ids.planner, title, JSON.stringify(metadata)]))[0].id as string;
+    const approveAs = (id: string, body: Payload) => api(approve.POST, 'POST', `/api/v1/task-suggestions/${id}/approve`, keys.planner, { id }, body);
     const specLater = await approveAs(await suggest('Rework the quote form'), { ai_readiness: 'needs_spec' });
     check('approve: needs_spec lands as needs_spec, with no marker text', specLater.status === 200 && specLater.body.data.task.ai_readiness === 'needs_spec'
       && !specLater.body.data.task.description.includes(MARKER), specLater.body);
@@ -734,7 +734,7 @@ async function main() {
 
       const goneDetail = await disposable(2);
       deleteOn((_r, url) => url.pathname.endsWith('/inbox_access'), () => db.query('DELETE FROM pm.messages WHERE id=$1', [goneDetail.id]));
-      const vanishedDetail = await api(detail.GET, 'GET', `/api/v1/inbound-emails/${goneDetail.id}`, keys.ashley, { id: goneDetail.id });
+      const vanishedDetail = await api(detail.GET, 'GET', `/api/v1/inbound-emails/${goneDetail.id}`, keys.planner, { id: goneDetail.id });
       check('gone: an email deleted while its detail loads is 404', vanishedDetail.status === 404 && vanishedDetail.body.error.code === 'NOT_FOUND', vanishedDetail.body);
 
       const flakyFiles = await rows(db, 'SELECT id, filename, storage_path FROM pm.attachments WHERE message_id=$1', [flakyDone.id]);
@@ -744,12 +744,12 @@ async function main() {
       };
       const notes = flakyFiles.find((f) => f.filename === 'notes.txt')!;
       deleteOn((request, url) => request.method === 'PATCH' && url.pathname.endsWith('/attachments'), () => dropFile(notes));
-      const vanishedLabel = await api(attachmentLabel.PATCH, 'PATCH', `/api/v1/inbound-emails/${flakyDone.id}/attachments/${notes.id}`, keys.ashley, { id: flakyDone.id, aid: notes.id }, { agent_label: 'Notes' });
+      const vanishedLabel = await api(attachmentLabel.PATCH, 'PATCH', `/api/v1/inbound-emails/${flakyDone.id}/attachments/${notes.id}`, keys.planner, { id: flakyDone.id, aid: notes.id }, { agent_label: 'Notes' });
       check('gone: an attachment deleted before its label is written is 404', vanishedLabel.status === 404 && vanishedLabel.body.error.code === 'NOT_FOUND', vanishedLabel.body);
 
       const quote = flakyFiles.find((f) => f.filename === 'signed-quote.pdf')!;
       deleteOn((_r, url) => url.pathname.includes('/storage/v1/object/sign/'), () => dropFile(quote));
-      const vanishedUrl = await api(attachmentUrl.GET, 'GET', `/api/v1/inbound-emails/${flakyDone.id}/attachments/${quote.id}/url`, keys.ashley, { id: flakyDone.id, aid: quote.id });
+      const vanishedUrl = await api(attachmentUrl.GET, 'GET', `/api/v1/inbound-emails/${flakyDone.id}/attachments/${quote.id}/url`, keys.planner, { id: flakyDone.id, aid: quote.id });
       check('gone: an attachment deleted before its URL is signed is 404', vanishedUrl.status === 404 && vanishedUrl.body.error.code === 'NOT_FOUND', vanishedUrl.body);
     } finally {
       intercept = null;
@@ -921,7 +921,7 @@ async function main() {
     for (const row of before) await db.query('UPDATE pm.messages SET status=$2 WHERE id=$1', [row.id, row.status]);
 
     const carla = 'carla.mendes@gmail.com';
-    check('inbox ui: an agent never creates a mapping (rule 7)', (await failsWith(() => inbox.setThreadProject(person(ids.ashley, 'agent', ['*']), htmlOnly.thread_id,
+    check('inbox ui: an agent never creates a mapping (rule 7)', (await failsWith(() => inbox.setThreadProject(person(ids.planner, 'agent', ['*']), htmlOnly.thread_id,
       { project_id: ids.acme, remember_sender: { address: carla, project_ids: [ids.acme] } }))) === 403);
     check('inbox ui: a public webmail domain cannot be remembered', (await failsWith(() => inbox.setThreadProject(owner, htmlOnly.thread_id,
       { project_id: ids.acme, remember_domain: { domain: 'gmail.com', project_ids: [ids.acme] } }))) === 422);
@@ -951,16 +951,16 @@ async function main() {
     const manage = person(ids.owner, 'owner', ['*']);
     check('settings: listing inboxes needs inbound_email.manage', (await failsWith(() => inboxSettings.listInboxSettings(reader))) === 403);
     const baseInput = {
-      name: 'Support', address: 'Support@Agency.example', routing_local_part: '', routing_domain: '', handler_member_id: ids.jeff, enabled: true,
+      name: 'Support', address: 'Support@Agency.example', routing_local_part: '', routing_domain: '', handler_member_id: ids.builder, enabled: true,
       retention_days: 30, max_attachment_mb: 10, agent_readable_types: ['pdf' as const], summary_interval_minutes: 15, filter_auto_mail: true, access_member_ids: [readerId],
     };
     const created = await inboxSettings.createInbox(manage, baseInput);
     check('settings: a new inbox takes its routing address from the address and the relay domain; the handler can read it', created.routing_address === `support@${RELAY}`
-      && created.address === 'support@agency.example' && created.access_member_ids.includes(ids.jeff) && created.access_member_ids.includes(readerId) && !created.verified_at, created);
+      && created.address === 'support@agency.example' && created.access_member_ids.includes(ids.builder) && created.access_member_ids.includes(readerId) && !created.verified_at, created);
     await db.query('UPDATE pm.inboxes SET verified_at = now() WHERE id=$1', [created.id]);
     const moved = await inboxSettings.updateInbox(manage, created.id, { ...baseInput, routing_local_part: 'help', access_member_ids: [] });
     check('settings: a new routing address clears verification; access can be narrowed (the handler stays)', moved.routing_address === `help@${RELAY}` && moved.verified_at === null
-      && JSON.stringify(moved.access_member_ids) === JSON.stringify([ids.jeff]), moved);
+      && JSON.stringify(moved.access_member_ids) === JSON.stringify([ids.builder]), moved);
     check('settings: a taken routing address is 409', (await failsWith(() => inboxSettings.createInbox(manage, { ...baseInput, address: 'other@agency.example', routing_local_part: 'help' }))) === 409);
     const listedSettings = await inboxSettings.listInboxSettings(manage);
     check('settings: list shows message counts and the relay domain', listedSettings.relay_domain === RELAY && (listedSettings.inboxes.find((i) => i.id === ids.inboxA)?.message_count ?? 0) > 0);
@@ -983,9 +983,9 @@ async function main() {
       && (await failsWith(() => inboxSettings.removeClientDomain(manage, ids.acme, added.id))) === 404);
 
     // ---- Project email addresses ------------------------------------------
-    const p4tf = randomUUID();
+    const globex = randomUUID();
     const shelved = randomUUID();
-    await db.query("INSERT INTO projects(id, name) VALUES ($1,'P4TF Rebrand')", [p4tf]);
+    await db.query("INSERT INTO projects(id, name) VALUES ($1,'GLOBEX Rebrand')", [globex]);
     await db.query("INSERT INTO projects(id, name, status, archived_at) VALUES ($1,'Old client','completed',now())", [shelved]);
     const statusOfFailure = async (work: () => Promise<unknown>) => {
       try { await work(); return { status: 0, message: '' }; } catch (error) {
@@ -1012,53 +1012,53 @@ async function main() {
     };
 
     // Settings: create, normalize, uniqueness both ways, case-insensitively.
-    const address = await inboxSettings.addProjectAddress(manage, p4tf, { inbox_id: ids.inboxA, routing_local_part: 'P4TF', public_address: 'P4TF@Agency.example', enabled: true });
-    check('project address: created on the relay domain, lowercased, with its public address', address.routing_address === `p4tf@${RELAY}`
-      && address.public_address === 'p4tf@agency.example' && address.enabled && address.inbox_id === ids.inboxA, address);
-    const fromPublic = await inboxSettings.addProjectAddress(manage, p4tf, { inbox_id: ids.inboxA, routing_local_part: '', public_address: 'p4tf.team@agency.example', enabled: false });
-    check('project address: an empty routing local part takes the public address\'s', fromPublic.routing_address === `p4tf.team@${RELAY}` && !fromPublic.enabled, fromPublic);
+    const address = await inboxSettings.addProjectAddress(manage, globex, { inbox_id: ids.inboxA, routing_local_part: 'GLOBEX', public_address: 'GLOBEX@Agency.example', enabled: true });
+    check('project address: created on the relay domain, lowercased, with its public address', address.routing_address === `globex@${RELAY}`
+      && address.public_address === 'globex@agency.example' && address.enabled && address.inbox_id === ids.inboxA, address);
+    const fromPublic = await inboxSettings.addProjectAddress(manage, globex, { inbox_id: ids.inboxA, routing_local_part: '', public_address: 'globex.team@agency.example', enabled: false });
+    check('project address: an empty routing local part takes the public address\'s', fromPublic.routing_address === `globex.team@${RELAY}` && !fromPublic.enabled, fromPublic);
     check('project address: neither a routing nor a public address is 422',
-      (await failsWith(() => inboxSettings.addProjectAddress(manage, p4tf, { inbox_id: ids.inboxA, routing_local_part: '', public_address: null, enabled: true }))) === 422);
-    const takenByInbox = await statusOfFailure(() => inboxSettings.addProjectAddress(manage, p4tf, { inbox_id: ids.inboxA, routing_local_part: 'Ashley', public_address: null, enabled: true }));
+      (await failsWith(() => inboxSettings.addProjectAddress(manage, globex, { inbox_id: ids.inboxA, routing_local_part: '', public_address: null, enabled: true }))) === 422);
+    const takenByInbox = await statusOfFailure(() => inboxSettings.addProjectAddress(manage, globex, { inbox_id: ids.inboxA, routing_local_part: 'Planner', public_address: null, enabled: true }));
     check('uniqueness: an inbox\'s routing address cannot become a project address (409)', takenByInbox.status === 409 && /inbox already uses/.test(takenByInbox.message), takenByInbox);
-    const takenByAddress = await statusOfFailure(() => inboxSettings.createInbox(manage, { ...baseInput, address: 'rebrand@agency.example', routing_local_part: 'P4TF' }));
+    const takenByAddress = await statusOfFailure(() => inboxSettings.createInbox(manage, { ...baseInput, address: 'rebrand@agency.example', routing_local_part: 'GLOBEX' }));
     check('uniqueness: a project address cannot become an inbox\'s routing address (409)', takenByAddress.status === 409 && /project email address already uses/.test(takenByAddress.message), takenByAddress);
-    const twice = await statusOfFailure(() => inboxSettings.addProjectAddress(manage, ids.birch, { inbox_id: ids.inboxB, routing_local_part: 'p4tf', public_address: null, enabled: true }));
+    const twice = await statusOfFailure(() => inboxSettings.addProjectAddress(manage, ids.birch, { inbox_id: ids.inboxB, routing_local_part: 'globex', public_address: null, enabled: true }));
     check('uniqueness: two project addresses cannot share a routing address (409)', twice.status === 409, twice);
-    const upperInsert = await refusedBy("INSERT INTO pm.endpoints(project_id, inbox_id, routing_local_part, routing_domain) VALUES ($1,$2,'P4TF','')", [ids.birch, ids.inboxB]);
-    const inboxMove = await refusedBy("UPDATE pm.inboxes SET routing_local_part = 'P4TF' WHERE id = $1", [ids.inboxB]);
+    const upperInsert = await refusedBy("INSERT INTO pm.endpoints(project_id, inbox_id, routing_local_part, routing_domain) VALUES ($1,$2,'GLOBEX','')", [ids.birch, ids.inboxB]);
+    const inboxMove = await refusedBy("UPDATE pm.inboxes SET routing_local_part = 'GLOBEX' WHERE id = $1", [ids.inboxB]);
     const addressMove = await refusedBy("UPDATE pm.endpoints SET routing_local_part = 'billing' WHERE id = $1", [address.id]);
     check('uniqueness: the database refuses either direction, whatever the case', /duplicate key/.test(upperInsert)
       && /EMAIL_ROUTING_ADDRESS_TAKEN/.test(inboxMove) && /EMAIL_ROUTING_ADDRESS_TAKEN/.test(addressMove), [upperInsert, inboxMove, addressMove]);
-    const [stepped] = await rows(db, "INSERT INTO pm.inboxes(name, address) VALUES ('Rebrand','p4tf@elsewhere.example') RETURNING id, routing_local_part");
-    check('uniqueness: an inbox\'s generated local part steps around project addresses', /^p4tf-[0-9a-f]{4}$/.test(stepped.routing_local_part), stepped);
+    const [stepped] = await rows(db, "INSERT INTO pm.inboxes(name, address) VALUES ('Rebrand','globex@elsewhere.example') RETURNING id, routing_local_part");
+    check('uniqueness: an inbox\'s generated local part steps around project addresses', /^globex-[0-9a-f]{4}$/.test(stepped.routing_local_part), stepped);
     await db.query('DELETE FROM pm.inboxes WHERE id=$1', [stepped.id]);
     check('project address: editing in place to an inbox\'s address is 409',
-      (await failsWith(() => inboxSettings.updateProjectAddress(manage, p4tf, address.id, { routing_local_part: 'billing' }))) === 409);
+      (await failsWith(() => inboxSettings.updateProjectAddress(manage, globex, address.id, { routing_local_part: 'billing' }))) === 409);
     check('project address: a bad local part is 422 at the route', (await failsWith(async () => {
       const { readBody } = await import('../src/lib/communications/inbox-route');
       const { projectAddressSchema } = await import('../src/lib/communications/schemas');
-      await readBody(new Request('http://localhost/x', { method: 'POST', body: JSON.stringify({ inbox_id: ids.inboxA, routing_local_part: 'p4tf!', public_address: null, enabled: true }) }), projectAddressSchema);
+      await readBody(new Request('http://localhost/x', { method: 'POST', body: JSON.stringify({ inbox_id: ids.inboxA, routing_local_part: 'globex!', public_address: null, enabled: true }) }), projectAddressSchema);
     })) === 422);
 
     // Permissions: the same people as client email domains.
-    const projectReader = person(readerId, 'member', ['inbound_email.read', 'projects.read'], [ids.acme, p4tf]);
-    const contactsManager = person(readerId, 'member', ['contacts.manage', 'projects.read'], [p4tf]);
+    const projectReader = person(readerId, 'member', ['inbound_email.read', 'projects.read'], [ids.acme, globex]);
+    const contactsManager = person(readerId, 'member', ['contacts.manage', 'projects.read'], [globex]);
     check('permissions: a reader lists but cannot add, edit or delete',
-      (await inboxSettings.listProjectAddresses(projectReader, p4tf)).addresses.length === 2
-      && (await failsWith(() => inboxSettings.addProjectAddress(projectReader, p4tf, { inbox_id: ids.inboxA, routing_local_part: 'x-reader', public_address: null, enabled: true }))) === 403
-      && (await failsWith(() => inboxSettings.updateProjectAddress(projectReader, p4tf, address.id, { enabled: false }))) === 403
-      && (await failsWith(() => inboxSettings.removeProjectAddress(projectReader, p4tf, address.id))) === 403);
+      (await inboxSettings.listProjectAddresses(projectReader, globex)).addresses.length === 2
+      && (await failsWith(() => inboxSettings.addProjectAddress(projectReader, globex, { inbox_id: ids.inboxA, routing_local_part: 'x-reader', public_address: null, enabled: true }))) === 403
+      && (await failsWith(() => inboxSettings.updateProjectAddress(projectReader, globex, address.id, { enabled: false }))) === 403
+      && (await failsWith(() => inboxSettings.removeProjectAddress(projectReader, globex, address.id))) === 403);
     check('permissions: no contacts or inbox permission is 403; a project outside reach is 403',
-      (await failsWith(() => inboxSettings.listProjectAddresses(outsider, p4tf))) === 403
-      && (await failsWith(() => inboxSettings.listProjectAddresses(reader, p4tf))) === 403
+      (await failsWith(() => inboxSettings.listProjectAddresses(outsider, globex))) === 403
+      && (await failsWith(() => inboxSettings.listProjectAddresses(reader, globex))) === 403
       && (await failsWith(() => inboxSettings.addProjectAddress(contactsManager, ids.birch, { inbox_id: ids.inboxA, routing_local_part: 'x-birch', public_address: null, enabled: true }))) === 403);
-    check('permissions: an agent never manages them', (await failsWith(() => inboxSettings.addProjectAddress(person(ids.ashley, 'agent', ['*']), p4tf,
+    check('permissions: an agent never manages them', (await failsWith(() => inboxSettings.addProjectAddress(person(ids.planner, 'agent', ['*']), globex,
       { inbox_id: ids.inboxA, routing_local_part: 'x-agent', public_address: null, enabled: true }))) === 403);
-    const byContacts = await inboxSettings.addProjectAddress(contactsManager, p4tf, { inbox_id: ids.inboxB, routing_local_part: 'p4tf-billing', public_address: null, enabled: true });
+    const byContacts = await inboxSettings.addProjectAddress(contactsManager, globex, { inbox_id: ids.inboxB, routing_local_part: 'globex-billing', public_address: null, enabled: true });
     check('permissions: contacts.manage on the project manages them; an address on another project is 404',
       byContacts.inbox_id === ids.inboxB && (await failsWith(() => inboxSettings.updateProjectAddress(manage, ids.birch, address.id, { enabled: false }))) === 404, byContacts);
-    const listedAddresses = await inboxSettings.listProjectAddresses(manage, p4tf);
+    const listedAddresses = await inboxSettings.listProjectAddresses(manage, globex);
     check('project address: the list carries the relay domain and the inboxes to choose from', listedAddresses.relay_domain === RELAY
       && listedAddresses.addresses.length === 3 && listedAddresses.inboxes.some((i) => i.id === ids.inboxB), listedAddresses);
     const countedSettings = await inboxSettings.listInboxSettings(manage);
@@ -1070,38 +1070,38 @@ async function main() {
     check('your addresses: one with no project keeps no relay address and belongs to the company',
       companyAddress.address === 'hello@agency.example' && companyAddress.project_id === null && companyAddress.routing_address === null
       && companyAddress.owner_member_id === null, companyAddress);
-    const ownerAddress = await inboxSettings.addYourAddress(manage, { address: 'ciaran@agency.example', project_id: null, owner_member_id: ids.owner });
+    const ownerAddress = await inboxSettings.addYourAddress(manage, { address: 'morgan@agency.example', project_id: null, owner_member_id: ids.owner });
     check('your addresses: an address can be a person\'s', ownerAddress.owner_member_id === ids.owner, ownerAddress);
     check('your addresses: the same address twice, or the inbox\'s own, is 409',
       (await failsWith(() => inboxSettings.addYourAddress(manage, { address: 'hello@agency.example', project_id: null, owner_member_id: null }))) === 409
-      && (await failsWith(() => inboxSettings.addYourAddress(manage, { address: 'ashley@agency.example', project_id: null, owner_member_id: null }))) === 409);
+      && (await failsWith(() => inboxSettings.addYourAddress(manage, { address: 'planner@agency.example', project_id: null, owner_member_id: null }))) === 409);
     check('your addresses: only inbox managers see or change the list',
       (await failsWith(() => inboxSettings.listYourAddresses(projectReader))) === 403
       && (await failsWith(() => inboxSettings.addYourAddress(projectReader, { address: 'x@agency.example', project_id: null, owner_member_id: null }))) === 403);
     const yourList = await inboxSettings.listYourAddresses(manage);
     check('your addresses: the list holds project addresses and the rest, and says where the rest forward',
-      yourList.addresses.some((a) => a.id === address.id && a.project_id === p4tf) && yourList.addresses.some((a) => a.id === companyAddress.id)
-      && yourList.inboxes.some((i) => i.id === ids.inboxA && i.routing_address === `ashley@${RELAY}`) && yourList.unlisted.length === 0, yourList);
+      yourList.addresses.some((a) => a.id === address.id && a.project_id === globex) && yourList.addresses.some((a) => a.id === companyAddress.id)
+      && yourList.inboxes.some((i) => i.id === ids.inboxA && i.routing_address === `planner@${RELAY}`) && yourList.unlisted.length === 0, yourList);
     const givenProject = await inboxSettings.updateYourAddress(manage, companyAddress.id, { project_id: ids.birch });
     check('your addresses: giving one a project gives it a relay address of its own', givenProject.routing_address === `hello@${RELAY}` && givenProject.project_id === ids.birch, givenProject);
     await inboxSettings.removeYourAddress(manage, companyAddress.id);
     check('your addresses: removed', !(await inboxSettings.listYourAddresses(manage)).addresses.some((a) => a.id === companyAddress.id));
     // Mail written to one of your addresses, arriving through the inbox, reads as written to you.
-    await sendRaw('re_your_address', { from: 'Dana Wu <dana@acme-roofing.example>', to: 'ciaran@agency.example', subject: 'Seminar banner', id: 'your-address@acme-roofing.example' },
-      ['ciaran@agency.example'], [`ashley@${RELAY}`]);
+    await sendRaw('re_your_address', { from: 'Dana Wu <dana@acme-roofing.example>', to: 'morgan@agency.example', subject: 'Seminar banner', id: 'your-address@acme-roofing.example' },
+      ['morgan@agency.example'], [`planner@${RELAY}`]);
     const [toYou] = await messageBy('your-address@acme-roofing.example');
     check('your addresses: mail to one of them is direct, not blind-copied', toYou?.delivery === 'direct', toYou?.delivery);
     const [stamped] = await rows(db, 'SELECT last_received_at FROM pm.endpoints WHERE id = $1', [ownerAddress.id]);
     check('your addresses: one with no relay of its own knows its last email', !!stamped?.last_received_at, stamped);
     // Unlisted: an address on your own domain is suggested; a client's staff never are, even
     // when one of your project addresses sits on the client's domain.
-    const clientMailbox = await inboxSettings.addYourAddress(manage, { address: 'ciaran@acme-roofing.example', project_id: ids.birch, owner_member_id: ids.owner });
+    const clientMailbox = await inboxSettings.addYourAddress(manage, { address: 'morgan@acme-roofing.example', project_id: ids.birch, owner_member_id: ids.owner });
     await sendRaw('re_unlisted', { from: 'Dana Wu <dana@acme-roofing.example>', to: 'accounts@agency.example, ops@acme-roofing.example', subject: 'Invoice question', id: 'unlisted@acme-roofing.example' },
-      ['accounts@agency.example'], [`ashley@${RELAY}`]);
+      ['accounts@agency.example'], [`planner@${RELAY}`]);
     const reviewed = async () => (await inboxSettings.listYourAddresses(manage, { review: true })).unlisted.flatMap((row) => row.addresses.map((a) => a.address));
-    const onGmail = await inboxSettings.addYourAddress(manage, { address: 'ciaran.personal@gmail.com', project_id: null, owner_member_id: ids.owner });
-    await sendRaw('re_public_domain', { from: 'Dana Wu <dana@acme-roofing.example>', to: 'ciaran.personal@gmail.com, someone.else@gmail.com', subject: 'Personal', id: 'public-domain@acme-roofing.example' },
-      ['ciaran.personal@gmail.com'], [`ashley@${RELAY}`]);
+    const onGmail = await inboxSettings.addYourAddress(manage, { address: 'morgan.personal@gmail.com', project_id: null, owner_member_id: ids.owner });
+    await sendRaw('re_public_domain', { from: 'Dana Wu <dana@acme-roofing.example>', to: 'morgan.personal@gmail.com, someone.else@gmail.com', subject: 'Personal', id: 'public-domain@acme-roofing.example' },
+      ['morgan.personal@gmail.com'], [`planner@${RELAY}`]);
     const suggested = await reviewed();
     const reviewRows = (await inboxSettings.listYourAddresses(manage, { review: true })).unlisted.flatMap((row) => row.addresses);
     check('your addresses: a public mail domain is never scanned, and a suggestion names the inbox its mail arrived at',
@@ -1117,7 +1117,7 @@ async function main() {
     // A domain of yours: every address on it is yours, listed or not.
     const ownDomain = await inboxSettings.addOwnDomain(manage, '@Agency.example');
     await sendRaw('re_own_domain', { from: 'Dana Wu <dana@acme-roofing.example>', to: 'anything@agency.example', subject: 'Domain catch-all', id: 'own-domain@acme-roofing.example' },
-      ['anything@agency.example'], [`ashley@${RELAY}`]);
+      ['anything@agency.example'], [`planner@${RELAY}`]);
     const [toDomain] = await messageBy('own-domain@acme-roofing.example');
     check('your domains: mail to any address on one is direct', ownDomain.domain === 'agency.example' && toDomain?.delivery === 'direct', [ownDomain, toDomain?.delivery]);
     check('your domains: twice is 409, a public mail domain or a client\'s domain is refused',
@@ -1136,30 +1136,30 @@ async function main() {
     await inboxSettings.removeYourAddress(manage, helloTwo.id);
 
     // Ingestion: a new thread is filed on the project, ahead of the mapping.
-    const viaForwarder = await sendRaw('re_pa_new', { from: 'Dana Wu <dana@acme-roofing.example>', to: 'p4tf@agency.example', subject: 'Rebrand kickoff notes', id: 'pa-new@acme-roofing.example' },
-      ['p4tf@agency.example'], [`P4TF@${RELAY.toUpperCase()}`]);
+    const viaForwarder = await sendRaw('re_pa_new', { from: 'Dana Wu <dana@acme-roofing.example>', to: 'globex@agency.example', subject: 'Rebrand kickoff notes', id: 'pa-new@acme-roofing.example' },
+      ['globex@agency.example'], [`GLOBEX@${RELAY.toUpperCase()}`]);
     const filed = await threadOf('pa-new@acme-roofing.example');
     const filedCandidates = await rows(db, 'SELECT project_id FROM pm.message_candidates WHERE message_id=$1', [filed.message.id]);
     check('ingest: a forwarded email to a project address lands in its inbox, the new thread filed as address',
-      viaForwarder.status === 200 && filed.message.inbox_id === ids.inboxA && filed.thread.project_id === p4tf
+      viaForwarder.status === 200 && filed.message.inbox_id === ids.inboxA && filed.thread.project_id === globex
       && filed.thread.project_source === 'address' && filed.thread.project_address_id === address.id && filed.message.status === 'new', [viaForwarder.body, filed.thread]);
     check('ingest: the contact mapping still records its candidates but does not override the address', filedCandidates.length === 2, filedCandidates);
     const filedRecipients = await rows(db, "SELECT address FROM pm.participants WHERE message_id=$1 AND kind='to'", [filed.message.id]);
     check('ingest: the project\'s public address is ours, never offered as a sender to remember',
-      filedRecipients.some((r) => r.address === 'p4tf@agency.example') && !(await inbox.threadDetail(owner, filed.thread.id)).senders.some((x) => x.address === 'p4tf@agency.example'));
+      filedRecipients.some((r) => r.address === 'globex@agency.example') && !(await inbox.threadDetail(owner, filed.thread.id)).senders.some((x) => x.address === 'globex@agency.example'));
     const filedDetail = await inbox.threadDetail(owner, filed.thread.id);
     check('inbox ui: the thread shows the address source and the address it came through',
-      filedDetail.project?.source === 'address' && filedDetail.project.address === 'p4tf@agency.example' && filedDetail.project.id === p4tf, filedDetail.project);
+      filedDetail.project?.source === 'address' && filedDetail.project.address === 'globex@agency.example' && filedDetail.project.id === globex, filedDetail.project);
     const [heard] = await rows(db, 'SELECT last_received_at, updated_at FROM pm.endpoints WHERE id=$1', [address.id]);
-    const listedHeard = (await inboxSettings.listProjectAddresses(manage, p4tf)).addresses.find((row) => row.id === address.id);
+    const listedHeard = (await inboxSettings.listProjectAddresses(manage, globex)).addresses.find((row) => row.id === address.id);
     check('project address: mail through it stamps last_received_at (not updated_at); the list returns it',
       !!heard.last_received_at && heard.updated_at < heard.last_received_at && !!listedHeard?.last_received_at, [heard, listedHeard]);
-    check('project address: an address nothing came through has none', (await inboxSettings.listProjectAddresses(manage, p4tf)).addresses.find((row) => row.id === fromPublic.id)?.last_received_at === null);
+    check('project address: an address nothing came through has none', (await inboxSettings.listProjectAddresses(manage, globex)).addresses.find((row) => row.id === fromPublic.id)?.last_received_at === null);
 
     // A reply on a thread with a project keeps it.
     await db.query('UPDATE pm.endpoints SET last_received_at = NULL WHERE id=$1', [address.id]);
-    await sendRaw('re_pa_reply', { from: 'Dana Wu <dana@acme-roofing.example>', to: 'p4tf@agency.example', subject: 'Re: Homepage banner', id: 'pa-reply@acme-roofing.example', inReplyTo: 'orig-1@agency.example' },
-      [`p4tf@${RELAY}`]);
+    await sendRaw('re_pa_reply', { from: 'Dana Wu <dana@acme-roofing.example>', to: 'globex@agency.example', subject: 'Re: Homepage banner', id: 'pa-reply@acme-roofing.example', inReplyTo: 'orig-1@agency.example' },
+      [`globex@${RELAY}`]);
     const replied = await threadOf('pa-reply@acme-roofing.example');
     check('ingest: a reply through a project address keeps the thread\'s project', replied.thread.id === orig.thread_id
       && replied.thread.project_id === ids.acme && replied.thread.project_source === 'inferred' && replied.thread.project_address_id === null, replied.thread);
@@ -1173,21 +1173,21 @@ async function main() {
     check('ingest: a completed, archived project is still filed through its address', shelvedThread.thread.project_id === shelved && shelvedThread.thread.project_source === 'address', shelvedThread.thread);
 
     // Off, or its inbox off: unknown, nothing stored.
-    await inboxSettings.updateProjectAddress(manage, p4tf, address.id, { enabled: false });
-    const offMail = await sendRaw('re_pa_off', { from: 'Kim <kim@oldco.example>', to: 'p4tf@agency.example', subject: 'Off address', id: 'pa-off@oldco.example' }, ['p4tf@agency.example'], [`p4tf@${RELAY}`]);
+    await inboxSettings.updateProjectAddress(manage, globex, address.id, { enabled: false });
+    const offMail = await sendRaw('re_pa_off', { from: 'Kim <kim@oldco.example>', to: 'globex@agency.example', subject: 'Off address', id: 'pa-off@oldco.example' }, ['globex@agency.example'], [`globex@${RELAY}`]);
     check('ingest: a disabled project address is unknown: dropped, nothing stored', offMail.body.reason === 'no_inbox' && (await messageBy('pa-off@oldco.example')).length === 0, offMail.body);
-    await inboxSettings.updateProjectAddress(manage, p4tf, address.id, { enabled: true });
+    await inboxSettings.updateProjectAddress(manage, globex, address.id, { enabled: true });
     await db.query('UPDATE pm.inboxes SET enabled = false WHERE id=$1', [ids.inboxB]);
-    const inboxOff = await sendRaw('re_pa_inbox_off', { from: 'Kim <kim@oldco.example>', to: `p4tf-billing@${RELAY}`, subject: 'Inbox off', id: 'pa-inbox-off@oldco.example' }, [`p4tf-billing@${RELAY}`]);
+    const inboxOff = await sendRaw('re_pa_inbox_off', { from: 'Kim <kim@oldco.example>', to: `globex-billing@${RELAY}`, subject: 'Inbox off', id: 'pa-inbox-off@oldco.example' }, [`globex-billing@${RELAY}`]);
     check('ingest: an address whose inbox is disabled is unknown too', inboxOff.body.reason === 'no_inbox' && (await messageBy('pa-inbox-off@oldco.example')).length === 0, inboxOff.body);
     await db.query('UPDATE pm.inboxes SET enabled = true WHERE id=$1', [ids.inboxB]);
 
     // Several addresses: the first in recipient order decides each inbox's project.
     const birchWeb = await inboxSettings.addProjectAddress(manage, ids.birch, { inbox_id: ids.inboxA, routing_local_part: 'birch-web', public_address: null, enabled: true });
     await sendRaw('re_pa_two_a', { from: 'Kim <kim@oldco.example>', to: 'x@agency.example', subject: 'Two addresses A', id: 'pa-two-a@oldco.example' },
-      [`ashley@${RELAY}`, `birch-web@${RELAY}`, `p4tf@${RELAY}`]);
+      [`planner@${RELAY}`, `birch-web@${RELAY}`, `globex@${RELAY}`]);
     await sendRaw('re_pa_two_b', { from: 'Kim <kim@oldco.example>', to: 'x@agency.example', subject: 'Two addresses B', id: 'pa-two-b@oldco.example' },
-      [`p4tf@${RELAY}`, `birch-web@${RELAY}`]);
+      [`globex@${RELAY}`, `birch-web@${RELAY}`]);
     const twoA = await messageBy('pa-two-a@oldco.example');
     const twoB = await messageBy('pa-two-b@oldco.example');
     const projectOfThread = async (threadId: string) => (await rows(db, 'SELECT project_id, project_address_id FROM pm.conversations WHERE id=$1', [threadId]))[0];
@@ -1195,51 +1195,51 @@ async function main() {
     const twoBThread = twoB[0] ? await projectOfThread(twoB[0].thread_id) : null;
     check('routing: two project addresses on one inbox: one copy, the first in recipient order sets the project; the inbox address never outranks one',
       twoA.length === 1 && twoAThread?.project_id === ids.birch && twoAThread.project_address_id === birchWeb.id
-      && twoB.length === 1 && twoBThread?.project_id === p4tf && twoBThread.project_address_id === address.id, [twoAThread, twoBThread]);
+      && twoB.length === 1 && twoBThread?.project_id === globex && twoBThread.project_address_id === address.id, [twoAThread, twoBThread]);
     await sendRaw('re_pa_cross', { from: 'Kim <kim@oldco.example>', to: 'x@agency.example', subject: 'Across inboxes', id: 'pa-cross@oldco.example' },
-      [`birch-web@${RELAY}`, `p4tf-billing@${RELAY}`]);
+      [`birch-web@${RELAY}`, `globex-billing@${RELAY}`]);
     const cross = await messageBy('pa-cross@oldco.example');
     const crossProjects = await Promise.all(cross.map(async (m) => [m.inbox_id, (await projectOfThread(m.thread_id)).project_id]));
     check('routing: project addresses on two inboxes deliver a copy to each, each with its own project', cross.length === 2
       && crossProjects.some(([inboxId, projectId]) => inboxId === ids.inboxA && projectId === ids.birch)
-      && crossProjects.some(([inboxId, projectId]) => inboxId === ids.inboxB && projectId === p4tf), crossProjects);
+      && crossProjects.some(([inboxId, projectId]) => inboxId === ids.inboxB && projectId === globex), crossProjects);
 
     // Every inbox rule still applies: the verification code, auto-mail.
     await db.query('UPDATE pm.inboxes SET verified_at = NULL WHERE id=$1', [ids.inboxA]);
-    const verifiedVia = await sendRaw('re_pa_verify', { from: 'Sam Owner <owner@agency.example>', to: 'p4tf@agency.example', subject: 'Check VM-7K2Q', id: 'pa-verify@agency.example' }, [`p4tf@${RELAY}`]);
+    const verifiedVia = await sendRaw('re_pa_verify', { from: 'Sam Owner <owner@agency.example>', to: 'globex@agency.example', subject: 'Check VM-7K2Q', id: 'pa-verify@agency.example' }, [`globex@${RELAY}`]);
     await db.query('UPDATE pm.endpoints SET public_address = $2 WHERE id=$1', [birchWeb.id, 'birch@agency.example']);
     check('project address: a new public or routing address waits for its first email again',
       (await rows(db, 'SELECT last_received_at FROM pm.endpoints WHERE id=$1', [birchWeb.id]))[0].last_received_at === null);
     check('rules: the inbox verification code through a project address verifies and stores nothing', verifiedVia.body.inboxes?.[0]?.outcome === 'verified'
       && !!(await rows(db, 'SELECT verified_at FROM pm.inboxes WHERE id=$1', [ids.inboxA]))[0].verified_at && (await messageBy('pa-verify@agency.example')).length === 0, verifiedVia.body);
-    await add('newsletter.eml', 're_pa_news', { deliveredTo: [`p4tf@${RELAY}`], messageId: '<pa-news@acme-supplies.example>' });
+    await add('newsletter.eml', 're_pa_news', { deliveredTo: [`globex@${RELAY}`], messageId: '<pa-news@acme-supplies.example>' });
     await deliver('re_pa_news');
     const [paNews] = await messageBy('pa-news@acme-supplies.example');
     check('rules: auto-mail through a project address is still ignored', paNews?.status === 'ignored', paNews);
 
     // The agent sees the source and the address; inference cannot override it.
-    const paDetail = await api(detail.GET, 'GET', `/api/v1/inbound-emails/${filed.message.id}`, keys.ashley, { id: filed.message.id });
-    check('agent api: detail shows source address and the address it came through', paDetail.status === 200 && paDetail.body.data.project?.id === p4tf
-      && paDetail.body.data.project.source === 'address' && paDetail.body.data.project.address?.routing_address === `p4tf@${RELAY}`
-      && paDetail.body.data.project.address.public_address === 'p4tf@agency.example', paDetail.body.data?.project);
-    const paList = await api(list.GET, 'GET', `/api/v1/inbound-emails?project_id=${p4tf}`, keys.ashley);
+    const paDetail = await api(detail.GET, 'GET', `/api/v1/inbound-emails/${filed.message.id}`, keys.planner, { id: filed.message.id });
+    check('agent api: detail shows source address and the address it came through', paDetail.status === 200 && paDetail.body.data.project?.id === globex
+      && paDetail.body.data.project.source === 'address' && paDetail.body.data.project.address?.routing_address === `globex@${RELAY}`
+      && paDetail.body.data.project.address.public_address === 'globex@agency.example', paDetail.body.data?.project);
+    const paList = await api(list.GET, 'GET', `/api/v1/inbound-emails?project_id=${globex}`, keys.planner);
     const paRow = paList.body.data.find((m: Payload) => m.id === filed.message.id);
     check('agent api: the list shows the same project, source and address', paRow?.project?.source === 'address' && paRow.project.address?.id === address.id
-      && paList.body.data.every((m: Payload) => m.project?.id === p4tf), paRow);
-    const orderList = await api(list.GET, 'GET', `/api/v1/inbound-emails?project_id=${ids.acme}`, keys.ashley);
+      && paList.body.data.every((m: Payload) => m.project?.id === globex), paRow);
+    const orderList = await api(list.GET, 'GET', `/api/v1/inbound-emails?project_id=${ids.acme}`, keys.planner);
     check('agent api: other sources carry address null', orderList.body.data.length > 0 && orderList.body.data.every((m: Payload) => m.project.address === null), orderList.body.data.map((m: Payload) => m.project));
     const inferOver = await triageOf(filed.message.id, { outcome: 'task', urgent: false, summary: 'Kickoff notes', project_id: ids.acme });
     check('triage: a candidate project joins an address thread, and the address project stays its strongest', inferOver.status === 201
-      && inferOver.body.data.thread.project_id === p4tf && inferOver.body.data.thread.project_source === 'address'
+      && inferOver.body.data.thread.project_id === globex && inferOver.body.data.thread.project_source === 'address'
       && inferOver.body.data.thread.projects.length === 2, inferOver.body);
-    const sameProject = await triageOf(filed.message.id, { outcome: 'no_action', urgent: false, summary: 'Kickoff notes', project_id: p4tf });
+    const sameProject = await triageOf(filed.message.id, { outcome: 'no_action', urgent: false, summary: 'Kickoff notes', project_id: globex });
     const [afterTriage] = await rows(db, 'SELECT project_id, project_source, project_address_id FROM pm.conversations WHERE id=$1', [filed.thread.id]);
     check('triage: naming the address project is accepted and leaves the source as address', sameProject.status === 201
       && sameProject.body.data.thread.project_source === 'address' && afterTriage.project_source === 'address' && afterTriage.project_address_id === address.id, [sameProject.body, afterTriage]);
 
     // Deleting an address keeps what it filed; a person can still move a thread.
-    await inboxSettings.removeProjectAddress(manage, p4tf, fromPublic.id);
-    check('project address: deleted, and deleting again is 404', (await failsWith(() => inboxSettings.removeProjectAddress(manage, p4tf, fromPublic.id))) === 404);
+    await inboxSettings.removeProjectAddress(manage, globex, fromPublic.id);
+    check('project address: deleted, and deleting again is 404', (await failsWith(() => inboxSettings.removeProjectAddress(manage, globex, fromPublic.id))) === 404);
     await inboxSettings.removeProjectAddress(manage, shelved, oldAddress.id);
     const [keptShelved] = await rows(db, 'SELECT project_id, project_source, project_address_id FROM pm.conversations WHERE id=$1', [shelvedThread.thread.id]);
     check('project address: a deleted address leaves its threads on the project, without the address', keptShelved.project_id === shelved
@@ -1334,7 +1334,7 @@ async function main() {
       check('senders: a duplicate on the project is 409, case-insensitively', dupe.status === 409 && /already on this project/.test(dupe.message), dupe);
       check('senders: a non-address is 422; one of our own addresses (inbox, teammate) is 422',
         (await failsWith(() => inboxSettings.addClientSender(manage, bobA, 'bob at gmail'))) === 422
-        && (await failsWith(() => inboxSettings.addClientSender(manage, bobA, 'Ashley@Agency.example'))) === 422
+        && (await failsWith(() => inboxSettings.addClientSender(manage, bobA, 'Planner@Agency.example'))) === 422
         && (await failsWith(() => inboxSettings.addClientSender(manage, bobA, 'owner@agency.example'))) === 422);
       check('senders: an empty body is 422 at the route', (await failsWith(async () => {
         const { readBody } = await import('../src/lib/communications/inbox-route');
@@ -1357,7 +1357,7 @@ async function main() {
         (await failsWith(() => inboxSettings.listClientSenders(outsider, bobA))) === 403
         && (await failsWith(() => inboxSettings.listClientSenders(senderReader, bobB))) === 403
         && (await failsWith(() => inboxSettings.addClientSender(senderManager, bobB, 'x@gmail.com'))) === 403
-        && (await failsWith(() => inboxSettings.addClientSender(person(ids.ashley, 'agent', ['*']), bobA, 'x@gmail.com'))) === 403);
+        && (await failsWith(() => inboxSettings.addClientSender(person(ids.planner, 'agent', ['*']), bobA, 'x@gmail.com'))) === 403);
       const byManager = await inboxSettings.addClientSender(senderManager, bobA, 'temp@gmail.com');
       await inboxSettings.removeClientSender(senderManager, bobA, byManager.id as string);
       check('senders permissions: contacts.manage on the project adds and removes; removing again is 404; another project\'s row is 404',
@@ -1388,7 +1388,7 @@ async function main() {
 
       // Ingestion: one project maps (reason sender), case-insensitively.
       await db.query('DELETE FROM pm.client_addresses WHERE project_id = $1', [bobB]);
-      await sendRaw('re_cs_one', { from: 'Bob Smith <BOB.SMITH@GMAIL.COM>', to: 'ashley@agency.example', subject: 'Leaky tap quote', id: 'cs-one@gmail.example' }, [`ashley@${RELAY}`]);
+      await sendRaw('re_cs_one', { from: 'Bob Smith <BOB.SMITH@GMAIL.COM>', to: 'planner@agency.example', subject: 'Leaky tap quote', id: 'cs-one@gmail.example' }, [`planner@${RELAY}`]);
       const one = await threadOf('cs-one@gmail.example');
       const oneCandidates = await rows(db, 'SELECT project_id, reason FROM pm.message_candidates WHERE message_id=$1', [one.message.id]);
       check('senders ingest: mail from a client email address maps the thread (mapped, reason sender)', one.thread.project_id === bobA
@@ -1399,7 +1399,7 @@ async function main() {
 
       // One sender on two projects: two candidates, no auto-map.
       await inboxSettings.addClientSender(manage, bobB, 'bob.smith@gmail.com');
-      await sendRaw('re_cs_two', { from: 'bob.smith@gmail.com', to: 'ashley@agency.example', subject: 'Side gig invoice', id: 'cs-two@gmail.example' }, [`ashley@${RELAY}`]);
+      await sendRaw('re_cs_two', { from: 'bob.smith@gmail.com', to: 'planner@agency.example', subject: 'Side gig invoice', id: 'cs-two@gmail.example' }, [`planner@${RELAY}`]);
       const two = await threadOf('cs-two@gmail.example');
       const twoCandidates = await rows(db, 'SELECT project_id, reason FROM pm.message_candidates WHERE message_id=$1 ORDER BY project_id', [two.message.id]);
       check('senders ingest: one sender on two projects yields two candidates and leaves the project open', two.thread.project_id === null
@@ -1468,7 +1468,7 @@ async function main() {
       await db.query('INSERT INTO project_contacts(project_id, contact_id) VALUES ($1,$2),($3,$4)', [fwdA, vera, fwdB, cliff]);
       // A suspended teammate and an agent with a team address are never verified teammates.
       await db.query("INSERT INTO team_members(id, name, email, role, status) VALUES ($1,'Paul','paul@agency.example','member','suspended')", [paul]);
-      await db.query("UPDATE team_members SET email = 'ashley.agent@agency.example' WHERE id = $1", [ids.ashley]);
+      await db.query("UPDATE team_members SET email = 'planner.agent@agency.example' WHERE id = $1", [ids.planner]);
 
       type Mail = { from: string; to: string; cc?: string; subject: string; id: string; inReplyTo?: string; body?: string; html?: string; attached?: string };
       const mime = (mail: Mail) => {
@@ -1483,7 +1483,7 @@ async function main() {
         return Buffer.from([...head, 'Content-Type: text/plain; charset="UTF-8"', '', mail.body ?? 'Hello.', ''].join('\r\n'));
       };
       const sendMail = async (emailId: string, mail: Mail, options: { auth?: { spf: string; dkim: string; dmarc: string }; deliveredTo?: string[] } = {}) => {
-        resend.add(await resendFixture(mime(mail), { emailId, deliveredTo: options.deliveredTo ?? [`ashley@${RELAY}`], authentication: options.auth }));
+        resend.add(await resendFixture(mime(mail), { emailId, deliveredTo: options.deliveredTo ?? [`planner@${RELAY}`], authentication: options.auth }));
         return deliver(emailId);
       };
       const routed = async (internetId: string) => {
@@ -1500,25 +1500,25 @@ async function main() {
         && r.thread.project_id === projectId && (reason === null ? r.candidates.length === 0 : r.candidates.length === 1 && r.candidates[0].project_id === projectId && r.candidates[0].reason === reason);
 
       // Gmail, Outlook and Apple inline forwards and a forward as attachment, from a verified teammate.
-      await sendMail('re_fw_gmail', { from: 'Sam Owner <owner@agency.example>', to: 'ashley@agency.example', subject: 'Fwd: New homepage copy', id: 'fw-gmail@agency.example',
+      await sendMail('re_fw_gmail', { from: 'Sam Owner <owner@agency.example>', to: 'planner@agency.example', subject: 'Fwd: New homepage copy', id: 'fw-gmail@agency.example',
         body: gmailBody('Vera Lane <Vera@VeraStudio.example>') });
       const gm = await routed('fw-gmail@agency.example');
       check('team forward: a Gmail forward from a verified teammate maps by the original sender (contact), forwarded_by set', isForwardedByOwner(gm, fwdA, 'contact')
         && gm.thread.project_source === 'mapped' && gm.message.auth.trust === 'trusted', [gm.message.routing_basis, gm.message.original_from_address, gm.thread, gm.candidates]);
-      await sendMail('re_fw_outlook', { from: 'owner@agency.example', to: 'ashley@agency.example', subject: 'FW: Kickoff notes', id: 'fw-outlook@agency.example',
+      await sendMail('re_fw_outlook', { from: 'owner@agency.example', to: 'planner@agency.example', subject: 'FW: Kickoff notes', id: 'fw-outlook@agency.example',
         body: ['Notes from Vera below.', '', '-----Original Message-----', 'From: Vera Lane [mailto:vera@verastudio.example]', 'Sent: Monday, October 5, 2026 4:40 PM',
           'To: Sam Owner', 'Subject: Kickoff notes', '', 'Agenda attached.'].join('\r\n') });
       check('team forward: an Outlook forward maps by the original sender', isForwardedByOwner(await routed('fw-outlook@agency.example'), fwdA, 'contact'));
-      await sendMail('re_fw_apple', { from: 'owner@agency.example', to: 'ashley@agency.example', subject: 'Fwd: Logo feedback', id: 'fw-apple@agency.example',
+      await sendMail('re_fw_apple', { from: 'owner@agency.example', to: 'planner@agency.example', subject: 'Fwd: Logo feedback', id: 'fw-apple@agency.example',
         body: ['Begin forwarded message:', '', 'From: Vera Lane <vera@verastudio.example>', 'Subject: Logo feedback', 'Date: October 5, 2026 at 4:40:00 PM EDT',
           'To: Sam Owner <owner@agency.example>', '', 'Love the second logo.'].join('\r\n') });
       check('team forward: an Apple Mail forward maps by the original sender', isForwardedByOwner(await routed('fw-apple@agency.example'), fwdA, 'contact'));
-      await sendMail('re_fw_html', { from: 'owner@agency.example', to: 'ashley@agency.example', subject: 'Fwd: Photos', id: 'fw-html@agency.example',
+      await sendMail('re_fw_html', { from: 'owner@agency.example', to: 'planner@agency.example', subject: 'Fwd: Photos', id: 'fw-html@agency.example',
         html: '<div>See below<br><br>---------- Forwarded message ---------<br>From: <strong>Vera Lane</strong> <span>&lt;<a href="mailto:vera@verastudio.example">vera@verastudio.example</a>&gt;</span><br>Date: Mon, Oct 5, 2026<br>Subject: Photos<br><br>Three photos.</div>' });
       check('team forward: an HTML-only forward uses its HTML text', isForwardedByOwner(await routed('fw-html@agency.example'), fwdA, 'contact'));
       const attachedOriginal = ['From: Vera Lane <vera@verastudio.example>', 'To: owner@agency.example', 'Subject: Invoice question', 'Message-ID: <orig-in-eml@verastudio.example>',
         'Content-Type: text/plain; charset="UTF-8"', '', 'Is the invoice due on the 15th?'].join('\r\n');
-      await sendMail('re_fw_eml', { from: 'owner@agency.example', to: 'ashley@agency.example', subject: 'Fwd: Invoice question', id: 'fw-eml@agency.example',
+      await sendMail('re_fw_eml', { from: 'owner@agency.example', to: 'planner@agency.example', subject: 'Fwd: Invoice question', id: 'fw-eml@agency.example',
         body: 'Forwarding as attachment.', attached: attachedOriginal });
       const eml = await routed('fw-eml@agency.example');
       const emlAttachment = (await rows(db, 'SELECT content_type, filename, uploaded_at FROM pm.attachments WHERE message_id=$1', [eml.message.id]))[0];
@@ -1526,15 +1526,15 @@ async function main() {
         && /rfc822/.test(emlAttachment?.content_type ?? '') && !!emlAttachment.uploaded_at, [eml.message.routing_basis, eml.message.original_from_address, emlAttachment]);
 
       // The same forward from an unverified teammate address, a suspended teammate or an agent maps by the outer sender.
-      await sendMail('re_fw_unverified', { from: 'owner@agency.example', to: 'ashley@agency.example', subject: 'Fwd: New homepage copy', id: 'fw-unverified@agency.example',
+      await sendMail('re_fw_unverified', { from: 'owner@agency.example', to: 'planner@agency.example', subject: 'Fwd: New homepage copy', id: 'fw-unverified@agency.example',
         body: gmailBody('Vera Lane <vera@verastudio.example>') }, { auth: FAILED_DKIM });
       const unverified = await routed('fw-unverified@agency.example');
       check('team forward: from a teammate address with failed DKIM it routes by the outer sender, no forwarder',
         unverified.message.routing_basis === 'sender' && unverified.message.forwarded_by_member_id === null && unverified.message.original_from_address === null
         && unverified.message.auth.trust === 'untrusted' && unverified.candidates.length === 0 && unverified.thread.project_id === null, [unverified.message.routing_basis, unverified.candidates]);
-      await sendMail('re_fw_suspended', { from: 'paul@agency.example', to: 'ashley@agency.example', subject: 'Fwd: New homepage copy', id: 'fw-suspended@agency.example',
+      await sendMail('re_fw_suspended', { from: 'paul@agency.example', to: 'planner@agency.example', subject: 'Fwd: New homepage copy', id: 'fw-suspended@agency.example',
         body: gmailBody('Vera Lane <vera@verastudio.example>') });
-      await sendMail('re_fw_agent', { from: 'ashley.agent@agency.example', to: 'ashley@agency.example', subject: 'Fwd: New homepage copy', id: 'fw-agent@agency.example',
+      await sendMail('re_fw_agent', { from: 'planner.agent@agency.example', to: 'planner@agency.example', subject: 'Fwd: New homepage copy', id: 'fw-agent@agency.example',
         body: gmailBody('Vera Lane <vera@verastudio.example>') });
       const suspendedFwd = await routed('fw-suspended@agency.example');
       const agentFwd = await routed('fw-agent@agency.example');
@@ -1543,7 +1543,7 @@ async function main() {
         [suspendedFwd.message.routing_basis, agentFwd.message.routing_basis]);
 
       // A client forwarding a vendor's email maps by the client.
-      await sendMail('re_fw_client', { from: 'Cliff Hart <cliff@cliffbuilders.example>', to: 'ashley@agency.example', subject: 'Fwd: Hosting renewal', id: 'fw-client@cliffbuilders.example',
+      await sendMail('re_fw_client', { from: 'Cliff Hart <cliff@cliffbuilders.example>', to: 'planner@agency.example', subject: 'Fwd: Hosting renewal', id: 'fw-client@cliffbuilders.example',
         body: ['Is this ours to pay?', '', '---------- Forwarded message ---------', 'From: Billing <billing@hostco.example>', 'Subject: Hosting renewal', 'Date: Mon, Oct 5, 2026', '', 'Renew now.'].join('\r\n') });
       const clientFwd = await routed('fw-client@cliffbuilders.example');
       check('client forward: a client forwarding a vendor email maps by the client (sender basis)', clientFwd.message.routing_basis === 'sender'
@@ -1551,20 +1551,20 @@ async function main() {
         [clientFwd.message.routing_basis, clientFwd.candidates]);
 
       // A teammate's own email copied to the inbox maps by the client in To and Cc.
-      await sendMail('re_team_cc', { from: 'Sam Owner <owner@agency.example>', to: 'Vera Lane <vera@verastudio.example>, Paul <paul@agency.example>', cc: 'Ashley <ashley@agency.example>',
+      await sendMail('re_team_cc', { from: 'Sam Owner <owner@agency.example>', to: 'Vera Lane <vera@verastudio.example>, Paul <paul@agency.example>', cc: 'Planner <planner@agency.example>',
         subject: 'Next steps on the site', id: 'team-cc@agency.example', body: 'Hi Vera, here are the next steps.' });
       const teamCc = await routed('team-cc@agency.example');
       check('team cc: a teammate writing to a client and copying the inbox maps by the client in To/Cc (team_recipients)',
         teamCc.message.routing_basis === 'team_recipients' && teamCc.message.forwarded_by_member_id === ids.owner && teamCc.message.original_from_address === null
         && teamCc.thread.project_id === fwdA && teamCc.candidates.length === 1 && teamCc.candidates[0].reason === 'contact', [teamCc.message.routing_basis, teamCc.candidates]);
-      await sendMail('re_team_cc_two', { from: 'owner@agency.example', to: 'vera@verastudio.example', cc: 'cliff@cliffbuilders.example, ashley@agency.example',
+      await sendMail('re_team_cc_two', { from: 'owner@agency.example', to: 'vera@verastudio.example', cc: 'cliff@cliffbuilders.example, planner@agency.example',
         subject: 'Joint call', id: 'team-cc-two@agency.example', body: 'Both of you on one call.' });
       const teamTwo = await routed('team-cc-two@agency.example');
       check('team cc: two clients on two projects yield two candidates and no project', teamTwo.message.routing_basis === 'team_recipients'
         && teamTwo.thread.project_id === null && new Set(teamTwo.candidates.map((c) => c.project_id)).size === 2, teamTwo.candidates);
 
       // A forward whose original sender is unknown: no candidates, the forwarder still recorded.
-      await sendMail('re_fw_unknown', { from: 'owner@agency.example', to: 'ashley@agency.example', subject: 'Fwd: Cold pitch', id: 'fw-unknown@agency.example',
+      await sendMail('re_fw_unknown', { from: 'owner@agency.example', to: 'planner@agency.example', subject: 'Fwd: Cold pitch', id: 'fw-unknown@agency.example',
         body: gmailBody('Stranger <stranger@nowhere.example>') });
       const unknownFwd = await routed('fw-unknown@agency.example');
       check('team forward: an unknown original sender yields no candidates, forwarded_by set', unknownFwd.message.routing_basis === 'forwarded_original'
@@ -1574,7 +1574,7 @@ async function main() {
       // "From:" far down the body is not a forward: the teammate's own email, routed by its client recipient.
       const farDown = [...Array.from({ length: 15 }, (_, i) => `Point ${i + 1}: notes on the launch plan for this week.`), '',
         '---------- Forwarded message ---------', 'From: Stranger <stranger@nowhere.example>', 'Subject: Old thing', 'Date: Mon, Oct 5, 2026', '', 'Old.'].join('\r\n');
-      await sendMail('re_fw_far', { from: 'owner@agency.example', to: 'vera@verastudio.example', cc: 'ashley@agency.example', subject: 'Fwd: Launch plan', id: 'fw-far@agency.example', body: farDown });
+      await sendMail('re_fw_far', { from: 'owner@agency.example', to: 'vera@verastudio.example', cc: 'planner@agency.example', subject: 'Fwd: Launch plan', id: 'fw-far@agency.example', body: farDown });
       const far = await routed('fw-far@agency.example');
       check('team forward: a forward marker far down the body does not make it a forward', far.message.routing_basis === 'team_recipients'
         && far.message.original_from_address === null && far.thread.project_id === fwdA, [far.message.routing_basis, far.message.original_from_address]);
@@ -1588,15 +1588,15 @@ async function main() {
         && desk.message.routing_basis === 'forwarded_original' && desk.candidates.some((c) => c.project_id === fwdA), [desk.thread, desk.candidates]);
 
       // Threading: team and inbox addresses are never shared participants.
-      await sendMail('re_team_thread_1', { from: 'owner@agency.example', to: 'vera@verastudio.example', cc: 'ashley@agency.example', subject: 'Weekly update', id: 'tt-1@agency.example', body: 'Update for Vera.' });
-      await sendMail('re_team_thread_2', { from: 'owner@agency.example', to: 'cliff@cliffbuilders.example', cc: 'ashley@agency.example', subject: 'Weekly update', id: 'tt-2@agency.example', body: 'Update for Cliff.' });
-      await sendMail('re_team_thread_3', { from: 'vera@verastudio.example', to: 'owner@agency.example', cc: 'ashley@agency.example', subject: 'Re: Weekly update', id: 'tt-3@verastudio.example', body: 'Thanks!' });
+      await sendMail('re_team_thread_1', { from: 'owner@agency.example', to: 'vera@verastudio.example', cc: 'planner@agency.example', subject: 'Weekly update', id: 'tt-1@agency.example', body: 'Update for Vera.' });
+      await sendMail('re_team_thread_2', { from: 'owner@agency.example', to: 'cliff@cliffbuilders.example', cc: 'planner@agency.example', subject: 'Weekly update', id: 'tt-2@agency.example', body: 'Update for Cliff.' });
+      await sendMail('re_team_thread_3', { from: 'vera@verastudio.example', to: 'owner@agency.example', cc: 'planner@agency.example', subject: 'Re: Weekly update', id: 'tt-3@verastudio.example', body: 'Thanks!' });
       const [t1, t2, t3] = [await routed('tt-1@agency.example'), await routed('tt-2@agency.example'), await routed('tt-3@verastudio.example')];
       check('threading: the same subject to two clients from one teammate stays two threads; the client\'s answer joins its own',
         t1.thread.id !== t2.thread.id && t3.thread.id === t1.thread.id && t2.thread.project_id === fwdB, [t1.thread.id, t2.thread.id, t3.thread.id]);
 
       // The agent API.
-      const apiList = await api(list.GET, 'GET', '/api/v1/inbound-emails?limit=100', keys.ashley);
+      const apiList = await api(list.GET, 'GET', '/api/v1/inbound-emails?limit=100', keys.planner);
       const listedFwd = apiList.body.data.find((m: Payload) => m.id === gm.message.id);
       const listedCc = apiList.body.data.find((m: Payload) => m.id === teamCc.message.id);
       const listedPlain = apiList.body.data.find((m: Payload) => m.id === clientFwd.message.id);
@@ -1606,14 +1606,14 @@ async function main() {
         && listedFwd.from.address === 'owner@agency.example' && listedFwd.trust === 'trusted'
         && listedCc?.routing_basis === 'team_recipients' && listedCc.forwarded_by?.member_id === ids.owner && listedCc.original_sender === null
         && listedPlain?.routing_basis === 'sender' && listedPlain.forwarded_by === null && listedPlain.original_sender === null, [listedFwd, listedCc, listedPlain]);
-      const apiDetail = await api(detail.GET, 'GET', `/api/v1/inbound-emails/${gm.message.id}`, keys.ashley, { id: gm.message.id });
+      const apiDetail = await api(detail.GET, 'GET', `/api/v1/inbound-emails/${gm.message.id}`, keys.planner, { id: gm.message.id });
       const detailed = apiDetail.body.data;
       check('agent api detail: the routing fields, auth.trust stays the outer verdict, candidates by the original sender', apiDetail.status === 200
         && detailed.routing_basis === 'forwarded_original' && detailed.forwarded_by?.name === 'Sam' && detailed.original_sender?.address === 'vera@verastudio.example'
         && detailed.auth.trust === 'trusted' && detailed.from.address === 'owner@agency.example'
         && detailed.candidates.some((c: Payload) => c.project_id === fwdA && c.reasons.includes('contact'))
         && detailed.thread.messages.every((m: Payload) => 'routing_basis' in m && 'forwarded_by' in m && 'original_sender' in m), detailed);
-      const unverifiedDetail = (await api(detail.GET, 'GET', `/api/v1/inbound-emails/${unverified.message.id}`, keys.ashley, { id: unverified.message.id })).body.data;
+      const unverifiedDetail = (await api(detail.GET, 'GET', `/api/v1/inbound-emails/${unverified.message.id}`, keys.planner, { id: unverified.message.id })).body.data;
       check('agent api detail: an unverified teammate forward reads as sender basis, auth untrusted', unverifiedDetail.routing_basis === 'sender'
         && unverifiedDetail.forwarded_by === null && unverifiedDetail.original_sender === null && unverifiedDetail.auth.trust === 'untrusted', unverifiedDetail);
 
@@ -1641,20 +1641,20 @@ async function main() {
 
       // The agent's guess: a stranger's email with no candidates touches no project; a
       // verified teammate's may touch any, guessed; with candidates it stays inferred.
-      await sendMail('re_stranger', { from: 'Quinn <quinn@unknown-co.example>', to: 'ashley@agency.example', subject: 'Question about our site', id: 'stranger@unknown-co.example', body: 'Who handles our site?' });
+      await sendMail('re_stranger', { from: 'Quinn <quinn@unknown-co.example>', to: 'planner@agency.example', subject: 'Question about our site', id: 'stranger@unknown-co.example', body: 'Who handles our site?' });
       const stranger = await routed('stranger@unknown-co.example');
       const strangerTriage = await triageOf(stranger.message.id, { outcome: 'no_action', urgent: false, summary: 'Probably Vera Studio', project_id: fwdA });
       check('scope: a stranger with no candidates may not be filed on a project (422 project_out_of_scope)', strangerTriage.status === 422
         && strangerTriage.body.error.details.reason === 'project_out_of_scope', strangerTriage.body);
-      await sendMail('re_guess', { from: 'Sam Owner <owner@agency.example>', to: 'ashley@agency.example', subject: 'Question about the site', id: 'guess@agency.example', body: 'Who handles the Vera site again?' });
+      await sendMail('re_guess', { from: 'Sam Owner <owner@agency.example>', to: 'planner@agency.example', subject: 'Question about the site', id: 'guess@agency.example', body: 'Who handles the Vera site again?' });
       const guess = await routed('guess@agency.example');
       const guessTriage = await triageOf(guess.message.id, { outcome: 'no_action', urgent: false, summary: 'Probably Vera Studio', project_id: fwdA });
       const inferredTriage = await triageOf(teamTwo.message.id, { outcome: 'no_action', urgent: false, summary: 'The joint call is Cliff\'s project', project_id: fwdB });
       check('guessed: a teammate\'s email with no candidates is filed as guessed; picked among candidates it stays inferred', guessTriage.status === 201
         && guess.message.sender_member_id === ids.owner && guessTriage.body.data.thread.project_source === 'guessed' && guessTriage.body.data.thread.project_id === fwdA
         && inferredTriage.body.data.thread.project_source === 'inferred', [guessTriage.body, inferredTriage.body]);
-      const guessDetail = (await api(detail.GET, 'GET', `/api/v1/inbound-emails/${guess.message.id}`, keys.ashley, { id: guess.message.id })).body.data;
-      const guessListed = (await api(list.GET, 'GET', '/api/v1/inbound-emails?limit=100', keys.ashley)).body.data.find((m: Payload) => m.id === guess.message.id);
+      const guessDetail = (await api(detail.GET, 'GET', `/api/v1/inbound-emails/${guess.message.id}`, keys.planner, { id: guess.message.id })).body.data;
+      const guessListed = (await api(list.GET, 'GET', '/api/v1/inbound-emails?limit=100', keys.planner)).body.data.find((m: Payload) => m.id === guess.message.id);
       check('guessed: the agent API shows the source on detail and list', guessDetail.project?.source === 'guessed' && guessListed?.project?.source === 'guessed', [guessDetail.project, guessListed?.project]);
       const guessUi = await inbox.threadDetail(owner, guess.thread.id);
       const unassigned = await inbox.listThreads(owner, { ...allThreads, tab: 'unassigned' });
@@ -1665,7 +1665,7 @@ async function main() {
       await triageOf(guess.message.id, { outcome: 'task', urgent: false, summary: 'Probably Vera Studio', project_id: fwdA });
       await triageOf(teamTwo.message.id, { outcome: 'task', urgent: false, summary: 'The joint call is Cliff\'s project', project_id: fwdB });
       const fwdTriage = await triageOf(gm.message.id, { outcome: 'task', urgent: false, summary: 'Homepage copy from Vera' });
-      const summaryItems = (await api(unsummarized.GET, 'GET', '/api/v1/inbound-emails/triage/unsummarized', keys.ashley)).body.data as Payload[];
+      const summaryItems = (await api(unsummarized.GET, 'GET', '/api/v1/inbound-emails/triage/unsummarized', keys.planner)).body.data as Payload[];
       const guessItem = summaryItems.find((i) => i.message.id === guess.message.id);
       const fwdItem = summaryItems.find((i) => i.message.id === gm.message.id);
       const plainItem = summaryItems.find((i) => i.message.id === teamTwo.message.id);
@@ -1680,31 +1680,31 @@ async function main() {
         [fwdItem, plainItem]);
 
       // The summary tells outcomes only: an email left alone stays in the Inbox.
-      const feed = async () => (await api(unsummarized.GET, 'GET', '/api/v1/inbound-emails/triage/unsummarized', keys.ashley)).body.data as Payload[];
-      const signalNow = async () => (await api(signal.GET, 'GET', '/api/v1/inbound-emails/signal', keys.ashley)).body.data;
+      const feed = async () => (await api(unsummarized.GET, 'GET', '/api/v1/inbound-emails/triage/unsummarized', keys.planner)).body.data as Payload[];
+      const signalNow = async () => (await api(signal.GET, 'GET', '/api/v1/inbound-emails/signal', keys.planner)).body.data;
       const inFeed = async (id: string) => (await feed()).some((item) => item.message.id === id);
-      await sendMail('re_quiet', { from: 'Sam Owner <owner@agency.example>', to: 'ashley@agency.example', subject: 'Pitch decks for this week', id: 'quiet@agency.example', body: 'Sharing the decks, nothing needed.' });
+      await sendMail('re_quiet', { from: 'Sam Owner <owner@agency.example>', to: 'planner@agency.example', subject: 'Pitch decks for this week', id: 'quiet@agency.example', body: 'Sharing the decks, nothing needed.' });
       const quiet = await routed('quiet@agency.example');
       const beforeQuiet = (await signalNow()).unsummarized_count;
       await triageOf(quiet.message.id, { outcome: 'no_action', urgent: false, summary: 'Decks shared, nothing needed' });
       check('summary: an email read and left alone wakes nothing and is not listed', !(await inFeed(quiet.message.id)) && (await signalNow()).unsummarized_count === beforeQuiet);
-      await sendMail('re_related', { from: 'Sam Owner <owner@agency.example>', to: 'ashley@agency.example', subject: 'Thanks for the copy', id: 'related@agency.example', body: 'Looks fine, thanks.' });
+      await sendMail('re_related', { from: 'Sam Owner <owner@agency.example>', to: 'planner@agency.example', subject: 'Thanks for the copy', id: 'related@agency.example', body: 'Looks fine, thanks.' });
       const related = await routed('related@agency.example');
       const relatedTask = await rows<{ id: string }>(db, 'INSERT INTO tasks (title, project_id) VALUES ($1, $2) RETURNING id', ['Homepage copy', fwdA]);
       const relatedTriage = await triageOf(related.message.id, { outcome: 'no_action', urgent: false, summary: 'Thanks, nothing new', project_id: fwdA, links: [{ task_id: relatedTask[0].id, relation: 'related' }] });
       check('summary: a task it is only about is not news', relatedTriage.status === 201 && !(await inFeed(related.message.id)), relatedTriage.body);
       await db.query("INSERT INTO pm.reminders (title, source_message_id, owner_id, created_by) VALUES ('A note of mine', $1, $2, $2)", [quiet.message.id, ids.owner]);
       check('summary: a person\'s own reminder on it does not make it news', !(await inFeed(quiet.message.id)));
-      await db.query("INSERT INTO pm.reminders (title, source_message_id, owner_id, created_by) VALUES ('Chase the decks', $1, $2, $3)", [quiet.message.id, ids.owner, ids.ashley]);
+      await db.query("INSERT INTO pm.reminders (title, source_message_id, owner_id, created_by) VALUES ('Chase the decks', $1, $2, $3)", [quiet.message.id, ids.owner, ids.planner]);
       check('summary: a reminder the agent set makes it news', (await inFeed(quiet.message.id)) && (await signalNow()).unsummarized_count === beforeQuiet + 1);
       await db.query("UPDATE pm.triage SET created_at = now() - interval '15 days' WHERE message_id=$1", [quiet.message.id]);
       check('summary: triage older than the look-back is left behind', !(await inFeed(quiet.message.id)) && (await signalNow()).unsummarized_count === beforeQuiet);
       await db.query("UPDATE pm.triage SET created_at = now() WHERE message_id=$1", [quiet.message.id]);
 
       // A later email settles what the conversation's earlier emails waited on.
-      await sendMail('re_settle_1', { from: 'Sam Owner <owner@agency.example>', to: 'ashley@agency.example', subject: 'Which plan?', id: 'settle-1@agency.example', body: 'Your view on the plan?' });
+      await sendMail('re_settle_1', { from: 'Sam Owner <owner@agency.example>', to: 'planner@agency.example', subject: 'Which plan?', id: 'settle-1@agency.example', body: 'Your view on the plan?' });
       const askedMail = await routed('settle-1@agency.example');
-      await sendMail('re_settle_2', { from: 'Sam Owner <owner@agency.example>', to: 'ashley@agency.example', subject: 'Re: Which plan?', id: 'settle-2@agency.example', inReplyTo: 'settle-1@agency.example', body: 'Agreed with what you said.' });
+      await sendMail('re_settle_2', { from: 'Sam Owner <owner@agency.example>', to: 'planner@agency.example', subject: 'Re: Which plan?', id: 'settle-2@agency.example', inReplyTo: 'settle-1@agency.example', body: 'Agreed with what you said.' });
       const laterMail = await routed('settle-2@agency.example');
       check('settle: the reply joined the conversation', laterMail.thread.id === askedMail.thread.id);
       const baseWaiting = (await signalNow()).waiting_count;
@@ -1750,18 +1750,18 @@ async function main() {
         && /email_messages_routing_check/.test(await refusedBy('UPDATE pm.messages SET forwarded_by_member_id = $2 WHERE id = $1', [clientFwd.message.id, ids.owner]))
         && /routing_basis_check/.test(await refusedBy("UPDATE pm.messages SET routing_basis = 'other' WHERE id = $1", [clientFwd.message.id])));
       await db.query('DELETE FROM team_members WHERE id = $1', [paul]);
-      await db.query('UPDATE team_members SET email = $2 WHERE id = $1', [ids.ashley, '']);
+      await db.query('UPDATE team_members SET email = $2 WHERE id = $1', [ids.planner, '']);
     }
 
     // Deletes: no agent route deletes anything.
     // After the rename's step 2 the old names are refused everywhere.
     const oldOutcome = await triageOf(forward.id, { outcome: 'needs_ciaran', urgent: false, summary: 'Old plugin', question_for_human: 'x' });
     const oldQuestion = await triageOf(forward.id, { outcome: 'needs_human', urgent: false, summary: 'Old key', question_for_ciaran: 'x' });
-    const oldFilter = await api(list.GET, 'GET', '/api/v1/inbound-emails?status=needs_ciaran', keys.ashley);
+    const oldFilter = await api(list.GET, 'GET', '/api/v1/inbound-emails?status=needs_ciaran', keys.planner);
     let oldFunction = false;
     try {
       await asService(db, () => rows(db, `SELECT pm.record_triage($1, $2, $3::jsonb, '[]'::jsonb, NULL, 'needs_ciaran')`, [
-        forward.id, ids.ashley, JSON.stringify({ outcome: 'needs_human', urgent: false, summary: 'Old status' }),
+        forward.id, ids.planner, JSON.stringify({ outcome: 'needs_human', urgent: false, summary: 'Old status' }),
       ]));
     } catch {
       oldFunction = true;
@@ -1797,35 +1797,35 @@ async function main() {
       const off = await rules.updateSenderRule(owner, again.rule.id, { enabled: false });
       check('rules: a rule is switched off, never deleted', !!off.rule.disabled_at && (await rows(db, 'SELECT 1 FROM pm.sender_rules WHERE id=$1', [again.rule.id])).length === 1);
 
-      const overSwitchedOff = await api(agentRules.POST, 'POST', '/api/v1/inbound-emails/sender-rules', keys.ashley, {}, {
+      const overSwitchedOff = await api(agentRules.POST, 'POST', '/api/v1/inbound-emails/sender-rules', keys.planner, {}, {
         match_kind: 'domain', match_value: 'tool.example', topic: 'usage', action: 'ignore', reason: 'Four usage alerts this month, none acted on.',
       });
       check("rules api: a rule a person switched off for that sender blocks the agent's (409 person_rule)",
         overSwitchedOff.status === 409 && overSwitchedOff.body.error?.details?.reason === 'person_rule', overSwitchedOff.body);
       for (const [label, topic] of [['no topic', null], ['a protected topic', 'money']] as const) {
-        const refused = await api(agentRules.POST, 'POST', '/api/v1/inbound-emails/sender-rules', keys.ashley, {}, {
+        const refused = await api(agentRules.POST, 'POST', '/api/v1/inbound-emails/sender-rules', keys.planner, {}, {
           match_kind: 'domain', match_value: 'alerts.example', topic, action: 'fyi', reason: 'Plenty of these, none acted on.',
         });
         check(`rules api: an agent rule with ${label} is refused (422)`, refused.status === 422, refused.body);
       }
-      const agentMade = await api(agentRules.POST, 'POST', '/api/v1/inbound-emails/sender-rules', keys.ashley, {}, {
+      const agentMade = await api(agentRules.POST, 'POST', '/api/v1/inbound-emails/sender-rules', keys.planner, {}, {
         match_kind: 'domain', match_value: 'alerts.example', topic: 'usage', action: 'ignore', reason: 'Four usage alerts this month, none acted on.',
       });
       check('rules api: the agent makes a rule from a pattern, with its reason', agentMade.status === 201 && agentMade.body.data.rule.source === 'agent'
         && agentMade.body.data.rule.label === 'Usage alerts from alerts.example', agentMade.body);
-      const noReason = await api(agentRules.POST, 'POST', '/api/v1/inbound-emails/sender-rules', keys.ashley, {}, {
+      const noReason = await api(agentRules.POST, 'POST', '/api/v1/inbound-emails/sender-rules', keys.planner, {}, {
         match_kind: 'domain', match_value: 'tool.example', topic: 'usage', action: 'ignore', reason: 'eh',
       });
       check('rules api: a rule without a real reason is refused (422)', noReason.status === 422, noReason.body);
       await rules.createSenderRule(owner, { match_kind: 'domain', match_value: 'okendo.example', topic: null, action: 'always', reason: '', thread_id: null });
-      const overPerson = await api(agentRules.POST, 'POST', '/api/v1/inbound-emails/sender-rules', keys.ashley, {}, {
+      const overPerson = await api(agentRules.POST, 'POST', '/api/v1/inbound-emails/sender-rules', keys.planner, {}, {
         match_kind: 'domain', match_value: 'okendo.example', topic: 'usage', action: 'ignore', reason: 'Usage alerts are never acted on.',
       });
       check("rules api: the agent never replaces a person's rule (409 person_rule)", overPerson.status === 409 && overPerson.body.error?.details?.reason === 'person_rule', overPerson.body);
-      const listedApi = await api(agentRules.GET, 'GET', '/api/v1/inbound-emails/sender-rules', keys.ashley);
+      const listedApi = await api(agentRules.GET, 'GET', '/api/v1/inbound-emails/sender-rules', keys.planner);
       check('rules api: the agent lists live rules only', listedApi.status === 200 && listedApi.body.data.every((rule: Payload) => !rule.disabled_at)
         && listedApi.body.data.some((rule: Payload) => rule.label === 'Usage alerts from alerts.example'), listedApi.body);
-      const patterns = await api(sendersRoute.GET, 'GET', '/api/v1/inbound-emails/senders?days=90', keys.ashley);
+      const patterns = await api(sendersRoute.GET, 'GET', '/api/v1/inbound-emails/senders?days=90', keys.planner);
       const tool = (patterns.body.data?.senders ?? []).find((sender: Payload) => sender.address === 'no-reply@tool.example');
       check('senders api: per-sender counts, topics, actions and outcomes',
         patterns.status === 200 && tool?.count === 3 && tool.topics.usage === 3 && tool.domain === 'tool.example'
@@ -1906,21 +1906,21 @@ async function main() {
       check('drafts: a person asks for a reply draft; asking again while it waits returns the same one',
         asked.status === 'requested' && askedAgain.id === asked.id && asked.requested_by?.id === ids.owner, [asked, askedAgain.id]);
       check('drafts: a reader cannot ask (403)', (await failsWith(() => drafts.requestReplyDraft(reader, reply.thread_id, { instructions: '' }))) === 403);
-      const draftSignal = (await api(signal.GET, 'GET', '/api/v1/inbound-emails/signal', keys.ashley)).body.data;
+      const draftSignal = (await api(signal.GET, 'GET', '/api/v1/inbound-emails/signal', keys.planner)).body.data;
       check('drafts: the signal tells the dispatcher a draft is waiting', draftSignal.drafts_requested === 1, draftSignal);
-      const waiting = await api(draftList.GET, 'GET', '/api/v1/inbound-emails/reply-drafts', keys.ashley);
+      const waiting = await api(draftList.GET, 'GET', '/api/v1/inbound-emails/reply-drafts', keys.planner);
       const item = (waiting.body.data ?? []).find((row: Payload) => row.id === asked.id);
       check('drafts api: the agent lists waiting requests with the email to answer and the ask',
         waiting.status === 200 && item?.instructions === 'Thank her and confirm Friday.' && item.message_id && item.requested_by, item ?? waiting.body);
-      const jeffList = await api(draftList.GET, 'GET', '/api/v1/inbound-emails/reply-drafts', keys.jeff);
-      check("drafts api: another inbox's key does not see the request", (jeffList.body.data ?? []).every((row: Payload) => row.id !== asked.id), jeffList.body);
-      const answered = await api(draftAnswer.PUT, 'PUT', `/api/v1/inbound-emails/reply-drafts/${asked.id}`, keys.ashley, { id: asked.id }, { body: 'Hi Dana,\n\nThank you. Friday works.\n\nCiaran' });
-      const twice = await api(draftAnswer.PUT, 'PUT', `/api/v1/inbound-emails/reply-drafts/${asked.id}`, keys.ashley, { id: asked.id }, { body: 'Again' });
-      const both = await api(draftAnswer.PUT, 'PUT', `/api/v1/inbound-emails/reply-drafts/${asked.id}`, keys.ashley, { id: asked.id }, { body: 'x', failure: 'y' });
+      const builderList = await api(draftList.GET, 'GET', '/api/v1/inbound-emails/reply-drafts', keys.builder);
+      check("drafts api: another inbox's key does not see the request", (builderList.body.data ?? []).every((row: Payload) => row.id !== asked.id), builderList.body);
+      const answered = await api(draftAnswer.PUT, 'PUT', `/api/v1/inbound-emails/reply-drafts/${asked.id}`, keys.planner, { id: asked.id }, { body: 'Hi Dana,\n\nThank you. Friday works.\n\nMorgan' });
+      const twice = await api(draftAnswer.PUT, 'PUT', `/api/v1/inbound-emails/reply-drafts/${asked.id}`, keys.planner, { id: asked.id }, { body: 'Again' });
+      const both = await api(draftAnswer.PUT, 'PUT', `/api/v1/inbound-emails/reply-drafts/${asked.id}`, keys.planner, { id: asked.id }, { body: 'x', failure: 'y' });
       check('drafts api: the agent answers once (409 after), with a body or a failure, never both',
         answered.status === 200 && answered.body.data.status === 'ready' && twice.status === 409 && [400, 422].includes(both.status), [answered.body, twice.status, both.status]);
       const shown = await drafts.latestDraft(owner, reply.thread_id);
-      check('drafts: the thread shows the ready draft and who wrote it', shown?.status === 'ready' && !!shown.body?.includes('Friday works') && shown.drafted_by?.id === ids.ashley, shown);
+      check('drafts: the thread shows the ready draft and who wrote it', shown?.status === 'ready' && !!shown.body?.includes('Friday works') && shown.drafted_by?.id === ids.planner, shown);
 
       // Copying it is recorded once; with the thread handled after, the agent reads it as the reply that went out.
       check('drafts: a reader cannot record a copy (403)', (await failsWith(() => drafts.markDraftCopied(reader, reply.thread_id, asked.id))) === 403);
@@ -1928,7 +1928,7 @@ async function main() {
       await db.query("UPDATE pm.reply_drafts SET copied_at = copied_at - interval '1 hour' WHERE id=$1", [asked.id]);
       const copiedTwice = await drafts.markDraftCopied(owner, reply.thread_id, asked.id);
       check('drafts: the first copy is the one kept', !!copiedOnce.copied_at && !!copiedTwice.copied_at && Date.parse(copiedTwice.copied_at) < Date.parse(copiedOnce.copied_at), [copiedOnce.copied_at, copiedTwice.copied_at]);
-      const draftOf = async () => ((await api(detail.GET, 'GET', `/api/v1/inbound-emails/${reply.id}`, keys.ashley, { id: reply.id })).body.data.thread.reply_drafts as Payload[]).find((row) => row.id === asked.id);
+      const draftOf = async () => ((await api(detail.GET, 'GET', `/api/v1/inbound-emails/${reply.id}`, keys.planner, { id: reply.id })).body.data.thread.reply_drafts as Payload[]).find((row) => row.id === asked.id);
       const reviewedBefore = await rows<{ id: string; reviewed_at: string | null }>(db, 'SELECT id, reviewed_at FROM pm.messages WHERE thread_id=$1', [reply.thread_id]);
       const copiedBefore = (await rows<{ copied_at: string }>(db, 'SELECT copied_at FROM pm.reply_drafts WHERE id=$1', [asked.id]))[0].copied_at;
       // Handled before the copy: not used.
@@ -1958,7 +1958,7 @@ async function main() {
         ('Reply to Carla: header copy', $1, $2, 'open'),
         ('Reply to Carla: footer', $1, $3, 'open'),
         ('Send Carla the invoice', $1, $2, 'open'),
-        ('Reply to Dana: Friday', $4, $2, 'open') RETURNING id`, [htmlOnly.id, ids.owner, ids.ashley, reply.id]);
+        ('Reply to Dana: Friday', $4, $2, 'open') RETURNING id`, [htmlOnly.id, ids.owner, ids.planner, reply.id]);
       const htmlBefore = await rows<{ id: string; status: string; reviewed_at: string | null; reviewed_by: string | null }>(db,
         'SELECT id, status, reviewed_at, reviewed_by FROM pm.messages WHERE thread_id=$1', [htmlOnly.thread_id]);
       await db.query("UPDATE pm.messages SET status = 'needs_human', reviewed_at = NULL WHERE id = $1", [htmlOnly.id]);
@@ -1984,7 +1984,7 @@ async function main() {
       await db.query(`UPDATE pm.triage SET outcome = 'needs_human', question_for_human = 'Which project is this for? Default: Acme Roofing.'
         WHERE id = (SELECT id FROM pm.triage WHERE message_id = $1 ORDER BY created_at DESC, id DESC LIMIT 1)`, [pick.id]);
       await db.query("UPDATE pm.messages SET status = 'needs_human', reviewed_at = NULL WHERE id = $1", [pick.id]);
-      const waitingBefore = await api(questions.GET, 'GET', '/api/v1/inbound-emails/questions', keys.ashley);
+      const waitingBefore = await api(questions.GET, 'GET', '/api/v1/inbound-emails/questions', keys.planner);
       const asked = (waitingBefore.body.data ?? [])[0] as Payload | undefined;
       check('questions api: the agent lists questions still waiting on a person, with the question',
         waitingBefore.status === 200 && !!asked?.question && !!asked.message_id && !!asked.thread_id, waitingBefore.body);
@@ -1994,9 +1994,9 @@ async function main() {
         const answered = await inbox.answerAgentQuestion(owner, asked.thread_id, asked.message_id, 'Yes, file it on Acme Roofing.');
         const state = (await rows<{ status: string }>(db, 'SELECT status FROM pm.messages WHERE id=$1', [asked.message_id]))[0];
         check('answers: an answer is kept and the email goes back to the agent', answered.message_id === asked.message_id && state.status === 'new', state);
-        const waitingAfter = await api(questions.GET, 'GET', '/api/v1/inbound-emails/questions', keys.ashley);
+        const waitingAfter = await api(questions.GET, 'GET', '/api/v1/inbound-emails/questions', keys.planner);
         check('questions api: an answered question leaves the list', (waitingAfter.body.data ?? []).every((row: Payload) => row.message_id !== asked.message_id), waitingAfter.body);
-        const agentView = await api(detail.GET, 'GET', `/api/v1/inbound-emails/${asked.message_id}`, keys.ashley, { id: asked.message_id });
+        const agentView = await api(detail.GET, 'GET', `/api/v1/inbound-emails/${asked.message_id}`, keys.planner, { id: asked.message_id });
         const theirAnswers = (agentView.body.data?.answers ?? []) as Payload[];
         check('answers: the agent reads the answer with its question and who gave it',
           theirAnswers.length === 1 && theirAnswers[0].answer === 'Yes, file it on Acme Roofing.' && theirAnswers[0].question === asked.question && !!theirAnswers[0].answered_by, theirAnswers);
@@ -2012,7 +2012,7 @@ async function main() {
       const createTask = await import('../src/app/api/v1/inbound-emails/[id]/tasks/route');
       const inboxAlias = await import('../src/app/api/v1/inbox/messages/[id]/tasks/route');
       const taskKey = `pk_live_${randomUUID()}`;
-      await db.query('INSERT INTO api_keys(key_hash, team_member_id, scopes) VALUES ($1,$2,$3)', [hash(taskKey), ids.ashley,
+      await db.query('INSERT INTO api_keys(key_hash, team_member_id, scopes) VALUES ($1,$2,$3)', [hash(taskKey), ids.planner,
         ['inbound_email.read', 'inbound_email.triage', 'tasks.create', 'tasks.manage_all', 'projects.read']]);
       const taskBody = (projectId: string, title: string) => ({ project_id: projectId, title, description: 'From the email', assignee_ids: [ids.owner] });
       const tasksBefore = (await rows(db, 'SELECT count(*)::int AS n FROM tasks'))[0].n;
@@ -2024,7 +2024,7 @@ async function main() {
       check('task from email: in scope it creates the task, links it as created before any triage, and files its project', madeTask.status === 201
         && madeTask.body.data.project_id === ids.acme2 && madeTask.body.data.email_link.source === 'inferred'
         && madeLinks.length === 1 && madeLinks[0].relation === 'created' && madeLinks[0].triage_id === null, [madeTask.body, madeLinks]);
-      const noTriageScope = await api(createTask.POST, 'POST', `/api/v1/inbound-emails/${reply.id}/tasks`, keys.ashley, { id: reply.id }, taskBody(ids.acme, 'x'));
+      const noTriageScope = await api(createTask.POST, 'POST', `/api/v1/inbound-emails/${reply.id}/tasks`, keys.planner, { id: reply.id }, taskBody(ids.acme, 'x'));
       check('task from email: a key without tasks.create is refused', noTriageScope.status === 403, noTriageScope.body);
     }
 
@@ -2035,22 +2035,22 @@ async function main() {
     {
       await settle();
       const questions = await import('../src/app/api/v1/inbound-emails/questions/route');
-      const listed = await api(list.GET, 'GET', '/api/v1/inbound-emails?limit=100', keys.ashley);
+      const listed = await api(list.GET, 'GET', '/api/v1/inbound-emails?limit=100', keys.planner);
       const messageIds = ((listed.body.data ?? []) as Payload[]).map((row) => String(row.id));
       const details = [];
-      for (const id of messageIds) details.push((await api(detail.GET, 'GET', `/api/v1/inbound-emails/${id}`, keys.ashley, { id })).body);
+      for (const id of messageIds) details.push((await api(detail.GET, 'GET', `/api/v1/inbound-emails/${id}`, keys.planner, { id })).body);
       const ownerThreads = await inbox.listThreads(owner, allThreads);
       const threadDetails = [];
       for (const thread of ownerThreads.threads) threadDetails.push(await inbox.threadDetail(owner, thread.id));
       const taskIds = (await rows<{ task_id: string }>(db, 'SELECT DISTINCT task_id FROM pm.task_links ORDER BY task_id')).map((row) => row.task_id);
       const taskEmails = [];
-      for (const id of taskIds) taskEmails.push((await api(taskEmailsRoute.GET, 'GET', `/api/v1/tasks/${id}/emails`, keys.ashley, { id })).body);
+      for (const id of taskIds) taskEmails.push((await api(taskEmailsRoute.GET, 'GET', `/api/v1/tasks/${id}/emails`, keys.planner, { id })).body);
       const captured = {
         list: listed.body,
         details,
-        unsummarized: (await api(unsummarized.GET, 'GET', '/api/v1/inbound-emails/triage/unsummarized', keys.ashley)).body,
-        questions: (await api(questions.GET, 'GET', '/api/v1/inbound-emails/questions', keys.ashley)).body,
-        signal: (await api(signal.GET, 'GET', '/api/v1/inbound-emails/signal', keys.ashley)).body,
+        unsummarized: (await api(unsummarized.GET, 'GET', '/api/v1/inbound-emails/triage/unsummarized', keys.planner)).body,
+        questions: (await api(questions.GET, 'GET', '/api/v1/inbound-emails/questions', keys.planner)).body,
+        signal: (await api(signal.GET, 'GET', '/api/v1/inbound-emails/signal', keys.planner)).body,
         inbox: ownerThreads,
         threads: threadDetails,
         taskEmails,

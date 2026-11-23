@@ -74,7 +74,7 @@ async function outside(db: PGlite): Promise<Snapshot> {
 }
 
 const DECOYS = `
-  -- Another app already in this database (Happy Innovations-like).
+  -- Another app already in this database (Acme-like).
   CREATE TABLE public.team_members (id uuid PRIMARY KEY, email text, role text, created_at timestamptz, updated_at timestamptz,
     full_name text, access_status text, permissions jsonb, disabled_at timestamptz, disabled_by uuid, avatar_url text);
   INSERT INTO public.team_members (id, email, role) VALUES ('00000000-0000-0000-0000-0000000000d1', 'hi@example.com', 'admin');

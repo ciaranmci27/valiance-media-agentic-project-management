@@ -60,7 +60,7 @@ async function run(db: PGlite, label: string) {
   const member = people.find((m) => m.auth_user_id === MEMBER_USER)!.id;
   await db.query(`INSERT INTO pm.team_member_permissions (member_id, permission_key, access_channel, effect)
     SELECT $1, key, 'app', 'allow' FROM unnest(ARRAY['projects.read', 'tasks.read', 'tasks.create', 'files.read', 'files.upload']) AS key`, [member]);
-  const project = (await q<{ id: string }>("INSERT INTO pm.projects (name) VALUES ('Happy Innovations') RETURNING id"))[0].id;
+  const project = (await q<{ id: string }>("INSERT INTO pm.projects (name) VALUES ('Acme') RETURNING id"))[0].id;
   const elsewhere = (await q<{ id: string }>("INSERT INTO pm.projects (name) VALUES ('Apex') RETURNING id"))[0].id;
   await db.query('INSERT INTO pm.project_members (project_id, member_id) VALUES ($1, $2)', [project, member]);
   const task = (await q<{ id: string }>("INSERT INTO pm.tasks (project_id, title) VALUES ($1, 'Holiday banner') RETURNING id", [project]))[0].id;

@@ -78,7 +78,7 @@ async function seed(db: PGlite) {
   for (const statement of guard) await db.exec(statement);
   await db.query(
     `INSERT INTO team_members(id, name, role) VALUES
-      ($1, 'Owner', 'owner'), ($2, 'Ada', 'admin'), ($3, 'Mia', 'member'), ($4, 'Otto', 'member'), ($5, 'Jeff', 'agent'), ($6, 'Gus', 'member')`,
+      ($1, 'Owner', 'owner'), ($2, 'Ada', 'admin'), ($3, 'Mia', 'member'), ($4, 'Otto', 'member'), ($5, 'Builder', 'agent'), ($6, 'Gus', 'member')`,
     [OWNER, ADMIN, MEMBER, OTHER, AGENT, GONE],
   );
   const grants: [string, string, string][] = [

@@ -55,9 +55,9 @@ async function seed(db: PGlite, storage: FakeStorage) {
     CREATE FUNCTION pm.consume_api_rate_limit(p_api_key_id uuid, p_limit integer, p_window_seconds integer)
     RETURNS jsonb LANGUAGE sql AS $$ SELECT jsonb_build_object('allowed', true, 'remaining', p_limit - 1,
       'reset_at', now() + make_interval(secs => p_window_seconds)) $$;`);
-  const agent = (await q<{ id: string }>("INSERT INTO pm.team_members (name, email, role) VALUES ('Ashley', 'ashley@example.com', 'agent') RETURNING id"))[0].id;
-  const owner = (await q<{ id: string }>("INSERT INTO pm.team_members (name, email, role) VALUES ('Ciaran', 'ciaran@example.com', 'owner') RETURNING id"))[0].id;
-  const project = (await q<{ id: string }>("INSERT INTO pm.projects (name) VALUES ('Happy Innovations') RETURNING id"))[0].id;
+  const agent = (await q<{ id: string }>("INSERT INTO pm.team_members (name, email, role) VALUES ('Planner', 'planner@example.com', 'agent') RETURNING id"))[0].id;
+  const owner = (await q<{ id: string }>("INSERT INTO pm.team_members (name, email, role) VALUES ('Morgan', 'owner@example.com', 'owner') RETURNING id"))[0].id;
+  const project = (await q<{ id: string }>("INSERT INTO pm.projects (name) VALUES ('Acme') RETURNING id"))[0].id;
   const elsewhere = (await q<{ id: string }>("INSERT INTO pm.projects (name) VALUES ('Apex') RETURNING id"))[0].id;
   await db.query('INSERT INTO pm.project_members (project_id, member_id) VALUES ($1, $2)', [project, agent]);
   const task = (await q<{ id: string }>("INSERT INTO pm.tasks (project_id, title) VALUES ($1, 'Holiday banner') RETURNING id", [project]))[0].id;
@@ -101,9 +101,9 @@ async function seed(db: PGlite, storage: FakeStorage) {
   };
   await db.query(`INSERT INTO pm.team_member_permissions (member_id, permission_key, access_channel, effect)
     SELECT $1, key, 'api', 'allow' FROM unnest(ARRAY['projects.read', 'tasks.read', 'files.read', 'files.upload', 'inbound_email.read']) AS key`, [agent]);
-  const ashley = await key('Ashley', ['projects.read', 'tasks.read', 'files.read', 'files.upload', 'inbound_email.read']);
+  const planner = await key('Planner', ['projects.read', 'tasks.read', 'files.read', 'files.upload', 'inbound_email.read']);
   const noInbox = await key('Files only', ['projects.read', 'tasks.read', 'files.read', 'files.upload']);
-  return { agent, owner, project, elsewhere, task, sibling, hiddenTask, projectFile, otherProjectFile, ashley, noInbox };
+  return { agent, owner, project, elsewhere, task, sibling, hiddenTask, projectFile, otherProjectFile, planner, noInbox };
 }
 
 async function main() {
@@ -125,7 +125,7 @@ async function main() {
   const one = await import('../src/app/api/v1/tasks/[id]/files/[fileId]/route');
   const link = await import('../src/app/api/v1/tasks/[id]/files/[fileId]/url/route');
   const call = async (handler: (request: NextRequest, context: never) => Promise<Response>,
-    method: string, path: string, params: Record<string, string>, body?: unknown, apiKey = s.ashley) => {
+    method: string, path: string, params: Record<string, string>, body?: unknown, apiKey = s.planner) => {
     const response = await handler(new NextRequest(`http://localhost${path}`, {
       method,
       headers: { 'x-api-key': apiKey, 'content-type': 'application/json' },
@@ -134,15 +134,15 @@ async function main() {
     return { status: response.status, body: await response.json() as Body };
   };
   const base = `/api/v1/tasks/${s.task}/files`;
-  const add = (body: unknown, task = s.task, apiKey = s.ashley) => call(files.POST, 'POST', `/api/v1/tasks/${task}/files`, { id: task }, body, apiKey);
+  const add = (body: unknown, task = s.task, apiKey = s.planner) => call(files.POST, 'POST', `/api/v1/tasks/${task}/files`, { id: task }, body, apiKey);
   const objectsIn = (bucket: string) => [...storage.objects.keys()].filter((key) => key.startsWith(`${bucket}/`));
 
   try {
     // --- Uploads, stored once by their hash ----------------------------------------------
-    const png = await add({ content_base64: PNG.toString('base64'), name: 'C:\\shots\\banner.png', mime_type: 'image/png', note: 'the mockup Ciaran sent' });
+    const png = await add({ content_base64: PNG.toString('base64'), name: 'C:\\shots\\banner.png', mime_type: 'image/png', note: 'the mockup Morgan sent' });
     const pngPath = `${s.project}/${sha(PNG)}`;
     check('upload: base64 bytes become the task\'s own file, named without its folders', png.status === 201 && png.body.data?.kind === 'upload'
-      && png.body.data?.name === 'banner.png' && png.body.data?.file_size === PNG.length && png.body.data?.preview === 'image' && png.body.data?.note === 'the mockup Ciaran sent', png);
+      && png.body.data?.name === 'banner.png' && png.body.data?.file_size === PNG.length && png.body.data?.preview === 'image' && png.body.data?.note === 'the mockup Morgan sent', png);
     check('upload: stored at {project}/{sha256 of the bytes}, as an image',
       storage.objects.get(`${BUCKETS.taskFiles}/${pngPath}`)?.contentType === 'image/png'
         && (await q<{ storage_path: string }>('SELECT storage_path FROM pm.task_files WHERE id = $1', [png.body.data?.id]))[0]?.storage_path === pngPath);

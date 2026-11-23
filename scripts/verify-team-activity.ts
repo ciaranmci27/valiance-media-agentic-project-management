@@ -63,8 +63,8 @@ async function backfill() {
   const owner = people.find((m) => m.auth_user_id === OWNER_USER)!.id;
   const member = people.find((m) => m.auth_user_id === MEMBER_USER)!.id;
   await db.query("UPDATE public.team_members SET role = 'owner', status = 'active' WHERE id = $1", [owner]);
-  const agent = (await q<{ id: string }>("INSERT INTO public.team_members (name, email, role) VALUES ('Jeff', 'jeff@example.com', 'agent') RETURNING id"))[0].id;
-  const project = (await q<{ id: string }>("INSERT INTO public.projects (name) VALUES ('Happy Innovations') RETURNING id"))[0].id;
+  const agent = (await q<{ id: string }>("INSERT INTO public.team_members (name, email, role) VALUES ('Builder', 'builder@example.com', 'agent') RETURNING id"))[0].id;
+  const project = (await q<{ id: string }>("INSERT INTO public.projects (name) VALUES ('Acme') RETURNING id"))[0].id;
 
   // The log goes live, then a task is logged as it is made: the backfill must not log it again.
   await db.exec(migration);
@@ -124,14 +124,14 @@ async function main() {
   const owner = people.find((m) => m.auth_user_id === OWNER_USER)!.id;
   const member = people.find((m) => m.auth_user_id === MEMBER_USER)!.id;
   await db.query("UPDATE pm.team_members SET name = 'Maya' WHERE id = $1", [member]);
-  const agent = (await q<{ id: string }>("INSERT INTO pm.team_members (name, email, role) VALUES ('Jeff', 'jeff@example.com', 'agent') RETURNING id"))[0].id;
+  const agent = (await q<{ id: string }>("INSERT INTO pm.team_members (name, email, role) VALUES ('Builder', 'builder@example.com', 'agent') RETURNING id"))[0].id;
   await db.query(`INSERT INTO pm.team_member_permissions (member_id, permission_key, access_channel, effect)
     SELECT $1, key, 'app', 'allow' FROM unnest(ARRAY['projects.read', 'tasks.read', 'portal.read', 'files.read']) AS key`, [member]);
   await db.query(`INSERT INTO pm.team_member_permissions (member_id, permission_key, access_channel, effect)
     SELECT $1, key, 'app', 'deny' FROM unnest(ARRAY['invoices.read', 'time.read_all', 'credentials.manage', 'audit.read']) AS key`, [member]);
   // Member hours wait for review, so the owner's approval is a decision of its own.
   await db.query('UPDATE pm.business_settings SET auto_approve_human_hours = false');
-  const project = (await q<{ id: string }>("INSERT INTO pm.projects (name) VALUES ('Happy Innovations') RETURNING id"))[0].id;
+  const project = (await q<{ id: string }>("INSERT INTO pm.projects (name) VALUES ('Acme') RETURNING id"))[0].id;
   const otherProject = (await q<{ id: string }>("INSERT INTO pm.projects (name) VALUES ('Apex Motor Coaches') RETURNING id"))[0].id;
   await db.query('INSERT INTO pm.project_members (project_id, member_id) VALUES ($1, $2)', [project, member]);
   check('writes with no person behind them (setup, cron) are not logged', (await total()) === 0, await rows());
@@ -192,10 +192,10 @@ async function main() {
 
   // --- Comments and subtasks -------------------------------------------------
   await asMember();
-  await db.query("INSERT INTO pm.task_comments (task_id, user_id, text) VALUES ($1, $2, 'Sent the draft to Matthew')", [task, member]);
+  await db.query("INSERT INTO pm.task_comments (task_id, user_id, text) VALUES ($1, $2, 'Sent the draft to Jordan')", [task, member]);
   row = await latest();
   check('a comment is logged for its author with a preview',
-    row?.type === 'comment.added' && row.user_id === member && row.metadata.preview === 'Sent the draft to Matthew'
+    row?.type === 'comment.added' && row.user_id === member && row.metadata.preview === 'Sent the draft to Jordan'
       && row.description === 'Commented on "Redesign the home page"', row);
   await asOwner();
   const subtask = (await q<{ id: string }>("INSERT INTO pm.tasks (project_id, title, parent_task_id, created_by) VALUES ($1, 'Pick the hero photo', $2, $3) RETURNING id",

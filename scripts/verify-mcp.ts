@@ -66,7 +66,7 @@ async function seed(db: PGlite) {
     INSERT INTO pm.business_settings DEFAULT VALUES;
   `);
   await db.query(
-    "INSERT INTO team_members(id,name,role,agent_profile) VALUES ($1,'Owner','owner','generic'),($2,'Jeff','agent','builder'),($3,'Ada','admin','generic')",
+    "INSERT INTO team_members(id,name,role,agent_profile) VALUES ($1,'Owner','owner','generic'),($2,'Builder','agent','builder'),($3,'Ada','admin','generic')",
     [OWNER, AGENT, ADMIN],
   );
   const agentPermissions = ['tasks.read', 'tasks.manage_assigned', 'notifications.send', 'agent_activity.write', 'time.manage_own', 'projects.read', 'suggestions.create'];

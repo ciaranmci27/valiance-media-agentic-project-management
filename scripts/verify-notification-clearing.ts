@@ -1,6 +1,6 @@
 /**
  * Notifications clear when what they are about is finished, and come back
- * when it is not: reminders, drafted invoices, a failed retainer draft, Greg's
+ * when it is not: reminders, drafted invoices, a failed retainer draft, Auditor's
  * review nudge. Runs on PGlite over the whole real schema, with the migration
  * applied on top twice (as 2.0 has it, in schema pm: inPm); nothing touches a
  * live database.

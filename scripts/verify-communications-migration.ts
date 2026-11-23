@@ -63,7 +63,7 @@ async function applyMigrationsUpTo20(db: PGlite): Promise<void> {
 
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const ids = {
-  owner: id(1), ashley: id(2), project: id(3), other: id(4), inbox: id(5), address: id(6), thread: id(7), thread2: id(8),
+  owner: id(1), planner: id(2), project: id(3), other: id(4), inbox: id(5), address: id(6), thread: id(7), thread2: id(8),
   message: id(9), message2: id(10), task: id(11), file: id(12), attachment: id(13), triage: id(14), reminder: id(15),
   taskFile: id(16), contact: id(17), rule: id(18), draft: id(19), answer: id(20), forwarded: id(21),
 };
@@ -72,11 +72,11 @@ async function seedOld(db: PGlite) {
   await db.exec(`
     INSERT INTO public.team_members (id, auth_user_id, name, email, role) VALUES
       ('${ids.owner}', NULL, 'Owner', 'owner@agency.example', 'owner'),
-      ('${ids.ashley}', NULL, 'Ashley', 'ashley@agency.example', 'agent');
+      ('${ids.planner}', NULL, 'Planner', 'planner@agency.example', 'agent');
     INSERT INTO public.projects (id, name) VALUES ('${ids.project}', 'Acme'), ('${ids.other}', 'Birch');
     INSERT INTO public.contacts (id, name, email) VALUES ('${ids.contact}', 'Dana', 'dana@acme.example');
     UPDATE public.business_settings SET inbound_email_domain = 'relay.example.test';
-    INSERT INTO public.email_inboxes (id, name, address, handler_member_id) VALUES ('${ids.inbox}', 'Ashley', 'ashley@agency.example', '${ids.ashley}');
+    INSERT INTO public.email_inboxes (id, name, address, handler_member_id) VALUES ('${ids.inbox}', 'Planner', 'planner@agency.example', '${ids.planner}');
     INSERT INTO public.email_project_addresses (id, project_id, inbox_id, public_address) VALUES ('${ids.address}', '${ids.project}', '${ids.inbox}', 'hi@acme.example');
     INSERT INTO public.email_client_domains (domain, project_id) VALUES ('acme.example', '${ids.project}');
     INSERT INTO public.email_client_addresses (project_id, address) VALUES ('${ids.other}', 'bob@gmail.com');
@@ -99,8 +99,8 @@ async function seedOld(db: PGlite) {
       VALUES ('${ids.attachment}', '${ids.message}', 0, 'plan.pdf', 10, '${'a'.repeat(64)}', '${ids.inbox}/files/${ids.file}', now(), '${ids.file}');
     INSERT INTO public.tasks (id, project_id, title, created_by) VALUES ('${ids.task}', '${ids.project}', 'Ship the launch', '${ids.owner}');
     INSERT INTO public.email_triage (id, message_id, member_id, outcome, summary, question_for_human)
-      VALUES ('${ids.triage}', '${ids.message}', '${ids.ashley}', 'task', 'Filed the launch', 'Which date?');
-    INSERT INTO public.email_task_links (message_id, task_id, relation, triage_id, linked_by) VALUES ('${ids.message}', '${ids.task}', 'created', '${ids.triage}', '${ids.ashley}');
+      VALUES ('${ids.triage}', '${ids.message}', '${ids.planner}', 'task', 'Filed the launch', 'Which date?');
+    INSERT INTO public.email_task_links (message_id, task_id, relation, triage_id, linked_by) VALUES ('${ids.message}', '${ids.task}', 'created', '${ids.triage}', '${ids.planner}');
     INSERT INTO public.email_question_answers (id, message_id, triage_id, answer, answered_by) VALUES ('${ids.answer}', '${ids.message}', '${ids.triage}', 'Friday', '${ids.owner}');
     INSERT INTO public.email_reply_drafts (id, thread_id, message_id, requested_by) VALUES ('${ids.draft}', '${ids.thread}', '${ids.message}', '${ids.owner}');
     INSERT INTO public.email_maintenance_runs (kind, started_at, finished_at, outcome) VALUES ('retention', now(), now(), 'complete');

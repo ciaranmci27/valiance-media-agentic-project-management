@@ -406,7 +406,7 @@ async function main() {
   await db.query(`INSERT INTO pm.team_member_permissions (member_id, permission_key, access_channel, effect)
     SELECT $1, key, 'app', 'allow' FROM unnest(ARRAY['projects.read', 'tasks.read', 'tasks.manage_assigned',
       'portal.read', 'files.read', 'contacts.read']) AS key`, [member.id]);
-  const project = (await db.query<{ id: string }>("INSERT INTO pm.projects (name) VALUES ('Plan4TheFuture.com') RETURNING id")).rows[0].id;
+  const project = (await db.query<{ id: string }>("INSERT INTO pm.projects (name) VALUES ('Globex.com') RETURNING id")).rows[0].id;
   await db.query('INSERT INTO pm.project_members (project_id, member_id) VALUES ($1, $2)', [project, member.id]);
   const task = (await db.query<{ id: string }>(
     "INSERT INTO pm.tasks (project_id, title, created_by) VALUES ($1, 'Capture plan domicile state', $2) RETURNING id",
@@ -564,7 +564,7 @@ async function main() {
 
   // --- A lead field in Trash does not block setting it again ----------------------
   await db.exec('RESET ROLE');
-  const lead = (await db.query<{ id: string }>("INSERT INTO pm.leads (name) VALUES ('Mike''s Bikes') RETURNING id")).rows[0].id;
+  const lead = (await db.query<{ id: string }>("INSERT INTO pm.leads (name) VALUES ('Riley''s Bikes') RETURNING id")).rows[0].id;
   // As the app does: change the live field, or add it.
   const setField = async (value: string) => {
     await actAs(db, OWNER_USER);

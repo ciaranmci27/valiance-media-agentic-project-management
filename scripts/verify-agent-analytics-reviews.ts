@@ -21,7 +21,7 @@ const OWNER = randomUUID();
 const OWNER_AUTH = randomUUID();
 const MEMBER = randomUUID();
 const MEMBER_AUTH = randomUUID();
-const JEFF = randomUUID();
+const BUILDER = randomUUID();
 const PROJECT = randomUUID();
 
 async function main() {
@@ -36,8 +36,8 @@ async function main() {
   const rows = async (sql: string, params: unknown[] = []) => (await db.query<Record<string, any>>(sql, params)).rows;
 
   await db.query(`INSERT INTO team_members(id, auth_user_id, name, role) VALUES
-    ($1, $2, 'Ciaran', 'owner'), ($3, $4, 'Mia', 'member'), ($5, NULL, 'Jeff', 'agent')`,
-  [OWNER, OWNER_AUTH, MEMBER, MEMBER_AUTH, JEFF]);
+    ($1, $2, 'Morgan', 'owner'), ($3, $4, 'Mia', 'member'), ($5, NULL, 'Builder', 'agent')`,
+  [OWNER, OWNER_AUTH, MEMBER, MEMBER_AUTH, BUILDER]);
   await db.query("INSERT INTO projects(id, name) VALUES ($1, 'Site')", [PROJECT]);
   await db.query('INSERT INTO project_members(project_id, member_id) VALUES ($1, $2)', [PROJECT, MEMBER]);
   await db.query("INSERT INTO role_permissions(role, permission_key, access_channel) VALUES ('member', 'projects.read', 'app') ON CONFLICT DO NOTHING");
@@ -81,7 +81,7 @@ async function main() {
 
   // Gap reviews: the owner marks one; the gap row is untouched; members cannot.
   const gap = (await rows(`INSERT INTO agent_activities(agent_id, activity_type, title, metadata)
-    VALUES ($1, 'billing.gap', 'Billing gap: 3 min mid turn', '{"phase":"mid_turn","minutes":3}') RETURNING id, metadata`, [JEFF]))[0];
+    VALUES ($1, 'billing.gap', 'Billing gap: 3 min mid turn', '{"phase":"mid_turn","minutes":3}') RETURNING id, metadata`, [BUILDER]))[0];
   await asPerson(db, OWNER_AUTH, () => db.query(
     "INSERT INTO agent_billing_gap_reviews(activity_id, status, note, reviewed_by) VALUES ($1, 'reconciled', 'logged with pm-log-time', $2)",
     [gap.id, OWNER]));

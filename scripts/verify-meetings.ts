@@ -42,9 +42,9 @@ const AUTH = { trust: 'trusted' as const, source: 'api_key', api_key_id: KEY };
 
 async function main() {
   const db = await createEmailDatabase();
-  await db.query(`INSERT INTO team_members(id, name, email, role) VALUES ($1,'Sam','sam@agency.example','owner'),($2,'Ashley','ashley@agency.example','agent')`, [ids.owner, ids.agent]);
+  await db.query(`INSERT INTO team_members(id, name, email, role) VALUES ($1,'Sam','sam@agency.example','owner'),($2,'Planner','planner@agency.example','agent')`, [ids.owner, ids.agent]);
   await db.query(`INSERT INTO projects(id, name) VALUES ($1,'Acme')`, [ids.acme]);
-  await db.query(`INSERT INTO pm.inboxes(id, name, address, max_attachment_mb) VALUES ($1,'Ashley','ashley@relay.example',1)`, [ids.inbox]);
+  await db.query(`INSERT INTO pm.inboxes(id, name, address, max_attachment_mb) VALUES ($1,'Planner','planner@relay.example',1)`, [ids.inbox]);
   await db.query(`INSERT INTO pm.client_domains(domain, project_id) VALUES ('acme.example',$1)`, [ids.acme]);
   await db.query(`INSERT INTO pm.own_domains(domain) VALUES ('agency.example')`);
 
@@ -164,7 +164,7 @@ async function main() {
         provider: 'resend', provider_email_id: `meeting-mail-${options.key}-${sent}`, received_at: new Date().toISOString(),
         delivered_to: [routing], message_id: `<${randomUUID()}@mail.gmail.com>`, in_reply_to: [], references: [],
         subject: options.subject ?? 'Meeting transcript: Design sync (2026-11-12)', date: new Date().toISOString(),
-        from: { address: options.from ?? 'sam@agency.example', name: 'Sam' }, to: [{ address: 'ashley@agency.example', name: '' }],
+        from: { address: options.from ?? 'sam@agency.example', name: 'Sam' }, to: [{ address: 'planner@agency.example', name: '' }],
         cc: [], reply_to: [], headers: [],
         text: `Meeting transcript: Design sync (2026-11-12)\nSource: the full transcript, every word\n\n${options.block ?? blockOf(data)}\n`,
         html: null,
@@ -223,7 +223,7 @@ async function main() {
       check(label, result.meetings.length === 0 && result.emails.length === 1 && result.emails[0].channel === 'email', result);
     };
     await asEmail('1. an unverified sender stays an email', mail({ key: 'event:spoof@1', trusted: false }), 'event:spoof@1');
-    await asEmail('2. an agent sender stays an email', mail({ key: 'event:agent@1', from: 'ashley@agency.example' }), 'event:agent@1');
+    await asEmail('2. an agent sender stays an email', mail({ key: 'event:agent@1', from: 'planner@agency.example' }), 'event:agent@1');
     await asEmail('2. an outsider stays an email', mail({ key: 'event:outsider@1', from: 'dana@acme.example' }), 'event:outsider@1');
     await asEmail('3. a teammate without this inbox stays an email', mail({ key: 'event:lee@1', from: 'lee@agency.example' }), 'event:lee@1');
     await asEmail('4. a forward of the script email stays an email', mail({ key: 'event:fwd@1', subject: 'Fwd: Meeting transcript: Design sync (2026-11-12)' }), 'event:fwd@1');

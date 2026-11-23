@@ -77,7 +77,7 @@ async function main() {
     const teamMember = await import('../src/app/api/v1/team-members/[id]/route');
 
     // -- Seed ---------------------------------------------------------------
-    const P = (await q<{ id: string }>("INSERT INTO pm.projects (name) VALUES ('Plan4TheFuture.com') RETURNING id"))[0].id;
+    const P = (await q<{ id: string }>("INSERT INTO pm.projects (name) VALUES ('Globex.com') RETURNING id"))[0].id;
     const T1 = (await q<{ id: string }>("INSERT INTO pm.tasks (project_id, title) VALUES ($1, 'Capture plan domicile state') RETURNING id", [P]))[0].id;
     const T2 = (await q<{ id: string }>("INSERT INTO pm.tasks (project_id, title) VALUES ($1, 'Update local delivery wording') RETURNING id", [P]))[0].id;
     const taskIds = async (projectId: string) =>
@@ -151,7 +151,7 @@ async function main() {
     check('unarchiving clears it', unarchived.json.data?.archived === false && archivedAt === null, unarchived.json);
 
     // -- A lead ------------------------------------------------------------------------
-    const L = (await q<{ id: string }>("INSERT INTO pm.leads (name) VALUES ('Mike''s Bikes') RETURNING id"))[0].id;
+    const L = (await q<{ id: string }>("INSERT INTO pm.leads (name) VALUES ('Riley''s Bikes') RETURNING id"))[0].id;
     const leadArchived = await call(leadArchive.POST, 'POST', `/api/v1/leads/${L}/archive`, { id: L });
     check('a lead archives on its own action', leadArchived.json.data?.archived === true, leadArchived.json);
     const leadDeleted = await call(lead.DELETE, 'DELETE', `/api/v1/leads/${L}`, { id: L });

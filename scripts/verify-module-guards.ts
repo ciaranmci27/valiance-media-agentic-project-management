@@ -279,7 +279,7 @@ async function seed(db: PGlite): Promise<Seeded> {
   };
   const owner = await member(OWNER_USER, 'owner', 'Owner');
   const memberId = await member(MEMBER_USER, 'member', 'Mia');
-  await db.query(`INSERT INTO pm.team_members (id, name, email, role, status) VALUES ($1, 'Ashley', 'ashley@example.com', 'agent', 'active')`, [AGENT_MEMBER]);
+  await db.query(`INSERT INTO pm.team_members (id, name, email, role, status) VALUES ($1, 'Planner', 'planner@example.com', 'agent', 'active')`, [AGENT_MEMBER]);
   // The member holds every module permission used below, so only the switch can take it away.
   for (const key of ['time.manage_own', 'time.read_all', 'invoices.read', 'contacts.read_all', 'portal.read', 'credentials.manage', 'agents.manage', 'goals.read', 'suggestions.manage', 'projects.read_all', 'leads.read_all'])
     await db.query(`INSERT INTO pm.team_member_permissions (member_id, permission_key, access_channel, effect) VALUES ($1, $2, 'app', 'allow') ON CONFLICT DO NOTHING`, [memberId, key]);
@@ -302,7 +302,7 @@ async function seed(db: PGlite): Promise<Seeded> {
   const token = randomUUID().replace(/-/g, '');
   await db.query(`INSERT INTO pm.portal_settings (project_id, token, enabled, show_hours, show_invoices, show_credentials)
     VALUES ($1, $2, true, true, true, true)`, [project, token]);
-  await db.query("INSERT INTO pm.agent_health (member_id, container) VALUES ($1, 'ashley')", [AGENT_MEMBER]);
+  await db.query("INSERT INTO pm.agent_health (member_id, container) VALUES ($1, 'planner')", [AGENT_MEMBER]);
   await db.query("INSERT INTO pm.project_credentials (project_id, label, encrypted_data, iv) VALUES ($1, 'Hosting', 'cipher', 'nonce')", [project]);
   const goal = (await db.query<{ id: string }>("INSERT INTO pm.project_goals (project_id, title) VALUES ($1, 'Launch') RETURNING id", [project])).rows[0].id;
   await db.query("INSERT INTO pm.task_suggestions (project_id, goal_id, proposed_by, title, description, reasoning) VALUES ($1, $2, $3, 'Add a sitemap', 'For search', 'Missing')", [project, goal, AGENT_MEMBER]);
@@ -570,7 +570,7 @@ async function routeChecks(db: PGlite, s: Seeded) {
     VALUES ('Narrow', 'pk_live_narrow', $1, $2, $2, $3)`, [hash(keys.ownerNarrow), s.owner, ['tasks.read']]);
   const inbox = randomUUID();
   await db.query('UPDATE pm.business_settings SET inbound_email_domain = $1', [RELAY]);
-  await db.query(`INSERT INTO pm.inboxes (id, name, address, handler_member_id, verification_code) VALUES ($1, 'Ashley', 'ashley@agency.example', $2, 'VM-7K2Q')`, [inbox, AGENT_MEMBER]);
+  await db.query(`INSERT INTO pm.inboxes (id, name, address, handler_member_id, verification_code) VALUES ($1, 'Planner', 'planner@agency.example', $2, 'VM-7K2Q')`, [inbox, AGENT_MEMBER]);
 
   // The API's rate limit, in the jsonb shape fake-postgrest serves (as the other route tests stub it).
   await db.exec(`DROP FUNCTION pm.consume_api_rate_limit(uuid, integer, integer);
@@ -717,7 +717,7 @@ async function routeChecks(db: PGlite, s: Seeded) {
     await setModules(db, allBut('inbox'));
     await asDatabaseOwner(db);
     const notificationsBefore = (await db.query<{ n: number }>('SELECT count(*)::int AS n FROM pm.team_member_notifications')).rows[0].n;
-    resend.add(await resendFixture(await readEml('owner-original.eml'), { emailId: 're_module_off', deliveredTo: [`ashley@${RELAY}`] }));
+    resend.add(await resendFixture(await readEml('owner-original.eml'), { emailId: 're_module_off', deliveredTo: [`planner@${RELAY}`] }));
     const body = JSON.stringify({ type: 'email.received', created_at: '2026-11-20T18:00:00Z', data: { email_id: 're_module_off' } });
     const timestamp = Math.floor(Date.now() / 1000);
     const delivered = await webhook.POST(new Request('http://localhost/api/inbound-email/resend', {

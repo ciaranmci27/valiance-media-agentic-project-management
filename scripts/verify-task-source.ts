@@ -88,11 +88,11 @@ async function run(db: PGlite, label: string, schema: 'public' | 'pm') {
   const member = people.find((m) => m.auth_user_id === MEMBER_USER)!.id;
   await q(`INSERT INTO public.team_member_permissions (member_id, permission_key, access_channel, effect)
     SELECT $1, key, 'app', 'allow' FROM unnest(ARRAY['projects.read', 'tasks.read']) AS key`, [member]);
-  const ashley = (await q<{ id: string }>("INSERT INTO public.team_members (name, email, role) VALUES ('Ashley', 'ashley@example.com', 'agent') RETURNING id"))[0].id;
-  const project = (await q<{ id: string }>("INSERT INTO public.projects (name) VALUES ('Happy Innovations') RETURNING id"))[0].id;
+  const planner = (await q<{ id: string }>("INSERT INTO public.team_members (name, email, role) VALUES ('Planner', 'planner@example.com', 'agent') RETURNING id"))[0].id;
+  const project = (await q<{ id: string }>("INSERT INTO public.projects (name) VALUES ('Acme') RETURNING id"))[0].id;
   await q('INSERT INTO public.project_members (project_id, member_id) VALUES ($1, $2)', [project, member]);
-  const ashleyKey = (await q<{ id: string }>(
-    "INSERT INTO public.api_keys (name, key_prefix, key_hash, team_member_id, created_by) VALUES ('Ashley', 'vm_a', 'h1', $1, $2) RETURNING id", [ashley, owner]))[0].id;
+  const plannerKey = (await q<{ id: string }>(
+    "INSERT INTO public.api_keys (name, key_prefix, key_hash, team_member_id, created_by) VALUES ('Planner', 'vm_a', 'h1', $1, $2) RETURNING id", [planner, owner]))[0].id;
   const recapKey = (await q<{ id: string }>(
     "INSERT INTO public.api_keys (name, key_prefix, key_hash, team_member_id, created_by) VALUES ('Time recap', 'vm_r', 'h2', $1, $1) RETURNING id", [owner]))[0].id;
 
@@ -110,12 +110,12 @@ async function run(db: PGlite, label: string, schema: 'public' | 'pm') {
   s = await source(routed);
   check(`${label}: the app's own routes acting for a person are app`, s.created_via === 'app' && s.created_by_key_id === null, s);
 
-  await asServer({ 'x-actor-member-id': ashley, 'x-actor-via': 'api', 'x-actor-key-id': ashleyKey });
-  const fromAshley = (await q<{ id: string }>(
-    "INSERT INTO public.tasks (project_id, title, created_by, created_note) VALUES ($1, 'Holiday banner', $2, '  from Brennan''s email  ') RETURNING id", [project, ashley]))[0].id;
-  s = await source(fromAshley);
+  await asServer({ 'x-actor-member-id': planner, 'x-actor-via': 'api', 'x-actor-key-id': plannerKey });
+  const fromPlanner = (await q<{ id: string }>(
+    "INSERT INTO public.tasks (project_id, title, created_by, created_note) VALUES ($1, 'Holiday banner', $2, '  from Drew''s email  ') RETURNING id", [project, planner]))[0].id;
+  s = await source(fromPlanner);
   check(`${label}: an agent's key is api, with the key and its trimmed note`,
-    s.created_via === 'api' && s.created_by_key_id === ashleyKey && s.created_note === "from Brennan's email" && s.created_by === ashley, s);
+    s.created_via === 'api' && s.created_by_key_id === plannerKey && s.created_note === "from Drew's email" && s.created_by === planner, s);
 
   await asServer({ 'x-actor-member-id': owner, 'x-actor-via': 'mcp', 'x-actor-key-id': recapKey });
   const fromRecap = (await q<{ id: string }>("INSERT INTO public.tasks (project_id, title, created_by) VALUES ($1, 'Logged from the recap', $2) RETURNING id", [project, owner]))[0].id;
@@ -137,30 +137,30 @@ async function run(db: PGlite, label: string, schema: 'public' | 'pm') {
   const direct = (await q<{ id: string }>("INSERT INTO public.tasks (project_id, title) VALUES ($1, 'SQL run directly') RETURNING id", [project]))[0].id;
   check(`${label}: SQL run directly is system`, (await source(direct)).created_via === 'system');
 
-  await asServer({ 'x-actor-member-id': ashley, 'x-actor-via': 'api', 'x-actor-key-id': ashleyKey });
+  await asServer({ 'x-actor-member-id': planner, 'x-actor-via': 'api', 'x-actor-key-id': plannerKey });
   check(`${label}: a note over 200 characters is cut to 200`,
     (await tryQuery("INSERT INTO public.tasks (project_id, title, created_note) VALUES ($1, 'Long note', $2)", [project, 'x'.repeat(300)])) === null
       && (await q<{ n: number }>("SELECT length(created_note) AS n FROM public.tasks WHERE title = 'Long note'"))[0]?.n === 200);
 
   await actAs(db, OWNER_USER);
-  await q("UPDATE public.tasks SET created_via = 'app', created_by_key_id = NULL, created_note = 'rewritten', title = 'Holiday banner v2' WHERE id = $1", [fromAshley]);
-  s = await source(fromAshley);
+  await q("UPDATE public.tasks SET created_via = 'app', created_by_key_id = NULL, created_note = 'rewritten', title = 'Holiday banner v2' WHERE id = $1", [fromPlanner]);
+  s = await source(fromPlanner);
   check(`${label}: where a task came from never changes after the insert`,
-    s.created_via === 'api' && s.created_by_key_id === ashleyKey && s.created_note === "from Brennan's email", s);
+    s.created_via === 'api' && s.created_by_key_id === plannerKey && s.created_note === "from Drew's email", s);
   await superuser();
-  check(`${label}: other edits still apply`, (await q<{ title: string }>('SELECT title FROM public.tasks WHERE id = $1', [fromAshley]))[0].title === 'Holiday banner v2');
+  check(`${label}: other edits still apply`, (await q<{ title: string }>('SELECT title FROM public.tasks WHERE id = $1', [fromPlanner]))[0].title === 'Holiday banner v2');
 
   // --- Seen -------------------------------------------------------------------
   await actAs(db, MEMBER_USER);
-  check(`${label}: a member marks a task seen`, (await tryQuery('SELECT public.mark_task_seen($1)', [fromAshley])) === null);
-  const first = (await q<{ seen_at: string }>('SELECT seen_at FROM public.task_views WHERE task_id = $1', [fromAshley]))[0]?.seen_at;
-  check(`${label}: opening it again keeps one row`, (await tryQuery('SELECT public.mark_task_seen($1)', [fromAshley])) === null
-    && (await q('SELECT 1 FROM public.task_views WHERE task_id = $1', [fromAshley])).length === 1 && !!first);
+  check(`${label}: a member marks a task seen`, (await tryQuery('SELECT public.mark_task_seen($1)', [fromPlanner])) === null);
+  const first = (await q<{ seen_at: string }>('SELECT seen_at FROM public.task_views WHERE task_id = $1', [fromPlanner]))[0]?.seen_at;
+  check(`${label}: opening it again keeps one row`, (await tryQuery('SELECT public.mark_task_seen($1)', [fromPlanner])) === null
+    && (await q('SELECT 1 FROM public.task_views WHERE task_id = $1', [fromPlanner])).length === 1 && !!first);
 
   await actAs(db, OWNER_USER);
   check(`${label}: one member's views are not another's`, (await q('SELECT 1 FROM public.task_views')).length === 0);
   check(`${label}: nobody writes a view for someone else`,
-    (await tryQuery('INSERT INTO public.task_views (task_id, member_id) VALUES ($1, $2)', [fromAshley, member])) !== null);
+    (await tryQuery('INSERT INTO public.task_views (task_id, member_id) VALUES ($1, $2)', [fromPlanner, member])) !== null);
 
   await superuser();
   const elsewhere = (await q<{ id: string }>("INSERT INTO public.projects (name) VALUES ('Apex') RETURNING id"))[0].id;
@@ -179,12 +179,12 @@ async function throughTheApi(db: PGlite) {
     RETURNS jsonb LANGUAGE sql AS $$ SELECT jsonb_build_object('allowed', true, 'remaining', p_limit - 1,
       'reset_at', now() + make_interval(secs => p_window_seconds)) $$;`);
   const agent = (await q<{ id: string }>("SELECT id FROM pm.team_members WHERE role = 'agent' LIMIT 1"))[0].id;
-  const project = (await q<{ id: string }>("SELECT id FROM pm.projects WHERE name = 'Happy Innovations' LIMIT 1"))[0].id;
+  const project = (await q<{ id: string }>("SELECT id FROM pm.projects WHERE name = 'Acme' LIMIT 1"))[0].id;
   await db.query(`INSERT INTO pm.team_member_permissions (member_id, permission_key, access_channel, effect)
     SELECT $1, key, 'api', 'allow' FROM unnest(ARRAY['tasks.read', 'tasks.create', 'tasks.manage_all', 'projects.read', 'projects.read_all']) AS key`, [agent]);
   const secret = `pk_live_${randomUUID().replace(/-/g, '')}`;
   const keyId = (await q<{ id: string }>(`INSERT INTO pm.api_keys (name, key_prefix, key_hash, team_member_id, scopes, permissions)
-    VALUES ('Ashley', 'pk_live', $1, $2, $3, 'scoped') RETURNING id`, [createHash('sha256').update(secret).digest('hex'), agent,
+    VALUES ('Planner', 'pk_live', $1, $2, $3, 'scoped') RETURNING id`, [createHash('sha256').update(secret).digest('hex'), agent,
     ['tasks.read', 'tasks.create', 'tasks.manage_all', 'projects.read', 'projects.read_all']]))[0].id;
 
   const server = await startFakePostgrest(db);
@@ -194,7 +194,7 @@ async function throughTheApi(db: PGlite) {
     const response = await route.POST(new NextRequest('http://localhost/api/v1/tasks', {
       method: 'POST',
       headers: { 'x-api-key': secret, 'content-type': 'application/json' },
-      body: JSON.stringify({ project_id: project, title: 'Through the API', source_note: "from Brennan's email" }),
+      body: JSON.stringify({ project_id: project, title: 'Through the API', source_note: "from Drew's email" }),
     }));
     const body = await response.json() as { data?: { id?: string } };
     const id = body.data?.id;
@@ -203,7 +203,7 @@ async function throughTheApi(db: PGlite) {
     const row = id ? (await q<Source>('SELECT created_via, created_by_key_id, created_note, created_by FROM pm.tasks WHERE id = $1', [id]))[0] : undefined;
     check('api: a task made with a key records the key, its person and its note',
       response.status === 201 && row?.created_via === 'api' && row.created_by_key_id === keyId
-        && row.created_note === "from Brennan's email" && row.created_by === agent, { status: response.status, body, row });
+        && row.created_note === "from Drew's email" && row.created_by === agent, { status: response.status, body, row });
   } finally {
     await server.close();
   }

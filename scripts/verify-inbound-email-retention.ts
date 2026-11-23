@@ -68,7 +68,7 @@ async function makeMessage(db: PGlite, storage: FakeStorage, options: {
     paths.push(path);
   }
   for (const path of paths) storage.objects.set(`${BUCKET}/${path}`, { bytes: Buffer.from(`bytes of ${path}`), contentType: 'application/octet-stream' });
-  await db.query("INSERT INTO pm.participants(message_id, kind, address, contact_id) VALUES ($1,'from','dana@client.example',$2),($1,'to','ashley@relay.example',NULL)", [id, ids.contact]);
+  await db.query("INSERT INTO pm.participants(message_id, kind, address, contact_id) VALUES ($1,'from','dana@client.example',$2),($1,'to','planner@relay.example',NULL)", [id, ids.contact]);
   await db.query("INSERT INTO pm.message_candidates(message_id, project_id, reason) VALUES ($1,$2,'contact')", [id, ids.project]);
   if (options.triage) {
     const triage = (await rows(db, "INSERT INTO pm.triage(message_id, outcome, summary) VALUES ($1,'task','Did a thing') RETURNING id", [id]))[0].id;
@@ -82,7 +82,7 @@ async function main() {
   await db.query(`INSERT INTO team_members(id, name, role) VALUES ($1,'Sam','owner')`, [ids.owner]);
   await db.query(`INSERT INTO projects(id, name) VALUES ($1,'Acme')`, [ids.project]);
   await db.query(`INSERT INTO contacts(id, name, email) VALUES ($1,'Dana','dana@client.example')`, [ids.contact]);
-  await db.query(`INSERT INTO pm.inboxes(id, name, address, retention_days) VALUES ($1,'Ashley','ashley@agency.example',90),($2,'Billing','billing@agency.example',7)`, [ids.inboxA, ids.inboxB]);
+  await db.query(`INSERT INTO pm.inboxes(id, name, address, retention_days) VALUES ($1,'Planner','planner@agency.example',90),($2,'Billing','billing@agency.example',7)`, [ids.inboxA, ids.inboxB]);
   const task = (await rows(db, "INSERT INTO tasks(project_id, title, description, created_by) VALUES ($1,'From an email','Every detail copied here',$2) RETURNING id", [ids.project, ids.owner]))[0].id as string;
 
   const storage = new FakeStorage();

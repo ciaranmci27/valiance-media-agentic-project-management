@@ -10,7 +10,7 @@
  * - a shadow plan records decisions only: no task, no triage, no status, no
  *   notification; the shadow context leaves out what the message caused;
  * - undo puts back what applied items did, or reports a change since;
- * - one open question per conversation; mute is Ciaran's alone;
+ * - one open question per conversation; mute is Morgan's alone;
  * - the queue waits for a quiet conversation and skips muted ones; the
  *   signal counts plan inboxes apart;
  * - nobody signed in writes plans.
@@ -35,7 +35,7 @@ type Row = Record<string, unknown>;
 
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const ids = {
-  owner: id(1), ashley: id(2), tom: id(3),
+  owner: id(1), planner: id(2), tom: id(3),
   acme: id(10), birch: id(11), old: id(12),
   inbox: id(20),
   agentTask: id(30), personTask: id(31),
@@ -50,25 +50,25 @@ async function seed(db: PGlite) {
       'reset_at', now() + make_interval(secs => p_window_seconds)) $$;`);
   await db.exec(`
     INSERT INTO pm.team_members (id, name, email, role) VALUES
-      ('${ids.owner}', 'Ciaran Mcintyre', 'owner@agency.example', 'owner'),
-      ('${ids.ashley}', 'Ashley P.', 'ashley-bot@agency.example', 'agent'),
+      ('${ids.owner}', 'Morgan Lee', 'owner@agency.example', 'owner'),
+      ('${ids.planner}', 'Planner P.', 'planner-bot@agency.example', 'agent'),
       ('${ids.tom}', 'Tom', 'tom@agency.example', 'member');
     INSERT INTO pm.projects (id, name, status) VALUES
       ('${ids.acme}', 'Acme', 'active'), ('${ids.birch}', 'Birch', 'active'), ('${ids.old}', 'Old site', 'completed');
     INSERT INTO pm.tasks (id, project_id, title, created_by, due_date) VALUES
-      ('${ids.agentTask}', '${ids.acme}', 'Swap the hero image', '${ids.ashley}', '2026-11-10'),
+      ('${ids.agentTask}', '${ids.acme}', 'Swap the hero image', '${ids.planner}', '2026-11-10'),
       ('${ids.personTask}', '${ids.acme}', 'Footer links', '${ids.owner}', '2026-11-20');
     UPDATE pm.business_settings SET inbound_email_domain = 'relay.example.test';
     INSERT INTO pm.inboxes (id, name, address, handler_member_id, triage_mode)
-      VALUES ('${ids.inbox}', 'Ashley', 'ashley@agency.example', '${ids.ashley}', 'plans');
+      VALUES ('${ids.inbox}', 'Planner', 'planner@agency.example', '${ids.planner}', 'plans');
   `);
   const permissions = ['inbound_email.read', 'inbound_email.triage', 'inbound_email.signal', 'tasks.read', 'tasks.create', 'tasks.manage_all',
     'projects.read', 'projects.read_all', 'reminders.manage_own', 'files.read', 'files.upload', 'project_context.manage', 'leads.manage'];
   await db.query(`INSERT INTO pm.team_member_permissions (member_id, permission_key, access_channel, effect)
-    SELECT $1, key, 'api', 'allow' FROM unnest($2::text[]) AS key ON CONFLICT DO NOTHING`, [ids.ashley, permissions]);
+    SELECT $1, key, 'api', 'allow' FROM unnest($2::text[]) AS key ON CONFLICT DO NOTHING`, [ids.planner, permissions]);
   const secret = `pk_live_${randomUUID().replace(/-/g, '')}`;
   await db.query(`INSERT INTO pm.api_keys (name, key_prefix, key_hash, team_member_id, scopes, permissions)
-    VALUES ('Ashley', 'pk_live', $1, $2, $3, 'scoped')`, [sha(secret), ids.ashley, permissions]);
+    VALUES ('Planner', 'pk_live', $1, $2, $3, 'scoped')`, [sha(secret), ids.planner, permissions]);
   return secret;
 }
 
@@ -87,12 +87,12 @@ async function message(db: PGlite, fields: {
   const messageId = id(next++);
   await db.query(`INSERT INTO pm.messages (id, inbox_id, thread_id, status, provider, provider_email_id, internet_message_id,
       received_at, subject, kind, auth, sender_member_id, sender_verified, delivery, text_body, new_text)
-    VALUES ($1, $2, $3, $4, 'test', $11, $11, $5, $6, 'person', $7, $8, $9, $10, 'Hi Ashley, please swap the hero image.', 'Hi Ashley, please swap the hero image.')`, [
+    VALUES ($1, $2, $3, $4, 'test', $11, $11, $5, $6, 'person', $7, $8, $9, $10, 'Hi Planner, please swap the hero image.', 'Hi Planner, please swap the hero image.')`, [
     messageId, ids.inbox, conversation, fields.status ?? 'new', received, fields.subject ?? 'Hero image',
     JSON.stringify({ trust: fields.trust ?? 'trusted' }), fields.teammate ?? null, (fields.trust ?? 'trusted') === 'trusted', fields.delivery ?? 'direct', `m-${messageId}`,
   ]);
   await db.query("INSERT INTO pm.participants (message_id, kind, address) VALUES ($1, 'from', $2)", [messageId, fields.from ?? 'dana@acme.example']);
-  for (const to of fields.to ?? ['ashley@agency.example']) {
+  for (const to of fields.to ?? ['planner@agency.example']) {
     await db.query("INSERT INTO pm.participants (message_id, kind, address) VALUES ($1, 'to', $2)", [messageId, to]);
   }
   for (const project of fields.candidates ?? [ids.acme]) {
@@ -177,10 +177,10 @@ async function main() {
     const [point] = await q("SELECT who, state FROM pm.reply_points WHERE conversation_id = $1", [first.conversation]);
     check('live: the reply owed is a point on the conversation', point?.who === 'Dana' && point.state === 'open', point);
     const [reminder] = await q('SELECT owner_id, source_message_id FROM pm.reminders WHERE title = $1', ['Chase Dana for the photo']);
-    check('live: the reminder is Ciaran\'s, from the message', reminder?.owner_id === ids.owner && reminder.source_message_id === first.message, reminder);
+    check('live: the reminder is Morgan\'s, from the message', reminder?.owner_id === ids.owner && reminder.source_message_id === first.message, reminder);
     await settle();
     const [notified] = await q("SELECT count(*)::int AS n FROM pm.team_member_notifications WHERE entity_id = $1 AND is_read = false", [first.message]);
-    check('live: a reply owed notifies Ciaran', notified.n === 1, notified);
+    check('live: a reply owed notifies Morgan', notified.n === 1, notified);
 
     // ---- Replay and conflict ----------------------------------------------------------
     const again = await plan(first.message, {
@@ -219,15 +219,15 @@ async function main() {
     check('scope: nothing is created and the message waits on a person', birchTasks.n === 0 && scopedStatus.status === 'needs_human', [birchTasks, scopedStatus]);
     await settle();
     const [waiting] = await q("SELECT title, link FROM pm.team_member_notifications WHERE entity_type = 'question' AND entity_id = $1 AND is_read = false", [scoped.message]);
-    check('scope: Ciaran is notified, with a link to the thread', !!waiting && String(waiting.link).includes(scoped.message), waiting);
+    check('scope: Morgan is notified, with a link to the thread', !!waiting && String(waiting.link).includes(scoped.message), waiting);
 
     const service = getServiceClient();
     const ownerAccess = await resolveMemberAccess(service, ids.owner);
     const person = { db: service, memberId: ids.owner, access: ownerAccess!, channel: 'app' as const, asPerson: true };
-    await plans.acceptItem(person, proposal.id as string, {}, 'Ashley');
+    await plans.acceptItem(person, proposal.id as string, {}, 'Planner');
     const [accepted] = await q('SELECT state, resolved_by, task_id FROM pm.plan_items WHERE id = $1', [proposal.id]);
     const [filed] = await q('SELECT source FROM pm.conversation_projects WHERE conversation_id = $1 AND project_id = $2', [scoped.conversation, ids.birch]);
-    check('accept: Ciaran accepting applies it as his: task made, Birch filed as person', accepted.state === 'accepted' && accepted.resolved_by === ids.owner
+    check('accept: Morgan accepting applies it as his: task made, Birch filed as person', accepted.state === 'accepted' && accepted.resolved_by === ids.owner
       && !!accepted.task_id && filed?.source === 'person', [accepted, filed]);
     const [read] = await q("SELECT is_read FROM pm.team_member_notifications WHERE entity_type = 'question' AND entity_id = $1", [scoped.message]);
     check('accept: with nothing left waiting, the notification is read', read?.is_read === true, read);
@@ -340,7 +340,7 @@ async function main() {
     const fromOwner = await message(db, { teammate: ids.owner, from: 'owner@agency.example', candidates: [] });
     const ownerMute = await plan(fromOwner.message, { summary: 'Ignore this thread', items: [{ type: 'mute_conversation', intent: 'owner_instruction' }] });
     const [muted] = await q('SELECT muted_at, muted_by FROM pm.conversations WHERE id = $1', [fromOwner.conversation]);
-    check('mute: Ciaran writing to Ashley mutes the conversation', (ownerMute.body.data?.items as Row[])?.[0]?.decision === 'apply' && !!muted.muted_at && muted.muted_by === ids.ashley, [ownerMute.body, muted]);
+    check('mute: Morgan writing to Planner mutes the conversation', (ownerMute.body.data?.items as Row[])?.[0]?.decision === 'apply' && !!muted.muted_at && muted.muted_by === ids.planner, [ownerMute.body, muted]);
 
     // ---- Queue and signal -----------------------------------------------------------------
     const fresh = await message(db, { minutesAgo: 1 });
