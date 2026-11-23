@@ -476,7 +476,6 @@ export function formatEventTitle(type: AgentEventType, payload: Record<string, u
         task: 'task',
         needs_reply: 'reply drafted',
         needs_human: 'flagged for review',
-        needs_ciaran: 'flagged for review', // events stored before the needs_human rename
       };
       return `${p.urgent ? 'Urgent: t' : 'T'}riaged ${p.channel === 'meeting' ? 'meeting' : 'email'}: ${outcomes[String(p.outcome)] ?? String(p.outcome)}`;
     }

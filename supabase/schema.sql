@@ -9578,7 +9578,7 @@ CREATE TABLE pm.plan_items (
   task_id uuid REFERENCES pm.tasks(id) ON DELETE SET NULL,
   -- Who the work is aimed at.
   addressee text NOT NULL DEFAULT 'owner'
-    CONSTRAINT plan_items_addressee_check CHECK (addressee IN ('owner', 'company', 'teammate', 'client', 'other', 'ciaran', 'agency')),
+    CONSTRAINT plan_items_addressee_check CHECK (addressee IN ('owner', 'company', 'teammate', 'client', 'other')),
   addressee_member_id uuid REFERENCES pm.team_members(id) ON DELETE SET NULL,
   payload jsonb NOT NULL DEFAULT '{}'::jsonb,
   -- The words (or the attachment) that justify it.
@@ -16639,13 +16639,13 @@ COMMENT ON COLUMN pm.workspace_brand.sidebar_active_projects IS
 -- ============================================================
 -- NEUTRAL ADDRESSEE (20261123000300_neutral_addressee.sql)
 -- Who a triage plan item is aimed at: owner, company, teammate, client,
--- other. The older ciaran and agency stay valid for agents that send them.
+-- other (20261123000600 dropped the older names it briefly kept).
 -- ============================================================
 
 ALTER TABLE pm.plan_items DROP CONSTRAINT IF EXISTS plan_items_addressee_check;
 ALTER TABLE pm.plan_items
   ADD CONSTRAINT plan_items_addressee_check
-  CHECK (addressee IN ('owner', 'company', 'teammate', 'client', 'other', 'ciaran', 'agency'));
+  CHECK (addressee IN ('owner', 'company', 'teammate', 'client', 'other'));
 ALTER TABLE pm.plan_items ALTER COLUMN addressee SET DEFAULT 'owner';
 
 -- ============================================================

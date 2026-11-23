@@ -102,8 +102,7 @@ async function message(db: PGlite, fields: {
 }
 
 async function main() {
-  // Who the work is aimed at: neutral names since 2.0.5; agents written
-  // before it send ciaran and agency, read as owner and company.
+  // Who the work is aimed at: owner, company, teammate, client or other.
   {
     const { planItemSchema } = await import('../src/lib/communications/plan-schemas');
     const { PLAN_INTENTS } = await import('../src/lib/communications/triage-policy');
@@ -113,8 +112,8 @@ async function main() {
       return parsed.success ? (parsed.data as { addressee: string }).addressee : `invalid: ${parsed.error.issues[0]?.message}`;
     };
     check('addressee: left out, the Owner', read() === 'owner', read());
-    check('addressee: the older ciaran reads as owner', read('ciaran') === 'owner', read('ciaran'));
-    check('addressee: the older agency reads as company', read('agency') === 'company', read('agency'));
+    check('addressee: the company is accepted', read('company') === 'company', read('company'));
+    check('addressee: a teammate is accepted', read('teammate') === 'teammate', read('teammate'));
     check('addressee: an unknown value is refused', read('boss').startsWith('invalid'), read('boss'));
   }
   const db = await createFullSchemaDatabase();

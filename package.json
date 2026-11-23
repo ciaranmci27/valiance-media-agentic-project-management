@@ -1,6 +1,6 @@
 {
   "name": "valiance-media-pm",
-  "version": "2.0.10",
+  "version": "2.0.11",
   "private": true,
   "scripts": {
     "dev": "next dev -p 3009",

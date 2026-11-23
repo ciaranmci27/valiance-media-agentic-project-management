@@ -5,7 +5,7 @@
  * The app's policy decides each item (triage-policy.ts).
  */
 import { z } from 'zod';
-import { ADDRESSEES, LEGACY_ADDRESSEES, PLAN_INTENTS } from './triage-policy';
+import { ADDRESSEES, PLAN_INTENTS } from './triage-policy';
 
 const id = z.uuid();
 const day = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD');
@@ -14,8 +14,7 @@ const text = (max: number) => z.string().trim().min(1).max(max);
 
 const base = {
   intent: z.enum(PLAN_INTENTS),
-  // Agents written before 2.0.5 send ciaran and agency: read as owner and company.
-  addressee: z.preprocess((v) => (typeof v === 'string' && v in LEGACY_ADDRESSEES ? LEGACY_ADDRESSEES[v] : v), z.enum(ADDRESSEES).default('owner')),
+  addressee: z.enum(ADDRESSEES).default('owner'),
   /** The teammate it is aimed at, when addressee is teammate. */
   addressee_member_id: id.optional(),
   /** The words (or "attachment <name>: what it shows") that justify it. */

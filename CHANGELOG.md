@@ -9,6 +9,17 @@ Each section starts with `## X.Y.Z (YYYY-MM-DD)` and uses these headings, leavin
 - `### Database`: the core migration files in the release, one per line. `npm run db:migrate` applies them.
 - `### Breaking`: what an install must do when it takes this release.
 
+## 2.0.11 (2026-11-23)
+
+### Changed
+- Triage plan items aim work at `owner`, `company`, `teammate`, `client` or `other` only; the older values one company's agents sent are no longer accepted. Audit question selections start with `AUDIT_QUESTIONS:` only.
+
+### Database
+- `20261123000600_neutral_names_only.sql`: renames stored plan items from the older `ciaran` and `agency` to `owner` and `company`, renames selections starting `GREG_QUESTIONS:` to `AUDIT_QUESTIONS:` (same meaning), and limits the addressee rule to the five values.
+
+### Breaking
+- An agent of your own that still sends `addressee: "ciaran"` or `"agency"`, or writes `GREG_QUESTIONS:`, must send `owner` or `company` and write `AUDIT_QUESTIONS:` instead. Such a plan item is now refused with a 422.
+
 ## 2.0.10 (2026-11-22)
 
 ### Changed

@@ -41,9 +41,6 @@ export const PLAN_INTENTS = [
 export type PlanIntent = typeof PLAN_INTENTS[number];
 
 export const ADDRESSEES = ['owner', 'company', 'teammate', 'client', 'other'] as const;
-
-/** Older names agents may still send (before 2.0.5), read as today's. */
-export const LEGACY_ADDRESSEES: Record<string, (typeof ADDRESSEES)[number]> = { ciaran: 'owner', agency: 'company' };
 export type Addressee = typeof ADDRESSEES[number];
 
 export type Speaker = 'owner' | 'teammate' | 'client' | 'client_colleague' | 'prospect' | 'vendor' | 'machine' | 'stranger';
