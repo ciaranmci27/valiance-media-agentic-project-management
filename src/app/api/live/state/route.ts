@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getServiceClient } from '@/lib/api/supabase-service';
 import { moduleEnabled } from '@/lib/modules/server';
+import { requireSessionAccess } from '@/lib/api/access';
 
 export const dynamic = 'force-dynamic';
 
@@ -38,9 +39,18 @@ function floorNotFound() {
   return NextResponse.json({ error: 'Not found' }, { status: 404 });
 }
 
+// Real task titles, reviews and agent activity: members who manage agents
+// only (the same people the Agent pages are for), never a visitor. Checked
+// after the module switch, so a switched-off floor is simply not found.
+async function signedInManager() {
+  const auth = await requireSessionAccess({ permission: 'agents.manage' });
+  return auth.error ?? null;
+}
+
 export async function GET() {
   if (cache && Date.now() - cache.at < CACHE_TTL_MS) {
-    return cache.payload === null ? floorNotFound() : NextResponse.json(cache.payload);
+    if (cache.payload === null) return floorNotFound();
+    return (await signedInManager()) ?? NextResponse.json(cache.payload);
   }
 
   const supabase = getServiceClient();
@@ -50,6 +60,8 @@ export async function GET() {
     cache = { at: Date.now(), payload: null };
     return floorNotFound();
   }
+  const denied = await signedInManager();
+  if (denied) return denied;
   const [mem, taskRows, acts, reviewRows, suggestionRows, projectRows, healthRows] =
     await Promise.all([
       supabase.from('team_members').select('id, name, title, avatar').eq('role', 'agent'),

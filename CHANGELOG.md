@@ -9,6 +9,14 @@ Each section starts with `## X.Y.Z (YYYY-MM-DD)` and uses these headings, leavin
 - `### Database`: the core migration files in the release, one per line. `npm run db:migrate` applies them.
 - `### Breaking`: what an install must do when it takes this release.
 
+## 2.0.6 (2026-11-22)
+
+### Changed
+- The live agent floor (`/live`, Agent > Live and `/api/live/state`) needs a signed-in member who manages agents. It was open to anyone with the address and showed real task titles, reviews and agent activity.
+
+### Breaking
+- A screen that showed `/live` without signing in (a wall display, a shared link) now lands on the sign-in page. Sign in there with an account that manages agents.
+
 ## 2.0.5 (2026-11-22)
 
 ### Changed

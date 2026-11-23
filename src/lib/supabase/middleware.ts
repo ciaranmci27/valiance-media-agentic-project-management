@@ -11,12 +11,6 @@ function isPublicRoute(pathname: string) {
     // Local-only preview surfaces (visual iteration without a session); the
     // pages themselves also 404 outside development.
     (process.env.NODE_ENV === 'development' && pathname.startsWith('/dev')) ||
-    // The public agent floor and its read-only data window. The route serves
-    // a fixed payload of exactly what the scene renders — no anon database
-    // grants stand behind it, and it caches server-side so visitor count
-    // never reaches the tables.
-    pathname === '/live' ||
-    pathname === '/api/live/state' ||
     // The workspace's logo and generated favicon. Public by nature: the
     // sign-in page, the client portal and emails show them to visitors who
     // are not signed in, and behind the login wall an image request would
@@ -125,17 +119,9 @@ export async function updateSession(request: NextRequest) {
     // If auth check fails, treat as unauthenticated
   }
 
-  // /agent/live is shareable: a member sees the real floor, and anyone else
-  // is REWRITTEN (not redirected) to the public simulation, so the address
-  // they were sent is the address that works, with no login wall and no URL
-  // change. The sim page runs on fixtures alone, so an anonymous visitor
-  // reaches no real data — the same guarantee /live makes when hit directly.
-  if (!user && request.nextUrl.pathname === '/agent/live') {
-    const url = request.nextUrl.clone();
-    url.pathname = '/live';
-    url.search = '';
-    return NextResponse.rewrite(url);
-  }
+  // The live agent floor (/live, /agent/live and /api/live/state) shows real
+  // task titles, reviews and agent activity, so it is for signed-in members
+  // only, like every other page.
 
   // Redirect unauthenticated users to /login (except auth routes). The
   // auth=required marker tells the login page not to auto-redirect back to
