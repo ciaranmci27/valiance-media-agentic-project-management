@@ -37,12 +37,13 @@ const coreNextConfig: NextConfig = {
   // /_next/* asset requests blocked as cross-origin without this.
   allowedDevOrigins: ['127.0.0.1', '192.168.127.227', '100.79.77.23', '**.ts.net'],
 
-  // The live floor used to live at /command, which named the screen after
-  // nothing in the product. Permanent because the new path is the real one and
-  // the old name isn't coming back; the scene itself is unchanged.
+  // Old addresses of the live agent room, removed in 2.0.7.
   async redirects() {
     return [
-      { source: '/command', destination: '/agent/live', permanent: true },
+      // The live 3D agent room left the app in 2.0.7: old links land on the Agent page.
+      { source: '/command', destination: '/agent', permanent: true },
+      { source: '/agent/live', destination: '/agent', permanent: false },
+      { source: '/live', destination: '/agent', permanent: false },
       // Core used to ship its logo and favicon files here, and emails and
       // invoices already sent link to them. The brand now lives in Settings >
       // Workspace > Brand: these send each old path to the current file.

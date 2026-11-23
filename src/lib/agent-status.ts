@@ -1,12 +1,10 @@
 /**
  * The single source of truth for "what is this agent doing right now".
  *
- * Both agent views consume this module: the fleet strip on /agent and the 3D
- * scene on /agent/live. They exist because each answers the question at a
- * different altitude, but the answer itself must be one answer. Before this
- * module they disagreed live: the strip read a "queue empty" heartbeat as
- * activity and showed an idle reviewer as Working, while the scene read the
- * same row as idle; and a reviewer mid-review showed idle in both.
+ * Every agent view reads this module (the fleet strip on /agent and the
+ * agent cards), so they all give one answer. Views that derived it on their
+ * own once disagreed: one read a "queue empty" heartbeat as activity and
+ * showed an idle reviewer as Working.
  *
  * Honesty rules, because the database records milestones rather than
  * keystrokes:
@@ -323,18 +321,4 @@ export const MOOD_STYLE: Record<AgentMood, { dot: string; text: string; ping: bo
   celebrating: { dot: 'bg-emerald-300', text: 'text-emerald-200', ping: false },
   // A proven outage (unreachable), never derived from mere silence.
   offline: { dot: 'bg-red-600', text: 'text-red-400', ping: true },
-};
-
-/**
- * The same vocabulary as light, for the 3D scene's desk fixtures. Hex because
- * three.js cannot read Tailwind classes; dimmer than the dots because these
- * are lamps in a room, not indicators on a panel.
- */
-export const MOOD_LIGHT_HEX: Record<AgentMood, { color: string; intensity: number }> = {
-  idle: { color: '#8a7a4f', intensity: 0.6 },
-  working: { color: '#34d399', intensity: 2.0 },
-  reviewing: { color: '#34d399', intensity: 2.0 },
-  blocked: { color: '#e0524a', intensity: 2.4 },
-  celebrating: { color: '#6ee7b7', intensity: 3.2 },
-  offline: { color: '#7f1d1d', intensity: 0.5 },
 };

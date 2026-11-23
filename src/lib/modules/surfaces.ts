@@ -130,7 +130,7 @@ export const MODULE_SURFACES: Record<ModuleId, ModuleSurface> = {
     rpcs: [],
     routes: [
       'api/v1/agent-activities', 'api/v1/agents', 'api/v1/projects/[id]/goals', 'api/v1/task-suggestions',
-      'api/live', 'live', '(protected)/agent',
+      '(protected)/agent',
     ],
   },
 };
@@ -148,7 +148,7 @@ export const SHARED_ROUTES: Array<{ route: string; modules: ModuleId[] }> = [
 /** Always on: what every workspace has. */
 export const CORE_ROUTES: string[] = [
   'api/[...unknown]', 'api/brand', 'api/docs', 'api/email-preview', 'api/encryption', 'api/logo', 'api/mcp', 'api/notifications',
-  'api/smtp', 'api/team-members', 'api/whats-my-ip', 'api/youtube',
+  'api/smtp', 'api/team-members', 'api/whats-my-ip',
   'api/v1/activities', 'api/v1/audit-log', 'api/v1/entity-files', 'api/v1/notifications', 'api/v1/reminders',
   'api/v1/tasks', 'api/v1/team-members', 'api/v1/projects',
   'api/workspace/access', 'api/workspace/api-keys', 'api/workspace/brand', 'api/workspace/me', 'api/workspace/region', 'api/workspace/modules', 'api/workspace/setup-checks', 'api/workspace/secrets', 'api/workspace/encryption', 'api/workspace/webhook-retries', 'api/welcome',

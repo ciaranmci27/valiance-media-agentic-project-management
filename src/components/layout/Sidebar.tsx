@@ -306,7 +306,6 @@ export function Sidebar() {
                 // Project detail pages belong to the dashboard flow.
                 { href: '/agent', label: 'Dashboard', active: pathname === '/agent' || pathname.startsWith('/agent/projects') },
                 { href: '/agent/analytics', label: 'Analytics', active: pathname === '/agent/analytics' },
-                { href: '/agent/live', label: 'Live', active: pathname === '/agent/live' },
               ];
               // The parent row reads active only while one of its tabs is the
               // current route; opening the dropdown alone does not color it.

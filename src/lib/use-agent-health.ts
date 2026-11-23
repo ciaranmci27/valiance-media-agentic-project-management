@@ -20,8 +20,8 @@ const toHealth = (r: HealthRow): AgentHealth => ({
 });
 
 /**
- * Live agent_health rows keyed by member id, shared by the fleet strip and
- * the 3D scene so both read the same authority.
+ * Live agent_health rows keyed by member id, shared by every agent view so
+ * they all read the same authority.
  *
  * Returns {} until rows arrive, and permanently {} where the table does not
  * exist yet: consumers treat a missing entry as "no feed" and fall back to

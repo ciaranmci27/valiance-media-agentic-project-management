@@ -279,7 +279,7 @@ export const AGENT_EVENT_SCHEMAS = {
   }),
 
   // -- inbox (composed by the server at triage, never posted by an agent) ---
-  // No subject, sender or summary: the feed reaches the live floor, and email
+  // No subject, sender or summary: the feed is shown on agent views, and email
   // content stays in the Inbox.
   'email.triaged': z.object({
     message_id: z.string().uuid(),

@@ -25,10 +25,9 @@ import { useAgentHealth } from '@/lib/use-agent-health';
  * has to be the place that distinguishes "quiet" from "stuck".
  *
  * The AGENT state (the dot and its sentence) comes from @/lib/agent-status,
- * the same derivation the live scene uses, so this strip and /agent/live can
- * never disagree about what an agent is doing. Before that was shared, they
- * did: this strip read a "queue empty" heartbeat as ten minutes of Working and
- * inferred activity from assigned task rows, both of which the scene refused.
+ * the one shared derivation, so no view can disagree about what an agent is
+ * doing. Before that was shared, this strip read a "queue empty" heartbeat as
+ * ten minutes of Working and inferred activity from assigned task rows.
  *
  * The strip then ADDS the one thing agent telemetry cannot carry: work sitting
  * unclaimed, which is a fact about the queue rather than the person. That

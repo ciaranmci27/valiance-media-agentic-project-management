@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { requireSessionAccess } from '@/lib/api/access';
 
-const MEMBER_COLUMNS = 'id, auth_user_id, name, email, avatar, role, status, timezone, theme_preference, scene_preferences';
+const MEMBER_COLUMNS = 'id, auth_user_id, name, email, avatar, role, status, timezone, theme_preference';
 
 export async function GET() {
   // The member's own row comes back with the access lookup, in the same read.

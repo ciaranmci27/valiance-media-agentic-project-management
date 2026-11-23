@@ -9,6 +9,14 @@ Each section starts with `## X.Y.Z (YYYY-MM-DD)` and uses these headings, leavin
 - `### Database`: the core migration files in the release, one per line. `npm run db:migrate` applies them.
 - `### Breaking`: what an install must do when it takes this release.
 
+## 2.0.7 (2026-11-22)
+
+### Changed
+- The live 3D agent room (Agent > Live, `/live`) is gone from the app, with its 3D models and textures (about 18 MB), the YouTube jukebox route and five 3D libraries (`three`, `@react-three/fiber`, `@react-three/drei`, `@react-three/postprocessing`, `suncalc`). It was built around one company's four agents. Old links (`/agent/live`, `/live`, `/command`) open the Agent page.
+
+### Breaking
+- If your own code in `src/custom` imported anything from `src/components/command` or used those libraries, add the libraries to `package.json` yourself and copy what you need into `src/custom`. The `team_members.scene_preferences` column stays for now and is no longer read or written.
+
 ## 2.0.6 (2026-11-22)
 
 ### Changed

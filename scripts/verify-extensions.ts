@@ -278,7 +278,7 @@ async function nextConfigMerge() {
     {
       allowedDevOrigins: ['127.0.0.1'],
       images: { remotePatterns: [{ protocol: 'https', hostname: 'core.example' }], unoptimized: false },
-      async redirects() { return [{ source: '/command', destination: '/agent/live', permanent: true }]; },
+      async redirects() { return [{ source: '/command', destination: '/agent', permanent: true }]; },
     },
     {
       allowedDevOrigins: ['127.0.0.1', 'box.local'],

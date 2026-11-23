@@ -26,9 +26,7 @@ type SharedProps = {
  * navigates fine on a plain click, but silently drops everything a browser
  * gives you for free on an anchor: cmd/ctrl-click and middle-click to open in a
  * new tab, "Open in new tab" in the context menu, the status-bar URL preview,
- * and the correct role announced to a screen reader. The live floor is
- * documented as something you leave open on a second screen, so opening it in a
- * new tab is a thing people will actually try.
+ * and the correct role announced to a screen reader.
  *
  * A discriminated union rather than one loose interface, so `href` and
  * button-only props like `type` or `disabled` cannot be passed together.

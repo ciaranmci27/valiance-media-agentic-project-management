@@ -119,10 +119,6 @@ export async function updateSession(request: NextRequest) {
     // If auth check fails, treat as unauthenticated
   }
 
-  // The live agent floor (/live, /agent/live and /api/live/state) shows real
-  // task titles, reviews and agent activity, so it is for signed-in members
-  // only, like every other page.
-
   // Redirect unauthenticated users to /login (except auth routes). The
   // auth=required marker tells the login page not to auto-redirect back to
   // /dashboard when the public demo flag is set but the server-side DEMO_MODE

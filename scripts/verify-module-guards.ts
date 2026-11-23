@@ -15,7 +15,7 @@
  * - Every route file under the module folders is claimed once.
  * - readEnabledModules on a stub client: missing table, other error, missing row.
  * - Real routes over fake-postgrest: withApi's MODULE_OFF answer, the agents
- *   check, the public portal and its sections, the live floor, the draft
+ *   check, the public portal and its sections, the draft
  *   digest cron, the mail webhook storing with the Inbox off, key edits, MCP
  *   tool visibility and lead plan items.
  *
@@ -495,7 +495,7 @@ function routeFiles(): string[] {
       else if (name === 'route.ts' || name === 'route.tsx' || name === 'page.tsx') out.push(relative(root, full).split('\\').join('/'));
     }
   };
-  for (const folder of ['api', '(protected)', 'portal', 'live', 'webhooks', 'smtp', 'dev', '(dashboard)']) {
+  for (const folder of ['api', '(protected)', 'portal', 'webhooks', 'smtp', 'dev', '(dashboard)']) {
     try { walk(join(root, folder)); } catch { /* a folder this checkout does not have */ }
   }
   return out;
@@ -593,7 +593,6 @@ async function routeChecks(db: PGlite, s: Seeded) {
     const notifications = await import('../src/app/api/v1/notifications/route');
     const goals = await import('../src/app/api/v1/projects/[id]/goals/route');
     const portal = await import('../src/app/api/portal/[token]/route');
-    const live = await import('../src/app/api/live/state/route');
     const digest = await import('../src/app/api/internal/billing/draft-digest/route');
     const webhook = await import('../src/app/api/inbound-email/resend/route');
     const { MODULE_OFF, moduleOff } = await import('../src/lib/api/errors');
@@ -634,8 +633,6 @@ async function routeChecks(db: PGlite, s: Seeded) {
     check('agents: notify is MODULE_OFF with agents off', notify.status === 403 && notify.body?.error?.details?.module === 'agents', notify);
     const goalList = await api(goals.GET as Handler, 'GET', `/api/v1/projects/${s.project}/goals`, keys.owner, { id: s.project });
     check('agents: goals are MODULE_OFF with agents off', goalList.status === 403 && goalList.body?.error?.code === MODULE_OFF, goalList);
-    const liveOff = await live.GET();
-    check('agents: the public floor is not found with agents off', liveOff.status === 404, liveOff.status);
     await setModules(db, MODULE_IDS);
     const notifyOn = await api(notifications.POST as Handler, 'POST', '/api/v1/notifications', keys.owner, {}, { title: 'Question', message: 'Which roof?' });
     check('agents: notify works with agents on', notifyOn.status === 201, notifyOn);
