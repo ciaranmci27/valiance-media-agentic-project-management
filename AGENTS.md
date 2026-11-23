@@ -14,7 +14,7 @@ Run this once, from the app folder:
 test -f "$(git rev-parse --show-toplevel)/app/package.json" && echo source || echo install
 ```
 
-- **source**: Valiance Media's monorepo, where the core is built. The app is its `app/` folder. Edit core freely. Leave every file in `src/custom/` as the empty stub it ships as. Every core change follows **Release rules** below.
+- **source**: Valiance Media's monorepo, where the core is built. The app is its `app/` folder. Edit core freely. Every core change follows **Release rules** below. The client-owned paths below are Valiance Media's own here, used like any install's: the public sync replaces them with the starter versions in the monorepo's `release/app-custom-stubs/` (see `release/README.md`), so they never ship. Change what installs start with only there.
 - **install**: a company's own copy. **Never edit core files.** Put everything in the client-owned paths:
 
 | Path | What goes there |
@@ -113,6 +113,7 @@ After a release with a `### Database` section in `CHANGELOG.md`, apply its migra
 ## Release rules (source monorepo only)
 
 - **The app lives in schema `pm`** (2.0): every table, view, function and policy is `pm.<name>`, and nothing of the app is created in `public`, so the app can share a Supabase project with other apps. Supabase-global names carry a prefix: storage buckets `pm-<name>`, storage policies `pm: <name>`, cron jobs `pm-<name>`, Vault entries `pm_<name>`. Members are added by the server (`pm.add_team_member`), never by a trigger on `auth.users`. `npm run test:pm-schema` checks a fresh install against an upgraded one and against a database that already holds another app.
+- **Functions are locked down** (2.0.8): no `pm` function is callable by `anon`, and `authenticated` only gets the ones row policies, column defaults, checks or signed-in screens need. A new function must `REVOKE ALL ON FUNCTION ... FROM PUBLIC, anon` and grant only what it needs; one members call from the browser goes on the list in `scripts/verify-function-grants.ts`. `npm run test:function-grants` fails otherwise.
 - **Migrations** go in `supabase/migrations/<YYYYMMDDHHMMSS>_<name>.sql`. Each is additive, safe to run twice, and works with the previous release's code: installs apply it before or after deploying the new code. Never edit a migration that has shipped; add a new one.
 - **`supabase/schema.sql`** is updated in place in the same commit, so a fresh install gets the same database.
 - **A new permission** gets its module in `PERMISSION_MODULE` (`src/lib/modules/registry.ts`) and its `permission_modules` row in the migration.
@@ -120,7 +121,7 @@ After a release with a `### Database` section in `CHANGELOG.md`, apply its migra
 - **Client-owned paths** change in `scripts/lib/core-paths.ts` and `.claude/hooks/guard-core.mjs` together. `npm run test:agent-guard` fails when they differ.
 - **Scripts and tests read git paths relative to the app folder** (`git show REF:./supabase/schema.sql`), never `app/...`: the public repo and every install have the app at their root, so a monorepo path fails their Core checks.
 - **Tests never read git history by a commit SHA**: the public repo's history differs from this one, so a SHA that exists here is missing there. Use `schemaBeforeMigration` or a release tag.
-- **Never change a shipped file in `src/custom/`**: installs own those files. A new plug-in point must work when an install leaves it empty.
+- **Never change a shipped starter file** (the monorepo's `release/app-custom-stubs/`, which installs receive as their `src/custom/` and other client-owned folders): installs own those files. A new plug-in point must work when an install leaves it empty.
 - **To publish a release**: bump `version` in `package.json` and add its section to `CHANGELOG.md` (`## X.Y.Z (YYYY-MM-DD)` with `### Added`, `### Changed`, `### Database`, `### Breaking`; leave out empty ones). `### Breaking` says exactly what an install must do. When the change reaches `main`, the sync workflow tags the release on the public repo and publishes that section as its notes. No section, no release.
 
 ## This install's own facts

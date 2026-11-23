@@ -125,13 +125,17 @@ async function main() {
     WHERE p.pronamespace IN ('public'::regnamespace, 'communications'::regnamespace)`);
   check('bridge: wrappers for the API functions', wrappers.length > 50, wrappers.length);
   check('bridge: every wrapper runs as the caller and is marked', wrappers.every((w) => !w.secdef && w.comment === 'pm-2.0 bridge'), wrappers.filter((w) => w.secdef || w.comment !== 'pm-2.0 bridge').map((w) => w.name).slice(0, 5));
+  // Later migrations narrow the pm functions (20261123000400_function_grants)
+  // and leave the wrappers as the move made them: a wrapper runs as the
+  // caller, so a grant it has beyond its function reaches nothing. What must
+  // hold is that no wrapper takes away a grant its function has.
   const mismatched = await q<{ name: string }>(upgraded, `
     SELECT w.oid::regprocedure::text name FROM pg_proc w JOIN pg_proc p ON p.proname = w.proname AND p.pronamespace = 'pm'::regnamespace
       AND pg_get_function_identity_arguments(p.oid) = pg_get_function_identity_arguments(w.oid)
     WHERE w.pronamespace IN ('public'::regnamespace, 'communications'::regnamespace)
       AND EXISTS (SELECT 1 FROM unnest(ARRAY['anon', 'authenticated', 'service_role']) r
-                  WHERE has_function_privilege(r, w.oid, 'EXECUTE') <> has_function_privilege(r, p.oid, 'EXECUTE'))`);
-  check('bridge: every wrapper has exactly its function\'s grants', mismatched.length === 0, mismatched.slice(0, 5));
+                  WHERE has_function_privilege(r, p.oid, 'EXECUTE') AND NOT has_function_privilege(r, w.oid, 'EXECUTE'))`);
+  check('bridge: every wrapper has at least its function\'s grants', mismatched.length === 0, mismatched.slice(0, 5));
   const viewGrants = await q<{ name: string }>(upgraded, `
     SELECT v.relname name FROM pg_class v JOIN pg_class t ON t.relname = v.relname AND t.relnamespace = 'pm'::regnamespace
     WHERE v.relnamespace IN ('public'::regnamespace, 'communications'::regnamespace) AND v.relkind = 'v'

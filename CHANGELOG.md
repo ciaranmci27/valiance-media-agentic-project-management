@@ -9,6 +9,18 @@ Each section starts with `## X.Y.Z (YYYY-MM-DD)` and uses these headings, leavin
 - `### Database`: the core migration files in the release, one per line. `npm run db:migrate` applies them.
 - `### Breaking`: what an install must do when it takes this release.
 
+## 2.0.8 (2026-11-22)
+
+### Changed
+- Database functions are locked down: the public (anon) key can call none of the app's functions, and signed-in members only the ones their screens, row policies and checks use. Each function already checked permissions inside; this closes the door as well.
+- `npm run test:function-grants` (part of `test:core`) fails when a function is open wider than it should be.
+
+### Database
+- `20261123000400_function_grants.sql`: revokes EXECUTE from PUBLIC and anon on every function in `pm`, keeps members only on the functions they need, keeps the service role on everything it had, and removes Supabase's default grants on new functions in `pm` (and anon's in `pm_custom`). Postgres still gives every new function to PUBLIC, so each new core function revokes it itself, and the test checks.
+
+### Breaking
+- Your own browser code can call only the core `pm` functions listed in `scripts/verify-function-grants.ts`; call any other from your server code (`src/custom/api.ts`). Your own functions in `pm_custom`: Postgres still lets everyone call a new function, so add `REVOKE ALL ON FUNCTION pm_custom.your_function(...) FROM PUBLIC, anon` to any the public must not call.
+
 ## 2.0.7 (2026-11-22)
 
 ### Changed
