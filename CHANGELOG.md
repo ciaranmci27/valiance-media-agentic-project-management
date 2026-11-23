@@ -9,6 +9,15 @@ Each section starts with `## X.Y.Z (YYYY-MM-DD)` and uses these headings, leavin
 - `### Database`: the core migration files in the release, one per line. `npm run db:migrate` applies them.
 - `### Breaking`: what an install must do when it takes this release.
 
+## 2.0.10 (2026-11-22)
+
+### Changed
+- An auditing agent's "findings are waiting on you" notification clears for any agent's name once no finding waits, not only one agent's exact title.
+- An auditing agent's question selection is read from a project context entry starting `AUDIT_QUESTIONS:`. Entries starting with the older `GREG_QUESTIONS:` still read the same.
+
+### Database
+- `20261123000500_neutral_findings_notification.sql`: the findings trigger clears any notification titled "... findings are waiting on you" on the project.
+
 ## 2.0.9 (2026-11-22)
 
 ### Changed

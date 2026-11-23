@@ -10,6 +10,7 @@ import {
 import { createClient } from '@/lib/supabase/client';
 import { toast } from '@/components/ui/Toast';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { auditSelectionPrefix } from '@/lib/audit-questions';
 import { Textarea } from '@/components/ui/inputs/Textarea';
 import { Tooltip } from '@/components/ui/Tooltip';
 import {
@@ -118,7 +119,7 @@ export function ProjectContextPanel({ projectId }: ProjectContextPanelProps) {
   const contextRead = projectContextRead(projectId);
   const read = useRead(contextRead);
   const entries = useMemo(
-    () => (read.data ?? []).filter(e => !String(e.content || '').startsWith('GREG_QUESTIONS:')),
+    () => (read.data ?? []).filter(e => auditSelectionPrefix(String(e.content || '')) === null),
     [read.data],
   );
   const loading = read.loading;

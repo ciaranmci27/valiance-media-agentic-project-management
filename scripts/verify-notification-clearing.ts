@@ -25,11 +25,15 @@ async function main() {
   const migrationInPm = inPm(migration);
   await db.exec(migrationInPm);
   await db.exec(migrationInPm);
+  // Later migrations that change what the one above made, in order.
+  const neutralFindings = readFileSync(join(__dirname, '..', 'supabase', 'migrations', '20261123000500_neutral_findings_notification.sql'), 'utf8');
+  await db.exec(neutralFindings);
+  await db.exec(neutralFindings);
   const q = async <T = Record<string, unknown>>(sql: string, params: unknown[] = []) => (await db.query<T>(sql, params)).rows;
   const one = async (sql: string, params: unknown[] = []) => (await q<{ id: string }>(sql, params))[0].id;
 
-  const owner = await one("INSERT INTO pm.team_members (name, email, role) VALUES ('Ciaran', 'ciaran@example.com', 'owner') RETURNING id");
-  const project = await one("INSERT INTO pm.projects (name) VALUES ('Happy Innovations') RETURNING id");
+  const owner = await one("INSERT INTO pm.team_members (name, email, role) VALUES ('Owner', 'owner@example.com', 'owner') RETURNING id");
+  const project = await one("INSERT INTO pm.projects (name) VALUES ('Acme Website') RETURNING id");
   const shown = async (type: string, entity: string) => q<{ title: string; is_read: boolean }>(
     'SELECT title, is_read FROM pm.team_member_notifications WHERE entity_type = $1 AND entity_id = $2 AND cleared_at IS NULL ORDER BY created_at', [type, entity]);
   const raise = (title: string, type: string, entity: string) => q(
@@ -98,16 +102,16 @@ async function main() {
     VALUES ($1, $2, $3, $4, 'd', 'r') RETURNING id`, [project, goal, owner, title]);
   const first = await finding('One');
   const second = await finding('Two');
-  await raise("Greg's findings are waiting on you", 'project', project);
+  await raise("Scout's findings are waiting on you", 'project', project);
   await q(`INSERT INTO pm.team_member_notifications (user_id, title, entity_type, entity_id, is_read)
-    VALUES ($1, 'Plan4TheFuture was updated', 'project', $2, true)`, [owner, project]);
+    VALUES ($1, 'Acme Website was updated', 'project', $2, true)`, [owner, project]);
   await q("UPDATE pm.task_suggestions SET status = 'rejected' WHERE id = $1", [first]);
   check('findings: one still waits, the nudge stays', (await shown('project', project)).length === 2);
   await q("UPDATE pm.task_suggestions SET status = 'needs_info' WHERE id = $1", [second]);
   check('findings: a question back still waits', (await shown('project', project)).length === 2);
   await q("UPDATE pm.task_suggestions SET status = 'rejected' WHERE id = $1", [second]);
   const left = await shown('project', project);
-  check("findings: none left, the nudge clears and the project's other notices stay", left.length === 1 && left[0].title === 'Plan4TheFuture was updated', left);
+  check("findings: none left, the nudge clears and the project's other notices stay", left.length === 1 && left[0].title === 'Acme Website was updated', left);
 
   // --- Raising again -----------------------------------------------------------------------
   await raise('Hours added to a drafted invoice', 'invoice', invoice);

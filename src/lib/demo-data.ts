@@ -1727,7 +1727,7 @@ function demoTelemetry(): AgentActivity[] {
   rows.push(row(ATLAS, 'billing.gap', { start: dayAtTime(2, 14, 3), end: dayAtTime(2, 14, 12), minutes: 9, phase: 'mid_turn', origin: 'scheduled', source_turn_id: 'cron:demo-2-2', task_id: TASK }, dayAtTime(1, 9, 0)));
   rows.push(row(ATLAS, 'billing.gap', { start: dayAtTime(5, 10, 0), end: dayAtTime(5, 10, 4), minutes: 4, phase: 'before_timer', origin: 'scheduled', source_turn_id: 'cron:demo-5-4' }, dayAtTime(1, 9, 0)));
   for (const [day, score, model, complete] of [[12, 17, 'gpt-5.4-codex', true], [8, 18, 'gpt-5.4-codex', true], [5, 6, 'gpt-5.5-codex', false], [3, 19, 'gpt-5.5-codex', true]] as const) {
-    rows.push(row(SCOUT, 'eval.result', { suite: 'alex', score, total: complete ? 20 : 7, complete, model, started_at: dayAtTime(day, 20, 0) }, dayAtTime(day, 20, 30)));
+    rows.push(row(SCOUT, 'eval.result', { suite: 'finance', score, total: complete ? 20 : 7, complete, model, started_at: dayAtTime(day, 20, 0) }, dayAtTime(day, 20, 30)));
   }
   return rows;
 }

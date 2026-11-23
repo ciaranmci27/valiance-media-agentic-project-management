@@ -6,11 +6,12 @@ import { projectContextRead } from '@/lib/reads';
 import { useApp } from '@/lib/store';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { SearchCode } from 'lucide-react';
+import { auditSelectionPrefix } from '@/lib/audit-questions';
 
 /**
  * The auditor's question selection, rendered as structured UI instead of the
  * prose blob it is stored as. The selection steers everything the auditor
- * looks at, and it used to be invisible: a GREG_QUESTIONS context entry
+ * looks at, and it used to be invisible: an AUDIT_QUESTIONS context entry
  * buried mid-page inside Technical Decisions.
  *
  * Read-only on purpose. Selection belongs to the spec agent, whose tool validates
@@ -18,7 +19,6 @@ import { SearchCode } from 'lucide-react';
  * edit path here would bypass those rules.
  */
 
-const SELECTION_PREFIX = 'GREG_QUESTIONS:';
 
 interface AuditQuestionsCardProps {
   projectId: string;
@@ -31,16 +31,17 @@ export function AuditQuestionsCard({ projectId }: AuditQuestionsCardProps) {
   const read = useRead(projectContextRead(projectId));
   const loading = read.loading;
   const selectionText = useMemo(() => (read.data ?? [])
-    .filter((entry) => String(entry.content || '').startsWith(SELECTION_PREFIX))
+    .filter((entry) => auditSelectionPrefix(String(entry.content || '')) !== null)
     .reduce<{ content: string; created_at: string } | null>(
       (newest, entry) => (!newest || entry.created_at > newest.created_at ? entry : newest), null)?.content ?? null,
   [read.data]);
 
   const questions = useMemo(() => {
     if (!selectionText) return [];
-    // Format written by the agents' tool: "GREG_QUESTIONS: a, b, c. <prose...>".
+    // Format written by the agents' tool: "AUDIT_QUESTIONS: a, b, c. <prose...>".
     // The list ends at the first sentence break after the ids.
-    const body = selectionText.slice(selectionText.indexOf(SELECTION_PREFIX) + SELECTION_PREFIX.length);
+    const prefix = auditSelectionPrefix(selectionText) ?? '';
+    const body = selectionText.slice(prefix.length);
     const listPart = body.split(/[.\n]/)[0] ?? '';
     return listPart
       .split(',')

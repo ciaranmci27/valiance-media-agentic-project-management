@@ -14941,7 +14941,8 @@ CREATE INDEX idx_task_suggestions_converted_task_id ON pm.task_suggestions(conve
 
 ALTER TABLE pm.task_suggestions ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "task_suggestions_all" ON pm.task_suggestions FOR ALL TO authenticated USING (true) WITH CHECK (true);
--- The auditor agent's nudge says a project's findings wait on a review (the text below matches its notification). It goes once none do.
+-- An agent's nudge that a project's findings wait on a review ("<agent>'s
+-- findings are waiting on you") goes once none do.
 CREATE OR REPLACE FUNCTION pm.sync_findings_notification()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -14953,7 +14954,12 @@ BEGIN
     SELECT 1 FROM pm.task_suggestions
     WHERE project_id = NEW.project_id AND status IN ('pending', 'needs_info')
   ) THEN
-    PERFORM pm.set_notifications_cleared('project', NEW.project_id::text, true, 'Greg''s findings are waiting on you');
+    UPDATE pm.team_member_notifications
+    SET cleared_at = now()
+    WHERE entity_type = 'project'
+      AND entity_id = NEW.project_id::text
+      AND cleared_at IS NULL
+      AND title LIKE '%findings are waiting on you';
   END IF;
   RETURN NULL;
 END;
