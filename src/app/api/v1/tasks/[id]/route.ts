@@ -11,6 +11,7 @@ import { loadParentTask, setTaskParentAs, subtaskRuleError, subtaskSummaries } f
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { applyClosePolicy, commentSentToReview, loadMemberRules, sentToReviewNote } from '@/lib/api/agent-rules';
 import { claimWithName } from '@/lib/api/claims';
+import { openQuestionForTask } from '@/lib/api/questions';
 
 async function currentAssigneeIds(supabase: SupabaseClient, taskId: string): Promise<string[]> {
   const { data, error } = await supabase
@@ -135,6 +136,8 @@ export const GET = withApi(async ({ supabase, params }) => {
     dependencies_met: unresolvedBlockers === 0 && blockedBy.every((b: any) => b.status === 'done'),
     // Who is working on it right now (a live claim), or null.
     claim: await claimWithName(supabase, data),
+    // The task is waiting on someone: its oldest open question, or null.
+    open_question: await openQuestionForTask(supabase, data.id),
     criteria: undefined,
     reviews: undefined,
     task_dependencies: undefined,

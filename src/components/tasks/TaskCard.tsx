@@ -16,7 +16,8 @@ import { TASK_STATUS_LABELS, taskAsText, taskUrl, copyText } from '@/lib/task-co
 import { nextReminderFor, reminderGroup, whenLabel } from '@/lib/reminders';
 import { TaskLinkCountBadges, useTaskLinkCounts } from '@/components/inbox/TaskSourceEmails';
 import { useTaskFileCount } from './task-file-counts';
-import { useTaskWarmer } from '@/lib/reads';
+import { useOpenQuestions, useTaskWarmer } from '@/lib/reads';
+import { QuestionCard } from '@/components/questions/QuestionCard';
 import { UnreadLabel, useCardUnread } from './TaskUnread';
 import { subtaskProgress } from '@/lib/subtasks';
 import { createdLabel, lastActivityAt, taskTimesTooltip, timeAgo } from '@/lib/task-times';
@@ -108,6 +109,8 @@ export function TaskCard({ task, onView, onDelete, onMove }: TaskCardProps) {
   const linkCounts = useTaskLinkCounts(task.id);
   const fileCount = useTaskFileCount(task.id);
   const warmTask = useTaskWarmer();
+  // A question on the task still open: the card shows the oldest, answerable in place.
+  const openQuestion = useOpenQuestions().find(q => q.task_id === task.id) ?? null;
 
   const dueOverdue = !!task.due_date && isDateOverdue(task.due_date) && task.status !== 'done' && task.status !== 'backlog';
   // The step the task is waiting on. A done task's reminders close with it.
@@ -376,6 +379,8 @@ export function TaskCard({ task, onView, onDelete, onMove }: TaskCardProps) {
           )}
         </div>
       )}
+
+      {openQuestion && <QuestionCard key={openQuestion.id} question={openQuestion} variant="card" />}
 
         <div className="mt-3 flex items-center justify-between gap-2 text-xs text-zinc-400">
           <div className="flex min-w-0 items-center gap-2.5">

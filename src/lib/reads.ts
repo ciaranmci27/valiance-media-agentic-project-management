@@ -18,7 +18,8 @@ import {
   INBOX_TABLES, type InboxTab, type InboxThreadDetail, type InboxThreadList, type InboxThreadSummary, type TaskSourceEmails,
 } from '@/lib/communications/inbox-types';
 import { listTaskFiles, taskFileCandidates, type TaskFileCandidates, type TaskFileView } from '@/lib/task-files/client';
-import { invalidateTables, peekRead, warmReads, type Read } from '@/lib/query-cache';
+import { invalidateTables, peekRead, useRead, warmReads, type Read } from '@/lib/query-cache';
+import type { QuestionView } from '@/lib/questions';
 import type {
   AgentActivity, BillingForecastItem, ProjectBillingPlan, ProjectBillingRun, ProjectContext, TaskSource, TeamActivity,
 } from '@/lib/types';
@@ -443,6 +444,37 @@ export function useTaskWarmer(): (taskId: string) => IntentHandlers {
     [intent, isDemo, files, agents],
   );
 }
+
+// ── Questions ───────────────────────────────────────────────────────────
+
+/**
+ * The open questions the person can see (asked by them, to them, or on tasks
+ * and projects they can open): one read for the task panel, the cards, My
+ * Tasks and the sidebar count. Demo mode has none.
+ */
+export function openQuestionsRead(isDemo: boolean): Read<QuestionView[]> {
+  return {
+    key: `open-questions${isDemo ? ':demo' : ''}`,
+    tables: ['questions'],
+    ttlMs: 5 * 60_000,
+    load: async () => {
+      if (isDemo) return [];
+      const response = await fetch('/api/workspace/questions', { cache: 'no-store' });
+      const body = await response.json().catch(() => null) as { data?: QuestionView[]; error?: string } | null;
+      if (!response.ok || !body?.data) throw new Error(body?.error || 'Could not load questions');
+      return body.data;
+    },
+  };
+}
+
+/** The open questions the person can see; empty while loading or when the read fails. */
+export function useOpenQuestions(): QuestionView[] {
+  const { isDemoMode } = useDemo();
+  const { teamMemberId } = useAuth();
+  return useRead(teamMemberId ? openQuestionsRead(isDemoMode) : null).data ?? NO_QUESTIONS;
+}
+
+const NO_QUESTIONS: QuestionView[] = [];
 
 // ── Sidebar ─────────────────────────────────────────────────────────────
 

@@ -71,6 +71,8 @@ import { useRegion } from '@/lib/region/context';
 import { SubtaskRing } from './SubtaskRing';
 import { useSubtaskMenuActions } from './MakeSubtaskDialog';
 import { claimUntil, liveClaim, occurrenceLabel } from '@/lib/claims';
+import { useOpenQuestions } from '@/lib/reads';
+import { QuestionCard } from '@/components/questions/QuestionCard';
 import {
   DescriptionField, DetailRow, INLINE_DATE_CLASS, PeopleChips, PickField, PRIORITY_OPTIONS, STATUS_OPTIONS, TagsField, TitleField,
   taskTypeLabel, WHO_DOES_IT,
@@ -319,6 +321,8 @@ export function TaskDetailPanel({ task, onClose, onDelete, variant = 'panel' }: 
     releaseTaskClaim,
   } = useApp();
   const { teamMemberId, access } = useAuth();
+  // Questions on this task still waiting on an answer: the task is waiting on someone.
+  const openQuestions = useOpenQuestions();
   const [newComment, setNewComment] = useState('');
   const [showStatusMenu, setShowStatusMenu] = useState(false);
   const [showPriorityMenu, setShowPriorityMenu] = useState(false);
@@ -453,6 +457,12 @@ export function TaskDetailPanel({ task, onClose, onDelete, variant = 'panel' }: 
   const claim = liveClaim(task, team);
   const claimByAgent = !!claim && team.find((member) => member.id === claim.memberId)?.role === 'agent';
   const repeats = occurrenceLabel(task);
+  const taskQuestions = openQuestions.filter((question) => question.task_id === task.id);
+  const questionCards = taskQuestions.length > 0 && (
+    <div className="space-y-2">
+      {taskQuestions.map((question) => <QuestionCard key={question.id} question={question} variant="panel" />)}
+    </div>
+  );
 
   const submitComment = () => {
     if (!newComment.trim()) return;
@@ -1232,6 +1242,7 @@ export function TaskDetailPanel({ task, onClose, onDelete, variant = 'panel' }: 
             </RailCard>
           }
         >
+          {questionCards}
           {sections}
         </RailLayout>
         {dialogs}
@@ -1270,6 +1281,7 @@ export function TaskDetailPanel({ task, onClose, onDelete, variant = 'panel' }: 
         </div>
       }
     >
+      {questionCards && <div className="px-5 pb-4">{questionCards}</div>}
       <div className="px-5 pb-5">{details}</div>
       {sections}
     </TaskPanelShell>

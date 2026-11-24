@@ -24,6 +24,12 @@ Claiming work
 Your rules
 - Your Owner sets what you may do on your own. If finished work goes to review, setting done moves the task to in_review (sent_to_review: true): that is expected, not an error. If new tasks need approval, create_task answers with a task suggestion (needs_approval: true) instead of a task.
 
+Asking a person
+- When you are stuck on something only a person can decide (a choice between approaches, missing access, a business call), ask with ask_human: never guess. Put it on the task it is about (task_id), or the project, and offer choices when the answer is one of a few.
+- asked_to defaults to whoever your rules escalate to, else the Owner. Their bell rings, and the task shows as waiting on them.
+- Then poll get_question, a few minutes apart, until status is answered (answer_choice, answer_text). Work on something else meanwhile; do not repeat the question. If you no longer need it, cancel_question. Expired or cancelled means no answer is coming: decide whether to ask again.
+- Questions asked to you are in list_questions (asked_to me, status open); answer them with answer_question.
+
 Repeated problems
 - When you report something that can happen again (an error, a failing check), pass a dedupe_key on create_task. While an open task holds the key you get that task back (deduplicated: true) and its occurrences go up; put what happened this time in occurrence_note. Once it is done, the key starts a new task.
 
@@ -53,7 +59,7 @@ Reminders
 - list_reminders before add_reminder, so the same reminder is never added twice. Tick one off with update_reminder status done. A task moved to done closes its reminders by itself.
 
 Notifications and events
-- notify_owner reaches the owner. Pass the entity_id of what it is about so a repeat does not pile up unread.
+- notify_owner reaches the owner with news. Pass the entity_id of what it is about so a repeat does not pile up unread. For a question you need answered, use ask_human.
 - log_activity takes typed events only; the feed line is written from the payload. Check its description for each event's payload.
 
 Answers

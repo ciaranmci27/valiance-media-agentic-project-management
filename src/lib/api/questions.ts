@@ -1,0 +1,561 @@
+import type { SupabaseClient } from '@supabase/supabase-js';
+import { isModuleEnabled, type AccessContext } from '@/lib/access-control';
+import { formatEventTitle } from '@/lib/agent-events';
+import {
+  effectiveQuestionStatus, textAnswers, type AnswerQuestionInput, type AskQuestionInput, type QuestionStatus, type QuestionView,
+} from '@/lib/questions';
+import { accessAllows, accessAllowsProject } from './access';
+import { afterResponse } from './after-response';
+import { escalationTarget } from './agent-rules';
+import { ApiError, badRequest, forbidden, notFound } from './errors';
+import { postgrestList, trashedProjectIds } from '@/lib/supabase/trash';
+
+/**
+ * Questions for the API (v1, MCP) and the app's session routes: one member
+ * asks another and gets the answer back. Routes run on the service role, so
+ * the visibility the database gives a signed-in member is enforced here:
+ * a member sees the questions they asked, the ones they were asked, and the
+ * ones on a task or project they can open (never one whose task or project
+ * is in Trash). The asked member, the Owner, or someone who may manage the
+ * team answers; the asker or those managers cancel.
+ *
+ * Expiry needs no job: an open question past expires_at reads as expired,
+ * and every list or change stores that first (which clears its bell).
+ */
+
+export interface QuestionsContext {
+  db: SupabaseClient;
+  access: AccessContext;
+  memberId: string;
+  channel: 'api' | 'app';
+  /** The API key's scopes (api channel); the app channel has none. */
+  scopes?: string[];
+}
+
+const SELECT = '*';
+
+interface QuestionRow {
+  id: string;
+  project_id: string | null;
+  task_id: string | null;
+  asked_by: string;
+  asked_to: string;
+  question: string;
+  choices: string[] | null;
+  allow_other: boolean;
+  status: string;
+  answer_choice: string | null;
+  answer_text: string | null;
+  answered_by: string | null;
+  answered_at: string | null;
+  cancelled_by: string | null;
+  cancelled_at: string | null;
+  expires_at: string | null;
+  created_at: string;
+  updated_at: string;
+  deleted_at: string | null;
+  /** Filled by withPlaces: the live task and project it hangs on. */
+  task?: { title: string } | null;
+  project?: { name: string } | null;
+  /** False when its task or project is in Trash (withPlaces). */
+  place_live?: boolean;
+  /** The reader may open its task or project (withPlaces); true for a question on nothing. */
+  can_open_place?: boolean;
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+const invalid = (message: string, details?: Record<string, unknown>) => new ApiError(422, 'VALIDATION_ERROR', message, details);
+
+/** A database that does not have the questions table yet (new code before its migration). */
+export const missingQuestionsTable = (error: { code?: string; message?: string } | null) =>
+  !!error && (error.code === '42P01' || error.code === 'PGRST205' || /questions.*(does not exist|schema cache)/i.test(error.message ?? ''));
+
+/** The Owner, or a member who may manage the team (on the key too, over the API). */
+function canManage(ctx: QuestionsContext): boolean {
+  if (ctx.access.role === 'owner') return true;
+  if (!accessAllows(ctx.access, 'team.manage', ctx.channel)) return false;
+  return ctx.channel === 'app' || (ctx.scopes ?? []).includes('team.manage');
+}
+
+/**
+ * Which tasks the reader may read, by the rule the database uses for a
+ * signed-in member (pm.can_read_task_row): tasks.read reads every task in the
+ * projects they can open; tasks.read_assigned only the tasks assigned to them
+ * or created by them, the subtasks of those, and the parents of those. A key
+ * that may manage every task reads them all too. `readable` is null when the
+ * reader reads every task (or none: `full` false and an empty set).
+ */
+interface TaskReader {
+  full: boolean;
+  readable: Set<string> | null;
+}
+
+const readers = new WeakMap<QuestionsContext, Promise<TaskReader>>();
+
+/** `.in()` on a long id list, in chunks so the URL stays short. */
+async function inChunks<T>(ids: string[], read: (chunk: string[]) => PromiseLike<{ data: T[] | null; error: unknown }>): Promise<T[]> {
+  const out: T[] = [];
+  for (let i = 0; i < ids.length; i += 100) {
+    const { data, error } = await read(ids.slice(i, i + 100));
+    if (error) throw error;
+    out.push(...(data ?? []));
+  }
+  return out;
+}
+
+async function loadTaskReader(ctx: QuestionsContext): Promise<TaskReader> {
+  if (accessAllows(ctx.access, 'tasks.read', ctx.channel) || accessAllows(ctx.access, 'tasks.manage_all', ctx.channel)) {
+    return { full: true, readable: null };
+  }
+  if (!accessAllows(ctx.access, 'tasks.read_assigned', ctx.channel)) return { full: false, readable: new Set() };
+  const [assigned, created] = await Promise.all([
+    ctx.db.from('task_assignees').select('task_id').eq('member_id', ctx.memberId),
+    ctx.db.from('tasks').select('id').eq('created_by', ctx.memberId).is('deleted_at', null),
+  ]);
+  if (assigned.error) throw assigned.error;
+  if (created.error) throw created.error;
+  const own = [...new Set([
+    ...((assigned.data ?? []) as { task_id: string }[]).map((row) => row.task_id),
+    ...((created.data ?? []) as { id: string }[]).map((row) => row.id),
+  ])];
+  const live = await inChunks<{ id: string; parent_task_id: string | null }>(own, (chunk) =>
+    ctx.db.from('tasks').select('id, parent_task_id').in('id', chunk).is('deleted_at', null));
+  const liveIds = live.map((row) => row.id);
+  const children = await inChunks<{ id: string }>(liveIds, (chunk) =>
+    ctx.db.from('tasks').select('id').in('parent_task_id', chunk).is('deleted_at', null));
+  return {
+    full: false,
+    readable: new Set([
+      ...liveIds,
+      ...live.map((row) => row.parent_task_id).filter((id): id is string => !!id),
+      ...children.map((row) => row.id),
+    ]),
+  };
+}
+
+/** The reader's task rule, read once per request. */
+function taskReader(ctx: QuestionsContext): Promise<TaskReader> {
+  let reader = readers.get(ctx);
+  if (!reader) {
+    reader = loadTaskReader(ctx);
+    readers.set(ctx, reader);
+  }
+  return reader;
+}
+
+/** Whether the reader may open the task (or project) a question hangs on. */
+function canOpenPlace(ctx: QuestionsContext, reader: TaskReader, place: { task_id: string | null; project_id: string | null }): boolean {
+  if (place.task_id) {
+    return !!place.project_id && accessAllowsProject(ctx.access, place.project_id, ctx.channel)
+      && (reader.full || !!reader.readable?.has(place.task_id));
+  }
+  if (place.project_id) return accessAllowsProject(ctx.access, place.project_id, ctx.channel);
+  return true;
+}
+
+/**
+ * Who sees a question: whoever asked it, whoever was asked, and anyone who
+ * may read its task (or open its project, for one on a project). One on
+ * nothing is only its two members'.
+ */
+function canSee(ctx: QuestionsContext, row: QuestionRow): boolean {
+  if (row.deleted_at || row.place_live === false) return false;
+  return row.asked_by === ctx.memberId
+    || row.asked_to === ctx.memberId
+    || ((!!row.task_id || !!row.project_id) && row.can_open_place === true);
+}
+
+const canAnswer = (ctx: QuestionsContext, row: QuestionRow) => row.asked_to === ctx.memberId || canManage(ctx);
+const canCancel = (ctx: QuestionsContext, row: QuestionRow) => row.asked_by === ctx.memberId || canManage(ctx);
+
+async function memberNames(db: SupabaseClient, ids: (string | null)[]): Promise<Map<string, string>> {
+  const unique = [...new Set(ids.filter((id): id is string => !!id))];
+  if (unique.length === 0) return new Map();
+  const { data, error } = await db.from('team_members').select('id, name').in('id', unique);
+  if (error) throw error;
+  return new Map(((data ?? []) as { id: string; name: string }[]).map((m) => [m.id, m.name]));
+}
+
+/**
+ * Adds each row's task title and project name, whether both are out of
+ * Trash, and whether the reader may open them.
+ */
+async function withPlaces(ctx: QuestionsContext, rows: QuestionRow[]): Promise<QuestionRow[]> {
+  const db = ctx.db;
+  const reader = await taskReader(ctx);
+  const taskIds = [...new Set(rows.map((r) => r.task_id).filter((id): id is string => !!id))];
+  const projectIds = [...new Set(rows.map((r) => r.project_id).filter((id): id is string => !!id))];
+  const [tasks, projects] = await Promise.all([
+    taskIds.length ? db.from('tasks').select('id, title').in('id', taskIds).is('deleted_at', null) : Promise.resolve({ data: [], error: null }),
+    projectIds.length ? db.from('projects').select('id, name').in('id', projectIds).is('deleted_at', null) : Promise.resolve({ data: [], error: null }),
+  ]);
+  if (tasks.error) throw tasks.error;
+  if (projects.error) throw projects.error;
+  const taskById = new Map(((tasks.data ?? []) as { id: string; title: string }[]).map((t) => [t.id, t]));
+  const projectById = new Map(((projects.data ?? []) as { id: string; name: string }[]).map((p) => [p.id, p]));
+  return rows.map((row) => {
+    const task = row.task_id ? taskById.get(row.task_id) ?? null : null;
+    const project = row.project_id ? projectById.get(row.project_id) ?? null : null;
+    return {
+      ...row,
+      task: task ? { title: task.title } : null,
+      project: project ? { name: project.name } : null,
+      place_live: (!row.task_id || !!task) && (!row.project_id || !!project),
+      can_open_place: canOpenPlace(ctx, reader, row),
+    };
+  });
+}
+
+async function present(ctx: QuestionsContext, rows: QuestionRow[]): Promise<QuestionView[]> {
+  const names = await memberNames(ctx.db, rows.flatMap((r) => [r.asked_by, r.asked_to, r.answered_by]));
+  return rows.map((row) => {
+    const status = effectiveQuestionStatus(row);
+    return {
+      id: row.id,
+      project_id: row.project_id,
+      // The place is named only to someone who may open it: no dead link.
+      project_name: row.can_open_place ? row.project?.name ?? null : null,
+      task_id: row.task_id,
+      task_title: row.can_open_place ? row.task?.title ?? null : null,
+      asked_by: row.asked_by,
+      asked_by_name: names.get(row.asked_by) ?? null,
+      asked_to: row.asked_to,
+      asked_to_name: names.get(row.asked_to) ?? null,
+      question: row.question,
+      choices: Array.isArray(row.choices) ? row.choices : null,
+      allow_other: row.allow_other,
+      status,
+      answer_choice: row.answer_choice,
+      answer_text: row.answer_text,
+      answered_by: row.answered_by,
+      answered_by_name: row.answered_by ? names.get(row.answered_by) ?? null : null,
+      answered_at: row.answered_at,
+      cancelled_by: row.cancelled_by,
+      cancelled_at: row.cancelled_at,
+      expires_at: row.expires_at,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+      can_answer: status === 'open' && canAnswer(ctx, row),
+      can_cancel: status === 'open' && canCancel(ctx, row),
+    };
+  });
+}
+
+/** Stores 'expired' on open questions past their time, which clears their bells. */
+export async function expireDueQuestions(db: SupabaseClient) {
+  const { error } = await db
+    .from('questions')
+    .update({ status: 'expired' })
+    .eq('status', 'open')
+    .lte('expires_at', new Date().toISOString());
+  if (error) throw error;
+}
+
+async function loadRow(ctx: QuestionsContext, id: string): Promise<QuestionRow> {
+  if (!UUID.test(id)) throw notFound('Question');
+  const { data, error } = await ctx.db.from('questions').select(SELECT).eq('id', id).is('deleted_at', null).maybeSingle();
+  if (error) throw error;
+  const row = data ? (await withPlaces(ctx, [data as QuestionRow]))[0] : null;
+  // Hidden, in Trash and missing read the same, so ids cannot be probed.
+  if (!row || !canSee(ctx, row)) throw notFound('Question');
+  return row;
+}
+
+/** Where a new question hangs: a task (its project comes with it), a project, or nothing. */
+async function resolvePlace(ctx: QuestionsContext, input: AskQuestionInput) {
+  if (input.task_id) {
+    const { data: task, error } = await ctx.db
+      .from('tasks')
+      .select('id, title, project_id, project:projects!inner(id)')
+      .eq('id', input.task_id)
+      .is('deleted_at', null)
+      .is('project.deleted_at', null)
+      .maybeSingle();
+    if (error) throw error;
+    if (!task || !canOpenPlace(ctx, await taskReader(ctx), { task_id: task.id, project_id: task.project_id })) throw notFound('Task');
+    if (input.project_id && input.project_id !== task.project_id) {
+      throw badRequest("project_id does not match the task's project; send task_id alone");
+    }
+    return { task_id: task.id as string, project_id: task.project_id as string, task_title: task.title as string };
+  }
+  if (input.project_id) {
+    if (!accessAllowsProject(ctx.access, input.project_id, ctx.channel)) throw notFound('Project');
+    const { data, error } = await ctx.db.from('projects').select('id').eq('id', input.project_id).is('deleted_at', null).maybeSingle();
+    if (error) throw error;
+    if (!data) throw notFound('Project');
+    return { task_id: null, project_id: input.project_id, task_title: null };
+  }
+  return { task_id: null, project_id: null, task_title: null };
+}
+
+/** Who is asked: the named member, else the agent's escalation target, else the Owner. */
+async function resolveAskedTo(ctx: QuestionsContext, askedTo: string | undefined): Promise<string> {
+  if (askedTo) {
+    const { data, error } = await ctx.db.from('team_members').select('id').eq('id', askedTo).eq('status', 'active').maybeSingle();
+    if (error) throw error;
+    if (!data) throw invalid('asked_to must be an active team member', { reason: 'asked_to_not_member' });
+    return askedTo;
+  }
+  // escalationTarget is the agent's own choice, or the Owner; a person gets the Owner.
+  const target = await escalationTarget(ctx.db, ctx.memberId);
+  if (!target) throw invalid('There is no one to ask: name asked_to.', { reason: 'no_one_to_ask' });
+  return target;
+}
+
+/** Logs the typed blocked event for an agent that asks, so its state reads as needing a person. */
+function recordBlocked(ctx: QuestionsContext, row: QuestionRow, taskTitle: string | null) {
+  if (ctx.access.role !== 'agent' || !isModuleEnabled(ctx.access, 'agents')) return;
+  const payload = {
+    ...(row.task_id ? { task_id: row.task_id } : {}),
+    ...(taskTitle ? { task_title: taskTitle.slice(0, 200) } : {}),
+    reason: row.question.length > 300 ? `${row.question.slice(0, 299)}…` : row.question,
+  };
+  afterResponse('blocked activity', async () => {
+    const { error } = await ctx.db.from('agent_activities').insert({
+      agent_id: ctx.memberId,
+      project_id: row.project_id,
+      activity_type: 'blocked',
+      title: formatEventTitle('blocked', payload),
+      description: '',
+      reference_type: row.task_id ? 'task' : 'question',
+      reference_id: row.task_id ?? row.id,
+      metadata: { ...payload, question_id: row.id },
+    });
+    if (error) throw error;
+  });
+}
+
+/** Asks a question. Answers with the question; asked_to's bell rings (database trigger). */
+export async function askQuestion(ctx: QuestionsContext, input: AskQuestionInput): Promise<QuestionView> {
+  const place = await resolvePlace(ctx, input);
+  const askedTo = await resolveAskedTo(ctx, input.asked_to);
+  if (askedTo === ctx.memberId) {
+    throw invalid(input.asked_to ? 'You cannot ask yourself. Name someone else in asked_to.' : 'You would be asking yourself: name someone in asked_to.', { reason: 'asked_self' });
+  }
+  if (input.expires_at && new Date(input.expires_at).getTime() <= Date.now()) {
+    throw invalid('expires_at must be in the future', { reason: 'expires_in_past' });
+  }
+  const choices = input.choices?.length ? input.choices : null;
+  const { data, error } = await ctx.db
+    .from('questions')
+    .insert({
+      task_id: place.task_id,
+      project_id: place.project_id,
+      asked_by: ctx.memberId,
+      asked_to: askedTo,
+      question: input.question,
+      choices,
+      allow_other: choices ? input.allow_other ?? true : true,
+      expires_at: input.expires_at ?? null,
+    })
+    .select(SELECT)
+    .single();
+  if (error) throw error;
+  const [row] = await withPlaces(ctx, [data as QuestionRow]);
+  recordBlocked(ctx, row, place.task_title);
+  return (await present(ctx, [row]))[0];
+}
+
+export async function getQuestion(ctx: QuestionsContext, id: string): Promise<QuestionView> {
+  return (await present(ctx, [await loadRow(ctx, id)]))[0];
+}
+
+export interface QuestionFilters {
+  status?: QuestionStatus | 'all';
+  /** 'me' or a member id. */
+  askedBy?: string;
+  askedTo?: string;
+  taskId?: string;
+  projectId?: string;
+  offset: number;
+  limit: number;
+  /** Oldest first (the app's open list); the API lists newest first. */
+  oldestFirst?: boolean;
+}
+
+/** Reads the list filters off a query string, refusing what the database would choke on. */
+export function questionFiltersFrom(searchParams: URLSearchParams, memberId: string): Omit<QuestionFilters, 'offset' | 'limit'> {
+  const status = searchParams.get('status') ?? 'all';
+  if (!['open', 'answered', 'cancelled', 'expired', 'all'].includes(status)) {
+    throw badRequest('status must be open, answered, cancelled, expired or all');
+  }
+  const who = (name: string) => {
+    const value = searchParams.get(name);
+    if (!value) return undefined;
+    if (value === 'me') return memberId;
+    if (!UUID.test(value)) throw badRequest(`${name} must be me or a team member id`);
+    return value;
+  };
+  const id = (name: string) => {
+    const value = searchParams.get(name);
+    if (value && !UUID.test(value)) throw badRequest(`${name} must be a uuid`);
+    return value ?? undefined;
+  };
+  return { status: status as QuestionFilters['status'], askedBy: who('asked_by'), askedTo: who('asked_to'), taskId: id('task_id'), projectId: id('project_id') };
+}
+
+/**
+ * The `.or()` filter for every question the member may see (Trash aside):
+ * their own, ones on projects they can open, and ones on tasks they may read
+ * (canSee checks each row again).
+ */
+async function visibleFilter(ctx: QuestionsContext, reader: TaskReader): Promise<string> {
+  const own = `asked_by.eq.${ctx.memberId},asked_to.eq.${ctx.memberId}`;
+  const readAll = accessAllows(ctx.access, 'projects.read_all', ctx.channel);
+  const projects = readAll ? [] : accessAllows(ctx.access, 'projects.read', ctx.channel) ? ctx.access.project_ids : [];
+  if (!readAll && projects.length === 0) return own;
+  const inProjects = readAll ? 'project_id.not.is.null' : `project_id.in.(${projects.join(',')})`;
+  if (reader.full) return `${own},${inProjects}`;
+  // A reader of assigned tasks may read hundreds of them over the years: only
+  // the ones that carry a question go in the filter, so the URL stays short.
+  const tasks = await tasksWithQuestions(ctx.db, [...(reader.readable ?? [])]);
+  return [own, `and(task_id.is.null,${inProjects})`, ...(tasks.length ? [`task_id.in.(${tasks.join(',')})`] : [])].join(',');
+}
+
+/** Of these tasks, the ones that carry a live question (any status). */
+async function tasksWithQuestions(db: SupabaseClient, taskIds: string[]): Promise<string[]> {
+  const rows = await inChunks<{ task_id: string }>(taskIds, (chunk) =>
+    db.from('questions').select('task_id').in('task_id', chunk).is('deleted_at', null));
+  return [...new Set(rows.map((row) => row.task_id))];
+}
+
+/** Tasks in Trash that still have questions: theirs go out of reach with them. */
+async function trashedQuestionTasks(db: SupabaseClient): Promise<string[]> {
+  // includes-deleted: finds the questions' tasks that are in Trash
+  const { data, error } = await db
+    .from('questions')
+    .select('task_id, task:tasks!inner(id)')
+    .is('deleted_at', null)
+    .not('task.deleted_at', 'is', null);
+  if (error) throw error;
+  return [...new Set((data ?? []).map((row: { task_id: string }) => row.task_id))];
+}
+
+export async function listQuestions(ctx: QuestionsContext, filters: QuestionFilters): Promise<{ rows: QuestionView[]; total: number }> {
+  await expireDueQuestions(ctx.db);
+  let query = ctx.db
+    .from('questions')
+    .select(SELECT, { count: 'exact' })
+    .or(await visibleFilter(ctx, await taskReader(ctx)))
+    .is('deleted_at', null);
+  const trashedProjects = await trashedProjectIds(ctx.db);
+  if (trashedProjects.length) query = query.or(`project_id.is.null,project_id.not.in.${postgrestList(trashedProjects)}`);
+  const trashedTasks = await trashedQuestionTasks(ctx.db);
+  if (trashedTasks.length) query = query.or(`task_id.is.null,task_id.not.in.${postgrestList(trashedTasks)}`);
+  if (filters.status && filters.status !== 'all') query = query.eq('status', filters.status);
+  if (filters.askedBy) query = query.eq('asked_by', filters.askedBy);
+  if (filters.askedTo) query = query.eq('asked_to', filters.askedTo);
+  if (filters.taskId) query = query.eq('task_id', filters.taskId);
+  if (filters.projectId) query = query.eq('project_id', filters.projectId);
+  const { data, count, error } = await query
+    .order('created_at', { ascending: !!filters.oldestFirst })
+    .range(filters.offset, filters.offset + filters.limit - 1);
+  if (error) throw error;
+  const rows = (await withPlaces(ctx, (data ?? []) as QuestionRow[])).filter((row) => canSee(ctx, row));
+  return { rows: await present(ctx, rows), total: count ?? rows.length };
+}
+
+function notOpen(row: QuestionRow): ApiError | null {
+  const status = effectiveQuestionStatus(row);
+  if (status === 'open') return null;
+  const message = {
+    answered: 'This question has already been answered.',
+    cancelled: 'This question was cancelled.',
+    expired: 'This question expired before anyone answered it.',
+  }[status];
+  return new ApiError(409, 'CONFLICT', message, { reason: `question_${status}`, status });
+}
+
+/** Answers a question: asked_to, the Owner, or a team manager. Twice is 409. */
+export async function answerQuestion(ctx: QuestionsContext, id: string, input: AnswerQuestionInput): Promise<QuestionView> {
+  const row = await loadRow(ctx, id);
+  if (!canAnswer(ctx, row)) {
+    throw forbidden('Only the person asked, the Owner, or someone who may manage the team can answer this question.', { reason: 'not_asked' });
+  }
+  const closed = notOpen(row);
+  if (closed) throw closed;
+  const choices = Array.isArray(row.choices) ? row.choices : [];
+  let choice: string | null = null;
+  if (input.choice !== undefined) {
+    if (choices.length === 0) throw invalid('This question has no choices: answer with text.', { reason: 'no_choices' });
+    choice = choices.find((c) => c === input.choice) ?? choices.find((c) => c.toLowerCase() === input.choice!.toLowerCase()) ?? null;
+    if (!choice) throw invalid('choice must be one of the question\'s choices', { reason: 'unknown_choice', choices });
+  } else if (!textAnswers({ choices, allow_other: row.allow_other })) {
+    throw invalid('Pick one of the choices.', { reason: 'choice_required', choices });
+  }
+  const now = new Date().toISOString();
+  const { data, error } = await ctx.db
+    .from('questions')
+    .update({ status: 'answered', answer_choice: choice, answer_text: input.text ?? null, answered_by: ctx.memberId, answered_at: now })
+    .eq('id', id)
+    .eq('status', 'open')
+    .select(SELECT)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) {
+    // Someone else answered or cancelled it a moment ago.
+    throw notOpen(await loadRow(ctx, id)) ?? new ApiError(409, 'CONFLICT', 'This question just changed. Read it again.', { reason: 'question_changed' });
+  }
+  return (await present(ctx, await withPlaces(ctx, [data as QuestionRow])))[0];
+}
+
+/** Withdraws an open question: the asker, the Owner, or a team manager. */
+export async function cancelQuestion(ctx: QuestionsContext, id: string): Promise<QuestionView> {
+  const row = await loadRow(ctx, id);
+  if (!canCancel(ctx, row)) {
+    throw forbidden('Only whoever asked, the Owner, or someone who may manage the team can cancel this question.', { reason: 'not_asker' });
+  }
+  const closed = notOpen(row);
+  if (closed) throw closed;
+  const { data, error } = await ctx.db
+    .from('questions')
+    .update({ status: 'cancelled', cancelled_by: ctx.memberId, cancelled_at: new Date().toISOString() })
+    .eq('id', id)
+    .eq('status', 'open')
+    .select(SELECT)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) {
+    throw notOpen(await loadRow(ctx, id)) ?? new ApiError(409, 'CONFLICT', 'This question just changed. Read it again.', { reason: 'question_changed' });
+  }
+  return (await present(ctx, await withPlaces(ctx, [data as QuestionRow])))[0];
+}
+
+/** A task's open question as task reads carry it: the oldest one still open. */
+export interface OpenQuestion {
+  id: string;
+  question: string;
+  choices: string[] | null;
+  allow_other: boolean;
+  asked_by: string;
+  asked_by_name: string | null;
+  asked_to: string;
+  asked_to_name: string | null;
+  expires_at: string | null;
+  created_at: string;
+}
+
+/**
+ * The oldest open question on a task, or null. Anyone who can read the task
+ * sees it. A database without the questions table yet reads as none.
+ */
+export async function openQuestionForTask(db: SupabaseClient, taskId: string): Promise<OpenQuestion | null> {
+  const { data, error } = await db
+    .from('questions')
+    .select('id, question, choices, allow_other, asked_by, asked_to, expires_at, created_at, status')
+    .eq('task_id', taskId)
+    .eq('status', 'open')
+    .is('deleted_at', null)
+    .order('created_at', { ascending: true })
+    .limit(20);
+  if (missingQuestionsTable(error)) return null;
+  if (error) throw error;
+  const open = ((data ?? []) as (OpenQuestion & { status: string })[]).find((q) => effectiveQuestionStatus(q) === 'open');
+  if (!open) return null;
+  const names = await memberNames(db, [open.asked_by, open.asked_to]);
+  const { status: _status, ...rest } = open;
+  void _status;
+  return { ...rest, asked_by_name: names.get(open.asked_by) ?? null, asked_to_name: names.get(open.asked_to) ?? null };
+}
+

@@ -9,6 +9,16 @@ Each section starts with `## X.Y.Z (YYYY-MM-DD)` and uses these headings, leavin
 - `### Database`: the core migration files in the release, one per line. `npm run db:migrate` applies them.
 - `### Breaking`: what an install must do when it takes this release.
 
+## 2.0.13 (2026-11-24)
+
+### Added
+- **Questions.** Any member (an agent or a person) asks another a question and gets the answer back, on a task, a project or neither: `POST /api/v1/questions` with optional choices (1 to 10, shown as buttons), free-text answers allowed by default, and an optional expiry. `GET /api/v1/questions/{id}` to poll for the answer, `GET /api/v1/questions` to list, `/answer` and `/cancel`. MCP: `ask_human`, `get_question`, `list_questions`, `answer_question`, `cancel_question`. The person asked defaults to whoever the agent's rules escalate to, else the Owner.
+- The asked person's bell rings and links to My Tasks, where the question shows under "Needs you now" with its answer card; a task with an open question shows it on the card and in the task panel, and `GET /api/v1/tasks/{id}` returns `open_question`. Answering, cancelling, expiring or trashing the question clears the bell.
+- Who sees a question follows task access: the asker, the person asked, and members who can open its task or project. The person asked can always answer, even without access to the task.
+
+### Database
+- `20261124000100_questions.sql`: the `questions` table (soft delete, server writes only, member reads by task and project access) and its triggers that keep a task's project, ring and clear the bell.
+
 ## 2.0.12 (2026-11-24)
 
 ### Added

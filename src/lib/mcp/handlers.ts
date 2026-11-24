@@ -25,6 +25,10 @@ import * as taskCriterion from '@/app/api/v1/tasks/[id]/acceptance-criteria/[cri
 import * as suggestions from '@/app/api/v1/task-suggestions/route';
 import * as suggestion from '@/app/api/v1/task-suggestions/[id]/route';
 import * as notifications from '@/app/api/v1/notifications/route';
+import * as questions from '@/app/api/v1/questions/route';
+import * as question from '@/app/api/v1/questions/[id]/route';
+import * as questionAnswer from '@/app/api/v1/questions/[id]/answer/route';
+import * as questionCancel from '@/app/api/v1/questions/[id]/cancel/route';
 import * as reminders from '@/app/api/v1/reminders/route';
 import * as reminder from '@/app/api/v1/reminders/[id]/route';
 import * as agentActivities from '@/app/api/v1/agent-activities/route';
@@ -73,6 +77,10 @@ export const ROUTE_MODULES: Record<string, RouteModule> = {
   '/api/v1/task-suggestions': suggestions,
   '/api/v1/task-suggestions/{id}': suggestion,
   '/api/v1/notifications': notifications,
+  '/api/v1/questions': questions,
+  '/api/v1/questions/{id}': question,
+  '/api/v1/questions/{id}/answer': questionAnswer,
+  '/api/v1/questions/{id}/cancel': questionCancel,
   '/api/v1/reminders': reminders,
   '/api/v1/reminders/{id}': reminder,
   '/api/v1/agent-activities': agentActivities,

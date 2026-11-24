@@ -149,10 +149,10 @@ export const SHARED_ROUTES: Array<{ route: string; modules: ModuleId[] }> = [
 export const CORE_ROUTES: string[] = [
   'api/[...unknown]', 'api/brand', 'api/docs', 'api/email-preview', 'api/encryption', 'api/logo', 'api/mcp', 'api/notifications',
   'api/smtp', 'api/team-members', 'api/whats-my-ip',
-  'api/v1/activities', 'api/v1/audit-log', 'api/v1/entity-files', 'api/v1/notifications', 'api/v1/reminders',
+  'api/v1/activities', 'api/v1/audit-log', 'api/v1/entity-files', 'api/v1/notifications', 'api/v1/questions', 'api/v1/reminders',
   'api/v1/tasks', 'api/v1/team-members', 'api/v1/projects',
   'api/workspace/access', 'api/workspace/api-keys', 'api/workspace/brand', 'api/workspace/me', 'api/workspace/region', 'api/workspace/modules', 'api/workspace/setup-checks', 'api/workspace/secrets', 'api/workspace/encryption', 'api/workspace/webhook-retries', 'api/welcome',
-  'api/workspace/projects', 'api/workspace/tasks', 'api/workspace/team-directory', 'api/workspace/team-members',
+  'api/workspace/projects', 'api/workspace/questions', 'api/workspace/tasks', 'api/workspace/team-directory', 'api/workspace/team-members',
   'api/workspace/updates',
   // The install's own routes and pages (src/custom): each item names its own module, permission or role.
   'api/x', '(protected)/x',
@@ -162,10 +162,10 @@ export const CORE_ROUTES: string[] = [
   'smtp/docs', '(dashboard)/email-preview', 'dev',
 ];
 
-/** Core tables: projects, tasks, team, files, reminders, settings, keys, context, audit. */
+/** Core tables: projects, tasks, questions, team, files, reminders, settings, keys, context, audit. */
 export const CORE_TABLES: string[] = [
   'activities', 'api_audit_log', 'api_keys', 'api_rate_limit_windows', 'business_settings', 'entity_files',
-  'permission_modules', 'project_context', 'project_members', 'projects', 'reminders', 'role_permissions',
+  'permission_modules', 'project_context', 'project_members', 'projects', 'questions', 'reminders', 'role_permissions',
   'smtp_accounts', 'task_acceptance_criteria', 'task_assignees', 'task_comments', 'task_dependencies',
   'task_events', 'task_files', 'task_reviews', 'task_subtasks', 'task_views', 'tasks',
   'team_invites', 'team_member_notifications', 'team_member_permissions', 'team_members', 'trash_events', 'workspace_brand',

@@ -41,6 +41,7 @@ export function getEndpointScopes(endpoint: EndpointDoc): string[] {
       : ['credentials.manage'];
   }
   if (path.includes('/reminders')) return ['reminders.manage_own'];
+  if (path.includes('/questions')) return ['tasks.read', 'tasks.manage_all'];
   if (path.includes('/notifications')) {
     if (method === 'POST' && path === '/api/v1/notifications') return ['notifications.send'];
     return ['notifications.manage_own'];
@@ -529,7 +530,7 @@ export const endpoints: EndpointDoc[] = [
       { name: 'occurrence_note', type: 'string', required: false, description: 'What happened this time. When dedupe_key finds an open task, it is added there as a comment under the key\'s member.' },
     ],
   },
-  { method: 'GET', path: '/api/v1/tasks/:id', description: 'Get a single task with its parent ({ id, title, status } for a subtask, otherwise null), its subtasks (each a task: id, title, status, completed, assignee_ids, due_date, sorted by sort_order), comments (sorted by created_at), assignee_ids, acceptance_criteria, blocked_by (each blocker with id, title, status), dependencies_met (true when every blocker is done), and claim: who is working on it right now ({ member_id, member_name, claimed_at, expires_at }), or null when nobody holds a live claim. The row also carries claimed_by, claimed_at, claim_expires_at (a past claim_expires_at means the claim is over), dedupe_key, occurrences and last_occurred_at.', group: 'Tasks',
+  { method: 'GET', path: '/api/v1/tasks/:id', description: 'Get a single task with its parent ({ id, title, status } for a subtask, otherwise null), its subtasks (each a task: id, title, status, completed, assignee_ids, due_date, sorted by sort_order), comments (sorted by created_at), assignee_ids, acceptance_criteria, blocked_by (each blocker with id, title, status), dependencies_met (true when every blocker is done), and claim: who is working on it right now ({ member_id, member_name, claimed_at, expires_at }), or null when nobody holds a live claim. open_question: the oldest open question on the task ({ id, question, choices, allow_other, asked_by, asked_by_name, asked_to, asked_to_name, expires_at, created_at }), or null; while it is set the task is waiting on asked_to. GET /api/v1/questions?task_id= lists them all. The row also carries claimed_by, claimed_at, claim_expires_at (a past claim_expires_at means the claim is over), dedupe_key, occurrences and last_occurred_at.', group: 'Tasks',
     params: [{ name: 'id', type: 'uuid', required: true, description: 'Task ID' }],
   },
   { method: 'PATCH', path: '/api/v1/tasks/:id', description: 'Update a task. Only include fields you want to change. Pass assignee_ids to replace the full assignee list (an agent whose rules keep it off unassigned work cannot add itself: 403 self_assign_off). Send parent_task_id to make a task a subtask of another task (it keeps its comments, files, assignees and history), or null to make a subtask top-level again. A task and its subtasks finish separately: completing every subtask does not complete the parent. Setting done ends any claim on the task. If the key\'s agent has the close policy review, status done moves the task to in_review instead, adds a comment saying why, and the answer carries sent_to_review: true and a note.', group: 'Tasks',
@@ -1506,6 +1507,42 @@ export const endpoints: EndpointDoc[] = [
   },
   { method: 'DELETE', path: '/api/v1/reminders/:id', description: 'Move a reminder to Trash. Only its owner, its writer or a task manager may; anyone else ticks it off instead.', group: 'Reminders',
     params: [{ name: 'id', type: 'uuid', required: true, description: 'Reminder ID' }],
+  },
+  // ─── Questions ────────────────────────────────────────────────────
+  { method: 'POST', path: '/api/v1/questions', description: 'Ask a team member (a person or another agent) a question and get the answer back. On a task (task_id; its project comes with it), a project (project_id) or neither. asked_to defaults to the agent\'s escalation target (its rule agent_escalate_to while that member is active), else the Owner; asking yourself is refused (422 asked_self). Their bell rings (a question notification linking to the task, or to My Tasks), a task with an open question shows as waiting on them, and an agent that asks logs the typed blocked event. Poll GET /api/v1/questions/:id for the answer. Answers 201 with the question: id, status open, task_title, project_name, asked_by_name, asked_to_name, can_answer and can_cancel for the caller.', group: 'Questions',
+    body: [
+      { name: 'question', type: 'string', required: true, description: 'The question, 1 to 2000 characters, with the context needed to answer it' },
+      { name: 'task_id', type: 'uuid|null', required: false, description: 'The task it is about (a task the key can open)' },
+      { name: 'project_id', type: 'uuid|null', required: false, description: 'The project it is about, when not on a task. With task_id it must be the task\'s project.' },
+      { name: 'asked_to', type: 'uuid', required: false, description: 'The active member to ask. Default: the agent\'s escalation target, else the Owner.' },
+      { name: 'choices', type: 'string[]', required: false, description: '1 to 10 different short answers (up to 200 characters each), shown as buttons' },
+      { name: 'allow_other', type: 'boolean', required: false, description: 'With choices: may they answer in their own words too (default true). false makes a choice required.' },
+      { name: 'expires_at', type: 'ISO 8601', required: false, description: 'A future time after which an unanswered question reads as expired and its bell clears' },
+    ],
+  },
+  { method: 'GET', path: '/api/v1/questions', description: 'List questions the key can see: ones its member asked, ones it was asked, and ones on tasks and projects it can open (never on a task or project in Trash). Newest first, paginated. An open question past expires_at is stored and shown as expired.', group: 'Questions',
+    queryParams: [
+      { name: 'status', type: 'open|answered|cancelled|expired|all', description: 'Default all' },
+      { name: 'asked_by', type: 'me|uuid', description: 'Asked by the key\'s member (me) or another member' },
+      { name: 'asked_to', type: 'me|uuid', description: 'Asked to the key\'s member (me) or another member' },
+      { name: 'task_id', type: 'uuid', description: 'Questions on one task' },
+      { name: 'project_id', type: 'uuid', description: 'Questions on one project, its tasks included' },
+      { name: 'page', type: 'number', description: 'Page number (default 1)' },
+      { name: 'limit', type: 'number', description: 'Items per page (default 25, max 100)' },
+    ],
+  },
+  { method: 'GET', path: '/api/v1/questions/:id', description: 'Get one question: status (open, answered, cancelled or expired), choices, allow_other, and once answered answer_choice, answer_text, answered_by, answered_by_name and answered_at. Cancelled ones carry cancelled_by and cancelled_at. 404 for a question the key cannot see.', group: 'Questions',
+    params: [{ name: 'id', type: 'uuid', required: true, description: 'Question ID' }],
+  },
+  { method: 'POST', path: '/api/v1/questions/:id/answer', description: 'Answer a question with a choice, text, or both. Without choices, text is the answer; with choices, choice must be one of them (422 unknown_choice), and when allow_other is false a choice is required (422 choice_required), text riding along as a note. Only the member asked, the Owner, or a key whose member may manage the team (team.manage on key and member) may answer (403 not_asked). 409 when it is already answered, cancelled or expired (reason question_answered, question_cancelled, question_expired). Clears the asked member\'s bell. Answers with the question.', group: 'Questions',
+    params: [{ name: 'id', type: 'uuid', required: true, description: 'Question ID' }],
+    body: [
+      { name: 'choice', type: 'string', required: false, description: 'One of the question\'s choices' },
+      { name: 'text', type: 'string', required: false, description: 'An answer in words, 1 to 5000 characters' },
+    ],
+  },
+  { method: 'POST', path: '/api/v1/questions/:id/cancel', description: 'Withdraw an open question: whoever asked it, the Owner, or a key whose member may manage the team (403 not_asker otherwise). Clears the asked member\'s bell. 409 once it is answered, cancelled or expired. No body. Answers with the question, status cancelled.', group: 'Questions',
+    params: [{ name: 'id', type: 'uuid', required: true, description: 'Question ID' }],
   },
   { method: 'GET', path: '/api/v1/notifications', description: 'List notifications for the team member linked to this API key. Requires the API key to be linked to a team member. Paginated.', group: 'Notifications',
     queryParams: [

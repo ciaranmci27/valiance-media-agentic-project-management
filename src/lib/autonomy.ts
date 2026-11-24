@@ -106,14 +106,17 @@ export const LANE_HINT: Record<TaskLane, string> = {
 // ---------------------------------------------------------------------------
 
 import { parseDateOnly } from '@/lib/date-utils';
+import type { QuestionView } from '@/lib/questions';
 
 export interface NeedsYouItem {
-  kind: 'blocked' | 'merge' | 'review' | 'due' | 'suggestions';
+  kind: 'question' | 'blocked' | 'merge' | 'review' | 'due' | 'suggestions';
   task?: Task;
   lane?: TaskLane;
   count?: number;
   /** blocked only: the agent's question, verbatim. */
   question?: string;
+  /** question only: an open question asked to you, answered in place. */
+  openQuestion?: QuestionView;
   /** merge only: the independent reviewer's current verdict, if any. */
   reviewerVerdict?: TaskReview | null;
 }
@@ -138,8 +141,10 @@ export function computeNeedsYou(input: {
    */
   oversight: boolean;
   agentActivity?: { reference_type: string | null; reference_id: string | null; title: string; description: string; created_at: string }[];
+  /** Open questions the viewer can see; the ones asked to them are theirs to answer. */
+  questions?: QuestionView[];
 }): NeedsYouItem[] {
-  const { tasks, suggestions, projects, teamMemberId, includeSuggestions, oversight, agentActivity = [] } = input;
+  const { tasks, suggestions, projects, teamMemberId, includeSuggestions, oversight, agentActivity = [], questions = [] } = input;
   const suggestionById = new Map(suggestions.map(s => [s.id, s]));
   const projectById = new Map(projects.map(p => [p.id, p]));
   const laneOf = (task: Task) =>
@@ -153,7 +158,14 @@ export function computeNeedsYou(input: {
   const today = new Date();
   today.setHours(23, 59, 59, 999);
 
-  // Blocked agents come first: a blocker stalls the whole serial pipeline
+  // Questions asked to you come first: whoever asked is waiting on the
+  // answer, and each is one action (answer it in place). One row per question.
+  for (const question of questions) {
+    if (!teamMemberId || question.asked_to !== teamMemberId || question.status !== 'open' || !question.can_answer) continue;
+    items.push({ kind: 'question', openQuestion: question });
+  }
+
+  // Blocked agents come next: a blocker stalls the whole serial pipeline
   // until answered, so nothing on this list outranks it.
   for (const task of tasks) {
     if (task.status !== 'in_progress') continue;

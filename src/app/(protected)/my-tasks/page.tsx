@@ -8,7 +8,8 @@ import { PriorityBadge } from '@/components/ui/Badge';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { TaskDetailPanel } from '@/components/tasks/TaskDetailPanel';
 import { useTaskUrlParam } from '@/lib/use-task-url';
-import { useTaskWarmer } from '@/lib/reads';
+import { useOpenQuestions, useTaskWarmer } from '@/lib/reads';
+import { QuestionCard } from '@/components/questions/QuestionCard';
 import Link from 'next/link';
 import {
   ListTodo, Zap, Activity, Hourglass, GitMerge, Eye, CalendarClock,
@@ -90,6 +91,7 @@ function RadarPageContent() {
   const { taskId: viewingTaskId, openTask: setViewingTaskId, closeTask: closeViewingTask } = useTaskUrlParam();
   // Pointing at a task warms its panel, so it opens with its emails and files.
   const warmTask = useTaskWarmer();
+  const openQuestions = useOpenQuestions();
   const [reviewingTaskId, setReviewingTaskId] = useState<string | null>(null);
   const [deletingTaskId, setDeletingTaskId] = useState<string | null>(null);
   const [showDoneReminders, setShowDoneReminders] = useState(false);
@@ -124,9 +126,12 @@ function RadarPageContent() {
       includeSuggestions: false,
       oversight: canManageAgents,
       agentActivity,
+      questions: openQuestions,
     }),
-    [tasks, taskSuggestions, projects, teamMemberId, canManageAgents, agentActivity],
+    [tasks, taskSuggestions, projects, teamMemberId, canManageAgents, agentActivity, openQuestions],
   );
+  // Questions asked to you: one row each, answered in place.
+  const questionsForYou = needsYou.flatMap(item => (item.kind === 'question' && item.openQuestion ? [item.openQuestion] : []));
 
   // Your reminders. Due today or overdue ones join "Needs you now"; the
   // rest (upcoming, no date) and the last 30 days of done ones get a band.
@@ -307,8 +312,8 @@ function RadarPageContent() {
   };
 
   const needsYouFlag = (item: NeedsYouItem): Flag | null => {
-    // Suggestions render in their own band; this band is task actions only.
-    if (item.kind === 'suggestions' || !item.task) return null;
+    // Suggestions render in their own band, questions as their own rows.
+    if (item.kind === 'suggestions' || item.kind === 'question' || !item.task) return null;
     const task = item.task;
     if (item.kind === 'blocked') {
       return {
@@ -542,6 +547,9 @@ function RadarPageContent() {
                 children: needsYouCount > 0
                   ? (
                     <>
+                      {questionsForYou.map(question => (
+                        <QuestionCard key={question.id} question={question} variant="band" place onOpenTask={setViewingTaskId} />
+                      ))}
                       {needsGroups.map(group => groupRow(group, {
                         summarize: n => `${plural(n, 'subtask')} need${n === 1 ? 's' : ''} you`,
                         showChevron: true,

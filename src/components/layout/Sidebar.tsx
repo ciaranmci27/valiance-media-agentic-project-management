@@ -31,7 +31,7 @@ import { Logo } from '@/components/ui/Logo';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { LivePulse } from '@/components/ui/LivePulse';
 import { useUnreadByProject } from '@/components/tasks/TaskUnread';
-import { inboxAttentionRead, inboxLandingRead, unreadNotificationsRead, useIntent, useWarmActiveProjects, useWarmProject } from '@/lib/reads';
+import { inboxAttentionRead, inboxLandingRead, unreadNotificationsRead, useIntent, useOpenQuestions, useWarmActiveProjects, useWarmProject } from '@/lib/reads';
 import { invalidateTables, useRead, warmRead } from '@/lib/query-cache';
 import { CountBadge, type CountBadgeTone } from '@/components/ui/CountBadge';
 import { isRunning } from '@/lib/time-entry-utils';
@@ -122,6 +122,8 @@ export function Sidebar() {
   // computation as the page's top band, imported so they cannot disagree.
   // Suggestions are excluded here on purpose: the Agent tab's own badge
   // already counts them, and one signal per fact is the rule.
+  // Questions asked to you are rows in My Tasks' Needs you now too.
+  const openQuestions = useOpenQuestions();
   const radarCount = computeNeedsYou({
     tasks,
     suggestions: taskSuggestions,
@@ -130,6 +132,7 @@ export function Sidebar() {
     includeSuggestions: false,
     oversight: canManageAgents,
     agentActivity,
+    questions: openQuestions,
   }).length;
 
   // Your reminders that want you now (overdue or due today): rows in My
