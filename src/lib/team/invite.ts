@@ -243,11 +243,19 @@ export interface InviteResult {
 export async function inviteMember(options: DeliveryOptions & {
   access: AccessContext;
   input: InviteInput;
+  /**
+   * For an agent set up over the API, which works through API keys: no
+   * set-password link is made, and an email that already has a login is
+   * refused instead of linked, so no existing account can sign in as it.
+   * An Owner can still make a link later from the Team page.
+   */
+  withoutSignIn?: boolean;
 }): Promise<InviteResult> {
   const { service, access, input } = options;
   if (!canInviteRole(access.role, input.role)) {
     throw new InviteError(403, 'Only an Owner can invite an Owner, an Admin or an agent');
   }
+  if (options.withoutSignIn && input.password) throw new InviteError(422, 'A member made without sign-in takes no password');
 
   const { data: created, error: createError } = await service.auth.admin.createUser({
     email: input.email,
@@ -258,6 +266,7 @@ export async function inviteMember(options: DeliveryOptions & {
   if (createError) {
     const message = createError.message?.toLowerCase() ?? '';
     if (message.includes('already been registered') || message.includes('already exists')) {
+      if (options.withoutSignIn) throw new InviteError(409, 'This email already has a login. Use an address only this agent uses.');
       return addExistingLogin(options);
     }
     if (message.includes('password')) throw new InviteError(422, createError.message);
@@ -267,7 +276,7 @@ export async function inviteMember(options: DeliveryOptions & {
 
   const member = await addMember(service, { authUserId: created.user.id, email: input.email, name: input.name, role: input.role, loginOwned: true });
 
-  if (input.password) return { member, invite: null };
+  if (input.password || options.withoutSignIn) return { member, invite: null };
   try {
     return { member, invite: await deliver(options, { memberId: member.id, name: input.name, email: input.email, role: input.role }, true) };
   } catch (error) {

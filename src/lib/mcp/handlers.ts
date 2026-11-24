@@ -40,6 +40,13 @@ import * as leads from '@/app/api/v1/leads/route';
 import * as lead from '@/app/api/v1/leads/[id]/route';
 import * as leadInteractions from '@/app/api/v1/leads/[id]/interactions/route';
 import * as contacts from '@/app/api/v1/contacts/route';
+import * as agents from '@/app/api/v1/agents/route';
+import * as agentSetup from '@/app/api/v1/agents/[id]/setup/route';
+import * as agentProjects from '@/app/api/v1/agents/[id]/projects/route';
+import * as apiKeys from '@/app/api/v1/api-keys/route';
+import * as apiKeyRevoke from '@/app/api/v1/api-keys/[id]/revoke/route';
+import * as webhookEndpoints from '@/app/api/v1/webhook-endpoints/route';
+import * as webhookEndpoint from '@/app/api/v1/webhook-endpoints/[id]/route';
 
 export type RouteHandler = (
   request: NextRequest,
@@ -94,6 +101,13 @@ export const ROUTE_MODULES: Record<string, RouteModule> = {
   '/api/v1/leads/{id}': lead,
   '/api/v1/leads/{id}/interactions': leadInteractions,
   '/api/v1/contacts': contacts,
+  '/api/v1/agents': agents,
+  '/api/v1/agents/{id}/setup': agentSetup,
+  '/api/v1/agents/{id}/projects': agentProjects,
+  '/api/v1/api-keys': apiKeys,
+  '/api/v1/api-keys/{id}/revoke': apiKeyRevoke,
+  '/api/v1/webhook-endpoints': webhookEndpoints,
+  '/api/v1/webhook-endpoints/{id}': webhookEndpoint,
 };
 
 export function routeHandler(path: string, method: HttpMethod): RouteHandler | null {

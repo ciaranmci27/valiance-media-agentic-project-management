@@ -7,7 +7,7 @@ import { permissionAlternatives } from '@/lib/api/middleware';
 import { apiRequestContext } from '@/lib/api/request-context';
 import type { CallRoute, PmTool, RouteEnvelope, ToolOutcome } from './core';
 import { toolDefinition } from './core';
-import { PM_GUIDE } from './guide';
+import { PM_GUIDE, PM_SETUP_GUIDE, SETUP_TOOLS } from './guide';
 import { routeHandler } from './handlers';
 import type { AgentProfile } from './profiles';
 import { GUIDE_TOOL, PM_TOOLS } from './tools';
@@ -162,7 +162,7 @@ export function createPmServer(caller: McpCaller): Server {
     } else if (tool.name === GUIDE_TOOL) {
       result = payloadResult({
         ok: true,
-        guide: PM_GUIDE,
+        guide: tools.some((t) => SETUP_TOOLS.includes(t.name)) ? `${PM_GUIDE}\n\n${PM_SETUP_GUIDE}` : PM_GUIDE,
         you: { name: caller.member.name, role: caller.member.role, profile: caller.profile, read_only_key: caller.readOnly },
         tools: tools.filter((t) => t.name !== GUIDE_TOOL).map((t) => t.name),
       });

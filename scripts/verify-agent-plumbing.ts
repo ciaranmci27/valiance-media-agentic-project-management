@@ -26,7 +26,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { PGlite } from '@electric-sql/pglite';
 import { NextRequest } from 'next/server';
-import { createFullSchemaDatabase, SCHEMA_PATH } from './full-schema-db';
+import { applyMigrationsFrom, createFullSchemaDatabase, SCHEMA_PATH } from './full-schema-db';
 import { startFakePostgrest } from './fake-postgrest';
 import { diffSnapshots, pmSnapshot } from './lib/pm-catalog';
 import { deriveStatus, emptyTrace, heartbeatStaleAfterSeconds, type AgentHealth } from '../src/lib/agent-status';
@@ -112,13 +112,13 @@ async function migrationChecks() {
   const old = await createFullSchemaDatabase({ schemaSql: before });
   await old.query("INSERT INTO pm.team_members (name, email, role) VALUES ('Fleet', 'fleet@example.com', 'agent')");
   await old.query("INSERT INTO pm.agent_health (member_id, container, container_running) SELECT id, 'fleet', true FROM pm.team_members WHERE name = 'Fleet'");
-  await old.exec(MIGRATION_SQL);
-  await old.exec(MIGRATION_SQL);
+  // This migration twice, then any later one, so schema.sql (which holds them all) is comparable.
+  await applyMigrationsFrom(old, MIGRATION);
   const kept = (await old.query<Loose>('SELECT container, expected_interval_seconds, status_note FROM pm.agent_health')).rows[0];
   check('upgrade: an existing row keeps its container and promises the one-minute beat', kept?.container === 'fleet' && kept?.expected_interval_seconds === 60 && kept?.status_note === null, kept);
   const fresh = await createFullSchemaDatabase();
   const diff = diffSnapshots(await pmSnapshot(fresh), await pmSnapshot(old));
-  check('upgrade: the migration, run twice on the schema before it, matches schema.sql', diff.length === 0, diff.slice(0, 10));
+  check('upgrade: the migration (and any after it), run twice on the schema before it, matches schema.sql', diff.length === 0, diff.slice(0, 10));
   await old.close();
   await fresh.close();
   for (const [label, sql] of [['migration', MIGRATION_SQL], ['schema.sql', SCHEMA_SQL]] as const) {

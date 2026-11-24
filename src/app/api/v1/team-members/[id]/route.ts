@@ -30,8 +30,15 @@ export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemb
   if (before.role === 'owner' && ('role' in requested || 'status' in requested)) {
     throw forbidden('The Owner role and account status are immutable');
   }
+  // An Owner's row is changed only with that Owner's own key, and no key makes an Owner.
+  if (before.role === 'owner' && id !== teamMemberId) {
+    throw forbidden('An Owner is changed only by that Owner', { reason: 'owner_protected' });
+  }
   if ('role' in requested && access.role !== 'owner') {
     throw forbidden('Only an Owner can change roles');
+  }
+  if (requested.role === 'owner') {
+    throw forbidden('An API key cannot make anyone an Owner', { reason: 'owner_protected' });
   }
   // An agent's rules: only for agent members (the role this save leaves them with).
   const rules = await agentRulesColumns(supabase, { id, role: (requested.role as string | undefined) ?? before.role }, requested as AgentRulesUpdate);

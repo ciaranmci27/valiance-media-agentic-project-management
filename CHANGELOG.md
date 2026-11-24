@@ -9,6 +9,20 @@ Each section starts with `## X.Y.Z (YYYY-MM-DD)` and uses these headings, leavin
 - `### Database`: the core migration files in the release, one per line. `npm run db:migrate` applies them.
 - `### Breaking`: what an install must do when it takes this release.
 
+## 2.0.16 (2026-11-24)
+
+### Added
+- **Set up an agent from a chat.** Everything the agent setup screens do is now an API and MCP tool, so an AI can configure an agent from a description: `create_agent` (`POST /api/v1/agents`, Owner only), `create_api_key`, `list_api_keys`, `revoke_api_key` (`/api/v1/api-keys`), `set_agent_projects` (`PATCH /api/v1/agents/{id}/projects`), webhook endpoints (`/api/v1/webhook-endpoints`), and `get_agent_setup` to check the result. Agent keys never see these tools.
+- A key made over the API grants only scopes the calling key carries and the new key's member holds. Only an Owner makes keys for another member, and only for an agent. Secrets are shown once and never stored for replay.
+- **Key lineage.** A key made over the API remembers the key that made it, and revoking a key (from Settings or the API) also revokes every key it made, each logged.
+- `api_keys.manage_all` and `webhooks.manage` can be granted to API keys in Team > Access. No role has them on the API by default.
+
+### Changed
+- `/api/v1/team-members`: no key can create an Owner or make someone one; adding an agent or Admin is Owner only; an Owner's own row changes only with that Owner's key.
+
+### Database
+- `20261124000400_agent_setup_api.sql`: `api_keys.created_by_key_id` (fixed once set) and `revoke_api_key_tree` (service role only). Apply it before making keys over the API.
+
 ## 2.0.15 (2026-11-24)
 
 ### Added

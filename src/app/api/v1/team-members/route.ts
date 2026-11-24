@@ -5,6 +5,7 @@ import { parsePagination, sanitizeSearch } from '@/lib/api/pagination';
 import { logAudit } from '@/lib/api/audit';
 import { forbidden } from '@/lib/api/errors';
 import { accessAllows } from '@/lib/api/access';
+import { canInviteRole } from '@/lib/team/invite-rules';
 
 export const GET = withApi(async ({ supabase, searchParams, access }) => {
   const { page, limit, offset } = parsePagination(searchParams);
@@ -30,8 +31,11 @@ export const GET = withApi(async ({ supabase, searchParams, access }) => {
 
 export const POST = withApi(async ({ supabase, body, apiKeyId, teamMemberId, access }) => {
   const member = body as Record<string, unknown>;
-  if ((member.role === 'owner' || member.role === 'admin') && access.role !== 'owner') {
-    throw forbidden('Only an Owner can create an Owner or Admin');
+  // An API key never makes an Owner. Admins and agents, as on the Team page,
+  // are added only by an Owner.
+  if (member.role === 'owner') throw forbidden('An API key cannot create an Owner', { reason: 'owner_protected' });
+  if (!canInviteRole(access.role, String(member.role || 'member'))) {
+    throw forbidden('Only an Owner can create an Admin or an agent', { reason: 'owner_only' });
   }
   const emailNotificationsEnabled = member.email_notifications_enabled;
   const emailNotificationPrefs = member.email_notification_prefs;

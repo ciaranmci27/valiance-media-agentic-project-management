@@ -53,6 +53,12 @@ interface WithApiOptions<TBody> {
   /** An empty request body is read as {} instead of refused (for optional fields). */
   optionalBody?: boolean;
   permission?: PermissionKey | PermissionKey[];
+  /**
+   * The answer holds a secret shown once (a new API key, a webhook signing
+   * secret). Such a POST refuses an Idempotency-Key: a stored answer would
+   * keep the secret in the database and hand it out again on a retry.
+   */
+  returnsSecret?: boolean;
 }
 
 type HandlerFn<TBody, TParams> = (ctx: ApiContext<TBody, TParams>) => Promise<Response>;
@@ -377,6 +383,12 @@ export function withApi<TBody = unknown, TParams = Record<string, string>>(
       // Idempotency-Key applies to POST only; it is checked before the body
       // is read, so a bad key is a 400 whatever the body holds.
       const idempotencyKey = method === 'POST' ? idempotencyKeyFrom(request.headers) : null;
+      if (idempotencyKey && options?.returnsSecret) {
+        throw badRequest('Idempotency-Key is not accepted here: the answer holds a secret that is shown only once', {
+          reason: 'idempotency_not_supported',
+          hint: 'Send the request without the header. If it times out, list what exists before trying again.',
+        });
+      }
       const parsesBody = !!options?.schema && (method === 'POST' || method === 'PUT' || method === 'PATCH');
       // A route with no schema reads the request itself (custom /api/x routes
       // do), so the key's hash reads a clone and leaves the body to it.

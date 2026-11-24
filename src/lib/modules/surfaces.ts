@@ -70,7 +70,7 @@ export const MODULE_SURFACES: Record<ModuleId, ModuleSurface> = {
   webhooks: {
     tables: ['webhook_endpoints', 'webhook_events', 'webhook_deliveries'],
     rpcs: ['claim_webhook_deliveries', 'complete_webhook_delivery', 'requeue_webhook_delivery', 'webhook_retry_kick'],
-    routes: ['api/internal/webhooks', 'webhooks/docs'],
+    routes: ['api/internal/webhooks', 'api/v1/webhook-endpoints', 'webhooks/docs'],
   },
   contacts: {
     tables: ['contacts', 'contact_emails', 'project_contacts'],
@@ -150,7 +150,7 @@ export const CORE_ROUTES: string[] = [
   'api/[...unknown]', 'api/brand', 'api/docs', 'api/email-preview', 'api/encryption', 'api/logo', 'api/mcp', 'api/notifications',
   'api/smtp', 'api/team-members', 'api/whats-my-ip',
   'api/v1/activities', 'api/v1/audit-log', 'api/v1/entity-files', 'api/v1/notifications', 'api/v1/questions', 'api/v1/reminders',
-  'api/v1/tasks', 'api/v1/team-members', 'api/v1/projects',
+  'api/v1/tasks', 'api/v1/team-members', 'api/v1/projects', 'api/v1/api-keys',
   'api/workspace/access', 'api/workspace/api-keys', 'api/workspace/brand', 'api/workspace/me', 'api/workspace/region', 'api/workspace/modules', 'api/workspace/setup-checks', 'api/workspace/secrets', 'api/workspace/encryption', 'api/workspace/webhook-retries', 'api/welcome',
   'api/workspace/projects', 'api/workspace/questions', 'api/workspace/tasks', 'api/workspace/team-directory', 'api/workspace/team-members',
   'api/workspace/updates',

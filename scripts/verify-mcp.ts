@@ -77,6 +77,8 @@ async function seed(db: PGlite) {
   await db.query('INSERT INTO project_members VALUES ($1,$2),($3,$2)', [AGENT, PROJECT, ADMIN]);
 }
 
+const MEMBER_ID_TARGETS = ['list_time_entries', 'list_api_keys', 'list_webhook_endpoints', 'create_webhook_endpoint', 'update_webhook_endpoint'];
+
 async function main() {
   // The catalog, before anything runs.
   const names = PM_TOOLS.map((tool) => tool.name);
@@ -89,9 +91,11 @@ async function main() {
     check(`catalog: ${tool.name} lead is one sentence of 60 characters or fewer`, tool.lead.length <= 60 && tool.lead.endsWith('.') && !tool.lead.slice(0, -1).includes('. '), tool.lead);
     check(`schema: ${tool.name} has a closed object root`, schema.type === 'object' && schema.additionalProperties === false && !('$schema' in schema));
     check(`annotations: ${tool.name} read-only exactly when it writes nothing`, definition.annotations.readOnlyHint === !tool.write);
-    // The acting member always comes from the key; only list_time_entries
-    // takes a member_id, and only to read someone else's (time.read_all).
-    check(`catalog: ${tool.name} never asks who is acting`, !['user_id', 'reviewer_member_id', 'created_by'].some((f) => f in (schema.properties ?? {})) && (!('member_id' in (schema.properties ?? {})) || tool.name === 'list_time_entries'));
+    // The acting member always comes from the key. A member_id is only ever
+    // a target or a filter: list_time_entries reads someone else's
+    // (time.read_all), list_api_keys narrows to one member's keys, and a
+    // webhook endpoint's member_id is its member filter.
+    check(`catalog: ${tool.name} never asks who is acting`, !['user_id', 'reviewer_member_id', 'created_by'].some((f) => f in (schema.properties ?? {})) && (!('member_id' in (schema.properties ?? {})) || MEMBER_ID_TARGETS.includes(tool.name)));
   }
   check('catalog: no tool exposes notification audience', !('audience' in ((toolDefinition(PM_TOOLS.find((t) => t.name === 'notify_owner') as PmTool).inputSchema.properties as object) ?? {})));
   check('catalog: no tool offers free-text custom events', !JSON.stringify(toolDefinition(PM_TOOLS.find((t) => t.name === 'log_activity') as PmTool).inputSchema).includes('"custom"'));

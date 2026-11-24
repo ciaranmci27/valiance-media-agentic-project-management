@@ -1,6 +1,9 @@
 import { z } from 'zod';
 import { AGENT_EVENT_SCHEMAS, AGENT_EVENT_TYPES, isServerEvent, isTelemetryEvent, type AgentEventType } from '@/lib/agent-events';
+import { API_ENDPOINT_PERMISSIONS } from '@/lib/access-control';
+import { WEBHOOK_EVENT_TYPES } from '@/lib/types';
 import { idempotencyKeyInput, routeTool, type PmTool } from './core';
+import { AGENT_PROFILE_VALUES, type AgentProfile } from './profiles';
 
 /**
  * The PM MCP server's tools: a curated set over the v1 API (it has no
@@ -17,9 +20,13 @@ import { idempotencyKeyInput, routeTool, type PmTool } from './core';
  *
  * Left out on purpose: credentials, client emails (outbound, and the inbound
  * inbox at /api/v1/inbound-emails, which has its own plugin tools), invoices, rates, time
- * approval, team writes other than an agent's rules, every delete (move to Trash), the
- * unscoped app activity feed, suggestion approve/decline, and the fleet publisher's agent health (an
- * agent reports its own with heartbeat).
+ * approval, team writes other than setting up an agent, every delete (move to Trash) but a
+ * webhook endpoint's, the unscoped app activity feed, suggestion approve/decline, and the fleet
+ * publisher's agent health (an agent reports its own with heartbeat).
+ *
+ * The agent setup tools (create_agent through delete_webhook_endpoint) are for whoever sets
+ * agents up, usually an Owner's own MCP client: their permissions (team.manage,
+ * project_members.manage, api_keys.manage_all, webhooks.manage) keep them off an agent's list.
  */
 
 export const GUIDE_TOOL = 'pm_guide';
@@ -38,6 +45,9 @@ const TASK_TYPE = z.enum(['engineering', 'research', 'audit', 'marketing', 'copy
 const AI_READINESS = z.enum(['ai_ready', 'needs_spec', 'human_only']);
 const CONTEXT_CATEGORY = z.enum(['business_context', 'existing_work', 'technical_decision', 'constraint', 'lesson_learned']);
 const EFFORT = z.enum(['small', 'medium', 'large']);
+const API_SCOPE = z.enum(API_ENDPOINT_PERMISSIONS);
+const WEBHOOK_EVENT = z.enum(WEBHOOK_EVENT_TYPES);
+const AGENT_PROFILE = z.enum(AGENT_PROFILE_VALUES as [AgentProfile, ...AgentProfile[]]);
 const atLeastOne = (fields: string[]) => (value: Record<string, unknown>) =>
   fields.some((field) => value[field] !== undefined);
 
@@ -952,6 +962,159 @@ export const PM_TOOLS: PmTool[] = [
     method: 'PATCH',
     path: '/api/v1/team-members/{id}',
     request: ({ agent_id, ...body }) => ({ params: { id: agent_id }, body }),
+  }),
+  // Agent setup
+  routeTool({
+    name: 'create_agent',
+    lead: 'Add an AI agent to the team.',
+    detail:
+      "Owner keys only (team.manage, AI agents module), as on the Team page. email is an address only this agent uses: it gets no sign-in link and works through keys. title (shown with its name), avatar and agent_profile (which MCP tools it sees) are optional. Then set_agent_projects, set_agent_rules, create_api_key and create_webhook_endpoint, and check everything with get_agent_setup. Answers with the member.",
+    input: z.object({
+      name: z.string().min(1).max(100),
+      email: z.email('email must be an email address'),
+      title: z.string().max(80).optional(),
+      avatar: z.string().max(2000).optional(),
+      agent_profile: AGENT_PROFILE.optional(),
+      idempotency_key: idempotencyKeyInput,
+    }).strict(),
+    permission: 'team.manage',
+    module: 'agents',
+    method: 'POST',
+    path: '/api/v1/agents',
+    request: (body) => ({ body }),
+  }),
+  routeTool({
+    name: 'get_agent_setup',
+    lead: "Read an agent's whole setup to check it.",
+    detail:
+      'The member, its rules, its projects and project reach, its live API keys (never a secret) with available_scopes (what a key for it may carry), and the webhook endpoints filtered to it. A part your key may not read is null and named in omitted.',
+    input: z.object({ agent_id: id('agent_id') }).strict(),
+    permission: 'team.read',
+    module: 'agents',
+    method: 'GET',
+    path: '/api/v1/agents/{id}/setup',
+    request: (args) => ({ params: { id: args.agent_id } }),
+  }),
+  routeTool({
+    name: 'set_agent_projects',
+    lead: 'Add an agent to projects or take it off them.',
+    detail:
+      "Needs project_members.manage; agents only, and only projects your own member reaches. An agent works in the projects it is on unless its role reaches every project (get_agent_setup shows projects.access). Answers with what changed and the agent's projects now.",
+    input: z.object({
+      agent_id: id('agent_id'),
+      add: z.array(id('add')).max(100).optional(),
+      remove: z.array(id('remove')).max(100).optional(),
+    }).strict().refine((value) => (value.add?.length ?? 0) + (value.remove?.length ?? 0) > 0, 'Send a project to add or remove'),
+    permission: 'project_members.manage',
+    module: 'agents',
+    method: 'PATCH',
+    path: '/api/v1/agents/{id}/projects',
+    request: ({ agent_id, ...body }) => ({ params: { id: agent_id }, body }),
+  }),
+  routeTool({
+    name: 'create_api_key',
+    lead: 'Make an API key for an agent; the secret shows once.',
+    detail:
+      "Needs api_keys.manage_all, and an Owner's key for an agent (agent_id may also be your own member). The new key is tied to yours: revoking yours revokes it. Every scope must be one the agent holds (get_agent_setup lists them as available_scopes) and one your own key carries: a key never grants more than it has. read_only refuses its writes. The answer's secret is the only copy: hand it to the agent's host now. No idempotency_key: on a timeout, list_api_keys before trying again.",
+    input: z.object({
+      agent_id: id('agent_id'),
+      name: z.string().min(1).max(100),
+      scopes: z.array(API_SCOPE).min(1),
+      read_only: z.boolean().optional(),
+    }).strict(),
+    permission: 'api_keys.manage_all',
+    method: 'POST',
+    path: '/api/v1/api-keys',
+    request: ({ agent_id, read_only, ...body }) => ({ body: { member_id: agent_id, ...body, permissions: read_only ? 'read_only' : 'scoped' } }),
+  }),
+  routeTool({
+    name: 'list_api_keys',
+    lead: 'List API keys, never their secrets.',
+    detail: 'Needs api_keys.manage_all. member_id narrows to one member; live keys only unless include_revoked.',
+    input: z.object({
+      member_id: id('member_id').optional(),
+      include_revoked: z.boolean().optional(),
+      page, limit: limit(25),
+    }).strict(),
+    permission: 'api_keys.manage_all',
+    method: 'GET',
+    path: '/api/v1/api-keys',
+    request: (args) => ({ query: args }),
+  }),
+  routeTool({
+    name: 'revoke_api_key',
+    lead: 'Revoke an API key for good.',
+    detail: 'Needs api_keys.manage_all. Keys it made over the API, and keys those made, are revoked with it (cascaded_revokes). Whatever uses them stops working at once; a revoke cannot be undone. Revoking again answers with the key as it is.',
+    input: z.object({ key_id: id('key_id') }).strict(),
+    permission: 'api_keys.manage_all',
+    method: 'POST',
+    path: '/api/v1/api-keys/{id}/revoke',
+    destructive: true,
+    idempotent: true,
+    request: (args) => ({ params: { id: args.key_id } }),
+  }),
+  routeTool({
+    name: 'list_webhook_endpoints',
+    lead: 'List webhook endpoints, never their secrets.',
+    detail: 'Needs webhooks.manage. member_id narrows to endpoints filtered to that member; active to the ones on or off.',
+    input: z.object({ member_id: id('member_id').optional(), active: z.boolean().optional() }).strict(),
+    permission: 'webhooks.manage',
+    method: 'GET',
+    path: '/api/v1/webhook-endpoints',
+    request: (args) => ({ query: args }),
+  }),
+  routeTool({
+    name: 'create_webhook_endpoint',
+    lead: 'Add a webhook endpoint; its secret shows once.',
+    detail:
+      "Needs webhooks.manage. url is HTTPS (http only on localhost). events: what to send (invoice events need Client invoicing). project_ids limits it to those projects; member_id to events that concern that member, such as an agent's own work, which is how an agent's harness gets woken. The answer's secret signs every delivery and is the only copy: put it in the receiver now. No idempotency_key: on a timeout, list_webhook_endpoints before trying again.",
+    input: z.object({
+      name: z.string().min(1).max(100),
+      url: z.string().min(1).max(2000),
+      events: z.array(WEBHOOK_EVENT).min(1),
+      description: z.string().max(500).optional(),
+      amount_basis: z.enum(['gross', 'net']).optional(),
+      project_ids: z.array(id('project_ids')).max(200).nullable().optional(),
+      member_id: id('member_id').nullable().optional(),
+      is_active: z.boolean().optional(),
+    }).strict(),
+    permission: 'webhooks.manage',
+    method: 'POST',
+    path: '/api/v1/webhook-endpoints',
+    request: (body) => ({ body }),
+  }),
+  routeTool({
+    name: 'update_webhook_endpoint',
+    lead: "Change a webhook endpoint's events, filters or state.",
+    detail: 'Needs webhooks.manage. Send only what changes. is_active false pauses deliveries; project_ids or member_id null removes that filter. The secret never changes.',
+    input: z.object({
+      endpoint_id: id('endpoint_id'),
+      name: z.string().min(1).max(100).optional(),
+      url: z.string().min(1).max(2000).optional(),
+      events: z.array(WEBHOOK_EVENT).min(1).optional(),
+      description: z.string().max(500).optional(),
+      amount_basis: z.enum(['gross', 'net']).optional(),
+      project_ids: z.array(id('project_ids')).max(200).nullable().optional(),
+      member_id: id('member_id').nullable().optional(),
+      is_active: z.boolean().optional(),
+    }).strict().refine(
+      atLeastOne(['name', 'url', 'events', 'description', 'amount_basis', 'project_ids', 'member_id', 'is_active']),
+      'Send at least one field to change',
+    ),
+    permission: 'webhooks.manage',
+    method: 'PATCH',
+    path: '/api/v1/webhook-endpoints/{id}',
+    request: ({ endpoint_id, ...body }) => ({ params: { id: endpoint_id }, body }),
+  }),
+  routeTool({
+    name: 'delete_webhook_endpoint',
+    lead: 'Delete a webhook endpoint.',
+    detail: 'Needs webhooks.manage. Events stop going to its URL and its delivery history goes too. To pause it instead, update_webhook_endpoint with is_active false.',
+    input: z.object({ endpoint_id: id('endpoint_id') }).strict(),
+    permission: 'webhooks.manage',
+    method: 'DELETE',
+    path: '/api/v1/webhook-endpoints/{id}',
+    request: (args) => ({ params: { id: args.endpoint_id } }),
   }),
   routeTool({
     name: 'list_leads',

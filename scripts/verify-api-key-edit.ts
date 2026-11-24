@@ -57,7 +57,8 @@ async function seed(db: PGlite) {
       team_member_id uuid REFERENCES pm.team_members(id) ON DELETE SET NULL,
       scopes text[] NOT NULL DEFAULT '{}',
       expires_at timestamptz,
-      disabled_at timestamptz
+      disabled_at timestamptz,
+      created_by_key_id uuid REFERENCES pm.api_keys(id)
     );
     CREATE TABLE pm.business_settings (id serial PRIMARY KEY, api_enabled boolean NOT NULL DEFAULT true);
     CREATE TABLE pm.role_permissions (role text, permission_key text, access_channel text);
@@ -221,7 +222,7 @@ async function main() {
     const ownerKey = await insertKey(db, { member: OWNER, createdBy: OWNER, scopes: ['tasks.read'] });
     result = await editApiKey(service, owner, ownerKey.id, { scopes: ['tasks.read', 'tasks.manage_all', 'audit.read'] });
     check('owner: any API scope', result.status === 200, result);
-    result = await editApiKey(service, owner, ownerKey.id, { scopes: ['api_keys.manage_all'] });
+    result = await editApiKey(service, owner, ownerKey.id, { scopes: ['access.manage'] });
     check('owner: an app-only permission is still not an API scope', result.status === 422, result);
   } finally {
     await server.close();

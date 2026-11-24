@@ -20,3 +20,16 @@ export const updateApiKeySchema = z
     scopes: keyScopes.optional(),
   })
   .refine((body) => body.name !== undefined || body.scopes !== undefined, 'Send a name or scopes to change');
+
+/**
+ * Body of POST /api/v1/api-keys: a key for the caller's own member or for an
+ * agent. lib/api/agent-setup.ts checks the scopes against the member's api
+ * permissions and the calling key's own scopes; the secret is returned once.
+ */
+export const createMemberApiKeySchema = z.object({
+  member_id: z.string().uuid('member_id must be a team member id'),
+  name: keyName,
+  scopes: keyScopes,
+  permissions: z.enum(['scoped', 'read_only']).default('scoped'),
+}).strict();
+export type CreateMemberApiKey = z.infer<typeof createMemberApiKeySchema>;

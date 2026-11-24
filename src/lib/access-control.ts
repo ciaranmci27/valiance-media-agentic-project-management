@@ -88,6 +88,9 @@ export const API_ENDPOINT_PERMISSIONS = [
   'project_context.read', 'project_context.manage', 'goals.read', 'goals.manage',
   'suggestions.create', 'suggestions.manage', 'agent_activity.write', 'fleet_alerts.write',
   'meetings.write',
+  // Setting up an agent from a chat (POST /api/v1/api-keys, /api/v1/webhook-endpoints).
+  // No role holds either on the api channel by default; an Owner's key can.
+  'api_keys.manage_all', 'webhooks.manage',
 ] as const satisfies readonly PermissionKey[];
 
 export const API_ENDPOINT_PERMISSION_SET = new Set<PermissionKey>(API_ENDPOINT_PERMISSIONS);

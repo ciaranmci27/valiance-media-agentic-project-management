@@ -29,6 +29,7 @@ import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
 import { isModuleEnabled } from '@/lib/access-control';
 import { generateWebhookSecret } from '@/lib/webhooks/sign';
+import { webhookUrlError } from '@/lib/webhooks/endpoint-input';
 import {
   fetchWebhookEndpoints,
   insertWebhookEndpoint,
@@ -230,17 +231,10 @@ export function WebhooksPanel({ teamMemberId }: { teamMemberId: string | null })
       toast('error', 'Name is required');
       return;
     }
-    let parsed: URL;
-    try {
-      parsed = new URL(trimmedUrl);
-    } catch {
-      toast('error', 'Enter a valid URL');
-      return;
-    }
-    // Require HTTPS, except plain http on localhost for local development.
-    const isLocalhost = ['localhost', '127.0.0.1', '::1', '[::1]'].includes(parsed.hostname);
-    if (parsed.protocol !== 'https:' && !(parsed.protocol === 'http:' && isLocalhost)) {
-      toast('error', 'Endpoint URL must use HTTPS');
+    // HTTPS, except plain http on localhost for local development (the API's rule too).
+    const urlError = webhookUrlError(trimmedUrl);
+    if (urlError) {
+      toast('error', urlError);
       return;
     }
     // Invoice events kept from when invoicing was on still count, though hidden.

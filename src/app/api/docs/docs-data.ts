@@ -15,6 +15,11 @@ export function getEndpointScopes(endpoint: EndpointDoc): string[] {
   const write = method !== 'GET' && method !== 'HEAD';
 
   if (path === '/api/v1/inbox/meetings') return ['meetings.write'];
+  if (path.startsWith('/api/v1/api-keys')) return ['api_keys.manage_all'];
+  if (path.startsWith('/api/v1/webhook-endpoints')) return ['webhooks.manage'];
+  if (path === '/api/v1/agents') return ['team.manage'];
+  if (path === '/api/v1/agents/:id/setup') return ['team.read', 'team.manage'];
+  if (path === '/api/v1/agents/:id/projects') return ['project_members.manage'];
   if (path.includes('/inbound-emails') || path.startsWith('/api/v1/inbox/') || path === '/api/v1/tasks/:id/messages') {
     if (path.endsWith('/signal')) return ['inbound_email.signal'];
     if (path.endsWith('/messages/:id/tasks')) return ['tasks.create', 'inbound_email.triage'];
@@ -129,7 +134,7 @@ export const endpoints: EndpointDoc[] = [
       { name: 'name', type: 'string', required: true, description: 'Display name' },
       { name: 'email', type: 'string', required: true, description: 'Email address (must be valid format)' },
       { name: 'avatar', type: 'string', required: false, description: 'Avatar image URL (defaults to empty string)' },
-      { name: 'role', type: 'owner|admin|member|guest|agent', required: false, description: 'Role (default member). Only an Owner can create an Owner or Admin.' },
+      { name: 'role', type: 'admin|member|guest|agent', required: false, description: 'Role (default member). Only an Owner can create an Admin or an agent, and no API key creates an Owner (403 owner_protected). To add an agent with a login, prefer POST /api/v1/agents.' },
       { name: 'timezone', type: 'string', required: false, description: 'IANA timezone e.g. America/New_York (default UTC). Used for time entry timezone defaults.' },
       { name: 'email_notifications_enabled', type: 'boolean', required: false, description: 'Enable email notifications for this member (default: false)' },
       { name: 'email_notification_prefs', type: 'object', required: false, description: 'Email notification preferences. JSON object mapping category keys to booleans (default: all disabled).' },
@@ -144,7 +149,7 @@ export const endpoints: EndpointDoc[] = [
       { name: 'name', type: 'string', required: false, description: 'Display name' },
       { name: 'email', type: 'string', required: false, description: 'Email address' },
       { name: 'avatar', type: 'string', required: false, description: 'Avatar URL' },
-      { name: 'role', type: 'owner|admin|member|guest|agent', required: false, description: 'Role. Only an Owner can change roles; the existing Owner role is immutable.' },
+      { name: 'role', type: 'admin|member|guest|agent', required: false, description: 'Role. Only an Owner can change roles; the existing Owner role is immutable, and no API key makes anyone an Owner. An Owner is changed only with their own key (403 owner_protected).' },
       { name: 'status', type: 'active|suspended', required: false, description: 'Account status. The Owner account cannot be suspended.' },
       { name: 'timezone', type: 'string', required: false, description: 'IANA timezone (e.g. America/New_York). Used for displaying times and as default timezone for API time entries.' },
       { name: 'notification_prefs', type: 'object', required: false, description: 'In-app notification preferences. JSON object mapping category keys to booleans (default: all enabled). Categories: task_created, task_deleted, task_status, task_assignments, task_updates, task_subtasks, task_comments, project_created, project_deleted, project_updates, project_contacts, portal_updates, portal_settings, time_entries, entity_files, lead_created, lead_deleted, lead_status, lead_updates, lead_interactions, lead_proposals, lead_contacts, lead_conversions, contact_created, contact_deleted, contact_updates, team_members, api_keys, agent_suggestions, agent_activity, agent_goals, agent_autonomous' },
@@ -158,6 +163,84 @@ export const endpoints: EndpointDoc[] = [
   },
   { method: 'DELETE', path: '/api/v1/team-members/:id', description: 'Owner only. Team members are never deleted: this suspends the member, which ends their access and keeps their time, comments and pay history. Returns { deleted: false, suspended: true }. The Owner cannot be removed.', group: 'Team Members',
     params: [{ name: 'id', type: 'uuid', required: true, description: 'Team member ID' }],
+  },
+
+  // ─── Agent Setup ──────────────────────────────────────────────────
+  { method: 'POST', path: '/api/v1/agents', description: 'Add an AI agent to the team, the way the Team page invites one: a login with no password, then the member with role agent. Only an Owner adds an agent, so the key must belong to an Owner. No sign-in link is made: the agent works through API keys (POST /api/v1/api-keys). An email that already has a login is refused (409), so no existing account can sign in as the agent. Any field not listed is refused (422), so the role is always agent. Returns the member (201).', group: 'Agent Setup',
+    body: [
+      { name: 'name', type: 'string', required: true, description: 'Display name (1 to 100 characters)' },
+      { name: 'email', type: 'string', required: true, description: 'An address only this agent uses' },
+      { name: 'title', type: 'string', required: false, description: 'Shown with its name, such as Auditor (up to 80 characters)' },
+      { name: 'avatar', type: 'string', required: false, description: 'Avatar image URL' },
+      { name: 'agent_profile', type: 'generic|coordinator|builder|auditor|reviewer', required: false, description: 'Which MCP tools it sees (default generic). It only narrows what its keys could do.' },
+    ],
+  },
+  { method: 'GET', path: '/api/v1/agents/:id/setup', description: "One read of an agent's whole setup, to check what was configured: member, rules, projects (with access: all, member or none, and hidden_count for projects your member cannot reach), api_keys (live keys, never a secret, plus available_scopes: what a key for it may carry) and webhooks (endpoints whose member_id is the agent, never a signing secret). api_keys needs api_keys.manage_all and webhooks needs webhooks.manage; without one that part is null and named in omitted. 422 for a member who is not an agent.", group: 'Agent Setup',
+    params: [{ name: 'id', type: 'uuid', required: true, description: 'The agent member ID' }],
+  },
+  { method: 'PATCH', path: '/api/v1/agents/:id/projects', description: "Adds an agent to projects and takes it off others. Agents only (an Owner is 403 owner_protected, a person 422). Every project must be live (404 otherwise) and one your own member reaches (403 project_scope), as on the project screen. Returns changed (the project ids that changed) and the agent's projects now.", group: 'Agent Setup',
+    params: [{ name: 'id', type: 'uuid', required: true, description: 'The agent member ID' }],
+    body: [
+      { name: 'add', type: 'uuid[]', required: false, description: 'Projects to add the agent to' },
+      { name: 'remove', type: 'uuid[]', required: false, description: 'Projects to take it off. Send at least one project in add or remove.' },
+    ],
+  },
+
+  // ─── API Keys ─────────────────────────────────────────────────────
+  { method: 'GET', path: '/api/v1/api-keys', description: 'List API keys, as Settings > Developers does: never a hash or a secret. Live keys only unless include_revoked. Paginated.', group: 'API Keys',
+    queryParams: [
+      { name: 'member_id', type: 'uuid', description: 'Only keys that act as this member' },
+      { name: 'include_revoked', type: 'boolean', description: 'Include revoked keys (default false)' },
+      { name: 'page', type: 'number', description: 'Page number (default 1)' },
+      { name: 'limit', type: 'number', description: 'Items per page (default 25, max 100)' },
+    ],
+  },
+  { method: 'POST', path: '/api/v1/api-keys', description: "Make an API key for your own member or for an agent. A key never hands out more than it has: every scope must be held by the key's member on the API channel (422 scope_not_held) and carried by the calling key (403 scope_escalation). A key for anyone but your own member needs an Owner's key (403 owner_only), since a key acts as its member with all it can reach, and is only for an agent: never for another Owner (403 owner_protected) or a person (403 not_an_agent), who make their own keys. The new key records the key that made it (created_by_key_id), so revoking that key revokes this one. Returns { key, secret } (201). The secret is the full key, shown only in this answer and never stored, so the Idempotency-Key header is refused here (400 idempotency_not_supported).", group: 'API Keys',
+    body: [
+      { name: 'member_id', type: 'uuid', required: true, description: 'The member the key acts as: yours, or an agent' },
+      { name: 'name', type: 'string', required: true, description: 'What the key is for (1 to 100 characters)' },
+      { name: 'scopes', type: 'string[]', required: true, description: 'API permissions the key carries, at least one' },
+      { name: 'permissions', type: 'scoped|read_only', required: false, description: 'read_only refuses every write the scopes would allow (default scoped)' },
+    ],
+  },
+  { method: 'POST', path: '/api/v1/api-keys/:id/revoke', description: 'Revoke a key, and with it every live key it made over the API, and every key those made (each gets its own audit row). Whatever uses them stops working at once, and a revoke cannot be undone; revoking again returns the key as it is. Returns the key plus cascaded_revokes, the ids of the descendants revoked with it.', group: 'API Keys',
+    params: [{ name: 'id', type: 'uuid', required: true, description: 'API key ID' }],
+  },
+
+  // ─── Webhook Endpoints ────────────────────────────────────────────
+  { method: 'GET', path: '/api/v1/webhook-endpoints', description: 'List outbound webhook endpoints, as Settings > Developers does, without their signing secrets.', group: 'Webhook Endpoints',
+    queryParams: [
+      { name: 'member_id', type: 'uuid', description: 'Only endpoints filtered to this member' },
+      { name: 'active', type: 'boolean', description: 'Only endpoints that are on (true) or off (false)' },
+    ],
+  },
+  { method: 'POST', path: '/api/v1/webhook-endpoints', description: 'Add an endpoint, with the rules of the Settings screen. Returns { endpoint, secret } (201): the signing secret (whsec_...) verifies each delivery and is shown only in this answer, so the Idempotency-Key header is refused here (400 idempotency_not_supported).', group: 'Webhook Endpoints',
+    body: [
+      { name: 'name', type: 'string', required: true, description: 'A name for the endpoint' },
+      { name: 'url', type: 'string', required: true, description: 'Where events go: HTTPS, or http on localhost for local development' },
+      { name: 'events', type: 'string[]', required: true, description: 'Events to send, at least one: task.created, task.updated, task.deleted, comment.created, question.asked, question.answered, question.cancelled, suggestion.created, suggestion.decided, review.submitted, and (with Client invoicing on) invoice.paid, invoice.updated, invoice.deleted, invoice.payment_recorded, invoice.payment_removed' },
+      { name: 'description', type: 'string', required: false, description: 'A note on what it is for' },
+      { name: 'amount_basis', type: 'gross|net', required: false, description: 'Invoice amounts as billed (gross, the default) or net of revenue splits' },
+      { name: 'project_ids', type: 'uuid[]|null', required: false, description: 'Only events on these projects (null or empty: every project)' },
+      { name: 'member_id', type: 'uuid|null', required: false, description: "Only events that concern this member, such as an agent's own work (null: everyone)" },
+      { name: 'is_active', type: 'boolean', required: false, description: 'false adds it paused (default true)' },
+    ],
+  },
+  { method: 'PATCH', path: '/api/v1/webhook-endpoints/:id', description: 'Change an endpoint. Send only what changes; is_active false pauses deliveries. The signing secret never changes and is never shown. An endpoint keeps invoice events it already has while Client invoicing is off; adding one then is 422.', group: 'Webhook Endpoints',
+    params: [{ name: 'id', type: 'uuid', required: true, description: 'Webhook endpoint ID' }],
+    body: [
+      { name: 'name', type: 'string', required: false, description: 'A name for the endpoint' },
+      { name: 'url', type: 'string', required: false, description: 'HTTPS, or http on localhost' },
+      { name: 'events', type: 'string[]', required: false, description: 'Replaces the events, at least one' },
+      { name: 'description', type: 'string', required: false, description: 'A note on what it is for' },
+      { name: 'amount_basis', type: 'gross|net', required: false, description: 'Invoice amounts as billed or net of splits' },
+      { name: 'project_ids', type: 'uuid[]|null', required: false, description: 'Only events on these projects; null removes the filter' },
+      { name: 'member_id', type: 'uuid|null', required: false, description: 'Only events that concern this member; null removes the filter' },
+      { name: 'is_active', type: 'boolean', required: false, description: 'false pauses deliveries, true resumes them' },
+    ],
+  },
+  { method: 'DELETE', path: '/api/v1/webhook-endpoints/:id', description: 'Delete an endpoint, as Settings > Developers does: events stop going to its URL and its delivery history goes with it. To pause it instead, PATCH is_active false.', group: 'Webhook Endpoints',
+    params: [{ name: 'id', type: 'uuid', required: true, description: 'Webhook endpoint ID' }],
   },
 
   // ─── Activities (Audit) ───────────────────────────────────────────
@@ -1613,6 +1696,7 @@ export const IDEMPOTENCY_DOC = {
     'A retry while the first request is still running gets 409 IDEMPOTENCY_IN_FLIGHT. Wait a moment and retry with the same key.',
     'Only successful (2xx) answers are kept. An error is not, so a retry runs the request again and can succeed.',
     'MCP create tools (create_task, add_task_comment, ask_human, add_reminder and the other add_ and create_ tools) take the same thing as an idempotency_key argument, sharing this store.',
+    'A POST whose answer holds a secret shown once (POST /api/v1/api-keys, POST /api/v1/webhook-endpoints) refuses the header with 400 idempotency_not_supported, so no secret is ever stored or handed out twice. After a timeout, list what exists before trying again.',
   ],
 } as const;
 
@@ -1639,6 +1723,8 @@ const GROUP_MODULE: Record<string, ModuleId> = {
   Goals: 'agents',
   'Task Suggestions': 'agents',
   'Agent Activity': 'agents',
+  'Agent Setup': 'agents',
+  'Webhook Endpoints': 'webhooks',
 };
 
 export function groupModule(group: string): ModuleId | null {

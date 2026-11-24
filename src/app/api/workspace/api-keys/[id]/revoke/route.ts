@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { accessAllows, requireSessionAccess } from '@/lib/api/access';
 import { API_KEY_COLUMNS } from '@/lib/supabase/queries';
+import { revokeKeyTree } from '@/lib/api/key-revoke';
 
 export const dynamic = 'force-dynamic';
 
@@ -8,7 +9,7 @@ export const dynamic = 'force-dynamic';
  * Revokes a key. Allowed for the key's member, its creator and holders of
  * api_keys.manage_all: the same people who can see it. A revoke is final
  * (the api_keys_guard trigger refuses to clear it); revoking again answers
- * with the key as it is.
+ * with the key as it is. Keys it made over the API are revoked with it.
  */
 export async function POST(
   _request: Request,
@@ -31,13 +32,12 @@ export async function POST(
   );
   if (!allowed) return NextResponse.json({ error: 'API key not found' }, { status: 404 });
 
-  if (!key.revoked_at) {
-    const { error } = await service
-      .from('api_keys')
-      .update({ revoked_at: new Date().toISOString() })
-      .eq('id', id)
-      .is('revoked_at', null);
-    if (error) return NextResponse.json({ error: 'Failed to revoke API key' }, { status: 500 });
+  // Every live key it made over the API goes with it (lib/api/key-revoke.ts),
+  // also when the key itself was revoked before its descendants were made.
+  try {
+    await revokeKeyTree(service, id, { memberId, apiKeyId: null, endpoint: `/api/workspace/api-keys/${id}/revoke`, via: 'app' });
+  } catch {
+    return NextResponse.json({ error: 'Failed to revoke API key' }, { status: 500 });
   }
 
   const { data, error } = await service
