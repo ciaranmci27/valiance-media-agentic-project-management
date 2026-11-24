@@ -84,6 +84,7 @@ Answers
 export const SETUP_TOOLS: readonly string[] = [
   'create_agent', 'get_agent_setup', 'set_agent_projects', 'set_agent_rules', 'create_api_key', 'list_api_keys',
   'revoke_api_key', 'list_webhook_endpoints', 'create_webhook_endpoint', 'update_webhook_endpoint', 'delete_webhook_endpoint',
+  'get_agent_context', 'list_agent_templates', 'apply_agent_template', 'export_agent_config', 'import_agent_config',
 ];
 
 export const PM_SETUP_GUIDE = `Set up an agent from a chat
@@ -91,4 +92,6 @@ export const PM_SETUP_GUIDE = `Set up an agent from a chat
 - What an agent may do comes from its role and its overrides, set by an Owner in Team > Access. A key for it carries only scopes it holds (available_scopes in get_agent_setup) and that your own key carries. You cannot widen either; if something is missing, tell the person what to grant.
 - create_api_key and create_webhook_endpoint answer with a secret exactly once. Hand it straight to the person or the agent's host; never write it into a task, comment or reminder. They take no idempotency_key: after a timeout, list before trying again.
 - Only an Owner's key makes a key for an agent. Keys you make are tied to your key: revoking yours revokes them.
-- Never create or change an Owner, and never make a key for a person other than yourself.`;
+- Never create or change an Owner, and never make a key for a person other than yourself.
+- To start from a known kind of agent, list_agent_templates, then apply_agent_template after create_agent: it sets the rules and, with create_key, makes a key with the template's scopes (your key must carry them all).
+- get_agent_context shows what the agent will be told about itself (its pm_guide context), with an AGENTS.md to hand its host. To copy an agent, export_agent_config, then import_agent_config with dry_run true, read the plan back to the person, and run it again without dry_run.`;

@@ -9,6 +9,16 @@ Each section starts with `## X.Y.Z (YYYY-MM-DD)` and uses these headings, leavin
 - `### Database`: the core migration files in the release, one per line. `npm run db:migrate` applies them.
 - `### Breaking`: what an install must do when it takes this release.
 
+## 2.0.17 (2026-11-24)
+
+### Added
+- **Context packs.** Each agent gets a briefing generated live from its real setup: who it is, what its key may do in plain words, its rules, the projects it reaches, the tools it can call, the house conventions (start with `get_task_brief`, claim before working, `ask_human` when stuck, and so on), how it reports health, and its webhooks. `pm_guide` now includes it as `context`; `GET /api/v1/agents/me/context` returns it for the calling key, and `?format=md` or `?format=skill` downloads it as an AGENTS.md or SKILL.md for a harness's repo. It is never stored, so it never goes stale, and it only shows what the viewer may see.
+- **Agent templates**: data-health watcher, inbox triage, builder and weekly reporter, each a set of rules, suggested scopes and webhook events, and a brief. `GET /api/v1/agent-templates`, `POST /api/v1/agents/{id}/template` (MCP `list_agent_templates`, `apply_agent_template`). Templates grant nothing the caller could not grant. Installs add their own in `src/custom/agent-templates.ts`.
+- **Export and import.** `GET /api/v1/agents/{id}/export` saves an agent's setup as a file (no secrets); `POST /api/v1/agents/import` creates or updates an agent from it through the same checks as the setup tools, with a dry run, a report of anything it could not match, and keys or webhooks made only when asked. A failed import revokes the keys and removes the webhooks it made.
+
+### Changed
+- `src/custom` has a new starter file, `agent-templates.ts`. An install that merges this release gets it as an empty list.
+
 ## 2.0.16 (2026-11-24)
 
 ### Added

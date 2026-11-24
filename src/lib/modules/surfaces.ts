@@ -129,7 +129,7 @@ export const MODULE_SURFACES: Record<ModuleId, ModuleSurface> = {
     ],
     rpcs: [],
     routes: [
-      'api/v1/agent-activities', 'api/v1/agents', 'api/v1/projects/[id]/goals', 'api/v1/task-suggestions',
+      'api/v1/agent-activities', 'api/v1/agent-templates', 'api/v1/agents', 'api/v1/projects/[id]/goals', 'api/v1/task-suggestions',
       '(protected)/agent',
     ],
   },
@@ -151,6 +151,8 @@ export const CORE_ROUTES: string[] = [
   'api/smtp', 'api/team-members', 'api/whats-my-ip',
   'api/v1/activities', 'api/v1/audit-log', 'api/v1/entity-files', 'api/v1/notifications', 'api/v1/questions', 'api/v1/reminders',
   'api/v1/tasks', 'api/v1/team-members', 'api/v1/projects', 'api/v1/api-keys',
+  // Every key reads its own setup (pm_guide's context), a person's too, with AI agents on or off.
+  'api/v1/agents/me',
   'api/workspace/access', 'api/workspace/api-keys', 'api/workspace/brand', 'api/workspace/me', 'api/workspace/region', 'api/workspace/modules', 'api/workspace/setup-checks', 'api/workspace/secrets', 'api/workspace/encryption', 'api/workspace/webhook-retries', 'api/welcome',
   'api/workspace/projects', 'api/workspace/questions', 'api/workspace/tasks', 'api/workspace/team-directory', 'api/workspace/team-members',
   'api/workspace/updates',

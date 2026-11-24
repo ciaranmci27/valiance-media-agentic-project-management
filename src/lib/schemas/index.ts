@@ -27,3 +27,4 @@ export * from './project-context';
 export * from './reviews';
 export * from './agent-health';
 export * from './webhooks';
+export * from './agent-config';

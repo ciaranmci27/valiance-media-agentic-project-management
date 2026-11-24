@@ -20,6 +20,9 @@ export function getEndpointScopes(endpoint: EndpointDoc): string[] {
   if (path === '/api/v1/agents') return ['team.manage'];
   if (path === '/api/v1/agents/:id/setup') return ['team.read', 'team.manage'];
   if (path === '/api/v1/agents/:id/projects') return ['project_members.manage'];
+  if (path === '/api/v1/agents/me/context') return ['any scope'];
+  if (path === '/api/v1/agents/:id/context' || path === '/api/v1/agents/:id/export') return ['team.read', 'team.manage'];
+  if (path === '/api/v1/agents/:id/template' || path === '/api/v1/agents/import' || path === '/api/v1/agent-templates') return ['team.manage'];
   if (path.includes('/inbound-emails') || path.startsWith('/api/v1/inbox/') || path === '/api/v1/tasks/:id/messages') {
     if (path.endsWith('/signal')) return ['inbound_email.signal'];
     if (path.endsWith('/messages/:id/tasks')) return ['tasks.create', 'inbound_email.triage'];
@@ -183,6 +186,41 @@ export const endpoints: EndpointDoc[] = [
     body: [
       { name: 'add', type: 'uuid[]', required: false, description: 'Projects to add the agent to' },
       { name: 'remove', type: 'uuid[]', required: false, description: 'Projects to take it off. Send at least one project in add or remove.' },
+    ],
+  },
+
+  { method: 'GET', path: '/api/v1/agents/me/context', description: "The calling key's own context pack, generated now from its real setup and never stored: member (name, title, role, profile), key (read_only), scopes (each with a plain label and what it allows), inactive_scopes (on the key but not held by its member), rules (self_assign, close_policy, create_policy, escalate_to { id, name }, and says: the rules in plain words; null for a person), projects ({ access, list, more, hidden_count }), tools (the MCP tools this key sees, name and lead), conventions (the house rules for the tools it can use), health ({ publisher_reports, expected_interval_seconds }), webhooks (endpoints filtered to it: name, events, project filter with up to 10 projects named and more_projects counting the rest, is_active; the URL in full only with webhooks.manage, else its host), template (the template it was set up from, with its brief) and omitted. Names come from the database: the workspace brand and the members. A project the reader does not reach is never named: filter projects show as { id: null, name: 'A project you cannot see' }. About 24,000 characters at most (cut_to_fit names what was shortened). The MCP tool pm_guide returns it as context. Any key may read its own; never cached.", group: 'Agent Setup',
+    queryParams: [{ name: 'format', type: 'json|pack|markdown|md|skill', description: 'json (default) answers { pack, markdown }, pack { pack } and markdown { markdown }; md answers the Markdown as an AGENTS.md file and skill as a SKILL.md file with front matter, both with Content-Disposition: attachment, for a harness to drop into its repo' }],
+  },
+  { method: 'GET', path: '/api/v1/agents/:id/context', description: "An agent's context pack, the same one its own key gets, for whoever sets it up. It describes one of its keys: key_id, else its newest live key, else (it has no key) the scopes it holds, with key.source saying which. As in get_agent_setup, key, scopes and tools need api_keys.manage_all and webhooks need webhooks.manage; without one that part is null and named in omitted. Projects you cannot reach are counted in hidden_count, never named. 422 for a member who is not an agent.", group: 'Agent Setup',
+    params: [{ name: 'id', type: 'uuid', required: true, description: 'The agent member ID' }],
+    queryParams: [
+      { name: 'key_id', type: 'uuid', description: 'One of its live keys (needs api_keys.manage_all)' },
+      { name: 'format', type: 'json|md|skill', description: 'As for /agents/me/context' },
+    ],
+  },
+  { method: 'GET', path: '/api/v1/agent-templates', description: "The agent templates this workspace offers: core's data-health-watcher (self-directed, one task per problem with a dedupe_key, closes its own work), inbox-triage (only while the Inbox is on; new tasks need approval), builder (assigned work, claims, sends to review) and weekly-reporter (reads, sends one summary a week), then the install's own from src/custom/agent-templates.ts. Each: key, label, description, rules (agent_self_assign, agent_close_policy, agent_create_policy), scopes (what a key for it should carry), context (the brief added to its context pack), webhook_events (suggested) and module.", group: 'Agent Setup' },
+  { method: 'POST', path: '/api/v1/agents/:id/template', description: "Apply a template to an agent: its three rules, and with create_key a key carrying its scopes. Templates add nothing to the security model: your key must be able to grant every scope the template suggests (403 scope_escalation, before anything changes), and a key is made only as POST /api/v1/api-keys would make it (an Owner's key with api_keys.manage_all; every scope held by the agent, 422 scope_not_held). Returns agent, template, rules, key ({ created, secret } once, or the scopes and not_held when no key was made) and webhook_events. Never cached; the Idempotency-Key header is refused because the answer can hold a secret. The template is recorded in the audit log, which is how the context pack and the export know it.", group: 'Agent Setup',
+    params: [{ name: 'id', type: 'uuid', required: true, description: 'The agent member ID' }],
+    body: [
+      { name: 'template', type: 'string', required: true, description: 'A template key from GET /api/v1/agent-templates' },
+      { name: 'create_key', type: 'boolean', required: false, description: "Also make a key with the template's scopes (default false)" },
+      { name: 'key_name', type: 'string', required: false, description: 'The new key\'s name (default: the agent and template)' },
+      { name: 'read_only', type: 'boolean', required: false, description: 'Make the key read-only' },
+    ],
+  },
+  { method: 'GET', path: '/api/v1/agents/:id/export', description: "An agent's configuration as a versioned document (format pm-agent-config, version 1) that POST /api/v1/agents/import reads: member (id, name, title, agent_profile), rules (agent_escalate_to as { id, name }), project_access, projects ([{ id, name }]), keys ([{ name, scopes, permissions }] of its live keys; null without api_keys.manage_all), webhooks (endpoints filtered to it: name, url, events, description, amount_basis, projects as [{ id, name }] or null, is_active; null without webhooks.manage; a filter project you cannot reach shows as { id: null, name: 'A project you cannot see' }, so an import skips that endpoint), template and omitted. Never a secret or a hash. Projects you cannot reach are left out and named in omitted.", group: 'Agent Setup',
+    params: [{ name: 'id', type: 'uuid', required: true, description: 'The agent member ID' }],
+  },
+  { method: 'POST', path: '/api/v1/agents/import', description: "Create or update an agent from an exported document, through the agent setup API's own checks. Without agent_id a new agent is added (Owner keys only, email required); with agent_id that agent is updated. Projects and the escalation target resolve by id, then by exact name, among the projects and active members you reach; anything that does not match is listed in unmatched (never guessed), and parts your key has no permission for (projects need project_members.manage, webhooks webhooks.manage) in not_applied. Projects are only added, never removed. A webhook endpoint whose project filter does not fully match is skipped, so it never widens to every project. Keys are listed in keys.create and made only with create_keys (an Owner's key with api_keys.manage_all; every scope one your key carries and the agent holds), and new endpoints only with create_webhooks; their secrets are in this answer only (no-store, Idempotency-Key refused). dry_run answers the same plan and writes nothing. The document's template is recorded only when this workspace has a template with that key; otherwise it is listed in not_applied. If it fails partway, the keys and endpoints it made are revoked or deleted (so no secret is lost), each step is audited, and the answer is 500 IMPORT_INCOMPLETE with agent_id, agent_created, rolled_back and remains (what stays, such as the new agent). 201 when it made an agent, else 200.", group: 'Agent Setup',
+    body: [
+      { name: 'document', type: 'object', required: true, description: 'The document GET /api/v1/agents/:id/export answered' },
+      { name: 'agent_id', type: 'uuid', required: false, description: 'Update this agent instead of adding one' },
+      { name: 'email', type: 'string', required: false, description: 'For a new agent: an address only it uses (required then)' },
+      { name: 'name', type: 'string', required: false, description: "For a new agent: its name, instead of the document's" },
+      { name: 'dry_run', type: 'boolean', required: false, description: 'Answer the plan and change nothing' },
+      { name: 'create_keys', type: 'boolean', required: false, description: 'Make the keys in the document; each secret is shown once' },
+      { name: 'create_webhooks', type: 'boolean', required: false, description: 'Add the webhook endpoints the agent does not have yet (matched by URL); each signing secret is shown once' },
     ],
   },
 

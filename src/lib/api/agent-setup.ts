@@ -12,6 +12,8 @@ import { accessAllowsProject, apiKeyAllows, resolveMemberAccess, resolveProjectA
 import { generateApiKey, hashApiKey } from './crypto';
 import { ApiError, forbidden, notFound } from './errors';
 import { listWebhookEndpoints } from './webhook-endpoints';
+import { appUrlFor, inviteMember, InviteError } from '@/lib/team/invite';
+import type { AgentProfile } from '@/lib/mcp/profiles';
 
 /**
  * Setting up an agent over the v1 API and MCP: the rules that keep a key
@@ -192,7 +194,7 @@ interface AgentProject { id: string; name: string; status: string }
  * The projects an agent is on, as far as the caller may see them: projects
  * the caller cannot reach are counted, not named.
  */
-async function agentProjects(service: SupabaseClient, granter: Granter, agentId: string): Promise<{ projects: AgentProject[]; hidden_count: number }> {
+export async function agentProjects(service: SupabaseClient, granter: Granter, agentId: string): Promise<{ projects: AgentProject[]; hidden_count: number }> {
   const { data, error } = await service
     .from('project_members')
     .select('project_id, project:projects!inner(id, name, status)')
@@ -303,4 +305,47 @@ export async function agentSetup(service: SupabaseClient, granter: Granter, agen
     webhooks,
     omitted,
   };
+}
+
+/**
+ * Adds an agent the way the Team page invites one: a login with no password,
+ * then pm.add_team_member with the role agent, then its title, avatar and
+ * profile. Only an Owner adds an agent (inviteMember refuses anyone else).
+ * POST /api/v1/agents and agent import both call it. Answers with the member.
+ */
+export async function createAgentMember(
+  service: SupabaseClient,
+  access: AccessContext,
+  input: { name: string; email: string; title?: string | null; avatar?: string; agent_profile?: AgentProfile },
+): Promise<Record<string, unknown> & { id: string; name: string; role: string }> {
+  let memberId: string;
+  try {
+    const { member } = await inviteMember({
+      service,
+      access,
+      input: { name: input.name, email: input.email, role: 'agent' },
+      appUrl: appUrlFor(''),
+      inviterName: null,
+      withoutSignIn: true,
+    });
+    memberId = member.id;
+  } catch (error) {
+    if (error instanceof InviteError) {
+      throw new ApiError(error.status, error.status === 403 ? 'FORBIDDEN' : error.status === 409 ? 'CONFLICT' : 'VALIDATION_ERROR', error.message,
+        error.status === 403 ? { reason: 'owner_only', hint: 'Only an Owner adds an agent: use a key that belongs to an Owner.' } : undefined);
+    }
+    throw error;
+  }
+
+  const extra = {
+    ...(input.title !== undefined ? { title: input.title || null } : {}),
+    ...(input.avatar !== undefined ? { avatar: input.avatar } : {}),
+    ...(input.agent_profile !== undefined ? { agent_profile: input.agent_profile } : {}),
+  };
+  const query = Object.keys(extra).length > 0
+    ? service.from('team_members').update(extra).eq('id', memberId).select().single()
+    : service.from('team_members').select().eq('id', memberId).single();
+  const { data, error } = await query;
+  if (error) throw error;
+  return data as Record<string, unknown> & { id: string; name: string; role: string };
 }

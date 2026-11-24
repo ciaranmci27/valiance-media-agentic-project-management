@@ -10,6 +10,8 @@ export {
   defineExtensions,
   definePublicPaths,
 } from './registry';
+export { defineAgentTemplates } from './agent-templates';
+export type { AgentTemplate, AgentTemplateRules } from './agent-templates';
 export type {
   ApiKeyRouteContext,
   ApiMethod,

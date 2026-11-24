@@ -24,12 +24,15 @@ import { AGENT_PROFILE_VALUES, type AgentProfile } from './profiles';
  * webhook endpoint's, the unscoped app activity feed, suggestion approve/decline, and the fleet
  * publisher's agent health (an agent reports its own with heartbeat).
  *
- * The agent setup tools (create_agent through delete_webhook_endpoint) are for whoever sets
+ * The agent setup tools (create_agent through import_agent_config) are for whoever sets
  * agents up, usually an Owner's own MCP client: their permissions (team.manage,
  * project_members.manage, api_keys.manage_all, webhooks.manage) keep them off an agent's list.
  */
 
 export const GUIDE_TOOL = 'pm_guide';
+
+/** The caller's own context pack, which pm_guide adds as `context` (server.ts). */
+export const GUIDE_CONTEXT_PATH = '/api/v1/agents/me/context';
 
 const id = (what: string) => z.uuid(`${what} must be a uuid`);
 const page = z.number().int().min(1).optional().describe('Page number, from 1');
@@ -132,10 +135,10 @@ export const PM_TOOLS: PmTool[] = [
   {
     name: GUIDE_TOOL,
     lead: 'Read first: how the PM tools work and their limits.',
-    detail: 'Covers ids, task flow, reviews, time, suggestions, events and errors, and lists the tools this key can use.',
+    detail: 'Covers ids, task flow, reviews, time, suggestions, events and errors, lists the tools this key can use, and gives your own setup as context: your rules in plain words, scopes, projects, conventions and webhooks.',
     input: z.object({}).strict(),
     permission: [],
-    routes: [],
+    routes: [{ method: 'GET', path: GUIDE_CONTEXT_PATH }],
     write: false,
     run: async () => ({ kind: 'payload', payload: { ok: true } }),
   },
@@ -1115,6 +1118,84 @@ export const PM_TOOLS: PmTool[] = [
     method: 'DELETE',
     path: '/api/v1/webhook-endpoints/{id}',
     request: (args) => ({ params: { id: args.endpoint_id } }),
+  }),
+  routeTool({
+    name: 'get_agent_context',
+    lead: "Read an agent's context pack, as its key sees it.",
+    detail:
+      "The pack its own key gets in pm_guide: who it is, its key's scopes in plain words, its rules, projects, the MCP tools it sees, house conventions, health reporting, webhooks and its template's brief. format markdown answers the same as an AGENTS.md text to hand its host instead. key_id picks one of its keys; left out, its newest key, or the scopes it holds when it has none. Scopes and tools need api_keys.manage_all and webhooks webhooks.manage, else null and named in omitted. Generated now, never stored. REST: GET /api/v1/agents/{id}/context?format=md for the file.",
+    input: z.object({
+      agent_id: id('agent_id'),
+      key_id: id('key_id').optional(),
+      format: z.enum(['pack', 'markdown']).optional().describe('pack (default): the pack as JSON; markdown: the AGENTS.md text'),
+    }).strict(),
+    permission: 'team.read',
+    module: 'agents',
+    method: 'GET',
+    path: '/api/v1/agents/{id}/context',
+    request: ({ agent_id, key_id, format }) => ({ params: { id: agent_id }, query: { key_id, format: format ?? 'pack' } }),
+  }),
+  routeTool({
+    name: 'list_agent_templates',
+    lead: 'List the agent templates you can start an agent from.',
+    detail:
+      "Core's (data-health-watcher, inbox-triage while the Inbox is on, builder, weekly-reporter) and this workspace's own. Each: the rules it sets, the scopes a key for it should carry, the brief added to the agent's context pack, and suggested webhook events. Apply one with apply_agent_template.",
+    input: z.object({}).strict(),
+    permission: 'team.manage',
+    module: 'agents',
+    method: 'GET',
+    path: '/api/v1/agent-templates',
+    request: () => ({}),
+  }),
+  routeTool({
+    name: 'apply_agent_template',
+    lead: 'Apply a template to an agent: its rules, maybe a key.',
+    detail:
+      "Needs team.manage; agents only. Sets the template's rules. Your key must carry every scope the template suggests (403 scope_escalation otherwise; nothing changes). create_key true also makes a key with those scopes (an Owner's key with api_keys.manage_all, every scope held by the agent): its secret is in this answer only, so hand it to the agent's host now. Answers with the rules, the key or the scopes still to grant, and webhook_events to use with create_webhook_endpoint. No idempotency_key: on a timeout, get_agent_setup before trying again.",
+    input: z.object({
+      agent_id: id('agent_id'),
+      template: z.string().min(1).max(100),
+      create_key: z.boolean().optional(),
+      key_name: z.string().min(1).max(100).optional(),
+      read_only: z.boolean().optional(),
+    }).strict(),
+    permission: 'team.manage',
+    module: 'agents',
+    method: 'POST',
+    path: '/api/v1/agents/{id}/template',
+    request: ({ agent_id, ...body }) => ({ params: { id: agent_id }, body }),
+  }),
+  routeTool({
+    name: 'export_agent_config',
+    lead: "Export an agent's configuration as a document.",
+    detail:
+      'A versioned document import_agent_config reads back, here or in another workspace: name, title, profile, rules, projects by id and name, live keys (names and scopes), webhook endpoints filtered to it (URL, events, project filter) and the template it was set up from. Never a secret or a hash. Keys need api_keys.manage_all and webhooks webhooks.manage; without one that part is null and named in omitted.',
+    input: z.object({ agent_id: id('agent_id') }).strict(),
+    permission: 'team.read',
+    module: 'agents',
+    method: 'GET',
+    path: '/api/v1/agents/{id}/export',
+    request: (args) => ({ params: { id: args.agent_id } }),
+  }),
+  routeTool({
+    name: 'import_agent_config',
+    lead: 'Create or update an agent from an exported document.',
+    detail:
+      "Needs team.manage. Without agent_id it adds a new agent (Owner keys only; email is an address only it uses, name overrides the document's); with agent_id it updates that agent. Projects and the escalation target match by id, then by name, among what you reach; what does not match is listed in unmatched, and parts your key cannot change in not_applied. Projects are only added. Keys are made only with create_keys, new webhook endpoints only with create_webhooks, and their secrets are in this answer only. dry_run true answers the plan and changes nothing: run it first. No idempotency_key: on a timeout, get_agent_setup before trying again.",
+    input: z.object({
+      document: z.record(z.string(), z.unknown()).describe('The document export_agent_config answered'),
+      agent_id: id('agent_id').optional(),
+      name: z.string().min(1).max(100).optional(),
+      email: z.email('email must be an email address').optional(),
+      dry_run: z.boolean().optional(),
+      create_keys: z.boolean().optional(),
+      create_webhooks: z.boolean().optional(),
+    }).strict(),
+    permission: 'team.manage',
+    module: 'agents',
+    method: 'POST',
+    path: '/api/v1/agents/import',
+    request: (body) => ({ body }),
   }),
   routeTool({
     name: 'list_leads',

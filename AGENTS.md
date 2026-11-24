@@ -45,6 +45,7 @@ Load the skill `pm-add-custom-feature`. Full reference: `src/custom/README.md`.
 | A Settings page (Owners only by default) | `settingsSections` in `src/custom/index.ts` |
 | An API endpoint, webhook receiver or cron target (`/api/x/<path>`) | `src/custom/api.ts` |
 | A page open without signing in | `src/custom/middleware.ts` |
+| An agent template (rules, key scopes and a brief to start an agent from) | `src/custom/agent-templates.ts` |
 | Name, tagline, brand colors, logos, favicon | Not code: an Owner sets them in Settings > Workspace > Brand (stored in the database) |
 | Fonts and surface CSS variables | `src/custom/theme.css` |
 | Redirects, image hosts | `src/custom/next.config.ts` |

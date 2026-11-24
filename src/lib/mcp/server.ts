@@ -1,16 +1,17 @@
 import 'server-only';
 import { NextRequest } from 'next/server';
 import { Server, type CallToolResult } from '@modelcontextprotocol/server';
-import { isModuleEnabled, type AccessContext, type PermissionKey } from '@/lib/access-control';
-import { accessAllows } from '@/lib/api/access';
-import { permissionAlternatives } from '@/lib/api/middleware';
+import type { AccessContext } from '@/lib/access-control';
 import { apiRequestContext } from '@/lib/api/request-context';
-import type { CallRoute, PmTool, RouteEnvelope, ToolOutcome } from './core';
+import type { CallRoute, RouteEnvelope, ToolOutcome } from './core';
 import { toolDefinition } from './core';
 import { PM_GUIDE, PM_SETUP_GUIDE, SETUP_TOOLS } from './guide';
 import { routeHandler } from './handlers';
 import type { AgentProfile } from './profiles';
-import { GUIDE_TOOL, PM_TOOLS } from './tools';
+import { GUIDE_CONTEXT_PATH, GUIDE_TOOL } from './tools';
+import { toolsFor } from './visibility';
+
+export { toolsFor, toolVisible } from './visibility';
 
 /** Who the key acts as, resolved by resolveApiKey for this request. */
 export interface McpCaller {
@@ -55,26 +56,6 @@ export function refusal(status: number, code: string, message: string, details: 
   const fatal = status === 401 || status === 429 || status >= 500
     || (status === 403 && FATAL_FORBIDDEN.has(String(extra.reason)));
   return payloadResult({ ok: false, status, error: { code, message, ...extra } }, fatal);
-}
-
-/**
- * Whether a key sees a tool: its profile, its read-only flag, its module, and
- * the permission on key AND member. A permission of a switched-off module is
- * held by nobody, so a module's tools go with it.
- */
-export function toolVisible(tool: PmTool, caller: Pick<McpCaller, 'access' | 'scopes' | 'readOnly' | 'profile'>): boolean {
-  if (tool.profiles && !tool.profiles.includes(caller.profile)) return false;
-  if (tool.agentsOnly && caller.access.role !== 'agent') return false;
-  if (tool.module && !isModuleEnabled(caller.access, tool.module)) return false;
-  if (tool.write && caller.readOnly) return false;
-  if (tool.name === GUIDE_TOOL) return true;
-  const wanted = (Array.isArray(tool.permission) ? tool.permission : [tool.permission])
-    .flatMap((permission: PermissionKey) => permissionAlternatives(permission));
-  return wanted.some((permission) => caller.scopes.includes(permission) && accessAllows(caller.access, permission, 'api'));
-}
-
-export function toolsFor(caller: Pick<McpCaller, 'access' | 'scopes' | 'readOnly' | 'profile'>): PmTool[] {
-  return PM_TOOLS.filter((tool) => toolVisible(tool, caller));
 }
 
 /**
@@ -131,6 +112,27 @@ export function outcomeResult(outcome: ToolOutcome, write: boolean, maxChars = M
 }
 
 /**
+ * The caller's own context pack (GET /api/v1/agents/me/context, run as the
+ * key like every tool), added to pm_guide as `context`: who it is, its rules
+ * in plain words, scopes, projects, conventions and webhooks. The tool list
+ * is left out because pm_guide already lists it. Null when the pack cannot be
+ * read (an older database, a blip), so the guide itself never fails.
+ */
+async function guideContext(call: CallRoute): Promise<Record<string, unknown> | null> {
+  try {
+    const { status, envelope } = await call({ method: 'GET', path: GUIDE_CONTEXT_PATH, query: { format: 'pack' } });
+    const pack = (envelope?.data as { pack?: unknown } | undefined)?.pack;
+    if (status !== 200 || !envelope?.success || !pack || typeof pack !== 'object') return null;
+    const { tools: _tools, ...rest } = pack as Record<string, unknown>;
+    void _tools;
+    return rest;
+  } catch (failure) {
+    console.error('[mcp] pm_guide context', failure);
+    return null;
+  }
+}
+
+/**
  * One server per HTTP request (the endpoint is stateless). The tool list is
  * the caller's, tools/call accepts only tools on it, and arguments are
  * checked against the tool's schema before any route runs.
@@ -165,6 +167,7 @@ export function createPmServer(caller: McpCaller): Server {
         guide: tools.some((t) => SETUP_TOOLS.includes(t.name)) ? `${PM_GUIDE}\n\n${PM_SETUP_GUIDE}` : PM_GUIDE,
         you: { name: caller.member.name, role: caller.member.role, profile: caller.profile, read_only_key: caller.readOnly },
         tools: tools.filter((t) => t.name !== GUIDE_TOOL).map((t) => t.name),
+        context: await guideContext(call),
       });
     } else {
       const parsed = tool.input.safeParse(raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {});
