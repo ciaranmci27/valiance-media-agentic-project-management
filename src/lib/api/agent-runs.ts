@@ -140,6 +140,11 @@ function durationOf(row: Row): number | null {
   return row.finished_at ? Math.max(0, Date.parse(row.finished_at) - Date.parse(row.started_at)) : null;
 }
 
+/** Stored runs as summaries, in one batch (the agent list's current runs). */
+export function presentStoredRuns(db: SupabaseClient, rows: Row[]): Promise<AgentRunSummary[]> {
+  return present(db, rows.map((row) => ({ ...row, source: 'run', outcome: null, duration_ms: durationOf(row) })));
+}
+
 /** A stored run in full. */
 async function presentRun(db: SupabaseClient, row: Row): Promise<AgentRunView> {
   const [summary] = await present(db, [{ ...row, source: 'run', outcome: null, duration_ms: durationOf(row) }]);

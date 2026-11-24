@@ -13,6 +13,7 @@ import {
   statusSentence,
 } from '@/lib/agent-status';
 import { useAgentHealth } from '@/lib/use-agent-health';
+import { agentBacklog, backlogLine, type BacklogState } from '@/lib/agents-tab';
 
 /**
  * The fleet heartbeat: one tile per agent team member. Purely an agent
@@ -49,14 +50,7 @@ const CRON_MIRROR: Record<string, { everyHours?: number; atMinutes?: number[] }>
   // e.g. builder: { atMinutes: [0, 30] }, // a work check every half hour
 };
 
-// Claimable work sitting past one missed pickup check reads as "behind";
-// past the watchdog's own stall threshold it reads as "needs attention".
-const BEHIND_AFTER_MS = 35 * 60 * 1000;
-const STALLED_AFTER_MS = 2 * 60 * 60 * 1000;
-
-/** The queue overlay: about the WORK, never about the person. */
-type BacklogState = 'behind' | 'stalled';
-
+/** The queue overlay (agentBacklog, shared with the Agents roster): about the WORK, never about the person. */
 const BACKLOG_STYLE: Record<BacklogState, { badge: string; label: string }> = {
   behind: { badge: 'bg-orange-400/10 text-orange-300 border-orange-400/20', label: 'waiting' },
   stalled: { badge: 'bg-red-500/10 text-red-400 border-red-500/20', label: 'unclaimed' },
@@ -102,12 +96,6 @@ function agoLabel(now: Date, iso: string): string {
   return `${Math.floor(hours / 24)}d ago`;
 }
 
-function waitLabel(ms: number): string {
-  const mins = Math.floor(ms / 60000);
-  if (mins < 60) return `${mins}m`;
-  return `${Math.floor(mins / 60)}h`;
-}
-
 export function FleetStatusStrip() {
   const { team, agentActivity, tasks } = useApp();
   // Infrastructure heartbeats: the authority on working / idle / offline.
@@ -151,24 +139,11 @@ export function FleetStatusStrip() {
       // The dev agent is serial by design: approving five tasks at once
       // necessarily leaves four waiting while the first is built, so the badge
       // only escalates while the agent is NOT actively working.
-      const oldestWaitMs = tasks
-        .filter(
-          t =>
-            t.status === 'todo' &&
-            t.ai_readiness === 'ai_ready' &&
-            (t.assignee_ids || []).includes(agent.id),
-        )
-        .reduce<number>((max, t) => {
-          const waited = nowMs - new Date(t.updated_at).getTime();
-          return waited > max ? waited : max;
-        }, 0);
       const agentBusy = status.mood === 'working' || status.mood === 'reviewing';
-      const backlog: { state: BacklogState; text: string } | null =
-        oldestWaitMs > STALLED_AFTER_MS && !agentBusy
-          ? { state: 'stalled', text: `work unclaimed ${waitLabel(oldestWaitMs)}` }
-          : oldestWaitMs > BEHIND_AFTER_MS && !agentBusy
-            ? { state: 'behind', text: `work waiting ${waitLabel(oldestWaitMs)}` }
-            : null;
+      const waiting = agentBacklog(tasks, agent.id, nowMs, agentBusy);
+      const backlog: { state: BacklogState; text: string } | null = waiting
+        ? { state: waiting.state, text: backlogLine(waiting).toLowerCase() }
+        : null;
 
       // The single detail line under the name (two-row tile). Forward-looking
       // first: "Next run in 5m" says scheduled-and-alive, where leading with

@@ -30,6 +30,10 @@ Shared, in `src/components/ui/`: `Button` (primary, secondary, ghost, danger; sm
 
 `StatStrip` is the one way to show a row of numbers: one surface (or `bare` inside a card), stats side by side with hairlines once its own width fits them all, a label and value list below that. Label 12px zinc-500 and value 20px semibold tabular in the row; label 14px zinc-300 and value 16px in the list. Props per stat: `label`, `value` (null shows `empty` muted), `context`, `tone` (default, success, warning, danger, info), `icon`, `href` or `onSelect` with `selected`, `spark`. The row switch is the `strip-row` variant in `globals.css`.
 
+Guided flows, in `src/components/ui/Stepper.tsx`: `FlowShell` (full page, a way out, the stepper, an optional aside), `Stepper` (numbered on desktop, "Step 2 of 6" with a bar on phones), `StepPanel`, `StepFooter` (Back, and a Next that names what it does: "Hire Nova"), `ChoiceCard`, `ChatSetupAside`. Hiring an agent (`/agent/new`) and setting up a project (`/projects/new`) are built from these; a new guided setup is too.
+
+Agent pieces, in `src/components/agent/`: `AgentAvatar` (initials on one of the `--color-avatar-1..8` tones, picked from the name, with a presence dot; a working agent's ring breathes, still under reduced motion), `PresencePill`, `OwnerStack`, `SettingsForm` (a form drawn from a template's settings fields), `AssignmentList` (agents on projects, a hundred deep), `ScopePicker` and `RulesFields`, `ConnectSnippets`. Logic behind them is pure, in `src/lib/agents-ui.ts`.
+
 Inbox pieces, in `src/components/inbox/`: `inbox-badges.tsx` (state dots, trust, project chips, time formats), `NotePill` (pill that opens a card, in `ThreadView.tsx`), `MeetingParts.tsx` (meeting details, the transcript reader, the suggestions checklist with Add all and Nothing to do).
 
 ## Signature
@@ -40,6 +44,8 @@ Inbox pieces, in `src/components/inbox/`: `inbox-badges.tsx` (state dots, trust,
 - **Plain, short words**: labels say what happens ("Add all 7", "Nothing to do", "Mark handled"). Results read as one plain line ("Added 7 suggestions"). Status and loader copy is three words, present tense. No em dashes.
 - **Undo over confirm**: anything reversible acts at once and leaves one plain line with Undo in place; a confirmation is only for what cannot be undone.
 - **Numbers in a row are one stat strip, never a grid of separate tiles**; on phones the strip becomes a label and value list. No odd stat stranded on its own row.
+- **Built for a hundred**: lists of agents, assignments, brief entries and needs-you items search, filter and show a window with "Show 24 more of 76", never a row of one tile per agent.
+- **Guided setups are full pages, never modals**: one step at a time, each checked before Next, with the same flow family everywhere.
 - **Dense but calm**: 11 to 13px meta text, generous line height in reading areas (email bodies, transcripts), tabular numbers for times and counts.
 
 ## Reference screens

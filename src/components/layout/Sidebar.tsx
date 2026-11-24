@@ -38,8 +38,6 @@ import { isRunning } from '@/lib/time-entry-utils';
 import { useBrand } from '@/lib/brand/context';
 import { canOpenInbox, hasPermission, isModuleEnabled } from '@/lib/access-control';
 import { financeViews, type FinanceEntryKind } from '@/lib/finance/finance-views';
-import { prefetchAgentAnalytics } from '@/lib/use-agent-analytics-events';
-import { defaultAgentAnalyticsRange } from '@/lib/agent-range';
 import { reminderGroup } from '@/lib/reminders';
 import { placeNavItems } from '@/lib/extensions/registry';
 import { useCustomNavItems } from '@/lib/extensions/hooks';
@@ -77,7 +75,6 @@ export function Sidebar() {
   const [isOpen, setIsOpen] = useState(false);
   // The Agent item expands into its three surfaces. null = follow the route
   // (auto-expand while on an /agent page); a manual toggle always wins.
-  const [agentOpen, setAgentOpen] = useState<boolean | null>(null);
   // With projects as a menu (Settings > Workspace > Brand), the Projects item
   // folds every active project under it. Closed each time the app loads; it
   // stays as set while moving between pages. The active projects section is
@@ -165,7 +162,7 @@ export function Sidebar() {
     // Finances with a money view, My earnings for pay alone, Time for the
     // timesheet alone (its own page at /time when no money module is on).
     ...(financeEntry ? [{ href: financeEntry.href, icon: FINANCE_ENTRY_ICONS[financeEntry.kind], label: financeEntry.label }] : []),
-    ...(isAgentsEnabled && canManageAgents ? [{ href: '/agent', icon: Bot, label: 'Agent',
+    ...(isAgentsEnabled && canManageAgents ? [{ href: '/agent', icon: Bot, label: 'Agents',
       count: { value: pendingSuggestionCount, label: `${plural(pendingSuggestionCount, 'agent suggestion')} to review`, tone: 'brand' as const } }] : []),
     { href: '/notifications', icon: Bell, label: 'Notifications',
       count: { value: unreadNotifications, label: plural(unreadNotifications, 'unread notification'), tone: 'danger' } },
@@ -298,79 +295,6 @@ export function Sidebar() {
                         {onProjectsIndex && <span className="absolute -left-[0.5px] top-1/2 -translate-y-1/2 h-4 w-[2px] rounded-full bg-brand-400" aria-hidden="true" />}
                         All projects
                       </Link>}
-                    </div>
-                  )}
-                </div>
-              );
-            }
-            if (item.href === '/agent') {
-              const agentExpanded = agentOpen ?? pathname.startsWith('/agent');
-              const agentLinks = [
-                // Project detail pages belong to the dashboard flow.
-                { href: '/agent', label: 'Dashboard', active: pathname === '/agent' || pathname.startsWith('/agent/projects') },
-                { href: '/agent/analytics', label: 'Analytics', active: pathname === '/agent/analytics' },
-              ];
-              // The parent row reads active only while one of its tabs is the
-              // current route; opening the dropdown alone does not color it.
-              // The child list stays a quiet rail so the two never compete as
-              // twin pills.
-              return (
-                <div key={item.href}>
-                  <button
-                    type="button"
-                    onClick={() => setAgentOpen(!agentExpanded)}
-                    aria-expanded={agentExpanded}
-                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 ${
-                      isActive
-                        ? 'bg-brand-500/15 text-brand-300 glow-brand-soft'
-                        : 'text-zinc-400 hover:bg-white/5 hover:text-zinc-200'
-                    }`}
-                  >
-                    <span className="relative flex-shrink-0 leading-none">
-                      <item.icon size={18} aria-hidden="true" />
-                      {item.count && <CountBadge {...badgeProps(item.count)} placement="icon" />}
-                    </span>
-                    <span className="text-sm font-medium flex-1 text-left">{item.label}</span>
-                    <ChevronDown
-                      size={14}
-                      className={`flex-shrink-0 transition-transform ${agentExpanded ? '' : '-rotate-90'}`}
-                      aria-hidden="true"
-                    />
-                  </button>
-                  {agentExpanded && (
-                    /* Rail list, not pills: one hairline centered under the
-                       parent icon (row px-3 = 12px + half the 18px icon =
-                       21px), labels indented to meet the parent label at
-                       42px. The active surface reads as brand text plus a
-                       short brand tick on the rail. */
-                    <div className="relative ml-[20.5px] mt-0.5 mb-1 animate-slideDown">
-                      <span className="absolute left-0 top-1 bottom-1 w-px bg-white/[0.08]" aria-hidden="true" />
-                      {agentLinks.map(link => (
-                        <Link
-                          key={link.href}
-                          href={link.href}
-                          onClick={closeSidebar}
-                          // Warm the report on intent. Pointing at the link is a
-                          // reliable signal a moment before the click, and the
-                          // query is cached by range, so arriving costs nothing:
-                          // the page opens with its figures already measured.
-                          onMouseEnter={link.href === '/agent/analytics'
-                            ? () => prefetchAgentAnalytics(defaultAgentAnalyticsRange(currentMember?.timezone))
-                            : undefined}
-                          onFocus={link.href === '/agent/analytics'
-                            ? () => prefetchAgentAnalytics(defaultAgentAnalyticsRange(currentMember?.timezone))
-                            : undefined}
-                          aria-current={link.active ? 'page' : undefined}
-                          className={`relative flex items-center pl-[21.5px] pr-3 py-1.5 rounded-md text-[13px] font-medium transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 ${
-                            link.active ? 'text-brand-300' : 'text-zinc-500 hover:text-zinc-200'
-                          }`}
-                        >
-                          {link.active && (
-                            <span className="absolute -left-[0.5px] top-1/2 -translate-y-1/2 h-4 w-[2px] rounded-full bg-brand-400" aria-hidden="true" />
-                          )}
-                          {link.label}
-                        </Link>
-                      ))}
                     </div>
                   )}
                 </div>

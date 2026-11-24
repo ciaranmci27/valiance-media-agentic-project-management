@@ -20,6 +20,13 @@ import {
 import { listTaskFiles, taskFileCandidates, type TaskFileCandidates, type TaskFileView } from '@/lib/task-files/client';
 import { invalidateTables, peekRead, useRead, warmReads, type Read } from '@/lib/query-cache';
 import type { QuestionView } from '@/lib/questions';
+import {
+  workspaceApi, type AgentDetail, type AgentListItem, type AgentTemplateView, type BriefEntry, type ProjectAgentAssignment, type ProjectBrief,
+} from '@/lib/agent-workspace';
+import { AGENT_TURNS_CACHE_TABLE, type AgentRunNote, type AgentRunPlanStep, type AgentRunSummary } from '@/lib/agent-runs';
+import {
+  NO_RUN_FILTERS, RUN_FEED_COLUMNS, RUNS_PAGE_SIZE, runFeedQuery, toRunSummary, type RunFeedFilters,
+} from '@/lib/agents-tab';
 import type {
   AgentActivity, BillingForecastItem, ProjectBillingPlan, ProjectBillingRun, ProjectContext, TaskSource, TeamActivity,
 } from '@/lib/types';
@@ -619,6 +626,75 @@ export function projectContextRead(projectId: string): Read<ProjectContext[]> {
   };
 }
 
+// ── Agent runs ──────────────────────────────────────────────────────────
+
+export interface AgentRunFeedPage {
+  /** agent_name is left null: the screens name agents from the team list. */
+  runs: AgentRunSummary[];
+  total: number;
+}
+
+const NO_NAMES: ReadonlyMap<string, string> = new Map();
+
+/** What makes the run feed stale: a run starting, moving or finishing, or a turn landing. */
+const RUN_FEED_TABLES = ['agent_runs', AGENT_TURNS_CACHE_TABLE] as const;
+
+/**
+ * One page of the run feed (pm.agent_run_feed: stored runs plus turns that
+ * name no run), newest first, for one set of filters. Read as the signed-in
+ * member, so row security decides what it holds: their own runs, or every
+ * run with agents.manage, never one on a task or project in Trash. Demo mode
+ * has none.
+ */
+export function agentRunFeedRead(filters: RunFeedFilters, page: number, isDemo: boolean, pageSize = RUNS_PAGE_SIZE): Read<AgentRunFeedPage> {
+  const query = runFeedQuery(filters, page, pageSize);
+  return {
+    key: `${query.key}${isDemo ? ':demo' : ''}`,
+    tables: RUN_FEED_TABLES,
+    load: async () => {
+      if (isDemo) return { runs: [], total: 0 };
+      let request = createClient().from('agent_run_feed').select(RUN_FEED_COLUMNS, { count: 'exact' });
+      for (const [column, value] of query.eq) request = request.eq(column, value);
+      const { data, count, error } = await request
+        .order('sort_at', { ascending: false })
+        .order('id', { ascending: false })
+        .range(query.from, query.to);
+      if (error) throw error;
+      return { runs: ((data ?? []) as Record<string, unknown>[]).map((row) => toRunSummary(row, NO_NAMES)), total: count ?? 0 };
+    },
+  };
+}
+
+/** How many running runs the roster reads to show each agent's current run. */
+export const RUNNING_RUNS_LIMIT = 100;
+
+/** Every running run (the roster's "current run"), newest first. */
+export function runningAgentRunsRead(isDemo: boolean): Read<AgentRunFeedPage> {
+  return agentRunFeedRead({ ...NO_RUN_FILTERS, status: 'running' }, 0, isDemo, RUNNING_RUNS_LIMIT);
+}
+
+export interface AgentRunDetail {
+  plan: AgentRunPlanStep[];
+  notes: AgentRunNote[];
+}
+
+/** A stored run's plan and notes, for its detail. A turn has neither. */
+export function agentRunDetailRead(runId: string): Read<AgentRunDetail> {
+  return {
+    key: `agent-run-detail:${runId}`,
+    tables: ['agent_runs'],
+    load: async () => {
+      const { data, error } = await createClient().from('agent_runs').select('plan, notes').eq('id', runId).maybeSingle();
+      if (error) throw error;
+      const row = data as { plan?: unknown; notes?: unknown } | null;
+      return {
+        plan: Array.isArray(row?.plan) ? row.plan as AgentRunPlanStep[] : [],
+        notes: Array.isArray(row?.notes) ? row.notes as AgentRunNote[] : [],
+      };
+    },
+  };
+}
+
 // ── Team ────────────────────────────────────────────────────────────────
 
 export type TeamProfileResult = { found: true; profile: TeamProfile } | { found: false };
@@ -651,4 +727,158 @@ export async function loadTeamProfileActivity(memberId: string, before: string):
     'activity',
   );
   return data;
+}
+
+// ── Agent workspace ─────────────────────────────────────────────────────
+
+/** The templates an agent can be hired from (code, not data: changes only with a deploy). */
+export function agentTemplatesRead(isDemo: boolean): Read<AgentTemplateView[]> {
+  return {
+    key: `agent-templates${isDemo ? ':demo' : ''}`,
+    ttlMs: 10 * 60_000,
+    load: async () => {
+      if (isDemo) return [];
+      const data = await workspaceApi<{ templates: AgentTemplateView[] }>('/api/workspace/agent-templates');
+      return data.templates ?? [];
+    },
+  };
+}
+
+/** Most pages a list read walks (200 rows each): far past any real roster, never unbounded. */
+const LIST_PAGES_MAX = 10;
+const LIST_PAGE = 200;
+
+/** Every row of a paged workspace list ({ <field>: rows, meta: { total } }), a page of 200 at a time, in order. */
+async function allPages<T>(url: string, field: string): Promise<T[]> {
+  const rows: T[] = [];
+  const join = url.includes('?') ? '&' : '?';
+  for (let page = 1; page <= LIST_PAGES_MAX; page++) {
+    const data = await workspaceApi<Record<string, unknown> & { meta?: { total?: number } }>(`${url}${join}limit=${LIST_PAGE}&page=${page}`);
+    const batch = (data[field] as T[] | undefined) ?? [];
+    rows.push(...batch);
+    const total = data.meta?.total ?? rows.length;
+    if (batch.length < LIST_PAGE || rows.length >= total) break;
+  }
+  return rows;
+}
+
+/**
+ * Every agent with what the roster shows beyond the team row (role,
+ * template, owners, projects): one read for the whole roster, a page of 200
+ * at a time, never one per agent. Refreshed by the tables it comes from.
+ */
+export function agentsListRead(isDemo: boolean): Read<AgentListItem[]> {
+  return {
+    key: `agents-list${isDemo ? ':demo' : ''}`,
+    tables: ['team_members', 'agent_owners', 'project_agents'],
+    load: async () => (isDemo ? [] : allPages<AgentListItem>('/api/workspace/agents', 'agents')),
+  };
+}
+
+/** The role labels in use, for the roster's filter and the hire flow's suggestions. */
+export function agentRolesRead(isDemo: boolean): Read<string[]> {
+  return {
+    key: `agent-roles${isDemo ? ':demo' : ''}`,
+    tables: ['team_members'],
+    ttlMs: 5 * 60_000,
+    load: async () => {
+      if (isDemo) return [];
+      const data = await workspaceApi<{ roles: string[] }>('/api/workspace/agents/roles');
+      return data.roles ?? [];
+    },
+  };
+}
+
+/** One agent's profile as the viewer may see it: rules, owners, assignments, keys (never secrets). */
+export function agentDetailRead(agentId: string): Read<AgentDetail> {
+  return {
+    key: `agent-detail:${agentId}`,
+    tables: ['team_members', 'project_agents', 'agent_owners', 'api_keys'],
+    load: () => workspaceApi<AgentDetail>(`/api/workspace/agents/${encodeURIComponent(agentId)}`),
+  };
+}
+
+/** The agent's context pack as Markdown (AGENTS.md), as the viewer may see it. */
+export function agentContextRead(agentId: string): Read<string> {
+  return {
+    key: `agent-context:${agentId}`,
+    tables: ['project_context', 'project_agents', 'team_members', 'project_goals'],
+    ttlMs: 60_000,
+    load: async () => {
+      const response = await fetch(`/api/workspace/agents/${encodeURIComponent(agentId)}/context?format=md`, { cache: 'no-store' });
+      if (!response.ok) throw new Error('Could not load the context pack');
+      if ((response.headers.get('content-type') ?? '').includes('json')) {
+        const body = await response.json() as { data?: unknown; markdown?: string };
+        const data = (body.data ?? body) as { markdown?: string } | string;
+        return typeof data === 'string' ? data : data.markdown ?? '';
+      }
+      return response.text();
+    },
+  };
+}
+
+/** The agents on one project, each with its settings, instructions and the template's settings form. */
+export function projectAgentsRead(projectId: string): Read<ProjectAgentAssignment[]> {
+  return {
+    key: `project-agents:${projectId}`,
+    tables: ['project_agents', 'team_members'],
+    load: () => allPages<ProjectAgentAssignment>(`/api/workspace/projects/${encodeURIComponent(projectId)}/agents`, 'assignments'),
+  };
+}
+
+/** The project's brief: its sections with every entry, and its goals. */
+export function projectBriefRead(projectId: string): Read<ProjectBrief> {
+  return {
+    key: `project-brief:${projectId}`,
+    tables: ['project_context', 'project_goals'],
+    load: () => workspaceApi<ProjectBrief>(`/api/workspace/projects/${encodeURIComponent(projectId)}/brief`),
+  };
+}
+
+/** Brief entries ranked for a search (the server's full-text index). */
+export function projectBriefSearchRead(projectId: string, q: string): Read<BriefEntry[]> {
+  return {
+    key: `project-brief-search:${projectId}:${q}`,
+    tables: ['project_context'],
+    load: async () => {
+      const params = new URLSearchParams({ q });
+      const data = await workspaceApi<{ entries: BriefEntry[] } | BriefEntry[]>(`/api/workspace/projects/${encodeURIComponent(projectId)}/brief/search?${params.toString()}`);
+      return Array.isArray(data) ? data : data.entries ?? [];
+    },
+  };
+}
+
+/** Warm an agent's profile on intent: its detail and its first page of runs. */
+export function useAgentWarmer(): (agentId: string) => IntentHandlers {
+  const { isDemoMode } = useDemo();
+  const intent = useIntent();
+  return useCallback(
+    (agentId: string) => intent(() => warmReads([
+      agentDetailRead(agentId),
+      agentRunFeedRead({ ...NO_RUN_FILTERS, agentId }, 0, isDemoMode, 8),
+    ])),
+    [intent, isDemoMode],
+  );
+}
+
+/** One page (from 2) of a brief section, pinned first then newest; the brief read holds page 1. */
+export function projectBriefSectionRead(projectId: string, section: string, page: number, limit: number): Read<BriefEntry[]> {
+  return {
+    key: `project-brief-section:${projectId}:${section}:${page}:${limit}`,
+    tables: ['project_context'],
+    load: async () => {
+      const params = new URLSearchParams({ section, page: String(page), limit: String(limit) });
+      const data = await workspaceApi<ProjectBrief>(`/api/workspace/projects/${encodeURIComponent(projectId)}/brief?${params.toString()}`);
+      return data.sections?.find((s) => s.key === section)?.entries ?? [];
+    },
+  };
+}
+
+/** One agent's newest activity (narrative only), read for that agent alone: the store's feed is everyone's newest. */
+export function agentActivityRead(agentId: string): Read<AgentActivity[]> {
+  return {
+    key: `agent-activity:${agentId}`,
+    tables: ['agent_activities'],
+    load: () => fetchAgentActivity(createClient(), { agent_id: agentId }),
+  };
 }

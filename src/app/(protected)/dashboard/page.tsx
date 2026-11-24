@@ -411,7 +411,7 @@ export default function DashboardPage() {
             <div className="glass-card rounded-xl p-4 lg:p-5">
               <h2 className="font-semibold text-white mb-4">Quick actions</h2>
               <div className="space-y-2">
-                {canManageProjects && <Link href="/projects?new=true" className="flex items-center gap-3 p-3 rounded-lg bg-white/[0.03] text-zinc-300 hover:bg-white/[0.06] transition-colors"><Plus size={18} /><span className="font-medium text-sm">New project</span></Link>}
+                {canManageProjects && <Link href="/projects/new" className="flex items-center gap-3 p-3 rounded-lg bg-white/[0.03] text-zinc-300 hover:bg-white/[0.06] transition-colors"><Plus size={18} /><span className="font-medium text-sm">New project</span></Link>}
                 {canCreateTasks && activeProjects.length > 0 && (
                   <button onClick={() => setShowProjectPicker(true)} className="w-full flex items-center gap-3 p-3 rounded-lg bg-white/[0.03] text-zinc-300 hover:bg-white/[0.06] transition-colors"><FolderKanban size={18} /><span className="font-medium text-sm">Add task</span></button>
                 )}

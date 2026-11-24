@@ -111,6 +111,19 @@
   --color-runtime-failed: #d03b3b;
   --color-runtime-skipped: #9085e9;
 
+  /* Agent avatar tones (AgentAvatar, lib/agents-ui avatarTone): eight muted
+     mid tones that carry white initials at 4.5:1 or better on both themes, so
+     they are mode-invariant. Picked by a hash of the agent's name; past eight
+     agents they repeat evenly. The first follows the workspace brand. */
+  --color-avatar-1: var(--color-brand-600);
+  --color-avatar-2: #7a5c9e;
+  --color-avatar-3: #2f7f73;
+  --color-avatar-4: #a0623a;
+  --color-avatar-5: #3f6fa8;
+  --color-avatar-6: #8c5a7a;
+  --color-avatar-7: #6b7a3a;
+  --color-avatar-8: #9a4f4f;
+
   /* On-surface "ink" ; the RGB triplet behind every white-alpha tint/border/rim in
      the design (glass fills, hairlines, seg control, scrollbars). Dark theme inks in
      white; light theme flips it to near-black so all those alphas invert in one place.
@@ -1127,8 +1140,27 @@ a.bg-brand-500 {
   }
 }
 
+/* Agent presence (components/agent/AgentAvatar): a working agent's ring
+   breathes, slow and soft, in its status colour (currentColor). The ring
+   itself stays for reduced motion; only the breathing stops. */
+@keyframes presence-breathe {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, currentColor 45%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 5px color-mix(in srgb, currentColor 0%, transparent);
+  }
+}
+.presence-breathe {
+  animation: presence-breathe 2.6s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+}
+
 /* Respect reduced motion */
 @media (prefers-reduced-motion: reduce) {
+  .presence-breathe {
+    animation: none !important;
+  }
   .animate-fadeIn,
   .animate-scaleIn,
   .animate-slideInLeft,

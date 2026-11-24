@@ -3,15 +3,18 @@ import { isModuleEnabled, type AccessContext, type PermissionKey } from '@/lib/a
 import { accessAllows, sanitizeProjectForAccess } from './access';
 import { permissionAlternatives } from './middleware';
 import { readTaskInFull } from './task-read';
-import { readProjectContext } from './project-context';
+import { BRIEF_CONTEXT_COLUMNS, readProjectContext } from './project-context';
+import { ownAssignment } from './project-agents';
 import { escalationTarget, loadMemberRules } from './agent-rules';
 import { apiContext, listTaskFiles } from '@/lib/task-files/service';
 
 /**
  * Everything an agent needs to work one task, in one bounded read: the task
  * (subtasks, acceptance criteria, blockers), its project and the project's
- * active context entries, the newest comments, files and links, the open
- * question, the claim, the latest agent run, and the caller's own rules.
+ * active context entries (pinned first, each with its brief section), the
+ * caller's own assignment on that project (settings and instructions), the
+ * newest comments, files and links, the open question, the claim, the
+ * latest agent run, and the caller's own rules.
  *
  * Every part comes from the reader its own route uses (GET /tasks/{id},
  * /projects/{id}, /projects/{id}/context, /tasks/{id}/files). The task's
@@ -40,6 +43,9 @@ export const BRIEF_LIMITS = {
   /** Characters of context content in all. */
   contextTotal: 12_000,
   contextEntries: 40,
+  /** Characters of the caller's instructions on the project, and the least they are cut to. */
+  assignmentInstructions: 4000,
+  assignmentInstructionsFloor: 500,
   /** The whole brief, serialized. */
   total: 36_000,
 } as const;
@@ -100,10 +106,11 @@ export async function buildTaskBrief(caller: BriefCaller, taskId: string): Promi
       ? supabase.from('projects').select('*, project_members(member_id)').eq('id', full.project_id).is('deleted_at', null).maybeSingle()
         .then(({ data, error }) => { if (error) throw error; return data as Row | null; })
       : Promise.resolve(null),
-    seeContext ? readProjectContext(supabase, full.project_id) : Promise.resolve(null),
+    seeContext ? briefContextRows(supabase, full.project_id) : Promise.resolve(null),
     seeFiles ? listTaskFiles(apiContext(caller), taskId) : Promise.resolve(null),
     briefRules(caller),
   ]);
+  const assignmentRow = rules.is_agent ? await ownAssignment(supabase, caller.teamMemberId, full.project_id) : null;
 
   // The task, as GET /tasks/{id} reads it, without the parts the brief lifts
   // to the top (comments, claim, open question) and with long text cut.
@@ -163,8 +170,8 @@ export async function buildTaskBrief(caller: BriefCaller, taskId: string): Promi
   if (contextRows) {
     const entries: Row[] = [];
     let used = 0;
-    let truncated = false;
-    for (const row of contextRows) {
+    let truncated = contextRows.total > contextRows.rows.length;
+    for (const row of contextRows.rows) {
       if (entries.length >= BRIEF_LIMITS.contextEntries || used >= BRIEF_LIMITS.contextTotal) {
         truncated = true;
         break;
@@ -175,13 +182,26 @@ export async function buildTaskBrief(caller: BriefCaller, taskId: string): Promi
       entries.push({
         id: row.id,
         category: row.category,
+        ...(row.section !== undefined ? { section: row.section, pinned: row.pinned === true } : {}),
         content: content.text,
         ...(content.truncated ? { content_truncated: true } : {}),
         file_path: row.file_path ?? null,
         updated_at: row.updated_at,
       });
     }
-    context = { entries, total: contextRows.length, truncated };
+    context = { entries, total: contextRows.total, truncated };
+  }
+
+  let assignment: Row | null = null;
+  if (assignmentRow) {
+    const instructions = cut(assignmentRow.instructions ?? '', BRIEF_LIMITS.assignmentInstructions);
+    assignment = {
+      status: assignmentRow.status,
+      template_key: assignmentRow.template_key ?? null,
+      settings: assignmentRow.settings ?? {},
+      instructions: instructions.text,
+      ...(instructions.truncated ? { instructions_truncated: true } : {}),
+    };
   }
 
   const fileRows = files ?? null;
@@ -189,6 +209,7 @@ export async function buildTaskBrief(caller: BriefCaller, taskId: string): Promi
     task: briefTask,
     project,
     project_context: context,
+    assignment,
     comments: {
       recent,
       total: comments.length,
@@ -204,9 +225,32 @@ export async function buildTaskBrief(caller: BriefCaller, taskId: string): Promi
     omitted,
   };
 
-  fitBrief(brief, { context, recent, project });
-  if (context?.truncated && !context.note) context.note = 'Cut to fit; get_project_context has every entry.';
+  fitBrief(brief, { context, recent, project, assignment });
+  if (context?.truncated && !context.note) context.note = CONTEXT_NOTE;
   return brief;
+}
+
+const CONTEXT_NOTE = 'Cut to fit; search_project_context finds the rest, and get_project_context lists every entry.';
+
+/**
+ * The project's active entries for the brief: pinned first, then by
+ * category and age, at most BRIEF_LIMITS.contextEntries plus one (to know
+ * there are more), with the exact total. A database before the agent
+ * workspaces update has no pins: the entries as get_project_context reads them.
+ */
+async function briefContextRows(supabase: SupabaseClient, projectId: string): Promise<{ rows: Row[]; total: number }> {
+  const { data, error, count } = await supabase
+    .from('project_context')
+    .select(BRIEF_CONTEXT_COLUMNS, { count: 'exact' })
+    .eq('project_id', projectId)
+    .eq('is_active', true)
+    .order('pinned', { ascending: false })
+    .order('category')
+    .order('created_at')
+    .limit(BRIEF_LIMITS.contextEntries + 1);
+  if (!error) return { rows: (data ?? []) as unknown as Row[], total: count ?? 0 };
+  const rows = await readProjectContext(supabase, projectId);
+  return { rows, total: rows.length };
 }
 
 /**
@@ -217,7 +261,7 @@ export async function buildTaskBrief(caller: BriefCaller, taskId: string): Promi
  * descriptions down to BRIEF_LIMITS.descriptionFloor. Each step taken is
  * named in cut_to_fit and flagged on its part.
  */
-function fitBrief(brief: Row, parts: { context: Row | null; recent: Row[]; project: Row | null }) {
+function fitBrief(brief: Row, parts: { context: Row | null; recent: Row[]; project: Row | null; assignment: Row | null }) {
   const size = () => JSON.stringify(brief).length;
   if (size() <= BRIEF_LIMITS.total) return;
   const cutToFit: string[] = [];
@@ -234,11 +278,19 @@ function fitBrief(brief: Row, parts: { context: Row | null; recent: Row[]; proje
     }
   };
 
-  const { context, recent, project } = parts;
+  const { context, recent, project, assignment } = parts;
   shrink('project_context', () => !!context && context.entries.pop() !== undefined, () => {
     context!.truncated = true;
-    context!.note = 'Cut to fit; get_project_context has every entry.';
+    context!.note = CONTEXT_NOTE;
   });
+  shrink('assignment_instructions', () => {
+    if (!assignment || typeof assignment.instructions !== 'string') return false;
+    const text = assignment.instructions.replace(/…$/, '');
+    if (text.length <= BRIEF_LIMITS.assignmentInstructionsFloor) return false;
+    assignment.instructions = `${text.slice(0, Math.max(BRIEF_LIMITS.assignmentInstructionsFloor, Math.floor(text.length / 2)))}…`;
+    assignment.instructions_truncated = true;
+    return true;
+  }, () => undefined);
   shrink('comments', () => recent.shift() !== undefined, () => {
     brief.comments.truncated = true;
     brief.comments.note = `Newest ${recent.length} of ${brief.comments.total} shown to fit; list_task_comments has the rest.`;

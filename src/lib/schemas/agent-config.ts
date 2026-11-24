@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { AGENT_CLOSE_POLICIES, AGENT_CREATE_POLICIES } from '@/lib/agent-rules';
 import { agentProfileSchema } from '@/lib/mcp/profiles';
+import { AGENT_ROLE_PATTERN } from '@/lib/project-agents';
 
 /**
  * Bodies of the agent template and agent configuration routes
@@ -24,7 +25,10 @@ export const agentConfigDocumentSchema = z.object({
     name: z.string().trim().min(1).max(100),
     title: z.string().trim().max(80).nullable().optional(),
     agent_profile: agentProfileSchema.optional(),
+    agent_role: z.string().trim().regex(AGENT_ROLE_PATTERN, 'A role is lowercase words joined by dashes, 40 characters at most').nullable().optional(),
+    description: z.string().trim().max(2000).nullable().optional(),
   }),
+  owners: z.array(ref).max(20).optional(),
   rules: z.object({
     agent_self_assign: z.boolean().optional(),
     agent_close_policy: z.enum(AGENT_CLOSE_POLICIES).optional(),
@@ -58,6 +62,8 @@ export const importAgentConfigSchema = z.object({
   dry_run: z.boolean().optional(),
   create_keys: z.boolean().optional(),
   create_webhooks: z.boolean().optional(),
+  // Owners to add besides the document's (people, never agents).
+  owner_ids: z.array(z.string().uuid('owner_ids must be team member ids')).max(20).optional(),
 }).strict();
 export type ImportAgentConfig = z.infer<typeof importAgentConfigSchema>;
 

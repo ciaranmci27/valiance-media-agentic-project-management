@@ -113,6 +113,7 @@ import {
 import { toast } from '@/components/ui/Toast';
 import { subtasksByParent } from '@/lib/subtasks';
 import { isTelemetryEvent } from '@/lib/agent-events';
+import { AGENT_TURNS_CACHE_TABLE } from '@/lib/agent-runs';
 import { clearReads, invalidateAllReads, invalidateTables, loadRead } from '@/lib/query-cache';
 import { payrollRead } from '@/lib/finance/payroll-read';
 import { DEFAULT_ITEM_COLOR } from '@/lib/brand';
@@ -1226,7 +1227,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
         // not moved.
         if (payload.table === 'agent_activities') {
           const row = (payload.new ?? payload.old) as { activity_type?: string } | undefined;
-          if (row?.activity_type && isTelemetryEvent(row.activity_type)) return;
+          if (row?.activity_type && isTelemetryEvent(row.activity_type)) {
+            // A finished turn is a row of the run feed: only reads naming it refresh.
+            if (row.activity_type === 'turn.completed') invalidateTables([AGENT_TURNS_CACHE_TABLE]);
+            return;
+          }
         }
         // Screens' cached reads (query-cache) refresh on the same events.
         invalidateTables([payload.table]);

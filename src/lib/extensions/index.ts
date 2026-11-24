@@ -12,6 +12,7 @@ export {
 } from './registry';
 export { defineAgentTemplates } from './agent-templates';
 export type { AgentTemplate, AgentTemplateRules } from './agent-templates';
+export type { SettingsField, SettingsFieldType, SettingsOption } from '@/lib/project-agents';
 export { defineAgentProfiles } from './agent-profiles';
 export type { AgentProfileDefinition } from './agent-profiles';
 export type {

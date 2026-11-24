@@ -9,6 +9,26 @@ Each section starts with `## X.Y.Z (YYYY-MM-DD)` and uses these headings, leavin
 - `### Database`: the core migration files in the release, one per line. `npm run db:migrate` applies them.
 - `### Breaking`: what an install must do when it takes this release.
 
+## 2.0.21 (2026-11-24)
+
+### Added
+- **Hire an agent** (`/agent/new`): a guided page instead of a team invite. Pick a template, give it a name, role, owners and personality, choose its projects with each project's settings and instructions, set its powers and rules in plain words, then connect it: a key shown once and ready-to-paste setup for Claude Code, Codex or any MCP client, plus its briefing as an AGENTS.md. Also one call: `POST /api/workspace/agents`, v1 and MCP `create_agent`.
+- **Agent profiles** (`/agent/{id}`): live status, current run, what it needs from you, runs, projects, rules and powers, keys and its briefing.
+- **Agents home redesigned**: one Needs you inbox (your agents first), a roster that stays usable at hundreds of agents (search, filters, roles, owners, grouping, paging), a runs feed and usage.
+- **Agents on projects**: each project has an Agents tab. An agent on a project has its own settings (a form declared by its template, such as a repository and branches for a builder or a check interval for a watcher), its own instructions and a pause switch. API and MCP: `/api/v1/projects/{id}/agents`, `set_project_agent`, `list_my_projects`.
+- **Project brief**: project context becomes a brief with sections (overview, goals, rules, decisions, links, glossary, history), pinned entries every agent reads, and search (`search_project_context`). Existing entries are sorted into sections.
+- **Guided project setup** (`/projects/new`): basics, brief, goals, agents and people in one flow, or one call (`POST /api/v1/projects/setup`, MCP `setup_project`).
+- **Agent roles and owners**: an optional role label (builder, reviewer, anything) and one or more people who own each agent. Owners get its questions and alerts first and can manage it on projects it is already on; keys and project access stay with Owners and project managers.
+- Agents' briefings and task briefs include their project settings, instructions, role and the pinned brief.
+
+### Changed
+- An agent's questions go to its `escalate_to`, then its first owner, then the oldest workspace Owner.
+- Agents are hired, not invited: the team invite no longer offers the agent role.
+- The old per-project agent page redirects to the project's Agents tab.
+
+### Database
+- `20261124000800_agent_workspaces.sql`: `project_agents`, `agent_owners`, agent role and description on members, brief sections, pinned entries and search on project context, and an agent counts view.
+
 ## 2.0.20 (2026-11-24)
 
 ### Added

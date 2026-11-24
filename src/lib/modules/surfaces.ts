@@ -126,10 +126,14 @@ export const MODULE_SURFACES: Record<ModuleId, ModuleSurface> = {
     tables: [
       'agent_health', 'agent_health_history', 'agent_activities', 'project_goals', 'task_suggestions',
       'agent_billing_gap_reviews', 'analytics_tracking_starts', 'task_reopens', 'agent_runs',
+      'project_agents', 'agent_owners',
     ],
     rpcs: [],
     routes: [
       'api/v1/agent-activities', 'api/v1/agent-templates', 'api/v1/agents', 'api/v1/projects/[id]/goals', 'api/v1/task-suggestions',
+      // An agent's own assignments and a project's agents (pm.project_agents).
+      'api/v1/agents/me/projects', 'api/v1/projects/[id]/agents',
+      'api/workspace/agents', 'api/workspace/agent-templates', 'api/workspace/projects/[id]/agents',
       '(protected)/agent',
     ],
   },

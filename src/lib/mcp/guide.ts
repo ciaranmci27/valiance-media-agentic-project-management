@@ -98,6 +98,7 @@ export const SETUP_TOOLS: readonly string[] = [
   'create_agent', 'get_agent_setup', 'set_agent_projects', 'set_agent_rules', 'create_api_key', 'list_api_keys',
   'revoke_api_key', 'list_webhook_endpoints', 'create_webhook_endpoint', 'update_webhook_endpoint', 'delete_webhook_endpoint',
   'get_agent_context', 'list_agent_templates', 'apply_agent_template', 'export_agent_config', 'import_agent_config',
+  'list_agents', 'update_agent', 'set_project_agent', 'remove_project_agent', 'setup_project',
 ];
 
 export const PM_SETUP_GUIDE = `Set up an agent from a chat
@@ -107,7 +108,10 @@ export const PM_SETUP_GUIDE = `Set up an agent from a chat
 - Only an Owner's key makes a key for an agent. Keys you make are tied to your key: revoking yours revokes them.
 - Never create or change an Owner, and never make a key for a person other than yourself.
 - To start from a known kind of agent, list_agent_templates, then apply_agent_template after create_agent: it sets the rules and, with create_key, makes a key with the template's scopes (your key must carry them all).
-- get_agent_context shows what the agent will be told about itself (its pm_guide context), with an AGENTS.md to hand its host. To copy an agent, export_agent_config, then import_agent_config with dry_run true, read the plan back to the person, and run it again without dry_run.`;
+- get_agent_context shows what the agent will be told about itself (its pm_guide context), with an AGENTS.md to hand its host. To copy an agent, export_agent_config, then import_agent_config with dry_run true, read the plan back to the person, and run it again without dry_run.
+- Give an agent work on a project with set_project_agent: its template's settings (list_agent_templates shows each template's fields) and instructions for that project only. Those, and the project's pinned brief entries, go into its context; remove_project_agent takes it off.
+- An agent's owners are the people responsible for it; its questions go to them when it names nobody. update_agent changes its name, role label, rules and owners; a role label is for people and changes nothing it may do. list_agents filters by role, owner (me), template and project.
+- To set up a new project from a chat, gather the project, its members, brief (overview, rules, decisions, links, glossary, history), goals and agents, read the plan back to the person, then setup_project once: everything is checked before anything is written.`;
 
 /**
  * Added to pm_guide only for a key that sees an inbox tool (a triage agent,

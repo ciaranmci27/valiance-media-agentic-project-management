@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { AGENT_RULE_FIELDS, agentRulesOf, type AgentRules, type AgentRulesUpdate } from '@/lib/agent-rules';
 import { insertComment } from '@/lib/supabase/queries';
+import { firstActiveOwner } from './agent-owners';
 import { ApiError } from './errors';
 
 /** A member with the rules that apply to them: an agent's own, or the defaults for a person. */
@@ -66,9 +67,10 @@ export async function commentSentToReview(supabase: SupabaseClient, taskId: stri
 
 /**
  * Who an agent escalates to: its own agent_escalate_to while that member is
- * active, else the workspace Owner (the oldest active one). Projects have no
- * lead in this schema, so there is no project step. Null only when the
- * workspace has no active Owner.
+ * active, else its first active owner (pm.agent_owners, oldest first), else
+ * the workspace Owner (the oldest active one). Projects have no lead in this
+ * schema, so there is no project step. Null only when the workspace has no
+ * active Owner.
  */
 export async function escalationTarget(supabase: SupabaseClient, memberId: string): Promise<string | null> {
   const member = await loadMemberRules(supabase, memberId);
@@ -76,6 +78,10 @@ export async function escalationTarget(supabase: SupabaseClient, memberId: strin
   if (chosen) {
     const { data } = await supabase.from('team_members').select('id').eq('id', chosen).eq('status', 'active').maybeSingle();
     if (data) return chosen;
+  }
+  if (member.isAgent) {
+    const owner = await firstActiveOwner(supabase, memberId);
+    if (owner) return owner;
   }
   const { data: owners, error } = await supabase
     .from('team_members')

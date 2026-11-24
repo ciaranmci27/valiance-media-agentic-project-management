@@ -26,6 +26,7 @@ import {
   type Granter,
 } from './agent-setup';
 import { ApiError, forbidden } from './errors';
+import { addOwners, canChangeOwners, checkOwnerIds } from './agent-owners';
 import { checkWebhookFields, listWebhookEndpoints, publicEndpoint, type PublicWebhookEndpoint } from './webhook-endpoints';
 
 /**
@@ -210,7 +211,15 @@ export async function exportAgentConfig(service: SupabaseClient, granter: Grante
     version: AGENT_CONFIG_VERSION,
     exported_at: new Date().toISOString(),
     workspace: brand.name,
-    member: { id: member.id as string, name: member.name as string, title: (member.title as string | null) ?? null, agent_profile: member.agent_profile ?? 'generic' },
+    member: {
+      id: member.id as string,
+      name: member.name as string,
+      title: (member.title as string | null) ?? null,
+      agent_profile: member.agent_profile ?? 'generic',
+      agent_role: (member.agent_role as string | null) ?? null,
+      description: (member.description as string | null) ?? null,
+    },
+    owners: setup.owners.map((owner) => ({ id: owner.id, name: owner.name })),
     rules: {
       agent_self_assign: setup.rules.agent_self_assign,
       agent_close_policy: setup.rules.agent_close_policy,
@@ -240,7 +249,7 @@ export async function exportAgentConfig(service: SupabaseClient, granter: Grante
 
 // --- Import ------------------------------------------------------------------------------
 
-interface Unmatched { kind: 'project' | 'escalate_to' | 'webhook_project'; ref: string; note: string }
+interface Unmatched { kind: 'project' | 'escalate_to' | 'webhook_project' | 'owner'; ref: string; note: string }
 
 /** Live projects the caller reaches, to resolve references among: id first, then exact name. */
 async function projectResolver(service: SupabaseClient, granter: Granter) {
@@ -269,7 +278,7 @@ async function resolveMember(service: SupabaseClient, ref: ConfigRef, notId: str
 }
 
 /** The API scopes a new agent gets from its role, before any override: what a key for it could carry. */
-async function newAgentScopes(service: SupabaseClient, granter: Granter): Promise<Set<string>> {
+export async function newAgentScopes(service: SupabaseClient, granter: Granter): Promise<Set<string>> {
   const { data, error } = await service.from('role_permissions').select('permission_key').eq('role', 'agent').eq('access_channel', 'api');
   if (error) throw error;
   const keys = ((data ?? []) as { permission_key: string }[]).map((row) => row.permission_key);
@@ -315,6 +324,31 @@ export async function importAgentConfig(service: SupabaseClient, granter: Grante
   const memberChanges: Row = {};
   if (doc.member.title !== undefined && (target?.row.title ?? null) !== (doc.member.title || null)) memberChanges.title = doc.member.title || null;
   if (doc.member.agent_profile !== undefined && target?.row.agent_profile !== doc.member.agent_profile) memberChanges.agent_profile = doc.member.agent_profile;
+  if (doc.member.agent_role !== undefined && (target?.row.agent_role ?? null) !== (doc.member.agent_role || null)) memberChanges.agent_role = doc.member.agent_role || null;
+  if (doc.member.description !== undefined && (target?.row.description ?? null) !== (doc.member.description || null)) memberChanges.description = doc.member.description || null;
+
+  // Owners: people, matched by id then name; added, never removed. A new
+  // agent is owned by whoever imports it too.
+  const ownerAdd: { id: string; name: string }[] = [];
+  for (const ref of doc.owners ?? []) {
+    const found = await resolveMember(service, ref, target?.id ?? null);
+    if (!('id' in found)) { unmatched.push({ kind: 'owner', ref: ref.name, note: found.note }); continue; }
+    if (!ownerAdd.some((owner) => owner.id === found.id)) ownerAdd.push(found);
+  }
+  const ownerIds = await checkOwnerIds(service, target?.id ?? null, [
+    ...(target ? [] : [granter.memberId]),
+    ...ownerAdd.map((owner) => owner.id),
+    ...(input.owner_ids ?? []),
+  ].filter((id, index, all) => all.indexOf(id) === index)).catch((error) => {
+    // A document's owner that is an agent or not active is reported, not fatal.
+    if (error instanceof ApiError && (input.owner_ids ?? []).length === 0) {
+      unmatched.push({ kind: 'owner', ref: 'owners', note: error.message });
+      return target ? [] : [granter.memberId];
+    }
+    throw error;
+  });
+  const canOwners = !target || (await canChangeOwners(service, { memberId: granter.memberId, access: granter.access, scopes: granter.scopes }, target.id));
+  if (target && ownerIds.length > 0 && !canOwners) notApplied.push({ part: 'owners', needs: 'an Owner, or one of the agent\'s owners' });
 
   // Rules, with the escalation target resolved here.
   const rules: AgentRulesUpdate = {
@@ -459,6 +493,7 @@ export async function importAgentConfig(service: SupabaseClient, granter: Grante
     dry_run: dryRun,
     agent: { action: target ? 'update' : 'create', id: target?.id ?? null, name: agentName, ...(target ? {} : { email: input.email }) },
     member: memberChanges,
+    owners: { add: ownerIds, applied: canOwners },
     rules: { ...rules, ...(escalateTo ? { agent_escalate_to: escalateTo } : {}) },
     projects: { add: projectAdd, already: projectAlready, applied: canProjects || projectAdd.length === 0 },
     webhooks: {
@@ -500,6 +535,8 @@ export async function importAgentConfig(service: SupabaseClient, granter: Grante
         email: input.email as string,
         ...(doc.member.title !== undefined ? { title: doc.member.title } : {}),
         ...(doc.member.agent_profile !== undefined ? { agent_profile: doc.member.agent_profile } : {}),
+        ...(doc.member.agent_role !== undefined ? { agent_role: doc.member.agent_role } : {}),
+        ...(doc.member.description !== undefined ? { description: doc.member.description } : {}),
       });
       agentId = created.id;
       plan.agent.id = created.id;
@@ -511,6 +548,10 @@ export async function importAgentConfig(service: SupabaseClient, granter: Grante
       const { error } = await service.from('team_members').update(columns).eq('id', id);
       if (error) throw error;
       done.push('rules set');
+    }
+    if (ownerIds.length > 0 && canOwners) {
+      const added = await addOwners(service, id, ownerIds, granter.memberId);
+      if (added.length) done.push(`${added.length} owner(s) added`);
     }
     if (projectAdd.length > 0 && canProjects) {
       await changeAgentProjects(service, granter, id, { add: projectAdd.map((project) => project.id), remove: [] });

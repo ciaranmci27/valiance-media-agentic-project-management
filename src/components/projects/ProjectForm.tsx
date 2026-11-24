@@ -20,6 +20,7 @@ import { hasPermission, isModuleEnabled } from '@/lib/access-control';
 import { formatMoney, formatNumber, moneyAffix } from '@/lib/format';
 import { appLocale } from '@/lib/region';
 import { useRegion } from '@/lib/region/context';
+import { projectPayload, projectUpdatePayload } from '@/lib/project-form';
 
 const DEFAULT_PROJECT_COLOR = '';
 const OTHER_COLORS = ['#8B5CF6', '#EC4899', '#EF4444', '#F59E0B', '#10B981', '#06B6D4', '#3B82F6'];
@@ -180,48 +181,29 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
 
   const doSave = async () => {
     setSaving(true);
-    const projectData = {
-      name: name.trim(),
-      description: description.trim(),
-      color,
-      status,
-      start_date: startDate || null,
-      due_date: dueDate || null,
-      hourly_tracking: hourlyTracking,
-      time_tracking_enabled: hourlyTracking,
-      member_ids: canManageProjectMembers
-        ? memberIds
-        : project?.member_ids || (teamMemberId ? [teamMemberId] : []),
-      ...(canManageBilling
-        ? {
-            client_time_billing: clientTimeBilling,
-            hourly_rate: project?.hourly_rate ?? null,
-            budget_type: budgetType || null,
-            budget_value:
-              budgetValue && !isNaN(parseFloat(budgetValue)) ? parseFloat(budgetValue) : null,
-            billing_address: billingAddress.trim() || null,
-            billing_email: billingEmail.trim() || null,
-            tax_rate: taxRate && !isNaN(parseFloat(taxRate)) ? parseFloat(taxRate) : null,
-          }
-        : {}),
-      ...(canManageAgents
-        ? {
-            autonomous_enabled: autonomousEnabled,
-            suggestions_per_cycle: suggestionsPerCycle,
-            repo_path: project?.repo_path ?? null,
-          }
-        : {}),
-    } as Omit<Project, 'id' | 'created_at' | 'updated_at'>;
+    const rights = {
+      manageBilling: canManageBilling,
+      manageMembers: canManageProjectMembers,
+      manageContacts: canManageContacts,
+      manageAgents: canManageAgents,
+      timeOn,
+    };
+    // One mapping for this modal and the guided setup (lib/project-form).
+    const projectData = projectPayload(
+      {
+        name, description, color, status, startDate, dueDate,
+        timeTracking: hourlyTracking, clientTimeBilling, budgetType, budgetValue,
+        billingAddress, billingEmail, taxRate, memberIds, clientId: selectedContactId,
+      },
+      rights,
+      project ?? null,
+      teamMemberId || null,
+      { autonomous_enabled: autonomousEnabled, suggestions_per_cycle: suggestionsPerCycle },
+    );
 
     let saved: boolean;
     if (project) {
-      const updateData: Partial<Project> = { ...projectData };
-      if (!canManageProjectMembers) delete updateData.member_ids;
-      if (!timeOn) {
-        delete updateData.hourly_tracking;
-        delete updateData.time_tracking_enabled;
-      }
-      saved = await updateProject(project.id, updateData);
+      saved = await updateProject(project.id, projectUpdatePayload(projectData, rights));
       if (saved && canManageContacts && selectedContactId) {
         const currentPrimary = getPrimaryClient(project.id);
         if (currentPrimary?.contact_id !== selectedContactId) {

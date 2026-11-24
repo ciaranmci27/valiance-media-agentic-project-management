@@ -54,7 +54,7 @@ function check(label: string, ok: boolean, detail?: unknown) {
 type Loose = any;
 type Answer = { status: number; body: Loose; headers: Headers };
 
-const SETUP_SCOPES = ['team.manage', 'project_members.manage', 'api_keys.manage_all', 'webhooks.manage', 'tasks.read', 'tasks.create', 'projects.read'];
+const SETUP_SCOPES = ['team.manage', 'project_members.manage', 'api_keys.manage_all', 'webhooks.manage', 'tasks.read', 'tasks.create', 'projects.read', 'projects.manage'];
 
 /** Supabase Auth's admin API, as much of it as creating a login needs. */
 function authStandIn(db: PGlite) {

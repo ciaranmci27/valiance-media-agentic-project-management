@@ -42,11 +42,10 @@ function ProjectsContent() {
 
   useEffect(() => { setFilters(defaultFilters); }, []);
 
+  // New projects are set up in the guided flow; an old ?new=true link goes there.
   useEffect(() => {
-    if (canManageProjects && searchParams.get('new') === 'true') {
-      setIsFormOpen(true);
-    }
-  }, [canManageProjects, searchParams]);
+    if (canManageProjects && searchParams.get('new') === 'true') router.replace('/projects/new');
+  }, [canManageProjects, searchParams, router]);
 
   const handleEdit = (project: Project) => {
     setEditingProject(project);
@@ -283,8 +282,8 @@ function ProjectsContent() {
             <Button href="/settings/trash?group=projects" variant="secondary" icon={<Trash2 size={16} />}>
               Deleted
             </Button>
-            <Button onClick={() => setIsFormOpen(true)} icon={<Plus size={16} />}>
-              New Project
+            <Button href="/projects/new" icon={<Plus size={16} />}>
+              New project
             </Button>
           </>
         ) : undefined}
@@ -298,7 +297,7 @@ function ProjectsContent() {
             </div>
             <h3 className="text-lg font-semibold text-white mb-2">No projects yet</h3>
             <p className="text-zinc-400 mb-4">{canManageProjects ? 'Create your first project to get started' : 'No projects are assigned to you'}</p>
-            {canManageProjects && <Button onClick={() => setIsFormOpen(true)}>Create Project</Button>}
+            {canManageProjects && <Button href="/projects/new">Set up a project</Button>}
           </div>
         ) : (
           <>

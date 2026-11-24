@@ -3,6 +3,7 @@ import { success } from '@/lib/api/response';
 import { updateProjectContextSchema } from '@/lib/schemas';
 import { notFound } from '@/lib/api/errors';
 import { logAudit } from '@/lib/api/audit';
+import { legacyContextRow, PROJECT_CONTEXT_COLUMNS } from '@/lib/api/project-context';
 
 export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemberId }) => {
   const { id: projectId, entryId } = params as any;
@@ -10,7 +11,7 @@ export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemb
 
   const { data: before } = await supabase
     .from('project_context')
-    .select('*')
+    .select(PROJECT_CONTEXT_COLUMNS)
     .eq('id', entryId)
     .eq('project_id', projectId)
     .maybeSingle();
@@ -22,7 +23,7 @@ export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemb
     .update(updates)
     .eq('id', entryId)
     .eq('project_id', projectId)
-    .select()
+    .select(PROJECT_CONTEXT_COLUMNS)
     .single();
 
   if (error) throw error;
@@ -40,7 +41,7 @@ export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemb
     statusCode: 200,
   });
 
-  return success(updated);
+  return success(legacyContextRow(updated));
 }, { schema: updateProjectContextSchema });
 
 export const DELETE = withApi(async ({ supabase, params, apiKeyId, teamMemberId }) => {
@@ -48,7 +49,7 @@ export const DELETE = withApi(async ({ supabase, params, apiKeyId, teamMemberId 
 
   const { data: before } = await supabase
     .from('project_context')
-    .select('*')
+    .select(PROJECT_CONTEXT_COLUMNS)
     .eq('id', entryId)
     .eq('project_id', projectId)
     .maybeSingle();
@@ -61,7 +62,7 @@ export const DELETE = withApi(async ({ supabase, params, apiKeyId, teamMemberId 
     .update({ is_active: false })
     .eq('id', entryId)
     .eq('project_id', projectId)
-    .select()
+    .select(PROJECT_CONTEXT_COLUMNS)
     .single();
 
   if (error) throw error;
@@ -78,5 +79,5 @@ export const DELETE = withApi(async ({ supabase, params, apiKeyId, teamMemberId 
     statusCode: 200,
   });
 
-  return success(updated);
+  return success(legacyContextRow(updated));
 });

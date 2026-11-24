@@ -1,6 +1,9 @@
 import { z } from 'zod';
 import { agentRulesUpdateSchema } from '@/lib/agent-rules';
 import { agentProfileSchema } from '@/lib/mcp/profiles';
+import { AGENT_ROLE_PATTERN } from '@/lib/project-agents';
+
+const agentRole = z.string().trim().regex(AGENT_ROLE_PATTERN, 'A role is lowercase words joined by dashes, 40 characters at most (builder, code-reviewer)');
 
 export const createTeamMemberSchema = z.object({
   name: z.string().min(1, 'Name is required'),
@@ -24,6 +27,9 @@ export const updateTeamMemberSchema = z.object({
   email_notification_prefs: z.record(z.string(), z.boolean()).optional(),
   // An agent's rules (team.manage, agent members only): see lib/agent-rules.
   ...agentRulesUpdateSchema.shape,
+  // Agents only: a role label for people, and what it is for.
+  agent_role: agentRole.nullable().optional(),
+  description: z.string().trim().max(2000).nullable().optional(),
 });
 
 /**
@@ -37,5 +43,9 @@ export const createAgentSchema = z.object({
   title: z.string().trim().max(80, 'Title must be 80 characters or fewer').optional(),
   avatar: z.string().max(2000).optional(),
   agent_profile: agentProfileSchema.optional(),
+  agent_role: agentRole.optional(),
+  description: z.string().trim().max(2000, 'Description must be 2000 characters or fewer').optional(),
+  // Its owners besides the Owner adding it (who always becomes one): people, never agents.
+  owner_ids: z.array(z.string().uuid('owner_ids must be team member ids')).max(20).optional(),
 }).strict();
 export type CreateAgent = z.infer<typeof createAgentSchema>;

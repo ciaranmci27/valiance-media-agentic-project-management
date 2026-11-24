@@ -41,14 +41,16 @@ import { useAuth } from '@/lib/auth-context';
 import { useDemo } from '@/lib/demo-context';
 import { warmRead, warmReads } from '@/lib/query-cache';
 import {
-  encryptionStatusRead, inboxLandingRead, projectBillingRunsRead, projectForecastRead, projectPaymentsRead, useBillingToday,
+  agentTemplatesRead, encryptionStatusRead, inboxLandingRead, projectAgentsRead, projectBillingRunsRead, projectBriefRead, projectForecastRead, projectPaymentsRead, useBillingToday,
 } from '@/lib/reads';
 import { isRunning } from '@/lib/time-entry-utils';
-import { hasPermission, canOpenInbox, canEditTask, canManageAllTasks, canBeAssignedInProject } from '@/lib/access-control';
+import { hasPermission, canOpenInbox, canEditTask, canManageAllTasks, canBeAssignedInProject, isModuleEnabled } from '@/lib/access-control';
+import { ProjectAgentsTab } from '@/components/agent/ProjectAgentsTab';
+import { BriefTab } from '@/components/projects/BriefTab';
 import { useCustomProjectTabs } from '@/lib/extensions/hooks';
 
 // Custom tabs (src/custom) are keyed x-<key>, so a core tab added later never collides.
-type ProjectTabKey = 'overview' | 'tasks' | 'time' | 'communication' | 'portal' | 'billing' | 'files' | 'credentials' | `x-${string}`;
+type ProjectTabKey = 'overview' | 'tasks' | 'agents' | 'brief' | 'time' | 'communication' | 'portal' | 'billing' | 'files' | 'credentials' | `x-${string}`;
 const DEFAULT_TAB: ProjectTabKey = 'overview';
 
 export default function ProjectDetailPage() {
@@ -75,6 +77,9 @@ export default function ProjectDetailPage() {
   const canReadCredentials = hasPermission(access, 'credentials.reveal_shared') || hasPermission(access, 'credentials.manage');
   const canReadInvoices = hasPermission(access, 'invoices.read') || hasPermission(access, 'invoices.manage');
   const canReadTime = hasPermission(access, 'time.manage_own') || hasPermission(access, 'time.read_all') || hasPermission(access, 'time.manage_all');
+  // Agents and the brief belong to the AI agents module; the brief needs its own read grant.
+  const agentsOn = isModuleEnabled(access, 'agents');
+  const canReadBrief = agentsOn && hasPermission(access, 'project_context.read');
 
   const {
     getProject, getTasksByProject,
@@ -126,6 +131,10 @@ export default function ProjectDetailPage() {
     { key: 'overview', label: 'Overview', visible: true },
     { key: 'tasks', label: 'Tasks', visible: true,
       badge: { count: unreadTaskCount, label: `${unreadTaskCount} unread task${unreadTaskCount === 1 ? '' : 's'}` } },
+    { key: 'agents', label: 'Agents', visible: agentsOn && !isDemoMode,
+      warm: () => warmReads([projectAgentsRead(projectId), agentTemplatesRead(isDemoMode)]) },
+    { key: 'brief', label: 'Brief', visible: canReadBrief && !isDemoMode,
+      warm: () => void warmRead(projectBriefRead(projectId)) },
     // Shown whenever the viewer may use time, on or off for this project.
     { key: 'time', label: 'Time tracking', visible: !!project && canReadTime, live: clockedIn },
     { key: 'communication', label: 'Communication', visible: canReadInbox || canReadCommunications,
@@ -647,6 +656,10 @@ export default function ProjectDetailPage() {
           onViewChange={setActiveView}
         />
       ))}
+
+      {tabPanel('agents', <ProjectAgentsTab projectId={projectId} />)}
+
+      {tabPanel('brief', <BriefTab projectId={projectId} />)}
 
       {tabPanel('billing', <InvoicesPanel projectId={projectId} projectColor={project.color} />)}
 

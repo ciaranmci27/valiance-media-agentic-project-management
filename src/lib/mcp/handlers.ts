@@ -54,6 +54,12 @@ import * as agentTemplate from '@/app/api/v1/agents/[id]/template/route';
 import * as agentImport from '@/app/api/v1/agents/import/route';
 import * as myContext from '@/app/api/v1/agents/me/context/route';
 import * as agentTemplates from '@/app/api/v1/agent-templates/route';
+import * as agentOne from '@/app/api/v1/agents/[id]/route';
+import * as myProjects from '@/app/api/v1/agents/me/projects/route';
+import * as projectAgents from '@/app/api/v1/projects/[id]/agents/route';
+import * as projectAgent from '@/app/api/v1/projects/[id]/agents/[agentId]/route';
+import * as projectContextSearch from '@/app/api/v1/projects/[id]/context/search/route';
+import * as projectSetup from '@/app/api/v1/projects/setup/route';
 import * as apiKeys from '@/app/api/v1/api-keys/route';
 import * as apiKeyRevoke from '@/app/api/v1/api-keys/[id]/revoke/route';
 import * as webhookEndpoints from '@/app/api/v1/webhook-endpoints/route';
@@ -93,6 +99,10 @@ export const ROUTE_MODULES: Record<string, RouteModule> = {
   '/api/v1/projects': projects,
   '/api/v1/projects/{id}': project,
   '/api/v1/projects/{id}/context': projectContext,
+  '/api/v1/projects/{id}/context/search': projectContextSearch,
+  '/api/v1/projects/{id}/agents': projectAgents,
+  '/api/v1/projects/{id}/agents/{agentId}': projectAgent,
+  '/api/v1/projects/setup': projectSetup,
   '/api/v1/projects/{id}/goals': projectGoals,
   '/api/v1/projects/{id}/time-entries': projectTime,
   '/api/v1/projects/{id}/time-entries/{entryId}/pause': timePause,
@@ -142,6 +152,8 @@ export const ROUTE_MODULES: Record<string, RouteModule> = {
   '/api/v1/agents/{id}/template': agentTemplate,
   '/api/v1/agents/import': agentImport,
   '/api/v1/agents/me/context': myContext,
+  '/api/v1/agents/me/projects': myProjects,
+  '/api/v1/agents/{id}': agentOne,
   '/api/v1/agent-templates': agentTemplates,
   '/api/v1/api-keys': apiKeys,
   '/api/v1/api-keys/{id}/revoke': apiKeyRevoke,

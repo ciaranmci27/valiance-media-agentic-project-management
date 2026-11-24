@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 import { Loader2 } from 'lucide-react';
 import Modal from '@/components/ui/Modal';
 import { Input } from '@/components/ui/Input';
@@ -131,8 +132,6 @@ export default function InviteMemberModal({
               ...(canAssignOwner ? [{ value: 'owner', label: 'Owner' }, { value: 'admin', label: 'Admin' }] : []),
               { value: 'member', label: 'Member' },
               { value: 'guest', label: 'Guest' },
-              // Owners only, like the server: an agent may sort personal inboxes.
-              ...(canAssignOwner ? [{ value: 'agent', label: 'Agent' }] : []),
             ]}
           />
 
@@ -143,10 +142,15 @@ export default function InviteMemberModal({
           )}
 
           <p className="text-xs text-zinc-400">
-            {role === 'agent'
-              ? 'You get a link to pass on. Agents are not emailed.'
-              : 'They get an email with a link to choose their own password. If email is not set up, you get the link to send yourself.'}
+            They get an email with a link to choose their own password. If email is not set up, you get the link to send yourself.
           </p>
+
+          {/* Agents are hired, not invited: their own guided setup (template, projects, powers, a key). */}
+          {canAssignOwner && (
+            <p className="text-xs text-zinc-400">
+              Adding an AI agent? <Link href="/agent/new" className="font-medium text-brand-300 hover:text-brand-200" onClick={handleClose}>Hire one</Link> instead.
+            </p>
+          )}
 
           <div className="flex justify-end gap-3 pt-2">
             <Button type="button" variant="ghost" onClick={handleClose} disabled={loading}>

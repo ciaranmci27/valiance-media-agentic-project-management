@@ -14,6 +14,7 @@ import { ApiError, forbidden, notFound } from './errors';
 import { listWebhookEndpoints } from './webhook-endpoints';
 import { appUrlFor, inviteMember, InviteError } from '@/lib/team/invite';
 import type { AgentProfile } from '@/lib/mcp/profiles';
+import { ownersOf } from './agent-owners';
 
 /**
  * Setting up an agent over the v1 API and MCP: the rules that keep a key
@@ -147,8 +148,8 @@ const missingColumn = (error: { code?: string; message?: string } | null) =>
  */
 export async function insertApiKey(
   service: SupabaseClient,
-  input: { name: string; memberId: string; createdBy: string; createdByKeyId: string; scopes: string[]; permissions: 'scoped' | 'read_only' },
-): Promise<{ key: ApiKey & { created_by_key_id: string }; secret: string }> {
+  input: { name: string; memberId: string; createdBy: string; createdByKeyId: string | null; scopes: string[]; permissions: 'scoped' | 'read_only' },
+): Promise<{ key: ApiKey & { created_by_key_id: string | null }; secret: string }> {
   const secret = generateApiKey();
   const { data, error } = await service
     .from('api_keys')
@@ -160,7 +161,8 @@ export async function insertApiKey(
       team_member_id: input.memberId,
       permissions: input.permissions,
       scopes: input.scopes,
-      created_by_key_id: input.createdByKeyId,
+      // A key made by a signed-in Owner (the hire flow) has no parent key, as one made in Settings.
+      ...(input.createdByKeyId ? { created_by_key_id: input.createdByKeyId } : {}),
     })
     .select(API_KEY_COLUMNS)
     .single();
@@ -266,7 +268,12 @@ export async function changeAgentProjects(
   return { agent: { id: target.id, name: target.name }, changed, ...(await agentProjects(service, granter, agentId)) };
 }
 
-const MEMBER_COLUMNS = ['id', 'name', 'email', 'avatar', 'title', 'role', 'status', 'agent_profile', 'timezone', 'created_at', ...AGENT_RULE_FIELDS].join(', ');
+const BASE_MEMBER_COLUMNS = ['id', 'name', 'email', 'avatar', 'title', 'role', 'status', 'agent_profile', 'timezone', 'created_at', ...AGENT_RULE_FIELDS];
+/** With the role label and description (20261124000800_agent_workspaces.sql). */
+const MEMBER_COLUMNS = [...BASE_MEMBER_COLUMNS, 'agent_role', 'description'].join(', ');
+
+const missingMemberColumn = (error: { code?: string; message?: string } | null) =>
+  !!error && (error.code === '42703' || error.code === 'PGRST204' || /agent_role|description/.test(error.message ?? ''));
 
 /**
  * One read of an agent's whole setup, so whoever configured it can check:
@@ -275,7 +282,9 @@ const MEMBER_COLUMNS = ['id', 'name', 'email', 'avatar', 'title', 'role', 'statu
  * it. A part the calling key may not read is null and named in omitted.
  */
 export async function agentSetup(service: SupabaseClient, granter: Granter, agentId: string) {
-  const { data, error } = await service.from('team_members').select(MEMBER_COLUMNS).eq('id', agentId).maybeSingle();
+  let { data, error } = await service.from('team_members').select(MEMBER_COLUMNS).eq('id', agentId).maybeSingle();
+  // Before the agent workspaces update, without the role label and description.
+  if (missingMemberColumn(error)) ({ data, error } = await service.from('team_members').select(BASE_MEMBER_COLUMNS.join(', ')).eq('id', agentId).maybeSingle());
   if (error) throw error;
   if (!data) throw notFound('Team member');
   const row = data as unknown as Record<string, unknown> & { id: string; name: string; role: string; status: string };
@@ -289,16 +298,18 @@ export async function agentSetup(service: SupabaseClient, granter: Granter, agen
 
   const agentAccess = await resolveMemberAccess(service, row.id);
   if (!agentAccess) throw new Error(`Could not resolve access for member ${row.id}`);
-  const [levels, projects, keys, webhooks] = await Promise.all([
+  const [levels, projects, keys, webhooks, owners] = await Promise.all([
     resolveProjectAccessLevels(service, [row]),
     agentProjects(service, granter, row.id),
     canKeys ? memberApiKeys(service, row.id) : Promise.resolve(null),
     canWebhooks ? listWebhookEndpoints(service, { memberId: row.id }) : Promise.resolve(null),
+    ownersOf(service, [row.id]),
   ]);
 
   const member = Object.fromEntries(Object.entries(row).filter(([field]) => !(AGENT_RULE_FIELDS as string[]).includes(field)));
   return {
-    member,
+    member: { agent_role: null, description: null, ...member },
+    owners: owners.get(row.id) ?? [],
     rules: agentRulesOf(row as Partial<Record<keyof AgentRules, unknown>>),
     projects: { access: levels.get(row.id) ?? 'none', ...projects },
     api_keys: keys === null ? null : { keys, available_scopes: apiScopesFor(agentAccess) },
@@ -316,7 +327,15 @@ export async function agentSetup(service: SupabaseClient, granter: Granter, agen
 export async function createAgentMember(
   service: SupabaseClient,
   access: AccessContext,
-  input: { name: string; email: string; title?: string | null; avatar?: string; agent_profile?: AgentProfile },
+  input: {
+    name: string;
+    email: string;
+    title?: string | null;
+    avatar?: string;
+    agent_profile?: AgentProfile;
+    agent_role?: string | null;
+    description?: string | null;
+  },
 ): Promise<Record<string, unknown> & { id: string; name: string; role: string }> {
   let memberId: string;
   try {
@@ -341,6 +360,8 @@ export async function createAgentMember(
     ...(input.title !== undefined ? { title: input.title || null } : {}),
     ...(input.avatar !== undefined ? { avatar: input.avatar } : {}),
     ...(input.agent_profile !== undefined ? { agent_profile: input.agent_profile } : {}),
+    ...(input.agent_role !== undefined ? { agent_role: input.agent_role || null } : {}),
+    ...(input.description !== undefined ? { description: input.description || null } : {}),
   };
   const query = Object.keys(extra).length > 0
     ? service.from('team_members').update(extra).eq('id', memberId).select().single()

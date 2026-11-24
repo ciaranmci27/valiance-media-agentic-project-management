@@ -2,6 +2,7 @@ import { API_ENDPOINT_PERMISSION_SET, type PermissionKey } from '@/lib/access-co
 import { AGENT_CLOSE_POLICIES, AGENT_CREATE_POLICIES, type AgentClosePolicy, type AgentCreatePolicy } from '@/lib/agent-rules';
 import { isModuleId, type ModuleId } from '@/lib/modules/registry';
 import { WEBHOOK_EVENT_TYPES, type WebhookEventType } from '@/lib/types';
+import { AGENT_ROLE_PATTERN, settingsFieldsProblem, type SettingsField } from '@/lib/project-agents';
 import { ExtensionError } from './registry';
 
 /**
@@ -22,6 +23,14 @@ import { ExtensionError } from './registry';
  *   its webhook endpoint.
  * - module: a module the template needs (inbox triage needs the Inbox); while
  *   it is off the template is not listed.
+ * - settings: the fields an agent set up from it fills in per project (a
+ *   repository, a schedule), in order. The screens draw a form from them and
+ *   the server checks every assignment's settings against them
+ *   (lib/project-agents.ts). Left out, the template has no settings.
+ * - role: the role label an agent hired from it starts with (builder,
+ *   watcher). For people only: it drives no behaviour.
+ * - profile: the MCP profile an agent hired from it starts with, where it
+ *   matters (lib/mcp/profiles.ts). Left out, the agent keeps generic.
  */
 export interface AgentTemplateRules {
   agent_self_assign: boolean;
@@ -38,6 +47,9 @@ export interface AgentTemplate {
   context: string;
   webhook_events?: WebhookEventType[];
   module?: ModuleId;
+  settings?: SettingsField[];
+  role?: string;
+  profile?: string;
 }
 
 export const AGENT_TEMPLATE_CONTEXT_MAX = 2000;
@@ -71,6 +83,16 @@ function checkTemplate(template: AgentTemplate) {
     if (!(WEBHOOK_EVENT_TYPES as readonly string[]).includes(event)) fail(`${where}: unknown webhook event "${event}".`);
   }
   if (template.module !== undefined && !isModuleId(template.module)) fail(`${where}: unknown module "${template.module}".`);
+  if (template.settings !== undefined) {
+    const problem = settingsFieldsProblem(template.settings);
+    if (problem) fail(`${where}: ${problem}.`);
+  }
+  if (template.role !== undefined && !AGENT_ROLE_PATTERN.test(template.role)) {
+    fail(`${where}: role "${template.role}" must be lowercase words joined by dashes, 40 characters at most.`);
+  }
+  if (template.profile !== undefined && !/^[a-z][a-z0-9-]{0,39}$/.test(template.profile)) {
+    fail(`${where}: profile "${template.profile}" is not a profile value.`);
+  }
 }
 
 /** Validates a list of agent templates and returns it, scopes and events deduplicated. */

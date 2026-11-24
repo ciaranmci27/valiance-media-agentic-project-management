@@ -350,10 +350,10 @@ export default function ContactDetailPage() {
               </div>
               {canManageProjects && <Button
                 size="sm"
-                onClick={() => setIsProjectFormOpen(true)}
+                href={`/projects/new?client=${encodeURIComponent(contactId)}`}
                 icon={<Plus size={14} />}
               >
-                New Project
+                New project
               </Button>}
             </div>
 

@@ -1,0 +1,321 @@
+/**
+ * The agent screens' logic, on its own: the hire and project setup steps
+ * and their checks, which control a template setting renders as, a long
+ * roster's search, filters, sort, groups and window, Needs you grouped at
+ * scale (your agents first), roles, avatar tones, brief freshness, and the
+ * one project payload the Edit form and the guided setup share. Pure; no
+ * database, no network.
+ *
+ *   npm run -s test:agents-ui
+ */
+import {
+  applyTemplate, avatarTone, controlFor, defaultNeedsYouGrouping, defaultOwnerFilter, emptyHireDraft, facetCounts, filterRoster,
+  firstInvalidHireStep, freshnessLabel, groupNeedsYou, groupRoster, hireRequestFrom, initialsOf, isStale, normalizeRole,
+  orderBriefEntries, presenceOf, roleError, roleLabel, roleSuggestions, scopeGroups, setDraftProjects, settingsDefaults,
+  settingsSummary, sortRoster, validateHireStep, validateSettings, windowOf, AVATAR_TONE_COUNT, NEEDS_YOU_GROUP_BY_AGENT_AFTER,
+  NO_ROSTER_FILTERS, SELECT_SEARCH_AFTER, type NeedsYouEntry, type RosterFacts,
+} from '@/lib/agents-ui';
+import { emptyProjectBasics, projectPayload, projectUpdatePayload, validateProjectBasics } from '@/lib/project-form';
+import { newKeyFrom, WorkspaceApiError } from '@/lib/agent-workspace';
+import { canAddAgentToProject, needsClamp, projectsLine, rosterProjects, showMoreLabel } from '@/lib/agents-ui';
+import { runPill, runTitle, triggerLabel } from '@/lib/agents-tab';
+import type { AgentTemplateView, SettingsField } from '@/lib/agent-workspace';
+
+let passed = 0;
+const failures: string[] = [];
+function check(label: string, ok: boolean, detail?: unknown) {
+  if (ok) passed++;
+  else failures.push(detail === undefined ? label : `${label}: ${JSON.stringify(detail)}`);
+}
+
+const ME = 'person-me';
+const MATE = 'person-mate';
+
+// ── Paging ────────────────────────────────────────────────────────────
+{
+  const hundred = Array.from({ length: 100 }, (_, i) => i);
+  const first = windowOf(hundred, 1, 24);
+  check('a window shows one page and counts the rest', first.shown.length === 24 && first.hidden === 76, first);
+  const grown = windowOf(hundred, 4, 24);
+  check('growing the window shows more, never past the end', grown.shown.length === 96 && grown.hidden === 4, grown);
+  check('the last page shows the remainder', windowOf(hundred, 5, 24).shown.length === 100 && windowOf(hundred, 5, 24).hidden === 0);
+  check('a bad page or size falls back to one', windowOf(hundred, 0, 10).shown.length === 10 && windowOf(hundred, 2, 0).shown.length === 2);
+  check('an empty list hides nothing', windowOf([], 3, 10).hidden === 0);
+}
+
+// ── Settings form ─────────────────────────────────────────────────────
+const builderSettings: SettingsField[] = [
+  { key: 'repo_url', label: 'Repository', type: 'url', required: true },
+  { key: 'working_branch', label: 'Working branch', type: 'text', default: 'dev', max: 200 },
+  { key: 'review_paths', label: 'Paths that need review', type: 'regex' },
+  { key: 'merge_on_green', label: 'May merge on green', type: 'boolean', default: false },
+  { key: 'every_hours', label: 'Check every', type: 'number', min: 1, max: 168, default: 6 },
+  { key: 'notes', label: 'Notes', type: 'textarea' },
+  { key: 'day', label: 'Day', type: 'select', options: ['mon', 'tue', 'wed'] },
+];
+{
+  const controls = builderSettings.map((f) => controlFor(f));
+  check('each field type picks its control', controls.join() === 'url,text,regex,toggle,number,textarea,select', controls);
+  const many: SettingsField = { key: 'tz', label: 'Zone', type: 'select', options: Array.from({ length: SELECT_SEARCH_AFTER + 1 }, (_, i) => `z${i}`) };
+  check('a long select takes a search', controlFor(many) === 'search-select');
+  check('an unknown type from a newer template reads as text', controlFor({ type: 'colour' as SettingsField['type'] }) === 'text');
+  const defaults = settingsDefaults(builderSettings);
+  check('defaults come from the template, a toggle starts off', defaults.working_branch === 'dev' && defaults.merge_on_green === false && defaults.every_hours === 6 && !('repo_url' in defaults), defaults);
+
+  const missing = validateSettings(builderSettings, defaults);
+  check('a required field left empty is named', Object.keys(missing).join() === 'repo_url', missing);
+  const bad = validateSettings(builderSettings, { ...defaults, repo_url: 'not a link', review_paths: '([', every_hours: 500, day: 'sun', ghost: 'x' });
+  check('a bad link, pattern, number, choice and unknown key are each named',
+    ['repo_url', 'review_paths', 'every_hours', 'day', 'ghost'].every((k) => k in bad), bad);
+  const good = validateSettings(builderSettings, { ...defaults, repo_url: 'https://github.com/acme/site', review_paths: '^migrations/', day: 'tue', notes: '' });
+  check('valid settings pass, and an empty optional value is fine', Object.keys(good).length === 0, good);
+  check('a template with no settings refuses any value', 'x' in validateSettings([], { x: 1 }) && Object.keys(validateSettings([], {})).length === 0);
+  check('the summary counts what is set', settingsSummary(builderSettings, { repo_url: 'https://a.b', merge_on_green: false }) === '1 of 7 set'
+    && settingsSummary([], {}) === 'No settings' && settingsSummary(builderSettings, {}) === 'Default settings');
+}
+
+// ── Hire steps ────────────────────────────────────────────────────────
+const builder: AgentTemplateView = {
+  key: 'builder', label: 'Builder', description: 'Works assigned tasks.', role: 'builder',
+  rules: { agent_self_assign: false, agent_close_policy: 'review', agent_create_policy: 'live' },
+  scopes: ['tasks.read', 'tasks.manage_assigned', 'api_keys.manage_all'],
+  settings: builderSettings,
+};
+{
+  const grantable = ['tasks.read', 'tasks.manage_assigned', 'projects.read'];
+  let draft = emptyHireDraft(ME);
+  check('a new hire is owned by who hires it', draft.ownerIds.join() === ME);
+  check('the template step needs a choice', 'template' in validateHireStep('template', draft, null, grantable));
+  draft = setDraftProjects(draft, ['p1'], []);
+  draft = applyTemplate(draft, builder, grantable);
+  check('a template presets role, rules and only the scopes the hirer may grant',
+    draft.role === 'builder' && draft.rules.agent_close_policy === 'review' && draft.scopes.join() === 'tasks.read,tasks.manage_assigned', draft);
+  check('a template gives picked projects its default settings', draft.projects.p1.settings.working_branch === 'dev', draft.projects);
+  check('starting blank clears presets', applyTemplate(draft, null, grantable).scopes.length === 0 && applyTemplate(draft, null, grantable).templateKey === '');
+
+  check('identity needs a name', 'name' in validateHireStep('identity', draft, builder, grantable));
+  check('a role must be plain words', 'role' in validateHireStep('identity', { ...draft, name: 'Nova', role: 'Builder!!' }, builder, grantable));
+  check('a picture must be an https link', 'avatarUrl' in validateHireStep('identity', { ...draft, name: 'Nova', avatarUrl: 'http://x/a.png' }, builder, grantable));
+  draft = { ...draft, name: 'Nova' };
+  check('a named agent passes identity', Object.keys(validateHireStep('identity', draft, builder, grantable)).length === 0);
+
+  const projectErrors = validateHireStep('projects', draft, builder, grantable);
+  check('each project\'s settings are checked, keyed by project and field', Object.keys(projectErrors).join() === 'project:p1:repo_url', projectErrors);
+  draft = { ...draft, projects: { p1: { ...draft.projects.p1, settings: { ...draft.projects.p1.settings, repo_url: 'https://github.com/acme/site' } } } };
+  check('filled settings pass the projects step', Object.keys(validateHireStep('projects', draft, builder, grantable)).length === 0);
+  const keeps = setDraftProjects({ ...draft, projects: { p1: { ...draft.projects.p1, instructions: 'Only the API' } } }, ['p1', 'p2'], builderSettings);
+  check('adding a project keeps what was typed for the others', keeps.projects.p1.instructions === 'Only the API' && keeps.projects.p2.settings.working_branch === 'dev', keeps.projects);
+
+  check('a key with no powers is refused', 'scopes' in validateHireStep('powers', { ...draft, scopes: [] }, builder, grantable));
+  check('no key, no powers needed', Object.keys(validateHireStep('powers', { ...draft, scopes: [], createKey: false }, builder, grantable)).length === 0);
+  check('a power the hirer cannot grant is refused', 'scopes' in validateHireStep('powers', { ...draft, scopes: ['api_keys.manage_all'] }, builder, grantable));
+  check('the first broken step before connect is found', firstInvalidHireStep({ ...draft, name: '' }, builder, grantable, 'connect') === 'identity');
+  check('a complete draft has no broken step', firstInvalidHireStep(draft, builder, grantable, 'connect') === null);
+
+  const body = hireRequestFrom({ ...draft, role: ' Code Reviewer ', projects: { p1: { settings: { ...draft.projects.p1.settings, notes: '' }, instructions: '  ship small  ' } } });
+  check('the hire body sends the role as the server stores it, trimmed instructions and no empty settings',
+    body.agent_role === 'code-reviewer' && body.project_settings.p1.instructions === 'ship small' && !('notes' in body.project_settings.p1.settings) && body.owner_ids?.join() === ME, body);
+}
+
+// ── Powers ────────────────────────────────────────────────────────────
+{
+  const groups = scopeGroups(['tasks.read', 'meetings.write', 'fleet_alerts.write', 'api_keys.manage_all', 'smtp.manage']);
+  const keys = groups.flatMap((g) => g.scopes.map((s) => s.key));
+  check('powers list only grantable API scopes, never a host or meeting key', keys.includes('tasks.read') && !keys.includes('meetings.write') && !keys.includes('fleet_alerts.write') && !keys.includes('smtp.manage'), keys);
+  check('a key that makes keys is marked sensitive', groups.flatMap((g) => g.scopes).find((s) => s.key === 'api_keys.manage_all')?.sensitive === true);
+  check('empty groups are left out', groups.every((g) => g.scopes.length > 0));
+}
+
+// ── Roles ─────────────────────────────────────────────────────────────
+{
+  check('roles normalize to the server shape', normalizeRole('  Code Reviewer ') === 'code-reviewer' && normalizeRole('builder') === 'builder' && normalizeRole('') === null && normalizeRole('!!') === null);
+  check('a role reads as words', roleLabel('code-reviewer') === 'Code reviewer');
+  check('an empty role is fine, junk is not', roleError('') === null && roleError('builder') === null && !!roleError('$$$'));
+  const suggestions = roleSuggestions('re', ['reviewer', 'researcher', 'builder', 'orchestrator'], 'release-manager');
+  check('suggestions match what is typed, prefix first, template role included', suggestions.join() === 'release-manager,researcher,reviewer', suggestions);
+  check('nothing typed suggests every role', roleSuggestions('', ['b', 'a'], null).join() === 'a,b');
+}
+
+// ── Avatars and presence ──────────────────────────────────────────────
+{
+  const tones = Array.from({ length: 400 }, (_, i) => avatarTone(`agent-${i}`));
+  check('a tone is always one of the tokens', tones.every((t) => t >= 1 && t <= AVATAR_TONE_COUNT));
+  check('the same agent always wears the same tone', avatarTone('agent-7') === avatarTone('agent-7'));
+  const counts = Array.from({ length: AVATAR_TONE_COUNT }, (_, i) => tones.filter((t) => t === i + 1).length);
+  check('with many agents, tones repeat evenly (no tone under a third of its share)', counts.every((c) => c > 400 / AVATAR_TONE_COUNT / 3), counts);
+  check('initials read first and last', initialsOf('Ada Lovelace King') === 'AK' && initialsOf('nova') === 'NO' && initialsOf('  ') === '?');
+  check('presence follows the mood, suspended wins', presenceOf('working', false) === 'working' && presenceOf('celebrating', false) === 'shipped' && presenceOf('working', true) === 'suspended' && presenceOf(null, false) === 'idle');
+}
+
+// ── Roster at scale ───────────────────────────────────────────────────
+function agent(i: number, fields: Partial<RosterFacts> = {}): RosterFacts {
+  return {
+    id: `a${String(i).padStart(3, '0')}`,
+    name: `Agent ${String(i).padStart(3, '0')}`,
+    title: null,
+    role: ['builder', 'reviewer', 'orchestrator', null][i % 4],
+    templateKey: i % 2 ? 'builder' : 'inbox-triage',
+    ownerIds: i % 10 === 0 ? [] : i % 3 === 0 ? [ME, MATE] : [MATE],
+    projectIds: [`p${i % 5}`],
+    presence: (['working', 'idle', 'blocked', 'idle', 'suspended'] as const)[i % 5],
+    lastSeenAt: 1_000_000 + i,
+    currentRunTitle: i === 42 ? 'Fix the checkout' : null,
+    ...fields,
+  };
+}
+{
+  const roster = Array.from({ length: 120 }, (_, i) => agent(i));
+  check('search finds by name, role or current run', filterRoster(roster, { ...NO_ROSTER_FILTERS, q: 'checkout' }, ME).map((e) => e.id).join() === 'a042'
+    && filterRoster(roster, { ...NO_ROSTER_FILTERS, q: 'orchestr' }, ME).length === 30);
+  check('status filters group presences', filterRoster(roster, { ...NO_ROSTER_FILTERS, presence: 'attention' }, ME).every((e) => e.presence === 'blocked')
+    && filterRoster(roster, { ...NO_ROSTER_FILTERS, presence: 'off' }, ME).every((e) => e.presence === 'suspended'));
+  const mine = filterRoster(roster, { ...NO_ROSTER_FILTERS, owner: 'me' }, ME);
+  check('"me" means the viewer\'s own agents', mine.length > 0 && mine.every((e) => e.ownerIds.includes(ME)), mine.length);
+  check('filters combine', filterRoster(roster, { ...NO_ROSTER_FILTERS, role: 'builder', templateKey: 'inbox-triage', projectId: 'p0' }, ME)
+    .every((e) => e.role === 'builder' && e.templateKey === 'inbox-triage' && e.projectIds.includes('p0')));
+  const byStatus = sortRoster(roster, 'status');
+  check('status sort puts blocked first and suspended last', byStatus[0].presence === 'blocked' && byStatus[byStatus.length - 1].presence === 'suspended');
+  check('name sort is alphabetical', sortRoster(roster, 'name')[0].name === 'Agent 000');
+  check('recent sort is newest first', sortRoster(roster, 'recent')[0].id === 'a119');
+
+  const byRole = groupRoster(roster, 'role');
+  check('groups by role, with no role last', byRole[byRole.length - 1].label === 'No role' && byRole.reduce((n, g) => n + g.items.length, 0) === 120, byRole.map((g) => g.label));
+  const byOwner = groupRoster(roster, 'owner', { owners: new Map([[ME, 'Me'], [MATE, 'Mate']]) });
+  check('an agent with two owners shows under each; none falls to Workspace Owners',
+    byOwner.find((g) => g.key === ME)!.items.length === 36 && byOwner[byOwner.length - 1].label === 'Workspace Owners', byOwner.map((g) => `${g.label}:${g.items.length}`));
+  check('the roster opens on My agents when the viewer owns any', defaultOwnerFilter(roster, ME) === 'me' && defaultOwnerFilter(roster, 'stranger') === null);
+  const facets = facetCounts(roster.map((e) => e.role));
+  check('role choices come from the data, most used first', facets.length === 3 && facets[0].count === 30 && !facets.some((f) => f.value === null), facets);
+}
+
+// ── Needs you at scale ────────────────────────────────────────────────
+{
+  const entries: NeedsYouEntry[] = [
+    { id: 'q1', kind: 'question', agentId: 'a1', at: '2026-11-20T10:00:00Z' },
+    { id: 'ap1', kind: 'approval', agentId: 'a2', at: '2026-11-21T10:00:00Z' },
+    { id: 's1', kind: 'suggestion', agentId: 'a1', at: '2026-11-22T10:00:00Z' },
+    { id: 'm1', kind: 'merge', agentId: 'a3', at: '2026-11-19T10:00:00Z' },
+    { id: 'b1', kind: 'blocked', agentId: null, at: '2026-11-23T10:00:00Z' },
+  ];
+  const byKind = groupNeedsYou(entries, 'kind');
+  check('by kind: approvals, questions, blocked, merges, then suggestions', byKind.map((g) => g.key).join() === 'approval,question,blocked,merge,suggestion', byKind.map((g) => g.key));
+  const mineFirst = groupNeedsYou(entries, 'kind', { ownedAgentIds: new Set(['a1']) });
+  check('items from your agents lead as "Your agents", newest first, and leave the other groups',
+    mineFirst[0].label === 'Your agents' && mineFirst[0].items.map((e) => e.id).join() === 's1,q1' && !mineFirst.some((g) => g.key === 'question'), mineFirst.map((g) => g.key));
+  check('counts still add up to every item', mineFirst.reduce((n, g) => n + g.items.length, 0) === entries.length);
+  const byAgent = groupNeedsYou(entries, 'agent', { ownedAgentIds: new Set(['a3']), agentNames: new Map([['a1', 'Nova'], ['a2', 'Orion'], ['a3', 'Vega']]) });
+  check('by agent: your agents first, then the busiest, unnamed last',
+    byAgent[0].label === 'Vega' && byAgent[1].label === 'Nova' && byAgent[byAgent.length - 1].label === 'No agent named', byAgent.map((g) => g.label));
+  const many = Array.from({ length: NEEDS_YOU_GROUP_BY_AGENT_AFTER + 1 }, (_, i) => ({ id: `x${i}`, kind: 'question' as const, agentId: `a${i % 6}`, at: '2026-11-20T00:00:00Z' }));
+  check('a long inbox from many agents groups by agent; a short one by kind', defaultNeedsYouGrouping(many) === 'agent' && defaultNeedsYouGrouping(entries) === 'kind');
+  check('many items from one agent stay by kind', defaultNeedsYouGrouping(many.map((e) => ({ ...e, agentId: 'a1' }))) === 'kind');
+}
+
+// ── Brief ─────────────────────────────────────────────────────────────
+{
+  const now = Date.parse('2026-11-24T12:00:00Z');
+  const ago = (days: number) => new Date(now - days * 86_400_000).toISOString();
+  check('freshness reads in plain words', freshnessLabel(ago(0), now) === 'Updated today' && freshnessLabel(ago(1), now) === 'Updated yesterday'
+    && freshnessLabel(ago(3), now) === 'Updated 3 days ago' && freshnessLabel(ago(21), now) === 'Updated 3 weeks ago' && freshnessLabel(ago(120), now) === 'Updated 4 months ago');
+  check('an entry over 90 days old may be out of date', isStale(ago(91), now) && !isStale(ago(30), now));
+  const ordered = orderBriefEntries([
+    { id: 'old', pinned: false, updated_at: ago(10) },
+    { id: 'new', pinned: false, updated_at: ago(1) },
+    { id: 'pin', pinned: true, updated_at: ago(50) },
+  ]);
+  check('pinned first, then newest', ordered.map((e) => e.id).join() === 'pin,new,old', ordered.map((e) => e.id));
+}
+
+// ── Project basics ────────────────────────────────────────────────────
+{
+  const rights = { manageBilling: false, manageMembers: true, manageContacts: true, manageAgents: false, timeOn: true };
+  const blank = emptyProjectBasics(ME);
+  const errors = validateProjectBasics(blank, { creating: true, rights });
+  check('a new project needs a name and, for who manages contacts, a client', 'name' in errors && 'clientId' in errors, errors);
+  check('editing does not ask for a client again', !('clientId' in validateProjectBasics({ ...blank, name: 'X' }, { creating: false, rights })));
+  check('a due date before the start is refused', 'dueDate' in validateProjectBasics({ ...blank, name: 'X', clientId: 'c', startDate: '2026-12-10', dueDate: '2026-12-01' }, { creating: true, rights }));
+  const payload = projectPayload({ ...blank, name: '  Site  ', budgetType: 'hours', budgetValue: '40' }, rights, null, ME);
+  check('the payload trims and leaves out billing without the billing right', payload.name === 'Site' && !Object.keys(payload).includes('budget_value') && payload.member_ids.join() === ME, payload);
+  const billing = projectPayload({ ...blank, name: 'Site', budgetType: 'hours', budgetValue: '40' }, { ...rights, manageBilling: true }, null, ME);
+  check('with the billing right, the budget is a number', billing.budget_value === 40 && billing.budget_type === 'hours');
+  const noMembers = projectPayload({ ...blank, name: 'Site', memberIds: [MATE] }, { ...rights, manageMembers: false }, null, ME);
+  check('without member rights, a new project holds only its creator', noMembers.member_ids.join() === ME);
+  const update = projectUpdatePayload(noMembers, { manageMembers: false, timeOn: false });
+  check('an update leaves out members and time without the rights', !Object.keys(update).includes('member_ids') && !Object.keys(update).includes('time_tracking_enabled'));
+}
+
+// ── Responses ─────────────────────────────────────────────────────────
+{
+  const key = { id: 'k1', name: 'Nova key', prefix: 'pm_ab', scopes: ['tasks.read'], secret: 'pm_ab_secret' };
+  check('a key call’s { key } answer gives the key with its secret', newKeyFrom({ key }).secret === 'pm_ab_secret');
+  check('a hire’s bare key reads the same', newKeyFrom(key).id === 'k1');
+  let refused = false;
+  try { newKeyFrom({ key: { ...key, secret: undefined } }); } catch (error) { refused = error instanceof WorkspaceApiError; }
+  check('a key without its secret is refused, never shown as an empty box', refused);
+  let refusedEmpty = false;
+  try { newKeyFrom({ data: key }); } catch { refusedEmpty = true; }
+  check('a still-wrapped answer is refused rather than read wrong', refusedEmpty);
+}
+
+// ── Putting an agent on a project ─────────────────────────────────────
+{
+  const onIt = { member_ids: ['agent-1', ME] };
+  const notOnIt = { member_ids: [ME] };
+  const plain = { isOwner: false, manageMembers: false };
+  check('an Owner may put any agent on any project', canAddAgentToProject({ isOwner: true, manageMembers: false }, notOnIt, 'agent-1'));
+  check('a member manager may too', canAddAgentToProject({ isOwner: false, manageMembers: true }, notOnIt, 'agent-1'));
+  check('an agent’s owner may only where the agent is already a member',
+    canAddAgentToProject(plain, onIt, 'agent-1') && !canAddAgentToProject(plain, notOnIt, 'agent-1'));
+  check('a project with no member list grants nothing on its own', !canAddAgentToProject(plain, {}, 'agent-1'));
+}
+
+// ── Labels the browser check flagged ──────────────────────────────────
+{
+  check('show more names the rest when it is all that is left', showMoreLabel(5, 5) === 'Show 5 more' && showMoreLabel(3, 24) === 'Show 3 more');
+  check('show more says how many are left past one page', showMoreLabel(76, 24) === 'Show 24 more, 76 left');
+  check('show more counts what is still on the server', showMoreLabel(4, 12, 54) === 'Show 4 more, 54 left');
+
+  check('projects read as access, with how many are set up', projectsLine(4, false, 2) === 'On 4 projects, 2 set up'
+    && projectsLine(1, false, null) === 'On 1 project' && projectsLine(50, true, 0) === 'On 50+ projects' && projectsLine(0, false, null) === 'No projects');
+
+  const many = Array.from({ length: 50 }, (_, i) => `p${i}`);
+  const fromAccess = rosterProjects({ access_project_ids: many, access_total: 73, project_ids: ['p1'] }, ['p9']);
+  check('access ids and total win over assignments and the app\u2019s members', fromAccess.count === 73 && !fromAccess.capped && fromAccess.ids.length === 50, fromAccess);
+  check('a full access list with no total reads as capped', rosterProjects({ access_project_ids: many }, undefined).capped);
+  check('an older server falls back to the members the app holds', rosterProjects({ project_ids: ['a1'] }, ['p1', 'p2']).count === 2);
+  check('then to the assignment ids', rosterProjects({ project_ids: ['p1'] }, []).ids.join() === 'p1' && rosterProjects(undefined, undefined).count === 0);
+  check('the roster line reads the total and the set-up count', projectsLine(fromAccess.count, fromAccess.capped, 2) === 'On 73 projects, 2 set up');
+
+  const turn = { source: 'turn' as const, title: 'Ran 3m 11s (scheduled)', summary: null, trigger: 'scheduled', outcome: null };
+  check('a turn named only by its length reads as its trigger', runTitle(turn) === 'Scheduled check', runTitle(turn));
+  check('a turn with an outcome says it', runTitle({ ...turn, outcome: 'idle' }) === 'Scheduled check: nothing to do', runTitle({ ...turn, outcome: 'idle' }));
+  check('a turn that wrote a summary reads as its first line', runTitle({ ...turn, summary: 'Merged the checkout fix\nDetails follow' }) === 'Merged the checkout fix');
+  check('a generated summary is skipped too', runTitle({ ...turn, summary: 'Ran 2m (assigned)', trigger: 'assigned' }) === 'Assigned work');
+  check('a stored run keeps its own title', runTitle({ ...turn, source: 'run', title: 'Ship the brief tab' }) === 'Ship the brief tab'
+    && runTitle({ ...turn, source: 'run', title: null }) === 'Untitled run');
+  check('an unknown trigger reads in Title Case', triggerLabel('nightly_audit') === 'Nightly Audit' && triggerLabel(null) === 'Agent turn');
+}
+
+// ── Run pills and brief clamp (round 2) ───────────────────────────────
+{
+  const turn = (outcome: string | null) => ({ source: 'turn' as const, status: 'succeeded' as const, outcome });
+  check('a blocked turn reads Blocked, warning', runPill(turn('blocked')).label === 'Blocked' && runPill(turn('blocked')).tone === 'warning');
+  check('a failed or erroring turn reads Failed', runPill(turn('failed')).label === 'Failed' && runPill(turn('error')).tone === 'danger');
+  check('an idle, skipped or waiting turn reads No work, neutral',
+    ['idle', 'skipped', 'waiting', 'no_work'].every((o) => runPill(turn(o)).label === 'No work' && runPill(turn(o)).tone === 'default'));
+  check('a turn that worked reads Done', runPill(turn('work')).label === 'Done' && runPill(turn('ok')).label === 'Done' && runPill(turn(null)).label === 'Done');
+  check('a stored run keeps its real status', runPill({ source: 'run', status: 'failed', outcome: 'work' }).label === 'Failed'
+    && runPill({ source: 'run', status: 'timed_out', outcome: null }).tone === 'warning');
+  check('anything running reads Running', runPill({ source: 'turn', status: 'running', outcome: 'idle' }).running);
+
+  check('a short entry is not clamped', !needsClamp('One rule.\nAnother rule.'));
+  check('more than eight lines is clamped', needsClamp(Array.from({ length: 9 }, (_, i) => `line ${i}`).join('\n')));
+  check('one long run of text is clamped', needsClamp('x'.repeat(700)));
+}
+
+if (failures.length) {
+  console.error(`agents-ui: ${failures.length} failed, ${passed} passed`);
+  for (const f of failures) console.error(`  FAIL ${f}`);
+  process.exit(1);
+}
+console.log(`agents-ui: ${passed} checks passed`);

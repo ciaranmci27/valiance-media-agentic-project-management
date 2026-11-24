@@ -3,7 +3,7 @@ import { success, created } from '@/lib/api/response';
 import { createProjectContextSchema } from '@/lib/schemas';
 import { notFound } from '@/lib/api/errors';
 import { logAudit } from '@/lib/api/audit';
-import { readProjectContext } from '@/lib/api/project-context';
+import { legacyContextRow, PROJECT_CONTEXT_COLUMNS, readProjectContext } from '@/lib/api/project-context';
 
 export const GET = withApi(async ({ supabase, params, searchParams }) => {
   const projectId = (params as any).id;
@@ -17,9 +17,14 @@ export const GET = withApi(async ({ supabase, params, searchParams }) => {
     .maybeSingle();
   if (!project) throw notFound('Project');
 
-  // is_active defaults to true; since filters by updated_at.
+  // is_active defaults to true; since filters by updated_at; section and
+  // pinned (the brief's) narrow further. The answer's columns are always the
+  // same nine (PROJECT_CONTEXT_COLUMNS).
+  const pinned = searchParams.get('pinned');
   const data = await readProjectContext(supabase, projectId, {
     category: searchParams.get('category'),
+    section: searchParams.get('section'),
+    pinned: pinned === 'true' ? true : pinned === 'false' ? false : null,
     isActive: searchParams.get('is_active') !== 'false',
     since: searchParams.get('since'),
   });
@@ -44,7 +49,7 @@ export const POST = withApi(async ({ supabase, params, body, apiKeyId, teamMembe
   if (payload.category === 'existing_work' && payload.file_path) {
     const { data: existing } = await supabase
       .from('project_context')
-      .select('*')
+      .select(PROJECT_CONTEXT_COLUMNS)
       .eq('project_id', projectId)
       .eq('file_path', payload.file_path)
       .eq('is_active', true)
@@ -53,12 +58,14 @@ export const POST = withApi(async ({ supabase, params, body, apiKeyId, teamMembe
     if (existing) {
       const updates: Record<string, any> = { content: payload.content };
       if (payload.source !== undefined) updates.source = payload.source;
+      if (payload.section !== undefined) updates.section = payload.section;
+      if (payload.pinned !== undefined) updates.pinned = payload.pinned;
 
       const { data: updated, error } = await supabase
         .from('project_context')
         .update(updates)
         .eq('id', existing.id)
-        .select()
+        .select(PROJECT_CONTEXT_COLUMNS)
         .single();
 
       if (error) throw error;
@@ -76,7 +83,7 @@ export const POST = withApi(async ({ supabase, params, body, apiKeyId, teamMembe
         statusCode: 200,
       });
 
-      return success(updated);
+      return success(legacyContextRow(updated));
     }
   }
 
@@ -89,8 +96,10 @@ export const POST = withApi(async ({ supabase, params, body, apiKeyId, teamMembe
       content: payload.content,
       source: payload.source || 'human',
       file_path: payload.file_path || null,
+      ...(payload.section !== undefined ? { section: payload.section } : {}),
+      ...(payload.pinned !== undefined ? { pinned: payload.pinned } : {}),
     })
-    .select()
+    .select(PROJECT_CONTEXT_COLUMNS)
     .single();
 
   if (error) throw error;
@@ -107,5 +116,5 @@ export const POST = withApi(async ({ supabase, params, body, apiKeyId, teamMembe
     statusCode: 201,
   });
 
-  return created(entry);
+  return created(legacyContextRow(entry));
 }, { schema: createProjectContextSchema });

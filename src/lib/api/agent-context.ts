@@ -17,6 +17,11 @@ import { toolsFor } from '@/lib/mcp/visibility';
 import { accessAllowsProject, apiKeyAllows, resolveMemberAccess, resolveProjectAccessLevels, type ProjectAccessLevel } from './access';
 import { escalationTarget } from './agent-rules';
 import { agentProjects, memberApiKeys, type Granter } from './agent-setup';
+import { ownersOf } from './agent-owners';
+import { pinnedEntries } from './project-brief';
+import { readAll } from './read-all';
+import { PROJECT_AGENT_COLUMNS } from './project-agents';
+import type { AgentOwner, SettingsValues } from '@/lib/project-agents';
 import { badRequest, forbidden, notFound } from './errors';
 import { listWebhookEndpoints } from './webhook-endpoints';
 
@@ -28,14 +33,18 @@ import { listWebhookEndpoints } from './webhook-endpoints';
  * as JSON or as a Markdown AGENTS.md or SKILL.md file a harness can drop into
  * its repo.
  *
- * It holds: who the member is, its key's scopes in plain words, its rules,
- * the projects it reaches, the MCP tools that key sees, the house conventions
- * (only for tools it can use), its health reporting, its webhooks, and the
- * brief of the template it was set up from. Names come from the database
+ * It holds: who the member is (with its role label and owners), its key's
+ * scopes in plain words, its rules, the projects it reaches, its project
+ * assignments (settings, instructions and each project's pinned brief
+ * entries; the rest of a brief is found with search_project_context), the
+ * MCP tools that key sees, the house conventions (only for tools it can
+ * use), its health reporting, its webhooks, and the brief of the template it
+ * was set up from. Names come from the database
  * (the workspace brand and members), never from code.
  *
  * Bounded: lists stop at PACK_LIMITS, and a pack still over PACK_LIMITS.total
- * drops its tool leads, then most projects (named in cut_to_fit).
+ * drops its tool leads, then pinned entries, then shortens instructions, then
+ * most assignments and projects (named in cut_to_fit).
  *
  * Who reads what, the same rules as get_agent_setup: the viewer sees only
  * projects it reaches by name (others are counted in hidden_count, or shown
@@ -54,11 +63,26 @@ export const PACK_LIMITS = {
   webhooks: 20,
   /** Filter projects named per webhook; the rest are counted in more_projects. */
   webhookProjects: 10,
+  /** Project assignments listed; the rest are counted in more. */
+  assignments: 50,
+  /** Assignments kept when a pack is cut to fit. */
+  assignmentsFloor: 10,
+  /** Characters of one assignment's instructions. */
+  instructions: 1500,
+  /** Instructions when a pack is cut to fit. */
+  instructionsFloor: 300,
+  /** Pinned brief entries per project, and in all. */
+  pinnedPerProject: 5,
+  pinnedTotal: 30,
+  /** Characters of one pinned entry. */
+  pinnedEntry: 500,
   /** The whole pack, serialized. */
   total: 24_000,
 } as const;
 
 export const AGENT_IMPORT_ENDPOINT = '/api/v1/agents/import';
+/** Hiring an agent from the screens (POST /api/workspace/agents) records its template here too. */
+export const AGENT_HIRE_ENDPOINT = '/api/workspace/agents';
 export const agentTemplateEndpoint = (agentId: string) => `/api/v1/agents/${agentId}/template`;
 
 /** Whose key the pack describes: the calling key, one of the agent's, or what it holds when it has none. */
@@ -75,7 +99,19 @@ export interface ContextPack {
   version: 1;
   generated_at: string;
   workspace: string;
-  member: { id: string; name: string; title: string | null; role: string; is_agent: boolean; profile: AgentProfile };
+  member: {
+    id: string;
+    name: string;
+    title: string | null;
+    role: string;
+    is_agent: boolean;
+    profile: AgentProfile;
+    /** The agent's role label for people (builder); it drives no behaviour. */
+    agent_role: string | null;
+    description: string | null;
+  };
+  /** The people responsible for it; [] reads as the workspace Owners. */
+  owners: AgentOwner[] | null;
   key: { id: string | null; name: string | null; read_only: boolean; source: PackKey['source']; note?: string } | null;
   scopes: { scope: string; label: string; says: string }[] | null;
   /** Scopes on the key that the member does not hold, so they do nothing. */
@@ -88,6 +124,12 @@ export interface ContextPack {
     says: string[];
   } | null;
   projects: { access: ProjectAccessLevel; list: { id: string; name: string; status: string }[]; more: number; hidden_count: number };
+  /** Its assignments (pm.project_agents) on projects the viewer reaches, with each project's pinned brief entries. */
+  assignments: {
+    list: PackAssignment[];
+    more: number;
+    hidden_count: number;
+  } | null;
   tools: { name: string; lead: string }[] | null;
   conventions: string[];
   health: { publisher_reports: boolean; expected_interval_seconds: number | null } | null;
@@ -102,6 +144,17 @@ export interface ContextPack {
   template: { key: string; label: string; context: string } | null;
   omitted: { part: string; needs: string }[];
   cut_to_fit?: string[];
+}
+
+export interface PackAssignment {
+  project: { id: string; name: string };
+  status: string;
+  template_key: string | null;
+  settings: SettingsValues;
+  instructions: string;
+  instructions_truncated?: boolean;
+  pinned: { id: string; section: string; content: string; content_truncated?: boolean }[];
+  more_pinned?: number;
 }
 
 const SCOPE_WORDS = new Map<string, { label: string; description: string }>(
@@ -122,7 +175,7 @@ export async function appliedTemplateKey(service: SupabaseClient, memberId: stri
     .select('request_body')
     .eq('entity_type', 'team_member')
     .eq('entity_id', memberId)
-    .in('endpoint', [agentTemplateEndpoint(memberId), AGENT_IMPORT_ENDPOINT])
+    .in('endpoint', [agentTemplateEndpoint(memberId), AGENT_IMPORT_ENDPOINT, AGENT_HIRE_ENDPOINT])
     .lt('status_code', 300)
     .order('timestamp', { ascending: false })
     .limit(20);
@@ -132,6 +185,84 @@ export async function appliedTemplateKey(service: SupabaseClient, memberId: stri
     if (typeof key === 'string' && key) return key;
   }
   return null;
+}
+
+/** Agents per read of appliedTemplateKeys, so the request stays a short URL however many are asked for. */
+const TEMPLATE_KEYS_CHUNK = 100;
+
+/**
+ * appliedTemplateKey for many agents: the newest template each was set up
+ * from, reading TEMPLATE_KEYS_CHUNK agents at a time, and only the audit
+ * rows that name a template. An agent with none is absent from the map. A
+ * read that fails is logged, and the map holds what the other reads found.
+ */
+export async function appliedTemplateKeys(service: SupabaseClient, memberIds: string[]): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  const ids = [...new Set(memberIds)];
+  for (let i = 0; i < ids.length; i += TEMPLATE_KEYS_CHUNK) {
+    const chunk = ids.slice(i, i + TEMPLATE_KEYS_CHUNK);
+    let rows: { entity_id: string; request_body: Row | null }[];
+    try {
+      rows = await readAll((from, to) => service
+        .from('api_audit_log')
+        .select('id, entity_id, request_body, timestamp')
+        .eq('entity_type', 'team_member')
+        .in('entity_id', chunk)
+        .or(`endpoint.like.${agentTemplateEndpoint('*')},endpoint.eq.${AGENT_IMPORT_ENDPOINT},endpoint.eq.${AGENT_HIRE_ENDPOINT}`)
+        .not('request_body->>template', 'is', null)
+        .lt('status_code', 300)
+        .order('timestamp', { ascending: false })
+        .order('id')
+        .range(from, to), { max: chunk.length * 50 });
+    } catch (error) {
+      console.error('[agents] reading the templates agents were set up from failed', error);
+      continue;
+    }
+    for (const row of rows) {
+      const key = row.request_body?.template;
+      if (!out.has(row.entity_id) && typeof key === 'string' && key) out.set(row.entity_id, key);
+    }
+  }
+  return out;
+}
+
+const cutText = (text: string, max: number) => (text.length > max ? { text: `${text.slice(0, max)}…`, truncated: true } : { text, truncated: false });
+
+/**
+ * An agent's assignments on projects the viewer reaches, newest first, each
+ * with its project's pinned brief entries, in three reads however many it
+ * has. Projects the viewer cannot reach are counted, never named.
+ */
+async function packAssignments(service: SupabaseClient, viewer: Granter, agentId: string): Promise<ContextPack['assignments']> {
+  const { data, error } = await service.from('project_agents').select(PROJECT_AGENT_COLUMNS).eq('agent_id', agentId)
+    .order('created_at', { ascending: false }).limit(PACK_LIMITS.assignments * 4);
+  // Before the agent workspaces update there are none.
+  if (error) return null;
+  const rows = (data ?? []) as Row[];
+  const names = await reachableProjectNames(service, viewer, rows.map((row) => row.project_id));
+  const visible = rows.filter((row) => names.has(row.project_id));
+  const listed = visible.slice(0, PACK_LIMITS.assignments);
+  const pinned = await pinnedEntries(service, listed.map((row) => row.project_id), PACK_LIMITS.pinnedPerProject, PACK_LIMITS.pinnedTotal);
+  return {
+    list: listed.map((row) => {
+      const instructions = cutText(row.instructions ?? '', PACK_LIMITS.instructions);
+      const entries = pinned.byProject.get(row.project_id) ?? [];
+      return {
+        project: { id: row.project_id, name: names.get(row.project_id) as string },
+        status: row.status,
+        template_key: row.template_key ?? null,
+        settings: (row.settings ?? {}) as SettingsValues,
+        instructions: instructions.text,
+        ...(instructions.truncated ? { instructions_truncated: true } : {}),
+        pinned: entries.map((entry) => {
+          const content = cutText(entry.content, PACK_LIMITS.pinnedEntry);
+          return { id: entry.id, section: entry.section, content: content.text, ...(content.truncated ? { content_truncated: true } : {}) };
+        }),
+      };
+    }),
+    more: Math.max(0, visible.length - listed.length),
+    hidden_count: rows.length - visible.length,
+  };
 }
 
 function rulesInWords(rules: AgentRules, escalateName: string | null): string[] {
@@ -197,6 +328,27 @@ function fitPack(pack: ContextPack): ContextPack {
   if (size() > PACK_LIMITS.total && pack.tools) {
     pack.tools = pack.tools.map(({ name }) => ({ name, lead: '' }));
     cut.push('tool_leads');
+  }
+  if (size() > PACK_LIMITS.total && pack.assignments?.list.some((item) => item.pinned.length > 0)) {
+    for (const item of pack.assignments.list) {
+      if (item.pinned.length) item.more_pinned = (item.more_pinned ?? 0) + item.pinned.length;
+      item.pinned = [];
+    }
+    cut.push('pinned_context');
+  }
+  if (size() > PACK_LIMITS.total && pack.assignments?.list.some((item) => item.instructions.length > PACK_LIMITS.instructionsFloor + 1)) {
+    for (const item of pack.assignments.list) {
+      if (item.instructions.length > PACK_LIMITS.instructionsFloor + 1) {
+        item.instructions = `${item.instructions.replace(/…$/, '').slice(0, PACK_LIMITS.instructionsFloor)}…`;
+        item.instructions_truncated = true;
+      }
+    }
+    cut.push('instructions');
+  }
+  if (size() > PACK_LIMITS.total && pack.assignments && pack.assignments.list.length > PACK_LIMITS.assignmentsFloor) {
+    pack.assignments.more += pack.assignments.list.length - PACK_LIMITS.assignmentsFloor;
+    pack.assignments.list = pack.assignments.list.slice(0, PACK_LIMITS.assignmentsFloor);
+    cut.push('assignments');
   }
   if (size() > PACK_LIMITS.total && pack.projects.list.length > PACK_LIMITS.projectsFloor) {
     pack.projects.more += pack.projects.list.length - PACK_LIMITS.projectsFloor;
@@ -295,7 +447,7 @@ export async function buildContextPack(
   const toolNames = new Set((tools ?? PM_TOOLS).map((tool) => tool.name));
 
   const rules = agentRulesOf(isAgent ? row : null);
-  const [escalateId, levels, projects, healthRow, templateKey, brand] = await Promise.all([
+  const [escalateId, levels, projects, healthRow, templateKey, brand, owners, assignments] = await Promise.all([
     isAgent ? escalationTarget(service, row.id) : Promise.resolve(null),
     resolveProjectAccessLevels(service, [{ id: row.id, role: row.role, status: row.status }]),
     agentProjects(service, viewer, row.id),
@@ -304,6 +456,8 @@ export async function buildContextPack(
       : Promise.resolve(null),
     appliedTemplateKey(service, row.id),
     getBrand(),
+    isAgent ? ownersOf(service, [row.id]).then((map) => map.get(row.id) ?? []) : Promise.resolve(null),
+    isAgent ? packAssignments(service, viewer, row.id) : Promise.resolve(null),
   ]);
   let escalateName: string | null = null;
   if (escalateId) {
@@ -346,7 +500,12 @@ export async function buildContextPack(
     version: 1,
     generated_at: new Date().toISOString(),
     workspace: brand.name,
-    member: { id: row.id, name: row.name, title: row.title ?? null, role: row.role, is_agent: isAgent, profile },
+    member: {
+      id: row.id, name: row.name, title: row.title ?? null, role: row.role, is_agent: isAgent, profile,
+      agent_role: isAgent ? row.agent_role ?? null : null,
+      description: row.description ?? null,
+    },
+    owners,
     key: key
       ? {
         id: key.id,
@@ -379,6 +538,7 @@ export async function buildContextPack(
       more: Math.max(0, projects.projects.length - PACK_LIMITS.projects),
       hidden_count: projects.hidden_count,
     },
+    assignments,
     tools: tools ? tools.map((tool) => ({ name: tool.name, lead: tool.lead })) : null,
     conventions: conventionsFor(toolNames, health, (tools ?? PM_TOOLS).some((tool) => tool.write && IDEMPOTENCY_KEY_ARGUMENT in tool.input.shape)),
     health,
@@ -407,6 +567,13 @@ export function renderContextPack(pack: ContextPack, as: 'agents' | 'skill' = 'a
   parts.push(`Generated from the ${pack.workspace} project management app on ${pack.generated_at}. It describes your setup as it was then: fetch it again (or call pm_guide) rather than editing it.`);
 
   const you = [`You act as ${pack.member.name}, a team member with the role ${pack.member.role}${pack.member.is_agent ? ` and the agent profile ${pack.member.profile}` : ''}. Everything you do is recorded under that name.`];
+  if (pack.member.agent_role) you.push(`Your role: ${pack.member.agent_role}.`);
+  if (pack.member.description) you.push(pack.member.description.replace(/\s+/g, ' ').trim());
+  if (pack.owners) {
+    you.push(pack.owners.length
+      ? `Your owners, the people responsible for you: ${pack.owners.map((owner) => owner.name).join(', ')}.`
+      : 'You have no named owner: the workspace Owners are responsible for you.');
+  }
   if (pack.key?.name) you.push(`Your key: ${pack.key.name}${pack.key.read_only ? ' (read-only: it refuses every write)' : ''}.`);
   if (pack.key?.note) you.push(pack.key.note);
   parts.push(`## Who you are\n\n${bullet(you)}`);
@@ -426,6 +593,23 @@ export function renderContextPack(pack: ContextPack, as: 'agents' | 'skill' = 'a
   if (pack.projects.more) projectLines.push(`And ${pack.projects.more} more.`);
   if (pack.projects.hidden_count) projectLines.push(`And ${pack.projects.hidden_count} the reader of this file cannot see.`);
   parts.push(`## Projects\n\n${reach}${projectLines.length ? `\n\n${bullet(projectLines)}` : ''}`);
+
+  if (pack.assignments && (pack.assignments.list.length || pack.assignments.more || pack.assignments.hidden_count)) {
+    const blocks = pack.assignments.list.map((item) => {
+      const lines: string[] = [`### ${item.project.name} (\`${item.project.id}\`)${item.status === 'paused' ? ': paused, do not start new work here' : ''}`];
+      const settings = Object.entries(item.settings);
+      if (item.template_key) lines.push(`Set up as: ${item.template_key}.`);
+      if (settings.length) lines.push(`Settings:\n${bullet(settings.map(([key, value]) => `${key}: ${String(value)}`))}`);
+      if (item.instructions.trim()) lines.push(`Instructions for this project:\n\n${item.instructions.trim()}`);
+      if (item.pinned.length) lines.push(`Pinned in its brief:\n${bullet(item.pinned.map((entry) => `(${entry.section}) ${entry.content.replace(/\s+/g, ' ').trim()}`))}`);
+      if (item.more_pinned) lines.push(`And ${item.more_pinned} more pinned entries: get_task_brief or search_project_context has them.`);
+      return lines.join('\n\n');
+    });
+    const tail: string[] = [];
+    if (pack.assignments.more) tail.push(`And ${pack.assignments.more} more assignments: list_my_projects has them all.`);
+    if (pack.assignments.hidden_count) tail.push(`And ${pack.assignments.hidden_count} on projects the reader of this file cannot see.`);
+    parts.push(`## Your projects\n\nWhat you do on each project you are assigned to. The rest of each project's brief is found with search_project_context.${blocks.length ? `\n\n${blocks.join('\n\n')}` : ''}${tail.length ? `\n\n${bullet(tail)}` : ''}`);
+  }
 
   parts.push(`## How we work here\n\n${bullet(pack.conventions)}`);
 

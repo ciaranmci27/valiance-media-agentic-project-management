@@ -1,93 +1,206 @@
 'use client';
 
-import { useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { Plus } from 'lucide-react';
 import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
+import { useDemo } from '@/lib/demo-context';
+import { hasPermission } from '@/lib/access-control';
+import { warmRead, warmReads } from '@/lib/query-cache';
+import { agentRolesRead, agentRunFeedRead, agentsListRead, agentTemplatesRead } from '@/lib/reads';
+import { useTaskUrlParam } from '@/lib/use-task-url';
+import { prefetchAgentAnalytics } from '@/lib/use-agent-analytics-events';
+import { defaultAgentAnalyticsRange } from '@/lib/agent-range';
+import { AGENT_RUN_STATUSES, type AgentRunStatus } from '@/lib/agent-runs';
+import {
+  AGENTS_TABS, AGENTS_TAB_LABELS, DEFAULT_AGENTS_TAB, NO_RUN_FILTERS, agentsTabFrom, type AgentsTab, type RunFeedFilters,
+} from '@/lib/agents-tab';
 import { Header } from '@/components/layout/Header';
-import { FleetStatusStrip } from '@/components/agent/FleetStatusStrip';
-import { ReviewQueue } from '@/components/agent/ReviewQueue';
-import { AutonomousProjects } from '@/components/agent/AutonomousProjects';
-import { ActivityTimeline } from '@/components/agent/ActivityTimeline';
-import { ApproveModal } from '@/components/agent/ApproveModal';
-import { EditSuggestionModal } from '@/components/agent/EditSuggestionModal';
-import { toast } from '@/components/ui/Toast';
+import { Button } from '@/components/ui/Button';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { ProjectTabs, projectPanelId, projectTabId, type ProjectTab } from '@/components/projects/ProjectTabs';
+import { TaskDetailPanel } from '@/components/tasks/TaskDetailPanel';
+import { NeedsYouView, useAgentNeedsYou } from '@/components/agent/NeedsYouView';
+import { AgentRoster } from '@/components/agent/AgentRoster';
+import { RunFeed } from '@/components/agent/runs/RunFeed';
+import { AgentUsage } from '@/components/agent/analytics/AgentUsage';
 
+/**
+ * Agents: one page, four views, each its own ?tab= so it can be linked to.
+ *
+ *  - Needs you (the bare URL): what agents are waiting on you for.
+ *  - Agents (?tab=agents): the roster, live; each agent opens its profile
+ *    (/agent/<id>). An old ?agent=<id> link goes to that profile.
+ *  - Runs (?tab=runs&agent=&status=&project=&page=): the run feed.
+ *  - Usage (?tab=usage): delivery, cost and revenue (was /agent/analytics).
+ *
+ * The agents module and agents.manage are checked by this segment's layout.
+ * The open task is the URL's ?task=, on every tab.
+ */
 export default function AgentPage() {
-  const {
-    taskSuggestions,
-    approveSuggestion, updateSuggestion,
-  } = useApp();
-  const { teamMemberId } = useAuth();
-  const [approveModalId, setApproveModalId] = useState<string | null>(null);
-  const [editModalId, setEditModalId] = useState<string | null>(null);
+  // useSearchParams (the open tab) needs a Suspense boundary on a static page.
+  return (
+    <Suspense fallback={null}>
+      <AgentsPage />
+    </Suspense>
+  );
+}
 
-  // The agents feature flag and `agents.manage` check live in this segment's
-  // layout, which covers every route under /agent rather than this page alone.
+const SUBTITLES: Record<AgentsTab, string> = {
+  'needs-you': 'Questions, approvals and agent work waiting on you.',
+  agents: 'Who is working, what they are on, and what they need next.',
+  runs: 'Every agent run, newest first.',
+  usage: 'Delivery, cost and revenue per agent. Only measured data; nothing is estimated.',
+};
+
+/** The query params each tab owns; switching tabs drops the others' (the open task stays). */
+const TAB_PARAMS: Record<AgentsTab, string[]> = {
+  'needs-you': [],
+  agents: [],
+  runs: ['agent', 'status', 'project', 'page'],
+  usage: [],
+};
+
+function runFiltersFrom(params: URLSearchParams): { filters: RunFeedFilters; page: number } {
+  const status = params.get('status');
+  const page = Number(params.get('page') ?? '1');
+  return {
+    filters: {
+      agentId: params.get('agent'),
+      status: status && (AGENT_RUN_STATUSES as readonly string[]).includes(status) ? status as AgentRunStatus : null,
+      projectId: params.get('project'),
+    },
+    // The URL counts pages from 1; the read from 0.
+    page: Number.isInteger(page) && page > 1 ? page - 1 : 0,
+  };
+}
+
+function AgentsPage() {
+  const { team, tasks, deleteTask } = useApp();
+  const { access, teamMemberId } = useAuth();
+  const { isDemoMode } = useDemo();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const active = agentsTabFrom(searchParams.get('tab'));
+  const needs = useAgentNeedsYou();
+  const { taskId: viewingTaskId, openTask, closeTask } = useTaskUrlParam();
+  const [deletingTaskId, setDeletingTaskId] = useState<string | null>(null);
+  const router = useRouter();
+
+  const canAddAgent = access?.role === 'owner' && hasPermission(access, 'team.manage') && !isDemoMode;
+  const agentCount = team.filter((m) => m.role === 'agent').length;
+  const timezone = team.find((m) => m.id === teamMemberId)?.timezone;
+
+  // Native pushState, which Next syncs into useSearchParams: a tab switch is
+  // instant and adds a history entry, with no server round trip.
+  // The roster used to open an agent beside the list (?tab=agents&agent=); that is the profile now.
+  const legacyAgent = active === 'agents' ? searchParams.get('agent') : null;
+  useEffect(() => {
+    if (legacyAgent) router.replace(`/agent/${encodeURIComponent(legacyAgent)}`);
+  }, [legacyAgent, router]);
+
+  const pushParams = useCallback((next: URLSearchParams) => {
+    const query = next.toString();
+    window.history.pushState(null, '', query ? `${pathname}?${query}` : pathname);
+  }, [pathname]);
+
+  const goTo = useCallback((tab: AgentsTab, params: Record<string, string | null> = {}) => {
+    const next = new URLSearchParams(searchParams.toString());
+    for (const key of new Set(Object.values(TAB_PARAMS).flat())) next.delete(key);
+    if (tab === DEFAULT_AGENTS_TAB) next.delete('tab');
+    else next.set('tab', tab);
+    for (const [key, value] of Object.entries(params)) if (value) next.set(key, value);
+    pushParams(next);
+  }, [searchParams, pushParams]);
+
+  const setParams = useCallback((params: Record<string, string | null>) => {
+    const next = new URLSearchParams(searchParams.toString());
+    for (const [key, value] of Object.entries(params)) {
+      if (value) next.set(key, value);
+      else next.delete(key);
+    }
+    pushParams(next);
+  }, [searchParams, pushParams]);
+
+  // The Runs filters live in the URL while Runs is open (agent is the
+  // Agents tab's selection otherwise); leaving the tab drops them.
+  const { filters: runFilters, page: runPage } = useMemo(
+    () => (active === 'runs' ? runFiltersFrom(searchParams) : { filters: NO_RUN_FILTERS, page: 0 }),
+    [active, searchParams],
+  );
+  const setRunFeed = useCallback((filters: RunFeedFilters, page: number) => setParams({
+    agent: filters.agentId,
+    status: filters.status,
+    project: filters.projectId,
+    page: page > 0 ? String(page + 1) : null,
+  }), [setParams]);
+
+  // Each tab's panel stays mounted once opened (its filters and scroll survive a switch).
+  const [visited, setVisited] = useState<Set<AgentsTab>>(() => new Set([active]));
+  if (!visited.has(active)) setVisited(new Set(visited).add(active));
+
+  const tabs: ProjectTab<AgentsTab>[] = AGENTS_TABS.map((key) => ({
+    key,
+    label: AGENTS_TAB_LABELS[key],
+    ...(key === 'needs-you' ? { badge: { count: needs.total, label: `${needs.total} ${needs.total === 1 ? 'thing needs' : 'things need'} you` } } : {}),
+    ...(key === 'agents' ? { count: agentCount, warm: () => warmReads([agentsListRead(isDemoMode), agentRolesRead(isDemoMode), agentTemplatesRead(isDemoMode)]) } : {}),
+    ...(key === 'runs' ? { warm: () => void warmRead(agentRunFeedRead(NO_RUN_FILTERS, 0, isDemoMode)) } : {}),
+    // The report is cached by range, so pointing at the tab measures it ahead of the click.
+    ...(key === 'usage' ? { warm: () => prefetchAgentAnalytics(defaultAgentAnalyticsRange(timezone)) } : {}),
+  }));
+
+  const panel = (key: AgentsTab, children: ReactNode) => (key === active || visited.has(key)) && (
+    <div role="tabpanel" id={projectPanelId(key)} aria-labelledby={projectTabId(key)} hidden={key !== active}>
+      {children}
+    </div>
+  );
+
+  const viewingTask = viewingTaskId ? tasks.find((t) => t.id === viewingTaskId) ?? null : null;
 
   return (
-    <div className="animate-fadeIn min-h-screen lg:h-screen lg:flex lg:flex-col lg:overflow-hidden">
-      <div className="lg:flex-shrink-0">
-        <Header
-          title="Agent Dashboard"
-          subtitle={
-            <span className="hidden sm:inline">
-              Fleet status, pending reviews, and what your crew is working on.
-            </span>
-          }
-        />
+    <div className="animate-fadeIn min-h-screen">
+      <Header
+        title="Agents"
+        subtitle={<span className="hidden sm:inline">
+          {active === 'needs-you' && needs.total > 0
+            ? `${needs.total} ${needs.total === 1 ? 'thing needs' : 'things need'} you: questions, approvals and agent work.`
+            : SUBTITLES[active]}
+        </span>}
+        actions={canAddAgent ? (
+          <Button icon={<Plus size={16} aria-hidden="true" />} href="/agent/new">
+            Hire an agent
+          </Button>
+        ) : undefined}
+      />
+
+      <div className="p-4 lg:p-6 space-y-4 lg:space-y-6">
+        <ProjectTabs label="Agent views" tabs={tabs} active={active} onChange={(tab) => goTo(tab)} />
+
+        {panel('needs-you', <NeedsYouView needs={needs} onOpenTask={openTask} />)}
+        {panel('agents', (
+          <AgentRoster onHire={canAddAgent ? () => router.push('/agent/new') : undefined} />
+        ))}
+        {panel('runs', (
+          <RunFeed filters={runFilters} page={runPage} onChange={setRunFeed} onOpenTask={openTask} />
+        ))}
+        {panel('usage', <AgentUsage />)}
       </div>
 
-      <div className="p-4 lg:p-6 lg:flex-1 lg:min-h-0 lg:flex lg:flex-col lg:overflow-hidden lg:gap-6 space-y-4 lg:space-y-0">
-        {/* Fleet heartbeat: who is alive, what they are doing, what fires next */}
-        <div className="lg:flex-shrink-0">
-          <FleetStatusStrip />
-        </div>
+      <TaskDetailPanel task={viewingTask} onClose={closeTask} onDelete={(id) => setDeletingTaskId(id)} />
 
-        {/* Main Content: Review Queue + Sidebar */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-6 lg:flex-1 lg:min-h-0">
-          {/* Review Queue - takes 2/3, fills grid row height */}
-          <div className="lg:col-span-2 lg:min-h-0">
-            <ReviewQueue
-              onApprove={(id) => setApproveModalId(id)}
-              onEdit={(id) => setEditModalId(id)}
-            />
-          </div>
-
-          {/* Sidebar - takes 1/3, stretches to match review queue */}
-          <div className="space-y-4 lg:space-y-0 lg:min-h-0 lg:flex lg:flex-col lg:gap-6">
-            <AutonomousProjects />
-            <div className="lg:flex-1 lg:min-h-0 lg:flex lg:flex-col">
-              <ActivityTimeline />
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Approve Modal */}
-      {approveModalId && taskSuggestions.find(s => s.id === approveModalId) && (
-        <ApproveModal
-          suggestion={taskSuggestions.find(s => s.id === approveModalId)!}
-          onClose={() => setApproveModalId(null)}
-          onApprove={async (overrides) => {
-            setApproveModalId(null);
-            const ok = await approveSuggestion(approveModalId, overrides, teamMemberId || '');
-            if (ok) toast('success', 'Suggestion approved, task created');
-          }}
-        />
-      )}
-
-      {/* Edit Suggestion Modal */}
-      {editModalId && taskSuggestions.find(s => s.id === editModalId) && (
-        <EditSuggestionModal
-          suggestion={taskSuggestions.find(s => s.id === editModalId)!}
-          onClose={() => setEditModalId(null)}
-          onSave={(updates) => {
-            updateSuggestion(editModalId, updates);
-            setEditModalId(null);
-            toast('success', 'Suggestion updated');
-          }}
-        />
-      )}
+      <ConfirmDialog
+        isOpen={!!deletingTaskId}
+        onClose={() => setDeletingTaskId(null)}
+        onConfirm={() => {
+          if (deletingTaskId) deleteTask(deletingTaskId);
+          closeTask();
+        }}
+        title="Move task to Trash?"
+        message="The task goes to Trash with its subtasks and comments."
+        variant="danger"
+        trash
+      />
     </div>
   );
 }

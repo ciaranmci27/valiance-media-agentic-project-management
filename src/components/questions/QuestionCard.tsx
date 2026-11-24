@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, type ReactNode } from 'react';
+import { useId, useState, type ReactNode } from 'react';
 import { Check, MessageCircleQuestion, ShieldCheck } from 'lucide-react';
 import { useAuth } from '@/lib/auth-context';
 import { Button } from '@/components/ui/Button';
@@ -66,6 +66,8 @@ export function QuestionCard({ question, variant = 'panel', place, onOpenTask }:
   const [result, setResult] = useState<QuestionView | null>(null);
   const [confirmCancel, setConfirmCancel] = useState(false);
   const [deciding, setDeciding] = useState<'approve' | 'reject' | null>(null);
+  const [showAllDetails, setShowAllDetails] = useState(false);
+  const detailsId = useId();
 
   const forYou = question.asked_to === teamMemberId;
   const askedByYou = question.asked_by === teamMemberId;
@@ -180,18 +182,37 @@ export function QuestionCard({ question, variant = 'panel', place, onOpenTask }:
   );
 
   // What exactly is being approved: the action's type, and its details as
-  // plain-text rows (text nodes only, so markup in them stays text).
-  const details = approval ? approvalDetailRows(question.action) : null;
+  // plain-text rows (text nodes only, so markup in them stays text). Long
+  // details are cut to fit; Show all reveals every row whole, so a person
+  // approving money or a client email can read every fact before deciding.
+  const shortDetails = approval ? approvalDetailRows(question.action) : null;
+  const details = approval && showAllDetails ? approvalDetailRows(question.action, { all: true }) : shortDetails;
   const detailList = details && details.rows.length > 0 && (
-    <dl className={`rounded-lg bg-white/[0.04] px-2.5 py-2 space-y-1 ${compact ? 'text-[11px]' : 'text-xs'}`}>
-      {details.rows.map((row, index) => (
-        <div key={`${row.key}-${index}`} className="flex min-w-0 gap-3">
-          <dt className="max-w-[40%] flex-shrink-0 truncate text-zinc-500">{row.key}</dt>
-          <dd className="min-w-0 whitespace-pre-wrap break-words text-zinc-200">{row.value}</dd>
-        </div>
-      ))}
-      {details.hidden > 0 && <p className="text-zinc-500">{details.hidden} more not shown</p>}
-    </dl>
+    <div className={`rounded-lg bg-white/[0.04] px-2.5 py-2 ${compact ? 'text-[11px]' : 'text-xs'}`}>
+      <dl id={detailsId} className="space-y-1">
+        {details.rows.map((row, index) => (
+          <div key={`${row.key}-${index}`} className="flex min-w-0 gap-3">
+            <dt className={`max-w-[40%] flex-shrink-0 text-zinc-500 ${showAllDetails ? 'break-words' : 'truncate'}`}>{row.key}</dt>
+            <dd className="min-w-0 whitespace-pre-wrap break-words text-zinc-200">{row.value}</dd>
+          </div>
+        ))}
+      </dl>
+      {shortDetails?.truncated && (
+        <p className="mt-1.5 flex flex-wrap items-center gap-x-2 text-zinc-500">
+          {!showAllDetails && details.hidden > 0 && <span>{details.hidden} more not shown</span>}
+          {!showAllDetails && details.hidden === 0 && <span>Some details are cut</span>}
+          <button
+            type="button"
+            aria-expanded={showAllDetails}
+            aria-controls={detailsId}
+            onClick={() => setShowAllDetails((open) => !open)}
+            className="rounded font-medium text-brand-300 hover:text-brand-200 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+          >
+            {showAllDetails ? 'Show less' : 'Show all'}
+          </button>
+        </p>
+      )}
+    </div>
   );
   const actionText = approval && question.action && (
     <div className={compact ? 'mt-2 space-y-2' : 'mt-3 space-y-2'}>

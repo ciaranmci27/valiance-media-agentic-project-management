@@ -1,8 +1,7 @@
 'use client';
 
 import { useMemo } from 'react';
-import { marked } from 'marked';
-import DOMPurify from 'dompurify';
+import { Markdown } from '@/components/ui/Markdown';
 import { AlertTriangle } from 'lucide-react';
 
 /**
@@ -34,42 +33,6 @@ export function splitNotes(markdown: string, version: string): NotesSection[] {
   }
   if (current.title || current.body.trim()) sections.push(current);
   return sections.filter((section) => section.body.trim());
-}
-
-/** Links in the notes open on GitHub in a new tab, never in place of the app. */
-function linkSafety(node: Element) {
-  if (node.tagName === 'A') {
-    node.setAttribute('target', '_blank');
-    node.setAttribute('rel', 'noopener noreferrer');
-  }
-}
-
-function toHtml(markdown: string): string {
-  // No DOM on the server: notes only ever render in the browser.
-  if (typeof window === 'undefined' || !DOMPurify.isSupported) return '';
-  DOMPurify.addHook('afterSanitizeAttributes', linkSafety);
-  try {
-    return DOMPurify.sanitize(marked.parse(markdown, { async: false }) as string, { USE_PROFILES: { html: true } });
-  } finally {
-    DOMPurify.removeHook('afterSanitizeAttributes', linkSafety);
-  }
-}
-
-const PROSE = [
-  'text-sm leading-relaxed text-zinc-300 break-words',
-  '[&_p]:my-2 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0',
-  '[&_ul]:my-2 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:my-2 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:my-1 [&_li]:pl-0.5',
-  '[&_a]:text-brand-300 [&_a]:underline [&_a]:underline-offset-2 [&_a:hover]:decoration-2',
-  '[&_strong]:font-semibold [&_strong]:text-zinc-100',
-  '[&_code]:rounded [&_code]:bg-white/[0.06] [&_code]:px-1 [&_code]:py-px [&_code]:font-mono [&_code]:text-[0.85em] [&_code]:text-zinc-200',
-  '[&_pre]:my-2 [&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:bg-white/[0.04] [&_pre]:p-3 [&_pre_code]:bg-transparent [&_pre_code]:p-0',
-  '[&_h4]:mb-1 [&_h4]:mt-3 [&_h4]:text-sm [&_h4]:font-medium [&_h4]:text-zinc-100',
-  '[&_blockquote]:my-2 [&_blockquote]:rounded-lg [&_blockquote]:bg-white/[0.03] [&_blockquote]:px-3 [&_blockquote]:py-2',
-].join(' ');
-
-function Markdown({ markdown }: { markdown: string }) {
-  const html = useMemo(() => toHtml(markdown), [markdown]);
-  return <div className={PROSE} dangerouslySetInnerHTML={{ __html: html }} />;
 }
 
 export function ReleaseNotes({ notes, version }: { notes: string; version: string }) {

@@ -96,16 +96,28 @@ const cut = (text: string, max: number) => (text.length > max ? `${text.slice(0,
 /**
  * An approval's details as rows a person reads before deciding: each key with
  * its value as plain text (a string as it is, anything else as compact JSON),
- * cut to a bounded length. At most 20 rows; hidden counts the rest. The
- * screens render these as text, never as markup.
+ * cut to a bounded length. At most 20 rows; hidden counts the rest, and
+ * truncated says whether anything (a row, a key or a value) was left out or
+ * cut. With all, every row comes back whole, for a person who wants to read
+ * every fact before deciding. The screens render these as text, never as
+ * markup.
  */
-export function approvalDetailRows(action: Pick<ApprovalAction, 'details'> | null | undefined): { rows: { key: string; value: string }[]; hidden: number } {
-  const entries = Object.entries(action?.details ?? {});
-  const rows = entries.slice(0, APPROVAL_DETAIL_ROWS_MAX).map(([key, value]) => ({
-    key: cut(key, APPROVAL_DETAIL_KEY_MAX),
-    value: cut(typeof value === 'string' ? value : JSON.stringify(value) ?? String(value), APPROVAL_DETAIL_VALUE_MAX),
+export function approvalDetailRows(
+  action: Pick<ApprovalAction, 'details'> | null | undefined,
+  options: { all?: boolean } = {},
+): { rows: { key: string; value: string }[]; hidden: number; truncated: boolean } {
+  const entries = Object.entries(action?.details ?? {}).map(([key, value]) => ({
+    key,
+    value: typeof value === 'string' ? value : JSON.stringify(value) ?? String(value),
   }));
-  return { rows, hidden: Math.max(0, entries.length - rows.length) };
+  if (options.all) return { rows: entries, hidden: 0, truncated: false };
+  const rows = entries.slice(0, APPROVAL_DETAIL_ROWS_MAX).map(({ key, value }) => ({
+    key: cut(key, APPROVAL_DETAIL_KEY_MAX),
+    value: cut(value, APPROVAL_DETAIL_VALUE_MAX),
+  }));
+  const hidden = Math.max(0, entries.length - rows.length);
+  const truncated = hidden > 0 || entries.some(({ key, value }) => key.length > APPROVAL_DETAIL_KEY_MAX || value.length > APPROVAL_DETAIL_VALUE_MAX);
+  return { rows, hidden, truncated };
 }
 
 /** The decision an approval's answer carries: approved, rejected, or none yet. */

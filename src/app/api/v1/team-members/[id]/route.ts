@@ -1,7 +1,7 @@
 import { withApi } from '@/lib/api/middleware';
 import { success } from '@/lib/api/response';
 import { updateTeamMemberSchema } from '@/lib/schemas';
-import { forbidden, notFound } from '@/lib/api/errors';
+import { ApiError, forbidden, notFound } from '@/lib/api/errors';
 import { logAudit } from '@/lib/api/audit';
 import { accessAllows } from '@/lib/api/access';
 import { agentRulesColumns } from '@/lib/api/agent-rules';
@@ -39,6 +39,10 @@ export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemb
   }
   if (requested.role === 'owner') {
     throw forbidden('An API key cannot make anyone an Owner', { reason: 'owner_protected' });
+  }
+  // A role label is for agents only (the role this save leaves them with).
+  if (requested.agent_role && ((requested.role as string | undefined) ?? before.role) !== 'agent') {
+    throw new ApiError(422, 'VALIDATION_ERROR', 'A role label is for agent members only', { reason: 'agents_only' });
   }
   // An agent's rules: only for agent members (the role this save leaves them with).
   const rules = await agentRulesColumns(supabase, { id, role: (requested.role as string | undefined) ?? before.role }, requested as AgentRulesUpdate);

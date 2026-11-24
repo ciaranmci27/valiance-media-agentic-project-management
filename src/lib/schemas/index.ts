@@ -28,3 +28,4 @@ export * from './reviews';
 export * from './agent-health';
 export * from './webhooks';
 export * from './agent-config';
+export * from './agent-workspaces';

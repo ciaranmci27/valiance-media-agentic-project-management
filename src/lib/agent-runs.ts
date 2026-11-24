@@ -161,6 +161,14 @@ export interface TaskLatestRun {
   finished_at: string | null;
 }
 
+/**
+ * The cache name live sync marks stale when a turn.completed lands. Turns are
+ * telemetry, which live sync otherwise ignores (they arrive every minute and
+ * the narrative feeds leave them out), but a turn that names no run is a row
+ * of the run feed, so the feed's reads name this instead of agent_activities.
+ */
+export const AGENT_TURNS_CACHE_TABLE = 'agent_activities:turn.completed';
+
 /** The status a reader sees: a run running past the stale threshold is timed_out. */
 export function effectiveRunStatus(row: { status: string; updated_at: string }, now = Date.now()): AgentRunStatus {
   if (row.status === 'running' && Date.parse(row.updated_at) < now - AGENT_RUN_STALE_AFTER_SECONDS * 1000) return 'timed_out';
