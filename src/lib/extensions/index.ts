@@ -12,6 +12,8 @@ export {
 } from './registry';
 export { defineAgentTemplates } from './agent-templates';
 export type { AgentTemplate, AgentTemplateRules } from './agent-templates';
+export { defineAgentProfiles } from './agent-profiles';
+export type { AgentProfileDefinition } from './agent-profiles';
 export type {
   ApiKeyRouteContext,
   ApiMethod,

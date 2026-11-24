@@ -1,6 +1,6 @@
 import type { AgentActivity, FleetAgentActivity, TaskSuggestion, TeamMember } from '@/lib/types';
 import type { DateRange } from '@/lib/finance/summary';
-import { EVENT_STATE, isAgentEventType, isTelemetryEvent, TURN_OUTCOMES, type TurnOutcome } from '@/lib/agent-events';
+import { EVENT_STATE, isAgentEventType, isOpenEventType, isTelemetryEvent, TURN_OUTCOMES, type TurnOutcome } from '@/lib/agent-events';
 import { normalizePullRequestUrl } from '@/lib/agent-analytics';
 
 /**
@@ -516,7 +516,8 @@ function* daySlices(start: number, end: number, timeZone?: string): Generator<{ 
 // whenever the host gets to it, not when the agent acted) and the normal
 // finishing steps after an approval (merge, close, timer bookkeeping).
 const NOT_A_TOUCH = new Set(['pr.merged', 'work.done', 'review.verdict']);
-const isTouch = (type: string) => !isTelemetryEvent(type) && !NOT_A_TOUCH.has(type) && !type.startsWith('billing.');
+// Open events (note, custom.*) are an agent's own words: never a touch.
+const isTouch = (type: string) => !isTelemetryEvent(type) && !isOpenEventType(type) && !NOT_A_TOUCH.has(type) && !type.startsWith('billing.');
 
 function reworkTest(activities: AgentActivity[]) {
   const timeline = new Map<string, { at: number; approved: boolean }[]>();

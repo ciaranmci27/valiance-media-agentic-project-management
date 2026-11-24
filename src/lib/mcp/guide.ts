@@ -33,6 +33,11 @@ Asking a person
 - Then poll get_question, a few minutes apart, until status is answered (answer_choice, answer_text). Work on something else meanwhile; do not repeat the question. If you no longer need it, cancel_question. Expired or cancelled means no answer is coming: decide whether to ask again.
 - Questions asked to you are in list_questions (asked_to me, status open); answer them with answer_question.
 
+Approvals
+- Before an action a person must allow (a deploy, an email to a client, spending money, deleting data, a merge), request_approval with action.type, action.summary (exactly what will happen, one line) and any details. It goes to a person: your escalation target, else the Owner, or asked_to.
+- Poll get_approval a few minutes apart and act only when decision is approved. rejected, expired or cancelled means do not do it; answer_text may say why. Do not ask again for the same action unless something changed.
+- Approvals are for actions. New work to propose is a task suggestion.
+
 Repeated problems
 - When you report something that can happen again (an error, a failing check), pass a dedupe_key on create_task. While an open task holds the key you get that task back (deduplicated: true) and its occurrences go up; put what happened this time in occurrence_note. Once it is done, the key starts a new task.
 
@@ -46,8 +51,9 @@ Task files
 - list_task_files shows what a task holds, a link's address included; get_task_file_link gives a short-lived link to open a file.
 
 Reviews
-- submit_task_review needs the pull request URL and the full 40-character head commit SHA. Assignees cannot review their own work.
+- For a pull request, submit_task_review takes its URL and the full 40-character head commit SHA. Assignees cannot review their own work.
 - One verdict per commit: reviewing the same commit again returns the first verdict with already_reviewed.
+- For other work (a document, a data fix, a design), leave pr_url and head_sha out: a verdict and your notes in summary, each one a new round.
 
 Time
 - timer start opens one live timer per project; pause, resume and stop take its entry_id; log records a finished block.
@@ -73,7 +79,8 @@ Runs
 
 Notifications and events
 - notify_owner reaches the owner with news. Pass the entity_id of what it is about so a repeat does not pile up unread. For a question you need answered, use ask_human.
-- log_activity takes typed events only; the feed line is written from the payload. Check its description for each event's payload.
+- log_activity takes typed events; the feed line is written from the payload. Check its description for each event's payload.
+- For anything the typed events do not cover, log note, or your own custom.<namespace>.<name>, with a plain title (at most 200 characters) as the feed line. They never change your status or the analytics.
 
 Answers
 - Success: { ok: true, data, meta? }. Lists carry meta: page, limit, total, total_pages.

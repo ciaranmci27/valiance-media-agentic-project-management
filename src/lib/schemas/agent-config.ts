@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { AGENT_CLOSE_POLICIES, AGENT_CREATE_POLICIES } from '@/lib/agent-rules';
-import { AGENT_PROFILE_VALUES, type AgentProfile } from '@/lib/mcp/profiles';
+import { agentProfileSchema } from '@/lib/mcp/profiles';
 
 /**
  * Bodies of the agent template and agent configuration routes
@@ -23,7 +23,7 @@ export const agentConfigDocumentSchema = z.object({
     id: z.string().uuid().nullable().optional(),
     name: z.string().trim().min(1).max(100),
     title: z.string().trim().max(80).nullable().optional(),
-    agent_profile: z.enum(AGENT_PROFILE_VALUES as [AgentProfile, ...AgentProfile[]]).optional(),
+    agent_profile: agentProfileSchema.optional(),
   }),
   rules: z.object({
     agent_self_assign: z.boolean().optional(),

@@ -426,8 +426,8 @@ mcp_servers:
 
               <div className="mb-4 rounded-lg border border-violet-200 bg-violet-50 p-3 text-xs text-violet-900">
                 With AI agents on, each agent member has a profile, set by the Owner in Team:{' '}
-                {AGENT_PROFILES.map((profile) => profile.label).join(', ')}. Today every profile sees the generic tool set;
-                each named profile gets its own tools as that agent moves to MCP.
+                {AGENT_PROFILES.map((profile) => profile.label).join(', ')}. Core's profiles see every tool the agent's keys allow;
+                an install adds its own in src/custom/agent-profiles.ts, each listing the tools it sees.
               </div>
 
               <details className="group">

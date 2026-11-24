@@ -1,13 +1,13 @@
 'use client';
 
 import { useState, type ReactNode } from 'react';
-import { Check, MessageCircleQuestion } from 'lucide-react';
+import { Check, MessageCircleQuestion, ShieldCheck } from 'lucide-react';
 import { useAuth } from '@/lib/auth-context';
 import { Button } from '@/components/ui/Button';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Textarea } from '@/components/ui/inputs/Textarea';
 import { invalidateTables } from '@/lib/query-cache';
-import { ANSWER_MAX, answerLine, textAnswers, type QuestionView } from '@/lib/questions';
+import { ANSWER_MAX, answerLine, approvalDetailRows, approvalTypeLabel, textAnswers, type QuestionView } from '@/lib/questions';
 import { timeAgo } from '@/lib/task-times';
 import { appLocale } from '@/lib/region';
 
@@ -23,6 +23,11 @@ import { appLocale } from '@/lib/region';
  * - card: compact, inside a board card (clicks stay inside it).
  * - band: a My Tasks row (icon square, question, context line), with its
  *   controls under it.
+ *
+ * An approval (kind approval) reads as the action to allow: its summary, any
+ * context under it, its type and every detail (plain-text rows; folded on a
+ * board card), an optional note, and Approve and Reject buttons that send at
+ * once. Only the member asked or the Owner can decide it.
  */
 
 type Variant = 'panel' | 'card' | 'band';
@@ -60,24 +65,34 @@ export function QuestionCard({ question, variant = 'panel', place, onOpenTask }:
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<QuestionView | null>(null);
   const [confirmCancel, setConfirmCancel] = useState(false);
+  const [deciding, setDeciding] = useState<'approve' | 'reject' | null>(null);
 
   const forYou = question.asked_to === teamMemberId;
   const askedByYou = question.asked_by === teamMemberId;
-  const choices = question.choices ?? [];
+  const approval = question.kind === 'approval';
+  const choices = approval ? [] : question.choices ?? [];
   const words = textAnswers(question);
   const canSend = !busy && (choice !== null || (words && text.trim().length > 0));
   const compact = variant === 'card';
+  const Icon = approval ? ShieldCheck : MessageCircleQuestion;
 
-  const label = forYou ? 'Waiting on you' : `Question for ${question.asked_to_name ?? 'a teammate'}`;
+  const label = approval
+    ? (forYou ? 'Approval needed' : `Needs ${question.asked_to_name ?? 'a teammate'}'s approval`)
+    : (forYou ? 'Waiting on you' : `Question for ${question.asked_to_name ?? 'a teammate'}`);
   const from = askedByYou ? 'You asked' : `From ${question.asked_by_name ?? 'a teammate'}`;
+  // An approval leads with what will happen; its question is context, shown when it adds any.
+  const headline = approval ? question.action?.summary ?? question.question : question.question;
+  const context = approval && question.question !== headline ? question.question : null;
 
-  const answer = async () => {
-    if (!canSend) return;
+  const answer = async (decide?: 'approve' | 'reject') => {
+    if (!decide && !canSend) return;
     setBusy('answer');
+    setDeciding(decide ?? null);
     setError(null);
     try {
       const body: { choice?: string; text?: string } = {};
-      if (choice !== null) body.choice = choice;
+      if (decide) body.choice = decide;
+      else if (choice !== null) body.choice = choice;
       if (text.trim()) body.text = text.trim();
       setResult(await post(`/api/workspace/questions/${question.id}/answer`, body));
       // Live sync does this too; a write it misses still refreshes the lists and the bell.
@@ -86,6 +101,7 @@ export function QuestionCard({ question, variant = 'panel', place, onOpenTask }:
       setError(err instanceof Error ? err.message : 'Could not send the answer');
     } finally {
       setBusy(null);
+      setDeciding(null);
     }
   };
 
@@ -113,9 +129,13 @@ export function QuestionCard({ question, variant = 'panel', place, onOpenTask }:
     : `${surface} ${compact ? 'mt-2 rounded-[10px] px-3 py-2.5' : 'rounded-xl p-3.5'}`;
 
   if (result) {
-    const line = result.status === 'answered'
-      ? `${result.answered_by === teamMemberId ? 'You answered' : 'Answered'}: ${answerLine(result)}`
-      : 'Question cancelled';
+    const yours = result.answered_by === teamMemberId;
+    const decided = result.decision === 'approved' ? 'approved' : 'rejected';
+    const line = result.status !== 'answered'
+      ? (approval ? 'Approval request cancelled' : 'Question cancelled')
+      : approval
+        ? `${yours ? `You ${decided}` : decided.charAt(0).toUpperCase() + decided.slice(1)}${result.answer_text ? `: ${result.answer_text}` : ''}`
+        : `${yours ? 'You answered' : 'Answered'}: ${answerLine(result)}`;
     return (
       <div className={wrapper} role="status" {...stop}>
         <p className={`flex items-start gap-2 ${compact ? 'text-xs' : 'text-sm'} text-zinc-300`}>
@@ -128,7 +148,7 @@ export function QuestionCard({ question, variant = 'panel', place, onOpenTask }:
 
   const header: ReactNode = (
     <div className={`flex items-center gap-2 ${compact ? 'text-[11px]' : 'text-xs'}`}>
-      <MessageCircleQuestion size={compact ? 13 : 14} className={forYou ? 'text-amber-300' : 'text-zinc-400'} aria-hidden="true" />
+      <Icon size={compact ? 13 : 14} className={forYou ? 'text-amber-300' : 'text-zinc-400'} aria-hidden="true" />
       <span className={`font-medium ${forYou ? 'text-amber-200' : 'text-zinc-300'}`}>{label}</span>
       <span className="ml-auto flex min-w-0 items-center gap-1 text-zinc-500">
         <span className="truncate">{from}</span>
@@ -153,10 +173,50 @@ export function QuestionCard({ question, variant = 'panel', place, onOpenTask }:
     )
   ) : null;
 
-  const questionText = (
-    <p className={`whitespace-pre-wrap break-words text-white ${compact ? 'mt-1.5 text-xs leading-relaxed line-clamp-4' : 'mt-2 text-sm leading-relaxed'}`}>
-      {question.question}
+  const contextText = context && (
+    <p className={`whitespace-pre-wrap break-words text-zinc-400 ${compact ? 'mt-1 text-xs leading-relaxed line-clamp-4' : 'mt-1 text-sm leading-relaxed'}`}>
+      {context}
     </p>
+  );
+
+  // What exactly is being approved: the action's type, and its details as
+  // plain-text rows (text nodes only, so markup in them stays text).
+  const details = approval ? approvalDetailRows(question.action) : null;
+  const detailList = details && details.rows.length > 0 && (
+    <dl className={`rounded-lg bg-white/[0.04] px-2.5 py-2 space-y-1 ${compact ? 'text-[11px]' : 'text-xs'}`}>
+      {details.rows.map((row, index) => (
+        <div key={`${row.key}-${index}`} className="flex min-w-0 gap-3">
+          <dt className="max-w-[40%] flex-shrink-0 truncate text-zinc-500">{row.key}</dt>
+          <dd className="min-w-0 whitespace-pre-wrap break-words text-zinc-200">{row.value}</dd>
+        </div>
+      ))}
+      {details.hidden > 0 && <p className="text-zinc-500">{details.hidden} more not shown</p>}
+    </dl>
+  );
+  const actionText = approval && question.action && (
+    <div className={compact ? 'mt-2 space-y-2' : 'mt-3 space-y-2'}>
+      <span className={`inline-flex max-w-full items-center gap-1 rounded-lg border border-white/[0.08] bg-white/[0.04] px-2.5 py-1 text-zinc-300 ${compact ? 'text-[11px]' : 'text-xs'}`}>
+        <span className="truncate">{approvalTypeLabel(question.action.type)}</span>
+      </span>
+      {detailList && (compact ? (
+        <details className="group">
+          <summary className="cursor-pointer rounded text-zinc-400 hover:text-zinc-200 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 text-[11px]">
+            Details ({(details?.rows.length ?? 0) + (details?.hidden ?? 0)})
+          </summary>
+          <div className="mt-1.5">{detailList}</div>
+        </details>
+      ) : detailList)}
+    </div>
+  );
+
+  const questionText = (
+    <>
+      <p className={`whitespace-pre-wrap break-words text-white ${compact ? 'mt-1.5 text-xs leading-relaxed line-clamp-4' : 'mt-2 text-sm leading-relaxed'}`}>
+        {headline}
+      </p>
+      {contextText}
+      {actionText}
+    </>
   );
 
   const choiceButtons = choices.length > 0 && (
@@ -189,12 +249,12 @@ export function QuestionCard({ question, variant = 'panel', place, onOpenTask }:
 
   const controls = (question.can_answer || question.can_cancel) && (
     <>
-      {question.can_answer && words && (
+      {question.can_answer && (words || approval) && (
         <Textarea
           value={text}
           onChange={setText}
-          placeholder={choices.length > 0 ? 'Or answer in your own words' : 'Write your answer'}
-          aria-label={choices.length > 0 ? 'Answer in your own words' : 'Your answer'}
+          placeholder={approval ? 'Add a note (optional)' : choices.length > 0 ? 'Or answer in your own words' : 'Write your answer'}
+          aria-label={approval ? 'Note with your decision' : choices.length > 0 ? 'Answer in your own words' : 'Your answer'}
           size="sm"
           rows={1}
           autoResize
@@ -202,7 +262,8 @@ export function QuestionCard({ question, variant = 'panel', place, onOpenTask }:
           maxLength={ANSWER_MAX}
           className={compact ? 'mt-2' : 'mt-3'}
           onKeyDown={(e) => {
-            if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+            // An approval is decided with a button, never by a shortcut.
+            if (!approval && e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
               e.preventDefault();
               void answer();
             }
@@ -211,14 +272,24 @@ export function QuestionCard({ question, variant = 'panel', place, onOpenTask }:
       )}
       {error && <p className="mt-2 text-xs text-red-300" role="alert">{error}</p>}
       <div className={`flex flex-wrap items-center gap-2 ${compact ? 'mt-2' : 'mt-3'}`}>
-        {question.can_answer && (
+        {question.can_answer && approval && (
+          <>
+            <Button type="button" size="sm" onClick={() => void answer('approve')} disabled={!!busy}>
+              {deciding === 'approve' ? 'Approving' : 'Approve'}
+            </Button>
+            <Button type="button" size="sm" variant="secondary" onClick={() => void answer('reject')} disabled={!!busy}>
+              {deciding === 'reject' ? 'Rejecting' : 'Reject'}
+            </Button>
+          </>
+        )}
+        {question.can_answer && !approval && (
           <Button type="button" size="sm" onClick={() => void answer()} disabled={!canSend}>
             {busy === 'answer' ? 'Sending answer' : 'Answer'}
           </Button>
         )}
         {question.can_cancel && (
           <Button type="button" size="sm" variant="ghost" onClick={() => setConfirmCancel(true)} disabled={!!busy}>
-            {busy === 'cancel' ? 'Cancelling' : 'Cancel question'}
+            {busy === 'cancel' ? 'Cancelling' : approval ? 'Cancel request' : 'Cancel question'}
           </Button>
         )}
         {question.expires_at && (
@@ -233,9 +304,9 @@ export function QuestionCard({ question, variant = 'panel', place, onOpenTask }:
       isOpen={confirmCancel}
       onClose={() => setConfirmCancel(false)}
       onConfirm={() => void cancel()}
-      title="Cancel this question?"
-      message={`${question.asked_to_name ?? 'They'} will no longer be asked, and the question cannot be reopened.`}
-      confirmLabel="Cancel question"
+      title={approval ? 'Cancel this approval request?' : 'Cancel this question?'}
+      message={`${question.asked_to_name ?? 'They'} will no longer be asked, and the ${approval ? 'request' : 'question'} cannot be reopened.`}
+      confirmLabel={approval ? 'Cancel request' : 'Cancel question'}
       variant="danger"
     />
   );
@@ -245,10 +316,12 @@ export function QuestionCard({ question, variant = 'panel', place, onOpenTask }:
       <div className={wrapper}>
         <div className="flex items-start gap-3">
           <span className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 bg-amber-500/15 text-amber-300">
-            <MessageCircleQuestion size={15} aria-hidden="true" />
+            <Icon size={15} aria-hidden="true" />
           </span>
           <div className="min-w-0 flex-1">
-            <p className="whitespace-pre-wrap break-words text-sm font-medium text-white">{question.question}</p>
+            <p className="whitespace-pre-wrap break-words text-sm font-medium text-white">{headline}</p>
+            {contextText}
+            {actionText}
             <p className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-zinc-500">
               <span className="flex-shrink-0">{from}</span>
               {placeLine && <><span className="text-zinc-600" aria-hidden="true">·</span>{placeLine}</>}

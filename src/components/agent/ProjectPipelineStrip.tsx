@@ -5,6 +5,7 @@ import { useApp } from '@/lib/store';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { Inbox, SearchCode, Hammer, GitMerge } from 'lucide-react';
 import { Project } from '@/lib/types';
+import { lastMergeAt } from '@/lib/agent-status';
 
 /**
  * The project's pipeline heartbeat: queue fullness against ITS cap, audit
@@ -73,10 +74,8 @@ export function ProjectPipelineStrip({ project }: ProjectPipelineStripProps) {
         t.status === 'in_progress' &&
         (t.assignee_ids || []).some(id => agentIds.has(id)),
     );
-    const lastMerge = agentActivity
-      // The typed event (pr.merged, titled "Merged PR #n"), or an older untyped row.
-      .filter(a => a.project_id === project.id && (a.activity_type === 'pr.merged' || a.title.startsWith('PR merged')))
-      .reduce<string | null>((best, a) => (!best || a.created_at > best ? a.created_at : best), null);
+    // The typed event (pr.merged), or an older untyped row; never an open event.
+    const lastMerge = lastMergeAt(agentActivity, project.id);
 
     return { queued, cap, lastAuditStart, nextEligible, building, lastMerge };
   }, [taskSuggestions, agentActivity, tasks, agentIds, project]);

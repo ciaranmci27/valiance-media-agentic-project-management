@@ -10,14 +10,22 @@ import { z } from 'zod';
  * prose and the dashboards parsed sentences with regexes to guess agent
  * state. The rules that fix that:
  *
- * - An event is `type + payload`. Agents and plugins never author titles;
- *   `formatEventTitle` composes the one canonical sentence per type, so
- *   inconsistent prose is impossible rather than discouraged.
- * - The vocabulary is closed. An event this file cannot express is a
- *   one-line addition HERE, in git, reviewed - never a `custom` escape
- *   hatch at runtime. That friction is what keeps the taxonomy truthful.
+ * - An event is `type + payload`. Agents and plugins never author titles of
+ *   known types; `formatEventTitle` composes the one canonical sentence per
+ *   type, so inconsistent prose is impossible rather than discouraged.
+ * - The known vocabulary is closed: a known event this file cannot express
+ *   is a one-line addition HERE, in git, reviewed. That is what keeps the
+ *   dashboards and analytics truthful.
+ * - Beside it sits an open, namespaced space for what core does not know:
+ *   `note` (a plain line on what the agent did) and
+ *   `custom.<namespace>.<name>` (an install's or harness's own event). Each
+ *   carries a `title` (plain text, at most 200 characters) that becomes its
+ *   feed line, and nothing reads more into it: open events never move an
+ *   agent's state, and analytics leave them out unless asked.
  * - Every payload is schema-checked at the API door, so a verdict without a
- *   round or a blocked event without a reason is rejected, not stored.
+ *   round or a blocked event without a reason is rejected, not stored. The
+ *   database only checks the type's shape (lowercase words joined by dots);
+ *   which types exist is this file's to say.
  *
  * Legacy types (`task_started`, `heartbeat`, `custom`, ...) remain readable
  * forever - historical rows are immutable - but agent keys stop being able
@@ -364,6 +372,62 @@ export function isHostRecordEvent(t: string): boolean {
 
 /** Every activity type analytics reads but no human should read in a feed. */
 export const TELEMETRY_EVENT_TYPES: AgentEventType[] = ['usage.recorded', 'turn.completed', ...HOST_RECORD_EVENT_TYPES];
+
+// -- the open vocabulary ----------------------------------------------------
+
+/** A plain line on what the agent did, for anything the known types do not cover. */
+export const NOTE_EVENT_TYPE = 'note';
+
+/** custom.<namespace>.<name>: lowercase letters, numbers and underscores, each part up to 40. */
+export const CUSTOM_EVENT_TYPE_PATTERN = /^custom\.[a-z][a-z0-9_]{0,39}\.[a-z][a-z0-9_]{0,39}$/;
+
+export const OPEN_EVENT_TITLE_MAX = 200;
+export const NOTE_DETAIL_MAX = 2000;
+/** A custom event's whole payload, as compact JSON. */
+export const CUSTOM_EVENT_PAYLOAD_MAX = 4000;
+
+export type OpenEventType = typeof NOTE_EVENT_TYPE | `custom.${string}.${string}`;
+
+export function isCustomEventType(t: string): boolean {
+  return CUSTOM_EVENT_TYPE_PATTERN.test(t);
+}
+
+/** note or custom.<namespace>.<name>: recorded and shown, never read for state or analytics. */
+export function isOpenEventType(t: string): t is OpenEventType {
+  return t === NOTE_EVENT_TYPE || isCustomEventType(t);
+}
+
+/**
+ * An open event's title: plain text on one line. Control characters and runs
+ * of whitespace become one space; empty or over 200 characters is refused.
+ * The screens render it as text, so markup in it stays text.
+ */
+const openTitle = z.string()
+  .transform((value) => value.replace(/[\u0000-\u001f\u007f-\u009f]+/g, ' ').replace(/\s+/g, ' ').trim())
+  .pipe(z.string().min(1, 'title cannot be empty').max(OPEN_EVENT_TITLE_MAX, `title is at most ${OPEN_EVENT_TITLE_MAX} characters`));
+
+export const NOTE_EVENT_SCHEMA = z.object({
+  ...taskRef,
+  title: openTitle,
+  detail: z.string().max(NOTE_DETAIL_MAX, `detail is at most ${NOTE_DETAIL_MAX} characters`).optional(),
+});
+
+/** A custom event: a title, an optional task, and any other fields the harness wants kept. */
+export const CUSTOM_EVENT_SCHEMA = z.looseObject({
+  ...taskRef,
+  title: openTitle,
+}).refine((payload) => JSON.stringify(payload).length <= CUSTOM_EVENT_PAYLOAD_MAX, {
+  message: `A custom event's payload is at most ${CUSTOM_EVENT_PAYLOAD_MAX} characters of JSON`,
+});
+
+export function openEventSchema(type: OpenEventType) {
+  return type === NOTE_EVENT_TYPE ? NOTE_EVENT_SCHEMA : CUSTOM_EVENT_SCHEMA;
+}
+
+/** An open event's feed line: its own title, already plain and bounded by the schema. */
+export function formatOpenEventTitle(payload: Record<string, unknown>): string {
+  return String(payload.title ?? '').slice(0, OPEN_EVENT_TITLE_MAX);
+}
 
 const short = (pr?: string) => {
   const m = pr ? /\/pull\/(\d+)/.exec(pr) : null;

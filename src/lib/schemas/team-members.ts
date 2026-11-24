@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { agentRulesUpdateSchema } from '@/lib/agent-rules';
-import { AGENT_PROFILE_VALUES, type AgentProfile } from '@/lib/mcp/profiles';
+import { agentProfileSchema } from '@/lib/mcp/profiles';
 
 export const createTeamMemberSchema = z.object({
   name: z.string().min(1, 'Name is required'),
@@ -36,6 +36,6 @@ export const createAgentSchema = z.object({
   email: z.string().trim().toLowerCase().email('Invalid email address'),
   title: z.string().trim().max(80, 'Title must be 80 characters or fewer').optional(),
   avatar: z.string().max(2000).optional(),
-  agent_profile: z.enum(AGENT_PROFILE_VALUES as [AgentProfile, ...AgentProfile[]]).optional(),
+  agent_profile: agentProfileSchema.optional(),
 }).strict();
 export type CreateAgent = z.infer<typeof createAgentSchema>;

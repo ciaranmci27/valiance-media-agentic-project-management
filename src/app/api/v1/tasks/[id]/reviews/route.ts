@@ -1,3 +1,4 @@
+import type { z } from 'zod';
 import { withApi } from '@/lib/api/middleware';
 import { paginated, created } from '@/lib/api/response';
 import { createTaskReviewSchema } from '@/lib/schemas';
@@ -43,7 +44,11 @@ export const POST = withApi(async ({ supabase, params, body, apiKeyId, teamMembe
     if (assignment) throw forbidden('Task assignees cannot review their own work');
   }
 
-  const { verdict, summary, pr_url, head_sha } = body as any;
+  const { verdict, summary, pr_url: sentUrl, head_sha: sentSha } = body as z.infer<typeof createTaskReviewSchema>;
+  // A pull request review carries both; a review of other work (a document,
+  // a data fix, a design) carries neither, and the schema refuses one alone.
+  const pr_url = sentUrl || null;
+  const head_sha = sentSha || null;
 
   // Idempotency is per COMMIT, and deliberately not per (commit, verdict).
   //
@@ -59,27 +64,33 @@ export const POST = withApi(async ({ supabase, params, body, apiKeyId, teamMembe
   // The same bytes cannot be both approved and rejected, so the first verdict
   // on a commit is the verdict. A reviewer that genuinely changes its mind says
   // so on the next commit, which is the only place new evidence can live.
-  const { data: existing } = await supabase
-    .from('task_reviews')
-    .select('*')
-    .eq('task_id', id)
-    .eq('pr_url', pr_url)
-    .eq('head_sha', head_sha.toLowerCase())
-    .order('created_at', { ascending: true })
-    .limit(1)
-    .maybeSingle();
-  if (existing) return created(existing);
+  //
+  // A review of other work has no commit to pin it to, so each one is a round
+  // of its own (an Idempotency-Key header makes a retry safe).
+  if (pr_url && head_sha) {
+    const { data: existing } = await supabase
+      .from('task_reviews')
+      .select('*')
+      .eq('task_id', id)
+      .eq('pr_url', pr_url)
+      .eq('head_sha', head_sha.toLowerCase())
+      .order('created_at', { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    if (existing) return created(existing);
+  }
 
   // Round is derived server-side so callers cannot reset the escalation
   // counter, and it is scoped to the PR: a replacement PR for the same task
   // starts at round 1 instead of inheriting the abandoned PR's rounds. count
   // is exact under the single-reviewer design; a duplicate round number from
   // a concurrent write would only accelerate escalation, never suppress it.
-  const { count, error: countError } = await supabase
+  // Reviews of other work count among the task's reviews without a PR.
+  const counted = supabase
     .from('task_reviews')
     .select('id', { count: 'exact', head: true })
-    .eq('task_id', id)
-    .eq('pr_url', pr_url);
+    .eq('task_id', id);
+  const { count, error: countError } = await (pr_url ? counted.eq('pr_url', pr_url) : counted.is('pr_url', null));
   if (countError) throw countError;
   const round = (count || 0) + 1;
   const { data: review, error } = await supabase
@@ -90,7 +101,7 @@ export const POST = withApi(async ({ supabase, params, body, apiKeyId, teamMembe
       verdict,
       summary,
       pr_url,
-      head_sha: head_sha.toLowerCase(),
+      head_sha: head_sha ? head_sha.toLowerCase() : null,
       reviewer_member_id: teamMemberId || null,
     })
     .select('*')
@@ -98,7 +109,7 @@ export const POST = withApi(async ({ supabase, params, body, apiKeyId, teamMembe
   // The index is the backstop for two inserts that both passed the pre-check.
   // The loser reads the winner and reports it, so a reviewer that raced never
   // sees an error for work that was in fact recorded.
-  if (error?.code === '23505') {
+  if (error?.code === '23505' && pr_url && head_sha) {
     const { data: winner } = await supabase
       .from('task_reviews')
       .select('*')

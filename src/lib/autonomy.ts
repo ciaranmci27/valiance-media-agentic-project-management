@@ -1,4 +1,5 @@
 import type { Project, Task, TaskReview, TaskSuggestion } from '@/lib/types';
+import { isOpenEventType } from '@/lib/agent-events';
 
 /**
  * The task's current independent review verdict: the newest review round,
@@ -140,7 +141,7 @@ export function computeNeedsYou(input: {
    * "waiting on your review", is noise that inflates the badge.
    */
   oversight: boolean;
-  agentActivity?: { reference_type: string | null; reference_id: string | null; title: string; description: string; created_at: string }[];
+  agentActivity?: { activity_type?: string; reference_type: string | null; reference_id: string | null; title: string; description: string; created_at: string }[];
   /** Open questions the viewer can see; the ones asked to them are theirs to answer. */
   questions?: QuestionView[];
 }): NeedsYouItem[] {
@@ -170,7 +171,9 @@ export function computeNeedsYou(input: {
   for (const task of tasks) {
     if (task.status !== 'in_progress') continue;
     const latest = agentActivity
-      .filter(a => a.reference_type === 'task' && a.reference_id === task.id)
+      // An open event (note, custom.*) is the agent's own words: its title is
+      // never read as a block, and it never hides one.
+      .filter(a => a.reference_type === 'task' && a.reference_id === task.id && !isOpenEventType(a.activity_type ?? ''))
       .reduce<{ title: string; description: string; created_at: string } | null>(
         (best, a) => (!best || a.created_at > best.created_at ? a : best), null);
     if (latest && latest.title.startsWith(BLOCKED_PREFIX)) {

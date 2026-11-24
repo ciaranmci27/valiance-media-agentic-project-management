@@ -5,7 +5,7 @@ import { notFound } from '@/lib/api/errors';
 import { DEFAULT_ITEM_COLOR } from '@/lib/brand';
 import { generatePortalSlug } from '@/lib/portal-slug';
 import { ensureLineItems } from '@/lib/invoice-utils';
-import { TELEMETRY_EVENT_TYPES } from '@/lib/agent-events';
+import { isOpenEventType, TELEMETRY_EVENT_TYPES } from '@/lib/agent-events';
 import { activitiesFromWindow, type AnalyticsWindowPayload } from '@/lib/agent-analytics-window';
 import { moveToTrash, postgrestList, trashedProjectIds } from '@/lib/supabase/trash';
 
@@ -2292,7 +2292,7 @@ export const ANALYTICS_LOOKAHEAD_DAYS = 32;
 export async function fetchAgentActivityRange(
   supabase: SupabaseClient,
   range: { startKey: string; endKey: string },
-  options?: { maxRows?: number },
+  options?: { maxRows?: number; includeOpenEvents?: boolean },
 ): Promise<{ rows: AgentActivity[]; fleet: FleetAgentActivity[]; truncated: boolean }> {
   const maxRows = options?.maxRows ?? 20000;
   const pageSize = 1000;
@@ -2318,6 +2318,8 @@ export async function fetchAgentActivityRange(
       if (error) throw error;
       const page = (data || []) as (AgentActivity | FleetAgentActivity)[];
       for (const row of page) {
+        // Analytics leave an agent's own notes and custom events out unless asked.
+        if (!options?.includeOpenEvents && isOpenEventType(row.activity_type)) continue;
         if (row.agent_id === null) fleet.push(row as FleetAgentActivity);
         else rows.push(row as AgentActivity);
       }

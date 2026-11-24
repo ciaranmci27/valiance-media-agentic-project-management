@@ -30,6 +30,8 @@ import * as questions from '@/app/api/v1/questions/route';
 import * as question from '@/app/api/v1/questions/[id]/route';
 import * as questionAnswer from '@/app/api/v1/questions/[id]/answer/route';
 import * as questionCancel from '@/app/api/v1/questions/[id]/cancel/route';
+import * as approvals from '@/app/api/v1/approvals/route';
+import * as approval from '@/app/api/v1/approvals/[id]/route';
 import * as reminders from '@/app/api/v1/reminders/route';
 import * as reminder from '@/app/api/v1/reminders/[id]/route';
 import * as agentActivities from '@/app/api/v1/agent-activities/route';
@@ -100,6 +102,8 @@ export const ROUTE_MODULES: Record<string, RouteModule> = {
   '/api/v1/questions/{id}': question,
   '/api/v1/questions/{id}/answer': questionAnswer,
   '/api/v1/questions/{id}/cancel': questionCancel,
+  '/api/v1/approvals': approvals,
+  '/api/v1/approvals/{id}': approval,
   '/api/v1/reminders': reminders,
   '/api/v1/reminders/{id}': reminder,
   '/api/v1/agent-activities': agentActivities,

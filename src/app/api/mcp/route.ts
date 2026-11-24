@@ -2,7 +2,6 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { createMcpHandler } from '@modelcontextprotocol/server';
 import { ApiError } from '@/lib/api/errors';
 import { resolveApiKey } from '@/lib/api/middleware';
-import { isAgentProfile } from '@/lib/mcp/profiles';
 import { createPmServer, type McpCaller } from '@/lib/mcp/server';
 
 export const runtime = 'nodejs';
@@ -72,8 +71,9 @@ export async function POST(request: NextRequest) {
       scopes: Array.isArray(keyRow.scopes) ? keyRow.scopes : [],
       readOnly: keyRow.permissions === 'read_only',
       member: { id: keyRow.team_member_id, name: member?.name ?? 'Unknown', role: access.role },
-      // Before the migration adds the column, every agent is generic.
-      profile: isAgentProfile(member?.agent_profile) && access.role === 'agent' ? member.agent_profile : 'generic',
+      // Before the migration adds the column, every agent is generic. A stored
+      // profile the registry does not know is kept, and sees only pm_guide.
+      profile: access.role === 'agent' && typeof member?.agent_profile === 'string' ? member.agent_profile : 'generic',
     };
   } catch (caught) {
     if (caught instanceof ApiError) return rpcError(caught.statusCode, caught.message, caught.details);

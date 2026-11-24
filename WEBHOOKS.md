@@ -205,10 +205,15 @@ and `task.updated` adds `changes`:
 
 **`review.submitted`** adds the task and
 `review: { id, task_id, round, verdict, summary, pr_url, head_sha, reviewer_id, created_at }`.
-`verdict` is `approved` or `changes_requested`.
+`verdict` is `approved` or `changes_requested`. `pr_url` and `head_sha` are both
+`null` on a review of work without a pull request (a document, a data fix).
 
 **Question events** add
 `question: { id, project_id, task_id, asked_by, asked_to, question, choices, allow_other, status, answer_choice, answer_text, answered_by, answered_at, cancelled_by, cancelled_at, expires_at, created_at, updated_at, deleted_at }`.
+An approval (a question an agent asks before an action) uses the same events,
+and its `question` also carries `kind: "approval"`, `action: { type, summary, details? }`,
+`decision` (`approved`, `rejected` or `null`) and `decided_by` (who decided, or
+`null`). A plain question carries none of these four.
 
 **Suggestion events** add
 `suggestion: { id, project_id, goal_id, proposed_by, assigned_to, title, description, reasoning, priority, effort_estimate, status, reviewed_by, reviewed_at, rejection_reason, info_request, converted_task_id, bundle_key, created_at, updated_at }`.

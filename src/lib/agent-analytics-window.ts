@@ -1,5 +1,6 @@
 import type { AgentActivity, FleetAgentActivity } from '@/lib/types';
 import type { AttributionDelta } from '@/lib/agent-telemetry-analytics';
+import { isOpenEventType } from '@/lib/agent-events';
 
 /**
  * The compact answer of the agent_analytics_window database function
@@ -14,6 +15,9 @@ import type { AttributionDelta } from '@/lib/agent-telemetry-analytics';
  *   usage.recorded row per hour. They carry no session, so token attribution
  *   never double counts them; the directed sessions' raw deltas come back
  *   separately as `attribution`.
+ * - Open events (note, custom.<namespace>.<name>) are left out unless
+ *   includeOpenEvents asks for them: they are an agent's own words, and no
+ *   total may move because an agent chose to narrate.
  */
 
 type Turn = [string, string, string, string | null, string | null, number, string | null, string | null,
@@ -39,7 +43,7 @@ const row = (fields: Pick<AgentActivity, 'id' | 'agent_id' | 'project_id' | 'act
 // Postgres hands timestamps back with "+00:00"; the raw rows use ISO "Z".
 const iso = (value: string) => new Date(value).toISOString();
 
-export function activitiesFromWindow(payload: AnalyticsWindowPayload): {
+export function activitiesFromWindow(payload: AnalyticsWindowPayload, options: { includeOpenEvents?: boolean } = {}): {
   rows: AgentActivity[];
   fleet: FleetAgentActivity[];
   attribution: AttributionDelta[];
@@ -79,6 +83,8 @@ export function activitiesFromWindow(payload: AnalyticsWindowPayload): {
   }
 
   for (const [id, agentId, projectId, type, referenceId, createdAt, metadata] of payload.events ?? []) {
+    // An agent's own notes and custom events are not core's to count.
+    if (!options.includeOpenEvents && isOpenEventType(type)) continue;
     const event = row({ id, agent_id: agentId as string, project_id: projectId, activity_type: type, reference_id: referenceId, metadata: metadata ?? {}, created_at: iso(createdAt) });
     if (agentId === null) fleet.push({ ...event, agent_id: null });
     else rows.push(event);

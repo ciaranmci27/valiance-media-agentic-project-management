@@ -1,9 +1,13 @@
 import { isModuleEnabled, type AccessContext, type PermissionKey } from '@/lib/access-control';
 import { accessAllows } from '@/lib/api/access';
 import { permissionAlternatives } from '@/lib/api/middleware';
+import { checkAgentProfileTools } from '@/lib/extensions/agent-profiles';
 import type { PmTool } from './core';
-import type { AgentProfile } from './profiles';
+import { AGENT_PROFILES, profileSeesTool, type AgentProfile } from './profiles';
 import { GUIDE_TOOL, PM_TOOLS } from './tools';
+
+// A profile that names a tool that does not exist stops here, on first load.
+checkAgentProfileTools(AGENT_PROFILES, PM_TOOLS.map((tool) => tool.name));
 
 /**
  * Which tools a key sees, apart from the server so the context pack
@@ -24,6 +28,7 @@ export interface ToolViewer {
  */
 export function toolVisible(tool: PmTool, caller: ToolViewer): boolean {
   if (tool.profiles && !tool.profiles.includes(caller.profile)) return false;
+  if (tool.name !== GUIDE_TOOL && !profileSeesTool(caller.profile, tool.name)) return false;
   if (tool.agentsOnly && caller.access.role !== 'agent') return false;
   if (tool.module && !isModuleEnabled(caller.access, tool.module)) return false;
   if (tool.write && caller.readOnly) return false;

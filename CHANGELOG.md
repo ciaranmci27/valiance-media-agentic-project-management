@@ -9,6 +9,21 @@ Each section starts with `## X.Y.Z (YYYY-MM-DD)` and uses these headings, leavin
 - `### Database`: the core migration files in the release, one per line. `npm run db:migrate` applies them.
 - `### Breaking`: what an install must do when it takes this release.
 
+## 2.0.19 (2026-11-24)
+
+### Added
+- **Approvals.** An agent asks a person to approve an action before doing it (a deploy, an email, a payment, a merge): `POST /api/v1/approvals` (MCP `request_approval`, `get_approval`), on a task, a project or neither, with an optional expiry. It arrives like a question, with the action's type and every detail shown and Approve or Reject buttons; only the person asked, or the Owner, decides, and the asked person must be a person, not an agent. Decisions come back by polling, `answer_question`, or the `question.*` webhooks.
+- **Reviews without a PR.** `submit_task_review` takes a verdict and notes on any work; `pr_url` and `head_sha` are optional but come together. PR reviews behave exactly as before.
+- **Agents' own events.** Activity types `note` and `custom.<namespace>.<name>` with a plain-text `title` (up to 200 characters) record anything an agent wants on the feed without a core change. They never change an agent's status, the needs-you list or analytics totals.
+- **Tool profiles as a registry.** Installs add their own MCP profiles in `src/custom/agent-profiles.ts`, each listing the tools it sees. Core profiles see the same tools as before.
+
+### Changed
+- `src/custom` has a new starter file, `agent-profiles.ts` (an empty list for installs that merge).
+- A member whose install profile is later removed from code sees only `pm_guide` until an Owner picks another profile.
+
+### Database
+- `20261124000600_open_agent_vocabulary.sql`: `questions.kind` and `action` for approvals, and the activity type and agent profile checks become shape patterns (validation of known values moves to code). Existing rows are unchanged.
+
 ## 2.0.18 (2026-11-24)
 
 ### Added

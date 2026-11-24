@@ -22,7 +22,7 @@
  *   is labelled with what it measures.
  */
 
-import { EVENT_STATE, isAgentEventType, isHostRecordEvent } from '@/lib/agent-events';
+import { EVENT_STATE, isAgentEventType, isHostRecordEvent, isOpenEventType } from '@/lib/agent-events';
 import { DEFAULT_HEARTBEAT_INTERVAL_SECONDS } from '@/lib/schemas/agent-health';
 export { isBookkeepingEvent } from '@/lib/agent-events';
 
@@ -120,6 +120,10 @@ export const emptyTrace = (): AgentTrace => ({
  * table: no prose is read at all. The phrase regexes below survive only for
  * legacy rows written before the contract existed, and retire when the last
  * plugin stops writing them.
+ *
+ * Open events (note, custom.<namespace>.<name>) prove the agent ran and
+ * nothing more: their titles are the agent's own words, so no prose in them
+ * may move its state.
  */
 export function classifyActivity(row: ActivityLike): {
   isSilentType: boolean;
@@ -128,6 +132,9 @@ export function classifyActivity(row: ActivityLike): {
   isBlocked: boolean;
   isWork: boolean;
 } {
+  if (isOpenEventType(row.activity_type)) {
+    return { isSilentType: true, reportsNoWork: false, reportsDone: false, isBlocked: false, isWork: false };
+  }
   if (isAgentEventType(row.activity_type)) {
     const state = EVENT_STATE[row.activity_type];
     return {
@@ -281,6 +288,21 @@ export function deriveStatus(
   // elapsed number carries how long it has been quiet, which is the useful
   // part, without dressing quiet up as a fault.
   return { mood: 'idle', since: trace.seenAt, sinceMeans: 'idle', telemetry };
+}
+
+/**
+ * When a project last had a pull request merged: the typed pr.merged event
+ * (titled "Merged PR #n"), or an older untyped row titled "PR merged ...".
+ * An open event (note, custom.*) never counts, whatever its title says.
+ */
+export function lastMergeAt(
+  rows: (ActivityLike & { project_id: string | null })[],
+  projectId: string,
+): string | null {
+  return rows
+    .filter((a) => a.project_id === projectId && !isOpenEventType(a.activity_type)
+      && (a.activity_type === 'pr.merged' || a.title.startsWith('PR merged')))
+    .reduce<string | null>((best, a) => (!best || a.created_at > best ? a.created_at : best), null);
 }
 
 /** What an agent is for when busy, read from their title: reviewers review. */

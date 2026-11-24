@@ -149,7 +149,7 @@ export const SHARED_ROUTES: Array<{ route: string; modules: ModuleId[] }> = [
 export const CORE_ROUTES: string[] = [
   'api/[...unknown]', 'api/brand', 'api/docs', 'api/email-preview', 'api/encryption', 'api/logo', 'api/mcp', 'api/notifications',
   'api/smtp', 'api/team-members', 'api/whats-my-ip',
-  'api/v1/activities', 'api/v1/audit-log', 'api/v1/entity-files', 'api/v1/notifications', 'api/v1/questions', 'api/v1/reminders',
+  'api/v1/activities', 'api/v1/approvals', 'api/v1/audit-log', 'api/v1/entity-files', 'api/v1/notifications', 'api/v1/questions', 'api/v1/reminders',
   'api/v1/tasks', 'api/v1/team-members', 'api/v1/projects', 'api/v1/api-keys',
   // Every key reads its own setup (pm_guide's context), a person's too, with AI agents on or off.
   'api/v1/agents/me',

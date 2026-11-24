@@ -2,7 +2,8 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { isModuleEnabled, type AccessContext } from '@/lib/access-control';
 import { formatEventTitle } from '@/lib/agent-events';
 import {
-  effectiveQuestionStatus, textAnswers, type AnswerQuestionInput, type AskQuestionInput, type QuestionStatus, type QuestionView,
+  APPROVAL_CHOICES, approvalDecision, effectiveQuestionStatus, textAnswers, type AnswerQuestionInput, type ApprovalAction,
+  type AskQuestionInput, type QuestionKind, type QuestionStatus, type QuestionView, type RequestApprovalInput,
 } from '@/lib/questions';
 import { accessAllows, accessAllowsProject } from './access';
 import { afterResponse } from './after-response';
@@ -17,7 +18,9 @@ import { postgrestList, trashedProjectIds } from '@/lib/supabase/trash';
  * a member sees the questions they asked, the ones they were asked, and the
  * ones on a task or project they can open (never one whose task or project
  * is in Trash). The asked member, the Owner, or someone who may manage the
- * team answers; the asker or those managers cancel.
+ * team answers; the asker or those managers cancel. An approval (kind
+ * 'approval') is decided only by the member asked, who is always a person,
+ * or the Owner: managing the team is not a say over a deploy or a spend.
  *
  * Expiry needs no job: an open question past expires_at reads as expired,
  * and every list or change stores that first (which clears its bell).
@@ -54,6 +57,9 @@ interface QuestionRow {
   created_at: string;
   updated_at: string;
   deleted_at: string | null;
+  /** question or approval; missing on a database before 20261124000600 (a question). */
+  kind?: string;
+  action?: ApprovalAction | null;
   /** Filled by withPlaces: the live task and project it hangs on. */
   task?: { title: string } | null;
   project?: { name: string } | null;
@@ -166,7 +172,10 @@ function canSee(ctx: QuestionsContext, row: QuestionRow): boolean {
     || ((!!row.task_id || !!row.project_id) && row.can_open_place === true);
 }
 
-const canAnswer = (ctx: QuestionsContext, row: QuestionRow) => row.asked_to === ctx.memberId || canManage(ctx);
+const isApproval = (row: { kind?: string | null }) => row.kind === 'approval';
+
+const canAnswer = (ctx: QuestionsContext, row: QuestionRow) =>
+  row.asked_to === ctx.memberId || (isApproval(row) ? ctx.access.role === 'owner' : canManage(ctx));
 const canCancel = (ctx: QuestionsContext, row: QuestionRow) => row.asked_by === ctx.memberId || canManage(ctx);
 
 async function memberNames(db: SupabaseClient, ids: (string | null)[]): Promise<Map<string, string>> {
@@ -238,8 +247,21 @@ async function present(ctx: QuestionsContext, rows: QuestionRow[]): Promise<Ques
       updated_at: row.updated_at,
       can_answer: status === 'open' && canAnswer(ctx, row),
       can_cancel: status === 'open' && canCancel(ctx, row),
+      ...(isApproval(row) ? approvalFields(row, names) : {}),
     };
   });
+}
+
+/** What only an approval carries: its action and the decision, once there is one. */
+function approvalFields(row: QuestionRow, names: Map<string, string>): Partial<QuestionView> {
+  const decided = row.status === 'answered' ? row.answered_by : null;
+  return {
+    kind: 'approval',
+    action: row.action ?? undefined,
+    decision: approvalDecision(row.answer_choice),
+    decided_by: decided,
+    decided_by_name: decided ? names.get(decided) ?? null : null,
+  };
 }
 
 /** Stores 'expired' on open questions past their time, which clears their bells. */
@@ -289,19 +311,34 @@ async function resolvePlace(ctx: QuestionsContext, input: AskQuestionInput) {
   return { task_id: null, project_id: null, task_title: null };
 }
 
-/** Who is asked: the named member, else the agent's escalation target, else the Owner. */
-async function resolveAskedTo(ctx: QuestionsContext, askedTo: string | undefined): Promise<string> {
+/**
+ * Who is asked: the named member, else the agent's escalation target, else
+ * the Owner. An approval goes to a person: an agent cannot approve an action.
+ */
+async function resolveAskedTo(ctx: QuestionsContext, askedTo: string | undefined, kind: QuestionKind = 'question'): Promise<string> {
+  let target: string | null = askedTo ?? null;
   if (askedTo) {
     const { data, error } = await ctx.db.from('team_members').select('id').eq('id', askedTo).eq('status', 'active').maybeSingle();
     if (error) throw error;
     if (!data) throw invalid('asked_to must be an active team member', { reason: 'asked_to_not_member' });
-    return askedTo;
+  } else {
+    // escalationTarget is the agent's own choice, or the Owner; a person gets the Owner.
+    target = await escalationTarget(ctx.db, ctx.memberId);
+    if (!target) throw invalid('There is no one to ask: name asked_to.', { reason: 'no_one_to_ask' });
   }
-  // escalationTarget is the agent's own choice, or the Owner; a person gets the Owner.
-  const target = await escalationTarget(ctx.db, ctx.memberId);
-  if (!target) throw invalid('There is no one to ask: name asked_to.', { reason: 'no_one_to_ask' });
-  return target;
+  if (kind === 'approval') {
+    const { data, error } = await ctx.db.from('team_members').select('role').eq('id', target).maybeSingle();
+    if (error) throw error;
+    if ((data as { role?: string } | null)?.role === 'agent') {
+      throw invalid(askedTo ? 'An approval goes to a person: asked_to is an agent.' : 'Your escalation target is an agent, and an approval goes to a person: name one in asked_to.', { reason: 'approver_not_person' });
+    }
+  }
+  return target as string;
 }
+
+/** A database without the approval columns yet (new code before its migration). */
+const missingApprovalColumns = (error: { code?: string; message?: string } | null) =>
+  !!error && (error.code === '42703' || error.code === 'PGRST204' || /column .*(kind|action)/i.test(error.message ?? ''));
 
 /** Logs the typed blocked event for an agent that asks, so its state reads as needing a person. */
 function recordBlocked(ctx: QuestionsContext, row: QuestionRow, taskTitle: string | null) {
@@ -328,8 +365,29 @@ function recordBlocked(ctx: QuestionsContext, row: QuestionRow, taskTitle: strin
 
 /** Asks a question. Answers with the question; asked_to's bell rings (database trigger). */
 export async function askQuestion(ctx: QuestionsContext, input: AskQuestionInput): Promise<QuestionView> {
+  return createQuestion(ctx, input, 'question', null);
+}
+
+/**
+ * Asks a person to approve an action before the caller does it: a question
+ * of kind approval, with the choices approve and reject and no free-text
+ * answer (a note rides along). Its question is the action's summary unless
+ * the caller adds more context. Answers with the approval; poll it until
+ * decision is approved or rejected.
+ */
+export async function requestApproval(ctx: QuestionsContext, input: RequestApprovalInput): Promise<QuestionView> {
+  const { action, question, ...rest } = input;
+  return createQuestion(ctx, {
+    ...rest,
+    question: question ?? action.summary,
+    choices: [...APPROVAL_CHOICES],
+    allow_other: false,
+  }, 'approval', action);
+}
+
+async function createQuestion(ctx: QuestionsContext, input: AskQuestionInput, kind: QuestionKind, action: ApprovalAction | null): Promise<QuestionView> {
   const place = await resolvePlace(ctx, input);
-  const askedTo = await resolveAskedTo(ctx, input.asked_to);
+  const askedTo = await resolveAskedTo(ctx, input.asked_to, kind);
   if (askedTo === ctx.memberId) {
     throw invalid(input.asked_to ? 'You cannot ask yourself. Name someone else in asked_to.' : 'You would be asking yourself: name someone in asked_to.', { reason: 'asked_self' });
   }
@@ -348,12 +406,28 @@ export async function askQuestion(ctx: QuestionsContext, input: AskQuestionInput
       choices,
       allow_other: choices ? input.allow_other ?? true : true,
       expires_at: input.expires_at ?? null,
+      // A plain question sends exactly what it always did.
+      ...(kind === 'approval' ? { kind, action } : {}),
     })
     .select(SELECT)
     .single();
+  if (kind === 'approval' && missingApprovalColumns(error)) {
+    throw new ApiError(503, 'SERVICE_UNAVAILABLE', 'Approvals work once the database update 20261124000600_open_agent_vocabulary.sql is applied', {
+      reason: 'migration_pending',
+    });
+  }
   if (error) throw error;
   const [row] = await withPlaces(ctx, [data as QuestionRow]);
   recordBlocked(ctx, row, place.task_title);
+  return (await present(ctx, [row]))[0];
+}
+
+/** One approval the caller can see. A plain question (or a hidden id) is 404. */
+export async function getApproval(ctx: QuestionsContext, id: string): Promise<QuestionView> {
+  const row = await loadRow(ctx, id).catch((error: unknown) => {
+    throw error instanceof ApiError && error.statusCode === 404 ? notFound('Approval') : error;
+  });
+  if (!isApproval(row)) throw notFound('Approval');
   return (await present(ctx, [row]))[0];
 }
 
@@ -368,6 +442,8 @@ export interface QuestionFilters {
   askedTo?: string;
   taskId?: string;
   projectId?: string;
+  /** Only questions, or only approvals; both when left out. */
+  kind?: QuestionKind;
   offset: number;
   limit: number;
   /** Oldest first (the app's open list); the API lists newest first. */
@@ -392,7 +468,12 @@ export function questionFiltersFrom(searchParams: URLSearchParams, memberId: str
     if (value && !UUID.test(value)) throw badRequest(`${name} must be a uuid`);
     return value ?? undefined;
   };
-  return { status: status as QuestionFilters['status'], askedBy: who('asked_by'), askedTo: who('asked_to'), taskId: id('task_id'), projectId: id('project_id') };
+  const kind = searchParams.get('kind');
+  if (kind !== null && kind !== 'question' && kind !== 'approval') throw badRequest('kind must be question or approval');
+  return {
+    status: status as QuestionFilters['status'], askedBy: who('asked_by'), askedTo: who('asked_to'), taskId: id('task_id'), projectId: id('project_id'),
+    ...(kind ? { kind } : {}),
+  };
 }
 
 /**
@@ -448,6 +529,7 @@ export async function listQuestions(ctx: QuestionsContext, filters: QuestionFilt
   if (filters.askedTo) query = query.eq('asked_to', filters.askedTo);
   if (filters.taskId) query = query.eq('task_id', filters.taskId);
   if (filters.projectId) query = query.eq('project_id', filters.projectId);
+  if (filters.kind) query = query.eq('kind', filters.kind);
   const { data, count, error } = await query
     .order('created_at', { ascending: !!filters.oldestFirst })
     .range(filters.offset, filters.offset + filters.limit - 1);
@@ -471,7 +553,9 @@ function notOpen(row: QuestionRow): ApiError | null {
 export async function answerQuestion(ctx: QuestionsContext, id: string, input: AnswerQuestionInput): Promise<QuestionView> {
   const row = await loadRow(ctx, id);
   if (!canAnswer(ctx, row)) {
-    throw forbidden('Only the person asked, the Owner, or someone who may manage the team can answer this question.', { reason: 'not_asked' });
+    throw isApproval(row)
+      ? forbidden('Only the person asked, or the Owner, can decide this approval.', { reason: 'not_asked' })
+      : forbidden('Only the person asked, the Owner, or someone who may manage the team can answer this question.', { reason: 'not_asked' });
   }
   const closed = notOpen(row);
   if (closed) throw closed;
@@ -482,7 +566,7 @@ export async function answerQuestion(ctx: QuestionsContext, id: string, input: A
     choice = choices.find((c) => c === input.choice) ?? choices.find((c) => c.toLowerCase() === input.choice!.toLowerCase()) ?? null;
     if (!choice) throw invalid('choice must be one of the question\'s choices', { reason: 'unknown_choice', choices });
   } else if (!textAnswers({ choices, allow_other: row.allow_other })) {
-    throw invalid('Pick one of the choices.', { reason: 'choice_required', choices });
+    throw invalid(isApproval(row) ? 'Send choice approve or reject; text is an optional note.' : 'Pick one of the choices.', { reason: 'choice_required', choices });
   }
   const now = new Date().toISOString();
   const { data, error } = await ctx.db
@@ -534,16 +618,22 @@ export interface OpenQuestion {
   asked_to_name: string | null;
   expires_at: string | null;
   created_at: string;
+  /** Approvals only: absent on a plain question. */
+  kind?: 'approval';
+  action?: ApprovalAction;
 }
 
 /**
  * The oldest open question on a task, or null. Anyone who can read the task
- * sees it. A database without the questions table yet reads as none.
+ * sees it. A database without the questions table yet reads as none. A plain
+ * question has exactly the fields it always had; an approval adds kind and
+ * action.
  */
 export async function openQuestionForTask(db: SupabaseClient, taskId: string): Promise<OpenQuestion | null> {
+  // Every column, so a database before the approval columns reads the same.
   const { data, error } = await db
     .from('questions')
-    .select('id, question, choices, allow_other, asked_by, asked_to, expires_at, created_at, status')
+    .select('*')
     .eq('task_id', taskId)
     .eq('status', 'open')
     .is('deleted_at', null)
@@ -551,11 +641,21 @@ export async function openQuestionForTask(db: SupabaseClient, taskId: string): P
     .limit(20);
   if (missingQuestionsTable(error)) return null;
   if (error) throw error;
-  const open = ((data ?? []) as (OpenQuestion & { status: string })[]).find((q) => effectiveQuestionStatus(q) === 'open');
+  const open = ((data ?? []) as QuestionRow[]).find((q) => effectiveQuestionStatus(q) === 'open');
   if (!open) return null;
   const names = await memberNames(db, [open.asked_by, open.asked_to]);
-  const { status: _status, ...rest } = open;
-  void _status;
-  return { ...rest, asked_by_name: names.get(open.asked_by) ?? null, asked_to_name: names.get(open.asked_to) ?? null };
+  return {
+    id: open.id,
+    question: open.question,
+    choices: open.choices,
+    allow_other: open.allow_other,
+    asked_by: open.asked_by,
+    asked_to: open.asked_to,
+    expires_at: open.expires_at,
+    created_at: open.created_at,
+    asked_by_name: names.get(open.asked_by) ?? null,
+    asked_to_name: names.get(open.asked_to) ?? null,
+    ...(isApproval(open) && open.action ? { kind: 'approval' as const, action: open.action } : {}),
+  };
 }
 

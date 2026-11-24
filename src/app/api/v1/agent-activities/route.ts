@@ -1,11 +1,11 @@
 import { z } from 'zod';
 import { withApi } from '@/lib/api/middleware';
 import { created, paginated } from '@/lib/api/response';
-import { createAgentActivitySchema, type LegacyAgentActivity, type TypedAgentEvent } from '@/lib/schemas/agent-activity';
-import { formatEventTitle, HOST_RECORD_EVENT_TYPES, isAgentEventType } from '@/lib/agent-events';
+import { agentActivityBodySchema, type LegacyAgentActivity, type OpenAgentEvent, type TypedAgentEvent } from '@/lib/schemas/agent-activity';
+import { formatEventTitle, formatOpenEventTitle, HOST_RECORD_EVENT_TYPES, isAgentEventType, isOpenEventType } from '@/lib/agent-events';
 import { requireAgentsEnabled } from '@/lib/api/agents';
 import { parsePagination } from '@/lib/api/pagination';
-import { forbidden, badRequest } from '@/lib/api/errors';
+import { ApiError, forbidden, badRequest } from '@/lib/api/errors';
 import { insertAgentActivity } from '@/lib/supabase/queries';
 import { logAudit } from '@/lib/api/audit';
 import { accessAllowsProject } from '@/lib/api/access';
@@ -73,7 +73,7 @@ export const POST = withApi(async ({ supabase, body, apiKeyId, teamMemberId, acc
     throw forbidden('Project scope denied');
   }
 
-  const parsed = body as z.infer<typeof createAgentActivitySchema>;
+  const parsed = body as z.infer<typeof agentActivityBodySchema>;
 
   // A fleet key (the host dispatcher's) speaks for the fleet, not for the
   // member it is linked to: it may post only host alerts that name no agent,
@@ -95,8 +95,28 @@ export const POST = withApi(async ({ supabase, body, apiKeyId, teamMemberId, acc
   // Typed events carry no title by design: the server composes the one
   // canonical sentence per type, and the validated payload is stored in
   // metadata where queries can reach it. Legacy shapes pass through
-  // unchanged until every plugin speaks the typed contract.
-  const record = isAgentEventType(parsed.activity_type)
+  // unchanged until every plugin speaks the typed contract. An open event
+  // (note, custom.<namespace>.<name>) is titled by its own plain title.
+  const record = isOpenEventType(parsed.activity_type)
+    ? (() => {
+        const open = parsed as OpenAgentEvent;
+        const payload = open.payload;
+        const taskId = isUuid(payload.task_id) ? payload.task_id : null;
+        const sent = !taskId && ['task', 'lead', 'contact'].includes(open.reference_type ?? '') && isUuid(open.reference_id)
+          ? { type: open.reference_type as string, id: open.reference_id }
+          : null;
+        return {
+          project_id: open.project_id,
+          activity_type: open.activity_type,
+          title: formatOpenEventTitle(payload),
+          description: '',
+          reference_type: taskId ? 'task' : sent?.type ?? null,
+          reference_id: taskId ?? sent?.id ?? null,
+          metadata: payload,
+          source_key: null,
+        };
+      })()
+    : isAgentEventType(parsed.activity_type)
     ? (() => {
         const typed = parsed as TypedAgentEvent;
         const payload = typed.payload as Record<string, unknown>;
@@ -216,6 +236,10 @@ export const POST = withApi(async ({ supabase, body, apiKeyId, teamMemberId, acc
       const existing = await findExisting();
       if (existing) return created(existing);
     }
+    // A database before 20261124000600 still holds the closed list of types.
+    if (isOpenEventType(parsed.activity_type) && (error as { code?: string } | null)?.code === '23514') {
+      throw new ApiError(503, 'SERVICE_UNAVAILABLE', 'note and custom events are recorded once the database update 20261124000600_open_agent_vocabulary.sql is applied', { reason: 'migration_pending' });
+    }
     throw error;
   }
 
@@ -232,4 +256,4 @@ export const POST = withApi(async ({ supabase, body, apiKeyId, teamMemberId, acc
   });
 
   return created(entry);
-}, { schema: createAgentActivitySchema, permission: ['agent_activity.write', 'fleet_alerts.write'] });
+}, { schema: agentActivityBodySchema, permission: ['agent_activity.write', 'fleet_alerts.write'] });

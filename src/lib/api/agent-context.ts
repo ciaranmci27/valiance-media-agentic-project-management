@@ -11,7 +11,7 @@ import { agentRulesOf, type AgentRules } from '@/lib/agent-rules';
 import { findAgentTemplate } from '@/lib/agent-templates';
 import { getBrand } from '@/lib/brand/server';
 import { IDEMPOTENCY_KEY_ARGUMENT } from '@/lib/mcp/core';
-import { isAgentProfile, type AgentProfile } from '@/lib/mcp/profiles';
+import type { AgentProfile } from '@/lib/mcp/profiles';
 import { GUIDE_TOOL, PM_TOOLS } from '@/lib/mcp/tools';
 import { toolsFor } from '@/lib/mcp/visibility';
 import { accessAllowsProject, apiKeyAllows, resolveMemberAccess, resolveProjectAccessLevels, type ProjectAccessLevel } from './access';
@@ -159,6 +159,7 @@ function conventionsFor(tools: Set<string>, health: ContextPack['health'], hasId
     lines.push('Claim a task with claim_task before you work on it; extend_claim on long work, release_task if you stop. A 409 means someone else holds it: pick another task, never work it anyway.');
   }
   if (tools.has('ask_human')) lines.push('When only a person can decide, ask_human on the task and poll get_question a few minutes apart. Never guess, and do not repeat the question.');
+  if (tools.has('request_approval')) lines.push('Before an action a person must allow (a deploy, a client email, a spend, deleting data, a merge), request_approval and poll get_approval; act only on decision approved.');
   if (tools.has('heartbeat') && health) {
     lines.push(health.publisher_reports
       ? 'Your host publishes your health, so you do not need heartbeat.'
@@ -280,7 +281,8 @@ export async function buildContextPack(
   const isAgent = row.role === 'agent';
   const access = row.id === viewer.memberId ? viewer.access : await resolveMemberAccess(service, row.id);
   if (!access) throw new Error(`Could not resolve access for member ${row.id}`);
-  const profile: AgentProfile = isAgent && isAgentProfile(row.agent_profile) ? row.agent_profile : 'generic';
+  // A stored profile the registry does not know is kept, and sees only pm_guide.
+  const profile: AgentProfile = isAgent && typeof row.agent_profile === 'string' ? row.agent_profile : 'generic';
   const omitted = [...(input.omitted ?? [])];
 
   const key = input.key;

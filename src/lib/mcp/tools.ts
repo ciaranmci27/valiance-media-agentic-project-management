@@ -1,5 +1,8 @@
 import { z } from 'zod';
-import { AGENT_EVENT_SCHEMAS, AGENT_EVENT_TYPES, isServerEvent, isTelemetryEvent, type AgentEventType } from '@/lib/agent-events';
+import {
+  AGENT_EVENT_SCHEMAS, AGENT_EVENT_TYPES, CUSTOM_EVENT_TYPE_PATTERN, isOpenEventType, isServerEvent, isTelemetryEvent, NOTE_EVENT_TYPE,
+  openEventSchema, type AgentEventType,
+} from '@/lib/agent-events';
 import { API_ENDPOINT_PERMISSIONS } from '@/lib/access-control';
 import { WEBHOOK_EVENT_TYPES } from '@/lib/types';
 import { idempotencyKeyInput, routeTool, type PmTool } from './core';
@@ -513,16 +516,19 @@ export const PM_TOOLS: PmTool[] = [
   }),
   {
     name: 'submit_task_review',
-    lead: "Record a review verdict on a task's pull request.",
+    lead: "Record a review verdict on a task's work.",
     detail:
-      'Needs tasks.manage_all; assignees cannot review their own work. One verdict per pull request commit: if this commit was already reviewed, the first verdict stands and is returned with already_reviewed.',
+      'Needs tasks.manage_all; assignees cannot review their own work. For a pull request send pr_url and head_sha together: one verdict per commit, so if this commit was already reviewed, the first verdict stands and is returned with already_reviewed. For other work (a document, a data fix, a design) send neither: a verdict and your notes in summary, each one a new round.',
     input: z.object({
       task_id: id('task_id'),
       verdict: z.enum(['approved', 'changes_requested']),
       summary: z.string().min(1).max(20_000),
-      pr_url: z.url(),
-      head_sha: z.string().regex(/^[0-9a-f]{40}$/i, 'head_sha must be the full 40-character commit SHA'),
-    }).strict(),
+      pr_url: z.url().optional(),
+      head_sha: z.string().regex(/^[0-9a-f]{40}$/i, 'head_sha must be the full 40-character commit SHA').optional(),
+    }).strict().refine((args) => (args.pr_url === undefined) === (args.head_sha === undefined), {
+      message: 'Send pr_url and head_sha together for a pull request, or neither for other work',
+      path: ['head_sha'],
+    }),
     permission: 'tasks.manage_all',
     routes: [{ method: 'POST', path: '/api/v1/tasks/{id}/reviews' }],
     write: true,
@@ -778,13 +784,14 @@ export const PM_TOOLS: PmTool[] = [
   routeTool({
     name: 'list_questions',
     lead: 'List questions you asked, were asked, or can see.',
-    detail: 'Newest first. status open, answered, cancelled, expired or all (default all); asked_by me and asked_to me for your own; task_id or project_id for one place. Questions asked to you with can_answer true are yours to answer with answer_question.',
+    detail: 'Newest first. status open, answered, cancelled, expired or all (default all); asked_by me and asked_to me for your own; task_id or project_id for one place; kind question or approval for only one kind (both by default). Questions asked to you with can_answer true are yours to answer with answer_question.',
     input: z.object({
       status: z.enum(['open', 'answered', 'cancelled', 'expired', 'all']).optional(),
       asked_by: z.union([z.literal('me'), id('asked_by')]).optional(),
       asked_to: z.union([z.literal('me'), id('asked_to')]).optional(),
       task_id: id('task_id').optional(),
       project_id: id('project_id').optional(),
+      kind: z.enum(['question', 'approval']).optional(),
       page,
       limit: limit(20),
     }).strict(),
@@ -796,7 +803,7 @@ export const PM_TOOLS: PmTool[] = [
   routeTool({
     name: 'answer_question',
     lead: 'Answer a question you were asked.',
-    detail: 'Send choice (one of its choices), text, or both. Without choices, text is the answer; with choices and allow_other false, a choice is required. Only the member asked, the Owner, or a member who may manage the team can answer. 409 when it is already answered, cancelled or expired.',
+    detail: 'Send choice (one of its choices), text, or both. Without choices, text is the answer; with choices and allow_other false, a choice is required. Only the member asked, the Owner, or a member who may manage the team can answer. An approval (kind approval) takes choice approve or reject, with text as an optional note, and only the member asked or the Owner decides it. 409 when it is already answered, cancelled or expired.',
     input: z.object({
       question_id: id('question_id'),
       choice: z.string().min(1).max(200).optional(),
@@ -818,6 +825,40 @@ export const PM_TOOLS: PmTool[] = [
     destructive: true,
     idempotent: false,
     request: ({ question_id }) => ({ params: { id: question_id } }),
+  }),
+  // Approvals: ask a person to approve an action before you do it.
+  routeTool({
+    name: 'request_approval',
+    lead: 'Ask a person to approve an action before you do it.',
+    detail:
+      "For an action a person must allow first: a deploy, an email to a client, spending money, deleting data, a merge. action.type names it in your words (deploy, send_email, spend, delete_data, merge, ...), action.summary says exactly what will happen in one line, action.details (optional JSON) carries the rest, and question adds context. On a task (task_id), a project (project_id) or neither. asked_to defaults to your escalation target, else the Owner, and must be a person. expires_at (ISO time) closes it unanswered. Answers with the approval (status open, decision null): poll get_approval until decision is approved or rejected, and act only on approved. Expired or cancelled means no. For new work to propose, use create_task_suggestion instead.",
+    input: z.object({
+      action: z.object({
+        type: z.string().min(1).max(63).describe('The kind of action, lowercase: deploy, send_email, spend, delete_data, merge, or your own'),
+        summary: z.string().min(1).max(300).describe('Exactly what will happen, in one line a person can approve'),
+        details: z.record(z.string(), z.unknown()).optional().describe('Anything else as JSON: an amount, a recipient, a link'),
+      }).strict(),
+      question: z.string().min(1).max(2000).optional().describe('Context for the person deciding; the summary when left out'),
+      task_id: id('task_id').optional(),
+      project_id: id('project_id').optional(),
+      asked_to: id('asked_to').optional().describe('The person to ask; default your escalation target or the Owner'),
+      expires_at: z.string().min(1).max(40).optional().describe('ISO 8601 time after which it closes as expired'),
+      idempotency_key: idempotencyKeyInput,
+    }).strict(),
+    permission: 'tasks.read',
+    method: 'POST',
+    path: '/api/v1/approvals',
+    request: (body) => ({ body }),
+  }),
+  routeTool({
+    name: 'get_approval',
+    lead: 'Read one approval and its decision, if there is one.',
+    detail: 'decision is approved, rejected or null; decided_by_name and answer_text (the note) come with it. status open, answered, cancelled or expired: only decision approved lets you act. Poll it after request_approval, a few minutes apart.',
+    input: z.object({ approval_id: id('approval_id') }).strict(),
+    permission: 'tasks.read',
+    method: 'GET',
+    path: '/api/v1/approvals/{id}',
+    request: ({ approval_id }) => ({ params: { id: approval_id } }),
   }),
   // Reminders: next steps on a task, follow-ups on a project, or standalone
   routeTool({
@@ -896,13 +937,21 @@ export const PM_TOOLS: PmTool[] = [
     name: 'log_activity',
     lead: 'Log a typed agent event to the activity feed.',
     detail:
-      "Agents only. The feed line is written by the server from the payload; free-text events are not accepted. Payloads: work.claimed/work.done {task_id?, task_title}; work.milestone {task_id?, kind: subtask|criterion|comment|commit|session|note, detail}; work.handoff {task_title, pr_url?, round?}; pr.merged {pr_url, additions, deletions}; review.started {task_title, round}; review.verdict {verdict, round, pr_url?, findings?}; audit.finding {subject, findings, note?}; audit.no_work {reason}; spec.completed {subject}; queue.empty {queue: review|work|spec|audit}; blocked {task_id?, reason}; billing.started|paused|resumed|stopped {task_id?}.",
+      "Agents only. The feed line is written by the server from the payload. Payloads: work.claimed/work.done {task_id?, task_title}; work.milestone {task_id?, kind: subtask|criterion|comment|commit|session|note, detail}; work.handoff {task_title, pr_url?, round?}; pr.merged {pr_url, additions, deletions}; review.started {task_title, round}; review.verdict {verdict, round, pr_url?, findings?}; audit.finding {subject, findings, note?}; audit.no_work {reason}; spec.completed {subject}; queue.empty {queue: review|work|spec|audit}; blocked {task_id?, reason}; billing.started|paused|resumed|stopped {task_id?}. For anything else: note {title, task_id?, detail?}, or your own custom.<namespace>.<name> {title, task_id?, ...your fields}; title (plain text, at most 200 characters) is the feed line. They never change your status or the analytics.",
     input: z.object({
-      activity_type: z.enum(AGENT_EVENTS),
+      activity_type: z.union([
+        z.enum(AGENT_EVENTS),
+        z.literal(NOTE_EVENT_TYPE),
+        z.string().regex(CUSTOM_EVENT_TYPE_PATTERN, 'activity_type must be a typed event, note, or custom.<namespace>.<name>'),
+      ]),
       payload: z.record(z.string(), z.unknown()),
       project_id: id('project_id').nullable().optional(),
     }).strict().superRefine((args, ctx) => {
-      const parsed = AGENT_EVENT_SCHEMAS[args.activity_type].safeParse(args.payload);
+      const type = args.activity_type as string;
+      // A type outside the vocabulary is already refused above.
+      const schema = isOpenEventType(type) ? openEventSchema(type) : AGENT_EVENT_SCHEMAS[type as AgentEventType];
+      if (!schema) return;
+      const parsed = schema.safeParse(args.payload);
       if (!parsed.success)
         for (const issue of parsed.error.issues)
           ctx.addIssue({ code: 'custom', path: ['payload', ...issue.path.map(String)], message: issue.message });
