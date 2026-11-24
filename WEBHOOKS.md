@@ -37,6 +37,8 @@ deliveries wait.
 | `question.cancelled` | A question is withdrawn, or moved to Trash while open. | the question |
 | `suggestion.created` | A task suggestion is made. | the suggestion |
 | `suggestion.decided` | A suggestion is approved, rejected or declined. | the suggestion |
+| `run.started` | An agent starts a run (POST /api/v1/agents/runs, MCP start_run). | the run |
+| `run.finished` | An agent run finishes: `succeeded`, `failed`, `cancelled` or `timed_out`. | the run |
 | `invoice.paid` | An invoice enters the `paid` status. | the invoice |
 | `invoice.updated` | A paid (or previously paid) invoice changes: an edit, an un-pay, a cancel. | the invoice |
 | `invoice.deleted` | A paid invoice is deleted. | the invoice |
@@ -47,7 +49,10 @@ What sends nothing: reordering tasks, claiming or releasing a task (bookkeeping,
 unless the claim assigns the task, which is a `task.updated`), changes to a
 task's other fields (tags, parent), anything on a task in Trash, a question
 expiring (an open question past `expires_at` reads as expired), a suggestion
-asking for more information, and invoice drafts.
+asking for more information, updates to a running run (its plan, notes, tokens),
+a run timing out (a run with no update for two hours reads as `timed_out`;
+only a finish sends `run.finished`), turns recorded without a run, and invoice
+drafts.
 
 One save is one event: every change to a task in one transaction folds into one
 `task.updated` (its `changes` lists them all), and a task created with its
@@ -68,11 +73,13 @@ Each endpoint has three filters. Empty means everything.
     assignee who was removed hears that they were);
   - for a question: the member asked (`asked_to`) and the asker (`asked_by`);
   - for a suggestion: who proposed it and who it would be assigned to;
+  - for a run: the agent whose run it is;
   - for an invoice: nobody, so an endpoint with a member filter never receives
     invoice events.
 
-  The one definition is the database function `pm.webhook_event_members`; every
-  payload lists the result as `data.member_ids`. Writing a comment does not
+  The one definition is the database function `pm.webhook_event_members` (a
+  run's is its agent, set by its trigger); every payload lists the result as
+  `data.member_ids`. Writing a comment does not
   make the author concerned: an agent does not wake up for its own comment.
 
 ## Retries and ordering
@@ -207,6 +214,12 @@ and `task.updated` adds `changes`:
 `suggestion: { id, project_id, goal_id, proposed_by, assigned_to, title, description, reasoning, priority, effort_estimate, status, reviewed_by, reviewed_at, rejection_reason, info_request, converted_task_id, bundle_key, created_at, updated_at }`.
 The task an approval makes arrives as its own `task.created`, which names the
 suggestion in `source_task_suggestion_id`.
+
+**Run events** (`run.started`, `run.finished`) add
+`run: { id, agent_id, task_id, project_id, status, title, summary, model, trigger, tokens_in, tokens_out, cost_usd, external_id, external_url, started_at, finished_at, updated_at }`.
+`tokens_in`, `tokens_out` and `cost_usd` (US dollars) are the run's own totals
+as its harness reported them, `null` when it did not. `external_id` is the
+harness's own run id and `external_url` its trace link.
 
 ### Invoice events
 

@@ -1,5 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import type { AccessContext, PermissionKey } from '@/lib/access-control';
+import { isModuleEnabled, type AccessContext, type PermissionKey } from '@/lib/access-control';
 import { accessAllows, sanitizeProjectForAccess } from './access';
 import { permissionAlternatives } from './middleware';
 import { readTaskInFull } from './task-read';
@@ -11,7 +11,7 @@ import { apiContext, listTaskFiles } from '@/lib/task-files/service';
  * Everything an agent needs to work one task, in one bounded read: the task
  * (subtasks, acceptance criteria, blockers), its project and the project's
  * active context entries, the newest comments, files and links, the open
- * question, the claim, and the caller's own rules.
+ * question, the claim, the latest agent run, and the caller's own rules.
  *
  * Every part comes from the reader its own route uses (GET /tasks/{id},
  * /projects/{id}, /projects/{id}/context, /tasks/{id}/files). The task's
@@ -85,7 +85,7 @@ async function briefRules(caller: BriefCaller) {
 
 export async function buildTaskBrief(caller: BriefCaller, taskId: string): Promise<Row> {
   const { supabase } = caller;
-  const full = await readTaskInFull(supabase, taskId);
+  const full = await readTaskInFull(supabase, taskId, { agentsOn: isModuleEnabled(caller.access, 'agents') });
   const omitted: { part: string; reason: string; needs: PermissionKey }[] = [];
 
   const seeProject = keyHolds(caller, 'projects.read');
@@ -111,6 +111,7 @@ export async function buildTaskBrief(caller: BriefCaller, taskId: string): Promi
     comments: allComments = [],
     claim,
     open_question: openQuestion,
+    latest_run: latestRun,
     blocked_by: blockedBy,
     dependencies_met: dependenciesMet,
     ...task
@@ -198,6 +199,7 @@ export async function buildTaskBrief(caller: BriefCaller, taskId: string): Promi
     blockers: { blocked_by: blockedBy ?? [], dependencies_met: dependenciesMet ?? true },
     open_question: openQuestion ?? null,
     claim: claim ?? null,
+    latest_run: latestRun ?? null,
     rules,
     omitted,
   };

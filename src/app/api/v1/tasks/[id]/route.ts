@@ -11,6 +11,7 @@ import { loadParentTask, setTaskParentAs, subtaskRuleError } from '@/lib/api/sub
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { applyClosePolicy, commentSentToReview, loadMemberRules, sentToReviewNote } from '@/lib/api/agent-rules';
 import { readTaskInFull } from '@/lib/api/task-read';
+import { isModuleEnabled } from '@/lib/access-control';
 
 async function currentAssigneeIds(supabase: SupabaseClient, taskId: string): Promise<string[]> {
   const { data, error } = await supabase
@@ -60,8 +61,8 @@ async function assertSubtasksCanMove(supabase: SupabaseClient, taskId: string, t
   if (assignees.length > 0) await assertAssigneesCanOpenProject(supabase, assignees, targetProjectId);
 }
 
-export const GET = withApi(async ({ supabase, params }) => {
-  return success(await readTaskInFull(supabase, params.id));
+export const GET = withApi(async ({ supabase, params, access }) => {
+  return success(await readTaskInFull(supabase, params.id, { agentsOn: isModuleEnabled(access, 'agents') }));
 });
 
 export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemberId, access, scopes }) => {

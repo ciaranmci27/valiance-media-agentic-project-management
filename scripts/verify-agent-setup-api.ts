@@ -33,11 +33,12 @@ import { NextRequest } from 'next/server';
 import { createRequire } from 'node:module';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { createFullSchemaDatabase, SCHEMA_PATH } from './full-schema-db';
+import { applyMigrationsFrom, createFullSchemaDatabase, SCHEMA_PATH } from './full-schema-db';
 import { startFakePostgrest } from './fake-postgrest';
 import { diffSnapshots, pmSnapshot } from './lib/pm-catalog';
 
-const MIGRATION_SQL = readFileSync(join(__dirname, '..', 'supabase', 'migrations', '20261124000400_agent_setup_api.sql'), 'utf8');
+const MIGRATION = '20261124000400_agent_setup_api.sql';
+const MIGRATION_SQL = readFileSync(join(__dirname, '..', 'supabase', 'migrations', MIGRATION), 'utf8');
 const SCHEMA_SQL = readFileSync(SCHEMA_PATH, 'utf8').replace(/\r\n/g, '\n');
 const SECTION = '-- API KEY LINEAGE (20261124000400_agent_setup_api.sql)';
 const OWNER_LOGIN = '00000000-0000-4000-8000-00000000a001';
@@ -118,8 +119,8 @@ async function migrationChecks() {
   const old = await createFullSchemaDatabase({ schemaSql: SCHEMA_SQL.slice(0, banner) });
   const member = (await old.query<{ id: string }>("INSERT INTO pm.team_members (name, email, role) VALUES ('Old', 'old@example.com', 'agent') RETURNING id")).rows[0].id;
   await old.query("INSERT INTO pm.api_keys (name, key_prefix, key_hash, team_member_id, scopes, permissions) VALUES ('Old key', 'pk_live', 'h1', $1, '{tasks.read}', 'scoped')", [member]);
-  await old.exec(MIGRATION_SQL);
-  await old.exec(MIGRATION_SQL);
+  // This migration twice, then any later one, so schema.sql (which holds them all) is comparable.
+  await applyMigrationsFrom(old, MIGRATION);
   const kept = (await old.query<Loose>('SELECT created_by_key_id FROM pm.api_keys')).rows;
   check('upgrade: an existing key has no parent', kept.length === 1 && kept[0].created_by_key_id === null, kept);
   // What 2.0.15 does still works: insert without the column, revoke one key by update.

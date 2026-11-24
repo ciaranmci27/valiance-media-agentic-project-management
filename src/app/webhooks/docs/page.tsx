@@ -139,6 +139,8 @@ export default function WebhooksDocsPage() {
                   [<code key="e" className="text-brand-600 font-mono text-xs">question.cancelled</code>, 'A question is withdrawn, or moved to Trash while open.'],
                   [<code key="e" className="text-brand-600 font-mono text-xs">suggestion.created</code>, 'A task suggestion is made.'],
                   [<code key="e" className="text-brand-600 font-mono text-xs">suggestion.decided</code>, 'A suggestion is approved, rejected or declined.'],
+                  [<code key="e" className="text-brand-600 font-mono text-xs">run.started</code>, 'An agent starts a run. data.run holds it.'],
+                  [<code key="e" className="text-brand-600 font-mono text-xs">run.finished</code>, 'An agent run finishes: succeeded, failed, cancelled or timed_out.'],
                   [<code key="e" className="text-brand-600 font-mono text-xs">invoice.paid</code>, 'An invoice enters the paid status.'],
                   [<code key="e" className="text-brand-600 font-mono text-xs">invoice.updated</code>, 'A paid (or previously paid) invoice changes: an edit, an un-pay, or a cancel.'],
                   [<code key="e" className="text-brand-600 font-mono text-xs">invoice.deleted</code>, 'A paid invoice is deleted.'],
@@ -155,7 +157,7 @@ export default function WebhooksDocsPage() {
                   <code className="text-brand-600 font-mono text-xs">actor_id</code> (who made the change, so an agent
                   can skip its own). A member filter sends only events that concern that member: a task assigned to or
                   claimed by them (or just taken off them), comments and reviews on it, questions asked to or by them,
-                  and their suggestions. All changes to a task in one save arrive as one event. See WEBHOOKS.md in the
+                  their suggestions, and their own agent runs. All changes to a task in one save arrive as one event. See WEBHOOKS.md in the
                   repository for every payload.
                 </p>
                 <p className="text-sm text-zinc-600">

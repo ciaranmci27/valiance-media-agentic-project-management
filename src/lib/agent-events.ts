@@ -155,6 +155,12 @@ export const AGENT_EVENT_SCHEMAS = {
   // `outcome` labels the turn (work, idle, waiting, blocked, skipped,
   // unknown). Rows published before outcomes existed have none and read as
   // unlabelled: never as work, never as idle.
+  //
+  // A turn that is part of a run names it: run_id (the app's run id, from
+  // start_run) or run_external_id (the harness's own run id). The server keeps
+  // run_id only when it names one of this agent's runs; the turn is then
+  // listed under that run instead of as a run of its own. It is never
+  // refused for a run it cannot find.
   'turn.completed': hostPayload({
     source_turn_id: z.string().min(1).max(300),
     origin: z.enum(['scheduled', 'directed']),
@@ -162,6 +168,8 @@ export const AGENT_EVENT_SCHEMAS = {
     started_at: instant,
     finished_at: instant,
     ...turnLabel,
+    run_id: looseId.optional(),
+    run_external_id: looseId.optional(),
   }),
   // A late label for a turn.completed published before outcomes existed. It
   // carries no runtime: the API merges it onto the turn with the same

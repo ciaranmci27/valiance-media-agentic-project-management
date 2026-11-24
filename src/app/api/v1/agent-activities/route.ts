@@ -11,6 +11,7 @@ import { logAudit } from '@/lib/api/audit';
 import { accessAllowsProject } from '@/lib/api/access';
 import { hasPermission } from '@/lib/access-control';
 import { isUuid, mergeOutcome, metadataIdentity, sourceKey } from '@/lib/agent-telemetry-ingest';
+import { resolveTurnRun } from '@/lib/api/agent-runs';
 import type { AgentActivity } from '@/lib/types';
 
 export const GET = withApi(async ({ supabase, searchParams, access }) => {
@@ -190,6 +191,18 @@ export const POST = withApi(async ({ supabase, body, apiKeyId, teamMemberId, acc
     const label = await findExisting('turn.outcome');
     const merged = label ? mergeOutcome(metadata, label.metadata ?? {}) : null;
     if (merged) record.metadata = merged;
+  }
+
+  // A turn that names one of this agent's runs belongs to it: run_id is kept
+  // (resolved from run_external_id too) and the run lists it. Any other
+  // run_id is dropped, so the turn reads as a run of its own. Nothing else
+  // in the turn changes, so analytics reads it exactly as before.
+  if (parsed.activity_type === 'turn.completed') {
+    const meta = { ...(record.metadata as Record<string, unknown>) };
+    const runId = await resolveTurnRun(supabase, agentId, meta);
+    if (runId) meta.run_id = runId;
+    else delete meta.run_id;
+    record.metadata = meta;
   }
 
   let entry;

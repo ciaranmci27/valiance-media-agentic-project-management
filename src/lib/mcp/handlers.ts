@@ -34,6 +34,9 @@ import * as reminders from '@/app/api/v1/reminders/route';
 import * as reminder from '@/app/api/v1/reminders/[id]/route';
 import * as agentActivities from '@/app/api/v1/agent-activities/route';
 import * as agentHeartbeat from '@/app/api/v1/agents/heartbeat/route';
+import * as agentRuns from '@/app/api/v1/agents/runs/route';
+import * as agentRun from '@/app/api/v1/agents/runs/[id]/route';
+import * as agentRunFinish from '@/app/api/v1/agents/runs/[id]/finish/route';
 import * as teamMembers from '@/app/api/v1/team-members/route';
 import * as teamMember from '@/app/api/v1/team-members/[id]/route';
 import * as leads from '@/app/api/v1/leads/route';
@@ -101,6 +104,9 @@ export const ROUTE_MODULES: Record<string, RouteModule> = {
   '/api/v1/reminders/{id}': reminder,
   '/api/v1/agent-activities': agentActivities,
   '/api/v1/agents/heartbeat': agentHeartbeat,
+  '/api/v1/agents/runs': agentRuns,
+  '/api/v1/agents/runs/{id}': agentRun,
+  '/api/v1/agents/runs/{id}/finish': agentRunFinish,
   '/api/v1/team-members': teamMembers,
   '/api/v1/team-members/{id}': teamMember,
   '/api/v1/leads': leads,

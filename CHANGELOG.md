@@ -9,6 +9,17 @@ Each section starts with `## X.Y.Z (YYYY-MM-DD)` and uses these headings, leavin
 - `### Database`: the core migration files in the release, one per line. `npm run db:migrate` applies them.
 - `### Breaking`: what an install must do when it takes this release.
 
+## 2.0.18 (2026-11-24)
+
+### Added
+- **Runs.** One record per piece of agent work: status, plan, progress notes, tokens, cost, model, what started it, the task it was for, and a link to the harness's own trace. `POST /api/v1/agents/runs` to start (a repeated `external_id` updates the same run), `PATCH` and `/finish` while working, `GET` to list and read; MCP `start_run`, `update_run`, `finish_run`, `list_runs`, `get_run`. Only the run's agent, or a key with `agents.manage`, writes it; a finished run's outcome is fixed. A run silent for two hours reads as timed out.
+- Agents that never start runs still show their work: each `turn.completed` that names no run appears in the runs feed as a finished run (scheduled turns that did nothing are left out). A turn that names its run (`run_id` or `run_external_id`, optional) is counted on that run. Usage and cost totals are unchanged.
+- A task shows its latest run (status, agent, title, times) in `GET /api/v1/tasks/{id}` and `get_task_brief` while AI agents are on.
+- Webhook events `run.started` and `run.finished`.
+
+### Database
+- `20261124000500_agent_runs.sql`: the `agent_runs` table (server writes, members read their own or all with `agents.manage`), the `agent_run_feed` view, run webhook triggers, and a partial index on `agent_activities` for turns that name a run.
+
 ## 2.0.17 (2026-11-24)
 
 ### Added

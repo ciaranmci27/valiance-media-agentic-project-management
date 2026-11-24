@@ -59,6 +59,8 @@ const EVENT_LABELS: Record<string, string> = {
   'suggestion.created': 'Suggestion made',
   'suggestion.decided': 'Suggestion decided',
   'review.submitted': 'Review submitted',
+  'run.started': 'Agent run started',
+  'run.finished': 'Agent run finished',
   'invoice.paid': 'Invoice paid',
   'invoice.updated': 'Invoice updated',
   'invoice.deleted': 'Invoice deleted',
@@ -71,6 +73,7 @@ const EVENT_GROUPS: Array<{ label: string; events: readonly string[]; invoices?:
   { label: 'Tasks', events: ['task.created', 'task.updated', 'task.deleted', 'comment.created'] },
   { label: 'Questions', events: ['question.asked', 'question.answered', 'question.cancelled'] },
   { label: 'Suggestions and reviews', events: ['suggestion.created', 'suggestion.decided', 'review.submitted'] },
+  { label: 'Agent runs', events: ['run.started', 'run.finished'] },
   { label: 'Invoices', events: INVOICE_WEBHOOK_EVENT_TYPES, invoices: true },
 ];
 const INVOICE_EVENTS: readonly string[] = INVOICE_WEBHOOK_EVENT_TYPES;

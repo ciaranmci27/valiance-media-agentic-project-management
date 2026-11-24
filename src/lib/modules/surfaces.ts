@@ -125,7 +125,7 @@ export const MODULE_SURFACES: Record<ModuleId, ModuleSurface> = {
   agents: {
     tables: [
       'agent_health', 'agent_health_history', 'agent_activities', 'project_goals', 'task_suggestions',
-      'agent_billing_gap_reviews', 'analytics_tracking_starts', 'task_reopens',
+      'agent_billing_gap_reviews', 'analytics_tracking_starts', 'task_reopens', 'agent_runs',
     ],
     rpcs: [],
     routes: [

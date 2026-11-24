@@ -1151,6 +1151,7 @@ export const WORK_WEBHOOK_EVENT_TYPES = [
   'task.created', 'task.updated', 'task.deleted', 'comment.created',
   'question.asked', 'question.answered', 'question.cancelled',
   'suggestion.created', 'suggestion.decided', 'review.submitted',
+  'run.started', 'run.finished',
 ] as const;
 
 export const WEBHOOK_EVENT_TYPES = [...WORK_WEBHOOK_EVENT_TYPES, ...INVOICE_WEBHOOK_EVENT_TYPES] as const;

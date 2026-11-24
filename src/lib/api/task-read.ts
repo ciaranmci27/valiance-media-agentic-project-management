@@ -3,18 +3,20 @@ import { notFound } from './errors';
 import { subtaskSummaries } from './subtasks';
 import { claimWithName } from './claims';
 import { openQuestionForTask } from './questions';
+import { latestRunForTask } from './agent-runs';
 
 /**
  * One task in full, as GET /api/v1/tasks/{id} answers it: its parent (for a
  * subtask), subtasks, acceptance criteria, every live comment oldest first,
- * the latest review, blockers with dependencies_met, the live claim and the
- * open question. The task brief reads the same. Access is the caller's to
+ * the latest review, blockers with dependencies_met, the live claim, the
+ * open question and the latest agent run (null while the AI agents module
+ * is off: agentsOn). The task brief reads the same. Access is the caller's to
  * check (withApi does, for both routes); this only reads.
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- rows are read field by field, as the route always did
 export type TaskRow = Record<string, any>;
 
-export async function readTaskInFull(supabase: SupabaseClient, taskId: string): Promise<TaskRow> {
+export async function readTaskInFull(supabase: SupabaseClient, taskId: string, options: { agentsOn: boolean }): Promise<TaskRow> {
   const { data, error } = await supabase
     .from('tasks')
     .select(`
@@ -91,6 +93,8 @@ export async function readTaskInFull(supabase: SupabaseClient, taskId: string): 
     claim: await claimWithName(supabase, data),
     // The task is waiting on someone: its oldest open question, or null.
     open_question: await openQuestionForTask(supabase, data.id),
+    // The newest agent run on it (status, agent, start, trace link), or null.
+    latest_run: options.agentsOn ? await latestRunForTask(supabase, data.id) : null,
     criteria: undefined,
     reviews: undefined,
     task_dependencies: undefined,

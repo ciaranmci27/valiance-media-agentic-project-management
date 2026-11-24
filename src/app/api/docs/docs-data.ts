@@ -39,6 +39,7 @@ export function getEndpointScopes(endpoint: EndpointDoc): string[] {
     return write ? ['agent_activity.write', 'fleet_alerts.write'] : ['audit.read'];
   }
   if (path === '/api/v1/agents/heartbeat') return ['agent_activity.write', 'tasks.read'];
+  if (path.startsWith('/api/v1/agents/runs')) return ['agent_activity.write', 'tasks.read', 'agents.manage'];
   if (path === '/api/v1/agents/health') return ['agents.manage'];
   if (path.includes('/task-suggestions')) {
     if (method === 'POST' && path === '/api/v1/task-suggestions') return ['suggestions.create'];
@@ -256,7 +257,7 @@ export const endpoints: EndpointDoc[] = [
     body: [
       { name: 'name', type: 'string', required: true, description: 'A name for the endpoint' },
       { name: 'url', type: 'string', required: true, description: 'Where events go: HTTPS, or http on localhost for local development' },
-      { name: 'events', type: 'string[]', required: true, description: 'Events to send, at least one: task.created, task.updated, task.deleted, comment.created, question.asked, question.answered, question.cancelled, suggestion.created, suggestion.decided, review.submitted, and (with Client invoicing on) invoice.paid, invoice.updated, invoice.deleted, invoice.payment_recorded, invoice.payment_removed' },
+      { name: 'events', type: 'string[]', required: true, description: 'Events to send, at least one: task.created, task.updated, task.deleted, comment.created, question.asked, question.answered, question.cancelled, suggestion.created, suggestion.decided, review.submitted, run.started, run.finished, and (with Client invoicing on) invoice.paid, invoice.updated, invoice.deleted, invoice.payment_recorded, invoice.payment_removed' },
       { name: 'description', type: 'string', required: false, description: 'A note on what it is for' },
       { name: 'amount_basis', type: 'gross|net', required: false, description: 'Invoice amounts as billed (gross, the default) or net of revenue splits' },
       { name: 'project_ids', type: 'uuid[]|null', required: false, description: 'Only events on these projects (null or empty: every project)' },
@@ -653,10 +654,10 @@ export const endpoints: EndpointDoc[] = [
       { name: 'occurrence_note', type: 'string', required: false, description: 'What happened this time. When dedupe_key finds an open task, it is added there as a comment under the key\'s member.' },
     ],
   },
-  { method: 'GET', path: '/api/v1/tasks/:id', description: 'Get a single task with its parent ({ id, title, status } for a subtask, otherwise null), its subtasks (each a task: id, title, status, completed, assignee_ids, due_date, sorted by sort_order), comments (sorted by created_at), assignee_ids, acceptance_criteria, blocked_by (each blocker with id, title, status), dependencies_met (true when every blocker is done), and claim: who is working on it right now ({ member_id, member_name, claimed_at, expires_at }), or null when nobody holds a live claim. open_question: the oldest open question on the task ({ id, question, choices, allow_other, asked_by, asked_by_name, asked_to, asked_to_name, expires_at, created_at }), or null; while it is set the task is waiting on asked_to. GET /api/v1/questions?task_id= lists them all. The row also carries claimed_by, claimed_at, claim_expires_at (a past claim_expires_at means the claim is over), dedupe_key, occurrences and last_occurred_at.', group: 'Tasks',
+  { method: 'GET', path: '/api/v1/tasks/:id', description: 'Get a single task with its parent ({ id, title, status } for a subtask, otherwise null), its subtasks (each a task: id, title, status, completed, assignee_ids, due_date, sorted by sort_order), comments (sorted by created_at), assignee_ids, acceptance_criteria, blocked_by (each blocker with id, title, status), dependencies_met (true when every blocker is done), and claim: who is working on it right now ({ member_id, member_name, claimed_at, expires_at }), or null when nobody holds a live claim. open_question: the oldest open question on the task ({ id, question, choices, allow_other, asked_by, asked_by_name, asked_to, asked_to_name, expires_at, created_at }), or null; while it is set the task is waiting on asked_to. GET /api/v1/questions?task_id= lists them all. latest_run: the newest agent run on the task ({ id, status, agent_id, agent_name, title, started_at, finished_at }, status timed_out for one running two hours past its last update), or null, and null while the AI agents module is off. It never carries the trace link: GET /api/v1/agents/runs/:id has it, for the run\'s agent or a key with agents.manage. GET /api/v1/agents/runs?task_id= lists them all. The row also carries claimed_by, claimed_at, claim_expires_at (a past claim_expires_at means the claim is over), dedupe_key, occurrences and last_occurred_at.', group: 'Tasks',
     params: [{ name: 'id', type: 'uuid', required: true, description: 'Task ID' }],
   },
-  { method: 'GET', path: '/api/v1/tasks/:id/brief', description: 'Everything an agent needs to start work on a task, in one call: task (as GET /tasks/:id, without comments, long description cut with description_truncated), project (name, status, description, repo_path, branches, member_ids; needs projects.read), project_context ({ entries, total, truncated }: the active context entries, each cut at 2,000 characters and about 12,000 in all; needs project_context.read), comments ({ recent: the newest 10, total }), files (as GET /tasks/:id/files, up to 50; needs files.read), blockers ({ blocked_by, dependencies_met }), open_question, claim, rules (the caller\'s own: is_agent, self_assign, close_policy, create_policy, escalate_to { id, name }) and omitted (parts left out because the key cannot read them, each with the permission it needs). A brief still over about 36,000 characters is cut further, oldest comments first, then files, subtasks, criteria and descriptions; cut_to_fit names each step and the part carries a note. Same access as GET /tasks/:id.', group: 'Tasks',
+  { method: 'GET', path: '/api/v1/tasks/:id/brief', description: 'Everything an agent needs to start work on a task, in one call: task (as GET /tasks/:id, without comments, long description cut with description_truncated), project (name, status, description, repo_path, branches, member_ids; needs projects.read), project_context ({ entries, total, truncated }: the active context entries, each cut at 2,000 characters and about 12,000 in all; needs project_context.read), comments ({ recent: the newest 10, total }), files (as GET /tasks/:id/files, up to 50; needs files.read), blockers ({ blocked_by, dependencies_met }), open_question, claim, latest_run (as GET /tasks/:id), rules (the caller\'s own: is_agent, self_assign, close_policy, create_policy, escalate_to { id, name }) and omitted (parts left out because the key cannot read them, each with the permission it needs). A brief still over about 36,000 characters is cut further, oldest comments first, then files, subtasks, criteria and descriptions; cut_to_fit names each step and the part carries a note. Same access as GET /tasks/:id.', group: 'Tasks',
     params: [{ name: 'id', type: 'uuid', required: true, description: 'Task ID' }],
   },
   { method: 'PATCH', path: '/api/v1/tasks/:id', description: 'Update a task. Only include fields you want to change. Pass assignee_ids to replace the full assignee list (an agent whose rules keep it off unassigned work cannot add itself: 403 self_assign_off). Send parent_task_id to make a task a subtask of another task (it keeps its comments, files, assignees and history), or null to make a subtask top-level again. A task and its subtasks finish separately: completing every subtask does not complete the parent. Setting done ends any claim on the task. If the key\'s agent has the close policy review, status done moves the task to in_review instead, adds a comment saying why, and the answer carries sent_to_review: true and a note.', group: 'Tasks',
@@ -1215,7 +1216,7 @@ export const endpoints: EndpointDoc[] = [
       { name: 'limit', type: 'number', description: 'Items per page (default 25, max 100)' },
     ],
   },
-  { method: 'POST', path: '/api/v1/agent-activities', description: 'Log a typed agent event. Typed writes carry activity_type, project_id, and a schema-validated payload; the server composes the title and derives the agent from the API key. Host telemetry (turn.completed, turn.outcome, turn.failed, agent.restarted, attention.message, dispatch.wake, billing.gap, eval.result) is idempotent on resend; turn.outcome merges onto the turn.completed with the same source_turn_id. A key with fleet_alerts.write may post only attention.message host alerts, stored with no agent. Grandfathered legacy writes remain accepted for rollout compatibility.', group: 'Agent Activity',
+  { method: 'POST', path: '/api/v1/agent-activities', description: 'Log a typed agent event. Typed writes carry activity_type, project_id, and a schema-validated payload; the server composes the title and derives the agent from the API key. Host telemetry (turn.completed, turn.outcome, turn.failed, agent.restarted, attention.message, dispatch.wake, billing.gap, eval.result) is idempotent on resend; turn.outcome merges onto the turn.completed with the same source_turn_id. A turn.completed may name its run with payload run_id (from POST /api/v1/agents/runs) or run_external_id (the harness\'s own run id): when it is one of the agent\'s runs the turn is listed under that run, otherwise run_id is dropped and the turn reads as a run of its own in GET /api/v1/agents/runs. The turn is stored and counted in analytics the same either way. A key with fleet_alerts.write may post only attention.message host alerts, stored with no agent. Grandfathered legacy writes remain accepted for rollout compatibility.', group: 'Agent Activity',
     body: [
       { name: 'activity_type', type: 'string', required: true, description: 'Canonical typed event name, including work.handoff, pr.merged, review.verdict, or usage.recorded.' },
       { name: 'payload', type: 'object', required: true, description: 'Event-specific fields validated by the canonical agent event contract.' },
@@ -1234,6 +1235,62 @@ export const endpoints: EndpointDoc[] = [
   { method: 'POST', path: '/api/v1/agents/health', description: 'For a fleet publisher that watches several agents (needs agents.manage): one report per agent, each id a real agent member, at least once a minute. Upserts each agent\'s status row; a report naming a container that is not running shows the agent offline. Returns { reported, reported_at }.', group: 'Agent Activity',
     body: [
       { name: 'reports', type: 'array', required: true, description: '1 to 32 reports: { member_id, container?, container_running, turn_running, turn_started_at?, expected_interval_seconds? }. expected_interval_seconds (30 to 86400) defaults to 60 when any report in the batch sends one; a batch that sends none leaves each agent\'s interval as it is' },
+    ],
+  },
+
+  // ─── Agent Runs ───────────────────────────────────────────────────
+  { method: 'POST', path: '/api/v1/agents/runs', description: 'Start a run: one piece of an agent\'s work, from start to finish, for any harness. The key must belong to an agent (403 agents_only) and records only its own runs, unless it holds agents.manage and names agent_id (403 own_runs_only). On a task (task_id; its project comes with it), a project or neither; a task or project the key cannot open is 404. external_id is the harness\'s own run id, unique per agent: starting again with it answers 200 with the same run, updated with what this call sends (its status unchanged); a new run answers 201. The Idempotency-Key header also applies. run.started goes to webhooks. Answers with the run.', group: 'Agent Runs',
+    body: [
+      { name: 'task_id', type: 'uuid|null', required: false, description: 'The task it works on' },
+      { name: 'project_id', type: 'uuid|null', required: false, description: 'The project, when not on a task. With task_id it must be the task\'s project.' },
+      { name: 'title', type: 'string', required: false, description: 'What the run is doing, up to 300 characters' },
+      { name: 'trigger', type: 'string', required: false, description: 'What started it: assigned, scheduled, webhook, chat, manual, or another lower-case word (up to 40 characters)' },
+      { name: 'external_id', type: 'string', required: false, description: 'The harness\'s own run id, up to 300 characters' },
+      { name: 'external_url', type: 'string', required: false, description: 'The trace link (http or https, up to 2000 characters)' },
+      { name: 'model', type: 'string', required: false, description: 'The model it runs on' },
+      { name: 'plan', type: 'array', required: false, description: 'Up to 50 steps, each { title, status: pending|running|done|skipped|failed }' },
+      { name: 'note', type: 'string', required: false, description: 'A first progress note, up to 500 characters' },
+      { name: 'tokens_in', type: 'number', required: false, description: 'Input tokens so far' },
+      { name: 'tokens_out', type: 'number', required: false, description: 'Output tokens so far' },
+      { name: 'cost_usd', type: 'number', required: false, description: 'Cost so far, in US dollars' },
+      { name: 'metadata', type: 'object', required: false, description: 'Anything else, up to 8000 characters as JSON' },
+      { name: 'started_at', type: 'ISO 8601', required: false, description: 'When it began (default now; not in the future)' },
+      { name: 'agent_id', type: 'uuid', required: false, description: 'Another agent\'s run: needs agents.manage on key and member' },
+    ],
+  },
+  { method: 'GET', path: '/api/v1/agents/runs', description: 'Runs, newest first (a run by its start, a turn by when it was recorded): stored runs (source run) and each turn.completed that names no run, read as a finished run (source turn, status succeeded, with its outcome, duration and its own tokens; never a cost, which lives in usage events). Scheduled turns that did no work (outcome idle, skipped or waiting) are not runs. A turn is never copied, so totals in analytics are unchanged and nothing is counted twice: a run\'s tokens and cost are what its harness reported, and turns that name a run are counted in its turns, not as rows. The key\'s own runs; with agents.manage every agent\'s. Runs on a task or project in Trash are left out. Each stored run carries turns ({ count, duration_ms, tokens_in, tokens_out }) for the turns that named it. Paginated.', group: 'Agent Runs',
+    queryParams: [
+      { name: 'agent_id', type: 'me|uuid', description: 'One agent\'s runs. Another agent needs agents.manage (403 own_runs_only). Default: your own, or every agent\'s with agents.manage' },
+      { name: 'task_id', type: 'uuid', description: 'Runs on one task' },
+      { name: 'project_id', type: 'uuid', description: 'Runs on one project' },
+      { name: 'status', type: 'running|succeeded|failed|cancelled|timed_out|all', description: 'Default all. A run running two hours past its last update is timed_out' },
+      { name: 'source', type: 'run|turn|all', description: 'Stored runs, turns read as runs, or both (default)' },
+      { name: 'page', type: 'number', description: 'Page number (default 1)' },
+      { name: 'limit', type: 'number', description: 'Items per page (default 25, max 100)' },
+    ],
+  },
+  { method: 'GET', path: '/api/v1/agents/runs/:id', description: 'One run: status, agent_id and agent_name, task_id, project_id, title, summary, model, trigger, started_at, finished_at, duration_ms, tokens_in, tokens_out, cost_usd, external_id, external_url, plan, notes (the newest 50, each { at, text }), metadata and turns. A turn id reads as a finished run (source turn) with an empty plan. 404 when the key cannot see it.', group: 'Agent Runs',
+    params: [{ name: 'id', type: 'uuid', required: true, description: 'Run ID' }],
+  },
+  { method: 'PATCH', path: '/api/v1/agents/runs/:id', description: 'Change a run as it goes: plan replaces the plan, note adds a progress note (the newest 50 are kept), tokens_in, tokens_out and cost_usd are totals so far (not increments, so a retry is safe), and title, summary, model, task_id, external_url and metadata. Any change counts as an update, so a run updated at least every two hours never reads as timed_out. A finished status finishes it, as POST .../finish does. A finished run still takes details (a summary, its final tokens, a trace link), but its status cannot change (409 run_finished). Only the run\'s agent, or a key with agents.manage; 404 for a run the key cannot see.', group: 'Agent Runs',
+    params: [{ name: 'id', type: 'uuid', required: true, description: 'Run ID' }],
+    body: [
+      { name: 'status', type: 'running|succeeded|failed|cancelled|timed_out', required: false, description: 'A finished status finishes the run' },
+      { name: 'plan', type: 'array', required: false, description: 'The whole plan, up to 50 steps' },
+      { name: 'note', type: 'string', required: false, description: 'One progress note to add' },
+      { name: 'tokens_in', type: 'number', required: false, description: 'Input tokens so far' },
+      { name: 'tokens_out', type: 'number', required: false, description: 'Output tokens so far' },
+      { name: 'cost_usd', type: 'number', required: false, description: 'Cost so far, in US dollars' },
+      { name: 'summary', type: 'string', required: false, description: 'What happened, up to 4000 characters' },
+      { name: 'task_id', type: 'uuid|null', required: false, description: 'Move it to a task, or null for none' },
+    ],
+  },
+  { method: 'POST', path: '/api/v1/agents/runs/:id/finish', description: 'Finish a run: status succeeded (default), failed, cancelled or timed_out, with any final details (summary, note, tokens_in, tokens_out, cost_usd, external_url, metadata) and finished_at (default now; not before it started). Finishing again with the same status answers with the run; another status is 409 run_finished. run.finished goes to webhooks.', group: 'Agent Runs',
+    params: [{ name: 'id', type: 'uuid', required: true, description: 'Run ID' }],
+    body: [
+      { name: 'status', type: 'succeeded|failed|cancelled|timed_out', required: false, description: 'Default succeeded' },
+      { name: 'summary', type: 'string', required: false, description: 'What happened' },
+      { name: 'finished_at', type: 'ISO 8601', required: false, description: 'When it ended (default now)' },
     ],
   },
 
@@ -1761,6 +1818,7 @@ const GROUP_MODULE: Record<string, ModuleId> = {
   Goals: 'agents',
   'Task Suggestions': 'agents',
   'Agent Activity': 'agents',
+  'Agent Runs': 'agents',
   'Agent Setup': 'agents',
   'Webhook Endpoints': 'webhooks',
 };

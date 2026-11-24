@@ -14,7 +14,7 @@
  *
  *   npm run -s test:pm-schema
  */
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { PGlite } from '@electric-sql/pglite';
 import { applyMigrationsFrom, applySchema, createFullSchemaDatabase, schemaBeforeMigration } from './full-schema-db';
@@ -117,7 +117,11 @@ async function main() {
   const views = await q<{ name: string; invoker: boolean; comment: string | null }>(upgraded, `
     SELECT c.relnamespace::regnamespace || '.' || c.relname name, coalesce(c.reloptions::text, '') LIKE '%security_invoker=true%' invoker, obj_description(c.oid, 'pg_class') comment
     FROM pg_class c WHERE c.relnamespace IN ('public'::regnamespace, 'communications'::regnamespace) AND c.relkind = 'v'`);
-  check('bridge: a view for every moved table', views.length >= counts.tables - 1, views.length);
+  // Tables a migration after the move creates are born in pm: they never had a public name to bridge.
+  const migrationsDir = join(__dirname, '..', 'supabase', 'migrations');
+  const bornInPm = new Set(readdirSync(migrationsDir).filter((name) => name.endsWith('.sql') && name > MOVE_MIGRATION)
+    .flatMap((name) => [...readFileSync(join(migrationsDir, name), 'utf8').matchAll(/CREATE TABLE (?:IF NOT EXISTS )?pm\.([a-z_]+)/g)].map((m) => m[1])));
+  check('bridge: a view for every moved table', views.length >= counts.tables - bornInPm.size - 1, { views: views.length, tables: counts.tables, bornInPm: [...bornInPm] });
   check('bridge: every view runs as the caller (row security applies)', views.every((v) => v.invoker), views.filter((v) => !v.invoker).map((v) => v.name));
   check('bridge: every view is marked for removal in 2.1', views.every((v) => v.comment === 'pm-2.0 bridge'));
   const wrappers = await q<{ name: string; secdef: boolean; comment: string | null }>(upgraded, `
