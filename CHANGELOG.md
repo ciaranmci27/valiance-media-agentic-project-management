@@ -9,6 +9,11 @@ Each section starts with `## X.Y.Z (YYYY-MM-DD)` and uses these headings, leavin
 - `### Database`: the core migration files in the release, one per line. `npm run db:migrate` applies them.
 - `### Breaking`: what an install must do when it takes this release.
 
+## 2.0.24 (2026-11-24)
+
+### Changed
+- Fixes the 2.0.23 build: a quote in the API docs text stopped the app from compiling. Take this release instead of 2.0.23.
+
 ## 2.0.23 (2026-11-24)
 
 ### Added
