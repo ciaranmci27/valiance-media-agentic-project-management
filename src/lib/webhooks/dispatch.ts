@@ -3,18 +3,19 @@ import { enabledModuleSet } from '@/lib/modules/server';
 import { buildSignatureHeader, WEBHOOK_SIGNATURE_HEADER } from './sign';
 
 // Claims due deliveries (claim_webhook_deliveries: a 2-minute lease per
-// delivery, head of the line per invoice and endpoint) and POSTs each to its
+// delivery, head of the line per subject and endpoint) and POSTs each to its
 // endpoint with an HMAC signature. complete_webhook_delivery records the
 // outcome: a failure goes back to pending with backoff (1m, 3m, 9m ... 12h)
 // until the 8th attempt, then stays failed until resent from the UI. A run
 // that dies leaves its leases to expire and the next run takes them back.
-// Invoked by the in-app kick after an invoice change, the Settings "send now"
-// button, and the scheduled route (Supabase pg_cron, webhook_retry_kick).
+// Invoked by the in-app kick after a change (kickWebhookDispatch in the
+// browser, kickWebhooks on the server), the Settings "send now" button, and
+// the scheduled route (Supabase pg_cron, webhook_retry_kick).
 //
-// Nothing goes out while Webhooks, or Client invoicing which it needs, is
-// switched off: the claim comes back empty (here and in
-// claim_webhook_deliveries itself), so events wait in order, their attempts
-// untouched, and go out once the module is back on.
+// Nothing goes out while Webhooks is switched off, and no invoice event while
+// Client invoicing is: the claim comes back empty (here for Webhooks, in
+// claim_webhook_deliveries itself for both), so those events wait in order,
+// their attempts untouched, and go out once the module is back on.
 
 export interface ClaimedDelivery {
   delivery_id: string;
@@ -34,8 +35,8 @@ export type DeliveryOutcome = 'succeeded' | 'retrying' | 'failed' | 'stale';
 
 const REQUEST_TIMEOUT_MS = 10_000;
 const MAX_RESPONSE_CHARS = 2_000;
-// Claim rounds per run: each round takes the next event in every invoice's
-// line, so a burst of changes to one invoice drains in one run. Bounded so a
+// Claim rounds per run: each round takes the next event in every subject's
+// line, so a burst of changes to one task or invoice drains in one run. Bounded so a
 // run stays well inside the route's maxDuration.
 const MAX_ROUNDS = 5;
 const RUN_BUDGET_MS = 35_000;
@@ -63,7 +64,7 @@ function serviceStore(): DispatchStore {
   return {
     async claim(limit) {
       const modules = await enabledModuleSet(service);
-      if (!modules.has('webhooks') || !modules.has('billing')) return [];
+      if (!modules.has('webhooks')) return [];
       const { data, error } = await service.rpc('claim_webhook_deliveries', { p_limit: limit });
       if (error) throw error;
       return (data ?? []) as ClaimedDelivery[];
@@ -131,10 +132,10 @@ export async function runDispatch(limit = 20, store: DispatchStore = serviceStor
     if (claimed.length === 0) break;
     summary.claimed += claimed.length;
 
-    // The claim already hands out at most one delivery per invoice and
+    // The claim already hands out at most one delivery per subject and
     // endpoint. Grouping keeps that sequential anyway, in sequence order,
     // because the receiver reconciles to current state and concurrent
-    // same-invoice deliveries could race. Different invoices go in parallel.
+    // same-subject deliveries could race. Different subjects go in parallel.
     const groups = new Map<string, ClaimedDelivery[]>();
     for (const d of claimed) {
       const key = `${d.endpoint_id}:${d.resource_id ?? d.delivery_id}`;

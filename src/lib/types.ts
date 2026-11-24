@@ -1141,9 +1141,19 @@ export interface RolePermission {
 // WEBHOOKS (generic outbound platform)
 // ============================================================
 
-export const WEBHOOK_EVENT_TYPES = [
+/** Invoice events: these alone also need Client invoicing (billing) on. */
+export const INVOICE_WEBHOOK_EVENT_TYPES = [
   'invoice.paid', 'invoice.updated', 'invoice.deleted', 'invoice.payment_recorded', 'invoice.payment_removed',
 ] as const;
+
+/** Work events: what wakes an agent harness. Need only the Webhooks module. */
+export const WORK_WEBHOOK_EVENT_TYPES = [
+  'task.created', 'task.updated', 'task.deleted', 'comment.created',
+  'question.asked', 'question.answered', 'question.cancelled',
+  'suggestion.created', 'suggestion.decided', 'review.submitted',
+] as const;
+
+export const WEBHOOK_EVENT_TYPES = [...WORK_WEBHOOK_EVENT_TYPES, ...INVOICE_WEBHOOK_EVENT_TYPES] as const;
 export type WebhookEventType = typeof WEBHOOK_EVENT_TYPES[number];
 
 export const WEBHOOK_DELIVERY_STATUSES = ['pending', 'delivering', 'succeeded', 'failed'] as const;
@@ -1166,6 +1176,10 @@ export interface WebhookEndpoint {
   description: string;
   /** Which amounts this endpoint receives: billed (gross) or after revenue splits (net). */
   amount_basis: WebhookAmountBasis;
+  /** Only events on these projects; null for every project. */
+  project_ids: string[] | null;
+  /** Only events that concern this member (pm.webhook_event_members); null for everyone. */
+  member_id: string | null;
   created_by: string | null;
   last_delivery_at: string | null;
   created_at: string;

@@ -10,5 +10,5 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   return questionsRoute(async (ctx) => {
     await readQuestionBody(request, cancelQuestionSchema);
     return cancelQuestion(ctx, id);
-  });
+  }, { write: true });
 }

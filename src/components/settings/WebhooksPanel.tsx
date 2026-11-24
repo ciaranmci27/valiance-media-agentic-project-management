@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/Input';
 import { Toggle } from '@/components/ui/inputs/Toggle';
 import { Checkbox } from '@/components/ui/inputs/Checkbox';
 import { Select } from '@/components/ui/inputs/Select';
+import { MultiSelect } from '@/components/ui/inputs/MultiSelect';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { toast } from '@/components/ui/Toast';
 import Link from 'next/link';
@@ -22,7 +23,11 @@ import {
   EyeOff,
   Send,
   BookOpen,
+  Pencil,
 } from 'lucide-react';
+import { useApp } from '@/lib/store';
+import { useAuth } from '@/lib/auth-context';
+import { isModuleEnabled } from '@/lib/access-control';
 import { generateWebhookSecret } from '@/lib/webhooks/sign';
 import {
   fetchWebhookEndpoints,
@@ -33,7 +38,8 @@ import {
   requeueWebhookDelivery,
 } from '@/lib/supabase/queries';
 import {
-  WEBHOOK_EVENT_TYPES,
+  INVOICE_WEBHOOK_EVENT_TYPES,
+  WORK_WEBHOOK_EVENT_TYPES,
   WEBHOOK_MAX_ATTEMPTS,
   type WebhookAmountBasis,
   type WebhookEndpoint,
@@ -42,12 +48,32 @@ import {
 } from '@/lib/types';
 
 const EVENT_LABELS: Record<string, string> = {
+  'task.created': 'Task created',
+  'task.updated': 'Task updated',
+  'task.deleted': 'Task moved to Trash',
+  'comment.created': 'Comment added',
+  'question.asked': 'Question asked',
+  'question.answered': 'Question answered',
+  'question.cancelled': 'Question withdrawn',
+  'suggestion.created': 'Suggestion made',
+  'suggestion.decided': 'Suggestion decided',
+  'review.submitted': 'Review submitted',
   'invoice.paid': 'Invoice paid',
   'invoice.updated': 'Invoice updated',
   'invoice.deleted': 'Invoice deleted',
   'invoice.payment_recorded': 'Payment recorded',
   'invoice.payment_removed': 'Payment removed',
 };
+
+// The event picker, in groups. Invoices show only while Client invoicing is on.
+const EVENT_GROUPS: Array<{ label: string; events: readonly string[]; invoices?: boolean }> = [
+  { label: 'Tasks', events: ['task.created', 'task.updated', 'task.deleted', 'comment.created'] },
+  { label: 'Questions', events: ['question.asked', 'question.answered', 'question.cancelled'] },
+  { label: 'Suggestions and reviews', events: ['suggestion.created', 'suggestion.decided', 'review.submitted'] },
+  { label: 'Invoices', events: INVOICE_WEBHOOK_EVENT_TYPES, invoices: true },
+];
+const INVOICE_EVENTS: readonly string[] = INVOICE_WEBHOOK_EVENT_TYPES;
+const EVERYONE = '';
 
 // What an endpoint is sent for invoice.amount, each line amount and totals_by_type.
 const AMOUNT_BASIS_OPTIONS: Array<{ value: WebhookAmountBasis; label: string; detail: string }> = [
@@ -87,21 +113,46 @@ function formatWhen(value: string | null): string {
 
 export function WebhooksPanel({ teamMemberId }: { teamMemberId: string | null }) {
   const supabase = createClient();
+  const { projects, team } = useApp();
+  const { access } = useAuth();
+  // Invoice events need Client invoicing; without it they are neither offered nor sent.
+  const billingOn = isModuleEnabled(access, 'billing');
 
   const [endpoints, setEndpoints] = useState<WebhookEndpoint[]>([]);
   const [deliveries, setDeliveries] = useState<WebhookDelivery[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Create form
+  // A new endpoint starts on the full invoice lifecycle (a receiver that
+  // reconciles needs un-pay, edit and delete too, not just invoice.paid), or
+  // on every work event when there is no invoicing.
+  const defaultEvents = () => (billingOn ? [...INVOICE_WEBHOOK_EVENT_TYPES] : [...WORK_WEBHOOK_EVENT_TYPES]);
+
+  // Create and edit form (editing holds the endpoint being changed)
   const [showForm, setShowForm] = useState(false);
+  const [editing, setEditing] = useState<WebhookEndpoint | null>(null);
   const [name, setName] = useState('');
   const [url, setUrl] = useState('');
   const [description, setDescription] = useState('');
-  // Default to the full invoice lifecycle: a receiver that reconciles needs
-  // un-pay/edit/delete too, not just invoice.paid.
-  const [events, setEvents] = useState<string[]>([...WEBHOOK_EVENT_TYPES]);
+  const [events, setEvents] = useState<string[]>(defaultEvents);
   const [amountBasis, setAmountBasis] = useState<WebhookAmountBasis>('gross');
+  // Filters: no projects means every project; EVERYONE means no member filter.
+  const [projectIds, setProjectIds] = useState<string[]>([]);
+  const [memberId, setMemberId] = useState<string>(EVERYONE);
   const [saving, setSaving] = useState(false);
+
+  const projectOptions = projects
+    .map((p) => ({ value: p.id, label: p.name }))
+    .sort((a, b) => a.label.localeCompare(b.label));
+  const memberOptions = [
+    { value: EVERYONE, label: 'Everyone' },
+    ...team
+      .filter((m) => m.status !== 'suspended' || m.id === memberId)
+      .map((m) => ({ value: m.id, label: m.name, detail: m.title || (m.role === 'agent' ? 'Agent' : undefined) }))
+      .sort((a, b) => a.label.localeCompare(b.label)),
+  ];
+  const projectName = (id: string) => projects.find((p) => p.id === id)?.name ?? 'Unknown project';
+  const memberName = (id: string) => team.find((m) => m.id === id)?.name ?? 'Unknown member';
+  const eventGroups = EVENT_GROUPS.filter((group) => !group.invoices || billingOn);
 
   // One-time secret reveal after creation
   const [newSecret, setNewSecret] = useState<{ name: string; secret: string } | null>(null);
@@ -139,16 +190,40 @@ export function WebhooksPanel({ teamMemberId }: { teamMemberId: string | null })
     setEvents((prev) => (prev.includes(evt) ? prev.filter((e) => e !== evt) : [...prev, evt]));
   }
 
+  // A group's box turns all of its events on, or all off when they all are.
+  function toggleGroup(groupEvents: readonly string[]) {
+    setEvents((prev) => {
+      const allOn = groupEvents.every((e) => prev.includes(e));
+      return allOn ? prev.filter((e) => !groupEvents.includes(e)) : [...new Set([...prev, ...groupEvents])];
+    });
+  }
+
   function resetForm() {
     setName('');
     setUrl('');
     setDescription('');
-    setEvents([...WEBHOOK_EVENT_TYPES]);
+    setEvents(defaultEvents());
     setAmountBasis('gross');
+    setProjectIds([]);
+    setMemberId(EVERYONE);
+    setEditing(null);
     setShowForm(false);
   }
 
-  async function handleCreate() {
+  function startEdit(endpoint: WebhookEndpoint) {
+    setNewSecret(null);
+    setEditing(endpoint);
+    setName(endpoint.name);
+    setUrl(endpoint.url);
+    setDescription(endpoint.description);
+    setEvents([...endpoint.events]);
+    setAmountBasis(endpoint.amount_basis ?? 'gross');
+    setProjectIds(endpoint.project_ids ?? []);
+    setMemberId(endpoint.member_id ?? EVERYONE);
+    setShowForm(true);
+  }
+
+  async function handleSave() {
     const trimmedName = name.trim();
     const trimmedUrl = url.trim();
     if (!trimmedName) {
@@ -168,29 +243,38 @@ export function WebhooksPanel({ teamMemberId }: { teamMemberId: string | null })
       toast('error', 'Endpoint URL must use HTTPS');
       return;
     }
+    // Invoice events kept from when invoicing was on still count, though hidden.
     if (events.length === 0) {
       toast('error', 'Select at least one event');
       return;
     }
+    const fields = {
+      name: trimmedName,
+      url: trimmedUrl,
+      events,
+      description: description.trim(),
+      amount_basis: amountBasis,
+      project_ids: projectIds.length > 0 ? projectIds : null,
+      member_id: memberId || null,
+    };
 
     setSaving(true);
     try {
+      if (editing) {
+        const updated = await updateWebhookEndpoint(supabase, editing.id, fields);
+        setEndpoints((prev) => prev.map((e) => (e.id === updated.id ? updated : e)));
+        toast('success', 'Webhook endpoint saved');
+        resetForm();
+        return;
+      }
       const secret = generateWebhookSecret();
-      const created = await insertWebhookEndpoint(supabase, {
-        name: trimmedName,
-        url: trimmedUrl,
-        secret,
-        events,
-        description: description.trim(),
-        amount_basis: amountBasis,
-        created_by: teamMemberId,
-      });
+      const created = await insertWebhookEndpoint(supabase, { ...fields, secret, created_by: teamMemberId });
       setEndpoints((prev) => [created, ...prev]);
       setNewSecret({ name: created.name, secret });
       resetForm();
     } catch (e) {
-      console.error('Failed to create webhook', e);
-      toast('error', 'Failed to create webhook endpoint');
+      console.error('Failed to save webhook', e);
+      toast('error', editing ? 'Failed to save webhook endpoint' : 'Failed to create webhook endpoint');
     } finally {
       setSaving(false);
     }
@@ -288,7 +372,7 @@ export function WebhooksPanel({ teamMemberId }: { teamMemberId: string | null })
           <div>
             <h2 className="font-semibold text-white">Webhooks</h2>
             <p className="text-sm text-zinc-400 hidden sm:block">
-              Send signed events to external systems when invoices change.
+              Send signed events to agents and other systems when work or invoices change.
             </p>
           </div>
         </div>
@@ -299,7 +383,7 @@ export function WebhooksPanel({ teamMemberId }: { teamMemberId: string | null })
             </Button>
           </Link>
           {!showForm && !newSecret && (
-            <Button size="sm" onClick={() => setShowForm(true)} icon={<Plus size={14} />}>
+            <Button size="sm" onClick={() => { resetForm(); setShowForm(true); }} icon={<Plus size={14} />}>
               <span className="sm:hidden">New</span>
               <span className="hidden sm:inline">New endpoint</span>
             </Button>
@@ -338,10 +422,10 @@ export function WebhooksPanel({ teamMemberId }: { teamMemberId: string | null })
         </div>
       )}
 
-      {/* Create form */}
+      {/* Create and edit form */}
       {showForm && (
         <div className="mb-6 p-4 bg-white/[0.03] border border-white/[0.08] rounded-lg space-y-3">
-          <h4 className="text-sm font-medium text-white">New endpoint</h4>
+          <h4 className="text-sm font-medium text-white">{editing ? `Edit ${editing.name}` : 'New endpoint'}</h4>
           <Input
             label="Name"
             value={name}
@@ -352,7 +436,7 @@ export function WebhooksPanel({ teamMemberId }: { teamMemberId: string | null })
             label="Endpoint URL"
             value={url}
             onChange={(e) => setUrl(e.target.value)}
-            placeholder="https://your-app.com/api/webhooks/invoices"
+            placeholder="https://your-app.com/api/webhooks"
           />
           <Input
             label="Description (optional)"
@@ -360,32 +444,66 @@ export function WebhooksPanel({ teamMemberId }: { teamMemberId: string | null })
             onChange={(e) => setDescription(e.target.value)}
             placeholder="What this endpoint is for"
           />
-          <Select
-            label="Amounts"
-            value={amountBasis}
-            onChange={(value) => setAmountBasis(value as WebhookAmountBasis)}
-            options={AMOUNT_BASIS_OPTIONS}
-            description="Net sends what is left after revenue splits. The split itself is never sent."
+          <MultiSelect
+            label="Projects"
+            value={projectIds}
+            onChange={setProjectIds}
+            options={projectOptions}
+            placeholder="Every project"
+            description="Only events on these projects. Leave empty for every project."
           />
+          <Select
+            label="Member"
+            value={memberId}
+            onChange={setMemberId}
+            options={memberOptions}
+            searchable
+            description="Only events that concern this member: tasks assigned to or claimed by them, comments and reviews on those tasks, questions asked to or by them, and their suggestions. For an agent, this is its own work."
+          />
+          {billingOn && (
+            <Select
+              label="Amounts"
+              value={amountBasis}
+              onChange={(value) => setAmountBasis(value as WebhookAmountBasis)}
+              options={AMOUNT_BASIS_OPTIONS}
+              description="For invoice events. Net sends what is left after revenue splits. The split itself is never sent."
+            />
+          )}
           <div>
             <label className="block text-sm font-medium text-zinc-300 mb-1.5">Events</label>
             <div className="rounded-lg border border-white/[0.08] bg-surface-raised divide-y divide-white/[0.06]">
-              {WEBHOOK_EVENT_TYPES.map((evt) => (
-                <div key={evt} className="px-3 py-2.5">
-                  <Checkbox
-                    size="sm"
-                    checked={events.includes(evt)}
-                    onChange={() => toggleEvent(evt)}
-                    label={EVENT_LABELS[evt]}
-                    description={evt}
-                  />
-                </div>
-              ))}
+              {eventGroups.map((group) => {
+                const on = group.events.filter((evt) => events.includes(evt)).length;
+                return (
+                  <div key={group.label} className="divide-y divide-white/[0.06]">
+                    <div className="px-3 py-2.5 bg-white/[0.02]">
+                      <Checkbox
+                        size="sm"
+                        checked={on === group.events.length}
+                        indeterminate={on > 0 && on < group.events.length}
+                        onChange={() => toggleGroup(group.events)}
+                        label={group.label}
+                      />
+                    </div>
+                    {group.events.map((evt) => (
+                      <div key={evt} className="py-2.5 pl-8 pr-3">
+                        <Checkbox
+                          size="sm"
+                          checked={events.includes(evt)}
+                          onChange={() => toggleEvent(evt)}
+                          label={EVENT_LABELS[evt]}
+                          description={evt}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                );
+              })}
             </div>
           </div>
           <div className="flex items-center gap-2 pt-1">
-            <Button size="sm" onClick={handleCreate} disabled={saving}>
-              {saving ? 'Creating…' : 'Create endpoint'}
+            <Button size="sm" onClick={handleSave} disabled={saving}>
+              {editing ? (saving ? 'Saving…' : 'Save changes') : (saving ? 'Creating…' : 'Create endpoint')}
             </Button>
             <Button size="sm" variant="secondary" onClick={resetForm} disabled={saving}>
               Cancel
@@ -429,19 +547,48 @@ export function WebhooksPanel({ teamMemberId }: { teamMemberId: string | null })
                       </span>
                     ))}
                   </div>
+                  {(endpoint.project_ids || endpoint.member_id) && (
+                    <div className="flex flex-wrap gap-1.5 mt-2">
+                      {endpoint.project_ids && (
+                        <span className="text-[11px] text-zinc-400 border border-white/[0.1] rounded px-1.5 py-0.5">
+                          Projects: {endpoint.project_ids.map(projectName).join(', ')}
+                        </span>
+                      )}
+                      {endpoint.member_id && (
+                        <span className="text-[11px] text-zinc-400 border border-white/[0.1] rounded px-1.5 py-0.5">
+                          Concerns {memberName(endpoint.member_id)}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                  {!billingOn && endpoint.events.some((evt) => INVOICE_EVENTS.includes(evt)) && (
+                    <p className="text-[11px] text-zinc-400 mt-2">
+                      Invoice events wait while Client invoicing is off.
+                    </p>
+                  )}
                   <p className="text-[11px] text-zinc-400 mt-2">
                     Last delivery: {formatWhen(endpoint.last_delivery_at)}
                   </p>
-                  <Select
-                    size="sm"
-                    label="Amounts"
-                    value={endpoint.amount_basis ?? 'gross'}
-                    onChange={(value) => handleAmountBasis(endpoint, value as WebhookAmountBasis)}
-                    options={AMOUNT_BASIS_OPTIONS}
-                    className="mt-3 max-w-[15rem]"
-                  />
+                  {billingOn && endpoint.events.some((evt) => INVOICE_EVENTS.includes(evt)) && (
+                    <Select
+                      size="sm"
+                      label="Amounts"
+                      value={endpoint.amount_basis ?? 'gross'}
+                      onChange={(value) => handleAmountBasis(endpoint, value as WebhookAmountBasis)}
+                      options={AMOUNT_BASIS_OPTIONS}
+                      className="mt-3 max-w-[15rem]"
+                    />
+                  )}
                 </div>
                 <div className="flex items-center gap-1.5 flex-shrink-0">
+                  <button
+                    onClick={() => startEdit(endpoint)}
+                    aria-label="Edit endpoint"
+                    title="Edit endpoint"
+                    className="p-2 text-zinc-400 hover:text-brand-300 hover:bg-white/[0.06] rounded-lg transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+                  >
+                    <Pencil size={15} />
+                  </button>
                   <button
                     onClick={handleRunNow}
                     disabled={running}

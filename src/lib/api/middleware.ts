@@ -11,6 +11,7 @@ import { accessAllows, accessAllowsProject, moduleOffFor, resolveMemberAccess } 
 import { apiRequestContext } from './request-context';
 import { liveTaskIds } from './task-guards';
 import { afterResponse } from './after-response';
+import { kickWebhooks } from '@/lib/webhooks/kick';
 
 /** Static routes under /api/v1/tasks/ that are not a task id. */
 export const TASK_COLLECTION_ACTIONS: ReadonlySet<string> = new Set(['reorder', 'next']);
@@ -397,6 +398,8 @@ export function withApi<TBody = unknown, TParams = Record<string, string>>(
         access,
         scopes,
       }));
+      // A write may have queued webhook events (REST and MCP both land here): send them now.
+      if (isWrite && response.ok) kickWebhooks(access);
       return applyRateLimitHeaders(response, rateInfo);
     } catch (err) {
       if (err instanceof ZodError) {

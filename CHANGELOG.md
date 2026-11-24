@@ -9,6 +9,20 @@ Each section starts with `## X.Y.Z (YYYY-MM-DD)` and uses these headings, leavin
 - `### Database`: the core migration files in the release, one per line. `npm run db:migrate` applies them.
 - `### Breaking`: what an install must do when it takes this release.
 
+## 2.0.14 (2026-11-24)
+
+### Added
+- **Webhooks for work.** Endpoints can subscribe to `task.created`, `task.updated`, `task.deleted`, `comment.created`, `question.asked`, `question.answered`, `question.cancelled`, `suggestion.created`, `suggestion.decided` and `review.submitted`, on the same signing, retries and re-send as invoice events. Each payload is the subject's current state plus `project_id`, `task_id`, `member_ids` (who it concerns) and `actor_id` (who made the change, so an agent can skip its own). `task.updated` lists what changed; reordering and claims send nothing. Events for one task arrive in order. See WEBHOOKS.md.
+- **Filters per endpoint**: only some projects, and only events that concern one member (their tasks, claims, questions and suggestions). An agent's harness can now hear about its own work and nothing else.
+- Endpoints can be edited in Settings > Developers.
+
+### Changed
+- Webhooks no longer need Client invoicing. Work events need only the Webhooks module; invoice events still need both, and existing endpoints receive exactly what they did before. Webhook retries run whenever Webhooks is on.
+- Writes through the API, MCP and the app send due webhooks straight after the change instead of waiting for the next retry run.
+
+### Database
+- `20261124000200_agent_webhooks.sql`: the work event triggers (one existence check, nothing written when no endpoint listens), endpoint project and member filters, per-subject ordering, and the retry claim and schedule gated on Webhooks only.
+
 ## 2.0.13 (2026-11-24)
 
 ### Added

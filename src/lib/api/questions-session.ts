@@ -4,19 +4,26 @@ import { requireSessionAccess } from './access';
 import { ApiError } from './errors';
 import { getActorClient } from './supabase-service';
 import type { QuestionsContext } from './questions';
+import { kickWebhooks } from '@/lib/webhooks/kick';
 
 /**
  * The session-route shell for questions: a signed-in member, writes named as
  * them, the plain { data } / { error } shape, and the service's ApiErrors
  * mapped to their status. Who may see, answer or cancel is decided in the
- * service, by the same rules as the API.
+ * service, by the same rules as the API. A write sends the webhook events it
+ * queued (question.answered, question.cancelled) once the response is out.
  */
-export async function questionsRoute<T>(handler: (ctx: QuestionsContext) => Promise<T>): Promise<NextResponse> {
+export async function questionsRoute<T>(
+  handler: (ctx: QuestionsContext) => Promise<T>,
+  options?: { write?: boolean },
+): Promise<NextResponse> {
   const auth = await requireSessionAccess();
   if (auth.error) return auth.error;
   const { access, memberId } = auth.data;
   try {
-    return NextResponse.json({ data: await handler({ db: getActorClient(memberId, 'app'), access, memberId, channel: 'app' }) });
+    const data = await handler({ db: getActorClient(memberId, 'app'), access, memberId, channel: 'app' });
+    if (options?.write) kickWebhooks(access);
+    return NextResponse.json({ data });
   } catch (error) {
     if (error instanceof ApiError) return NextResponse.json({ error: error.message }, { status: error.statusCode });
     console.error('[questions] request failed:', error);

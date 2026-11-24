@@ -1508,7 +1508,7 @@ export async function fetchApiKeys(supabase: SupabaseClient) {
 // ============================================================
 
 const WEBHOOK_ENDPOINT_COLUMNS =
-  'id, name, url, secret, events, is_active, description, amount_basis, created_by, last_delivery_at, created_at, updated_at';
+  'id, name, url, secret, events, is_active, description, amount_basis, project_ids, member_id, created_by, last_delivery_at, created_at, updated_at';
 
 export async function fetchWebhookEndpoints(supabase: SupabaseClient) {
   const { data, error } = await supabase
@@ -1521,7 +1521,10 @@ export async function fetchWebhookEndpoints(supabase: SupabaseClient) {
 
 export async function insertWebhookEndpoint(
   supabase: SupabaseClient,
-  endpoint: { name: string; url: string; secret: string; events: string[]; description?: string; amount_basis?: WebhookEndpoint['amount_basis']; created_by: string | null },
+  endpoint: {
+    name: string; url: string; secret: string; events: string[]; description?: string;
+    amount_basis?: WebhookEndpoint['amount_basis']; project_ids?: string[] | null; member_id?: string | null; created_by: string | null;
+  },
 ) {
   const { data, error } = await supabase
     .from('webhook_endpoints')
@@ -1532,6 +1535,8 @@ export async function insertWebhookEndpoint(
       events: endpoint.events,
       description: endpoint.description || '',
       amount_basis: endpoint.amount_basis ?? 'gross',
+      project_ids: endpoint.project_ids?.length ? endpoint.project_ids : null,
+      member_id: endpoint.member_id ?? null,
       created_by: endpoint.created_by,
     })
     .select(WEBHOOK_ENDPOINT_COLUMNS)
@@ -1543,11 +1548,13 @@ export async function insertWebhookEndpoint(
 export async function updateWebhookEndpoint(
   supabase: SupabaseClient,
   id: string,
-  patch: Partial<Pick<WebhookEndpoint, 'name' | 'url' | 'events' | 'is_active' | 'description' | 'amount_basis'>>,
+  patch: Partial<Pick<WebhookEndpoint, 'name' | 'url' | 'events' | 'is_active' | 'description' | 'amount_basis' | 'project_ids' | 'member_id'>>,
 ) {
+  // An empty project list means no project filter (the column refuses an empty array).
+  const row = 'project_ids' in patch && !patch.project_ids?.length ? { ...patch, project_ids: null } : patch;
   const { data, error } = await supabase
     .from('webhook_endpoints')
-    .update(patch)
+    .update(row)
     .eq('id', id)
     .select(WEBHOOK_ENDPOINT_COLUMNS)
     .single();

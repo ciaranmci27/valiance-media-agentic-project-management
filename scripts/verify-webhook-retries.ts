@@ -25,7 +25,8 @@ import { inPm } from './invoice-drafting-db';
 const CREATE_MIGRATION = '../supabase/migrations/20260725154128_create_webhooks.sql';
 const AMOUNT_BASIS_MIGRATION = '../supabase/migrations/20260919213826_webhook_amount_basis.sql';
 const RETRY_MIGRATION = '../supabase/migrations/20261018220437_webhook_delivery_retries.sql';
-const MODULE_GUARDS_MIGRATION = '../supabase/migrations/20261120201517_module_guards.sql';
+/** The latest claim and retry kick (2.0, already in schema pm). */
+const AGENT_WEBHOOKS_MIGRATION = '../supabase/migrations/20261124000200_agent_webhooks.sql';
 
 let passed = 0;
 const failures: string[] = [];
@@ -204,10 +205,12 @@ async function main() {
   check('a delivery stuck before the migration has an expired lease', stuckBefore.status === 'delivering' && stuckBefore.lease_in !== null && stuckBefore.lease_in <= 0, stuckBefore);
 
   // The schema snapshot carries the same functions as the migration; the
-  // claim function was redefined since, to wait while webhooks are switched off.
-  const guards = inPm(await read(MODULE_GUARDS_MIGRATION));
+  // claim function was redefined since, to wait while webhooks are switched
+  // off (module guards), and the claim and the kick again for events beyond
+  // invoices, which need only Webhooks (agent webhooks).
+  const agentWebhooks = await read(AGENT_WEBHOOKS_MIGRATION);
   for (const name of ['claim_webhook_deliveries', 'complete_webhook_delivery', 'requeue_webhook_delivery', 'webhook_retry_kick']) {
-    const latest = name === 'claim_webhook_deliveries' ? guards : migration;
+    const latest = name === 'claim_webhook_deliveries' || name === 'webhook_retry_kick' ? agentWebhooks : migration;
     check(`schema.sql ${name} matches its latest migration`, fn(canonical, name) === fn(latest, name));
   }
   for (const column of ['next_attempt_at timestamptz not null default now()', 'attempt_token uuid', 'lease_expires_at timestamptz']) {

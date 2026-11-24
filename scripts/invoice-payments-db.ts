@@ -51,7 +51,9 @@ export async function createPaymentsDatabase(options: {
     ADD COLUMN IF NOT EXISTS disabled_at timestamptz,
     DROP CONSTRAINT IF EXISTS api_keys_permissions_check,
     ADD CONSTRAINT api_keys_permissions_check CHECK (permissions IN ('full', 'read_only', 'scoped'))`);
-  for (const name of ['invoice_net_amounts', 'emit_invoice_webhook_event', 'emit_invoice_webhook', 'emit_invoice_webhook_for_shares', 'webhook_payload_for_endpoint', 'claim_webhook_deliveries']) {
+  // The endpoint filters (agent webhooks); schema.sql adds them by ALTER.
+  await db.exec('ALTER TABLE pm.webhook_endpoints ADD COLUMN IF NOT EXISTS project_ids uuid[], ADD COLUMN IF NOT EXISTS member_id uuid');
+  for (const name of ['webhook_endpoint_matches', 'invoice_net_amounts', 'emit_invoice_webhook_event', 'emit_invoice_webhook', 'emit_invoice_webhook_for_shares', 'webhook_payload_for_endpoint', 'claim_webhook_deliveries']) {
     await db.exec(fn(name));
   }
   await db.exec(`

@@ -131,9 +131,11 @@ async function main() {
     check(`registry: preset ${preset.id} is recognised`, presetFor(preset.modules) === preset.id);
   }
   check('deps: Leads needs Contacts', requirementsOf('sales').includes('contacts'));
-  check('deps: Webhooks needs Billing and Time', ['billing', 'time'].every((m) => requirementsOf('webhooks').includes(m as ModuleId)));
-  check('deps: Webhooks does not need Team pay', !requirementsOf('webhooks').includes('team_pay'), requirementsOf('webhooks'));
-  check('deps: Time off takes Billing, Team pay and Webhooks with it', ['billing', 'team_pay', 'webhooks'].every((m) => dependentsOf('time').includes(m as ModuleId)));
+  // Webhooks carry work events too (agent webhooks): only its invoice events need Client invoicing.
+  check('deps: Webhooks needs nothing', requirementsOf('webhooks').length === 0, requirementsOf('webhooks'));
+  check('deps: Billing off keeps Webhooks', applyModuleChange(MODULE_IDS, 'billing', false).includes('webhooks'));
+  check('deps: Time off takes Billing and Team pay with it, not Webhooks',
+    ['billing', 'team_pay'].every((m) => dependentsOf('time').includes(m as ModuleId)) && !dependentsOf('time').includes('webhooks'), dependentsOf('time'));
   check('deps: turning Leads on turns Contacts on',
     JSON.stringify(applyModuleChange([], 'sales', true)) === JSON.stringify(['contacts', 'sales']), applyModuleChange([], 'sales', true));
   check('deps: turning Contacts off turns Leads off',

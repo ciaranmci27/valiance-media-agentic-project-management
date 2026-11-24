@@ -71,7 +71,7 @@ export default function WebhooksDocsPage() {
                 </span>
               </div>
               <p className="text-sm text-zinc-500 mt-1">
-                Receive signed events on your own server when invoices change.
+                Receive signed events on your own server when work or invoices change.
               </p>
             </div>
           </div>
@@ -95,16 +95,20 @@ export default function WebhooksDocsPage() {
               </div>
 
               <p className="text-sm text-zinc-600 mb-4">
-                Create an endpoint under <strong>Settings &rarr; Webhooks</strong>, subscribe it to one or
-                more event types, and copy its signing secret into your receiver. When a matching event
+                Create an endpoint under <strong>Settings &rarr; Developers</strong>, subscribe it to one or
+                more event types, optionally narrow it to some projects or to one member, and copy its signing
+                secret into your receiver. An AI agent harness uses a member filter to hear about its own work:
+                a task assigned to it, a comment on its task, a question asked to it, an answer to its question. When a matching event
                 happens, we POST a signed JSON payload to your URL immediately; if it fails we retry
                 with backoff, and you can re-send it from the dashboard. Your receiver just needs to verify the
                 signature and be idempotent.
               </p>
 
               <p className="text-sm text-zinc-600">
-                The payload always reflects the invoice&apos;s <strong>current</strong> state, which lets a
-                receiver <em>reconcile</em> (make its data match) rather than track individual changes.
+                The payload always reflects the subject&apos;s <strong>current</strong> state (the task, question,
+                suggestion or invoice), which lets a receiver <em>reconcile</em> (make its data match) rather than
+                track individual changes. Webhooks needs only the Webhooks module; invoice events also need Client
+                invoicing, and wait while it is off.
               </p>
             </div>
           </section>
@@ -118,13 +122,23 @@ export default function WebhooksDocsPage() {
                 </div>
                 <div>
                   <h2 className="font-semibold text-zinc-900">Event types</h2>
-                  <p className="text-sm text-zinc-500">Subscribe to paid, updated and deleted for full lifecycle sync</p>
+                  <p className="text-sm text-zinc-500">Work events for agents, invoice events for accounting</p>
                 </div>
               </div>
 
               <SimpleTable
                 head={['Event', 'Fires when']}
                 rows={[
+                  [<code key="e" className="text-brand-600 font-mono text-xs">task.created</code>, 'A task is created (with the assignees saved with it), or restored from Trash.'],
+                  [<code key="e" className="text-brand-600 font-mono text-xs">task.updated</code>, "A task's status, assignees, title, description, priority, due date, project or ai_readiness changes. data.changes names the fields."],
+                  [<code key="e" className="text-brand-600 font-mono text-xs">task.deleted</code>, 'A task is moved to Trash.'],
+                  [<code key="e" className="text-brand-600 font-mono text-xs">comment.created</code>, 'A comment is added to a task. data.comment holds it.'],
+                  [<code key="e" className="text-brand-600 font-mono text-xs">review.submitted</code>, 'A review verdict is filed on a task. data.review holds it.'],
+                  [<code key="e" className="text-brand-600 font-mono text-xs">question.asked</code>, 'A question is asked, or opens again.'],
+                  [<code key="e" className="text-brand-600 font-mono text-xs">question.answered</code>, 'A question is answered.'],
+                  [<code key="e" className="text-brand-600 font-mono text-xs">question.cancelled</code>, 'A question is withdrawn, or moved to Trash while open.'],
+                  [<code key="e" className="text-brand-600 font-mono text-xs">suggestion.created</code>, 'A task suggestion is made.'],
+                  [<code key="e" className="text-brand-600 font-mono text-xs">suggestion.decided</code>, 'A suggestion is approved, rejected or declined.'],
                   [<code key="e" className="text-brand-600 font-mono text-xs">invoice.paid</code>, 'An invoice enters the paid status.'],
                   [<code key="e" className="text-brand-600 font-mono text-xs">invoice.updated</code>, 'A paid (or previously paid) invoice changes: an edit, an un-pay, or a cancel.'],
                   [<code key="e" className="text-brand-600 font-mono text-xs">invoice.deleted</code>, 'A paid invoice is deleted.'],
@@ -134,9 +148,19 @@ export default function WebhooksDocsPage() {
               />
 
               <div className="mt-4 p-3 bg-zinc-50 rounded-lg border border-zinc-100">
+                <p className="text-sm text-zinc-600 mb-2">
+                  Work events carry <code className="text-brand-600 font-mono text-xs">project_id</code>,{' '}
+                  <code className="text-brand-600 font-mono text-xs">task_id</code>,{' '}
+                  <code className="text-brand-600 font-mono text-xs">member_ids</code> (who the event concerns) and{' '}
+                  <code className="text-brand-600 font-mono text-xs">actor_id</code> (who made the change, so an agent
+                  can skip its own). A member filter sends only events that concern that member: a task assigned to or
+                  claimed by them (or just taken off them), comments and reviews on it, questions asked to or by them,
+                  and their suggestions. All changes to a task in one save arrive as one event. See WEBHOOKS.md in the
+                  repository for every payload.
+                </p>
                 <p className="text-sm text-zinc-600">
-                  Events fire only for paid-relevant invoices, so editing drafts never sends anything. If your
-                  receiver removes data on un-pay/delete, subscribe to <strong>all three</strong> events — not
+                  Invoice events fire only for paid-relevant invoices, so editing drafts never sends anything. If your
+                  receiver removes data on un-pay/delete, subscribe to <strong>all three</strong> events, not
                   just <code className="text-brand-600 font-mono text-xs">invoice.paid</code>.
                 </p>
                 <p className="text-sm text-zinc-600 mt-2">
@@ -196,9 +220,9 @@ export default function WebhooksDocsPage() {
               <div className="mt-4 space-y-2 text-sm text-zinc-600">
                 <p>
                   <code className="text-brand-600 font-mono text-xs">sequence</code> is globally monotonic and
-                  strictly increases per invoice — drop any event whose sequence is{' '}
-                  <code className="text-brand-600 font-mono text-xs">&lt;=</code> the last you applied for that
-                  invoice to ignore out-of-order retries.
+                  strictly increases per subject (a task, question, suggestion or invoice): drop any event whose
+                  sequence is <code className="text-brand-600 font-mono text-xs">&lt;=</code> the last you applied
+                  for that subject to ignore out-of-order retries.
                 </p>
                 <p>
                   <code className="text-brand-600 font-mono text-xs">totals_by_type</code> sums line items by{' '}
@@ -287,8 +311,8 @@ export function verify(secret: string, header: string, rawBody: string, toleranc
               <ul className="space-y-2 text-sm text-zinc-600 list-disc pl-5">
                 <li>Return any <code className="text-brand-600 font-mono text-xs">2xx</code> to acknowledge. Anything else, or no response within 10 seconds, counts as a failed attempt.</li>
                 <li>A failed attempt is retried automatically with backoff (about 1 minute, 3, 9, 27, 81 minutes, 4 hours, then 12 hours), up to 8 attempts in all. After the last one the delivery is <code className="text-brand-600 font-mono text-xs">failed</code> and can be re-sent manually from <strong>Settings &rarr; Webhooks</strong>.</li>
-                <li>Events for one invoice reach your endpoint in <code className="text-brand-600 font-mono text-xs">sequence</code> order: a later event waits while an earlier one is still being retried.</li>
-                <li>A retry repeats the same event id, so you may see an event twice. A manual re-send (or a re-emitted event) can arrive out of order, so make your handler <strong>idempotent</strong>: key on <code className="text-brand-600 font-mono text-xs">X-VM-Event-Id</code> (or the invoice id) and use <code className="text-brand-600 font-mono text-xs">sequence</code> to ignore stale state.</li>
+                <li>Events for one subject (an invoice, a task with its comments and reviews, a question, a suggestion) reach your endpoint in <code className="text-brand-600 font-mono text-xs">sequence</code> order: a later event waits while an earlier one is still being retried. Other subjects are not held up.</li>
+                <li>A retry repeats the same event id, so you may see an event twice. A manual re-send (or a re-emitted event) can arrive out of order, so make your handler <strong>idempotent</strong>: key on <code className="text-brand-600 font-mono text-xs">X-VM-Event-Id</code> (or the subject&apos;s id) and use <code className="text-brand-600 font-mono text-xs">sequence</code> to ignore stale state.</li>
               </ul>
             </div>
           </section>

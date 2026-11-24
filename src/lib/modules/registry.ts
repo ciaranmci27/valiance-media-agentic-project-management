@@ -114,10 +114,11 @@ export const MODULES: Record<ModuleId, ModuleDefinition> = {
   webhooks: {
     id: 'webhooks',
     label: 'Webhooks',
-    description: 'Send invoice events to other systems, such as your accounting tool.',
+    description: 'Send task, question and invoice events to other systems, such as an AI agent or your accounting tool.',
     adds: ['Webhooks in Settings > Developers'],
-    group: 'money',
-    dependsOn: ['billing'],
+    group: 'automation',
+    // Invoice events also need Client invoicing; every other event needs only this.
+    dependsOn: [],
   },
   inbox: {
     id: 'inbox',

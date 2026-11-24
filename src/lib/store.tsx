@@ -132,9 +132,10 @@ function trashFailure(error: unknown, fallback: string): string {
   return error instanceof TrashError && (error.reason === 'blocked' || error.reason === 'forbidden') ? error.message : fallback;
 }
 
-// Best-effort nudge so the webhook dispatcher runs right after an invoice
-// change, delivering the event immediately. The DB trigger already enqueued
-// (or not); this only flushes. Silently no-ops without permission.
+// Best-effort nudge so the webhook dispatcher runs right after a change (an
+// invoice, or a task or comment an agent harness may be waiting on),
+// delivering the event immediately. The DB trigger already enqueued (or not);
+// this only flushes. Silently no-ops while Webhooks is off.
 function kickWebhookDispatch(): void {
   fetch('/api/internal/webhooks/dispatch', { method: 'POST' }).catch(() => {});
 }
@@ -1441,6 +1442,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  // Task and comment events (task.*, comment.created) wait in the webhook
+  // outbox; send them now, only while Webhooks is on.
+  const kickWorkWebhooks = () => {
+    if (isModuleEnabled(access, 'webhooks')) kickWebhookDispatch();
+  };
+
   // Task CRUD
   const addTask = async (task: Omit<Task, 'id' | 'created_at' | 'updated_at'>): Promise<Task | null> => {
     const assigneeIds = task.assignee_ids || [];
@@ -1469,6 +1476,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         task.blocked_by_ids || []
       );
       setTasks(prev => prev.map(t => t.id === optimisticId ? newTask : t));
+      kickWorkWebhooks();
       const project = projects.find(p => p.id === task.project_id);
       // A subtask is news on its parent, not a new task in the project.
       const parent = task.parent_task_id ? tasks.find(t => t.id === task.parent_task_id) : undefined;
@@ -1514,6 +1522,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     try {
       await patchTask(supabase, id, updates, updates.assignee_ids, undefined, updates.blocked_by_ids);
+      if (!reorderOnly) kickWorkWebhooks();
 
       if (existingTask && !reorderOnly) {
         const project = projects.find(p => p.id === existingTask.project_id);
@@ -1611,6 +1620,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     try {
       await removeTask(supabase, id);
+      kickWorkWebhooks();
       if (deletedTask) {
         notify(allMemberIds(), `Task "${deletedTask.title}" was moved to Trash`, `${actorName()} moved a task to Trash.`, deletedTask.project_id ? `/projects/${deletedTask.project_id}` : null, 'task', id, 'task_deleted');
       }
@@ -1818,6 +1828,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     try {
       const newComment = await insertComment(supabase, taskId, userId, text);
+      kickWorkWebhooks();
       setTasks(prev => prev.map(t =>
         t.id === taskId
           ? { ...t, comments: t.comments.map(c => c.id === optimisticId ? newComment : c) }
@@ -3855,6 +3866,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setTasks(prev => [result.task, ...prev]);
 
       // Notify all members that a suggestion was approved
+      kickWorkWebhooks();
       return true;
     } catch (err) {
       if (err instanceof Error && err.message === 'Suggestion has already been reviewed') {
@@ -3904,6 +3916,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (result.skipped.length) {
         toast('error', `${result.skipped.length} suggestion(s) were already reviewed and stayed out of the bundle`);
       }
+      kickWorkWebhooks();
       return true;
     } catch (err) {
       setTaskSuggestions(s => s.map(sug => {
@@ -3972,6 +3985,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setTaskSuggestions(s => s.map(sug => sug.id === id ? updated : sug));
       // Deliberately no lesson_learned and no notification fanout: decline is
       // quiet housekeeping, not feedback the agent should learn from.
+      kickWorkWebhooks();
       return true;
     } catch (err) {
       if (err instanceof Error && err.message === 'Suggestion has already been reviewed') {
@@ -4016,6 +4030,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
       if (suggestion) {
       }
+      kickWorkWebhooks();
       return true;
     } catch (err) {
       if (err instanceof Error && err.message === 'Suggestion has already been reviewed') {

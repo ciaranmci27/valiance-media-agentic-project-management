@@ -31,7 +31,7 @@ Core is always on. Everything else is a module an Owner can switch on or off.
 - **Inbox**: client email sorted by project. Meeting notes can be posted in through the API too.
 - **AI agents**: agents join the team, suggest and work tasks, and people approve what they do.
 - **Credentials**: encrypted project logins, shared with the right people.
-- **Webhooks**: invoice events sent to your other systems.
+- **Webhooks**: signed task, question, suggestion, review and invoice events sent to your other systems, filtered by project or by member, so an AI agent hears about its own work. See [WEBHOOKS.md](WEBHOOKS.md).
 
 **Also**: demo mode with sample data, dark theme, keyboard shortcuts, and a layout that works on phones.
 
@@ -143,7 +143,7 @@ Owners switch modules in **Settings > Workspace > Features**. Presets set a whol
 | Internal team | Time tracking, Credentials, Inbox, AI agents |
 | Solo | Time tracking, Contacts, Client invoicing, Webhooks |
 
-Some modules need others: Leads needs Contacts, Client invoicing and Team pay need Time tracking, and Webhooks needs Client invoicing. The Client portal works on its own; emailing clients needs Contacts. With Client invoicing and Team pay both off, finished hours are approved as they are logged. Turning one on turns on what it needs. Turning one off turns off what needs it.
+Some modules need others: Leads needs Contacts, and Client invoicing and Team pay need Time tracking. Webhooks works on its own; its invoice events also need Client invoicing. The Client portal works on its own; emailing clients needs Contacts. With Client invoicing and Team pay both off, finished hours are approved as they are logged. Turning one on turns on what it needs. Turning one off turns off what needs it.
 
 What turning a module off does:
 
