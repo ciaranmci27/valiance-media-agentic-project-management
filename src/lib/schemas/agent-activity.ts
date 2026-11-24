@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { AGENT_EVENT_SCHEMAS, AGENT_EVENT_TYPES, isOpenEventType, isServerEvent, openEventSchema, type OpenEventType } from '@/lib/agent-events';
+import { AGENT_EVENT_SCHEMAS, AGENT_EVENT_TYPES, agentLabelsSchema, isOpenEventType, isServerEvent, openEventSchema, type OpenEventType } from '@/lib/agent-events';
 
 /**
  * Three accepted shapes, one table (the third, OPEN, is at the end).
@@ -12,6 +12,10 @@ import { AGENT_EVENT_SCHEMAS, AGENT_EVENT_TYPES, isOpenEventType, isServerEvent,
  * LEGACY: the original free-title shape, still accepted so the fleet keeps
  * logging during the plugin rollout. It disappears (with `custom`) once
  * every plugin speaks the typed contract.
+ *
+ * Every shape takes optional `labels` beside its payload (agent-events.ts:
+ * AGENT_LABEL_PATTERN, at most 20). Left out, the event has none, exactly as
+ * before.
  */
 
 // Server-composed events (email.triaged) are not postable.
@@ -25,6 +29,8 @@ const typedVariants = AGENT_EVENT_TYPES.filter((type) => !isServerEvent(type)).m
     // Loose on purpose: an unknown kind is ignored, never a refused event.
     reference_type: z.string().nullable().optional(),
     reference_id: z.string().nullable().optional(),
+    // Beside the payload, never inside it: the payload stays the type's own.
+    labels: agentLabelsSchema.optional(),
   })
 );
 
@@ -48,6 +54,7 @@ export const legacyAgentActivitySchema = z.object({
   reference_type: z.string().nullable().default(null),
   reference_id: z.string().uuid().nullable().default(null),
   metadata: z.record(z.string(), z.any()).default({}),
+  labels: agentLabelsSchema.optional(),
 });
 
 export const createAgentActivitySchema = z.union([typedAgentEventSchema, legacyAgentActivitySchema]);
@@ -66,6 +73,7 @@ export const openAgentEventSchema = z.object({
   project_id: z.string().uuid().nullable().default(null),
   reference_type: z.string().nullable().optional(),
   reference_id: z.string().nullable().optional(),
+  labels: agentLabelsSchema.optional(),
 }).transform((event, ctx) => {
   const parsed = openEventSchema(event.activity_type as OpenEventType).safeParse(event.payload);
   if (!parsed.success) {

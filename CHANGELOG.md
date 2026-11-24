@@ -9,6 +9,24 @@ Each section starts with `## X.Y.Z (YYYY-MM-DD)` and uses these headings, leavin
 - `### Database`: the core migration files in the release, one per line. `npm run db:migrate` applies them.
 - `### Breaking`: what an install must do when it takes this release.
 
+## 2.0.23 (2026-11-24)
+
+### Added
+- **Move to project**: a task action everywhere tasks appear (card and row menus, the task panel and page, bulk selection, and an agent's task receipts in the inbox). Comments, files, subtasks (including ones in Trash), reminders, links, claims and activity move with it. Nobody gains access silently: if assignees cannot open the target project, you choose to remove them or add them to it. Moving a conversation offers to move the tasks an agent made from it. Over the API and MCP: `PATCH /api/v1/tasks/{id}` or `update_task` with `project_id`, plus an optional `lost_access`.
+- **Agent event labels**: agents attach labels to any event when they log it, or later with `POST /api/v1/agent-activities/{id}/labels`. Analytics has a Labels breakdown, and `GET /api/v1/agent-activities?label=` filters by label.
+- **Export every agent event to a data system**: `GET /api/v1/agent-events/export` (scope `agent_events.export`) returns every event and run in order from a resumable cursor, never skipping or repeating one. A webhook event, `agent_event.created`, can be opted into per endpoint, with a type filter. After restoring the database from a dump into a new cluster, export again from the start.
+- **Cost by provider**: usage and runs may name a `provider`. Analytics splits usage by model and provider, and keeps priced and unpriced usage apart.
+- **AI provider plans** (Settings > Workspace): an Owner records a subscription's monthly cost, and Analytics shows an estimated share, labelled as an estimate and never added to measured cost.
+- Analytics totals are computed on the server, so long ranges and large teams load in full.
+
+### Changed
+- "Send back to the agent" now settles the earlier plan and its open question, so the agent's new plan is accepted, and the thread shows that a new plan is coming. The agent's context marks `sent_back`, superseded plans and tasks in Trash.
+- The thread header has a labelled "Mark handled" button and a separate "More actions" button.
+- Moving a task over the API needs `tasks.create` in the target project. A key that manages only its own tasks can now move them.
+
+### Database
+- `20261124001200_agent_event_pipeline.sql`: event labels, an export sequence on events and runs, `provider` on runs, the `agent_event.created` webhook, the provider plans table, and server-side analytics aggregates (`agent_analytics_window_v2`, `agent_run_stats`, `agent_question_stats`).
+
 ## 2.0.22 (2026-11-24)
 
 ### Added

@@ -8,16 +8,17 @@ import { TextInput } from '@/components/ui/inputs/TextInput';
 import { formatMoney, formatNumber } from '@/lib/format';
 import { showMoreLabel } from '@/lib/agents-ui';
 import {
-  MIXED_LABEL, breakdown, costLabel, costText, marginOf, metricValue, rankRows, successRate,
+  ESTIMATE_LABEL, MIXED_LABEL, NO_LABEL, UNSPLIT_MODEL, breakdown, costLabel, costText, marginOf, metricValue, rankRows, successRate,
   type BreakdownLabels, type BreakdownRow, type Dimension, type Fact, type Group, type MetricKey,
 } from '@/lib/agent-analytics-model';
 import { fmtCount, fmtDuration, fmtPct } from '@/components/agent/analytics/shared';
 
 /**
  * The Analytics tab's breakdown: the same facts split by agent, project,
- * model or role, ranked by the metric the selected tile charts. A window of
- * rows with search and "Show 10 more", so a hundred agents stay one card.
- * Every row adds up to the tiles above (agent-analytics-model).
+ * model, role or label, ranked by the metric the selected tile charts. A
+ * window of rows with search and "Show 10 more", so a hundred agents stay one
+ * card. Every row adds up to the tiles above (agent-analytics-model), except
+ * labels: an event with two labels counts on both rows, as the tab says.
  */
 
 const PAGE = 10;
@@ -27,6 +28,7 @@ const DIMENSIONS: { key: Dimension; label: string }[] = [
   { key: 'project', label: 'Projects' },
   { key: 'model', label: 'Models' },
   { key: 'role', label: 'Roles' },
+  { key: 'label', label: 'Labels' },
 ];
 
 type ColumnKey = 'runs' | 'busy' | 'tokensIn' | 'tokensOut' | 'tokens' | 'cost' | 'tasks' | 'prs' | 'revenue' | 'profit';
@@ -95,6 +97,8 @@ const LAYOUT: Record<Dimension, ColumnKey[]> = {
   project: ['revenue', 'profit', 'runs', 'busy', 'tasks', 'prs', 'tokens', 'cost'],
   role: ['revenue', 'profit', 'runs', 'busy', 'tasks', 'prs', 'tokens', 'cost'],
   model: ['runs', 'busy', 'tokensIn', 'tokensOut', 'cost'],
+  // Labels come from events: runs, tasks and time sit on the No label row.
+  label: ['runs', 'tasks', 'prs', 'tokens', 'cost'],
 };
 
 export interface BreakdownEntity {
@@ -114,6 +118,9 @@ export function AnalyticsBreakdown({
   loading,
   focusedAgentId,
   onFocusAgent,
+  focusedLabel,
+  onFocusLabel,
+  subscriptionLine,
 }: {
   facts: Fact[];
   totals: Group;
@@ -127,6 +134,10 @@ export function AnalyticsBreakdown({
   loading: boolean;
   focusedAgentId: string | null;
   onFocusAgent: (agentId: string) => void;
+  focusedLabel: string | null;
+  onFocusLabel: (label: string) => void;
+  /** A provider plan's estimate, said beside the model rows; null without plans. */
+  subscriptionLine: string | null;
 }) {
   const [dimension, setDimension] = useState<Dimension>('agent');
   const [search, setSearch] = useState('');
@@ -147,6 +158,12 @@ export function AnalyticsBreakdown({
     setPages(1);
   };
 
+  // Agents and labels focus the page on the row; the No label row does not.
+  const focusableRow = (row: BreakdownRow) => dimension === 'agent' || (dimension === 'label' && row.key !== '');
+  const isFocused = (row: BreakdownRow) => (dimension === 'agent' ? focusedAgentId === row.key : dimension === 'label' && focusedLabel === row.key);
+  const focusRow = (row: BreakdownRow) => (dimension === 'agent' ? onFocusAgent(row.key) : onFocusLabel(row.key));
+  const unsplitShown = dimension === 'model' && all.some((row) => row.label === UNSPLIT_MODEL);
+
   const rowName = (row: BreakdownRow) => {
     const look = entity(dimension, row.key);
     return (
@@ -154,7 +171,7 @@ export function AnalyticsBreakdown({
         {dimension === 'agent' && <Avatar name={row.label} src={look.avatar || undefined} size="sm" />}
         {dimension === 'project' && <span aria-hidden="true" className="w-2.5 h-2.5 rounded-full flex-shrink-0 bg-white/[0.12]" style={look.color ? { backgroundColor: look.color } : undefined} />}
         <div className="min-w-0">
-          <span className="text-sm font-medium text-white truncate block">{row.label}</span>
+          <span className={`text-sm font-medium truncate block ${dimension === 'label' && row.key ? 'font-mono text-white' : row.label === NO_LABEL ? 'text-zinc-400' : 'text-white'}`}>{row.label}</span>
           {row.sublabel && <span className="text-[11px] text-zinc-500 truncate block">{row.sublabel}</span>}
         </div>
       </div>
@@ -189,7 +206,14 @@ export function AnalyticsBreakdown({
       <div role="tabpanel" aria-label={`By ${DIMENSIONS.find((d) => d.key === dimension)?.label.toLowerCase()}`}>
         {dimension === 'model' && !loading && all.length > 0 && (
           <p className="px-5 pt-3 text-[11px] text-zinc-500">
-            Cost shows where the provider sends a price. Usage on a subscription, or with no price, shows its tokens and reads as unpriced, never as $0. Usage the server summed per hour has no model yet, and its cost is priced or mixed.
+            Cost shows where the provider sends a price. Usage on a subscription, or with no price, shows its tokens and reads as unpriced, never as $0.
+            {unsplitShown && ' Usage the server summed per hour before models were kept has no model, and its cost is priced or mixed.'}
+            {subscriptionLine && ` ${subscriptionLine}: ${ESTIMATE_LABEL}.`}
+          </p>
+        )}
+        {dimension === 'label' && !loading && all.length > 0 && (
+          <p className="px-5 pt-3 text-[11px] text-zinc-500">
+            Labels come from the agents and their harnesses. An event with several labels counts on each of its rows, so rows can add up to more than the total. Select a label to focus the page on it.
           </p>
         )}
         {dimension === 'project' && showMoney && projectCaveat && !loading && (
@@ -231,8 +255,8 @@ export function AnalyticsBreakdown({
               </div>
               <ul className="divide-y divide-white/[0.06]">
                 {ranked.rows.map((row) => {
-                  const focusable = dimension === 'agent';
-                  const focused = focusable && focusedAgentId === row.key;
+                  const focusable = focusableRow(row);
+                  const focused = focusable && isFocused(row);
                   const cells = (
                     <>
                       {rowName(row)}
@@ -248,7 +272,7 @@ export function AnalyticsBreakdown({
                         <button
                           type="button"
                           aria-pressed={focused}
-                          onClick={() => onFocusAgent(row.key)}
+                          onClick={() => focusRow(row)}
                           className={`${rowClass} transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-500 ${focused ? 'bg-brand-500/[0.07]' : 'hover:bg-white/[0.03]'}`}
                           style={{ gridTemplateColumns: gridCols }}
                         >
@@ -266,8 +290,8 @@ export function AnalyticsBreakdown({
             {/* Phones: each row as a label and value list. */}
             <ul className="md:hidden divide-y divide-white/[0.06]">
               {ranked.rows.map((row) => {
-                const focusable = dimension === 'agent';
-                const focused = focusable && focusedAgentId === row.key;
+                const focusable = focusableRow(row);
+                const focused = focusable && isFocused(row);
                 const body = (
                   <>
                     {rowName(row)}
@@ -284,7 +308,7 @@ export function AnalyticsBreakdown({
                 return (
                   <li key={row.key}>
                     {focusable ? (
-                      <button type="button" aria-pressed={focused} onClick={() => onFocusAgent(row.key)}
+                      <button type="button" aria-pressed={focused} onClick={() => focusRow(row)}
                         className={`block w-full text-left p-4 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-500 ${focused ? 'bg-brand-500/[0.07]' : 'hover:bg-white/[0.03]'}`}>
                         {body}
                       </button>
@@ -298,10 +322,11 @@ export function AnalyticsBreakdown({
           </>
         )}
 
-        {!loading && (ranked.more > 0 || dimension === 'agent') && (
+        {!loading && (ranked.more > 0 || dimension === 'agent' || (dimension === 'label' && !!focusedLabel)) && (
           <div className="px-5 py-3 border-t border-white/[0.06] flex flex-wrap items-center justify-between gap-3">
             <span className="text-[11px] text-zinc-500">
-              {dimension === 'agent' ? (focusedAgentId ? 'Select the agent again to see everyone.' : 'Select an agent to focus the page on it.') : ''}
+              {dimension === 'agent' ? (focusedAgentId ? 'Select the agent again to see everyone.' : 'Select an agent to focus the page on it.')
+                : dimension === 'label' && focusedLabel ? 'Select the label again to see everything.' : ''}
             </span>
             {ranked.more > 0 && (
               <Button variant="ghost" size="sm" onClick={() => setPages(pages + 1)}>{showMoreLabel(ranked.more, PAGE)}</Button>

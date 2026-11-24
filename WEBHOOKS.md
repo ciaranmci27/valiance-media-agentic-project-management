@@ -39,6 +39,7 @@ deliveries wait.
 | `suggestion.decided` | A suggestion is approved, rejected or declined. | the suggestion |
 | `run.started` | An agent starts a run (POST /api/v1/agents/runs, MCP start_run). | the run |
 | `run.finished` | An agent run finishes: `succeeded`, `failed`, `cancelled` or `timed_out`. | the run |
+| `agent_event.created` | An agent records any event (POST /api/v1/agent-activities, MCP log_activity, host telemetry, a fleet alert). Opt in only: never a default. | the event itself |
 | `invoice.paid` | An invoice enters the `paid` status. | the invoice |
 | `invoice.updated` | A paid (or previously paid) invoice changes: an edit, an un-pay, a cancel. | the invoice |
 | `invoice.deleted` | A paid invoice is deleted. | the invoice |
@@ -60,7 +61,8 @@ assignees is one `task.created` that names them.
 
 ## Filters
 
-Each endpoint has three filters. Empty means everything.
+Each endpoint has three filters, plus one for agent events. Empty means
+everything.
 
 - **Events**: the types above.
 - **Projects** (`project_ids`): only events on these projects. A task moved
@@ -76,6 +78,8 @@ Each endpoint has three filters. Empty means everything.
     agent asked it for (`principal_id`), when there is one;
   - for a suggestion: who proposed it and who it would be assigned to;
   - for a run: the agent whose run it is;
+  - for an agent event: the agent that recorded it (a fleet alert names no
+    agent, so an endpoint with a member filter never receives one);
   - for an invoice: nobody, so an endpoint with a member filter never receives
     invoice events.
 
@@ -83,6 +87,9 @@ Each endpoint has three filters. Empty means everything.
   run's is its agent, set by its trigger); every payload lists the result as
   `data.member_ids`. Writing a comment does not
   make the author concerned: an agent does not wake up for its own comment.
+- **Agent event types** (`agent_event_types`): for `agent_event.created`, only
+  these activity types (such as `work.done`, `usage.recorded`,
+  `custom.acme.deploy`). Empty means every type.
 
 ## Retries and ordering
 
@@ -121,6 +128,10 @@ Each endpoint has three filters. Empty means everything.
   and reviews share the task's line, so a harness sees them in the order they
   happened. Different subjects never hold each other up. An event that has
   used all its attempts stops holding the line.
+- `agent_event.created` events are each their own subject, so a slow
+  endpoint never holds the rest back, and they are **not ordered**. Each
+  carries the event's `seq`; for an ordered, complete record use the export
+  (below).
 - Because a retry or a lost acknowledgement can send the same event again,
   receivers must be idempotent on `X-VM-Event-Id`.
 
@@ -233,6 +244,15 @@ suggestion in `source_task_suggestion_id`.
 as its harness reported them, `null` when it did not. `external_id` is the
 harness's own run id and `external_url` its trace link.
 
+**`agent_event.created`** carries
+`agent_event: { id, seq, source, occurred_at, agent_id, type, labels, title, payload, project_id, task_id, run_id, principal_id }`,
+plus `project_id`, `task_id` and `member_ids` (the agent). `agent_event` has the
+same shape as a row of the export: `source` is `activity`, `type` the activity
+type, `payload` the event's validated payload, `labels` the labels the agent or
+its harness set (an empty list when none), `run_id` the run a turn belongs to,
+and `principal_id` the person the agent acted for. Only a new event sends one;
+a later change (labels edited, a turn labelled late) shows in the export.
+
 ### Invoice events
 
 Unchanged since webhooks began:
@@ -324,3 +344,30 @@ failed attempt and is retried as described under Retries and ordering.
 A manual re-send (or a redelivered event) can still arrive out of order, so make
 your handler **idempotent** (key on `X-VM-Event-Id` or the subject's id) and use
 `sequence` to ignore stale state.
+
+## Piping every agent event to a data system
+
+Everything the agents do is recorded as agent events (`agent_activities`) and
+runs (`agent_runs`). To keep a complete copy in a warehouse or log pipeline:
+
+1. Make an API key for the data system with the `agent_events.export` scope
+   (Settings > Developers; no role holds it by default, so give it to the key's
+   member as an API permission). A member without `projects.read_all` exports
+   only events and runs on its projects.
+2. Page `GET /api/v1/agent-events/export?limit=1000` and store each row by
+   `id`. Each page answers `meta.next_cursor` and `meta.has_more`.
+3. Save `next_cursor` after each page and pass it as `since_cursor` next time.
+   Poll every minute or so, or right after an `agent_event.created` webhook.
+
+Rows come in the order they changed. A row that changes again (labels edited,
+a turn labelled late, a run updated or finished) comes again with its new
+state, so load by `id` and let the newest win. Rows written in a transaction
+still open wait until it ends, so a resumed export never skips a row that
+committed late and never repeats one that has not changed. `types` (such as
+`usage.recorded,turn.completed,run`; `run` for runs) and `agents` (member ids)
+narrow it. Cursors are tied to the database's transaction ids: after a
+pg_dump and restore into a new cluster, re-export from the start (no
+`since_cursor`) and load by `id`. Each row: `id`, `seq`, `source` (`activity` or `run`),
+`occurred_at`, `agent_id`, `type`, `labels`, `title`, `payload` (for a run:
+its status, summary, model, provider, trigger, tokens, cost, plan, notes,
+metadata and times), `project_id`, `task_id`, `run_id`, `principal_id`.

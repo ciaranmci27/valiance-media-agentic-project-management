@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/client';
 import { appLocale } from '@/lib/region';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
+import { TextInput } from '@/components/ui/inputs/TextInput';
 import { Toggle } from '@/components/ui/inputs/Toggle';
 import { Checkbox } from '@/components/ui/inputs/Checkbox';
 import { Select } from '@/components/ui/inputs/Select';
@@ -61,6 +62,7 @@ const EVENT_LABELS: Record<string, string> = {
   'review.submitted': 'Review submitted',
   'run.started': 'Agent run started',
   'run.finished': 'Agent run finished',
+  'agent_event.created': 'Every agent event',
   'invoice.paid': 'Invoice paid',
   'invoice.updated': 'Invoice updated',
   'invoice.deleted': 'Invoice deleted',
@@ -74,6 +76,8 @@ const EVENT_GROUPS: Array<{ label: string; events: readonly string[]; invoices?:
   { label: 'Questions', events: ['question.asked', 'question.answered', 'question.cancelled'] },
   { label: 'Suggestions and reviews', events: ['suggestion.created', 'suggestion.decided', 'review.submitted'] },
   { label: 'Agent runs', events: ['run.started', 'run.finished'] },
+  // Opt in: every event the agents record, for a data system. Never a default.
+  { label: 'Agent events', events: ['agent_event.created'] },
   { label: 'Invoices', events: INVOICE_WEBHOOK_EVENT_TYPES, invoices: true },
 ];
 const INVOICE_EVENTS: readonly string[] = INVOICE_WEBHOOK_EVENT_TYPES;
@@ -142,6 +146,8 @@ export function WebhooksPanel({ teamMemberId }: { teamMemberId: string | null })
   // Filters: no projects means every project; EVERYONE means no member filter.
   const [projectIds, setProjectIds] = useState<string[]>([]);
   const [memberId, setMemberId] = useState<string>(EVERYONE);
+  // agent_event.created only for these types (comma-separated); blank for every type.
+  const [agentEventTypes, setAgentEventTypes] = useState('');
   const [saving, setSaving] = useState(false);
 
   const projectOptions = projects
@@ -210,6 +216,7 @@ export function WebhooksPanel({ teamMemberId }: { teamMemberId: string | null })
     setAmountBasis('gross');
     setProjectIds([]);
     setMemberId(EVERYONE);
+    setAgentEventTypes('');
     setEditing(null);
     setShowForm(false);
   }
@@ -224,6 +231,7 @@ export function WebhooksPanel({ teamMemberId }: { teamMemberId: string | null })
     setAmountBasis(endpoint.amount_basis ?? 'gross');
     setProjectIds(endpoint.project_ids ?? []);
     setMemberId(endpoint.member_id ?? EVERYONE);
+    setAgentEventTypes((endpoint.agent_event_types ?? []).join(', '));
     setShowForm(true);
   }
 
@@ -245,6 +253,16 @@ export function WebhooksPanel({ teamMemberId }: { teamMemberId: string | null })
       toast('error', 'Select at least one event');
       return;
     }
+    const typeList = [...new Set(agentEventTypes.split(',').map((t) => t.trim()).filter(Boolean))];
+    const badType = typeList.find((t) => !/^[a-z][a-z0-9_.]{0,99}$/.test(t));
+    if (events.includes('agent_event.created') && badType) {
+      toast('error', `${badType} is not an agent event type`);
+      return;
+    }
+    // Written only where it applies, so an endpoint without agent events saves as before.
+    const typeFilter = events.includes('agent_event.created') || editing?.agent_event_types
+      ? { agent_event_types: events.includes('agent_event.created') && typeList.length > 0 ? typeList : null }
+      : {};
     const fields = {
       name: trimmedName,
       url: trimmedUrl,
@@ -253,6 +271,7 @@ export function WebhooksPanel({ teamMemberId }: { teamMemberId: string | null })
       amount_basis: amountBasis,
       project_ids: projectIds.length > 0 ? projectIds : null,
       member_id: memberId || null,
+      ...typeFilter,
     };
 
     setSaving(true);
@@ -498,6 +517,15 @@ export function WebhooksPanel({ teamMemberId }: { teamMemberId: string | null })
               })}
             </div>
           </div>
+          {events.includes('agent_event.created') && (
+            <TextInput
+              label="Agent event types"
+              value={agentEventTypes}
+              onChange={setAgentEventTypes}
+              placeholder="Every type"
+              description="Only these types, comma-separated (work.done, usage.recorded, custom.acme.deploy). Leave empty for every type. Pick an agent under Member to send only its events."
+            />
+          )}
           <div className="flex items-center gap-2 pt-1">
             <Button size="sm" onClick={handleSave} disabled={saving}>
               {editing ? (saving ? 'Saving…' : 'Save changes') : (saving ? 'Creating…' : 'Create endpoint')}
@@ -544,7 +572,7 @@ export function WebhooksPanel({ teamMemberId }: { teamMemberId: string | null })
                       </span>
                     ))}
                   </div>
-                  {(endpoint.project_ids || endpoint.member_id) && (
+                  {(endpoint.project_ids || endpoint.member_id || endpoint.agent_event_types) && (
                     <div className="flex flex-wrap gap-1.5 mt-2">
                       {endpoint.project_ids && (
                         <span className="text-[11px] text-zinc-400 border border-white/[0.1] rounded px-1.5 py-0.5">
@@ -554,6 +582,11 @@ export function WebhooksPanel({ teamMemberId }: { teamMemberId: string | null })
                       {endpoint.member_id && (
                         <span className="text-[11px] text-zinc-400 border border-white/[0.1] rounded px-1.5 py-0.5">
                           Concerns {memberName(endpoint.member_id)}
+                        </span>
+                      )}
+                      {endpoint.agent_event_types && (
+                        <span className="text-[11px] text-zinc-400 border border-white/[0.1] rounded px-1.5 py-0.5">
+                          Agent events: {endpoint.agent_event_types.join(', ')}
                         </span>
                       )}
                     </div>

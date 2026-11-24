@@ -1156,7 +1156,15 @@ export const WORK_WEBHOOK_EVENT_TYPES = [
   'run.started', 'run.finished',
 ] as const;
 
-export const WEBHOOK_EVENT_TYPES = [...WORK_WEBHOOK_EVENT_TYPES, ...INVOICE_WEBHOOK_EVENT_TYPES] as const;
+/**
+ * Every agent event as it is recorded (agent_activities), for piping to a
+ * data system. Opt in only: never a default, because the fleet's telemetry
+ * alone is many events an hour. Filter by agent (member_id) and by type
+ * (agent_event_types).
+ */
+export const AGENT_EVENT_WEBHOOK_EVENT_TYPES = ['agent_event.created'] as const;
+
+export const WEBHOOK_EVENT_TYPES = [...WORK_WEBHOOK_EVENT_TYPES, ...AGENT_EVENT_WEBHOOK_EVENT_TYPES, ...INVOICE_WEBHOOK_EVENT_TYPES] as const;
 export type WebhookEventType = typeof WEBHOOK_EVENT_TYPES[number];
 
 export const WEBHOOK_DELIVERY_STATUSES = ['pending', 'delivering', 'succeeded', 'failed'] as const;
@@ -1183,6 +1191,8 @@ export interface WebhookEndpoint {
   project_ids: string[] | null;
   /** Only events that concern this member (pm.webhook_event_members); null for everyone. */
   member_id: string | null;
+  /** agent_event.created only for these agent event types; null (or absent before 20261124001200) for every type. */
+  agent_event_types?: string[] | null;
   created_by: string | null;
   last_delivery_at: string | null;
   created_at: string;
@@ -1356,6 +1366,8 @@ export interface AgentActivity {
   metadata: Record<string, any>;
   /** Idempotency key for host telemetry records (agent-telemetry-ingest.ts); null otherwise. */
   source_key?: string | null;
+  /** Labels the agent or its harness set (agent-events.ts AGENT_LABEL_PATTERN); empty or absent when none. */
+  labels?: string[];
   created_at: string;
 }
 

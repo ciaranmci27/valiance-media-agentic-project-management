@@ -323,8 +323,8 @@ export function settingsSummary(schema: readonly SettingsField[], values: Settin
 
 // ── Powers ──────────────────────────────────────────────────────────────
 
-/** Scopes an agent key never carries: a host's alert key and a person's meeting script. */
-export const NEVER_AGENT_SCOPES: readonly PermissionKey[] = ['fleet_alerts.write', 'meetings.write'];
+/** Scopes an agent key never carries: a host's alert key, a person's meeting script and a data system's export key. */
+export const NEVER_AGENT_SCOPES: readonly PermissionKey[] = ['fleet_alerts.write', 'meetings.write', 'agent_events.export'];
 /** Scopes that let a key set up other keys and webhooks: shown with a warning. */
 export const SENSITIVE_SCOPES: readonly PermissionKey[] = ['api_keys.manage_all', 'webhooks.manage', 'credentials.manage', 'credentials.reveal_shared', 'invoices.manage', 'invoices.record_payments'];
 

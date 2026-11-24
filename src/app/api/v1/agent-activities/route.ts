@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { withApi } from '@/lib/api/middleware';
 import { created, paginated } from '@/lib/api/response';
 import { agentActivityBodySchema, type LegacyAgentActivity, type OpenAgentEvent, type TypedAgentEvent } from '@/lib/schemas/agent-activity';
-import { formatEventTitle, formatOpenEventTitle, HOST_RECORD_EVENT_TYPES, isAgentEventType, isOpenEventType } from '@/lib/agent-events';
+import { AGENT_LABEL_PATTERN, formatEventTitle, formatOpenEventTitle, HOST_RECORD_EVENT_TYPES, isAgentEventType, isOpenEventType } from '@/lib/agent-events';
 import { requireAgentsEnabled } from '@/lib/api/agents';
 import { parsePagination } from '@/lib/api/pagination';
 import { ApiError, forbidden, badRequest } from '@/lib/api/errors';
@@ -14,6 +14,12 @@ import { isUuid, mergeOutcome, metadataIdentity, sourceKey } from '@/lib/agent-t
 import { resolveTurnRun } from '@/lib/api/agent-runs';
 import type { AgentActivity } from '@/lib/types';
 
+/** PostgREST (PGRST204) or Postgres (42703) on a write naming a column the database does not have yet. */
+const labelsColumnMissing = (error: unknown) => {
+  const e = error as { code?: string; message?: string } | null;
+  return (e?.code === 'PGRST204' || e?.code === '42703') && /labels/.test(e?.message ?? '');
+};
+
 export const GET = withApi(async ({ supabase, searchParams, access }) => {
   requireAgentsEnabled(access);
 
@@ -21,6 +27,8 @@ export const GET = withApi(async ({ supabase, searchParams, access }) => {
   const agentId = searchParams.get('agent_id');
   const projectId = searchParams.get('project_id');
   const activityType = searchParams.get('activity_type');
+  const label = searchParams.get('label');
+  if (label !== null && !AGENT_LABEL_PATTERN.test(label)) throw badRequest('label must be one label (lowercase letters, numbers and . _ : -)');
 
   let query = supabase
     .from('agent_activities')
@@ -33,6 +41,7 @@ export const GET = withApi(async ({ supabase, searchParams, access }) => {
 
   if (agentId) query = query.eq('agent_id', agentId);
   if (projectId) query = query.eq('project_id', projectId);
+  if (label) query = query.contains('labels', [label]);
   if (activityType) query = query.eq('activity_type', activityType);
   // Host records (restarts, wakes, attention, gaps, evals, failures, late
   // labels) are measurement written about an agent, not by it. Readers of the
@@ -138,7 +147,14 @@ export const POST = withApi(async ({ supabase, body, apiKeyId, teamMemberId, acc
           source_key: sourceKey(typed.activity_type, payload),
         };
       })()
-    : { ...(parsed as LegacyAgentActivity), source_key: null };
+    : (() => {
+        const { labels: _labels, ...legacy } = parsed as LegacyAgentActivity;
+        void _labels;
+        return { ...legacy, source_key: null };
+      })();
+
+  // Labels ride beside the payload on every shape; none sent, none stored.
+  const labels = (parsed as { labels?: string[] }).labels ?? [];
 
   // Host publishers and merge scripts retry after ambiguous network failures.
   // Make their natural source identities idempotent at the API door: the
@@ -230,11 +246,16 @@ export const POST = withApi(async ({ supabase, body, apiKeyId, teamMemberId, acc
     entry = await insertAgentActivity(supabase, {
       ...record,
       agent_id: agentId,
+      labels,
     });
   } catch (error) {
     if (hasIdentity && (error as { code?: string } | null)?.code === '23505') {
       const existing = await findExisting();
       if (existing) return created(existing);
+    }
+    // A database before 20261124001200 has no labels column: say so rather than drop them.
+    if (labels.length > 0 && labelsColumnMissing(error)) {
+      throw new ApiError(503, 'SERVICE_UNAVAILABLE', 'labels are recorded once the database update 20261124001200_agent_event_pipeline.sql is applied', { reason: 'migration_pending' });
     }
     // A database before 20261124000600 still holds the closed list of types.
     if (isOpenEventType(parsed.activity_type) && (error as { code?: string } | null)?.code === '23514') {

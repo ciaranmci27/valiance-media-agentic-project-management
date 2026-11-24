@@ -73,6 +73,7 @@ export const PERMISSIONS = [
   'agent_activity.write',
   'fleet_alerts.write',
   'meetings.write',
+  'agent_events.export',
 ] as const;
 
 export type PermissionKey = typeof PERMISSIONS[number];
@@ -97,6 +98,8 @@ export const API_ENDPOINT_PERMISSIONS = [
   'api_keys.manage_all', 'webhooks.manage',
   // Groups, linked identities and acting for a person (a chat harness). Owners only by default.
   'groups.manage', 'identities.link', 'identities.read', 'agents.act_for',
+  // Every agent event and run, in order, for a data system (GET /api/v1/agent-events/export). No role holds it by default.
+  'agent_events.export',
 ] as const satisfies readonly PermissionKey[];
 
 export const API_ENDPOINT_PERMISSION_SET = new Set<PermissionKey>(API_ENDPOINT_PERMISSIONS);
@@ -371,6 +374,7 @@ export const PERMISSION_GROUPS: Array<{
       { key: 'suggestions.create', label: 'Propose suggestions', description: 'Create and update the member\'s own agent suggestions.' },
       { key: 'suggestions.manage', label: 'Manage suggestions', description: 'Review and act on agent suggestions.' },
       { key: 'agent_activity.write', label: 'Log agent activity', description: 'Allow an AI agent to record its own activity through the API.' },
+      { key: 'agent_events.export', label: 'Export agent events', description: 'Allow a data system key to read every agent event and run, in order, from a resumable cursor (GET /api/v1/agent-events/export). Read only.' },
       { key: 'fleet_alerts.write', label: 'Post fleet alerts', description: 'Allow a host key to record fleet-wide alerts that name no agent. A key with this scope posts nothing else.' },
       { key: 'meetings.write', label: 'Post meetings', description: 'Allow a teammate\'s meeting script to post each meeting (transcript or notes) into an inbox they can read. Never an agent\'s key.' },
     ],

@@ -5,14 +5,21 @@ import { useRead, warmRead, type Read } from '@/lib/query-cache';
 import { effectiveRunStatus } from '@/lib/agent-runs';
 import { afterCursorFilter, keysetPages, type PageCursor } from '@/lib/agent-analytics-paging';
 import type { DateRange } from '@/lib/finance/summary';
-import type { QuestionRow, RunRow } from '@/lib/agent-analytics-model';
+import type { ProviderPlan, QuestionRow, QuestionStats, RunRow, RunStats } from '@/lib/agent-analytics-model';
+import { questionStatsFromAnswer, runStatsFromAnswer } from '@/lib/agent-analytics-window';
+import { isMissingRpc } from '@/lib/supabase/queries';
 
 /**
  * The Analytics tab's own reads beside the event window
- * (use-agent-analytics-events.ts): the run feed and the questions agents
- * asked, for one date range. Described Reads, cached by range, a minute fresh
- * like the rest of the report. Paged by keyset on (time, id), so a row
- * written mid-read never repeats.
+ * (use-agent-analytics-events.ts): runs and the questions agents asked, for
+ * one date range. Described Reads, cached by range, a minute fresh like the
+ * rest of the report.
+ *
+ * Runs and questions come summed by the server (pm.agent_run_stats,
+ * pm.agent_question_stats: one small answer whatever the range holds). Only
+ * on a database before 20261124001200 are they read as rows, paged by keyset
+ * on (time, id) so a row written mid-read never repeats, up to a cap the
+ * screen names.
  */
 
 const REPORT_TTL_MS = 60_000;
@@ -137,21 +144,124 @@ export function analyticsQuestionsRead(range: DateRange): Read<RangeRows<Questio
   };
 }
 
-/** Warm both for a range, beside prefetchAgentAnalytics, so the tab opens measured. */
-export function prefetchAnalyticsReads(range: DateRange): void {
-  void warmRead(analyticsRunsRead(range));
-  void warmRead(analyticsQuestionsRead(range));
+/** A server sum, or the database does not have its function yet (callers read rows instead). */
+export type StatsAnswer<T> = { status: 'ready'; stats: T } | { status: 'missing' };
+
+/** The zone days are counted in: the viewer's own, else the browser's. */
+export function analyticsZone(timezone?: string): string {
+  return timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
 }
 
-export function useAnalyticsReads(range: DateRange, options: { enabled: boolean }) {
-  const runs = useRead(options.enabled ? analyticsRunsRead(range) : null);
-  const questions = useRead(options.enabled ? analyticsQuestionsRead(range) : null);
+/**
+ * Runs summed per agent, project, model, provider and day. Busy time clips
+ * only the picked projects' runs against each other, so the projects are part
+ * of the key.
+ */
+export function analyticsRunStatsRead(range: DateRange, timezone: string, projectIds: readonly string[] = []): Read<StatsAnswer<RunStats>> {
+  const projects = [...projectIds].sort();
   return {
-    runs: runs.data ?? null,
-    questions: questions.data ?? null,
-    loading: options.enabled && (runs.loading || questions.loading),
-    runsFailed: options.enabled && runs.failed,
-    questionsFailed: options.enabled && questions.failed,
-    reload: () => { runs.reload(); questions.reload(); },
+    key: `agent-analytics-run-stats:${range.startKey}:${range.endKey}:${timezone}:${projects.join(',')}`,
+    ttlMs: REPORT_TTL_MS,
+    load: async () => {
+      const { data, error } = await createClient().rpc('agent_run_stats', {
+        p_start: range.startKey,
+        p_end: range.endKey,
+        p_tz: timezone,
+        p_project_ids: projects.length > 0 ? projects : null,
+      });
+      if (error) {
+        if (isMissingRpc(error, 'agent_run_stats')) return { status: 'missing' };
+        throw error;
+      }
+      return { status: 'ready', stats: runStatsFromAnswer(data) };
+    },
+  };
+}
+
+/** Questions summed per asker, project and day, with every answer time. */
+export function analyticsQuestionStatsRead(range: DateRange, timezone: string): Read<StatsAnswer<QuestionStats>> {
+  return {
+    key: `agent-analytics-question-stats:${range.startKey}:${range.endKey}:${timezone}`,
+    ttlMs: REPORT_TTL_MS,
+    tables: ['questions'],
+    load: async () => {
+      const { data, error } = await createClient().rpc('agent_question_stats', {
+        p_start: range.startKey,
+        p_end: range.endKey,
+        p_tz: timezone,
+      });
+      if (error) {
+        if (isMissingRpc(error, 'agent_question_stats')) return { status: 'missing' };
+        throw error;
+      }
+      return { status: 'ready', stats: questionStatsFromAnswer(data) };
+    },
+  };
+}
+
+/** Provider subscriptions (pm.provider_plans), for the estimate beside measured cost. Empty before its migration. */
+export const providerPlansRead: Read<ProviderPlanRow[]> = {
+  key: 'provider-plans',
+  ttlMs: 10 * 60_000,
+  tables: ['provider_plans'],
+  load: async () => {
+    const { data, error } = await createClient().from('provider_plans')
+      .select('id, provider, monthly_cost_usd, seats, notes, updated_at').order('provider');
+    if (error) {
+      if (isMissing(error)) return [];
+      throw error;
+    }
+    return ((data ?? []) as Record<string, unknown>[]).map((row) => ({
+      id: String(row.id),
+      provider: String(row.provider),
+      monthlyCostUsd: Number(row.monthly_cost_usd),
+      seats: Number(row.seats),
+      notes: String(row.notes ?? ''),
+      updatedAt: String(row.updated_at),
+    }));
+  },
+};
+
+export interface ProviderPlanRow extends ProviderPlan {
+  id: string;
+  notes: string;
+  updatedAt: string;
+}
+
+/** Warm the range's reads, beside prefetchAgentAnalytics, so the tab opens measured. */
+export function prefetchAnalyticsReads(range: DateRange, timezone?: string): void {
+  const zone = analyticsZone(timezone);
+  void warmRead(analyticsRunStatsRead(range, zone));
+  void warmRead(analyticsQuestionStatsRead(range, zone));
+}
+
+/**
+ * Runs and questions for the Analytics tab: the server's sums, else (before
+ * their migration) the rows. `truncated` only ever comes from the rows.
+ */
+export function useAnalyticsReads(range: DateRange, options: { enabled: boolean; timezone?: string; projectIds?: readonly string[] }) {
+  const zone = analyticsZone(options.timezone);
+  const runStats = useRead(options.enabled ? analyticsRunStatsRead(range, zone, options.projectIds) : null);
+  const questionStats = useRead(options.enabled ? analyticsQuestionStatsRead(range, zone) : null);
+  const plans = useRead(options.enabled ? providerPlansRead : null);
+  const runRows = options.enabled && runStats.data?.status === 'missing';
+  const questionRows = options.enabled && questionStats.data?.status === 'missing';
+  const runs = useRead(runRows ? analyticsRunsRead(range) : null);
+  const questions = useRead(questionRows ? analyticsQuestionsRead(range) : null);
+  return {
+    runStats: runStats.data?.status === 'ready' ? runStats.data.stats : null,
+    questionStats: questionStats.data?.status === 'ready' ? questionStats.data.stats : null,
+    runs: runRows ? runs.data ?? null : null,
+    questions: questionRows ? questions.data ?? null : null,
+    providerPlans: plans.data ?? [],
+    loading: options.enabled && (runStats.loading || questionStats.loading || (runRows && runs.loading) || (questionRows && questions.loading)),
+    runsFailed: options.enabled && (runStats.failed || (runRows && runs.failed)),
+    questionsFailed: options.enabled && (questionStats.failed || (questionRows && questions.failed)),
+    reload: () => {
+      runStats.reload();
+      questionStats.reload();
+      if (runRows) runs.reload();
+      if (questionRows) questions.reload();
+    },
   };
 }

@@ -23,6 +23,7 @@ import { subtaskProgress } from '@/lib/subtasks';
 import { createdLabel, lastActivityAt, taskTimesTooltip, timeAgo } from '@/lib/task-times';
 import { appLocale } from '@/lib/region';
 import { useSubtaskMenuActions } from './MakeSubtaskDialog';
+import { useMoveTaskMenuAction } from './MoveTaskDialog';
 import { SubtaskRing, SUBTASK_STATUS_RING as STATUS_RING } from './SubtaskRing';
 import { claimUntil, liveClaim, occurrenceLabel } from '@/lib/claims';
 
@@ -122,6 +123,7 @@ export function TaskCard({ task, onView, onDelete, onMove }: TaskCardProps) {
   const lastAt = lastActivityAt(task, subtaskList, getTaskUpdate(task.id));
 
   const subtaskMenu = useSubtaskMenuActions(task, canEdit);
+  const moveMenu = useMoveTaskMenuAction(task, canEdit);
   const actions: RowAction[] = [
     ...(onView ? [{ label: 'Open', icon: <PanelRight size={14} />, onClick: () => onView(task) }] : []),
     ...(canEdit && onMove
@@ -132,7 +134,7 @@ export function TaskCard({ task, onView, onDelete, onMove }: TaskCardProps) {
           divider: i === 0,
         }))
       : []),
-    ...subtaskMenu.actions.map((action, i) => ({ ...action, divider: i === 0 })),
+    ...[...subtaskMenu.actions, ...moveMenu.actions].map((action, i) => ({ ...action, divider: i === 0 })),
     // A stuck claim: whoever may manage every task can end it.
     ...(claim && canDelete
       ? [{ label: 'Release claim', icon: <LockOpen size={14} />, onClick: () => { void releaseTaskClaim(task.id); }, divider: true }]
@@ -493,6 +495,7 @@ export function TaskCard({ task, onView, onDelete, onMove }: TaskCardProps) {
     )}
     {/* Outside the card: a click in the dialog must not open the card. */}
     {subtaskMenu.dialog}
+    {moveMenu.dialog}
     </>
   );
 }

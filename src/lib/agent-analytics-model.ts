@@ -31,9 +31,22 @@ import type { AgentRunStatus } from '@/lib/agent-runs';
  * - Money (revenue, profit, margin) shows only when the billing module is on
  *   and an agent in the selection bills (moneyVisibility).
  * - Provider and model are whatever strings arrive; nothing is hard-coded.
- *   Usage the server summed per hour (the analytics window) carries no model:
- *   it files under "Usage not split by model yet", and its cost reads as
- *   priced or mixed, since one hour can hold both.
+ *   A usage record's or run's own provider wins over a "provider/" prefix.
+ *   Usage the first analytics window summed per hour carries no model: it
+ *   files under "Usage not split by model yet", and its cost reads as priced
+ *   or mixed, since one hour can hold both. The second window sums per model,
+ *   provider and pricing, so its hours read exactly as the raw records.
+ * - A stored run that reports no tokens takes its attached turns' own tokens
+ *   (turns naming it by run_id), for agents without a usage ledger. Only runs
+ *   still without any count as "runs that report no tokens".
+ * - Labels: facts from a labelled event (usage, pull requests, reviews,
+ *   blocked, host failures) carry its labels. The label breakdown files a
+ *   fact under each of its labels, so its rows can add up to more than the
+ *   total; the label filter keeps facts with any picked label.
+ * - Runs and questions may arrive pre-summed by the server (pm.agent_run_stats,
+ *   pm.agent_question_stats) instead of as rows: the facts are the same.
+ * - A provider plan's subscription cost is an estimate, allocated by unpriced
+ *   token share, kept apart from measured cost and never added to it.
  * - Revenue is approved time only (approval_status === 'approved', the
  *   Finances rule); the rest is pending.
  */
@@ -67,6 +80,8 @@ export interface Fact {
   provider: string | null;
   /** Usage summed per hour by the server, with no model or provider kept. */
   unsplit?: boolean;
+  /** The labels of the event the fact came from; absent when it has none. */
+  labels?: string[];
   dateKey: string;
   value: number;
 }
@@ -288,6 +303,8 @@ export function resolveSelectedMetric(shown: MetricKey[], selected: MetricKey | 
 
 /** One pm.agent_run_feed row, as far as analytics reads it. */
 export interface RunRow {
+  /** The run's id, for its attached turns' tokens. Absent on rows built without one. */
+  id?: string;
   source: 'run' | 'turn';
   agentId: string;
   projectId: string | null;
@@ -295,6 +312,8 @@ export interface RunRow {
   outcome: string | null;
   title: string | null;
   model: string | null;
+  /** The provider the run named (agent_runs.provider); absent when not read. */
+  provider?: string | null;
   startedAt: string;
   finishedAt: string | null;
   durationMs: number | null;
@@ -302,6 +321,80 @@ export interface RunRow {
   tokensOut: number | null;
   costUsd: number | null;
 }
+
+/**
+ * pm.agent_run_stats: the run feed summed per agent, project, model, provider
+ * and day by the server, with the read model's own rules (busy time already
+ * the union of each agent's spans; attached turns' tokens already filled in).
+ * failures lists every failed run read, for incidents.
+ */
+export interface RunStatGroup {
+  agentId: string;
+  projectId: string | null;
+  model: string | null;
+  provider: string | null;
+  dateKey: string;
+  runs: number;
+  succeeded: number;
+  failed: number;
+  busyMs: number;
+  tokensIn: number;
+  tokensOut: number;
+  costUsd: number;
+  unpricedTokens: number;
+  runsNoTokens: number;
+}
+
+export interface RunFailure {
+  agentId: string;
+  projectId: string | null;
+  model: string | null;
+  provider: string | null;
+  startedAt: string;
+  title: string | null;
+  status: string;
+}
+
+export interface RunStats {
+  groups: RunStatGroup[];
+  failures: RunFailure[];
+}
+
+/** pm.agent_question_stats: questions per asker, project and day, with every answer time. */
+export interface QuestionStatGroup {
+  askedBy: string;
+  projectId: string | null;
+  dateKey: string;
+  questions: number;
+  approvals: number;
+  /** Each answered question's time to answer, in milliseconds. */
+  answerMs: number[];
+  medianAnswerMs: number | null;
+}
+
+export interface QuestionStats {
+  /** all: every question (an Owner or agents.manage); projects: projects the viewer can open, and their own. */
+  scope: 'all' | 'projects';
+  groups: QuestionStatGroup[];
+}
+
+/** A provider subscription (pm.provider_plans): cost per seat per month. */
+export interface ProviderPlan {
+  provider: string;
+  monthlyCostUsd: number;
+  seats: number;
+}
+
+export interface SubscriptionEstimate {
+  /** Every plan's monthly cost (cost per seat x seats). */
+  monthlyUsd: number;
+  /** The share of the range's subscription cost the selection's unpriced tokens take. An estimate. */
+  estimateUsd: number;
+  providers: string[];
+}
+
+export const SUBSCRIPTION_LABEL = 'Subscription cost';
+export const ESTIMATE_LABEL = 'estimate by token share, not in model cost';
 
 export interface QuestionRow {
   askedBy: string;
@@ -342,8 +435,16 @@ export interface AgentAnalyticsInput {
   canReadRevenue: boolean;
   /** False when the run feed failed to load: run figures are left out, not shown short. */
   runsAvailable?: boolean;
+  /** The server's run sums (pm.agent_run_stats); when set, `runs` is not read. Busy time under a project filter must come from a call with that filter. */
+  runStats?: RunStats | null;
+  /** The server's question sums (pm.agent_question_stats); when set, `questions` is not read. */
+  questionStats?: QuestionStats | null;
+  /** Provider subscriptions, for the estimate beside measured cost. */
+  providerPlans?: ProviderPlan[];
   selectedAgentIds?: ReadonlySet<string>;
   selectedProjectIds?: ReadonlySet<string>;
+  /** Facts with any of these labels; facts with none leave. */
+  selectedLabels?: ReadonlySet<string>;
 }
 
 export interface AgentAnalyticsModel {
@@ -357,6 +458,8 @@ export interface AgentAnalyticsModel {
   /** Usage a project filter left out because it names no project: profit and margin exclude it. */
   excludedNoProject: Pick<Sums, 'costUsd' | 'unpricedTokens'>;
   runsAvailable: boolean;
+  /** Provider plans' subscription cost, as an estimate; null without plans. Never part of totals. */
+  subscription: SubscriptionEstimate | null;
 }
 
 /**
@@ -375,20 +478,25 @@ export function profitCaveat(excluded: Pick<Sums, 'costUsd' | 'unpricedTokens'>,
 export interface ViewerScope {
   projectsReadAll: boolean;
   timeReadAll: boolean;
+  /** Where questions came from the server's sums, the rule it applied; absent for rows read under row access. */
+  questionsScope?: QuestionStats['scope'] | null;
 }
 
 export const SCOPE_QUESTIONS = 'Only questions you can open';
+export const SCOPE_QUESTIONS_PROJECTS = 'Questions on projects you can open, and your own';
 export const SCOPE_TASKS = 'Only tasks you can open';
 export const SCOPE_TIME = 'Only time you can see';
 
 /**
  * Where a figure can only count what the viewer's row access lets them read.
- * Questions always (their row policy hides questions between other people);
+ * Questions read as rows always (their row policy hides questions between
+ * other people); from the server's sums, only for a viewer who does not
+ * oversee every agent (questions on no project between others stay out);
  * tasks without projects.read_all; revenue without time.read_all.
  */
-export function scopeNotes(scope: ViewerScope): { questions: string; tasks: string | null; revenue: string | null } {
+export function scopeNotes(scope: ViewerScope): { questions: string | null; tasks: string | null; revenue: string | null } {
   return {
-    questions: SCOPE_QUESTIONS,
+    questions: scope.questionsScope === 'all' ? null : scope.questionsScope === 'projects' ? SCOPE_QUESTIONS_PROJECTS : SCOPE_QUESTIONS,
     tasks: scope.projectsReadAll ? null : SCOPE_TASKS,
     revenue: scope.timeReadAll ? null : SCOPE_TIME,
   };
@@ -526,18 +634,19 @@ export function buildAgentAnalytics(input: AgentAnalyticsInput): AgentAnalyticsM
   const projectFilter = input.selectedProjectIds?.size ? input.selectedProjectIds : null;
 
   const all: Fact[] = [];
-  const push = (kind: FactKind, agentId: string, projectId: string | null, dateKey: string | null, value: number, model: string | null = null, provider: string | null = null, unsplit = false) => {
+  const push = (kind: FactKind, agentId: string, projectId: string | null, dateKey: string | null, value: number, model: string | null = null, provider: string | null = null, unsplit = false, labels: string[] | null = null) => {
     if (!dateKey || !agentIds.has(agentId) || !inRange(dateKey)) return;
     if (!Number.isFinite(value) || (value === 0 && !isSample(kind))) return;
-    all.push({ kind, agentId, projectId: projectId ?? null, model, provider, ...(unsplit ? { unsplit: true } : {}), dateKey, value });
+    all.push({ kind, agentId, projectId: projectId ?? null, model, provider, ...(unsplit ? { unsplit: true } : {}), ...(labels?.length ? { labels } : {}), dateKey, value });
   };
+  const labelsOf = (a: AgentActivity): string[] | null => (Array.isArray(a.labels) && a.labels.length > 0 ? a.labels : null);
 
   // Usage ledger, deduped by its idempotency key. Which agents report one
   // decides where their tokens and cost come from. A row the server summed per
   // hour (the analytics window) has no model, and its cost may merge priced
   // and unpriced records.
   const usageSeen = new Set<string>();
-  const usage: { agentId: string; projectId: string | null; dateKey: string; model: string | null; provider: string | null; unsplit: boolean; input: number; output: number; cached: number; cost: number | null }[] = [];
+  const usage: { agentId: string; projectId: string | null; dateKey: string; model: string | null; provider: string | null; unsplit: boolean; labels: string[] | null; input: number; output: number; cached: number; cost: number | null }[] = [];
   for (const a of input.activities) {
     if (a.activity_type !== 'usage.recorded' || !agentIds.has(a.agent_id)) continue;
     const m = a.metadata ?? {};
@@ -546,7 +655,8 @@ export function buildAgentAnalytics(input: AgentAnalyticsInput): AgentAnalyticsM
     usageSeen.add(sourceId);
     const dateKey = keyOfIso(str(m.recorded_at) ?? a.created_at);
     if (!dateKey || !inRange(dateKey)) continue;
-    const unsplit = typeof m.deltas === 'number' || sourceId.startsWith('hour:');
+    // Summed per hour by the server: the second window keeps the model (split).
+    const unsplit = (typeof m.deltas === 'number' || sourceId.startsWith('hour:')) && m.split !== true;
     const model = unsplit ? null : cleanModel(m.model);
     const rawCost = Number(m.cost_usd);
     usage.push({
@@ -556,6 +666,7 @@ export function buildAgentAnalytics(input: AgentAnalyticsInput): AgentAnalyticsM
       model,
       provider: unsplit ? null : providerOf(model, m.provider),
       unsplit,
+      labels: labelsOf(a),
       input: num(m.input_tokens),
       output: num(m.output_tokens),
       cached: num(m.cached_tokens),
@@ -565,7 +676,7 @@ export function buildAgentAnalytics(input: AgentAnalyticsInput): AgentAnalyticsM
   const ledgerAgents = new Set(usage.map((u) => u.agentId));
 
   for (const u of usage) {
-    const at = (kind: FactKind, value: number) => push(kind, u.agentId, u.projectId, u.dateKey, value, u.model, u.provider, u.unsplit);
+    const at = (kind: FactKind, value: number) => push(kind, u.agentId, u.projectId, u.dateKey, value, u.model, u.provider, u.unsplit, u.labels);
     at('tokensIn', u.input);
     at('tokensOut', u.output);
     at('tokensCached', u.cached);
@@ -582,15 +693,35 @@ export function buildAgentAnalytics(input: AgentAnalyticsInput): AgentAnalyticsM
   // repeats that began before the range still counts once inside it.
   type Placed = { run: RunRow; start: number; end: number; dateKey: string; model: string | null; provider: string | null };
   const byAgent = new Map<string, Placed[]>();
-  type Candidate = { agentId: string; projectId: string | null; model: string | null; provider: string | null; at: number; signature: string };
+  type Candidate = { agentId: string; projectId: string | null; model: string | null; provider: string | null; at: number; signature: string; labels?: string[] | null };
   const incidentCandidates: Candidate[] = [];
-  for (const run of input.runs) {
+
+  // A stored run that reports no tokens takes its attached turns' own tokens
+  // (a turn names its run by run_id; tokens_scope turn only, as the run feed
+  // reads a turn). Null where no attached turn reported that side.
+  const attached = new Map<string, { input: number | null; output: number | null }>();
+  for (const a of input.activities) {
+    if (a.activity_type !== 'turn.completed') continue;
+    const m = a.metadata ?? {};
+    const runId = str(m.run_id);
+    if (!runId || m.tokens_scope !== 'turn' || !m.tokens || typeof m.tokens !== 'object') continue;
+    const t = m.tokens as Record<string, unknown>;
+    const sum = attached.get(runId) ?? { input: null, output: null };
+    if ('input' in t) sum.input = (sum.input ?? 0) + num(t.input);
+    if ('output' in t) sum.output = (sum.output ?? 0) + num(t.output);
+    attached.set(runId, sum);
+  }
+
+  const runRows = input.runStats ? [] : input.runs;
+  for (const row of runRows) {
+    const fill = row.source === 'run' && row.tokensIn === null && row.tokensOut === null && row.id ? attached.get(row.id) : undefined;
+    const run = fill ? { ...row, tokensIn: fill.input, tokensOut: fill.output } : row;
     if (!agentIds.has(run.agentId)) continue;
     const start = Date.parse(run.startedAt);
     if (!Number.isFinite(start)) continue;
     const dateKey = keyOfMs(start);
     const model = cleanModel(run.model);
-    const provider = providerOf(model);
+    const provider = providerOf(model, run.provider);
     const verdict = runVerdict(run);
     if (verdict === 'failure') {
       incidentCandidates.push({ agentId: run.agentId, projectId: run.projectId, model, provider, at: start, signature: `run:${(run.title ?? '').trim().toLowerCase()}:${run.status}` });
@@ -618,6 +749,33 @@ export function buildAgentAnalytics(input: AgentAnalyticsInput): AgentAnalyticsM
       byAgent.set(run.agentId, list);
     }
   }
+  // The server's sums: the same facts, one push per group.
+  if (input.runStats) {
+    for (const g of input.runStats.groups) {
+      const model = cleanModel(g.model);
+      const provider = providerOf(model, g.provider);
+      const at = (kind: FactKind, value: number) => push(kind, g.agentId, g.projectId, g.dateKey, value, model, provider);
+      at('run', g.runs);
+      at('runSucceeded', g.succeeded);
+      at('runFailed', g.failed);
+      at('busyMs', g.busyMs);
+      if (!ledgerAgents.has(g.agentId)) {
+        at('runsNoTokens', g.runsNoTokens);
+        at('tokensIn', g.tokensIn);
+        at('tokensOut', g.tokensOut);
+        at('costUsd', g.costUsd);
+        at('unpricedTokens', g.unpricedTokens);
+      }
+    }
+    for (const f of input.runStats.failures) {
+      if (!agentIds.has(f.agentId)) continue;
+      const at = Date.parse(f.startedAt);
+      if (!Number.isFinite(at)) continue;
+      const model = cleanModel(f.model);
+      incidentCandidates.push({ agentId: f.agentId, projectId: f.projectId, model, provider: providerOf(model, f.provider), at, signature: `run:${(f.title ?? '').trim().toLowerCase()}:${f.status}` });
+    }
+  }
+
   // Busy time. Unfiltered, an agent's runs clip against each other, so the
   // split by project adds up to its union. Under a project filter, only the
   // filtered runs clip against each other, so the slice stands on its own
@@ -639,13 +797,13 @@ export function buildAgentAnalytics(input: AgentAnalyticsInput): AgentAnalyticsM
     failSeen.add(key);
     const at = Date.parse(str(m.finished_at) ?? str(m.started_at) ?? a.created_at);
     if (!Number.isFinite(at)) continue;
-    incidentCandidates.push({ agentId: a.agent_id, projectId: a.project_id ?? null, model: null, provider: null, at, signature: `fail:${str(m.job_name) ?? ''}:${str(m.failure) ?? 'failed'}` });
+    incidentCandidates.push({ agentId: a.agent_id, projectId: a.project_id ?? null, model: null, provider: null, at, signature: `fail:${str(m.job_name) ?? ''}:${str(m.failure) ?? 'failed'}`, labels: labelsOf(a) });
   }
   // A chain counts once when any part of it falls in the range, on the day of
   // its first part in range.
   for (const { members } of collapseRepeats(incidentCandidates, (c) => `${c.agentId}:${c.signature}`, (c) => c.at)) {
     const first = members.find((c) => inRange(keyOfMs(c.at)));
-    if (first) push('incident', first.agentId, first.projectId, keyOfMs(first.at), 1, first.model, first.provider);
+    if (first) push('incident', first.agentId, first.projectId, keyOfMs(first.at), 1, first.model, first.provider, false, first.labels ?? null);
   }
 
   // Pull requests and reviews, with the delivery model's dedupe: the first
@@ -667,7 +825,7 @@ export function buildAgentAnalytics(input: AgentAnalyticsInput): AgentAnalyticsM
       const dateKey = keyOfIso(a.created_at);
       if (!pr || opened.has(pr) || !dateKey || !inRange(dateKey) || !agentIds.has(a.agent_id)) continue;
       opened.add(pr);
-      push('prOpened', a.agent_id, a.project_id, dateKey, 1);
+      push('prOpened', a.agent_id, a.project_id, dateKey, 1, null, null, false, labelsOf(a));
     } else if (a.activity_type === 'pr.merged') {
       const pr = normalizePullRequestUrl(m.pr_url);
       const dateKey = keyOfIso(a.created_at);
@@ -675,7 +833,7 @@ export function buildAgentAnalytics(input: AgentAnalyticsInput): AgentAnalyticsM
       const owner = handoffOwner.get(pr) ?? a.agent_id;
       if (!agentIds.has(owner)) continue;
       merged.add(pr);
-      push('prMerged', owner, a.project_id, dateKey, 1);
+      push('prMerged', owner, a.project_id, dateKey, 1, null, null, false, labelsOf(a));
     } else if (a.activity_type === 'review.started' || a.activity_type === 'review.verdict') {
       const dateKey = keyOfIso(a.created_at);
       if (!dateKey || !inRange(dateKey) || !agentIds.has(a.agent_id)) continue;
@@ -683,7 +841,7 @@ export function buildAgentAnalytics(input: AgentAnalyticsInput): AgentAnalyticsM
       const key = `${a.agent_id}:${subject}:${num(m.round)}`;
       if (reviews.has(key)) continue;
       reviews.add(key);
-      push('review', a.agent_id, a.project_id, dateKey, 1);
+      push('review', a.agent_id, a.project_id, dateKey, 1, null, null, false, labelsOf(a));
     }
   }
 
@@ -696,16 +854,21 @@ export function buildAgentAnalytics(input: AgentAnalyticsInput): AgentAnalyticsM
   const touches = ordered.filter((a) => a.activity_type !== 'blocked' && !isTelemetryEvent(a.activity_type) && !isOpenEventType(a.activity_type));
   for (const { item, last } of collapseRepeats(blockedEvents, (b) => `${b.a.agent_id}:${b.taskId ?? b.a.id}`, (b) => b.at)) {
     const dateKey = keyOfMs(item.at);
-    push('blocked', item.a.agent_id, item.a.project_id, dateKey, 1);
+    push('blocked', item.a.agent_id, item.a.project_id, dateKey, 1, null, null, false, labelsOf(item.a));
     if (!item.taskId) continue;
     const resume = touches.find((t) => t.agent_id === item.a.agent_id
       && (str(t.metadata?.task_id) ?? t.reference_id) === item.taskId
       && Date.parse(t.created_at) > last.at);
-    if (resume) push('resumeMs', item.a.agent_id, item.a.project_id, dateKey, Date.parse(resume.created_at) - item.at);
+    if (resume) push('resumeMs', item.a.agent_id, item.a.project_id, dateKey, Date.parse(resume.created_at) - item.at, null, null, false, labelsOf(item.a));
   }
 
-  // Questions and approvals the agents asked.
-  for (const q of input.questions) {
+  // Questions and approvals the agents asked: the server's sums, else rows.
+  for (const g of input.questionStats?.groups ?? []) {
+    push('question', g.askedBy, g.projectId, g.dateKey, g.questions);
+    push('approval', g.askedBy, g.projectId, g.dateKey, g.approvals);
+    for (const ms of g.answerMs) push('answerMs', g.askedBy, g.projectId, g.dateKey, ms);
+  }
+  for (const q of input.questionStats ? [] : input.questions) {
     if (!agentIds.has(q.askedBy)) continue;
     const created = Date.parse(q.createdAt);
     if (!Number.isFinite(created)) continue;
@@ -753,7 +916,9 @@ export function buildAgentAnalytics(input: AgentAnalyticsInput): AgentAnalyticsM
 
   // The selection: agents, then projects. Facts with no project leave under a
   // project filter; the usage among them is what profit has to exclude.
-  const ofAgents = all.filter((f) => !agentFilter || agentFilter.has(f.agentId));
+  const labelFilter = input.selectedLabels?.size ? input.selectedLabels : null;
+  const ofAgents = all.filter((f) => (!agentFilter || agentFilter.has(f.agentId))
+    && (!labelFilter || (f.labels ?? []).some((label) => labelFilter.has(label))));
   const facts = ofAgents.filter((f) => !projectFilter || (f.projectId !== null && projectFilter.has(f.projectId)));
   const totals = groupOf(facts);
   const dropped = projectFilter ? groupOf(ofAgents.filter((f) => f.projectId === null)).sums : null;
@@ -775,12 +940,43 @@ export function buildAgentAnalytics(input: AgentAnalyticsInput): AgentAnalyticsM
 
   return {
     facts, totals, money, tiles: tileStates(totals.sums, money, runsAvailable), ledgerAgents, excludedNoProject, runsAvailable,
+    subscription: subscriptionEstimate(input.providerPlans ?? [], all, facts, rangeDays(input.range).length),
   };
+}
+
+const providerKey = (value: string | null | undefined) => (value ?? '').trim().toLowerCase();
+
+/**
+ * What the provider plans cost, as an estimate: each plan's monthly cost
+ * (per seat x seats), prorated to the range's days, then shared by the
+ * selection's part of that provider's unpriced tokens in the range (usage on
+ * a subscription arrives with no price). A provider with no unpriced tokens
+ * in the range allocates nothing. Never added to measured cost.
+ */
+export function subscriptionEstimate(plans: ProviderPlan[], all: Fact[], selected: Fact[], days: number): SubscriptionEstimate | null {
+  const usable = plans.filter((p) => providerKey(p.provider) && Number.isFinite(p.monthlyCostUsd) && p.monthlyCostUsd >= 0);
+  if (usable.length === 0) return null;
+  const unpriced = (facts: Fact[]) => {
+    const out = new Map<string, number>();
+    for (const f of facts) if (f.kind === 'unpricedTokens') out.set(providerKey(f.provider), (out.get(providerKey(f.provider)) ?? 0) + f.value);
+    return out;
+  };
+  const everyone = unpriced(all);
+  const mine = unpriced(selected);
+  let monthlyUsd = 0;
+  let estimateUsd = 0;
+  for (const plan of usable) {
+    const monthly = plan.monthlyCostUsd * Math.max(1, plan.seats);
+    monthlyUsd += monthly;
+    const total = everyone.get(providerKey(plan.provider)) ?? 0;
+    if (total > 0) estimateUsd += monthly * (12 / 365) * days * ((mine.get(providerKey(plan.provider)) ?? 0) / total);
+  }
+  return { monthlyUsd, estimateUsd, providers: usable.map((p) => p.provider) };
 }
 
 // ── Breakdowns ──────────────────────────────────────────────────────────────
 
-export type Dimension = 'agent' | 'project' | 'model' | 'role';
+export type Dimension = 'agent' | 'project' | 'model' | 'role' | 'label';
 
 export interface BreakdownRow {
   key: string;
@@ -802,6 +998,7 @@ export const UNSPLIT_MODEL = 'Usage not split by model yet';
 export const UNSPLIT_SUBLABEL = 'Summed per hour by the server';
 export const NO_PROVIDER = 'Provider not reported';
 export const NO_ROLE = 'No role';
+export const NO_LABEL = 'No label';
 
 const SEP = '\u0000';
 const UNSPLIT_KEY = '\u0001unsplit';
@@ -813,16 +1010,36 @@ export function dimensionKey(fact: Fact, dimension: Dimension, roleOf: (agentId:
     case 'project': return fact.projectId ?? '';
     case 'model': return fact.unsplit ? UNSPLIT_KEY : `${fact.provider ?? ''}${SEP}${fact.model ?? ''}`;
     case 'role': return roleOf(fact.agentId) ?? '';
+    // A fact with several labels files under the first here; breakdown() files it under each.
+    case 'label': return fact.labels?.[0] ?? '';
   }
 }
 
+/**
+ * Facts under each of their labels (none: the No label row). A fact with
+ * two labels counts on both rows, so label rows may add up to more than the
+ * total; every other dimension adds up exactly.
+ */
+export function factsByLabel(facts: Fact[]): Map<string, Group> {
+  const out = new Map<string, Group>();
+  for (const fact of facts) {
+    for (const key of fact.labels?.length ? [...new Set(fact.labels)] : ['']) {
+      let group = out.get(key);
+      if (!group) { group = emptyGroup(); out.set(key, group); }
+      addFact(group, fact);
+    }
+  }
+  return out;
+}
+
 export function breakdown(facts: Fact[], dimension: Dimension, labels: BreakdownLabels): BreakdownRow[] {
-  const groups = groupBy(facts, (f) => dimensionKey(f, dimension, labels.roleOf));
+  const groups = dimension === 'label' ? factsByLabel(facts) : groupBy(facts, (f) => dimensionKey(f, dimension, labels.roleOf));
   return [...groups].map(([key, group]) => {
     switch (dimension) {
       case 'agent': return { key, label: labels.agentName(key), sublabel: labels.roleOf(key), group };
       case 'project': return { key, label: key ? labels.projectName(key) : NO_PROJECT, sublabel: null, group };
       case 'role': return { key, label: key || NO_ROLE, sublabel: null, group };
+      case 'label': return { key, label: key || NO_LABEL, sublabel: null, group };
       case 'model': {
         if (key === UNSPLIT_KEY) return { key, label: UNSPLIT_MODEL, sublabel: UNSPLIT_SUBLABEL, group };
         const [provider, model] = key.split(SEP);

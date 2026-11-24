@@ -59,9 +59,25 @@ export async function triageContext(supabase: SupabaseClient, message: Accessibl
       .in('source_message_id', ((detail.thread as Row).messages as Row[]).map((m) => m.id as string))),
   ]);
   const planItems = plans.length
-    ? await rows<Row>(comms(supabase).from('plan_items').select('id, plan_id, type, intent, project_id, task_id, decision, state, payload, resolved_by')
+    ? await rows<Row>(comms(supabase).from('plan_items').select('id, plan_id, type, intent, project_id, task_id, decision, state, payload, resolved_by, result')
       .in('plan_id', plans.map((p) => p.id as string)).order('position'))
     : [];
+  // A person sent this message back: it is New again after a live plan of
+  // its own that finished applying, with no answer since (an answer re-queues
+  // it too, to act on). A plan cut off mid-apply is not one: the agent retries
+  // it with its own key, and a fresh plan would make its tasks twice.
+  // Its earlier plans are superseded, and a task they made that is in Trash
+  // since says so, so the agent plans it again instead of reading it as done.
+  const ownPlans = mode === 'live' && message.status === 'new' ? plans.filter((p) => p.message_id === message.id && p.status !== 'applying') : [];
+  const lastAnswer = ownPlans.length
+    ? (await rows<{ created_at: string }>(comms(supabase).from('answers').select('created_at').eq('message_id', message.id).order('created_at', { ascending: false }).limit(1)))[0] ?? null
+    : null;
+  const sentBack = ownPlans.length > 0
+    && (!lastAnswer || Date.parse(lastAnswer.created_at) < Math.max(...ownPlans.map((p) => Date.parse(p.created_at as string))));
+  const itemTaskIds = [...new Set(planItems.map((i) => i.task_id as string | null).filter((id): id is string => !!id))];
+  const liveItemTasks = itemTaskIds.length
+    ? new Set((await rows<{ id: string }>(supabase.from('tasks').select('id').in('id', itemTaskIds).is('deleted_at', null))).map((t) => t.id))
+    : new Set<string>();
 
   // Projects in reach: the scope's, and the conversation's.
   const scope = (detail.project_scope ?? {}) as { projects?: { project_id: string }[] };
@@ -98,6 +114,12 @@ export async function triageContext(supabase: SupabaseClient, message: Accessibl
     state: item.state,
     title: ((item.payload ?? {}) as Row).title ?? ((item.payload ?? {}) as Row).what ?? ((item.payload ?? {}) as Row).question ?? null,
   });
+  // Said only when true, so every other item reads as before.
+  const earlier = (item: Row) => ({
+    ...brief(item),
+    ...(((item.result ?? {}) as Row).superseded ? { superseded: true } : {}),
+    ...(item.task_id && !liveItemTasks.has(item.task_id as string) ? { task_in_trash: true } : {}),
+  });
   const current = { ...detail } as Row;
   if (mode === 'shadow') {
     // The message as it arrived: new, with no links and no triage.
@@ -129,6 +151,8 @@ export async function triageContext(supabase: SupabaseClient, message: Accessibl
     delivery: facts.delivery,
     addressed_to_agent: facts.addressedToAgent,
     owner_forward_without_note: facts.ownerForwardWithoutNote ?? false,
+    // A person sent it back to be planned again: plan it fresh against the projects as they are now.
+    ...(sentBack ? { sent_back: true } : {}),
     conversation: {
       id: conversationId,
       muted: !!conversation[0]?.muted_at,
@@ -138,7 +162,8 @@ export async function triageContext(supabase: SupabaseClient, message: Accessibl
         message_id: p.message_id,
         summary: p.summary,
         created_at: p.created_at,
-        items: planItems.filter((i) => i.plan_id === p.id).map(brief),
+        items: planItems.filter((i) => i.plan_id === p.id).map(earlier),
+        ...(sentBack && p.message_id === message.id && p.status !== 'applying' ? { superseded: true } : {}),
       })),
       reply_owed: points,
       open_question: planItems.find((i) => i.type === 'ask' && i.state === 'pending') ? brief(planItems.find((i) => i.type === 'ask' && i.state === 'pending')!) : null,

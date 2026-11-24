@@ -19,6 +19,8 @@ interface RowActionsMenuProps {
   label?: string;
   /** Extra trigger classes, e.g. to reveal it only on hover or focus. */
   triggerClassName?: string;
+  /** The trigger's icon; vertical dots by default (a toolbar uses horizontal ones). */
+  icon?: ReactNode;
 }
 
 const MENU_WIDTH = 176;
@@ -28,7 +30,7 @@ const MENU_WIDTH = 176;
  * never gets clipped by a table's overflow container. Used for per-row actions
  * (edit / delete / convert, etc.).
  */
-export function RowActionsMenu({ actions, label = 'Row actions', triggerClassName = '' }: RowActionsMenuProps) {
+export function RowActionsMenu({ actions, label = 'Row actions', triggerClassName = '', icon }: RowActionsMenuProps) {
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState({ top: 0, left: 0 });
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -85,7 +87,7 @@ export function RowActionsMenu({ actions, label = 'Row actions', triggerClassNam
         onClick={(e) => { e.preventDefault(); e.stopPropagation(); setOpen(v => !v); }}
         className={`p-1.5 rounded-lg text-zinc-400 hover:text-white hover:bg-white/[0.06] transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-1 focus-visible:ring-offset-[var(--color-surface)] ${triggerClassName}`}
       >
-        <MoreVertical size={16} />
+        {icon ?? <MoreVertical size={16} />}
       </button>
 
       {open && createPortal(

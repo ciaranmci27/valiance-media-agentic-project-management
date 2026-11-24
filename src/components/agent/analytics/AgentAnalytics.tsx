@@ -23,7 +23,7 @@ import { computeTelemetryAnalytics } from '@/lib/agent-telemetry-analytics';
 import { useAgentAnalyticsEvents, useTaskReopens } from '@/lib/use-agent-analytics-events';
 import { useAnalyticsReads } from '@/lib/agent-analytics-reads';
 import {
-  METRIC_FORMAT, MIXED_LABEL, arrangeTiles, buildAgentAnalytics, costLabel, dailyByAgent, groupOf, marginOf, median, profitCaveat,
+  METRIC_FORMAT, MIXED_LABEL, SUBSCRIPTION_LABEL, arrangeTiles, buildAgentAnalytics, costLabel, dailyByAgent, groupOf, marginOf, median, profitCaveat,
   rangeDays, resolveSelectedMetric, runsFromTurns, scopeNotes, successRate, topAgents, UNPRICED_LABEL,
   type BreakdownLabels, type Dimension, type MetricKey,
 } from '@/lib/agent-analytics-model';
@@ -39,8 +39,9 @@ import { QualityCard } from '@/components/agent/analytics/QualityCard';
 /**
  * The Agents page's Analytics tab: how the agents work, at a glance. Tiles
  * with data lead (the picked one drives the chart), a breakdown by agent,
- * project, model and role, then delivery quality. Money shows only where
- * agents bill. Every number comes from agent-analytics-model.
+ * project, model, role and label, then delivery quality. Money shows only
+ * where agents bill. Every number comes from agent-analytics-model; runs and
+ * questions arrive summed by the server, so no range is cut short.
  *
  * An install adds its own cards below the breakdown through
  * agentAnalyticsCards (src/custom/index.ts); core renders none of its own
@@ -110,6 +111,7 @@ export function AgentAnalytics() {
   const [customEnd, setCustomEnd] = useState('');
   const [selectedProjectIds, setSelectedProjectIds] = useState<Set<string>>(() => new Set());
   const [selectedAgentIds, setSelectedAgentIds] = useState<Set<string>>(() => new Set());
+  const [selectedLabels, setSelectedLabels] = useState<Set<string>>(() => new Set());
   const [picked, setPicked] = useState<MetricKey | null>(null);
   const [expanded, setExpanded] = useState(false);
 
@@ -130,7 +132,8 @@ export function AgentAnalytics() {
 
   // ── Reads ─────────────────────────────────────────────────
   const events = useAgentAnalyticsEvents(range, { enabled: !isDemoMode });
-  const reads = useAnalyticsReads(range, { enabled: !isDemoMode });
+  const projectFilterIds = useMemo(() => [...selectedProjectIds], [selectedProjectIds]);
+  const reads = useAnalyticsReads(range, { enabled: !isDemoMode, timezone, projectIds: projectFilterIds });
   const reopenQuery = useTaskReopens({ enabled: !isDemoMode });
   const activities = isDemoMode ? recentActivity : events.rows;
   const measuring = events.loading || reads.loading;
@@ -139,20 +142,27 @@ export function AgentAnalytics() {
   // run figures at all rather than short ones.
   const runsAvailable = !reads.runsFailed;
   const runs = useMemo(() => {
-    if (reads.runsFailed) return [];
+    if (reads.runsFailed || reads.runStats) return [];
     return reads.runs && !reads.runs.unavailable ? reads.runs.rows : runsFromTurns(activities);
-  }, [reads.runsFailed, reads.runs, activities]);
+  }, [reads.runsFailed, reads.runStats, reads.runs, activities]);
   const truncated = events.truncated || !!reads.runs?.truncated || !!reads.questions?.truncated;
 
   const billingModuleOn = isModuleEnabled(access, 'billing');
   // The server's canReadRevenueInputs, mirrored: revenue needs billing.manage or finance.company.read.
   const canReadRevenue = hasPermission(access, 'billing.manage') || hasPermission(access, 'finance.company.read');
-  const scope = scopeNotes({ projectsReadAll: hasPermission(access, 'projects.read_all'), timeReadAll: hasPermission(access, 'time.read_all') });
+  const scope = scopeNotes({
+    projectsReadAll: hasPermission(access, 'projects.read_all'),
+    timeReadAll: hasPermission(access, 'time.read_all'),
+    questionsScope: reads.questionStats?.scope ?? null,
+  });
   const agents = useMemo(() => roster.map((m) => ({ id: m.id, name: m.name, role: roleById.get(m.id) ?? null })), [roster, roleById]);
 
   const model = useMemo(() => buildAgentAnalytics({
     range, timezone, now, agents, projects, runs, activities,
     questions: reads.questions?.rows ?? [],
+    runStats: reads.runStats,
+    questionStats: reads.questionStats,
+    providerPlans: reads.providerPlans,
     tasks,
     reopens: isDemoMode ? [] : (reopenQuery.rows ?? []).map((r) => ({ taskId: r.task_id, projectId: r.project_id, reopenedAt: r.reopened_at })),
     timeEntries,
@@ -161,7 +171,8 @@ export function AgentAnalytics() {
     runsAvailable,
     selectedAgentIds,
     selectedProjectIds,
-  }), [range, timezone, now, agents, projects, runs, activities, reads.questions, tasks, isDemoMode, reopenQuery.rows, timeEntries, billingModuleOn, canReadRevenue, runsAvailable, selectedAgentIds, selectedProjectIds]);
+    selectedLabels,
+  }), [range, timezone, now, agents, projects, runs, activities, reads.questions, reads.runStats, reads.questionStats, reads.providerPlans, tasks, isDemoMode, reopenQuery.rows, timeEntries, billingModuleOn, canReadRevenue, runsAvailable, selectedAgentIds, selectedProjectIds, selectedLabels]);
   const caveat = profitCaveat(model.excludedNoProject, formatMoney);
   // Project rows exclude usage with no project too: under a filter it was
   // dropped; unfiltered it sits on the No project row.
@@ -176,6 +187,10 @@ export function AgentAnalytics() {
   const days = useMemo(() => rangeDays(range), [range]);
 
   // ── Tiles ─────────────────────────────────────────────────
+  // A provider plan's cost: an estimate, said as one, never inside model cost.
+  const subscriptionLine = model.subscription
+    ? `${SUBSCRIPTION_LABEL} ${formatMoney(model.subscription.monthlyUsd)}/month, about ${formatMoney(model.subscription.estimateUsd)} here (estimate)`
+    : null;
   const tileView = (key: MetricKey): { value: string | null; empty?: string; context?: string; tone: StatTone } => {
     const cost = costLabel(s);
     switch (key) {
@@ -217,13 +232,15 @@ export function AgentAnalytics() {
           s.runsNoTokens > 0 ? `Runs that report no tokens: ${formatNumber(s.runsNoTokens)}` : null,
         ].filter(Boolean).join(' · '),
       };
-      case 'cost':
-        if (cost.kind === 'unpriced') return { value: null, empty: 'Unpriced', tone: 'default', context: UNPRICED_LABEL };
-        if (cost.kind === 'none') return { value: null, empty: 'None', tone: 'default', context: 'No usage in range' };
+      case 'cost': {
+        const withPlan = (context: string) => [context, subscriptionLine].filter(Boolean).join(' · ');
+        if (cost.kind === 'unpriced') return { value: null, empty: 'Unpriced', tone: 'default', context: withPlan(UNPRICED_LABEL) };
+        if (cost.kind === 'none') return { value: null, empty: 'None', tone: 'default', context: withPlan('No usage in range') };
         return {
           value: formatMoney(cost.usd), tone: 'warning',
-          context: cost.kind === 'partial' ? 'Plus unpriced usage' : cost.kind === 'mixed' ? `Hourly sums, ${MIXED_LABEL}` : 'Priced by the provider',
+          context: withPlan(cost.kind === 'partial' ? 'Plus unpriced usage' : cost.kind === 'mixed' ? `Hourly sums, ${MIXED_LABEL}` : 'Priced by the provider'),
         };
+      }
       case 'questions': {
         const answer = median(model.totals.samples.answerMs);
         return {
@@ -291,6 +308,8 @@ export function AgentAnalytics() {
     : dimension === 'project' ? { color: projects.find((p) => p.id === key)?.color ?? null } : {});
   const focusedAgentId = selectedAgentIds.size === 1 ? [...selectedAgentIds][0] : null;
   const toggleFocus = (agentId: string) => setSelectedAgentIds((prev) => (prev.size === 1 && prev.has(agentId) ? new Set() : new Set([agentId])));
+  const focusedLabel = selectedLabels.size === 1 ? [...selectedLabels][0] : null;
+  const toggleLabel = (label: string) => setSelectedLabels((prev) => (prev.size === 1 && prev.has(label) ? new Set() : new Set([label])));
 
   // ── Delivery quality: only when there is review and merge work to read ──
   const hasDelivery = s.prOpened + s.prMerged + s.review > 0;
@@ -311,7 +330,7 @@ export function AgentAnalytics() {
   const filterProjects = useMemo(() => projects.filter((p) => p.status !== 'archived').sort((a, b) => a.name.localeCompare(b.name))
     .map((p) => ({ id: p.id, name: p.name, color: p.color })), [projects]);
   const filterAgents = useMemo(() => roster.map((m) => ({ id: m.id, name: m.name, avatar: m.avatar || null })), [roster]);
-  const filtered = selectedAgentIds.size > 0 || selectedProjectIds.size > 0;
+  const filtered = selectedAgentIds.size > 0 || selectedProjectIds.size > 0 || selectedLabels.size > 0;
 
   return (
     <div className="space-y-4 lg:space-y-6">
@@ -322,6 +341,15 @@ export function AgentAnalytics() {
         projects={filterProjects} selectedProjectIds={selectedProjectIds} onProjects={setSelectedProjectIds}
         agents={filterAgents} selectedAgentIds={selectedAgentIds} onAgents={setSelectedAgentIds}
       />
+
+      {focusedLabel && (
+        <div role="status" className="glass-card rounded-xl px-5 py-3 flex flex-wrap items-center justify-between gap-3">
+          <p className="text-xs text-zinc-300">
+            Only what came from events labelled <span className="font-mono text-white">{focusedLabel}</span>. Runs, tasks, questions and time carry no labels, so they leave while a label is picked.
+          </p>
+          <Button variant="secondary" size="sm" onClick={() => setSelectedLabels(new Set())}>Show everything</Button>
+        </div>
+      )}
 
       {!measuring && truncated && (
         <p role="status" className="glass-card rounded-xl px-5 py-3 text-xs text-amber-300">
@@ -412,6 +440,9 @@ export function AgentAnalytics() {
         loading={measuring}
         focusedAgentId={focusedAgentId}
         onFocusAgent={toggleFocus}
+        focusedLabel={focusedLabel}
+        onFocusLabel={toggleLabel}
+        subscriptionLine={subscriptionLine}
       />
 
       {customCards.length > 0 && (

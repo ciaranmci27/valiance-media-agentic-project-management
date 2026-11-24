@@ -71,6 +71,8 @@ const runFields = {
   tokens_out: tokens.optional(),
   cost_usd: z.number().min(0).max(1e8).optional(),
   model: z.string().trim().min(1).max(AGENT_RUN_LIMITS.model).optional(),
+  /** The provider the run used (anthropic, openai, ...), so analytics group it right whatever the model is called. */
+  provider: z.string().trim().min(1).max(100).optional(),
   external_url: externalUrl.optional(),
   metadata: metadata.optional(),
 };

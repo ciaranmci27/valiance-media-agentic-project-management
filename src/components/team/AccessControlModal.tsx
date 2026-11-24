@@ -297,6 +297,7 @@ export function AccessControlModal({
                       'agent_activity.write',
                       'fleet_alerts.write',
                       'meetings.write',
+                      'agent_events.export',
                     ].includes(permission.key)),
               ),
             }))

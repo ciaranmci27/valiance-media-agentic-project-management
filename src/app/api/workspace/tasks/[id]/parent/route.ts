@@ -4,6 +4,8 @@ import { requireSessionAccess } from '@/lib/api/access';
 import { ApiError } from '@/lib/api/errors';
 import { subtaskRuleError } from '@/lib/api/subtasks';
 import { assertAssigneesCanOpenProject } from '@/lib/api/task-guards';
+import { getActorClient } from '@/lib/api/supabase-service';
+import { finishTaskMove, prepareTaskMove } from '@/lib/api/task-move';
 
 export const dynamic = 'force-dynamic';
 
@@ -23,8 +25,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   if (auth.error) return auth.error;
   const parsed = bodySchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: 'Send parent_task_id: a task id, or null' }, { status: 400 });
-  const { client, service } = auth.data;
+  const { client, service, access, memberId } = auth.data;
   const parentId = parsed.data.parent_task_id;
+  let movedTo: string | null = null;
 
   try {
     if (parentId) {
@@ -35,6 +38,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       if (!task) return NextResponse.json({ error: 'That task is not there, or you cannot open it' }, { status: 404 });
       if (!parent) return NextResponse.json({ error: 'That parent task is not there, or you cannot open it' }, { status: 404 });
       if (parent.project_id !== task.project_id) {
+        movedTo = parent.project_id;
         const assignees = ((task.task_assignees || []) as { member_id: string }[]).map((row) => row.member_id);
         if (assignees.length > 0) {
           await assertAssigneesCanOpenProject(service, assignees, parent.project_id).catch(() => {
@@ -43,8 +47,13 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
         }
       }
     }
+    const mover = { db: getActorClient(memberId, 'app'), access, memberId, channel: 'app' as const };
+    // Nested under another project's task, it moves there: its files are copied first, so a
+    // Storage failure leaves it where it was, and its files and sources follow once it moved (task-move.ts).
+    if (movedTo) await prepareTaskMove(mover, [id], movedTo);
     const { data, error } = await client.rpc('set_task_parent', { p_task_id: id, p_parent_id: parentId });
     if (error) throw subtaskRuleError(error);
+    if (movedTo) await finishTaskMove(mover, [id], movedTo);
     return NextResponse.json({ data });
   } catch (error) {
     if (error instanceof ApiError) {

@@ -268,11 +268,12 @@ async function resolveAgent(ctx: RunsContext, agentId: string | undefined): Prom
 }
 
 /** The run fields a start, update or finish writes, from its input. */
-type RunFieldsInput = Pick<StartAgentRunInput, 'title' | 'summary' | 'plan' | 'note' | 'tokens_in' | 'tokens_out' | 'cost_usd' | 'model' | 'external_url' | 'metadata'>;
+type RunFieldsInput = Pick<StartAgentRunInput, 'title' | 'summary' | 'plan' | 'note' | 'tokens_in' | 'tokens_out' | 'cost_usd' | 'model' | 'provider' | 'external_url' | 'metadata'>;
 
 function fieldsFrom(input: RunFieldsInput, notes: AgentRunNote[] | null): Row {
   const out: Row = {};
-  for (const key of ['title', 'summary', 'plan', 'tokens_in', 'tokens_out', 'cost_usd', 'model', 'external_url', 'metadata'] as const) {
+  // provider is written only when sent, so a run without one saves as before.
+  for (const key of ['title', 'summary', 'plan', 'tokens_in', 'tokens_out', 'cost_usd', 'model', 'provider', 'external_url', 'metadata'] as const) {
     if (input[key] !== undefined) out[key] = input[key];
   }
   if (input.note !== undefined) {

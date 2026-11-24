@@ -20,7 +20,8 @@ interface ThreadProjectDialogProps {
   isOpen: boolean;
   onClose: () => void;
   detail: InboxThreadDetail;
-  onSaved: () => void | Promise<void>;
+  /** Called with the project added, so the thread can offer to move the agent's tasks there too. */
+  onSaved: (projectId: string) => void | Promise<void>;
 }
 
 /**
@@ -114,7 +115,7 @@ export function ThreadProjectDialog({ isOpen, onClose, detail, onSaved }: Thread
       if (result.remembered_sender) parts.push(result.remembered_sender.created_contact ? 'sender added as a contact' : 'sender remembered');
       if (result.remembered_domain) parts.push(`${result.remembered_domain.domain} remembered`);
       toast('success', parts.join(', '));
-      await onSaved();
+      await onSaved(projectId);
     } catch (err) {
       toast('error', err instanceof Error ? err.message : 'Could not add the project');
     } finally {

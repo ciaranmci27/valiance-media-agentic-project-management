@@ -66,8 +66,12 @@ function filter(column: string, expression: string, params: unknown[]): string {
       return `${col} > ${bind(value)}`;
     case "lt":
       return `${col} < ${bind(value)}`;
-    case "cs":
-      return `${col} @> ${bind(value)}::jsonb`;
+    case "cs": {
+      // JSON for a jsonb column; a Postgres array literal ({a,b}) for an array column, as PostgREST takes both.
+      let json = true;
+      try { JSON.parse(value); } catch { json = false; }
+      return json ? `${col} @> ${bind(value)}::jsonb` : `${col} @> ${bind(value)}`;
+    }
     case "ilike":
       // PostgREST takes * as the wildcard.
       return `${col}::text ILIKE ${bind(value.replace(/\*/g, "%"))}`;
@@ -237,6 +241,21 @@ export async function startFakePostgrest(db: PGlite, options: { maxRows?: number
       }
 
       const table = ident(rest);
+      // strictColumns: a selected column the table lacks answers 42703, as
+      // PostgREST does (by default the projection just leaves it out). On a
+      // write that returns the row, the statement fails and writes nothing.
+      const missingColumn = async (columns: string[] | null) => {
+        if (!options.strictColumns || !columns) return null;
+        const known = new Set((await db.query<{ column_name: string }>(
+          "SELECT column_name FROM information_schema.columns WHERE table_schema = $1 AND table_name = $2", [schemaName, rest],
+        )).rows.map((row) => row.column_name));
+        const absent = columns.find((column) => column !== "*" && !known.has(column));
+        return absent ? { code: "42703", message: `column ${rest}.${absent} does not exist`, details: null, hint: null } : null;
+      };
+      if ((request.method === "POST" || request.method === "PATCH") && url.searchParams.has("select")) {
+        const missing = await missingColumn(parseSelect(url.searchParams.get("select")).columns);
+        if (missing) return send(400, missing);
+      }
       if (request.method === "GET" || request.method === "HEAD") {
         const params: unknown[] = [];
         const where: string[] = [];
@@ -276,13 +295,8 @@ export async function startFakePostgrest(db: PGlite, options: { maxRows?: number
         }
         // strictColumns: a selected column the table lacks answers 42703, as
         // PostgREST does (by default the projection just leaves it out).
-        if (options.strictColumns && select.columns) {
-          const known = new Set((await db.query<{ column_name: string }>(
-            "SELECT column_name FROM information_schema.columns WHERE table_schema = $1 AND table_name = $2", [schemaName, rest],
-          )).rows.map((row) => row.column_name));
-          const missing = select.columns.find((column) => column !== "*" && !known.has(column));
-          if (missing) return send(400, { code: "42703", message: `column ${rest}.${missing} does not exist`, details: null, hint: null });
-        }
+        const missing = await missingColumn(select.columns);
+        if (missing) return send(400, missing);
         const counted = (request.headers.prefer ?? "").includes("count=exact");
         const { rows, total } = await asService(request.headers, async () => {
           const fk = async (from: string, to: string, name: string | null) =>

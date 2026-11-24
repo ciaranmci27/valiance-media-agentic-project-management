@@ -32,8 +32,8 @@ interface RangeResult {
   attribution?: AttributionDelta[];
 }
 
-// v3: one database round trip (agent_analytics_window).
-const keyFor = (range: DateRange) => `agent-activity:v3:${range.startKey}:${range.endKey}`;
+// v4: one database round trip (agent_analytics_window_v2, else the first version).
+const keyFor = (range: DateRange) => `agent-activity:v4:${range.startKey}:${range.endKey}`;
 
 /** PostgREST and Postgres both say "no such function" before its migration. */
 const isMissingFunction = (error: unknown) => {

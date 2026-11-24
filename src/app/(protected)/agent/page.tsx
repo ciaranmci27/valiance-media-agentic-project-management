@@ -161,7 +161,7 @@ function AgentsPage() {
     ...(key === 'analytics' ? { warm: () => {
       const range = defaultAgentAnalyticsRange(timezone);
       prefetchAgentAnalytics(range);
-      if (!isDemoMode) prefetchAnalyticsReads(range);
+      if (!isDemoMode) prefetchAnalyticsReads(range, timezone && timezone !== 'UTC' ? timezone : undefined);
     } } : {}),
   }));
 

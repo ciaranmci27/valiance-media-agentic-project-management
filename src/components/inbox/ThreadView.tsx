@@ -6,8 +6,8 @@ import { inboxThreadRead } from '@/lib/reads';
 import { appLocale } from '@/lib/region';
 import Link from 'next/link';
 import {
-  AlertTriangle, ArrowDown, ArrowLeft, AlignLeft, Bell, Bot, Check, CheckCircle2, ChevronDown, Copy, Download, ExternalLink, Eye, FileText, Filter, Flame, Forward, Hash, HelpCircle, Image as ImageIcon, Inbox,
-  CircleSlash, Link2, ListChecks, Loader2, MessageSquare, MessageSquareReply, Paperclip, PenLine, Plus, RefreshCw, RotateCcw, ShieldOff, Sparkles, Square, SquareCheck, SquarePlus, Tag, Trash2, Undo2, Unlink, Video, X,
+  AlertTriangle, ArrowDown, ArrowLeft, AlignLeft, Bell, Bot, Check, CheckCircle2, ChevronDown, Copy, Download, ExternalLink, Eye, FileText, Filter, Flame, Forward, Hash, HelpCircle, Image as ImageIcon, Inbox, MoreHorizontal,
+  CircleSlash, FolderInput, Link2, ListChecks, Loader2, MessageSquare, MessageSquareReply, Paperclip, PenLine, Plus, RefreshCw, RotateCcw, ShieldOff, Sparkles, Square, SquareCheck, SquarePlus, Tag, Trash2, Undo2, Unlink, Video, X,
 } from 'lucide-react';
 import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
@@ -36,6 +36,7 @@ import { MeetingDetails, meetingNoteLines, SuggestionRow, TranscriptReader, type
 import { DecisionCard } from './DecisionCard';
 import { ThreadAttachmentsDialog, threadAttachments } from './ThreadAttachmentsDialog';
 import { useInboxUpdates } from './use-inbox-updates';
+import { MoveTaskDialog, TaskMoveDialog, canMoveTask, type LostAccessChoice, type MovableTask, type MoveRunner } from '@/components/tasks/MoveTaskDialog';
 
 interface ThreadViewProps {
   threadId: string;
@@ -98,8 +99,43 @@ const TaskUndoContext = createContext<TaskUndo>({
 function linkKey(messageId: string, task: { task_id: string; relation: string }): string {
   return `${messageId}:${task.task_id}:${task.relation}`;
 }
+/** The thread header's controls: one height, radius and border, side by side. */
+const TOOLBAR_BUTTON = 'h-8 rounded-lg border border-white/[0.07] bg-white/[0.02] transition-colors hover:bg-white/[0.06] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500';
+const TOOLBAR_ICON = 'inline-flex w-8 items-center justify-center';
+
+/** The thread's tasks follow it to a project (move-tasks): a dry run lists them, then they move. */
+async function postThreadMove<T>(threadId: string, body: { project_id: string; dry_run?: boolean; lost_access?: LostAccessChoice; task_ids?: string[] }): Promise<T> {
+  const response = await fetch(`/api/workspace/inbox/threads/${encodeURIComponent(threadId)}/move-tasks`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(payload.error || 'That did not work');
+  return payload.data as T;
+}
+function threadMoveRunner(threadId: string, taskIds: string[], onMoved: (moved: { task_id: string }[], projectId: string) => void): MoveRunner {
+  return {
+    async plan(projectId) {
+      const plan = await postThreadMove<{ tasks: { title: string; refused: string | null }[]; losing: MovePlanLosing; can_unassign: boolean; can_add_members: boolean }>(threadId, { project_id: projectId, task_ids: taskIds, dry_run: true });
+      return {
+        losing: plan.losing,
+        can_unassign: plan.can_unassign,
+        can_add_members: plan.can_add_members,
+        refused: plan.tasks.filter((task) => task.refused).map((task) => ({ title: task.title, reason: task.refused! })),
+      };
+    },
+    async move(projectId, lostAccess) {
+      const result = await postThreadMove<{ moved: { task_id: string }[]; failed: { title: string; reason: string }[] }>(threadId, { project_id: projectId, task_ids: taskIds, lost_access: lostAccess });
+      onMoved(result.moved, projectId);
+      return { moved: result.moved.length, failed: result.failed };
+    },
+  };
+}
+type MovePlanLosing = Awaited<ReturnType<MoveRunner['plan']>>['losing'];
+
 /** True when the thread is filed on several projects: each linked task then names its own. */
 const ProjectLabelsContext = createContext(false);
+/** Opens Move to project for a task the agent made; absent where the member cannot move it. */
+const MoveTaskContext = createContext<((task: MovableTask) => void) | null>(null);
 
 /**
  * What a person does with the agent's plan from the thread: accept or dismiss
@@ -153,6 +189,11 @@ export function ThreadView({ threadId, focusMessageId, onMissing, onBack }: Thre
   const [error, setError] = useState('');
   const [busy, setBusy] = useState<'handled' | 'send_back' | null>(null);
   const [projectDialog, setProjectDialog] = useState(false);
+  // A task moved from its receipt, and the agent's tasks offered to follow the thread to a project.
+  const [movingTask, setMovingTask] = useState<MovableTask | null>(null);
+  const [followTo, setFollowTo] = useState<{ projectId: string; tasks: MovableTask[] } | null>(null);
+  // Emails sent back from here, until the agent plans them again (that answer says so).
+  const sentBack = useRef(new Set<string>());
   const [linkDialog, setLinkDialog] = useState(false);
   const [ruleFor, setRuleFor] = useState<InboxMessage | null>(null);
   const [draftDialog, setDraftDialog] = useState(false);
@@ -231,6 +272,18 @@ export function ThreadView({ threadId, focusMessageId, onMissing, onBack }: Thre
   useInboxUpdates((change) => {
     if (change?.threadId !== threadId) void load(true);
   });
+  // A new thread starts with nothing sent back.
+  useEffect(() => { sentBack.current = new Set(); }, [threadId]);
+  // Sent back, then planned again: the new plan is in, so say so once.
+  useEffect(() => {
+    if (!detail || detail.id !== threadId) return;
+    for (const id of [...sentBack.current]) {
+      const message = detail.messages.find((m) => m.id === id);
+      if (message && message.status === 'new') continue;
+      sentBack.current.delete(id);
+      if (message) toast('success', `${detail.inbox.handler?.name ?? 'The agent'} has a new plan for it`);
+    }
+  }, [detail, threadId]);
 
   // An answer to the agent's question sends the email back to it with the answer.
   const answerQuestion = useCallback(async (messageId: string, text: string): Promise<boolean> => {
@@ -714,12 +767,32 @@ export function ThreadView({ threadId, focusMessageId, onMissing, onBack }: Thre
   const latest = detail.messages[detail.messages.length - 1];
   const canHandle = detail.state === 'needs_you' || detail.state === 'new' || detail.state === 'needs_reply';
   const canSendBack = !!latest && latest.status !== 'new';
+  // Remembered until the agent plans it again, which the thread then says.
+  const sendBackNow = async (messageId: string | null) => {
+    const { message_id: sent } = await client.sendBack(detail.id, messageId);
+    sentBack.current.add(sent);
+  };
+  // Who may move a task the agent made: the server checks each one again.
+  const canMoveAgentTasks = canTriage && !isDemoMode && canMoveTask(access, { parent_task_id: null },
+    hasPermission(access, 'tasks.manage_all') || hasPermission(access, 'tasks.manage_assigned'));
+  // The thread is on a new project: offer the agent's tasks from it, listed once.
+  const offerTasksTo = async (projectId: string) => {
+    if (!canMoveAgentTasks) return;
+    try {
+      const plan = await postThreadMove<{ tasks: { task_id: string; title: string; project_id: string; refused: string | null }[] }>(detail.id, { project_id: projectId, dry_run: true });
+      const tasks = plan.tasks.map((task) => ({ id: task.task_id, title: task.title, project_id: task.project_id }));
+      if (tasks.length) setFollowTo({ projectId, tasks });
+    } catch {
+      // Only an offer: the project itself is already added.
+    }
+  };
   const projectColor = (projectId: string) => projects.find((p) => p.id === projectId)?.color;
   const confirmProject = async (project: ThreadProject) => {
     try {
       await client.addProject(detail.id, { project_id: project.id });
       toast('success', `Confirmed ${project.name}`);
       await refresh();
+      await offerTasksTo(project.id);
     } catch (err) {
       toast('error', err instanceof Error ? err.message : 'Could not confirm the project');
     }
@@ -788,7 +861,7 @@ export function ThreadView({ threadId, focusMessageId, onMissing, onBack }: Thre
     ...(canManageRules && !isMeeting ? [{ label: 'Filter mail like this', icon: <Filter size={14} aria-hidden="true" />, onClick: () => setRuleFor(latest) }] : []),
     // The newest message's id: the API and pm-tasks read the whole conversation from any of its messages.
     { label: 'Copy thread ID', icon: <Hash size={14} aria-hidden="true" />, onClick: () => void copyText(latest.id, 'Thread ID') },
-    ...(canSendBack ? [{ label: `Send back to ${agentName}`, icon: <RotateCcw size={14} aria-hidden="true" />, onClick: () => void after(() => client.sendBack(detail.id, null), `Sent back to ${agentName}`, 'send_back') }] : []),
+    ...(canSendBack ? [{ label: `Send back to ${agentName}`, icon: <RotateCcw size={14} aria-hidden="true" />, onClick: () => void after(() => sendBackNow(null), `Sent back to ${agentName}. Waiting for a new plan.`, 'send_back') }] : []),
   ];
   let lastDay = '';
   // The decision the agent waits on, answered inside the reply that asked it. A meeting's card speaks
@@ -899,30 +972,50 @@ export function ThreadView({ threadId, focusMessageId, onMissing, onBack }: Thre
             </span>
           </div>
           {canTriage ? (
-            <div className="order-2 ml-auto flex flex-shrink-0 items-center gap-0.5 rounded-lg border border-white/[0.07] bg-white/[0.02] p-0.5">
+            <div className="order-2 ml-auto flex flex-shrink-0 items-center gap-1.5">
               {drafting && (
                 <Tooltip content={`${agentName} is writing a draft`}>
-                  <span className="inline-flex px-1.5 text-zinc-400">
+                  <span className="inline-flex px-1 text-zinc-400">
                     <Loader2 size={14} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />
                     <span className="sr-only">{agentName} is writing a draft</span>
                   </span>
                 </Tooltip>
               )}
-              <RowActionsMenu actions={menu} label="More thread actions" triggerClassName="!rounded-md" />
               {busy === 'send_back' && <Loader2 size={14} className="mx-1 animate-spin text-zinc-400 motion-reduce:animate-none" aria-label={`Sending back to ${agentName}`} />}
-              {/* Only offered when there is something to clear. */}
+              {/* The thread's completion action, only offered when there is something to clear. Phones: the check alone. */}
               {canHandle && (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="!rounded-md !py-1 text-zinc-100"
-                  icon={busy === 'handled' ? <Loader2 size={13} className="animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <Check size={13} aria-hidden="true" />}
-                  disabled={busy !== null}
-                  onClick={() => void markHandled()}
-                >
-                  Mark handled
-                </Button>
+                <>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className={`max-sm:hidden ${TOOLBAR_BUTTON} !px-2.5 !py-0 !text-zinc-100`}
+                    icon={busy === 'handled' ? <Loader2 size={14} className="animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <Check size={14} aria-hidden="true" />}
+                    disabled={busy !== null}
+                    onClick={() => void markHandled()}
+                  >
+                    Mark handled
+                  </Button>
+                  <Tooltip content="Mark handled" className="sm:hidden">
+                    <button
+                      type="button"
+                      aria-label="Mark handled"
+                      disabled={busy !== null}
+                      onClick={() => void markHandled()}
+                      className={`${TOOLBAR_BUTTON} ${TOOLBAR_ICON} text-zinc-100 disabled:cursor-not-allowed disabled:opacity-50`}
+                    >
+                      {busy === 'handled' ? <Loader2 size={14} className="animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <Check size={14} aria-hidden="true" />}
+                    </button>
+                  </Tooltip>
+                </>
               )}
+              <Tooltip content="More actions">
+                <RowActionsMenu
+                  actions={menu}
+                  label="More actions"
+                  icon={<MoreHorizontal size={16} aria-hidden="true" />}
+                  triggerClassName={`${TOOLBAR_BUTTON} ${TOOLBAR_ICON} !p-0 !text-zinc-300`}
+                />
+              </Tooltip>
             </div>
           ) : (
             <span className="order-2 ml-auto inline-flex flex-shrink-0 items-center gap-1 rounded-full bg-white/[0.05] px-2 py-0.5 text-[11px] text-zinc-300">
@@ -945,6 +1038,7 @@ export function ThreadView({ threadId, focusMessageId, onMissing, onBack }: Thre
       {/* Messages */}
       <div ref={scrollRef} data-thread-scroll className="relative min-h-0 flex-1 overflow-y-auto px-2 py-3 sm:px-5 sm:py-4">
         <TaskUndoContext.Provider value={taskUndo}>
+        <MoveTaskContext.Provider value={canMoveAgentTasks ? setMovingTask : null}>
         <PlanActionsContext.Provider value={planActions}>
         <ProjectLabelsContext.Provider value={detail.projects.length > 1}>
         <ol className="space-y-3">
@@ -968,7 +1062,7 @@ export function ThreadView({ threadId, focusMessageId, onMissing, onBack }: Thre
                   focused={message.id === focusMessageId}
                   viewUrl={isDemoMode ? null : attachmentViewUrl}
                   onPreview={isDemoMode ? undefined : setPreview}
-                  onSendToAgent={canTriage ? () => void after(() => client.sendBack(detail.id, message.id), `Sent to ${agentName}`, 'send_back') : undefined}
+                  onSendToAgent={canTriage ? () => void after(() => sendBackNow(message.id), `Sent to ${agentName}`, 'send_back') : undefined}
                   onMoveToInbox={canTriage ? () => void after(() => client.moveToInbox(detail.id, message.id), `Moved to the Inbox. ${agentName} will read it in full.`, 'send_back') : undefined}
                   onAlwaysFilter={canManageRules ? (address) => void after(() => client.createSenderRule({
                     match_kind: 'address', match_value: address, topic: null, action: 'ignore', reason: 'Pitched more than once.',
@@ -1015,6 +1109,7 @@ export function ThreadView({ threadId, focusMessageId, onMissing, onBack }: Thre
         )}
         </ProjectLabelsContext.Provider>
         </PlanActionsContext.Provider>
+        </MoveTaskContext.Provider>
         </TaskUndoContext.Provider>
         {/* The end of the thread reads, then acts: the draft to use, and last the decision that waits. */}
         {draft && (
@@ -1136,11 +1231,34 @@ export function ThreadView({ threadId, focusMessageId, onMissing, onBack }: Thre
           isOpen={projectDialog}
           onClose={() => setProjectDialog(false)}
           detail={detail}
-          onSaved={async () => {
+          onSaved={async (projectId) => {
             setProjectDialog(false);
             await load(true);
             announceInboxChange({ threadId });
+            await offerTasksTo(projectId);
           }}
+        />
+      )}
+      {movingTask && (
+        <TaskMoveDialog
+          tasks={[movingTask]}
+          onClose={() => setMovingTask(null)}
+          onMoved={() => { void refresh(); }}
+        />
+      )}
+      {followTo && (
+        <MoveTaskDialog
+          isOpen
+          tasks={followTo.tasks}
+          targetProjectId={followTo.projectId}
+          title={followTo.tasks.length === 1 ? `Move ${agentName}'s task too?` : `Move ${agentName}'s ${followTo.tasks.length} tasks too?`}
+          intro={(
+            <p className="text-sm text-zinc-300">
+              {agentName} made {followTo.tasks.length === 1 ? 'this task' : 'these tasks'} from this email. {followTo.tasks.length === 1 ? 'It moves' : 'They move'} to {projects.find((p) => p.id === followTo.projectId)?.name ?? 'the project'} with subtasks, comments, files and reminders.
+            </p>
+          )}
+          runner={threadMoveRunner(detail.id, followTo.tasks.map((task) => task.id), () => { void refresh(); })}
+          onClose={() => setFollowTo(null)}
         />
       )}
     </div>
@@ -1298,6 +1416,10 @@ function MessageCard({ message, agentName, focused, busy, viewUrl, onSendToAgent
   onDownload: (attachment: InboxAttachment) => void;
   onPreview?: (attachment: InboxAttachment) => void;
 }) {
+  // Sent back: New again with the agent's earlier plan still shown, and no answer since (an answer is
+  // the other way back, and its card waits on the agent itself). The earlier plan is superseded.
+  const replanning = message.status === 'new' && !!message.triage
+    && !(message.answer && Date.parse(message.answer.at) >= Date.parse(message.triage.created_at));
   const hasNewText = !!message.new_text?.trim();
   const fullDiffers = !!message.html_body || (!!message.text_body && message.text_body.trim() !== (message.new_text ?? '').trim());
   const asHtml = opensAsHtml(message);
@@ -1477,14 +1599,14 @@ function MessageCard({ message, agentName, focused, busy, viewUrl, onSendToAgent
       {message.sorting?.superseded_by && (
         <p className="mx-4 mb-3 text-[11px] text-zinc-400">Replaced by a newer alert from the same sender, so it no longer waits on anyone.</p>
       )}
-      {!message.triage && message.status === 'new' && (
-        <p className="mx-4 mb-3 flex items-center gap-1.5 text-xs text-zinc-400">
+      {(!message.triage || replanning) && message.status === 'new' && (
+        <p className="mx-4 mb-3 flex items-center gap-1.5 text-xs text-zinc-400" role="status">
           <Loader2 size={12} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />
-          Waiting for {agentName} to triage
+          {replanning ? `Waiting for ${agentName} to plan it again` : `Waiting for ${agentName} to triage`}
         </p>
       )}
     </article>
-    {message.triage && !inMeetingCard && (
+    {message.triage && !inMeetingCard && !replanning && (
       <AgentCard
         cardKey={message.id}
         scope={[message.id]}
@@ -2186,6 +2308,7 @@ function RowButton({ label, icon, aria, running, disabled, onClick, tooltip }: {
 function TaskReceipt({ task, messageId }: { task: InboxMessage['linked_tasks'][number]; messageId: string }) {
   const { trashed, notATask, undo, unlinked, unlink, relink, pending } = useContext(TaskUndoContext);
   const projectLabels = useContext(ProjectLabelsContext);
+  const moveTask = useContext(MoveTaskContext);
   const title = task.title ?? 'A task in another project';
   const key = linkKey(messageId, task);
   const running = pending === task.task_id || pending === key;
@@ -2209,7 +2332,13 @@ function TaskReceipt({ task, messageId }: { task: InboxMessage['linked_tasks'][n
   const dismissable = !!notATask && created && task.by === 'agent' && task.title !== null && !done;
   // A link the agent made to existing work comes off; the task itself stays.
   const unlinkable = !!unlink && !created && task.by === 'agent' && task.title !== null;
+  // A task the agent made can go to the right project from here.
+  const movable = !!moveTask && created && task.by === 'agent' && task.title !== null && !!task.project_id;
   const meta = [created ? null : task.relation === 'updated' ? 'Updated from this email' : 'Linked to this email', project].filter(Boolean).join(' · ');
+  const moveButton = movable ? (
+    <RowButton label="Move" icon={<FolderInput size={13} aria-hidden="true" />} aria={`Move "${title}" to another project`} running={false}
+      disabled={pending !== null} onClick={() => moveTask!({ id: task.task_id, title, project_id: task.project_id! })} tooltip="Move it to another project" />
+  ) : null;
   return (
     <CardRowShell
       icon={created ? (done ? <SquareCheck size={13} className="text-emerald-300" /> : <Square size={13} className="text-zinc-400" />) : <Link2 size={13} className="text-zinc-400" />}
@@ -2217,9 +2346,12 @@ function TaskReceipt({ task, messageId }: { task: InboxMessage['linked_tasks'][n
       meta={meta || undefined}
       tag={done ? <DoneTag /> : undefined}
       action={dismissable ? (
-        <RowButton label="Not a task" icon={<Trash2 size={13} aria-hidden="true" />} aria={`Not a task: move "${title}" to Trash`} running={running}
-          disabled={pending !== null} onClick={() => void notATask(messageId, task)} tooltip="Moves it to Trash. Restore brings it back." />
-      ) : unlinkable ? (
+        <>
+          {moveButton}
+          <RowButton label="Not a task" icon={<Trash2 size={13} aria-hidden="true" />} aria={`Not a task: move "${title}" to Trash`} running={running}
+            disabled={pending !== null} onClick={() => void notATask(messageId, task)} tooltip="Moves it to Trash. Restore brings it back." />
+        </>
+      ) : moveButton ? moveButton : unlinkable ? (
         <RowButton label="Unlink" icon={<Unlink size={13} aria-hidden="true" />} aria={`Unlink "${title}"`} running={running}
           disabled={pending !== null} onClick={() => void unlink!(messageId, task)}
           tooltip={task.relation === 'updated' ? 'Takes this email off the task. Changes already made to the task stay.' : 'Takes this email off the task. The task stays.'} />
@@ -2272,6 +2404,7 @@ const ITEM_ICON: Record<CardGroup, (className: string) => ReactNode> = {
 function PlanItemRow({ item }: { item: InboxPlanItem }) {
   const { act, pending } = useContext(PlanActionsContext);
   const projectLabels = useContext(ProjectLabelsContext);
+  const moveTask = useContext(MoveTaskContext);
   const failed = item.state === 'failed';
   const title = rowTitle(item);
   const href = !!item.task_id && !!item.project_id && ['create_task', 'update_task', 'comment', 'attach_file', 'link_task'].includes(item.type)
@@ -2299,10 +2432,18 @@ function PlanItemRow({ item }: { item: InboxPlanItem }) {
       title={<TaskLink href={href}>{title}</TaskLink>}
       meta={meta || undefined}
       tag={finished ? <DoneTag /> : unsure ? <span className="flex-shrink-0 rounded-full bg-amber-500/[0.14] px-2 py-0.5 text-[11px] font-semibold text-amber-200">Unsure</span> : undefined}
-      action={act && !finished && (item.state === 'done' || item.state === 'accepted') && UNDOABLE.has(item.type) ? (
-        <RowButton label={undoAction.label} icon={undoAction.icon} aria={`${undoAction.label}: ${title}`} running={pending === item.id}
-          disabled={pending !== null} onClick={() => void act('undo', item.id)} tooltip={undoAction.tip} />
-      ) : undefined}
+      action={(() => {
+        // A task the agent made can go to the right project from here.
+        const move = moveTask && item.type === 'create_task' && (item.state === 'done' || item.state === 'accepted') && !!item.task_id && !!item.project_id ? (
+          <RowButton label="Move" icon={<FolderInput size={13} aria-hidden="true" />} aria={`Move "${title}" to another project`} running={false}
+            disabled={pending !== null} onClick={() => moveTask({ id: item.task_id!, title, project_id: item.project_id! })} tooltip="Move it to another project" />
+        ) : null;
+        const undo = act && !finished && (item.state === 'done' || item.state === 'accepted') && UNDOABLE.has(item.type) ? (
+          <RowButton label={undoAction.label} icon={undoAction.icon} aria={`${undoAction.label}: ${title}`} running={pending === item.id}
+            disabled={pending !== null} onClick={() => void act('undo', item.id)} tooltip={undoAction.tip} />
+        ) : null;
+        return move || undo ? <>{move}{undo}</> : undefined;
+      })()}
     />
   );
 }

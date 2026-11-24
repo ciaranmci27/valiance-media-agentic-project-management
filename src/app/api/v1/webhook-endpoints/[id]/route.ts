@@ -20,7 +20,7 @@ async function loadEndpoint(supabase: SupabaseClient, id: string): Promise<Webho
 
 /**
  * Changes an endpoint: name, url, events, description, amount_basis, the
- * project and member filters, or is_active (false pauses deliveries). Send
+ * project, member and agent event type filters, or is_active (false pauses deliveries). Send
  * only what changes. The signing secret never changes and is never shown.
  *
  * Permission: webhooks.manage (the Webhooks module).

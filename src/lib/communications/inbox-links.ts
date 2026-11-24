@@ -2,6 +2,9 @@ import { z } from 'zod';
 import { accessAllowsProject } from '@/lib/api/access';
 import { assertId, InboxError, loadTriageableThread, many, one, type InboxContext } from './inbox-service';
 import { comms } from '@/lib/communications/db';
+import { ApiError } from '@/lib/api/errors';
+import { getActorClient } from '@/lib/api/supabase-service';
+import { moveTask, planTaskMove, type LosingMember } from '@/lib/api/task-move';
 
 /**
  * A person ties a thread to a task, or unties it (session routes). The
@@ -57,4 +60,102 @@ export async function unlinkThreadTask(ctx: InboxContext, threadId: string, task
     .delete().eq('task_id', id).in('message_id', messages.map((message) => message.id)).select('id');
   if (error) throw error;
   return { removed: (data ?? []).length };
+}
+
+// ---------------------------------------------------------------------------
+// A conversation moves to another project: the agent's tasks from it can follow
+// ---------------------------------------------------------------------------
+
+export const moveThreadTasksSchema = z.object({
+  project_id: z.string().uuid(),
+  // The tasks to move; every task the agent made from this conversation when left out.
+  task_ids: z.array(z.string().uuid()).max(100).optional(),
+  lost_access: z.enum(['refuse', 'unassign', 'add_to_project']).default('refuse'),
+  // Check only: which tasks would move, and who would lose them.
+  dry_run: z.boolean().default(false),
+}).strict();
+export type MoveThreadTasksRequest = z.infer<typeof moveThreadTasksSchema>;
+
+export interface ThreadTaskToMove { task_id: string; title: string; project_id: string; project_name: string | null }
+
+export type MoveThreadTasksResult =
+  | { dry_run: true; project: { id: string; name: string }; tasks: (ThreadTaskToMove & { refused: string | null })[]; losing: LosingMember[]; can_unassign: boolean; can_add_members: boolean }
+  | { dry_run: false; project: { id: string; name: string }; moved: { task_id: string; title: string }[]; failed: { task_id: string; title: string; reason: string }[] };
+
+/**
+ * The live, top-level tasks the agent made from this conversation, on any
+ * project the member can open: a plan's new task (applied, or a suggestion a
+ * person added) and the older triage's created links. Subtasks go with their
+ * parent, so they are not listed on their own.
+ */
+export async function agentTasksOfThread(ctx: InboxContext, threadId: string): Promise<ThreadTaskToMove[]> {
+  const messages = await many<{ id: string }>(comms(ctx.service).from('messages').select('id').eq('thread_id', threadId));
+  const messageIds = messages.map((message) => message.id);
+  if (messageIds.length === 0) return [];
+  const [items, links] = await Promise.all([
+    many<{ task_id: string | null }>(comms(ctx.service).from('plan_items').select('task_id')
+      .eq('conversation_id', threadId).eq('mode', 'live').eq('type', 'create_task').in('state', ['done', 'accepted'])),
+    many<{ task_id: string }>(comms(ctx.service).from('task_links').select('task_id')
+      .in('message_id', messageIds).eq('relation', 'created').not('triage_id', 'is', null)),
+  ]);
+  const ids = [...new Set([...items.map((item) => item.task_id), ...links.map((link) => link.task_id)].filter((id): id is string => !!id))];
+  if (ids.length === 0) return [];
+  const tasks = await many<{ id: string; title: string; project_id: string; parent_task_id: string | null; project: { name: string } | null }>(ctx.service.from('tasks')
+    .select('id, title, project_id, parent_task_id, project:projects!inner(name)').in('id', ids).is('deleted_at', null).is('project.deleted_at', null));
+  return tasks
+    .filter((task) => !task.parent_task_id && accessAllowsProject(ctx.access, task.project_id))
+    .map((task) => ({ task_id: task.id, title: task.title, project_id: task.project_id, project_name: task.project?.name ?? null }));
+}
+
+/**
+ * Moves the agent's tasks from this conversation to `project_id`, each by
+ * the same rules as moving it from its own menu (task-move.ts). A dry run
+ * lists them with who would lose them, so the person confirms once.
+ */
+export async function moveThreadTasks(ctx: InboxContext, threadId: string, request: MoveThreadTasksRequest): Promise<MoveThreadTasksResult> {
+  const thread = await loadTriageableThread(ctx, threadId);
+  const projectId = assertId(request.project_id, 'project_id');
+  const project = await one<{ id: string; name: string }>(ctx.service.from('projects').select('id, name').eq('id', projectId).is('deleted_at', null).maybeSingle());
+  if (!project || !accessAllowsProject(ctx.access, project.id)) throw new InboxError(404, 'Project not found');
+  const candidates = (await agentTasksOfThread(ctx, thread.id)).filter((task) => task.project_id !== project.id);
+  const wanted = request.task_ids ? new Set(request.task_ids.map((id) => id.toLowerCase())) : null;
+  if (wanted && [...wanted].some((id) => !candidates.some((task) => task.task_id === id))) {
+    throw new InboxError(404, 'A task is not one the agent made from this conversation, or it is already on that project');
+  }
+  const tasks = wanted ? candidates.filter((task) => wanted.has(task.task_id)) : candidates;
+  const actor = { db: getActorClient(ctx.memberId, 'app'), access: ctx.access, memberId: ctx.memberId, channel: 'app' as const };
+  if (request.dry_run) {
+    const losing = new Map<string, LosingMember>();
+    let canUnassign = false;
+    let canAddMembers = false;
+    const listed: (ThreadTaskToMove & { refused: string | null })[] = [];
+    for (const task of tasks) {
+      try {
+        const plan = await planTaskMove(actor, task.task_id, project.id);
+        canUnassign = plan.can_unassign;
+        canAddMembers = plan.can_add_members;
+        for (const member of plan.losing) {
+          const known = losing.get(member.id);
+          losing.set(member.id, known ? { ...known, on: [...new Set([...known.on, ...member.on])].sort() } : member);
+        }
+        listed.push({ ...task, refused: null });
+      } catch (error) {
+        if (!(error instanceof ApiError)) throw error;
+        listed.push({ ...task, refused: error.message });
+      }
+    }
+    return { dry_run: true, project, tasks: listed, losing: [...losing.values()], can_unassign: canUnassign, can_add_members: canAddMembers };
+  }
+  const moved: { task_id: string; title: string }[] = [];
+  const failed: { task_id: string; title: string; reason: string }[] = [];
+  for (const task of tasks) {
+    try {
+      await moveTask(actor, task.task_id, project.id, request.lost_access);
+      moved.push({ task_id: task.task_id, title: task.title });
+    } catch (error) {
+      if (!(error instanceof ApiError)) throw error;
+      failed.push({ task_id: task.task_id, title: task.title, reason: error.message });
+    }
+  }
+  return { dry_run: false, project, moved, failed };
 }

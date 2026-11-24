@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { isModuleEnabled, type AccessContext } from '@/lib/access-control';
 import { INVOICE_WEBHOOK_EVENT_TYPES, type WebhookEndpoint } from '@/lib/types';
 import { ApiError } from './errors';
+import { withEndpointColumns } from '@/lib/supabase/queries';
 
 /**
  * Webhook endpoints over the v1 API (/api/v1/webhook-endpoints), next to
@@ -14,12 +15,13 @@ import { ApiError } from './errors';
 export type PublicWebhookEndpoint = Omit<WebhookEndpoint, 'secret'>;
 
 const PUBLIC_COLUMNS =
-  'id, name, url, events, is_active, description, amount_basis, project_ids, member_id, created_by, last_delivery_at, created_at, updated_at';
+  'id, name, url, events, is_active, description, amount_basis, project_ids, member_id, agent_event_types, created_by, last_delivery_at, created_at, updated_at';
 
 export function publicEndpoint(endpoint: WebhookEndpoint): PublicWebhookEndpoint {
   const { secret: _secret, ...rest } = endpoint;
   void _secret;
-  return rest;
+  // A database before 20261124001200 has no agent event filter: none (null).
+  return { ...rest, agent_event_types: rest.agent_event_types ?? null };
 }
 
 /** Endpoints newest first, optionally only those filtered to one member. Never the secret. */
@@ -27,12 +29,13 @@ export async function listWebhookEndpoints(
   service: SupabaseClient,
   filter: { memberId?: string | null; active?: boolean | null } = {},
 ): Promise<PublicWebhookEndpoint[]> {
-  let query = service.from('webhook_endpoints').select(PUBLIC_COLUMNS).order('created_at', { ascending: false });
-  if (filter.memberId) query = query.eq('member_id', filter.memberId);
-  if (typeof filter.active === 'boolean') query = query.eq('is_active', filter.active);
-  const { data, error } = await query;
-  if (error) throw error;
-  return (data ?? []) as unknown as PublicWebhookEndpoint[];
+  const rows = await withEndpointColumns<PublicWebhookEndpoint[] | null>(PUBLIC_COLUMNS, (columns) => {
+    let query = service.from('webhook_endpoints').select(columns).order('created_at', { ascending: false });
+    if (filter.memberId) query = query.eq('member_id', filter.memberId);
+    if (typeof filter.active === 'boolean') query = query.eq('is_active', filter.active);
+    return query;
+  });
+  return rows ?? [];
 }
 
 const INVOICE_EVENTS: readonly string[] = INVOICE_WEBHOOK_EVENT_TYPES;

@@ -26,7 +26,8 @@ export const GET = withApi(async ({ supabase, searchParams }) => {
 
 /**
  * Adds an endpoint with the rules of the Settings screen: HTTPS (or http on
- * localhost), at least one event, optional project and member filters. Its
+ * localhost), at least one event, optional project and member filters, and
+ * for agent_event.created optional agent_event_types. Its
  * signing secret is generated here and returned in this answer only, so the
  * Idempotency-Key header is refused here.
  *
@@ -44,6 +45,7 @@ export const POST = withApi<CreateWebhookEndpoint>(async ({ supabase, body, acce
     amount_basis: body.amount_basis,
     project_ids: body.project_ids ? [...new Set(body.project_ids)] : null,
     member_id: body.member_id ?? null,
+    agent_event_types: body.agent_event_types ?? null,
     created_by: teamMemberId,
   });
   if (body.is_active === false) endpoint = await updateWebhookEndpoint(supabase, endpoint.id, { is_active: false });

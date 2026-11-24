@@ -14,6 +14,7 @@ import { subtaskProgress } from '@/lib/subtasks';
 import { lastActivityAt, taskTimesTooltip, timeAgo } from '@/lib/task-times';
 import { useTaskWarmer } from '@/lib/reads';
 import { useTaskFileCount } from './task-file-counts';
+import { useMoveTaskMenuAction } from './MoveTaskDialog';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { parseDateOnly, isDateOverdue } from '@/lib/date-utils';
 import { useRegion } from '@/lib/region/context';
@@ -62,6 +63,7 @@ export function TaskRow({ task, onView, onDelete }: TaskRowProps) {
   const parent = task.parent_task_id ? tasks.find(t => t.id === task.parent_task_id) : undefined;
   const canEdit = canEditTask(access, task, teamMemberId, parent);
   const canDelete = canManageAllTasks(access);
+  const moveMenu = useMoveTaskMenuAction(task, canEdit);
 
   const formatDate = (date: string | null) => {
     if (!date) return null;
@@ -81,6 +83,7 @@ export function TaskRow({ task, onView, onDelete }: TaskRowProps) {
   // Mobile card view. The list container draws the dividers, so the card
   // itself has no border: a border here doubled up into a heavy double rule.
   return (
+    <>
     <div
       className="lg:hidden p-3 hover:bg-white/[0.03] transition-colors cursor-pointer"
       onClick={() => onView?.(task)}
@@ -204,15 +207,25 @@ export function TaskRow({ task, onView, onDelete }: TaskRowProps) {
       </div>
 
       {/* Actions menu */}
-      {canDelete && (
+      {(canDelete || moveMenu.actions.length > 0) && (
         <Popover
           anchorRef={menuBtnRef}
           open={showMenu}
           onClose={() => setShowMenu(false)}
           align="end"
-          width={120}
+          width={176}
           className="bg-surface-raised rounded-lg shadow-xl border border-white/[0.08] py-1"
         >
+          {moveMenu.actions.map((action) => (
+            <button
+              key={action.label}
+              onClick={(e) => { e.stopPropagation(); setShowMenu(false); action.onClick(); }}
+              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-zinc-200 hover:bg-white/[0.06]"
+            >
+              {action.icon}
+              {action.label}
+            </button>
+          ))}
           {canDelete && <button
             onClick={(e) => { e.stopPropagation(); onDelete?.(task.id); setShowMenu(false); }}
             className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-400 hover:bg-red-500/15"
@@ -223,6 +236,9 @@ export function TaskRow({ task, onView, onDelete }: TaskRowProps) {
         </Popover>
       )}
     </div>
+    {/* Outside the row: a click in the dialog must not open the task. */}
+    {moveMenu.dialog}
+    </>
   );
 }
 
@@ -246,6 +262,7 @@ export function TaskRowDesktop({ task, onView, onDelete, selected, onToggleSelec
   const parent = task.parent_task_id ? tasks.find(t => t.id === task.parent_task_id) : undefined;
   const canEdit = canEditTask(access, task, teamMemberId, parent);
   const canDelete = canManageAllTasks(access);
+  const moveMenu = useMoveTaskMenuAction(task, canEdit);
 
   const formatDate = (date: string | null) => {
     if (!date) return null;
@@ -279,6 +296,7 @@ export function TaskRowDesktop({ task, onView, onDelete, selected, onToggleSelec
   };
 
   return (
+    <>
     <div
       className={`hidden lg:grid ${LIST_GRID_COLS} py-2.5 bg-surface-raised hover:bg-white/[0.03] transition-colors group cursor-pointer ${selected ? 'bg-brand-500/[0.06]' : ''}`}
       onClick={handleRowClick}
@@ -407,7 +425,7 @@ export function TaskRowDesktop({ task, onView, onDelete, selected, onToggleSelec
 
       {/* Actions */}
       <div className="relative">
-        {canDelete && <>
+        {(canDelete || moveMenu.actions.length > 0) && <>
           <button
             ref={menuBtnRef}
             onClick={(e) => { e.stopPropagation(); setShowMenu(!showMenu); }}
@@ -422,9 +440,19 @@ export function TaskRowDesktop({ task, onView, onDelete, selected, onToggleSelec
             open={showMenu}
             onClose={() => setShowMenu(false)}
             align="end"
-            width={120}
+            width={176}
             className="bg-surface-raised rounded-lg shadow-xl border border-white/[0.08] py-1"
           >
+            {moveMenu.actions.map((action) => (
+              <button
+                key={action.label}
+                onClick={(e) => { e.stopPropagation(); setShowMenu(false); action.onClick(); }}
+                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-zinc-200 hover:bg-white/[0.06]"
+              >
+                {action.icon}
+                {action.label}
+              </button>
+            ))}
             {canDelete && <button
               onClick={(e) => { e.stopPropagation(); onDelete?.(task.id); setShowMenu(false); }}
               className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-400 hover:bg-red-500/15"
@@ -436,5 +464,8 @@ export function TaskRowDesktop({ task, onView, onDelete, selected, onToggleSelec
         </>}
       </div>
     </div>
+    {/* Outside the row: a click in the dialog must not select or open it. */}
+    {moveMenu.dialog}
+    </>
   );
 }

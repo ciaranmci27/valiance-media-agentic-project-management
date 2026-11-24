@@ -47,6 +47,8 @@ export function getEndpointScopes(endpoint: EndpointDoc): string[] {
   if (path === '/api/v1/agent-activities') {
     return write ? ['agent_activity.write', 'fleet_alerts.write'] : ['audit.read'];
   }
+  if (path === '/api/v1/agent-activities/:id/labels') return ['agent_activity.write', 'agents.manage'];
+  if (path === '/api/v1/agent-events/export') return ['agent_events.export'];
   if (path === '/api/v1/agents/heartbeat') return ['agent_activity.write', 'tasks.read'];
   if (path.startsWith('/api/v1/agents/runs')) return ['agent_activity.write', 'tasks.read', 'agents.manage'];
   if (path === '/api/v1/agents/health') return ['agents.manage'];
@@ -331,11 +333,12 @@ export const endpoints: EndpointDoc[] = [
     body: [
       { name: 'name', type: 'string', required: true, description: 'A name for the endpoint' },
       { name: 'url', type: 'string', required: true, description: 'Where events go: HTTPS, or http on localhost for local development' },
-      { name: 'events', type: 'string[]', required: true, description: 'Events to send, at least one: task.created, task.updated, task.deleted, comment.created, question.asked, question.answered, question.cancelled, suggestion.created, suggestion.decided, review.submitted, run.started, run.finished, and (with Client invoicing on) invoice.paid, invoice.updated, invoice.deleted, invoice.payment_recorded, invoice.payment_removed' },
+      { name: 'events', type: 'string[]', required: true, description: 'Events to send, at least one: task.created, task.updated, task.deleted, comment.created, question.asked, question.answered, question.cancelled, suggestion.created, suggestion.decided, review.submitted, run.started, run.finished, agent_event.created (every agent event, opt in; narrow it with member_id and agent_event_types), and (with Client invoicing on) invoice.paid, invoice.updated, invoice.deleted, invoice.payment_recorded, invoice.payment_removed' },
       { name: 'description', type: 'string', required: false, description: 'A note on what it is for' },
       { name: 'amount_basis', type: 'gross|net', required: false, description: 'Invoice amounts as billed (gross, the default) or net of revenue splits' },
       { name: 'project_ids', type: 'uuid[]|null', required: false, description: 'Only events on these projects (null or empty: every project)' },
       { name: 'member_id', type: 'uuid|null', required: false, description: "Only events that concern this member, such as an agent's own work (null: everyone)" },
+      { name: 'agent_event_types', type: 'string[]|null', required: false, description: 'For agent_event.created: only these agent event types (null or empty: every type)' },
       { name: 'is_active', type: 'boolean', required: false, description: 'false adds it paused (default true)' },
     ],
   },
@@ -349,6 +352,7 @@ export const endpoints: EndpointDoc[] = [
       { name: 'amount_basis', type: 'gross|net', required: false, description: 'Invoice amounts as billed or net of splits' },
       { name: 'project_ids', type: 'uuid[]|null', required: false, description: 'Only events on these projects; null removes the filter' },
       { name: 'member_id', type: 'uuid|null', required: false, description: 'Only events that concern this member; null removes the filter' },
+      { name: 'agent_event_types', type: 'string[]|null', required: false, description: 'For agent_event.created: only these types; null or empty removes the filter' },
       { name: 'is_active', type: 'boolean', required: false, description: 'false pauses deliveries, true resumes them' },
     ],
   },
@@ -1320,6 +1324,7 @@ export const endpoints: EndpointDoc[] = [
       { name: 'agent_id', type: 'uuid', description: 'Filter by agent team member ID' },
       { name: 'project_id', type: 'uuid', description: 'Filter by project' },
       { name: 'activity_type', type: 'string', description: 'Filter by a typed event such as work.handoff, pr.merged, review.verdict, usage.recorded, or a grandfathered legacy type.' },
+      { name: 'label', type: 'string', description: 'Only events carrying this label' },
       { name: 'page', type: 'number', description: 'Page number (default 1)' },
       { name: 'limit', type: 'number', description: 'Items per page (default 25, max 100)' },
     ],
@@ -1327,8 +1332,24 @@ export const endpoints: EndpointDoc[] = [
   { method: 'POST', path: '/api/v1/agent-activities', description: 'Log a typed agent event. Typed writes carry activity_type, project_id, and a schema-validated payload; the server composes the title and derives the agent from the API key. Host telemetry (turn.completed, turn.outcome, turn.failed, agent.restarted, attention.message, dispatch.wake, billing.gap, eval.result) is idempotent on resend; turn.outcome merges onto the turn.completed with the same source_turn_id. A turn.completed may name its run with payload run_id (from POST /api/v1/agents/runs) or run_external_id (the harness\'s own run id): when it is one of the agent\'s runs the turn is listed under that run, otherwise run_id is dropped and the turn reads as a run of its own in GET /api/v1/agents/runs. The turn is stored and counted in analytics the same either way. A key with fleet_alerts.write may post only attention.message host alerts, stored with no agent. Grandfathered legacy writes remain accepted for rollout compatibility. For anything the typed events do not cover: note (payload { title, task_id?, task_title?, detail? }) or your own custom.<namespace>.<name> (lowercase letters, numbers and underscores; payload { title, task_id?, task_title?, ...your fields }, at most 4000 characters of JSON). title is plain text, at most 200 characters, and is the feed line as sent; an empty or longer one is 422. These never change an agent\'s status, and analytics leave them out.', group: 'Agent Activity',
     body: [
       { name: 'activity_type', type: 'string', required: true, description: 'Canonical typed event name, including work.handoff, pr.merged, review.verdict, or usage.recorded; or note, or custom.<namespace>.<name>.' },
-      { name: 'payload', type: 'object', required: true, description: 'Event-specific fields validated by the canonical agent event contract.' },
+      { name: 'payload', type: 'object', required: true, description: 'Event-specific fields validated by the canonical agent event contract. usage.recorded takes an optional provider (anthropic, openai, ...) so analytics group usage by provider whatever the model is called.' },
       { name: 'project_id', type: 'uuid|null', required: false, description: 'Related project (default null)' },
+      { name: 'labels', type: 'string[]', required: false, description: 'Up to 20 labels, each lowercase letters, numbers and . _ : - (a letter or number first, at most 64 characters), such as client:acme or deploy. Duplicates collapse; anything else is 422. Analytics group and filter by them, and the export and agent_event.created carry them. A resend of an event already recorded keeps its labels: change them with POST /api/v1/agent-activities/:id/labels.' },
+    ],
+  },
+  { method: 'POST', path: '/api/v1/agent-activities/:id/labels', description: 'Add or remove labels on an agent event after the fact. The event\'s own agent (agent_activity.write), or a key with agents.manage on key and member; another agent\'s event, or one on a project the key cannot open, is 404. Removing runs after adding, so a label in both ends up removed. An event holds at most 20 labels (422 too_many_labels). The change moves the event forward in the export, which sends it again with its labels. Answers with the event.', group: 'Agent Activity',
+    params: [{ name: 'id', type: 'uuid', required: true, description: 'Agent event ID' }],
+    body: [
+      { name: 'add', type: 'string[]', required: false, description: 'Labels to add' },
+      { name: 'remove', type: 'string[]', required: false, description: 'Labels to remove' },
+    ],
+  },
+  { method: 'GET', path: '/api/v1/agent-events/export', description: 'Every agent event and run, in the order they changed, for a data system (a warehouse, a log pipeline). A page of rows after since_cursor, with meta.next_cursor to resume from and meta.has_more; keep next_cursor and pass it as since_cursor next time. Each row: id, seq, source (activity or run), occurred_at, agent_id, type (the activity type, or run), labels, title, payload (the event\'s payload, or the run\'s status, model, provider, tokens, cost, plan and notes), project_id, task_id, run_id, principal_id. A row that changes again (labels edited, a turn labelled late, a run updated or finished) comes again with its new state: load by id, newest wins. Rows written in a transaction still open wait until it ends, so a resumed export never skips or repeats a row. Cursors are tied to the database's transaction ids: after a pg_dump and restore into a new cluster, re-export from the start (no since_cursor) and load by id. Needs agent_events.export (no role holds it by default; give it to a data system\'s key). A key without projects.read_all exports only events and runs on its projects.', group: 'Agent Activity',
+    queryParams: [
+      { name: 'since_cursor', type: 'string', description: 'next_cursor from the last page; leave out to start from the beginning' },
+      { name: 'limit', type: 'number', description: 'Rows per page (default 500, max 1000)' },
+      { name: 'types', type: 'string', description: 'Comma-separated types, such as usage.recorded,turn.completed,run (run for runs)' },
+      { name: 'agents', type: 'string', description: 'Comma-separated agent member ids' },
     ],
   },
   { method: 'POST', path: '/api/v1/agents/heartbeat', description: 'An agent\'s own heartbeat, for any harness. Writes the key\'s own status row: the agent is up (container_running true), and working says whether a turn is running. Status views show the agent offline after two missed beats plus a minute, so an agent run hourly by cron sends expected_interval_seconds 3600 and does not look offline between runs. The key must belong to an agent and hold agent_activity.write or tasks.read; it reports only itself (another member_id is 403 own_heartbeat_only). When a fleet publisher reports the agent (its row has a container), the publisher\'s facts stand: the beat writes only status_note (reported_at stays the publisher\'s, so a dead publisher still shows offline), and publisher_reports is true. Returns member_id, working, turn_started_at, reported_at, expected_interval_seconds, stale_after_seconds, status_note and publisher_reports.', group: 'Agent Activity',
@@ -1356,6 +1377,7 @@ export const endpoints: EndpointDoc[] = [
       { name: 'external_id', type: 'string', required: false, description: 'The harness\'s own run id, up to 300 characters' },
       { name: 'external_url', type: 'string', required: false, description: 'The trace link (http or https, up to 2000 characters)' },
       { name: 'model', type: 'string', required: false, description: 'The model it runs on' },
+      { name: 'provider', type: 'string', required: false, description: 'The provider it runs on (anthropic, openai, ...), up to 100 characters. Analytics group by it.' },
       { name: 'plan', type: 'array', required: false, description: 'Up to 50 steps, each { title, status: pending|running|done|skipped|failed }' },
       { name: 'note', type: 'string', required: false, description: 'A first progress note, up to 500 characters' },
       { name: 'tokens_in', type: 'number', required: false, description: 'Input tokens so far' },
@@ -1391,6 +1413,7 @@ export const endpoints: EndpointDoc[] = [
       { name: 'cost_usd', type: 'number', required: false, description: 'Cost so far, in US dollars' },
       { name: 'summary', type: 'string', required: false, description: 'What happened, up to 4000 characters' },
       { name: 'task_id', type: 'uuid|null', required: false, description: 'Move it to a task, or null for none' },
+      { name: 'provider', type: 'string', required: false, description: 'The provider it runs on' },
     ],
   },
   { method: 'POST', path: '/api/v1/agents/runs/:id/finish', description: 'Finish a run: status succeeded (default), failed, cancelled or timed_out, with any final details (summary, note, tokens_in, tokens_out, cost_usd, external_url, metadata) and finished_at (default now; not before it started). Finishing again with the same status answers with the run; another status is 409 run_finished. run.finished goes to webhooks.', group: 'Agent Runs',

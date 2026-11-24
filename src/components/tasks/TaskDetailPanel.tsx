@@ -70,6 +70,7 @@ import { lastActivityAt, timeAgo } from '@/lib/task-times';
 import { useRegion } from '@/lib/region/context';
 import { SubtaskRing } from './SubtaskRing';
 import { useSubtaskMenuActions } from './MakeSubtaskDialog';
+import { useMoveTaskMenuAction } from './MoveTaskDialog';
 import { claimUntil, liveClaim, occurrenceLabel } from '@/lib/claims';
 import { useOpenQuestions } from '@/lib/reads';
 import { QuestionCard } from '@/components/questions/QuestionCard';
@@ -120,6 +121,7 @@ export function TaskActionsMenu({ task, onDelete, showOpenAsPage = false }: {
   // A subtask can also go by whoever works its parent (as the database allows).
   const canDelete = canManageAllTasks(access) || (!!parent && canEditTask(access, parent, teamMemberId));
   const subtaskMenu = useSubtaskMenuActions(task, canEdit);
+  const moveMenu = useMoveTaskMenuAction(task, canEdit);
 
   const actions: RowAction[] = [
     ...(canEdit && task.acceptance_criteria.length === 0 && !criteriaHasRole(task)
@@ -129,11 +131,12 @@ export function TaskActionsMenu({ task, onDelete, showOpenAsPage = false }: {
       ? [{ label: 'Open as a page', icon: <Maximize2 size={14} />, onClick: () => router.push(`/projects/${task.project_id}/tasks/${task.id}`) }]
       : []),
     ...subtaskMenu.actions,
+    ...moveMenu.actions,
     {
       label: 'Copy details',
       icon: <ClipboardCopy size={14} />,
       onClick: () => copyText(taskAsText(task, { projectName: getProject(task.project_id)?.name, team, tasks }), 'Task details'),
-      divider: canEdit || showOpenAsPage || subtaskMenu.actions.length > 0,
+      divider: canEdit || showOpenAsPage || subtaskMenu.actions.length > 0 || moveMenu.actions.length > 0,
     },
     { label: 'Copy link', icon: <Link2 size={14} />, onClick: () => copyText(taskUrl(task), 'Task link') },
     { label: 'Copy ID', icon: <Hash size={14} />, onClick: () => copyText(task.id, 'Task ID') },
@@ -147,6 +150,7 @@ export function TaskActionsMenu({ task, onDelete, showOpenAsPage = false }: {
     <>
       <RowActionsMenu label="Task actions" actions={actions} />
       {subtaskMenu.dialog}
+      {moveMenu.dialog}
     </>
   );
 }

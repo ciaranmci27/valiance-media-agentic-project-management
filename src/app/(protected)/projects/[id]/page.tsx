@@ -13,6 +13,7 @@ import { ListView } from '@/components/views/ListView';
 import { CalendarView } from '@/components/views/CalendarView';
 import { NewTaskPanel } from '@/components/tasks/NewTaskPanel';
 import { TaskDetailPanel } from '@/components/tasks/TaskDetailPanel';
+import { TaskMoveDialog } from '@/components/tasks/MoveTaskDialog';
 import { ProjectForm } from '@/components/projects/ProjectForm';
 import { ProjectContactsPanel } from '@/components/projects/ProjectContactsPanel';
 import { ClientPortalTab } from '@/components/projects/ClientPortalTab';
@@ -33,7 +34,7 @@ import { toast } from '@/components/ui/Toast';
 import { useTaskUrlParam } from '@/lib/use-task-url';
 import {
   Plus, LayoutGrid, List, Calendar,
-  Edit, ChevronRight, Trash2, Clock,
+  Edit, ChevronRight, Trash2, Clock, FolderInput,
 } from 'lucide-react';
 import { Task, ViewMode } from '@/lib/types';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
@@ -105,6 +106,7 @@ export default function ProjectDetailPage() {
   // Clearing due dates wipes data with no undo, so it confirms first; it
   // already cost real due dates to an accidental click.
   const [confirmClearDueDates, setConfirmClearDueDates] = useState(false);
+  const [bulkMove, setBulkMove] = useState(false);
   // Tabs mount on first visit and then stay mounted (hidden), so a half-typed
   // timer note or an open email thread survives a trip to another tab.
   const [visitedTabs, setVisitedTabs] = useState<Set<ProjectTabKey>>(() => new Set());
@@ -373,6 +375,11 @@ export default function ProjectDetailPage() {
   const bulkSetDueDate = (date: string | null) =>
     runBulk('Updated', id => updateTask(id, { due_date: date }, { silent: true }));
 
+  // A subtask moves with its parent, so only top-level tasks move from a selection.
+  const bulkMovable = canCreateTasks
+    ? tasks.filter(t => selectedTaskIds.has(t.id) && !t.parent_task_id).map(t => ({ id: t.id, title: t.title, project_id: t.project_id }))
+    : [];
+
   const bulkDelete = () => {
     setConfirmDelete({ type: 'bulk', id: 'bulk' });
   };
@@ -544,6 +551,13 @@ export default function ProjectDetailPage() {
                   <button onClick={() => { setShowBulkMenu(false); setConfirmClearDueDates(true); }} className="w-full text-left px-3 py-1.5 text-sm text-zinc-400 hover:bg-white/[0.03]">
                     Clear due date
                   </button>
+                  {bulkMovable.length > 0 && <>
+                    <div className="border-t border-white/[0.06] my-1" />
+                    <button onClick={() => { setShowBulkMenu(false); setBulkMove(true); }} className="w-full flex items-center gap-2 text-left px-3 py-1.5 text-sm text-zinc-300 hover:bg-white/[0.03]">
+                      <FolderInput size={14} aria-hidden="true" />
+                      {bulkMovable.length === selectedTaskIds.size ? 'Move to project...' : `Move ${bulkMovable.length} to project...`}
+                    </button>
+                  </>}
                   {canManageTasks && <>
                     <div className="border-t border-white/[0.06] my-1" />
                     <button onClick={bulkDelete} className="w-full text-left px-3 py-1.5 text-sm text-red-400 hover:bg-red-500/15">
@@ -551,6 +565,13 @@ export default function ProjectDetailPage() {
                     </button>
                   </>}
                 </Popover>
+                {bulkMove && bulkMovable.length > 0 && (
+                  <TaskMoveDialog
+                    tasks={bulkMovable}
+                    onClose={() => setBulkMove(false)}
+                    onMoved={() => setSelectedTaskIds(new Set())}
+                  />
+                )}
               </div>
             )}
           </>}

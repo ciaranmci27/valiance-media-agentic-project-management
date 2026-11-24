@@ -209,6 +209,7 @@ export const PERMISSION_MODULE: Record<PermissionKey, ModuleId | 'core'> = {
   'suggestions.manage': 'agents',
   'agent_activity.write': 'agents',
   'fleet_alerts.write': 'agents',
+  'agent_events.export': 'agents',
   'meetings.write': 'inbox',
 };
 

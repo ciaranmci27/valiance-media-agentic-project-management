@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import {
-  AGENT_EVENT_SCHEMAS, AGENT_EVENT_TYPES, CUSTOM_EVENT_TYPE_PATTERN, isOpenEventType, isServerEvent, isTelemetryEvent, NOTE_EVENT_TYPE,
+  AGENT_EVENT_SCHEMAS, AGENT_EVENT_TYPES, AGENT_LABELS_MAX, agentLabelSchema, CUSTOM_EVENT_TYPE_PATTERN, isOpenEventType, isServerEvent, isTelemetryEvent, NOTE_EVENT_TYPE,
   openEventSchema, type AgentEventType,
 } from '@/lib/agent-events';
 import { API_ENDPOINT_PERMISSIONS } from '@/lib/access-control';
@@ -582,7 +582,7 @@ export const PM_TOOLS: PmTool[] = [
     name: 'update_task',
     lead: "Change a task's fields, status or blockers.",
     detail:
-      'Send only what changes. acceptance_criteria REPLACES every criterion and clears their satisfied flags; use add_acceptance_criterion or update_acceptance_criterion for one. Changing assignees or project needs tasks.manage_all. If your rules send finished work to review, status done moves it to in_review instead (sent_to_review: true). Answers with the bare task row.',
+      'Send only what changes. acceptance_criteria REPLACES every criterion and clears their satisfied flags; use add_acceptance_criterion or update_acceptance_criterion for one. Changing assignees needs tasks.manage_all. project_id moves it: you must be able to change it and to create tasks in the new project; its subtasks, comments, files and reminders go with it and its goal is cleared. Anyone on it who cannot open the new project refuses the move by name: send lost_access unassign to take them off, or add_to_project to add them (needs project_members.manage). If your rules send finished work to review, status done moves it to in_review instead (sent_to_review: true). Answers with the bare task row.',
     input: z.object({
       task_id: id('task_id'),
       title: z.string().min(1).max(500).optional(),
@@ -598,6 +598,7 @@ export const PM_TOOLS: PmTool[] = [
       ai_readiness: AI_READINESS.nullable().optional(),
       acceptance_criteria: z.array(z.string().min(1).max(2000)).max(50).optional(),
       blocked_by_ids: z.array(id('blocked_by_ids')).max(50).optional(),
+      lost_access: z.enum(['refuse', 'unassign', 'add_to_project']).optional(),
     }).strict().refine(
       atLeastOne(['title', 'description', 'status', 'priority', 'due_date', 'tags', 'assignee_ids', 'project_id', 'project_goal_id', 'task_type', 'ai_readiness', 'acceptance_criteria', 'blocked_by_ids']),
       'Send at least one field to change',
@@ -1131,7 +1132,7 @@ export const PM_TOOLS: PmTool[] = [
     name: 'log_activity',
     lead: 'Log a typed agent event to the activity feed.',
     detail:
-      "Agents only. The feed line is written by the server from the payload. Payloads: work.claimed/work.done {task_id?, task_title}; work.milestone {task_id?, kind: subtask|criterion|comment|commit|session|note, detail}; work.handoff {task_title, pr_url?, round?}; pr.merged {pr_url, additions, deletions}; review.started {task_title, round}; review.verdict {verdict, round, pr_url?, findings?}; audit.finding {subject, findings, note?}; audit.no_work {reason}; spec.completed {subject}; queue.empty {queue: review|work|spec|audit}; blocked {task_id?, reason}; billing.started|paused|resumed|stopped {task_id?}. For anything else: note {title, task_id?, detail?}, or your own custom.<namespace>.<name> {title, task_id?, ...your fields}; title (plain text, at most 200 characters) is the feed line. They never change your status or the analytics.",
+      "Agents only. The feed line is written by the server from the payload. Payloads: work.claimed/work.done {task_id?, task_title}; work.milestone {task_id?, kind: subtask|criterion|comment|commit|session|note, detail}; work.handoff {task_title, pr_url?, round?}; pr.merged {pr_url, additions, deletions}; review.started {task_title, round}; review.verdict {verdict, round, pr_url?, findings?}; audit.finding {subject, findings, note?}; audit.no_work {reason}; spec.completed {subject}; queue.empty {queue: review|work|spec|audit}; blocked {task_id?, reason}; billing.started|paused|resumed|stopped {task_id?}. For anything else: note {title, task_id?, detail?}, or your own custom.<namespace>.<name> {title, task_id?, ...your fields}; title (plain text, at most 200 characters) is the feed line. They never change your status or the analytics. labels (optional, up to 20, such as client:acme or deploy) group the event in analytics and travel with it to the company's data system.",
     input: z.object({
       activity_type: z.union([
         z.enum(AGENT_EVENTS),
@@ -1140,6 +1141,7 @@ export const PM_TOOLS: PmTool[] = [
       ]),
       payload: z.record(z.string(), z.unknown()),
       project_id: id('project_id').nullable().optional(),
+      labels: z.array(agentLabelSchema).max(AGENT_LABELS_MAX).optional().describe('Up to 20 labels for grouping and export: lowercase letters, numbers and . _ : -, such as client:acme or deploy'),
     }).strict().superRefine((args, ctx) => {
       const type = args.activity_type as string;
       // A type outside the vocabulary is already refused above.
@@ -1190,6 +1192,7 @@ export const PM_TOOLS: PmTool[] = [
       external_id: z.string().min(1).max(300).optional().describe("Your harness's own run id"),
       external_url: z.url().max(2000).optional().describe('Your trace link'),
       model: z.string().min(1).max(200).optional(),
+      provider: z.string().min(1).max(100).optional().describe('The provider the run uses: anthropic, openai, google, ...'),
       plan: z.array(z.object({ title: z.string().min(1).max(200), status: z.enum(['pending', 'running', 'done', 'skipped', 'failed']).optional() }).strict()).max(50).optional(),
       note: z.string().min(1).max(500).optional().describe('A first progress note'),
       metadata: z.record(z.string(), z.unknown()).optional().describe('Anything else, up to 8000 characters as JSON'),
@@ -1216,10 +1219,11 @@ export const PM_TOOLS: PmTool[] = [
       tokens_out: z.number().int().min(0).optional(),
       cost_usd: z.number().min(0).optional(),
       model: z.string().min(1).max(200).optional(),
+      provider: z.string().min(1).max(100).optional(),
       task_id: id('task_id').nullable().optional(),
       external_url: z.url().max(2000).optional(),
       metadata: z.record(z.string(), z.unknown()).optional(),
-    }).strict().refine(atLeastOne(['title', 'summary', 'plan', 'note', 'tokens_in', 'tokens_out', 'cost_usd', 'model', 'task_id', 'external_url', 'metadata']), 'Send at least one field to change'),
+    }).strict().refine(atLeastOne(['title', 'summary', 'plan', 'note', 'tokens_in', 'tokens_out', 'cost_usd', 'model', 'provider', 'task_id', 'external_url', 'metadata']), 'Send at least one field to change'),
     permission: ['agent_activity.write', 'tasks.read', 'agents.manage'],
     module: 'agents',
     method: 'PATCH',
@@ -1239,6 +1243,7 @@ export const PM_TOOLS: PmTool[] = [
       tokens_in: z.number().int().min(0).optional(),
       tokens_out: z.number().int().min(0).optional(),
       cost_usd: z.number().min(0).optional(),
+      provider: z.string().min(1).max(100).optional(),
       external_url: z.url().max(2000).optional(),
       note: z.string().min(1).max(500).optional(),
     }).strict(),
@@ -1679,7 +1684,7 @@ export const PM_TOOLS: PmTool[] = [
     name: 'create_webhook_endpoint',
     lead: 'Add a webhook endpoint; its secret shows once.',
     detail:
-      "Needs webhooks.manage. url is HTTPS (http only on localhost). events: what to send (invoice events need Client invoicing). project_ids limits it to those projects; member_id to events that concern that member, such as an agent's own work, which is how an agent's harness gets woken. The answer's secret signs every delivery and is the only copy: put it in the receiver now. No idempotency_key: on a timeout, list_webhook_endpoints before trying again.",
+      "Needs webhooks.manage. url is HTTPS (http only on localhost). events: what to send (invoice events need Client invoicing). project_ids limits it to those projects; member_id to events that concern that member, such as an agent's own work, which is how an agent's harness gets woken. agent_event.created (every agent event, opt in) takes agent_event_types to narrow it. The answer's secret signs every delivery and is the only copy: put it in the receiver now. No idempotency_key: on a timeout, list_webhook_endpoints before trying again.",
     input: z.object({
       name: z.string().min(1).max(100),
       url: z.string().min(1).max(2000),
@@ -1688,6 +1693,7 @@ export const PM_TOOLS: PmTool[] = [
       amount_basis: z.enum(['gross', 'net']).optional(),
       project_ids: z.array(id('project_ids')).max(200).nullable().optional(),
       member_id: id('member_id').nullable().optional(),
+      agent_event_types: z.array(z.string().regex(/^[a-z][a-z0-9_.]{0,99}$/)).max(100).nullable().optional().describe('For agent_event.created: only these agent event types'),
       is_active: z.boolean().optional(),
     }).strict(),
     permission: 'webhooks.manage',
@@ -1708,9 +1714,10 @@ export const PM_TOOLS: PmTool[] = [
       amount_basis: z.enum(['gross', 'net']).optional(),
       project_ids: z.array(id('project_ids')).max(200).nullable().optional(),
       member_id: id('member_id').nullable().optional(),
+      agent_event_types: z.array(z.string().regex(/^[a-z][a-z0-9_.]{0,99}$/)).max(100).nullable().optional(),
       is_active: z.boolean().optional(),
     }).strict().refine(
-      atLeastOne(['name', 'url', 'events', 'description', 'amount_basis', 'project_ids', 'member_id', 'is_active']),
+      atLeastOne(['name', 'url', 'events', 'description', 'amount_basis', 'project_ids', 'member_id', 'agent_event_types', 'is_active']),
       'Send at least one field to change',
     ),
     permission: 'webhooks.manage',

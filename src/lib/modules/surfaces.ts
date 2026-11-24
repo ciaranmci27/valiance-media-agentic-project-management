@@ -129,9 +129,14 @@ export const MODULE_SURFACES: Record<ModuleId, ModuleSurface> = {
       'project_agents', 'agent_owners',
       // Groups that own agents, and agents acting for a person (X-Act-For).
       'agent_owner_groups', 'delegation_tokens',
+      // What a provider's subscription costs, for the Analytics estimate.
+      'provider_plans',
     ],
-    rpcs: [],
+    // The question sums for Agents > Analytics.
+    rpcs: ['agent_question_stats'],
     routes: [
+      // Every agent event and run, in order, for a data system.
+      'api/v1/agent-events',
       'api/v1/agent-activities', 'api/v1/agent-templates', 'api/v1/agents', 'api/v1/projects/[id]/goals', 'api/v1/task-suggestions',
       // An agent's own assignments and a project's agents (pm.project_agents).
       'api/v1/agents/me/projects', 'api/v1/projects/[id]/agents',

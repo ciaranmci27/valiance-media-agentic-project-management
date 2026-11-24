@@ -144,6 +144,10 @@ export const AGENT_EVENT_SCHEMAS = {
     output_tokens: z.number().int().min(0),
     cached_tokens: z.number().int().min(0).default(0),
     cost_usd: z.number().min(0),
+    // The provider the usage was billed by (anthropic, openai, ...), when the
+    // publisher knows it. Optional: older payloads carry none and read as
+    // before (the model's "provider/" prefix, else not reported).
+    provider: z.string().trim().min(1).max(100).nullish(),
     cost_status: z.string().min(1).max(100).optional(),
     cost_source: z.string().min(1).max(100).optional(),
     session_id: z.string().min(1).max(300).optional(),
@@ -372,6 +376,28 @@ export function isHostRecordEvent(t: string): boolean {
 
 /** Every activity type analytics reads but no human should read in a feed. */
 export const TELEMETRY_EVENT_TYPES: AgentEventType[] = ['usage.recorded', 'turn.completed', ...HOST_RECORD_EVENT_TYPES];
+
+// -- labels -----------------------------------------------------------------
+
+/**
+ * Labels on an event: the agent or its harness sets them (the app never
+ * guesses one), so analytics can group and filter by them and a data system
+ * receives them with every exported event. Lowercase letters, numbers and
+ * . _ : - (a letter or number first), at most 64 characters, at most 20 per
+ * event. The database checks the same (agent_activities_labels_shape).
+ */
+export const AGENT_LABEL_PATTERN = /^[a-z0-9][a-z0-9._:-]{0,63}$/;
+export const AGENT_LABELS_MAX = 20;
+
+const labelMessage = 'A label is lowercase letters, numbers and . _ : - (a letter or number first), at most 64 characters';
+
+/** One label, exactly as stored: never lowercased or trimmed for the sender. */
+export const agentLabelSchema = z.string().regex(AGENT_LABEL_PATTERN, labelMessage);
+
+/** A list of labels: duplicates collapse (the first place kept), at most 20 remain. */
+export const agentLabelsSchema = z.array(agentLabelSchema).max(AGENT_LABELS_MAX * 4)
+  .transform((labels) => [...new Set(labels)])
+  .refine((labels) => labels.length <= AGENT_LABELS_MAX, `An event holds at most ${AGENT_LABELS_MAX} labels`);
 
 // -- the open vocabulary ----------------------------------------------------
 

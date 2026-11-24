@@ -50,6 +50,9 @@ const MEMBER_FUNCTIONS = [
   'review_time_entries', 'record_team_member_payout', 'set_task_parent',
   // Called by agent_analytics_window, which runs as the caller.
   'agent_analytics_int', 'agent_analytics_num', 'agent_analytics_ts',
+  // Agents > Analytics (20261124001200): the second window and the run sums run
+  // as the caller; the question sums check the caller's projects themselves.
+  'agent_analytics_window_v2', 'agent_run_stats', 'agent_question_stats',
   // Read-only, scoped to the caller, kept for installs' own code.
   'is_admin', 'get_team_directory', 'get_my_access_context',
   'get_accessible_time_entries', 'get_accessible_credential_metadata', 'invoice_hours_draft',
@@ -117,13 +120,20 @@ async function main() {
   check('the before copy really had functions open to anon (the comparison means something)', beforeGrants.some((g) => g.anon));
 
   // 4. The migration on the before state equals a fresh install, twice over.
+  // The before state already holds the sections after it, whose migrations run
+  // after it in a real install: their own function grants are replayed after
+  // it, as they land there.
+  const laterGrants = (nextSection < 0 ? '' : SCHEMA.slice(nextSection)).split('\n')
+    .filter((line) => /^(GRANT|REVOKE) .* ON FUNCTION .*;\s*$/i.test(line)).join('\n');
   await before.exec(MIGRATION);
+  await before.exec(laterGrants);
   const migrated = (await grants(before)).map(key);
   const diff = (a: string[], b: string[]) => a.filter((x) => !b.includes(x));
   const freshKeys = freshGrants.map(key);
   check('migration: the same grants as a fresh install', diff(migrated, freshKeys).length === 0 && diff(freshKeys, migrated).length === 0,
     [...diff(migrated, freshKeys), ...diff(freshKeys, migrated)].slice(0, 10));
   await before.exec(MIGRATION);
+  await before.exec(laterGrants);
   check('migration: a second run changes nothing', JSON.stringify((await grants(before)).map(key)) === JSON.stringify(migrated));
   await before.close();
 

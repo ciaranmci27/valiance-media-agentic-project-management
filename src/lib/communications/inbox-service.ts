@@ -1142,18 +1142,56 @@ export async function markThreadHandled(
   return { handled: handled.length, reviewed: reviewed.length, closed_reminders: closed.map((row) => row.title) };
 }
 
-/** Back to the agent: the message (the newest one by default) is New again and she re-triages it. */
-export async function sendBackToAgent(ctx: InboxContext, threadId: string, messageId: string | null): Promise<{ message_id: string }> {
+/**
+ * Back to the agent: the message (the newest one by default) is New again and
+ * she plans it again, from the thread as it is now (its projects, its tasks).
+ * Her earlier plans for it are superseded: what still waited on a person
+ * (suggestions, and the conversation's open question, so a fresh plan may
+ * ask its own) settles as expired with result.superseded, so nothing shows
+ * as pending and the bell clears. What already applied stays; the new plan
+ * reads it in its context, marked superseded.
+ */
+export async function sendBackToAgent(ctx: InboxContext, threadId: string, messageId: string | null): Promise<{ message_id: string; superseded: number }> {
   const thread = await loadTriageableThread(ctx, threadId);
   const messages = await many<{ id: string; status: string }>(comms(ctx.service).from('messages')
     .select('id, status').eq('thread_id', thread.id).neq('status', 'receiving').order('received_at', { ascending: false }).order('id', { ascending: false }));
   const target = messageId ? messages.find((message) => message.id === assertId(messageId, 'message_id')) : messages[0];
   if (!target) throw new InboxError(404, 'Message not found');
   if (target.status === 'new') throw new InboxError(409, 'It is already waiting for the agent');
+  const superseded = await supersedeWaitingItems(ctx, thread.id, target.id);
   const { error } = await comms(ctx.service).from('messages')
     .update({ status: 'new', reviewed_at: null, reviewed_by: null }).eq('id', target.id).neq('status', 'receiving');
   if (error) throw error;
-  return { message_id: target.id };
+  return { message_id: target.id, superseded: superseded.length };
+}
+
+/** Settles what the message's live plans (and the conversation's open question) still waited on. */
+async function supersedeWaitingItems(ctx: InboxContext, conversationId: string, messageId: string): Promise<string[]> {
+  const plans = await many<{ id: string }>(comms(ctx.service).from('plans').select('id').eq('message_id', messageId).eq('mode', 'live'));
+  const now = new Date().toISOString();
+  const settle = { state: 'expired', resolved_by: ctx.memberId, resolved_at: now, result: { superseded: { reason: 'sent_back', at: now, by: ctx.memberId } } };
+  const [items, asks] = await Promise.all([
+    plans.length
+      ? many<{ id: string; plan_id: string }>(comms(ctx.service).from('plan_items').update(settle)
+        .in('plan_id', plans.map((plan) => plan.id)).eq('state', 'pending').select('id, plan_id'))
+      : Promise.resolve([] as { id: string; plan_id: string }[]),
+    many<{ id: string; plan_id: string }>(comms(ctx.service).from('plan_items').update(settle)
+      .eq('conversation_id', conversationId).eq('mode', 'live').eq('type', 'ask').eq('state', 'pending').select('id, plan_id')),
+  ]);
+  const settled = [...items, ...asks];
+  if (settled.length) {
+    // Their messages' bells follow: read once nothing on them waits. Bookkeeping only.
+    try {
+      const planIds = [...new Set(settled.map((item) => item.plan_id))];
+      const owners = await many<{ message_id: string }>(comms(ctx.service).from('plans').select('message_id').in('id', planIds));
+      const touched = await many<PlanMessage & Row>(comms(ctx.service).from('messages')
+        .select('id, thread_id, inbox_id, subject, channel').in('id', [...new Set(owners.map((row) => row.message_id))]));
+      for (const message of touched) await syncWaitingNotification(ctx.service, message, await inboxAgentName(ctx.service, message.inbox_id));
+    } catch (bookkeeping) {
+      console.error('[inbox] send back: clearing the bell failed:', bookkeeping);
+    }
+  }
+  return [...new Set(settled.map((item) => item.id))];
 }
 
 /**

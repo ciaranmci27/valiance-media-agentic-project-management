@@ -331,6 +331,8 @@ interface AppContextType {
   deleteTask: (id: string, options?: TaskWriteOptions) => Promise<boolean>;
   /** Ends whoever's claim is on a task (managers: a stuck claim). False after a failure (toasted, rolled back). */
   releaseTaskClaim: (id: string) => Promise<boolean>;
+  /** A task the server moved to another project (with its subtasks), shown there at once; people taken off it leave it. */
+  applyTaskMove: (id: string, projectId: string, removedMemberIds?: string[]) => void;
 
   // Subtasks: tasks with a parent (see lib/subtasks). Work one with the task
   // actions; these find a task's subtasks and add one by title.
@@ -1608,6 +1610,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
       toast('error', err instanceof Error ? err.message : 'Failed to release the claim');
       return false;
     }
+  };
+
+  const applyTaskMove = (id: string, projectId: string, removedMemberIds: string[] = []) => {
+    const leaving = new Set(removedMemberIds);
+    setTasks(t => t.map(task => {
+      if (task.id !== id && task.parent_task_id !== id) return task;
+      const moved = { ...task, project_id: projectId, project_goal_id: null };
+      if (!leaving.size) return moved;
+      return {
+        ...moved,
+        assignee_ids: task.assignee_ids.filter(m => !leaving.has(m)),
+        ...(task.claimed_by && leaving.has(task.claimed_by) ? { claimed_by: null, claimed_at: null, claim_expires_at: null } : {}),
+      };
+    }));
   };
 
   const deleteTask = async (id: string, options?: TaskWriteOptions): Promise<boolean> => {
@@ -4552,6 +4568,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       reorderTasks,
       deleteTask,
       releaseTaskClaim,
+      applyTaskMove,
       getSubtasks,
       addSubtask,
       setTaskParent,

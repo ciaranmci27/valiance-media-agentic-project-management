@@ -1508,25 +1508,53 @@ export async function fetchApiKeys(supabase: SupabaseClient) {
 // ============================================================
 
 const WEBHOOK_ENDPOINT_COLUMNS =
-  'id, name, url, secret, events, is_active, description, amount_basis, project_ids, member_id, created_by, last_delivery_at, created_at, updated_at';
+  'id, name, url, secret, events, is_active, description, amount_basis, project_ids, member_id, agent_event_types, created_by, last_delivery_at, created_at, updated_at';
+
+/** A database before 20261124001200 has no agent_event_types (PostgREST 42703 on a read, PGRST204 on a write naming it). */
+export function missingAgentEventTypes(error: unknown): boolean {
+  const e = error as { code?: string; message?: string } | null;
+  return (e?.code === '42703' || e?.code === 'PGRST204') && /agent_event_types/.test(e?.message ?? '');
+}
+
+/**
+ * Runs an endpoint query with its columns, and on a database without
+ * agent_event_types again without it, reading the filter as null (none).
+ * A write that fails on the missing column writes nothing, so running it
+ * again is safe.
+ */
+export async function withEndpointColumns<T>(
+  columns: string,
+  run: (columns: string) => PromiseLike<{ data: unknown; error: unknown }>,
+): Promise<T> {
+  let { data, error } = await run(columns);
+  if (error && missingAgentEventTypes(error)) {
+    ({ data, error } = await run(columns.replace(/,\s*agent_event_types/, '')));
+    if (!error) {
+      const withNull = (row: unknown) => (row && typeof row === 'object' ? { ...(row as object), agent_event_types: null } : row);
+      data = Array.isArray(data) ? data.map(withNull) : withNull(data);
+    }
+  }
+  if (error) throw error;
+  return data as T;
+}
 
 export async function fetchWebhookEndpoints(supabase: SupabaseClient) {
-  const { data, error } = await supabase
+  const rows = await withEndpointColumns<WebhookEndpoint[] | null>(WEBHOOK_ENDPOINT_COLUMNS, (columns) => supabase
     .from('webhook_endpoints')
-    .select(WEBHOOK_ENDPOINT_COLUMNS)
-    .order('created_at', { ascending: false });
-  if (error) throw error;
-  return (data || []) as WebhookEndpoint[];
+    .select(columns)
+    .order('created_at', { ascending: false }));
+  return rows || [];
 }
 
 export async function insertWebhookEndpoint(
   supabase: SupabaseClient,
   endpoint: {
     name: string; url: string; secret: string; events: string[]; description?: string;
-    amount_basis?: WebhookEndpoint['amount_basis']; project_ids?: string[] | null; member_id?: string | null; created_by: string | null;
+    amount_basis?: WebhookEndpoint['amount_basis']; project_ids?: string[] | null; member_id?: string | null;
+    agent_event_types?: string[] | null; created_by: string | null;
   },
 ) {
-  const { data, error } = await supabase
+  return withEndpointColumns<WebhookEndpoint>(WEBHOOK_ENDPOINT_COLUMNS, (columns) => supabase
     .from('webhook_endpoints')
     .insert({
       name: endpoint.name,
@@ -1537,29 +1565,27 @@ export async function insertWebhookEndpoint(
       amount_basis: endpoint.amount_basis ?? 'gross',
       project_ids: endpoint.project_ids?.length ? endpoint.project_ids : null,
       member_id: endpoint.member_id ?? null,
+      ...(endpoint.agent_event_types?.length ? { agent_event_types: endpoint.agent_event_types } : {}),
       created_by: endpoint.created_by,
     })
-    .select(WEBHOOK_ENDPOINT_COLUMNS)
-    .single();
-  if (error) throw error;
-  return data as WebhookEndpoint;
+    .select(columns)
+    .single());
 }
 
 export async function updateWebhookEndpoint(
   supabase: SupabaseClient,
   id: string,
-  patch: Partial<Pick<WebhookEndpoint, 'name' | 'url' | 'events' | 'is_active' | 'description' | 'amount_basis' | 'project_ids' | 'member_id'>>,
+  patch: Partial<Pick<WebhookEndpoint, 'name' | 'url' | 'events' | 'is_active' | 'description' | 'amount_basis' | 'project_ids' | 'member_id' | 'agent_event_types'>>,
 ) {
-  // An empty project list means no project filter (the column refuses an empty array).
-  const row = 'project_ids' in patch && !patch.project_ids?.length ? { ...patch, project_ids: null } : patch;
-  const { data, error } = await supabase
+  // An empty project or type list means no filter (the columns refuse an empty array).
+  let row = 'project_ids' in patch && !patch.project_ids?.length ? { ...patch, project_ids: null } : patch;
+  if ('agent_event_types' in row && !row.agent_event_types?.length) row = { ...row, agent_event_types: null };
+  return withEndpointColumns<WebhookEndpoint>(WEBHOOK_ENDPOINT_COLUMNS, (columns) => supabase
     .from('webhook_endpoints')
     .update(row)
     .eq('id', id)
-    .select(WEBHOOK_ENDPOINT_COLUMNS)
-    .single();
-  if (error) throw error;
-  return data as WebhookEndpoint;
+    .select(columns)
+    .single());
 }
 
 export async function deleteWebhookEndpoint(supabase: SupabaseClient, id: string) {
@@ -2350,13 +2376,23 @@ export async function fetchAgentAnalyticsWindow(
   const DAY = 86_400_000;
   const startMs = Date.parse(`${range.startKey}T00:00:00.000Z`) - DAY;
   const endMs = Date.parse(`${range.endKey}T23:59:59.999Z`);
-  const { data, error } = await supabase.rpc('agent_analytics_window', {
+  const args = {
     p_from: new Date(startMs).toISOString(),
     p_to: new Date(endMs + DAY).toISOString(),
     p_late_to: new Date(endMs + ANALYTICS_LOOKAHEAD_DAYS * DAY).toISOString(),
-  });
+  };
+  // Version 2 (20261124001200) keeps usage split by model, provider and
+  // labels; before that migration the first version answers as it always has.
+  let { data, error } = await supabase.rpc('agent_analytics_window_v2', args);
+  if (error && isMissingRpc(error, 'agent_analytics_window_v2')) ({ data, error } = await supabase.rpc('agent_analytics_window', args));
   if (error) throw error;
   return activitiesFromWindow(data as AnalyticsWindowPayload);
+}
+
+/** PostgREST (PGRST202) or Postgres (42883) for a function the database does not have yet. */
+export function isMissingRpc(error: unknown, name: string): boolean {
+  const e = error as { code?: string; message?: string } | null;
+  return e?.code === 'PGRST202' || e?.code === '42883' || new RegExp(`(^|[^a-z0-9_])${name}([^a-z0-9_]|$)`).test(e?.message ?? '');
 }
 
 /** Billing gap reviews (Reconciled / Dismissed), for the analytics gaps list. */
@@ -2430,6 +2466,8 @@ export async function insertAgentActivity(
       // Only host telemetry sets it; omitted otherwise so a database without
       // the column (before its migration) still takes every older type.
       ...(entry.source_key ? { source_key: entry.source_key } : {}),
+      // Only an event sent with labels writes the column, for the same reason.
+      ...(entry.labels?.length ? { labels: entry.labels } : {}),
     })
     .select()
     .single();

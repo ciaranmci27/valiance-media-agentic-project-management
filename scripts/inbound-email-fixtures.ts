@@ -164,6 +164,8 @@ export class FakeStorage {
   uploads = 0;
   copies = 0;
   failUploads = false;
+  /** A server-side copy fails (500), copying nothing. */
+  failCopies = false;
   /** A delete request naming any of these paths fails whole (500), removing nothing. */
   failRemove = new Set<string>();
   /** Called with each delete request's paths before it is applied. */
@@ -200,6 +202,7 @@ export class FakeStorage {
       }
     }
     if (path === 'object/copy' && request.method === 'POST') {
+      if (this.failCopies) { send(500, { statusCode: '500', error: 'internal', message: 'storage down' }); return true; }
       const { bucketId, sourceKey, destinationKey, destinationBucket } = JSON.parse((await readBody(request)).toString()) as Record<string, string>;
       const source = this.objects.get(`${bucketId}/${sourceKey}`);
       const target = `${destinationBucket ?? bucketId}/${destinationKey}`;

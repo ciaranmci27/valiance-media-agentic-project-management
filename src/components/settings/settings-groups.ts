@@ -44,7 +44,7 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
   // New versions of the app and how to install them (Owners only).
   { key: 'updates', href: '/settings/updates', label: 'Updates', icon: CircleArrowUp, sectionIds: ['updates'] },
   // Workspace-wide: the modules, the brand and the region (Owners only).
-  { key: 'workspace', href: '/settings/workspace', label: 'Workspace', icon: LayoutGrid, sectionIds: ['features', 'brand', 'region', 'encryption'] },
+  { key: 'workspace', href: '/settings/workspace', label: 'Workspace', icon: LayoutGrid, sectionIds: ['features', 'brand', 'region', 'provider-plans', 'encryption'] },
   { key: 'notifications', href: '/settings/notifications', label: 'Notifications', icon: Bell, sectionIds: ['notifications'] },
   // Invoice details (Client invoicing) and hour approvals (either money
   // module). Was Business, at /settings/business, which still redirects here;
@@ -116,6 +116,8 @@ export function useSettingsAccess() {
     region: isOwner,
     // The app key and the values saved with it. The demo workspace has no database to check.
     encryption: isOwner && !isDemoMode,
+    // What AI provider subscriptions cost, for the analytics estimate: Owners only, with AI agents on.
+    providerPlans: isOwner && !isDemoMode && isModuleEnabled(access, 'agents'),
     // Owners only. In demo mode the page says updates are off there.
     updates: isOwner,
     // Billing: invoice details only mean something with Client invoicing on;
@@ -142,7 +144,7 @@ export function useSettingsAccess() {
 
   // A group shows in the menu while at least one of its sections does.
   const visibleGroups: Record<SettingsGroupKey, boolean> = {
-    workspace: show.features || show.brand || show.region || show.encryption,
+    workspace: show.features || show.brand || show.region || show.providerPlans || show.encryption,
     updates: show.updates,
     account: true,
     notifications: true,

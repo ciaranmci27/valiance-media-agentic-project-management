@@ -56,4 +56,7 @@ export const updateTaskSchema = z.object({
   blocked_by_ids: z.array(z.string().uuid()).optional(),
   // A task id makes it a subtask of that task; null makes it top-level.
   parent_task_id: z.string().uuid('parent_task_id must be a UUID').nullable().optional(),
+  // A move to another project: what happens to people on it who cannot open
+  // the new project. Left out, the move is refused and names them.
+  lost_access: z.enum(['refuse', 'unassign', 'add_to_project']).optional(),
 });

@@ -398,6 +398,83 @@ export async function copyAttachmentToProject(
   return { path, sha256 };
 }
 
+/**
+ * Tasks moved to another project keep their files (task-move.ts). Uploads
+ * are stored per project ({project_id}/{sha256}) and only ever opened from
+ * the task's own project, so a move is two steps:
+ *
+ *   copyTaskFilesToProject   before the task moves: each upload's object is
+ *                            copied to the new project's object for its hash
+ *                            (one copy however many tasks share it). Content
+ *                            addressed, so a copy left behind by a move that
+ *                            is then refused harms nothing. A failure throws,
+ *                            and the move does not happen.
+ *   carryTaskFilesToProject  once it has moved: the rows point at those
+ *                            objects (no Storage call, so nothing here fails
+ *                            on Storage after the move), and a linked project
+ *                            file, the old project's, stays on the task as a
+ *                            web link to the same file.
+ *
+ * The old objects stay for the tasks still there and for a restore. Rows in
+ * Trash come along too, so a restore still opens them. Both are safe to run twice.
+ */
+async function uploadsToCarry(db: SupabaseClient, taskIds: string[], projectId: string) {
+  if (taskIds.length === 0) return [];
+  // includes-deleted: a file in Trash moves too, so a restore still opens it.
+  const { data, error } = await db.from('task_files')
+    .select('id, task_id, kind, storage_path, sha256, entity_file_id').in('task_id', taskIds).in('kind', ['upload', 'project_file']);
+  if (error) throw error;
+  return ((data ?? []) as Pick<FileRow, 'id' | 'task_id' | 'kind' | 'storage_path' | 'sha256' | 'entity_file_id'>[])
+    .filter((row) => row.kind === 'project_file' || (!!row.storage_path && !!row.sha256 && !row.storage_path.startsWith(`${projectId}/`)));
+}
+
+/** Copies the tasks' uploads to the new project's objects. Throws (and nothing moves) when Storage fails. */
+export async function copyTaskFilesToProject(db: SupabaseClient, taskIds: string[], projectId: string): Promise<number> {
+  const rows = (await uploadsToCarry(db, taskIds, projectId)).filter((row) => row.kind === 'upload');
+  const copied = new Set<string>();
+  for (const row of rows) {
+    const path = `${projectId}/${row.sha256}`;
+    if (copied.has(path)) continue;
+    // trash-checked: a Storage bucket, not a table.
+    const { error } = await pmStorage(db).from(TASK_FILES_BUCKET).copy(row.storage_path!, path);
+    // An object already gone stays gone: there is nothing to copy, and the move need not wait on it.
+    if (error && !isDuplicateObject(error) && !isMissingObject(error)) {
+      throw new ApiError(502, 'STORAGE_ERROR', 'Could not copy its files to the new project, so the task stayed where it was. Try again.');
+    }
+    copied.add(path);
+  }
+  return copied.size;
+}
+
+/** Points the moved tasks' files at the new project (copyTaskFilesToProject ran first). Returns how many rows changed. */
+export async function carryTaskFilesToProject(db: SupabaseClient, taskIds: string[], projectId: string): Promise<number> {
+  let changed = 0;
+  for (const row of await uploadsToCarry(db, taskIds, projectId)) {
+    if (row.kind === 'upload') {
+      // includes-deleted: a file in Trash moves too, so a restore still opens it.
+      const { error: updateError } = await db.from('task_files').update({ storage_path: `${projectId}/${row.sha256}` }).eq('id', row.id);
+      if (updateError) throw updateError;
+      changed++;
+      continue;
+    }
+    // includes-deleted: a project file in Trash keeps its address, and the task keeps the link to it.
+    const { data: file, error: fileError } = await db.from('entity_files').select('id, entity_id, file_url').eq('id', row.entity_file_id!).maybeSingle();
+    if (fileError) throw fileError;
+    const entity = file as { id: string; entity_id: string; file_url: string } | null;
+    if (!entity || entity.entity_id === projectId || !/^https?:\/\//.test(entity.file_url ?? '')) continue;
+    // includes-deleted: a file in Trash moves too, so a restore still opens it.
+    const { error: linkError } = await db.from('task_files')
+      .update({ kind: 'link', entity_file_id: null, url: entity.file_url.slice(0, 2048) }).eq('id', row.id);
+    if (linkError) {
+      // The task already links that address: the duplicate goes to Trash instead.
+      if ((linkError as { code?: string }).code !== '23505') throw linkError;
+      await moveToTrash(db, 'task_files', row.id, null);
+    }
+    changed++;
+  }
+  return changed;
+}
+
 /** A two-hour link to upload one file's bytes to; add it with its upload_id once the bytes are there. */
 export async function createUploadLink(ctx: TaskFilesContext, taskId: string): Promise<{ upload_id: string; upload_url: string; token: string; expires_at: string; max_bytes: number }> {
   requirePermission(ctx, 'files.upload', 'Adding files to a task needs permission to upload files');
