@@ -14,9 +14,10 @@ import type { TeamMember } from '@/lib/types';
 
 /**
  * One inbox on Settings > Email > Shared inboxes: its name, who
- * handles it and what that means, its own address, how many of your
- * addresses deliver to it, who else can read it, how long mail is kept, which
- * triage runs, whether mail is coming in, and the switch and edit button.
+ * handles it and what that means, who else handles it, its own address, how
+ * many of your addresses deliver to it, who else can read it, the defaults a
+ * request falls back on (when set), how long mail is kept, which triage runs,
+ * whether mail is coming in, and the switch and edit button.
  * How to connect it lives under Setup on the same page.
  */
 /** The id of an inbox's Edit button, where focus returns when its form closes. */
@@ -25,6 +26,8 @@ export const inboxEditButtonId = (inboxId: string) => `inbox-edit-${inboxId}`;
 export function InboxCard({
   inbox,
   team,
+  groups = [],
+  projects = [],
   toggling,
   editing,
   onEdit,
@@ -32,6 +35,8 @@ export function InboxCard({
 }: {
   inbox: InboxSettings;
   team: TeamMember[];
+  groups?: { id: string; name: string }[];
+  projects?: { id: string; name: string }[];
   /** Its switch is saving: the switch and Edit keep focus but take no input. */
   toggling: boolean;
   /** Its edit form is open: the switch waits until the form is saved or closed. */
@@ -50,6 +55,16 @@ export function InboxCard({
     .filter((id) => id !== inbox.handler_member_id)
     .map(memberName)
     .sort((a, b) => a.localeCompare(b));
+  const groupName = (id: string) => groups.find((g) => g.id === id)?.name ?? 'A group';
+  const alsoHandled = (inbox.handlers ?? []).filter((h) => !h.is_primary)
+    .map((h) => (h.group_id ? `${groupName(h.group_id)} (group)` : memberName(h.member_id as string)));
+  const assignee = inbox.default_assignee_member_id
+    ? memberName(inbox.default_assignee_member_id)
+    : inbox.default_assignee_group_id ? `${groupName(inbox.default_assignee_group_id)} (its leads)` : null;
+  const decider = inbox.decision_member_id
+    ? memberName(inbox.decision_member_id)
+    : inbox.decision_group_id ? `${groupName(inbox.decision_group_id)} (any member)` : null;
+  const defaultProject = inbox.default_project_id ? projects.find((p) => p.id === inbox.default_project_id)?.name ?? 'A project' : null;
   const triage = TRIAGE_MODE_OPTIONS.find((option) => option.value === inbox.triage_mode)?.label ?? 'Current triage';
   const status = inboxStatus(inbox);
   const error = currentError(inbox);
@@ -108,6 +123,12 @@ export function InboxCard({
           <dt className="text-zinc-400">Handled by</dt>
           <dd className="text-zinc-200 break-words">{handlerLabel}</dd>
         </div>
+        {alsoHandled.length > 0 && (
+          <div className="min-w-0">
+            <dt className="text-zinc-400">Also handled by</dt>
+            <dd className="text-zinc-200 break-words">{alsoHandled.join(', ')}</dd>
+          </div>
+        )}
         <div className="min-w-0">
           <dt className="text-zinc-400">Your addresses that deliver here</dt>
           <dd>
@@ -131,6 +152,18 @@ export function InboxCard({
           <dt className="text-zinc-400">Triage</dt>
           <dd className="text-zinc-200">{triage}</dd>
         </div>
+        {(assignee || defaultProject || decider) && (
+          <div className="min-w-0 sm:col-span-2">
+            <dt className="text-zinc-400">When a request leaves it out</dt>
+            <dd className="text-zinc-200 break-words">
+              {[
+                assignee && `new work goes to ${assignee}`,
+                defaultProject && `the project is ${defaultProject}`,
+                decider && `decisions go to ${decider}`,
+              ].filter(Boolean).join('; ').replace(/^./, (first) => first.toUpperCase())}
+            </dd>
+          </div>
+        )}
       </dl>
 
       <p className="flex items-center gap-2 text-xs">

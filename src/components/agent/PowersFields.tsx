@@ -4,8 +4,9 @@ import { useMemo, useState } from 'react';
 import { AlertTriangle, ChevronDown } from 'lucide-react';
 import { scopeGroups } from '@/lib/agents-ui';
 import {
-  AGENT_RULE_LABELS, CLOSE_POLICY_OPTIONS, CREATE_POLICY_OPTIONS, ESCALATE_DEFAULT_LABEL, type AgentRules,
+  AGENT_RULE_LABELS, CLOSE_POLICY_OPTIONS, CREATE_POLICY_OPTIONS, ESCALATE_DEFAULT_LABEL, type AgentRulesDraft,
 } from '@/lib/agent-rules';
+import { groupTargetLabel } from '@/lib/groups';
 import { Checkbox } from '@/components/ui/inputs/Checkbox';
 import { Select } from '@/components/ui/inputs/Select';
 import { Toggle } from '@/components/ui/inputs/Toggle';
@@ -84,14 +85,32 @@ export function ScopePicker({ grantable, value, onChange, preset, error, disable
   );
 }
 
-/** The four rules as plain switches and choices, in the order the Team page asks them. */
-export function RulesFields({ value, onChange, people, disabled }: {
-  value: AgentRules;
-  onChange: (rules: AgentRules) => void;
+/** A group's value in the escalation picker, beside people's member ids. */
+const GROUP_PREFIX = 'group:';
+
+/**
+ * The four rules as plain switches and choices, in the order the Team page
+ * asks them. It escalates to a person or a group, never both: picking one
+ * clears the other.
+ */
+export function RulesFields({ value, onChange, people, groups = [], disabled }: {
+  value: AgentRulesDraft;
+  onChange: (rules: AgentRulesDraft) => void;
   /** Who it may escalate to: people on the team. */
   people: { id: string; name: string }[];
+  /** Groups it may escalate to instead (any member answers). */
+  groups?: { id: string; name: string }[];
   disabled?: boolean;
 }) {
+  const escalation = value.agent_escalate_to_group ? `${GROUP_PREFIX}${value.agent_escalate_to_group}` : value.agent_escalate_to ?? '';
+  const choose = (v: string) => onChange(v.startsWith(GROUP_PREFIX)
+    ? { ...value, agent_escalate_to: null, agent_escalate_to_group: v.slice(GROUP_PREFIX.length) }
+    : { ...value, agent_escalate_to: v || null, agent_escalate_to_group: null });
+  const options = [
+    { value: '', label: ESCALATE_DEFAULT_LABEL },
+    ...people.map((p) => ({ value: p.id, label: p.name, ...(groups.length ? { group: 'People' } : {}) })),
+    ...groups.map((g) => ({ value: `${GROUP_PREFIX}${g.id}`, label: groupTargetLabel(g.name), group: 'Groups' })),
+  ];
   return (
     <div className="divide-y divide-white/[0.06] rounded-xl bg-white/[0.025] ring-1 ring-inset ring-white/[0.06]">
       <div className="px-4 py-3.5">
@@ -124,12 +143,12 @@ export function RulesFields({ value, onChange, people, disabled }: {
       <div className="px-4 py-3.5">
         <Select
           label={AGENT_RULE_LABELS.agent_escalate_to}
-          value={value.agent_escalate_to ?? ''}
-          onChange={(v) => onChange({ ...value, agent_escalate_to: v || null })}
-          options={[{ value: '', label: ESCALATE_DEFAULT_LABEL }, ...people.map((p) => ({ value: p.id, label: p.name }))]}
-          searchable={people.length > 7}
+          value={escalation}
+          onChange={choose}
+          options={options}
+          searchable={options.length > 8}
           disabled={disabled}
-          description="Who gets its questions when nobody is named."
+          description={groups.length ? 'Who gets its questions when nobody is named: a person, or a group where any member answers.' : 'Who gets its questions when nobody is named.'}
         />
       </div>
     </div>

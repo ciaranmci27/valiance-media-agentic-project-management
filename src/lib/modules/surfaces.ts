@@ -93,7 +93,7 @@ export const MODULE_SURFACES: Record<ModuleId, ModuleSurface> = {
       'answers', 'attachments', 'client_addresses',
       'client_domains', 'conversation_projects', 'conversations',
       'endpoints', 'files', 'ignored_addresses',
-      'inbox_access', 'inboxes', 'maintenance_runs',
+      'inbox_access', 'inbox_handlers', 'inboxes', 'maintenance_runs',
       'meetings', 'message_candidates', 'message_endpoints',
       'messages', 'own_domains', 'participants',
       'plan_items', 'plans', 'reply_drafts',
@@ -127,6 +127,8 @@ export const MODULE_SURFACES: Record<ModuleId, ModuleSurface> = {
       'agent_health', 'agent_health_history', 'agent_activities', 'project_goals', 'task_suggestions',
       'agent_billing_gap_reviews', 'analytics_tracking_starts', 'task_reopens', 'agent_runs',
       'project_agents', 'agent_owners',
+      // Groups that own agents, and agents acting for a person (X-Act-For).
+      'agent_owner_groups', 'delegation_tokens',
     ],
     rpcs: [],
     routes: [
@@ -134,6 +136,7 @@ export const MODULE_SURFACES: Record<ModuleId, ModuleSurface> = {
       // An agent's own assignments and a project's agents (pm.project_agents).
       'api/v1/agents/me/projects', 'api/v1/projects/[id]/agents',
       'api/workspace/agents', 'api/workspace/agent-templates', 'api/workspace/projects/[id]/agents',
+      'api/v1/delegations', 'api/workspace/delegations',
       '(protected)/agent',
     ],
   },
@@ -160,6 +163,8 @@ export const CORE_ROUTES: string[] = [
   'api/workspace/access', 'api/workspace/api-keys', 'api/workspace/brand', 'api/workspace/me', 'api/workspace/region', 'api/workspace/modules', 'api/workspace/setup-checks', 'api/workspace/secrets', 'api/workspace/encryption', 'api/workspace/webhook-retries', 'api/welcome',
   'api/workspace/projects', 'api/workspace/questions', 'api/workspace/tasks', 'api/workspace/team-directory', 'api/workspace/team-members',
   'api/workspace/updates',
+  // Groups and linked identities (chat accounts) are about people, with AI agents on or off.
+  'api/v1/groups', 'api/v1/identities', 'api/v1/members', 'api/workspace/groups', 'api/workspace/identities', '(protected)/link',
   // The install's own routes and pages (src/custom): each item names its own module, permission or role.
   'api/x', '(protected)/x',
   '(protected)/dashboard', '(protected)/my-tasks', '(protected)/notifications', '(protected)/projects',
@@ -176,6 +181,7 @@ export const CORE_TABLES: string[] = [
   'task_events', 'task_files', 'task_reviews', 'task_subtasks', 'task_views', 'tasks',
   'team_invites', 'team_member_notifications', 'team_member_permissions', 'team_members', 'trash_events', 'workspace_brand',
   'workspace_modules', 'workspace_region', 'app_secrets',
+  'groups', 'group_members', 'member_identities', 'identity_link_requests',
 ];
 
 /** Core functions a signed-in member may call. */

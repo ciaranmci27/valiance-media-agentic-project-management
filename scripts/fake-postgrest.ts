@@ -113,13 +113,15 @@ function parseSelect(value: string | null): { columns: string[] | null; embeds: 
   const columns: string[] = [];
   const embeds: Embed[] = [];
   for (const part of splitSelect(value)) {
-    const embed = /^(?:([a-z_][a-z0-9_]*):)?([a-z_][a-z0-9_]*)(?:!([a-z0-9_]+))?\(([\s\S]*)\)$/.exec(part);
+    // `table!fk_name!inner(...)` names the foreign key and keeps the inner join, as PostgREST takes them together.
+    const embed = /^(?:([a-z_][a-z0-9_]*):)?([a-z_][a-z0-9_]*)(?:!([a-z0-9_]+))?(?:!([a-z0-9_]+))?\(([\s\S]*)\)$/.exec(part);
+    const marks = embed ? [embed[3], embed[4]].filter((mark): mark is string => !!mark) : [];
     if (embed) embeds.push({
       key: embed[1] ?? embed[2],
       table: embed[2],
-      columns: embed[4].trim(),
-      inner: embed[3] === "inner",
-      hint: embed[3] && embed[3] !== "inner" ? embed[3] : null,
+      columns: embed[5].trim(),
+      inner: marks.includes("inner"),
+      hint: marks.find((mark) => mark !== "inner") ?? null,
     });
     else if (part === "*") columns.push("*");
     else columns.push(part);

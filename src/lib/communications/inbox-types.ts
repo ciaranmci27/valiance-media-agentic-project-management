@@ -568,6 +568,23 @@ export interface InboxSettings {
   created_at: string;
   /** A personal inbox's person; null for a shared inbox. */
   owner_member_id: string | null;
+  /** Who handles it: the primary (a member, the same as handler_member_id) first, then the others, members or groups. */
+  handlers: InboxHandler[];
+  /** Who new work goes to when a request names no one (a member, or a group's leads); both null: the workspace Owner. */
+  default_assignee_member_id: string | null;
+  default_assignee_group_id: string | null;
+  /** The project used when a request leaves the project out and may have none. */
+  default_project_id: string | null;
+  /** Who gets its decisions (a member, or every member of a group); both null: the workspace Owner. */
+  decision_member_id: string | null;
+  decision_group_id: string | null;
+}
+
+/** One handler of an inbox: a member or a group; only a member is ever the primary. */
+export interface InboxHandler {
+  member_id: string | null;
+  group_id: string | null;
+  is_primary: boolean;
 }
 
 /**
@@ -629,6 +646,13 @@ export interface InboxSettingsInput {
   aliases?: string[];
   triage_mode?: 'legacy' | 'shadow' | 'plans';
   access_member_ids: string[];
+  /** The handlers beside the primary; left out, they stay as they are. */
+  handlers?: { member_id?: string; group_id?: string }[];
+  default_assignee_member_id?: string | null;
+  default_assignee_group_id?: string | null;
+  default_project_id?: string | null;
+  decision_member_id?: string | null;
+  decision_group_id?: string | null;
 }
 
 export interface MxStatus {

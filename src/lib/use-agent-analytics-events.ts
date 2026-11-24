@@ -4,14 +4,12 @@ import { createClient } from '@/lib/supabase/client';
 import {
   fetchAgentActivityRange,
   fetchAgentAnalyticsWindow,
-  fetchBillingGapReviews,
   fetchTaskReopens,
 } from '@/lib/supabase/queries';
 import { useRead, warmRead, type Read } from '@/lib/query-cache';
 import type { DateRange } from '@/lib/finance/summary';
 import type { AgentActivity, FleetAgentActivity } from '@/lib/types';
 import type { AttributionDelta } from '@/lib/agent-telemetry-analytics';
-import type { AgentHealthTransition } from '@/lib/agent-analytics';
 
 export interface AgentAnalyticsEvents {
   rows: AgentActivity[];
@@ -84,36 +82,6 @@ export function prefetchAgentAnalytics(range: DateRange): void {
  * page looked wrong, then looked broken for changing. A report either shows a
  * measured answer or shows that it is still measuring.
  */
-/**
- * Recorded container-state transitions, for availability.
- *
- * Kept separate from the event query because it answers a different question
- * and is tiny: only changes are stored, so a stable fleet writes almost nothing.
- * The whole history is fetched rather than a range slice, since the state before
- * a range is what establishes the state during it.
- */
-export function useAgentHealthHistory(options?: { enabled?: boolean }): {
-  rows: AgentHealthTransition[];
-  loading: boolean;
-} {
-  const enabled = options?.enabled !== false;
-  const query = useRead<AgentHealthTransition[]>(enabled ? {
-    key: 'agent-health-history',
-    ttlMs: REPORT_TTL_MS,
-    load: async () => {
-      const supabase = createClient();
-      const { data, error } = await supabase
-        .from('agent_health_history')
-        .select('member_id, container_running, changed_at')
-        .order('changed_at', { ascending: true })
-        .limit(5000);
-      if (error) throw error;
-      return (data ?? []) as AgentHealthTransition[];
-    },
-  } : null);
-  return { rows: query.data ?? [], loading: enabled && query.loading };
-}
-
 export function useAgentAnalyticsEvents(
   range: DateRange,
   options?: { enabled?: boolean },
@@ -131,28 +99,6 @@ export function useAgentAnalyticsEvents(
     truncated: query.data?.truncated ?? false,
     failed: enabled && query.failed,
   };
-}
-
-export type BillingGapReviewRow = Awaited<ReturnType<typeof fetchBillingGapReviews>>[number];
-
-// Module-level empties keep a missing answer referentially stable, so memos
-// downstream do not recompute on every render while a query has failed.
-const NO_REVIEWS: BillingGapReviewRow[] = [];
-
-/**
- * The Owner's Reconciled / Dismissed marks on billing gaps. `available` is false
- * when the reviews table cannot be read (its migration is not applied yet).
- */
-export function useBillingGapReviews(options?: { enabled?: boolean }): {
-  rows: BillingGapReviewRow[];
-  loading: boolean;
-  available: boolean;
-} {
-  const enabled = options?.enabled !== false;
-  const query = useRead<BillingGapReviewRow[]>(enabled
-    ? { key: 'agent-billing-gap-reviews', ttlMs: REPORT_TTL_MS, load: () => fetchBillingGapReviews(createClient()) }
-    : null);
-  return { rows: query.data ?? NO_REVIEWS, loading: enabled && query.loading, available: !(enabled && query.failed) };
 }
 
 type ReopenAnswer = Awaited<ReturnType<typeof fetchTaskReopens>>;

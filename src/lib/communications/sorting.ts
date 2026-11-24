@@ -43,6 +43,10 @@ export interface SenderRule {
   action: RuleAction;
   /** Only mail sent (To or Cc) to this address; null or absent for any. */
   recipient?: string | null;
+  /** A rule for one inbox (null or absent: the workspace). Callers pass only the rules for the inbox the mail is in. */
+  inbox_id?: string | null;
+  /** Who made it: a person's rule always outranks an agent's. Absent: not compared. */
+  source?: 'person' | 'agent';
 }
 
 export interface SortInput {
@@ -163,9 +167,10 @@ export function topicOf(subject: string, text: string): MailTopic {
 }
 
 /**
- * The rule for this sender and topic: one scoped to an address the mail was
- * sent to over any other, then an exact address over a domain, then this
- * topic over any topic. A scoped rule never matches mail to other addresses.
+ * The rule for this sender and topic: a person's rule over an agent's, then
+ * the inbox's own rule over a workspace rule, then one scoped to an address the mail was sent to over
+ * any other, then an exact address over a domain, then this topic over any
+ * topic. A scoped rule never matches mail to other addresses.
  */
 export function matchRule(rules: readonly SenderRule[], fromAddress: string | null, topic: MailTopic | null, recipients: readonly string[] = []): SenderRule | null {
   if (!fromAddress) return null;
@@ -178,7 +183,7 @@ export function matchRule(rules: readonly SenderRule[], fromAddress: string | nu
     const exact = rule.match_kind === 'address' && rule.match_value === fromAddress;
     const byDomain = rule.match_kind === 'domain' && (rule.match_value === domain || rule.match_value === org || domain.endsWith(`.${rule.match_value}`));
     if (!exact && !byDomain) return -1;
-    return (rule.recipient ? 4 : 0) + (exact ? 2 : 0) + (rule.topic ? 1 : 0);
+    return (rule.source === 'person' ? 16 : 0) + (rule.inbox_id ? 8 : 0) + (rule.recipient ? 4 : 0) + (exact ? 2 : 0) + (rule.topic ? 1 : 0);
   };
   let best: SenderRule | null = null;
   let bestScore = -1;

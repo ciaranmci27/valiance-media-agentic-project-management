@@ -20,10 +20,12 @@ export const agentRulesPatchSchema = z.object({
   close_policy: z.enum(AGENT_CLOSE_POLICIES).optional(),
   create_policy: z.enum(AGENT_CREATE_POLICIES).optional(),
   escalate_to: uuid('escalate_to').nullable().optional(),
+  escalate_to_group: uuid('escalate_to_group').nullable().optional(),
   agent_self_assign: z.boolean().optional(),
   agent_close_policy: z.enum(AGENT_CLOSE_POLICIES).optional(),
   agent_create_policy: z.enum(AGENT_CREATE_POLICIES).optional(),
   agent_escalate_to: uuid('agent_escalate_to').nullable().optional(),
+  agent_escalate_to_group: uuid('agent_escalate_to_group').nullable().optional(),
 }).strict();
 export type AgentRulesPatch = z.infer<typeof agentRulesPatchSchema>;
 
@@ -36,15 +38,18 @@ export function rulesColumnsFrom(rules: AgentRulesPatch | undefined) {
   const close = pick(rules.close_policy, rules.agent_close_policy);
   const create = pick(rules.create_policy, rules.agent_create_policy);
   const escalate = pick(rules.escalate_to, rules.agent_escalate_to);
+  const escalateGroup = pick(rules.escalate_to_group, rules.agent_escalate_to_group);
   if (selfAssign !== undefined) out.agent_self_assign = selfAssign;
   if (close !== undefined) out.agent_close_policy = close;
   if (create !== undefined) out.agent_create_policy = create;
   if (escalate !== undefined) out.agent_escalate_to = escalate;
+  if (escalateGroup !== undefined) out.agent_escalate_to_group = escalateGroup;
   return out as {
     agent_self_assign?: boolean;
     agent_close_policy?: (typeof AGENT_CLOSE_POLICIES)[number];
     agent_create_policy?: (typeof AGENT_CREATE_POLICIES)[number];
     agent_escalate_to?: string | null;
+    agent_escalate_to_group?: string | null;
   };
 }
 
@@ -65,6 +70,8 @@ export const hireAgentSchema = z.object({
   template_key: templateKeySchema.optional(),
   rules: agentRulesPatchSchema.optional(),
   owner_ids: z.array(uuid('owner_ids')).max(20).optional(),
+  /** Groups that own it beside its people: any member manages it as an owner. */
+  owner_group_ids: z.array(uuid('owner_group_ids')).max(20).optional(),
   project_ids: z.array(uuid('project_ids')).max(200).optional(),
   project_settings: z.record(z.string(), z.object({
     settings: settingsSchema.optional(),
@@ -86,6 +93,7 @@ export const patchAgentSchema = z.object({
   agent_role: agentRoleSchema.nullable().optional(),
   rules: agentRulesPatchSchema.optional(),
   owner_ids: z.array(uuid('owner_ids')).max(20).optional(),
+  owner_group_ids: z.array(uuid('owner_group_ids')).max(20).optional(),
 }).strict().refine((body) => Object.values(body).some((value) => value !== undefined), 'Send at least one field to change');
 export type PatchAgent = z.infer<typeof patchAgentSchema>;
 

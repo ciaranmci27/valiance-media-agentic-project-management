@@ -71,7 +71,9 @@ Each endpoint has three filters. Empty means everything.
   - for a task event, a comment or a review: the task's assignees and the
     holder of a live claim on it, plus anyone the change took off the task (an
     assignee who was removed hears that they were);
-  - for a question: the member asked (`asked_to`) and the asker (`asked_by`);
+  - for a question: the member asked (`asked_to`) or, for a question asked to a
+    group, every member of that group; the asker (`asked_by`); and the person an
+    agent asked it for (`principal_id`), when there is one;
   - for a suggestion: who proposed it and who it would be assigned to;
   - for a run: the agent whose run it is;
   - for an invoice: nobody, so an endpoint with a member filter never receives
@@ -214,6 +216,11 @@ An approval (a question an agent asks before an action) uses the same events,
 and its `question` also carries `kind: "approval"`, `action: { type, summary, details? }`,
 `decision` (`approved`, `rejected` or `null`) and `decided_by` (who decided, or
 `null`). A plain question carries none of these four.
+A question asked to a group has `asked_to: null` and also carries
+`asked_to_group` (the group's id; any member may answer, and `answered_by` says
+who). A question an agent asked while acting for someone (the `X-Act-For`
+header) also carries `principal_id`, the person it acted for. Each is present
+only when set, so a plain question's payload is unchanged.
 
 **Suggestion events** add
 `suggestion: { id, project_id, goal_id, proposed_by, assigned_to, title, description, reasoning, priority, effort_estimate, status, reviewed_by, reviewed_at, rejection_reason, info_request, converted_task_id, bundle_key, created_at, updated_at }`.

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { RULE_ACTIONS } from './sorting';
-import { describeRule, liveRuleFor, ruleTarget, RULE_COLUMNS, senderRuleSchema, type SenderRuleRow } from './sender-rules';
+import { describeRule, liveRuleFor, liveRulesForKey, readRules, ruleInboxOf, ruleTarget, RULE_COLUMNS, scopeFields, senderRuleSchema, switchOffRules, type SenderRuleRow } from './sender-rules';
 import { assertCanManageInboxes, assertId, canManageInboxes, InboxError, loadTriageableThread, many, one, type InboxContext } from './inbox-service';
 import { domainOf, organizationalDomain } from './email/addresses';
 import { comms } from '@/lib/communications/db';
@@ -9,12 +9,16 @@ import { comms } from '@/lib/communications/db';
  * Sender rules from the Inbox (session routes): list them, make one (from a
  * thread, optionally filtering that thread's open mail from the sender at
  * once), change what one does, switch one off or back on. A person's rule
- * replaces any rule for the same sender and topic, the agent's included.
+ * replaces any rule for the same sender and topic in the same scope (the
+ * workspace, or one inbox), the agent's included; a person's workspace rule
+ * also switches off the agents' rules for them in every inbox.
  */
 
 export interface InboxSenderRule extends SenderRuleRow {
   label: string;
   created_by_name: string | null;
+  /** The inbox an inbox's rule is for, by name; null for a workspace rule. */
+  inbox_name?: string | null;
 }
 
 export const createSenderRuleSchema = senderRuleSchema.extend({
@@ -31,17 +35,42 @@ export type UpdateSenderRuleRequest = z.infer<typeof updateSenderRuleSchema>;
 
 async function present(ctx: InboxContext, rules: SenderRuleRow[]): Promise<InboxSenderRule[]> {
   const ids = [...new Set(rules.map((rule) => rule.created_by).filter((id): id is string => !!id))];
-  const people = ids.length
-    ? await many<{ id: string; name: string }>(ctx.service.from('team_members').select('id, name').in('id', ids))
-    : [];
+  const inboxIds = [...new Set(rules.map(ruleInboxOf).filter((id): id is string => !!id))];
+  const [people, inboxes] = await Promise.all([
+    ids.length ? many<{ id: string; name: string }>(ctx.service.from('team_members').select('id, name').in('id', ids)) : Promise.resolve([]),
+    inboxIds.length ? many<{ id: string; name: string }>(comms(ctx.service).from('inboxes').select('id, name').in('id', inboxIds)) : Promise.resolve([]),
+  ]);
   const names = new Map(people.map((person) => [person.id, person.name]));
-  return rules.map((rule) => ({ ...rule, label: describeRule(rule), created_by_name: rule.created_by ? names.get(rule.created_by) ?? null : null }));
+  const inboxNames = new Map(inboxes.map((inbox) => [inbox.id, inbox.name]));
+  return rules.map((rule) => {
+    const inboxId = ruleInboxOf(rule);
+    return {
+      ...rule,
+      scope: inboxId ? 'inbox' as const : 'workspace' as const,
+      inbox_id: inboxId,
+      inbox_name: inboxId ? inboxNames.get(inboxId) ?? null : null,
+      label: describeRule(rule),
+      created_by_name: rule.created_by ? names.get(rule.created_by) ?? null : null,
+    };
+  });
+}
+
+/** The inbox a person's new rule is for (null: the workspace); a named inbox must exist. */
+async function personRuleInbox(ctx: InboxContext, request: CreateSenderRuleRequest): Promise<string | null> {
+  if (request.scope === 'workspace' || (!request.scope && !request.inbox_id)) {
+    if (request.inbox_id) throw new InboxError(422, 'A rule for every inbox names no inbox.');
+    return null;
+  }
+  if (!request.inbox_id) throw new InboxError(422, 'Choose the inbox this rule is for.');
+  const inbox = await one<{ id: string }>(comms(ctx.service).from('inboxes').select('id').eq('id', assertId(request.inbox_id, 'inbox_id')).maybeSingle());
+  if (!inbox) throw new InboxError(404, 'Inbox not found');
+  return inbox.id;
 }
 
 /** Live rules first (newest first), then the switched-off ones. */
 export async function listSenderRules(ctx: InboxContext): Promise<{ rules: InboxSenderRule[] }> {
   assertCanManageInboxes(ctx.access);
-  const rows = await many<SenderRuleRow & Record<string, unknown>>(comms(ctx.service).from('sender_rules').select(RULE_COLUMNS)
+  const rows = await readRules<SenderRuleRow>((columns) => comms(ctx.service).from('sender_rules').select(columns)
     .order('created_at', { ascending: false }).limit(500));
   const ordered = [...rows.filter((rule) => !rule.disabled_at), ...rows.filter((rule) => rule.disabled_at)];
   return { rules: await present(ctx, ordered) };
@@ -54,14 +83,14 @@ export async function createSenderRule(ctx: InboxContext, request: CreateSenderR
   // Filtering the thread's open mail now acts on it: only in an inbox the
   // member may act on (never someone's personal inbox read under the Owners switch).
   const thread = request.thread_id ? await loadTriageableThread(ctx, request.thread_id) : null;
+  const inboxId = await personRuleInbox(ctx, request);
 
-  // The same sender and topic: switched off and replaced, so the history shows both.
-  const existing = await liveRuleFor(ctx.service, request.match_kind, target.value, request.topic);
-  if (existing) {
-    const { error } = await comms(ctx.service).from('sender_rules')
-      .update({ disabled_at: new Date().toISOString(), disabled_by: ctx.memberId }).eq('id', existing.id).is('disabled_at', null);
-    if (error) throw error;
-  }
+  // The same sender, topic and scope: switched off and replaced, so the history shows both. A
+  // person's workspace rule also switches off every agent's rule for them, in any inbox.
+  const sameKey = await liveRulesForKey(ctx.service, request.match_kind, target.value, request.topic);
+  await switchOffRules(ctx.service, sameKey
+    .filter((rule) => ruleInboxOf(rule) === inboxId || (inboxId === null && rule.source === 'agent'))
+    .map((rule) => rule.id), ctx.memberId);
   const rule = await one<SenderRuleRow & Record<string, unknown>>(comms(ctx.service).from('sender_rules').insert({
     match_kind: request.match_kind,
     match_value: target.value,
@@ -70,11 +99,13 @@ export async function createSenderRule(ctx: InboxContext, request: CreateSenderR
     source: 'person',
     reason: request.reason,
     created_by: ctx.memberId,
-  }).select(RULE_COLUMNS).single());
+    ...scopeFields(inboxId),
+  }).select(inboxId ? `${RULE_COLUMNS}, scope, inbox_id` : RULE_COLUMNS).single());
   if (!rule) throw new InboxError(500, 'Could not save the rule');
 
   let filtered = 0;
-  if (thread && request.action === 'ignore') filtered = await filterThreadNow(ctx, thread.id, rule);
+  // An inbox's rule filters only that inbox's thread.
+  if (thread && request.action === 'ignore' && (!inboxId || thread.inbox_id === inboxId)) filtered = await filterThreadNow(ctx, thread.id, rule);
   return { rule: (await present(ctx, [rule]))[0], filtered };
 }
 
@@ -149,7 +180,7 @@ export async function moveToInbox(ctx: InboxContext, threadId: string, messageId
 
 export async function updateSenderRule(ctx: InboxContext, ruleId: string, request: UpdateSenderRuleRequest): Promise<{ rule: InboxSenderRule }> {
   assertCanManageInboxes(ctx.access);
-  const rule = await one<SenderRuleRow & Record<string, unknown>>(comms(ctx.service).from('sender_rules').select(RULE_COLUMNS).eq('id', ruleId).maybeSingle());
+  const rule = (await readRules<SenderRuleRow & Record<string, unknown>>((columns) => comms(ctx.service).from('sender_rules').select(columns).eq('id', ruleId)))[0];
   if (!rule) throw new InboxError(404, 'Rule not found');
   const patch: Record<string, unknown> = {};
   if (request.action !== undefined) patch.action = request.action;
@@ -158,7 +189,7 @@ export async function updateSenderRule(ctx: InboxContext, ruleId: string, reques
     patch.disabled_by = ctx.memberId;
   }
   if (request.enabled === true && rule.disabled_at) {
-    const live = await liveRuleFor(ctx.service, rule.match_kind, rule.match_value, rule.topic);
+    const live = await liveRuleFor(ctx.service, rule.match_kind, rule.match_value, rule.topic, ruleInboxOf(rule));
     if (live) throw new InboxError(409, `${describeRule(rule)} already has a rule. Change that one instead.`);
     patch.disabled_at = null;
     patch.disabled_by = null;
@@ -167,7 +198,7 @@ export async function updateSenderRule(ctx: InboxContext, ruleId: string, reques
   // A person who changes what the rule does makes it theirs; switching it off or on does not.
   if (request.action !== undefined && request.action !== rule.action) patch.source = 'person';
   const updated = await one<SenderRuleRow & Record<string, unknown>>(comms(ctx.service).from('sender_rules')
-    .update(patch).eq('id', rule.id).select(RULE_COLUMNS).single());
+    .update(patch).eq('id', rule.id).select(ruleInboxOf(rule) ? `${RULE_COLUMNS}, scope, inbox_id` : RULE_COLUMNS).single());
   if (!updated) throw new InboxError(404, 'Rule not found');
   return { rule: (await present(ctx, [updated]))[0] };
 }

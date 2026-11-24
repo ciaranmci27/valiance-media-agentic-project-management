@@ -135,6 +135,23 @@ export const inboxSettingsSchema = z.object({
   /** Which triage runs the inbox: the older one, both (plans in shadow, for comparing), or plans. Left out, it stays. */
   triage_mode: z.enum(['legacy', 'shadow', 'plans']).optional(),
   access_member_ids: z.array(z.string().uuid()).max(100),
+  /**
+   * Who else handles it, beside handler_member_id (the primary): members or
+   * groups, each exactly one of member_id and group_id. Left out, they stay
+   * as they are; [] removes them all.
+   */
+  handlers: z.array(z.object({
+    member_id: z.string().uuid().optional(),
+    group_id: z.string().uuid().optional(),
+  }).strict().refine((handler) => !!handler.member_id !== !!handler.group_id, { message: 'Name a member or a group' })).max(50).optional(),
+  /** Who new work goes to when a request names no one: a member or a group's leads (at most one). Left out, it stays. */
+  default_assignee_member_id: z.string().uuid().nullable().optional(),
+  default_assignee_group_id: z.string().uuid().nullable().optional(),
+  /** The project used when a request leaves the project out and may have none. Left out, it stays. */
+  default_project_id: z.string().uuid().nullable().optional(),
+  /** Who gets this inbox's decisions: a member or every member of a group (at most one). Left out, it stays. */
+  decision_member_id: z.string().uuid().nullable().optional(),
+  decision_group_id: z.string().uuid().nullable().optional(),
 }).strict();
 export type InboxSettingsRequest = z.infer<typeof inboxSettingsSchema>;
 

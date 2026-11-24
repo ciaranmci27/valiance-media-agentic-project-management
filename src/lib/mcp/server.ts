@@ -5,7 +5,8 @@ import type { AccessContext } from '@/lib/access-control';
 import { apiRequestContext } from '@/lib/api/request-context';
 import type { CallRoute, RouteEnvelope, ToolOutcome } from './core';
 import { toolDefinition } from './core';
-import { INBOX_TOOLS, PM_GUIDE, PM_INBOX_GUIDE, PM_SETUP_GUIDE, SETUP_TOOLS } from './guide';
+import { apiKeyAllows } from '@/lib/api/access';
+import { INBOX_TOOLS, PM_ACTING_FOR_GUIDE, PM_GUIDE, PM_INBOX_GUIDE, PM_SETUP_GUIDE, SETUP_TOOLS } from './guide';
 import { routeHandler } from './handlers';
 import type { AgentProfile } from './profiles';
 import { GUIDE_CONTEXT_PATH, GUIDE_TOOL } from './tools';
@@ -22,6 +23,9 @@ export interface McpCaller {
   readOnly: boolean;
   member: { id: string; name: string; role: string };
   profile: AgentProfile;
+  /** A checked X-Act-For token: every call acts for this person (principalId). */
+  actFor?: string;
+  principalId?: string;
 }
 
 /** Hermes spills larger results to disk; reads over this are refused with a hint. */
@@ -65,7 +69,7 @@ export function refusal(status: number, code: string, message: string, details: 
  * own schema, and the route writes its audit row tagged via = mcp, exactly
  * as for REST.
  */
-export function routeCaller(caller: Pick<McpCaller, 'key' | 'origin'>): CallRoute {
+export function routeCaller(caller: Pick<McpCaller, 'key' | 'origin' | 'actFor'>): CallRoute {
   return async ({ method, path, params = {}, query, body, idempotencyKey }) => {
     const handler = routeHandler(path, method);
     if (!handler) return { status: 500, envelope: { success: false, error: { code: 'INTERNAL_ERROR', message: `No handler for ${method} ${path}` } } };
@@ -78,7 +82,7 @@ export function routeCaller(caller: Pick<McpCaller, 'key' | 'origin'>): CallRout
     const headers: Record<string, string> = { 'x-api-key': caller.key };
     if (body !== undefined) headers['content-type'] = 'application/json';
     if (idempotencyKey) headers['idempotency-key'] = idempotencyKey;
-    const response = await apiRequestContext.run({ via: 'mcp' }, () => handler(
+    const response = await apiRequestContext.run({ via: 'mcp', actFor: caller.actFor ?? null }, () => handler(
       new NextRequest(`${caller.origin}${concrete}${search.size ? `?${search}` : ''}`, {
         method,
         headers,
@@ -168,8 +172,12 @@ export function createPmServer(caller: McpCaller): Server {
           PM_GUIDE,
           ...(tools.some((t) => INBOX_TOOLS.includes(t.name)) ? [PM_INBOX_GUIDE] : []),
           ...(tools.some((t) => SETUP_TOOLS.includes(t.name)) ? [PM_SETUP_GUIDE] : []),
+          ...(apiKeyAllows(caller.access, caller.scopes, 'agents.act_for') || caller.principalId ? [PM_ACTING_FOR_GUIDE] : []),
         ].join('\n\n'),
-        you: { name: caller.member.name, role: caller.member.role, profile: caller.profile, read_only_key: caller.readOnly },
+        you: {
+          name: caller.member.name, role: caller.member.role, profile: caller.profile, read_only_key: caller.readOnly,
+          ...(caller.principalId ? { acting_for: caller.principalId } : {}),
+        },
         tools: tools.filter((t) => t.name !== GUIDE_TOOL).map((t) => t.name),
         context: await guideContext(call),
       });

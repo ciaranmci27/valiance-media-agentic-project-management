@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { createMcpHandler } from '@modelcontextprotocol/server';
 import { ApiError } from '@/lib/api/errors';
 import { resolveApiKey } from '@/lib/api/middleware';
+import { ACT_FOR_HEADER } from '@/lib/delegation';
 import { createPmServer, type McpCaller } from '@/lib/mcp/server';
 
 export const runtime = 'nodejs';
@@ -17,7 +18,10 @@ export const maxDuration = 60;
  * The key, the member's permissions and the member's agent profile decide
  * which tools are listed; every tool call runs v1 route handlers as that key,
  * so permissions, project scope, rate limit and the audit log are REST's.
- * Revoking the key closes both doors.
+ * Revoking the key closes both doors. An X-Act-For header (a delegation
+ * token) makes every call act for that person, within their access: the tool
+ * list is the agent's and the person's together, and each call carries the
+ * token on to its route.
  */
 const mcp = createMcpHandler(
   ({ authInfo }) => createPmServer(authInfo?.extra?.caller as McpCaller),
@@ -58,7 +62,8 @@ export async function POST(request: NextRequest) {
 
   let caller: McpCaller;
   try {
-    const { supabase, keyRow, access } = await resolveApiKey(key);
+    const actFor = request.headers.get(ACT_FOR_HEADER);
+    const { supabase, keyRow, access, principal } = await resolveApiKey(key, actFor);
     const { data: member } = await supabase
       .from('team_members')
       .select('*')
@@ -74,6 +79,7 @@ export async function POST(request: NextRequest) {
       // Before the migration adds the column, every agent is generic. A stored
       // profile the registry does not know is kept, and sees only pm_guide.
       profile: access.role === 'agent' && typeof member?.agent_profile === 'string' ? member.agent_profile : 'generic',
+      ...(principal && actFor ? { actFor, principalId: principal.id } : {}),
     };
   } catch (caught) {
     if (caught instanceof ApiError) return rpcError(caught.statusCode, caught.message, caught.details);

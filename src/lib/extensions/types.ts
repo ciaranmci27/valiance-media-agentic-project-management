@@ -5,7 +5,10 @@ import type { PermissionKey, TeamRole } from '@/lib/access-control';
 import type { ModuleId } from '@/lib/modules/registry';
 import type { SessionAccessResult } from '@/lib/api/access';
 import type { ApiContext } from '@/lib/api/middleware';
-import type { Project } from '@/lib/types';
+import type { AgentActivity, FleetAgentActivity, Project } from '@/lib/types';
+import type { DateRange } from '@/lib/finance/summary';
+import type { AgentAnalyticsModel } from '@/lib/agent-analytics-model';
+import type { AttributionDelta } from '@/lib/agent-telemetry-analytics';
 
 /**
  * The plug-in points an install fills from src/custom. Core reads them; an
@@ -72,6 +75,36 @@ export interface DashboardWidgetExtension extends ExtensionAccess {
   component: ComponentType;
 }
 
+/** What an agent analytics card is handed: the Analytics tab's range, filters, read model and events. */
+export interface AgentAnalyticsCardProps {
+  range: DateRange;
+  /** The viewer's zone for day keys; undefined is the browser's. */
+  timezone?: string;
+  /** The report's "now" (fixed per visit). */
+  now: number;
+  selectedAgentIds: ReadonlySet<string>;
+  selectedProjectIds: ReadonlySet<string>;
+  /** The core read model for this selection: facts, totals, money visibility. */
+  model: AgentAnalyticsModel;
+  /** Every agent event in the range (with telemetry), as the core model read them. */
+  activities: AgentActivity[];
+  /** Host records that name no agent. */
+  fleetActivities: FleetAgentActivity[];
+  /** Directed-session usage for token attribution, when the server summed usage per hour. */
+  attribution?: AttributionDelta[];
+  /** The range is still loading: show a skeleton, never a guess. */
+  measuring: boolean;
+}
+
+/** A card on the Agents page's Analytics tab, below the core breakdown. */
+export interface AgentAnalyticsCardExtension extends ExtensionAccess {
+  key: string;
+  title: string;
+  /** 'half' shares a row with the next half card from lg up. Default 'full'. */
+  size?: 'full' | 'half';
+  component: ComponentType<AgentAnalyticsCardProps>;
+}
+
 /** A page under Settings, at /settings/custom/<key>. Owners only unless `roles` or `permission` is set. */
 export interface SettingsSectionExtension extends ExtensionAccess {
   key: string;
@@ -88,6 +121,7 @@ export interface ExtensionsInput {
   pages?: PageExtension[];
   projectTabs?: ProjectTabExtension[];
   dashboardWidgets?: DashboardWidgetExtension[];
+  agentAnalyticsCards?: AgentAnalyticsCardExtension[];
   settingsSections?: SettingsSectionExtension[];
 }
 

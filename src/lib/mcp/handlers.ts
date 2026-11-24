@@ -81,6 +81,14 @@ import * as inboxSenders from '@/app/api/v1/inbox/senders/route';
 import * as inboxUnsummarized from '@/app/api/v1/inbox/triage/unsummarized/route';
 import * as inboxMarkSummarized from '@/app/api/v1/inbox/triage/mark-summarized/route';
 import * as inboxSignal from '@/app/api/v1/inbox/signal/route';
+import * as groups from '@/app/api/v1/groups/route';
+import * as group from '@/app/api/v1/groups/[id]/route';
+import * as groupMembers from '@/app/api/v1/groups/[id]/members/route';
+import * as groupMember from '@/app/api/v1/groups/[id]/members/[memberId]/route';
+import * as groupIdentities from '@/app/api/v1/groups/[id]/identities/route';
+import * as identityResolve from '@/app/api/v1/identities/resolve/route';
+import * as identityLinkRequests from '@/app/api/v1/identities/link-requests/route';
+import * as memberIdentities from '@/app/api/v1/members/[id]/identities/route';
 
 export type RouteHandler = (
   request: NextRequest,
@@ -176,6 +184,14 @@ export const ROUTE_MODULES: Record<string, RouteModule> = {
   '/api/v1/inbox/triage/unsummarized': inboxUnsummarized,
   '/api/v1/inbox/triage/mark-summarized': inboxMarkSummarized,
   '/api/v1/inbox/signal': inboxSignal,
+  '/api/v1/groups': groups,
+  '/api/v1/groups/{id}': group,
+  '/api/v1/groups/{id}/members': groupMembers,
+  '/api/v1/groups/{id}/members/{memberId}': groupMember,
+  '/api/v1/groups/{id}/identities': groupIdentities,
+  '/api/v1/identities/resolve': identityResolve,
+  '/api/v1/identities/link-requests': identityLinkRequests,
+  '/api/v1/members/{id}/identities': memberIdentities,
 };
 
 export function routeHandler(path: string, method: HttpMethod): RouteHandler | null {

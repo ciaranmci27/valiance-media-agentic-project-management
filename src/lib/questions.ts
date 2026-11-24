@@ -35,6 +35,8 @@ export const askQuestionSchema = z.object({
   task_id: z.uuid('task_id must be a uuid').nullable().optional(),
   project_id: z.uuid('project_id must be a uuid').nullable().optional(),
   asked_to: z.uuid('asked_to must be a team member id').optional(),
+  /** Ask a group instead: any member answers. Send asked_to or asked_to_group, not both. */
+  asked_to_group: z.uuid('asked_to_group must be a group id').optional(),
   choices: z.array(choice).min(1, 'Send 1 to 10 choices, or leave choices out').max(CHOICES_MAX, `At most ${CHOICES_MAX} choices`)
     .refine((list) => new Set(list.map((c) => c.toLowerCase())).size === list.length, 'Each choice must be different')
     .optional(),
@@ -77,6 +79,8 @@ export const requestApprovalSchema = z.object({
   task_id: z.uuid('task_id must be a uuid').nullable().optional(),
   project_id: z.uuid('project_id must be a uuid').nullable().optional(),
   asked_to: z.uuid('asked_to must be a team member id').optional(),
+  /** Ask a group instead: any person in it decides. */
+  asked_to_group: z.uuid('asked_to_group must be a group id').optional(),
   expires_at: z.iso.datetime({ offset: true, message: 'expires_at must be an ISO 8601 time' }).optional(),
 }).strict();
 export type RequestApprovalInput = z.infer<typeof requestApprovalSchema>;
@@ -144,7 +148,8 @@ export interface QuestionView {
   task_title: string | null;
   asked_by: string;
   asked_by_name: string | null;
-  asked_to: string;
+  /** Null when the question is asked to a group (asked_to_group). */
+  asked_to: string | null;
   asked_to_name: string | null;
   question: string;
   choices: string[] | null;
@@ -172,6 +177,13 @@ export interface QuestionView {
   /** Who decided (answered_by), once decided. */
   decided_by?: string | null;
   decided_by_name?: string | null;
+  /** A group's question only: the group, its name, and whether the reader is in it. */
+  asked_to_group?: string;
+  asked_to_group_name?: string | null;
+  asked_to_you?: boolean;
+  /** Set when an agent asked it for someone (X-Act-For): that person. */
+  principal_id?: string;
+  principal_name?: string | null;
 }
 
 /** The status a reader sees: an open question past its expiry is expired. */

@@ -10,11 +10,15 @@ import { useDemo } from '@/lib/demo-context';
 import { apiScopesFor, hasPermission } from '@/lib/access-control';
 import { invalidateTables, loadRead, useRead } from '@/lib/query-cache';
 import {
-  agentActivityRead, agentContextRead, agentDetailRead, agentRolesRead, agentRunFeedRead, agentTemplatesRead,
+  agentActivityRead, agentContextRead, agentDetailRead, agentRolesRead, agentRunFeedRead, agentTemplatesRead, allGroupsRead,
 } from '@/lib/reads';
-import { agentRulesOf, type AgentRules } from '@/lib/agent-rules';
+import { agentRulesOf, type AgentRulesDraft } from '@/lib/agent-rules';
+import { groupTargetLabel } from '@/lib/groups';
 import { NO_RUN_FILTERS, backlogLine, needsForAgent, runTitle, type RunFeedFilters } from '@/lib/agents-tab';
-import { canAddAgentToProject, normalizeRole, projectsLine, roleError, roleLabel, roleSuggestions, settingsDefaults, windowOf, showMoreLabel } from '@/lib/agents-ui';
+import {
+  canAddAgentToProject, normalizeRole, ownerPickerValue, projectsLine, roleError, roleLabel, roleSuggestions, rulesRequestFrom, settingsDefaults,
+  splitOwnerPicker, windowOf, showMoreLabel,
+} from '@/lib/agents-ui';
 import { newKeyFrom, workspaceApi, type AgentDetail, type AgentKeyView, type NewKey } from '@/lib/agent-workspace';
 import { useTaskUrlParam } from '@/lib/use-task-url';
 import { timeAgo } from '@/lib/task-times';
@@ -85,7 +89,10 @@ export function AgentProfile({ agentId }: { agentId: string }) {
   const agentNeeds = useMemo(() => needsForAgent(needs, agentId), [needs, agentId]);
   const data = detail.data;
   const owners = data?.owners ?? live?.owners ?? [];
-  const isOwnerOfIt = !!teamMemberId && owners.some((o) => o.id === teamMemberId);
+  const ownerGroups = data?.owner_groups ?? [];
+  const allGroups = useRead(isDemoMode ? null : allGroupsRead(isDemoMode)).data;
+  const myGroups = new Set((allGroups ?? []).filter((g) => g.is_member).map((g) => g.id));
+  const isOwnerOfIt = !!teamMemberId && (owners.some((o) => o.id === teamMemberId) || ownerGroups.some((g) => myGroups.has(g.id)));
   const canManage = !isDemoMode && (data?.can_manage ?? (isOwnerOfIt || hasPermission(access, 'team.manage')));
   const canKeys = !isDemoMode && access?.role === 'owner';
   // Owners change only for a workspace Owner or an existing owner of this agent (the server's rule).
@@ -163,7 +170,7 @@ export function AgentProfile({ agentId }: { agentId: string }) {
             {live?.backlog && <p className="mt-2 text-sm text-amber-200">{backlogLine(live.backlog)}: ready work assigned to {name} is not picked up.</p>}
           </div>
           <div className="flex flex-shrink-0 flex-col gap-2 sm:items-end">
-            <OwnersRow agentId={agentId} owners={owners} canManage={canEditOwners} />
+            <OwnersRow agentId={agentId} owners={owners} ownerGroups={ownerGroups} canManage={canEditOwners} />
           </div>
         </header>
 
@@ -252,21 +259,40 @@ async function patchAgent(agentId: string, body: Record<string, unknown>) {
   invalidateTables(['team_members', 'agent_owners']);
 }
 
-function OwnersRow({ agentId, owners, canManage }: { agentId: string; owners: AgentDetail['owners']; canManage: boolean }) {
+function OwnersRow({ agentId, owners, ownerGroups, canManage }: {
+  agentId: string;
+  owners: AgentDetail['owners'];
+  ownerGroups: NonNullable<AgentDetail['owner_groups']>;
+  canManage: boolean;
+}) {
   const { team } = useApp();
+  const { isDemoMode } = useDemo();
+  const groups = useRead(isDemoMode ? null : allGroupsRead(isDemoMode)).data ?? [];
+  const saved = ownerPickerValue(owners.map((o) => o.id), ownerGroups.map((g) => g.id));
   const [editing, setEditing] = useState(false);
-  const [value, setValue] = useState<string[]>(owners.map((o) => o.id));
+  const [value, setValue] = useState<string[]>(saved);
   const [busy, setBusy] = useState(false);
   const people = team.filter((m) => m.role !== 'agent' && m.status !== 'suspended');
   if (editing) {
+    const options = [
+      ...people.map((p) => ({ value: p.id, label: p.name })),
+      ...groups.map((g) => ({ value: ownerPickerValue([], [g.id])[0], label: groupTargetLabel(g.name) })),
+    ];
     return (
       <div className="w-full space-y-2 sm:w-72">
-        <MultiSelect label="Owners" value={value} onChange={setValue} options={people.map((p) => ({ value: p.id, label: p.name }))} searchable placeholder="Workspace Owners" size="sm" />
+        <MultiSelect label="Owners" value={value} onChange={setValue} options={options} searchable placeholder="Workspace Owners" size="sm" />
         <div className="flex justify-end gap-2">
-          <Button variant="ghost" size="sm" onClick={() => { setValue(owners.map((o) => o.id)); setEditing(false); }}>Cancel</Button>
+          <Button variant="ghost" size="sm" onClick={() => { setValue(saved); setEditing(false); }}>Cancel</Button>
           <Button size="sm" disabled={busy} onClick={async () => {
             setBusy(true);
-            try { await patchAgent(agentId, { owner_ids: value }); setEditing(false); toast('success', 'Owners saved'); } catch (error) { toast('error', error instanceof Error ? error.message : 'Could not save owners'); }
+            const { ownerIds, groupIds } = splitOwnerPicker(value);
+            // Owner groups are sent only when they change, or when the agent has some to keep.
+            const groupsChanged = groupIds.length > 0 || ownerGroups.length > 0;
+            try {
+              await patchAgent(agentId, { owner_ids: ownerIds, ...(groupsChanged ? { owner_group_ids: groupIds } : {}) });
+              setEditing(false);
+              toast('success', 'Owners saved');
+            } catch (error) { toast('error', error instanceof Error ? error.message : 'Could not save owners'); }
             setBusy(false);
           }}>Save</Button>
         </div>
@@ -276,7 +302,12 @@ function OwnersRow({ agentId, owners, canManage }: { agentId: string; owners: Ag
   return (
     <div className="flex items-center gap-2 text-xs text-zinc-500">
       <Users size={13} aria-hidden="true" />
-      {owners.length ? <><OwnerStack owners={owners} /><span className="text-zinc-400">{owners.length === 1 ? owners[0].name : `${owners.length} owners`}</span></> : <span>Workspace Owners</span>}
+      {owners.length ? <><OwnerStack owners={owners} /><span className="text-zinc-400">{owners.length === 1 ? owners[0].name : `${owners.length} owners`}</span></> : ownerGroups.length ? null : <span>Workspace Owners</span>}
+      {ownerGroups.length > 0 && (
+        <span className="min-w-0 truncate text-zinc-400">
+          {owners.length ? 'and ' : ''}{ownerGroups.length === 1 ? groupTargetLabel(ownerGroups[0].name) : `${ownerGroups.length} groups`}
+        </span>
+      )}
       {canManage && (
         <button type="button" onClick={() => setEditing(true)} className="rounded font-medium text-brand-300 hover:text-brand-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500">Change</button>
       )}
@@ -456,12 +487,14 @@ function RulesAndPowers({ detail, canManage }: { detail: AgentDetail; canManage:
   const [title, setTitle] = useState(agent.title ?? '');
   const [role, setRole] = useState(agent.agent_role ?? '');
   const [description, setDescription] = useState(agent.description ?? '');
-  const [rules, setRules] = useState<AgentRules>(agentRulesOf(detail.rules));
+  const savedRules = (): AgentRulesDraft => ({ ...agentRulesOf(detail.rules), agent_escalate_to_group: detail.rules.agent_escalate_to_group ?? null });
+  const [rules, setRules] = useState<AgentRulesDraft>(savedRules);
+  const groups = useRead(isDemoMode ? null : allGroupsRead(isDemoMode)).data ?? [];
   const [busy, setBusy] = useState(false);
   const people = team.filter((m) => m.role !== 'agent' && m.status !== 'suspended').sort((a, b) => a.name.localeCompare(b.name));
   const roleProblem = roleError(role);
   const dirty = name !== agent.name || title !== (agent.title ?? '') || (normalizeRole(role) ?? '') !== (agent.agent_role ?? '')
-    || description !== (agent.description ?? '') || JSON.stringify(rules) !== JSON.stringify(agentRulesOf(detail.rules));
+    || description !== (agent.description ?? '') || JSON.stringify(rules) !== JSON.stringify(savedRules());
   const suggestions = roleSuggestions(role, roles.data ?? []);
   const keyScopes = [...new Set((detail.keys ?? []).filter((k) => !k.revoked_at).flatMap((k) => k.scopes))];
 
@@ -474,7 +507,7 @@ function RulesAndPowers({ detail, canManage }: { detail: AgentDetail; canManage:
         title: title.trim() || null,
         description: description.trim() || null,
         agent_role: normalizeRole(role),
-        rules,
+        rules: rulesRequestFrom(rules, detail.rules),
       });
       toast('success', 'Saved');
     } catch (error) {
@@ -506,7 +539,7 @@ function RulesAndPowers({ detail, canManage }: { detail: AgentDetail; canManage:
       </section>
       <section aria-labelledby="rp-rules" className="space-y-4">
         <h2 id="rp-rules" className="text-[15px] font-semibold text-white">Rules</h2>
-        <RulesFields value={rules} onChange={setRules} people={people} disabled={!canManage} />
+        <RulesFields value={rules} onChange={setRules} people={people} groups={groups} disabled={!canManage} />
         <div>
           <h3 className="text-sm font-semibold text-white">Powers</h3>
           <p className="mt-1 text-xs text-zinc-500">What its active keys may do. Keys and their powers change on Connect.</p>
@@ -523,7 +556,7 @@ function RulesAndPowers({ detail, canManage }: { detail: AgentDetail; canManage:
       </section>
       {canManage && (
         <div className="flex items-center justify-end gap-2 border-t border-white/[0.06] pt-4 lg:col-span-2">
-          {dirty && <Button variant="ghost" onClick={() => { setName(agent.name); setTitle(agent.title ?? ''); setRole(agent.agent_role ?? ''); setDescription(agent.description ?? ''); setRules(agentRulesOf(detail.rules)); }}>Discard</Button>}
+          {dirty && <Button variant="ghost" onClick={() => { setName(agent.name); setTitle(agent.title ?? ''); setRole(agent.agent_role ?? ''); setDescription(agent.description ?? ''); setRules(savedRules()); }}>Discard</Button>}
           <Button onClick={save} disabled={!dirty || busy || !name.trim() || !!roleProblem}>{busy ? 'Saving' : 'Save changes'}</Button>
         </div>
       )}

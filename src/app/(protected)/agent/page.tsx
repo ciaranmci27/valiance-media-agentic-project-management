@@ -11,10 +11,11 @@ import { warmRead, warmReads } from '@/lib/query-cache';
 import { agentRolesRead, agentRunFeedRead, agentsListRead, agentTemplatesRead } from '@/lib/reads';
 import { useTaskUrlParam } from '@/lib/use-task-url';
 import { prefetchAgentAnalytics } from '@/lib/use-agent-analytics-events';
+import { prefetchAnalyticsReads } from '@/lib/agent-analytics-reads';
 import { defaultAgentAnalyticsRange } from '@/lib/agent-range';
 import { AGENT_RUN_STATUSES, type AgentRunStatus } from '@/lib/agent-runs';
 import {
-  AGENTS_TABS, AGENTS_TAB_LABELS, DEFAULT_AGENTS_TAB, NO_RUN_FILTERS, agentsTabFrom, type AgentsTab, type RunFeedFilters,
+  AGENTS_TABS, AGENTS_TAB_ALIASES, AGENTS_TAB_LABELS, DEFAULT_AGENTS_TAB, NO_RUN_FILTERS, agentsTabFrom, type AgentsTab, type RunFeedFilters,
 } from '@/lib/agents-tab';
 import { Header } from '@/components/layout/Header';
 import { Button } from '@/components/ui/Button';
@@ -24,7 +25,7 @@ import { TaskDetailPanel } from '@/components/tasks/TaskDetailPanel';
 import { NeedsYouView, useAgentNeedsYou } from '@/components/agent/NeedsYouView';
 import { AgentRoster } from '@/components/agent/AgentRoster';
 import { RunFeed } from '@/components/agent/runs/RunFeed';
-import { AgentUsage } from '@/components/agent/analytics/AgentUsage';
+import { AgentAnalytics } from '@/components/agent/analytics/AgentAnalytics';
 
 /**
  * Agents: one page, four views, each its own ?tab= so it can be linked to.
@@ -33,7 +34,8 @@ import { AgentUsage } from '@/components/agent/analytics/AgentUsage';
  *  - Agents (?tab=agents): the roster, live; each agent opens its profile
  *    (/agent/<id>). An old ?agent=<id> link goes to that profile.
  *  - Runs (?tab=runs&agent=&status=&project=&page=): the run feed.
- *  - Usage (?tab=usage): delivery, cost and revenue (was /agent/analytics).
+ *  - Analytics (?tab=analytics): runs, time, tokens, cost and delivery, and
+ *    money only where agents bill. ?tab=usage and /agent/analytics land here.
  *
  * The agents module and agents.manage are checked by this segment's layout.
  * The open task is the URL's ?task=, on every tab.
@@ -51,7 +53,7 @@ const SUBTITLES: Record<AgentsTab, string> = {
   'needs-you': 'Questions, approvals and agent work waiting on you.',
   agents: 'Who is working, what they are on, and what they need next.',
   runs: 'Every agent run, newest first.',
-  usage: 'Delivery, cost and revenue per agent. Only measured data; nothing is estimated.',
+  analytics: 'Runs, time, tokens, cost and delivery per agent. Only measured data; nothing is estimated.',
 };
 
 /** The query params each tab owns; switching tabs drops the others' (the open task stays). */
@@ -59,7 +61,7 @@ const TAB_PARAMS: Record<AgentsTab, string[]> = {
   'needs-you': [],
   agents: [],
   runs: ['agent', 'status', 'project', 'page'],
-  usage: [],
+  analytics: [],
 };
 
 function runFiltersFrom(params: URLSearchParams): { filters: RunFeedFilters; page: number } {
@@ -82,7 +84,8 @@ function AgentsPage() {
   const { isDemoMode } = useDemo();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const active = agentsTabFrom(searchParams.get('tab'));
+  const rawTab = searchParams.get('tab');
+  const active = agentsTabFrom(rawTab);
   const needs = useAgentNeedsYou();
   const { taskId: viewingTaskId, openTask, closeTask } = useTaskUrlParam();
   const [deletingTaskId, setDeletingTaskId] = useState<string | null>(null);
@@ -99,6 +102,14 @@ function AgentsPage() {
   useEffect(() => {
     if (legacyAgent) router.replace(`/agent/${encodeURIComponent(legacyAgent)}`);
   }, [legacyAgent, router]);
+
+  // An old tab name (?tab=usage) opens its tab; the URL takes the new name.
+  useEffect(() => {
+    if (!rawTab || !Object.hasOwn(AGENTS_TAB_ALIASES, rawTab)) return;
+    const next = new URLSearchParams(searchParams.toString());
+    next.set('tab', active);
+    window.history.replaceState(null, '', `${pathname}?${next.toString()}`);
+  }, [rawTab, active, searchParams, pathname]);
 
   const pushParams = useCallback((next: URLSearchParams) => {
     const query = next.toString();
@@ -147,7 +158,11 @@ function AgentsPage() {
     ...(key === 'agents' ? { count: agentCount, warm: () => warmReads([agentsListRead(isDemoMode), agentRolesRead(isDemoMode), agentTemplatesRead(isDemoMode)]) } : {}),
     ...(key === 'runs' ? { warm: () => void warmRead(agentRunFeedRead(NO_RUN_FILTERS, 0, isDemoMode)) } : {}),
     // The report is cached by range, so pointing at the tab measures it ahead of the click.
-    ...(key === 'usage' ? { warm: () => prefetchAgentAnalytics(defaultAgentAnalyticsRange(timezone)) } : {}),
+    ...(key === 'analytics' ? { warm: () => {
+      const range = defaultAgentAnalyticsRange(timezone);
+      prefetchAgentAnalytics(range);
+      if (!isDemoMode) prefetchAnalyticsReads(range);
+    } } : {}),
   }));
 
   const panel = (key: AgentsTab, children: ReactNode) => (key === active || visited.has(key)) && (
@@ -184,7 +199,7 @@ function AgentsPage() {
         {panel('runs', (
           <RunFeed filters={runFilters} page={runPage} onChange={setRunFeed} onOpenTask={openTask} />
         ))}
-        {panel('usage', <AgentUsage />)}
+        {panel('analytics', <AgentAnalytics />)}
       </div>
 
       <TaskDetailPanel task={viewingTask} onClose={closeTask} onDelete={(id) => setDeletingTaskId(id)} />

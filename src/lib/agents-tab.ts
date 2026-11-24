@@ -1,5 +1,6 @@
 import type { NeedsYouItem } from '@/lib/autonomy';
 import { agentRulesOf, ESCALATE_DEFAULT_LABEL } from '@/lib/agent-rules';
+import { groupTargetLabel } from '@/lib/groups';
 import {
   AGENT_RUN_STATUSES,
   effectiveRunStatus,
@@ -18,7 +19,7 @@ import type { Project, Task, TaskReview, TaskSuggestion, TeamMember } from '@/li
 
 // ── Tabs ────────────────────────────────────────────────────────────────
 
-export const AGENTS_TABS = ['needs-you', 'agents', 'runs', 'usage'] as const;
+export const AGENTS_TABS = ['needs-you', 'agents', 'runs', 'analytics'] as const;
 export type AgentsTab = (typeof AGENTS_TABS)[number];
 export const DEFAULT_AGENTS_TAB: AgentsTab = 'needs-you';
 
@@ -26,11 +27,15 @@ export const AGENTS_TAB_LABELS: Record<AgentsTab, string> = {
   'needs-you': 'Needs you',
   agents: 'Agents',
   runs: 'Runs',
-  usage: 'Usage',
+  analytics: 'Analytics',
 };
 
-/** The tab a ?tab= value opens: an unknown or missing one is the default. */
+/** Old ?tab= names that still open their tab (the page rewrites the URL to the new name). */
+export const AGENTS_TAB_ALIASES: Readonly<Record<string, AgentsTab>> = { usage: 'analytics' };
+
+/** The tab a ?tab= value opens: an old name opens its new tab; an unknown or missing one is the default. */
 export function agentsTabFrom(value: string | null | undefined): AgentsTab {
+  if (value && Object.hasOwn(AGENTS_TAB_ALIASES, value)) return AGENTS_TAB_ALIASES[value];
   return (AGENTS_TABS as readonly string[]).includes(value ?? '') ? value as AgentsTab : DEFAULT_AGENTS_TAB;
 }
 
@@ -340,12 +345,16 @@ export function currentRunByAgent(runs: AgentRunSummary[]): Map<string, AgentRun
 
 /** An agent's rules as short plain lines, in the order the Team form asks them. */
 export function agentRulesInWords(
-  member: Parameters<typeof agentRulesOf>[0],
+  member: (Parameters<typeof agentRulesOf>[0] & { agent_escalate_to_group?: unknown }) | null | undefined,
   team: Pick<TeamMember, 'id' | 'name'>[],
+  groups: { id: string; name: string }[] = [],
 ): string[] {
   const rules = agentRulesOf(member);
-  // Someone no longer on the team reads as the fallback the server uses: the Owner.
+  const groupId = typeof member?.agent_escalate_to_group === 'string' ? member.agent_escalate_to_group : null;
+  const group = groupId ? groups.find((g) => g.id === groupId) : undefined;
+  // Someone no longer on the team (or a group gone) reads as the fallback the server uses: the Owner.
   const escalatesTo = (rules.agent_escalate_to && team.find((m) => m.id === rules.agent_escalate_to)?.name)
+    || (group ? groupTargetLabel(group.name) : null)
     || ESCALATE_DEFAULT_LABEL.replace(/^The /, 'the ');
   return [
     rules.agent_self_assign ? 'Picks up unassigned work' : 'Works only when assigned',

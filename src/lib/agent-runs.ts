@@ -141,6 +141,8 @@ export interface AgentRunSummary {
   updated_at: string;
   /** Stored runs only: the turns attached to it. */
   turns?: AgentRunTurns;
+  /** Set when the agent acted for someone (X-Act-For): that person. */
+  principal_id?: string;
 }
 
 /** One run in full: its plan, notes and metadata too (empty for a turn). */

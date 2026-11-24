@@ -42,6 +42,7 @@ Load the skill `pm-add-custom-feature`. Full reference: `src/custom/README.md`.
 | A page (`/x/<slug>`) and its sidebar entry | `pages` and `navItems` in `src/custom/index.ts` |
 | A tab on every project | `projectTabs` in `src/custom/index.ts` |
 | A Dashboard card | `dashboardWidgets` in `src/custom/index.ts` |
+| An agent analytics card (below the breakdown on Agents > Analytics) | `agentAnalyticsCards` in `src/custom/index.ts` |
 | A Settings page (Owners only by default) | `settingsSections` in `src/custom/index.ts` |
 | An API endpoint, webhook receiver or cron target (`/api/x/<path>`) | `src/custom/api.ts` |
 | A page open without signing in | `src/custom/middleware.ts` |

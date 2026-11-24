@@ -53,9 +53,10 @@ export interface ReminderRow {
 }
 
 export function canSeeReminder(access: AccessContext, memberId: string, row: ReminderRow): boolean {
-  return row.owner_id === memberId
-    || row.created_by === memberId
-    || (!!row.project_id && accessAllowsProject(access, row.project_id, 'api'));
+  // Acting for a person (X-Act-For), the agent's own reminders are no reach
+  // of theirs: only reminders on projects both reach.
+  const own = !access.principal_id && (row.owner_id === memberId || row.created_by === memberId);
+  return own || (!!row.project_id && accessAllowsProject(access, row.project_id, 'api'));
 }
 
 /** Delete is narrower than edit: the owner, the writer, or a task manager. */
@@ -65,7 +66,8 @@ export function canDeleteReminder(access: AccessContext, memberId: string, row: 
 
 /** The `.or()` filter for every reminder the caller may see. */
 export function visibleReminderFilter(access: AccessContext, memberId: string): string {
-  const own = `owner_id.eq.${memberId},created_by.eq.${memberId}`;
+  // Acting for a person, only reminders on projects both reach (see canSeeReminder).
+  const own = access.principal_id ? 'id.is.null' : `owner_id.eq.${memberId},created_by.eq.${memberId}`;
   if (accessAllows(access, 'projects.read_all', 'api')) return `${own},project_id.not.is.null`;
   const projects = accessAllows(access, 'projects.read', 'api') ? access.project_ids : [];
   return projects.length ? `${own},project_id.in.(${projects.join(',')})` : own;

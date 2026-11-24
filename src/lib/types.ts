@@ -476,6 +476,8 @@ export interface TeamMember {
   agent_close_policy?: 'close' | 'review';
   agent_create_policy?: 'live' | 'approval';
   agent_escalate_to?: string | null;
+  /** Agents only: a group it escalates to instead of one member (any member answers). */
+  agent_escalate_to_group?: string | null;
   /**
    * Which projects the member can open, derived by the team directory from
    * their permissions: every project, the ones they are a member of, or none.

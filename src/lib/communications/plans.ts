@@ -30,6 +30,7 @@ import { addTaskFile, type TaskFilesContext } from '@/lib/task-files/service';
 import { comms } from './db';
 import { inboxPeopleIds } from './inbox-visibility';
 import { normalizeAddress, isHostname } from './email/addresses';
+import { defaultAssigneeIds, defaultAssigneesForProject, inboxDefaults, liveDefaultProject } from './inbox-handlers';
 import { messageFacts, type MessageFacts } from './speaker';
 import { decideItem, type Decision, type PolicyItem } from './triage-policy';
 import type { PlanItemRequest, PlanRequest } from './plan-schemas';
@@ -339,6 +340,8 @@ export async function applyItem(actor: PlanActor, message: PlanMessage, item: Pl
   const { db, memberId, access } = actor;
   if (leadsOff(access, item.type)) throw moduleOff('sales');
   const owner = await ownerId(db);
+  // The inbox's defaults, used only where an item leaves the field out; unset, the Owner as before.
+  const defaults = await inboxDefaults(db, message.inbox_id);
   // A retry of this item: what an earlier try already did, and since when to look.
   const prior = (existing.result ?? {}) as Row;
   const since = (existing.created_at as string | undefined) ?? new Date(0).toISOString();
@@ -353,7 +356,9 @@ export async function applyItem(actor: PlanActor, message: PlanMessage, item: Pl
       let taskId = (prior.task_id as string | undefined) ?? null;
       if (!taskId) {
         const canAssignOthers = accessAllows(access, 'tasks.manage_all', actor.channel);
-        const assignee = owner && canAssignOthers ? [owner] : undefined;
+        // An item never names who does it: the inbox's default assignees (those who can open the project), else the Owner.
+        const people = (await defaultAssigneesForProject(db, defaults, item.project_id)) ?? (owner ? [owner] : null);
+        const assignee = people && canAssignOthers ? people : undefined;
         const created = await createTaskAs({ supabase: db, memberId, access, canAssignOthers, channel: actor.channel }, {
           project_id: item.project_id,
           ...(item.parent_task_id ? { parent_task_id: item.parent_task_id } : {}),
@@ -410,14 +415,24 @@ export async function applyItem(actor: PlanActor, message: PlanMessage, item: Pl
     case 'add_reminder': {
       const { data: earlier } = await db.from('reminders').select('id').eq('source_message_id', message.id).eq('title', item.title).is('deleted_at', null).limit(1);
       const found = ((earlier ?? []) as { id: string }[])[0];
+      // Whose reminder: the inbox's default assignee, else the Owner. Its project when it names neither a task nor a project:
+      // the inbox's default, when the agent reaches it and the email may touch it (else none, as before).
+      const reminderOwner = ((await defaultAssigneeIds(db, defaults)) ?? [])[0] ?? owner;
+      const fallbackProject = !item.task_id && !item.project_id ? await liveDefaultProject(db, defaults) : null;
+      let reminderProject: string | null = null;
+      if (fallbackProject && accessAllowsProject(access, fallbackProject, actor.channel)) {
+        const { data: inScope, error: scopeError } = await comms(db).rpc('scope_source', { p_message_id: message.id, p_project_id: fallbackProject });
+        if (scopeError) throw scopeError;
+        reminderProject = inScope ? fallbackProject : null;
+      }
       const reminder = found ?? await createReminder(db, access, memberId, {
         title: item.title,
         notes: item.notes,
         remind_on: item.remind_on ?? null,
         remind_at: item.remind_at ?? null,
         task_id: item.task_id ?? null,
-        project_id: item.task_id ? null : item.project_id ?? null,
-        ...(owner && owner !== memberId && access.role === 'agent' ? { owner_id: owner } : {}),
+        project_id: item.task_id ? null : item.project_id ?? reminderProject,
+        ...(reminderOwner && reminderOwner !== memberId && access.role === 'agent' ? { owner_id: reminderOwner } : {}),
         source_message_id: message.id,
       }, actor.channel);
       return { reminder_id: (reminder as { id: string }).id };

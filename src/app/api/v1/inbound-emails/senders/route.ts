@@ -2,7 +2,7 @@ import { withApi } from '@/lib/api/middleware';
 import { success } from '@/lib/api/response';
 import { inboxScope } from '@/lib/communications/agent-access';
 import { domainOf, organizationalDomain } from '@/lib/communications/email/addresses';
-import { describeRule, RULE_COLUMNS, type SenderRuleRow } from '@/lib/communications/sender-rules';
+import { describeRule, readRules, ruleAppliesTo, type SenderRuleRow } from '@/lib/communications/sender-rules';
 import { matchRule, type MailTopic } from '@/lib/communications/sorting';
 import { fetchAllRows } from '@/lib/supabase/fetch-all';
 import { comms } from '@/lib/communications/db';
@@ -19,6 +19,7 @@ interface MessageRow { id: string; kind: string | null; topic: string | null; so
  * `days` (default 30, at most 90), busiest first. Per sender: how many
  * emails, their kinds, topics and sorting actions, the latest triage
  * outcomes, how many tasks they led to, and the live rules that cover them.
+ * With inbox_id: that inbox's mail, and the rules that sort it.
  */
 export const GET = withApi(async ({ supabase, searchParams, teamMemberId, access }) => {
   const inboxIds = await inboxScope(supabase, teamMemberId, access, searchParams.get('inbox_id'));
@@ -48,9 +49,10 @@ export const GET = withApi(async ({ supabase, searchParams, teamMemberId, access
     triage.push(...(t.data ?? []) as typeof triage);
     links.push(...(l.data ?? []) as typeof links);
   }
-  const { data: ruleRows, error: ruleError } = await comms(supabase).from('sender_rules').select(RULE_COLUMNS).is('disabled_at', null);
-  if (ruleError) throw ruleError;
-  const rules = (ruleRows ?? []) as SenderRuleRow[];
+  // For one inbox, the rules that sort its mail (the workspace's and its own).
+  const inboxParam = searchParams.get('inbox_id');
+  const rules = (await readRules<SenderRuleRow>((columns) => comms(supabase).from('sender_rules').select(columns).is('disabled_at', null)))
+    .filter((rule) => !inboxParam || ruleAppliesTo(rule, inboxIds[0]));
 
   const latestOutcome = new Map<string, { outcome: string; created_at: string }>();
   for (const row of triage) {

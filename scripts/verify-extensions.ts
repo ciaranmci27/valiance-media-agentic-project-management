@@ -79,7 +79,11 @@ const IS_SOURCE = existsSync(join(__dirname, '..', '..', 'app', 'package.json'))
 
 function registry() {
   if (IS_SOURCE) {
-    check('stubs: src/custom/index.ts is an empty registry', Object.values(customExtensions).every((list) => list.length === 0));
+    // Valiance's own install registers its fleet analytics cards here; what
+    // installs start with is the starter in release/app-custom-stubs.
+    const starter = readFileSync(join(__dirname, '..', '..', 'release', 'app-custom-stubs', 'src', 'custom', 'index.ts'), 'utf8');
+    check('stubs: the starter src/custom/index.ts is an empty registry', /export default defineExtensions\(\{\}\);/.test(starter));
+    check('own install: src/custom/index.ts validates', Object.values(customExtensions).every((list) => Array.isArray(list)));
     check('stubs: src/custom/api.ts has no routes', customApi.length === 0);
     check('stubs: src/custom/middleware.ts opens no paths', customPublicPaths.length === 0);
   }
@@ -99,6 +103,31 @@ function registry() {
     dashboardWidgets: [{ key: 'w', title: 'A', component: Noop }, { key: 'w', title: 'B', component: Noop }],
   }));
   check('registry: duplicate widget keys are refused', !!dupWidget && dupWidget.includes('key "w"'), dupWidget);
+  const dupCard = thrown(() => defineExtensions({
+    agentAnalyticsCards: [{ key: 'fleet', title: 'A', component: Noop }, { key: 'fleet', title: 'B', component: Noop }],
+  }));
+  check('registry: duplicate agent analytics card keys are refused', !!dupCard && dupCard.includes('key "fleet"'), dupCard);
+  check('registry: an agent analytics card with a bad size is refused', !!thrown(() => defineExtensions({
+    agentAnalyticsCards: [{ key: 'a', title: 'A', component: Noop, size: 'wide' as never }],
+  })));
+  check('registry: an agent analytics card with an unknown permission is refused', !!thrown(() => defineExtensions({
+    agentAnalyticsCards: [{ key: 'a', title: 'A', component: Noop, permission: 'agents.everything' as never }],
+  })));
+  check('registry: no agent analytics cards by default, so core renders none', defineExtensions({}).agentAnalyticsCards.length === 0);
+  {
+    // Core never reaches into an install's own cards: the Analytics tab renders with none.
+    const coreFiles: string[] = [];
+    const walk = (dir: string) => {
+      for (const name of readdirSync(dir, { withFileTypes: true })) {
+        const full = join(dir, name.name);
+        if (name.isDirectory()) { if (full !== join(__dirname, '..', 'src', 'custom')) walk(full); }
+        else if (/\.(ts|tsx)$/.test(name.name)) coreFiles.push(full);
+      }
+    };
+    walk(join(__dirname, '..', 'src'));
+    const reaching = coreFiles.filter((file) => /['\"]@\/custom\/analytics/.test(readFileSync(file, 'utf8')));
+    check('core imports none of an install\'s analytics cards', reaching.length === 0, reaching);
+  }
   const dupSection = thrown(() => defineExtensions({
     settingsSections: [{ key: 'crm', label: 'A', icon: Icon, component: Noop }, { key: 'crm', label: 'B', icon: Icon, component: Noop }],
   }));

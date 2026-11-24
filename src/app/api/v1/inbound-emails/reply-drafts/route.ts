@@ -2,6 +2,7 @@ import { withApi } from '@/lib/api/middleware';
 import { success } from '@/lib/api/response';
 import { badRequest } from '@/lib/api/errors';
 import { inboxScope } from '@/lib/communications/agent-access';
+import { handledParam, narrowToHandled } from '@/lib/communications/inbox-handlers';
 import { DRAFT_COLUMNS } from '@/lib/communications/inbox-drafts';
 import { comms } from '@/lib/communications/db';
 
@@ -19,11 +20,12 @@ interface DraftRow {
  * (default status requested). Each names the email to answer
  * (message_id, its thread and subject) and what the person wants said.
  * Read the email with GET /api/v1/inbound-emails/:message_id first.
+ * handled=me keeps only the inboxes the key's member handles.
  */
 export const GET = withApi(async ({ supabase, searchParams, teamMemberId, access }) => {
   const status = searchParams.get('status') ?? 'requested';
   if (!(STATUSES as readonly string[]).includes(status)) throw badRequest('status must be requested, ready or failed');
-  const inboxIds = await inboxScope(supabase, teamMemberId, access, searchParams.get('inbox_id'));
+  const inboxIds = await narrowToHandled(supabase, teamMemberId, await inboxScope(supabase, teamMemberId, access, searchParams.get('inbox_id')), handledParam(searchParams));
   if (inboxIds.length === 0) return success([]);
   // Scoped to the key's inboxes before any cap: the drafts on its threads only.
   const drafts: DraftRow[] = [];

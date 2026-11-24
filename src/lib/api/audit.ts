@@ -1,6 +1,6 @@
 import { SupabaseClient } from '@supabase/supabase-js';
 import { afterResponse } from './after-response';
-import { currentApiVia } from './request-context';
+import { currentApiVia, currentPrincipalId } from './request-context';
 
 export function logAudit(
   supabase: SupabaseClient,
@@ -20,6 +20,7 @@ export function logAudit(
 ): void {
   // Read while the request is still in scope; the write runs after it.
   const via = currentApiVia();
+  const principalId = currentPrincipalId();
   // Keep the request fast while guaranteeing Next.js keeps the work alive
   // after the response has been sent.
   afterResponse('audit log write', async () => {
@@ -37,6 +38,8 @@ export function logAudit(
       error: params.error || null,
       // Sent only for MCP, so REST logging never depends on the column.
       ...(via === 'mcp' ? { via } : {}),
+      // Sent only when acting for a person, so other logging never depends on the column.
+      ...(principalId ? { principal_id: principalId } : {}),
     });
     if (error) throw error;
   });

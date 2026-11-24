@@ -2,8 +2,9 @@
  * Who is speaking in a message, worked out by the app so the agent never has
  * to guess it: the Owner, a teammate, a client, a client's colleague,
  * a prospect, a machine, or a stranger. Also whether the inbox's agent was
- * addressed (its address among the main recipients, or its name at the top),
- * and whether a forward from the owner carries a note of his.
+ * addressed (its address among the main recipients, or its name at the top:
+ * the primary handler's, or any agent's that handles the inbox), and whether
+ * a forward from the owner carries a note of his.
  *
  * - owner / teammate: the verified teammate behind the message
  *   (sender_member_id: an active person whose From passed DKIM), by role;
@@ -17,6 +18,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { comms } from './db';
 import { forwardNote } from './email/forwarded';
+import { inboxHandlerRows } from './inbox-handlers';
 import type { Delivery, PolicyMessage, Speaker, Trust } from './triage-policy';
 
 export interface MessageFacts extends PolicyMessage {
@@ -44,8 +46,20 @@ export async function messageFacts(supabase: SupabaseClient, messageId: string):
   const box = inbox.data as { address: string; routing_address: string; handler_member_id: string | null };
   const senderMemberId = (row.sender_member_id as string | null) ?? null;
 
+  // The other handlers: member handlers, and the members of handler groups.
+  const handlers = await inboxHandlerRows(supabase, [row.inbox_id as string]);
+  const handlerGroups = handlers.map((h) => h.handler_group_id).filter((id): id is string => !!id);
+  const { data: groupRows, error: groupError } = handlerGroups.length
+    ? await supabase.from('group_members').select('member_id').in('group_id', handlerGroups)
+    : { data: [], error: null };
+  if (groupError) throw groupError;
+  const otherHandlers = [...new Set([
+    ...handlers.map((h) => h.handler_member_id),
+    ...((groupRows ?? []) as { member_id: string }[]).map((g) => g.member_id),
+  ].filter((id): id is string => !!id && id !== box.handler_member_id))];
+
   const [members, leads] = await Promise.all([
-    supabase.from('team_members').select('id, name, role').in('id', [senderMemberId, box.handler_member_id].filter(Boolean) as string[]),
+    supabase.from('team_members').select('id, name, role').in('id', [...new Set([senderMemberId, box.handler_member_id, ...otherHandlers].filter(Boolean) as string[])]),
     fromAddress
       ? supabase.from('leads').select('id').ilike('email', fromAddress).is('deleted_at', null).is('archived_at', null).limit(1)
       : Promise.resolve({ data: [], error: null }),
@@ -54,7 +68,12 @@ export async function messageFacts(supabase: SupabaseClient, messageId: string):
   if (leads.error) throw leads.error;
   const memberById = new Map(((members.data ?? []) as { id: string; name: string; role: string }[]).map((m) => [m.id, m]));
   const sender = senderMemberId ? memberById.get(senderMemberId) ?? null : null;
-  const agentName = box.handler_member_id ? (memberById.get(box.handler_member_id)?.name ?? '').split(/\s+/)[0] : '';
+  const firstName = (id: string) => (memberById.get(id)?.name ?? '').split(/\s+/)[0];
+  // The primary handler's name, as before, and the name of any agent that handles the inbox.
+  const agentNames = [
+    box.handler_member_id ? firstName(box.handler_member_id) : '',
+    ...otherHandlers.filter((id) => memberById.get(id)?.role === 'agent').map(firstName),
+  ].filter((name, index, all) => name.length > 1 && all.indexOf(name) === index);
 
   const machine = !!row.auto_mail_reason || row.kind === 'notification' || row.kind === 'marketing';
   let speaker: Speaker;
@@ -68,7 +87,7 @@ export async function messageFacts(supabase: SupabaseClient, messageId: string):
   // Written to the agent: its own inbox address only. Your addresses are you, not the agent.
   const ours = new Set([box.address, box.routing_address].map((a) => a.toLowerCase()));
   const opening = ((row.new_text as string | null) ?? (row.text_body as string | null) ?? '').trim().slice(0, 200);
-  const named = agentName.length > 1 && new RegExp(`^(hi |hey |hello )?${agentName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(opening);
+  const named = agentNames.some((name) => new RegExp(`^(hi |hey |hello )?${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(opening));
   const addressedToAgent = recipients.some((r) => r.kind === 'to' && ours.has(r.address)) || named;
 
   const forwarded = row.routing_basis === 'forwarded_original';

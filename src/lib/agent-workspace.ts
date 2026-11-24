@@ -50,6 +50,8 @@ export interface AgentListItem {
   agent_role: string | null;
   template_key: string | null;
   owners: AgentOwner[];
+  /** Groups that own it beside its people (any member manages it). */
+  owner_groups?: { id: string; name: string }[];
   /** Projects it is set up on (assignment project ids), up to 50. */
   project_ids?: string[];
   /** Projects it can open (project access), up to 50 the viewer reaches; how it actually works. */
@@ -80,7 +82,7 @@ export interface AgentDetail {
     status: 'active' | 'suspended';
     agent_role: string | null;
   };
-  rules: AgentRules;
+  rules: AgentRules & { agent_escalate_to_group?: string | null };
   health: unknown;
   current_run: AgentRunSummary | null;
   projects: ProjectAgentAssignment[];
@@ -93,6 +95,8 @@ export interface AgentDetail {
   webhooks?: unknown[];
   template_key: string | null;
   owners: AgentOwner[];
+  /** Groups that own it beside its people (any member manages it). */
+  owner_groups?: { id: string; name: string }[];
   /** Whether the viewer may edit this agent (an owner of it, or team.manage). */
   can_manage?: boolean;
   omitted: string[];
@@ -114,13 +118,14 @@ export interface HireRequest {
   avatar_url?: string;
   agent_role?: string;
   owner_ids?: string[];
+  owner_group_ids?: string[];
   template_key?: string;
   project_ids?: string[];
   project_settings?: Record<string, { settings?: SettingsValues; instructions?: string }>;
   create_key?: boolean;
   key_name?: string;
   scopes?: string[];
-  rules?: Partial<AgentRules>;
+  rules?: Partial<AgentRules> & { agent_escalate_to_group?: string | null };
 }
 
 export interface HireResponse {

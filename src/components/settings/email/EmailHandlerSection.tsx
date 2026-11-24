@@ -21,6 +21,9 @@ import {
 import { MxStatusBlock, RelayDomainRow, type MxCheck } from '@/components/settings/email/InboxSetup';
 import { isWaiting } from '@/components/settings/email/inbox-status';
 import { useApp } from '@/lib/store';
+import { useAuth } from '@/lib/auth-context';
+import { useRead } from '@/lib/query-cache';
+import { allGroupsRead } from '@/lib/reads';
 import { useDemo } from '@/lib/demo-context';
 import { announceInboxChange, inboxSettingsClient } from '@/lib/communications/inbox-client';
 import type { InboxSettings, InboxSettingsList } from '@/lib/communications/inbox-types';
@@ -46,7 +49,11 @@ function domainsOf(data: InboxSettingsList): string[] {
 
 export function EmailHandlerSection() {
   const { isDemoMode } = useDemo();
-  const { team, emailsRefreshSignal } = useApp();
+  const { team, projects, emailsRefreshSignal } = useApp();
+  // Only an Owner chooses who gets an inbox's decisions.
+  const isOwner = useAuth().access?.role === 'owner';
+  const groups = useRead(isDemoMode ? null : allGroupsRead(isDemoMode)).data ?? [];
+  const liveProjects = useMemo(() => projects.filter((p) => !p.archived_at).map((p) => ({ id: p.id, name: p.name })), [projects]);
   const client = useMemo(() => inboxSettingsClient(isDemoMode), [isDemoMode]);
   const setupId = useId();
   const addButtonId = useId();
@@ -222,11 +229,11 @@ export function EmailHandlerSection() {
       if (editing) {
         // The switch is the card's: send it as it is now, never as it was when the form opened.
         const current = inboxesRef.current.find((inbox) => inbox.id === editing.id) ?? editing;
-        const updated = await client.update(editing.id, inboxRequest(form, current.enabled));
+        const updated = await client.update(editing.id, inboxRequest(form, current.enabled, { decisions: isOwner }));
         setInboxes((list) => list.map((item) => (item.id === updated.id ? updated : item)));
         toast('success', 'Inbox updated');
       } else {
-        const created = await client.create(inboxRequest(form, true));
+        const created = await client.create(inboxRequest(form, true, { decisions: isOwner }));
         setCreatedId(created.id);
         toast('success', `${created.name} created`);
       }
@@ -305,6 +312,9 @@ export function EmailHandlerSection() {
           editing={editing}
           relay={relay}
           team={team}
+          groups={groups}
+          projects={liveProjects}
+          canSetDecisions={isOwner}
           saving={saving}
           onChange={updateField}
           onSave={handleSave}
@@ -351,6 +361,8 @@ export function EmailHandlerSection() {
                 key={inbox.id}
                 inbox={inbox}
                 team={team}
+                groups={groups}
+                projects={liveProjects}
                 toggling={togglingIds.has(inbox.id)}
                 editing={showForm && editing?.id === inbox.id}
                 onEdit={() => openForm(inbox)}

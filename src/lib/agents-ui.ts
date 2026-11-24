@@ -1,5 +1,5 @@
 import { API_ENDPOINT_PERMISSIONS, PERMISSION_GROUPS, type PermissionKey } from '@/lib/access-control';
-import { DEFAULT_AGENT_RULES, type AgentRules } from '@/lib/agent-rules';
+import { DEFAULT_AGENT_RULES, type AgentRulesDraft } from '@/lib/agent-rules';
 import type { AgentMood } from '@/lib/agent-status';
 import {
   AGENT_ROLE_MAX, normalizeAgentRole, settingsErrorFields, validateTemplateSettings,
@@ -89,11 +89,13 @@ export interface HireDraft {
   description: string;
   avatarUrl: string;
   ownerIds: string[];
+  /** Groups that own it beside its people. */
+  ownerGroupIds: string[];
   projectIds: string[];
   projects: Record<string, ProjectAgentDraft>;
   createKey: boolean;
   scopes: string[];
-  rules: AgentRules;
+  rules: AgentRulesDraft;
 }
 
 export function emptyHireDraft(ownerId: string | null): HireDraft {
@@ -105,11 +107,12 @@ export function emptyHireDraft(ownerId: string | null): HireDraft {
     description: '',
     avatarUrl: '',
     ownerIds: ownerId ? [ownerId] : [],
+    ownerGroupIds: [],
     projectIds: [],
     projects: {},
     createKey: true,
     scopes: [],
-    rules: { ...DEFAULT_AGENT_RULES },
+    rules: { ...DEFAULT_AGENT_RULES, agent_escalate_to_group: null },
   };
 }
 
@@ -128,7 +131,10 @@ export function applyTemplate(draft: HireDraft, template: AgentTemplateView | nu
     role: template?.role ? normalizeRole(template.role) ?? draft.role : draft.role,
     description: draft.description || template?.description || '',
     scopes: template ? template.scopes.filter((s) => allowed.has(s)) : [],
-    rules: { ...DEFAULT_AGENT_RULES, ...(template?.rules ?? {}), agent_escalate_to: draft.rules.agent_escalate_to },
+    rules: {
+      ...DEFAULT_AGENT_RULES, ...(template?.rules ?? {}),
+      agent_escalate_to: draft.rules.agent_escalate_to, agent_escalate_to_group: draft.rules.agent_escalate_to_group,
+    },
     projects: Object.fromEntries(draft.projectIds.map((id) => [id, {
       settings: settingsDefaults(schema),
       instructions: draft.projects[id]?.instructions ?? '',
@@ -194,6 +200,7 @@ export function hireRequestFrom(draft: HireDraft) {
     ...(draft.avatarUrl.trim() ? { avatar_url: draft.avatarUrl.trim() } : {}),
     ...(role ? { agent_role: role } : {}),
     ...(draft.ownerIds.length ? { owner_ids: draft.ownerIds } : {}),
+    ...(draft.ownerGroupIds.length ? { owner_group_ids: draft.ownerGroupIds } : {}),
     ...(draft.templateKey ? { template_key: draft.templateKey } : {}),
     project_ids: draft.projectIds,
     project_settings: Object.fromEntries(draft.projectIds.map((id) => {
@@ -203,7 +210,38 @@ export function hireRequestFrom(draft: HireDraft) {
     create_key: draft.createKey,
     ...(draft.createKey ? { scopes: draft.scopes, key_name: `${draft.name.trim()} key` } : {}),
     // The rules as chosen on the Powers step (the template's are only where they start).
-    rules: { ...draft.rules, agent_escalate_to: draft.rules.agent_escalate_to || null },
+    rules: rulesRequestFrom(draft.rules),
+  };
+}
+
+/**
+ * The rules as a request sends them. The escalation group goes only when one
+ * is chosen (or, given the saved value, when one is taken away), so a choice
+ * of a person never names the group column at all.
+ */
+export function rulesRequestFrom(rules: AgentRulesDraft, saved?: { agent_escalate_to_group?: string | null } | null) {
+  const { agent_escalate_to_group: group, ...rest } = rules;
+  const hadGroup = !!saved?.agent_escalate_to_group;
+  return {
+    ...rest,
+    agent_escalate_to: group ? null : rest.agent_escalate_to || null,
+    ...(group ? { agent_escalate_to_group: group } : hadGroup ? { agent_escalate_to_group: null } : {}),
+  };
+}
+
+/** A group's value in an owners picker, beside people's member ids. */
+export const OWNER_GROUP_PREFIX = 'group:';
+
+/** One picker holds people and groups: groups carry a prefix. */
+export function ownerPickerValue(ownerIds: readonly string[], groupIds: readonly string[]): string[] {
+  return [...ownerIds, ...groupIds.map((id) => `${OWNER_GROUP_PREFIX}${id}`)];
+}
+
+/** The picker's choice split back into people and groups. */
+export function splitOwnerPicker(values: readonly string[]): { ownerIds: string[]; groupIds: string[] } {
+  return {
+    ownerIds: values.filter((v) => !v.startsWith(OWNER_GROUP_PREFIX)),
+    groupIds: values.filter((v) => v.startsWith(OWNER_GROUP_PREFIX)).map((v) => v.slice(OWNER_GROUP_PREFIX.length)),
   };
 }
 

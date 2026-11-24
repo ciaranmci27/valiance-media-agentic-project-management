@@ -19,7 +19,7 @@ import {
   Bot,
 } from 'lucide-react';
 import { headers } from 'next/headers';
-import { endpoints, getEndpointScopes, groupModule, groups, IDEMPOTENCY_DOC, METHOD_COLORS } from './docs-data';
+import { ACT_FOR_DOC, endpoints, getEndpointScopes, groupModule, groups, IDEMPOTENCY_DOC, METHOD_COLORS } from './docs-data';
 import { MODULES, moduleOfPermission } from '@/lib/modules/registry';
 import { DocsTocNav, type TocSection } from './DocsTocNav';
 import { AGENT_PROFILES } from '@/lib/mcp/profiles';
@@ -237,6 +237,19 @@ export default async function ApiDocsPage() {
                 <p className="text-xs text-zinc-500 mt-1">{IDEMPOTENCY_DOC.summary}</p>
                 <ul className="mt-2 space-y-1 list-disc pl-4 text-xs text-zinc-500">
                   {IDEMPOTENCY_DOC.rules.map((rule) => (
+                    <li key={rule}>{rule}</li>
+                  ))}
+                </ul>
+              </div>
+
+              <div id="act-for" className="mt-4 p-3 bg-zinc-50 rounded-lg border border-zinc-100">
+                <p className="text-sm font-medium text-zinc-700">
+                  Acting for someone:{' '}
+                  <code className="px-1.5 py-0.5 bg-zinc-100 rounded text-xs font-mono">{ACT_FOR_DOC.header}</code>
+                </p>
+                <p className="text-xs text-zinc-500 mt-1">{ACT_FOR_DOC.summary}</p>
+                <ul className="mt-2 space-y-1 list-disc pl-4 text-xs text-zinc-500">
+                  {ACT_FOR_DOC.rules.map((rule) => (
                     <li key={rule}>{rule}</li>
                   ))}
                 </ul>

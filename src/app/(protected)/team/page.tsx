@@ -7,7 +7,7 @@ import { useApp, defaultFilters } from '@/lib/store';
 import { Header } from '@/components/layout/Header';
 import { Avatar } from '@/components/ui/Avatar';
 import { Button } from '@/components/ui/Button';
-import { User, UserPlus, SlidersHorizontal } from 'lucide-react';
+import { User, UserPlus, SlidersHorizontal, UsersRound } from 'lucide-react';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { RowActionsMenu } from '@/components/ui/RowActionsMenu';
 import { TeamMember } from '@/lib/types';
@@ -160,22 +160,26 @@ export default function TeamPage() {
         subtitle={<span className="hidden sm:inline">{team.length} team members</span>}
         searchPlaceholder="Search team members..."
         actions={
-          canManageTeam && !isDemoMode ? (
-            <div className="flex gap-2">
-              {isOwner && (
-                <Button
-                  variant="secondary"
-                  icon={<SlidersHorizontal size={16} />}
-                  onClick={() => openAccess(null)}
-                >
-                  Roles & permissions
-                </Button>
-              )}
+          <div className="flex gap-2">
+            {/* Groups: teams people ask at once. Anyone who sees the team sees them. */}
+            <Button variant="secondary" icon={<UsersRound size={16} />} href="/team/groups">
+              Groups
+            </Button>
+            {canManageTeam && !isDemoMode && isOwner && (
+              <Button
+                variant="secondary"
+                icon={<SlidersHorizontal size={16} />}
+                onClick={() => openAccess(null)}
+              >
+                Roles & permissions
+              </Button>
+            )}
+            {canManageTeam && !isDemoMode && (
               <Button icon={<UserPlus size={16} />} onClick={() => setIsInviteOpen(true)}>
                 Invite
               </Button>
-            </div>
-          ) : undefined
+            )}
+          </div>
         }
       />
 

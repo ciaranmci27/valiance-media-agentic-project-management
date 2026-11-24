@@ -9,6 +9,26 @@ Each section starts with `## X.Y.Z (YYYY-MM-DD)` and uses these headings, leavin
 - `### Database`: the core migration files in the release, one per line. `npm run db:migrate` applies them.
 - `### Breaking`: what an install must do when it takes this release.
 
+## 2.0.22 (2026-11-24)
+
+### Added
+- **Groups** (Team > Groups): Finance, Legal, Support. A question or approval can go to a group, and any member answers; an agent can escalate to a group, and a group can own an agent. API and MCP. Managing groups (`groups.manage`) is Owner-only by default: its holder can join groups that own agents or decide approvals.
+- **Linked chat accounts**: people link their Slack, Teams, Telegram or other chat accounts (Settings > Account), confirmed through a one-time link the assistant sends them, or linked by an Owner. Agent tools look up who a chat user is and how to reach a person or group (`/api/v1/identities/resolve`, scope `identities.read`).
+- **Acting for someone**: an agent with `agents.act_for` gets a 15-minute pass for a person with a linked account (`POST /api/v1/delegations`, header `X-Act-For`). While acting, it sees and does only what both it and that person may, and every run, question, task, comment and audit row records who it was for (`principal_id`).
+- **Analytics** (Agents > Analytics, formerly Usage): selectable stat tiles with sparklines (runs and success, busy time, tasks done, PRs, tokens in and out, model cost, questions and time to answer, incidents, rework, blocked time) driving one chart, and breakdowns by agent, project, model and role. Revenue and profit appear only when billing is on, an agent actually bills, and the viewer may see finances. Unpriced or subscription usage reads "Unpriced", never $0.
+- **Analytics cards from an install**: `agentAnalyticsCards` in `src/custom/index.ts` adds cards below the breakdown.
+- **Inbox handlers and defaults**: an inbox can be handled by several agents, people or groups, with one primary. Each inbox can name a default assignee, a default project and who gets its decisions (Owner only); they apply only when a request leaves them out. Sender rules can apply to one inbox (`scope: 'inbox'`, `inbox_id`), and a person's rule always wins over an agent's. Queue, drafts and signal take `?handled=me`.
+- An agent's decision now shows inside its reply in the email thread.
+
+### Changed
+- The Usage tab is now Analytics; old links redirect. One company's fleet cards (billing gaps, model evals, dispatcher reliability, Telegram attention) left the core view.
+- A person's workspace sender rule switches off agents' rules for the same sender and topic, and is always applied first.
+- `POST /api/v1/notifications` may name an inbox, message or conversation; with `audience: "owner"` it then reaches that inbox's decision recipient.
+
+### Database
+- `20261124000900_identity_groups_principal.sql`: groups and group members, questions asked to a group, escalation and ownership by group, linked identities and link requests, delegation tokens, and `principal_id` on runs, questions, tasks, comments, activities and the audit log.
+- `20261124001000_inbox_handlers.sql`: inbox handlers, per-inbox defaults and sender rule scope.
+
 ## 2.0.21 (2026-11-24)
 
 ### Added

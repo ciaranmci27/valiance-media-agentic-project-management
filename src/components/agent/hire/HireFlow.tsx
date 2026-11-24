@@ -11,11 +11,13 @@ import { useAuth } from '@/lib/auth-context';
 import { useDemo } from '@/lib/demo-context';
 import { apiScopesFor, hasPermission } from '@/lib/access-control';
 import { invalidateTables, loadRead, useRead, type ReadState } from '@/lib/query-cache';
-import { agentContextRead, agentRolesRead, agentTemplatesRead } from '@/lib/reads';
+import { agentContextRead, agentRolesRead, agentTemplatesRead, allGroupsRead } from '@/lib/reads';
 import {
   applyTemplate, emptyHireDraft, firstInvalidHireStep, hireRequestFrom, normalizeRole, roleLabel, roleSuggestions,
   setDraftProjects, settingsSummary, validateHireStep, windowOf, HIRE_STEPS, type HireDraft, type HireStep, showMoreLabel,
+  ownerPickerValue, splitOwnerPicker,
 } from '@/lib/agents-ui';
+import { groupTargetLabel } from '@/lib/groups';
 import { fieldErrorsFrom, newKeyFrom, workspaceApi, type AgentTemplateView, type HireResponse, type NewKey } from '@/lib/agent-workspace';
 import { Button } from '@/components/ui/Button';
 import { TextInput } from '@/components/ui/inputs/TextInput';
@@ -55,6 +57,7 @@ export function HireFlow() {
   const { isDemoMode } = useDemo();
   const templates = useRead(agentTemplatesRead(isDemoMode));
   const roles = useRead(agentRolesRead(isDemoMode));
+  const groups = useRead(allGroupsRead(isDemoMode)).data ?? [];
   const grantable = useMemo(() => apiScopesFor(access), [access]);
   const isOwner = access?.role === 'owner' && hasPermission(access, 'team.manage');
 
@@ -205,10 +208,16 @@ export function HireFlow() {
             <RoleField value={draft.role} onChange={(role) => setDraft({ ...draft, role })} inUse={roles.data ?? []} templateRole={template?.role ?? null} error={errors.role} />
             <MultiSelect
               label="Owners"
-              description="They get its questions and approvals, and can change it."
-              value={draft.ownerIds}
-              onChange={(ownerIds) => setDraft({ ...draft, ownerIds })}
-              options={people.map((p) => ({ value: p.id, label: p.id === teamMemberId ? `${p.name} (you)` : p.name }))}
+              description={groups.length ? 'People or groups. They get its questions and approvals, and can change it; in a group, any member can.' : 'They get its questions and approvals, and can change it.'}
+              value={ownerPickerValue(draft.ownerIds, draft.ownerGroupIds)}
+              onChange={(values) => {
+                const { ownerIds, groupIds } = splitOwnerPicker(values);
+                setDraft({ ...draft, ownerIds, ownerGroupIds: groupIds });
+              }}
+              options={[
+                ...people.map((p) => ({ value: p.id, label: p.id === teamMemberId ? `${p.name} (you)` : p.name })),
+                ...groups.map((g) => ({ value: ownerPickerValue([], [g.id])[0], label: groupTargetLabel(g.name) })),
+              ]}
               searchable
               placeholder="Workspace Owners"
             />
@@ -255,7 +264,7 @@ export function HireFlow() {
             <section aria-labelledby="powers-rules">
               <h3 id="powers-rules" className="text-sm font-semibold text-white">Its rules</h3>
               <p className="mt-1 mb-3 text-xs text-zinc-500">How it works alongside people. Change them any time on its profile.</p>
-              <RulesFields value={draft.rules} onChange={(rules) => setDraft({ ...draft, rules })} people={people} />
+              <RulesFields value={draft.rules} onChange={(rules) => setDraft({ ...draft, rules })} people={people} groups={groups} />
             </section>
           </div>
           <StepFooter onBack={() => go(stepIndex - 1)} onNext={next} nextLabel={`Hire ${name}`} busy={busy} busyLabel="Hiring" error={serverError} />

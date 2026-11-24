@@ -9,6 +9,7 @@ import { Textarea } from '@/components/ui/inputs/Textarea';
 import { invalidateTables } from '@/lib/query-cache';
 import { ANSWER_MAX, answerLine, approvalDetailRows, approvalTypeLabel, textAnswers, type QuestionView } from '@/lib/questions';
 import { timeAgo } from '@/lib/task-times';
+import { groupTargetLabel } from '@/lib/groups';
 import { appLocale } from '@/lib/region';
 
 /**
@@ -28,6 +29,10 @@ import { appLocale } from '@/lib/region';
  * context under it, its type and every detail (plain-text rows; folded on a
  * board card), an optional note, and Approve and Reject buttons that send at
  * once. Only the member asked or the Owner can decide it.
+ *
+ * A question asked to a group reads "Asked to Finance (any member)", and is
+ * yours to answer when you are in that group. One an agent asked for someone
+ * names them quietly in the from line.
  */
 
 type Variant = 'panel' | 'card' | 'band';
@@ -69,7 +74,8 @@ export function QuestionCard({ question, variant = 'panel', place, onOpenTask }:
   const [showAllDetails, setShowAllDetails] = useState(false);
   const detailsId = useId();
 
-  const forYou = question.asked_to === teamMemberId;
+  const forYou = question.asked_to === teamMemberId || question.asked_to_you === true;
+  const group = question.asked_to_group ? groupTargetLabel(question.asked_to_group_name) : null;
   const askedByYou = question.asked_by === teamMemberId;
   const approval = question.kind === 'approval';
   const choices = approval ? [] : question.choices ?? [];
@@ -78,10 +84,12 @@ export function QuestionCard({ question, variant = 'panel', place, onOpenTask }:
   const compact = variant === 'card';
   const Icon = approval ? ShieldCheck : MessageCircleQuestion;
 
-  const label = approval
-    ? (forYou ? 'Approval needed' : `Needs ${question.asked_to_name ?? 'a teammate'}'s approval`)
-    : (forYou ? 'Waiting on you' : `Question for ${question.asked_to_name ?? 'a teammate'}`);
-  const from = askedByYou ? 'You asked' : `From ${question.asked_by_name ?? 'a teammate'}`;
+  const label = group
+    ? `Asked to ${group}`
+    : approval
+      ? (forYou ? 'Approval needed' : `Needs ${question.asked_to_name ?? 'a teammate'}'s approval`)
+      : (forYou ? 'Waiting on you' : `Question for ${question.asked_to_name ?? 'a teammate'}`);
+  const from = `${askedByYou ? 'You asked' : `From ${question.asked_by_name ?? 'a teammate'}`}${question.principal_name ? ` for ${question.principal_name}` : ''}`;
   // An approval leads with what will happen; its question is context, shown when it adds any.
   const headline = approval ? question.action?.summary ?? question.question : question.question;
   const context = approval && question.question !== headline ? question.question : null;
@@ -326,7 +334,7 @@ export function QuestionCard({ question, variant = 'panel', place, onOpenTask }:
       onClose={() => setConfirmCancel(false)}
       onConfirm={() => void cancel()}
       title={approval ? 'Cancel this approval request?' : 'Cancel this question?'}
-      message={`${question.asked_to_name ?? 'They'} will no longer be asked, and the ${approval ? 'request' : 'question'} cannot be reopened.`}
+      message={`${group ? question.asked_to_group_name ?? 'The group' : question.asked_to_name ?? 'They'} will no longer be asked, and the ${approval ? 'request' : 'question'} cannot be reopened.`}
       confirmLabel={approval ? 'Cancel request' : 'Cancel question'}
       variant="danger"
     />

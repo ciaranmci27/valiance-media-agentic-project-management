@@ -24,12 +24,12 @@ export async function GET(request: Request, { params }: Params) {
  * Changes an agent: name, title, description, avatar_url, agent_role and
  * rules (self_assign, close_policy, create_policy, escalate_to) for an Owner,
  * team.manage or one of its owners; owner_ids for an Owner or one of its
- * owners. Answers { agent, rules, owners }.
+ * owners, and owner_group_ids likewise. Answers { agent, rules, owners, owner_groups }.
  */
 export async function PATCH(request: Request, { params }: Params) {
   return workspaceRoute(request, async ({ service, caller }) => {
     const body = await readWorkspaceBody(request, patchAgentSchema);
-    const { agent, rules, owners } = await patchAgent(service, caller, (await params).id, body);
-    return { agent, rules, owners };
+    const { agent, rules, owners, owner_groups } = await patchAgent(service, caller, (await params).id, body);
+    return { agent, rules, owners, owner_groups };
   });
 }

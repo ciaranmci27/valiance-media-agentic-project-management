@@ -162,7 +162,9 @@ export function computeNeedsYou(input: {
   // Questions asked to you come first: whoever asked is waiting on the
   // answer, and each is one action (answer it in place). One row per question.
   for (const question of questions) {
-    if (!teamMemberId || question.asked_to !== teamMemberId || question.status !== 'open' || !question.can_answer) continue;
+    // Asked by name, or to a group the person is in (any member answers).
+    const askedToYou = question.asked_to === teamMemberId || question.asked_to_you === true;
+    if (!teamMemberId || !askedToYou || question.status !== 'open' || !question.can_answer) continue;
     items.push({ kind: 'question', openQuestion: question });
   }
 

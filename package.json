@@ -1,6 +1,6 @@
 {
   "name": "valiance-media-pm",
-  "version": "2.0.21",
+  "version": "2.0.22",
   "private": true,
   "scripts": {
     "dev": "next dev -p 3009",
@@ -10,7 +10,7 @@
     "db:migrate": "tsx --tsconfig tsconfig.mcp-test.json scripts/db-migrate.ts",
     "upgrade": "tsx --tsconfig tsconfig.mcp-test.json scripts/upgrade.ts",
     "check:core": "tsx --tsconfig tsconfig.mcp-test.json scripts/check-core.ts",
-    "test:core": "npm run -s test:mcp && npm run -s test:api-keys && npm run -s test:time-lock && npm run -s test:done-timer-link && npm run -s test:reminders && npm run -s test:reminders-api && npm run -s test:invoice-hours && npm run -s test:billing-plans && npm run -s test:finance-discounts && npm run -s test:billing-digest && npm run -s test:invoice-payments && npm run -s test:webhook-retries && npm run -s test:telemetry && npm run -s test:soft-delete && npm run -s test:team-activity && npm run -s test:notification-clearing && npm run -s test:task-source && npm run -s test:task-unread && npm run -s test:needs-you && npm run -s test:subtasks && npm run -s test:agent-work-blocks && npm run -s test:questions && npm run -s test:agent-webhooks && npm run -s test:agent-plumbing && npm run -s test:agent-setup-api && npm run -s test:agent-context && npm run -s test:agent-runs && npm run -s test:open-agent-vocabulary && npm run -s test:inbox-mcp && npm run -s test:agents-tab && npm run -s test:agent-workspaces && npm run -s test:agents-ui && npm run -s test:task-files && npm run -s test:soft-delete-api && npm run -s test:modules && npm run -s test:module-guards && npm run -s test:task-reads && npm run -s test:soft-delete-reads && npm run -s test:inbound-email && npm run -s test:personal-inboxes && npm run -s test:extensions && npm run -s test:updates && npm run -s test:agent-guard && npm run -s test:upgrade && npm run -s test:db-migrate && npm run -s test:brand && npm run -s test:region && npm run -s test:roles && npm run -s test:timesheet && npm run -s test:team-profile && npm run -s test:team-invite && npm run -s test:setup-gate && npm run -s test:first-owner && npm run -s test:database-updates && npm run -s test:app-key && npm run -s test:outsiders && npm run -s test:pm-schema && npm run -s test:function-grants",
+    "test:core": "npm run -s test:mcp && npm run -s test:api-keys && npm run -s test:time-lock && npm run -s test:done-timer-link && npm run -s test:reminders && npm run -s test:reminders-api && npm run -s test:invoice-hours && npm run -s test:billing-plans && npm run -s test:finance-discounts && npm run -s test:billing-digest && npm run -s test:invoice-payments && npm run -s test:webhook-retries && npm run -s test:telemetry && npm run -s test:soft-delete && npm run -s test:team-activity && npm run -s test:notification-clearing && npm run -s test:task-source && npm run -s test:task-unread && npm run -s test:needs-you && npm run -s test:subtasks && npm run -s test:agent-work-blocks && npm run -s test:questions && npm run -s test:agent-webhooks && npm run -s test:agent-plumbing && npm run -s test:agent-setup-api && npm run -s test:agent-context && npm run -s test:agent-runs && npm run -s test:open-agent-vocabulary && npm run -s test:inbox-mcp && npm run -s test:agents-tab && npm run -s test:agent-workspaces && npm run -s test:identity-groups && npm run -s test:inbox-handlers && npm run -s test:agents-ui && npm run -s test:agent-analytics && npm run -s test:task-files && npm run -s test:soft-delete-api && npm run -s test:modules && npm run -s test:module-guards && npm run -s test:task-reads && npm run -s test:soft-delete-reads && npm run -s test:inbound-email && npm run -s test:personal-inboxes && npm run -s test:extensions && npm run -s test:updates && npm run -s test:agent-guard && npm run -s test:upgrade && npm run -s test:db-migrate && npm run -s test:brand && npm run -s test:region && npm run -s test:roles && npm run -s test:timesheet && npm run -s test:team-profile && npm run -s test:team-invite && npm run -s test:setup-gate && npm run -s test:first-owner && npm run -s test:database-updates && npm run -s test:app-key && npm run -s test:outsiders && npm run -s test:pm-schema && npm run -s test:function-grants",
     "test:personal-inboxes": "tsx --tsconfig tsconfig.mcp-test.json scripts/verify-personal-inboxes.ts",
     "test:extensions": "tsx --tsconfig tsconfig.mcp-test.json scripts/verify-extensions.ts",
     "test:updates": "tsx --tsconfig tsconfig.mcp-test.json scripts/verify-updates.ts",
@@ -47,8 +47,11 @@
     "test:open-agent-vocabulary": "tsx --tsconfig tsconfig.mcp-test.json scripts/verify-open-agent-vocabulary.ts",
     "test:inbox-mcp": "tsx --tsconfig tsconfig.mcp-test.json scripts/verify-inbox-mcp.ts",
     "test:agents-tab": "tsx --tsconfig tsconfig.mcp-test.json scripts/verify-agents-tab.ts",
+    "test:identity-groups": "tsx --tsconfig tsconfig.mcp-test.json scripts/verify-identity-groups.ts",
+    "test:inbox-handlers": "tsx --tsconfig tsconfig.mcp-test.json scripts/verify-inbox-handlers.ts",
     "test:agent-workspaces": "tsx --tsconfig tsconfig.mcp-test.json scripts/verify-agent-workspaces.ts",
     "test:agents-ui": "tsx --tsconfig tsconfig.mcp-test.json scripts/verify-agents-ui.ts",
+    "test:agent-analytics": "tsx --tsconfig tsconfig.mcp-test.json scripts/verify-agent-analytics.ts",
     "test:task-files": "tsx --tsconfig tsconfig.mcp-test.json scripts/verify-task-files.ts && tsx --tsconfig tsconfig.mcp-test.json scripts/verify-task-files-api.ts",
     "test:soft-delete-api": "tsx --tsconfig tsconfig.mcp-test.json scripts/verify-soft-delete-api.ts",
     "test:modules": "tsx --tsconfig tsconfig.mcp-test.json scripts/verify-workspace-modules.ts",

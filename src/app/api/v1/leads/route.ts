@@ -19,6 +19,8 @@ export const GET = withApi(async ({ supabase, searchParams, access, teamMemberId
   // A lead in Trash is left out whatever include_archived says.
   let query = supabase.from('leads').select('*, lead_members(member_id)', { count: 'exact' }).is('deleted_at', null);
   if (!accessAllows(access, 'leads.read_all', 'api')) {
+    // Acting for a person, the agent's own assignments are no reach of theirs.
+    if (access.principal_id) return paginated([], { page, limit, total: 0 });
     const { data: memberships } = await supabase.from('lead_members').select('lead_id').eq('member_id', teamMemberId);
     const leadIds = (memberships || []).map((row) => row.lead_id);
     query = leadIds.length > 0

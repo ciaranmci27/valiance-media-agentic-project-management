@@ -145,6 +145,9 @@ export const MODULES: Record<ModuleId, ModuleDefinition> = {
 export const PERMISSION_MODULE: Record<PermissionKey, ModuleId | 'core'> = {
   'team.read': 'core',
   'team.manage': 'core',
+  'groups.manage': 'core',
+  'identities.link': 'core',
+  'identities.read': 'core',
   'access.manage': 'core',
   'settings.manage': 'core',
   'smtp.manage': 'core',
@@ -196,6 +199,7 @@ export const PERMISSION_MODULE: Record<PermissionKey, ModuleId | 'core'> = {
   'compensation.manage': 'team_pay',
   'payouts.manage': 'team_pay',
   'agents.manage': 'agents',
+  'agents.act_for': 'agents',
   // Saved context any AI working the project reads (an agent or a person's own Claude over MCP).
   'project_context.read': 'core',
   'project_context.manage': 'core',

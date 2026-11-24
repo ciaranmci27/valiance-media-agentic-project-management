@@ -6,11 +6,16 @@ import { AsyncLocalStorage } from 'node:async_hooks';
  * server runs the same v1 handlers inside { via: 'mcp' }, and the audit log
  * records it) and which API key made it, so a task it creates can say so.
  * Both are set in process, never from a request header, so a REST caller
- * cannot claim them. Neither grants anything.
+ * cannot claim them. Neither grants anything. principalId is the person a
+ * valid delegation token (X-Act-For) lets the key's agent act for; withApi
+ * sets it only after checking the token, and writes stamp it as principal_id.
  */
 export interface ApiRequestContext {
   via: 'rest' | 'mcp';
   keyId?: string | null;
+  principalId?: string | null;
+  /** The raw X-Act-For token, so the MCP server's in-process calls carry it on. */
+  actFor?: string | null;
 }
 
 export const apiRequestContext = new AsyncLocalStorage<ApiRequestContext>();
@@ -22,6 +27,11 @@ export function currentApiVia(): ApiRequestContext['via'] {
 /** The API key behind the current request, or null outside one. */
 export function currentApiKeyId(): string | null {
   return apiRequestContext.getStore()?.keyId ?? null;
+}
+
+/** The person the current request acts for (a checked X-Act-For), or null. */
+export function currentPrincipalId(): string | null {
+  return apiRequestContext.getStore()?.principalId ?? null;
 }
 
 /** Where a write made on someone's behalf came from, for the team activity log. */

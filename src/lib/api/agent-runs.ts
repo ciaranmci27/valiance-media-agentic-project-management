@@ -13,9 +13,10 @@ import {
   type StartAgentRunInput,
   type TaskLatestRun,
   type UpdateAgentRunInput,
+  AGENT_RUN_STALE_AFTER_SECONDS,
 } from '@/lib/agent-runs';
 import { postgrestList, trashedProjectIds } from '@/lib/supabase/trash';
-import { accessAllowsProject, apiKeyAllows } from './access';
+import { accessAllows, accessAllowsProject, apiKeyAllows } from './access';
 import { requireAgentsEnabled } from './agents';
 import { ApiError, badRequest, forbidden, notFound } from './errors';
 
@@ -133,6 +134,8 @@ async function present(db: SupabaseClient, rows: Row[]): Promise<AgentRunSummary
     external_url: row.external_url ?? null,
     updated_at: row.updated_at,
     ...(row.source === 'run' ? { turns: turns.get(row.id) ?? { count: 0, duration_ms: 0, tokens_in: null, tokens_out: null } } : {}),
+    // Only a run made for someone carries it, so other runs read as they always have.
+    ...(row.principal_id ? { principal_id: row.principal_id as string } : {}),
   }));
 }
 
@@ -187,8 +190,31 @@ async function loadRun(ctx: RunsContext, id: string): Promise<Row> {
   const { data, error } = await ctx.db.from('agent_runs').select('*').eq('id', id).maybeSingle();
   if (missingRunsTable(error)) throw notFound('Run');
   if (error) throw error;
-  if (!data || (data.agent_id !== ctx.memberId && !canManageRuns(ctx)) || !(await placeLive(ctx.db, data))) throw notFound('Run');
+  if (!data || (data.agent_id !== ctx.memberId && !canManageRuns(ctx)) || !runInReach(ctx, data) || !(await placeLive(ctx.db, data))) throw notFound('Run');
   return data as Row;
+}
+
+/**
+ * Acting for a person (X-Act-For), the agent's own runs are no reach of
+ * theirs: a run counts only on a project both reach, or, on nothing, when
+ * the agent ran it for this same person. Without a principal, every run the
+ * key could read before.
+ */
+function runInReach(ctx: RunsContext, row: Row): boolean {
+  const principal = ctx.access.principal_id;
+  if (!principal) return true;
+  if (row.project_id) return accessAllowsProject(ctx.access, row.project_id as string, 'api');
+  return row.principal_id === principal;
+}
+
+/** The filter that keeps a request acting for someone to runInReach's stored runs; null without a principal. */
+function runsReachFilter(ctx: RunsContext): string | null {
+  const principal = ctx.access.principal_id;
+  if (!principal) return null;
+  const readAll = accessAllows(ctx.access, 'projects.read_all', 'api');
+  const projects = accessAllows(ctx.access, 'projects.read', 'api') ? ctx.access.project_ids : [];
+  const inReach = readAll ? 'project_id.not.is.null' : projects.length ? `project_id.in.(${projects.join(',')})` : null;
+  return [...(inReach ? [inReach] : []), `and(project_id.is.null,principal_id.eq.${principal})`].join(',');
 }
 
 /** Where a run hangs: a live task (its project comes with it), a live project, or nothing. */
@@ -421,6 +447,7 @@ export function runFiltersFrom(ctx: RunsContext, searchParams: URLSearchParams):
 /** Runs newest first (a run by its start, a turn by its arrival), stored runs and turns together. */
 export async function listRuns(ctx: RunsContext, filters: RunFilters): Promise<{ rows: AgentRunSummary[]; total: number }> {
   requireAgentsEnabled(ctx.access);
+  if (ctx.access.principal_id) return listRunsForPrincipal(ctx, filters);
   let query = ctx.db.from('agent_run_feed').select(FEED_COLUMNS, { count: 'exact' });
   if (filters.agentId) query = query.eq('agent_id', filters.agentId);
   if (filters.taskId) query = query.eq('task_id', filters.taskId);
@@ -437,6 +464,35 @@ export async function listRuns(ctx: RunsContext, filters: RunFilters): Promise<{
     .range(filters.offset, filters.offset + filters.limit - 1);
   if (error) throw error;
   return { rows: await present(ctx.db, (data ?? []) as Row[]), total: count ?? 0 };
+}
+
+/**
+ * Runs while acting for a person (X-Act-For): stored runs only, those
+ * runInReach allows (on a project both reach, or on nothing and run for
+ * this same person). Turns a host reports carry no person, so they are left
+ * out. Newest first, with the feed's filters.
+ */
+async function listRunsForPrincipal(ctx: RunsContext, filters: RunFilters): Promise<{ rows: AgentRunSummary[]; total: number }> {
+  if (filters.source === 'turn') return { rows: [], total: 0 };
+  let query = ctx.db.from('agent_runs').select('*', { count: 'exact' }).or(runsReachFilter(ctx) as string);
+  if (filters.agentId) query = query.eq('agent_id', filters.agentId);
+  if (filters.taskId) query = query.eq('task_id', filters.taskId);
+  if (filters.projectId) query = query.eq('project_id', filters.projectId);
+  // The feed reads a run two hours past its last update as timed_out; the table stores it as running.
+  const stale = new Date(Date.now() - AGENT_RUN_STALE_AFTER_SECONDS * 1000).toISOString();
+  if (filters.status === 'timed_out') query = query.eq('status', 'running').lt('updated_at', stale);
+  else if (filters.status === 'running') query = query.eq('status', 'running').gte('updated_at', stale);
+  else if (filters.status) query = query.eq('status', filters.status);
+  const trashedProjects = await trashedProjectIds(ctx.db);
+  if (trashedProjects.length) query = query.or(`project_id.is.null,project_id.not.in.${postgrestList(trashedProjects)}`);
+  const trashedTasks = await trashedRunTasks(ctx.db);
+  if (trashedTasks.length) query = query.or(`task_id.is.null,task_id.not.in.${postgrestList(trashedTasks)}`);
+  const { data, count, error } = await query
+    .order('started_at', { ascending: false })
+    .order('id', { ascending: false })
+    .range(filters.offset, filters.offset + filters.limit - 1);
+  if (error) throw error;
+  return { rows: await presentStoredRuns(ctx.db, (data ?? []) as Row[]), total: count ?? 0 };
 }
 
 /**

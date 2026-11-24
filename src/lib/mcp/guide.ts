@@ -6,7 +6,7 @@
 export const PM_GUIDE = `How the PM tools work
 
 Who you are
-- Every call acts as the team member your key belongs to. Comments, timers, suggestions and events are recorded under your name; you cannot act as anyone else.
+- Every call acts as the team member your key belongs to. Comments, timers, suggestions and events are recorded under your name; you cannot act as anyone else. (A key allowed to act for people records the person too, and never gains access: see Acting for someone.)
 - You see only the projects, tasks and leads your member can reach. A task or lead outside your reach answers 403, the same as one that does not exist.
 
 Tasks
@@ -30,8 +30,9 @@ Your rules
 Asking a person
 - When you are stuck on something only a person can decide (a choice between approaches, missing access, a business call), ask with ask_human: never guess. Put it on the task it is about (task_id), or the project, and offer choices when the answer is one of a few.
 - asked_to defaults to whoever your rules escalate to, else the Owner. Their bell rings, and the task shows as waiting on them.
+- To ask a team rather than one person, send asked_to_group (list_groups has the ids): every member's bell rings and any member may answer. Your rules may escalate to a group too.
 - Then poll get_question, a few minutes apart, until status is answered (answer_choice, answer_text). Work on something else meanwhile; do not repeat the question. If you no longer need it, cancel_question. Expired or cancelled means no answer is coming: decide whether to ask again.
-- Questions asked to you are in list_questions (asked_to me, status open); answer them with answer_question.
+- Questions asked to you are in list_questions (asked_to me, status open, which takes in questions asked to your groups); answer them with answer_question.
 
 Approvals
 - Before an action a person must allow (a deploy, an email to a client, spending money, deleting data, a merge), request_approval with action.type, action.summary (exactly what will happen, one line) and any details. It goes to a person: your escalation target, else the Owner, or asked_to.
@@ -94,6 +95,14 @@ Answers
  * MCP client, usually): agents never see these tools, so their guide stays
  * about doing the work.
  */
+export const PM_ACTING_FOR_GUIDE = `Acting for someone
+- Your key may act for the person who asked you (agents.act_for). When someone asks you for something in chat, resolve_identity their account (provider, external_id, workspace_id). If it does not resolve, create_identity_link (with member_id when you know who it is) and send the link as a direct message to that account only; never act for someone you could not resolve, and never for a member who reads active false.
+- Mint a delegation token for them with POST /api/v1/delegations (provider, external_id, workspace_id), using your own key, and send it as the X-Act-For header on every call you make for them, on the MCP connection or the REST API. It lasts 15 minutes: mint a new one for each request you handle.
+- While you act for them you can do only what both you and they may do: a project they cannot open is out of reach even if you can open it. A 401 with reason act_for_invalid means the token expired, was revoked or belongs to another agent: mint a new one.
+- Runs, questions, tasks, comments and events you make for them record them as principal_id, so everyone can see whom you acted for.
+- What is your own rather than theirs stays out of reach while you act for them: questions you asked, runs and reminders count only on projects they reach (or, on nothing, when made for them), and your notifications, inboxes and shared credentials answer 403 act_for_not_allowed.
+- Without the header you act as yourself, exactly as before.`;
+
 export const SETUP_TOOLS: readonly string[] = [
   'create_agent', 'get_agent_setup', 'set_agent_projects', 'set_agent_rules', 'create_api_key', 'list_api_keys',
   'revoke_api_key', 'list_webhook_endpoints', 'create_webhook_endpoint', 'update_webhook_endpoint', 'delete_webhook_endpoint',

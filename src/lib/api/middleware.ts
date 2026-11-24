@@ -9,6 +9,8 @@ import { ApiError, unauthorized, forbidden, tooManyRequests, badRequest, notFoun
 import { errorResponse } from './response';
 import { accessAllows, accessAllowsProject, moduleOffFor, resolveMemberAccess } from './access';
 import { apiRequestContext } from './request-context';
+import { verifyActFor } from './delegation';
+import { ACT_FOR_HEADER } from '@/lib/delegation';
 import { liveTaskIds } from './task-guards';
 import { afterResponse } from './after-response';
 import { kickWebhooks } from '@/lib/webhooks/kick';
@@ -46,6 +48,10 @@ export interface ApiContext<TBody = unknown, TParams = Record<string, string>> {
   teamMemberId: string;
   access: AccessContext;
   scopes: string[];
+  /** The person the key's agent acts for (a checked X-Act-For token), or null. */
+  principalId: string | null;
+  /** This request's origin, for links the answer carries (NEXT_PUBLIC_APP_URL wins where it is set). */
+  origin: string;
 }
 
 interface WithApiOptions<TBody> {
@@ -133,7 +139,10 @@ export interface ApiKeyRow {
 export interface ResolvedApiKey {
   supabase: SupabaseClient;
   keyRow: ApiKeyRow;
+  /** With an X-Act-For token: the agent's and the person's access together. */
   access: AccessContext;
+  /** Set when a valid X-Act-For token came with the key. */
+  principal: { id: string; tokenId: string } | null;
 }
 
 /**
@@ -142,8 +151,13 @@ export interface ResolvedApiKey {
  * every v1 route answers with. It does not count toward the rate limit and
  * checks no permission; withApi does both per request. The MCP server uses it
  * to decide which tools a key sees.
+ *
+ * With actFor (the X-Act-For header) the key's agent acts for a person: the
+ * token must be live and the agent's own (else 401 act_for_invalid), and the
+ * access answered is the agent's and the person's together. Without it,
+ * nothing changes.
  */
-export async function resolveApiKey(apiKey: string | null): Promise<ResolvedApiKey> {
+export async function resolveApiKey(apiKey: string | null, actFor: string | null = null): Promise<ResolvedApiKey> {
   if (!apiKey) throw unauthorized('Missing x-api-key header', { reason: 'missing_api_key' });
 
   const keyHash = await hashApiKey(apiKey);
@@ -168,7 +182,18 @@ export async function resolveApiKey(apiKey: string | null): Promise<ResolvedApiK
   ]);
   if (businessSettings?.api_enabled === false) throw forbidden('Workspace API access is disabled', { reason: 'api_disabled' });
   if (!access || access.status !== 'active') throw forbidden('Linked team member is suspended', { reason: 'member_suspended' });
-  return { supabase, keyRow: keyRow as ApiKeyRow, access };
+  if (actFor !== null) {
+    const acting = await verifyActFor(supabase, actFor, keyRow as ApiKeyRow, access);
+    return { supabase, keyRow: keyRow as ApiKeyRow, access: acting.access, principal: { id: acting.principalId, tokenId: acting.tokenId } };
+  }
+  return { supabase, keyRow: keyRow as ApiKeyRow, access, principal: null };
+}
+
+/** The X-Act-For token on a request: the header, else the one the MCP server carries for its in-process calls. */
+export function actForFrom(request: NextRequest): string | null {
+  const header = request.headers.get(ACT_FOR_HEADER);
+  if (header !== null) return header;
+  return apiRequestContext.getStore()?.actFor ?? null;
 }
 
 export function withApi<TBody = unknown, TParams = Record<string, string>>(
@@ -185,7 +210,8 @@ export function withApi<TBody = unknown, TParams = Record<string, string>>(
     let service: SupabaseClient | null = null;
 
     try {
-      const { supabase, keyRow, access } = await resolveApiKey(request.headers.get('x-api-key'));
+      const actFor = actForFrom(request);
+      const { supabase, keyRow, access, principal } = await resolveApiKey(request.headers.get('x-api-key'), actFor);
       service = supabase;
 
       const rateResult = await checkRateLimit(supabase, keyRow.id);
@@ -254,6 +280,22 @@ export function withApi<TBody = unknown, TParams = Record<string, string>>(
           missing_key_scopes: missingKeyScopes,
           missing_member_permissions: missingMemberPermissions,
         });
+      }
+
+      // Acting for a person, routes that read what is the agent's own by
+      // grant rather than by project (its bell, the inboxes and credentials
+      // shared with it) are closed: nothing there is the person's.
+      if (principal) {
+        const path = request.nextUrl.pathname;
+        const ownByGrant = path.startsWith('/api/v1/inbox') || path.startsWith('/api/v1/inbound-emails')
+          || /^\/api\/v1\/tasks\/[^/]+\/messages/.test(path) || path.includes('/credentials')
+          || (path.startsWith('/api/v1/notifications') && !(method === 'POST' && /^\/api\/v1\/notifications\/?$/.test(path)));
+        if (ownByGrant) {
+          throw forbidden('This is not available while acting for someone', {
+            reason: 'act_for_not_allowed',
+            hint: 'Send the request without X-Act-For: it reads what is shared with your agent itself, not with the person.',
+          });
+        }
       }
 
       const projectId = (resolvedParams as Record<string, string>).id;
@@ -342,8 +384,11 @@ export function withApi<TBody = unknown, TParams = Record<string, string>>(
           .maybeSingle();
         const readAll = accessAllows(access, 'leads.read_all', 'api');
         if (!lead && readAll) throw notFound('Lead');
-        const assigned = lead?.assigned_to === keyRow.team_member_id
-          || (lead?.lead_members || []).some((row: { member_id: string }) => row.member_id === keyRow.team_member_id);
+        // Acting for a person, the agent's own assignment is no reach of
+        // theirs: a lead has no project and no principal, so only
+        // leads.read_all (held by both) opens one.
+        const assigned = !access.principal_id && (lead?.assigned_to === keyRow.team_member_id
+          || (lead?.lead_members || []).some((row: { member_id: string }) => row.member_id === keyRow.team_member_id));
         if (!readAll && !assigned) {
           throw forbidden('Lead scope denied', {
             reason: 'lead_scope',
@@ -429,7 +474,8 @@ export function withApi<TBody = unknown, TParams = Record<string, string>>(
 
       // The MCP server marks its in-process calls; a header could be sent by anyone.
       const via = apiRequestContext.getStore()?.via ?? 'rest';
-      const response = await apiRequestContext.run({ via, keyId: keyRow.id }, () => handler({
+      const principalId = principal?.id ?? null;
+      const response = await apiRequestContext.run({ via, keyId: keyRow.id, principalId, actFor }, () => handler({
         // Writes are logged as the key's member (agents are left out by the
         // database), and a task it creates records the key itself.
         supabase: getActorClient(keyRow.team_member_id, via === 'mcp' ? 'mcp' : 'api', keyRow.id),
@@ -441,6 +487,8 @@ export function withApi<TBody = unknown, TParams = Record<string, string>>(
         teamMemberId: keyRow.team_member_id,
         access,
         scopes,
+        principalId,
+        origin: request.nextUrl.origin,
       }));
       if (idempotency) {
         // Stored before the answer leaves, so a retry that arrives right after gets it.

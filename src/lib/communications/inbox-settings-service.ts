@@ -8,9 +8,10 @@ import { mergeClientSenders, type ProjectContactAddress } from './mapping';
 import { isPublicEmailDomain, validateClientDomain } from './email/public-domains';
 import { assertId, InboxError, ownAddresses, type InboxContext } from './inbox-service';
 import { ownerColumnRead, ownersReadPersonalInboxes } from './inbox-visibility';
+import { DEFAULT_COLUMNS, inboxDefaults, inboxHandlerRows, isMissingSchema, NO_DEFAULTS, readDefaults, type InboxDefaults } from './inbox-handlers';
 import type { InboxSettingsRequest, MyInboxRequest, ProjectAddressPatch, ProjectAddressRequest, YourAddressPatch, YourAddressRequest } from './schemas';
 import type {
-  AgentReadableType, ClientEmailDomain, ClientSenderAddress, ClientSenderAddressList, InboxSettings, InboxSettingsList, MxStatus, MyInboxList, PersonalInboxHealth,
+  AgentReadableType, ClientEmailDomain, ClientSenderAddress, ClientSenderAddressList, InboxHandler, InboxSettings, InboxSettingsList, MxStatus, MyInboxList, PersonalInboxHealth,
   ProjectEmailAddress, ProjectEmailAddressList, OwnDomain, UnlistedAddress, UnlistedDomain, YourAddress, YourAddressList,
 } from './inbox-types';
 
@@ -79,7 +80,35 @@ async function projectAddressCount(service: SupabaseClient, inboxId: string): Pr
   return count ?? 0;
 }
 
-function present(row: Row, access: string[], messages: number, projectAddresses: number): InboxSettings {
+/** What an inbox has beside its row: its handlers and its defaults. */
+interface InboxExtras {
+  handlers: InboxHandler[];
+  defaults: InboxDefaults;
+}
+
+const NO_EXTRAS: InboxExtras = { handlers: [], defaults: NO_DEFAULTS };
+
+/** Each inbox's handlers (primary first) and defaults; none before the migration. */
+async function inboxExtras(service: SupabaseClient, ids: string[]): Promise<Map<string, InboxExtras>> {
+  const out = new Map<string, InboxExtras>();
+  if (ids.length === 0) return out;
+  const [handlers, defaults] = await Promise.all([
+    inboxHandlerRows(service, ids),
+    comms(service).from('inboxes').select(`id, ${DEFAULT_COLUMNS}`).in('id', ids),
+  ]);
+  if (defaults.error && !isMissingSchema(defaults.error)) throw defaults.error;
+  const defaultsById = new Map(((defaults.error ? [] : defaults.data ?? []) as Row[]).map((row) => [row.id as string, readDefaults(row)]));
+  for (const id of ids) {
+    out.set(id, {
+      handlers: handlers.filter((row) => row.inbox_id === id)
+        .map((row) => ({ member_id: row.handler_member_id, group_id: row.handler_group_id, is_primary: row.is_primary })),
+      defaults: defaultsById.get(id) ?? NO_DEFAULTS,
+    });
+  }
+  return out;
+}
+
+function present(row: Row, access: string[], messages: number, projectAddresses: number, extras: InboxExtras = NO_EXTRAS): InboxSettings {
   return {
     id: row.id as string,
     name: row.name as string,
@@ -106,6 +135,8 @@ function present(row: Row, access: string[], messages: number, projectAddresses:
     project_address_count: projectAddresses,
     created_at: row.created_at as string,
     owner_member_id: (row.owner_member_id as string | null) ?? null,
+    handlers: extras.handlers,
+    ...extras.defaults,
   };
 }
 
@@ -140,13 +171,14 @@ export async function listInboxSettings(ctx: InboxContext): Promise<InboxSetting
   ]);
   const shared = rows.filter((row) => !row.owner_member_id);
   const personal = rows.filter((row) => row.owner_member_id);
-  const [counts, addressCounts, personalCounts, owners] = await Promise.all([
+  const [counts, addressCounts, personalCounts, owners, extras] = await Promise.all([
     Promise.all(shared.map((inbox) => messageCount(ctx.service, inbox.id as string))),
     Promise.all(shared.map((inbox) => projectAddressCount(ctx.service, inbox.id as string))),
     Promise.all(personal.map((inbox) => messageCount(ctx.service, inbox.id as string))),
     personal.length
       ? many<{ id: string; name: string }>(ctx.service.from('team_members').select('id, name').in('id', [...new Set(personal.map((row) => row.owner_member_id as string))]))
       : Promise.resolve([]),
+    inboxExtras(ctx.service, shared.map((inbox) => inbox.id as string)),
   ]);
   const ownerName = new Map(owners.map((row) => [row.id, row.name]));
   return {
@@ -156,6 +188,7 @@ export async function listInboxSettings(ctx: InboxContext): Promise<InboxSetting
       access.filter((row) => row.inbox_id === inbox.id).map((row) => row.member_id),
       counts[index],
       addressCounts[index],
+      extras.get(inbox.id as string),
     )),
     personal: personal.map((inbox, index) => presentHealth(inbox, ownerName.get(inbox.owner_member_id as string) ?? null, personalCounts[index])),
     owners_read_personal: ownersRead,
@@ -183,7 +216,23 @@ async function validate(ctx: InboxContext, input: InboxSettingsRequest) {
   return { address, memberIds, aliases };
 }
 
-async function setAccess(ctx: InboxContext, inboxId: string, memberIds: string[]) {
+/**
+ * Who always reads an inbox because they handle it: its member handlers and
+ * the members of its handler groups. Saving who else reads it never takes
+ * their access away.
+ */
+async function handlerReaders(service: SupabaseClient, inboxId: string): Promise<string[]> {
+  const handlers = await inboxHandlerRows(service, [inboxId]);
+  const groups = handlers.map((row) => row.handler_group_id).filter((id): id is string => !!id);
+  const members = groups.length ? await many<{ member_id: string }>(service.from('group_members').select('member_id').in('group_id', groups)) : [];
+  return [...new Set([
+    ...handlers.map((row) => row.handler_member_id).filter((id): id is string => !!id),
+    ...members.map((row) => row.member_id),
+  ])];
+}
+
+async function setAccess(ctx: InboxContext, inboxId: string, requested: string[]) {
+  const memberIds = [...new Set([...requested, ...await handlerReaders(ctx.service, inboxId)])];
   const current = (await many<{ member_id: string }>(comms(ctx.service).from('inbox_access').select('member_id').eq('inbox_id', inboxId)))
     .map((row) => row.member_id);
   const removed = current.filter((id) => !memberIds.includes(id));
@@ -195,6 +244,96 @@ async function setAccess(ctx: InboxContext, inboxId: string, memberIds: string[]
   if (added.length) {
     const { error } = await comms(ctx.service).from('inbox_access').insert(added.map((member_id) => ({ inbox_id: inboxId, member_id, created_by: ctx.memberId })));
     if (error) throw error;
+  }
+}
+
+/**
+ * The defaults a request sets (only the fields it sends), checked: real
+ * members, live groups and projects, one of each pair. Who gets an inbox's
+ * decisions is the Owner's choice: anyone else sending it unchanged is
+ * fine (the form sends what it loaded), changing it is 403.
+ */
+async function defaultsPatch(ctx: InboxContext, input: InboxSettingsRequest, current: InboxDefaults | null): Promise<Partial<InboxDefaults>> {
+  const patch: Partial<InboxDefaults> = {};
+  for (const key of ['default_assignee_member_id', 'default_assignee_group_id', 'default_project_id', 'decision_member_id', 'decision_group_id'] as const) {
+    if (input[key] !== undefined) patch[key] = input[key];
+  }
+  if (ctx.access.role !== 'owner') {
+    for (const key of ['decision_member_id', 'decision_group_id'] as const) {
+      if (patch[key] === undefined) continue;
+      if (patch[key] !== (current?.[key] ?? null)) throw new InboxError(403, 'Only an Owner chooses who gets the decisions of an inbox.');
+      delete patch[key];
+    }
+  }
+  // Choosing one of a pair clears the other.
+  if (patch.default_assignee_member_id && patch.default_assignee_group_id) throw new InboxError(422, 'New work goes to one person or one group, not both.');
+  if (patch.default_assignee_member_id) patch.default_assignee_group_id = null;
+  if (patch.default_assignee_group_id) patch.default_assignee_member_id = null;
+  if (patch.decision_member_id && patch.decision_group_id) throw new InboxError(422, 'Decisions go to one person or one group, not both.');
+  if (patch.decision_member_id) patch.decision_group_id = null;
+  if (patch.decision_group_id) patch.decision_member_id = null;
+  const members = [...new Set([patch.default_assignee_member_id, patch.decision_member_id].filter((id): id is string => !!id))];
+  const groups = [...new Set([patch.default_assignee_group_id, patch.decision_group_id].filter((id): id is string => !!id))];
+  if (members.length) {
+    const found = await many<{ id: string }>(ctx.service.from('team_members').select('id').in('id', members).eq('status', 'active'));
+    if (found.length !== members.length) throw new InboxError(422, 'Choose someone active on the team.');
+  }
+  if (groups.length) {
+    const found = await many<{ id: string }>(ctx.service.from('groups').select('id').in('id', groups).is('deleted_at', null));
+    if (found.length !== groups.length) throw new InboxError(422, 'Choose a group that exists.');
+  }
+  if (patch.default_project_id) {
+    const found = await many<{ id: string }>(ctx.service.from('projects').select('id').eq('id', patch.default_project_id).is('deleted_at', null));
+    if (!found.length) throw new InboxError(422, 'Choose a project that exists.');
+  }
+  return patch;
+}
+
+/**
+ * The handlers beside the primary, as the request lists them (left out, they
+ * stay). The primary is handler_member_id, set with the inbox; listing it
+ * again changes nothing. Removing a handler leaves the access it was given.
+ */
+async function saveHandlers(ctx: InboxContext, inboxId: string, input: InboxSettingsRequest): Promise<void> {
+  if (!input.handlers) return;
+  const wanted = input.handlers.filter((handler) => handler.group_id || handler.member_id !== input.handler_member_id);
+  const memberIds = [...new Set(wanted.map((h) => h.member_id).filter((id): id is string => !!id))];
+  const groupIds = [...new Set(wanted.map((h) => h.group_id).filter((id): id is string => !!id))];
+  if (memberIds.length) {
+    const found = await many<{ id: string }>(ctx.service.from('team_members').select('id').in('id', memberIds).eq('status', 'active'));
+    if (found.length !== memberIds.length) throw new InboxError(422, 'Every handler must be someone active on the team.');
+  }
+  if (groupIds.length) {
+    const found = await many<{ id: string }>(ctx.service.from('groups').select('id').in('id', groupIds).is('deleted_at', null));
+    if (found.length !== groupIds.length) throw new InboxError(422, 'Every handler group must exist.');
+  }
+  const current = (await inboxHandlerRows(ctx.service, [inboxId])).filter((row) => !row.is_primary);
+  const gone = current.filter((row) => (row.handler_member_id ? !memberIds.includes(row.handler_member_id) : !groupIds.includes(row.handler_group_id as string)));
+  if (gone.length) {
+    const { error } = await comms(ctx.service).from('inbox_handlers').delete().in('id', gone.map((row) => row.id));
+    if (error) throw error;
+  }
+  const added = [
+    ...memberIds.filter((id) => !current.some((row) => row.handler_member_id === id)).map((id) => ({ inbox_id: inboxId, handler_member_id: id, created_by: ctx.memberId })),
+    ...groupIds.filter((id) => !current.some((row) => row.handler_group_id === id)).map((id) => ({ inbox_id: inboxId, handler_group_id: id, created_by: ctx.memberId })),
+  ];
+  if (added.length) {
+    const { error } = await comms(ctx.service).from('inbox_handlers').insert(added);
+    if (error) throw error;
+  }
+}
+
+/**
+ * Handlers and defaults, after the inbox row (whose handler_member_id sets
+ * the primary). Before the migration, a save that sets no defaults and no
+ * other handlers (what the form sends for an inbox that has none) changes
+ * nothing, so inboxes still save.
+ */
+async function saveHandlersAndDefaults(ctx: InboxContext, inboxId: string, input: InboxSettingsRequest, patch: Partial<InboxDefaults>): Promise<void> {
+  await saveHandlers(ctx, inboxId, input);
+  if (Object.keys(patch).length) {
+    const { error } = await comms(ctx.service).from('inboxes').update(patch).eq('id', inboxId);
+    if (error && !(isMissingSchema(error) && Object.values(patch).every((value) => value === null))) friendly(error);
   }
 }
 
@@ -223,13 +362,14 @@ async function inboxById(ctx: InboxContext, id: string, owner: { shared: true } 
   // Someone else's personal inbox looks like no inbox at all.
   if (owner && 'memberId' in owner && ownerId !== owner.memberId) throw new InboxError(404, 'Inbox not found');
   const access = (await many<{ member_id: string }>(comms(ctx.service).from('inbox_access').select('member_id').eq('inbox_id', id))).map((row) => row.member_id);
-  const [messages, projectAddresses] = await Promise.all([messageCount(ctx.service, id), projectAddressCount(ctx.service, id)]);
-  return present(data as Row, access, messages, projectAddresses);
+  const [messages, projectAddresses, extras] = await Promise.all([messageCount(ctx.service, id), projectAddressCount(ctx.service, id), inboxExtras(ctx.service, [id])]);
+  return present(data as Row, access, messages, projectAddresses, extras.get(id));
 }
 
 export async function createInbox(ctx: InboxContext, input: InboxSettingsRequest): Promise<InboxSettings> {
   requireManage(ctx);
   const { address, memberIds, aliases } = await validate(ctx, input);
+  const patch = await defaultsPatch(ctx, input, null);
   const { data, error } = await comms(ctx.service).from('inboxes').insert({
     name: input.name,
     address,
@@ -249,6 +389,7 @@ export async function createInbox(ctx: InboxContext, input: InboxSettingsRequest
   }).select('id').single();
   if (error) friendly(error);
   const id = (data as { id: string }).id;
+  await saveHandlersAndDefaults(ctx, id, input, patch);
   await setAccess(ctx, id, memberIds);
   return inboxById(ctx, id);
 }
@@ -258,6 +399,7 @@ export async function updateInbox(ctx: InboxContext, inboxId: string, input: Inb
   const id = assertId(inboxId, 'inbox id');
   await inboxById(ctx, id, { shared: true });
   const { address, memberIds, aliases } = await validate(ctx, input);
+  const patch = await defaultsPatch(ctx, input, await inboxDefaults(ctx.service, id));
   const { error } = await comms(ctx.service).from('inboxes').update({
     name: input.name,
     address,
@@ -274,6 +416,7 @@ export async function updateInbox(ctx: InboxContext, inboxId: string, input: Inb
     ...(input.triage_mode ? { triage_mode: input.triage_mode } : {}),
   }).eq('id', id);
   if (error) friendly(error);
+  await saveHandlersAndDefaults(ctx, id, input, patch);
   await setAccess(ctx, id, memberIds);
   return inboxById(ctx, id);
 }
@@ -323,13 +466,14 @@ export async function listMyInboxes(ctx: InboxContext): Promise<MyInboxList> {
     ownersReadPersonalInboxes(ctx.service),
   ]);
   const ids = rows.map((row) => row.id as string);
-  const [access, counts] = await Promise.all([
+  const [access, counts, extras] = await Promise.all([
     ids.length ? many<{ inbox_id: string; member_id: string }>(comms(ctx.service).from('inbox_access').select('inbox_id, member_id').in('inbox_id', ids)) : Promise.resolve([]),
     Promise.all(ids.map((id) => messageCount(ctx.service, id))),
+    inboxExtras(ctx.service, ids),
   ]);
   return {
     relay_domain: relay?.domain ?? '',
-    inboxes: rows.map((row, index) => present(row, access.filter((grant) => grant.inbox_id === row.id).map((grant) => grant.member_id), counts[index], 0)),
+    inboxes: rows.map((row, index) => present(row, access.filter((grant) => grant.inbox_id === row.id).map((grant) => grant.member_id), counts[index], 0, extras.get(row.id as string))),
     owners_read_personal: ownersRead,
   };
 }

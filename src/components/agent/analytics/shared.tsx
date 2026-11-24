@@ -4,14 +4,13 @@ import { useId, useState } from 'react';
 import { ChevronDown, type LucideIcon } from 'lucide-react';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { StatStrip, type Stat as StripStat } from '@/components/ui/StatStrip';
-import type { TimeLine } from '@/lib/agent-telemetry-analytics';
 import { formatNumber } from '@/lib/format';
 import { appLocale } from '@/lib/region';
 
 /**
- * Presentation shared by the Agent Analytics cards. Every number comes from
- * the read models (src/lib/agent-analytics.ts, agent-telemetry-analytics.ts);
- * these only format and frame them.
+ * Presentation shared by the Agent Analytics cards (core's, and an install's
+ * own in src/custom). Every number comes from a read model; these only format
+ * and frame them.
  */
 
 /** Runtime reads in hours and minutes; milliseconds are a storage detail. */
@@ -52,64 +51,6 @@ export function fmtWhen(ms: number): string {
 export function fmtDay(ms: number): string {
   return new Date(ms).toLocaleDateString(appLocale(), { month: 'short', day: 'numeric' });
 }
-
-/**
- * Display order of the runtime lines everywhere they appear together (chart
- * legend, tooltip and stack from the bottom; Time accounting's split bar):
- * work first, then the turns stuck on something (waiting, blocked, failed),
- * then the quiet lines. Display only: the overlap priority in TIME_LINES is
- * unchanged.
- */
-export const LINE_ORDER: TimeLine[] = ['work', 'rework', 'waiting', 'blocked', 'failed', 'skipped', 'idle', 'unknown', 'unlabelled'];
-
-// Unlabelled is the one line with no outcome at all, so it wears a stripe
-// rather than a third flat gray (idle and unknown are the flat ones).
-const UNLABELLED_STRIPE = 'bg-[repeating-linear-gradient(135deg,var(--color-zinc-500)_0_2px,transparent_2px_5px)]';
-
-/**
- * One color and one plain label per runtime line. Color is never the only
- * cue: every place that shows a line also prints its name. The signal lines
- * use the validated runtime tokens in globals.css; the quiet ones are a light
- * gray (unknown), a mid gray (idle) and a gray stripe (unlabelled).
- */
-export const LINE_STYLE: Record<TimeLine, { label: string; bar: string; dot: string; hint: string }> = {
-  work: {
-    label: 'Work', bar: 'bg-runtime-work', dot: 'bg-runtime-work',
-    hint: 'Turns that changed something: any tool call beyond reading. Every directed turn (a person messaging the agent) is work.',
-  },
-  rework: {
-    label: 'Rework on approved work', bar: 'bg-runtime-rework', dot: 'bg-runtime-rework',
-    hint: 'Work on a task whose pull request was already approved when the turn began. Real work, but it should not have been needed.',
-  },
-  waiting: {
-    label: 'Waiting on a person', bar: 'bg-runtime-waiting', dot: 'bg-runtime-waiting',
-    hint: 'Turns that found the work parked on a person (a review, an answer, an approval) and replied HEARTBEAT_OK.',
-  },
-  blocked: {
-    label: 'Blocked', bar: 'bg-runtime-blocked', dot: 'bg-runtime-blocked',
-    hint: 'Turns that found nothing to do and logged a blocked event or replied BLOCKED.',
-  },
-  skipped: {
-    label: 'Skipped by gate', bar: 'bg-runtime-skipped', dot: 'bg-runtime-skipped',
-    hint: 'Fires the cron gate skipped before the model ran.',
-  },
-  idle: {
-    label: 'Idle checks', bar: 'bg-zinc-500', dot: 'bg-zinc-500',
-    hint: 'Scheduled checks that found nothing to do (PICKUP_IDLE, REVIEW_IDLE, SWEEP_CLEAN, NO_WORK).',
-  },
-  unknown: {
-    label: 'Unknown', bar: 'bg-zinc-300', dot: 'bg-zinc-300',
-    hint: 'The host could not read the session, so the turn is published without a guess.',
-  },
-  unlabelled: {
-    label: 'Unlabelled', bar: UNLABELLED_STRIPE, dot: UNLABELLED_STRIPE,
-    hint: 'Scheduled turns published before outcomes existed. Never counted as work or idle; a backfill can label them.',
-  },
-  failed: {
-    label: 'Failed', bar: 'bg-runtime-failed', dot: 'bg-runtime-failed',
-    hint: 'Fires that did not end cleanly and have no completed turn (a completed-with-error turn is counted under its outcome).',
-  },
-};
 
 /** A card in the page's glass language, with its title row. */
 export function Card({

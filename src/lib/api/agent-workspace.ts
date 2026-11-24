@@ -15,6 +15,10 @@ import {
   canManageAgent,
   checkOwnerIds,
   ownersOf,
+  ownerGroupsOf,
+  addOwnerGroups,
+  checkOwnerGroupIds,
+  setOwnerGroups,
   requireManageAgent,
   setOwners,
   type AgentCaller,
@@ -115,6 +119,8 @@ export interface AgentListItem {
   agent_profile: string;
   template_key: string | null;
   owners: AgentOwner[];
+  /** Groups that own it beside its people (any member manages it). */
+  owner_groups: { id: string; name: string }[];
   /** Up to 50 of the projects it is assigned to (pm.project_agents), that the viewer reaches. */
   project_ids: string[];
   /** Up to 50 of the live projects it is a member of (pm.project_members, its project access), that the viewer reaches. */
@@ -205,7 +211,7 @@ export async function listAgents(service: SupabaseClient, viewer: AgentCaller, f
   const pageIds = members.map((member) => member.id as string);
   if (pageIds.length === 0) return { rows: [], total: count ?? 0 };
 
-  const [health, runs, owners, counts, templates, access] = await Promise.all([
+  const [health, runs, owners, counts, templates, access, ownerGroups] = await Promise.all([
     service.from('agent_health').select('*').in('member_id', pageIds)
       .then(({ data: rows }) => new Map(((rows ?? []) as Row[]).map((row) => [row.member_id as string, row]))),
     service.from('agent_runs').select('*').in('agent_id', pageIds).eq('status', 'running').order('started_at', { ascending: false }).limit(pageIds.length * 3)
@@ -221,6 +227,7 @@ export async function listAgents(service: SupabaseClient, viewer: AgentCaller, f
       .then(({ data: rows }) => new Map(((rows ?? []) as Row[]).map((row) => [row.agent_id as string, row]))),
     appliedTemplateKeys(service, pageIds),
     memberProjectAccess(service, viewer, pageIds),
+    ownerGroupsOf(service, pageIds),
   ]);
 
   const reachAll = accessAllows(viewer.access, 'projects.read_all', viewer.scopes === null ? 'app' : 'api');
@@ -239,6 +246,7 @@ export async function listAgents(service: SupabaseClient, viewer: AgentCaller, f
         agent_profile: member.agent_profile ?? 'generic',
         template_key: templates.get(member.id) ?? null,
         owners: owners.get(member.id) ?? [],
+        owner_groups: ownerGroups.get(member.id) ?? [],
         project_ids: ((counted?.project_ids ?? []) as string[]).filter((id) => reachAll || reach.has(id)),
         access_project_ids: (access.get(member.id)?.visible ?? []).slice(0, AGENT_LIST_PROJECT_IDS).map((project) => project.id),
         access_total: access.get(member.id)?.total ?? 0,
@@ -295,6 +303,14 @@ function agentView(row: Row) {
 
 export const AGENT_DETAIL_ASSIGNMENTS = 100;
 
+/** An agent's rules as the screens read them, with its escalation group when it has one. */
+function rulesWithGroup(row: Row): AgentRules & { agent_escalate_to_group: string | null } {
+  return {
+    ...agentRulesOf(row as Partial<Record<keyof AgentRules, unknown>>),
+    agent_escalate_to_group: typeof row.agent_escalate_to_group === 'string' ? row.agent_escalate_to_group : null,
+  };
+}
+
 /**
  * One agent as the viewer may see it: who it is, its rules, live health and
  * current run, its assignments on projects the viewer reaches, its owners,
@@ -310,7 +326,7 @@ export async function agentDetail(service: SupabaseClient, viewer: AgentCaller, 
   const omitted: string[] = [];
   if (!canKeys) omitted.push('keys');
   if (!canHooks) omitted.push('webhooks');
-  const [health, run, assignments, owners, keys, webhooks, templateKey, access, canManage] = await Promise.all([
+  const [health, run, assignments, owners, keys, webhooks, templateKey, access, canManage, ownerGroups] = await Promise.all([
     service.from('agent_health').select('*').eq('member_id', agentId).maybeSingle().then(({ data }) => (data as Row | null) ?? null),
     service.from('agent_runs').select('*').eq('agent_id', agentId).eq('status', 'running').order('started_at', { ascending: false }).limit(1)
       .then(async ({ data, error }) => {
@@ -328,10 +344,11 @@ export async function agentDetail(service: SupabaseClient, viewer: AgentCaller, 
     appliedTemplateKey(service, agentId),
     memberProjectAccess(service, viewer, [agentId]).then((map) => map.get(agentId) ?? { visible: [], total: 0 }),
     canManageAgent(service, viewer, agentId),
+    ownerGroupsOf(service, [agentId]).then((map) => map.get(agentId) ?? []),
   ]);
   return {
     agent: agentView(row),
-    rules: agentRulesOf(row as Partial<Record<keyof AgentRules, unknown>>),
+    rules: rulesWithGroup(row),
     health,
     current_run: run,
     projects: assignments.rows,
@@ -340,6 +357,7 @@ export async function agentDetail(service: SupabaseClient, viewer: AgentCaller, 
     // Its project access (pm.project_members), by the list's rule: what the viewer reaches, the rest counted.
     project_access: { projects: access.visible, hidden_count: access.total - access.visible.length, total: access.total },
     owners,
+    owner_groups: ownerGroups,
     keys: keys
       ? keys.map((key) => ({
         id: key.id, name: key.name, prefix: key.key_prefix, scopes: key.scopes ?? [], permissions: key.permissions,
@@ -375,6 +393,8 @@ export async function patchAgent(service: SupabaseClient, caller: AgentCaller, a
   // Owners are checked (and refused) before anything changes.
   let owners: { added: string[]; removed: string[] } | null = null;
   if (body.owner_ids !== undefined) owners = await setOwners(service, caller, agentId, body.owner_ids);
+  let ownerGroupChanges: { added: string[]; removed: string[] } | null = null;
+  if (body.owner_group_ids !== undefined) ownerGroupChanges = await setOwnerGroups(service, caller, agentId, body.owner_group_ids);
   let row = before;
   if (Object.keys(changes).length) {
     const { data, error } = await service.from('team_members').update(changes).eq('id', agentId).select().single();
@@ -382,11 +402,13 @@ export async function patchAgent(service: SupabaseClient, caller: AgentCaller, a
     row = data as Row;
   }
   return {
-    before: { ...agentView(before), rules: agentRulesOf(before as Partial<Record<keyof AgentRules, unknown>>) },
+    before: { ...agentView(before), rules: rulesWithGroup(before) },
     agent: agentView(row),
-    rules: agentRulesOf(row as Partial<Record<keyof AgentRules, unknown>>),
+    rules: rulesWithGroup(row),
     owners: (await ownersOf(service, [agentId])).get(agentId) ?? [],
     owners_changed: owners,
+    owner_groups: (await ownerGroupsOf(service, [agentId])).get(agentId) ?? [],
+    ...(ownerGroupChanges ? { owner_groups_changed: ownerGroupChanges } : {}),
   };
 }
 
@@ -456,8 +478,8 @@ export function agentEmailFor(name: string): string {
 }
 
 export interface HireResult {
-  agent: ReturnType<typeof agentView> & { owners: AgentOwner[] };
-  rules: AgentRules;
+  agent: ReturnType<typeof agentView> & { owners: AgentOwner[]; owner_groups: { id: string; name: string }[] };
+  rules: AgentRules & { agent_escalate_to_group: string | null };
   template_key: string | null;
   assignments: ProjectAgentAssignment[];
   access_added: string[];
@@ -499,6 +521,7 @@ export async function hireAgent(service: SupabaseClient, caller: AgentCaller, gr
       `${projectId}: `);
   });
   const owners = await checkOwnerIds(service, null, [caller.memberId, ...(input.owner_ids ?? [])]);
+  const ownerGroupIds = input.owner_group_ids?.length ? await checkOwnerGroupIds(service, input.owner_group_ids) : [];
   const rulesInput = { ...(template?.rules ?? {}), ...rulesColumnsFrom(input.rules) };
   await agentRulesColumns(service, { id: '00000000-0000-4000-8000-000000000000', role: 'agent' }, rulesInput);
   let keyScopes: string[] | null = null;
@@ -525,7 +548,7 @@ export async function hireAgent(service: SupabaseClient, caller: AgentCaller, gr
   }
 
   // 2. Write, undoing on a failure.
-  const state: HireState = { agentId: null, done: [], ownersAdded: [], accessAdded: [], assignmentIds: [], keyId: null };
+  const state: HireState = { agentId: null, done: [], ownersAdded: [], ownerGroupsAdded: [], accessAdded: [], assignmentIds: [], keyId: null };
   try {
     const member = await createAgentMember(service, caller.access, {
       name: input.name,
@@ -549,6 +572,7 @@ export async function hireAgent(service: SupabaseClient, caller: AgentCaller, gr
       state.done.push('rules set');
     }
     state.ownersAdded = await addOwners(service, agentId, owners, caller.memberId);
+    state.ownerGroupsAdded = await addOwnerGroups(service, agentId, ownerGroupIds, caller.memberId);
 
     let assignments: ProjectAgentAssignment[] = [];
     if (assignmentRows.length) {
@@ -583,8 +607,12 @@ export async function hireAgent(service: SupabaseClient, caller: AgentCaller, gr
     }
 
     return {
-      agent: { ...agentView(row), owners: (await ownersOf(service, [agentId])).get(agentId) ?? [] },
-      rules: agentRulesOf(row as Partial<Record<keyof AgentRules, unknown>>),
+      agent: {
+        ...agentView(row),
+        owners: (await ownersOf(service, [agentId])).get(agentId) ?? [],
+        owner_groups: (await ownerGroupsOf(service, [agentId])).get(agentId) ?? [],
+      },
+      rules: rulesWithGroup(row),
       template_key: template?.key ?? null,
       assignments,
       access_added: state.accessAdded,
@@ -601,6 +629,7 @@ interface HireState {
   agentId: string | null;
   done: string[];
   ownersAdded: string[];
+  ownerGroupsAdded: string[];
   accessAdded: string[];
   assignmentIds: string[];
   keyId: string | null;
@@ -636,6 +665,7 @@ async function undoHire(service: SupabaseClient, caller: AgentCaller, state: Hir
   if (state.assignmentIds.length) await step('assignments removed', () => service.from('project_agents').delete().in('id', state.assignmentIds));
   if (state.accessAdded.length) await step('project access removed', () => service.from('project_members').delete().eq('member_id', agentId).in('project_id', state.accessAdded));
   if (state.ownersAdded.length) await step('owners removed', () => service.from('agent_owners').delete().eq('agent_id', agentId).in('member_id', state.ownersAdded));
+  if (state.ownerGroupsAdded.length) await step('owner groups removed', () => service.from('agent_owner_groups').delete().eq('agent_id', agentId).in('group_id', state.ownerGroupsAdded));
   await step('agent suspended', () => service.from('team_members').update({ status: 'suspended' }).eq('id', agentId));
   const details = {
     reason: 'hire_incomplete',

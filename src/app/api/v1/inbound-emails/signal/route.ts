@@ -1,6 +1,7 @@
 import { withApi } from '@/lib/api/middleware';
 import { success } from '@/lib/api/response';
 import { inboxScope } from '@/lib/communications/agent-access';
+import { handledParam, narrowToHandled } from '@/lib/communications/inbox-handlers';
 import { comms } from '@/lib/communications/db';
 import { inboxModes, planSignal } from '@/lib/communications/triage-context';
 
@@ -14,10 +15,11 @@ export const dynamic = 'force-dynamic';
  * triage runs (legacy and shadow); plans_new_count the messages ready to
  * plan (plan inboxes' mail, and every meeting) and plans_newest_received_at
  * the newest of them, which wake the plan triage as new_count wakes the old;
- * shadow_pending_count what a shadow triage has left.
+ * shadow_pending_count what a shadow triage has left. handled=me counts only
+ * the inboxes the key's member handles (as itself or through a group).
  */
 export const GET = withApi(async ({ supabase, searchParams, teamMemberId, access }) => {
-  const inboxIds = await inboxScope(supabase, teamMemberId, access, searchParams.get('inbox_id'));
+  const inboxIds = await narrowToHandled(supabase, teamMemberId, await inboxScope(supabase, teamMemberId, access, searchParams.get('inbox_id')), handledParam(searchParams));
   if (inboxIds.length === 0) {
     return success({ new_count: 0, newest_received_at: null, unsummarized_count: 0, drafts_requested: 0, waiting_count: 0, plans_new_count: 0, plans_newest_received_at: null, shadow_pending_count: 0 });
   }

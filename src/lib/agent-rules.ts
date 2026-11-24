@@ -44,6 +44,8 @@ export const agentRulesUpdateSchema = z.object({
   agent_close_policy: z.enum(AGENT_CLOSE_POLICIES).optional(),
   agent_create_policy: z.enum(AGENT_CREATE_POLICIES).optional(),
   agent_escalate_to: z.string().uuid('agent_escalate_to must be a team member id').nullable().optional(),
+  /** A group instead of one member: any member answers. Naming one clears the other. */
+  agent_escalate_to_group: z.string().uuid('agent_escalate_to_group must be a group id').nullable().optional(),
 });
 export type AgentRulesUpdate = z.infer<typeof agentRulesUpdateSchema>;
 
@@ -64,6 +66,12 @@ export const CREATE_POLICY_OPTIONS: { value: AgentCreatePolicy; label: string; d
   { value: 'live', label: 'Go live', detail: 'New tasks appear on the board right away.' },
   { value: 'approval', label: 'Need approval', detail: 'Each new task waits in Suggestions until someone approves it.' },
 ];
+
+/**
+ * The rules as the screens edit them: the four, plus the group an agent may
+ * escalate to instead of one member. A member and a group are never both set.
+ */
+export type AgentRulesDraft = AgentRules & { agent_escalate_to_group: string | null };
 
 /** The escalation picker's empty choice. */
 export const ESCALATE_DEFAULT_LABEL = 'The Owner';

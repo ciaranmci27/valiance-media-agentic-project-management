@@ -17,6 +17,7 @@ Everything goes in `src/custom/` (code), `public/custom/` (files) and `supabase/
 | Sidebar entry | `src/custom/index.ts` | `navItems` (`after: '/projects'` to place it) |
 | Project tab (`?tab=x-<key>`, gets `{ project }`) | `src/custom/index.ts` | `projectTabs` |
 | Dashboard card | `src/custom/index.ts` | `dashboardWidgets` (`placement`, `size`) |
+| Agent analytics card | `src/custom/index.ts` | `agentAnalyticsCards` (`size`; gets range, filters, the analytics model and events) |
 | Settings page at `/settings/custom/<key>` | `src/custom/index.ts` | `settingsSections` (Owners only by default) |
 | Endpoint at `/api/x/<path>` | `src/custom/api.ts` | `defineApiRoutes([...])` |
 | Page open without sign-in | `src/custom/middleware.ts` | `definePublicPaths([...])` |

@@ -5,7 +5,9 @@ import { permissionAlternatives } from './middleware';
 import { readTaskInFull } from './task-read';
 import { BRIEF_CONTEXT_COLUMNS, readProjectContext } from './project-context';
 import { ownAssignment } from './project-agents';
-import { escalationTarget, loadMemberRules } from './agent-rules';
+import { escalationRecipient, loadMemberRules } from './agent-rules';
+import { groupNames } from './groups';
+import { groupTargetLabel } from '@/lib/groups';
 import { apiContext, listTaskFiles } from '@/lib/task-files/service';
 
 /**
@@ -73,9 +75,12 @@ function keyHolds(caller: BriefCaller, permission: PermissionKey): boolean {
 
 async function briefRules(caller: BriefCaller) {
   const member = await loadMemberRules(caller.supabase, caller.teamMemberId);
-  const escalateId = member.isAgent ? await escalationTarget(caller.supabase, caller.teamMemberId) : null;
+  const escalation = member.isAgent ? await escalationRecipient(caller.supabase, caller.teamMemberId) : null;
+  const escalateId = escalation?.id ?? null;
   let escalateName: string | null = null;
-  if (escalateId) {
+  if (escalation?.kind === 'group') {
+    escalateName = groupTargetLabel((await groupNames(caller.supabase, [escalation.id])).get(escalation.id));
+  } else if (escalateId) {
     const { data } = await caller.supabase.from('team_members').select('name').eq('id', escalateId).maybeSingle();
     escalateName = (data as { name?: string } | null)?.name ?? null;
   }
@@ -85,7 +90,7 @@ async function briefRules(caller: BriefCaller) {
     close_policy: member.rules.agent_close_policy,
     create_policy: member.rules.agent_create_policy,
     // Whoever ask_human goes to by default: the agent's own choice, else the Owner.
-    escalate_to: escalateId ? { id: escalateId, name: escalateName } : null,
+    escalate_to: escalateId ? { id: escalateId, name: escalateName, ...(escalation?.kind === 'group' ? { kind: 'group' as const } : {}) } : null,
   };
 }
 

@@ -129,6 +129,8 @@ export function SenderRulesList({
                     </span>
                   </Tooltip>
                   <span aria-hidden="true">·</span>
+                  <span>{rule.inbox_id ? `Only ${rule.inbox_name ?? 'one inbox'}` : 'All inboxes'}</span>
+                  <span aria-hidden="true">·</span>
                   <span>{rule.hit_count} {rule.hit_count === 1 ? 'email' : 'emails'} sorted</span>
                   {off && <><span aria-hidden="true">·</span><span>Off</span></>}
                   {busy && (

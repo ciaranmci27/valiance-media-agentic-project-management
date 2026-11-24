@@ -76,8 +76,8 @@ function question(id: string, fields: Partial<QuestionView>): QuestionView {
 
 // ── Tabs ──────────────────────────────────────────────────────────────
 check('no tab opens Needs you', agentsTabFrom(null) === 'needs-you');
-check('a known tab opens', agentsTabFrom('runs') === 'runs' && agentsTabFrom('usage') === 'usage');
-check('an unknown tab opens Needs you', agentsTabFrom('analytics') === 'needs-you');
+check('a known tab opens', agentsTabFrom('runs') === 'runs' && agentsTabFrom('analytics') === 'analytics');
+check('an unknown tab opens Needs you', agentsTabFrom('reports') === 'needs-you');
 
 // ── Needs you ─────────────────────────────────────────────────────────
 {

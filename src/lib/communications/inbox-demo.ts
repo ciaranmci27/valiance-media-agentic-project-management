@@ -670,6 +670,22 @@ export const demoInbox = {
 // -- Settings ----------------------------------------------------------------
 
 let relay = 'relay.example.com';
+
+/** An inbox's handlers and defaults in demo mode: its one handler as the primary, no defaults. */
+function demoHandlers(primary: string | null, extra: InboxSettingsInput['handlers'] = []) {
+  return {
+    handlers: [
+      ...(primary ? [{ member_id: primary, group_id: null, is_primary: true }] : []),
+      ...(extra ?? []).filter((h) => h.group_id || h.member_id !== primary).map((h) => ({ member_id: h.member_id ?? null, group_id: h.group_id ?? null, is_primary: false })),
+    ],
+    default_assignee_member_id: null,
+    default_assignee_group_id: null,
+    default_project_id: null,
+    decision_member_id: null,
+    decision_group_id: null,
+  };
+}
+
 let settings: InboxSettings[] = [
   {
     id: INBOX_SCOUT.id, name: 'Scout', address: INBOX_SCOUT.address, routing_local_part: 'scout', routing_domain: relay,
@@ -677,6 +693,7 @@ let settings: InboxSettings[] = [
     agent_readable_types: ['image', 'pdf', 'text'], summary_interval_minutes: 30, filter_auto_mail: true, aliases: [], triage_mode: 'legacy', verification_code: 'VM-7K2Q',
     verified_at: hoursAgo(240), last_received_at: hoursAgo(0.6), last_error: null, last_error_at: null,
     access_member_ids: [SCOUT.id, SARAH.id], message_count: 9, project_address_count: 0, created_at: hoursAgo(300), owner_member_id: null,
+    ...demoHandlers(SCOUT.id),
   },
   {
     id: INBOX_BILLING.id, name: 'Billing', address: INBOX_BILLING.address, routing_local_part: 'billing', routing_domain: relay,
@@ -684,6 +701,7 @@ let settings: InboxSettings[] = [
     agent_readable_types: ['pdf'], summary_interval_minutes: 60, filter_auto_mail: true, aliases: [], triage_mode: 'legacy', verification_code: 'VM-3XPA',
     verified_at: null, last_received_at: hoursAgo(9), last_error: 'Attachment invoice-scan.tiff was over the 10 MB limit and was not stored',
     last_error_at: hoursAgo(9), access_member_ids: [ATLAS.id], message_count: 1, project_address_count: 0, created_at: hoursAgo(20), owner_member_id: null,
+    ...demoHandlers(ATLAS.id),
   },
 ];
 
@@ -696,9 +714,18 @@ function applyInput(base: InboxSettings, input: InboxSettingsInput): InboxSettin
   const domain = input.routing_domain || relay;
   const moved = local !== base.routing_local_part || domain !== base.routing_domain;
   const access = [...new Set([...input.access_member_ids, ...(input.handler_member_id ? [input.handler_member_id] : [])])];
+  const { handlers, ...rest } = input;
+  const kept = demoHandlers(input.handler_member_id, handlers ?? base.handlers.filter((h) => !h.is_primary).map((h) => ({ member_id: h.member_id ?? undefined, group_id: h.group_id ?? undefined })));
+  const pick = <K extends keyof InboxSettings>(key: K) => (rest[key as keyof typeof rest] !== undefined ? rest[key as keyof typeof rest] : base[key]) as InboxSettings[K];
   return {
     ...base,
-    ...input,
+    ...rest,
+    handlers: kept.handlers,
+    default_assignee_member_id: pick('default_assignee_member_id'),
+    default_assignee_group_id: pick('default_assignee_group_id'),
+    default_project_id: pick('default_project_id'),
+    decision_member_id: pick('decision_member_id'),
+    decision_group_id: pick('decision_group_id'),
     routing_local_part: local,
     routing_domain: domain,
     routing_address: `${local}@${domain}`,
@@ -765,7 +792,7 @@ export const demoInboxSettings = {
       routing_address: `${local}@${relay}`, handler_member_id: input.handler_member_id, enabled: input.enabled, aliases: [], verified_at: null,
       verification_code: 'VM-DEMO', last_received_at: null, last_error: null, last_error_at: null, message_count: 0, project_address_count: 0,
       access_member_ids: [...new Set([...input.access_member_ids, ...(input.handler_member_id ? [input.handler_member_id] : [])])],
-      created_at: new Date().toISOString(), owner_member_id: 'demo-you',
+      created_at: new Date().toISOString(), owner_member_id: 'demo-you', ...demoHandlers(input.handler_member_id),
     };
     mine = [...mine, created];
     return structuredClone(created);
@@ -776,6 +803,7 @@ export const demoInboxSettings = {
     if (!base) throw new Error('Inbox not found');
     const updated: InboxSettings = {
       ...base, address: input.address.toLowerCase(), handler_member_id: input.handler_member_id, enabled: input.enabled,
+      handlers: demoHandlers(input.handler_member_id).handlers,
       access_member_ids: [...new Set([...input.access_member_ids, ...(input.handler_member_id ? [input.handler_member_id] : [])])],
     };
     mine = mine.map((inbox) => (inbox.id === inboxId ? updated : inbox));

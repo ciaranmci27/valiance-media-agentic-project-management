@@ -15,6 +15,11 @@ export function getEndpointScopes(endpoint: EndpointDoc): string[] {
   const write = method !== 'GET' && method !== 'HEAD';
 
   if (path === '/api/v1/inbox/meetings') return ['meetings.write'];
+  if (path.startsWith('/api/v1/delegations')) return ['agents.act_for'];
+  if (path === '/api/v1/identities/link-requests') return ['identities.link'];
+  if (path === '/api/v1/identities' || path.startsWith('/api/v1/identities/:id')) return ['team.manage'];
+  if (path.startsWith('/api/v1/identities') || path.endsWith('/identities')) return ['identities.read'];
+  if (path.startsWith('/api/v1/groups')) return write ? ['groups.manage'] : ['team.read', 'team.manage', 'groups.manage'];
   if (path.startsWith('/api/v1/api-keys')) return ['api_keys.manage_all'];
   if (path.startsWith('/api/v1/webhook-endpoints')) return ['webhooks.manage'];
   if (path === '/api/v1/agents') return method === 'GET' ? ['team.read', 'team.manage'] : ['team.manage'];
@@ -167,6 +172,7 @@ export const endpoints: EndpointDoc[] = [
       { name: 'agent_close_policy', type: 'close|review', required: false, description: 'Agents only: close (setting done finishes a task, the default) or review (done moves the task to in_review with a comment, for a person to check).' },
       { name: 'agent_create_policy', type: 'live|approval', required: false, description: 'Agents only: live (new tasks go live, the default) or approval (POST /api/v1/tasks makes a task suggestion instead, answered with 202).' },
       { name: 'agent_escalate_to', type: 'uuid|null', required: false, description: 'Agents only: the active member it escalates to (not itself). null: the Owner.' },
+      { name: 'agent_escalate_to_group', type: 'uuid|null', required: false, description: 'Agents only: a live group it escalates to instead (any member answers). Naming a member clears the group and the other way round.' },
     ],
   },
   { method: 'DELETE', path: '/api/v1/team-members/:id', description: 'Owner only. Team members are never deleted: this suspends the member, which ends their access and keeps their time, comments and pay history. Returns { deleted: false, suspended: true }. The Owner cannot be removed.', group: 'Team Members',
@@ -1689,9 +1695,10 @@ export const endpoints: EndpointDoc[] = [
       { name: 'mode', type: 'plans|shadow', description: 'Default plans' },
       { name: 'limit', type: 'integer', description: '1 to 100, default 20' },
       { name: 'inbox_id', type: 'uuid', description: 'One granted inbox (default: every granted inbox)' },
+      { name: 'handled', type: 'me', description: 'Only the inboxes you handle, as yourself or through a group (default: every granted inbox)' },
     ],
   },
-  { method: 'GET', path: '/api/v1/inbox/messages/:id/context', description: 'Everything to read before planning a message, in one call: message (as GET /api/v1/inbox/messages/:id returns it); speaker (owner, teammate, client, client_colleague, prospect, machine or stranger, worked out by the app: owner and teammate from the verified teammate behind the message, machine from automated or bulk mail, prospect from a lead\'s address, client from the sender\'s mappings, client_colleague when the conversation is already filed other than by a guess); trust; delivery; addressed_to_agent (the inbox address among the main recipients, or the agent named at the top); owner_forward_without_note; conversation ({ muted, plans: earlier plans with what each item did, reply_owed: open points, open_question, reminders }); projects (each project in scope or on the conversation: status, open_tasks, and recent: plan items on it from the last 14 days, from any conversation, so a request sent twice becomes one task). mode=shadow leaves out what this message already caused (its links and the tasks they created, the projects it filed, its reminders and triage), for a shadow triage running after the older one.', group: 'Inbound Email',
+  { method: 'GET', path: '/api/v1/inbox/messages/:id/context', description: 'Everything to read before planning a message, in one call: message (as GET /api/v1/inbox/messages/:id returns it); speaker (owner, teammate, client, client_colleague, prospect, machine or stranger, worked out by the app: owner and teammate from the verified teammate behind the message, machine from automated or bulk mail, prospect from a lead\'s address, client from the sender\'s mappings, client_colleague when the conversation is already filed other than by a guess); trust; delivery; addressed_to_agent (the inbox address among the main recipients, or the agent named at the top: its main handler, or any agent that handles the inbox); owner_forward_without_note; conversation ({ muted, plans: earlier plans with what each item did, reply_owed: open points, open_question, reminders }); projects (each project in scope or on the conversation: status, open_tasks, and recent: plan items on it from the last 14 days, from any conversation, so a request sent twice becomes one task). mode=shadow leaves out what this message already caused (its links and the tasks they created, the projects it filed, its reminders and triage), for a shadow triage running after the older one.', group: 'Inbound Email',
     params: [{ name: 'id', type: 'uuid', required: true, description: 'Message ID' }],
     queryParams: [{ name: 'mode', type: 'live|shadow', description: 'Default live' }],
   },
@@ -1733,12 +1740,16 @@ export const endpoints: EndpointDoc[] = [
     body: [{ name: 'triage_ids', type: 'uuid[]', required: true, description: '1 to 500 triage ids' }],
   },
   { method: 'GET', path: '/api/v1/inbox/signal', description: 'For the host dispatcher: { new_count, newest_received_at, unsummarized_count, drafts_requested, waiting_count, plans_new_count, plans_newest_received_at, shadow_pending_count } across your inboxes. unsummarized_count counts only emails that drove an outcome (a task, a reminder, a reply owed or a question); waiting_count is the questions still waiting on a person. new_count and newest_received_at cover the inboxes the older triage runs (triage_mode legacy or shadow); plans_new_count is what is ready to plan, new mail in plan inboxes and every new meeting (its conversation quiet for a few minutes, not muted), and plans_newest_received_at the newest of it; shadow_pending_count is mail in shadow inboxes the older triage handled with no shadow plan yet.', group: 'Inbound Email',
-    queryParams: [{ name: 'inbox_id', type: 'uuid', description: 'One granted inbox (default: every granted inbox)' }],
+    queryParams: [
+      { name: 'inbox_id', type: 'uuid', description: 'One granted inbox (default: every granted inbox)' },
+      { name: 'handled', type: 'me', description: 'Only the inboxes you handle, as yourself or through a group (default: every granted inbox)' },
+    ],
   },
   { method: 'GET', path: '/api/v1/inbox/reply-drafts', description: 'Reply drafts people asked for in the Inbox, oldest first: id, conversation_id (thread_id is its older name), message_id (the email to answer; read it first), subject, instructions (what the person wants said), requested_by. Only from your inboxes.', group: 'Inbound Email',
     queryParams: [
       { name: 'status', type: 'requested|ready|failed', description: 'Default requested' },
       { name: 'inbox_id', type: 'uuid', description: 'One granted inbox (default: every granted inbox)' },
+      { name: 'handled', type: 'me', description: 'Only the inboxes you handle, as yourself or through a group (default: every granted inbox)' },
     ],
   },
   { method: 'PUT', path: '/api/v1/inbox/reply-drafts/:id', description: 'Answer a waiting draft request once (409 draft_answered after): the reply text, or why there is none. The person copies it into their own mail; nothing is ever sent.', group: 'Inbound Email',
@@ -1751,20 +1762,24 @@ export const endpoints: EndpointDoc[] = [
   { method: 'GET', path: '/api/v1/inbox/questions', description: 'Questions you asked at triage that still wait on a person, oldest first: message_id, conversation_id (thread_id is its older name), subject, from, project ({ id, name } or null, the strongest), projects (every project, each { id, name, source }), question, asked_at. Answering one in the Inbox (the email comes back to New with the answer) or marking the thread handled takes it off.', group: 'Inbound Email',
     queryParams: [{ name: 'inbox_id', type: 'uuid', description: 'One granted inbox (default: every granted inbox)' }],
   },
-  { method: 'GET', path: '/api/v1/inbox/sender-rules', description: 'The live sender rules: what sorting does with mail from an address or domain (for every topic, or one), each with a plain label such as "Usage alerts from okendo.io" and its source (person or agent).', group: 'Inbound Email' },
-  { method: 'POST', path: '/api/v1/inbox/sender-rules', description: 'Make a sender rule from a pattern you saw. It applies to mail that arrives from now on, replaces your own rule for the same sender and topic, and never overlaps a person\'s, including one a person switched off (409 person_rule). A whole public email domain (gmail.com and the like) is refused (422).', group: 'Inbound Email',
+  { method: 'GET', path: '/api/v1/inbox/sender-rules', description: 'The live sender rules: what sorting does with mail from an address or domain (for every topic, or one), each with a plain label such as "Usage alerts from okendo.io" and its source (person or agent). A rule for one inbox also has scope inbox and its inbox_id; a workspace rule has neither field.', group: 'Inbound Email',
+    queryParams: [{ name: 'inbox_id', type: 'uuid', description: "One granted inbox: only the rules that sort its mail, the workspace's and its own (default: every live rule)" }],
+  },
+  { method: 'POST', path: '/api/v1/inbox/sender-rules', description: 'Make a sender rule from a pattern you saw. It applies to mail that arrives from now on, replaces the rule for the same sender, topic and scope (and your own for them in the other scope, returned as replaced_rule_id), and never overlaps a person\'s that can sort the same mail, including one a person switched off (409 person_rule). A whole public email domain (gmail.com and the like) is refused (422).', group: 'Inbound Email',
     body: [
       { name: 'match_kind', type: 'address|domain', required: true, description: 'An exact address, or a domain (its subdomains too)' },
       { name: 'match_value', type: 'string', required: true, description: 'The address or domain' },
       { name: 'topic', type: 'usage|event|newsletter|promotion|update|calendar|survey|code', required: true, description: 'The one topic of machine mail the rule covers. An agent rule always names one, and never money, receipt, account_risk or security (422): the Owner always sees those.' },
       { name: 'action', type: 'ignore|fyi|always', required: true, description: 'ignore: Filtered, never triaged. fyi: triaged lightly; it reaches needs_human only when the email itself asks for something. always: full triage, even when the default would filter it.' },
       { name: 'reason', type: 'string', required: true, description: 'The pattern, in a sentence (10 to 500 characters): it shows next to the rule.' },
+      { name: 'scope', type: 'workspace|inbox', required: false, description: "workspace: every inbox; inbox: only inbox_id's mail. Left out: inbox when inbox_id is sent, else the workspace (as before)." },
+      { name: 'inbox_id', type: 'uuid', required: false, description: 'The inbox a rule is for: one you triage (403 inbox_scope otherwise). Never with scope workspace (422).' },
     ],
   },
   { method: 'GET', path: '/api/v1/inbox/senders', description: 'Patterns for sender rules: who sent mail to your inboxes recently, busiest first. Per sender: count, last_received_at, domain, kinds, topics, sort_actions, the latest triage outcomes, task_count (tasks their mail led to) and the live rules that cover them.', group: 'Inbound Email',
     queryParams: [
       { name: 'days', type: 'number', description: 'How far back (default 30, at most 90)' },
-      { name: 'inbox_id', type: 'uuid', description: 'One granted inbox (default: every granted inbox)' },
+      { name: 'inbox_id', type: 'uuid', description: 'One granted inbox: its mail, and only the rules that sort it (default: every granted inbox and every live rule)' },
     ],
   },
 
@@ -1808,12 +1823,13 @@ export const endpoints: EndpointDoc[] = [
     params: [{ name: 'id', type: 'uuid', required: true, description: 'Reminder ID' }],
   },
   // ─── Questions ────────────────────────────────────────────────────
-  { method: 'POST', path: '/api/v1/questions', description: 'Ask a team member (a person or another agent) a question and get the answer back. On a task (task_id; its project comes with it), a project (project_id) or neither. asked_to defaults to the agent\'s escalation target (its rule agent_escalate_to while that member is active), else the Owner; asking yourself is refused (422 asked_self). Their bell rings (a question notification linking to the task, or to My Tasks), a task with an open question shows as waiting on them, and an agent that asks logs the typed blocked event. Poll GET /api/v1/questions/:id for the answer. Answers 201 with the question: id, status open, task_title, project_name, asked_by_name, asked_to_name, can_answer and can_cancel for the caller.', group: 'Questions',
+  { method: 'POST', path: '/api/v1/questions', description: 'Ask a team member (a person or another agent) a question and get the answer back. On a task (task_id; its project comes with it), a project (project_id) or neither. asked_to defaults to the agent\'s escalation target (its rule agent_escalate_to while that member is active, then agent_escalate_to_group, its owners, its owner groups), else the Owner; asking yourself is refused (422 asked_self). asked_to_group asks a group instead: every active member\'s bell rings, any member answers (answered_by says who), and the answer clears every bell; the question then carries asked_to null, asked_to_group, asked_to_group_name and asked_to_you. A question an agent asks while acting for someone (X-Act-For) carries principal_id and principal_name. Their bell rings (a question notification linking to the task, or to My Tasks), a task with an open question shows as waiting on them, and an agent that asks logs the typed blocked event. Poll GET /api/v1/questions/:id for the answer. Answers 201 with the question: id, status open, task_title, project_name, asked_by_name, asked_to_name, can_answer and can_cancel for the caller.', group: 'Questions',
     body: [
       { name: 'question', type: 'string', required: true, description: 'The question, 1 to 2000 characters, with the context needed to answer it' },
       { name: 'task_id', type: 'uuid|null', required: false, description: 'The task it is about (a task the key can open)' },
       { name: 'project_id', type: 'uuid|null', required: false, description: 'The project it is about, when not on a task. With task_id it must be the task\'s project.' },
       { name: 'asked_to', type: 'uuid', required: false, description: 'The active member to ask. Default: the agent\'s escalation target, else the Owner.' },
+      { name: 'asked_to_group', type: 'uuid', required: false, description: 'A live group to ask instead of one member: any member answers. Send asked_to or asked_to_group, not both (422 two_addressees); 422 group_has_no_one when no other active member could answer.' },
       { name: 'choices', type: 'string[]', required: false, description: '1 to 10 different short answers (up to 200 characters each), shown as buttons' },
       { name: 'allow_other', type: 'boolean', required: false, description: 'With choices: may they answer in their own words too (default true). false makes a choice required.' },
       { name: 'expires_at', type: 'ISO 8601', required: false, description: 'A future time after which an unanswered question reads as expired and its bell clears' },
@@ -1823,7 +1839,8 @@ export const endpoints: EndpointDoc[] = [
     queryParams: [
       { name: 'status', type: 'open|answered|cancelled|expired|all', description: 'Default all' },
       { name: 'asked_by', type: 'me|uuid', description: 'Asked by the key\'s member (me) or another member' },
-      { name: 'asked_to', type: 'me|uuid', description: 'Asked to the key\'s member (me) or another member' },
+      { name: 'asked_to', type: 'me|uuid', description: 'Asked to the key\'s member (me, which takes in the groups it is in) or another member' },
+      { name: 'asked_to_group', type: 'uuid', description: 'Asked to one group' },
       { name: 'task_id', type: 'uuid', description: 'Questions on one task' },
       { name: 'project_id', type: 'uuid', description: 'Questions on one project, its tasks included' },
       { name: 'kind', type: 'question|approval', description: 'Only plain questions, or only approvals (default both)' },
@@ -1876,7 +1893,7 @@ export const endpoints: EndpointDoc[] = [
       { name: 'entity_type', type: 'string', description: 'Filter by entity type: task, project, lead, comment, member, contact, suggestion, goal, question' },
     ],
   },
-  { method: 'POST', path: '/api/v1/notifications', description: 'Send an in-app notification to the Owner (optionally admins too). Built for agent blocking questions and escalations; recipients are resolved server-side by role, never targeted directly. Requires agents to be enabled.', group: 'Notifications',
+  { method: 'POST', path: '/api/v1/notifications', description: "Send an in-app notification to the Owner (optionally admins too). Built for agent blocking questions and escalations; recipients are resolved server-side by role, never targeted directly. About one inbox (inbox_id, message_id or conversation_id), audience owner goes to that inbox's decision recipient when it has one (a member, or every active member of a group), else the Owner as before. Requires agents to be enabled.", group: 'Notifications',
     body: [
       { name: 'title', type: 'string', required: true, description: 'Short headline shown in the inbox' },
       { name: 'message', type: 'string', required: true, description: 'The question or escalation detail' },
@@ -1884,6 +1901,9 @@ export const endpoints: EndpointDoc[] = [
       { name: 'entity_type', type: 'string', required: false, description: 'Entity type for grouping (default question)' },
       { name: 'entity_id', type: 'string|null', required: false, description: 'Stable ID (e.g. a comment ID) to deduplicate re-sends of the same question. Omit for a fresh notification each time.' },
       { name: 'audience', type: 'owner|owner_and_admins', required: false, description: 'Who receives it (default owner)' },
+      { name: 'inbox_id', type: 'uuid', required: false, description: 'The inbox it is about. One you cannot read, or a value that is not a uuid, is ignored.' },
+      { name: 'message_id', type: 'uuid', required: false, description: 'The email it is about: its inbox decides. Ignored when you cannot read it.' },
+      { name: 'conversation_id', type: 'uuid', required: false, description: 'The conversation it is about: its inbox decides. Ignored when you cannot read it.' },
     ],
   },
   { method: 'GET', path: '/api/v1/notifications/:id', description: 'Get a single notification by ID. Must belong to the API key\'s linked team member.', group: 'Notifications',
@@ -1899,6 +1919,110 @@ export const endpoints: EndpointDoc[] = [
     params: [{ name: 'id', type: 'uuid', required: true, description: 'Notification ID' }],
   },
   { method: 'POST', path: '/api/v1/notifications/mark-all-read', description: 'Mark all unread notifications as read for the API key\'s linked team member. No request body needed.', group: 'Notifications' },
+
+  // Groups
+  { method: 'GET', path: '/api/v1/groups', description: 'List groups by name, paginated: every live group for a member who may read the team, else the groups the key\'s member is in. Each with member_count, lead_count and is_member. A group stands wherever one member is a target: ask a question or approval to it (asked_to_group), let an agent escalate to it, or let it own an agent.', group: 'Groups',
+    queryParams: [
+      { name: 'search', type: 'string', description: 'Matches name or slug' },
+      { name: 'member', type: 'me|uuid', description: 'Only the groups this member is in' },
+      { name: 'page', type: 'number', description: 'Page number (default 1)' },
+      { name: 'limit', type: 'number', description: 'Items per page (default 25, max 100)' },
+    ],
+  },
+  { method: 'POST', path: '/api/v1/groups', description: 'Create a group, with its first members and leads. 409 slug_taken or external_id_taken.', group: 'Groups',
+    body: [
+      { name: 'name', type: 'string', required: true, description: '1 to 100 characters' },
+      { name: 'slug', type: 'string', required: false, description: 'Lowercase letters, numbers and dashes, unique among live groups. Made from the name when left out.' },
+      { name: 'description', type: 'string', required: false, description: 'Up to 2000 characters' },
+      { name: 'external_id', type: 'string|null', required: false, description: 'The group\'s id in a directory (SCIM, Google, Entra), for a sync' },
+      { name: 'member_ids', type: 'uuid[]', required: false, description: 'People or agents to add as members (up to 500)' },
+      { name: 'lead_ids', type: 'uuid[]', required: false, description: 'People or agents to add as leads (up to 500)' },
+    ],
+  },
+  { method: 'GET', path: '/api/v1/groups/:id', description: 'Get one group with member_count, lead_count and is_member.', group: 'Groups',
+    params: [{ name: 'id', type: 'uuid', required: true, description: 'Group ID' }],
+  },
+  { method: 'PATCH', path: '/api/v1/groups/:id', description: 'Change a group\'s name, slug, description or external_id. Send only what changes.', group: 'Groups',
+    params: [{ name: 'id', type: 'uuid', required: true, description: 'Group ID' }],
+  },
+  { method: 'DELETE', path: '/api/v1/groups/:id', description: 'Move a group to Trash. It stops being a target for new questions, escalation and ownership; who was in it is kept, and questions already asked to it stay answerable by its members.', group: 'Groups',
+    params: [{ name: 'id', type: 'uuid', required: true, description: 'Group ID' }],
+  },
+  { method: 'GET', path: '/api/v1/groups/:id/members', description: 'A group\'s members, leads first, paginated: member_id, name, team_role (agent for an agent), status and role (member or lead).', group: 'Groups',
+    params: [{ name: 'id', type: 'uuid', required: true, description: 'Group ID' }],
+    queryParams: [
+      { name: 'search', type: 'string', description: 'Matches names' },
+      { name: 'role', type: 'member|lead', description: 'Only members or only leads' },
+      { name: 'page', type: 'number', description: 'Page number (default 1)' },
+      { name: 'limit', type: 'number', description: 'Items per page (default 25, max 100)' },
+    ],
+  },
+  { method: 'POST', path: '/api/v1/groups/:id/members', description: 'Add members to a group (people or agents, up to 500 at once). Anyone already in it takes the role sent. Answers { added, updated }.', group: 'Groups',
+    params: [{ name: 'id', type: 'uuid', required: true, description: 'Group ID' }],
+    body: [
+      { name: 'member_ids', type: 'uuid[]', required: true, description: 'Active team members' },
+      { name: 'role', type: 'member|lead', required: false, description: 'Default member' },
+    ],
+  },
+  { method: 'PATCH', path: '/api/v1/groups/:id/members/:memberId', description: 'Make a member a lead, or a plain member again.', group: 'Groups',
+    params: [{ name: 'id', type: 'uuid', required: true, description: 'Group ID' }, { name: 'memberId', type: 'uuid', required: true, description: 'Team member ID' }],
+    body: [{ name: 'role', type: 'member|lead', required: true, description: 'The new role' }],
+  },
+  { method: 'DELETE', path: '/api/v1/groups/:id/members/:memberId', description: 'Take a member out of a group.', group: 'Groups',
+    params: [{ name: 'id', type: 'uuid', required: true, description: 'Group ID' }, { name: 'memberId', type: 'uuid', required: true, description: 'Team member ID' }],
+  },
+  { method: 'GET', path: '/api/v1/groups/:id/identities', description: 'How to reach a group: { group, members }, its members (leads first) paginated, each with active and their verified accounts. A suspended member is listed with active false and no accounts.', group: 'Linked Identities',
+    params: [{ name: 'id', type: 'uuid', required: true, description: 'Group ID' }],
+    queryParams: [
+      { name: 'provider', type: 'string', description: 'Only this provider\'s accounts (slack, teams, telegram, discord, github, email, custom.<name>)' },
+      { name: 'page', type: 'number', description: 'Page number (default 1)' },
+      { name: 'limit', type: 'number', description: 'Items per page (default 25, max 100)' },
+    ],
+  },
+  // Linked identities
+  { method: 'POST', path: '/api/v1/identities/link-requests', description: 'A one-time link for a person to prove a chat account is theirs. Send them url; they open it signed in and confirm, and the account is stored as verified for them (verified_method link). The link lasts 15 minutes and works once; only its hash is stored. A chat account\'s email is never taken to be the person\'s sign-in email. Whoever confirms the link lets agents act for them through that account, so send the link only as a direct message to that account itself (never in a channel), and pass member_id whenever you know who it should be: confirm then refuses anyone else (403 wrong_member). Takes no Idempotency-Key (the URL holds a secret).', group: 'Linked Identities',
+    body: [
+      { name: 'provider', type: 'string', required: true, description: 'slack, teams, telegram, discord, github, email, or custom.<name>' },
+      { name: 'external_id', type: 'string', required: true, description: 'The account\'s id at the provider (a Slack user id such as U0123)' },
+      { name: 'workspace_id', type: 'string|null', required: false, description: 'For providers with workspaces (a Slack team id, a Teams tenant id)' },
+      { name: 'handle', type: 'string|null', required: false, description: 'How the account is shown, such as @maria' },
+      { name: 'member_id', type: 'uuid', required: false, description: 'Who you believe it is: only this member may confirm it, so a forwarded link cannot be confirmed by someone else. Send it whenever you know.' },
+    ],
+  },
+  { method: 'GET', path: '/api/v1/identities/resolve', description: 'Who a chat account belongs to: { member: { id, name, role, title, status, active }, identity }. Only verified accounts resolve; an unknown or unverified one is 404 identity_not_found. A suspended member reads active false: do not act for them.', group: 'Linked Identities',
+    queryParams: [
+      { name: 'provider', type: 'string', description: 'Required: slack, teams, telegram, discord, github, email, or custom.<name>' },
+      { name: 'external_id', type: 'string', description: 'Required: the account\'s id at the provider' },
+      { name: 'workspace_id', type: 'string', description: 'For providers with workspaces; matched exactly' },
+    ],
+  },
+  { method: 'GET', path: '/api/v1/members/:id/identities', description: 'How to reach a member: { member, identities }, their verified accounts.', group: 'Linked Identities',
+    params: [{ name: 'id', type: 'uuid', required: true, description: 'Team member ID' }],
+    queryParams: [{ name: 'provider', type: 'string', description: 'Only this provider\'s accounts' }],
+  },
+  { method: 'DELETE', path: '/api/v1/identities/:id', description: 'Unlink anyone\'s account: the row goes, and the delegation tokens minted for it with it, so no agent acts on it again. Answers { removed }.', group: 'Linked Identities',
+    params: [{ name: 'id', type: 'uuid', required: true, description: 'Linked account ID' }],
+  },
+  { method: 'POST', path: '/api/v1/identities/:id/move', description: 'Move an account to another member: it is unlinked (its tokens go with it), then linked to member_id, verified as admin. A link never moves an account; this is how one moves. Answers { removed, linked }.', group: 'Linked Identities',
+    params: [{ name: 'id', type: 'uuid', required: true, description: 'Linked account ID' }],
+    body: [{ name: 'member_id', type: 'uuid', required: true, description: 'The member the account moves to' }],
+  },
+  { method: 'POST', path: '/api/v1/identities', description: 'Link accounts to members in bulk (up to 500): verified with verified_method admin, unless verified is false (kept, never resolves). An account already linked to the same member is updated; one linked to someone else refuses the whole call before anything is written (409 identity_linked_elsewhere). Answers { linked, created, updated }.', group: 'Linked Identities',
+    body: [
+      { name: 'identities', type: 'object[]', required: true, description: 'Each { member_id, provider, external_id, workspace_id?, handle?, verified? }' },
+    ],
+  },
+  // Acting for someone
+  { method: 'POST', path: '/api/v1/delegations', description: 'A delegation token so your agent acts for the person who asked it. Name their verified account; send the token as the X-Act-For header, with this same key, on each call you make for them. While it is present the call may do only what the key\'s scopes, the agent and the person all allow (the person\'s API permissions and project reach), and the runs, questions, tasks, comments, events and audit rows it makes record the person as principal_id. Lasts 15 minutes; shown only here; only its hash is stored. Agent keys only. 403 identity_not_verified, principal_suspended, principal_is_agent or not_an_agent. Takes no Idempotency-Key.', group: 'Acting For Someone',
+    body: [
+      { name: 'provider', type: 'string', required: true, description: 'The person\'s account provider' },
+      { name: 'external_id', type: 'string', required: true, description: 'The person\'s account id at the provider' },
+      { name: 'workspace_id', type: 'string|null', required: false, description: 'For providers with workspaces' },
+    ],
+  },
+  { method: 'DELETE', path: '/api/v1/delegations/:id', description: 'Revoke one of your agent\'s delegation tokens at once (its id came with it).', group: 'Acting For Someone',
+    params: [{ name: 'id', type: 'uuid', required: true, description: 'Delegation ID' }],
+  },
 ];
 
 export const groups = [...new Set(endpoints.map(e => e.group))];
@@ -1919,6 +2043,24 @@ export const IDEMPOTENCY_DOC = {
     'Only successful (2xx) answers are kept. An error is not, so a retry runs the request again and can succeed.',
     'MCP create tools (create_task, add_task_comment, ask_human, add_reminder and the other add_ and create_ tools) take the same thing as an idempotency_key argument, sharing this store. submit_triage_plan and record_email_triage pass theirs in the body instead, as the plan and triage routes keep their own key per email.',
     'A POST whose answer holds a secret shown once (POST /api/v1/api-keys, POST /api/v1/webhook-endpoints) refuses the header with 400 idempotency_not_supported, so no secret is ever stored or handed out twice. After a timeout, list what exists before trying again.',
+  ],
+} as const;
+
+/**
+ * X-Act-For, for a shared agent that acts for the person who asked it: how
+ * withApi and the MCP server treat the header, shown beside authentication.
+ */
+export const ACT_FOR_DOC = {
+  header: 'X-Act-For',
+  summary:
+    'A shared agent acts for the person who asked it: mint a delegation token for their verified account (POST /api/v1/delegations, scope agents.act_for) and send it as the X-Act-For header with the agent\'s own key, on REST calls and on the MCP connection.',
+  rules: [
+    'While it is present, the call may do only what the key\'s scopes, the agent\'s permissions and the person\'s API permissions and project reach all allow: a project the person cannot open is out of reach even when the agent can open it.',
+    'Runs, questions, tasks, comments, agent events and audit rows the call makes record the person as principal_id. question.* webhook payloads carry principal_id when it is set.',
+    'A token lasts 15 minutes and is bound to one agent: another agent\'s key, an expired or revoked token, or a key without agents.act_for is refused with 401 (reason act_for_invalid) or 403. A suspended person is 403 principal_suspended.',
+    "What is the agent's own rather than the person's stays out of reach: its questions, runs and reminders count only on projects both reach (or, on nothing, when made for this same person); its bell, inboxes and shared credentials answer 403 act_for_not_allowed.",
+    'Without the header nothing changes: the key acts as its agent, as before.',
+    'Accounts resolve only once verified: GET /api/v1/identities/resolve answers who a chat account is, and POST /api/v1/identities/link-requests gives a one-time link for a person to verify theirs. Send that link as a direct message to the account itself, with member_id when you know who it is.',
   ],
 } as const;
 
@@ -1947,6 +2089,7 @@ const GROUP_MODULE: Record<string, ModuleId> = {
   'Agent Activity': 'agents',
   'Agent Runs': 'agents',
   'Agent Setup': 'agents',
+  'Acting For Someone': 'agents',
   'Webhook Endpoints': 'webhooks',
 };
 

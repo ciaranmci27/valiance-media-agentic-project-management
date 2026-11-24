@@ -77,7 +77,9 @@ async function seed(db: PGlite) {
   await db.query('INSERT INTO project_members VALUES ($1,$2),($3,$2)', [AGENT, PROJECT, ADMIN]);
 }
 
-const MEMBER_ID_TARGETS = ['list_time_entries', 'list_api_keys', 'list_webhook_endpoints', 'create_webhook_endpoint', 'update_webhook_endpoint'];
+const MEMBER_ID_TARGETS = ['list_time_entries', 'list_api_keys', 'list_webhook_endpoints', 'create_webhook_endpoint', 'update_webhook_endpoint',
+  // Who leaves a group, whose accounts to read, and who alone may confirm a link.
+  'remove_group_member', 'get_member_identities', 'create_identity_link'];
 
 async function main() {
   // The catalog, before anything runs.

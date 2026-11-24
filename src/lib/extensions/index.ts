@@ -16,6 +16,8 @@ export type { SettingsField, SettingsFieldType, SettingsOption } from '@/lib/pro
 export { defineAgentProfiles } from './agent-profiles';
 export type { AgentProfileDefinition } from './agent-profiles';
 export type {
+  AgentAnalyticsCardExtension,
+  AgentAnalyticsCardProps,
   ApiKeyRouteContext,
   ApiMethod,
   ApiRouteExtension,

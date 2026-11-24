@@ -43,6 +43,12 @@ export function useCustomDashboardWidgets(placement: 'top' | 'bottom') {
   );
 }
 
+/** The install's cards for the Agents page's Analytics tab, filtered for this member. */
+export function useCustomAgentAnalyticsCards() {
+  const { access } = useAuth();
+  return useMemo(() => visibleTo(access, extensions.agentAnalyticsCards), [access]);
+}
+
 /** The href of a custom Settings section. */
 export const customSettingsHref = (key: string) => `/settings/custom/${key}`;
 

@@ -17,12 +17,15 @@ import {
   type InboxSettingsInput,
 } from '@/lib/communications/inbox-types';
 import type { TeamMember } from '@/lib/types';
+import type { GroupView } from '@/lib/groups';
+import { ownerPickerValue, splitOwnerPicker } from '@/lib/agents-ui';
 
 /**
  * The add/edit form for an inbox (Settings > Email > Shared inboxes).
  * It leads with the plain questions in the order people answer them: who
  * handles the mail, what the inbox is called, its address, and who else can
- * read it. Everything technical sits under Advanced with working defaults.
+ * read it, then who else handles it and the defaults a request falls back
+ * on. Everything technical sits under Advanced with working defaults.
  */
 
 const TYPE_LABELS: Record<AgentReadableType, string> = {
@@ -99,6 +102,14 @@ export interface InboxFormState {
   filter_auto_mail: boolean;
   triage_mode: 'legacy' | 'shadow' | 'plans';
   access_member_ids: string[];
+  /** Who else handles it beside the main handler: member ids, and groups as group:<id>. */
+  extra_handlers: string[];
+  /** Who new work goes to when a request names no one: '' (the workspace Owner), a member id or group:<id>. */
+  default_assignee: string;
+  /** '' for none. */
+  default_project_id: string;
+  /** Who gets its decisions: '' (the workspace Owner), a member id or group:<id>. */
+  decision_recipient: string;
 }
 
 export type InboxFormErrors = Partial<
@@ -122,7 +133,23 @@ export function emptyInboxForm(team: TeamMember[]): InboxFormState {
     filter_auto_mail: true,
     triage_mode: 'legacy',
     access_member_ids: [],
+    extra_handlers: [],
+    default_assignee: '',
+    default_project_id: '',
+    decision_recipient: '',
   };
+}
+
+/** A member or group default as one picker value ('' when unset). */
+function pickerOf(memberId: string | null, groupId: string | null): string {
+  return memberId ?? (groupId ? ownerPickerValue([], [groupId])[0] : '');
+}
+
+/** One picker value back as the member and group fields it sets (both null for ''). */
+function fieldsOf(value: string): { member: string | null; group: string | null } {
+  if (!value) return { member: null, group: null };
+  const { ownerIds, groupIds } = splitOwnerPicker([value]);
+  return { member: ownerIds[0] ?? null, group: groupIds[0] ?? null };
 }
 
 export function formFromInbox(inbox: InboxSettings, team: TeamMember[]): InboxFormState {
@@ -141,6 +168,11 @@ export function formFromInbox(inbox: InboxSettings, team: TeamMember[]): InboxFo
     filter_auto_mail: inbox.filter_auto_mail,
     triage_mode: inbox.triage_mode,
     access_member_ids: [...inbox.access_member_ids],
+    extra_handlers: (inbox.handlers ?? []).filter((h) => !h.is_primary)
+      .map((h) => pickerOf(h.member_id, h.group_id)).filter(Boolean),
+    default_assignee: pickerOf(inbox.default_assignee_member_id ?? null, inbox.default_assignee_group_id ?? null),
+    default_project_id: inbox.default_project_id ?? '',
+    decision_recipient: pickerOf(inbox.decision_member_id ?? null, inbox.decision_group_id ?? null),
   };
 }
 
@@ -183,9 +215,14 @@ export function validateInboxForm(form: InboxFormState, relay: string): InboxFor
 /**
  * The request the form saves. The form has no on/off switch: `enabled` is
  * the inbox's switch as it is now (the card's), so saving never undoes it.
+ * Who gets its decisions is sent only by an Owner (`decisions`), the only
+ * one who may choose it.
  */
-export function inboxRequest(form: InboxFormState, enabled: boolean): InboxSettingsInput {
+export function inboxRequest(form: InboxFormState, enabled: boolean, { decisions: setsDecisions = true }: { decisions?: boolean } = {}): InboxSettingsInput {
   const handler = form.handler_kind === 'none' ? null : form.handler_member_id || null;
+  const extras = splitOwnerPicker(form.extra_handlers.filter((value) => value !== handler));
+  const assignee = fieldsOf(form.default_assignee);
+  const decisions = fieldsOf(form.decision_recipient);
   return {
     name: form.name.trim(),
     address: form.address.trim().toLowerCase(),
@@ -201,6 +238,11 @@ export function inboxRequest(form: InboxFormState, enabled: boolean): InboxSetti
     triage_mode: form.triage_mode,
     // The handler can always read its inbox.
     access_member_ids: unique([...form.access_member_ids, ...(handler ? [handler] : [])]),
+    handlers: [...extras.ownerIds.map((member_id) => ({ member_id })), ...extras.groupIds.map((group_id) => ({ group_id }))],
+    default_assignee_member_id: assignee.member,
+    default_assignee_group_id: assignee.group,
+    default_project_id: form.default_project_id || null,
+    ...(setsDecisions ? { decision_member_id: decisions.member, decision_group_id: decisions.group } : {}),
   };
 }
 
@@ -219,6 +261,9 @@ export function InboxForm({
   editing,
   relay,
   team,
+  groups = [],
+  projects = [],
+  canSetDecisions = false,
   saving,
   onChange,
   onSave,
@@ -229,6 +274,12 @@ export function InboxForm({
   editing: InboxSettings | null;
   relay: string;
   team: TeamMember[];
+  /** Groups that can handle it, take its new work or get its decisions. */
+  groups?: Pick<GroupView, 'id' | 'name'>[];
+  /** Projects its default project is chosen from. */
+  projects?: { id: string; name: string }[];
+  /** Only an Owner chooses who gets an inbox's decisions; others do not see the field. */
+  canSetDecisions?: boolean;
   saving: boolean;
   onChange: <K extends keyof InboxFormState>(field: K, value: InboxFormState[K]) => void;
   onSave: () => void;
@@ -256,6 +307,27 @@ export function InboxForm({
     }
     return options;
   }, [form.handler_kind, form.handler_member_id, agents, people, team]);
+
+  // Everyone who can share the work, grouped: people, agents, then groups.
+  const shareOptions = useMemo<SelectOption[]>(() => [
+    ...people.map((m) => ({ value: m.id, label: m.name, group: 'People' })),
+    ...agents.map((m) => ({ value: m.id, label: `${m.name} (agent)`, group: 'Agents' })),
+    ...[...groups].sort((a, b) => a.name.localeCompare(b.name)).map((g) => ({ value: ownerPickerValue([], [g.id])[0], label: `${g.name} (group)`, group: 'Groups' })),
+  ], [people, agents, groups]);
+  const extraOptions = useMemo(() => shareOptions.filter((option) => option.value !== (handler?.id ?? '')), [shareOptions, handler]);
+  const assigneeOptions = useMemo<SelectOption[]>(() => [
+    { value: '', label: 'The workspace Owner' },
+    ...shareOptions.map((option) => (option.group === 'Groups' ? { ...option, label: option.label.replace(/ \(group\)$/, ' (its leads)') } : option)),
+  ], [shareOptions]);
+  const decisionOptions = useMemo<SelectOption[]>(() => [
+    { value: '', label: 'The workspace Owner' },
+    ...shareOptions.filter((option) => option.group !== 'Agents')
+      .map((option) => (option.group === 'Groups' ? { ...option, label: option.label.replace(/ \(group\)$/, ' (any member)') } : option)),
+  ], [shareOptions]);
+  const projectOptions = useMemo<SelectOption[]>(() => [
+    { value: '', label: 'None' },
+    ...[...projects].sort((a, b) => a.name.localeCompare(b.name)).map((p) => ({ value: p.id, label: p.name })),
+  ], [projects]);
 
   const accessOptions = useMemo(
     () =>
@@ -367,6 +439,57 @@ export function InboxForm({
         />
         {handler && <p className="text-xs text-zinc-400">{handler.name} handles it, so they can always read it.</p>}
       </div>
+
+      <div className="max-w-xl space-y-1.5">
+        <MultiSelect
+          label={handler ? 'Who else handles it' : 'Who handles it'}
+          options={extraOptions}
+          value={form.extra_handlers.filter((value) => value !== handler?.id)}
+          onChange={(value) => onChange('extra_handlers', value)}
+          placeholder={handler ? `Only ${handler.name}` : 'Nobody chosen'}
+          searchable
+        />
+        <p className="text-xs text-zinc-400">
+          Agents, people or groups who share this mail. Each can always read it, and mail that names any of its agents counts as written to the agent.
+          {handler ? ` ${handler.name} still writes the reply drafts.` : ''}
+        </p>
+      </div>
+
+      <fieldset className="space-y-3">
+        <legend className="text-sm font-medium text-zinc-300">Defaults</legend>
+        <p className="text-xs text-zinc-400 -mt-1">Used only when a request leaves the answer out. A request that names someone or a project keeps its choice.</p>
+        <div className={`grid grid-cols-1 gap-4 ${canSetDecisions ? 'md:grid-cols-3' : 'md:grid-cols-2'}`}>
+          <Select
+            label="New work goes to"
+            visibleLabel="New work goes to"
+            value={form.default_assignee}
+            onChange={(value) => onChange('default_assignee', value)}
+            options={assigneeOptions}
+            searchable={assigneeOptions.length > 8}
+            description="Tasks and reminders that name no one"
+          />
+          <Select
+            label="Default project"
+            visibleLabel="Default project"
+            value={form.default_project_id}
+            onChange={(value) => onChange('default_project_id', value)}
+            options={projectOptions}
+            searchable={projectOptions.length > 8}
+            description="For reminders that name no project"
+          />
+          {canSetDecisions && (
+            <Select
+              label="Decisions go to"
+              visibleLabel="Decisions go to"
+              value={form.decision_recipient}
+              onChange={(value) => onChange('decision_recipient', value)}
+              options={decisionOptions}
+              searchable={decisionOptions.length > 8}
+              description="Who an agent tells about this inbox"
+            />
+          )}
+        </div>
+      </fieldset>
 
       <div className="border-t border-white/[0.08] pt-4">
         <button

@@ -21,13 +21,13 @@ export const GET = withApi<unknown, { id: string }>(async ({ supabase, params, a
  * Changes an agent: name, title, description, avatar_url, agent_role and
  * rules for an Owner, a key with team.manage or one of the agent's owners
  * (403 not_agent_owner otherwise); owner_ids (people, never agents) for an
- * Owner or one of its owners. Keys stay the setup API's (create_api_key).
- * Answers { agent, rules, owners }.
+ * Owner or one of its owners, and owner_group_ids (groups) likewise. Keys stay
+ * the setup API's (create_api_key). Answers { agent, rules, owners, owner_groups }.
  *
  * Permission: team.read (or team.manage), with the AI agents module on.
  */
 export const PATCH = withApi<PatchAgent, { id: string }>(async ({ supabase, params, body, access, scopes, apiKeyId, teamMemberId }) => {
-  const { before, agent, rules, owners } = await patchAgent(supabase, { memberId: teamMemberId, access, scopes }, params.id, body);
-  logAudit(supabase, { method: 'PATCH', endpoint: `/api/v1/agents/${params.id}`, entityType: 'team_member', entityId: params.id, apiKeyId, teamMemberId, requestBody: body, beforeSnapshot: before, afterSnapshot: { agent, rules, owners }, statusCode: 200 });
-  return success({ agent, rules, owners });
+  const { before, agent, rules, owners, owner_groups } = await patchAgent(supabase, { memberId: teamMemberId, access, scopes }, params.id, body);
+  logAudit(supabase, { method: 'PATCH', endpoint: `/api/v1/agents/${params.id}`, entityType: 'team_member', entityId: params.id, apiKeyId, teamMemberId, requestBody: body, beforeSnapshot: before, afterSnapshot: { agent, rules, owners, owner_groups }, statusCode: 200 });
+  return success({ agent, rules, owners, owner_groups });
 }, { schema: patchAgentSchema, permission: 'team.read' });

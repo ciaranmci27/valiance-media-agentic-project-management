@@ -9,6 +9,9 @@ export type MemberStatus = typeof MEMBER_STATUSES[number];
 export const PERMISSIONS = [
   'team.read',
   'team.manage',
+  'groups.manage',
+  'identities.link',
+  'identities.read',
   'access.manage',
   'settings.manage',
   'smtp.manage',
@@ -60,6 +63,7 @@ export const PERMISSIONS = [
   'compensation.manage',
   'payouts.manage',
   'agents.manage',
+  'agents.act_for',
   'project_context.read',
   'project_context.manage',
   'goals.read',
@@ -91,6 +95,8 @@ export const API_ENDPOINT_PERMISSIONS = [
   // Setting up an agent from a chat (POST /api/v1/api-keys, /api/v1/webhook-endpoints).
   // No role holds either on the api channel by default; an Owner's key can.
   'api_keys.manage_all', 'webhooks.manage',
+  // Groups, linked identities and acting for a person (a chat harness). Owners only by default.
+  'groups.manage', 'identities.link', 'identities.read', 'agents.act_for',
 ] as const satisfies readonly PermissionKey[];
 
 export const API_ENDPOINT_PERMISSION_SET = new Set<PermissionKey>(API_ENDPOINT_PERMISSIONS);
@@ -110,6 +116,12 @@ export interface AccessContext {
    * means every module is on.
    */
   modules?: ModuleId[];
+  /**
+   * Set when an agent acts for a person (X-Act-For): that person's member id.
+   * The permissions and project reach here are then the agent's and the
+   * person's together (intersectAccess), never more than either.
+   */
+  principal_id?: string;
 }
 
 export const EMPTY_ACCESS_CONTEXT: AccessContext | null = null;
@@ -213,6 +225,55 @@ export function canAccessProject(
     || (hasPermission(access, 'projects.read') && access.project_ids.includes(projectId));
 }
 
+/** Both sides' grants: '*' is everything, so the other side decides. */
+function intersectGrants(a: Array<PermissionKey | '*'>, b: Array<PermissionKey | '*'>): Array<PermissionKey | '*'> {
+  // Viewing all projects implies viewing assigned ones, so either spelling meets the other.
+  const widen = (list: Array<PermissionKey | '*'>): Array<PermissionKey | '*'> =>
+    (list.includes('projects.read_all') && !list.includes('projects.read') ? [...list, 'projects.read'] : list);
+  const left = widen(a);
+  const right = widen(b);
+  if (left.includes('*')) return [...right];
+  if (right.includes('*')) return [...left];
+  const keep = new Set(right);
+  return left.filter((permission) => keep.has(permission));
+}
+
+/**
+ * Whether a context reaches every project through the API: the API channel
+ * only. Acting for someone is always an API request, so a read_all held on
+ * the app channel alone must never widen it.
+ */
+const readsAllProjects = (access: AccessContext) =>
+  access.api_permissions.includes('*') || access.api_permissions.includes('projects.read_all');
+
+/**
+ * What an agent may do while acting for a person (X-Act-For): every
+ * permission both hold, on each channel, and only the projects both reach (a
+ * side with projects.read_all on its API channel reaches every project). Active only while both
+ * are. It stays the agent's own context (member, role, modules), with
+ * principal_id naming the person. Pure, so the API and MCP share one rule.
+ */
+export function intersectAccess(agent: AccessContext, principal: AccessContext): AccessContext {
+  let projectIds: string[];
+  if (readsAllProjects(agent) && readsAllProjects(principal)) projectIds = [...new Set([...agent.project_ids, ...principal.project_ids])];
+  else if (readsAllProjects(agent)) projectIds = [...principal.project_ids];
+  else if (readsAllProjects(principal)) projectIds = [...agent.project_ids];
+  else {
+    const theirs = new Set(principal.project_ids);
+    projectIds = agent.project_ids.filter((id) => theirs.has(id));
+  }
+  return {
+    member_id: agent.member_id,
+    role: agent.role,
+    status: agent.status === 'active' && principal.status === 'active' ? 'active' : 'suspended',
+    app_permissions: intersectGrants(agent.app_permissions, principal.app_permissions),
+    api_permissions: intersectGrants(agent.api_permissions, principal.api_permissions),
+    project_ids: projectIds,
+    ...(agent.modules ? { modules: agent.modules } : {}),
+    principal_id: principal.member_id,
+  };
+}
+
 export const PERMISSION_GROUPS: Array<{
   id: string;
   label: string;
@@ -224,6 +285,9 @@ export const PERMISSION_GROUPS: Array<{
     permissions: [
       { key: 'team.read', label: 'View team', description: 'View the safe team directory.' },
       { key: 'team.manage', label: 'Manage team', description: 'Invite, edit, suspend, and reactivate non-Owner members.' },
+      { key: 'groups.manage', label: 'Manage groups', description: 'Create, edit, and remove groups, and choose who is in them. A power permission: a group can own agents and decide approvals, so whoever holds this can add themselves to those groups. Anyone who can view the team sees groups.' },
+      { key: 'identities.link', label: 'Link chat accounts', description: 'Ask a person to link a chat account (Slack, Teams, Telegram) through a one-time sign-in link. Meant for a chat harness key.' },
+      { key: 'identities.read', label: 'Look up chat accounts', description: 'Find which member a verified chat account belongs to, and how to reach a member or group. Meant for a chat harness key.' },
       { key: 'access.manage', label: 'Manage access', description: 'Change role defaults and individual overrides. Owner-only in practice.' },
       { key: 'settings.manage', label: 'Business settings', description: 'Manage workspace and invoice identity settings.' },
       { key: 'smtp.manage', label: 'Email settings', description: 'Manage SMTP accounts and outbound email configuration.' },
@@ -299,6 +363,7 @@ export const PERMISSION_GROUPS: Array<{
     label: 'Agents and automation',
     permissions: [
       { key: 'agents.manage', label: 'Manage agents', description: 'Configure AI agent behavior and assignments.' },
+      { key: 'agents.act_for', label: 'Act for a person', description: 'Allow an AI agent to act for the person who asked it (X-Act-For), within that person\'s access and its own.' },
       { key: 'project_context.read', label: 'View project context', description: 'Read saved context for accessible projects.' },
       { key: 'project_context.manage', label: 'Manage project context', description: 'Create and edit project context.' },
       { key: 'goals.read', label: 'View goals', description: 'View agent goals.' },

@@ -33,6 +33,8 @@ import type {
 import type { InboxAttention } from '@/lib/communications/inbox-view';
 import { demoNotifications } from '@/lib/demo-data';
 import type { ProfileActivityPage, TeamProfile } from '@/lib/team/profile';
+import type { GroupMemberView, GroupView } from '@/lib/groups';
+import type { IdentityView } from '@/lib/identities';
 
 /**
  * Every read a screen makes outside the store, described once: its key, its
@@ -880,5 +882,93 @@ export function agentActivityRead(agentId: string): Read<AgentActivity[]> {
     key: `agent-activity:${agentId}`,
     tables: ['agent_activities'],
     load: () => fetchAgentActivity(createClient(), { agent_id: agentId }),
+  };
+}
+
+// ── Groups and linked accounts ──────────────────────────────────────────
+
+/** The tables a group read comes from. */
+export const GROUP_TABLES = ['groups', 'group_members'] as const;
+
+/** A group page holds this many; the routes cap a page at 100. */
+export const GROUPS_PAGE_SIZE = 25;
+
+export interface GroupPage<T> {
+  rows: T[];
+  total: number;
+}
+
+/** One page of the groups the person may read, searched by name or slug. */
+export function groupsPageRead(search: string, page: number, isDemo: boolean): Read<GroupPage<GroupView>> {
+  return {
+    key: `groups:${isDemo ? 'demo:' : ''}${search}:${page}`,
+    tables: GROUP_TABLES,
+    load: async () => {
+      if (isDemo) return { rows: [], total: 0 };
+      const params = new URLSearchParams({ page: String(page), limit: String(GROUPS_PAGE_SIZE) });
+      if (search) params.set('search', search);
+      const data = await workspaceApi<{ groups: GroupView[]; meta?: { total?: number } }>(`/api/workspace/groups?${params.toString()}`);
+      return { rows: data.groups ?? [], total: data.meta?.total ?? data.groups?.length ?? 0 };
+    },
+  };
+}
+
+/**
+ * Every live group, by name, for pickers (owners, escalation): a page of 100
+ * at a time, at most ten pages, never one call per group.
+ */
+export function allGroupsRead(isDemo: boolean): Read<GroupView[]> {
+  return {
+    key: `groups-all${isDemo ? ':demo' : ''}`,
+    tables: GROUP_TABLES,
+    ttlMs: 5 * 60_000,
+    load: async () => {
+      if (isDemo) return [];
+      const rows: GroupView[] = [];
+      for (let page = 1; page <= 10; page++) {
+        const data = await workspaceApi<{ groups: GroupView[]; meta?: { total?: number } }>(`/api/workspace/groups?limit=100&page=${page}`);
+        const batch = data.groups ?? [];
+        rows.push(...batch);
+        if (batch.length < 100 || rows.length >= (data.meta?.total ?? rows.length)) break;
+      }
+      return rows;
+    },
+  };
+}
+
+/** One group, with its counts. */
+export function groupRead(groupId: string): Read<GroupView> {
+  return {
+    key: `group:${groupId}`,
+    tables: GROUP_TABLES,
+    load: () => workspaceApi<GroupView>(`/api/workspace/groups/${encodeURIComponent(groupId)}`),
+  };
+}
+
+/** One page of a group's members, leads first, searched by name. */
+export function groupMembersRead(groupId: string, search: string, page: number): Read<GroupPage<GroupMemberView>> {
+  return {
+    key: `group-members:${groupId}:${search}:${page}`,
+    tables: GROUP_TABLES,
+    load: async () => {
+      const params = new URLSearchParams({ page: String(page), limit: String(GROUPS_PAGE_SIZE) });
+      if (search) params.set('search', search);
+      const data = await workspaceApi<{ members: GroupMemberView[]; meta?: { total?: number } }>(
+        `/api/workspace/groups/${encodeURIComponent(groupId)}/members?${params.toString()}`);
+      return { rows: data.members ?? [], total: data.meta?.total ?? data.members?.length ?? 0 };
+    },
+  };
+}
+
+/** The signed-in person's linked chat accounts, verified or not. */
+export function myIdentitiesRead(isDemo: boolean): Read<IdentityView[]> {
+  return {
+    key: `my-identities${isDemo ? ':demo' : ''}`,
+    tables: ['member_identities'],
+    load: async () => {
+      if (isDemo) return [];
+      const data = await workspaceApi<{ identities: IdentityView[] }>('/api/workspace/me/identities');
+      return data.identities ?? [];
+    },
   };
 }

@@ -21,7 +21,7 @@ export const INBOX_CACHE_PREFIX = 'communications';
 /** The Inbox's tables (in pm since 2.0), for live sync to label them. */
 export const INBOX_TABLE_NAMES: ReadonlySet<string> = new Set([
   'answers', 'attachments', 'client_addresses', 'client_domains', 'conversation_projects', 'conversations', 'endpoints',
-  'files', 'ignored_addresses', 'inbox_access', 'inboxes', 'maintenance_runs', 'meetings', 'message_candidates',
+  'files', 'ignored_addresses', 'inbox_access', 'inbox_handlers', 'inboxes', 'maintenance_runs', 'meetings', 'message_candidates',
   'message_endpoints', 'messages', 'own_domains', 'participants', 'plan_items', 'plans', 'reply_drafts', 'reply_points',
   'sender_rules', 'task_links', 'triage', 'conversation_participants',
 ]);
