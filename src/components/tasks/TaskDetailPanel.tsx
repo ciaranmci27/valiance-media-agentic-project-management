@@ -43,6 +43,9 @@ import {
   Briefcase,
   History,
   CornerLeftUp,
+  Repeat,
+  UserRound,
+  LockOpen,
   type LucideIcon,
 } from 'lucide-react';
 import { RowActionsMenu, type RowAction } from '@/components/ui/RowActionsMenu';
@@ -67,6 +70,7 @@ import { lastActivityAt, timeAgo } from '@/lib/task-times';
 import { useRegion } from '@/lib/region/context';
 import { SubtaskRing } from './SubtaskRing';
 import { useSubtaskMenuActions } from './MakeSubtaskDialog';
+import { claimUntil, liveClaim, occurrenceLabel } from '@/lib/claims';
 import {
   DescriptionField, DetailRow, INLINE_DATE_CLASS, PeopleChips, PickField, PRIORITY_OPTIONS, STATUS_OPTIONS, TagsField, TitleField,
   taskTypeLabel, WHO_DOES_IT,
@@ -312,6 +316,7 @@ export function TaskDetailPanel({ task, onClose, onDelete, variant = 'panel' }: 
     markTaskSeen,
     markTasksSeen,
     getTaskUpdate,
+    releaseTaskClaim,
   } = useApp();
   const { teamMemberId, access } = useAuth();
   const [newComment, setNewComment] = useState('');
@@ -444,6 +449,10 @@ export function TaskDetailPanel({ task, onClose, onDelete, variant = 'panel' }: 
     year: 'numeric',
   });
   const lastAt = lastActivityAt(task, subtasks, getTaskUpdate(task.id));
+  // Who is working on it right now, and an incident that keeps happening.
+  const claim = liveClaim(task, team);
+  const claimByAgent = !!claim && team.find((member) => member.id === claim.memberId)?.role === 'agent';
+  const repeats = occurrenceLabel(task);
 
   const submitComment = () => {
     if (!newComment.trim()) return;
@@ -554,6 +563,38 @@ export function TaskDetailPanel({ task, onClose, onDelete, variant = 'panel' }: 
           )}
         </div>
       </DetailRow>
+
+      {claim && (
+        <DetailRow icon={claimByAgent ? Bot : UserRound} label="Working on it">
+          <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+            <Tooltip content={<span className="block max-w-[240px] whitespace-normal">{claimUntil(claim)}</span>} className="min-w-0">
+              <span className="truncate text-zinc-200">
+                {claim.name} is working on this{claim.since ? <span className="text-zinc-400">, since {claim.since}</span> : null}
+              </span>
+            </Tooltip>
+            {canManageAllTasks(access) && (
+              <button
+                type="button"
+                onClick={() => { void releaseTaskClaim(task.id); }}
+                className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs text-zinc-400 hover:bg-white/[0.06] hover:text-zinc-200 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+              >
+                <LockOpen size={12} aria-hidden="true" />
+                Release
+              </button>
+            )}
+          </div>
+        </DetailRow>
+      )}
+
+      {repeats && (
+        <DetailRow icon={Repeat} label="Repeats">
+          <Tooltip content="The same problem was reported again while this task was open">
+            <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/15 px-2 py-0.5 text-[11px] font-medium text-amber-300">
+              {repeats}
+            </span>
+          </Tooltip>
+        </DetailRow>
+      )}
 
       <DetailRow icon={Users} label="Assignees">
         <PickField

@@ -6,6 +6,7 @@ import { notFound } from '@/lib/api/errors';
 import { logAudit } from '@/lib/api/audit';
 import { trashForApi } from '@/lib/api/trash';
 import { patchTask } from '@/lib/supabase/queries';
+import { applyClosePolicy, commentSentToReview, loadMemberRules, sentToReviewNote } from '@/lib/api/agent-rules';
 
 // Kept for callers of the old text subtasks (see ../route.ts): title and
 // completed map onto the subtask task's title and status.
@@ -22,7 +23,7 @@ async function subtaskOf(supabase: SupabaseClient, parentId: string, subtaskId: 
   return data as { id: string; title: string; status: string; sort_order: number };
 }
 
-export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemberId }) => {
+export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemberId, access }) => {
   const { id, subtaskId } = params as { id: string; subtaskId: string };
   const before = await subtaskOf(supabase, id, subtaskId);
   const { title, completed } = body as { title?: string; completed?: boolean };
@@ -31,8 +32,16 @@ export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemb
   // Reopening puts it back in To Do; checking it off is done.
   if (completed === true && before.status !== 'done') updates.status = 'done';
   if (completed === false && before.status === 'done') updates.status = 'todo';
+  // An agent whose rules send finished work to review: done goes to In Review.
+  const member = updates.status === 'done' && access.role === 'agent' ? await loadMemberRules(supabase, teamMemberId) : null;
+  const close = member ? applyClosePolicy(member, 'done', before.status) : null;
+  if (close?.sentToReview) updates.status = close.status;
   const row = Object.keys(updates).length > 0 ? await patchTask(supabase, subtaskId, updates) : before;
-  const data = { id: row.id, task_id: id, title: row.title, status: row.status, completed: row.status === 'done', sort_order: row.sort_order };
+  if (close?.sentToReview && member) await commentSentToReview(supabase, subtaskId, member);
+  const data = {
+    id: row.id, task_id: id, title: row.title, status: row.status, completed: row.status === 'done', sort_order: row.sort_order,
+    ...(close?.sentToReview && member ? { sent_to_review: true, note: sentToReviewNote(member) } : {}),
+  };
   logAudit(supabase, { method: 'PATCH', endpoint: `/api/v1/tasks/${id}/subtasks/${subtaskId}`, entityType: 'task', entityId: subtaskId, apiKeyId, teamMemberId, requestBody: body, beforeSnapshot: before, afterSnapshot: data, statusCode: 200 });
   return success(data);
 }, { schema: updateSubtaskSchema });

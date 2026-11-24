@@ -28,6 +28,11 @@ export const createTaskSchema = z.object({
 export const createApiTaskSchema = createTaskSchema.extend({
   project_id: z.string().uuid('project_id must be a UUID').optional(),
   parent_task_id: z.string().uuid('parent_task_id must be a UUID').optional(),
+  // An incident key: while an open task in the project holds it, the create
+  // counts a repeat there instead of making a second task.
+  dedupe_key: z.string().trim().min(1).max(200).optional(),
+  // A repeat's note, added to the open task as a comment.
+  occurrence_note: z.string().trim().min(1).max(20_000).optional(),
 }).refine((body) => body.project_id || body.parent_task_id, {
   message: 'project_id is required (or parent_task_id, for a subtask)',
   path: ['project_id'],

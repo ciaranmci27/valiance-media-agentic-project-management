@@ -225,6 +225,11 @@ export async function insertTask(
   if (task.ai_readiness !== undefined) insertPayload.ai_readiness = task.ai_readiness;
   // The database keeps it only for an API key's task (see stamp_task_source).
   if (task.created_note) insertPayload.created_note = task.created_note;
+  // An incident key (one open task per key in a project) and its first occurrence.
+  if (task.dedupe_key) {
+    insertPayload.dedupe_key = task.dedupe_key;
+    if (task.last_occurred_at) insertPayload.last_occurred_at = task.last_occurred_at;
+  }
 
   const saved = await saveTaskAtomically(supabase, null, insertPayload, assigneeIds, criteria, blockedByIds);
 
@@ -1844,6 +1849,12 @@ export async function approveTaskSuggestion(
         : null;
 
   const resolvedTaskType = taskOverrides.task_type !== undefined ? taskOverrides.task_type : suggestion.task_type || null;
+  // What an agent asked for when its rules turned its new task into this
+  // suggestion: applied on approval, where it still fits.
+  const requested = (metadata.requested && typeof metadata.requested === 'object' ? metadata.requested : {}) as {
+    due_date?: unknown; tags?: unknown; blocked_by_ids?: unknown; parent_task_id?: unknown;
+  };
+  const requestedTags = Array.isArray(requested.tags) ? requested.tags.filter((tag): tag is string => typeof tag === 'string') : [];
   const composedDescription = proposedFix ? `${suggestion.description}\n\nProposed fix: ${proposedFix}` : suggestion.description;
   const taskData: Record<string, any> = {
     project_id: taskOverrides.project_id || suggestion.project_id,
@@ -1851,8 +1862,8 @@ export async function approveTaskSuggestion(
     description: composedDescription,
     status: 'todo' as const,
     priority: (taskOverrides.priority || suggestion.priority) as Task['priority'],
-    due_date: taskOverrides.due_date || null,
-    tags: [] as string[],
+    due_date: taskOverrides.due_date || (typeof requested.due_date === 'string' ? requested.due_date : null),
+    tags: requestedTags,
     source_task_suggestion_id: id,
     project_goal_id: suggestion.goal_id,
     // Required, not cosmetic: the tasks_insert RLS policy checks
@@ -1862,6 +1873,25 @@ export async function approveTaskSuggestion(
   };
   if (resolvedTaskType) taskData.task_type = resolvedTaskType;
   if (resolvedReadiness) taskData.ai_readiness = resolvedReadiness;
+  // A suggestion an agent made in place of a task (its rules need approval)
+  // may carry an incident key: the task takes it, unless an open task in the
+  // project took it meanwhile (then the repeats are counted there).
+  const dedupeKey = typeof metadata.dedupe_key === 'string' ? metadata.dedupe_key : null;
+  if (dedupeKey) {
+    const { data: holder } = await supabase
+      .from('tasks')
+      .select('id')
+      .eq('project_id', taskData.project_id)
+      .eq('dedupe_key', dedupeKey)
+      .neq('status', 'done')
+      .is('deleted_at', null)
+      .limit(1)
+      .maybeSingle();
+    if (!holder) {
+      taskData.dedupe_key = dedupeKey;
+      taskData.last_occurred_at = new Date().toISOString();
+    }
+  }
 
   const { data: task, error: taskErr } = await supabase
     .from('tasks')
@@ -1896,6 +1926,41 @@ export async function approveTaskSuggestion(
     insertedCriteria = (criteriaRows || []) as AcceptanceCriterion[];
   }
 
+  // The blockers the agent named: those still live in the task's project.
+  const requestedBlockers = Array.isArray(requested.blocked_by_ids)
+    ? requested.blocked_by_ids.filter((blocker): blocker is string => typeof blocker === 'string' && blocker !== task.id)
+    : [];
+  if (requestedBlockers.length) {
+    const { data: liveBlockers, error: blockersError } = await supabase
+      .from('tasks')
+      .select('id')
+      .in('id', requestedBlockers)
+      .eq('project_id', task.project_id)
+      .is('deleted_at', null);
+    if (blockersError) throw blockersError;
+    const rows = ((liveBlockers || []) as { id: string }[]).map((blocker) => ({ task_id: task.id, blocked_by_task_id: blocker.id }));
+    if (rows.length) {
+      const { error: dependencyError } = await supabase.from('task_dependencies').insert(rows);
+      if (dependencyError) throw dependencyError;
+    }
+  }
+
+  // The parent the agent named, through the subtask rules. A parent that is
+  // gone, elsewhere or no longer a valid parent leaves the task top-level.
+  let parentTaskId: string | null = null;
+  if (typeof requested.parent_task_id === 'string') {
+    const { data: parent } = await supabase
+      .from('tasks')
+      .select('id, project_id, parent_task_id')
+      .eq('id', requested.parent_task_id)
+      .is('deleted_at', null)
+      .maybeSingle();
+    if (parent && parent.project_id === task.project_id && !parent.parent_task_id) {
+      const { error: parentError } = await supabase.rpc('set_task_parent', { p_task_id: task.id, p_parent_id: parent.id });
+      if (!parentError) parentTaskId = parent.id;
+    }
+  }
+
   // If assigned_to is set, create task_assignee
   const assignedTo = taskOverrides.assigned_to || suggestion.assigned_to;
   if (assignedTo) {
@@ -1919,10 +1984,13 @@ export async function approveTaskSuggestion(
     suggestion: updated as TaskSuggestion,
     task: {
       ...task,
+      ...(parentTaskId ? { parent_task_id: parentTaskId } : {}),
       assignee_ids: assignedTo ? [assignedTo] : [],
       comments: [],
       acceptance_criteria: insertedCriteria,
-      blocked_by_ids: [],
+      blocked_by_ids: requestedBlockers.length
+        ? (await supabase.from('task_dependencies').select('blocked_by_task_id').eq('task_id', task.id)).data?.map((d: { blocked_by_task_id: string }) => d.blocked_by_task_id) ?? []
+        : [],
     } as Task,
   };
 }

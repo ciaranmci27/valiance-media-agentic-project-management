@@ -6,7 +6,7 @@ import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
 import { PriorityBadge } from '@/components/ui/Badge';
 import { Avatar, AvatarGroup } from '@/components/ui/Avatar';
-import { Calendar, Check, ChevronDown, History, MessageSquare, Paperclip, Trash2, Lock, FileQuestion, ArrowRight, ClipboardCopy, Link2, Hash, PanelRight, BellRing, CornerLeftUp, Plus, CircleCheck } from 'lucide-react';
+import { Calendar, Check, ChevronDown, History, MessageSquare, Paperclip, Trash2, Lock, FileQuestion, ArrowRight, ClipboardCopy, Link2, Hash, PanelRight, BellRing, CornerLeftUp, Plus, CircleCheck, Bot, UserRound, Repeat, LockOpen } from 'lucide-react';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { TextInput } from '@/components/ui/inputs/TextInput';
 import { RowActionsMenu, type RowAction } from '@/components/ui/RowActionsMenu';
@@ -23,6 +23,7 @@ import { createdLabel, lastActivityAt, taskTimesTooltip, timeAgo } from '@/lib/t
 import { appLocale } from '@/lib/region';
 import { useSubtaskMenuActions } from './MakeSubtaskDialog';
 import { SubtaskRing, SUBTASK_STATUS_RING as STATUS_RING } from './SubtaskRing';
+import { claimUntil, liveClaim, occurrenceLabel } from '@/lib/claims';
 
 interface TaskCardProps {
   task: Task;
@@ -71,7 +72,7 @@ function useTrayOpen(taskId: string): [boolean, (open: boolean) => void] {
 }
 
 export function TaskCard({ task, onView, onDelete, onMove }: TaskCardProps) {
-  const { team, tasks, getProject, reminders, getSubtasks, getTaskUpdate, addSubtask, updateTask } = useApp();
+  const { team, tasks, getProject, reminders, getSubtasks, getTaskUpdate, addSubtask, updateTask, releaseTaskClaim } = useApp();
   const cardUnread = useCardUnread();
   const { teamMemberId, access } = useAuth();
   const trayId = useId();
@@ -99,7 +100,11 @@ export function TaskCard({ task, onView, onDelete, onMove }: TaskCardProps) {
     .map(id => tasks.find(t => t.id === id))
     .filter((t): t is Task => !!t && t.status !== 'done');
   const unread = !!cardUnread(task);
-  const hasBadges = unread || loudPriority || needsSpec;
+  // An incident that keeps happening, and who is working on the task right now.
+  const repeats = occurrenceLabel(task);
+  const claim = liveClaim(task, team);
+  const claimByAgent = !!claim && team.find(m => m.id === claim.memberId)?.role === 'agent';
+  const hasBadges = unread || loudPriority || needsSpec || !!repeats;
   const linkCounts = useTaskLinkCounts(task.id);
   const fileCount = useTaskFileCount(task.id);
   const warmTask = useTaskWarmer();
@@ -109,7 +114,7 @@ export function TaskCard({ task, onView, onDelete, onMove }: TaskCardProps) {
   const next = task.status !== 'done' ? nextReminderFor(reminders, task.id) : null;
   const nextOverdue = next ? reminderGroup(next.next) === 'overdue' : false;
   const nextWhen = next ? whenLabel(next.next) : null;
-  const hasPanel = subtasks.total > 0 || !!next || openBlockers.length > 0 || !!task.due_date;
+  const hasPanel = subtasks.total > 0 || !!next || openBlockers.length > 0 || !!task.due_date || !!claim;
   // The footer always carries when anything last happened; created is on hover.
   const lastAt = lastActivityAt(task, subtaskList, getTaskUpdate(task.id));
 
@@ -125,6 +130,10 @@ export function TaskCard({ task, onView, onDelete, onMove }: TaskCardProps) {
         }))
       : []),
     ...subtaskMenu.actions.map((action, i) => ({ ...action, divider: i === 0 })),
+    // A stuck claim: whoever may manage every task can end it.
+    ...(claim && canDelete
+      ? [{ label: 'Release claim', icon: <LockOpen size={14} />, onClick: () => { void releaseTaskClaim(task.id); }, divider: true }]
+      : []),
     {
       label: 'Copy details',
       icon: <ClipboardCopy size={14} />,
@@ -241,6 +250,14 @@ export function TaskCard({ task, onView, onDelete, onMove }: TaskCardProps) {
               </span>
             </Tooltip>
           )}
+          {repeats && (
+            <Tooltip content="The same problem was reported again while this task was open">
+              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] lg:text-xs font-medium bg-amber-500/15 text-amber-300 border border-amber-500/30 rounded-full">
+                <Repeat size={10} aria-hidden="true" />
+                {repeats}
+              </span>
+            </Tooltip>
+          )}
         </div>
       )}
 
@@ -333,6 +350,17 @@ export function TaskCard({ task, onView, onDelete, onMove }: TaskCardProps) {
                 <span className="min-w-0 truncate text-zinc-200">Waiting on {openBlockers[0].title}</span>
               </Tooltip>
               <span className="text-zinc-400">{openBlockers.length}<span className="sr-only"> open {openBlockers.length === 1 ? 'blocker' : 'blockers'}</span></span>
+            </div>
+          )}
+          {claim && (
+            <div className={PANEL_ROW}>
+              {claimByAgent
+                ? <Bot size={15} className="text-brand-300" aria-hidden="true" />
+                : <UserRound size={15} className="text-brand-300" aria-hidden="true" />}
+              <Tooltip content={<span className="block max-w-[240px] whitespace-normal">{claimUntil(claim)}</span>} className="min-w-0 max-w-full justify-self-start">
+                <span className="min-w-0 truncate text-zinc-200">{claim.name} is working on this</span>
+              </Tooltip>
+              <span className="text-zinc-400">{claim.since ? `since ${claim.since}` : ''}</span>
             </div>
           )}
           {task.due_date && (

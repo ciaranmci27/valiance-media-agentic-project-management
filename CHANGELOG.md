@@ -9,6 +9,17 @@ Each section starts with `## X.Y.Z (YYYY-MM-DD)` and uses these headings, leavin
 - `### Database`: the core migration files in the release, one per line. `npm run db:migrate` applies them.
 - `### Breaking`: what an install must do when it takes this release.
 
+## 2.0.12 (2026-11-24)
+
+### Added
+- **Claims.** An agent (or a person) takes a task for a set time: `POST /api/v1/tasks/{id}/claim` (default 30 minutes, up to 240), `/claim/extend` while working, `DELETE` to release. Nobody else can claim it meanwhile. A claim that runs out frees the task; work a claim picked up goes back to the pool on release or expiry. The task shows who is working on it, and managers can release a stuck claim. MCP: `claim_task`, `extend_claim`, `release_task`.
+- **What next.** `GET /api/v1/tasks/next` (MCP `next_task`): the caller's assigned work first, then unassigned work it may pick up, skipping blocked, claimed, in-review and done tasks.
+- **Incident keys.** Creating a task with `dedupe_key` returns the open task with that key in the project instead of a duplicate, and counts the repeat ("Happened 6 times"). A repeat after it is done opens a new task.
+- **Rules per agent** (Team, an agent's settings; `PATCH /api/v1/team-members/{id}`; MCP `set_agent_rules`): can it pick up unassigned work, does finishing close the task or send it to review, do its new tasks go live or wait for approval (as suggestions), and who it escalates to. Defaults keep today's behaviour.
+
+### Database
+- `20261124000000_agent_work_blocks.sql`: claim, incident key and agent rule columns, the claim and next-task functions (service role only), task triggers that leave claims out of edits and unread marks, and `task_suggestions.goal_id` optional (a suggestion an agent's rules turned it into may have no goal).
+
 ## 2.0.11 (2026-11-23)
 
 ### Changed

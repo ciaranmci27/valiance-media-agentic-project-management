@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { agentRulesUpdateSchema } from '@/lib/agent-rules';
 
 export const createTeamMemberSchema = z.object({
   name: z.string().min(1, 'Name is required'),
@@ -20,4 +21,6 @@ export const updateTeamMemberSchema = z.object({
   notification_prefs: z.record(z.string(), z.boolean()).optional(),
   email_notifications_enabled: z.boolean().optional(),
   email_notification_prefs: z.record(z.string(), z.boolean()).optional(),
+  // An agent's rules (team.manage, agent members only): see lib/agent-rules.
+  ...agentRulesUpdateSchema.shape,
 });

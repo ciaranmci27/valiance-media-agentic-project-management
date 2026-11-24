@@ -1,9 +1,9 @@
 import { withApi } from '@/lib/api/middleware';
-import { created, paginated } from '@/lib/api/response';
+import { paginated, success } from '@/lib/api/response';
 import { createApiTaskSchema } from '@/lib/schemas';
 import { parsePagination, sanitizeSearch, validateSort } from '@/lib/api/pagination';
 import { accessAllows } from '@/lib/api/access';
-import { createApiTask } from '@/lib/api/create-task';
+import { createTaskWithRules } from '@/lib/api/create-task';
 import { liveTaskIds } from '@/lib/api/task-guards';
 import { subtaskSummaries } from '@/lib/api/subtasks';
 import { hiddenSubtaskIds, postgrestList, trashedProjectIds } from '@/lib/supabase/trash';
@@ -88,6 +88,10 @@ export const GET = withApi(async ({ supabase, searchParams, access }) => {
   return paginated(tasks, { page, limit, total: count || 0 });
 });
 
+// 201 with the new task; 200 with an open task that already held the
+// dedupe_key (deduplicated: true); 202 with a task suggestion for an agent
+// whose new tasks need approval (needs_approval: true).
 export const POST = withApi(async (ctx) => {
-  return created(await createApiTask(ctx, '/api/v1/tasks'));
+  const { status, data } = await createTaskWithRules(ctx, '/api/v1/tasks');
+  return success(data, status);
 }, { schema: createApiTaskSchema });

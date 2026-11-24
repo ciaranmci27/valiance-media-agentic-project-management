@@ -327,6 +327,8 @@ interface AppContextType {
   reorderTasks: (orders: { id: string; sort_order: number }[]) => void;
   /** Resolves true once deleted; false after a failure (rolled back; toasted unless silent). */
   deleteTask: (id: string, options?: TaskWriteOptions) => Promise<boolean>;
+  /** Ends whoever's claim is on a task (managers: a stuck claim). False after a failure (toasted, rolled back). */
+  releaseTaskClaim: (id: string) => Promise<boolean>;
 
   // Subtasks: tasks with a parent (see lib/subtasks). Work one with the task
   // actions; these find a task's subtasks and add one by title.
@@ -1569,6 +1571,28 @@ export function AppProvider({ children }: { children: ReactNode }) {
     } catch (err) {
       setTasks(rollbackScope(prev, task => orderById.has(task.id)));
       toast('error', 'Failed to reorder tasks');
+    }
+  };
+
+  const releaseTaskClaim = async (id: string): Promise<boolean> => {
+    const prev = tasks;
+    setTasks(t => t.map(task => task.id === id ? { ...task, claimed_by: null, claimed_at: null, claim_expires_at: null } : task));
+    if (skipSupabase) return true;
+    try {
+      const response = await fetch(`/api/workspace/tasks/${encodeURIComponent(id)}/claim`, { method: 'DELETE' });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || 'Failed to release the claim');
+      // A claim that had assigned the task takes that assignment with it.
+      const released = payload.data as { unassigned?: boolean; released_from?: { member_id?: string } } | undefined;
+      const unassignedId = released?.unassigned ? released.released_from?.member_id : undefined;
+      if (unassignedId) {
+        setTasks(t => t.map(task => task.id === id ? { ...task, assignee_ids: task.assignee_ids.filter(m => m !== unassignedId) } : task));
+      }
+      return true;
+    } catch (err) {
+      setTasks(rollbackScope(prev, task => task.id === id));
+      toast('error', err instanceof Error ? err.message : 'Failed to release the claim');
+      return false;
     }
   };
 
@@ -4507,6 +4531,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       updateTask,
       reorderTasks,
       deleteTask,
+      releaseTaskClaim,
       getSubtasks,
       addSubtask,
       setTaskParent,

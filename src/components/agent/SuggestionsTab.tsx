@@ -134,7 +134,8 @@ export function SuggestionsTab({ filters }: { filters: SuggestionsFilters }) {
   };
 
   const getProjectName = (id: string) => projects.find(p => p.id === id)?.name || 'Unknown';
-  const getGoalTitle = (id: string) => projectGoals.find(g => g.id === id)?.title || 'Unknown';
+  // A suggestion an agent sent in place of a task may have no goal.
+  const getGoalTitle = (id: string | null) => (id ? projectGoals.find(g => g.id === id)?.title || 'Unknown' : 'No goal');
   const getAgentName = (id: string) => team.find(m => m.id === id)?.name || 'Unknown';
   const getAgentAvatar = (id: string) => team.find(m => m.id === id)?.avatar || '';
 

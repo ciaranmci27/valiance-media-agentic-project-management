@@ -4,6 +4,8 @@ import { updateTeamMemberSchema } from '@/lib/schemas';
 import { forbidden, notFound } from '@/lib/api/errors';
 import { logAudit } from '@/lib/api/audit';
 import { accessAllows } from '@/lib/api/access';
+import { agentRulesColumns } from '@/lib/api/agent-rules';
+import { AGENT_RULE_FIELDS, type AgentRulesUpdate } from '@/lib/agent-rules';
 
 export const GET = withApi(async ({ supabase, params, access }) => {
   const selection = accessAllows(access, 'team.manage', 'api')
@@ -31,10 +33,13 @@ export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemb
   if ('role' in requested && access.role !== 'owner') {
     throw forbidden('Only an Owner can change roles');
   }
+  // An agent's rules: only for agent members (the role this save leaves them with).
+  const rules = await agentRulesColumns(supabase, { id, role: (requested.role as string | undefined) ?? before.role }, requested as AgentRulesUpdate);
+  const updates = { ...Object.fromEntries(Object.entries(requested).filter(([field]) => !(AGENT_RULE_FIELDS as string[]).includes(field))), ...rules };
 
   const { data, error } = await supabase
     .from('team_members')
-    .update(body)
+    .update(updates)
     .eq('id', id)
     .select()
     .maybeSingle();

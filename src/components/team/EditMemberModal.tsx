@@ -10,21 +10,29 @@ import { createClient } from '@/lib/supabase/client';
 import { hasPermission, isModuleEnabled } from '@/lib/access-control';
 import { canChangeSignInEmail } from '@/lib/team/invite-rules';
 import { AGENT_PROFILES, type AgentProfile } from '@/lib/mcp/profiles';
+import {
+  AGENT_RULE_LABELS, CLOSE_POLICY_OPTIONS, CREATE_POLICY_OPTIONS, ESCALATE_DEFAULT_LABEL, agentRulesOf,
+  type AgentClosePolicy, type AgentCreatePolicy, type AgentRules,
+} from '@/lib/agent-rules';
 import type { TeamMember } from '@/lib/types';
 import { AvatarUpload } from '@/components/ui/AvatarUpload';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/inputs/Select';
 import { NumberInput } from '@/components/ui/inputs/NumberInput';
+import { Toggle } from '@/components/ui/Toggle';
 import Modal from '@/components/ui/Modal';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { toast } from '@/components/ui/Toast';
 import { pmStorage } from '@/lib/supabase/storage';
 import { BUCKETS } from '@/lib/supabase/schema';
 
+/** The escalation picker's choice for "no one named": the Owner. */
+const ESCALATE_DEFAULT = '__owner__';
+
 /**
  * Edit a team member: name, title, email, role (Owner only), account status
- * (team.manage, never yourself), agent settings and timezone. The Team page
+ * (team.manage, never yourself), agent settings and rules, and timezone. The Team page
  * and the member profile both open this one form, so the rules live once.
  */
 export function EditMemberModal({ member, onClose }: { member: TeamMember | null; onClose: () => void }) {
@@ -36,7 +44,7 @@ const isUploadedAvatar = (src: string | undefined | null): src is string =>
   !!src && (src.startsWith('http') || src.startsWith('blob:'));
 
 function EditMemberForm({ member, onClose }: { member: TeamMember; onClose: () => void }) {
-  const { updateTeamMember } = useApp();
+  const { updateTeamMember, team } = useApp();
   const { teamMemberId: currentTeamMemberId, access } = useAuth();
   const { isDemoMode } = useDemo();
   const supabase = createClient();
@@ -62,6 +70,8 @@ function EditMemberForm({ member, onClose }: { member: TeamMember; onClose: () =
     member.role === 'agent' ? Number(member.billing_multiplier ?? 1) : '',
   );
   const [agentProfile, setAgentProfile] = useState<AgentProfile>(member.agent_profile ?? 'generic');
+  const savedRules = agentRulesOf(member);
+  const [rules, setRules] = useState<AgentRules>(savedRules);
   const [memberTz, setMemberTz] = useState(member.timezone || 'UTC');
   const [tzSearch, setTzSearch] = useState('');
   const [tzOpen, setTzOpen] = useState(false);
@@ -209,6 +219,24 @@ function EditMemberForm({ member, onClose }: { member: TeamMember; onClose: () =
     return { agent_profile: agentProfile };
   };
 
+  // Only the rules that changed travel, for an agent, from someone who
+  // manages the team; the API checks the same.
+  const rulesUpdate = (): Partial<AgentRules> => {
+    if (role !== 'agent' || !canManageTeam || !isAgentsEnabled) return {};
+    return Object.fromEntries(
+      (Object.keys(rules) as (keyof AgentRules)[])
+        .filter((field) => rules[field] !== savedRules[field])
+        .map((field) => [field, rules[field]]),
+    ) as Partial<AgentRules>;
+  };
+  // Who an agent can escalate to: anyone active but itself.
+  const escalationOptions = [
+    { value: ESCALATE_DEFAULT, label: ESCALATE_DEFAULT_LABEL, detail: 'The default' },
+    ...team
+      .filter((other) => other.id !== member.id && (other.status ?? 'active') === 'active')
+      .map((other) => ({ value: other.id, label: other.name, detail: other.title || undefined })),
+  ];
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) return;
@@ -229,6 +257,7 @@ function EditMemberForm({ member, onClose }: { member: TeamMember; onClose: () =
       timezone: memberTz,
       ...multiplierUpdate(),
       ...profileUpdate(),
+      ...rulesUpdate(),
     });
     if (saved) toast('success', 'Team member updated');
   };
@@ -263,6 +292,7 @@ function EditMemberForm({ member, onClose }: { member: TeamMember; onClose: () =
         email: email.trim().toLowerCase(),
         ...multiplierUpdate(),
         ...profileUpdate(),
+        ...rulesUpdate(),
       });
       if (saved) toast('success', 'Team member updated');
     } catch {
@@ -364,6 +394,40 @@ function EditMemberForm({ member, onClose }: { member: TeamMember; onClose: () =
                 detail: profile.description,
               }))}
             />
+          )}
+
+          {role === 'agent' && canManageTeam && isAgentsEnabled && (
+            <fieldset className="space-y-3 border-t border-white/[0.06] pt-4">
+              <legend className="text-sm font-medium text-zinc-200">Agent rules</legend>
+              <p className="-mt-1 text-xs text-zinc-400">
+                What this agent may do on its own. Which projects it works in and whether it can create tasks stay on its permissions.
+              </p>
+              <Toggle
+                label={AGENT_RULE_LABELS.agent_self_assign}
+                description="It can claim unassigned AI Ready work, which assigns the task to it."
+                checked={rules.agent_self_assign}
+                onChange={(checked) => setRules((current) => ({ ...current, agent_self_assign: checked }))}
+              />
+              <Select
+                label={AGENT_RULE_LABELS.agent_close_policy}
+                value={rules.agent_close_policy}
+                onChange={(value) => setRules((current) => ({ ...current, agent_close_policy: value as AgentClosePolicy }))}
+                options={CLOSE_POLICY_OPTIONS}
+              />
+              <Select
+                label={AGENT_RULE_LABELS.agent_create_policy}
+                value={rules.agent_create_policy}
+                onChange={(value) => setRules((current) => ({ ...current, agent_create_policy: value as AgentCreatePolicy }))}
+                options={CREATE_POLICY_OPTIONS}
+              />
+              <Select
+                label={AGENT_RULE_LABELS.agent_escalate_to}
+                value={rules.agent_escalate_to ?? ESCALATE_DEFAULT}
+                onChange={(value) => setRules((current) => ({ ...current, agent_escalate_to: value === ESCALATE_DEFAULT ? null : value }))}
+                options={escalationOptions}
+                searchable={escalationOptions.length > 8}
+              />
+            </fieldset>
           )}
 
           {role === 'agent' && canManageBilling && (

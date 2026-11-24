@@ -153,7 +153,8 @@ export function ReviewQueue({ onApprove, onEdit }: ReviewQueueProps) {
   const titleCase = (value: string) =>
     value.split(/[\s_-]+/).filter(Boolean).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
 
-  const getGoalTitle = (id: string) => projectGoals.find(g => g.id === id)?.title || 'Unknown';
+  // A suggestion an agent sent in place of a task may have no goal.
+  const getGoalTitle = (id: string | null) => (id ? projectGoals.find(g => g.id === id)?.title || 'Unknown' : 'No goal');
   const getAgentName = (id: string) => team.find(m => m.id === id)?.name || 'Unknown';
   const getAgentAvatar = (id: string) => team.find(m => m.id === id)?.avatar || '';
 

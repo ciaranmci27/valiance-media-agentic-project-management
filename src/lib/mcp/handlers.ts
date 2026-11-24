@@ -11,6 +11,9 @@ import * as timeResume from '@/app/api/v1/projects/[id]/time-entries/[entryId]/r
 import * as timeStop from '@/app/api/v1/projects/[id]/time-entries/[entryId]/stop/route';
 import * as tasks from '@/app/api/v1/tasks/route';
 import * as task from '@/app/api/v1/tasks/[id]/route';
+import * as nextTask from '@/app/api/v1/tasks/next/route';
+import * as taskClaim from '@/app/api/v1/tasks/[id]/claim/route';
+import * as taskClaimExtend from '@/app/api/v1/tasks/[id]/claim/extend/route';
 import * as taskComments from '@/app/api/v1/tasks/[id]/comments/route';
 import * as taskReviews from '@/app/api/v1/tasks/[id]/reviews/route';
 import * as taskFiles from '@/app/api/v1/tasks/[id]/files/route';
@@ -26,6 +29,7 @@ import * as reminders from '@/app/api/v1/reminders/route';
 import * as reminder from '@/app/api/v1/reminders/[id]/route';
 import * as agentActivities from '@/app/api/v1/agent-activities/route';
 import * as teamMembers from '@/app/api/v1/team-members/route';
+import * as teamMember from '@/app/api/v1/team-members/[id]/route';
 import * as leads from '@/app/api/v1/leads/route';
 import * as lead from '@/app/api/v1/leads/[id]/route';
 import * as leadInteractions from '@/app/api/v1/leads/[id]/interactions/route';
@@ -55,6 +59,9 @@ export const ROUTE_MODULES: Record<string, RouteModule> = {
   '/api/v1/projects/{id}/time-entries/{entryId}/stop': timeStop,
   '/api/v1/tasks': tasks,
   '/api/v1/tasks/{id}': task,
+  '/api/v1/tasks/next': nextTask,
+  '/api/v1/tasks/{id}/claim': taskClaim,
+  '/api/v1/tasks/{id}/claim/extend': taskClaimExtend,
   '/api/v1/tasks/{id}/comments': taskComments,
   '/api/v1/tasks/{id}/reviews': taskReviews,
   '/api/v1/tasks/{id}/files': taskFiles,
@@ -70,6 +77,7 @@ export const ROUTE_MODULES: Record<string, RouteModule> = {
   '/api/v1/reminders/{id}': reminder,
   '/api/v1/agent-activities': agentActivities,
   '/api/v1/team-members': teamMembers,
+  '/api/v1/team-members/{id}': teamMember,
   '/api/v1/leads': leads,
   '/api/v1/leads/{id}': lead,
   '/api/v1/leads/{id}/interactions': leadInteractions,

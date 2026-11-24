@@ -2,6 +2,9 @@ import { NextResponse } from 'next/server';
 import { accessAllows, requireSessionAccess } from '@/lib/api/access';
 import { TEAM_ROLES } from '@/lib/access-control';
 import { isAgentProfile } from '@/lib/mcp/profiles';
+import { AGENT_RULE_FIELDS, agentRulesUpdateSchema } from '@/lib/agent-rules';
+import { agentRulesColumns } from '@/lib/api/agent-rules';
+import { ApiError } from '@/lib/api/errors';
 
 const PROFILE_FIELDS = ['name', 'title', 'avatar', 'timezone', 'notification_prefs', 'email_notifications_enabled', 'email_notification_prefs', 'theme_preference'] as const;
 const MANAGEMENT_FIELDS = [...PROFILE_FIELDS, 'status'] as const;
@@ -99,6 +102,20 @@ export async function PATCH(
       return NextResponse.json({ error: 'Invalid agent profile' }, { status: 422 });
     }
     updates.agent_profile = body.agent_profile;
+  }
+  // An agent's rules (what it may do on its own): team.manage, agent members only.
+  if (AGENT_RULE_FIELDS.some((field) => field in body)) {
+    if (!canManage) {
+      return NextResponse.json({ error: "Changing an agent's rules takes the right to manage the team" }, { status: 403 });
+    }
+    const parsedRules = agentRulesUpdateSchema.safeParse(Object.fromEntries(AGENT_RULE_FIELDS.filter((field) => field in body).map((field) => [field, body[field]])));
+    if (!parsedRules.success) return NextResponse.json({ error: 'Invalid agent rules' }, { status: 422 });
+    try {
+      Object.assign(updates, await agentRulesColumns(service, { id, role: String(updates.role ?? target.role) }, parsedRules.data));
+    } catch (error) {
+      if (error instanceof ApiError) return NextResponse.json({ error: error.message }, { status: error.statusCode });
+      throw error;
+    }
   }
   if (Object.keys(updates).length === 0) return NextResponse.json({ error: 'No permitted changes' }, { status: 400 });
   if (updates.status === 'suspended') {

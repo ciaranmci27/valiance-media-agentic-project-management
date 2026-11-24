@@ -9,6 +9,8 @@ import { accessAllows, accessAllowsProject } from '@/lib/api/access';
 import { assertAssigneesCanOpenProject, assertBlockersInProject, assertGoalInProject, liveTaskIds } from '@/lib/api/task-guards';
 import { loadParentTask, setTaskParentAs, subtaskRuleError, subtaskSummaries } from '@/lib/api/subtasks';
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { applyClosePolicy, commentSentToReview, loadMemberRules, sentToReviewNote } from '@/lib/api/agent-rules';
+import { claimWithName } from '@/lib/api/claims';
 
 async function currentAssigneeIds(supabase: SupabaseClient, taskId: string): Promise<string[]> {
   const { data, error } = await supabase
@@ -131,6 +133,8 @@ export const GET = withApi(async ({ supabase, params }) => {
     blocked_by: blockedBy,
     blocked_by_ids: blockedBy.map((b: any) => b.id),
     dependencies_met: unresolvedBlockers === 0 && blockedBy.every((b: any) => b.status === 'done'),
+    // Who is working on it right now (a live claim), or null.
+    claim: await claimWithName(supabase, data),
     criteria: undefined,
     reviews: undefined,
     task_dependencies: undefined,
@@ -146,6 +150,11 @@ export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemb
   if (!before) throw notFound('Task');
   const { assignee_ids, acceptance_criteria, blocked_by_ids, parent_task_id, ...updates } = body as any;
   const canManageAll = scopes.includes('tasks.manage_all') && accessAllows(access, 'tasks.manage_all', 'api');
+  // An agent whose rules send finished work to review cannot set done: the
+  // task goes to In Review instead, with a comment saying why.
+  const member = updates.status === 'done' && access.role === 'agent' ? await loadMemberRules(supabase, teamMemberId) : null;
+  const close = member ? applyClosePolicy(member, updates.status, before.status) : { status: updates.status, sentToReview: false };
+  if (close.sentToReview) updates.status = close.status;
   const parentChange = parent_task_id !== undefined && parent_task_id !== before.parent_task_id;
   if (parentChange && updates.project_id !== undefined && updates.project_id !== before.project_id) {
     throw badRequest("Send parent_task_id or project_id, not both: a subtask takes its parent task's project");
@@ -155,6 +164,18 @@ export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemb
   }
   if (assignee_ids !== undefined && !canManageAll) {
     throw forbidden('Changing task assignments requires the tasks.manage_all API scope');
+  }
+  // An agent whose rules keep it off unassigned work cannot assign itself
+  // either: adding itself to a task it is not on is the same as picking it up.
+  if (Array.isArray(assignee_ids) && assignee_ids.includes(teamMemberId) && access.role === 'agent'
+    && !(await currentAssigneeIds(supabase, id)).includes(teamMemberId)) {
+    const self = await loadMemberRules(supabase, teamMemberId);
+    if (self.isAgent && !self.rules.agent_self_assign) {
+      throw forbidden(`${self.name}'s rules do not let it assign itself work. Ask for the task to be assigned to it.`, {
+        reason: 'self_assign_off',
+        hint: 'An Owner or admin can turn on "Can pick up unassigned work" in the agent\'s rules (Team page, or set_agent_rules).',
+      });
+    }
   }
   const blockedByIds: string[] | undefined = Array.isArray(blocked_by_ids) ? blocked_by_ids : undefined;
 
@@ -225,6 +246,10 @@ export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemb
     } catch (error) {
       throw subtaskRuleError(error);
     }
+  }
+  if (close.sentToReview && member) {
+    await commentSentToReview(supabase, id, member);
+    data = { ...data, sent_to_review: true, note: sentToReviewNote(member) };
   }
   logAudit(supabase, { method: 'PATCH', endpoint: `/api/v1/tasks/${id}`, entityType: 'task', entityId: id, apiKeyId, teamMemberId, requestBody: body, beforeSnapshot: before, afterSnapshot: data, statusCode: 200 });
   return success(data);

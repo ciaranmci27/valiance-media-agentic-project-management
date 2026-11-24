@@ -275,6 +275,18 @@ export interface Task {
   created_by_key_id?: string | null;
   /** The key's own reason, in its words ("from Brennan's email"). */
   created_note?: string | null;
+  /**
+   * A work lease: who is working on it right now and until when. A claim
+   * whose claim_expires_at has passed is over (see lib/claims).
+   */
+  claimed_by?: string | null;
+  claimed_at?: string | null;
+  claim_expires_at?: string | null;
+  /** An incident key: repeats of the same incident are counted on the open task holding it. */
+  dedupe_key?: string | null;
+  /** How many times the incident behind it happened (1 without repeats). */
+  occurrences?: number;
+  last_occurred_at?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -459,6 +471,11 @@ export interface TeamMember {
   billing_multiplier?: number;
   /** Agents only: which MCP tools the agent sees (see lib/mcp/profiles). */
   agent_profile?: AgentProfile;
+  /** Agents only: what it may do on its own (see lib/agent-rules). Read by those who manage the team. */
+  agent_self_assign?: boolean;
+  agent_close_policy?: 'close' | 'review';
+  agent_create_policy?: 'live' | 'approval';
+  agent_escalate_to?: string | null;
   /**
    * Which projects the member can open, derived by the team directory from
    * their permissions: every project, the ones they are a member of, or none.
@@ -1271,7 +1288,8 @@ export interface ProjectGoal {
 export interface TaskSuggestion {
   id: string;
   project_id: string;
-  goal_id: string;
+  /** The goal it serves; null for one an agent sent in place of a task (its rules need approval). */
+  goal_id: string | null;
   proposed_by: string;
   assigned_to: string | null;
   title: string;

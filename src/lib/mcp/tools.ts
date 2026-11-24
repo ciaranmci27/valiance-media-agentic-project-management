@@ -17,8 +17,8 @@ import { routeTool, type PmTool } from './core';
  *
  * Left out on purpose: credentials, client emails (outbound, and the inbound
  * inbox at /api/v1/inbound-emails, which has its own plugin tools), invoices, rates, time
- * approval, team writes, every delete (move to Trash), the unscoped app activity feed,
- * suggestion approve/decline, and agent health.
+ * approval, team writes other than an agent's rules, every delete (move to Trash), the
+ * unscoped app activity feed, suggestion approve/decline, and agent health.
  */
 
 export const GUIDE_TOOL = 'pm_guide';
@@ -243,6 +243,57 @@ export const PM_TOOLS: PmTool[] = [
     present: taskInFull,
   }),
   routeTool({
+    name: 'next_task',
+    lead: 'Get the best task for you to work on next.',
+    detail:
+      'Tasks assigned to you first, then unassigned work you may pick up (agents: AI Ready work, if your rules allow). Leaves out backlog, in review, done, blocked tasks, inactive projects and tasks someone else has claimed. Highest priority first, then soonest due, then oldest. Answers with the task (pickup says assigned or unassigned) or null. It does not claim it: call claim_task next.',
+    input: z.object({ project_id: id('project_id').optional() }).strict(),
+    permission: 'tasks.read',
+    method: 'GET',
+    path: '/api/v1/tasks/next',
+    request: (args) => ({ query: args }),
+  }),
+  routeTool({
+    name: 'claim_task',
+    lead: 'Claim a task so no one else works on it.',
+    detail:
+      'A work lease for lease_minutes (default 30, 1 to 240): extend_claim renews it while you work, release_task ends it, and setting the task to done ends it too. You can claim a task assigned to you, or an unassigned one you may pick up, which assigns it to you; if that claim runs out, another member may claim the task and the assignment moves to them. Claiming one you hold renews it. If someone else holds it the answer is 409 with who and until when: pick another task.',
+    input: z.object({
+      task_id: id('task_id'),
+      lease_minutes: z.number().int().min(1).max(240).optional(),
+    }).strict(),
+    permission: 'tasks.manage_assigned',
+    method: 'POST',
+    path: '/api/v1/tasks/{id}/claim',
+    idempotent: true,
+    request: ({ task_id, ...body }) => ({ params: { id: task_id }, body }),
+  }),
+  routeTool({
+    name: 'extend_claim',
+    lead: 'Renew your claim on a task while you work on it.',
+    detail: 'Sets it to run out lease_minutes from now (default 30, 1 to 240). Call it well before the claim runs out on long work. 409 when you no longer hold it: claim it again.',
+    input: z.object({
+      task_id: id('task_id'),
+      lease_minutes: z.number().int().min(1).max(240).optional(),
+    }).strict(),
+    permission: 'tasks.manage_assigned',
+    method: 'POST',
+    path: '/api/v1/tasks/{id}/claim/extend',
+    idempotent: true,
+    request: ({ task_id, ...body }) => ({ params: { id: task_id }, body }),
+  }),
+  routeTool({
+    name: 'release_task',
+    lead: 'Release your claim on a task without finishing it.',
+    detail: "For when you stop or hand it back. If claiming had assigned the task to you, you are unassigned again (unassigned: true); work a person assigned to you stays assigned. released is false when nobody held a live claim. With tasks.manage_all you can release anyone's stuck claim.",
+    input: z.object({ task_id: id('task_id') }).strict(),
+    permission: 'tasks.manage_assigned',
+    method: 'DELETE',
+    path: '/api/v1/tasks/{id}/claim',
+    destructive: false,
+    request: ({ task_id }) => ({ params: { id: task_id } }),
+  }),
+  routeTool({
     name: 'list_task_comments',
     lead: "List a task's comments, oldest first.",
     detail: 'Pages through every comment; get_task shows only the newest.',
@@ -285,7 +336,7 @@ export const PM_TOOLS: PmTool[] = [
   routeTool({
     name: 'create_task',
     lead: 'Create a task in a project, or a subtask under a task.',
-    detail: "Without tasks.manage_all the task is assigned to you and no one else. Blockers and the goal must be in the same project. With parent_task_id it is a subtask, a full task in the parent's project (leave out project_id); subtasks go one level deep, under a task you may manage.",
+    detail: "Without tasks.manage_all the task is assigned to you and no one else. Blockers and the goal must be in the same project. With parent_task_id it is a subtask, a full task in the parent's project (leave out project_id); subtasks go one level deep, under a task you may manage. dedupe_key names an incident: while an open task in the project holds it, you get that task back with deduplicated: true and its occurrences counted (occurrence_note is added as a comment) instead of a second task; once it is done, the same key makes a new task. If your rules need approval for new tasks, you get a task suggestion with needs_approval: true instead; if they send finished work to review, a done task is created In Review (sent_to_review: true).",
     input: z.object({
       project_id: id('project_id').optional(),
       parent_task_id: id('parent_task_id').optional(),
@@ -301,6 +352,8 @@ export const PM_TOOLS: PmTool[] = [
       ai_readiness: AI_READINESS.nullable().optional(),
       acceptance_criteria: z.array(z.string().min(1).max(2000)).max(50).optional(),
       blocked_by_ids: z.array(id('blocked_by_ids')).max(50).optional(),
+      dedupe_key: z.string().min(1).max(200).optional().describe('Incident key, such as "checkout-500:/api/cart". One open task per key in a project'),
+      occurrence_note: z.string().min(1).max(20_000).optional().describe('What happened this time; added as a comment when the key already has an open task'),
     }).strict().refine((value) => value.project_id || value.parent_task_id, 'Send project_id, or parent_task_id for a subtask'),
     permission: 'tasks.create',
     method: 'POST',
@@ -311,7 +364,7 @@ export const PM_TOOLS: PmTool[] = [
     name: 'update_task',
     lead: "Change a task's fields, status or blockers.",
     detail:
-      'Send only what changes. acceptance_criteria REPLACES every criterion and clears their satisfied flags; use add_acceptance_criterion or update_acceptance_criterion for one. Changing assignees or project needs tasks.manage_all. Answers with the bare task row.',
+      'Send only what changes. acceptance_criteria REPLACES every criterion and clears their satisfied flags; use add_acceptance_criterion or update_acceptance_criterion for one. Changing assignees or project needs tasks.manage_all. If your rules send finished work to review, status done moves it to in_review instead (sent_to_review: true). Answers with the bare task row.',
     input: z.object({
       task_id: id('task_id'),
       title: z.string().min(1).max(500).optional(),
@@ -765,6 +818,27 @@ export const PM_TOOLS: PmTool[] = [
     method: 'GET',
     path: '/api/v1/team-members',
     request: (args) => ({ query: args }),
+  }),
+  routeTool({
+    name: 'set_agent_rules',
+    lead: 'Set what an agent may do on its own.',
+    detail:
+      "Needs team.manage; for agent members only. agent_self_assign: may pick up unassigned work. agent_close_policy: close (done finishes a task) or review (done moves it to in_review). agent_create_policy: live (new tasks go live) or approval (they become task suggestions). agent_escalate_to: a member id, or null for the Owner. Send only what changes; answers with the member.",
+    input: z.object({
+      agent_id: id('agent_id'),
+      agent_self_assign: z.boolean().optional(),
+      agent_close_policy: z.enum(['close', 'review']).optional(),
+      agent_create_policy: z.enum(['live', 'approval']).optional(),
+      agent_escalate_to: id('agent_escalate_to').nullable().optional(),
+    }).strict().refine(
+      atLeastOne(['agent_self_assign', 'agent_close_policy', 'agent_create_policy', 'agent_escalate_to']),
+      'Send at least one rule to change',
+    ),
+    permission: 'team.manage',
+    module: 'agents',
+    method: 'PATCH',
+    path: '/api/v1/team-members/{id}',
+    request: ({ agent_id, ...body }) => ({ params: { id: agent_id }, body }),
   }),
   routeTool({
     name: 'list_leads',

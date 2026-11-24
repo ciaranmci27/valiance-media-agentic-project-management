@@ -13,7 +13,7 @@ import { liveTaskIds } from './task-guards';
 import { afterResponse } from './after-response';
 
 /** Static routes under /api/v1/tasks/ that are not a task id. */
-export const TASK_COLLECTION_ACTIONS: ReadonlySet<string> = new Set(['reorder']);
+export const TASK_COLLECTION_ACTIONS: ReadonlySet<string> = new Set(['reorder', 'next']);
 
 function applyRateLimitHeaders(
   response: Response,
@@ -286,7 +286,10 @@ export function withApi<TBody = unknown, TParams = Record<string, string>>(
           });
         }
         const isCommentWrite = request.nextUrl.pathname.includes('/comments') && isWrite;
-        if (isWrite && !isCommentWrite && grantedPermission === 'tasks.manage_assigned') {
+        // Claiming decides for itself who may (an unassigned task can be
+        // picked up, which assigns it), so it skips the assigned-only check.
+        const isClaim = /^\/api\/v1\/tasks\/[^/]+\/claim(\/extend)?\/?$/.test(request.nextUrl.pathname);
+        if (isWrite && !isCommentWrite && !isClaim && grantedPermission === 'tasks.manage_assigned') {
           const keyCanManageAll = scopes.includes('tasks.manage_all') && accessAllows(access, 'tasks.manage_all', 'api');
           let assigned = (task.task_assignees || []).some((row: { member_id: string }) => row.member_id === keyRow.team_member_id);
           // A subtask is also theirs to work when its parent is.

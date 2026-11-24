@@ -85,8 +85,15 @@ async function main() {
   check('schema.sql carries the function grants section', SCHEMA.includes(SECTION));
 
   // Before: schema.sql without its function grants section (what a database
-  // held before the migration). After: the shipped schema.sql.
-  const beforeSql = SCHEMA.includes(SECTION) ? SCHEMA.slice(0, SCHEMA.lastIndexOf('\n', SCHEMA.indexOf(SECTION) - 2)) : SCHEMA;
+  // held before the migration), keeping the sections after it, which lock
+  // down their own functions. After: the shipped schema.sql.
+  const BANNER = '\n-- ============================================================';
+  const sectionStart = SCHEMA.lastIndexOf('\n', SCHEMA.indexOf(SECTION) - 2);
+  const sectionBannerEnd = SCHEMA.indexOf(BANNER, SCHEMA.indexOf(SECTION));
+  const nextSection = sectionBannerEnd < 0 ? -1 : SCHEMA.indexOf(BANNER, sectionBannerEnd + BANNER.length);
+  const beforeSql = SCHEMA.includes(SECTION)
+    ? SCHEMA.slice(0, sectionStart) + (nextSection < 0 ? '' : SCHEMA.slice(nextSection))
+    : SCHEMA;
   const before = await createFullSchemaDatabase({ schemaSql: beforeSql });
   const beforeGrants = await grants(before);
   const fresh = await createFullSchemaDatabase();
