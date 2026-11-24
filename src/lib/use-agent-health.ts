@@ -10,6 +10,8 @@ type HealthRow = {
   turn_running: boolean;
   turn_started_at: string | null;
   reported_at: string;
+  expected_interval_seconds?: number | null;
+  status_note?: string | null;
 };
 
 const toHealth = (r: HealthRow): AgentHealth => ({
@@ -17,7 +19,14 @@ const toHealth = (r: HealthRow): AgentHealth => ({
   turnRunning: r.turn_running,
   turnStartedAt: r.turn_started_at ? new Date(r.turn_started_at).getTime() : null,
   reportedAt: new Date(r.reported_at).getTime(),
+  ...(typeof r.expected_interval_seconds === 'number' ? { expectedIntervalMs: r.expected_interval_seconds * 1000 } : {}),
+  statusNote: r.status_note ?? null,
 });
+
+const BASE_COLUMNS = 'member_id, container_running, turn_running, turn_started_at, reported_at';
+
+const missingColumn = (error: { code?: string; message?: string } | null) =>
+  !!error && (error.code === '42703' || error.code === 'PGRST204' || /does not exist|schema cache/i.test(error.message ?? ''));
 
 /**
  * Live agent_health rows keyed by member id, shared by every agent view so
@@ -29,10 +38,10 @@ const toHealth = (r: HealthRow): AgentHealth => ({
  * rather than an error path.
  *
  * Staleness is deliberately NOT computed here. Rows carry reportedAt and
- * deriveStatus judges freshness against its own clock, so a feed that stops
- * dead still goes red even though no new row ever arrives to re-render this
- * hook: the consumers' ticking clocks re-derive with the old row and cross
- * the threshold on their own.
+ * each agent's promised interval, and deriveStatus judges freshness against
+ * its own clock, so a feed that stops dead still goes red even though no new
+ * row ever arrives to re-render this hook: the consumers' ticking clocks
+ * re-derive with the old row and cross the threshold on their own.
  */
 // One cached read for every consumer (query-cache): the store's live sync
 // marks it stale on each agent_health change and it re-reads (a few rows),
@@ -42,9 +51,13 @@ const agentHealthRead: Read<Record<string, AgentHealth>> = {
   tables: ['agent_health'],
   ttlMs: 60_000,
   load: async () => {
-    const { data, error } = await createClient()
+    const supabase = createClient();
+    let { data, error } = await supabase
       .from('agent_health')
-      .select('member_id, container_running, turn_running, turn_started_at, reported_at');
+      .select(`${BASE_COLUMNS}, expected_interval_seconds, status_note`);
+    // A database without the heartbeat columns yet (new code deployed before
+    // its migration) reads as before: every row promises a one-minute beat.
+    if (missingColumn(error)) ({ data, error } = await supabase.from('agent_health').select(BASE_COLUMNS));
     if (error) throw error;
     return Object.fromEntries(((data ?? []) as HealthRow[]).map((r) => [r.member_id, toHealth(r)]));
   },

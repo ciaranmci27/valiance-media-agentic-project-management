@@ -30,6 +30,8 @@ export function getEndpointScopes(endpoint: EndpointDoc): string[] {
   if (path === '/api/v1/agent-activities') {
     return write ? ['agent_activity.write', 'fleet_alerts.write'] : ['audit.read'];
   }
+  if (path === '/api/v1/agents/heartbeat') return ['agent_activity.write', 'tasks.read'];
+  if (path === '/api/v1/agents/health') return ['agents.manage'];
   if (path.includes('/task-suggestions')) {
     if (method === 'POST' && path === '/api/v1/task-suggestions') return ['suggestions.create'];
     if (method === 'GET' || method === 'PATCH') return ['suggestions.create', 'suggestions.manage'];
@@ -531,6 +533,9 @@ export const endpoints: EndpointDoc[] = [
     ],
   },
   { method: 'GET', path: '/api/v1/tasks/:id', description: 'Get a single task with its parent ({ id, title, status } for a subtask, otherwise null), its subtasks (each a task: id, title, status, completed, assignee_ids, due_date, sorted by sort_order), comments (sorted by created_at), assignee_ids, acceptance_criteria, blocked_by (each blocker with id, title, status), dependencies_met (true when every blocker is done), and claim: who is working on it right now ({ member_id, member_name, claimed_at, expires_at }), or null when nobody holds a live claim. open_question: the oldest open question on the task ({ id, question, choices, allow_other, asked_by, asked_by_name, asked_to, asked_to_name, expires_at, created_at }), or null; while it is set the task is waiting on asked_to. GET /api/v1/questions?task_id= lists them all. The row also carries claimed_by, claimed_at, claim_expires_at (a past claim_expires_at means the claim is over), dedupe_key, occurrences and last_occurred_at.', group: 'Tasks',
+    params: [{ name: 'id', type: 'uuid', required: true, description: 'Task ID' }],
+  },
+  { method: 'GET', path: '/api/v1/tasks/:id/brief', description: 'Everything an agent needs to start work on a task, in one call: task (as GET /tasks/:id, without comments, long description cut with description_truncated), project (name, status, description, repo_path, branches, member_ids; needs projects.read), project_context ({ entries, total, truncated }: the active context entries, each cut at 2,000 characters and about 12,000 in all; needs project_context.read), comments ({ recent: the newest 10, total }), files (as GET /tasks/:id/files, up to 50; needs files.read), blockers ({ blocked_by, dependencies_met }), open_question, claim, rules (the caller\'s own: is_agent, self_assign, close_policy, create_policy, escalate_to { id, name }) and omitted (parts left out because the key cannot read them, each with the permission it needs). A brief still over about 36,000 characters is cut further, oldest comments first, then files, subtasks, criteria and descriptions; cut_to_fit names each step and the part carries a note. Same access as GET /tasks/:id.', group: 'Tasks',
     params: [{ name: 'id', type: 'uuid', required: true, description: 'Task ID' }],
   },
   { method: 'PATCH', path: '/api/v1/tasks/:id', description: 'Update a task. Only include fields you want to change. Pass assignee_ids to replace the full assignee list (an agent whose rules keep it off unassigned work cannot add itself: 403 self_assign_off). Send parent_task_id to make a task a subtask of another task (it keeps its comments, files, assignees and history), or null to make a subtask top-level again. A task and its subtasks finish separately: completing every subtask does not complete the parent. Setting done ends any claim on the task. If the key\'s agent has the close policy review, status done moves the task to in_review instead, adds a comment saying why, and the answer carries sent_to_review: true and a note.', group: 'Tasks',
@@ -1096,6 +1101,20 @@ export const endpoints: EndpointDoc[] = [
       { name: 'project_id', type: 'uuid|null', required: false, description: 'Related project (default null)' },
     ],
   },
+  { method: 'POST', path: '/api/v1/agents/heartbeat', description: 'An agent\'s own heartbeat, for any harness. Writes the key\'s own status row: the agent is up (container_running true), and working says whether a turn is running. Status views show the agent offline after two missed beats plus a minute, so an agent run hourly by cron sends expected_interval_seconds 3600 and does not look offline between runs. The key must belong to an agent and hold agent_activity.write or tasks.read; it reports only itself (another member_id is 403 own_heartbeat_only). When a fleet publisher reports the agent (its row has a container), the publisher\'s facts stand: the beat writes only status_note (reported_at stays the publisher\'s, so a dead publisher still shows offline), and publisher_reports is true. Returns member_id, working, turn_started_at, reported_at, expected_interval_seconds, stale_after_seconds, status_note and publisher_reports.', group: 'Agent Activity',
+    body: [
+      { name: 'working', type: 'boolean', required: false, description: 'A turn is running right now (default false)' },
+      { name: 'turn_started_at', type: 'ISO datetime', required: false, description: 'When the running turn began. Left out while working: kept from the same turn\'s earlier beat, or now' },
+      { name: 'expected_interval_seconds', type: 'number', required: false, description: 'How often this agent promises to beat, 30 to 86400. Left out: as last declared (60 at first)' },
+      { name: 'status_note', type: 'string', required: false, description: 'What it is doing, up to 280 characters. Each beat replaces it; left out clears it' },
+      { name: 'member_id', type: 'uuid', required: false, description: 'Only the key\'s own member; anything else is refused' },
+    ],
+  },
+  { method: 'POST', path: '/api/v1/agents/health', description: 'For a fleet publisher that watches several agents (needs agents.manage): one report per agent, each id a real agent member, at least once a minute. Upserts each agent\'s status row; a report naming a container that is not running shows the agent offline. Returns { reported, reported_at }.', group: 'Agent Activity',
+    body: [
+      { name: 'reports', type: 'array', required: true, description: '1 to 32 reports: { member_id, container?, container_running, turn_running, turn_started_at?, expected_interval_seconds? }. expected_interval_seconds (30 to 86400) defaults to 60 when any report in the batch sends one; a batch that sends none leaves each agent\'s interval as it is' },
+    ],
+  },
 
   // ─── Audit Log ────────────────────────────────────────────────────
   { method: 'GET', path: '/api/v1/audit-log', description: 'List API audit log entries. Every API write operation is logged here with before/after snapshots. Use this to review what changed and when. Paginated.', group: 'Audit Log',
@@ -1578,6 +1597,24 @@ export const endpoints: EndpointDoc[] = [
 ];
 
 export const groups = [...new Set(endpoints.map(e => e.group))];
+
+/**
+ * Idempotency-Key, for harnesses that retry: how every POST treats the
+ * header (withApi), shown on the docs page beside authentication. MCP create
+ * tools take the same thing as an idempotency_key argument.
+ */
+export const IDEMPOTENCY_DOC = {
+  header: 'Idempotency-Key',
+  summary:
+    'Send an Idempotency-Key header on any POST to make retries safe: a unique value per logical request (a UUID), 1 to 255 visible ASCII characters, and the same value on every retry of it.',
+  rules: [
+    'The same key, from the same API key to the same path within 24 hours, returns the first answer (status and body) without running the request again. Replayed answers carry Idempotency-Replayed: true.',
+    'The same key with a different body or query string is refused: 422 IDEMPOTENCY_KEY_REUSED (reason idempotency_key_reused).',
+    'A retry while the first request is still running gets 409 IDEMPOTENCY_IN_FLIGHT. Wait a moment and retry with the same key.',
+    'Only successful (2xx) answers are kept. An error is not, so a retry runs the request again and can succeed.',
+    'MCP create tools (create_task, add_task_comment, ask_human, add_reminder and the other add_ and create_ tools) take the same thing as an idempotency_key argument, sharing this store.',
+  ],
+} as const;
 
 /**
  * The module each group belongs to; a group missing here is core. The docs

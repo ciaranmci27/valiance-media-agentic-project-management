@@ -12,6 +12,14 @@ import { apiRequestContext } from './request-context';
 import { liveTaskIds } from './task-guards';
 import { afterResponse } from './after-response';
 import { kickWebhooks } from '@/lib/webhooks/kick';
+import {
+  claimIdempotencyKey,
+  finishIdempotencyKey,
+  idempotencyKeyFrom,
+  idempotencyRequestHash,
+  releaseIdempotencyKey,
+  type IdempotencyClaim,
+} from './idempotency';
 
 /** Static routes under /api/v1/tasks/ that are not a task id. */
 export const TASK_COLLECTION_ACTIONS: ReadonlySet<string> = new Set(['reorder', 'next']);
@@ -166,9 +174,13 @@ export function withApi<TBody = unknown, TParams = Record<string, string>>(
     routeContext?: { params?: Promise<TParams> | TParams },
   ): Promise<Response> => {
     let rateInfo: { remaining: number; resetAt: number } | null = null;
+    // The Idempotency-Key this request claimed, until its answer is stored or the key released.
+    let idempotency: IdempotencyClaim | null = null;
+    let service: SupabaseClient | null = null;
 
     try {
       const { supabase, keyRow, access } = await resolveApiKey(request.headers.get('x-api-key'));
+      service = supabase;
 
       const rateResult = await checkRateLimit(supabase, keyRow.id);
       rateInfo = { remaining: rateResult.remaining, resetAt: rateResult.resetAt };
@@ -362,9 +374,16 @@ export function withApi<TBody = unknown, TParams = Record<string, string>>(
         if (!link) throw forbidden('Contact scope denied', contactScopeDenied);
       }
 
+      // Idempotency-Key applies to POST only; it is checked before the body
+      // is read, so a bad key is a 400 whatever the body holds.
+      const idempotencyKey = method === 'POST' ? idempotencyKeyFrom(request.headers) : null;
+      const parsesBody = !!options?.schema && (method === 'POST' || method === 'PUT' || method === 'PATCH');
+      // A route with no schema reads the request itself (custom /api/x routes
+      // do), so the key's hash reads a clone and leaves the body to it.
+      const text = parsesBody ? await request.text() : idempotencyKey ? await request.clone().text() : '';
+
       let body = undefined as unknown as TBody;
-      if (options?.schema && (method === 'POST' || method === 'PUT' || method === 'PATCH')) {
-        const text = await request.text();
+      if (options?.schema && parsesBody) {
         let raw: unknown = {};
         if (text.trim() || !options.optionalBody) {
           try {
@@ -374,6 +393,19 @@ export function withApi<TBody = unknown, TParams = Record<string, string>>(
           }
         }
         body = options.schema.parse(raw);
+      }
+
+      // Last, once the request is known to be valid and allowed: a refused
+      // request claims nothing. A replay answers without running the handler.
+      if (idempotencyKey) {
+        const claimed = await claimIdempotencyKey(supabase, {
+          apiKeyId: keyRow.id,
+          path: request.nextUrl.pathname,
+          key: idempotencyKey,
+          requestHash: idempotencyRequestHash(request.nextUrl.search, text),
+        });
+        if (claimed.state === 'replay') return applyRateLimitHeaders(claimed.response, rateInfo);
+        if (claimed.state === 'claimed') idempotency = claimed.claim;
       }
 
       afterResponse('last_used_at update', async () => {
@@ -398,10 +430,17 @@ export function withApi<TBody = unknown, TParams = Record<string, string>>(
         access,
         scopes,
       }));
+      if (idempotency) {
+        // Stored before the answer leaves, so a retry that arrives right after gets it.
+        await finishIdempotencyKey(supabase, idempotency, response);
+        idempotency = null;
+      }
       // A write may have queued webhook events (REST and MCP both land here): send them now.
       if (isWrite && response.ok) kickWebhooks(access);
       return applyRateLimitHeaders(response, rateInfo);
     } catch (err) {
+      // The handler failed: free the key so a retry runs again.
+      if (idempotency && service) await releaseIdempotencyKey(service, idempotency);
       if (err instanceof ZodError) {
         return applyRateLimitHeaders(errorResponse(422, 'VALIDATION_ERROR', 'Validation failed', err.issues), rateInfo);
       }

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { AGENT_EVENT_SCHEMAS, AGENT_EVENT_TYPES, isServerEvent, isTelemetryEvent, type AgentEventType } from '@/lib/agent-events';
-import { routeTool, type PmTool } from './core';
+import { idempotencyKeyInput, routeTool, type PmTool } from './core';
 
 /**
  * The PM MCP server's tools: a curated set over the v1 API (it has no
@@ -18,7 +18,8 @@ import { routeTool, type PmTool } from './core';
  * Left out on purpose: credentials, client emails (outbound, and the inbound
  * inbox at /api/v1/inbound-emails, which has its own plugin tools), invoices, rates, time
  * approval, team writes other than an agent's rules, every delete (move to Trash), the
- * unscoped app activity feed, suggestion approve/decline, and agent health.
+ * unscoped app activity feed, suggestion approve/decline, and the fleet publisher's agent health (an
+ * agent reports its own with heartbeat).
  */
 
 export const GUIDE_TOOL = 'pm_guide';
@@ -185,6 +186,7 @@ export const PM_TOOLS: PmTool[] = [
       category: CONTEXT_CATEGORY,
       content: z.string().min(1).max(20_000),
       file_path: z.string().min(1).max(500).optional(),
+      idempotency_key: idempotencyKeyInput,
     }).strict(),
     permission: 'project_context.manage',
     method: 'POST',
@@ -241,6 +243,17 @@ export const PM_TOOLS: PmTool[] = [
     path: '/api/v1/tasks/{id}',
     request: (args) => ({ params: { id: args.task_id } }),
     present: taskInFull,
+  }),
+  routeTool({
+    name: 'get_task_brief',
+    lead: 'Get everything you need to start work on a task.',
+    detail:
+      'One call before you start: the task (acceptance criteria, subtasks, blockers and dependencies_met), its project and the project\'s active context entries, the newest 10 comments, its files and links, the open question if it is waiting on someone, who holds the claim, and your own rules (self_assign, close_policy, create_policy, escalate_to). Long text is cut and flagged; parts your key cannot read are listed in omitted.',
+    input: z.object({ task_id: id('task_id') }).strict(),
+    permission: 'tasks.read',
+    method: 'GET',
+    path: '/api/v1/tasks/{id}/brief',
+    request: (args) => ({ params: { id: args.task_id } }),
   }),
   routeTool({
     name: 'next_task',
@@ -354,6 +367,7 @@ export const PM_TOOLS: PmTool[] = [
       blocked_by_ids: z.array(id('blocked_by_ids')).max(50).optional(),
       dedupe_key: z.string().min(1).max(200).optional().describe('Incident key, such as "checkout-500:/api/cart". One open task per key in a project'),
       occurrence_note: z.string().min(1).max(20_000).optional().describe('What happened this time; added as a comment when the key already has an open task'),
+      idempotency_key: idempotencyKeyInput,
     }).strict().refine((value) => value.project_id || value.parent_task_id, 'Send project_id, or parent_task_id for a subtask'),
     permission: 'tasks.create',
     method: 'POST',
@@ -393,7 +407,7 @@ export const PM_TOOLS: PmTool[] = [
     name: 'add_task_comment',
     lead: 'Add a comment to a task.',
     detail: 'Posted under your own name.',
-    input: z.object({ task_id: id('task_id'), text: z.string().min(1).max(20_000) }).strict(),
+    input: z.object({ task_id: id('task_id'), text: z.string().min(1).max(20_000), idempotency_key: idempotencyKeyInput }).strict(),
     permission: 'tasks.read',
     method: 'POST',
     path: '/api/v1/tasks/{id}/comments',
@@ -414,6 +428,7 @@ export const PM_TOOLS: PmTool[] = [
       name: z.string().min(1).max(255).optional(),
       mime_type: z.string().max(255).optional(),
       note: z.string().min(1).max(500).optional(),
+      idempotency_key: idempotencyKeyInput,
     }).strict().refine(
       (value) => [value.email_attachment_id, value.entity_file_id, value.content_base64, value.url].filter((source) => source !== undefined).length === 1,
       'Send exactly one of email_attachment_id, entity_file_id, content_base64 or url',
@@ -437,7 +452,7 @@ export const PM_TOOLS: PmTool[] = [
     name: 'add_subtask',
     lead: 'Add a subtask to a task by title.',
     detail: 'A quick subtask: a task under it with only a title, at the end of its list. To set an assignee, due date or description, use create_task with parent_task_id.',
-    input: z.object({ task_id: id('task_id'), title: z.string().min(1).max(500) }).strict(),
+    input: z.object({ task_id: id('task_id'), title: z.string().min(1).max(500), idempotency_key: idempotencyKeyInput }).strict(),
     permission: 'tasks.manage_assigned',
     method: 'POST',
     path: '/api/v1/tasks/{id}/subtasks',
@@ -462,7 +477,7 @@ export const PM_TOOLS: PmTool[] = [
     name: 'add_acceptance_criterion',
     lead: 'Add one acceptance criterion to a task.',
     detail: 'Leaves the existing criteria as they are.',
-    input: z.object({ task_id: id('task_id'), criterion: z.string().min(1).max(2000) }).strict(),
+    input: z.object({ task_id: id('task_id'), criterion: z.string().min(1).max(2000), idempotency_key: idempotencyKeyInput }).strict(),
     permission: 'tasks.manage_assigned',
     method: 'POST',
     path: '/api/v1/tasks/{id}/acceptance-criteria',
@@ -649,6 +664,7 @@ export const PM_TOOLS: PmTool[] = [
       task_type: TASK_TYPE.nullable().optional(),
       metadata: z.record(z.string(), z.unknown()).optional(),
       bundle_with: id('bundle_with').nullable().optional(),
+      idempotency_key: idempotencyKeyInput,
     }).strict(),
     permission: 'suggestions.create',
     agentsOnly: true,
@@ -706,6 +722,7 @@ export const PM_TOOLS: PmTool[] = [
       link: z.string().min(1).max(2000).nullable().optional(),
       entity_type: z.enum(['task', 'project', 'lead', 'comment', 'member', 'contact', 'suggestion', 'goal', 'question']).optional(),
       entity_id: id('entity_id').nullable().optional(),
+      idempotency_key: idempotencyKeyInput,
     }).strict(),
     permission: 'notifications.send',
     // The agent-to-owner channel: the route answers only with AI agents on.
@@ -728,6 +745,7 @@ export const PM_TOOLS: PmTool[] = [
       choices: z.array(z.string().min(1).max(200)).min(1).max(10).optional(),
       allow_other: z.boolean().optional(),
       expires_at: z.string().min(1).max(40).optional().describe('ISO 8601 time after which the question closes as expired'),
+      idempotency_key: idempotencyKeyInput,
     }).strict(),
     permission: 'tasks.read',
     method: 'POST',
@@ -820,6 +838,7 @@ export const PM_TOOLS: PmTool[] = [
       remind_on: date.nullable().optional(),
       remind_at: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Use HH:MM (24-hour)').nullable().optional(),
       owner_id: id('owner_id').optional(),
+      idempotency_key: idempotencyKeyInput,
     }).strict(),
     permission: 'reminders.manage_own',
     method: 'POST',
@@ -879,6 +898,26 @@ export const PM_TOOLS: PmTool[] = [
     agentsOnly: true,
     method: 'POST',
     path: '/api/v1/agent-activities',
+    request: (body) => ({ body }),
+  }),
+  routeTool({
+    name: 'heartbeat',
+    lead: 'Tell the app you are up, and whether you are working.',
+    detail:
+      "Agents only. Call it at least every expected_interval_seconds (default 60, 30 to 86400; it is remembered once set), and when a turn starts and ends with working true or false. Status views show you offline after two missed beats plus a minute, so an agent that runs hourly sets 3600. status_note is a line on what you are doing (each beat replaces it). turn_started_at defaults to when the turn's first beat said working. If a fleet publisher already reports you, its facts stand and a beat only writes status_note; it does not count as a beat (publisher_reports: true). Answers with stale_after_seconds.",
+    input: z.object({
+      working: z.boolean().optional().describe('A turn is running right now. Left out: not working'),
+      turn_started_at: z.iso.datetime({ offset: true }).optional().describe('When the running turn began'),
+      expected_interval_seconds: z.number().int().min(30).max(86_400).optional(),
+      status_note: z.string().min(1).max(280).optional(),
+    }).strict(),
+    permission: ['agent_activity.write', 'tasks.read'],
+    agentsOnly: true,
+    module: 'agents',
+    method: 'POST',
+    path: '/api/v1/agents/heartbeat',
+    destructive: false,
+    idempotent: true,
     request: (body) => ({ body }),
   }),
 
@@ -954,6 +993,7 @@ export const PM_TOOLS: PmTool[] = [
       occurred_at: z.iso.datetime({ offset: true }).optional(),
       scheduled_at: z.iso.datetime({ offset: true }).nullable().optional(),
       completed: z.boolean().optional(),
+      idempotency_key: idempotencyKeyInput,
     }).strict(),
     permission: 'leads.manage',
     method: 'POST',

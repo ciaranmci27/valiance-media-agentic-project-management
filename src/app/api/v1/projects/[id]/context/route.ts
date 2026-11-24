@@ -3,6 +3,7 @@ import { success, created } from '@/lib/api/response';
 import { createProjectContextSchema } from '@/lib/schemas';
 import { notFound } from '@/lib/api/errors';
 import { logAudit } from '@/lib/api/audit';
+import { readProjectContext } from '@/lib/api/project-context';
 
 export const GET = withApi(async ({ supabase, params, searchParams }) => {
   const projectId = (params as any).id;
@@ -16,32 +17,12 @@ export const GET = withApi(async ({ supabase, params, searchParams }) => {
     .maybeSingle();
   if (!project) throw notFound('Project');
 
-  let query = supabase
-    .from('project_context')
-    .select('*')
-    .eq('project_id', projectId);
-
-  // Filter by category
-  const category = searchParams.get('category');
-  if (category) {
-    query = query.eq('category', category);
-  }
-
-  // Filter by is_active (default: true)
-  const isActiveParam = searchParams.get('is_active');
-  const isActive = isActiveParam === 'false' ? false : true;
-  query = query.eq('is_active', isActive);
-
-  // Filter by updated since
-  const since = searchParams.get('since');
-  if (since) {
-    query = query.gte('updated_at', since);
-  }
-
-  query = query.order('category').order('created_at').limit(500);
-
-  const { data, error } = await query;
-  if (error) throw error;
+  // is_active defaults to true; since filters by updated_at.
+  const data = await readProjectContext(supabase, projectId, {
+    category: searchParams.get('category'),
+    isActive: searchParams.get('is_active') !== 'false',
+    since: searchParams.get('since'),
+  });
 
   return success(data);
 });

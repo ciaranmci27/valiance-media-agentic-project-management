@@ -23,6 +23,7 @@
  */
 
 import { EVENT_STATE, isAgentEventType, isHostRecordEvent } from '@/lib/agent-events';
+import { DEFAULT_HEARTBEAT_INTERVAL_SECONDS } from '@/lib/schemas/agent-health';
 export { isBookkeepingEvent } from '@/lib/agent-events';
 
 export type AgentMood = 'idle' | 'working' | 'reviewing' | 'blocked' | 'celebrating' | 'offline';
@@ -176,8 +177,9 @@ export function ingestIntoTrace(cur: AgentTrace, row: ActivityLike): AgentTrace 
 
 /**
  * The infrastructure heartbeat for one agent, from the agent_health table.
- * Published every minute by a cron on the VPS reading docker state and the
- * agent's execution ledger; the app-side shape uses epoch ms throughout.
+ * Published by a fleet publisher (docker state and the agent's execution
+ * ledger, every minute) or by the agent itself, as often as it promises; the
+ * app-side shape uses epoch ms throughout.
  */
 export type AgentHealth = {
   containerRunning: boolean;
@@ -185,14 +187,34 @@ export type AgentHealth = {
   /** When the in-flight turn began; null when no turn is running. */
   turnStartedAt: number | null;
   reportedAt: number;
+  /** How often this agent promised to beat; a minute when it never said. */
+  expectedIntervalMs?: number;
+  /** What the agent last said it is doing, from its own heartbeat. */
+  statusNote?: string | null;
 };
 
 /**
- * The publisher promises a beat every minute, so a feed this quiet is itself
- * evidence of an outage: host down, publisher dead, or network gone. Three
- * missed beats clears any jitter.
+ * How long a row may go unrefreshed before it is itself evidence of an
+ * outage (host down, reporter dead, network gone): two missed beats plus a
+ * minute of jitter. For the publisher's one-minute beat that is the three
+ * minutes it always was; an agent that beats hourly from cron reads as
+ * offline only after about two hours, never between runs.
  */
-export const HEALTH_STALE_MS = 3 * 60_000;
+export function heartbeatStaleAfterSeconds(expectedIntervalSeconds: number | null | undefined): number {
+  const interval = typeof expectedIntervalSeconds === 'number' && expectedIntervalSeconds > 0
+    ? expectedIntervalSeconds
+    : DEFAULT_HEARTBEAT_INTERVAL_SECONDS;
+  return 2 * interval + 60;
+}
+
+/** The same threshold for one health row, in ms. */
+export function healthStaleAfterMs(health: Pick<AgentHealth, 'expectedIntervalMs'>): number {
+  const seconds = health.expectedIntervalMs ? health.expectedIntervalMs / 1000 : DEFAULT_HEARTBEAT_INTERVAL_SECONDS;
+  return heartbeatStaleAfterSeconds(seconds) * 1000;
+}
+
+/** The threshold for the publisher's one-minute beat. */
+export const HEALTH_STALE_MS = heartbeatStaleAfterSeconds(DEFAULT_HEARTBEAT_INTERVAL_SECONDS) * 1000;
 
 /**
  * The state decision. Health first, phrases second, task state never.
@@ -216,7 +238,7 @@ export function deriveStatus(
       : 'live';
 
   if (health) {
-    if (now - health.reportedAt > HEALTH_STALE_MS) {
+    if (now - health.reportedAt > healthStaleAfterMs(health)) {
       // The feed went quiet. This is the one place `offline` is derived,
       // and it rests on a positive promise being broken, never on an agent
       // merely having nothing to say.

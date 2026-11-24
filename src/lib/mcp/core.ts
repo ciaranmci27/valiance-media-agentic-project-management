@@ -20,7 +20,23 @@ export interface RouteCall {
   params?: Record<string, string>;
   query?: Record<string, string | number | boolean | null | undefined>;
   body?: unknown;
+  /** Sent as the Idempotency-Key header, so a retried POST runs once (withApi). */
+  idempotencyKey?: string;
 }
+
+/**
+ * The optional argument create-type tools take: the same value on a retry
+ * returns the first answer instead of creating a second record. It shares
+ * the REST store (Idempotency-Key), keyed by the API key and route.
+ */
+export const IDEMPOTENCY_KEY_ARGUMENT = 'idempotency_key';
+export const idempotencyKeyInput = z
+  .string()
+  .min(1)
+  .max(255)
+  .regex(/^[\x21-\x7e]+$/, 'Use visible ASCII characters only, such as a UUID')
+  .optional()
+  .describe('A unique value for this request, such as a UUID. Retry with the same value and you get the first answer back instead of a duplicate (24 hours)');
 
 export interface RouteEnvelope {
   success?: boolean;
@@ -106,11 +122,20 @@ export function routeTool<I extends z.ZodObject>(config: {
     profiles: config.profiles,
     agentsOnly: config.agentsOnly,
     module: config.module,
-    run: async (args, call, context) => ({
-      kind: 'route',
-      result: await call({ method: config.method, path: config.path, ...config.request(args as z.infer<I>, context) }),
-      present: config.present,
-    }),
+    run: async (args, call, context) => {
+      // idempotency_key is the call's, never the route's body or query.
+      const { [IDEMPOTENCY_KEY_ARGUMENT]: idempotencyKey, ...rest } = args;
+      return {
+        kind: 'route',
+        result: await call({
+          method: config.method,
+          path: config.path,
+          ...config.request(rest as z.infer<I>, context),
+          ...(typeof idempotencyKey === 'string' ? { idempotencyKey } : {}),
+        }),
+        present: config.present,
+      };
+    },
   };
 }
 

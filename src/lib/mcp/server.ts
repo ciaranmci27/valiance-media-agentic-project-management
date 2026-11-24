@@ -85,7 +85,7 @@ export function toolsFor(caller: Pick<McpCaller, 'access' | 'scopes' | 'readOnly
  * as for REST.
  */
 export function routeCaller(caller: Pick<McpCaller, 'key' | 'origin'>): CallRoute {
-  return async ({ method, path, params = {}, query, body }) => {
+  return async ({ method, path, params = {}, query, body, idempotencyKey }) => {
     const handler = routeHandler(path, method);
     if (!handler) return { status: 500, envelope: { success: false, error: { code: 'INTERNAL_ERROR', message: `No handler for ${method} ${path}` } } };
     const concrete = path.replace(/\{(\w+)\}/g, (_, name: string) => encodeURIComponent(params[name] ?? ''));
@@ -96,6 +96,7 @@ export function routeCaller(caller: Pick<McpCaller, 'key' | 'origin'>): CallRout
     }
     const headers: Record<string, string> = { 'x-api-key': caller.key };
     if (body !== undefined) headers['content-type'] = 'application/json';
+    if (idempotencyKey) headers['idempotency-key'] = idempotencyKey;
     const response = await apiRequestContext.run({ via: 'mcp' }, () => handler(
       new NextRequest(`${caller.origin}${concrete}${search.size ? `?${search}` : ''}`, {
         method,

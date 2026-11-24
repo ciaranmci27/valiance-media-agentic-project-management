@@ -1,12 +1,13 @@
 import { z } from 'zod';
 import { withApi } from '@/lib/api/middleware';
 import { success } from '@/lib/api/response';
-import { agentHealthReportSchema } from '@/lib/schemas';
+import { agentHealthReportSchema, DEFAULT_HEARTBEAT_INTERVAL_SECONDS } from '@/lib/schemas';
 import { requireAgentsEnabled } from '@/lib/api/agents';
 import { badRequest } from '@/lib/api/errors';
 
 /**
- * Infrastructure heartbeats from the VPS publisher.
+ * Infrastructure heartbeats from a fleet publisher. An agent reporting only
+ * itself uses /api/v1/agents/heartbeat instead.
  *
  * This is the app's only authoritative view of agent liveness: whether each
  * container is up and whether a turn is executing right now, straight from
@@ -16,7 +17,8 @@ import { badRequest } from '@/lib/api/errors';
  *
  * Upsert-in-place by design: the table holds current state, one row per
  * agent, and readers treat a stale reported_at as an outage because the
- * publisher promises a beat every minute. That contract is why this endpoint
+ * publisher promises a beat every minute (or every expected_interval_seconds
+ * it declares). That contract is why this endpoint
  * never accepts partial silence as normal: a publisher that can only report
  * some agents still reports the others' containers as down, which is the
  * truth as far as it can see.
@@ -48,14 +50,22 @@ export const POST = withApi<z.infer<typeof agentHealthReportSchema>>(async ({ su
   }
 
   const now = new Date().toISOString();
+  // A batch that declares no interval writes exactly the columns it always
+  // did, so each row keeps the interval it has. One that declares any sets
+  // every row's (60 where left out): a batch upsert writes the same columns
+  // for every row.
+  const declaresInterval = reports.some((r) => r.expected_interval_seconds !== undefined);
   const { error } = await supabase.from('agent_health').upsert(
     reports.map((r) => ({
       member_id: r.member_id,
-      container: r.container,
+      container: r.container ?? null,
       container_running: r.container_running,
       turn_running: r.turn_running,
       turn_started_at: r.turn_started_at ?? null,
       reported_at: now,
+      ...(declaresInterval
+        ? { expected_interval_seconds: r.expected_interval_seconds ?? DEFAULT_HEARTBEAT_INTERVAL_SECONDS }
+        : {}),
     })),
     { onConflict: 'member_id' }
   );

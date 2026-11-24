@@ -9,6 +9,19 @@ Each section starts with `## X.Y.Z (YYYY-MM-DD)` and uses these headings, leavin
 - `### Database`: the core migration files in the release, one per line. `npm run db:migrate` applies them.
 - `### Breaking`: what an install must do when it takes this release.
 
+## 2.0.15 (2026-11-24)
+
+### Added
+- **Heartbeat from the agent itself.** `POST /api/v1/agents/heartbeat` (MCP `heartbeat`): any agent reports that it is up, whether it is working, a short status note, and how often it promises to beat (`expected_interval_seconds`, 30 to 86400). An agent is shown offline after two missed beats plus a minute, so an hourly agent no longer looks down between runs. No container or host publisher needed. Where a host publisher already reports an agent, the publisher stays the source of liveness and the agent's beat only updates its note.
+- **Idempotency-Key** on every API POST: a retry with the same key replays the first successful answer (`Idempotency-Replayed: true`) instead of doing the work twice; the same key with a different body is refused (422), and one still running answers 409. Keys last 24 hours. MCP create tools take `idempotency_key`.
+- **Task brief.** `GET /api/v1/tasks/{id}/brief` (MCP `get_task_brief`): the task, its project and context, recent comments, files, blockers, open question, claim and the caller's agent rules in one bounded answer, cut to fit with flags saying what was left out. The MCP guide tells agents to start every task with it.
+
+### Changed
+- The host health publisher may leave out `container` and may declare `expected_interval_seconds`; its current body works unchanged.
+
+### Database
+- `20261124000300_agent_plumbing.sql`: heartbeat columns on `agent_health` (`container` optional, `expected_interval_seconds`, `status_note`), the `api_idempotency_keys` table with its claim and cleanup functions (service role only), and the hourly `pm-api-idempotency-cleanup` job.
+
 ## 2.0.14 (2026-11-24)
 
 ### Added

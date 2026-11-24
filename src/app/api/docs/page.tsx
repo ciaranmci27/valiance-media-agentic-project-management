@@ -19,7 +19,7 @@ import {
   Bot,
 } from 'lucide-react';
 import { headers } from 'next/headers';
-import { endpoints, getEndpointScopes, groupModule, groups, METHOD_COLORS } from './docs-data';
+import { endpoints, getEndpointScopes, groupModule, groups, IDEMPOTENCY_DOC, METHOD_COLORS } from './docs-data';
 import { MODULES, moduleOfPermission } from '@/lib/modules/registry';
 import { DocsTocNav, type TocSection } from './DocsTocNav';
 import { AGENT_PROFILES } from '@/lib/mcp/profiles';
@@ -228,6 +228,19 @@ export default async function ApiDocsPage() {
                   <p className="text-xs text-zinc-500 mt-0.5">Block POST/PUT/PATCH/DELETE</p>
                 </div>
               </div>
+
+              <div id="idempotency" className="mt-4 p-3 bg-zinc-50 rounded-lg border border-zinc-100">
+                <p className="text-sm font-medium text-zinc-700">
+                  Safe retries:{' '}
+                  <code className="px-1.5 py-0.5 bg-zinc-100 rounded text-xs font-mono">{IDEMPOTENCY_DOC.header}</code>
+                </p>
+                <p className="text-xs text-zinc-500 mt-1">{IDEMPOTENCY_DOC.summary}</p>
+                <ul className="mt-2 space-y-1 list-disc pl-4 text-xs text-zinc-500">
+                  {IDEMPOTENCY_DOC.rules.map((rule) => (
+                    <li key={rule}>{rule}</li>
+                  ))}
+                </ul>
+              </div>
             </div>
           </section>
 
@@ -297,6 +310,8 @@ export default async function ApiDocsPage() {
                         ['422', 'VALIDATION_ERROR', 'Body failed validation. error.details lists the offending fields.'],
                         ['404', 'NOT_FOUND', 'The requested record does not exist.'],
                         ['409', 'CONFLICT', 'The request conflicts with the current state.'],
+                        ['409', 'IDEMPOTENCY_IN_FLIGHT', 'A request with the same Idempotency-Key is still running. Retry shortly with the same key.'],
+                        ['422', 'IDEMPOTENCY_KEY_REUSED', 'The Idempotency-Key was already used for a different request.'],
                         ['429', 'RATE_LIMIT_EXCEEDED', 'Too many requests. Retry after the X-RateLimit-Reset time.'],
                         ['500', 'INTERNAL_ERROR', 'Unexpected server error. error.details.request_id identifies the server log.'],
                       ].map(([status, code, meaning]) => (

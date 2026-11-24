@@ -164,7 +164,7 @@ export const CORE_ROUTES: string[] = [
 
 /** Core tables: projects, tasks, questions, team, files, reminders, settings, keys, context, audit. */
 export const CORE_TABLES: string[] = [
-  'activities', 'api_audit_log', 'api_keys', 'api_rate_limit_windows', 'business_settings', 'entity_files',
+  'activities', 'api_audit_log', 'api_idempotency_keys', 'api_keys', 'api_rate_limit_windows', 'business_settings', 'entity_files',
   'permission_modules', 'project_context', 'project_members', 'projects', 'questions', 'reminders', 'role_permissions',
   'smtp_accounts', 'task_acceptance_criteria', 'task_assignees', 'task_comments', 'task_dependencies',
   'task_events', 'task_files', 'task_reviews', 'task_subtasks', 'task_views', 'tasks',
