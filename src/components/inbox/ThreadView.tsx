@@ -791,6 +791,33 @@ export function ThreadView({ threadId, focusMessageId, onMissing, onBack }: Thre
     ...(canSendBack ? [{ label: `Send back to ${agentName}`, icon: <RotateCcw size={14} aria-hidden="true" />, onClick: () => void after(() => client.sendBack(detail.id, null), `Sent back to ${agentName}`, 'send_back') }] : []),
   ];
   let lastDay = '';
+  // The decision the agent waits on, answered inside the reply that asked it. A meeting's card speaks
+  // for its newest note, so a question from an older one is asked on its own at the end instead.
+  const decisionInMeetingCard = !!asking && isMeeting && asking.id === meetingTriaged?.id;
+  const decisionCard = asking?.triage ? (
+    <DecisionCard
+      key={asking.triage.id}
+      embedded={!isMeeting || decisionInMeetingCard}
+      sectionRef={decisionRef}
+      triage={asking.triage}
+      agentName={agentName}
+      canDraft={canDraft && !drafting}
+      onSend={async (answer, draft) => {
+        // The draft is asked for first, so the answer never says one was asked for when it was not.
+        if (draft) {
+          try {
+            await client.requestDraft(detail.id, draft.instructions);
+          } catch (err) {
+            toast('error', err instanceof Error ? err.message : 'Could not ask for a draft, so nothing was sent');
+            return false;
+          }
+        }
+        return answerQuestion(asking.id, answer);
+      }}
+      // In a meeting's card, Nothing to do settles the whole meeting: its suggestions skipped too, with Undo.
+      onNothing={decisionInMeetingCard && canSettle ? nothingToDo : markHandled}
+    />
+  ) : null;
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -949,6 +976,7 @@ export function ThreadView({ threadId, focusMessageId, onMissing, onBack }: Thre
                   onRule={canManageRules && message.channel !== 'meeting' ? () => setRuleFor(message) : undefined}
                   onAnswer={canTriage && !isDemoMode ? (text) => answerQuestion(message.id, text) : undefined}
                   questionInPanel={asking?.id === message.id}
+                  decision={!isMeeting && asking?.id === message.id ? decisionCard : undefined}
                   inMeetingCard={isMeeting}
                   busy={busy !== null}
                   onDownload={(attachment) => void downloadAttachment(attachment)}
@@ -973,8 +1001,10 @@ export function ThreadView({ threadId, focusMessageId, onMissing, onBack }: Thre
             waiting={meetingTriaged?.status === 'new'}
             onAnswer={canTriage && !isDemoMode && meetingTriaged ? (text) => answerQuestion(meetingTriaged.id, text) : undefined}
             questionInPanel={!!meetingTriaged && asking?.id === meetingTriaged.id}
+            decision={decisionInMeetingCard ? decisionCard : undefined}
             meeting={{
-              onNothingToDo: canSettle && !dismissedCurrent && (meetingWaiting || canHandle) ? () => void nothingToDo() : undefined,
+              // With its decision inside, the decision's own Nothing to do is the one button (it does this).
+              onNothingToDo: !decisionInMeetingCard && canSettle && !dismissedCurrent && (meetingWaiting || canHandle) ? () => void nothingToDo() : undefined,
               outcome: shownOutcome ? {
                 text: shownOutcome.text,
                 onUndo: canSettle && (shownOutcome.added?.length || shownOutcome.dismissed) ? () => void undoOutcome() : undefined,
@@ -1003,30 +1033,8 @@ export function ThreadView({ threadId, focusMessageId, onMissing, onBack }: Thre
             />
           </div>
         )}
-        {asking?.triage && (
-          <div className="mt-4">
-            <DecisionCard
-              key={asking.triage.id}
-              sectionRef={decisionRef}
-              triage={asking.triage}
-              agentName={agentName}
-              canDraft={canDraft && !drafting}
-              onSend={async (answer, draft) => {
-                // The draft is asked for first, so the answer never says one was asked for when it was not.
-                if (draft) {
-                  try {
-                    await client.requestDraft(detail.id, draft.instructions);
-                  } catch (err) {
-                    toast('error', err instanceof Error ? err.message : 'Could not ask for a draft, so nothing was sent');
-                    return false;
-                  }
-                }
-                return answerQuestion(asking.id, answer);
-              }}
-              onNothing={markHandled}
-            />
-          </div>
-        )}
+        {/* A meeting whose question came from an older note than the one its card speaks for: asked on its own here. */}
+        {asking?.triage && isMeeting && !decisionInMeetingCard && <div className="mt-4">{decisionCard}</div>}
         {answered?.answer && (
           <div className="mt-4 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-xl border border-white/[0.07] bg-white/[0.02] px-4 py-2.5 text-xs">
             <HelpCircle size={13} className="text-zinc-400" aria-hidden="true" />
@@ -1264,7 +1272,7 @@ function EmailText({ text }: { text: string }) {
   );
 }
 
-function MessageCard({ message, agentName, focused, busy, viewUrl, onSendToAgent, onMoveToInbox, onAlwaysFilter, onRule, onAnswer, questionInPanel, inMeetingCard, onDownload, onPreview }: {
+function MessageCard({ message, agentName, focused, busy, viewUrl, onSendToAgent, onMoveToInbox, onAlwaysFilter, onRule, onAnswer, questionInPanel, decision, inMeetingCard, onDownload, onPreview }: {
   message: InboxMessage;
   agentName: string;
   focused: boolean;
@@ -1283,6 +1291,8 @@ function MessageCard({ message, agentName, focused, busy, viewUrl, onSendToAgent
   onAnswer?: (text: string) => Promise<boolean>;
   /** Its question is open in the decision card, so the note leaves it out. */
   questionInPanel?: boolean;
+  /** The decision this email's agent reply waits on, shown inside that reply. */
+  decision?: React.ReactNode;
   /** A meeting's package: the meeting's one card, after its words, holds what the agent made of it. */
   inMeetingCard?: boolean;
   onDownload: (attachment: InboxAttachment) => void;
@@ -1490,6 +1500,7 @@ function MessageCard({ message, agentName, focused, busy, viewUrl, onSendToAgent
         waiting={message.status === 'new'}
         onAnswer={onAnswer}
         questionInPanel={!!questionInPanel}
+        decision={decision}
       />
     )}
     </>
@@ -1805,7 +1816,7 @@ function cardChrome(meeting: boolean): string {
  * replies owed, and the actions for the lot: Undo all, Add all. An email it
  * left alone gets one quiet line.
  */
-function AgentCard({ cardKey, scope, triage, agentName, items, tasks, reminders, points, handled, answer, waiting, onAnswer, questionInPanel, meeting }: {
+function AgentCard({ cardKey, scope, triage, agentName, items, tasks, reminders, points, handled, answer, waiting, onAnswer, questionInPanel, meeting, decision }: {
   /** The email's id, or "meeting": what Undo all and Add all are kept under. */
   cardKey: string;
   /** The emails Undo all covers; the whole thread when null. */
@@ -1825,6 +1836,8 @@ function AgentCard({ cardKey, scope, triage, agentName, items, tasks, reminders,
   questionInPanel: boolean;
   /** A meeting's card: Nothing to do, and the line Add all or Nothing to do leaves. */
   meeting?: { onNothingToDo?: () => void; outcome: SuggestionsOutcome | null };
+  /** The decision the agent waits on, answered right here as part of its reply. */
+  decision?: React.ReactNode;
 }) {
   const { trashed, trashedReminders, unlinked, notNeeded } = useContext(TaskUndoContext);
   const { pending, add, skip, addAll, undoAll, restoreAll, undone, bulk } = useContext(PlanActionsContext);
@@ -1897,7 +1910,7 @@ function AgentCard({ cardKey, scope, triage, agentName, items, tasks, reminders,
   );
 
   // Nothing done, nothing waiting, nothing to answer: one quiet line, the summary a click away.
-  const quiet = !meeting && !!triage && triage.outcome === 'no_action' && !triage.urgent && !triage.question_for_human
+  const quiet = !meeting && !decision && !!triage && triage.outcome === 'no_action' && !triage.urgent && !triage.question_for_human
     && !waitingItems.length && !rows.length && !settled.length && !owed.length && !tookBack;
   if (quiet && triage) {
     return (
@@ -2054,6 +2067,9 @@ function AgentCard({ cardKey, scope, triage, agentName, items, tasks, reminders,
             {settledOpen && <ul className={`mt-1.5 ${listClass}`} aria-label="Taken back or skipped">{settled.map(renderRow)}</ul>}
           </div>
         )}
+
+        {/* The decision it waits on, asked in its own reply: a rule, then the question and its answer. */}
+        {decision && <div className="border-t border-white/[0.06] pt-3">{decision}</div>}
       </div>
 
       {hasFooter && (

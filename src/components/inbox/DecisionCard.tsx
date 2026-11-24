@@ -13,13 +13,16 @@ import { formatFullTime } from './inbox-badges';
 const OTHER = -1;
 
 /**
- * The agent's open question on a thread, as a card at the end of the thread
- * beside the reply draft. Every decision is answered in one send: each
- * question's pick (the agent's own pick is chosen already), and when wanted a
- * note and a reply draft asked for at the same time. "Nothing to do" settles
- * it in one click.
+ * The agent's open question on a thread. Every decision is answered in one
+ * send: each question's pick (the agent's own pick is chosen already), and when
+ * wanted a note and a reply draft asked for at the same time. "Nothing to do"
+ * settles it in one click.
+ *
+ * Embedded, it is part of the agent's own reply in the thread (its name and
+ * time are already above it), set off by a rule and an amber label; on its own
+ * it is a card with its own header.
  */
-export function DecisionCard({ triage, agentName, canDraft, onSend, onNothing, sectionRef }: {
+export function DecisionCard({ triage, agentName, canDraft, onSend, onNothing, sectionRef, embedded = false }: {
   triage: Pick<InboxTriage, 'question_for_human' | 'questions' | 'created_at'>;
   agentName: string;
   /** Offers "Draft a reply too" (an agent on the inbox, no draft being written). */
@@ -29,6 +32,8 @@ export function DecisionCard({ triage, agentName, canDraft, onSend, onNothing, s
   onNothing: () => Promise<void>;
   /** For the thread to tell when the card is out of view. */
   sectionRef?: Ref<HTMLElement>;
+  /** Inside the agent's reply card rather than a card of its own. */
+  embedded?: boolean;
 }) {
   const id = useId();
   const { questions, legacy } = useMemo(() => decisionsOf(triage), [triage]);
@@ -74,14 +79,23 @@ export function DecisionCard({ triage, agentName, canDraft, onSend, onNothing, s
   const pick = (index: number, value: number) => setChoice((values) => values.map((v, i) => (i === index ? value : v)));
 
   return (
-    <section ref={sectionRef} aria-labelledby={`${id}-title`} className="scroll-mt-4 rounded-xl border border-amber-400/25 bg-amber-500/[0.05] p-3 sm:p-4">
-      <div className="flex flex-wrap items-center gap-2">
-        <HelpCircle size={14} className="text-amber-300" aria-hidden="true" />
-        <h3 id={`${id}-title`} className="text-sm font-semibold text-white">
+    <section ref={sectionRef} aria-labelledby={`${id}-title`}
+      className={embedded ? 'scroll-mt-4' : 'scroll-mt-4 rounded-xl border border-amber-400/25 bg-amber-500/[0.05] p-3 sm:p-4'}>
+      {embedded ? (
+        // An h4: inside the agent's card it sits beside the card's own group headings.
+        <h4 id={`${id}-title`} className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-amber-300">
+          <HelpCircle size={12} aria-hidden="true" />
           {questions.length > 1 ? `${questions.length} decisions for you` : 'Decision for you'}
-        </h3>
-        <span className="text-[11px] text-zinc-400">from {agentName}, {formatFullTime(triage.created_at)}</span>
-      </div>
+        </h4>
+      ) : (
+        <div className="flex flex-wrap items-center gap-2">
+          <HelpCircle size={14} className="text-amber-300" aria-hidden="true" />
+          <h3 id={`${id}-title`} className="text-sm font-semibold text-white">
+            {questions.length > 1 ? `${questions.length} decisions for you` : 'Decision for you'}
+          </h3>
+          <span className="text-[11px] text-zinc-400">from {agentName}, {formatFullTime(triage.created_at)}</span>
+        </div>
+      )}
 
       <div className="mt-3 space-y-4">
         {questions.map((question, index) => {
