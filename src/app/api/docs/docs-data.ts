@@ -1567,7 +1567,7 @@ export const endpoints: EndpointDoc[] = [
     ],
     body: [{ name: 'agent_label', type: 'string|null', required: true, description: 'Up to 200 characters, or null to clear' }],
   },
-  { method: 'POST', path: '/api/v1/inbox/messages/:id/tasks', description: 'Create the task an email asks for, on a project in the email\'s project_scope (checked before the task exists: 422 project_out_of_scope with the scope, nothing created), linked to the email as created and filed on its conversation. The body is POST /api/v1/tasks\'s. Needs tasks.create and inbound_email.triage.', group: 'Inbound Email',
+  { method: 'POST', path: '/api/v1/inbox/messages/:id/tasks', description: 'Create the task an email asks for, on a project in the email\'s project_scope (checked before the task exists: 422 project_out_of_scope with the scope, nothing created), linked to the email as created and filed on its conversation. The body is POST /api/v1/tasks\'s. Needs tasks.create and inbound_email.triage. The agent\'s rules apply as on POST /api/v1/tasks: when its new tasks need approval it answers 202 with a task suggestion (needs_approval: true, the email\'s message_id in metadata) and links nothing; when its finished work goes to review, a done task is created in_review (sent_to_review: true).', group: 'Inbound Email',
     params: [{ name: 'id', type: 'uuid', required: true, description: 'Email ID' }],
   },
   { method: 'GET', path: '/api/v1/inbox/plans', description: 'Shadow plans beside what the older triage did with the same messages, newest first, for comparing the two before a cutover: { messages: [{ message_id, subject, received_at, shadow: { plan_id, summary, suspicious, flags, items: [{ type, intent, decision, reason, project, task, what }] }, older: { outcome, summary, question, links: [{ relation, task, project }], reminders: [{ title, remind_on }] } }] }. Read only, from your inboxes.', group: 'Inbound Email',
@@ -1827,7 +1827,7 @@ export const IDEMPOTENCY_DOC = {
     'The same key with a different body or query string is refused: 422 IDEMPOTENCY_KEY_REUSED (reason idempotency_key_reused).',
     'A retry while the first request is still running gets 409 IDEMPOTENCY_IN_FLIGHT. Wait a moment and retry with the same key.',
     'Only successful (2xx) answers are kept. An error is not, so a retry runs the request again and can succeed.',
-    'MCP create tools (create_task, add_task_comment, ask_human, add_reminder and the other add_ and create_ tools) take the same thing as an idempotency_key argument, sharing this store.',
+    'MCP create tools (create_task, add_task_comment, ask_human, add_reminder and the other add_ and create_ tools) take the same thing as an idempotency_key argument, sharing this store. submit_triage_plan and record_email_triage pass theirs in the body instead, as the plan and triage routes keep their own key per email.',
     'A POST whose answer holds a secret shown once (POST /api/v1/api-keys, POST /api/v1/webhook-endpoints) refuses the header with 400 idempotency_not_supported, so no secret is ever stored or handed out twice. After a timeout, list what exists before trying again.',
   ],
 } as const;

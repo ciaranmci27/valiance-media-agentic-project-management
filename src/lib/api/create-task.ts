@@ -156,7 +156,7 @@ const withoutEmpty = (value: Record<string, unknown>) =>
  * metadata.requested. The same incident key while a suggestion waits counts
  * a repeat on it instead.
  */
-async function suggestInstead(ctx: CreateTaskContext, member: MemberRules, body: Record<string, unknown>, endpoint: string): Promise<RuledCreate> {
+async function suggestInstead(ctx: CreateTaskContext, member: MemberRules, body: Record<string, unknown>, endpoint: string, extraMetadata: Record<string, unknown>): Promise<RuledCreate> {
   const { supabase, apiKeyId, teamMemberId, access, scopes } = ctx;
   requireAgentsEnabled(access);
   const canAssignOthers = scopes.includes('tasks.manage_all') && accessAllows(access, 'tasks.manage_all', 'api');
@@ -217,6 +217,7 @@ async function suggestInstead(ctx: CreateTaskContext, member: MemberRules, body:
       ai_readiness_recommendation: body.ai_readiness,
       acceptance_criteria: body.acceptance_criteria,
       dedupe_key: dedupeKey,
+      ...extraMetadata,
       requested: withoutEmpty({
         status: body.status,
         due_date: body.due_date,
@@ -240,11 +241,13 @@ type TaskSuggestionInput = Parameters<typeof insertTaskSuggestion>[1];
  *   counts a repeat there (occurrence_note becomes a comment) and answers that
  *   task with deduplicated: true (200). The unique index settles two creates
  *   racing for the same key: the loser counts its repeat on the winner.
- * - An agent whose create policy is approval gets a suggestion (202).
+ * - An agent whose create policy is approval gets a suggestion (202), with
+ *   suggestionMetadata (where the ask came from, such as an email's
+ *   message_id) added to its metadata.
  * - An agent whose close policy is review cannot create a done task: it is
  *   created in review, with a comment saying why.
  */
-export async function createTaskWithRules(ctx: CreateTaskContext, endpoint: string): Promise<RuledCreate> {
+export async function createTaskWithRules(ctx: CreateTaskContext, endpoint: string, suggestionMetadata: Record<string, unknown> = {}): Promise<RuledCreate> {
   const { supabase, teamMemberId, access } = ctx;
   const { occurrence_note: occurrenceNote, ...body } = ctx.body as Record<string, unknown> & { occurrence_note?: string };
   const dedupeKey = typeof body.dedupe_key === 'string' ? body.dedupe_key : null;
@@ -257,7 +260,7 @@ export async function createTaskWithRules(ctx: CreateTaskContext, endpoint: stri
     if (repeat) return { status: 200, data: repeat };
   }
   if (member.isAgent && member.rules.agent_create_policy === 'approval') {
-    return suggestInstead(ctx, member, body, endpoint);
+    return suggestInstead(ctx, member, body, endpoint, suggestionMetadata);
   }
 
   const close = applyClosePolicy(member, body.status as string | undefined);

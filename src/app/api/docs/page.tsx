@@ -451,6 +451,7 @@ mcp_servers:
                           <td className="py-2 px-3 text-xs text-zinc-600">{tool.lead}</td>
                           <td className="py-2 px-3 font-mono text-xs text-zinc-500">
                             {(Array.isArray(tool.permission) ? tool.permission : [tool.permission]).join(' or ') || 'any key'}
+                            {tool.requires?.length ? ` and ${tool.requires.join(' and ')}` : ''}
                             {tool.agentsOnly ? ' (agents)' : ''}
                             {(() => {
                               const first = Array.isArray(tool.permission) ? tool.permission[0] : tool.permission;

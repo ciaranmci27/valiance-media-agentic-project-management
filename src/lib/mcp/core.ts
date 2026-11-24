@@ -73,6 +73,12 @@ export interface PmTool {
   input: z.ZodObject;
   /** Any of these (with the permissions that imply them) makes the tool visible. */
   permission: PermissionKey | PermissionKey[];
+  /**
+   * Every one of these too, for a route that checks a second permission
+   * itself (a task made from an email needs tasks.create and
+   * inbound_email.triage), so the tool is listed only when the call can pass.
+   */
+  requires?: readonly PermissionKey[];
   /** The v1 routes the tool calls, for the drift check and the docs. */
   routes: Array<{ method: HttpMethod; path: string }>;
   write: boolean;
@@ -98,6 +104,7 @@ export function routeTool<I extends z.ZodObject>(config: {
   detail: string;
   input: I;
   permission: PermissionKey | PermissionKey[];
+  requires?: readonly PermissionKey[];
   method: HttpMethod;
   path: string;
   destructive?: boolean;
@@ -105,6 +112,12 @@ export function routeTool<I extends z.ZodObject>(config: {
   profiles?: readonly AgentProfile[];
   agentsOnly?: boolean;
   module?: ModuleId;
+  /**
+   * Where idempotency_key goes: the Idempotency-Key header (default), or the
+   * body, for a route with its own key in its body schema (triage and plans,
+   * whose replay also finishes interrupted work). Then it stays in the args.
+   */
+  idempotencyKeyIn?: 'header' | 'body';
   request: (args: z.infer<I>, context: ToolContext) => Omit<RouteCall, 'method' | 'path'>;
   present?: (data: unknown, meta?: Record<string, unknown>) => unknown;
 }): PmTool {
@@ -115,6 +128,7 @@ export function routeTool<I extends z.ZodObject>(config: {
     detail: config.detail,
     input: config.input,
     permission: config.permission,
+    requires: config.requires,
     routes: [{ method: config.method, path: config.path }],
     write,
     destructive: config.destructive ?? (config.method === 'DELETE' || config.method === 'PATCH' || config.method === 'PUT'),
@@ -123,6 +137,9 @@ export function routeTool<I extends z.ZodObject>(config: {
     agentsOnly: config.agentsOnly,
     module: config.module,
     run: async (args, call, context) => {
+      if (config.idempotencyKeyIn === 'body') {
+        return { kind: 'route', result: await call({ method: config.method, path: config.path, ...config.request(args as z.infer<I>, context) }), present: config.present };
+      }
       // idempotency_key is the call's, never the route's body or query.
       const { [IDEMPOTENCY_KEY_ARGUMENT]: idempotencyKey, ...rest } = args;
       return {

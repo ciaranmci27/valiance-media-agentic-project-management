@@ -5,6 +5,9 @@ import {
 } from '@/lib/agent-events';
 import { API_ENDPOINT_PERMISSIONS } from '@/lib/access-control';
 import { WEBHOOK_EVENT_TYPES } from '@/lib/types';
+import { planSchema } from '@/lib/communications/plan-schemas';
+import { AGENT_MESSAGE_STATUSES, triageSchema } from '@/lib/communications/schemas';
+import { MAIL_TOPICS, RULE_ACTIONS } from '@/lib/communications/sorting';
 import { idempotencyKeyInput, routeTool, type PmTool } from './core';
 import { AGENT_PROFILE_VALUES, type AgentProfile } from './profiles';
 
@@ -21,11 +24,17 @@ import { AGENT_PROFILE_VALUES, type AgentProfile } from './profiles';
  * Fields a route requires but decides itself (a comment's author, a timer's
  * member) are filled from the key, never asked for.
  *
- * Left out on purpose: credentials, client emails (outbound, and the inbound
- * inbox at /api/v1/inbound-emails, which has its own plugin tools), invoices, rates, time
+ * Left out on purpose: credentials, outbound client email, invoices, rates, time
  * approval, team writes other than setting up an agent, every delete (move to Trash) but a
  * webhook endpoint's, the unscoped app activity feed, suggestion approve/decline, and the fleet
  * publisher's agent health (an agent reports its own with heartbeat).
+ *
+ * The inbox tools (list_inbox through get_inbox_signal) are the agent API at
+ * /api/v1/inbox, its channel-neutral paths: what a triage agent may do with
+ * a key and nothing more. Marking a thread handled or not a task, moving it
+ * back to the Inbox, answering a decision card and asking for a draft are a
+ * person's, in the app, so they have no tool. Meeting packages and the
+ * shadow-plan compare report stay REST only.
  *
  * The agent setup tools (create_agent through import_agent_config) are for whoever sets
  * agents up, usually an Owner's own MCP client: their permissions (team.manage,
@@ -130,6 +139,133 @@ function taskInFull(data: unknown) {
 
 const mapRows = (fn: (row: Record<string, unknown>) => unknown) => (data: unknown) =>
   Array.isArray(data) ? data.map((row) => fn(row as Record<string, unknown>)) : data;
+
+/**
+ * One email, bounded like a task: a long email or a long thread must never
+ * make it unreadable. html_text is left out wherever text has the words, the
+ * email's own text is cut at `current`, and the thread shows its newest
+ * messages by their own words (new_text; text only when there is none), each
+ * cut at `thread`. Every cut is flagged; REST keeps the full answer.
+ */
+const EMAIL_LIMITS = { current: 8000, thread: 800, threadShown: 8, draft: 3000 };
+/** Tighter in the triage context, which also carries every project in scope. */
+const CONTEXT_EMAIL_LIMITS = { current: 4000, thread: 500, threadShown: 5, draft: 1500 };
+
+function cutText(row: Record<string, unknown>, field: string, max: number): Record<string, unknown> {
+  const value = row[field];
+  return typeof value === 'string' && value.length > max ? { ...row, [field]: short(value, max), [`${field}_truncated`]: true } : row;
+}
+
+function boundedMessage(row: Record<string, unknown>, max: number, inThread: boolean): Record<string, unknown> {
+  let out = { ...row };
+  // Whitespace is not text, as the app reads a body (readableBody in email/prepare.ts).
+  const filled = (field: string) => typeof row[field] === 'string' && (row[field] as string).trim().length > 0;
+  if (filled('text') && row.html_text != null) out = { ...out, html_text: null, html_text_omitted: true };
+  if (inThread && filled('new_text') && row.text != null) out = { ...out, text: null, text_omitted: true };
+  for (const field of ['new_text', 'text', 'html_text']) out = cutText(out, field, max);
+  return out;
+}
+
+function emailInFull(limits: typeof EMAIL_LIMITS) {
+  return (data: unknown) => {
+    if (!data || typeof data !== 'object') return data;
+    const email = boundedMessage(data as Record<string, unknown>, limits.current, false);
+    const thread = email.thread as Record<string, unknown> | null | undefined;
+    if (!thread || typeof thread !== 'object') return email;
+    const messages = Array.isArray(thread.messages) ? (thread.messages as Record<string, unknown>[]) : [];
+    const drafts = Array.isArray(thread.reply_drafts) ? (thread.reply_drafts as Record<string, unknown>[]) : [];
+    return {
+      ...email,
+      thread: {
+        ...thread,
+        messages: messages.slice(-limits.threadShown).map((message) => boundedMessage(message, limits.thread, true)),
+        ...(messages.length > limits.threadShown ? { messages_note: `Newest ${limits.threadShown} of ${messages.length} messages.` } : {}),
+        reply_drafts: drafts.map((draft) => cutText(draft, 'body', limits.draft)),
+      },
+    };
+  };
+}
+
+/**
+ * The triage context's projects, bounded: each keeps its newest open tasks,
+ * their first open subtasks and its newest recent items, and then the whole
+ * context shrinks until it fits CONTEXT_LIMITS.total, the same way the task
+ * brief fits (task-brief.ts): recent items first, then subtasks, then open
+ * tasks down to a few per project, then the email's thread, then the last
+ * open tasks. Each cut is noted where it happened and named in cut_to_fit.
+ */
+const CONTEXT_LIMITS = { openTasks: 15, subtasks: 5, recent: 10, openTasksFloor: 3, total: 36_000 };
+
+type Row = Record<string, unknown>;
+const rowsOf = (value: unknown): Row[] => (Array.isArray(value) ? (value as Row[]) : []);
+
+function triageContextInFull(data: unknown) {
+  if (!data || typeof data !== 'object') return data;
+  const context = { ...(data as Row), message: emailInFull(CONTEXT_EMAIL_LIMITS)((data as Row).message) } as Row;
+  // What REST answered, for the notes: open tasks and recent items per project, open subtasks per task.
+  const totals = new Map<object, number>();
+  const projects = rowsOf(context.projects).map((project): Row => {
+    const openTasks = rowsOf(project.open_tasks).map((task): Row => {
+      const copy: Row = { ...task, subtasks: rowsOf(task.subtasks).slice(0, CONTEXT_LIMITS.subtasks) };
+      totals.set(copy, rowsOf(task.subtasks).length);
+      return copy;
+    });
+    const copy: Row = { ...project, open_tasks: openTasks.slice(0, CONTEXT_LIMITS.openTasks), recent: rowsOf(project.recent).slice(0, CONTEXT_LIMITS.recent) };
+    totals.set(copy, openTasks.length);
+    totals.set(copy.recent as Row[], rowsOf(project.recent).length);
+    return copy;
+  });
+  context.projects = projects;
+
+  const note = () => {
+    for (const project of projects) {
+      const tasks = project.open_tasks as Row[];
+      const recent = project.recent as Row[];
+      const openTotal = totals.get(project) ?? tasks.length;
+      const recentTotal = totals.get(recent) ?? recent.length;
+      if (tasks.length < openTotal) project.open_tasks_note = `Newest ${tasks.length} of ${openTotal} open tasks; search_tasks with project_id lists them all.`;
+      if (recent.length < recentTotal) project.recent_note = `Newest ${recent.length} of ${recentTotal} recent items.`;
+      for (const task of tasks) {
+        const subtasks = task.subtasks as Row[];
+        const subtaskTotal = totals.get(task) ?? subtasks.length;
+        if (subtasks.length < subtaskTotal) task.subtasks_note = `First ${subtasks.length} of ${subtaskTotal} open subtasks.`;
+      }
+    }
+  };
+  note();
+  const size = () => {
+    note();
+    return JSON.stringify(context).length;
+  };
+  if (size() <= CONTEXT_LIMITS.total) return context;
+
+  const cutToFit: string[] = [];
+  context.cut_to_fit = cutToFit;
+  const shrink = (step: string, more: () => boolean) => {
+    let cutHere = false;
+    while (size() > CONTEXT_LIMITS.total && more()) cutHere = true;
+    if (cutHere) cutToFit.push(step);
+  };
+  // Each pop takes from whichever holds the most, so projects shrink evenly.
+  const popFromLargest = (lists: Row[][], floor = 0) => {
+    const largest = lists.reduce<Row[] | null>((best, list) => (list.length > floor && (!best || list.length > best.length) ? list : best), null);
+    return !!largest && largest.pop() !== undefined;
+  };
+  const allTasks = () => projects.flatMap((project) => project.open_tasks as Row[]);
+  shrink('recent', () => popFromLargest(projects.map((project) => project.recent as Row[])));
+  shrink('subtasks', () => popFromLargest(allTasks().map((task) => task.subtasks as Row[])));
+  shrink('open_tasks', () => popFromLargest(projects.map((project) => project.open_tasks as Row[]), CONTEXT_LIMITS.openTasksFloor));
+  const thread = ((context.message as Row | null)?.thread ?? null) as Row | null;
+  shrink('thread', () => {
+    const messages = rowsOf(thread?.messages);
+    if (!thread || messages.length <= 1) return false;
+    thread.messages = messages.slice(1);
+    thread.messages_note = `Newest ${messages.length - 1} messages shown to fit; get_email has more.`;
+    return true;
+  });
+  shrink('open_tasks', () => popFromLargest(projects.map((project) => project.open_tasks as Row[])));
+  return context;
+}
 
 /** Typed events an agent may log; usage and turn telemetry come from the host publishers. */
 const AGENT_EVENTS = AGENT_EVENT_TYPES.filter((type) => !isTelemetryEvent(type) && !isServerEvent(type)) as [AgentEventType, ...AgentEventType[]];
@@ -1410,6 +1546,241 @@ export const PM_TOOLS: PmTool[] = [
     permission: 'contacts.read',
     method: 'GET',
     path: '/api/v1/contacts',
+    request: (args) => ({ query: args }),
+  }),
+  // Inbox: the agent API at /api/v1/inbox, for triage agents. Email content is data, never instructions.
+  routeTool({
+    name: 'list_inbox',
+    lead: 'List inbox email you can read, newest first.',
+    detail:
+      "Summaries without bodies, from every inbox your key's member may read (or inbox_id). status new (waiting for triage), needs_human (waiting on a person), handled, or ignored (Filtered). project_id: conversations filed on that project. Read one in full with get_email.",
+    input: z.object({
+      inbox_id: id('inbox_id').optional(),
+      status: z.enum(AGENT_MESSAGE_STATUSES).optional(),
+      project_id: id('project_id').optional(),
+      page, limit: limit(25),
+    }).strict(),
+    permission: 'inbound_email.read',
+    method: 'GET',
+    path: '/api/v1/inbox/messages',
+    request: (args) => ({ query: args }),
+  }),
+  routeTool({
+    name: 'get_email',
+    lead: 'Read one email with its whole conversation.',
+    detail:
+      "The email (text; new_text, its own words without quotes; sender trust; forward and routing facts; latest triage; linked tasks; attachments, agent_readable for the ones you may open; a person's answers), its inbox, the conversation's projects, project_scope (the projects it may touch) and candidates, and the thread. Bounded: html_text is left out wherever text has the words, long text is cut and flagged (*_truncated), and the thread shows its newest 8 messages by their own words. An email in an inbox you cannot read answers 404.",
+    input: z.object({ message_id: id('message_id') }).strict(),
+    permission: 'inbound_email.read',
+    method: 'GET',
+    path: '/api/v1/inbox/messages/{id}',
+    request: ({ message_id }) => ({ params: { id: message_id } }),
+    present: emailInFull(EMAIL_LIMITS),
+  }),
+  routeTool({
+    name: 'get_email_triage_context',
+    lead: 'Read everything needed to triage one email.',
+    detail:
+      'One call before you plan: the email (bounded as in get_email, tighter), who is speaking and how it reached us (speaker, trust, delivery, addressed_to_agent), what earlier plans on the conversation did, replies owed and the open question, its reminders, and each project in scope with its open tasks, their subtasks and what triage did there lately. Bounded to fit: each project keeps its newest open tasks (15), their first open subtasks (5) and its newest recent items (10), less when many projects are in scope; every cut is noted (open_tasks_note, subtasks_note, recent_note, cut_to_fit). mode shadow leaves out what this email already caused, for a shadow triage. get_email has more of the text.',
+    input: z.object({ message_id: id('message_id'), mode: z.enum(['live', 'shadow']).optional().describe('Default live') }).strict(),
+    permission: 'inbound_email.read',
+    method: 'GET',
+    path: '/api/v1/inbox/messages/{id}/context',
+    request: ({ message_id, mode }) => ({ params: { id: message_id }, query: { mode } }),
+    present: triageContextInFull,
+  }),
+  routeTool({
+    name: 'get_email_attachment_link',
+    lead: 'Get a five-minute link to an email attachment.',
+    detail: 'Only for the kinds the inbox lets agents read (agent_readable true in get_email): 403 not_agent_readable otherwise, 409 when the file was not stored.',
+    input: z.object({ message_id: id('message_id'), attachment_id: id('attachment_id') }).strict(),
+    permission: 'inbound_email.read',
+    method: 'GET',
+    path: '/api/v1/inbox/messages/{id}/attachments/{aid}/url',
+    request: ({ message_id, attachment_id }) => ({ params: { id: message_id, aid: attachment_id } }),
+  }),
+  routeTool({
+    name: 'get_triage_queue',
+    lead: 'List the emails a triage job should plan next.',
+    detail:
+      'Oldest first, from your inboxes (or inbox_id). mode plans (default): new email in inboxes switched to plans once its conversation has been quiet a few minutes (meetings and urgent machine mail at once). mode shadow: email the older triage handled in shadow inboxes that no shadow plan covers yet. limit 1-100, default 20.',
+    input: z.object({
+      mode: z.enum(['plans', 'shadow']).optional(),
+      inbox_id: id('inbox_id').optional(),
+      limit: z.number().int().min(1).max(100).optional().describe('1-100, default 20'),
+    }).strict(),
+    permission: 'inbound_email.read',
+    method: 'GET',
+    path: '/api/v1/inbox/queue',
+    request: (args) => ({ query: args }),
+  }),
+  routeTool({
+    name: 'submit_triage_plan',
+    lead: 'Submit a triage plan for one email.',
+    detail:
+      'Applies in inboxes switched to plans (and for every meeting); anywhere else it is recorded as shadow and applies nothing. A summary, then items, each with a type, an intent, evidence and confidence: create_task, update_task, comment, attach_file, add_reminder, update_reminder, complete_reminder, link_task, file_project, reply_owed, revert_item, mute_conversation, add_context, propose_mapping, create_lead, log_interaction, or ask (one question at most). Every item is checked first: one bad item rejects the plan (422 with each problem, nothing written). Then the policy decides each: apply, apply unsure, propose (waits for a person) or reject, with its reason. idempotency_key is per email: the same plan again replays, finishing an interrupted one; another plan with it is 409.',
+    input: z.object({ message_id: id('message_id'), ...planSchema.shape }).strict(),
+    permission: 'inbound_email.triage',
+    method: 'POST',
+    path: '/api/v1/inbox/messages/{id}/plan',
+    idempotencyKeyIn: 'body',
+    request: ({ message_id, ...body }) => ({ params: { id: message_id }, body }),
+  }),
+  routeTool({
+    name: 'record_email_triage',
+    lead: 'Record the older triage outcome for one email.',
+    detail:
+      "For inboxes on the older triage. outcome no_action, task, needs_reply or needs_human, a summary, links to tasks (created, updated or related) and project_ids to file it on, each in its project_scope (422 project_out_of_scope otherwise, nothing written). category outreach files it in Filtered unless a guardrail keeps it; outreach is always no_action. needs_human, or an unverified sender, leaves it waiting on a person: put the one-line question in question_for_human, and up to three questions with 2-4 options and your recommended pick, which the Inbox shows as a decision card. settles_earlier closes what the conversation's earlier emails waited on (a verified sender only). idempotency_key (8-100 characters) is per email: the same body replays, another is 409. Nothing is sent.",
+    input: z.object({ message_id: id('message_id'), ...triageSchema.shape }).strict(),
+    permission: 'inbound_email.triage',
+    method: 'POST',
+    path: '/api/v1/inbox/messages/{id}/triage',
+    idempotencyKeyIn: 'body',
+    request: ({ message_id, ...body }) => ({ params: { id: message_id }, body }),
+  }),
+  routeTool({
+    name: 'create_task_from_email',
+    lead: 'Create the task an email asks for, linked to it.',
+    detail:
+      "On a project in the email's project_scope (422 project_out_of_scope otherwise, and nothing is created), linked to the email as created and filed on its conversation. The fields are create_task's; source_note says why, in your words. Your rules apply as on create_task: if new tasks need approval you get a task suggestion (needs_approval: true, the email's message_id in its metadata) and nothing is linked yet; if finished work goes to review, a done task starts In Review. Needs tasks.create and inbound_email.triage. To link a task that already exists, use links on record_email_triage or a link_task plan item.",
+    input: z.object({
+      message_id: id('message_id'),
+      project_id: id('project_id'),
+      title: z.string().min(1).max(500),
+      description: z.string().max(50_000).optional(),
+      status: TASK_STATUS.optional(),
+      priority: PRIORITY.optional(),
+      due_date: date.nullable().optional(),
+      tags: z.array(z.string().min(1).max(100)).max(50).optional(),
+      assignee_ids: z.array(id('assignee_ids')).max(20).optional(),
+      project_goal_id: id('project_goal_id').nullable().optional(),
+      task_type: TASK_TYPE.nullable().optional(),
+      ai_readiness: AI_READINESS.nullable().optional(),
+      acceptance_criteria: z.array(z.string().min(1).max(2000)).max(50).optional(),
+      blocked_by_ids: z.array(id('blocked_by_ids')).max(50).optional(),
+      source_note: z.string().min(1).max(200).optional().describe("Why you made it, such as from Dana's email; shown on the task"),
+      idempotency_key: idempotencyKeyInput,
+    }).strict(),
+    permission: 'tasks.create',
+    requires: ['inbound_email.triage'],
+    module: 'inbox',
+    method: 'POST',
+    path: '/api/v1/inbox/messages/{id}/tasks',
+    request: ({ message_id, ...body }) => ({ params: { id: message_id }, body }),
+  }),
+  routeTool({
+    name: 'label_email_attachment',
+    lead: 'Set the display label on an email attachment.',
+    detail: 'One line (at most 200 characters) saying what the file is, shown in the Inbox; null clears it. Changes nothing else.',
+    input: z.object({ message_id: id('message_id'), attachment_id: id('attachment_id'), agent_label: z.string().min(1).max(200).nullable() }).strict(),
+    permission: 'inbound_email.triage',
+    method: 'PATCH',
+    path: '/api/v1/inbox/messages/{id}/attachments/{aid}',
+    destructive: false,
+    request: ({ message_id, attachment_id, agent_label }) => ({ params: { id: message_id, aid: attachment_id }, body: { agent_label } }),
+  }),
+  routeTool({
+    name: 'list_inbox_questions',
+    lead: 'List questions you asked that still wait on a person.',
+    detail: "Across your inboxes (or inbox_id), oldest first: each email's sender, subject, project, the question and when it was asked. A person answering it in the Inbox, or marking the thread handled, takes it off.",
+    input: z.object({ inbox_id: id('inbox_id').optional() }).strict(),
+    permission: 'inbound_email.read',
+    method: 'GET',
+    path: '/api/v1/inbox/questions',
+    request: (args) => ({ query: args }),
+  }),
+  routeTool({
+    name: 'list_reply_drafts',
+    lead: 'List reply drafts people asked you to write.',
+    detail: 'In your inboxes (or inbox_id), up to 50. status requested (default, waiting on you, oldest first), ready or failed (newest first). Each names the email to answer (message_id) and what the person wants said (instructions). Read the email with get_email, then answer with write_reply_draft.',
+    input: z.object({ status: z.enum(['requested', 'ready', 'failed']).optional(), inbox_id: id('inbox_id').optional() }).strict(),
+    permission: 'inbound_email.read',
+    method: 'GET',
+    path: '/api/v1/inbox/reply-drafts',
+    request: (args) => ({ query: args }),
+  }),
+  routeTool({
+    name: 'write_reply_draft',
+    lead: 'Write a reply draft a person asked for.',
+    detail: 'Send body (the reply text) or failure (why you could not write one), not both. Only a waiting request takes an answer (409 draft_answered otherwise). The person copies it into their own mail: nothing is sent.',
+    input: z.object({
+      draft_id: id('draft_id'),
+      body: z.string().min(1).max(20_000).optional(),
+      failure: z.string().min(1).max(500).optional(),
+    }).strict().refine((value) => (value.body === undefined) !== (value.failure === undefined), 'Send the draft as body, or why there is none as failure'),
+    permission: 'inbound_email.triage',
+    method: 'PUT',
+    path: '/api/v1/inbox/reply-drafts/{id}',
+    destructive: false,
+    request: ({ draft_id, ...body }) => ({ params: { id: draft_id }, body }),
+  }),
+  routeTool({
+    name: 'list_sender_rules',
+    lead: 'List the live sender rules that sort arriving mail.',
+    detail: 'Each: what it matches (an address or a domain), its topic, its action (ignore, fyi or always), who made it (person or agent), why, and a plain label.',
+    input: z.object({}).strict(),
+    permission: 'inbound_email.read',
+    method: 'GET',
+    path: '/api/v1/inbox/sender-rules',
+    request: () => ({}),
+  }),
+  routeTool({
+    name: 'list_inbox_senders',
+    lead: 'List who sends mail to your inboxes, busiest first.',
+    detail: 'The patterns behind sender rules, over the last days (default 30, at most 90), in your inboxes (or inbox_id): per sender, how many emails, their kinds, topics and sorting actions, the latest triage outcomes, how many tasks they led to, and the live rules covering them. Up to 200 senders.',
+    input: z.object({ days: z.number().int().min(1).max(90).optional(), inbox_id: id('inbox_id').optional() }).strict(),
+    permission: 'inbound_email.read',
+    method: 'GET',
+    path: '/api/v1/inbox/senders',
+    request: (args) => ({ query: args }),
+  }),
+  routeTool({
+    name: 'add_sender_rule',
+    lead: 'Add a sender rule from a pattern you saw.',
+    detail:
+      "For mail that arrives from now on. Name the one topic it covers, so the sender's other mail still reaches triage, and say in reason what pattern it is based on. Never money, account_risk or security (422). It replaces your own rule for the same sender and topic, and never overlaps a person's rule, live or switched off (409 person_rule). Look at list_inbox_senders first.",
+    input: z.object({
+      match_kind: z.enum(['address', 'domain']),
+      match_value: z.string().min(3).max(320).describe('An address such as alerts@tool.com, or a domain such as tool.com'),
+      topic: z.enum(MAIL_TOPICS),
+      action: z.enum(RULE_ACTIONS).describe('ignore: Filtered; fyi: kept as an update; always: always triaged'),
+      reason: z.string().min(10).max(500).describe('A sentence on the pattern this rule is based on'),
+      idempotency_key: idempotencyKeyInput,
+    }).strict(),
+    permission: 'inbound_email.triage',
+    method: 'POST',
+    path: '/api/v1/inbox/sender-rules',
+    request: (body) => ({ body }),
+  }),
+  routeTool({
+    name: 'list_unsummarized_triage',
+    lead: 'List triage not yet included in a summary.',
+    detail: 'For a batched summary: the newest triage of each email from the last 14 days that drove an outcome (a task, a reminder, a reply owed or a question) and was not summarized yet, oldest first, with sender, subject, routing, projects and linked tasks (no bodies), in your inboxes (or inbox_id). After you send the summary, mark_triage_summarized with their ids.',
+    input: z.object({ inbox_id: id('inbox_id').optional() }).strict(),
+    permission: 'inbound_email.read',
+    method: 'GET',
+    path: '/api/v1/inbox/triage/unsummarized',
+    request: (args) => ({ query: args }),
+  }),
+  routeTool({
+    name: 'mark_triage_summarized',
+    lead: 'Mark triage as included in a summary.',
+    detail: 'Also clears older unsummarized triage of the same emails (superseded_triage_ids). All or nothing: an id outside your inboxes marks nothing and is listed (404).',
+    input: z.object({ triage_ids: z.array(id('triage_ids')).min(1).max(500) }).strict(),
+    permission: 'inbound_email.triage',
+    method: 'POST',
+    path: '/api/v1/inbox/triage/mark-summarized',
+    idempotent: true,
+    request: (body) => ({ body }),
+  }),
+  routeTool({
+    name: 'get_inbox_signal',
+    lead: 'Check for new mail and inbox work waiting.',
+    detail: 'Counts for a cheap poll across your inboxes (or inbox_id): new_count and newest_received_at (for the older triage), plans_new_count and plans_newest_received_at (ready to plan), shadow_pending_count, unsummarized_count, drafts_requested and waiting_count (questions waiting on a person). Needs inbound_email.signal.',
+    input: z.object({ inbox_id: id('inbox_id').optional() }).strict(),
+    permission: 'inbound_email.signal',
+    method: 'GET',
+    path: '/api/v1/inbox/signal',
     request: (args) => ({ query: args }),
   }),
 ];

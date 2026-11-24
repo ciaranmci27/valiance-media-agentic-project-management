@@ -23,8 +23,8 @@ export interface ToolViewer {
 
 /**
  * Whether a key sees a tool: its profile, its read-only flag, its module, and
- * the permission on key AND member. A permission of a switched-off module is
- * held by nobody, so a module's tools go with it.
+ * the permission (and any it also requires) on key AND member. A permission
+ * of a switched-off module is held by nobody, so a module's tools go with it.
  */
 export function toolVisible(tool: PmTool, caller: ToolViewer): boolean {
   if (tool.profiles && !tool.profiles.includes(caller.profile)) return false;
@@ -33,9 +33,10 @@ export function toolVisible(tool: PmTool, caller: ToolViewer): boolean {
   if (tool.module && !isModuleEnabled(caller.access, tool.module)) return false;
   if (tool.write && caller.readOnly) return false;
   if (tool.name === GUIDE_TOOL) return true;
+  const held = (permission: PermissionKey) => caller.scopes.includes(permission) && accessAllows(caller.access, permission, 'api');
   const wanted = (Array.isArray(tool.permission) ? tool.permission : [tool.permission])
     .flatMap((permission: PermissionKey) => permissionAlternatives(permission));
-  return wanted.some((permission) => caller.scopes.includes(permission) && accessAllows(caller.access, permission, 'api'));
+  return wanted.some(held) && (tool.requires ?? []).every((permission) => permissionAlternatives(permission).some(held));
 }
 
 export function toolsFor(caller: ToolViewer): PmTool[] {

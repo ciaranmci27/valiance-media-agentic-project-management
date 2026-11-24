@@ -58,6 +58,23 @@ import * as apiKeys from '@/app/api/v1/api-keys/route';
 import * as apiKeyRevoke from '@/app/api/v1/api-keys/[id]/revoke/route';
 import * as webhookEndpoints from '@/app/api/v1/webhook-endpoints/route';
 import * as webhookEndpoint from '@/app/api/v1/webhook-endpoints/[id]/route';
+import * as inboxMessages from '@/app/api/v1/inbox/messages/route';
+import * as inboxMessage from '@/app/api/v1/inbox/messages/[id]/route';
+import * as inboxContext from '@/app/api/v1/inbox/messages/[id]/context/route';
+import * as inboxPlan from '@/app/api/v1/inbox/messages/[id]/plan/route';
+import * as inboxTriage from '@/app/api/v1/inbox/messages/[id]/triage/route';
+import * as inboxTasks from '@/app/api/v1/inbox/messages/[id]/tasks/route';
+import * as inboxAttachment from '@/app/api/v1/inbox/messages/[id]/attachments/[aid]/route';
+import * as inboxAttachmentUrl from '@/app/api/v1/inbox/messages/[id]/attachments/[aid]/url/route';
+import * as inboxQueue from '@/app/api/v1/inbox/queue/route';
+import * as inboxQuestions from '@/app/api/v1/inbox/questions/route';
+import * as inboxReplyDrafts from '@/app/api/v1/inbox/reply-drafts/route';
+import * as inboxReplyDraft from '@/app/api/v1/inbox/reply-drafts/[id]/route';
+import * as inboxSenderRules from '@/app/api/v1/inbox/sender-rules/route';
+import * as inboxSenders from '@/app/api/v1/inbox/senders/route';
+import * as inboxUnsummarized from '@/app/api/v1/inbox/triage/unsummarized/route';
+import * as inboxMarkSummarized from '@/app/api/v1/inbox/triage/mark-summarized/route';
+import * as inboxSignal from '@/app/api/v1/inbox/signal/route';
 
 export type RouteHandler = (
   request: NextRequest,
@@ -130,6 +147,23 @@ export const ROUTE_MODULES: Record<string, RouteModule> = {
   '/api/v1/api-keys/{id}/revoke': apiKeyRevoke,
   '/api/v1/webhook-endpoints': webhookEndpoints,
   '/api/v1/webhook-endpoints/{id}': webhookEndpoint,
+  '/api/v1/inbox/messages': inboxMessages,
+  '/api/v1/inbox/messages/{id}': inboxMessage,
+  '/api/v1/inbox/messages/{id}/context': inboxContext,
+  '/api/v1/inbox/messages/{id}/plan': inboxPlan,
+  '/api/v1/inbox/messages/{id}/triage': inboxTriage,
+  '/api/v1/inbox/messages/{id}/tasks': inboxTasks,
+  '/api/v1/inbox/messages/{id}/attachments/{aid}': inboxAttachment,
+  '/api/v1/inbox/messages/{id}/attachments/{aid}/url': inboxAttachmentUrl,
+  '/api/v1/inbox/queue': inboxQueue,
+  '/api/v1/inbox/questions': inboxQuestions,
+  '/api/v1/inbox/reply-drafts': inboxReplyDrafts,
+  '/api/v1/inbox/reply-drafts/{id}': inboxReplyDraft,
+  '/api/v1/inbox/sender-rules': inboxSenderRules,
+  '/api/v1/inbox/senders': inboxSenders,
+  '/api/v1/inbox/triage/unsummarized': inboxUnsummarized,
+  '/api/v1/inbox/triage/mark-summarized': inboxMarkSummarized,
+  '/api/v1/inbox/signal': inboxSignal,
 };
 
 export function routeHandler(path: string, method: HttpMethod): RouteHandler | null {

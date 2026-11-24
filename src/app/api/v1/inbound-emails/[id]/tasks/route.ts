@@ -1,9 +1,9 @@
 import type { z } from 'zod';
 import { withApi } from '@/lib/api/middleware';
-import { created } from '@/lib/api/response';
+import { created, success } from '@/lib/api/response';
 import { ApiError, forbidden } from '@/lib/api/errors';
 import { accessAllows } from '@/lib/api/access';
-import { createApiTask } from '@/lib/api/create-task';
+import { createTaskWithRules } from '@/lib/api/create-task';
 import { createTaskSchema } from '@/lib/schemas';
 import { loadTriageableMessage } from '@/lib/communications/agent-access';
 import { comms } from '@/lib/communications/db';
@@ -16,7 +16,11 @@ type CreateTaskRequest = z.infer<typeof createTaskSchema>;
  * A task an email asks for, on a project in the email's scope (checked before
  * the task exists, so a refused project leaves nothing behind), linked to the
  * email as created and filed on its conversation in one go. The body is the
- * task API's. Needs tasks.create and inbound_email.triage.
+ * task API's. Needs tasks.create and inbound_email.triage. The agent's rules
+ * apply as on POST /api/v1/tasks: with create policy approval it answers 202
+ * with a task suggestion (needs_approval), linking nothing; the suggestion's
+ * metadata keeps the email's message_id. With close policy review a done
+ * task is created in review.
  */
 export const POST = withApi<CreateTaskRequest, { id: string }>(async (ctx) => {
   const { supabase, params, body, teamMemberId, access, scopes } = ctx;
@@ -34,7 +38,8 @@ export const POST = withApi<CreateTaskRequest, { id: string }>(async (ctx) => {
       project_scope: scope ?? null,
     });
   }
-  const task = await createApiTask(ctx, `/api/v1/inbound-emails/${message.id}/tasks`);
+  const { status, data: task } = await createTaskWithRules(ctx, `/api/v1/inbound-emails/${message.id}/tasks`, { message_id: message.id });
+  if (status === 202) return success(task, 202);
   const { data: link, error: linkError } = await comms(supabase).rpc('link_message_task', {
     p_message_id: message.id, p_task_id: task.id, p_relation: 'created', p_member_id: teamMemberId,
   });

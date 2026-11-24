@@ -9,6 +9,14 @@ Each section starts with `## X.Y.Z (YYYY-MM-DD)` and uses these headings, leavin
 - `### Database`: the core migration files in the release, one per line. `npm run db:migrate` applies them.
 - `### Breaking`: what an install must do when it takes this release.
 
+## 2.0.20 (2026-11-24)
+
+### Added
+- **Inbox triage over MCP.** Eighteen tools give any MCP agent the email triage loop the REST API already offers: `list_inbox`, `get_triage_queue`, `get_email`, `get_email_triage_context`, `submit_triage_plan`, `record_email_triage`, `create_task_from_email`, reply drafts, sender rules, attachment links and labels, inbox questions, the unsummarized-triage list and the inbox signal. Each calls its REST route with the caller's key, so an agent reaches only the inboxes it may read. Long threads and busy projects are trimmed to fit, with notes saying what was cut. `pm_guide` adds an inbox section for keys that see these tools.
+
+### Changed
+- Creating a task from an email (`POST /api/v1/inbox/messages/{id}/tasks`) follows the agent's rules like `POST /api/v1/tasks`: an agent whose new tasks need approval gets a suggestion (202, with the email's id in its metadata) instead of a live task, and one whose finished work goes to review gets the task in review. Agents on the default rules see no change.
+
 ## 2.0.19 (2026-11-24)
 
 ### Added
