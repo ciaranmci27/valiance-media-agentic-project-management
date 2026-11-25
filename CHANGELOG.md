@@ -9,6 +9,12 @@ Each section starts with `## X.Y.Z (YYYY-MM-DD)` and uses these headings, leavin
 - `### Database`: the core migration files in the release, one per line. `npm run db:migrate` applies them.
 - `### Breaking`: what an install must do when it takes this release.
 
+## 2.0.35 (2026-11-25)
+
+### Changed
+- **Any project color**: next to the preset colors, a custom swatch opens a picker with a hex field, in Edit project and in project setup.
+- Active projects in the sidebar are listed A to Z.
+
 ## 2.0.34 (2026-11-25)
 
 ### Added

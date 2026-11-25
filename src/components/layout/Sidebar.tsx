@@ -59,7 +59,14 @@ export function Sidebar() {
   // Active projects open instantly: their Overview reads are warmed after
   // boot, and again on pointing at a project here.
   const warmProject = useWarmProject();
-  const activeProjectIds = useMemo(() => projects.filter(p => p.status === 'active').map(p => p.id), [projects]);
+  // Active projects in the sidebar read A to Z, wherever they are listed.
+  const activeProjects = useMemo(
+    () => projects
+      .filter(p => p.status === 'active')
+      .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base', numeric: true })),
+    [projects],
+  );
+  const activeProjectIds = useMemo(() => activeProjects.map(p => p.id), [activeProjects]);
   useWarmActiveProjects(activeProjectIds, !loading);
 
   // Project IDs where the current user has an actively-running timer. Used
@@ -231,7 +238,6 @@ export function Sidebar() {
             // the three agent surfaces instead of navigating, so the pages'
             // headers no longer need their own switcher.
             if (item.href === '/projects' && projectsAsMenu) {
-              const activeProjects = projects.filter(p => p.status === 'active');
               const onProjectsIndex = pathname === '/projects';
               // A short list of active projects is the whole picture. The
               // index link shows from four projects, whenever the menu hides
@@ -364,7 +370,7 @@ export function Sidebar() {
                 </>
               ) : (
                 <>
-                  {projects.filter(p => p.status === 'active').slice(0, 5).map((project) => {
+                  {activeProjects.slice(0, 5).map((project) => {
                     const isClockedIn = myRunningProjectIds.has(project.id);
                     return (
                       <Link
@@ -394,13 +400,13 @@ export function Sidebar() {
                     );
                   })}
 
-                  {projects.filter(p => p.status === 'active').length > 5 && (
+                  {activeProjects.length > 5 && (
                     <Link
                       href="/projects"
                       onClick={closeSidebar}
                       className="flex items-center gap-2.5 px-3 py-2 text-sm text-zinc-500 hover:text-zinc-300 transition-colors"
                     >
-                      <span>+{projects.filter(p => p.status === 'active').length - 5} more</span>
+                      <span>+{activeProjects.length - 5} more</span>
                     </Link>
                   )}
                 </>

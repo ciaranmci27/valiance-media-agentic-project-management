@@ -1,5 +1,6 @@
 'use client';
 
+import { ProjectColorPicker } from '@/components/projects/ProjectColorPicker';
 import { useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { ArrowRight, ChevronDown, FolderPlus, Lock, Plus, Trash2, X } from 'lucide-react';
@@ -233,22 +234,12 @@ export function ProjectSetupFlow() {
                 {errors.dueDate && <p role="alert" className="mt-1.5 text-xs text-input-error">{errors.dueDate}</p>}
               </div>
             </div>
-            <fieldset>
-              <legend className="mb-2 text-sm font-medium text-input-text-label">Colour</legend>
-              <div className="flex flex-wrap gap-2">
-                {colors.map((c) => (
-                  <button
-                    key={c}
-                    type="button"
-                    aria-label={`Colour ${c}`}
-                    aria-pressed={basics.color === c}
-                    onClick={() => set({ color: c })}
-                    className={`h-8 w-8 rounded-full transition-transform focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--color-surface)] ${basics.color === c ? 'scale-110 ring-2 ring-white/70 ring-offset-2 ring-offset-[var(--color-surface)]' : 'hover:scale-105'}`}
-                    style={{ backgroundColor: c }}
-                  />
-                ))}
-              </div>
-            </fieldset>
+            <ProjectColorPicker
+              value={basics.color}
+              onChange={(color) => set({ color })}
+              presets={colors}
+              surface="base"
+            />
             {rights.timeOn && (
               <Toggle checked={basics.timeTracking} onChange={(timeTracking) => set({ timeTracking })} label="Track time on this project" description="People log hours here; billing can draft invoices from them." />
             )}

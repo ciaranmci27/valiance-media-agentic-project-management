@@ -14,6 +14,7 @@ import { Toggle } from '@/components/ui/inputs/Toggle';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { ContactForm } from '@/components/contacts/ContactForm';
 import { TaskPanelShell } from '@/components/tasks/TaskPanelShell';
+import { ProjectColorPicker } from './ProjectColorPicker';
 import { useBrand } from '@/lib/brand/context';
 import { useAuth } from '@/lib/auth-context';
 import { hasPermission, isModuleEnabled } from '@/lib/access-control';
@@ -25,7 +26,6 @@ import {
   type ProjectBasics, type ProjectFormRights,
 } from '@/lib/project-form';
 
-const DEFAULT_PROJECT_COLOR = '';
 const OTHER_COLORS = ['#8B5CF6', '#EC4899', '#EF4444', '#F59E0B', '#10B981', '#06B6D4', '#3B82F6'];
 const FORM_ID = 'edit-project-form';
 
@@ -415,24 +415,13 @@ function ProjectDetailsPanel({ project, onClose }: { project: Project; onClose: 
             showCharCount
             error={errors.description}
           />
-          <fieldset>
-            <legend className="mb-2 text-sm font-medium text-input-text-label">
-              Color <span className="font-normal text-zinc-500">(optional)</span>
-            </legend>
-            <div className="flex flex-wrap gap-2">
-              {projectColors.map((c) => (
-                <button
-                  key={c}
-                  type="button"
-                  aria-label={`Color ${c}`}
-                  aria-pressed={fields.color === c}
-                  onClick={() => set({ color: fields.color === c ? DEFAULT_PROJECT_COLOR : c })}
-                  className={`h-8 w-8 rounded-full transition-transform focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--color-surface-raised)] ${fields.color === c ? 'scale-110 ring-2 ring-white/70 ring-offset-2 ring-offset-[var(--color-surface-raised)]' : 'hover:scale-105'}`}
-                  style={{ backgroundColor: c }}
-                />
-              ))}
-            </div>
-          </fieldset>
+          <ProjectColorPicker
+            value={fields.color}
+            onChange={(color) => set({ color })}
+            presets={projectColors}
+            clearable
+            optional
+          />
         </Section>
 
         {(rights.manageContacts || rights.manageMembers) && (
