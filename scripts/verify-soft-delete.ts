@@ -26,7 +26,7 @@ const MIGRATIONS_DIR = join(__dirname, '..', 'supabase', 'migrations');
 const BASE_REF = execFileSync('git', ['merge-base', 'HEAD', 'origin/main'], { encoding: 'utf8' }).trim();
 /** The app folder's path inside the repo: 'app/' in the monorepo, '' in the public repo and installs. */
 const APP_PREFIX = execFileSync('git', ['rev-parse', '--show-prefix'], { cwd: join(__dirname, '..'), encoding: 'utf8' }).trim();
-const atBase = (path: string) => execFileSync('git', ['show', `${BASE_REF}:${APP_PREFIX}supabase/${path}`], { encoding: 'utf8' });
+const atBase = (path: string) => execFileSync('git', ['show', `${BASE_REF}:${APP_PREFIX}supabase/${path}`], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
 /**
  * The migrations this branch adds over its base, in order: replayed on the
  * base schema, they must arrive at schema.sql. (Replaying older migrations on

@@ -9,6 +9,11 @@ Each section starts with `## X.Y.Z (YYYY-MM-DD)` and uses these headings, leavin
 - `### Database`: the core migration files in the release, one per line. `npm run db:migrate` applies them.
 - `### Breaking`: what an install must do when it takes this release.
 
+## 2.0.28 (2026-11-25)
+
+### Changed
+- Core checks read a database schema file over 1 MB again (one test stopped at 1 MB in 2.0.27). No app change; take this release instead of 2.0.27 if your checks failed.
+
 ## 2.0.27 (2026-11-25)
 
 ### Added

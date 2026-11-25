@@ -35,7 +35,7 @@ const MIGRATION = readdirSync(MIGRATIONS).find((name) => name.endsWith('_communi
 
 /** schema.sql as it was before this migration: the parent of the commit that added it, or HEAD before it is committed. */
 function schemaBefore(): string {
-  const git = (args: string[]) => execFileSync('git', args, { cwd: join(__dirname, '..'), encoding: 'utf8' }).trim();
+  const git = (args: string[]) => execFileSync('git', args, { cwd: join(__dirname, '..'), encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 }).trim();
   const added = git(['log', '--diff-filter=A', '--format=%H', '--', `supabase/migrations/${MIGRATION}`]).split('\n').filter(Boolean).pop();
   return schemaAt(added ? `${added}^` : 'HEAD');
 }
