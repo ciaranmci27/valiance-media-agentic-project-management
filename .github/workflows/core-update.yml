@@ -198,9 +198,12 @@ jobs:
           ].join('\n');
           fs.writeFileSync(`${temp}/body.md`, body);
           NODE
-          number=$(gh pr list --head "$branch" --base "$DEFAULT_BRANCH" --state open --json number --jq '.[0].number // empty')
+          # Every gh call names its repo: gh otherwise prefers the remote named
+          # upstream (the public repo, added by npm run upgrade), where this
+          # token has no access.
+          number=$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$branch" --base "$DEFAULT_BRANCH" --state open --json number --jq '.[0].number // empty')
           if [[ -n "$number" ]]; then
-            gh pr edit "$number" --title "Update to v$VERSION" --body-file "$RUNNER_TEMP/body.md"
+            gh pr edit "$number" --repo "$GITHUB_REPOSITORY" --title "Update to v$VERSION" --body-file "$RUNNER_TEMP/body.md"
           else
-            gh pr create --head "$branch" --base "$DEFAULT_BRANCH" --title "Update to v$VERSION" --body-file "$RUNNER_TEMP/body.md"
+            gh pr create --repo "$GITHUB_REPOSITORY" --head "$branch" --base "$DEFAULT_BRANCH" --title "Update to v$VERSION" --body-file "$RUNNER_TEMP/body.md"
           fi

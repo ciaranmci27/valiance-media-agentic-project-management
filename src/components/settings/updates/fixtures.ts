@@ -61,7 +61,7 @@ const PENDING = [
   'custom/20261121120000_acme_reports_view.sql',
 ];
 
-const connected: ConnectionInfo = { status: 'connected', repo: REPO, defaultBranch: 'main', missing: [], message: null };
+const connected: ConnectionInfo = { status: 'connected', repo: REPO, defaultBranch: 'main', missing: [], unconfirmed: [], message: null };
 
 const base: UpdatesState = {
   role: 'install',
@@ -98,7 +98,7 @@ const passed = [
 
 const notConnected = (status: ConnectionInfo['status'], message: string, extra: Partial<ConnectionInfo> = {}): UpdatesState => ({
   ...base,
-  connection: { status, repo: REPO, defaultBranch: 'main', missing: [], message, ...extra },
+  connection: { status, repo: REPO, defaultBranch: 'main', missing: [], unconfirmed: [], message, ...extra },
 });
 
 /** Each named state; `loading`, `error` and `demo` are handled by the screen itself. */
@@ -108,11 +108,12 @@ export const UPDATE_FIXTURES: Record<string, UpdatesState> = {
   source: { ...base, role: 'source', current: '1.5.0', pending: [], connection: null },
   not_configured: {
     ...base,
-    connection: { status: 'not_configured', repo: null, defaultBranch: null, missing: [], message: 'Add PM_GITHUB_TOKEN and PM_GITHUB_REPO in your host to connect.' },
+    connection: { status: 'not_configured', repo: null, defaultBranch: null, missing: [], unconfirmed: [], message: 'Add PM_GITHUB_TOKEN and PM_GITHUB_REPO in your host to connect.' },
   },
   token_invalid: notConnected('token_invalid', 'GitHub refused the token.'),
   repo_unreachable: notConnected('repo_unreachable', 'The token can\'t open acme/pm-app.'),
-  missing_permissions: notConnected('missing_permissions', 'The token is missing 2 permissions.', { missing: ['Workflows', 'Secrets'] }),
+  missing_permissions: notConnected('missing_permissions', 'The token is missing these permissions: Pull requests (Read and write), Secrets (Read and write). Edit the token on GitHub to add them.', { missing: ['Pull requests', 'Secrets'] }),
+  permissions_unconfirmed: notConnected('permissions_unconfirmed', 'GitHub refused a test for Pull requests (Read and write). If an update fails at its last step, this is why: give the token that access on GitHub. Updates can still run.', { unconfirmed: ['Pull requests'] }),
   workflow_missing: notConnected('workflow_missing', 'The update workflow isn\'t in your code yet.'),
   merge_commits_disabled: notConnected('merge_commits_disabled', 'Your repository doesn\'t allow merge commits.'),
   secret_missing: notConnected('secret_missing', 'Connected. One last step: finish setup.'),

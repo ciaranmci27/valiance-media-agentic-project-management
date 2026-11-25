@@ -191,7 +191,17 @@ Valiance Media publishes each release as a `vX.Y.Z` tag with notes. **Settings >
 
 Set this up once:
 
-1. On GitHub, create a fine-grained personal access token for **only your repository**, with the permissions Settings > Updates lists: Contents, Pull requests, Workflows, Actions and Secrets (read and write), and Commit statuses, Deployments and Metadata (read-only).
+1. On GitHub, create a fine-grained personal access token for **only your repository**, with these permissions:
+   1. Contents: Read and write
+   2. Pull requests: Read and write
+   3. Workflows: Read and write
+   4. Actions: Read and write
+   5. Secrets: Read and write
+   6. Commit statuses: Read-only
+   7. Deployments: Read-only
+   8. Metadata: Read-only
+
+   Settings > Updates checks each one when you save the token. Workflows is the exception: it is checked when an update changes a workflow file. For the Read and write ones it sends requests GitHub must reject, so it never changes anything in your repository; if GitHub refuses one for permission, the page warns you but still lets you update.
 2. In Settings > Updates, paste the token and your repository (owner/name). They are saved encrypted with `APP_ENCRYPTION_KEY`. (Setting `PM_GITHUB_TOKEN` and `PM_GITHUB_REPO` in your host and redeploying works too.)
 3. In Settings > Updates, check the connection, then press **Finish setup**. It stores the token as a secret in your repository for the update workflow.
 

@@ -9,6 +9,16 @@ Each section starts with `## X.Y.Z (YYYY-MM-DD)` and uses these headings, leavin
 - `### Database`: the core migration files in the release, one per line. `npm run db:migrate` applies them.
 - `### Breaking`: what an install must do when it takes this release.
 
+## 2.0.38 (2026-11-25)
+
+### Changed
+- **In-app updates open their pull request on your own repository.** The update workflow could try to open it on the public repo instead, because the upgrade adds a remote named `upstream`, and fail at its last step with "Resource not accessible by personal access token (createPullRequest)", even with the right token. Every `gh pr` call now names your repository.
+- **Settings > Updates tests write access too**, with requests GitHub always rejects, so nothing in your repository changes. A permission that looks missing shows as "Check permissions" with the permission named; updates can still run.
+- The token setup lists all eight permissions as a numbered list, in the app and the README.
+
+### Breaking
+- An install on 2.0.37 or earlier runs its old update workflow, which can fail at the last step. Update to 2.0.38 once from the command line (`npm run upgrade`, then push). After that, Settings > Updates works.
+
 ## 2.0.37 (2026-11-25)
 
 ### Added

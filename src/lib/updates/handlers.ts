@@ -12,7 +12,7 @@ import { readConnection, UPDATE_SECRET_NAME, UPDATE_WORKFLOW_FILE, installRole, 
 import { GitHubError, repoPath, sealSecret, withGetMemo, type FetchLike, type GitHubClient } from './github';
 import { pendingReleases, readReleases } from './releases';
 import { canApply, deriveRun, runTitle, versionToFollow } from './run';
-import { parseVersion, type ConnectionInfo, type ReleaseInfo, type UpdateRun, type UpdatesState } from './types';
+import { canUpdate, parseVersion, type ConnectionInfo, type ReleaseInfo, type UpdateRun, type UpdatesState } from './types';
 import { databaseUpdates, type DatabaseEnv, type DatabaseUpdates } from './database';
 
 export type AuthResult =
@@ -106,7 +106,7 @@ function connectionFor(deps: UpdatesDeps, reuse = false): Promise<ConnectionCont
 }
 
 /** Statuses where the repo is open with the token and its runs can be read. */
-const RUN_READABLE = new Set<ConnectionInfo['status']>(['workflow_missing', 'merge_commits_disabled', 'secret_missing', 'connected']);
+const RUN_READABLE = new Set<ConnectionInfo['status']>(['workflow_missing', 'merge_commits_disabled', 'secret_missing', 'permissions_unconfirmed', 'connected']);
 
 /** The install's token reads the upstream releases (60 anonymous reads an hour per IP is easy to share away); the source install reads anonymously. */
 function releaseToken(deps: UpdatesDeps): string | null {
@@ -291,8 +291,10 @@ export async function postPrepare(request: NextRequest, deps: UpdatesDeps): Prom
   const release = await findPendingRelease(version, deps);
   if (release instanceof NextResponse) return release;
 
+  // Always a fresh check (never the reused page-poll answer). Read refusals
+  // block; a write test that did not pass only warns (permissions_unconfirmed).
   const connection = await connectionFor(deps);
-  if (connection.info.status !== 'connected' || !connection.client || !connection.repo || !connection.defaultBranch) {
+  if (!canUpdate(connection.info.status) || !connection.client || !connection.repo || !connection.defaultBranch) {
     return fail(409, connection.info.message ?? 'Connect the repository first.');
   }
   const gh = connection.client;
@@ -368,7 +370,7 @@ export async function postApply(request: NextRequest, deps: UpdatesDeps): Promis
   if (release instanceof NextResponse) return release;
 
   const connection = await connectionFor(deps);
-  if (connection.info.status !== 'connected' || !connection.client || !connection.repo || !connection.defaultBranch) {
+  if (!canUpdate(connection.info.status) || !connection.client || !connection.repo || !connection.defaultBranch) {
     return fail(409, connection.info.message ?? 'Connect the repository first.');
   }
   const gh = connection.client;

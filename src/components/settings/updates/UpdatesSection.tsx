@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import { CircleArrowUp, RotateCw } from 'lucide-react';
-import type { UpdatesState } from '@/lib/updates/types';
+import { canUpdate, type UpdatesState } from '@/lib/updates/types';
 import { useDemo } from '@/lib/demo-context';
 import { useRead, warmRead } from '@/lib/query-cache';
 import { Button } from '@/components/ui/Button';
@@ -124,7 +124,7 @@ export function UpdatesSection() {
     setConnectionOutcome(null);
     try {
       const connection = await finishSetup();
-      setConnectionOutcome(connection.status === 'connected'
+      setConnectionOutcome(canUpdate(connection.status)
         ? { tone: 'done', text: 'Setup finished. You can install updates from this page now.' }
         : null);
     } catch (error) {
@@ -161,7 +161,7 @@ export function UpdatesSection() {
   const newest = newestPending(state);
   const version = current?.version ?? newest?.version ?? null;
   const target = state.pending.find((release) => release.version === version) ?? newest;
-  const showSteps = connection?.status === 'connected' && !!version;
+  const showSteps = canUpdate(connection?.status) && !!version;
 
   return (
     <div id="updates" className="scroll-mt-6 space-y-6">

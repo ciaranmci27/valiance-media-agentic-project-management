@@ -17,17 +17,17 @@
  */
 import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { NextRequest, NextResponse } from 'next/server';
 import { UPSTREAM_REPO } from '../src/lib/updates/config';
-import { clearConnectionCache, readConnection } from '../src/lib/updates/connection';
+import { clearConnectionCache, PROBE_REF, PROBE_SECRET_NAME, readConnection } from '../src/lib/updates/connection';
 import { createGitHubClient, sealSecret, type FetchLike } from '../src/lib/updates/github';
 import { getUpdates, isSameOrigin, postApply, postPrepare, postSetup, type AuditEntry, type UpdatesDeps } from '../src/lib/updates/handlers';
 import { clearReleaseCache, parseReleaseNotes, pendingReleases, readReleases, toReleaseInfo } from '../src/lib/updates/releases';
 import { canApply, deriveRun, parseHiddenSummary, parseResultMarker } from '../src/lib/updates/run';
-import { compareVersions, parseVersion, REQUIRED_TOKEN_PERMISSIONS, type ReleaseInfo, type UpdateRun, type UpdatesState } from '../src/lib/updates/types';
+import { canUpdate, compareVersions, parseVersion, REQUIRED_TOKEN_PERMISSIONS, type ReleaseInfo, type UpdateRun, type UpdatesState } from '../src/lib/updates/types';
 
 const APP = join(__dirname, '..');
 const TOKEN = 'github_pat_TEST_ONLY_never_real_0123456789';
@@ -73,10 +73,55 @@ function fakeGitHub(routes: Record<string, Route>) {
 }
 
 const R = (rest: string) => `/repos/${REPO}${rest}`;
+const forbidden: Answer = { status: 403, body: { message: 'Resource not accessible by personal access token' } };
+const notFound: Answer = { status: 404, body: { message: 'Not Found' } };
+
+/** Git forbids ".." and "~" in a ref, so GitHub can never find or create one. */
+const impossibleRef = (ref: unknown) => typeof ref === 'string' && (ref.includes('..') || ref.includes('~'));
+const bodyOf = (init: RequestInit | undefined): Record<string, unknown> => (typeof init?.body === 'string' ? JSON.parse(init.body) : {});
+
+/**
+ * A workflow dispatch as GitHub answers it once the token passed the Actions
+ * permission check: 422 for a ref that cannot exist or a missing required
+ * input, `valid` otherwise.
+ */
+function dispatchRoute(valid: () => Answer): Route {
+  return (_url, init) => {
+    const body = bodyOf(init) as { ref?: unknown; inputs?: { version?: unknown } };
+    if (impossibleRef(body.ref)) return { status: 422, body: { message: `No ref found for: ${String(body.ref)}` } };
+    if (!body.inputs?.version) return { status: 422, body: { message: "Required input 'version' not provided" } };
+    return valid();
+  };
+}
+
+/** The write probe for each Read and write permission the connection proves, keyed like a fake route. */
+const WRITE_PROBES = {
+  Contents: `POST ${R('/git/refs')}`,
+  'Pull requests': `POST ${R('/pulls')}`,
+  Actions: `POST ${R('/actions/workflows/core-update.yml/dispatches')}`,
+  Secrets: `PUT ${R(`/actions/secrets/${PROBE_SECRET_NAME}`)}`,
+} as const;
+type WritePermission = keyof typeof WRITE_PROBES;
+
+/** GitHub's answers to the write probes for a token with write access: validation errors, nothing created. */
+function writeAccessRoutes(): Record<string, Route> {
+  return {
+    [WRITE_PROBES.Contents]: (_url, init) => (impossibleRef(bodyOf(init).ref) || bodyOf(init).sha === '0'.repeat(40)
+      ? { status: 422, body: { message: 'Reference name is invalid' } } : { status: 201, body: {} }),
+    [WRITE_PROBES['Pull requests']]: (_url, init) => (impossibleRef(bodyOf(init).head)
+      ? { status: 422, body: { message: 'Validation Failed', errors: [{ resource: 'PullRequest', field: 'head', code: 'invalid' }] } } : { status: 201, body: {} }),
+    [WRITE_PROBES.Actions]: dispatchRoute(() => ({ status: 204 })),
+    [WRITE_PROBES.Secrets]: { status: 422, body: { message: 'Secret names must not start with GITHUB_.' } },
+  };
+}
+
+/** A token with these permissions at Read-only: every write is refused before GitHub reads the input. */
+const readOnly = (...names: WritePermission[]): Record<string, Route> => Object.fromEntries(names.map((name) => [WRITE_PROBES[name], forbidden]));
 
 /** A repo the token fully reaches, with the workflow, merge commits and the secret. */
 function connectedRoutes(): Record<string, Route> {
   return {
+    ...writeAccessRoutes(),
     [`GET ${R('')}`]: { body: { default_branch: 'main', allow_merge_commit: true } },
     [`GET ${R('/commits')}`]: { body: [] },
     [`GET ${R('/pulls')}`]: { body: [] },
@@ -90,8 +135,6 @@ function connectedRoutes(): Record<string, Route> {
   };
 }
 
-const forbidden: Answer = { status: 403, body: { message: 'Resource not accessible by personal access token' } };
-const notFound: Answer = { status: 404, body: { message: 'Not Found' } };
 const ENV = { PM_GITHUB_TOKEN: TOKEN, PM_GITHUB_REPO: REPO };
 
 // ---------------------------------------------------------------------------
@@ -187,8 +230,11 @@ async function releaseListCases() {
 }
 
 async function connectionCases() {
-  const status = async (routes: Record<string, Route>, env: Record<string, string | undefined> = ENV) =>
-    (await readConnection({ env, fetch: fakeGitHub(routes).fetch })).info;
+  // Each case starts clean: a passed write test is reused per token and repo for a minute.
+  const status = async (routes: Record<string, Route>, env: Record<string, string | undefined> = ENV) => {
+    clearConnectionCache();
+    return (await readConnection({ env, fetch: fakeGitHub(routes).fetch })).info;
+  };
 
   const none = await status({}, {});
   check('connection: env missing first', none.status === 'not_configured' && /PM_GITHUB_TOKEN and PM_GITHUB_REPO/.test(none.message ?? ''), none);
@@ -214,7 +260,7 @@ async function connectionCases() {
   check('connection: repo unreachable (403)', unreachable403.status === 'repo_unreachable', unreachable403);
   const missing = await status(everything());
   check('connection: missing permissions named, before workflow, merge and secret', missing.status === 'missing_permissions'
-    && JSON.stringify(missing.missing) === JSON.stringify(['Secrets', 'Deployments']) && /Secrets, Deployments/.test(missing.message ?? ''), missing);
+    && JSON.stringify(missing.missing) === JSON.stringify(['Secrets', 'Deployments']) && /Secrets \(Read and write\), Deployments \(Read-only\)/.test(missing.message ?? ''), missing);
   const allMissing = await status({
     [`GET ${R('')}`]: { body: { default_branch: 'main' } },
   });
@@ -232,7 +278,80 @@ async function connectionCases() {
   const noSecret = await status({ ...connectedRoutes(), [`GET ${R('/actions/secrets/PM_UPDATE_TOKEN')}`]: notFound });
   check('connection: secret missing', noSecret.status === 'secret_missing' && noSecret.defaultBranch === 'main', noSecret);
   const fine = await status(connectedRoutes());
-  check('connection: connected', fine.status === 'connected' && fine.message === null && fine.defaultBranch === 'main' && fine.missing.length === 0, fine);
+  check('connection: connected', fine.status === 'connected' && fine.message === null && fine.defaultBranch === 'main' && fine.missing.length === 0 && fine.unconfirmed.length === 0, fine);
+
+  // Write access is tested, and a refused test warns without blocking: a token that can read but not write is never connected.
+  for (const name of Object.keys(WRITE_PROBES) as WritePermission[]) {
+    const readOnlyToken = await status({ ...connectedRoutes(), ...readOnly(name) });
+    check(`connection: a token Read-only on ${name} warns about ${name}, never connected and never blocked`, readOnlyToken.status === 'permissions_unconfirmed'
+      && canUpdate(readOnlyToken.status) && readOnlyToken.missing.length === 0 && JSON.stringify(readOnlyToken.unconfirmed) === JSON.stringify([name])
+      && readOnlyToken.message?.includes(`GitHub refused a test for ${name} (Read and write)`) === true && /fails at its last step/.test(readOnlyToken.message ?? ''), readOnlyToken);
+  }
+  const twoReadOnly = await status({ ...connectedRoutes(), ...readOnly('Pull requests', 'Secrets') });
+  check('connection: every refused write test is named', JSON.stringify(twoReadOnly.unconfirmed) === JSON.stringify(['Pull requests', 'Secrets'])
+    && twoReadOnly.message?.includes('Pull requests (Read and write) and Secrets (Read and write)') === true, twoReadOnly);
+  check('connection: only connected and the write warning allow updates', canUpdate('connected') && canUpdate('permissions_unconfirmed')
+    && !(['not_configured', 'token_invalid', 'repo_unreachable', 'missing_permissions', 'workflow_missing', 'merge_commits_disabled', 'secret_missing'] as const).some((value) => canUpdate(value)));
+  const noAccess = await status({ ...connectedRoutes(), ...readOnly('Pull requests'), [`GET ${R('/pulls')}`]: forbidden });
+  check('connection: a refused read still blocks, and is not also listed as a write warning', noAccess.status === 'missing_permissions'
+    && JSON.stringify(noAccess.missing) === JSON.stringify(['Pull requests']) && noAccess.unconfirmed.length === 0, noAccess);
+  const warnedEarly = await status({ ...connectedRoutes(), ...readOnly('Pull requests'), [`GET ${R('/actions/secrets/PM_UPDATE_TOKEN')}`]: notFound });
+  check('connection: a write warning rides along with a worse problem', warnedEarly.status === 'secret_missing' && JSON.stringify(warnedEarly.unconfirmed) === JSON.stringify(['Pull requests']), warnedEarly);
+  const noWorkflowFile = await status({ ...connectedRoutes(), [WRITE_PROBES.Actions]: notFound, [`GET ${R('/contents/.github/workflows/core-update.yml')}`]: notFound });
+  check('connection: a write probe answered 404 passed the permission check (the workflow is just missing)', noWorkflowFile.status === 'workflow_missing', noWorkflowFile);
+  const badRequest = await status({ ...connectedRoutes(), [WRITE_PROBES.Secrets]: { status: 400, body: { message: 'Bad request' } } });
+  check('connection: a write probe answered 400 passed the permission check', badRequest.status === 'connected', badRequest);
+  const writeLimited = await status({ ...connectedRoutes(), [WRITE_PROBES['Pull requests']]: { status: 403, body: { message: 'You have exceeded a secondary rate limit.' } } });
+  check('connection: a rate limit on a write test is untested, never refused, and never blocks', writeLimited.status === 'permissions_unconfirmed'
+    && JSON.stringify(writeLimited.unconfirmed) === JSON.stringify(['Pull requests']) && /could not test Pull requests/.test(writeLimited.message ?? '') && !/refused/.test(writeLimited.message ?? ''), writeLimited);
+  const writeOutage = await status({ ...connectedRoutes(), [WRITE_PROBES.Contents]: { status: 502, body: { message: 'Bad gateway' } } });
+  check('connection: an outage on a write test is untested and never blocks', writeOutage.status === 'permissions_unconfirmed' && /could not test Contents/.test(writeOutage.message ?? ''), writeOutage);
+  for (const name of Object.keys(WRITE_PROBES) as WritePermission[]) {
+    clearConnectionCache();
+    const refusedToken = fakeGitHub({ ...connectedRoutes(), [WRITE_PROBES[name]]: { status: 401, body: { message: 'Bad credentials' } } });
+    const refusedInfo = (await readConnection({ env: ENV, fetch: refusedToken.fetch })).info;
+    const again = fakeGitHub(connectedRoutes());
+    await readConnection({ env: ENV, fetch: again.fetch });
+    check(`connection: a 401 on the ${name} write test never counts as having write`, refusedInfo.status === 'token_invalid'
+      && again.calls.some((call) => `${call.method} ${call.path}` === WRITE_PROBES[name]), { refusedInfo, resent: again.calls.map((c) => `${c.method} ${c.path}`) });
+  }
+
+  // A passed write test is reused for a minute per token and repo, whatever the status, so polls do not resend it.
+  clearConnectionCache();
+  const pollWorld = fakeGitHub({ ...connectedRoutes(), ...readOnly('Pull requests'), [`GET ${R('/actions/secrets/PM_UPDATE_TOKEN')}`]: notFound });
+  await readConnection({ env: ENV, fetch: pollWorld.fetch });
+  const firstWrites = pollWorld.calls.filter((call) => call.method !== 'GET').length;
+  await readConnection({ env: ENV, fetch: pollWorld.fetch });
+  await readConnection({ env: ENV, fetch: pollWorld.fetch });
+  const laterWrites = pollWorld.calls.filter((call) => call.method !== 'GET').slice(firstWrites);
+  check('connection: passed write tests are not resent within a minute, even while not connected', firstWrites === 4
+    && laterWrites.length === 2 && laterWrites.every((call) => `${call.method} ${call.path}` === WRITE_PROBES['Pull requests']), laterWrites.map((c) => `${c.method} ${c.path}`));
+  const otherToken = fakeGitHub(connectedRoutes());
+  await readConnection({ env: { ...ENV, PM_GITHUB_TOKEN: 'github_pat_OTHER_TEST_TOKEN' }, fetch: otherToken.fetch });
+  check('connection: another token never reuses those passed tests', otherToken.calls.filter((call) => call.method !== 'GET').length === 4);
+  clearConnectionCache();
+  check('connection: Workflows stays listed but is not checked on save (only a real workflow change reaches that check)',
+    REQUIRED_TOKEN_PERMISSIONS.some((p) => p.name === 'Workflows' && p.access === 'Read and write' && !p.checkedOnSave)
+    && REQUIRED_TOKEN_PERMISSIONS.filter((p) => p.name !== 'Workflows').every((p) => p.checkedOnSave));
+
+  // Every write probe is invalid by construction: nothing it sends could ever succeed.
+  clearConnectionCache();
+  const probed = fakeGitHub(connectedRoutes());
+  await readConnection({ env: ENV, fetch: probed.fetch });
+  const writes = probed.calls.filter((call) => call.method !== 'GET');
+  const bodyAt = (key: string) => writes.find((call) => `${call.method} ${call.path}` === key)?.body as Record<string, unknown> | undefined;
+  const refBody = bodyAt(WRITE_PROBES.Contents);
+  const pullBody = bodyAt(WRITE_PROBES['Pull requests']);
+  const dispatchBody = bodyAt(WRITE_PROBES.Actions);
+  const secretBody = bodyAt(WRITE_PROBES.Secrets);
+  check('probes: one write per Read and write permission, nothing else written', writes.length === 4
+    && Object.values(WRITE_PROBES).every((key) => writes.some((call) => `${call.method} ${call.path}` === key)), writes.map((c) => `${c.method} ${c.path}`));
+  check('probes: the ref names one git forbids', impossibleRef(PROBE_REF) && PROBE_REF.includes('..') && PROBE_REF.includes('~'));
+  check('probes: Contents creates a forbidden ref at an all-zero sha', refBody?.ref === `refs/heads/${PROBE_REF}` && refBody.sha === '0'.repeat(40), refBody);
+  check('probes: Pull requests asks between two branches that cannot exist', impossibleRef(pullBody?.head) && impossibleRef(pullBody?.base), pullBody);
+  check('probes: Actions dispatches on a ref that cannot exist, without the required version', impossibleRef(dispatchBody?.ref) && dispatchBody?.inputs === undefined, dispatchBody);
+  check('probes: Secrets writes a name GitHub forbids with a value that is not base64', PROBE_SECRET_NAME.startsWith('GITHUB_')
+    && secretBody?.encrypted_value === '!' && !/^[A-Za-z0-9+/=]+$/.test(String(secretBody?.encrypted_value)), secretBody);
   const limited = await status({ ...connectedRoutes(), [`GET ${R('/deployments')}`]: { status: 429, body: { message: 'slow down' }, headers: { 'retry-after': '60' } } });
   check('connection: a rate limit is not a missing permission', limited.status === 'repo_unreachable' && /limit/.test(limited.message ?? ''), limited);
   const timeout = await readConnection({ env: ENV, fetch: (_input, init) => new Promise((_resolve, reject) => {
@@ -541,6 +660,8 @@ async function json(response: Response): Promise<{ status: number; body: { data?
 }
 
 const sent = (h: Harness, method: string, suffix: string) => h.calls.filter((call) => call.method === method && call.path === R(suffix));
+/** Workflow dispatches that could start an update: the connection's permission probe never can. */
+const dispatches = (h: Harness) => sent(h, 'POST', '/actions/workflows/core-update.yml/dispatches').filter((call) => !impossibleRef((call.body as { ref?: unknown } | undefined)?.ref));
 const releaseReads = (h: Harness) => h.calls.filter((call) => call.path.endsWith('/releases'));
 
 async function routeCases() {
@@ -592,8 +713,9 @@ async function routeCases() {
   const firstPoll = withRun.calls.length;
   const polled = (await json(await getUpdates(get(), withRun.deps))).body.data as UpdatesState;
   const pollCalls = withRun.calls.slice(firstPoll);
-  const probePaths = [R(''), R('/commits'), R('/actions/workflows'), R('/actions/secrets/public-key'), R('/commits/main/status'), R('/contents/.github/workflows/core-update.yml'), R('/actions/secrets/PM_UPDATE_TOKEN')];
-  check('get: a poll within a minute reuses the connected check', polled.connection?.status === 'connected' && !pollCalls.some((call) => probePaths.includes(call.path)), pollCalls.map((c) => c.path));
+  const probePaths = [R(''), R('/git/refs'), R(`/actions/secrets/${PROBE_SECRET_NAME}`), R('/commits/main/status'), R('/contents/.github/workflows/core-update.yml'), R('/actions/secrets/PM_UPDATE_TOKEN')];
+  check('get: a poll within a minute reuses the connected check', polled.connection?.status === 'connected'
+    && !pollCalls.some((call) => probePaths.includes(call.path) || call.method !== 'GET'), pollCalls.map((c) => `${c.method} ${c.path}`));
   check('get: a poll reads the update run list once', pollCalls.filter((call) => call.path === R('/actions/workflows/core-update.yml/runs')).length === 1);
   check('get: a ready poll costs at most 7 GitHub requests', polled.run?.stage === 'ready' && pollCalls.length <= 7, pollCalls.map((c) => `${c.path}${c.query}`));
   const refreshCalls = withRun.calls.length;
@@ -609,7 +731,7 @@ async function routeCases() {
   // Prepare.
   for (const [label, body] of [['bad version', { version: '1.4' }], ['no version', {}], ['not JSON', 'nope'], ['injection', { version: '1.4.0; rm -rf /' }]] as const) {
     const h = harness();
-    check(`prepare: ${label} is 400`, (await postPrepare(post('prepare', body), h.deps)).status === 400 && sent(h, 'POST', '/actions/workflows/core-update.yml/dispatches').length === 0);
+    check(`prepare: ${label} is 400`, (await postPrepare(post('prepare', body), h.deps)).status === 400 && dispatches(h).length === 0);
   }
   const unknown = harness();
   const unknownResponse = await json(await postPrepare(post('prepare', { version: '9.9.9' }), unknown.deps));
@@ -618,26 +740,44 @@ async function routeCases() {
   check('prepare: an older or current release is 400', (await postPrepare(post('prepare', { version: '1.3.0' }), older.deps)).status === 400);
   const notConnected = harness({ routes: { [`GET ${R('/actions/secrets/PM_UPDATE_TOKEN')}`]: notFound } });
   const notConnectedResponse = await json(await postPrepare(post('prepare', { version: '1.4.0' }), notConnected.deps));
-  check('prepare: requires connected', notConnectedResponse.status === 409 && /Finish setup/.test(notConnectedResponse.body.error ?? '') && sent(notConnected, 'POST', '/actions/workflows/core-update.yml/dispatches').length === 0, notConnectedResponse);
+  check('prepare: requires connected', notConnectedResponse.status === 409 && /Finish setup/.test(notConnectedResponse.body.error ?? '') && dispatches(notConnected).length === 0, notConnectedResponse);
   const busy = harness({ routes: runRoutes({ run: run({ status: 'in_progress', conclusion: null }) }) });
-  check('prepare: refuses while one is preparing', (await postPrepare(post('prepare', { version: '1.4.0' }), busy.deps)).status === 409 && sent(busy, 'POST', '/actions/workflows/core-update.yml/dispatches').length === 0);
+  check('prepare: refuses while one is preparing', (await postPrepare(post('prepare', { version: '1.4.0' }), busy.deps)).status === 409 && dispatches(busy).length === 0);
 
   let dispatched = false;
   const prepare = harness({ routes: {
     ...runRoutes({}),
-    [`POST ${R('/actions/workflows/core-update.yml/dispatches')}`]: () => { dispatched = true; return { status: 204 }; },
+    [`POST ${R('/actions/workflows/core-update.yml/dispatches')}`]: dispatchRoute(() => { dispatched = true; return { status: 204 }; }),
     [`GET ${R('/actions/workflows/core-update.yml/runs')}`]: () => ({ body: { workflow_runs: dispatched ? [run({ status: 'queued', conclusion: null })] : [] } }),
   } });
   const prepared = await json(await postPrepare(post('prepare', { version: 'v1.4.0' }), prepare.deps));
-  const dispatch = sent(prepare, 'POST', '/actions/workflows/core-update.yml/dispatches');
+  const dispatch = dispatches(prepare);
   check('prepare: dispatches core-update.yml on the default branch with the version', dispatch.length === 1
     && JSON.stringify(dispatch[0].body) === JSON.stringify({ ref: 'main', inputs: { version: '1.4.0' } }), dispatch[0]?.body);
   check('prepare: returns the new run', prepared.status === 200 && (prepared.body.data as UpdateRun).stage === 'preparing' && (prepared.body.data as UpdateRun).workflowRunUrl !== null, prepared);
   check('prepare: audited with before and after', prepare.audits.length === 1 && prepare.audits[0].endpoint === '/api/workspace/updates/prepare'
     && (prepare.audits[0].before_snapshot as { run: unknown }).run === null && !JSON.stringify(prepare.audits).includes(TOKEN), prepare.audits);
+  // A refused write test warns but never blocks: the page shows the warning and Prepare still starts.
+  for (const name of ['Contents', 'Pull requests', 'Secrets'] as const) {
+    let dispatchedHere = false;
+    const h = harness({ routes: {
+      ...runRoutes({}),
+      [WRITE_PROBES.Actions]: dispatchRoute(() => { dispatchedHere = true; return { status: 204 }; }),
+      ...readOnly(name),
+    } });
+    const page = (await json(await getUpdates(get(), h.deps))).body.data as UpdatesState;
+    const started = await json(await postPrepare(post('prepare', { version: '1.4.0' }), h.deps));
+    check(`prepare: a refused ${name} write test shows the warning and Prepare still starts`, page.connection?.status === 'permissions_unconfirmed'
+      && JSON.stringify(page.connection.unconfirmed) === JSON.stringify([name]) && started.status === 200 && dispatchedHere && dispatches(h).length === 1 && h.audits.length === 1, { page: page.connection, started });
+  }
+  const noReadAccess = harness({ routes: { ...runRoutes({}), [`GET ${R('/pulls')}`]: forbidden, ...readOnly('Pull requests') } });
+  const noReadResponse = await json(await postPrepare(post('prepare', { version: '1.4.0' }), noReadAccess.deps));
+  check('prepare: a refused read still refuses, as before write tests', noReadResponse.status === 409 && /missing this permission: Pull requests/.test(noReadResponse.body.error ?? '')
+    && dispatches(noReadAccess).length === 0 && noReadAccess.audits.length === 0, noReadResponse);
   const refusedDispatch = harness({ routes: { ...runRoutes({}), [`POST ${R('/actions/workflows/core-update.yml/dispatches')}`]: forbidden } });
   const refusedResponse = await json(await postPrepare(post('prepare', { version: '1.4.0' }), refusedDispatch.deps));
-  check('prepare: a token without Actions write gets a plain fix', refusedResponse.status === 409 && /Actions: Read and write/.test(refusedResponse.body.error ?? '') && refusedDispatch.audits.length === 0, refusedResponse);
+  check('prepare: when GitHub refuses the real start, a token without Actions write gets a plain fix', refusedResponse.status === 409 && /Actions: Read and write/.test(refusedResponse.body.error ?? '')
+    && refusedDispatch.audits.length === 0, refusedResponse);
 
   // Apply.
   const notReady: Array<[string, RunWorld]> = [
@@ -757,6 +897,21 @@ function workflowCases() {
     check(`${file}: every action pinned to a full commit SHA with a version comment`, uses.every((use) => /^[\w.-]+\/[\w.-]+@[0-9a-f]{40}$/.test(use[1]) && /#\s*v\d/.test(use[2])), uses.map((use) => use[0].trim()));
     check(`${file}: top-level contents: read`, /^permissions:\s*\n\s+contents:\s*read\s*$/m.test(text));
     check(`${file}: names the same upstream as config.ts`, text.includes(`UPSTREAM_REPO: ${UPSTREAM_REPO}`));
+  }
+  // gh picks its repo from the git remotes and prefers one named upstream,
+  // which npm run upgrade adds (the public repo). Every gh call must name its
+  // repo, or a pull request lands on the public repo and the token is refused.
+  for (const file of readdirSync(join(APP, '.github', 'workflows')).filter((name) => /\.ya?ml$/.test(name))) {
+    const ghLines = runBlocks(readFileSync(join(APP, '.github', 'workflows', file), 'utf8'))
+      .flatMap((block) => block.split('\n'))
+      .filter((line) => !line.trim().startsWith('#') && /(^|[\s$(;&|])gh\s+\w/.test(line));
+    const unnamed = ghLines.filter((line) => (/\bgh\s+api\b/.test(line)
+      ? /\{owner\}|\{repo\}/.test(line) || !/repos\/\$\{?(GITHUB_REPOSITORY|UPSTREAM_REPO)\b/.test(line)
+      : !/--repo[ =]"?\$\{?(GITHUB_REPOSITORY|UPSTREAM_REPO)\b/.test(line)));
+    check(`${file}: every gh call names its repo (--repo, or an explicit repos/ path for gh api)`, unnamed.length === 0, unnamed.map((line) => line.trim()));
+    if (file === 'core-update.yml') check('core-update.yml: the gh check sees its four gh calls', ghLines.length === 4, ghLines.map((line) => line.trim()));
+    const ownRepo = ghLines.filter((line) => /\bgh\s+pr\b/.test(line));
+    check(`${file}: every gh pr call targets this install's repo, never upstream`, ownRepo.every((line) => /--repo "\$GITHUB_REPOSITORY"/.test(line)), ownRepo.map((line) => line.trim()));
   }
   const update = readFileSync(join(APP, '.github', 'workflows', 'core-update.yml'), 'utf8');
   check('core-update.yml: run-name is the title the app looks for', /^run-name: Update to v\$\{\{ inputs\.version \}\}$/m.test(update));

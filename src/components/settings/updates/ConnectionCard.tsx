@@ -21,12 +21,29 @@ const CHIP: Record<ConnectionStatus, { label: string; tone: string }> = {
   token_invalid: { label: 'Token refused', tone: 'bg-red-500/[0.14] text-red-300' },
   repo_unreachable: { label: 'Can\'t reach repository', tone: 'bg-red-500/[0.14] text-red-300' },
   missing_permissions: { label: 'Needs permissions', tone: 'bg-amber-500/[0.14] text-amber-300' },
+  permissions_unconfirmed: { label: 'Check permissions', tone: 'bg-amber-500/[0.14] text-amber-300' },
   workflow_missing: { label: 'Needs one update', tone: 'bg-amber-500/[0.14] text-amber-300' },
   merge_commits_disabled: { label: 'Needs a setting', tone: 'bg-amber-500/[0.14] text-amber-300' },
 };
 
 /** Steps 1 to 4 are behind the Owner once the token works and has its permissions. */
-const TOKEN_READY: ConnectionStatus[] = ['workflow_missing', 'merge_commits_disabled', 'secret_missing', 'connected'];
+const TOKEN_READY: ConnectionStatus[] = ['workflow_missing', 'merge_commits_disabled', 'secret_missing', 'permissions_unconfirmed', 'connected'];
+
+/** The permission chips in a fix box, each with the access it needs. */
+function PermissionChips({ names }: { names: string[] }) {
+  return (
+    <ul className="flex flex-wrap gap-1.5">
+      {names.map((name) => {
+        const access = REQUIRED_TOKEN_PERMISSIONS.find((permission) => permission.name === name)?.access;
+        return (
+          <li key={name} className="rounded-md bg-amber-500/[0.14] px-2 py-0.5 text-xs font-medium text-zinc-200">
+            {name}{access && <span className="font-normal text-zinc-300">: {access}</span>}
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
 
 function StatusChip({ status }: { status: ConnectionStatus }) {
   const chip = CHIP[status];
@@ -58,14 +75,22 @@ function FixBox({ connection }: { connection: ConnectionInfo }) {
     case 'missing_permissions':
       return box('Add these permissions to the token', (
         <>
-          <ul className="flex flex-wrap gap-1.5">
-            {connection.missing.map((name) => (
-              <li key={name} className="rounded-md bg-amber-500/[0.14] px-2 py-0.5 text-xs font-medium text-zinc-200">{name}</li>
-            ))}
-          </ul>
+          <PermissionChips names={connection.missing} />
           <p>
-            On GitHub, open Settings, Developer settings, Fine-grained tokens, pick this token and add them (step 2 lists
-            the access each needs). The token itself stays the same, so there is nothing to save again. Then check again.
+            On GitHub, open Settings, Developer settings, Fine-grained tokens, pick this token and set each one to the
+            access shown (a permission set to Read-only counts as missing when it needs Read and write). The token itself
+            stays the same, so there is nothing to save again. Then check again.
+          </p>
+        </>
+      ));
+    case 'permissions_unconfirmed':
+      return box('Check these permissions', (
+        <>
+          <PermissionChips names={connection.unconfirmed} />
+          <p>
+            The app tests each permission with a request GitHub must turn down, and the test for the access above did not pass. Updates
+            still run, but one may stop at the step that needs this access. On GitHub, open Settings, Developer settings,
+            Fine-grained tokens, pick this token and set each one to the access shown, then check again.
           </p>
         </>
       ));
@@ -118,37 +143,34 @@ function SetupStep({ number, done, children }: { number: number; done: boolean; 
   );
 }
 
-function PermissionTable({ missing }: { missing: string[] }) {
+/** Every permission the token needs, numbered, each with its access; the ones the check found missing are marked. */
+function PermissionList({ missing, unconfirmed }: { missing: string[]; unconfirmed: string[] }) {
   const lacking = new Set(missing.map((name) => name.toLowerCase()));
+  const doubtful = new Set(unconfirmed.map((name) => name.toLowerCase()));
   return (
-    <div className="overflow-hidden rounded-lg ring-1 ring-inset ring-white/[0.06]">
-      <table className="w-full text-left text-xs">
-        <caption className="sr-only">Token permissions</caption>
-        <thead className="bg-white/[0.03] text-[11px] uppercase tracking-wide text-zinc-400">
-          <tr>
-            <th scope="col" className="px-3 py-2 font-medium">Permission</th>
-            <th scope="col" className="px-3 py-2 font-medium">Access</th>
-            <th scope="col" className="hidden px-3 py-2 font-medium sm:table-cell">Why</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-white/[0.06]">
-          {REQUIRED_TOKEN_PERMISSIONS.map((permission) => {
-            const isMissing = lacking.has(permission.name.toLowerCase());
-            return (
-              <tr key={permission.name} className={isMissing ? 'bg-amber-500/[0.08]' : undefined}>
-                <th scope="row" className="px-3 py-2 align-top font-medium text-zinc-100">
-                  {permission.name}
-                  {isMissing && <span className="ml-1.5 text-[11px] font-medium text-amber-300">Missing</span>}
-                  <span className="mt-0.5 block font-normal text-zinc-400 sm:hidden">{permission.why}</span>
-                </th>
-                <td className="whitespace-nowrap px-3 py-2 align-top text-zinc-300">{permission.access}</td>
-                <td className="hidden px-3 py-2 align-top text-zinc-400 sm:table-cell">{permission.why}</td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
+    <ol aria-label="Token permissions" className="divide-y divide-white/[0.06] overflow-hidden rounded-lg text-xs ring-1 ring-inset ring-white/[0.06]">
+      {REQUIRED_TOKEN_PERMISSIONS.map((permission, index) => {
+        const isMissing = lacking.has(permission.name.toLowerCase());
+        const isDoubtful = !isMissing && doubtful.has(permission.name.toLowerCase());
+        return (
+          <li key={permission.name} className={`flex gap-2.5 px-3 py-2 ${isMissing || isDoubtful ? 'bg-amber-500/[0.08]' : ''}`}>
+            <span aria-hidden="true" className="w-4 flex-shrink-0 text-right tabular-nums text-zinc-400">{index + 1}.</span>
+            <div className="min-w-0 flex-1">
+              <p>
+                <span className="font-medium text-zinc-100">{permission.name}</span>
+                <span className="text-zinc-300">: {permission.access}</span>
+                {isMissing && <span className="ml-1.5 text-[11px] font-medium text-amber-300">Missing</span>}
+                {isDoubtful && <span className="ml-1.5 text-[11px] font-medium text-amber-300">Not confirmed</span>}
+              </p>
+              <p className="mt-0.5 text-zinc-400">
+                {permission.why}
+                {!permission.checkedOnSave && ' Checked when an update changes a workflow file.'}
+              </p>
+            </div>
+          </li>
+        );
+      })}
+    </ol>
   );
 }
 
@@ -262,7 +284,8 @@ export function ConnectionCard({
 
           <SetupStep number={2} done={tokenReady}>
             <p>Under Permissions, give it these, then press Generate token and copy it.</p>
-            <PermissionTable missing={status === 'missing_permissions' ? connection.missing : []} />
+            <PermissionList missing={status === 'missing_permissions' ? connection.missing : []} unconfirmed={connection.unconfirmed ?? []} />
+            <p className="text-xs text-zinc-400">Settings &gt; Updates checks each one when you save the token.</p>
           </SetupStep>
 
           <SetupStep number={3} done={tokenReady}>
@@ -280,7 +303,7 @@ export function ConnectionCard({
             <div>{checkButton(tokenReady ? 'secondary' : 'primary')}</div>
           </SetupStep>
 
-          <SetupStep number={5} done={connected}>
+          <SetupStep number={5} done={connected || status === 'permissions_unconfirmed'}>
             <p>Finish setup. This stores the token as a secret in your repository so the update workflow can use it.</p>
             {status === 'secret_missing' ? (
               <div>
@@ -289,7 +312,7 @@ export function ConnectionCard({
                   {finishing ? 'Finishing' : 'Finish setup'}
                 </Button>
               </div>
-            ) : !connected ? (
+            ) : !connected && status !== 'permissions_unconfirmed' ? (
               <p className="text-xs text-zinc-400">Unlocks once the steps above check out.</p>
             ) : null}
           </SetupStep>

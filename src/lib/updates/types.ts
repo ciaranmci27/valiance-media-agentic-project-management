@@ -25,7 +25,7 @@ export interface ReleaseInfo {
 
 /**
  * Whether this install can update itself from GitHub, worst problem first.
- * Only `connected` allows Prepare.
+ * Only `connected` and `permissions_unconfirmed` allow Prepare (canUpdate).
  */
 export type ConnectionStatus =
   | 'not_configured'        // PM_GITHUB_TOKEN or PM_GITHUB_REPO missing
@@ -35,7 +35,13 @@ export type ConnectionStatus =
   | 'workflow_missing'      // .github/workflows/core-update.yml is not on the default branch
   | 'merge_commits_disabled'// the repo does not allow merge commits
   | 'secret_missing'        // the PM_UPDATE_TOKEN Actions secret is not set (Finish setup fixes it)
+  | 'permissions_unconfirmed' // all set, but GitHub refused or could not run a write test (see `unconfirmed`); updates still run
   | 'connected';
+
+/** Statuses an update may start from: a write test that did not pass warns, it never blocks. */
+export function canUpdate(status: ConnectionStatus | null | undefined): boolean {
+  return status === 'connected' || status === 'permissions_unconfirmed';
+}
 
 export interface ConnectionInfo {
   status: ConnectionStatus;
@@ -45,6 +51,12 @@ export interface ConnectionInfo {
   defaultBranch: string | null;
   /** Token permissions that are missing, named the way GitHub's token page names them. */
   missing: string[];
+  /**
+   * Read and write permissions whose write test did not pass (GitHub refused
+   * it, or could not run it just now). A warning: updates still run, and may
+   * fail at the step that needs it.
+   */
+  unconfirmed: string[];
   /** One plain line on what is wrong and what to do; null when connected. */
   message: string | null;
 }
@@ -111,16 +123,21 @@ export interface UpdatesState {
   database: DatabaseUpdates | null;
 }
 
-/** The fine-grained token permissions an install's token needs, for the setup steps. */
-export const REQUIRED_TOKEN_PERMISSIONS: Array<{ name: string; access: 'Read and write' | 'Read-only'; why: string }> = [
-  { name: 'Contents', access: 'Read and write', why: 'Merge the update into your code.' },
-  { name: 'Pull requests', access: 'Read and write', why: 'Open the update for review and merge it.' },
-  { name: 'Workflows', access: 'Read and write', why: 'Updates can change the files that run the checks.' },
-  { name: 'Actions', access: 'Read and write', why: 'Start the update, and read how it and the checks went.' },
-  { name: 'Secrets', access: 'Read and write', why: 'Store this token for the update workflow (Finish setup).' },
-  { name: 'Commit statuses', access: 'Read-only', why: 'Read the checks and your host\'s preview link.' },
-  { name: 'Deployments', access: 'Read-only', why: 'Find the preview of the update.' },
-  { name: 'Metadata', access: 'Read-only', why: 'Required by GitHub for every token.' },
+/**
+ * The fine-grained token permissions an install's token needs, for the setup
+ * steps. `checkedOnSave`: the connection check tests this access each time
+ * (connection.ts, readProbes and writeProbes). Workflows cannot be: it is
+ * checked when an update changes a workflow file.
+ */
+export const REQUIRED_TOKEN_PERMISSIONS: Array<{ name: string; access: 'Read and write' | 'Read-only'; why: string; checkedOnSave: boolean }> = [
+  { name: 'Contents', access: 'Read and write', why: 'Merge the update into your code.', checkedOnSave: true },
+  { name: 'Pull requests', access: 'Read and write', why: 'Open the update for review and merge it.', checkedOnSave: true },
+  { name: 'Workflows', access: 'Read and write', why: 'Updates can change the files that run the checks.', checkedOnSave: false },
+  { name: 'Actions', access: 'Read and write', why: 'Start the update, and read how it and the checks went.', checkedOnSave: true },
+  { name: 'Secrets', access: 'Read and write', why: 'Store this token for the update workflow (Finish setup).', checkedOnSave: true },
+  { name: 'Commit statuses', access: 'Read-only', why: 'Read the checks and your host\'s preview link.', checkedOnSave: true },
+  { name: 'Deployments', access: 'Read-only', why: 'Find the preview of the update.', checkedOnSave: true },
+  { name: 'Metadata', access: 'Read-only', why: 'Required by GitHub for every token.', checkedOnSave: true },
 ];
 
 /** A release version as the routes accept it: "1.4.0" (a leading v is allowed and dropped). */
