@@ -692,7 +692,7 @@ export default function ProjectDetailPage() {
         <Fragment key={key}>{tabPanel(`x-${key}`, <Tab project={project} />)}</Fragment>
       ))}
 
-      {/* Edit Project Modal */}
+      {/* Editing the project, in the same side panel a task opens in. */}
       {canOpenProjectForm && <ProjectForm
         isOpen={isEditProjectOpen}
         onClose={() => setIsEditProjectOpen(false)}

@@ -3,7 +3,7 @@ import type { Project } from '@/lib/types';
 /**
  * A project's basic fields as the forms hold them (strings for what is
  * typed), and the one mapping from them to what a save sends. The Edit
- * project modal and the guided setup (/projects/new) both go through these,
+ * project panel and the guided setup (/projects/new) both go through these,
  * so a project is created the same way from either. Pure.
  */
 

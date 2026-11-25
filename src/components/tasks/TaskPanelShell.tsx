@@ -3,7 +3,8 @@
 import { useEffect, useRef, type ReactNode } from 'react';
 
 /**
- * The side panel a task opens in (and a new task's draft): a backdrop, the
+ * The side panel a task opens in (and a new task's draft, and editing a
+ * project, so the app has one slide-out): a backdrop, the
  * panel sliding in from the right with its header, a scrolling body and an
  * optional footer. Escape or a click on the backdrop closes it, and the page
  * behind holds still while it is open. An Escape a field inside already

@@ -9,6 +9,13 @@ Each section starts with `## X.Y.Z (YYYY-MM-DD)` and uses these headings, leavin
 - `### Database`: the core migration files in the release, one per line. `npm run db:migrate` applies them.
 - `### Breaking`: what an install must do when it takes this release.
 
+## 2.0.33 (2026-11-25)
+
+### Changed
+- **Edit project opens in the side panel**, like a task, instead of a centered box. Sections read top to bottom (Basics, People, Schedule, Time and budget, Billing) with the save bar pinned at the bottom. Closing with unsaved edits asks first, and a blocked save jumps to the field that needs fixing.
+- Project edits check that the due date is not before the start date and that the billing email looks right.
+- A contact added from Edit project becomes the primary client.
+
 ## 2.0.32 (2026-11-25)
 
 ### Added

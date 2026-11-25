@@ -1,29 +1,39 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { Popover } from '@/components/ui/Popover';
-import { ChevronDown, History } from 'lucide-react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { Calendar, ChevronDown, Clock, FileText, History, Plus, Receipt, Users, X, type LucideIcon } from 'lucide-react';
 import { Project, ProjectBudgetHistoryEntry } from '@/lib/types';
 import { useApp } from '@/lib/store';
-import Modal from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
-import { Input } from '@/components/ui/Input';
+import { TextInput } from '@/components/ui/inputs/TextInput';
 import { Select } from '@/components/ui/inputs/Select';
-import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
-import { ContactForm } from '@/components/contacts/ContactForm';
 import { Textarea } from '@/components/ui/inputs/Textarea';
 import { MultiSelect } from '@/components/ui/inputs/MultiSelect';
 import { DateInput } from '@/components/ui/inputs/DateInput';
+import { Toggle } from '@/components/ui/inputs/Toggle';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { ContactForm } from '@/components/contacts/ContactForm';
+import { TaskPanelShell } from '@/components/tasks/TaskPanelShell';
 import { useBrand } from '@/lib/brand/context';
 import { useAuth } from '@/lib/auth-context';
 import { hasPermission, isModuleEnabled } from '@/lib/access-control';
 import { formatMoney, formatNumber, moneyAffix } from '@/lib/format';
 import { appLocale } from '@/lib/region';
 import { useRegion } from '@/lib/region/context';
-import { projectPayload, projectUpdatePayload } from '@/lib/project-form';
+import {
+  projectPayload, projectUpdatePayload, validateProjectBasics, PROJECT_DESCRIPTION_MAX,
+  type ProjectBasics, type ProjectFormRights,
+} from '@/lib/project-form';
 
 const DEFAULT_PROJECT_COLOR = '';
 const OTHER_COLORS = ['#8B5CF6', '#EC4899', '#EF4444', '#F59E0B', '#10B981', '#06B6D4', '#3B82F6'];
+const FORM_ID = 'edit-project-form';
+
+const STATUS_OPTIONS = [
+  { value: 'active', label: 'Active' },
+  { value: 'completed', label: 'Completed' },
+  { value: 'archived', label: 'Archived' },
+];
 
 function formatBudgetDisplay(val: string): string {
   if (!val) return '';
@@ -55,107 +65,239 @@ function formatHistoryDate(iso: string): string {
   });
 }
 
+/** One group of fields in the panel, set off by a hairline like the task panel's sections. */
+function Section({ icon: Icon, title, description, children }: {
+  icon: LucideIcon;
+  title: string;
+  description?: string;
+  children: ReactNode;
+}) {
+  return (
+    <section className="px-5 py-5 border-t border-white/[0.06] first:border-t-0 first:pt-2">
+      <h3 className={`flex items-center gap-2 text-sm font-semibold text-white ${description ? 'mb-1' : 'mb-4'}`}>
+        <Icon size={16} className="text-zinc-400" aria-hidden="true" />
+        {title}
+      </h3>
+      {description && <p className="mb-4 text-xs text-zinc-400">{description}</p>}
+      <div className="space-y-4">{children}</div>
+    </section>
+  );
+}
+
+/** The panel header: what it is, the project's saved name, and a way out. */
+function PanelHeader({ eyebrow, title, onClose }: { eyebrow: string; title: string; onClose: () => void }) {
+  return (
+    <div className="flex items-start gap-3 px-5 pt-4 pb-3 flex-shrink-0">
+      <div className="min-w-0 flex-1">
+        <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-zinc-400">{eyebrow}</p>
+        <h2 id="edit-project-title" className="pt-0.5 text-base font-semibold text-white leading-snug break-words">
+          {title}
+        </h2>
+      </div>
+      <button
+        type="button"
+        onClick={onClose}
+        aria-label="Close"
+        className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.06] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+      >
+        <X size={18} aria-hidden="true" />
+      </button>
+    </div>
+  );
+}
+
+/** The save bar pinned under the panel's scrolling body. */
+function PanelFooter({ dirty, saving, saveLabel, onCancel }: {
+  dirty: boolean;
+  saving: boolean;
+  saveLabel: string;
+  onCancel: () => void;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3 border-t border-white/[0.06] px-5 py-3">
+      <p className="text-xs text-zinc-400" aria-live="polite">{dirty ? 'Unsaved changes' : ''}</p>
+      <div className="flex items-center gap-2">
+        <Button type="button" variant="ghost" size="sm" onClick={onCancel}>Cancel</Button>
+        <Button type="submit" form={FORM_ID} size="sm" disabled={!dirty || saving}>
+          {saving ? 'Saving' : saveLabel}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 interface ProjectFormProps {
   isOpen: boolean;
   onClose: () => void;
-  project?: Project | null;
+  project: Project | null | undefined;
 }
 
+/**
+ * Editing a project, in the same side panel a task opens in. New projects
+ * are set up in the guided flow (/projects/new), so this only edits. The
+ * panel mounts fresh on open, so a live refresh of the project never wipes
+ * edits in progress.
+ */
 export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
-  const { team, contacts, addProject, updateProject, addProjectContact, getPrimaryClient } =
-    useApp();
+  if (!isOpen || !project) return null;
+  return <ProjectEditPanel key={project.id} project={project} onClose={onClose} />;
+}
+
+function ProjectEditPanel({ project, onClose }: { project: Project; onClose: () => void }) {
+  const { access } = useAuth();
+  const canManageProject = hasPermission(access, 'projects.manage');
+  const canManageProjectMembers = hasPermission(access, 'project_members.manage');
+
+  // Someone who may change who is on the project, but not the project itself,
+  // gets only that: the server accepts a membership-only save from them and
+  // nothing else, so offering the other fields would only fail on save.
+  if (!canManageProject && canManageProjectMembers) {
+    return <ProjectMembersPanel project={project} onClose={onClose} />;
+  }
+  return <ProjectDetailsPanel project={project} onClose={onClose} />;
+}
+
+/**
+ * Closing with unsaved edits asks first: the edits are only in the form, so
+ * they cannot be brought back. Leaving the page warns too.
+ */
+function useDiscardGuard(dirty: boolean, onClose: () => void) {
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
+
+  useEffect(() => {
+    if (!dirty) return;
+    const handler = (e: BeforeUnloadEvent) => { e.preventDefault(); };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, [dirty]);
+
+  const requestClose = () => {
+    if (dirty) setConfirmDiscard(true);
+    else onClose();
+  };
+
+  const dialog = (
+    <ConfirmDialog
+      isOpen={confirmDiscard}
+      onClose={() => setConfirmDiscard(false)}
+      onConfirm={onClose}
+      title="Discard changes?"
+      message="Your edits to this project are not saved. Discarding them cannot be undone."
+      confirmLabel="Discard"
+      doubleConfirm={false}
+    />
+  );
+
+  return { requestClose, dialog };
+}
+
+function ProjectMembersPanel({ project, onClose }: { project: Project; onClose: () => void }) {
+  const { team, updateProject } = useApp();
+  const [memberIds, setMemberIds] = useState<string[]>(project.member_ids);
+  const [saving, setSaving] = useState(false);
+  const dirty = JSON.stringify(memberIds) !== JSON.stringify(project.member_ids);
+  const { requestClose, dialog } = useDiscardGuard(dirty, onClose);
+
+  const save = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaving(true);
+    const saved = await updateProject(project.id, { member_ids: memberIds });
+    setSaving(false);
+    if (saved) onClose();
+  };
+
+  return (
+    <TaskPanelShell
+      labelledBy="edit-project-title"
+      onClose={requestClose}
+      after={dialog}
+      header={<PanelHeader eyebrow="Project members" title={project.name} onClose={requestClose} />}
+      footer={<PanelFooter dirty={dirty} saving={saving} saveLabel="Save members" onCancel={requestClose} />}
+    >
+      <form id={FORM_ID} onSubmit={save}>
+        <Section icon={Users} title="People">
+          <MultiSelect
+            label="Team members"
+            options={team.map((m) => ({ value: m.id, label: m.name }))}
+            value={memberIds}
+            onChange={setMemberIds}
+            placeholder="Select team members"
+            selectAll
+            searchable={team.length > 4}
+          />
+        </Section>
+      </form>
+    </TaskPanelShell>
+  );
+}
+
+function ProjectDetailsPanel({ project, onClose }: { project: Project; onClose: () => void }) {
+  const { team, contacts, updateProject, addProjectContact, getPrimaryClient } = useApp();
   const { access, teamMemberId } = useAuth();
   const brand = useBrand();
   // A budget is in the workspace currency; the symbol sits on the side its locale puts it.
   const region = useRegion();
   const budgetAffix = moneyAffix({ currency: region.currency, locale: region.locale });
-  const affixLength = budgetAffix.symbol.length;
-  const budgetAffixPadding = budgetAffix.position === 'prefix'
-    ? (affixLength <= 1 ? 'pl-7' : affixLength === 2 ? 'pl-9' : 'pl-12')
-    : (affixLength <= 1 ? 'pr-7' : affixLength === 2 ? 'pr-9' : 'pr-12');
   // The brand color last; a brand color that matches another swatch shows once.
   const projectColors = [...new Set([...OTHER_COLORS, brand.colors.brand[500]])];
-  const canManageBilling = hasPermission(access, 'billing.manage');
-  const canManageProject = hasPermission(access, 'projects.manage');
-  const canManageProjectMembers = hasPermission(access, 'project_members.manage');
-  const canManageContacts = hasPermission(access, 'contacts.manage');
-  // Time tracking is a module: switched off, its toggle is hidden and a save
-  // leaves the project's stored setting as it was.
-  const timeOn = isModuleEnabled(access, 'time');
-  const [name, setName] = useState('');
-  const [description, setDescription] = useState('');
-  const [color, setColor] = useState(DEFAULT_PROJECT_COLOR);
-  const [status, setStatus] = useState<Project['status']>('active');
-  const [startDate, setStartDate] = useState('');
-  const [dueDate, setDueDate] = useState('');
-  const [hourlyTracking, setHourlyTracking] = useState(false);
-  const [clientTimeBilling, setClientTimeBilling] = useState<'hourly' | 'included'>('included');
-  const [budgetType, setBudgetType] = useState<'hours' | 'amount' | ''>('');
-  const [budgetValue, setBudgetValue] = useState('');
-  const [billingAddress, setBillingAddress] = useState('');
-  const [billingEmail, setBillingEmail] = useState('');
-  const [taxRate, setTaxRate] = useState('');
-  const [memberIds, setMemberIds] = useState<string[]>([]);
+  const rights: ProjectFormRights = {
+    manageBilling: hasPermission(access, 'billing.manage'),
+    manageMembers: hasPermission(access, 'project_members.manage'),
+    manageContacts: hasPermission(access, 'contacts.manage'),
+    // Time tracking is a module: switched off, its toggle is hidden and a save
+    // leaves the project's stored setting as it was.
+    timeOn: isModuleEnabled(access, 'time'),
+  };
+
+  const [initial] = useState<ProjectBasics>(() => ({
+    name: project.name,
+    description: project.description,
+    color: project.color,
+    status: project.status,
+    startDate: project.start_date || '',
+    dueDate: project.due_date || '',
+    timeTracking: project.time_tracking_enabled ?? project.hourly_tracking ?? false,
+    clientTimeBilling: project.client_time_billing ?? (project.hourly_tracking ? 'hourly' : 'included'),
+    budgetType: project.budget_type ?? '',
+    budgetValue: project.budget_value != null ? String(project.budget_value) : '',
+    billingAddress: project.billing_address ?? '',
+    billingEmail: project.billing_email ?? '',
+    taxRate: project.tax_rate != null ? String(project.tax_rate) : '',
+    memberIds: project.member_ids,
+    clientId: getPrimaryClient(project.id)?.contact_id || '',
+  }));
+  const [fields, setFields] = useState<ProjectBasics>(initial);
+  const set = (patch: Partial<ProjectBasics>) => setFields((current) => ({ ...current, ...patch }));
+  const dirty = JSON.stringify(fields) !== JSON.stringify(initial);
+
   const [saving, setSaving] = useState(false);
+  // Problems show once a save was tried, then follow every change.
+  const [showErrors, setShowErrors] = useState(false);
+  const errors = showErrors ? validateProjectBasics(fields, { creating: false, rights }) : {};
   const [confirmStatusChange, setConfirmStatusChange] = useState(false);
-  const [selectedContactId, setSelectedContactId] = useState('');
-  const [contactSearch, setContactSearch] = useState('');
-  const [contactDropdownOpen, setContactDropdownOpen] = useState(false);
-  const [contactSearchVisible, setContactSearchVisible] = useState(false);
-  const [clientError, setClientError] = useState(false);
   const [showNewContactForm, setShowNewContactForm] = useState(false);
+  const [contactsCountBefore, setContactsCountBefore] = useState(contacts.length);
+  // ContactForm closes from inside its own submit, so read the store's latest list, not this render's.
+  const contactsRef = useRef(contacts);
+  useEffect(() => {
+    contactsRef.current = contacts;
+  }, [contacts]);
+  const formRef = useRef<HTMLFormElement>(null);
+  // The panel scrolls and the save bar is pinned: after a blocked save, bring the
+  // first error into view once it has rendered.
+  const [errorTick, setErrorTick] = useState(0);
+  useEffect(() => {
+    if (!errorTick) return;
+    const first = formRef.current?.querySelector<HTMLElement>('[aria-invalid="true"], [role="alert"]');
+    first?.scrollIntoView({ block: 'center' });
+    if (first?.matches('input, textarea, select')) first.focus({ preventScroll: true });
+  }, [errorTick]);
   const [showBudgetHistory, setShowBudgetHistory] = useState(false);
   const [budgetHistory, setBudgetHistory] = useState<ProjectBudgetHistoryEntry[] | null>(null);
-  const contactsCountBeforeRef = useRef(contacts.length);
-  const contactDropdownRef = useRef<HTMLDivElement>(null);
+  const { requestClose, dialog: discardDialog } = useDiscardGuard(dirty, onClose);
 
   useEffect(() => {
-    if (project) {
-      setName(project.name);
-      setDescription(project.description);
-      setColor(project.color);
-      setStatus(project.status);
-      setStartDate(project.start_date || '');
-      setDueDate(project.due_date || '');
-      setHourlyTracking(project.time_tracking_enabled ?? project.hourly_tracking ?? false);
-      setClientTimeBilling(
-        project.client_time_billing ?? (project.hourly_tracking ? 'hourly' : 'included'),
-      );
-      setBudgetType(project.budget_type ?? '');
-      setBudgetValue(project.budget_value != null ? String(project.budget_value) : '');
-      setBillingAddress(project.billing_address ?? '');
-      setBillingEmail(project.billing_email ?? '');
-      setTaxRate(project.tax_rate != null ? String(project.tax_rate) : '');
-      setMemberIds(project.member_ids);
-      const primaryClient = getPrimaryClient(project.id);
-      setSelectedContactId(primaryClient?.contact_id || '');
-    } else {
-      setName('');
-      setDescription('');
-      setColor(DEFAULT_PROJECT_COLOR);
-      setStatus('active');
-      setStartDate('');
-      setDueDate('');
-      setHourlyTracking(false);
-      setClientTimeBilling('included');
-      setBudgetType('');
-      setBudgetValue('');
-      setBillingAddress('');
-      setBillingEmail('');
-      setTaxRate('');
-      setMemberIds([]);
-      setSelectedContactId('');
-    }
-    setContactSearch('');
-    setClientError(false);
-    setContactDropdownOpen(false);
-    setContactSearchVisible(false);
-    setShowBudgetHistory(false);
-    setBudgetHistory(null);
-  }, [project, isOpen]);
-
-  useEffect(() => {
-    if (!isOpen || !project || !canManageBilling) return;
+    if (!rights.manageBilling) return;
     let cancelled = false;
     (async () => {
       try {
@@ -170,66 +312,35 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
     return () => {
       cancelled = true;
     };
-  }, [canManageBilling, isOpen, project]);
+  }, [rights.manageBilling, project.id]);
 
   const doSave = async () => {
     setSaving(true);
-    const rights = {
-      manageBilling: canManageBilling,
-      manageMembers: canManageProjectMembers,
-      manageContacts: canManageContacts,
-      timeOn,
-    };
-    // One mapping for this modal and the guided setup (lib/project-form).
-    const projectData = projectPayload(
-      {
-        name, description, color, status, startDate, dueDate,
-        timeTracking: hourlyTracking, clientTimeBilling, budgetType, budgetValue,
-        billingAddress, billingEmail, taxRate, memberIds, clientId: selectedContactId,
-      },
-      rights,
-      project ?? null,
-      teamMemberId || null,
-    );
-
-    let saved: boolean;
-    if (project) {
-      saved = await updateProject(project.id, projectUpdatePayload(projectData, rights));
-      if (saved && canManageContacts && selectedContactId) {
-        const currentPrimary = getPrimaryClient(project.id);
-        if (currentPrimary?.contact_id !== selectedContactId) {
-          await addProjectContact(project.id, selectedContactId, 'Client', null, true);
-        }
-      }
-    } else {
-      const newProject = await addProject(projectData);
-      saved = !!newProject;
-      if (newProject && canManageContacts && selectedContactId) {
-        await addProjectContact(newProject.id, selectedContactId, 'Client', null, true);
+    // One mapping for this panel and the guided setup (lib/project-form).
+    const projectData = projectPayload(fields, rights, project, teamMemberId || null);
+    const saved = await updateProject(project.id, projectUpdatePayload(projectData, rights));
+    if (saved && rights.manageContacts && fields.clientId) {
+      const currentPrimary = getPrimaryClient(project.id);
+      if (currentPrimary?.contact_id !== fields.clientId) {
+        await addProjectContact(project.id, fields.clientId, 'Client', null, true);
       }
     }
-
     setSaving(false);
-    // On failure the store has toasted and rolled back; keep the form open
+    // On failure the store has toasted and rolled back; keep the panel open
     // so nothing typed is lost.
     if (saved) onClose();
   };
 
-  const handleToggleBudgetHistory = () => {
-    setShowBudgetHistory((prev) => !prev);
-  };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim()) return;
-
-    if (!project && canManageContacts && !selectedContactId) {
-      setClientError(true);
+    setShowErrors(true);
+    if (Object.keys(validateProjectBasics(fields, { creating: false, rights })).length > 0) {
+      setErrorTick((t) => t + 1);
       return;
     }
 
-    // Confirm when changing an existing project's status to completed/archived
-    if (project && project.status === 'active' && status !== 'active') {
+    // Confirm when moving an active project to completed or archived.
+    if (project.status === 'active' && fields.status !== 'active') {
       setConfirmStatusChange(true);
       return;
     }
@@ -237,508 +348,282 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
     await doSave();
   };
 
-  // Outside-click for the client dropdown is handled by its Popover.
-
-  const filteredContacts = contacts
-    .filter((c) => {
-      const q = contactSearch.toLowerCase();
-      return c.name.toLowerCase().includes(q) || c.company?.toLowerCase().includes(q);
-    })
-    .sort((a, b) => a.name.localeCompare(b.name));
-
-  const selectedContact = contacts.find((c) => c.id === selectedContactId);
-
-  const statusOptions = [
-    { value: 'active', label: 'Active' },
-    { value: 'completed', label: 'Completed' },
-    { value: 'archived', label: 'Archived' },
-  ];
-
-  // Someone who may change who is on the project, but not the project itself,
-  // gets only that: the server accepts a membership-only save from them and
-  // nothing else, so offering the other fields would only fail on save.
-  if (project && !canManageProject && canManageProjectMembers) {
-    const saveMembers = async (e: React.FormEvent) => {
-      e.preventDefault();
-      setSaving(true);
-      const saved = await updateProject(project.id, { member_ids: memberIds });
-      setSaving(false);
-      if (saved) onClose();
-    };
-    return (
-      <Modal isOpen={isOpen} onClose={onClose} title="Project Members" size="md">
-        <form onSubmit={saveMembers} className="space-y-4">
-          <MultiSelect
-            label="Team Members"
-            options={team.map((m) => ({ value: m.id, label: m.name }))}
-            value={memberIds}
-            onChange={setMemberIds}
-            placeholder="Select team members..."
-            selectAll
-            searchable={team.length > 4}
-          />
-          <div className="flex justify-end gap-3 pt-4">
-            <Button type="button" variant="ghost" onClick={onClose}>
-              Cancel
-            </Button>
-            <Button type="submit" disabled={saving}>
-              {saving ? 'Saving...' : 'Save Members'}
-            </Button>
-          </div>
-        </form>
-      </Modal>
-    );
-  }
+  const clientOptions = [...contacts]
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map((c) => ({ value: c.id, label: c.name, keywords: c.company ?? undefined, detail: c.company || undefined }));
+  const showTimeAndBudget = rights.timeOn || rights.manageBilling;
+  const displayName = fields.name.trim() || project.name;
 
   return (
-    <Modal
-      isOpen={isOpen}
-      onClose={onClose}
-      title={project ? 'Edit Project' : 'New Project'}
-      size="lg"
+    <TaskPanelShell
+      labelledBy="edit-project-title"
+      onClose={requestClose}
+      header={<PanelHeader eyebrow="Edit project" title={project.name} onClose={requestClose} />}
+      footer={<PanelFooter dirty={dirty} saving={saving} saveLabel="Save changes" onCancel={requestClose} />}
+      after={
+        <>
+          {discardDialog}
+          {rights.manageContacts && (
+            <ContactForm
+              isOpen={showNewContactForm}
+              onClose={() => {
+                setShowNewContactForm(false);
+                // Pick the new contact if one was added: the store puts new contacts first.
+                const latest = contactsRef.current;
+                if (latest.length > contactsCountBefore && latest[0]) set({ clientId: latest[0].id });
+              }}
+            />
+          )}
+          <ConfirmDialog
+            isOpen={confirmStatusChange}
+            onClose={() => setConfirmStatusChange(false)}
+            onConfirm={doSave}
+            title={fields.status === 'archived' ? 'Archive project' : 'Complete project'}
+            message={
+              fields.status === 'archived'
+                ? `Archive "${displayName}"? It will be hidden from the sidebar and active views.`
+                : `Mark "${displayName}" as completed? It will move to the completed section.`
+            }
+            confirmLabel={fields.status === 'archived' ? 'Archive' : 'Complete'}
+            variant="default"
+          />
+        </>
+      }
     >
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <div className="grid grid-cols-2 gap-4">
-          <Input
-            label="Project Name"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="Enter project name"
-            required
+      <form id={FORM_ID} ref={formRef} onSubmit={handleSubmit} noValidate>
+        <Section icon={FileText} title="Basics">
+          <TextInput
+            label="Project name *"
+            value={fields.name}
+            onChange={(name) => set({ name })}
+            placeholder="Website refresh"
+            error={errors.name}
           />
           <Select
             label="Status"
-            value={status}
-            onChange={(value) => setStatus(value as Project['status'])}
-            options={statusOptions}
+            value={fields.status}
+            onChange={(status) => set({ status: status as Project['status'] })}
+            options={STATUS_OPTIONS}
           />
-        </div>
-
-        <Textarea
-          label="Description"
-          value={description}
-          onChange={(v) => setDescription(v.slice(0, 100))}
-          placeholder="Describe the project..."
-          rows={2}
-          maxLength={100}
-          showCharCount
-        />
-
-        {canManageContacts && (
-          <div className="space-y-1.5" ref={contactDropdownRef}>
-            <label className="block text-sm font-medium text-zinc-300">
-              Primary Client {!project && <span className="text-red-500">*</span>}
-            </label>
-            <div className="relative">
-              <button
-                type="button"
-                onClick={() => {
-                  setContactDropdownOpen(!contactDropdownOpen);
-                  setContactSearch('');
-                }}
-                className={`w-full px-3 py-2 text-sm text-left bg-surface-raised border rounded-lg outline-none transition-all ${
-                  clientError && !selectedContactId
-                    ? 'border-red-400 focus:border-red-500 focus:ring-2 focus:ring-red-500/30'
-                    : 'border-white/[0.08] focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30'
-                }`}
-              >
-                {selectedContact ? (
-                  <span className="flex items-center gap-2">
-                    <span className="w-5 h-5 rounded-full bg-brand-500/15 text-brand-300 flex items-center justify-center text-[10px] font-semibold shrink-0">
-                      {selectedContact.name.charAt(0).toUpperCase()}
-                    </span>
-                    <span className="truncate">{selectedContact.name}</span>
-                    {selectedContact.company && (
-                      <span className="text-zinc-500 truncate">- {selectedContact.company}</span>
-                    )}
-                  </span>
-                ) : (
-                  <span className="text-zinc-500">Select primary client...</span>
-                )}
-              </button>
-              <Popover
-                anchorRef={contactDropdownRef}
-                open={contactDropdownOpen}
-                onClose={() => setContactDropdownOpen(false)}
-                align="start"
-                matchAnchorWidth
-                className="bg-surface-raised border border-white/[0.08] rounded-lg shadow-lg"
-              >
-                <div className="flex flex-col max-h-60">
-                  {contactSearchVisible && (
-                    <div className="p-2 border-b border-white/[0.06] shrink-0">
-                      <input
-                        type="text"
-                        value={contactSearch}
-                        onChange={(e) => setContactSearch(e.target.value)}
-                        placeholder="Search contacts..."
-                        className="w-full px-2 py-1.5 text-sm bg-white/[0.03] border border-white/[0.08] rounded-md outline-none focus:border-brand-500"
-                        autoFocus
-                      />
-                    </div>
-                  )}
-                  <div className="overflow-y-auto min-h-0 flex-1">
-                    {filteredContacts.length === 0 ? (
-                      <div className="px-3 py-2 text-sm text-zinc-500">No contacts found</div>
-                    ) : (
-                      filteredContacts.map((c) => (
-                        <button
-                          key={c.id}
-                          type="button"
-                          onClick={() => {
-                            setSelectedContactId(c.id);
-                            setContactDropdownOpen(false);
-                            setClientError(false);
-                          }}
-                          className={`w-full px-3 py-2 text-sm text-left hover:bg-brand-500/15 flex items-center gap-2 transition-colors ${
-                            c.id === selectedContactId
-                              ? 'bg-brand-500/15 text-brand-300'
-                              : 'text-zinc-300'
-                          }`}
-                        >
-                          <span className="w-5 h-5 rounded-full bg-brand-500/15 text-brand-300 flex items-center justify-center text-[10px] font-semibold shrink-0">
-                            {c.name.charAt(0).toUpperCase()}
-                          </span>
-                          <span className="truncate">{c.name}</span>
-                          {c.company && (
-                            <span className="text-zinc-500 text-xs truncate">- {c.company}</span>
-                          )}
-                        </button>
-                      ))
-                    )}
-                  </div>
-                  <div className="shrink-0 border-t border-white/[0.06]">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setContactSearchVisible(!contactSearchVisible);
-                        if (contactSearchVisible) setContactSearch('');
-                      }}
-                      className="w-full px-3 py-2 text-sm text-left text-brand-300 hover:bg-brand-500/15 flex items-center gap-2 transition-colors font-medium"
-                    >
-                      <span className="w-4 h-4 rounded-full bg-brand-500/15 text-brand-300 flex items-center justify-center shrink-0">
-                        <svg
-                          className="w-2.5 h-2.5"
-                          fill="none"
-                          viewBox="0 0 24 24"
-                          stroke="currentColor"
-                          strokeWidth={3}
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-                          />
-                        </svg>
-                      </span>
-                      {contactSearchVisible ? 'Hide search' : 'Search contacts'}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        contactsCountBeforeRef.current = contacts.length;
-                        setContactDropdownOpen(false);
-                        setShowNewContactForm(true);
-                      }}
-                      className="w-full px-3 py-2 text-sm text-left text-brand-300 hover:bg-brand-500/15 flex items-center gap-2 transition-colors font-medium"
-                    >
-                      <span className="w-4 h-4 rounded-full bg-brand-500/15 text-brand-300 flex items-center justify-center text-xs shrink-0">
-                        +
-                      </span>
-                      Create new contact
-                    </button>
-                  </div>
-                </div>
-              </Popover>
-            </div>
-            {clientError && !selectedContactId && (
-              <p className="text-xs text-red-500">
-                Please select a primary client for this project
-              </p>
-            )}
-          </div>
-        )}
-
-        {canManageProjectMembers && (
-          <MultiSelect
-            label="Team Members"
-            options={team.map((m) => ({ value: m.id, label: m.name }))}
-            value={memberIds}
-            onChange={setMemberIds}
-            placeholder="Select team members..."
-            selectAll
-            searchable={team.length > 4}
+          <Textarea
+            label="Description"
+            value={fields.description}
+            onChange={(v) => set({ description: v.slice(0, PROJECT_DESCRIPTION_MAX) })}
+            placeholder="One line on what this project is."
+            rows={2}
+            maxLength={PROJECT_DESCRIPTION_MAX}
+            showCharCount
+            error={errors.description}
           />
-        )}
-
-        <div className="grid grid-cols-2 gap-4">
-          <DateInput label="Start Date" value={startDate} onChange={setStartDate} clearable />
-          <DateInput
-            label="Due Date"
-            value={dueDate}
-            onChange={setDueDate}
-            minDate={startDate || undefined}
-            clearable
-          />
-        </div>
-
-        {timeOn && (
-          <div className="flex items-center justify-between py-1">
-            <div>
-              <label className="block text-sm font-medium text-zinc-300">Time Tracking</label>
-              <p className="text-xs text-zinc-500">Enable time tracking for this project</p>
-            </div>
-            <button
-              type="button"
-              onClick={() => setHourlyTracking(!hourlyTracking)}
-              className={`relative w-10 h-[22px] rounded-full transition-colors ${
-                hourlyTracking ? 'bg-brand-600' : 'bg-zinc-300'
-              }`}
-            >
-              <span
-                className={`absolute top-0.5 left-0.5 w-[18px] h-[18px] bg-surface-raised rounded-full shadow transition-transform ${
-                  hourlyTracking ? 'translate-x-[18px]' : 'translate-x-0'
-                }`}
-              />
-            </button>
-          </div>
-        )}
-        {timeOn && hourlyTracking && canManageBilling && (
-          <div>
-            <label className="block text-sm font-medium text-zinc-300 mb-1.5">
-              Client billing treatment
-            </label>
-            <Select
-              ariaLabel="Client time billing"
-              value={clientTimeBilling}
-              onChange={(value) => setClientTimeBilling(value as 'hourly' | 'included')}
-              options={[
-                { value: 'hourly', label: 'Bill tracked time to client' },
-                { value: 'included', label: 'Time is included in project price' },
-              ]}
-            />
-            <p className="text-xs text-zinc-500 mt-1">
-              Employee compensation is calculated either way. Included time never enters the client
-              invoice queue.
-            </p>
-          </div>
-        )}
-
-        {/* Budget */}
-        {canManageBilling && (
-          <>
-            <div className="space-y-2">
-              <label className="block text-sm font-medium text-zinc-300">
-                Budget <span className="font-normal text-zinc-500">(optional)</span>
-              </label>
-              <div className="flex gap-2">
-                <div className="flex rounded-lg border border-white/[0.08] overflow-hidden">
-                  <button
-                    type="button"
-                    onClick={() => setBudgetType(budgetType === 'amount' ? '' : 'amount')}
-                    className={`px-3 py-1.5 text-sm font-medium transition-colors ${
-                      budgetType === 'amount'
-                        ? 'bg-brand-600 text-white'
-                        : 'bg-surface-raised text-zinc-400 hover:bg-white/[0.03]'
-                    }`}
-                  >
-                    Amount
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setBudgetType(budgetType === 'hours' ? '' : 'hours')}
-                    className={`px-3 py-1.5 text-sm font-medium transition-colors border-l border-white/[0.08] ${
-                      budgetType === 'hours'
-                        ? 'bg-brand-600 text-white'
-                        : 'bg-surface-raised text-zinc-400 hover:bg-white/[0.03]'
-                    }`}
-                  >
-                    Hours
-                  </button>
-                </div>
-                {budgetType && (
-                  <div className="relative flex-1">
-                    {budgetType === 'amount' && (
-                      <span className={`pointer-events-none absolute ${budgetAffix.position === 'prefix' ? 'left-3' : 'right-3'} top-1/2 -translate-y-1/2 text-sm text-zinc-400 z-10`}>
-                        {budgetAffix.symbol}
-                      </span>
-                    )}
-                    <Input
-                      type="text"
-                      inputMode="decimal"
-                      value={formatBudgetDisplay(budgetValue)}
-                      onChange={(e) => setBudgetValue(sanitizeBudgetInput(e.target.value))}
-                      placeholder={budgetType === 'amount' ? '5,000' : '40'}
-                      className={budgetType === 'amount' ? budgetAffixPadding : ''}
-                    />
-                  </div>
-                )}
-              </div>
-              {budgetType && (
-                <p className="text-xs text-zinc-500">
-                  {budgetType === 'amount'
-                    ? 'Total amount budgeted for this project'
-                    : 'Total hours allocated for this project'}
-                </p>
-              )}
-
-              {project && budgetHistory && budgetHistory.length >= 2 && (
-                <div className="pt-1">
-                  <button
-                    type="button"
-                    onClick={handleToggleBudgetHistory}
-                    className="inline-flex items-center gap-1 text-xs text-zinc-400 hover:text-zinc-300 transition-colors"
-                    aria-expanded={showBudgetHistory}
-                  >
-                    <History size={12} />
-                    {showBudgetHistory ? 'Hide budget history' : 'View budget history'}
-                    <ChevronDown
-                      size={12}
-                      className={`transition-transform ${showBudgetHistory ? 'rotate-180' : ''}`}
-                    />
-                  </button>
-                  {showBudgetHistory && (
-                    <div className="mt-2 rounded-md border border-white/[0.08] bg-white/[0.03] overflow-hidden">
-                      <ul className="divide-y divide-white/[0.08]">
-                        {budgetHistory.map((entry) => {
-                          const changer = entry.changed_by
-                            ? (team.find((m) => m.id === entry.changed_by)?.name ?? 'Unknown')
-                            : 'System';
-                          return (
-                            <li
-                              key={entry.id}
-                              className="px-3 py-2 flex items-center justify-between gap-3 text-xs"
-                            >
-                              <div className="flex items-center gap-2 min-w-0">
-                                <span className="text-zinc-400 whitespace-nowrap">
-                                  {formatHistoryDate(entry.created_at)}
-                                </span>
-                                <span className="text-zinc-300 truncate">
-                                  <span className="text-zinc-500">
-                                    {formatBudgetSnapshot(entry.old_type, entry.old_value)}
-                                  </span>
-                                  <span className="mx-1.5 text-zinc-500">→</span>
-                                  <span className="font-medium">
-                                    {formatBudgetSnapshot(entry.new_type, entry.new_value)}
-                                  </span>
-                                </span>
-                              </div>
-                              <span className="text-zinc-500 whitespace-nowrap">by {changer}</span>
-                            </li>
-                          );
-                        })}
-                      </ul>
-                      <div className="px-3 py-1.5 text-[10px] text-zinc-500 border-t border-white/[0.08] bg-surface-raised">
-                        {budgetHistory.length} change{budgetHistory.length === 1 ? '' : 's'} total
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-
-            {/* Billing ; used on the invoice PDF for this project */}
-            <div className="space-y-3 rounded-lg border border-white/[0.08] bg-white/[0.03] p-3">
-              <div>
-                <label className="block text-sm font-medium text-zinc-300">
-                  Billing <span className="font-normal text-zinc-500">(optional)</span>
-                </label>
-                <p className="text-xs text-zinc-500">
-                  Shown on invoice PDFs. Falls back to the primary client&apos;s contact info when
-                  blank.
-                </p>
-              </div>
-              <Textarea
-                label="Bill To Address"
-                value={billingAddress}
-                onChange={(v) => setBillingAddress(v.slice(0, 300))}
-                placeholder={'Client name or company\nStreet address\nCity, State 12345'}
-                rows={3}
-                maxLength={300}
-                showCharCount
-              />
-              <div className="grid grid-cols-2 gap-3">
-                <Input
-                  label="Bill To Email"
-                  type="email"
-                  value={billingEmail}
-                  onChange={(e) => setBillingEmail(e.target.value)}
-                  placeholder="billing@client.com"
+          <fieldset>
+            <legend className="mb-2 text-sm font-medium text-input-text-label">
+              Color <span className="font-normal text-zinc-500">(optional)</span>
+            </legend>
+            <div className="flex flex-wrap gap-2">
+              {projectColors.map((c) => (
+                <button
+                  key={c}
+                  type="button"
+                  aria-label={`Color ${c}`}
+                  aria-pressed={fields.color === c}
+                  onClick={() => set({ color: fields.color === c ? DEFAULT_PROJECT_COLOR : c })}
+                  className={`h-8 w-8 rounded-full transition-transform focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--color-surface-raised)] ${fields.color === c ? 'scale-110 ring-2 ring-white/70 ring-offset-2 ring-offset-[var(--color-surface-raised)]' : 'hover:scale-105'}`}
+                  style={{ backgroundColor: c }}
                 />
-                <div className="relative">
-                  <Input
-                    label="Tax Rate (%)"
-                    type="text"
-                    inputMode="decimal"
-                    value={taxRate}
-                    onChange={(e) => setTaxRate(e.target.value.replace(/[^0-9.]/g, ''))}
-                    placeholder="0"
-                  />
-                </div>
-              </div>
+              ))}
             </div>
-          </>
+          </fieldset>
+        </Section>
+
+        {(rights.manageContacts || rights.manageMembers) && (
+          <Section icon={Users} title="People">
+            {rights.manageContacts && (
+              <div>
+                <Select
+                  label="Primary client"
+                  visibleLabel="Primary client"
+                  value={fields.clientId}
+                  onChange={(clientId) => set({ clientId })}
+                  searchable
+                  placeholder="Find a contact"
+                  options={clientOptions}
+                  emptyText="No contacts match."
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="mt-1.5 -ml-2.5"
+                  icon={<Plus size={13} aria-hidden="true" />}
+                  onClick={() => {
+                    setContactsCountBefore(contacts.length);
+                    setShowNewContactForm(true);
+                  }}
+                >
+                  New contact
+                </Button>
+              </div>
+            )}
+            {rights.manageMembers && (
+              <MultiSelect
+                label="Team members"
+                options={team.map((m) => ({ value: m.id, label: m.name }))}
+                value={fields.memberIds}
+                onChange={(memberIds) => set({ memberIds })}
+                placeholder="Select team members"
+                selectAll
+                searchable={team.length > 4}
+              />
+            )}
+          </Section>
         )}
 
-        <div className="space-y-1.5">
-          <label className="block text-sm font-medium text-zinc-300">
-            Color <span className="font-normal text-zinc-500">(optional)</span>
-          </label>
-          <div className="flex gap-2">
-            {projectColors.map((c) => (
-              <button
-                key={c}
-                type="button"
-                onClick={() => setColor(color === c ? DEFAULT_PROJECT_COLOR : c)}
-                className={`w-8 h-8 rounded-lg transition-all ${
-                  color === c ? 'ring-2 ring-offset-2 ring-brand-500 scale-110' : 'hover:scale-105'
-                }`}
-                style={{ backgroundColor: c }}
-              />
-            ))}
+        <Section icon={Calendar} title="Schedule">
+          <DateInput label="Start date" value={fields.startDate} onChange={(startDate) => set({ startDate })} clearable />
+          <div>
+            <DateInput
+              label="Due date"
+              value={fields.dueDate}
+              onChange={(dueDate) => set({ dueDate })}
+              minDate={fields.startDate || undefined}
+              clearable
+            />
+            {errors.dueDate && <p role="alert" className="mt-1.5 text-xs text-input-error">{errors.dueDate}</p>}
           </div>
-        </div>
+        </Section>
 
-        <div className="flex justify-end gap-3 pt-4">
-          <Button type="button" variant="ghost" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button type="submit" disabled={saving}>
-            {saving ? 'Saving...' : project ? 'Save changes' : 'Create project'}
-          </Button>
-        </div>
+        {showTimeAndBudget && (
+          <Section icon={Clock} title={rights.timeOn && rights.manageBilling ? 'Time and budget' : rights.timeOn ? 'Time' : 'Budget'}>
+            {rights.timeOn && (
+              <Toggle
+                checked={fields.timeTracking}
+                onChange={(timeTracking) => set({ timeTracking })}
+                label="Track time on this project"
+                description="People log hours here; billing can draft invoices from them."
+              />
+            )}
+            {rights.timeOn && fields.timeTracking && rights.manageBilling && (
+              <Select
+                label="Client billing"
+                value={fields.clientTimeBilling}
+                onChange={(value) => set({ clientTimeBilling: value as ProjectBasics['clientTimeBilling'] })}
+                options={[
+                  { value: 'hourly', label: 'Bill tracked time to client' },
+                  { value: 'included', label: 'Time is included in project price' },
+                ]}
+                helperText="Employee pay is worked out either way. Included time never enters the client invoice queue."
+              />
+            )}
+            {rights.manageBilling && (
+              <div className="space-y-4">
+                <Select
+                  label="Budget"
+                  value={fields.budgetType}
+                  onChange={(v) => set({ budgetType: v as ProjectBasics['budgetType'] })}
+                  options={[{ value: '', label: 'No budget' }, { value: 'amount', label: 'Amount' }, { value: 'hours', label: 'Hours' }]}
+                />
+                {fields.budgetType && (
+                  <TextInput
+                    label={fields.budgetType === 'amount' ? 'Budget amount' : 'Budget hours'}
+                    inputMode="decimal"
+                    value={formatBudgetDisplay(fields.budgetValue)}
+                    onChange={(v) => set({ budgetValue: sanitizeBudgetInput(v) })}
+                    placeholder={fields.budgetType === 'amount' ? '5,000' : '40'}
+                    prefix={fields.budgetType === 'amount' && budgetAffix.position === 'prefix' ? budgetAffix.symbol : undefined}
+                    suffix={fields.budgetType === 'amount' ? (budgetAffix.position === 'suffix' ? budgetAffix.symbol : undefined) : 'hrs'}
+                  />
+                )}
+                {budgetHistory && budgetHistory.length >= 2 && (
+                  <div>
+                    <button
+                      type="button"
+                      onClick={() => setShowBudgetHistory((prev) => !prev)}
+                      className="inline-flex items-center gap-1 rounded text-xs text-zinc-400 hover:text-zinc-300 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+                      aria-expanded={showBudgetHistory}
+                    >
+                      <History size={12} aria-hidden="true" />
+                      {showBudgetHistory ? 'Hide budget history' : 'View budget history'}
+                      <ChevronDown
+                        size={12}
+                        aria-hidden="true"
+                        className={`transition-transform ${showBudgetHistory ? 'rotate-180' : ''}`}
+                      />
+                    </button>
+                    {showBudgetHistory && (
+                      <div className="mt-2 rounded-lg bg-white/[0.03] overflow-hidden">
+                        <ul className="divide-y divide-white/[0.06]">
+                          {budgetHistory.map((entry) => {
+                            const changer = entry.changed_by
+                              ? (team.find((m) => m.id === entry.changed_by)?.name ?? 'Unknown')
+                              : 'System';
+                            return (
+                              <li key={entry.id} className="px-3 py-2 text-xs">
+                                <div className="flex items-center justify-between gap-3">
+                                  <span className="text-zinc-300 truncate">
+                                    <span className="text-zinc-500">
+                                      {formatBudgetSnapshot(entry.old_type, entry.old_value)}
+                                    </span>
+                                    <span className="mx-1.5 text-zinc-500" aria-hidden="true">→</span>
+                                    <span className="sr-only">to</span>
+                                    <span className="font-medium">
+                                      {formatBudgetSnapshot(entry.new_type, entry.new_value)}
+                                    </span>
+                                  </span>
+                                  <span className="text-zinc-400 whitespace-nowrap tabular-nums">
+                                    {formatHistoryDate(entry.created_at)}
+                                  </span>
+                                </div>
+                                <p className="mt-0.5 text-zinc-500">by {changer}</p>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                        <p className="px-3 py-1.5 text-[11px] text-zinc-500 border-t border-white/[0.06]">
+                          {budgetHistory.length} change{budgetHistory.length === 1 ? '' : 's'} total
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </Section>
+        )}
+
+        {rights.manageBilling && (
+          <Section
+            icon={Receipt}
+            title="Billing"
+            description="Shown on invoice PDFs. Uses the primary client's details when blank."
+          >
+            <Textarea
+              label="Bill to address"
+              value={fields.billingAddress}
+              onChange={(v) => set({ billingAddress: v.slice(0, 300) })}
+              placeholder={'Client name or company\nStreet address\nCity, State 12345'}
+              rows={3}
+              maxLength={300}
+              showCharCount
+            />
+            <TextInput
+              label="Bill to email"
+              type="email"
+              value={fields.billingEmail}
+              onChange={(billingEmail) => set({ billingEmail })}
+              placeholder="billing@client.com"
+              error={errors.billingEmail}
+            />
+            <TextInput
+              label="Tax rate"
+              inputMode="decimal"
+              value={fields.taxRate}
+              onChange={(v) => set({ taxRate: v.replace(/[^0-9.]/g, '') })}
+              placeholder="0"
+              suffix="%"
+            />
+          </Section>
+        )}
       </form>
-
-      {canManageContacts && (
-        <ContactForm
-          isOpen={showNewContactForm}
-          onClose={() => {
-            setShowNewContactForm(false);
-            // Auto-select the newly created contact if one was added
-            if (contacts.length > contactsCountBeforeRef.current) {
-              const newest = contacts[0]; // store prepends new contacts
-              if (newest) {
-                setSelectedContactId(newest.id);
-                setClientError(false);
-              }
-            }
-          }}
-        />
-      )}
-
-      <ConfirmDialog
-        isOpen={confirmStatusChange}
-        onClose={() => setConfirmStatusChange(false)}
-        onConfirm={doSave}
-        title={status === 'archived' ? 'Archive Project' : 'Complete Project'}
-        message={
-          status === 'archived'
-            ? `Are you sure you want to archive "${name}"? It will be hidden from the sidebar and active views.`
-            : `Are you sure you want to mark "${name}" as completed? It will be moved to the completed section.`
-        }
-        confirmLabel={status === 'archived' ? 'Archive' : 'Complete'}
-        variant="default"
-      />
-    </Modal>
+    </TaskPanelShell>
   );
 }
