@@ -149,6 +149,8 @@ async function seed(db: PGlite) {
   };
   // A 2.0 install: the server adds members (pm.add_team_member), no sign-up trigger.
   await db.exec('DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users');
+  // auditor left core for a row (the update makes one where a member used it): this install has it.
+  await q("INSERT INTO pm.mcp_profile_rows (value, label, description) VALUES ('auditor', 'Auditor', 'Audits projects against their goals and proposes tasks')");
   await db.exec(`DROP FUNCTION pm.consume_api_rate_limit(uuid, integer, integer);
     CREATE FUNCTION pm.consume_api_rate_limit(p_api_key_id uuid, p_limit integer, p_window_seconds integer)
     RETURNS jsonb LANGUAGE sql AS $$ SELECT jsonb_build_object('allowed', true, 'remaining', p_limit - 1,

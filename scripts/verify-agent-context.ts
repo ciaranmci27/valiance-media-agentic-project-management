@@ -86,6 +86,8 @@ async function seed(db: PGlite) {
       'reset_at', now() + make_interval(secs => p_window_seconds)) $$;`);
   // The install's own name: the pack must say it, never a name from code.
   await q("UPDATE pm.workspace_brand SET name = 'Northwind Ops'");
+  // builder left core for a row (the update makes one where a member used it): this install has it.
+  await q("INSERT INTO pm.mcp_profile_rows (value, label, description) VALUES ('builder', 'Builder', 'Works assigned tasks, tracks time and raises blockers')");
   const member = async (name: string, role: string) =>
     (await q<{ id: string }>('INSERT INTO pm.team_members (name, email, role) VALUES ($1, $2, $3) RETURNING id', [name, `${name.toLowerCase()}@example.com`, role]))[0].id;
   const owner = await member('Olivia', 'owner');
@@ -238,7 +240,8 @@ async function main() {
       && pack.rules?.says?.some((line: string) => /In Review/.test(line)) && pack.rules?.says?.some((line: string) => /Morgan/.test(line)), pack.rules);
     check('pack: the projects it reaches, by name', pack.projects?.access === 'member' && JSON.stringify(pack.projects?.list?.map((p: Loose) => p.name)) === JSON.stringify(['Apex', 'Queue']), pack.projects);
     const resolved = await resolveApiKey(agentSecret);
-    const expectedTools = toolsFor({ access: resolved.access, scopes: AGENT_KEY_SCOPES, readOnly: false, profile: 'builder' }).map((t) => t.name);
+    // The builder row lists no tools, so it sees what generic sees.
+    const expectedTools = toolsFor({ access: resolved.access, scopes: AGENT_KEY_SCOPES, readOnly: false, profile: 'generic' }).map((t) => t.name);
     check('pack: exactly the MCP tools this key sees', JSON.stringify(pack.tools?.map((t: Loose) => t.name)) === JSON.stringify(expectedTools) && pack.tools?.every((t: Loose) => t.lead), pack.tools?.map((t: Loose) => t.name));
     const conventions = (pack.conventions ?? []).join('\n');
     check('pack: the house conventions for the tools it can use', /get_task_brief/.test(conventions) && /claim_task/.test(conventions) && /dedupe_key/.test(conventions)

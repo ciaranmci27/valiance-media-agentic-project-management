@@ -39,6 +39,7 @@ import type { IdentityView } from '@/lib/identities';
 import { CONNECT_SCOPES, type MyConnectionsView } from '@/lib/connect-ai';
 import type { AssistantActivity, AssistantSetupView, AssistantStatusRow, MyAssistantView } from '@/lib/assistant';
 import type { ChatConnectionView } from '@/lib/chat/types';
+import type { ScopedBrief, ScopeRef } from '@/lib/context-scopes';
 
 /**
  * Every read a screen makes outside the store, described once: its key, its
@@ -1083,5 +1084,96 @@ export function auditLogRead(filters: AuditFilters, page: number): Read<{ entrie
     tables: ['api_audit_log'],
     ttlMs: 15_000,
     load: () => workspaceApi(`/api/workspace/audit-log${query ? `?${query}` : ''}`),
+  };
+}
+
+// ── Context at every level ──────────────────────────────────────────────
+
+const scopeKey = (ref: ScopeRef) => `${ref.scope_type}:${ref.scope_id ?? ''}`;
+const scopePath = (ref: ScopeRef) => `/api/workspace/context/${ref.scope_type}`;
+const scopeParams = (ref: ScopeRef, extra: Record<string, string> = {}) => {
+  const params = new URLSearchParams(extra);
+  if (ref.scope_id) params.set('scope_id', ref.scope_id);
+  const text = params.toString();
+  return text ? `?${text}` : '';
+};
+
+/** A scope's context as sections (company knowledge, a group's, an agent's notes, a person's memory). */
+export function scopedBriefRead(ref: ScopeRef): Read<ScopedBrief> {
+  return {
+    key: `scoped-brief:${scopeKey(ref)}`,
+    tables: ['project_context'],
+    load: () => workspaceApi<ScopedBrief>(`${scopePath(ref)}${scopeParams(ref)}`),
+  };
+}
+
+/** One scope's entries ranked for a search. */
+export function scopedBriefSearchRead(ref: ScopeRef, q: string): Read<BriefEntry[]> {
+  return {
+    key: `scoped-brief-search:${scopeKey(ref)}:${q}`,
+    tables: ['project_context'],
+    load: async () => (await workspaceApi<{ entries: BriefEntry[] }>(`${scopePath(ref)}/search${scopeParams(ref, { q })}`)).entries ?? [],
+  };
+}
+
+/** One page (from 2) of a scope's section; the scope read holds page 1. */
+export function scopedBriefSectionRead(ref: ScopeRef, section: string, page: number, limit: number): Read<BriefEntry[]> {
+  return {
+    key: `scoped-brief-section:${scopeKey(ref)}:${section}:${page}:${limit}`,
+    tables: ['project_context'],
+    load: async () => {
+      const data = await workspaceApi<ScopedBrief>(`${scopePath(ref)}${scopeParams(ref, { section, page: String(page), limit: String(limit) })}`);
+      return data.sections?.find((s) => s.key === section)?.entries ?? [];
+    },
+  };
+}
+
+// ── Agent profiles ──────────────────────────────────────────────────────
+
+export interface AgentProfileOption {
+  value: string;
+  label: string;
+  description: string;
+  source: 'core' | 'install' | 'workspace';
+}
+
+/** The profiles an Owner picks from: code's and the workspace's own. */
+export const agentProfilesRead: Read<AgentProfileOption[]> = {
+  key: 'agent-profiles',
+  tables: ['mcp_profile_rows'],
+  ttlMs: 60_000,
+  load: async () => (await workspaceApi<{ profiles: AgentProfileOption[] }>('/api/workspace/agent-profiles')).profiles ?? [],
+};
+
+// ── A run's place in its chain ──────────────────────────────────────────
+
+export interface AgentRunFamily {
+  parent: { id: string; agent_id: string; title: string | null; status: string; started_at: string } | null;
+  children: { id: string; agent_id: string; title: string | null; status: string; started_at: string; updated_at: string }[];
+}
+
+/**
+ * The run a stored run was handed its work by, and the runs it handed work
+ * to, as far as the reader may see runs (their own, or every one with
+ * agents.manage). Empty before the update.
+ */
+export function agentRunFamilyRead(runId: string): Read<AgentRunFamily> {
+  return {
+    key: `agent-run-family:${runId}`,
+    tables: ['agent_runs'],
+    load: async () => {
+      const client = createClient();
+      const { data: own, error } = await client.from('agent_runs').select('parent_run_id').eq('id', runId).maybeSingle();
+      if (error) return { parent: null, children: [] };
+      const parentId = (own as { parent_run_id?: string | null } | null)?.parent_run_id ?? null;
+      const [parent, children] = await Promise.all([
+        parentId
+          ? client.from('agent_runs').select('id, agent_id, title, status, started_at').eq('id', parentId).maybeSingle().then(({ data }) => data as AgentRunFamily['parent'])
+          : Promise.resolve(null),
+        client.from('agent_runs').select('id, agent_id, title, status, started_at, updated_at').eq('parent_run_id', runId).order('started_at').limit(50)
+          .then(({ data }) => (data ?? []) as AgentRunFamily['children']),
+      ]);
+      return { parent, children };
+    },
   };
 }

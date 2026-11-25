@@ -39,6 +39,15 @@ import * as agentHeartbeat from '@/app/api/v1/agents/heartbeat/route';
 import * as agentRuns from '@/app/api/v1/agents/runs/route';
 import * as agentRun from '@/app/api/v1/agents/runs/[id]/route';
 import * as agentRunFinish from '@/app/api/v1/agents/runs/[id]/finish/route';
+import * as agentRunTree from '@/app/api/v1/agents/runs/[id]/tree/route';
+import * as taskDelegate from '@/app/api/v1/tasks/[id]/delegate/route';
+import * as scopedContext from '@/app/api/v1/context/route';
+import * as scopedContextSearch from '@/app/api/v1/context/search/route';
+import * as agentProfiles from '@/app/api/v1/agent-profiles/route';
+import * as agentProfile from '@/app/api/v1/agent-profiles/[value]/route';
+import * as agentTemplateOne from '@/app/api/v1/agent-templates/[key]/route';
+import * as agentRegistriesExport from '@/app/api/v1/agent-registries/export/route';
+import * as agentRegistriesImport from '@/app/api/v1/agent-registries/import/route';
 import * as teamMembers from '@/app/api/v1/team-members/route';
 import * as teamMember from '@/app/api/v1/team-members/[id]/route';
 import * as leads from '@/app/api/v1/leads/route';
@@ -154,6 +163,10 @@ export const ROUTE_MODULES: Record<string, RouteModule> = {
   '/api/v1/agents/runs': agentRuns,
   '/api/v1/agents/runs/{id}': agentRun,
   '/api/v1/agents/runs/{id}/finish': agentRunFinish,
+  '/api/v1/agents/runs/{id}/tree': agentRunTree,
+  '/api/v1/tasks/{id}/delegate': taskDelegate,
+  '/api/v1/context': scopedContext,
+  '/api/v1/context/search': scopedContextSearch,
   '/api/v1/team-members': teamMembers,
   '/api/v1/team-members/{id}': teamMember,
   '/api/v1/leads': leads,
@@ -171,6 +184,11 @@ export const ROUTE_MODULES: Record<string, RouteModule> = {
   '/api/v1/agents/me/projects': myProjects,
   '/api/v1/agents/{id}': agentOne,
   '/api/v1/agent-templates': agentTemplates,
+  '/api/v1/agent-templates/{key}': agentTemplateOne,
+  '/api/v1/agent-profiles': agentProfiles,
+  '/api/v1/agent-profiles/{value}': agentProfile,
+  '/api/v1/agent-registries/export': agentRegistriesExport,
+  '/api/v1/agent-registries/import': agentRegistriesImport,
   '/api/v1/api-keys': apiKeys,
   '/api/v1/api-keys/{id}/revoke': apiKeyRevoke,
   '/api/v1/api-keys/{id}/rotate': apiKeyRotate,

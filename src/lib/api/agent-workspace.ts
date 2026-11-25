@@ -28,7 +28,8 @@ import {
 import { agentRulesColumns } from './agent-rules';
 import { presentStoredRuns } from './agent-runs';
 import { checkKeyGrant, createAgentMember, grantableScopes, insertApiKey, memberApiKeys, type Granter } from './agent-setup';
-import { AGENT_HIRE_ENDPOINT, appliedTemplateKey, appliedTemplateKeys } from './agent-context';
+import { AGENT_HIRE_ENDPOINT, appliedTemplateKey, appliedTemplateKeys, recordTemplateKey } from './agent-context';
+import { agentTemplateRegistry, assertKnownAgentProfile } from './agent-registries';
 import { newAgentScopes } from './agent-config';
 import { revokeKeyTree } from './key-revoke';
 import { listWebhookEndpoints, type PublicWebhookEndpoint } from './webhook-endpoints';
@@ -538,7 +539,9 @@ export async function hireAgent(service: SupabaseClient, caller: AgentCaller, gr
   }
 
   // 1. Check everything first.
-  const template = input.template_key ? requireTemplate(caller, input.template_key) : null;
+  const templates = await agentTemplateRegistry(service);
+  const template = input.template_key ? requireTemplate(caller, input.template_key, templates) : null;
+  await assertKnownAgentProfile(service, input.agent_profile ?? template?.profile);
   const projectIds = [...new Set(input.project_ids ?? [])];
   // Hiring is an Owner's, so this holds; kept so the rule reads the same on every path.
   if (projectIds.length && !canGrantProjectAccess(caller)) throw projectAccessNeeded(projectIds);
@@ -557,7 +560,7 @@ export async function hireAgent(service: SupabaseClient, caller: AgentCaller, gr
   const assignmentRows = projectIds.map((projectId) => {
     const own = input.project_settings?.[projectId] ?? {};
     return newAssignmentRow(caller, projectId, '', { template_key: template?.key ?? null, settings: own.settings, instructions: own.instructions, status: own.status },
-      `${projectId}: `);
+      `${projectId}: `, templates);
   });
   const owners = await checkOwnerIds(service, null, [caller.memberId, ...(input.owner_ids ?? [])]);
   const ownerGroupIds = input.owner_group_ids?.length ? await checkOwnerGroupIds(service, input.owner_group_ids) : [];
@@ -637,6 +640,7 @@ export async function hireAgent(service: SupabaseClient, caller: AgentCaller, gr
       after_snapshot: { agent: agentView(row), assignments: state.assignmentIds }, status_code: 201, via: 'app',
     });
     if (auditError) console.error('[agents] hire audit write failed', auditError);
+    if (template) await recordTemplateKey(service, agentId, template.key);
 
     let key: NewAgentKey | undefined;
     if (keyScopes) {

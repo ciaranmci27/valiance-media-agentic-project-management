@@ -588,8 +588,9 @@ async function main() {
     // =========================================================================================
     // Profiles
     // =========================================================================================
-    check('profiles: core keeps its five values, in order', JSON.stringify(profiles.CORE_AGENT_PROFILES.map((p) => p.value))
-      === JSON.stringify(['generic', 'coordinator', 'builder', 'auditor', 'reviewer']) && profiles.CORE_AGENT_PROFILES.every((p) => p.tools === undefined));
+    // The fleet's four (coordinator, builder, auditor, reviewer) left core for rows (test:handoff-scopes).
+    check('profiles: core keeps generic, every tool', JSON.stringify(profiles.CORE_AGENT_PROFILES.map((p) => p.value))
+      === JSON.stringify(['generic']) && profiles.CORE_AGENT_PROFILES.every((p) => p.tools === undefined));
     check('profiles: no tool is limited to a profile (as before)', PM_TOOLS.every((tool) => !tool.profiles));
     // The visibility rule as it was before the registry, to compare against.
     type Viewer = Parameters<typeof toolsFor>[0];
@@ -601,8 +602,9 @@ async function main() {
       if (tool.module && !isModuleEnabled(caller.access, tool.module)) return false;
       if (tool.write && caller.readOnly) return false;
       if (tool.name === GUIDE_TOOL) return true;
+      const held = (p: Parameters<typeof permissionAlternatives>[0]) => caller.scopes.includes(p) && accessAllows(caller.access, p, 'api');
       const wanted = (Array.isArray(tool.permission) ? tool.permission : [tool.permission]).flatMap((p) => permissionAlternatives(p));
-      return wanted.some((p) => caller.scopes.includes(p) && accessAllows(caller.access, p, 'api'));
+      return wanted.some(held) && (tool.requires ?? []).every((p) => permissionAlternatives(p).some(held));
     }).map((tool) => tool.name);
     const viewers = [
       { who: 'builder, every scope', access: (await resolveMemberAccess(supabase, s.builder))!, scopes: [...API_ENDPOINT_PERMISSIONS] as string[], readOnly: false },
@@ -632,11 +634,12 @@ async function main() {
     check('profiles: a member stored with it sees just those tools in its context pack', deskTools.includes('get_task') && deskTools.includes('pm_guide')
       && !deskTools.includes('search_tasks') && !deskTools.includes('log_activity') && deskPack.member.profile === 'support-desk', deskTools);
     const agentBody = (agentProfile: string) => ({ name: 'Desk', email: 'desk@agents.example.com', agent_profile: agentProfile });
-    check('profiles: a new agent may take an install\'s profile or a core one, never another', createAgentSchema.safeParse(agentBody('support-desk')).success
-      && createAgentSchema.safeParse(agentBody('reviewer')).success && !createAgentSchema.safeParse(agentBody('ghost')).success);
+    // The schema checks the shape; whether a registry (code or an Owner's rows) holds it, the write checks.
+    check('profiles: a new agent may name a profile value; one of the wrong shape is refused', createAgentSchema.safeParse(agentBody('support-desk')).success
+      && createAgentSchema.safeParse(agentBody('generic')).success && !createAgentSchema.safeParse(agentBody('Not Valid!')).success);
     const ghost = await call(agentsRoute.POST, 'POST', '/api/v1/agents', {}, s.keys.owner, { name: 'Ghost', email: 'ghost@agents.example.com', agent_profile: 'ghost' });
     check('profiles: an unknown profile is refused on write', ghost.status === 422, ghost.body);
-    check('profiles: isAgentProfile knows the registry', profiles.isAgentProfile('reviewer') && profiles.isAgentProfile('support-desk') && !profiles.isAgentProfile('ghost'));
+    check('profiles: isAgentProfile knows code\'s registry', profiles.isAgentProfile('generic') && profiles.isAgentProfile('support-desk') && !profiles.isAgentProfile('ghost') && !profiles.isAgentProfile('reviewer'));
     await s.q("UPDATE pm.team_members SET agent_profile = 'ghost' WHERE id = $1", [s.scout]);
     const ghostPack = (await call(myContextRoute.GET, 'GET', '/api/v1/agents/me/context?format=pack', {}, s.keys.scout)).body?.data?.pack;
     check('profiles: a stored value the registry does not know sees only pm_guide', JSON.stringify((ghostPack?.tools ?? []).map((t: Loose) => t.name)) === '["pm_guide"]', ghostPack?.tools);
@@ -646,7 +649,7 @@ async function main() {
     check('profiles: a bad value, a repeat, a clash with core or an unknown tool stops the build',
       throws(() => extensionProfiles.defineAgentProfiles([{ value: 'Bad Value', label: 'x', description: 'x' }]))
       && throws(() => extensionProfiles.defineAgentProfiles([{ value: 'a', label: 'x', description: 'x' }, { value: 'a', label: 'y', description: 'y' }]))
-      && throws(() => extensionProfiles.mergeAgentProfiles(profiles.CORE_AGENT_PROFILES, [{ value: 'builder', label: 'x', description: 'x' }]))
+      && throws(() => extensionProfiles.mergeAgentProfiles(profiles.CORE_AGENT_PROFILES, [{ value: 'generic', label: 'x', description: 'x' }]))
       && throws(() => extensionProfiles.checkAgentProfileTools([{ value: 'a', label: 'x', description: 'x', tools: ['no_such_tool'] }], PM_TOOLS.map((t) => t.name)))
       && !throws(() => extensionProfiles.checkAgentProfileTools(profiles.AGENT_PROFILES, PM_TOOLS.map((t) => t.name))));
   } finally {

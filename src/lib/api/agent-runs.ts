@@ -139,6 +139,8 @@ async function present(db: SupabaseClient, rows: Row[]): Promise<AgentRunSummary
     ...(row.source === 'run' ? { turns: turns.get(row.id) ?? { count: 0, duration_ms: 0, tokens_in: null, tokens_out: null } } : {}),
     // Only a run made for someone carries it, so other runs read as they always have.
     ...(row.principal_id ? { principal_id: row.principal_id as string } : {}),
+    // Likewise only a child run carries its chain.
+    ...(row.parent_run_id ? { parent_run_id: row.parent_run_id as string, root_run_id: (row.root_run_id as string | null) ?? row.parent_run_id as string } : {}),
   }));
 }
 
@@ -173,7 +175,7 @@ async function trashedRunTasks(db: SupabaseClient): Promise<string[]> {
 }
 
 /** Whether a stored run's task and project are out of Trash. */
-async function placeLive(db: SupabaseClient, row: Row): Promise<boolean> {
+export async function placeLive(db: SupabaseClient, row: Row): Promise<boolean> {
   if (row.task_id) {
     const { data, error } = await db.from('tasks').select('id').eq('id', row.task_id).is('deleted_at', null).maybeSingle();
     if (error) throw error;
@@ -188,7 +190,7 @@ async function placeLive(db: SupabaseClient, row: Row): Promise<boolean> {
 }
 
 /** A stored run this key may see; hidden, in Trash and missing read the same. */
-async function loadRun(ctx: RunsContext, id: string): Promise<Row> {
+export async function loadRun(ctx: RunsContext, id: string): Promise<Row> {
   if (!UUID.test(id)) throw notFound('Run');
   const { data, error } = await ctx.db.from('agent_runs').select('*').eq('id', id).maybeSingle();
   if (missingRunsTable(error)) throw notFound('Run');
@@ -203,7 +205,7 @@ async function loadRun(ctx: RunsContext, id: string): Promise<Row> {
  * the agent ran it for this same person. Without a principal, every run the
  * key could read before.
  */
-function runInReach(ctx: RunsContext, row: Row): boolean {
+export function runInReach(ctx: RunsContext, row: Row): boolean {
   const principal = ctx.access.principal_id;
   if (!principal) return true;
   if (row.project_id) return accessAllowsProject(ctx.access, row.project_id as string, 'api');
@@ -218,6 +220,58 @@ function runsReachFilter(ctx: RunsContext): string | null {
   const projects = accessAllows(ctx.access, 'projects.read', 'api') ? ctx.access.project_ids : [];
   const inReach = readAll ? 'project_id.not.is.null' : projects.length ? `project_id.in.(${projects.join(',')})` : null;
   return [...(inReach ? [inReach] : []), `and(project_id.is.null,principal_id.eq.${principal})`].join(',');
+}
+
+/** A database before parent_run_id (new code before its migration). */
+export const missingLineageColumns = (error: { code?: string; message?: string } | null) =>
+  !!error && (error.code === '42703' || error.code === 'PGRST204' || /parent_run_id|root_run_id|task_delegations/.test(error.message ?? ''));
+
+export function lineagePending(): ApiError {
+  return new ApiError(503, 'SERVICE_UNAVAILABLE', 'Child runs and delegation need the database update 20261125000100_handoff_scopes_registries.sql', { reason: 'migration_pending' });
+}
+
+/**
+ * Whether a run handed work to this key's member: a subtask it delegated
+ * (pm.task_delegations) that names the member, or is assigned to them.
+ */
+export async function runDelegatedTo(db: SupabaseClient, runId: string, memberId: string): Promise<boolean> {
+  const { data, error } = await db.from('task_delegations').select('task_id, delegated_to').eq('run_id', runId);
+  if (error) {
+    if (error.code === '42P01' || error.code === 'PGRST205') return false;
+    throw error;
+  }
+  const rows = (data ?? []) as { task_id: string; delegated_to: string | null }[];
+  if (rows.some((row) => row.delegated_to === memberId)) return true;
+  if (rows.length === 0) return false;
+  const { data: assigned, error: assignedError } = await db.from('task_assignees').select('task_id')
+    .eq('member_id', memberId).in('task_id', rows.map((row) => row.task_id)).limit(1);
+  if (assignedError) throw assignedError;
+  return (assigned ?? []).length > 0;
+}
+
+/**
+ * The parent a start names: a stored run the key sees (its own, every run
+ * with agents.manage, or a run that delegated a subtask to it), in reach and
+ * not in Trash; else 404 as a hidden run reads. A request acting for a
+ * person may only continue a chain made for that same person (403
+ * principal_mismatch): a child never switches to someone else.
+ */
+async function loadParentRun(ctx: RunsContext, id: string): Promise<Row> {
+  if (!UUID.test(id)) throw notFound('Parent run');
+  const { data, error } = await ctx.db.from('agent_runs').select('*').eq('id', id).maybeSingle();
+  if (missingRunsTable(error)) throw notFound('Parent run');
+  if (error) throw error;
+  const row = data as Row | null;
+  const sees = !!row && (row.agent_id === ctx.memberId || canManageRuns(ctx) || await runDelegatedTo(ctx.db, row.id, ctx.memberId));
+  if (!row || !sees || !runInReach(ctx, row) || !(await placeLive(ctx.db, row))) throw notFound('Parent run');
+  const principal = ctx.access.principal_id ?? null;
+  if (principal && principal !== (row.principal_id ?? null)) {
+    throw forbidden('A child run acts for the same person as its parent', {
+      reason: 'principal_mismatch',
+      hint: 'Start the child run for the person its parent ran for, or start a run of its own without parent_run_id.',
+    });
+  }
+  return row;
 }
 
 /** Where a run hangs: a live task (its project comes with it), a live project, or nothing. */
@@ -300,6 +354,8 @@ const finished = (status: string) => status !== 'running';
 export async function startRun(ctx: RunsContext, input: StartAgentRunInput): Promise<{ run: AgentRunView; created: boolean }> {
   requireAgentsEnabled(ctx.access);
   const agentId = await resolveAgent(ctx, input.agent_id);
+  // A child run: its parent must be one the key can see, and it acts for the same person.
+  const parent = input.parent_run_id ? await loadParentRun(ctx, input.parent_run_id) : null;
   const place = await resolvePlace(ctx, input);
   assertProjectWritable(place.project_id);
   if (input.started_at && Date.parse(input.started_at) > Date.now() + 60_000) {
@@ -321,9 +377,12 @@ export async function startRun(ctx: RunsContext, input: StartAgentRunInput): Pro
     trigger: input.trigger ?? null,
     external_id: input.external_id ?? null,
     ...(input.started_at ? { started_at: input.started_at } : {}),
+    // The database derives its root and carries the parent's person down.
+    ...(parent ? { parent_run_id: parent.id } : {}),
   };
   const { data, error } = await ctx.db.from('agent_runs').insert(row).select('*').single();
   if (error) {
+    if (parent && missingLineageColumns(error)) throw lineagePending();
     // Two starts with one external_id at once: the second answers with the first.
     if (error.code === '23505' && input.external_id) {
       const existing = await runByExternalId(ctx.db, agentId, input.external_id);

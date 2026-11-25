@@ -27,6 +27,7 @@ import { Select } from '@/components/ui/inputs/Select';
 import { toast } from '@/components/ui/Toast';
 import { RoleChip } from '@/components/team/member-chips';
 import { useDebounced, usePagedRead } from '@/components/team/groups/paged';
+import { ContextBrief } from '@/components/projects/BriefTab';
 
 /**
  * One group: what it is for, who is in it (leads first), and for an Owner or
@@ -228,6 +229,17 @@ export default function GroupPage() {
           </>
         )}
       </section>
+
+      {/* Group knowledge: for its members and whoever manages groups (the server checks too). */}
+      {(g.is_member || canManage) && !isDemoMode && (
+        <section aria-labelledby="group-knowledge" className="space-y-3 p-4 lg:p-6">
+          <div>
+            <h2 id="group-knowledge" className="text-[15px] font-semibold text-white">Group knowledge</h2>
+            <p className="mt-0.5 text-xs text-zinc-500">What this group&apos;s members and agents should know. Pinned entries go into the context of every agent in the group.</p>
+          </div>
+          <ContextBrief scope={{ scope_type: 'group', scope_id: groupId }} label="group knowledge" emptyText="Nothing here yet. Add what someone joining this group should know." />
+        </section>
+      )}
 
       {editing && <EditGroupModal group={g} onClose={() => setEditing(false)} />}
       <AddMembersModal isOpen={adding} groupId={groupId} groupName={g.name} onClose={() => setAdding(false)} onAdded={refresh} />

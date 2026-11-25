@@ -153,6 +153,7 @@ export const PERMISSION_MODULE: Record<PermissionKey, ModuleId | 'core'> = {
   'smtp.manage': 'core',
   'audit.read': 'core',
   'audit.export': 'core',
+  'context.memory': 'core',
   'api_keys.manage_all': 'core',
   'webhooks.manage': 'webhooks',
   'notifications.manage_own': 'core',

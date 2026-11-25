@@ -9,6 +9,22 @@ Each section starts with `## X.Y.Z (YYYY-MM-DD)` and uses these headings, leavin
 - `### Database`: the core migration files in the release, one per line. `npm run db:migrate` applies them.
 - `### Breaking`: what an install must do when it takes this release.
 
+## 2.0.30 (2026-11-25)
+
+### Added
+- **Agent handoff**: a run may start under a parent run (`parent_run_id`), and the whole chain shares one root and one person it is for, which no agent can switch. `delegate_task` (MCP) and `POST /api/v1/tasks/{id}/delegate` hand a subtask to a specialist agent through the normal assignment rules; `get_run_tree` shows the chain, and the run view lists parent and children.
+- **Context at every level**: alongside project briefs, company knowledge (Settings > Workspace), group knowledge (each group's page), agent notes (each agent's profile) and personal memory. Personal memory is seen only by its person and, when they switch on "Remember things for me", their own assistant; never by an Owner. Agents read pinned entries for their level in their briefing and task brief, and search across what they may see (`search_context`, `add_context`, `/api/v1/context`).
+- **Agent templates and tool profiles as data**: Owners create, edit and archive them over the API and MCP, and export or import them, without a code change. Code-defined ones still work and cannot be overridden.
+- Personal memory needs the new permission `context.memory` for a person's own keys, and a connected AI tool reaches it only when the person ticks it on the consent screen.
+
+### Changed
+- Core MCP profiles are now just `generic`; other profiles in use on an install are kept as workspace profiles with the same tools.
+- An Owner can no longer make or rotate a key for someone else's personal assistant: only the person, or the assistant host collecting its key, can.
+- Re-binding a personal assistant to another person resets its settings.
+
+### Database
+- `20261125000100_handoff_scopes_registries.sql`: run lineage and task delegations, context scopes on project context with personal memory rules, template and profile rows, the agent's template key on the member, and `context.memory`.
+
 ## 2.0.29 (2026-11-25)
 
 ### Added

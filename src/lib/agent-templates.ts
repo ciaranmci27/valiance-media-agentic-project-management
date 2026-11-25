@@ -24,9 +24,10 @@ import customTemplates from '@/custom/agent-templates';
  * - personal-assistant: one person's own agent (a personal agent, made by an
  *   assistant setup), within what that person can see.
  *
- * Each declares the role label an agent hired from it starts with, the
+ * Each declares the role label an agent hired from it starts with and the
  * settings it asks for on each project (generic ones: a repository, a
- * schedule), and the builder its MCP profile.
+ * schedule). Each starts on the generic MCP profile. An Owner adds templates
+ * of their own as rows (lib/api/agent-registries.ts merges them).
  */
 export const CORE_AGENT_TEMPLATES: AgentTemplate[] = defineAgentTemplates([
   {
@@ -68,7 +69,6 @@ export const CORE_AGENT_TEMPLATES: AgentTemplate[] = defineAgentTemplates([
     label: 'Builder',
     description: 'Works the tasks assigned to it, claims each before starting, and sends finished work to review.',
     role: 'builder',
-    profile: 'builder',
     rules: { agent_self_assign: false, agent_close_policy: 'review', agent_create_policy: 'live' },
     scopes: ['tasks.read', 'tasks.manage_assigned', 'tasks.create', 'projects.read', 'project_context.read', 'files.read', 'time.manage_own', 'agent_activity.write'],
     settings: [
@@ -126,17 +126,25 @@ export const CORE_AGENT_TEMPLATES: AgentTemplate[] = defineAgentTemplates([
   },
 ]);
 
-/** A template's profile must be one the registry holds (core's or the install's). */
+/**
+ * The profiles core shipped before profiles became rows (coordinator,
+ * builder, auditor, reviewer): an install's template may still name one, which resolves where
+ * the install has it as a row (the update makes one wherever a member used
+ * it). A hire from such a template is refused until the profile exists.
+ */
+const FORMER_CORE_PROFILES = ['coordinator', 'builder', 'auditor', 'reviewer'];
+
+/** A template's profile must be one code holds (core's or the install's), or a former core one. */
 function checkTemplateProfiles(templates: AgentTemplate[]): AgentTemplate[] {
   for (const template of templates) {
-    if (template.profile !== undefined && !isAgentProfile(template.profile)) {
+    if (template.profile !== undefined && !isAgentProfile(template.profile) && !FORMER_CORE_PROFILES.includes(template.profile)) {
       throw new ExtensionError(`agent template "${template.key}": profile "${template.profile}" is not an agent profile.`);
     }
   }
   return templates;
 }
 
-/** Every template, core's first; an install's that repeats a core key stops the build. */
+/** Every template in code, core's first; an install's that repeats a core key stops the build. An Owner's rows are merged on the server. */
 export const AGENT_TEMPLATES: AgentTemplate[] = checkTemplateProfiles(mergeAgentTemplates(CORE_AGENT_TEMPLATES, customTemplates));
 
 /** Templates whose module is on for this workspace. */

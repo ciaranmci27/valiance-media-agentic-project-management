@@ -86,6 +86,8 @@ export const startAgentRunSchema = z.object({
   trigger: z.string().trim().regex(/^[a-z][a-z0-9_.-]{0,39}$/, 'trigger is a lower-case word such as assigned, scheduled, webhook, chat or manual').optional(),
   external_id: z.string().trim().min(1).max(AGENT_RUN_LIMITS.externalId).optional(),
   started_at: z.iso.datetime({ offset: true, message: 'started_at must be an ISO 8601 time' }).optional(),
+  /** The run that handed this one its work (an orchestrator's): a run the key can see. Fixed once written. */
+  parent_run_id: z.uuid('parent_run_id must be a run id').optional(),
 }).strict();
 export type StartAgentRunInput = z.infer<typeof startAgentRunSchema>;
 
@@ -145,6 +147,9 @@ export interface AgentRunSummary {
   turns?: AgentRunTurns;
   /** Set when the agent acted for someone (X-Act-For): that person. */
   principal_id?: string;
+  /** Set for a run another run handed its work to: that run, and the first run of the chain. */
+  parent_run_id?: string;
+  root_run_id?: string;
 }
 
 /** One run in full: its plan, notes and metadata too (empty for a turn). */

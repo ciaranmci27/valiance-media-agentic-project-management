@@ -10,7 +10,8 @@ export const dynamic = 'force-dynamic';
  * The consent screen's answer (Allow or Deny), from the signed-in person.
  * Everything the page showed is checked again here: the client and its exact
  * redirect address, PKCE, the resource, the workspace switch and what the
- * person may share. Answers { redirect }: back to the tool with a one-time
+ * person may share (memory: true adds what their assistant remembers, when
+ * they hold context.memory). Answers { redirect }: back to the tool with a one-time
  * code (Allow) or error=access_denied (Deny, or nothing to share), plus state
  * and iss. A request whose client or redirect address is not valid is 400 and
  * goes nowhere.
@@ -36,7 +37,7 @@ export async function POST(request: NextRequest) {
     if (!state.ready || !state.enabled || !state.apiEnabled) {
       return back({ error: 'access_denied', error_description: 'Connecting AI tools is turned off for this workspace.', state: check.state });
     }
-    const scopes = connectScopesFor(access);
+    const scopes = connectScopesFor(access, { withMemory: body.memory === true });
     if (access.role === 'agent' || scopes.length === 0) {
       return back({ error: 'access_denied', error_description: 'This person has no access to share with an AI tool.', state: check.state });
     }

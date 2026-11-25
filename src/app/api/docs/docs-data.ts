@@ -35,6 +35,11 @@ export function getEndpointScopes(endpoint: EndpointDoc): string[] {
   if (path === '/api/v1/agents/me/context' || path === '/api/v1/mcp/tools') return ['any scope'];
   if (path === '/api/v1/agents/:id/context' || path === '/api/v1/agents/:id/export') return ['team.read', 'team.manage'];
   if (path === '/api/v1/agents/:id/template' || path === '/api/v1/agents/import' || path === '/api/v1/agent-templates') return ['team.manage'];
+  if (path === '/api/v1/agent-profiles' && !write) return ['team.read', 'team.manage'];
+  if (path.startsWith('/api/v1/agent-profiles') || path.startsWith('/api/v1/agent-templates/') || path.startsWith('/api/v1/agent-registries')) return ['team.manage'];
+  if (path === '/api/v1/tasks/:id/delegate') return ['tasks.create', 'tasks.manage_all'];
+  if (path === '/api/v1/agents/runs/:id/tree') return ['agent_activity.write', 'tasks.read', 'agents.manage'];
+  if (path === '/api/v1/context' || path === '/api/v1/context/search' || path === '/api/v1/context/:entryId') return ['any scope'];
   if (path.includes('/inbound-emails') || path.startsWith('/api/v1/inbox/') || path === '/api/v1/tasks/:id/messages') {
     if (path.endsWith('/signal')) return ['inbound_email.signal'];
     if (path.endsWith('/messages/:id/tasks')) return ['tasks.create', 'inbound_email.triage'];
@@ -192,7 +197,7 @@ export const endpoints: EndpointDoc[] = [
       { name: 'email', type: 'string', required: true, description: 'An address only this agent uses' },
       { name: 'title', type: 'string', required: false, description: 'Shown with its name, such as Auditor (up to 80 characters)' },
       { name: 'avatar', type: 'string', required: false, description: 'Avatar image URL' },
-      { name: 'agent_profile', type: 'string', required: false, description: 'Which MCP tools it sees (default generic): core\'s generic, coordinator, builder, auditor and reviewer see every tool its keys allow; an install\'s own (src/custom/agent-profiles.ts) list theirs. Another value is 422. It only narrows what its keys could do.' },
+      { name: 'agent_profile', type: 'string', required: false, description: 'Which MCP tools it sees (default generic): core\'s generic sees every tool its keys allow; an install\'s own (src/custom/agent-profiles.ts) and the workspace\'s own (GET /api/v1/agent-profiles) list theirs. Another value is 422. It only narrows what its keys could do.' },
       { name: 'agent_role', type: 'string', required: false, description: 'A role label for people (builder, code-reviewer): lowercase words joined by dashes, 40 characters at most. It drives no behaviour.' },
       { name: 'description', type: 'string', required: false, description: 'What it is for (up to 2000 characters)' },
       { name: 'owner_ids', type: 'uuid[]', required: false, description: 'People responsible for it besides you (you always become one). Never an agent (422 owner_is_agent).' },
@@ -281,7 +286,7 @@ export const endpoints: EndpointDoc[] = [
       { name: 'format', type: 'json|md|skill', description: 'As for /agents/me/context' },
     ],
   },
-  { method: 'GET', path: '/api/v1/agent-templates', description: "The agent templates this workspace offers: core's data-health-watcher (self-directed, one task per problem with a dedupe_key, closes its own work), inbox-triage (only while the Inbox is on; new tasks need approval), builder (assigned work, claims, sends to review) and weekly-reporter (reads, sends one summary a week), then the install's own from src/custom/agent-templates.ts. Each: key, label, description, rules (agent_self_assign, agent_close_policy, agent_create_policy), scopes (what a key for it should carry), context (the brief added to its context pack), webhook_events (suggested), module, settings (the fields an agent from it fills in per project: [{ key, label, help, type (text, textarea, number, boolean, select, url or regex), required, default, options, min, max, placeholder }]), role (the role label an agent from it starts with; default_role says the same) and profile (its starting MCP profile, or null).", group: 'Agent Setup' },
+  { method: 'GET', path: '/api/v1/agent-templates', description: "The agent templates this workspace offers: core's data-health-watcher (self-directed, one task per problem with a dedupe_key, closes its own work), inbox-triage (only while the Inbox is on; new tasks need approval), builder (assigned work, claims, sends to review) and weekly-reporter (reads, sends one summary a week), then the install's own from src/custom/agent-templates.ts, then the workspace's own (rows an Owner adds with POST). Each: key, label, description, rules (agent_self_assign, agent_close_policy, agent_create_policy), scopes (what a key for it should carry), context (the brief added to its context pack), webhook_events (suggested), module, settings (the fields an agent from it fills in per project: [{ key, label, help, type (text, textarea, number, boolean, select, url or regex), required, default, options, min, max, placeholder }]), role (the role label an agent from it starts with; default_role says the same) and profile (its starting MCP profile, or null).", group: 'Agent Setup' },
   { method: 'POST', path: '/api/v1/agents/:id/template', description: "Apply a template to an agent: its three rules, and with create_key a key carrying its scopes. Templates add nothing to the security model: your key must be able to grant every scope the template suggests (403 scope_escalation, before anything changes), and a key is made only as POST /api/v1/api-keys would make it (an Owner's key with api_keys.manage_all; every scope held by the agent, 422 scope_not_held). Returns agent, template, rules, key ({ created, secret } once, or the scopes and not_held when no key was made) and webhook_events. Never cached; the Idempotency-Key header is refused because the answer can hold a secret. The template is recorded in the audit log, which is how the context pack and the export know it.", group: 'Agent Setup',
     params: [{ name: 'id', type: 'uuid', required: true, description: 'The agent member ID' }],
     body: [
@@ -2129,6 +2134,73 @@ export const endpoints: EndpointDoc[] = [
   },
   { method: 'POST', path: '/api/v1/assistant/messages/:id/handled', description: 'Mark a chat message handled without a reply, so it leaves the pending list. Repeating it changes nothing.', group: 'Personal Agents',
     params: [{ name: 'id', type: 'uuid', required: true, description: 'Chat message ID' }],
+  },
+  { method: 'POST', path: '/api/v1/tasks/:id/delegate', description: "Hand part of a task to another agent: a subtask of the task, assigned to agent_id (an active agent), through the same create and assign as POST /api/v1/tasks with parent_task_id. The caller must be able to manage the task and assign others (tasks.manage_all), the agent must reach the project, and the caller's rules apply (approval answers 202 with a suggestion). run_id (the caller's own run) links the subtask to that run, so the specialist's run can name it as parent_run_id; get_task_brief shows it as delegated_from. Acting for someone records them as principal_id. Answers 201 with the task, task_id, delegated_to and run_id. Core never picks the specialist.", group: 'Agent Runs',
+    params: [{ name: 'id', type: 'uuid', required: true, description: 'Parent task ID' }],
+    body: [
+      { name: 'agent_id', type: 'uuid', required: true, description: 'The specialist: an active agent' },
+      { name: 'title', type: 'string', required: true, description: 'The subtask title' },
+      { name: 'description', type: 'string', required: false, description: 'What to do' },
+      { name: 'priority', type: 'string', required: false, description: 'low, medium, high or urgent' },
+      { name: 'due_date', type: 'string', required: false, description: 'YYYY-MM-DD' },
+      { name: 'acceptance_criteria', type: 'string[]', required: false, description: 'Up to 50' },
+      { name: 'ai_readiness', type: 'string', required: false, description: 'Default ai_ready' },
+      { name: 'run_id', type: 'uuid', required: false, description: 'The delegating run (your own, or any with agents.manage)' },
+    ],
+  },
+  { method: 'GET', path: '/api/v1/agents/runs/:id/tree', description: "The chain a run belongs to, from its root, in start order: each run's id, parent_run_id, depth, agent_id and agent_name, task_id, status, title, started_at, finished_at, and delegated (the subtasks it handed over). Readable by anyone who sees one of its runs (their own, a run that delegated to them, or every run with agents.manage). Another agent's run has visible false and leaves out summary, tokens, cost and external_url. Runs start with parent_run_id on POST /api/v1/agents/runs (a run the key can see; the child acts for the same person, 403 principal_mismatch otherwise); run.started and run.finished carry parent_run_id and root_run_id when set.", group: 'Agent Runs',
+    params: [{ name: 'id', type: 'uuid', required: true, description: 'Any run in the chain' }],
+  },
+  { method: 'GET', path: '/api/v1/context', description: "One scope's context as a brief: sections of entries (pinned first, then newest), name and can_edit. Any scope reads it; each scope has its own rule. Scopes: workspace (company knowledge, every member but guests), group (its members and whoever manages groups), project (as the project brief: project_context.read), agent (the agent and the people who manage it), member (one person's memory: only them, through their own key or connected AI tool only with context.memory, and their own personal agent while they allow it; never an Owner).", group: 'Context',
+    queryParams: [
+      { name: 'scope_type', type: 'string', description: 'workspace, group, project, agent or member (required)' },
+      { name: 'scope_id', type: 'uuid', description: 'The group, project, agent or person; left out for the workspace' },
+      { name: 'section', type: 'string', description: 'One section, paged with offset and limit' },
+    ],
+  },
+  { method: 'POST', path: '/api/v1/context', description: "Add an entry to a scope. An agent may write its own notes (agent, its own id) and, as a personal agent, its person's memory (member) while they turned on Remember things for me, with any scope; the workspace is an Owner's or settings.manage's, a group its managers' and its members' with project_context.manage, a project needs project_context.manage. Answers 201 with the entry.", group: 'Context',
+    body: [
+      { name: 'scope_type', type: 'string', required: true, description: 'workspace, group, project, agent or member' },
+      { name: 'scope_id', type: 'uuid', required: false, description: 'Left out for the workspace' },
+      { name: 'content', type: 'string', required: true, description: 'Up to 20,000 characters' },
+      { name: 'section', type: 'string', required: false, description: 'overview (default), rules, decisions, links, glossary or history' },
+      { name: 'pinned', type: 'boolean', required: false, description: "Pinned entries go into the agent's context pack and task brief" },
+    ],
+  },
+  { method: 'GET', path: '/api/v1/context/search', description: 'Search every scope the caller reads at once, best match first (web search syntax). Each entry adds scope_type, scope_id, section, pinned and rank. 400 query_required without q.', group: 'Context',
+    queryParams: [
+      { name: 'q', type: 'string', description: 'What to search for (required)' },
+      { name: 'scope_types', type: 'string', description: 'Comma separated, to narrow it' },
+      { name: 'limit', type: 'number', description: '1 to 50, default 20' },
+    ],
+  },
+  { method: 'PATCH', path: '/api/v1/context/:entryId', description: 'Change an entry in a scope the caller may write: content, section, pinned. 404 for one it cannot read.', group: 'Context',
+    params: [{ name: 'entryId', type: 'uuid', required: true, description: 'Entry ID' }],
+  },
+  { method: 'DELETE', path: '/api/v1/context/:entryId', description: "Remove an entry: archived, or deleted from a person's memory (it is theirs). Answers { id, deleted, archived }.", group: 'Context',
+    params: [{ name: 'entryId', type: 'uuid', required: true, description: 'Entry ID' }],
+  },
+  { method: 'GET', path: '/api/v1/agent-profiles', description: "Every agent profile (which MCP tools an agent sees): core's generic, the install's from src/custom/agent-profiles.ts, then the workspace's own rows. Each: value, label, description, tools (null: every tool its keys allow), source (core, install or workspace), archived_at. include_archived=true adds archived rows.", group: 'Agent Setup' },
+  { method: 'POST', path: '/api/v1/agent-profiles', description: "Add the workspace's own profile, no deploy needed: value, label, description, tools (MCP tool names, or null for every tool). Owner only. A value code holds is 409 registry_key_taken; an unknown tool is 422.", group: 'Agent Setup' },
+  { method: 'PATCH', path: '/api/v1/agent-profiles/:value', description: "Change the workspace's own profile: label, description, tools, archived (true archives, false brings back). One that agents use cannot be archived (409 profile_in_use). Owner only.", group: 'Agent Setup',
+    params: [{ name: 'value', type: 'string', required: true, description: 'Profile value' }],
+  },
+  { method: 'DELETE', path: '/api/v1/agent-profiles/:value', description: "Archive the workspace's own profile (never deleted). Owner only.", group: 'Agent Setup',
+    params: [{ name: 'value', type: 'string', required: true, description: 'Profile value' }],
+  },
+  { method: 'POST', path: '/api/v1/agent-templates', description: "Add the workspace's own template, no deploy needed: key, label, description, rules, scopes, context, and optionally webhook_events, module, settings, role, profile and limits, checked as code's are. Owner only. A key code holds is 409 registry_key_taken.", group: 'Agent Setup' },
+  { method: 'PATCH', path: '/api/v1/agent-templates/:key', description: "Change the workspace's own template (any of its fields), or archive it (archived true; false brings it back). Owner only.", group: 'Agent Setup',
+    params: [{ name: 'key', type: 'string', required: true, description: 'Template key' }],
+  },
+  { method: 'DELETE', path: '/api/v1/agent-templates/:key', description: "Archive the workspace's own template (never deleted). Owner only.", group: 'Agent Setup',
+    params: [{ name: 'key', type: 'string', required: true, description: 'Template key' }],
+  },
+  { method: 'GET', path: '/api/v1/agent-registries/export', description: "The workspace's own live profiles and templates as one document (format pm-agent-registries, version 1). Code's ship with the code and are left out.", group: 'Agent Setup' },
+  { method: 'POST', path: '/api/v1/agent-registries/import', description: 'Bring profiles and templates in from that document: each is created, or updates (and brings back) the row with its key. A key code holds, or an entry that fails a check, is listed in refused with why. dry_run true answers the plan only. Owner only.', group: 'Agent Setup',
+    body: [
+      { name: 'document', type: 'object', required: true, description: 'What the export answered' },
+      { name: 'dry_run', type: 'boolean', required: false, description: 'Answer the plan and change nothing' },
+    ],
   },
 ];
 

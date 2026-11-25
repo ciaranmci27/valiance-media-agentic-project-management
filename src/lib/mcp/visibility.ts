@@ -1,7 +1,7 @@
 import { isModuleEnabled, type AccessContext, type PermissionKey } from '@/lib/access-control';
 import { accessAllows } from '@/lib/api/access';
 import { permissionAlternatives } from '@/lib/api/middleware';
-import { checkAgentProfileTools } from '@/lib/extensions/agent-profiles';
+import { checkAgentProfileTools, type AgentProfileDefinition } from '@/lib/extensions/agent-profiles';
 import type { PmTool } from './core';
 import { AGENT_PROFILES, profileSeesTool, type AgentProfile } from './profiles';
 import { GUIDE_TOOL, PM_TOOLS } from './tools';
@@ -19,6 +19,11 @@ export interface ToolViewer {
   scopes: string[];
   readOnly: boolean;
   profile: AgentProfile;
+  /**
+   * The profile as the server resolved it (an Owner's row, or null when no
+   * registry knows the value). Left out, only code's profiles are asked.
+   */
+  profileDefinition?: AgentProfileDefinition | null;
 }
 
 /**
@@ -28,7 +33,7 @@ export interface ToolViewer {
  */
 export function toolVisible(tool: PmTool, caller: ToolViewer): boolean {
   if (tool.profiles && !tool.profiles.includes(caller.profile)) return false;
-  if (tool.name !== GUIDE_TOOL && !profileSeesTool(caller.profile, tool.name)) return false;
+  if (tool.name !== GUIDE_TOOL && !profileSeesTool(caller.profile, tool.name, caller.profileDefinition)) return false;
   if (tool.agentsOnly && caller.access.role !== 'agent') return false;
   if (tool.personalOnly && !(caller.access.role === 'agent' && caller.access.principal_id)) return false;
   if (tool.module && !isModuleEnabled(caller.access, tool.module)) return false;

@@ -2,6 +2,7 @@ import { insertAuditRows } from './audit';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { apiScopesFor, type AccessContext } from '@/lib/access-control';
 import { findAgentTemplate } from '@/lib/agent-templates';
+import { agentTemplateRegistry, resolveAgentTemplate } from './agent-registries';
 import type { AgentTemplate } from '@/lib/extensions/agent-templates';
 import { enabledModuleSet } from '@/lib/modules/server';
 import {
@@ -77,6 +78,7 @@ export interface AssistantSetup {
 const SETUP_COLUMNS = 'id, match_role, match_group_id, template_key, settings, enabled, created_by, created_at, updated_at';
 
 async function presentSetups(service: SupabaseClient, rows: Row[]): Promise<AssistantSetup[]> {
+  const templates = await agentTemplateRegistry(service);
   const groupIds = [...new Set(rows.map((row) => row.match_group_id).filter(Boolean))] as string[];
   const names = new Map<string, string>();
   if (groupIds.length) {
@@ -91,7 +93,7 @@ async function presentSetups(service: SupabaseClient, rows: Row[]): Promise<Assi
       match_group_id: row.match_group_id ?? null,
       match_group_name: row.match_group_id ? names.get(row.match_group_id) ?? null : null,
       template_key: row.template_key,
-      template_label: findAgentTemplate(row.template_key)?.label ?? null,
+      template_label: findAgentTemplate(row.template_key, templates)?.label ?? null,
       settings: parsed.success ? parsed.data : {},
       enabled: row.enabled !== false,
       created_by: row.created_by ?? null,
@@ -125,7 +127,7 @@ const setupTaken = (error: { code?: string } | null) => error?.code === '23505';
 export async function createAssistantSetup(service: SupabaseClient, caller: AgentCaller, input: CreateAssistantSetup): Promise<AssistantSetup> {
   requireAgentsEnabled(caller.access);
   requireOwner(caller.access, 'manages assistant setups');
-  requireTemplate(caller, input.template_key);
+  requireTemplate(caller, input.template_key, await agentTemplateRegistry(service));
   if (input.match_group_id) {
     const { data, error } = await service.from('groups').select('id').eq('id', input.match_group_id).is('deleted_at', null).maybeSingle();
     if (error) throw error;
@@ -150,7 +152,7 @@ export async function updateAssistantSetup(service: SupabaseClient, caller: Agen
   requireAgentsEnabled(caller.access);
   requireOwner(caller.access, 'manages assistant setups');
   await loadSetup(service, id);
-  if (patch.template_key) requireTemplate(caller, patch.template_key);
+  if (patch.template_key) requireTemplate(caller, patch.template_key, await agentTemplateRegistry(service));
   const { data, error } = await service.from('assistant_setups').update({
     ...(patch.template_key !== undefined ? { template_key: patch.template_key } : {}),
     ...(patch.settings !== undefined ? { settings: patch.settings } : {}),
@@ -192,8 +194,9 @@ async function usableSetups(service: SupabaseClient, modules: ReadonlySet<string
   if (error) fail(error);
   const usable: { row: Row; template: AgentTemplate; settings: AssistantSetupSettings }[] = [];
   const skipped: { setup_id: string; template_key: string; reason: string }[] = [];
+  const templates = await agentTemplateRegistry(service);
   for (const row of (data ?? []) as Row[]) {
-    const template = findAgentTemplate(row.template_key);
+    const template = findAgentTemplate(row.template_key, templates);
     if (!template) { skipped.push({ setup_id: row.id, template_key: row.template_key, reason: 'unknown_template' }); continue; }
     if (template.module && !modules.has(template.module)) { skipped.push({ setup_id: row.id, template_key: row.template_key, reason: 'module_off' }); continue; }
     const parsed = assistantSetupSettingsSchema.safeParse(row.settings ?? {});
@@ -514,7 +517,7 @@ async function loadPersonalAgent(service: SupabaseClient, agentId: string): Prom
 /** The scopes a new key carries: those asked for, else the template's, narrowed to what the grant allows. */
 async function keyScopesFor(service: SupabaseClient, granter: Granter, agent: Row, asked: string[] | undefined) {
   if (asked) return { scopes: asked, left_out: [] as string[] };
-  const template = agent.assistant_template ? findAgentTemplate(agent.assistant_template) : null;
+  const template = agent.assistant_template ? await resolveAgentTemplate(service, agent.assistant_template) : null;
   const wanted = template?.scopes ?? [];
   const access = await resolveMemberAccess(service, agent.id);
   const held = new Set<string>(apiScopesFor(access));
@@ -541,7 +544,13 @@ export async function mintOwnPersonalAgentKey(
 ): Promise<NewPersonalAgentKey> {
   requireAgentsEnabled(person.access);
   const agent = await loadPersonalAgent(service, agentId);
-  if (agent.delegate_of !== person.memberId) throw notFound('Personal agent');
+  if (agent.delegate_of !== person.memberId) {
+    // An Owner sees every agent, so is told why; anyone else finds nothing.
+    if (person.access.role === 'owner') {
+      throw forbidden("Only the person a personal agent works for, or the harness that runs personal agents, gets it a key", { reason: 'personal_agent_owner_only' });
+    }
+    throw notFound('Personal agent');
+  }
   if (agent.status !== 'active') throw new ApiError(422, 'VALIDATION_ERROR', `${agent.name} is paused`, { reason: 'agent_suspended' });
   const { scopes, left_out } = await keyScopesFor(service, granter, agent, input.scopes);
   const granted = await checkKeyGrant(service, granter, { memberId: agentId, scopes });
@@ -591,7 +600,7 @@ export async function claimAssistantKey(
     });
   }
   const { scopes, left_out } = await keyScopesFor(service, harness.granter, agent, input.scopes);
-  const granted = await checkKeyGrant(service, harness.granter, { memberId: agentId, scopes });
+  const granted = await checkKeyGrant(service, harness.granter, { memberId: agentId, scopes, harness: true });
   const made = await insertApiKey(service, {
     name: input.name ?? `${agent.name} key`,
     memberId: agentId,

@@ -42,21 +42,23 @@ import { ConnectSnippets, downloadText, SecretOnce } from '@/components/agent/Co
 import { ActivityTimeline } from '@/components/agent/ActivityTimeline';
 import { RunFeed } from '@/components/agent/runs/RunFeed';
 import { RunDetailModal, RunStarted, RunStatusPill, runLengthLabel } from '@/components/agent/runs/RunParts';
+import { ContextBrief } from '@/components/projects/BriefTab';
 
 /**
  * One agent's profile: who it is and what it is doing now, then its work in
  * tabs (each its own ?tab=, so it can be linked to): Overview (now, what it
  * needs from you, recent runs), Runs, Projects (its assignments, with each
- * project's settings and instructions), Rules and powers, Connect (keys
+ * project's settings and instructions), Agent notes (what it should always
+ * keep in mind, for whoever manages it), Rules and powers, Connect (keys
  * without secrets, a new key, snippets, its AGENTS.md), Activity.
  * Edit controls show only to who may manage this agent: its owners, or
  * whoever manages the team; keys stay with workspace Owners.
  */
 
-const TABS = ['overview', 'runs', 'projects', 'rules', 'connect', 'activity'] as const;
+const TABS = ['overview', 'runs', 'projects', 'notes', 'rules', 'connect', 'activity'] as const;
 type Tab = (typeof TABS)[number];
 const TAB_LABELS: Record<Tab, string> = {
-  overview: 'Overview', runs: 'Runs', projects: 'Projects', rules: 'Rules and powers', connect: 'Connect', activity: 'Activity',
+  overview: 'Overview', runs: 'Runs', projects: 'Projects', notes: 'Agent notes', rules: 'Rules and powers', connect: 'Connect', activity: 'Activity',
 };
 
 export function AgentProfile({ agentId }: { agentId: string }) {
@@ -115,7 +117,8 @@ export function AgentProfile({ agentId }: { agentId: string }) {
     );
   }
 
-  const tabs: ProjectTab<Tab>[] = TABS.map((key) => ({
+  // Agent notes are for who manages it (the server's rule); everyone else does not see the tab.
+  const tabs: ProjectTab<Tab>[] = TABS.filter((key) => key !== 'notes' || canManage).map((key) => ({
     key,
     label: TAB_LABELS[key],
     ...(key === 'overview' && agentNeeds.total ? { badge: { count: agentNeeds.total, label: `${agentNeeds.total} waiting on you` } } : {}),
@@ -203,6 +206,13 @@ export function AgentProfile({ agentId }: { agentId: string }) {
 
         {panel('projects', detail.loading ? <LoadingRows /> : detail.failed ? <Failed onRetry={detail.reload} what="its projects" /> : data && (
           <AgentProjects detail={data} canEdit={canManage} templateLabels={new Map((templates.data ?? []).map((t) => [t.key, t.label]))} schemaFor={(key) => (templates.data ?? []).find((t) => t.key === key)?.settings ?? []} />
+        ))}
+
+        {canManage && panel('notes', (
+          <div className="max-w-3xl">
+            <p className="mb-4 text-sm text-zinc-400">What {name} should always keep in mind, beyond its projects. Pinned notes go into its context every time; it can add notes of its own.</p>
+            <ContextBrief scope={{ scope_type: 'agent', scope_id: agentId }} label="agent notes" emptyText={`Nothing here yet. Add what ${name} should know about how you work.`} />
+          </div>
         ))}
 
         {panel('rules', detail.loading ? <LoadingRows /> : detail.failed ? <Failed onRetry={detail.reload} what="its rules" /> : data && (

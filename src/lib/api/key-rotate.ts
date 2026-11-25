@@ -79,12 +79,13 @@ export async function rotateApiKey(
 
   const { caller } = actor;
   const own = old.team_member_id === caller.memberId;
+  const { data: target } = await service.from('team_members').select('delegate_of').eq('id', old.team_member_id).maybeSingle();
+  const delegate = (target as { delegate_of?: string | null } | null)?.delegate_of ?? null;
+  // A harness key for personal agents rotates theirs (checkKeyGrant lets nobody else but the person).
+  const harness = caller.scopes !== null && callerHolds(caller, 'assistants.provision') && !!delegate;
   if (!own && !callerHolds(caller, 'api_keys.manage_all')) {
     // Without api_keys.manage_all: a person's own personal agent (checked by
     // checkKeyGrant), or a harness key for personal agents.
-    const { data: target } = await service.from('team_members').select('delegate_of').eq('id', old.team_member_id).maybeSingle();
-    const delegate = (target as { delegate_of?: string | null } | null)?.delegate_of ?? null;
-    const harness = caller.scopes !== null && callerHolds(caller, 'assistants.provision') && !!delegate;
     if (delegate !== caller.memberId && !harness) {
       throw forbidden('Rotating someone else\'s key needs api_keys.manage_all', { reason: 'missing_key_scope', needs: 'api_keys.manage_all' });
     }
@@ -94,7 +95,7 @@ export async function rotateApiKey(
     throw new ApiError(409, 'CONFLICT', 'This key has expired: make a new one instead', { reason: 'key_expired' });
   }
   // Minting's rules, for the same member and scopes.
-  await checkKeyGrant(service, actor.granter, { memberId: old.team_member_id, scopes: old.scopes ?? [] });
+  await checkKeyGrant(service, actor.granter, { memberId: old.team_member_id, scopes: old.scopes ?? [], harness });
 
   await revokeRotatedKeys(service);
   const secret = generateApiKey();

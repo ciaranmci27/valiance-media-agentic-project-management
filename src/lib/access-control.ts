@@ -67,6 +67,7 @@ export const PERMISSIONS = [
   'agents.act_for',
   'project_context.read',
   'project_context.manage',
+  'context.memory',
   'goals.read',
   'goals.manage',
   'suggestions.create',
@@ -93,6 +94,8 @@ export const API_ENDPOINT_PERMISSIONS = [
   'credentials.reveal_shared', 'credentials.manage',
   'invoices.read', 'invoices.manage', 'invoices.record_payments', 'billing.manage', 'agents.manage',
   'project_context.read', 'project_context.manage', 'goals.read', 'goals.manage',
+  // A person's own memory (context scope member) through their own key or a connected AI tool.
+  'context.memory',
   'suggestions.create', 'suggestions.manage', 'agent_activity.write', 'fleet_alerts.write',
   'meetings.write',
   // Setting up an agent from a chat (POST /api/v1/api-keys, /api/v1/webhook-endpoints).
@@ -376,6 +379,7 @@ export const PERMISSION_GROUPS: Array<{
       { key: 'agents.act_for', label: 'Act for a person', description: 'Allow an AI agent to act for the person who asked it (X-Act-For), within that person\'s access and its own.' },
       { key: 'project_context.read', label: 'View project context', description: 'Read saved context for accessible projects.' },
       { key: 'project_context.manage', label: 'Manage project context', description: 'Create and edit project context.' },
+      { key: 'context.memory', label: 'Read and write my personal memory', description: 'Allow a person\'s own key or connected AI tool to read and add to what their assistant remembers about them. Admins and members hold it on the API; no agent does (a personal agent reaches it only while its person allows it).' },
       { key: 'goals.read', label: 'View goals', description: 'View agent goals.' },
       { key: 'goals.manage', label: 'Manage goals', description: 'Create and manage agent goals.' },
       { key: 'suggestions.create', label: 'Propose suggestions', description: 'Create and update the member\'s own agent suggestions.' },

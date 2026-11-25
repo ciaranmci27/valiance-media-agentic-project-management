@@ -9,7 +9,6 @@ import { planSchema } from '@/lib/communications/plan-schemas';
 import { AGENT_MESSAGE_STATUSES, triageSchema } from '@/lib/communications/schemas';
 import { MAIL_TOPICS, RULE_ACTIONS } from '@/lib/communications/sorting';
 import { idempotencyKeyInput, routeTool, type PmTool } from './core';
-import { AGENT_PROFILE_VALUES, type AgentProfile } from './profiles';
 
 /**
  * The PM MCP server's tools: a curated set over the v1 API (it has no
@@ -65,7 +64,9 @@ const ASSIGNMENT_STATUS = z.enum(['active', 'paused']);
 const EFFORT = z.enum(['small', 'medium', 'large']);
 const API_SCOPE = z.enum(API_ENDPOINT_PERMISSIONS);
 const WEBHOOK_EVENT = z.enum(WEBHOOK_EVENT_TYPES);
-const AGENT_PROFILE = z.enum(AGENT_PROFILE_VALUES as [AgentProfile, ...AgentProfile[]]);
+// generic, an install's profile or an Owner's own (list_agent_profiles); the route checks it exists.
+const AGENT_PROFILE = z.string().regex(/^[a-z][a-z0-9-]{0,39}$/, 'A profile value is lowercase letters, numbers and dashes').describe('generic, or a value list_agent_profiles names');
+const CONTEXT_SCOPE = z.enum(['workspace', 'group', 'project', 'agent', 'member']);
 const atLeastOne = (fields: string[]) => (value: Record<string, unknown>) =>
   fields.some((field) => value[field] !== undefined);
 
@@ -365,6 +366,37 @@ export const PM_TOOLS: PmTool[] = [
     method: 'POST',
     path: '/api/v1/projects/{id}/context',
     request: ({ project_id, ...body }) => ({ params: { id: project_id }, body: { ...body, source: 'agent' } }),
+  }),
+  routeTool({
+    name: 'search_context',
+    lead: 'Search context at every level by words.',
+    detail: 'Full text across every scope you read at once: company knowledge (workspace), your groups, the projects you reach, your own notes (agent) and, for a personal agent whose person allows it, their memory (member). Best match first: words, "a phrase", -word to leave out. Each entry has scope_type, scope_id, its section, pinned and rank. scope_types narrows it. Pinned entries are already in get_task_brief and pm_guide; search finds the rest. limit 1 to 50 (default 20).',
+    input: z.object({
+      q: z.string().min(1).max(500),
+      scope_types: z.array(CONTEXT_SCOPE).min(1).max(5).optional(),
+      limit: z.number().int().min(1).max(50).optional(),
+    }).strict(),
+    permission: [...API_ENDPOINT_PERMISSIONS],
+    method: 'GET',
+    path: '/api/v1/context/search',
+    request: ({ scope_types, ...query }) => ({ query: { ...query, ...(scope_types ? { scope_types: scope_types.join(',') } : {}) } }),
+  }),
+  routeTool({
+    name: 'add_context',
+    lead: 'Add a context note at any level: your notes, a memory.',
+    detail: "scope_type agent with your own id keeps a note for yourself; member with your person's id (works_for) saves something they want you to remember, only while they turned on Remember things for me; workspace, group or project follow their own rules (the workspace: an Owner; a project: project_context.manage). scope_id names the group, project, agent or person (leave it out for the workspace). section defaults to overview; pinned puts it into your context every time, so pin only what you always need. Recorded as written by an agent.",
+    input: z.object({
+      scope_type: CONTEXT_SCOPE,
+      scope_id: id('scope_id').optional(),
+      content: z.string().min(1).max(20_000),
+      section: BRIEF_SECTION.optional(),
+      pinned: z.boolean().optional(),
+      idempotency_key: idempotencyKeyInput,
+    }).strict().refine((value) => (value.scope_type === 'workspace') === !value.scope_id, 'Send scope_id for every scope but the workspace'),
+    permission: [...API_ENDPOINT_PERMISSIONS],
+    method: 'POST',
+    path: '/api/v1/context',
+    request: (body) => ({ body }),
   }),
   routeTool({
     name: 'list_my_projects',
@@ -1196,6 +1228,7 @@ export const PM_TOOLS: PmTool[] = [
       plan: z.array(z.object({ title: z.string().min(1).max(200), status: z.enum(['pending', 'running', 'done', 'skipped', 'failed']).optional() }).strict()).max(50).optional(),
       note: z.string().min(1).max(500).optional().describe('A first progress note'),
       metadata: z.record(z.string(), z.unknown()).optional().describe('Anything else, up to 8000 characters as JSON'),
+      parent_run_id: id('parent_run_id').optional().describe("The run that handed you this work (get_task_brief's delegated_from.run_id); it acts for the same person"),
       idempotency_key: idempotencyKeyInput,
     }).strict(),
     permission: ['agent_activity.write', 'tasks.read', 'agents.manage'],
@@ -1285,6 +1318,40 @@ export const PM_TOOLS: PmTool[] = [
     method: 'GET',
     path: '/api/v1/agents/runs/{id}',
     request: ({ run_id }) => ({ params: { id: run_id } }),
+  }),
+  routeTool({
+    name: 'get_run_tree',
+    lead: 'Get the chain of runs a run belongs to, root first.',
+    detail: "From any run in it: every run from the root, in start order, with parent_run_id, depth, agent, task, status and title, and the subtasks each delegated. Another agent's run leaves out its summary, tokens, cost and trace link (visible false). You read a tree you have a run in, one that delegated to you, or any with agents.manage.",
+    input: z.object({ run_id: id('run_id') }).strict(),
+    permission: ['agent_activity.write', 'tasks.read', 'agents.manage'],
+    module: 'agents',
+    method: 'GET',
+    path: '/api/v1/agents/runs/{id}/tree',
+    request: ({ run_id }) => ({ params: { id: run_id } }),
+  }),
+  routeTool({
+    name: 'delegate_task',
+    lead: 'Hand part of a task to another agent as a subtask.',
+    detail: "Creates a subtask of task_id assigned to agent_id (an active agent; list_agents has them), the same way create_task with parent_task_id does: you must be able to manage the task and assign others (tasks.manage_all), the agent must reach the project, and your own rules apply (approval gives a suggestion). Name your current run as run_id so the subtask is linked to it: the specialist starts its run with parent_run_id and get_run_tree shows the chain. Acting for someone records them on it. ai_readiness defaults to ai_ready. Answers with the subtask (task_id). Choosing the specialist is yours.",
+    input: z.object({
+      task_id: id('task_id'),
+      agent_id: id('agent_id'),
+      title: z.string().min(1).max(500),
+      description: z.string().max(50_000).optional(),
+      priority: PRIORITY.optional(),
+      due_date: date.nullable().optional(),
+      acceptance_criteria: z.array(z.string().min(1).max(2000)).max(50).optional(),
+      ai_readiness: AI_READINESS.nullable().optional(),
+      run_id: id('run_id').optional().describe('Your current run, which delegates it'),
+      idempotency_key: idempotencyKeyInput,
+    }).strict(),
+    permission: 'tasks.create',
+    requires: ['tasks.manage_all'],
+    module: 'agents',
+    method: 'POST',
+    path: '/api/v1/tasks/{id}/delegate',
+    request: ({ task_id, ...body }) => ({ params: { id: task_id }, body }),
   }),
 
   // Team, leads, contacts
@@ -1946,6 +2013,127 @@ export const PM_TOOLS: PmTool[] = [
     module: 'agents',
     method: 'POST',
     path: '/api/v1/agents/import',
+    request: (body) => ({ body }),
+  }),
+  // The registries: an Owner's own profiles and templates, as rows beside code's.
+  routeTool({
+    name: 'list_agent_profiles',
+    lead: 'List the agent profiles: which MCP tools an agent sees.',
+    detail: "Core's (generic), this install's and the workspace's own, each with value, label, description, tools (null: every tool its keys allow) and source (core, install or workspace). include_archived adds archived ones. An agent gets one through create_agent, the Team page or import_agent_config.",
+    input: z.object({ include_archived: z.boolean().optional() }).strict(),
+    permission: 'team.read',
+    module: 'agents',
+    method: 'GET',
+    path: '/api/v1/agent-profiles',
+    request: ({ include_archived }) => ({ query: include_archived ? { include_archived: 'true' } : {} }),
+  }),
+  routeTool({
+    name: 'create_agent_profile',
+    lead: 'Add a profile of your own: a named set of MCP tools.',
+    detail: "Owner only. value (lowercase, dashes, at most 40), label, description, and tools: the tool names it sees (pm_guide always), or null for every tool its keys allow. A profile only narrows what an agent's keys could do. A value code already holds is refused (409 registry_key_taken); a tool name that does not exist is refused (422).",
+    input: z.object({
+      value: AGENT_PROFILE,
+      label: z.string().min(1).max(80),
+      description: z.string().min(1).max(500),
+      tools: z.array(z.string().min(1).max(64)).min(1).max(300).nullable().optional(),
+      idempotency_key: idempotencyKeyInput,
+    }).strict(),
+    permission: 'team.manage',
+    module: 'agents',
+    method: 'POST',
+    path: '/api/v1/agent-profiles',
+    request: (body) => ({ body }),
+  }),
+  routeTool({
+    name: 'update_agent_profile',
+    lead: 'Change or archive a profile of your own.',
+    detail: "Owner only; core's and the install's profiles live in code. Send only what changes: label, description, tools (null: every tool), archived (true archives it, false brings it back). A profile agents still use cannot be archived (409 profile_in_use): move them first.",
+    input: z.object({
+      value: AGENT_PROFILE,
+      label: z.string().min(1).max(80).optional(),
+      description: z.string().min(1).max(500).optional(),
+      tools: z.array(z.string().min(1).max(64)).min(1).max(300).nullable().optional(),
+      archived: z.boolean().optional(),
+    }).strict().refine(atLeastOne(['label', 'description', 'tools', 'archived']), 'Send at least one field to change'),
+    permission: 'team.manage',
+    module: 'agents',
+    method: 'PATCH',
+    path: '/api/v1/agent-profiles/{value}',
+    request: ({ value, ...body }) => ({ params: { value }, body }),
+  }),
+  routeTool({
+    name: 'create_agent_template',
+    lead: 'Add a template of your own to start agents from.',
+    detail: "Owner only, no deploy needed. key, label, description, rules (agent_self_assign, agent_close_policy close or review, agent_create_policy live or approval), scopes (the API scopes a key for it carries), context (its brief, at most 2,000 characters), and optionally webhook_events, module, settings (per-project fields), role, profile (one list_agent_profiles names) and limits. Checked exactly as code's templates are. A key code already holds is refused (409 registry_key_taken). It then shows in list_agent_templates and works with apply_agent_template.",
+    input: z.object({
+      key: z.string().regex(/^[a-z0-9][a-z0-9-]*$/).max(100),
+      label: z.string().min(1).max(80),
+      description: z.string().min(1).max(500),
+      rules: z.object({ agent_self_assign: z.boolean(), agent_close_policy: z.enum(['close', 'review']), agent_create_policy: z.enum(['live', 'approval']) }).strict(),
+      scopes: z.array(API_SCOPE).min(1).max(100),
+      context: z.string().min(1).max(2000),
+      webhook_events: z.array(WEBHOOK_EVENT).max(50).optional(),
+      module: z.string().min(1).max(40).optional(),
+      settings: z.array(z.record(z.string(), z.unknown())).max(30).optional(),
+      role: AGENT_ROLE.optional(),
+      profile: AGENT_PROFILE.optional(),
+      limits: z.record(z.string(), z.unknown()).optional(),
+      idempotency_key: idempotencyKeyInput,
+    }).strict(),
+    permission: 'team.manage',
+    module: 'agents',
+    method: 'POST',
+    path: '/api/v1/agent-templates',
+    request: (body) => ({ body }),
+  }),
+  routeTool({
+    name: 'update_agent_template',
+    lead: 'Change or archive a template of your own.',
+    detail: "Owner only; core's and the install's templates live in code. Send only what changes (label, description, rules, scopes, context, webhook_events, module, settings, role, profile, limits) or archived (true archives it, false brings it back). Agents already set up from it keep their setup.",
+    input: z.object({
+      key: z.string().min(1).max(100),
+      label: z.string().min(1).max(80).optional(),
+      description: z.string().min(1).max(500).optional(),
+      rules: z.object({ agent_self_assign: z.boolean(), agent_close_policy: z.enum(['close', 'review']), agent_create_policy: z.enum(['live', 'approval']) }).strict().optional(),
+      scopes: z.array(API_SCOPE).min(1).max(100).optional(),
+      context: z.string().min(1).max(2000).optional(),
+      webhook_events: z.array(WEBHOOK_EVENT).max(50).optional(),
+      module: z.string().min(1).max(40).optional(),
+      settings: z.array(z.record(z.string(), z.unknown())).max(30).optional(),
+      role: AGENT_ROLE.optional(),
+      profile: AGENT_PROFILE.optional(),
+      limits: z.record(z.string(), z.unknown()).optional(),
+      archived: z.boolean().optional(),
+    }).strict().refine(atLeastOne(['label', 'description', 'rules', 'scopes', 'context', 'webhook_events', 'module', 'settings', 'role', 'profile', 'limits', 'archived']), 'Send at least one field to change'),
+    permission: 'team.manage',
+    module: 'agents',
+    method: 'PATCH',
+    path: '/api/v1/agent-templates/{key}',
+    request: ({ key, ...body }) => ({ params: { key }, body }),
+  }),
+  routeTool({
+    name: 'export_agent_registries',
+    lead: 'Export your own agent profiles and templates.',
+    detail: "One document (format pm-agent-registries) with the workspace's own live profiles and templates, for import_agent_registries here or in another workspace. Code's ship with the code and are left out.",
+    input: z.object({}).strict(),
+    permission: 'team.manage',
+    module: 'agents',
+    method: 'GET',
+    path: '/api/v1/agent-registries/export',
+    request: () => ({}),
+  }),
+  routeTool({
+    name: 'import_agent_registries',
+    lead: 'Import agent profiles and templates from a document.',
+    detail: 'Owner only. Each profile and template is created, or updates (and brings back) the one with its key. A key code holds is refused, never overridden, and so is an entry that fails a check: refused says which and why. dry_run true answers the plan and changes nothing: run it first and read it back to the person.',
+    input: z.object({
+      document: z.record(z.string(), z.unknown()).describe('The document export_agent_registries answered'),
+      dry_run: z.boolean().optional(),
+    }).strict(),
+    permission: 'team.manage',
+    module: 'agents',
+    method: 'POST',
+    path: '/api/v1/agent-registries/import',
     request: (body) => ({ body }),
   }),
   routeTool({

@@ -247,6 +247,8 @@ async function migrationChecks() {
   check('upgrade: the run feed keeps exactly its columns (a second run of its own migration still works)', feedCols.join(',') === 'id,source,agent_id,task_id,project_id,status,outcome,title,summary,model,trigger,started_at,finished_at,duration_ms,tokens_in,tokens_out,cost_usd,external_id,external_url,sort_at,updated_at', feedCols);
   await old.exec(readFileSync(join(__dirname, '..', 'supabase', 'migrations', '20261124000500_agent_runs.sql'), 'utf8'));
   check('upgrade: the runs migration runs again after this one', true);
+  // A later migration may replace a function the runs migration made (run webhooks carry the chain): bring them back.
+  await applyMigrationsFrom(old, MIGRATION);
   const fresh = await createFullSchemaDatabase();
   const diff = diffSnapshots(await pmSnapshot(fresh), await pmSnapshot(old));
   check('upgrade: the migration, run twice on the schema before it, matches schema.sql', diff.length === 0, diff.slice(0, 10));

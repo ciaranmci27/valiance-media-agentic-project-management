@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { accessAllows, requireSessionAccess } from '@/lib/api/access';
 import { TEAM_ROLES } from '@/lib/access-control';
-import { isAgentProfile } from '@/lib/mcp/profiles';
+import { resolveAgentProfile } from '@/lib/api/agent-registries';
 import { AGENT_RULE_FIELDS, agentRulesUpdateSchema } from '@/lib/agent-rules';
 import { agentRulesColumns } from '@/lib/api/agent-rules';
 import { ApiError } from '@/lib/api/errors';
@@ -98,7 +98,7 @@ export async function PATCH(
     if ((updates.role ?? target.role) !== 'agent') {
       return NextResponse.json({ error: 'Agent profiles apply only to agent members' }, { status: 422 });
     }
-    if (!isAgentProfile(body.agent_profile)) {
+    if (typeof body.agent_profile !== 'string' || !(await resolveAgentProfile(service, body.agent_profile))) {
       return NextResponse.json({ error: 'Invalid agent profile' }, { status: 422 });
     }
     updates.agent_profile = body.agent_profile;

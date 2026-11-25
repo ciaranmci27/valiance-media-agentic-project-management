@@ -30,7 +30,7 @@ export const ASSISTANT_LABEL_MAX = 40;
 
 export const assistantLabel = (label: string | null | undefined): string => label?.trim() || ASSISTANT_DEFAULT_LABEL;
 
-export const ASSISTANT_SWITCHES = ['sort_inbox', 'create_tasks', 'draft_replies', 'remind_me'] as const;
+export const ASSISTANT_SWITCHES = ['sort_inbox', 'create_tasks', 'draft_replies', 'remind_me', 'remember'] as const;
 export type AssistantSwitch = (typeof ASSISTANT_SWITCHES)[number];
 export type AssistantSwitches = Record<AssistantSwitch, boolean>;
 
@@ -39,6 +39,8 @@ export const DEFAULT_SWITCHES: AssistantSwitches = {
   create_tasks: true,
   draft_replies: true,
   remind_me: true,
+  // Off until the person turns it on: what it remembers is theirs.
+  remember: false,
 };
 
 /** Each switch for people: its label and one line on what it does. */
@@ -47,6 +49,7 @@ export const SWITCH_WORDS: Record<AssistantSwitch, { label: string; help: string
   create_tasks: { label: 'Create tasks for me', help: 'Turns what you ask for into tasks.' },
   draft_replies: { label: 'Draft replies', help: 'Writes replies for you to check and send.' },
   remind_me: { label: 'Remind me', help: 'Sets reminders so nothing slips.' },
+  remember: { label: 'Remember things for me', help: 'Keeps notes about how you work. You see and delete them below; nobody else does.' },
 };
 
 export const ASSISTANT_TONES = ['warm', 'brief', 'formal'] as const;
@@ -102,6 +105,9 @@ export function preferencesToContext(prefs: AssistantPreferences, personName: st
   lines.push(prefs.switches.remind_me
     ? `Remind me is on: set reminders for ${personName} so nothing slips.`
     : `Remind me is off: do not set reminders (the app refuses them).`);
+  lines.push(prefs.switches.remember
+    ? `Remember things for me is on: save what ${personName} wants remembered with add_context (scope_type member, scope_id the works_for id); it is theirs, and only you and they see it.`
+    : `Remember things for me is off: do not save notes about ${personName} (the app refuses them).`);
   return lines;
 }
 

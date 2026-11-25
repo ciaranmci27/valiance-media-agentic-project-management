@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { findAgentTemplate, listAgentTemplates } from '@/lib/agent-templates';
+import { AGENT_TEMPLATES, findAgentTemplate, listAgentTemplates } from '@/lib/agent-templates';
+import { agentTemplateRegistry } from './agent-registries';
 import type { AgentTemplate } from '@/lib/extensions/agent-templates';
 import {
   PROJECT_AGENT_INSTRUCTIONS_MAX,
@@ -57,10 +58,14 @@ export interface AssignmentInput {
   instructions?: string;
 }
 
-/** A template this workspace offers (module on), or a 422 naming the choices. */
-export function requireTemplate(caller: AgentCaller, key: string): AgentTemplate {
-  const available = listAgentTemplates(caller.access);
-  const template = findAgentTemplate(key);
+/**
+ * A template this workspace offers (module on), or a 422 naming the choices.
+ * templates is the registry the caller read (agentTemplateRegistry: code's
+ * and an Owner's rows); left out, code's.
+ */
+export function requireTemplate(caller: AgentCaller, key: string, templates: readonly AgentTemplate[] = AGENT_TEMPLATES): AgentTemplate {
+  const available = listAgentTemplates(caller.access, templates);
+  const template = findAgentTemplate(key, templates);
   if (!template) {
     throw new ApiError(422, 'VALIDATION_ERROR', `No agent template named ${key}`, { reason: 'unknown_template', templates: available.map((t) => t.key) });
   }
@@ -73,8 +78,8 @@ export function requireTemplate(caller: AgentCaller, key: string): AgentTemplate
 }
 
 /** The settings form of a template key; [] for none or one this workspace does not have. */
-export function settingsSchemaOf(templateKey: string | null) {
-  return (templateKey ? findAgentTemplate(templateKey)?.settings : undefined) ?? [];
+export function settingsSchemaOf(templateKey: string | null, templates: readonly AgentTemplate[] = AGENT_TEMPLATES) {
+  return (templateKey ? findAgentTemplate(templateKey, templates)?.settings : undefined) ?? [];
 }
 
 /** Settings checked against a template, or a 422 listing every problem (errors, and fields for a form). */
@@ -154,6 +159,7 @@ export async function requireAssignAgent(service: SupabaseClient, caller: AgentC
 
 /** Rows as the API answers them, with the agent's name and the template's settings form, in two reads at most. */
 export async function presentAssignments(service: SupabaseClient, rows: Row[], projectNames?: Map<string, string>): Promise<ProjectAgentAssignment[]> {
+  const templates = rows.some((row) => row.template_key && !findAgentTemplate(row.template_key)) ? await agentTemplateRegistry(service) : AGENT_TEMPLATES;
   const agentIds = [...new Set(rows.map((row) => row.agent_id as string))];
   const projectIds = projectNames ? [] : [...new Set(rows.map((row) => row.project_id as string))];
   const [agents, projects] = await Promise.all([
@@ -177,7 +183,7 @@ export async function presentAssignments(service: SupabaseClient, rows: Row[], p
       template_key: row.template_key ?? null,
       settings: (row.settings ?? {}) as SettingsValues,
       instructions: row.instructions ?? '',
-      settings_schema: settingsSchemaOf(row.template_key ?? null),
+      settings_schema: settingsSchemaOf(row.template_key ?? null, templates),
       created_at: row.created_at,
       updated_at: row.updated_at,
       project_id: row.project_id,
@@ -265,8 +271,8 @@ export async function ensureProjectAccess(service: SupabaseClient, agentId: stri
 }
 
 /** A new assignment's row, checked: the template, its settings with defaults, and the instructions. */
-export function newAssignmentRow(caller: AgentCaller, projectId: string, agentId: string, input: AssignmentInput, where = ''): Row {
-  const template = input.template_key ? requireTemplate(caller, input.template_key) : null;
+export function newAssignmentRow(caller: AgentCaller, projectId: string, agentId: string, input: AssignmentInput, where = '', templates: readonly AgentTemplate[] = AGENT_TEMPLATES): Row {
+  const template = input.template_key ? requireTemplate(caller, input.template_key, templates) : null;
   return {
     project_id: projectId,
     agent_id: agentId,
@@ -298,11 +304,12 @@ export async function putProjectAgent(service: SupabaseClient, caller: AgentCall
   let row: Row;
   let created = false;
   let accessAdded: string[] = [];
+  const templates = await agentTemplateRegistry(service);
   if (!existing) {
     if (agent.status !== 'active') {
       throw new ApiError(422, 'VALIDATION_ERROR', `${agent.name} is suspended. Reactivate them in Team first.`, { reason: 'member_suspended' });
     }
-    const insert = newAssignmentRow(caller, projectId, agentId, input);
+    const insert = newAssignmentRow(caller, projectId, agentId, input, '', templates);
     if (!onProject) accessAdded = await ensureProjectAccess(service, agentId, [projectId]);
     const { data, error: insertError } = await service.from('project_agents').insert(insert).select(PROJECT_AGENT_COLUMNS).single();
     if (insertError) throw insertError;
@@ -315,12 +322,12 @@ export async function putProjectAgent(service: SupabaseClient, caller: AgentCall
     if (input.instructions !== undefined) patch.instructions = checkInstructions(input.instructions);
     const templateChanges = input.template_key !== undefined && (input.template_key ?? null) !== (current.template_key ?? null);
     if (templateChanges) {
-      const template = input.template_key ? requireTemplate(caller, input.template_key) : null;
+      const template = input.template_key ? requireTemplate(caller, input.template_key, templates) : null;
       patch.template_key = template?.key ?? null;
       // A new template starts its settings over, from what was sent and its defaults.
       patch.settings = checkSettings(template, input.settings ?? {}, true);
     } else if (input.settings !== undefined) {
-      const template = current.template_key ? findAgentTemplate(current.template_key) : null;
+      const template = current.template_key ? findAgentTemplate(current.template_key, templates) : null;
       patch.settings = checkSettings(template, input.settings, false);
     }
     if (Object.keys(patch).length === 0) {

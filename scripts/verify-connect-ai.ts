@@ -149,7 +149,7 @@ function pureChecks() {
 async function migrationChecks() {
   const at = SCHEMA_SQL.indexOf(SECTION);
   const banner = SCHEMA_SQL.lastIndexOf('\n-- ====', at);
-  check('schema.sql: the Connect AI section is there, last', at > 0 && banner > 0 && !/^-- [A-Z][^\n]*\(\d{14}_[a-z_]+\.sql\)$/m.test(SCHEMA_SQL.slice(at + SECTION.length)));
+  check('schema.sql: the Connect AI section is there', at > 0 && banner > 0);
   const body = MIGRATION_SQL.slice(MIGRATION_SQL.indexOf("-- ---------------------------------------------------------------------------\n-- API keys: a connection's key")).trim();
   check('schema.sql: the section mirrors the migration body', body.length > 1000 && SCHEMA_SQL.slice(at).includes(body));
   check('migration: business_settings is locked last', MIGRATION_SQL.lastIndexOf('ALTER TABLE pm.business_settings') > MIGRATION_SQL.lastIndexOf('CREATE TABLE IF NOT EXISTS pm.oauth_'));

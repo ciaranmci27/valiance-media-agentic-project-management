@@ -136,7 +136,8 @@ function pureChecks() {
   const roles = Object.fromEntries(CORE_AGENT_TEMPLATES.map((t) => [t.key, t.role]));
   check('templates: core roles are watcher, triage, builder, reporter',
     roles['data-health-watcher'] === 'watcher' && roles['inbox-triage'] === 'triage' && roles.builder === 'builder' && roles['weekly-reporter'] === 'reporter', roles);
-  check('templates: the builder starts with the builder profile', CORE_AGENT_TEMPLATES.find((t) => t.key === 'builder')?.profile === 'builder');
+  // The builder profile left core (an install that used it has it as a row), so the builder starts on generic.
+  check('templates: the builder starts on the generic profile', CORE_AGENT_TEMPLATES.find((t) => t.key === 'builder')?.profile === undefined);
   check('templates: builder, watcher and reporter declare settings; triage none',
     ['builder', 'data-health-watcher', 'weekly-reporter'].every((key) => (CORE_AGENT_TEMPLATES.find((t) => t.key === key)?.settings?.length ?? 0) > 0)
       && !CORE_AGENT_TEMPLATES.find((t) => t.key === 'inbox-triage')?.settings);
@@ -402,7 +403,7 @@ async function main() {
     const templates = await session(templatesRoute.GET, 'GET', '/api/workspace/agent-templates');
     const builder = templates.body?.data?.templates?.find((t: Loose) => t.key === 'builder');
     check('templates route: each with its settings form, role and profile', templates.status === 200 && builder?.settings?.length === 5
-      && builder.role === 'builder' && builder.default_role === 'builder' && builder.profile === 'builder', templates.body);
+      && builder.role === 'builder' && builder.default_role === 'builder' && builder.profile === null, templates.body);
 
     // --- Hiring: refusals before any write ---------------------------------
     const members = () => count("SELECT count(*)::int AS n FROM pm.team_members WHERE role = 'agent'");
@@ -436,7 +437,7 @@ async function main() {
     const jeffId = jeff?.agent?.id as string;
     const secret = jeff?.key?.secret as string;
     check('hire: 201 with the agent, never cached', hired.status === 201 && hired.headers.get('cache-control') === 'no-store' && !!jeffId, hired.body);
-    check('hire: the template sets role, profile and rules', jeff?.agent?.agent_role === 'builder' && jeff?.agent?.agent_profile === 'builder'
+    check('hire: the template sets role, profile and rules', jeff?.agent?.agent_role === 'builder' && jeff?.agent?.agent_profile === 'generic'
       && jeff?.rules?.agent_close_policy === 'review' && jeff?.rules?.agent_self_assign === false && jeff?.template_key === 'builder', jeff);
     check('hire: the hirer and those named are its owners', JSON.stringify(jeff?.agent?.owners?.map((o: Loose) => o.id)) === JSON.stringify([s.owner, s.morgan]), jeff?.agent?.owners);
     const apexAssignment = jeff?.assignments?.find((a: Loose) => a.project_id === s.apex);

@@ -9,6 +9,7 @@ import { apiKeyAllows } from '@/lib/api/access';
 import { INBOX_TOOLS, PM_ACTING_FOR_GUIDE, PM_GUIDE, PM_INBOX_GUIDE, PM_SETUP_GUIDE, SETUP_TOOLS } from './guide';
 import { routeHandler } from './handlers';
 import type { AgentProfile } from './profiles';
+import type { AgentProfileDefinition } from '@/lib/extensions/agent-profiles';
 import { GUIDE_CONTEXT_PATH, GUIDE_TOOL } from './tools';
 import { toolsFor } from './visibility';
 
@@ -23,6 +24,8 @@ export interface McpCaller {
   readOnly: boolean;
   member: { id: string; name: string; role: string };
   profile: AgentProfile;
+  /** The profile as the server resolved it (an Owner's row included); null when no registry knows it. */
+  profileDefinition?: AgentProfileDefinition | null;
   /** A checked X-Act-For token: every call acts for this person (principalId). */
   actFor?: string;
   principalId?: string;

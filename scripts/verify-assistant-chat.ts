@@ -103,10 +103,10 @@ function installSession(supabaseUrl: string) {
 function pureChecks() {
   check('switches: missing or wrong values read as the defaults', JSON.stringify(readSwitches(null)) === JSON.stringify(DEFAULT_SWITCHES)
     && readSwitches({ create_tasks: false, sort_inbox: 'yes' }).create_tasks === false && readSwitches({ sort_inbox: 'yes' }).sort_inbox === false);
-  check('switches: sort my inbox starts off, the rest on', !DEFAULT_SWITCHES.sort_inbox && DEFAULT_SWITCHES.create_tasks && DEFAULT_SWITCHES.draft_replies && DEFAULT_SWITCHES.remind_me);
+  check('switches: sort my inbox and remember start off, the rest on', !DEFAULT_SWITCHES.sort_inbox && DEFAULT_SWITCHES.create_tasks && DEFAULT_SWITCHES.draft_replies && DEFAULT_SWITCHES.remind_me && !DEFAULT_SWITCHES.remember);
   const on = preferencesToContext(DEFAULT_PREFERENCES, 'Ana').join('\n');
   check('context: the defaults in words', /warmly/.test(on) && /Sort my inbox is off/.test(on) && /Create tasks for me is on/.test(on) && /Remind me is on/.test(on), on);
-  const off = preferencesToContext({ tone: 'brief', personality: 'No meetings on Fridays.', avatar_tone: 3, switches: { sort_inbox: true, create_tasks: false, draft_replies: false, remind_me: false } }, 'Ana').join('\n');
+  const off = preferencesToContext({ tone: 'brief', personality: 'No meetings on Fridays.', avatar_tone: 3, switches: { sort_inbox: true, create_tasks: false, draft_replies: false, remind_me: false, remember: false } }, 'Ana').join('\n');
   check('context: each switch off says what the app refuses; the tone and note are there', /Keep every message short/.test(off) && /No meetings on Fridays/.test(off)
     && /Sort my inbox is on: you handle Ana's own inbox/.test(off) && /never create tasks \(the app refuses them\)/.test(off)
     && /do not write reply drafts/.test(off) && /do not set reminders/.test(off), off);

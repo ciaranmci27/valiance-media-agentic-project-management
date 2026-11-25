@@ -15,6 +15,7 @@ import { listWebhookEndpoints } from './webhook-endpoints';
 import { appUrlFor, inviteMember, InviteError } from '@/lib/team/invite';
 import type { AgentProfile } from '@/lib/mcp/profiles';
 import { ownersOf } from './agent-owners';
+import { assertKnownAgentProfile } from './agent-registries';
 import { agentKeyExpiry } from './key-lifetime';
 
 /**
@@ -98,12 +99,21 @@ export function requireAgentTarget(target: Pick<SetupTarget, 'name' | 'role'>, w
 export async function checkKeyGrant(
   service: SupabaseClient,
   granter: Granter,
-  input: { memberId: string; scopes: string[] },
+  input: { memberId: string; scopes: string[]; harness?: boolean },
 ): Promise<{ target: SetupTarget; scopes: string[] }> {
   const target = await loadSetupTarget(service, granter, input.memberId);
   // A person makes keys for their own personal agent: its access is theirs
   // and its own together, so every scope below is held by both.
   const ownPersonalAgent = target.role === 'agent' && !!target.delegateOf && target.delegateOf === granter.memberId;
+  // Someone else's personal agent: only its person, or the harness that runs
+  // personal agents (assistants.provision, its collect and rotate paths),
+  // gets it a key. Never an Owner by hand: the key would act for that person.
+  if (target.role === 'agent' && target.delegateOf && !ownPersonalAgent && !input.harness) {
+    throw forbidden("Only the person a personal agent works for, or the harness that runs personal agents, gets it a key", {
+      reason: 'personal_agent_owner_only',
+      hint: 'The person makes one on My Assistant, or the harness collects it with assistants.provision.',
+    });
+  }
   if (!target.self && !ownPersonalAgent) {
     if (target.role === 'owner') {
       throw forbidden('A key is never made for an Owner other than yourself', { reason: 'owner_protected' });
@@ -356,6 +366,8 @@ export async function createAgentMember(
     description?: string | null;
   },
 ): Promise<Record<string, unknown> & { id: string; name: string; role: string }> {
+  // Checked before the member exists: code's profiles and an Owner's rows.
+  await assertKnownAgentProfile(service, input.agent_profile);
   let memberId: string;
   try {
     const { member } = await inviteMember({

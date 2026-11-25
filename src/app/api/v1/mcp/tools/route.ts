@@ -3,6 +3,7 @@ import { API_ENDPOINT_PERMISSIONS } from '@/lib/access-control';
 import { withApi } from '@/lib/api/middleware';
 import { mcpResource } from '@/lib/api/connect-ai';
 import { toolCatalog } from '@/lib/mcp/catalog';
+import { resolveAgentProfile } from '@/lib/api/agent-registries';
 import { currentVersion } from '@/lib/updates/config';
 
 export const dynamic = 'force-dynamic';
@@ -21,7 +22,8 @@ export const dynamic = 'force-dynamic';
 export const GET = withApi(async ({ supabase, access, scopes, permissions, teamMemberId, origin }) => {
   const { data: member } = await supabase.from('team_members').select('agent_profile').eq('id', teamMemberId).maybeSingle();
   const profile = access.role === 'agent' && typeof member?.agent_profile === 'string' ? member.agent_profile : 'generic';
-  const catalog = toolCatalog({ access, scopes, readOnly: permissions === 'read_only', profile });
+  const profileDefinition = await resolveAgentProfile(supabase, profile);
+  const catalog = toolCatalog({ access, scopes, readOnly: permissions === 'read_only', profile, profileDefinition });
   return NextResponse.json({
     success: true,
     data: { ...catalog, mcp_url: mcpResource(origin), app_version: currentVersion() },

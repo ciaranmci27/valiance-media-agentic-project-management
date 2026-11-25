@@ -4,11 +4,12 @@ import { Check, Circle, ExternalLink, Loader2, Minus, X } from 'lucide-react';
 import { useAuth } from '@/lib/auth-context';
 import { hasPermission } from '@/lib/access-control';
 import { useRead } from '@/lib/query-cache';
-import { agentRunDetailRead } from '@/lib/reads';
+import { agentRunDetailRead, agentRunFamilyRead } from '@/lib/reads';
+import { useApp } from '@/lib/store';
 import {
   canSeeRunTrace, formatRunDuration, runDurationMs, runPill, runTitle, runTokens,
 } from '@/lib/agents-tab';
-import type { AgentRunPlanStep, AgentRunStatus, AgentRunSummary } from '@/lib/agent-runs';
+import { effectiveRunStatus, type AgentRunPlanStep, type AgentRunStatus, type AgentRunSummary } from '@/lib/agent-runs';
 import { formatMoneyExact, formatNumber } from '@/lib/format';
 import { appLocale } from '@/lib/region';
 import { timeAgo } from '@/lib/task-times';
@@ -98,7 +99,12 @@ export function RunDetailModal({ run, onClose, onOpenTask, taskTitle, projectNam
 }) {
   const canSeeTrace = useCanSeeTrace();
   const detail = useRead(run && run.source === 'run' ? agentRunDetailRead(run.id) : null);
+  const family = useRead(run && run.source === 'run' ? agentRunFamilyRead(run.id) : null);
+  const { team } = useApp();
   if (!run) return null;
+  const agentName = (id: string) => team.find((m) => m.id === id)?.name ?? 'An agent';
+  const parent = family.data?.parent ?? null;
+  const children = family.data?.children ?? [];
 
   const tokensIn = run.tokens_in;
   const tokensOut = run.tokens_out;
@@ -144,6 +150,31 @@ export function RunDetailModal({ run, onClose, onOpenTask, taskTitle, projectNam
             </div>
           ))}
         </dl>
+
+        {(parent || children.length > 0) && (
+          <section aria-labelledby="run-chain-heading" className="border-t border-white/[0.06] pt-4">
+            <h3 id="run-chain-heading" className="mb-2 text-sm font-semibold text-white">Handoff</h3>
+            {parent && (
+              <p className="text-sm text-zinc-300">
+                <span className="text-zinc-500">Handed this by </span>{agentName(parent.agent_id)}
+                {parent.title ? <span className="text-zinc-400">: {parent.title}</span> : null}
+              </p>
+            )}
+            {children.length > 0 && (
+              <>
+                <p className={`text-xs text-zinc-500 ${parent ? 'mt-3' : ''}`}>Handed work to</p>
+                <ul className="mt-1.5 space-y-1.5">
+                  {children.map((child) => (
+                    <li key={child.id} className="flex min-w-0 items-center justify-between gap-3 text-sm">
+                      <span className="min-w-0 truncate text-zinc-200">{agentName(child.agent_id)}{child.title ? <span className="text-zinc-400">: {child.title}</span> : null}</span>
+                      <RunStatusPill status={effectiveRunStatus(child)} />
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+          </section>
+        )}
 
         {run.source === 'run' && (
           <section className="border-t border-white/[0.06] pt-4">

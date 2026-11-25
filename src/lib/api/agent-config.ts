@@ -2,13 +2,14 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { API_ENDPOINT_PERMISSION_SET, apiScopesFor, type PermissionKey } from '@/lib/access-control';
 import { AGENT_RULE_FIELDS, type AgentRulesUpdate } from '@/lib/agent-rules';
 import { findAgentTemplate, listAgentTemplates } from '@/lib/agent-templates';
+import { agentTemplateRegistry, assertKnownAgentProfile } from './agent-registries';
 import { getBrand } from '@/lib/brand/server';
 import type { AgentConfigDocument, ApplyAgentTemplate, ConfigRef, ImportAgentConfig } from '@/lib/schemas/agent-config';
 import { createWebhookEndpointSchema } from '@/lib/schemas/webhooks';
 import { deleteWebhookEndpoint, updateWebhookEndpoint } from '@/lib/supabase/queries';
 import { generateWebhookSecret } from '@/lib/webhooks/sign';
 import { accessAllowsProject, apiKeyAllows } from './access';
-import { agentTemplateEndpoint, AGENT_IMPORT_ENDPOINT, appliedTemplateKey, namedProject, reachableProjectNames } from './agent-context';
+import { agentTemplateEndpoint, AGENT_IMPORT_ENDPOINT, appliedTemplateKey, namedProject, reachableProjectNames, recordTemplateKey } from './agent-context';
 import { logAudit } from './audit';
 import { setAgentLimits } from './agent-limits';
 import { revokeKeyTree } from './key-revoke';
@@ -95,8 +96,9 @@ export async function applyAgentTemplate(
   input: ApplyAgentTemplate,
   apiKeyId: string,
 ) {
-  const available = listAgentTemplates(granter.access);
-  const template = findAgentTemplate(input.template);
+  const templates = await agentTemplateRegistry(service);
+  const available = listAgentTemplates(granter.access, templates);
+  const template = findAgentTemplate(input.template, templates);
   if (!template) {
     throw new ApiError(422, 'VALIDATION_ERROR', `No agent template named ${input.template}`, {
       reason: 'unknown_template',
@@ -129,6 +131,7 @@ export async function applyAgentTemplate(
   const columns = await agentRulesColumns(service, { id: target.id, role: target.role }, template.rules);
   const { data: member, error } = await service.from('team_members').update(columns).eq('id', target.id).select().single();
   if (error) throw error;
+  await recordTemplateKey(service, target.id, template.key);
 
   // The template's limits, when it has any (an Owner changes them later).
   if (template.limits) await setAgentLimits(service, target.id, template.limits, granter.memberId);
@@ -322,6 +325,7 @@ export async function importAgentConfig(service: SupabaseClient, granter: Grante
     }
   }
   const agentName = target?.name ?? input.name ?? doc.member.name;
+  await assertKnownAgentProfile(service, doc.member.agent_profile);
 
   // Member fields.
   const memberChanges: Row = {};
@@ -487,7 +491,7 @@ export async function importAgentConfig(service: SupabaseClient, granter: Grante
   // Template: recorded with the import only when this workspace has it; its rules are already in the document.
   let template: { key: string; label: string } | null = null;
   if (doc.template) {
-    const found = findAgentTemplate(doc.template);
+    const found = findAgentTemplate(doc.template, await agentTemplateRegistry(service));
     if (found) template = { key: found.key, label: found.label };
     else notApplied.push({ part: `template ${doc.template}`, needs: 'a template with this key in this workspace (the rules in the document were used)' });
   }
@@ -589,6 +593,7 @@ export async function importAgentConfig(service: SupabaseClient, granter: Grante
         plan.keys.created.push({ key: made.key, secret: made.secret });
       }
     }
+    if (template) await recordTemplateKey(service, id, template.key);
   } catch (failure) {
     const nothingWritten = done.length === 0 && plan.webhooks.created.length === 0 && plan.keys.created.length === 0;
     if (nothingWritten) throw failure;

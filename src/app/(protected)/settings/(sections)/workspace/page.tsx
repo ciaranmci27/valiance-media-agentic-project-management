@@ -5,9 +5,10 @@ import { BrandSection } from '@/components/settings/workspace/BrandSection';
 import { FeaturesSection } from '@/components/settings/workspace/FeaturesSection';
 import { RegionSection } from '@/components/settings/workspace/RegionSection';
 import { ProviderPlansSection } from '@/components/settings/workspace/ProviderPlansSection';
+import { CompanyKnowledgeSection } from '@/components/settings/workspace/CompanyKnowledgeSection';
 import { useSettingsAccess } from '@/components/settings/settings-groups';
 
-/** Workspace: the parts of the app the workspace uses, its brand, its region, AI provider plans and, while it needs attention, its encryption key (Owners only). */
+/** Workspace: the parts of the app the workspace uses, its brand, its region, company knowledge, AI provider plans and, while it needs attention, its encryption key (Owners only). */
 export default function WorkspaceSettingsPage() {
   const { show } = useSettingsAccess();
   return (
@@ -25,6 +26,11 @@ export default function WorkspaceSettingsPage() {
       {show.region && (
         <div id="region" className="scroll-mt-6">
           <RegionSection />
+        </div>
+      )}
+      {show.companyKnowledge && (
+        <div id="company-knowledge" className="scroll-mt-6">
+          <CompanyKnowledgeSection />
         </div>
       )}
       {show.providerPlans && (

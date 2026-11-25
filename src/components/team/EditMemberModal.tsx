@@ -10,6 +10,8 @@ import { createClient } from '@/lib/supabase/client';
 import { hasPermission, isModuleEnabled } from '@/lib/access-control';
 import { canChangeSignInEmail } from '@/lib/team/invite-rules';
 import { AGENT_PROFILES, type AgentProfile } from '@/lib/mcp/profiles';
+import { useRead } from '@/lib/query-cache';
+import { agentProfilesRead } from '@/lib/reads';
 import {
   AGENT_RULE_LABELS, CLOSE_POLICY_OPTIONS, CREATE_POLICY_OPTIONS, ESCALATE_DEFAULT_LABEL, agentRulesOf,
   type AgentClosePolicy, type AgentCreatePolicy, type AgentRules,
@@ -70,6 +72,12 @@ function EditMemberForm({ member, onClose }: { member: TeamMember; onClose: () =
     member.role === 'agent' ? Number(member.billing_multiplier ?? 1) : '',
   );
   const [agentProfile, setAgentProfile] = useState<AgentProfile>(member.agent_profile ?? 'generic');
+  // Code's profiles at once; the workspace's own join them when the read lands. A stored value no registry knows still shows, as itself.
+  const profileRead = useRead(member.role === 'agent' ? agentProfilesRead : null);
+  const loadedProfiles = profileRead.data ?? AGENT_PROFILES;
+  const profileOptions = loadedProfiles.some((profile) => profile.value === agentProfile)
+    ? loadedProfiles
+    : [...loadedProfiles, { value: agentProfile, label: agentProfile, description: 'Not a profile any more: it sees only pm_guide until you pick another.' }];
   const savedRules = agentRulesOf(member);
   const [rules, setRules] = useState<AgentRules>(savedRules);
   const [memberTz, setMemberTz] = useState(member.timezone || 'UTC');
@@ -388,7 +396,7 @@ function EditMemberForm({ member, onClose }: { member: TeamMember; onClose: () =
               description="Which MCP tools this agent sees. Its key and permissions still decide what each tool may do."
               value={agentProfile}
               onChange={(value) => setAgentProfile(value as AgentProfile)}
-              options={AGENT_PROFILES.map((profile) => ({
+              options={profileOptions.map((profile) => ({
                 value: profile.value,
                 label: profile.label,
                 detail: profile.description,

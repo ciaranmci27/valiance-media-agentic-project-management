@@ -29,10 +29,27 @@ export const CONNECT_SCOPES: readonly PermissionKey[] = [
   'reminders.manage_own',
 ];
 
-/** The connect scopes this person holds on the API channel: what a connection of theirs gets. */
-export function connectScopesFor(access: AccessContext | null | undefined): PermissionKey[] {
+/**
+ * Asked for on the consent screen as an extra, never given by default: a
+ * person's own memory (what their assistant remembers about them).
+ */
+export const CONNECT_MEMORY_SCOPE: PermissionKey = 'context.memory';
+export const CONNECT_MEMORY_WORDS = 'Also let it read and add to what your assistant remembers about you';
+
+/**
+ * The connect scopes this person holds on the API channel: what a connection
+ * of theirs gets. withMemory adds context.memory when they hold it and
+ * ticked the extra on the consent screen.
+ */
+export function connectScopesFor(access: AccessContext | null | undefined, options: { withMemory?: boolean } = {}): PermissionKey[] {
   const held = new Set(apiScopesFor(access));
-  return CONNECT_SCOPES.filter((scope) => held.has(scope));
+  const scopes = CONNECT_SCOPES.filter((scope) => held.has(scope));
+  return options.withMemory && held.has(CONNECT_MEMORY_SCOPE) ? [...scopes, CONNECT_MEMORY_SCOPE] : scopes;
+}
+
+/** Whether the consent screen offers the memory extra: the person holds context.memory on the API. */
+export function canOfferMemory(access: AccessContext | null | undefined): boolean {
+  return new Set(apiScopesFor(access)).has(CONNECT_MEMORY_SCOPE);
 }
 
 /** What a connection can do, in plain words, for the consent screen and the key fallback. */
@@ -44,6 +61,7 @@ export function connectAbilities(scopes: readonly string[]): string[] {
   if (has('tasks.create')) lines.push('Create tasks');
   if (has('tasks.manage_assigned')) lines.push('Update tasks assigned to you');
   if (has('reminders.manage_own')) lines.push('Add and change your reminders');
+  if (has(CONNECT_MEMORY_SCOPE)) lines.push('Read and add to what your assistant remembers about you');
   return lines;
 }
 

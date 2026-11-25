@@ -16,6 +16,7 @@ import type { MyAssistantView } from '@/lib/assistant';
 import { AssistantActivityBand } from './AssistantActivityBand';
 import { AssistantChatCard } from './AssistantChatCard';
 import { AssistantSettingsCard } from './AssistantSettingsCard';
+import { AssistantMemoryCard } from './AssistantMemoryCard';
 
 type Assistant = NonNullable<MyAssistantView['assistant']>;
 
@@ -85,6 +86,7 @@ export function MyAssistantPage() {
 }
 
 function AssistantHome({ view, assistant, isDemo }: { view: MyAssistantView; assistant: Assistant; isDemo: boolean }) {
+  const { teamMemberId } = useAuth();
   const openQuestions = useOpenQuestions();
   const activity = useRead(myAssistantActivityRead()).data;
   const router = useRouter();
@@ -155,6 +157,9 @@ function AssistantHome({ view, assistant, isDemo }: { view: MyAssistantView; ass
                 )}
               </section>
               <AssistantActivityBand assistantName={assistant.name} />
+              {teamMemberId && (
+                <AssistantMemoryCard personId={teamMemberId} assistantName={assistant.name} remembering={assistant.preferences.switches.remember} isDemo={isDemo} />
+              )}
             </div>
             <div className="space-y-5 lg:col-span-2">
               <AssistantSettingsCard assistant={assistant} isDemo={isDemo} />

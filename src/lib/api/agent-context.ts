@@ -10,7 +10,7 @@ import {
   type PermissionKey,
 } from '@/lib/access-control';
 import { agentRulesOf, type AgentRules } from '@/lib/agent-rules';
-import { findAgentTemplate } from '@/lib/agent-templates';
+import { resolveAgentProfile, resolveAgentTemplate } from './agent-registries';
 import { getBrand } from '@/lib/brand/server';
 import { personalAgentBrief } from '@/lib/personal-agents';
 import type { AssistantPreferences } from '@/lib/assistant';
@@ -26,6 +26,8 @@ import { groupTargetLabel } from '@/lib/groups';
 import { agentProjects, memberApiKeys, type Granter } from './agent-setup';
 import { ownersOf } from './agent-owners';
 import { pinnedEntries } from './project-brief';
+import { pinnedForAgent, type PinnedScope } from './context-scopes';
+import { SCOPE_WORDS as CONTEXT_SCOPE_WORDS } from '@/lib/context-scopes';
 import { readAll } from './read-all';
 import { PROJECT_AGENT_COLUMNS } from './project-agents';
 import type { AgentOwner, SettingsValues } from '@/lib/project-agents';
@@ -158,6 +160,13 @@ export interface ContextPack {
   }[] | null;
   template: { key: string; label: string; context: string } | null;
   /**
+   * For an agent: pinned entries beyond its projects, from the workspace,
+   * its groups, itself and (read as itself, for a personal agent whose
+   * person allows it) its person's memory, bounded. Absent when there are
+   * none. Someone else reading an agent's pack never sees that memory.
+   */
+  scoped_context?: PinnedScope[];
+  /**
    * For an agent: its limits (null fields: no limit), what counts against
    * them now, whether it or every agent is paused, and all of it in words.
    * Absent on a database before limits.
@@ -194,12 +203,36 @@ const SCOPE_WORDS = new Map<string, { label: string; description: string }>(
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- member rows are read field by field
 type Row = Record<string, any>;
 
+/** A database before team_members.agent_template_key (the template is then read from the audit log). */
+const missingTemplateColumn = (error: { code?: string; message?: string } | null) =>
+  !!error && (error.code === '42703' || error.code === 'PGRST204' || /agent_template_key/.test(error.message ?? ''));
+
 /**
- * The template an agent was last set up from: the newest template apply or
- * import that named one, from the API audit log (nothing else records it).
- * Null when none did, or the log cannot be read.
+ * Records on the agent the template it was just set up from (hire, apply,
+ * import). The audit log row written for the same change sets it too (a
+ * trigger, for older code); this makes it immediate. A database before the
+ * column skips it.
+ */
+export async function recordTemplateKey(service: SupabaseClient, agentId: string, key: string): Promise<void> {
+  const { error } = await service.from('team_members').update({ agent_template_key: key }).eq('id', agentId);
+  if (error && !missingTemplateColumn(error)) throw error;
+}
+
+/**
+ * The template an agent was last set up from: team_members.agent_template_key,
+ * kept on the agent so audit retention cannot lose it. Before that column
+ * exists, the newest template apply, hire or import that named one in the
+ * API audit log. Null when none did.
  */
 export async function appliedTemplateKey(service: SupabaseClient, memberId: string): Promise<string | null> {
+  const column = await service.from('team_members').select('agent_template_key').eq('id', memberId).maybeSingle();
+  if (!column.error) return ((column.data as Row | null)?.agent_template_key as string | null | undefined) ?? null;
+  if (!missingTemplateColumn(column.error)) return null;
+  return appliedTemplateKeyFromAudit(service, memberId);
+}
+
+/** The audit log's answer, for a database before team_members.agent_template_key. */
+async function appliedTemplateKeyFromAudit(service: SupabaseClient, memberId: string): Promise<string | null> {
   const { data, error } = await service
     .from('api_audit_log')
     .select('request_body')
@@ -221,14 +254,22 @@ export async function appliedTemplateKey(service: SupabaseClient, memberId: stri
 const TEMPLATE_KEYS_CHUNK = 100;
 
 /**
- * appliedTemplateKey for many agents: the newest template each was set up
- * from, reading TEMPLATE_KEYS_CHUNK agents at a time, and only the audit
- * rows that name a template. An agent with none is absent from the map. A
- * read that fails is logged, and the map holds what the other reads found.
+ * appliedTemplateKey for many agents, TEMPLATE_KEYS_CHUNK at a time: the
+ * column on each agent, or (before it exists) only the audit rows that name
+ * a template. An agent with none is absent from the map. A read that fails
+ * is logged, and the map holds what the other reads found.
  */
 export async function appliedTemplateKeys(service: SupabaseClient, memberIds: string[]): Promise<Map<string, string>> {
   const out = new Map<string, string>();
   const ids = [...new Set(memberIds)];
+  let fromAudit = false;
+  for (let i = 0; i < ids.length && !fromAudit; i += TEMPLATE_KEYS_CHUNK) {
+    const { data, error } = await service.from('team_members').select('id, agent_template_key').in('id', ids.slice(i, i + TEMPLATE_KEYS_CHUNK));
+    if (missingTemplateColumn(error)) { fromAudit = true; break; }
+    if (error) { console.error('[agents] reading the templates agents were set up from failed', error); continue; }
+    for (const row of (data ?? []) as Row[]) if (typeof row.agent_template_key === 'string' && row.agent_template_key) out.set(row.id, row.agent_template_key);
+  }
+  if (!fromAudit) return out;
   for (let i = 0; i < ids.length; i += TEMPLATE_KEYS_CHUNK) {
     const chunk = ids.slice(i, i + TEMPLATE_KEYS_CHUNK);
     let rows: { entity_id: string; request_body: Row | null }[];
@@ -363,6 +404,13 @@ function fitPack(pack: ContextPack): ContextPack {
     pack.tools = pack.tools.map(({ name }) => ({ name, lead: '' }));
     cut.push('tool_leads');
   }
+  if (size() > PACK_LIMITS.total && pack.scoped_context?.some((scope) => scope.entries.length > 0)) {
+    for (const scope of pack.scoped_context) {
+      if (scope.entries.length) scope.more = (scope.more ?? 0) + scope.entries.length;
+      scope.entries = [];
+    }
+    cut.push('scoped_context');
+  }
   if (size() > PACK_LIMITS.total && pack.assignments?.list.some((item) => item.pinned.length > 0)) {
     for (const item of pack.assignments.list) {
       if (item.pinned.length) item.more_pinned = (item.more_pinned ?? 0) + item.pinned.length;
@@ -476,12 +524,13 @@ export async function buildContextPack(
 
   const key = input.key;
   const effective = key ? API_ENDPOINT_PERMISSIONS.filter((scope) => apiKeyAllows(access, key.scopes, scope as PermissionKey)) : null;
-  const tools = key ? toolsFor({ access, scopes: key.scopes, readOnly: key.readOnly, profile }) : null;
+  const profileDefinition = isAgent ? await resolveAgentProfile(service, profile) : undefined;
+  const tools = key ? toolsFor({ access, scopes: key.scopes, readOnly: key.readOnly, profile, profileDefinition }) : null;
   // Without its tools, the conventions are the general ones, for every tool.
   const toolNames = new Set((tools ?? PM_TOOLS).map((tool) => tool.name));
 
   const rules = agentRulesOf(isAgent ? row : null);
-  const [escalation, levels, projects, healthRow, templateKey, brand, owners, assignments, limitState, workspacePause] = await Promise.all([
+  const [escalation, levels, projects, healthRow, templateKey, brand, owners, assignments, limitState, scoped, workspacePause] = await Promise.all([
     isAgent ? escalationRecipient(service, row.id) : Promise.resolve(null),
     resolveProjectAccessLevels(service, [{ id: row.id, role: row.role, status: row.status }]),
     agentProjects(service, viewer, row.id),
@@ -493,6 +542,7 @@ export async function buildContextPack(
     isAgent ? ownersOf(service, [row.id]).then((map) => map.get(row.id) ?? []) : Promise.resolve(null),
     isAgent ? packAssignments(service, viewer, row.id) : Promise.resolve(null),
     isAgent ? loadLimitState(service, row.id, true) : Promise.resolve(null),
+    isAgent ? pinnedForAgent(service, row.id, { withMemory: input.mode === 'self' && row.id === viewer.memberId }) : Promise.resolve([] as PinnedScope[]),
     isAgent
       ? service.from('business_settings').select('agents_paused_at').limit(1).maybeSingle()
         .then((result) => (result.error ? null : ((result.data as Row | null)?.agents_paused_at as string | null) ?? null))
@@ -536,7 +586,7 @@ export async function buildContextPack(
     });
   }
 
-  const template = templateKey ? findAgentTemplate(templateKey) : null;
+  const template = templateKey ? await resolveAgentTemplate(service, templateKey) : null;
   let limits: ContextPack['limits'] = null;
   if (isAgent && limitState) {
     const l = limitState.limits ?? agentLimitsOf(null);
@@ -610,6 +660,7 @@ export async function buildContextPack(
     health,
     webhooks,
     template: template ? { key: template.key, label: template.label, context: template.context } : null,
+    ...(scoped.length ? { scoped_context: scoped } : {}),
     ...(limits ? { limits } : {}),
     omitted,
   };
@@ -681,6 +732,19 @@ export function renderContextPack(pack: ContextPack, as: 'agents' | 'skill' = 'a
     if (pack.assignments.more) tail.push(`And ${pack.assignments.more} more assignments: list_my_projects has them all.`);
     if (pack.assignments.hidden_count) tail.push(`And ${pack.assignments.hidden_count} on projects the reader of this file cannot see.`);
     parts.push(`## Your projects\n\nWhat you do on each project you are assigned to. The rest of each project's brief is found with search_project_context.${blocks.length ? `\n\n${blocks.join('\n\n')}` : ''}${tail.length ? `\n\n${bullet(tail)}` : ''}`);
+  }
+
+  if (pack.scoped_context?.length) {
+    const blocks = pack.scoped_context.map((scope) => {
+      const title = scope.scope_type === 'group' ? `${CONTEXT_SCOPE_WORDS.group.label}: ${scope.name ?? 'a group you are in'}`
+        : scope.scope_type === 'agent' ? 'Your notes'
+          : scope.scope_type === 'member' ? `What ${pack.works_for?.name ?? 'your person'} wants you to remember`
+            : CONTEXT_SCOPE_WORDS[scope.scope_type].label;
+      const lines = scope.entries.map((entry) => `(${entry.section}) ${entry.content.replace(/\s+/g, ' ').trim()}`);
+      if (scope.more) lines.push(`And ${scope.more} more pinned: search_context finds them.`);
+      return `### ${title}\n\n${bullet(lines)}`;
+    });
+    parts.push(`## What to keep in mind\n\nPinned for you beyond your projects. The rest is found with search_context.\n\n${blocks.join('\n\n')}`);
   }
 
   parts.push(`## How we work here\n\n${bullet(pack.conventions)}`);

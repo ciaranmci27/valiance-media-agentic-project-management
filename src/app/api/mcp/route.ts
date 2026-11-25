@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { createMcpHandler } from '@modelcontextprotocol/server';
 import { ApiError } from '@/lib/api/errors';
 import { resolveApiKey } from '@/lib/api/middleware';
+import { resolveAgentProfile } from '@/lib/api/agent-registries';
 import { bearerChallenge } from '@/lib/api/connect-ai';
 import { isConnectAccessToken } from '@/lib/connect-ai';
 import { ACT_FOR_HEADER } from '@/lib/delegation';
@@ -88,6 +89,7 @@ export async function POST(request: NextRequest) {
       .select('*')
       .eq('id', keyRow.team_member_id)
       .maybeSingle();
+    const profile = access.role === 'agent' && typeof member?.agent_profile === 'string' ? member.agent_profile : 'generic';
     caller = {
       key: key as string,
       origin: request.nextUrl.origin,
@@ -97,7 +99,9 @@ export async function POST(request: NextRequest) {
       member: { id: keyRow.team_member_id, name: member?.name ?? 'Unknown', role: access.role },
       // Before the migration adds the column, every agent is generic. A stored
       // profile the registry does not know is kept, and sees only pm_guide.
-      profile: access.role === 'agent' && typeof member?.agent_profile === 'string' ? member.agent_profile : 'generic',
+      profile,
+      // An Owner's row, or code's (no read); null for a value nothing knows (pm_guide only).
+      profileDefinition: await resolveAgentProfile(supabase, profile),
       ...(principal && actFor ? { actFor, principalId: principal.id } : {}),
       ...(connection ? { connection: true } : {}),
     };

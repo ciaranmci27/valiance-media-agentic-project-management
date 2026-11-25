@@ -137,6 +137,8 @@ export const MODULE_SURFACES: Record<ModuleId, ModuleSurface> = {
       'assistant_preferences', 'chat_connections', 'chat_messages', 'chat_rate_limits',
       // Per-agent limits and the per-agent request windows.
       'agent_limits', 'agent_rate_limit_windows',
+      // A subtask an agent handed to another, and an Owner's own agent profiles and templates.
+      'task_delegations', 'mcp_profile_rows', 'agent_template_rows',
     ],
     // The question sums for Agents > Analytics.
     rpcs: ['agent_question_stats'],
@@ -155,6 +157,8 @@ export const MODULE_SURFACES: Record<ModuleId, ModuleSurface> = {
       'api/workspace/assistant', 'api/workspace/chat-connections', 'api/v1/assistant', 'api/chat', '(protected)/assistant',
       // The kill switch for every agent.
       'api/workspace/agents-pause',
+      // An Owner's own agent profiles and templates, and their export and import.
+      'api/v1/agent-profiles', 'api/v1/agent-registries', 'api/workspace/agent-profiles',
     ],
   },
 };
@@ -186,6 +190,8 @@ export const CORE_ROUTES: string[] = [
   'api/workspace/audit-log', 'api/workspace/audit-settings', 'api/v1/audit',
   // Connect AI: people sign their own AI tools in (OAuth for the MCP server), its switch (Owner) and the tool catalog.
   'api/oauth', 'api/workspace/connect-ai', 'api/v1/mcp',
+  // Context at every level (company knowledge, a group's, an agent's notes, a person's memory), as the project brief is core.
+  'api/v1/context', 'api/workspace/context',
   // Groups and linked identities (chat accounts) are about people, with AI agents on or off.
   'api/v1/groups', 'api/v1/identities', 'api/v1/members', 'api/workspace/groups', 'api/workspace/identities', '(protected)/link',
   // The install's own routes and pages (src/custom): each item names its own module, permission or role.

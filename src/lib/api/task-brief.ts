@@ -9,6 +9,8 @@ import { escalationRecipient, loadMemberRules } from './agent-rules';
 import { groupNames } from './groups';
 import { groupTargetLabel } from '@/lib/groups';
 import { apiContext, listTaskFiles } from '@/lib/task-files/service';
+import { pinnedForAgent, type PinnedScope } from './context-scopes';
+import { delegationOf } from './agent-handoff';
 
 /**
  * Everything an agent needs to work one task, in one bounded read: the task
@@ -16,7 +18,11 @@ import { apiContext, listTaskFiles } from '@/lib/task-files/service';
  * active context entries (pinned first, each with its brief section), the
  * caller's own assignment on that project (settings and instructions), the
  * newest comments, files and links, the open question, the claim, the
- * latest agent run, and the caller's own rules.
+ * latest agent run, and the caller's own rules. For an agent, also the
+ * pinned entries beyond the project (the workspace's, its groups', its own
+ * and, for a personal agent whose person allows it, its person's memory) as
+ * scoped_context, and for a delegated subtask the run that handed it over
+ * (delegated_from); each only when there is one.
  *
  * Every part comes from the reader its own route uses (GET /tasks/{id},
  * /projects/{id}, /projects/{id}/context, /tasks/{id}/files). The task's
@@ -115,7 +121,11 @@ export async function buildTaskBrief(caller: BriefCaller, taskId: string): Promi
     seeFiles ? listTaskFiles(apiContext(caller), taskId) : Promise.resolve(null),
     briefRules(caller),
   ]);
-  const assignmentRow = rules.is_agent ? await ownAssignment(supabase, caller.teamMemberId, full.project_id) : null;
+  const [assignmentRow, scoped, delegatedFrom] = await Promise.all([
+    rules.is_agent ? ownAssignment(supabase, caller.teamMemberId, full.project_id) : Promise.resolve(null),
+    rules.is_agent && seeContext ? pinnedForAgent(supabase, caller.teamMemberId, { withMemory: true }) : Promise.resolve([] as PinnedScope[]),
+    delegationOf(supabase, taskId),
+  ]);
 
   // The task, as GET /tasks/{id} reads it, without the parts the brief lifts
   // to the top (comments, claim, open question) and with long text cut.
@@ -214,6 +224,7 @@ export async function buildTaskBrief(caller: BriefCaller, taskId: string): Promi
     task: briefTask,
     project,
     project_context: context,
+    ...(scoped.length ? { scoped_context: scoped } : {}),
     assignment,
     comments: {
       recent,
@@ -226,11 +237,12 @@ export async function buildTaskBrief(caller: BriefCaller, taskId: string): Promi
     open_question: openQuestion ?? null,
     claim: claim ?? null,
     latest_run: latestRun ?? null,
+    ...(delegatedFrom ? { delegated_from: delegatedFrom } : {}),
     rules,
     omitted,
   };
 
-  fitBrief(brief, { context, recent, project, assignment });
+  fitBrief(brief, { context, recent, project, assignment, scoped });
   if (context?.truncated && !context.note) context.note = CONTEXT_NOTE;
   return brief;
 }
@@ -266,7 +278,7 @@ async function briefContextRows(supabase: SupabaseClient, projectId: string): Pr
  * descriptions down to BRIEF_LIMITS.descriptionFloor. Each step taken is
  * named in cut_to_fit and flagged on its part.
  */
-function fitBrief(brief: Row, parts: { context: Row | null; recent: Row[]; project: Row | null; assignment: Row | null }) {
+function fitBrief(brief: Row, parts: { context: Row | null; recent: Row[]; project: Row | null; assignment: Row | null; scoped: PinnedScope[] }) {
   const size = () => JSON.stringify(brief).length;
   if (size() <= BRIEF_LIMITS.total) return;
   const cutToFit: string[] = [];
@@ -283,7 +295,14 @@ function fitBrief(brief: Row, parts: { context: Row | null; recent: Row[]; proje
     }
   };
 
-  const { context, recent, project, assignment } = parts;
+  const { context, recent, project, assignment, scoped } = parts;
+  shrink('scoped_context', () => {
+    const scope = [...scoped].reverse().find((s) => s.entries.length > 0);
+    if (!scope) return false;
+    scope.entries.pop();
+    scope.more = (scope.more ?? 0) + 1;
+    return true;
+  }, () => undefined);
   shrink('project_context', () => !!context && context.entries.pop() !== undefined, () => {
     context!.truncated = true;
     context!.note = CONTEXT_NOTE;

@@ -7,6 +7,8 @@ import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { MemberStatusChip, RoleChip } from '@/components/team/member-chips';
 import { AGENT_PROFILES } from '@/lib/mcp/profiles';
+import { useRead } from '@/lib/query-cache';
+import { agentProfilesRead } from '@/lib/reads';
 import { timeAgo } from '@/lib/task-times';
 import type { ProfileMember } from '@/lib/team/profile';
 import { formatDate, localClock } from './format';
@@ -57,8 +59,9 @@ export function ProfileIdentity({
   /** Present when the viewer may reactivate this person. */
   onReactivate?: () => void;
 }) {
+  const profiles = useRead(member.agent_profile && !AGENT_PROFILES.some((profile) => profile.value === member.agent_profile) ? agentProfilesRead : null).data;
   const agentProfile = member.agent_profile
-    ? AGENT_PROFILES.find((profile) => profile.value === member.agent_profile)?.label ?? member.agent_profile
+    ? [...AGENT_PROFILES, ...(profiles ?? [])].find((profile) => profile.value === member.agent_profile)?.label ?? member.agent_profile
     : null;
   const facts: { label: string; value: ReactNode }[] = [];
   if (member.email) {

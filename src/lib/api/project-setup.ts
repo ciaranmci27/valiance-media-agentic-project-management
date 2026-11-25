@@ -12,6 +12,7 @@ import {
   canGrantProjectAccess, loadAgent, migrationPending, newAssignmentRow, presentAssignments, PROJECT_AGENT_COLUMNS, projectAccessNeeded, requireAssignAgent,
 } from './project-agents';
 import { ApiError, forbidden, moduleOff } from './errors';
+import { agentTemplateRegistry } from './agent-registries';
 
 /**
  * Setting up a whole project in one call, the way an agent is hired in one:
@@ -81,6 +82,7 @@ export async function setupProject(
     // The agents join a new project: that is project access, an Owner's or a project manager's to give.
     if (!canGrantProjectAccess(caller)) throw projectAccessNeeded([]);
     const seen = new Set<string>();
+    const templates = await agentTemplateRegistry(service);
     for (const entry of input.agents) {
       if (seen.has(entry.agent_id)) throw new ApiError(422, 'VALIDATION_ERROR', 'An agent is named twice', { reason: 'duplicate_agent', agent_id: entry.agent_id });
       seen.add(entry.agent_id);
@@ -89,7 +91,7 @@ export async function setupProject(
         throw new ApiError(422, 'VALIDATION_ERROR', `${agent.name} is suspended. Reactivate them in Team first.`, { reason: 'member_suspended', agent_id: agent.id });
       }
       await requireAssignAgent(service, caller, agent.id);
-      agentRows.push(newAssignmentRow(caller, PLACEHOLDER_PROJECT, agent.id, entry, `${agent.name}: `));
+      agentRows.push(newAssignmentRow(caller, PLACEHOLDER_PROJECT, agent.id, entry, `${agent.name}: `, templates));
     }
   }
   const briefRows = (input.brief ?? []).map((entry) => briefInsertRow(PLACEHOLDER_PROJECT, entry, caller.access.role === 'agent' ? 'agent' : 'human'));

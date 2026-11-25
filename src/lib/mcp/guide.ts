@@ -78,6 +78,15 @@ Runs
 - A run with no update for two hours reads as timed_out. On long work, update_run at least that often.
 - If your host records turns (turn.completed), it can name the run with run_id (or run_external_id), and the turn is listed under that run. Turns that name no run show as runs of their own.
 
+Handing work to another agent
+- To hand part of a task to a specialist, delegate_task: a subtask assigned to that agent, linked to your run (run_id). Which agent fits is your call.
+- When a task was delegated to you, get_task_brief has delegated_from: start your run with parent_run_id set to its run_id. A child run acts for the same person as its parent; it can never switch to someone else.
+- get_run_tree shows the whole chain from any run in it.
+
+Context beyond the project
+- Besides each project's brief there is company knowledge (workspace), group knowledge, your own notes (agent) and, for a personal agent, what your person wants remembered (member). Pinned entries of each come with get_task_brief and pm_guide as scoped_context.
+- search_context searches every level you can read at once. add_context keeps a note for yourself (scope_type agent, your own id) or, for a personal agent whose person turned on Remember things for me, a memory for them (scope_type member, their id).
+
 Notifications and events
 - notify_owner reaches the owner with news. Pass the entity_id of what it is about so a repeat does not pile up unread. For a question you need answered, use ask_human.
 - log_activity takes typed events; the feed line is written from the payload. Check its description for each event's payload.
@@ -108,7 +117,8 @@ export const SETUP_TOOLS: readonly string[] = [
   'revoke_api_key', 'list_webhook_endpoints', 'create_webhook_endpoint', 'update_webhook_endpoint', 'delete_webhook_endpoint',
   'get_agent_context', 'list_agent_templates', 'apply_agent_template', 'export_agent_config', 'import_agent_config',
   'list_agents', 'update_agent', 'set_project_agent', 'remove_project_agent', 'setup_project',
-  'rotate_api_key',
+  'rotate_api_key', 'list_agent_profiles', 'create_agent_profile', 'update_agent_profile', 'create_agent_template', 'update_agent_template',
+  'export_agent_registries', 'import_agent_registries',
 ];
 
 export const PM_SETUP_GUIDE = `Set up an agent from a chat
@@ -118,6 +128,7 @@ export const PM_SETUP_GUIDE = `Set up an agent from a chat
 - Only an Owner's key makes a key for an agent. Keys you make are tied to your key: revoking yours revokes them.
 - Never create or change an Owner, and never make a key for a person other than yourself.
 - To start from a known kind of agent, list_agent_templates, then apply_agent_template after create_agent: it sets the rules and, with create_key, makes a key with the template's scopes (your key must carry them all).
+- An Owner adds templates and profiles of their own with no deploy: create_agent_template, create_agent_profile (a named set of MCP tools), update_ either to change or archive one. Code's keys are never overridden. export_agent_registries and import_agent_registries (dry_run first) copy them between workspaces.
 - get_agent_context shows what the agent will be told about itself (its pm_guide context), with an AGENTS.md to hand its host. To copy an agent, export_agent_config, then import_agent_config with dry_run true, read the plan back to the person, and run it again without dry_run.
 - Give an agent work on a project with set_project_agent: its template's settings (list_agent_templates shows each template's fields) and instructions for that project only. Those, and the project's pinned brief entries, go into its context; remove_project_agent takes it off.
 - An agent's owners are the people responsible for it; its questions go to them when it names nobody. update_agent changes its name, role label, rules and owners; a role label is for people and changes nothing it may do. list_agents filters by role, owner (me), template and project.

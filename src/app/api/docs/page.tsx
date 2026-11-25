@@ -457,8 +457,9 @@ mcp_servers:
 
               <div className="mb-4 rounded-lg border border-violet-200 bg-violet-50 p-3 text-xs text-violet-900">
                 With AI agents on, each agent member has a profile, set by the Owner in Team:{' '}
-                {AGENT_PROFILES.map((profile) => profile.label).join(', ')}. Core's profiles see every tool the agent's keys allow;
-                an install adds its own in src/custom/agent-profiles.ts, each listing the tools it sees.
+                {AGENT_PROFILES.map((profile) => profile.label).join(', ')}, or one of the workspace's own. Core's generic sees every tool the
+                agent's keys allow; an install adds its own in src/custom/agent-profiles.ts and an Owner adds more as rows
+                (POST /api/v1/agent-profiles), each listing the tools it sees.
               </div>
 
               <details className="group">

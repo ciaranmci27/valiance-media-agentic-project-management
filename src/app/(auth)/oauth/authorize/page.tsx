@@ -6,7 +6,7 @@ import { Logo } from '@/components/ui/Logo';
 import { ConsentActions } from '@/components/connect-ai/ConsentActions';
 import { requireSessionAccess } from '@/lib/api/access';
 import { authorizeParamsFrom, checkAuthorizeRequest, connectAiState } from '@/lib/api/connect-ai';
-import { CONNECT_NEVER, connectAbilities, connectScopesFor, consentWords, redirectHost } from '@/lib/connect-ai';
+import { CONNECT_NEVER, canOfferMemory, connectAbilities, connectScopesFor, consentWords, redirectHost } from '@/lib/connect-ai';
 import { getBrand } from '@/lib/brand/server';
 
 export const dynamic = 'force-dynamic';
@@ -100,7 +100,7 @@ export default async function AuthorizePage({ searchParams }: { searchParams: Pr
           <span>{words.caution}</span>
         </p>
 
-        <ConsentActions params={params} canAllow={!blocked} clientName={name} />
+        <ConsentActions params={params} canAllow={!blocked} clientName={name} offerMemory={access.role !== 'agent' && canOfferMemory(access)} />
 
         <p className="mt-4 border-t border-white/[0.06] pt-3 text-xs text-zinc-400">
           You can disconnect it any time in Settings, under Account.
