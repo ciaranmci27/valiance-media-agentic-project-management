@@ -1,17 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
-import { createClient } from '@/lib/supabase/client';
-import { appLocale } from '@/lib/region';
-import { Button } from '@/components/ui/Button';
-import { Input } from '@/components/ui/Input';
-import { TextInput } from '@/components/ui/inputs/TextInput';
-import { Toggle } from '@/components/ui/inputs/Toggle';
-import { Checkbox } from '@/components/ui/inputs/Checkbox';
-import { Select } from '@/components/ui/inputs/Select';
-import { MultiSelect } from '@/components/ui/inputs/MultiSelect';
-import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
-import { toast } from '@/components/ui/Toast';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import {
   Webhook,
@@ -25,12 +14,24 @@ import {
   Send,
   BookOpen,
   Pencil,
+  ListChecks,
 } from 'lucide-react';
+import { createClient } from '@/lib/supabase/client';
+import { appLocale } from '@/lib/region';
+import { Button } from '@/components/ui/Button';
+import { Toggle } from '@/components/ui/inputs/Toggle';
+import { Select } from '@/components/ui/inputs/Select';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { RowActionsMenu } from '@/components/ui/RowActionsMenu';
+import { Tooltip } from '@/components/ui/Tooltip';
+import { toast } from '@/components/ui/Toast';
+import { SettingsSectionHeader } from '@/components/settings/SettingsSectionHeader';
+import { WebhookEndpointDialog, type SaveEndpoint } from '@/components/settings/WebhookEndpointDialog';
 import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
 import { isModuleEnabled } from '@/lib/access-control';
 import { generateWebhookSecret } from '@/lib/webhooks/sign';
-import { webhookUrlError } from '@/lib/webhooks/endpoint-input';
+import { endpointHealth, eventSummary, hasInvoiceEvents, webhookFields, type EndpointHealth } from '@/lib/developers-settings';
 import {
   fetchWebhookEndpoints,
   insertWebhookEndpoint,
@@ -40,54 +41,15 @@ import {
   requeueWebhookDelivery,
 } from '@/lib/supabase/queries';
 import {
-  INVOICE_WEBHOOK_EVENT_TYPES,
-  WORK_WEBHOOK_EVENT_TYPES,
   WEBHOOK_MAX_ATTEMPTS,
-  type WebhookAmountBasis,
   type WebhookEndpoint,
   type WebhookDelivery,
   type WebhookDeliveryStatus,
 } from '@/lib/types';
 
-const EVENT_LABELS: Record<string, string> = {
-  'task.created': 'Task created',
-  'task.updated': 'Task updated',
-  'task.deleted': 'Task moved to Trash',
-  'comment.created': 'Comment added',
-  'question.asked': 'Question asked',
-  'question.answered': 'Question answered',
-  'question.cancelled': 'Question withdrawn',
-  'suggestion.created': 'Suggestion made',
-  'suggestion.decided': 'Suggestion decided',
-  'review.submitted': 'Review submitted',
-  'run.started': 'Agent run started',
-  'run.finished': 'Agent run finished',
-  'agent_event.created': 'Every agent event',
-  'invoice.paid': 'Invoice paid',
-  'invoice.updated': 'Invoice updated',
-  'invoice.deleted': 'Invoice deleted',
-  'invoice.payment_recorded': 'Payment recorded',
-  'invoice.payment_removed': 'Payment removed',
-};
+export const WEBHOOKS_DESCRIPTION = 'Send signed events to your other systems, such as an AI agent, a data warehouse or your accounting tool, when work, questions, agent runs or invoices change.';
 
-// The event picker, in groups. Invoices show only while Client invoicing is on.
-const EVENT_GROUPS: Array<{ label: string; events: readonly string[]; invoices?: boolean }> = [
-  { label: 'Tasks', events: ['task.created', 'task.updated', 'task.deleted', 'comment.created'] },
-  { label: 'Questions', events: ['question.asked', 'question.answered', 'question.cancelled'] },
-  { label: 'Suggestions and reviews', events: ['suggestion.created', 'suggestion.decided', 'review.submitted'] },
-  { label: 'Agent runs', events: ['run.started', 'run.finished'] },
-  // Opt in: every event the agents record, for a data system. Never a default.
-  { label: 'Agent events', events: ['agent_event.created'] },
-  { label: 'Invoices', events: INVOICE_WEBHOOK_EVENT_TYPES, invoices: true },
-];
-const INVOICE_EVENTS: readonly string[] = INVOICE_WEBHOOK_EVENT_TYPES;
-const EVERYONE = '';
-
-// What an endpoint is sent for invoice.amount, each line amount and totals_by_type.
-const AMOUNT_BASIS_OPTIONS: Array<{ value: WebhookAmountBasis; label: string; detail: string }> = [
-  { value: 'gross', label: 'Gross', detail: 'What the client was billed' },
-  { value: 'net', label: 'Net of splits', detail: 'What is left after revenue splits' },
-];
+const ALL_ENDPOINTS = '';
 
 const STATUS_STYLES: Record<WebhookDeliveryStatus, string> = {
   pending: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
@@ -95,6 +57,16 @@ const STATUS_STYLES: Record<WebhookDeliveryStatus, string> = {
   succeeded: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
   failed: 'bg-orange-500/15 text-orange-300 border-orange-500/30',
 };
+
+const HEALTH: Record<EndpointHealth['state'], { label: (h: EndpointHealth) => string; className: string }> = {
+  ok: { label: () => 'Active', className: 'bg-emerald-500/[0.14] text-emerald-200' },
+  idle: { label: () => 'Active, nothing sent yet', className: 'bg-white/[0.06] text-zinc-300' },
+  paused: { label: () => 'Paused', className: 'bg-white/[0.06] text-zinc-300' },
+  retrying: { label: (h) => `Retrying ${h.retrying}`, className: 'bg-amber-500/[0.14] text-amber-200' },
+  failing: { label: (h) => `${h.failed} failed`, className: 'bg-red-500/[0.14] text-red-200' },
+};
+
+const ICON_BUTTON = 'p-1.5 text-zinc-400 hover:text-white hover:bg-white/[0.06] rounded-md transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500';
 
 // A pending delivery that has already been tried is waiting out its backoff.
 function deliveryLabel(d: WebhookDelivery): string {
@@ -110,7 +82,7 @@ function deliveryDetail(d: WebhookDelivery): string {
 }
 
 function formatWhen(value: string | null): string {
-  if (!value) return 'not set';
+  if (!value) return 'not yet';
   return new Date(value).toLocaleString(appLocale(), {
     month: 'short',
     day: 'numeric',
@@ -119,6 +91,12 @@ function formatWhen(value: string | null): string {
   });
 }
 
+/**
+ * Settings > Developers > Webhooks, while the module is on: the endpoints
+ * (status, last delivery, failures, filters, the signing secret on demand),
+ * one dialog to add or edit one, and the recent deliveries with resend,
+ * filtered to one endpoint from its row.
+ */
 export function WebhooksPanel({ teamMemberId }: { teamMemberId: string | null }) {
   const supabase = createClient();
   const { projects, team } = useApp();
@@ -129,47 +107,28 @@ export function WebhooksPanel({ teamMemberId }: { teamMemberId: string | null })
   const [endpoints, setEndpoints] = useState<WebhookEndpoint[]>([]);
   const [deliveries, setDeliveries] = useState<WebhookDelivery[]>([]);
   const [loading, setLoading] = useState(true);
-
-  // A new endpoint starts on the full invoice lifecycle (a receiver that
-  // reconciles needs un-pay, edit and delete too, not just invoice.paid), or
-  // on every work event when there is no invoicing.
-  const defaultEvents = () => (billingOn ? [...INVOICE_WEBHOOK_EVENT_TYPES] : [...WORK_WEBHOOK_EVENT_TYPES]);
-
-  // Create and edit form (editing holds the endpoint being changed)
-  const [showForm, setShowForm] = useState(false);
-  const [editing, setEditing] = useState<WebhookEndpoint | null>(null);
-  const [name, setName] = useState('');
-  const [url, setUrl] = useState('');
-  const [description, setDescription] = useState('');
-  const [events, setEvents] = useState<string[]>(defaultEvents);
-  const [amountBasis, setAmountBasis] = useState<WebhookAmountBasis>('gross');
-  // Filters: no projects means every project; EVERYONE means no member filter.
-  const [projectIds, setProjectIds] = useState<string[]>([]);
-  const [memberId, setMemberId] = useState<string>(EVERYONE);
-  // agent_event.created only for these types (comma-separated); blank for every type.
-  const [agentEventTypes, setAgentEventTypes] = useState('');
-  const [saving, setSaving] = useState(false);
+  const [dialog, setDialog] = useState<{ editing: WebhookEndpoint | null } | null>(null);
+  const [deliveriesFor, setDeliveriesFor] = useState(ALL_ENDPOINTS);
+  const deliveriesRef = useRef<HTMLDivElement>(null);
 
   const projectOptions = projects
     .map((p) => ({ value: p.id, label: p.name }))
     .sort((a, b) => a.label.localeCompare(b.label));
+  const editingMember = dialog?.editing?.member_id ?? null;
   const memberOptions = [
-    { value: EVERYONE, label: 'Everyone' },
+    { value: '', label: 'Everyone' },
     ...team
-      .filter((m) => m.status !== 'suspended' || m.id === memberId)
+      .filter((m) => m.status !== 'suspended' || m.id === editingMember)
       .map((m) => ({ value: m.id, label: m.name, detail: m.title || (m.role === 'agent' ? 'Agent' : undefined) }))
       .sort((a, b) => a.label.localeCompare(b.label)),
   ];
   const projectName = (id: string) => projects.find((p) => p.id === id)?.name ?? 'Unknown project';
   const memberName = (id: string) => team.find((m) => m.id === id)?.name ?? 'Unknown member';
-  const eventGroups = EVENT_GROUPS.filter((group) => !group.invoices || billingOn);
-
-  // One-time secret reveal after creation
-  const [newSecret, setNewSecret] = useState<{ name: string; secret: string } | null>(null);
-  const [copied, setCopied] = useState(false);
+  const endpointName = (id: string) => endpoints.find((e) => e.id === id)?.name ?? 'Deleted endpoint';
 
   // Per-endpoint secret visibility
   const [shownSecrets, setShownSecrets] = useState<Record<string, boolean>>({});
+  const [copiedId, setCopiedId] = useState<string | null>(null);
   // Secrets sealed at rest (pm1:), opened by the server on demand.
   const [openedSecrets, setOpenedSecrets] = useState<Record<string, string>>({});
   const isSealed = (endpoint: WebhookEndpoint) => endpoint.secret.startsWith('pm1:');
@@ -212,105 +171,25 @@ export function WebhooksPanel({ teamMemberId }: { teamMemberId: string | null })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  function toggleEvent(evt: string) {
-    setEvents((prev) => (prev.includes(evt) ? prev.filter((e) => e !== evt) : [...prev, evt]));
-  }
-
-  // A group's box turns all of its events on, or all off when they all are.
-  function toggleGroup(groupEvents: readonly string[]) {
-    setEvents((prev) => {
-      const allOn = groupEvents.every((e) => prev.includes(e));
-      return allOn ? prev.filter((e) => !groupEvents.includes(e)) : [...new Set([...prev, ...groupEvents])];
-    });
-  }
-
-  function resetForm() {
-    setName('');
-    setUrl('');
-    setDescription('');
-    setEvents(defaultEvents());
-    setAmountBasis('gross');
-    setProjectIds([]);
-    setMemberId(EVERYONE);
-    setAgentEventTypes('');
-    setEditing(null);
-    setShowForm(false);
-  }
-
-  function startEdit(endpoint: WebhookEndpoint) {
-    setNewSecret(null);
-    setEditing(endpoint);
-    setName(endpoint.name);
-    setUrl(endpoint.url);
-    setDescription(endpoint.description);
-    setEvents([...endpoint.events]);
-    setAmountBasis(endpoint.amount_basis ?? 'gross');
-    setProjectIds(endpoint.project_ids ?? []);
-    setMemberId(endpoint.member_id ?? EVERYONE);
-    setAgentEventTypes((endpoint.agent_event_types ?? []).join(', '));
-    setShowForm(true);
-  }
-
-  async function handleSave() {
-    const trimmedName = name.trim();
-    const trimmedUrl = url.trim();
-    if (!trimmedName) {
-      toast('error', 'Name is required');
-      return;
-    }
-    // HTTPS, except plain http on localhost for local development (the API's rule too).
-    const urlError = webhookUrlError(trimmedUrl);
-    if (urlError) {
-      toast('error', urlError);
-      return;
-    }
-    // Invoice events kept from when invoicing was on still count, though hidden.
-    if (events.length === 0) {
-      toast('error', 'Select at least one event');
-      return;
-    }
-    const typeList = [...new Set(agentEventTypes.split(',').map((t) => t.trim()).filter(Boolean))];
-    const badType = typeList.find((t) => !/^[a-z][a-z0-9_.]{0,99}$/.test(t));
-    if (events.includes('agent_event.created') && badType) {
-      toast('error', `${badType} is not an agent event type`);
-      return;
-    }
-    // Written only where it applies, so an endpoint without agent events saves as before.
-    const typeFilter = events.includes('agent_event.created') || editing?.agent_event_types
-      ? { agent_event_types: events.includes('agent_event.created') && typeList.length > 0 ? typeList : null }
-      : {};
-    const fields = {
-      name: trimmedName,
-      url: trimmedUrl,
-      events,
-      description: description.trim(),
-      amount_basis: amountBasis,
-      project_ids: projectIds.length > 0 ? projectIds : null,
-      member_id: memberId || null,
-      ...typeFilter,
-    };
-
-    setSaving(true);
+  const saveEndpoint: SaveEndpoint = async (draft) => {
+    const editing = dialog?.editing ?? null;
+    const fields = webhookFields(draft, !!editing?.agent_event_types);
     try {
       if (editing) {
         const updated = await updateWebhookEndpoint(supabase, editing.id, fields);
         setEndpoints((prev) => prev.map((e) => (e.id === updated.id ? updated : e)));
         toast('success', 'Webhook endpoint saved');
-        resetForm();
-        return;
+        return null;
       }
       const secret = generateWebhookSecret();
       const created = await insertWebhookEndpoint(supabase, { ...fields, secret, created_by: teamMemberId });
       setEndpoints((prev) => [created, ...prev]);
-      setNewSecret({ name: created.name, secret });
-      resetForm();
+      return secret;
     } catch (e) {
       console.error('Failed to save webhook', e);
-      toast('error', editing ? 'Failed to save webhook endpoint' : 'Failed to create webhook endpoint');
-    } finally {
-      setSaving(false);
+      throw new Error(editing ? 'Could not save the endpoint. Try again.' : 'Could not create the endpoint. Try again.');
     }
-  }
+  };
 
   async function handleToggleActive(endpoint: WebhookEndpoint) {
     const next = !endpoint.is_active;
@@ -326,26 +205,12 @@ export function WebhooksPanel({ teamMemberId }: { teamMemberId: string | null })
     }
   }
 
-  async function handleAmountBasis(endpoint: WebhookEndpoint, next: WebhookAmountBasis) {
-    if (next === endpoint.amount_basis) return;
-    setEndpoints((prev) => prev.map((e) => (e.id === endpoint.id ? { ...e, amount_basis: next } : e)));
-    try {
-      await updateWebhookEndpoint(supabase, endpoint.id, { amount_basis: next });
-      toast('success', next === 'net' ? 'Sending amounts net of splits' : 'Sending gross amounts');
-    } catch (e) {
-      console.error(e);
-      setEndpoints((prev) =>
-        prev.map((el) => (el.id === endpoint.id ? { ...el, amount_basis: endpoint.amount_basis } : el)),
-      );
-      toast('error', 'Failed to update endpoint');
-    }
-  }
-
   async function handleDelete() {
     if (!deleteTarget) return;
     const target = deleteTarget;
     setDeleteTarget(null);
     setEndpoints((prev) => prev.filter((e) => e.id !== target.id));
+    if (deliveriesFor === target.id) setDeliveriesFor(ALL_ENDPOINTS);
     try {
       await deleteWebhookEndpoint(supabase, target.id);
       toast('success', 'Webhook endpoint deleted');
@@ -356,13 +221,16 @@ export function WebhooksPanel({ teamMemberId }: { teamMemberId: string | null })
     }
   }
 
-  async function handleCopySecret(secret: string) {
+  async function handleCopySecret(endpoint: WebhookEndpoint) {
+    const secret = await readSecret(endpoint);
+    if (!secret) return;
     try {
       await navigator.clipboard.writeText(secret);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      setCopiedId(endpoint.id);
+      toast('success', 'Signing secret copied');
+      setTimeout(() => setCopiedId(null), 2000);
     } catch {
-      /* clipboard blocked */
+      toast('error', 'Could not copy. Reveal the secret and copy it instead.');
     }
   }
 
@@ -394,381 +262,272 @@ export function WebhooksPanel({ teamMemberId }: { teamMemberId: string | null })
     }
   }
 
+  const showDeliveries = (endpoint: WebhookEndpoint) => {
+    setDeliveriesFor(endpoint.id);
+    requestAnimationFrame(() => deliveriesRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+  };
+
+  const shownDeliveries = deliveriesFor ? deliveries.filter((d) => d.endpoint_id === deliveriesFor) : deliveries;
+  const deliveryFilterOptions = [
+    { value: ALL_ENDPOINTS, label: 'All endpoints' },
+    ...endpoints.map((e) => ({ value: e.id, label: e.name })),
+  ];
+
   return (
-    <section className="glass-card rounded-xl p-4 lg:p-6">
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-3">
-          <div className="p-2 bg-violet-500/15 rounded-lg">
-            <Webhook className="text-violet-400" size={20} aria-hidden="true" />
-          </div>
-          <div>
-            <h2 className="font-semibold text-white">Webhooks</h2>
-            <p className="text-sm text-zinc-400 hidden sm:block">
-              Send signed events to agents and other systems when work or invoices change.
-            </p>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <Link href="/webhooks/docs">
-            <Button size="sm" variant="secondary" icon={<BookOpen size={14} />}>
-              Docs
-            </Button>
-          </Link>
-          {!showForm && !newSecret && (
-            <Button size="sm" onClick={() => { resetForm(); setShowForm(true); }} icon={<Plus size={14} />}>
-              <span className="sm:hidden">New</span>
-              <span className="hidden sm:inline">New endpoint</span>
-            </Button>
-          )}
-        </div>
-      </div>
-
-      {/* One-time secret reveal */}
-      {newSecret && (
-        <div className="mb-6 p-4 bg-emerald-500/15 border border-emerald-500/30 rounded-lg space-y-3">
-          <div className="flex items-center gap-2">
-            <Check size={16} className="text-emerald-400" aria-hidden="true" />
-            <p className="text-sm font-medium text-emerald-300">
-              Endpoint “{newSecret.name}” created
-            </p>
-          </div>
-          <p className="text-xs text-emerald-300">
-            Copy this signing secret into your receiver now (it verifies each request). You can
-            reveal it again below at any time.
-          </p>
-          <div className="flex items-center gap-2">
-            <code className="flex-1 px-3 py-2 bg-surface-raised border border-emerald-500/30 rounded-lg text-sm font-mono text-zinc-100 break-all select-all">
-              {newSecret.secret}
-            </code>
-            <button
-              onClick={() => handleCopySecret(newSecret.secret)}
-              aria-label="Copy signing secret"
-              className="p-2 text-emerald-400 hover:bg-emerald-500/15 rounded-lg transition-colors flex-shrink-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
-            >
-              {copied ? <Check size={16} /> : <Copy size={16} />}
-            </button>
-          </div>
-          <Button size="sm" variant="secondary" onClick={() => setNewSecret(null)}>
-            Done
+    <section className="glass-card rounded-xl p-4 lg:p-6" aria-labelledby="webhooks-heading">
+      <SettingsSectionHeader
+        icon={Webhook}
+        title="Webhooks"
+        headingId="webhooks-heading"
+        description={WEBHOOKS_DESCRIPTION}
+        action={(
+          <Button size="sm" onClick={() => setDialog({ editing: null })} icon={<Plus size={14} aria-hidden="true" />}>
+            New endpoint
           </Button>
-        </div>
-      )}
-
-      {/* Create and edit form */}
-      {showForm && (
-        <div className="mb-6 p-4 bg-white/[0.03] border border-white/[0.08] rounded-lg space-y-3">
-          <h4 className="text-sm font-medium text-white">{editing ? `Edit ${editing.name}` : 'New endpoint'}</h4>
-          <Input
-            label="Name"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder='e.g. "Personal Finance"'
-          />
-          <Input
-            label="Endpoint URL"
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-            placeholder="https://your-app.com/api/webhooks"
-          />
-          <Input
-            label="Description (optional)"
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            placeholder="What this endpoint is for"
-          />
-          <MultiSelect
-            label="Projects"
-            value={projectIds}
-            onChange={setProjectIds}
-            options={projectOptions}
-            placeholder="Every project"
-            description="Only events on these projects. Leave empty for every project."
-          />
-          <Select
-            label="Member"
-            value={memberId}
-            onChange={setMemberId}
-            options={memberOptions}
-            searchable
-            description="Only events that concern this member: tasks assigned to or claimed by them, comments and reviews on those tasks, questions asked to or by them, and their suggestions. For an agent, this is its own work."
-          />
-          {billingOn && (
-            <Select
-              label="Amounts"
-              value={amountBasis}
-              onChange={(value) => setAmountBasis(value as WebhookAmountBasis)}
-              options={AMOUNT_BASIS_OPTIONS}
-              description="For invoice events. Net sends what is left after revenue splits. The split itself is never sent."
-            />
-          )}
-          <div>
-            <label className="block text-sm font-medium text-zinc-300 mb-1.5">Events</label>
-            <div className="rounded-lg border border-white/[0.08] bg-surface-raised divide-y divide-white/[0.06]">
-              {eventGroups.map((group) => {
-                const on = group.events.filter((evt) => events.includes(evt)).length;
-                return (
-                  <div key={group.label} className="divide-y divide-white/[0.06]">
-                    <div className="px-3 py-2.5 bg-white/[0.02]">
-                      <Checkbox
-                        size="sm"
-                        checked={on === group.events.length}
-                        indeterminate={on > 0 && on < group.events.length}
-                        onChange={() => toggleGroup(group.events)}
-                        label={group.label}
-                      />
-                    </div>
-                    {group.events.map((evt) => (
-                      <div key={evt} className="py-2.5 pl-8 pr-3">
-                        <Checkbox
-                          size="sm"
-                          checked={events.includes(evt)}
-                          onChange={() => toggleEvent(evt)}
-                          label={EVENT_LABELS[evt]}
-                          description={evt}
-                        />
-                      </div>
-                    ))}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-          {events.includes('agent_event.created') && (
-            <TextInput
-              label="Agent event types"
-              value={agentEventTypes}
-              onChange={setAgentEventTypes}
-              placeholder="Every type"
-              description="Only these types, comma-separated (work.done, usage.recorded, custom.acme.deploy). Leave empty for every type. Pick an agent under Member to send only its events."
-            />
-          )}
-          <div className="flex items-center gap-2 pt-1">
-            <Button size="sm" onClick={handleSave} disabled={saving}>
-              {editing ? (saving ? 'Saving…' : 'Save changes') : (saving ? 'Creating…' : 'Create endpoint')}
-            </Button>
-            <Button size="sm" variant="secondary" onClick={resetForm} disabled={saving}>
-              Cancel
-            </Button>
-          </div>
-        </div>
-      )}
+        )}
+      />
 
       {/* Endpoints list */}
       {loading ? (
-        <p className="text-sm text-zinc-400">Loading…</p>
+        <p role="status" className="text-sm text-zinc-400">Loading endpoints</p>
       ) : endpoints.length === 0 ? (
-        <p className="text-sm text-zinc-400">
-          No webhook endpoints yet. Create one to start relaying events.
-        </p>
+        <div className="rounded-lg bg-white/[0.03] px-4 py-6 text-center">
+          <Webhook className="mx-auto mb-2 text-zinc-400" size={22} aria-hidden="true" />
+          <p className="text-sm font-medium text-zinc-200">No endpoints yet</p>
+          <p className="mt-1 text-xs text-zinc-400">Add one to start sending events. <Link href="/webhooks/docs" className="font-medium text-brand-300 underline underline-offset-2">How webhooks work</Link></p>
+        </div>
       ) : (
         <ul className="space-y-3">
-          {endpoints.map((endpoint) => (
-            <li
-              key={endpoint.id}
-              className="p-4 bg-white/[0.02] border border-white/[0.08] rounded-lg"
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="font-medium text-white truncate">{endpoint.name}</span>
-                    {!endpoint.is_active && (
-                      <span className="text-[11px] uppercase tracking-wide text-zinc-400 border border-white/[0.1] rounded px-1.5 py-0.5">
-                        Paused
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-xs font-mono text-zinc-400 break-all mt-0.5">{endpoint.url}</p>
-                  <div className="flex flex-wrap gap-1.5 mt-2">
-                    {endpoint.events.map((evt) => (
-                      <span
-                        key={evt}
-                        className="text-[11px] text-violet-300 bg-violet-500/10 border border-violet-500/20 rounded px-1.5 py-0.5"
-                      >
-                        {EVENT_LABELS[evt] || evt}
-                      </span>
-                    ))}
-                  </div>
-                  {(endpoint.project_ids || endpoint.member_id || endpoint.agent_event_types) && (
-                    <div className="flex flex-wrap gap-1.5 mt-2">
-                      {endpoint.project_ids && (
-                        <span className="text-[11px] text-zinc-400 border border-white/[0.1] rounded px-1.5 py-0.5">
-                          Projects: {endpoint.project_ids.map(projectName).join(', ')}
-                        </span>
-                      )}
-                      {endpoint.member_id && (
-                        <span className="text-[11px] text-zinc-400 border border-white/[0.1] rounded px-1.5 py-0.5">
-                          Concerns {memberName(endpoint.member_id)}
-                        </span>
-                      )}
-                      {endpoint.agent_event_types && (
-                        <span className="text-[11px] text-zinc-400 border border-white/[0.1] rounded px-1.5 py-0.5">
-                          Agent events: {endpoint.agent_event_types.join(', ')}
-                        </span>
-                      )}
+          {endpoints.map((endpoint) => {
+            const health = endpointHealth(endpoint, deliveries);
+            const look = HEALTH[health.state];
+            return (
+              <li key={endpoint.id} className="rounded-lg border border-white/[0.08] bg-white/[0.02] p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="min-w-0 truncate font-medium text-white">{endpoint.name}</span>
+                      <span className={`flex-shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${look.className}`}>{look.label(health)}</span>
                     </div>
-                  )}
-                  {!billingOn && endpoint.events.some((evt) => INVOICE_EVENTS.includes(evt)) && (
-                    <p className="text-[11px] text-zinc-400 mt-2">
-                      Invoice events wait while Client invoicing is off.
-                    </p>
-                  )}
-                  <p className="text-[11px] text-zinc-400 mt-2">
-                    Last delivery: {formatWhen(endpoint.last_delivery_at)}
-                  </p>
-                  {billingOn && endpoint.events.some((evt) => INVOICE_EVENTS.includes(evt)) && (
-                    <Select
-                      size="sm"
-                      label="Amounts"
-                      value={endpoint.amount_basis ?? 'gross'}
-                      onChange={(value) => handleAmountBasis(endpoint, value as WebhookAmountBasis)}
-                      options={AMOUNT_BASIS_OPTIONS}
-                      className="mt-3 max-w-[15rem]"
+                    <p className="mt-0.5 break-all font-mono text-xs text-zinc-400">{endpoint.url}</p>
+                    {endpoint.description && <p className="mt-1 text-xs text-zinc-400">{endpoint.description}</p>}
+                  </div>
+                  <div className="flex flex-shrink-0 items-center gap-1">
+                    <Toggle
+                      checked={endpoint.is_active}
+                      onChange={() => handleToggleActive(endpoint)}
+                      aria-label={endpoint.is_active ? `Pause ${endpoint.name}` : `Turn on ${endpoint.name}`}
                     />
+                    <RowActionsMenu
+                      label={`Actions for ${endpoint.name}`}
+                      actions={[
+                        { label: 'Edit', icon: <Pencil size={14} aria-hidden="true" />, onClick: () => setDialog({ editing: endpoint }) },
+                        { label: 'View deliveries', icon: <ListChecks size={14} aria-hidden="true" />, onClick: () => showDeliveries(endpoint) },
+                        { label: 'Delete', icon: <Trash2 size={14} aria-hidden="true" />, onClick: () => setDeleteTarget(endpoint), variant: 'danger', divider: true },
+                      ]}
+                    />
+                  </div>
+                </div>
+
+                <div className="mt-3 flex flex-wrap gap-1.5">
+                  {eventSummary(endpoint.events).map((label) => (
+                    <span key={label} className="rounded bg-brand-500/[0.12] px-1.5 py-0.5 text-[11px] text-brand-200">{label}</span>
+                  ))}
+                  {endpoint.project_ids && (
+                    <span className="rounded bg-white/[0.06] px-1.5 py-0.5 text-[11px] text-zinc-300">
+                      Projects: {endpoint.project_ids.map(projectName).join(', ')}
+                    </span>
+                  )}
+                  {endpoint.member_id && (
+                    <span className="rounded bg-white/[0.06] px-1.5 py-0.5 text-[11px] text-zinc-300">
+                      Concerns {memberName(endpoint.member_id)}
+                    </span>
+                  )}
+                  {endpoint.agent_event_types && (
+                    <span className="rounded bg-white/[0.06] px-1.5 py-0.5 text-[11px] text-zinc-300">
+                      Agent events: {endpoint.agent_event_types.join(', ')}
+                    </span>
+                  )}
+                  {billingOn && hasInvoiceEvents(endpoint.events) && endpoint.amount_basis === 'net' && (
+                    <span className="rounded bg-white/[0.06] px-1.5 py-0.5 text-[11px] text-zinc-300">Amounts net of splits</span>
                   )}
                 </div>
-                <div className="flex items-center gap-1.5 flex-shrink-0">
-                  <button
-                    onClick={() => startEdit(endpoint)}
-                    aria-label="Edit endpoint"
-                    title="Edit endpoint"
-                    className="p-2 text-zinc-400 hover:text-brand-300 hover:bg-white/[0.06] rounded-lg transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
-                  >
-                    <Pencil size={15} />
-                  </button>
-                  <button
-                    onClick={handleRunNow}
-                    disabled={running}
-                    aria-label="Send pending deliveries now"
-                    title="Send pending deliveries now"
-                    className="p-2 text-zinc-400 hover:text-brand-300 hover:bg-white/[0.06] rounded-lg transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 disabled:opacity-50"
-                  >
-                    <Send size={15} />
-                  </button>
-                  <Toggle
-                    checked={endpoint.is_active}
-                    onChange={() => handleToggleActive(endpoint)}
-                    aria-label={endpoint.is_active ? 'Pause endpoint' : 'Activate endpoint'}
-                  />
-                  <button
-                    onClick={() => setDeleteTarget(endpoint)}
-                    aria-label="Delete endpoint"
-                    className="p-2 text-zinc-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
-                  >
-                    <Trash2 size={15} />
-                  </button>
-                </div>
-              </div>
+                {!billingOn && hasInvoiceEvents(endpoint.events) && (
+                  <p className="mt-2 text-[11px] text-zinc-400">Invoice events wait while Client invoicing is off.</p>
+                )}
 
-              {/* Secret reveal */}
-              <div className="flex items-center gap-2 mt-3">
-                <code className="flex-1 px-2.5 py-1.5 bg-surface-raised border border-white/[0.08] rounded-md text-xs font-mono text-zinc-300 break-all select-all">
-                  {shownSecrets[endpoint.id] ? (isSealed(endpoint) ? openedSecrets[endpoint.id] ?? '' : endpoint.secret) : '•'.repeat(24)}
-                </code>
-                <button
-                  onClick={async () => {
-                    if (!shownSecrets[endpoint.id] && !(await readSecret(endpoint))) return;
-                    setShownSecrets((prev) => ({ ...prev, [endpoint.id]: !prev[endpoint.id] }));
-                  }}
-                  aria-label={
-                    shownSecrets[endpoint.id] ? 'Hide signing secret' : 'Reveal signing secret'
-                  }
-                  className="p-1.5 text-zinc-400 hover:text-white hover:bg-white/[0.06] rounded-md transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
-                >
-                  {shownSecrets[endpoint.id] ? <EyeOff size={15} /> : <Eye size={15} />}
-                </button>
-                <button
-                  onClick={async () => {
-                    const secret = await readSecret(endpoint);
-                    if (secret) handleCopySecret(secret);
-                  }}
-                  aria-label="Copy signing secret"
-                  className="p-1.5 text-zinc-400 hover:text-white hover:bg-white/[0.06] rounded-md transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
-                >
-                  <Copy size={15} />
-                </button>
-              </div>
-            </li>
-          ))}
+                <p className="mt-2 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-zinc-400">
+                  <span>Last delivery {formatWhen(endpoint.last_delivery_at)}</span>
+                  {health.failed > 0 && <span className="text-red-300">{health.failed} failed recently</span>}
+                  {health.retrying > 0 && <span className="text-amber-300">{health.retrying} retrying</span>}
+                  {(health.failed > 0 || health.retrying > 0) && (
+                    <button type="button" onClick={() => showDeliveries(endpoint)} className="rounded font-medium text-brand-300 underline underline-offset-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500">
+                      See deliveries
+                    </button>
+                  )}
+                </p>
+
+                {/* Signing secret, on demand */}
+                <div className="mt-3 flex items-center gap-2">
+                  <span className="sr-only">Signing secret</span>
+                  <code className="min-w-0 flex-1 select-all break-all rounded-md border border-white/[0.08] bg-surface-raised px-2.5 py-1.5 font-mono text-xs text-zinc-300">
+                    {shownSecrets[endpoint.id] ? (isSealed(endpoint) ? openedSecrets[endpoint.id] ?? '' : endpoint.secret) : '•'.repeat(24)}
+                  </code>
+                  <Tooltip content={shownSecrets[endpoint.id] ? 'Hide signing secret' : 'Reveal signing secret'}>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        if (!shownSecrets[endpoint.id] && !(await readSecret(endpoint))) return;
+                        setShownSecrets((prev) => ({ ...prev, [endpoint.id]: !prev[endpoint.id] }));
+                      }}
+                      aria-label={shownSecrets[endpoint.id] ? 'Hide signing secret' : 'Reveal signing secret'}
+                      className={ICON_BUTTON}
+                    >
+                      {shownSecrets[endpoint.id] ? <EyeOff size={15} aria-hidden="true" /> : <Eye size={15} aria-hidden="true" />}
+                    </button>
+                  </Tooltip>
+                  <Tooltip content="Copy signing secret">
+                    <button type="button" onClick={() => { void handleCopySecret(endpoint); }} aria-label="Copy signing secret" className={ICON_BUTTON}>
+                      {copiedId === endpoint.id ? <Check size={15} aria-hidden="true" /> : <Copy size={15} aria-hidden="true" />}
+                    </button>
+                  </Tooltip>
+                </div>
+              </li>
+            );
+          })}
         </ul>
       )}
 
       {/* Recent deliveries */}
-      {!loading && deliveries.length > 0 && (
-        <div className="mt-6">
-          <div className="flex items-center justify-between mb-2">
-            <h4 className="text-sm font-medium text-white">Recent deliveries</h4>
-            <button
-              onClick={load}
-              aria-label="Refresh deliveries"
-              className="p-1.5 text-zinc-400 hover:text-white hover:bg-white/[0.06] rounded-md transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
-            >
-              <RefreshCw size={14} aria-hidden="true" />
-            </button>
+      {!loading && endpoints.length > 0 && (
+        <div ref={deliveriesRef} id="webhook-deliveries" className="mt-6 scroll-mt-6">
+          <div className="mb-3 flex flex-wrap items-center gap-2">
+            <h3 className="mr-auto text-sm font-medium text-white">Recent deliveries</h3>
+            {endpoints.length > 1 && (
+              <Select
+                size="sm"
+                ariaLabel="Show deliveries for"
+                value={deliveriesFor}
+                onChange={setDeliveriesFor}
+                options={deliveryFilterOptions}
+                className="w-44"
+              />
+            )}
+            <Button size="sm" variant="secondary" onClick={() => { void handleRunNow(); }} disabled={running} icon={<Send size={13} aria-hidden="true" />}>
+              {running ? 'Sending' : 'Send pending now'}
+            </Button>
+            <Tooltip content="Refresh deliveries">
+              <button type="button" onClick={load} aria-label="Refresh deliveries" className={ICON_BUTTON}>
+                <RefreshCw size={14} aria-hidden="true" />
+              </button>
+            </Tooltip>
           </div>
-          {/* Rows keep their height; the list scrolls past about ten, with its column names pinned. */}
-          <div
-            role="region"
-            tabIndex={0}
-            aria-label="Recent deliveries"
-            className="max-h-96 overflow-auto rounded-lg border border-white/[0.08] focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
-          >
-            <table className="w-full text-sm">
-              <thead className="sticky top-0 z-[1] bg-surface-raised">
-                <tr className="text-left text-[11px] uppercase tracking-wide text-zinc-400 border-b border-white/[0.06]">
-                  <th className="px-3 py-2 font-medium">Event</th>
-                  <th className="px-3 py-2 font-medium">Status</th>
-                  <th className="px-3 py-2 font-medium">Code</th>
-                  <th className="px-3 py-2 font-medium">Attempts</th>
-                  <th className="px-3 py-2 font-medium">Detail</th>
-                  <th className="px-3 py-2 font-medium">When</th>
-                  <th className="px-3 py-2 font-medium sr-only">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-white/[0.05]">
-                {deliveries.map((d) => (
-                  <tr key={d.id}>
-                    <td className="px-3 py-2 text-zinc-300 whitespace-nowrap">
-                      {d.webhook_events?.event_type || ';'}
-                    </td>
-                    <td className="px-3 py-2">
-                      <span
-                        className={`text-[11px] border rounded px-1.5 py-0.5 ${STATUS_STYLES[d.status]}`}
-                      >
-                        {deliveryLabel(d)}
+
+          {shownDeliveries.length === 0 ? (
+            <p className="rounded-lg bg-white/[0.03] px-3.5 py-3 text-sm text-zinc-400">
+              {deliveriesFor ? `Nothing sent to ${endpointName(deliveriesFor)} recently.` : 'Nothing sent yet. Deliveries show here as events happen.'}
+            </p>
+          ) : (
+            <>
+              {/* Phones: one card per delivery. */}
+              <ul aria-label="Recent deliveries" className="max-h-[32rem] space-y-2 overflow-y-auto sm:hidden">
+                {shownDeliveries.map((d) => (
+                  <li key={d.id} className="rounded-lg border border-white/[0.08] px-3 py-2.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="min-w-0 truncate text-sm text-zinc-200">{d.webhook_events?.event_type || 'Event'}</span>
+                      <span className={`flex-shrink-0 rounded border px-1.5 py-0.5 text-[11px] ${STATUS_STYLES[d.status]}`}>{deliveryLabel(d)}</span>
+                    </div>
+                    <p className="mt-1 text-xs text-zinc-400">{deliveryDetail(d)}</p>
+                    <div className="mt-1 flex items-center justify-between gap-2 text-[11px] text-zinc-400">
+                      <span className="min-w-0 truncate">
+                        {[
+                          deliveriesFor ? null : endpointName(d.endpoint_id),
+                          // A delivered one already says when, above.
+                          d.status === 'succeeded' ? null : formatWhen(d.created_at),
+                          `try ${d.attempts}/${WEBHOOK_MAX_ATTEMPTS}`,
+                        ].filter(Boolean).join(', ')}
                       </span>
-                    </td>
-                    <td className="px-3 py-2 text-zinc-400 font-mono">
-                      {d.last_status_code ?? 'None'}
-                    </td>
-                    <td className="px-3 py-2 text-zinc-400 font-mono whitespace-nowrap">
-                      {d.attempts}/{WEBHOOK_MAX_ATTEMPTS}
-                    </td>
-                    <td
-                      className="px-3 py-2 text-zinc-400 max-w-[18rem] truncate"
-                      title={deliveryDetail(d)}
-                    >
-                      {deliveryDetail(d)}
-                    </td>
-                    <td className="px-3 py-2 text-zinc-400 whitespace-nowrap">
-                      {formatWhen(d.created_at)}
-                    </td>
-                    <td className="px-3 py-2 text-right">
                       {d.status === 'failed' && (
-                        <button
-                          onClick={() => handleRetry(d)}
-                          className="text-xs text-brand-300 hover:text-brand-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 rounded px-1"
-                        >
+                        <button type="button" onClick={() => handleRetry(d)} className="rounded px-1 text-xs font-medium text-brand-300 hover:text-brand-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500">
                           Resend
                         </button>
                       )}
-                    </td>
-                  </tr>
+                    </div>
+                  </li>
                 ))}
-              </tbody>
-            </table>
-          </div>
+              </ul>
+
+              {/* Rows keep their height; the list scrolls past about ten, with its column names pinned. */}
+              <div
+                role="region"
+                tabIndex={0}
+                aria-label="Recent deliveries"
+                className="hidden max-h-96 overflow-auto rounded-lg border border-white/[0.08] focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2 focus-visible:ring-offset-surface sm:block"
+              >
+                <table className="w-full text-sm">
+                  <thead className="sticky top-0 z-[1] bg-surface-raised">
+                    <tr className="border-b border-white/[0.06] text-left text-[11px] uppercase tracking-wide text-zinc-400">
+                      <th className="px-3 py-2 font-medium">Event</th>
+                      {!deliveriesFor && <th className="px-3 py-2 font-medium">Endpoint</th>}
+                      <th className="px-3 py-2 font-medium">Status</th>
+                      <th className="px-3 py-2 font-medium">Code</th>
+                      <th className="px-3 py-2 font-medium">Attempts</th>
+                      <th className="px-3 py-2 font-medium">Detail</th>
+                      <th className="px-3 py-2 font-medium">When</th>
+                      <th className="px-3 py-2 font-medium"><span className="sr-only">Actions</span></th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-white/[0.05]">
+                    {shownDeliveries.map((d) => (
+                      <tr key={d.id}>
+                        <td className="whitespace-nowrap px-3 py-2 text-zinc-300">{d.webhook_events?.event_type || 'Event'}</td>
+                        {!deliveriesFor && <td className="max-w-[10rem] truncate px-3 py-2 text-zinc-400">{endpointName(d.endpoint_id)}</td>}
+                        <td className="px-3 py-2">
+                          <span className={`rounded border px-1.5 py-0.5 text-[11px] ${STATUS_STYLES[d.status]}`}>{deliveryLabel(d)}</span>
+                        </td>
+                        <td className="px-3 py-2 font-mono text-zinc-400">{d.last_status_code ?? 'None'}</td>
+                        <td className="whitespace-nowrap px-3 py-2 font-mono text-zinc-400">{d.attempts}/{WEBHOOK_MAX_ATTEMPTS}</td>
+                        <td className="max-w-[18rem] px-3 py-2 text-zinc-400">
+                          <span className="line-clamp-2 break-words">{deliveryDetail(d)}</span>
+                        </td>
+                        <td className="whitespace-nowrap px-3 py-2 text-zinc-400">{formatWhen(d.created_at)}</td>
+                        <td className="px-3 py-2 text-right">
+                          {d.status === 'failed' && (
+                            <button
+                              type="button"
+                              onClick={() => handleRetry(d)}
+                              className="rounded px-1 text-xs text-brand-300 hover:text-brand-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+                            >
+                              Resend
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
         </div>
       )}
+
+      <p className="mt-6 flex items-center gap-2 text-xs text-zinc-400">
+        <BookOpen size={13} aria-hidden="true" className="flex-shrink-0" />
+        <span>
+          Payloads, signatures and retries are in the <Link href="/webhooks/docs" className="font-medium text-brand-300 underline underline-offset-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500">webhook docs</Link>.
+        </span>
+      </p>
+
+      <WebhookEndpointDialog
+        isOpen={!!dialog}
+        editing={dialog?.editing ?? null}
+        billingOn={billingOn}
+        projectOptions={projectOptions}
+        memberOptions={memberOptions}
+        onSave={saveEndpoint}
+        onClose={() => setDialog(null)}
+      />
 
       <ConfirmDialog
         isOpen={!!deleteTarget}

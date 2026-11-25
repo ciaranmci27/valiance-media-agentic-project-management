@@ -88,6 +88,8 @@ export interface PmTool {
   profiles?: readonly AgentProfile[];
   /** The route refuses members who are not agents, so only agents see it. */
   agentsOnly?: boolean;
+  /** The route serves only a person's own agent (access.principal_id), so only it sees the tool. */
+  personalOnly?: boolean;
   /**
    * A module the tool needs beyond its permission's own, for a tool whose
    * permission is core but whose route belongs to a module. Switched off, the
@@ -111,6 +113,7 @@ export function routeTool<I extends z.ZodObject>(config: {
   idempotent?: boolean;
   profiles?: readonly AgentProfile[];
   agentsOnly?: boolean;
+  personalOnly?: boolean;
   module?: ModuleId;
   /**
    * Where idempotency_key goes: the Idempotency-Key header (default), or the
@@ -135,6 +138,7 @@ export function routeTool<I extends z.ZodObject>(config: {
     idempotent: config.idempotent ?? (config.method !== 'POST'),
     profiles: config.profiles,
     agentsOnly: config.agentsOnly,
+    personalOnly: config.personalOnly,
     module: config.module,
     run: async (args, call, context) => {
       if (config.idempotencyKeyIn === 'body') {

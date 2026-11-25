@@ -133,6 +133,8 @@ export const MODULE_SURFACES: Record<ModuleId, ModuleSurface> = {
       'provider_plans',
       // Personal agents by role or group.
       'assistant_setups',
+      // The personal Assistant: a person's settings for theirs, and the chat switchboard.
+      'assistant_preferences', 'chat_connections', 'chat_messages', 'chat_rate_limits',
     ],
     // The question sums for Agents > Analytics.
     rpcs: ['agent_question_stats'],
@@ -147,6 +149,8 @@ export const MODULE_SURFACES: Record<ModuleId, ModuleSurface> = {
       // People's personal agents, their setups and the harness collecting their keys.
       'api/v1/assistants', 'api/v1/assistant-setups', 'api/workspace/assistants',
       '(protected)/agent',
+      // My Assistant, its chat (inbound from providers, replies and the poll), and chat connections.
+      'api/workspace/assistant', 'api/workspace/chat-connections', 'api/v1/assistant', 'api/chat', '(protected)/assistant',
     ],
   },
 };

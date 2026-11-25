@@ -39,7 +39,7 @@ const toneKey = (name: string, id: string) => name.trim().toLowerCase() || id;
 
 const LIVE: ReadonlySet<Presence> = new Set(['working', 'reviewing']);
 
-export function AgentAvatar({ id, name, src, presence, size = 'md', label, className = '' }: {
+export function AgentAvatar({ id, name, src, presence, size = 'md', label, tone, className = '' }: {
   id: string;
   name: string;
   src?: string | null;
@@ -48,6 +48,8 @@ export function AgentAvatar({ id, name, src, presence, size = 'md', label, class
   size?: keyof typeof SIZES;
   /** The status in words for screen readers; defaults to the presence label. */
   label?: string;
+  /** One of the eight avatar tones, chosen by a person for their assistant; left out, the name picks it. */
+  tone?: number | null;
   className?: string;
 }) {
   const s = SIZES[size];
@@ -64,7 +66,7 @@ export function AgentAvatar({ id, name, src, presence, size = 'md', label, class
           // eslint-disable-next-line @next/next/no-img-element -- agent pictures are arbitrary https links
           <img src={picture} alt="" className="h-full w-full object-cover" />
         ) : (
-          <span className={`flex h-full w-full items-center justify-center text-white ${TONE_BG[avatarTone(toneKey(name, id))]}`}>{initialsOf(name)}</span>
+          <span className={`flex h-full w-full items-center justify-center text-white ${TONE_BG[tone && tone >= 1 && tone <= 8 ? tone : avatarTone(toneKey(name, id))]}`}>{initialsOf(name)}</span>
         )}
       </span>
       {presence && (

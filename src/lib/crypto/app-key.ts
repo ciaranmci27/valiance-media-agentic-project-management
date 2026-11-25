@@ -16,7 +16,7 @@ import { createCipheriv, createDecipheriv, hkdfSync, randomBytes } from 'node:cr
  * Losing the key loses every value sealed with it: there is no recovery.
  */
 
-export type KeyPurpose = 'smtp' | 'credentials' | 'secrets' | 'webhooks';
+export type KeyPurpose = 'smtp' | 'credentials' | 'secrets' | 'webhooks' | 'chat';
 
 export const APP_KEY_ENV = 'APP_ENCRYPTION_KEY';
 const PREFIX = 'pm1:';

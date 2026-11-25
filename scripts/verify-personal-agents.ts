@@ -159,7 +159,7 @@ function pureChecks() {
 async function migrationChecks() {
   const at = SCHEMA_SQL.indexOf(SECTION);
   const banner = SCHEMA_SQL.lastIndexOf('\n-- ====', at);
-  check('schema.sql: the personal agents section is there, last', at > 0 && banner > 0 && !/\n-- [A-Z][A-Z ,:+]+\(\d{14}_/.test(SCHEMA_SQL.slice(at + SECTION.length)));
+  check('schema.sql: the personal agents section is there', at > 0 && banner > 0);
   const body = MIGRATION_SQL.slice(MIGRATION_SQL.indexOf('-- ---------------------------------------------------------------------------\n-- Personal agents')).trim();
   check('schema.sql: the section mirrors the migration body', SCHEMA_SQL.slice(at).includes(body));
 
@@ -425,7 +425,8 @@ async function main() {
     const anaKey = claim.body?.data?.secret as string;
     const anaKeyId = claim.body?.data?.key?.id as string;
     check('harness: collects the key, once, narrowed to what Ana and her agent both hold', claim.status === 201 && /^pk_live_/.test(anaKey ?? '')
-      && claim.body.data.left_out.join() === 'project_context.read' && claim.headers.get('cache-control') === 'no-store'
+      // project_context.read Ana lacks; the Inbox scopes this harness key does not carry.
+      && claim.body.data.left_out.join() === 'project_context.read,inbound_email.read,inbound_email.triage' && claim.headers.get('cache-control') === 'no-store'
       && (await s.q<Loose>('SELECT created_by_key_id FROM pm.api_keys WHERE id = $1', [anaKeyId]))[0]?.created_by_key_id === s.keys.harness.id, claim.body);
     const twice = await v1(v1Claim.POST, 'POST', `/api/v1/assistants/${anaAgent.id}/key`, { id: anaAgent.id }, s.keys.harness.secret, {});
     check('harness: a second collect is 409 key_exists', twice.status === 409 && reason(twice) === 'key_exists', twice.body);
@@ -452,7 +453,7 @@ async function main() {
     const bell = await v1(v1Notifications.GET, 'GET', '/api/v1/notifications', {}, anaKey);
     check('intersect: its own bell stays open', bell.status === 200, bell.body);
     const inbox = await v1(v1Inbox.GET, 'GET', '/api/v1/inbound-emails', {}, anaKey);
-    check('intersect: inboxes shared with the agent stay closed', inbox.status === 403, inbox.body);
+    check('intersect: without Inbox scopes on its key, the Inbox stays closed', inbox.status === 403, inbox.body);
     const tokenFor = async (principal: string) => {
       const token = `pd_${randomUUID().replace(/-/g, '')}${randomUUID().replace(/-/g, '')}`;
       await s.q(`INSERT INTO pm.delegation_tokens (token_hash, agent_id, principal_id, minted_via, expires_at) VALUES ($1, $2, $3, 'session', now() + interval '15 minutes')`,

@@ -296,11 +296,14 @@ export function withApi<TBody = unknown, TParams = Record<string, string>>(
       // shared with it) are closed: nothing there is the person's.
       // A personal agent's own bell stays its own; inboxes and credentials
       // shared with it are closed, as for any agent acting for someone.
+      // A personal agent reaches the Inbox too, but only its person's own
+      // personal inboxes they gave it ("Sort my inbox"): inbox-visibility
+      // narrows what it reads to those.
       if (principal) {
         const path = request.nextUrl.pathname;
         const ownBell = principal.personal;
-        const ownByGrant = path.startsWith('/api/v1/inbox') || path.startsWith('/api/v1/inbound-emails')
-          || /^\/api\/v1\/tasks\/[^/]+\/messages/.test(path) || path.includes('/credentials')
+        const inboxPath = path.startsWith('/api/v1/inbox') || path.startsWith('/api/v1/inbound-emails') || /^\/api\/v1\/tasks\/[^/]+\/messages/.test(path);
+        const ownByGrant = (inboxPath && !principal.personal) || path.includes('/credentials')
           || (!ownBell && path.startsWith('/api/v1/notifications') && !(method === 'POST' && /^\/api\/v1\/notifications\/?$/.test(path)));
         if (ownByGrant) {
           throw forbidden('This is not available while acting for someone', {

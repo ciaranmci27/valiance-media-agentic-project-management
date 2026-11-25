@@ -433,6 +433,8 @@ interface AppContextType {
   revokeApiKey: (id: string) => void;
   /** Renames a key and/or replaces its scopes on the server; the secret stays the same. Throws the server's message on failure. */
   updateApiKey: (id: string, changes: { name?: string; scopes?: string[] }) => Promise<ApiKey | undefined>;
+  /** Replaces a key: the successor's secret comes back once, and the old key ends after overlapHours. Throws the server's words. */
+  rotateApiKey: (id: string, overlapHours: number) => Promise<{ key: ApiKey; secret: string }>;
 
   // Agent data (loaded while the AI agents module is on)
   projectGoals: ProjectGoal[];
@@ -3770,6 +3772,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return updated;
   };
 
+  const rotateApiKeyAction = async (id: string, overlapHours: number): Promise<{ key: ApiKey; secret: string }> => {
+    const response = await fetch(`/api/workspace/api-keys/${encodeURIComponent(id)}/rotate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ overlap_hours: overlapHours }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.error?.message || 'Could not rotate the key.');
+    const { key, secret, previous } = payload.data as { key: ApiKey; secret: string; previous: { id: string; expires_at: string } };
+    setApiKeys(keys => [key, ...keys.map(k => k.id === previous.id ? { ...k, expires_at: previous.expires_at } : k)]);
+    notify(adminMemberIds(), `API key rotated: "${key.name}"`, `${actorName()} replaced an API key.`, '/settings/developers#api-keys', 'member', null, 'api_keys');
+    return { key, secret };
+  };
+
   // Project Goal CRUD
   const addGoalAction = async (goal: { project_id: string; title: string; description?: string; target_date?: string | null; status?: string }): Promise<ProjectGoal | undefined> => {
     const optimisticId = crypto.randomUUID();
@@ -4632,6 +4648,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       addApiKey: addApiKeyAction,
       revokeApiKey: revokeApiKeyAction,
       updateApiKey: updateApiKeyAction,
+      rotateApiKey: rotateApiKeyAction,
       projectGoals,
       taskSuggestions,
       agentActivity: agentActivityList,

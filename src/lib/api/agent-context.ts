@@ -11,6 +11,8 @@ import { agentRulesOf, type AgentRules } from '@/lib/agent-rules';
 import { findAgentTemplate } from '@/lib/agent-templates';
 import { getBrand } from '@/lib/brand/server';
 import { personalAgentBrief } from '@/lib/personal-agents';
+import type { AssistantPreferences } from '@/lib/assistant';
+import { preferenceLinesFor } from './assistant';
 import { IDEMPOTENCY_KEY_ARGUMENT } from '@/lib/mcp/core';
 import type { AgentProfile } from '@/lib/mcp/profiles';
 import { GUIDE_TOOL, PM_TOOLS } from '@/lib/mcp/tools';
@@ -115,8 +117,13 @@ export interface ContextPack {
   };
   /** The people responsible for it; [] reads as the workspace Owners. */
   owners: AgentOwner[] | null;
-  /** For a personal agent: the person it works for, and what that means for it, in plain words. Absent otherwise. */
-  works_for?: { id: string; name: string; says: string };
+  /**
+   * For a personal agent: the person it works for, and what that means for
+   * it, in plain words, with the settings that person chose on My Assistant
+   * (tone, a note, the switches) and those settings in words. Absent
+   * otherwise.
+   */
+  works_for?: { id: string; name: string; says: string; preferences?: AssistantPreferences; preferences_say?: string[] };
   key: { id: string | null; name: string | null; read_only: boolean; source: PackKey['source']; note?: string } | null;
   scopes: { scope: string; label: string; says: string }[] | null;
   /** Scopes on the key that the member does not hold, so they do nothing. */
@@ -513,7 +520,8 @@ export async function buildContextPack(
   if (isAgent && typeof row.delegate_of === 'string') {
     const { data: person } = await service.from('team_members').select('id, name').eq('id', row.delegate_of).maybeSingle();
     const name = (person as { name?: string } | null)?.name ?? 'your person';
-    worksFor = { id: row.delegate_of, name, says: personalAgentBrief(name) };
+    const settings = await preferenceLinesFor(service, row.id, name);
+    worksFor = { id: row.delegate_of, name, says: personalAgentBrief(name), preferences: settings.preferences, preferences_say: settings.says };
   }
   const conventions = conventionsFor(toolNames, health, (tools ?? PM_TOOLS).some((tool) => tool.write && IDEMPOTENCY_KEY_ARGUMENT in tool.input.shape),
     !worksFor && !!effective?.includes('agents.act_for'));
@@ -603,6 +611,8 @@ export function renderContextPack(pack: ContextPack, as: 'agents' | 'skill' = 'a
   if (pack.key?.name) you.push(`Your key: ${pack.key.name}${pack.key.read_only ? ' (read-only: it refuses every write)' : ''}.`);
   if (pack.key?.note) you.push(pack.key.note);
   parts.push(`## Who you are\n\n${bullet(you)}`);
+
+  if (pack.works_for?.preferences_say?.length) parts.push(`## What ${pack.works_for.name} wants from you\n\n${bullet(pack.works_for.preferences_say)}`);
 
   if (pack.rules) parts.push(`## Your rules\n\n${bullet(pack.rules.says)}`);
 

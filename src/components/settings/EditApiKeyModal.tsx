@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Modal from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { TextInput } from '@/components/ui/inputs/TextInput';
@@ -10,7 +10,8 @@ import { useAuth } from '@/lib/auth-context';
 import { isModuleEnabled } from '@/lib/access-control';
 import { moduleOfPermission } from '@/lib/modules/registry';
 import type { ApiKey } from '@/lib/types';
-import { ApiScopePicker } from './ApiScopePicker';
+import { ScopePicker } from '@/components/agent/PowersFields';
+import { keyScopeGroups } from '@/lib/developers-settings';
 
 interface EditApiKeyModalProps {
   /** The key being edited; null keeps the modal closed. */
@@ -24,9 +25,10 @@ const sameSet = (a: readonly string[], b: readonly string[]) =>
   a.length === b.length && a.every((scope) => b.includes(scope));
 
 /**
- * Edit key: its name and the same scope picker as New key, ticked with what
- * the key carries now. The scopes offered are the key's member's (read from
- * the server), and the secret never changes.
+ * Edit key: its name and the same plain-words picker as New key, ticked with
+ * what the key carries now. The scopes offered are the key's member's (read
+ * from the server), and the secret never changes. A ticked scope the member
+ * no longer holds is named above the picker, with one button to drop it.
  */
 export function EditApiKeyModal({ apiKey, memberName, onClose }: EditApiKeyModalProps) {
   const { updateApiKey } = useApp();
@@ -46,6 +48,8 @@ export function EditApiKeyModal({ apiKey, memberName, onClose }: EditApiKeyModal
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const id = apiKey?.id;
+  const groups = useMemo(() => (available ? keyScopeGroups(available) : []), [available]);
+  const unheld = available ? scopes.filter((scope) => !available.includes(scope) && !parked(scope)) : [];
 
   // A fresh form for every key opened, with the scopes its member holds now.
   useEffect(() => {
@@ -92,9 +96,8 @@ export function EditApiKeyModal({ apiKey, memberName, onClose }: EditApiKeyModal
     if (!base || !available) return;
     const trimmed = name.trim();
     if (!trimmed) return setError('Name is required.');
-    if (scopes.filter((scope) => !parked(scope)).length === 0) return setError('Choose at least one scope.');
-    const unheld = scopes.filter((scope) => !available.includes(scope) && !parked(scope));
-    if (unheld.length > 0) return setError(`Untick scopes that are no longer allowed: ${unheld.join(', ')}.`);
+    if (scopes.filter((scope) => !parked(scope)).length === 0) return setError('Choose at least one thing this key can do.');
+    if (unheld.length > 0) return setError('Remove the access this key no longer allows first.');
 
     const changes: { name?: string; scopes?: string[] } = {};
     if (trimmed !== base.name) changes.name = trimmed;
@@ -115,11 +118,11 @@ export function EditApiKeyModal({ apiKey, memberName, onClose }: EditApiKeyModal
   };
 
   const hint = memberName
-    ? `Scopes ${memberName} holds. Choose only what this integration needs.`
-    : 'Choose only what this integration needs.';
+    ? `What ${memberName} may give. Tick only what this tool needs.`
+    : 'Tick only what this tool needs.';
 
   return (
-    <Modal isOpen={!!apiKey} onClose={close} title="Edit API key" size="md">
+    <Modal isOpen={!!apiKey} onClose={close} title="Edit API key" size="lg">
       <form onSubmit={save} noValidate className="space-y-4">
         {(loadError || error) && (
           <p role="alert" className="rounded-lg bg-red-500/15 px-3 py-2 text-sm text-red-400">
@@ -138,20 +141,40 @@ export function EditApiKeyModal({ apiKey, memberName, onClose }: EditApiKeyModal
         />
 
         {available ? (
-          <ApiScopePicker
-            available={available}
-            selected={scopes.filter((scope) => !parked(scope))}
-            onChange={(next) => setScopes([...next, ...scopes.filter(parked)])}
-            hint={hint}
-            note={scopes.some(parked)
-              ? 'Changes apply to the existing key; the secret stays the same. Scopes for switched-off features are kept and hidden.'
-              : 'Changes apply to the existing key; the secret stays the same.'}
-            emptyText="No API scopes are enabled for this key's member."
-          />
+          <fieldset className="space-y-2">
+            <legend className="mb-1.5 block text-sm font-medium text-zinc-300">What it can do</legend>
+            <p className="text-xs text-zinc-400">{hint}</p>
+            {unheld.length > 0 && (
+              <div role="status" className="flex flex-wrap items-center gap-3 rounded-lg bg-amber-500/[0.14] px-3.5 py-2.5">
+                <p className="min-w-0 flex-1 text-sm text-amber-200">
+                  No longer allowed: <span className="font-mono text-xs">{unheld.join(', ')}</span>
+                </p>
+                <Button type="button" size="sm" variant="secondary" disabled={saving} onClick={() => setScopes(scopes.filter((scope) => !unheld.includes(scope)))}>
+                  Remove {unheld.length === 1 ? 'it' : 'them'}
+                </Button>
+              </div>
+            )}
+            {available.length === 0 ? (
+              <p className="rounded-lg bg-white/[0.03] px-3.5 py-3 text-sm text-zinc-300">No API access is turned on for this key&apos;s member.</p>
+            ) : (
+              <ScopePicker
+                grantable={available}
+                groups={groups}
+                value={scopes.filter((scope) => !parked(scope))}
+                onChange={(next) => setScopes([...next, ...scopes.filter(parked)])}
+                disabled={saving}
+              />
+            )}
+            <p className="text-xs text-zinc-400">
+              {scopes.some(parked)
+                ? 'Changes apply to the existing key; the secret stays the same. Access for switched-off features is kept and hidden.'
+                : 'Changes apply to the existing key; the secret stays the same.'}
+            </p>
+          </fieldset>
         ) : (
           !loadError && (
             <p role="status" className="text-sm text-zinc-400">
-              Loading scopes
+              Loading access
             </p>
           )
         )}

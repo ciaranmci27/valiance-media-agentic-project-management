@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { withApi } from '@/lib/api/middleware';
+import { requireAssistantSwitch } from '@/lib/api/assistant';
 import { success } from '@/lib/api/response';
 import { ApiError, notFound } from '@/lib/api/errors';
 import { logInboxAudit } from '@/lib/communications/inbox-audit';
@@ -23,6 +24,8 @@ type DraftResult = z.infer<typeof draftResultSchema>;
  */
 export const PUT = withApi<DraftResult, { id: string }>(async ({ supabase, params, body, teamMemberId, apiKeyId, access }) => {
   const id = assertUuid(params.id, 'id');
+  // A personal assistant whose person turned off "Draft replies" writes none.
+  await requireAssistantSwitch(supabase, teamMemberId, access, 'draft_replies');
   const { data: draft, error } = await comms(supabase).from('reply_drafts').select(DRAFT_COLUMNS).eq('id', id).maybeSingle();
   if (error) throw error;
   const { data: message, error: messageError } = draft

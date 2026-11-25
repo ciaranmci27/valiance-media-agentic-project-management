@@ -65,6 +65,10 @@ import * as apiKeyRevoke from '@/app/api/v1/api-keys/[id]/revoke/route';
 import * as apiKeyRotate from '@/app/api/v1/api-keys/[id]/rotate/route';
 import * as assistants from '@/app/api/v1/assistants/route';
 import * as assistantsProvision from '@/app/api/v1/assistants/provision/route';
+import * as assistantMessages from '@/app/api/v1/assistant/messages/route';
+import * as assistantMessage from '@/app/api/v1/assistant/messages/[id]/route';
+import * as assistantMessageReply from '@/app/api/v1/assistant/messages/[id]/reply/route';
+import * as assistantMessageHandled from '@/app/api/v1/assistant/messages/[id]/handled/route';
 import * as assistantSetups from '@/app/api/v1/assistant-setups/route';
 import * as webhookEndpoints from '@/app/api/v1/webhook-endpoints/route';
 import * as webhookEndpoint from '@/app/api/v1/webhook-endpoints/[id]/route';
@@ -172,6 +176,10 @@ export const ROUTE_MODULES: Record<string, RouteModule> = {
   '/api/v1/api-keys/{id}/rotate': apiKeyRotate,
   '/api/v1/assistants': assistants,
   '/api/v1/assistants/provision': assistantsProvision,
+  '/api/v1/assistant/messages': assistantMessages,
+  '/api/v1/assistant/messages/{id}': assistantMessage,
+  '/api/v1/assistant/messages/{id}/reply': assistantMessageReply,
+  '/api/v1/assistant/messages/{id}/handled': assistantMessageHandled,
   '/api/v1/assistant-setups': assistantSetups,
   '/api/v1/webhook-endpoints': webhookEndpoints,
   '/api/v1/webhook-endpoints/{id}': webhookEndpoint,

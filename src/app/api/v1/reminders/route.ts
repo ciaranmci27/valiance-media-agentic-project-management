@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { withApi } from '@/lib/api/middleware';
+import { requireAssistantSwitch } from '@/lib/api/assistant';
 import { created, paginated } from '@/lib/api/response';
 import { parsePagination } from '@/lib/api/pagination';
 import { badRequest } from '@/lib/api/errors';
@@ -82,6 +83,8 @@ export const GET = withApi(async ({ supabase, searchParams, teamMemberId, access
  */
 export const POST = withApi(async ({ supabase, body, teamMemberId, access, apiKeyId }) => {
   if (!teamMemberId) throw badRequest('API key must be linked to a team member to write reminders');
+  // A personal assistant whose person turned off "Remind me" writes none.
+  await requireAssistantSwitch(supabase, teamMemberId, access, 'remind_me');
   const data = await createReminder(supabase, access, teamMemberId, body as z.infer<typeof createReminderSchema>);
 
   logAudit(supabase, { method: 'POST', endpoint: '/api/v1/reminders', entityType: 'reminder', entityId: data.id, apiKeyId, teamMemberId, requestBody: body, afterSnapshot: data, statusCode: 201 });

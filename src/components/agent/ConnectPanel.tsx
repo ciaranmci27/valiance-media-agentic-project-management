@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Check, Copy, Download, KeyRound } from 'lucide-react';
 import { buildConnectInfo, CONNECT_KEY_ENV } from '@/lib/agent-connect';
 import type { ConnectInfo, NewKey } from '@/lib/agent-workspace';
@@ -28,7 +28,7 @@ export function copyText(text: string, what: string) {
   );
 }
 
-function CopyButton({ text, what, label = 'Copy' }: { text: string; what: string; label?: string }) {
+export function CopyButton({ text, what, label = 'Copy' }: { text: string; what: string; label?: string }) {
   const [done, setDone] = useState(false);
   return (
     <Button
@@ -42,20 +42,31 @@ function CopyButton({ text, what, label = 'Copy' }: { text: string; what: string
   );
 }
 
-/** The secret, once. Leaving the step forgets it; only its prefix is kept anywhere. */
-export function SecretOnce({ secret }: { secret: NewKey }) {
+/**
+ * The secret, once. Leaving the step forgets it; only its prefix is kept
+ * anywhere. An agent's key by default; a person's key or a webhook's signing
+ * secret passes its own heading and hint.
+ */
+export function SecretOnce({ secret, heading = 'Copy the key now. It is not shown again.', hint, what = 'Key', copyLabel = 'Copy key' }: {
+  secret: Pick<NewKey, 'secret'>;
+  heading?: string;
+  hint?: ReactNode;
+  /** What the toast calls it ("Key copied"). */
+  what?: string;
+  copyLabel?: string;
+}) {
   return (
     <div className="rounded-2xl bg-amber-500/[0.08] p-4 ring-1 ring-inset ring-amber-400/20 sm:p-5">
       <p className="flex items-center gap-2 text-sm font-semibold text-amber-100">
         <KeyRound size={15} aria-hidden="true" />
-        Copy the key now. It is not shown again.
+        {heading}
       </p>
       <p className="mt-1 text-xs leading-relaxed text-amber-200/80">
-        Put it in the agent&apos;s environment as <span className="font-mono">{CONNECT_KEY_ENV}</span>. Lost it? Make a new key and revoke this one.
+        {hint ?? <>Put it in the agent&apos;s environment as <span className="font-mono">{CONNECT_KEY_ENV}</span>. Lost it? Make a new key and revoke this one.</>}
       </p>
       <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
         <code className="min-w-0 flex-1 select-all break-all rounded-lg bg-black/30 px-3 py-2.5 font-mono text-xs text-white">{secret.secret}</code>
-        <CopyButton text={secret.secret} what="Key" label="Copy key" />
+        <CopyButton text={secret.secret} what={what} label={copyLabel} />
       </div>
     </div>
   );

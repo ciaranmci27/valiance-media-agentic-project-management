@@ -20,6 +20,9 @@ import { comms } from './db';
 import { messageDetail } from './agent-read';
 import { messageFacts } from './speaker';
 import type { AccessibleMessage } from './agent-access';
+import type { AccessContext } from '@/lib/access-control';
+import { accessAllowsProject } from '@/lib/api/access';
+import { actingForOf } from './inbox-visibility';
 
 type Row = Record<string, unknown>;
 
@@ -37,8 +40,17 @@ async function rows<T = Row>(query: PromiseLike<{ data: unknown; error: unknown 
   return (data ?? []) as T[];
 }
 
-export async function triageContext(supabase: SupabaseClient, message: AccessibleMessage, mode: 'live' | 'shadow'): Promise<Row> {
-  const [detail, facts] = await Promise.all([messageDetail(supabase, message), messageFacts(supabase, message.id)]);
+/**
+ * access: the caller's. An agent acting for a person (a personal agent) gets
+ * only projects that person can open: the message detail, earlier plan items,
+ * what is owed, reminders and every project in scope with its tasks are
+ * narrowed to them.
+ */
+export async function triageContext(supabase: SupabaseClient, message: AccessibleMessage, mode: 'live' | 'shadow', access?: AccessContext | null): Promise<Row> {
+  const [detail, facts] = await Promise.all([messageDetail(supabase, message, access), messageFacts(supabase, message.id)]);
+  const narrow = !!access && !!actingForOf(access);
+  // A row with no project stays; one in a project out of reach goes, when narrowing.
+  const inReach = (row: Row) => !narrow || !row.project_id || accessAllowsProject(access!, row.project_id as string, 'api');
   const conversationId = message.thread_id;
 
   // What this message caused, left out in shadow mode.
@@ -50,7 +62,7 @@ export async function triageContext(supabase: SupabaseClient, message: Accessibl
     : new Set<string>();
   const ownCreated = new Set(ownLinks.filter((l) => l.relation === 'created').map((l) => l.task_id));
 
-  const [conversation, plans, points, reminders] = await Promise.all([
+  const [conversation, plans, allPoints, allReminders] = await Promise.all([
     rows<Row>(comms(supabase).from('conversations').select('muted_at').eq('id', conversationId)),
     rows<Row>(comms(supabase).from('plans').select('id, message_id, mode, status, summary, created_at').eq('conversation_id', conversationId).eq('mode', 'live').order('created_at')),
     rows<Row>(comms(supabase).from('reply_points').select('id, who, what, kind, project_id, by_when, urgent, to_agent, created_at').eq('conversation_id', conversationId).eq('state', 'open').order('created_at')),
@@ -58,10 +70,12 @@ export async function triageContext(supabase: SupabaseClient, message: Accessibl
       .eq('status', 'open').is('deleted_at', null)
       .in('source_message_id', ((detail.thread as Row).messages as Row[]).map((m) => m.id as string))),
   ]);
-  const planItems = plans.length
+  const points = allPoints.filter(inReach);
+  const reminders = allReminders.filter(inReach);
+  const planItems = (plans.length
     ? await rows<Row>(comms(supabase).from('plan_items').select('id, plan_id, type, intent, project_id, task_id, decision, state, payload, resolved_by, result')
       .in('plan_id', plans.map((p) => p.id as string)).order('position'))
-    : [];
+    : []).filter(inReach);
   // A person sent this message back: it is New again after a live plan of
   // its own that finished applying, with no answer since (an answer re-queues
   // it too, to act on). A plan cut off mid-apply is not one: the agent retries
@@ -84,7 +98,8 @@ export async function triageContext(supabase: SupabaseClient, message: Accessibl
   const projectIds = [...new Set([
     ...(scope.projects ?? []).map((p) => p.project_id),
     ...((detail.projects ?? []) as { id: string }[]).map((p) => p.id),
-  ])].filter((id) => !ownFiled.has(id) || (scope.projects ?? []).some((p) => p.project_id === id));
+  ])].filter((id) => !ownFiled.has(id) || (scope.projects ?? []).some((p) => p.project_id === id))
+    .filter((id) => !narrow || accessAllowsProject(access!, id, 'api'));
   const [projectRows, taskRows, recentItems] = projectIds.length ? await Promise.all([
     rows<Row>(supabase.from('projects').select('id, name, status, archived_at').in('id', projectIds).is('deleted_at', null)),
     // Top-level tasks only: subtasks come under their parent, below, so a

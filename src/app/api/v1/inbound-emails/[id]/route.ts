@@ -13,5 +13,5 @@ export const dynamic = 'force-dynamic';
  */
 export const GET = withApi<unknown, { id: string }>(async ({ supabase, params, teamMemberId, access }) => {
   const message = await loadAccessibleMessage(supabase, teamMemberId, access, params.id);
-  return success(await messageDetail(supabase, message));
+  return success(await messageDetail(supabase, message, access));
 }, { permission: 'inbound_email.read' });

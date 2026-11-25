@@ -21,6 +21,7 @@ import {
   Clock,
   Wallet,
   Inbox,
+  Sparkles,
 } from 'lucide-react';
 import { useApp } from '@/lib/store';
 import { computeNeedsYou } from '@/lib/autonomy';
@@ -32,7 +33,7 @@ import { Logo } from '@/components/ui/Logo';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { LivePulse } from '@/components/ui/LivePulse';
 import { useUnreadByProject } from '@/components/tasks/TaskUnread';
-import { inboxAttentionRead, inboxLandingRead, unreadNotificationsRead, useIntent, useOpenQuestions, useWarmActiveProjects, useWarmProject } from '@/lib/reads';
+import { inboxAttentionRead, inboxLandingRead, myAssistantRead, unreadNotificationsRead, useIntent, useOpenQuestions, useWarmActiveProjects, useWarmProject } from '@/lib/reads';
 import { invalidateTables, useRead, warmRead } from '@/lib/query-cache';
 import { CountBadge, type CountBadgeTone } from '@/components/ui/CountBadge';
 import { isRunning } from '@/lib/time-entry-utils';
@@ -114,6 +115,12 @@ export function Sidebar() {
 
   const isAgentsEnabled = isModuleEnabled(access, 'agents');
   const canManageAgents = hasPermission(access, 'agents.manage');
+  // The person's own assistant, under the name the workspace gives it: shown
+  // only while assistants are on and the person has one.
+  const myAssistant = useRead(isAgentsEnabled && teamMemberId && access?.role !== 'agent' ? myAssistantRead(isDemoMode) : null).data;
+  const assistantEntry: NavEntry | null = myAssistant?.enabled && myAssistant.assistant
+    ? { href: '/assistant', icon: Sparkles, label: myAssistant.label }
+    : null;
   // Every pending suggestion in a project this person reaches, from any agent:
   // the same count as the Agents page's Needs you (suggestion-reach).
   const pendingSuggestionCount = isAgentsEnabled && canManageAgents ? pendingSuggestionsInReach(taskSuggestions, projects).length : 0;
@@ -151,6 +158,7 @@ export function Sidebar() {
     { href: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
     { href: '/my-tasks', icon: ListTodo, label: 'My Tasks',
       count: { value: myTasksCount, label: `${myTasksCount} ${myTasksCount === 1 ? 'thing needs' : 'things need'} you`, tone: 'brand' } },
+    ...(assistantEntry ? [assistantEntry] : []),
     ...(canReadInbox ? [{ href: '/inbox', icon: Inbox, label: 'Inbox', count: inboxCount(inboxAttention) }] : []),
     ...(hasPermission(access, 'projects.read') || hasPermission(access, 'projects.read_all')
       ? [{ href: '/projects', icon: FolderKanban, label: 'Projects',

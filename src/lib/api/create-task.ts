@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { logAudit } from '@/lib/api/audit';
 import { accessAllows, accessAllowsProject } from '@/lib/api/access';
+import { requireAssistantSwitch } from './assistant';
 import type { AccessContext } from '@/lib/access-control';
 import { badRequest, forbidden, notFound } from '@/lib/api/errors';
 import { assertAssigneesCanOpenProject, assertBlockersInProject, assertGoalInProject } from '@/lib/api/task-guards';
@@ -249,6 +250,8 @@ type TaskSuggestionInput = Parameters<typeof insertTaskSuggestion>[1];
  */
 export async function createTaskWithRules(ctx: CreateTaskContext, endpoint: string, suggestionMetadata: Record<string, unknown> = {}): Promise<RuledCreate> {
   const { supabase, teamMemberId, access } = ctx;
+  // A personal assistant whose person turned off "Create tasks for me" makes none.
+  await requireAssistantSwitch(supabase, teamMemberId, access, 'create_tasks');
   const { occurrence_note: occurrenceNote, ...body } = ctx.body as Record<string, unknown> & { occurrence_note?: string };
   const dedupeKey = typeof body.dedupe_key === 'string' ? body.dedupe_key : null;
   const member = await loadMemberRules(supabase, teamMemberId);

@@ -1166,7 +1166,15 @@ export const WORK_WEBHOOK_EVENT_TYPES = [
  */
 export const AGENT_EVENT_WEBHOOK_EVENT_TYPES = ['agent_event.created'] as const;
 
-export const WEBHOOK_EVENT_TYPES = [...WORK_WEBHOOK_EVENT_TYPES, ...AGENT_EVENT_WEBHOOK_EVENT_TYPES, ...INVOICE_WEBHOOK_EVENT_TYPES] as const;
+/**
+ * A chat message for a person's own assistant (the chat switchboard): ids
+ * only (the message, its person, the thread so far, where to read and
+ * answer it), never chat text. Opt in only, and only on an endpoint whose
+ * member filter is a personal agent.
+ */
+export const ASSISTANT_WEBHOOK_EVENT_TYPES = ['assistant.message'] as const;
+
+export const WEBHOOK_EVENT_TYPES = [...WORK_WEBHOOK_EVENT_TYPES, ...AGENT_EVENT_WEBHOOK_EVENT_TYPES, ...ASSISTANT_WEBHOOK_EVENT_TYPES, ...INVOICE_WEBHOOK_EVENT_TYPES] as const;
 export type WebhookEventType = typeof WEBHOOK_EVENT_TYPES[number];
 
 export const WEBHOOK_DELIVERY_STATUSES = ['pending', 'delivering', 'succeeded', 'failed'] as const;

@@ -3,7 +3,8 @@ import { withApi } from '@/lib/api/middleware';
 import { created, success } from '@/lib/api/response';
 import { ApiError } from '@/lib/api/errors';
 import { logAudit } from '@/lib/api/audit';
-import { inboxScope, inboxScopeDenied, memberTriageInboxIds } from '@/lib/communications/agent-access';
+import { inboxScope, inboxScopeDenied, memberInboxIds, memberTriageInboxIds } from '@/lib/communications/agent-access';
+import { actingForOf } from '@/lib/communications/inbox-visibility';
 import {
   describeRule, liveRulesForKey, presentRule, PROTECTED_TOPICS, readRules, ruleAppliesTo, ruleInboxOf, ruleTarget, rulesOverlap, RULE_COLUMNS, scopeFields, scopesOverlap, switchOffRules,
   senderRuleSchema, type SenderRuleInput, type SenderRuleRow,
@@ -15,22 +16,31 @@ export const dynamic = 'force-dynamic';
  * The live sender rules, each with a plain label ("Usage alerts from
  * okendo.io"). An inbox's own rule also says scope inbox and its inbox_id.
  * With inbox_id (an inbox the key reads): only the rules that sort that
- * inbox's mail, the workspace's and its own.
+ * inbox's mail, the workspace's and its own. An agent acting for a person
+ * (a personal agent) sees only the rules that sort the inboxes it reads.
  */
 export const GET = withApi(async ({ supabase, searchParams, teamMemberId, access }) => {
   const inboxParam = searchParams.get('inbox_id');
   const inboxId = inboxParam ? (await inboxScope(supabase, teamMemberId, access, inboxParam))[0] : null;
+  const readable = actingForOf(access) ? await memberInboxIds(supabase, teamMemberId, access) : null;
   const rules = await readRules<SenderRuleRow>((columns) => comms(supabase).from('sender_rules').select(columns).is('disabled_at', null).order('created_at', { ascending: false }));
-  return success(rules.filter((rule) => !inboxId || ruleAppliesTo(rule, inboxId)).map((rule) => ({ ...presentRule(rule), label: describeRule(rule) })));
+  return success(rules
+    .filter((rule) => !inboxId || ruleAppliesTo(rule, inboxId))
+    .filter((rule) => !readable || readable.some((id) => ruleAppliesTo(rule, id)))
+    .map((rule) => ({ ...presentRule(rule), label: describeRule(rule) })));
 }, { permission: 'inbound_email.read' });
 
 /**
  * The inbox a new agent rule is for, or null for the workspace: inbox_id
  * when it names one (scope inbox, or left out), never with scope workspace.
  * Neither sent, the workspace, as before scopes existed. A named inbox must
- * be one the key acts on.
+ * be one the key acts on. An agent acting for a person (a personal agent)
+ * writes rules only for an inbox it acts on, never the workspace's.
  */
 async function ruleInbox(supabase: Parameters<typeof memberTriageInboxIds>[0], memberId: string, access: Parameters<typeof memberTriageInboxIds>[2], body: SenderRuleInput): Promise<string | null> {
+  if (actingForOf(access) && (body.scope === 'workspace' || !body.inbox_id)) {
+    throw new ApiError(403, 'FORBIDDEN', "An assistant writes rules for its person's own inbox only: send inbox_id", { reason: 'inbox_rule_only' });
+  }
   if (body.scope === 'workspace') {
     if (body.inbox_id) throw new ApiError(422, 'VALIDATION_ERROR', 'inbox_id: a workspace rule is for every inbox; leave inbox_id out, or use scope inbox');
     return null;

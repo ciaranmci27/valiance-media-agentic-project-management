@@ -22,6 +22,7 @@ export function getEndpointScopes(endpoint: EndpointDoc): string[] {
   if (path.startsWith('/api/v1/groups')) return write ? ['groups.manage'] : ['team.read', 'team.manage', 'groups.manage'];
   if (path === '/api/v1/api-keys/:id/rotate') return ['api_keys.manage_all', 'assistants.provision'];
   if (path.startsWith('/api/v1/api-keys')) return ['api_keys.manage_all'];
+  if (path.startsWith('/api/v1/assistant/')) return ['notifications.manage_own'];
   if (path.startsWith('/api/v1/assistants') || path.startsWith('/api/v1/assistant-setups')) return ['assistants.provision'];
   if (path.startsWith('/api/v1/webhook-endpoints')) return ['webhooks.manage'];
   if (path === '/api/v1/agents') return method === 'GET' ? ['team.read', 'team.manage'] : ['team.manage'];
@@ -340,7 +341,7 @@ export const endpoints: EndpointDoc[] = [
     body: [
       { name: 'name', type: 'string', required: true, description: 'A name for the endpoint' },
       { name: 'url', type: 'string', required: true, description: 'Where events go: HTTPS, or http on localhost for local development' },
-      { name: 'events', type: 'string[]', required: true, description: 'Events to send, at least one: task.created, task.updated, task.deleted, comment.created, question.asked, question.answered, question.cancelled, suggestion.created, suggestion.decided, review.submitted, run.started, run.finished, agent_event.created (every agent event, opt in; narrow it with member_id and agent_event_types), and (with Client invoicing on) invoice.paid, invoice.updated, invoice.deleted, invoice.payment_recorded, invoice.payment_removed' },
+      { name: 'events', type: 'string[]', required: true, description: 'Events to send, at least one: task.created, task.updated, task.deleted, comment.created, question.asked, question.answered, question.cancelled, suggestion.created, suggestion.decided, review.submitted, run.started, run.finished, agent_event.created (every agent event, opt in; narrow it with member_id and agent_event_types), assistant.message (a chat message for a personal agent, ids only; only with member_id set to a personal agent), and (with Client invoicing on) invoice.paid, invoice.updated, invoice.deleted, invoice.payment_recorded, invoice.payment_removed' },
       { name: 'description', type: 'string', required: false, description: 'A note on what it is for' },
       { name: 'amount_basis', type: 'gross|net', required: false, description: 'Invoice amounts as billed (gross, the default) or net of revenue splits' },
       { name: 'project_ids', type: 'uuid[]|null', required: false, description: 'Only events on these projects (null or empty: every project)' },
@@ -2098,6 +2099,25 @@ export const endpoints: EndpointDoc[] = [
   },
   { method: 'DELETE', path: '/api/v1/assistant-setups/:id', description: 'Remove a setup. The agents it made stay with their people.', group: 'Personal Agents',
     params: [{ name: 'id', type: 'uuid', required: true, description: 'Setup ID' }],
+  },
+  { method: 'GET', path: '/api/v1/assistant/messages', description: "Chat messages routed to the calling personal agent (from Slack or Telegram through the app's chat connections), oldest first, each with its text, person, provider, conversation and the thread so far. Messages sent to a webhook (assistant.message) are notified; the rest wait here as pending. Chat is private: the webhook carries ids only, and the text is read here or with GET /api/v1/assistant/messages/:id. No X-Act-For is needed or given: a personal agent is already narrowed to its person. A personal agent's key with notifications.manage_own; any other key is 403 not_a_personal_agent.", group: 'Personal Agents',
+    queryParams: [
+      { name: 'status', type: 'pending|notified|replied|handled|unrouted|all', description: 'Default pending' },
+      { name: 'limit', type: 'number', description: '1 to 100 (default 20)' },
+    ],
+  },
+  { method: 'GET', path: '/api/v1/assistant/messages/:id', description: 'One chat message routed to the calling personal agent, with its text and the thread so far: what an assistant.message webhook points at. 404 for a message routed to another agent.', group: 'Personal Agents',
+    params: [{ name: 'id', type: 'uuid', required: true, description: 'Chat message ID' }],
+  },
+  { method: 'POST', path: '/api/v1/assistant/messages/:id/reply', description: "Reply to a chat message routed to the calling personal agent, in the conversation it came from: the app sends it through the provider (Slack chat.postMessage, Telegram sendMessage) and marks the message replied. 404 for a message routed to another agent; 502 provider_refused with the provider's code when it refuses (the reply is recorded as failed). Send an Idempotency-Key to make a retry safe.", group: 'Personal Agents',
+    params: [{ name: 'id', type: 'uuid', required: true, description: 'Chat message ID' }],
+    body: [
+      { name: 'text', type: 'string', required: true, description: 'Plain text, up to 20,000 characters (Telegram splits it at 4,000)' },
+      { name: 'in_thread', type: 'boolean', required: false, description: "Default true: answer in the message's thread where the provider has threads" },
+    ],
+  },
+  { method: 'POST', path: '/api/v1/assistant/messages/:id/handled', description: 'Mark a chat message handled without a reply, so it leaves the pending list. Repeating it changes nothing.', group: 'Personal Agents',
+    params: [{ name: 'id', type: 'uuid', required: true, description: 'Chat message ID' }],
   },
 ];
 

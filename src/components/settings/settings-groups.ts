@@ -1,9 +1,10 @@
-import { Bell, CircleArrowUp, Code2, Database, Globe, LayoutGrid, Mail, Receipt, User, type LucideIcon } from 'lucide-react';
+import { Bell, CircleArrowUp, Code2, Database, Globe, LayoutGrid, Mail, Receipt, Sparkles, User, type LucideIcon } from 'lucide-react';
 import { hourApprovalsExist } from '@/lib/finance/finance-views';
 import { useAuth } from '@/lib/auth-context';
 import { useDemo } from '@/lib/demo-context';
-import { hasPermission, isModuleEnabled } from '@/lib/access-control';
+import { hasPermission, isModuleEnabled, type AccessContext, type PermissionKey } from '@/lib/access-control';
 import { customSettingsGroups, useCustomSettingsVisibility } from '@/lib/extensions/hooks';
+import { webhooksSectionState } from '@/lib/developers-settings';
 
 /**
  * The Settings area's menu: one page per group, each listing the ids of the
@@ -13,7 +14,7 @@ import { customSettingsGroups, useCustomSettingsVisibility } from '@/lib/extensi
  */
 
 /** Core groups, then the install's own Settings sections (src/custom), keyed `custom:<key>`. */
-export type SettingsGroupKey = 'workspace' | 'updates' | 'account' | 'notifications' | 'billing' | 'portal' | 'email' | 'developers' | 'data' | `custom:${string}`;
+export type SettingsGroupKey = 'workspace' | 'updates' | 'account' | 'notifications' | 'billing' | 'portal' | 'email' | 'assistants' | 'developers' | 'data' | `custom:${string}`;
 
 export interface SettingsGroup {
   key: SettingsGroupKey;
@@ -67,7 +68,9 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
       'mail-rules': EMAIL_PAGES.rules,
     },
   },
-  { key: 'developers', href: '/settings/developers', label: 'Developers', icon: Code2, sectionIds: ['api-keys', 'webhooks', 'webhook-retries'] },
+  // People's personal assistants: on or off, their name, who gets one, chat connections (Owners only).
+  { key: 'assistants', href: '/settings/assistants', label: 'Assistants', icon: Sparkles, sectionIds: ['assistants', 'assistant-setups', 'assistant-status', 'chat-connections'] },
+  { key: 'developers', href: '/settings/developers', label: 'Developers', icon: Code2, sectionIds: ['api-keys', 'webhooks', 'webhook-retries', 'developer-docs'] },
   { key: 'data', href: '/settings/data', label: 'Data', icon: Database, sectionIds: ['trash', 'demo-mode'] },
   // The install's own sections, after core's.
   ...customSettingsGroups(),
@@ -98,7 +101,13 @@ export function useSettingsAccess() {
   const canManageSettings = hasPermission(access, 'settings.manage');
   const canManageSmtp = hasPermission(access, 'smtp.manage');
   const canManageAgents = hasPermission(access, 'agents.manage');
-  const canManageWebhooks = hasPermission(access, 'webhooks.manage');
+  // Webhooks show while the module is off too, so they can be found and turned on.
+  const webhooksState = webhooksSectionState({
+    isDemoMode,
+    moduleOn: isModuleEnabled(access, 'webhooks'),
+    holdsPermission: holdsIgnoringModules(access, 'webhooks.manage'),
+    isOwner: access?.role === 'owner',
+  });
   const canManageInboxes = hasPermission(access, 'inbound_email.manage');
   // Connecting your own inbox: people only, never an agent's session.
   const canConnectOwnInbox = hasPermission(access, 'inbound_email.personal') && access?.role !== 'agent';
@@ -126,9 +135,11 @@ export function useSettingsAccess() {
     hourApprovals: canManageSettings && hourApprovalsExist(access),
     // Every active member can create personal keys; none in demo mode.
     apiKeys: !isDemoMode && !isGuest,
-    webhooks: canManageWebhooks && !isDemoMode,
+    webhooks: webhooksState !== 'hidden',
     // Turning on retries writes a secret and Supabase Vault: Owners only, with webhooks on.
     webhookRetries: isOwner && !isDemoMode && isModuleEnabled(access, 'webhooks'),
+    // The MCP and API addresses and docs: anyone who may make a key.
+    developerDocs: !isGuest,
     // SMTP is hidden in demo mode; inboxes show there too, on sample data whose changes last until a reload.
     smtp: canManageSmtp && !isDemoMode,
     emailInboxes: canManageInboxes,
@@ -140,6 +151,8 @@ export function useSettingsAccess() {
     analyticsExclusions: canManageSettings && isModuleEnabled(access, 'portal'),
     // Hidden when the environment forces demo mode on.
     demoMode: canManageSettings && !isEnvForcedDemo,
+    // People's assistants and the chat connections they answer through: Owners only.
+    assistants: isOwner && !isDemoMode,
   };
 
   // A group shows in the menu while at least one of its sections does.
@@ -151,10 +164,17 @@ export function useSettingsAccess() {
     billing: show.invoiceDetails || show.hourApprovals,
     portal: show.analyticsExclusions,
     email: show.smtp || show.emailInboxes || show.myInbox || show.receiving,
-    developers: show.apiKeys || show.webhooks || show.webhookRetries,
+    assistants: show.assistants,
+    developers: show.apiKeys || show.webhooks || show.webhookRetries || show.developerDocs,
     data: !isGuest,
   };
 
   const customVisible = useCustomSettingsVisibility();
-  return { canManageAgents, canManageSettings, isOwner, show, visibleGroups: { ...visibleGroups, ...customVisible } };
+  return { canManageAgents, canManageSettings, isOwner, show, webhooksState, visibleGroups: { ...visibleGroups, ...customVisible } };
+}
+
+/** Held by role or override, whether or not its module is on (hasPermission says no while it is off). */
+function holdsIgnoringModules(access: AccessContext | null | undefined, permission: PermissionKey): boolean {
+  if (!access || access.status !== 'active') return false;
+  return access.app_permissions.includes('*') || access.app_permissions.includes(permission);
 }

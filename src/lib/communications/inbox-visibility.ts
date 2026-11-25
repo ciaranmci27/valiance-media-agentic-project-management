@@ -14,6 +14,9 @@ import { comms } from '@/lib/communications/db';
  * - A personal inbox (owner_member_id set): its owner, and the people and
  *   agents it was shared with, while the Inbox module is on. inbound_email.manage
  *   reads it only while business_settings.owners_read_personal_inboxes is on.
+ * - An agent acting for a person (a personal agent: access.principal_id) reads
+ *   only that person's own personal inboxes it was shared with ("Sort my
+ *   inbox"), never a shared inbox, so it never reads more than its person.
  */
 
 export interface InboxReadRow {
@@ -33,11 +36,17 @@ export interface InboxReader {
   ownersReadPersonal: boolean;
   /** The inboxes the reader was granted (inbox_access). */
   granted: ReadonlySet<string>;
+  /** A personal agent: only this person's personal inboxes it was granted. */
+  onlyOwnedBy?: string | null;
 }
+
+/** The person whose own inboxes alone an agent acting for them may reach, or null. */
+export const actingForOf = (access: AccessContext): string | null => (access.role === 'agent' && access.principal_id ? access.principal_id : null);
 
 /** The one rule, as a pure function. */
 export function readsInbox(inbox: InboxReadRow, reader: InboxReader): boolean {
   if (!reader.moduleOn) return false;
+  if (reader.onlyOwnedBy) return inbox.owner_member_id === reader.onlyOwnedBy && reader.granted.has(inbox.id);
   if (!inbox.owner_member_id) return reader.manage || (reader.sharedGrants && reader.granted.has(inbox.id));
   return inbox.owner_member_id === reader.memberId
     || reader.granted.has(inbox.id)
@@ -119,6 +128,7 @@ export async function inboxReader(db: SupabaseClient, memberId: string, access: 
     sharedGrants: channel === 'api' || hasPermission(access, 'inbound_email.read', 'app'),
     ownersReadPersonal,
     granted,
+    onlyOwnedBy: actingForOf(access),
   };
 }
 
@@ -150,10 +160,13 @@ export interface InboxTriager {
   /** inbound_email.personal (an app permission: connecting your own inbox). */
   personal: boolean;
   granted: ReadonlySet<string>;
+  /** A personal agent: only this person's personal inboxes it was granted. */
+  onlyOwnedBy?: string | null;
 }
 
 export function triagesInbox(inbox: InboxReadRow, triager: InboxTriager): boolean {
   if (!triager.moduleOn) return false;
+  if (triager.onlyOwnedBy) return inbox.owner_member_id === triager.onlyOwnedBy && triager.granted.has(inbox.id) && triager.triage;
   if (!inbox.owner_member_id) return triager.manage || triager.triage;
   if (inbox.owner_member_id === triager.memberId) return triager.personal;
   return triager.granted.has(inbox.id) && triager.triage;
@@ -168,6 +181,7 @@ export async function inboxTriager(db: SupabaseClient, memberId: string, access:
     triage: hasPermission(access, 'inbound_email.triage', channel),
     personal: hasPermission(access, 'inbound_email.personal', 'app'),
     granted: await grantedInboxIds(db, memberId),
+    onlyOwnedBy: actingForOf(access),
   };
 }
 

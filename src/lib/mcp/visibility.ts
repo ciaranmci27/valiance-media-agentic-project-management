@@ -30,6 +30,7 @@ export function toolVisible(tool: PmTool, caller: ToolViewer): boolean {
   if (tool.profiles && !tool.profiles.includes(caller.profile)) return false;
   if (tool.name !== GUIDE_TOOL && !profileSeesTool(caller.profile, tool.name)) return false;
   if (tool.agentsOnly && caller.access.role !== 'agent') return false;
+  if (tool.personalOnly && !(caller.access.role === 'agent' && caller.access.principal_id)) return false;
   if (tool.module && !isModuleEnabled(caller.access, tool.module)) return false;
   if (tool.write && caller.readOnly) return false;
   if (tool.name === GUIDE_TOOL) return true;

@@ -6,6 +6,9 @@ import { htmlToText } from './email/html-text';
 import { isGoneError, type AccessibleMessage } from './agent-access';
 import { comms } from '@/lib/communications/db';
 import { liveTaskIds } from '@/lib/api/task-guards';
+import { accessAllowsProject } from '@/lib/api/access';
+import type { AccessContext } from '@/lib/access-control';
+import { actingForOf } from './inbox-visibility';
 
 /**
  * What the agent API returns. Reads are plain queries joined here (no
@@ -341,7 +344,37 @@ export async function waitingQuestions(supabase: SupabaseClient, inboxIds: strin
     });
 }
 
-export async function messageDetail(supabase: SupabaseClient, message: AccessibleMessage): Promise<Row> {
+/**
+ * A message's detail as an agent acting for a person (a personal agent) may
+ * see it: every project the person cannot open is dropped (the thread's
+ * project, the projects it is filed on, its scope and candidates), and so is
+ * every linked task in one. Anyone else reads it whole.
+ */
+export function narrowDetailToReach(detail: Row, access: AccessContext | null | undefined): Row {
+  if (!access || !actingForOf(access)) return detail;
+  const allowed = (id: unknown) => typeof id === 'string' && accessAllowsProject(access, id, 'api');
+  const narrowMessage = (row: Row): Row => ({
+    ...row,
+    linked_tasks: ((row.linked_tasks ?? []) as Row[]).filter((link) => !link.project_id || allowed(link.project_id)),
+  });
+  const scope = (detail.project_scope ?? {}) as Row;
+  const thread = (detail.thread ?? {}) as Row;
+  const project = detail.project as Row | null | undefined;
+  return {
+    ...narrowMessage(detail),
+    project: project && project.id && !allowed(project.id) ? null : project ?? null,
+    projects: ((detail.projects ?? []) as Row[]).filter((row) => allowed(row.id)),
+    project_scope: { ...scope, projects: ((scope.projects ?? []) as Row[]).filter((row) => allowed(row.project_id)) },
+    candidates: ((detail.candidates ?? []) as Row[]).filter((row) => allowed(row.project_id)),
+    thread: { ...thread, messages: ((thread.messages ?? []) as Row[]).map(narrowMessage) },
+  };
+}
+
+export async function messageDetail(supabase: SupabaseClient, message: AccessibleMessage, access?: AccessContext | null): Promise<Row> {
+  return narrowDetailToReach(await fullMessageDetail(supabase, message), access);
+}
+
+async function fullMessageDetail(supabase: SupabaseClient, message: AccessibleMessage): Promise<Row> {
   const [inbox, thread, threadMessages, meeting] = await Promise.all([
     comms(supabase).from('inboxes').select('id, name, address, agent_readable_types').eq('id', message.inbox_id).single(),
     comms(supabase).from('conversations').select('id, subject_normalized, project_id, project_source, project_address_id, summary, last_message_at').eq('id', message.thread_id).single(),

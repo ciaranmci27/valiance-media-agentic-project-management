@@ -422,7 +422,7 @@ export async function importAgentConfig(service: SupabaseClient, granter: Grante
       }
       const match = existing.find((endpoint) => endpoint.url === parsed.data.url);
       try {
-        await checkWebhookFields(service, granter.access, { events: parsed.data.events, project_ids: projectIds }, match);
+        await checkWebhookFields(service, granter.access, { events: parsed.data.events, project_ids: projectIds, member_id: target?.id ?? null }, match);
       } catch (error) {
         if (!(error instanceof ApiError)) throw error;
         hookSkipped.push({ name: hook.name, reason: error.message });

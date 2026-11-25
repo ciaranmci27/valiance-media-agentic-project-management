@@ -55,6 +55,8 @@ export async function updateSession(request: NextRequest) {
     || request.nextUrl.pathname === '/api/internal/inbound-email/retention'
     || request.nextUrl.pathname === '/api/internal/inbound-email/orphan-sweep'
     || request.nextUrl.pathname === '/api/internal/billing/draft-digest'
+    // Chat providers (Slack, Telegram): each request is verified by its connection's adapter.
+    || request.nextUrl.pathname.startsWith('/api/chat/inbound/')
   ) {
     return NextResponse.next();
   }

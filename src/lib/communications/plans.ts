@@ -24,6 +24,7 @@ import { accessAllows, accessAllowsProject } from '@/lib/api/access';
 import { ApiError, moduleOff, notFound } from '@/lib/api/errors';
 import { createTaskAs } from '@/lib/api/create-task';
 import { createReminder } from '@/lib/api/reminders';
+import { assistantSwitchesOff } from '@/lib/api/assistant';
 import { insertComment, patchTask } from '@/lib/supabase/queries';
 import { moveToTrash, restoreFromTrash } from '@/lib/supabase/trash';
 import { addTaskFile, type TaskFilesContext } from '@/lib/task-files/service';
@@ -249,6 +250,9 @@ async function prepare(actor: PlanActor, message: PlanMessage, facts: MessageFac
     : { data: [], error: null };
   if (pointError) throw pointError;
   const points = new Set(((pointRows ?? []) as { id: string }[]).map((row) => row.id));
+  // A personal assistant whose person switched off "Create tasks for me" or
+  // "Remind me": those items are problems, so nothing is half applied.
+  const switchedOff = await assistantSwitchesOff(db, actor.memberId, access);
 
   const prepared: Prepared[] = [];
   items.forEach((item, index) => {
@@ -262,6 +266,8 @@ async function prepare(actor: PlanActor, message: PlanMessage, facts: MessageFac
     if ('reminder_id' in item && !reminders.has(item.reminder_id)) problem('reminder_not_on_this_conversation');
     if (item.type === 'log_interaction' && salesOn && !leads.has(item.lead_id)) problem('lead_not_found');
     if (item.type === 'reply_owed' && item.point_id && !points.has(item.point_id)) problem('reply_point_not_on_this_conversation');
+    if (item.type === 'create_task' && switchedOff.has('create_tasks')) problem('assistant_switch_off_create_tasks');
+    if (item.type === 'add_reminder' && switchedOff.has('remind_me')) problem('assistant_switch_off_remind_me');
     if (item.type === 'revert_item') {
       const target = reverts.get(item.plan_item_id);
       if (!target || target.inbox_id !== message.inbox_id) problem('plan_item_not_found');

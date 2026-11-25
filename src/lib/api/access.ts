@@ -116,7 +116,10 @@ export async function delegateOf(service: SupabaseClient, memberId: string): Pro
  * memberships add nothing and the person's reach decides. Its own
  * bookkeeping (PERSONAL_AGENT_OWN_PERMISSIONS: recording its own runs and
  * events) stays its own, since people never hold it and it reads nothing of
- * theirs.
+ * theirs. So does working its person's own inbox ("Sort my inbox"): people
+ * hold no Inbox permission on the API, and inbox-visibility lets an agent
+ * acting for a person reach only that person's personal inboxes they shared
+ * with it, so it still reads nothing they cannot.
  */
 export function personalAgentAccess(agent: AccessContext, person: AccessContext): AccessContext {
   const reachAll = (list: AccessContext['api_permissions']): AccessContext['api_permissions'] =>
@@ -129,8 +132,8 @@ export function personalAgentAccess(agent: AccessContext, person: AccessContext)
   );
 }
 
-/** What a personal agent keeps of its own when its access meets its person's: writing its own activity, never reading anything. */
-export const PERSONAL_AGENT_OWN_PERMISSIONS: readonly PermissionKey[] = ['agent_activity.write'];
+/** What a personal agent keeps of its own when its access meets its person's: writing its own activity, and the Inbox (narrowed to its person's own inboxes they shared with it). */
+export const PERSONAL_AGENT_OWN_PERMISSIONS: readonly PermissionKey[] = ['agent_activity.write', 'inbound_email.read', 'inbound_email.triage'];
 
 /**
  * The permission half of resolveMemberAccess, for a caller that has already

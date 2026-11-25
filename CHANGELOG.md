@@ -9,6 +9,20 @@ Each section starts with `## X.Y.Z (YYYY-MM-DD)` and uses these headings, leavin
 - `### Database`: the core migration files in the release, one per line. `npm run db:migrate` applies them.
 - `### Breaking`: what an install must do when it takes this release.
 
+## 2.0.26 (2026-11-24)
+
+### Added
+- **Assistant**: each person's own assistant, with its own page (`/assistant`, shown under the name your workspace gives it). It shows what the assistant did (with Undo), what needs you, and plain switches: Sort my inbox, Create tasks for me, Draft replies, Remind me, plus Pause. No keys, scopes or templates ever show. The switches are enforced by the server, including inside inbox sorting. A broken assistant tells the person "paused" and tells their admin.
+- **Settings > Assistants** (Owner): turn assistants on, name them, choose who gets one by role or group, give everyone theirs with a preview first, and see which ones need attention.
+- **Chat connections**: an Owner connects Slack or Telegram once. Messages reach the app, which checks the sender's linked account and passes the message to that person's assistant (webhook `assistant.message`, carrying ids only, or a poll). The assistant answers with `POST /api/v1/assistant/messages/{id}/reply`. Strangers get a connect link only in a direct message. Chat text stays private to the person's assistant.
+- **Developers settings, reorganised**: API keys, Webhooks and MCP and API docs. Keys and webhook endpoints are made in short step dialogs that show their secret once, keys can be rotated with an overlap, and Webhooks stays visible with a "Turn on webhooks" option when the feature is off.
+
+### Changed
+- Personal agents may read and sort only their own person's inboxes, never shared ones, and see only projects their person can open.
+
+### Database
+- `20261124001400_assistant_chat.sql`: assistant preferences, chat connections (sealed credentials), chat messages, chat rate limits, the `assistant.message` webhook (sent only to a personal agent's own endpoints), and a trigger that keeps "Sort my inbox" following the person's inboxes.
+
 ## 2.0.25 (2026-11-24)
 
 ### Added

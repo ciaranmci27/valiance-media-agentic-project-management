@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { AlertTriangle, ChevronDown } from 'lucide-react';
-import { scopeGroups } from '@/lib/agents-ui';
+import { scopeGroups, type ScopeGroup } from '@/lib/agents-ui';
 import {
   AGENT_RULE_LABELS, CLOSE_POLICY_OPTIONS, CREATE_POLICY_OPTIONS, ESCALATE_DEFAULT_LABEL, type AgentRulesDraft,
 } from '@/lib/agent-rules';
@@ -16,8 +16,10 @@ import { Toggle } from '@/components/ui/inputs/Toggle';
  * groups them. The template's choices are ticked; a group with none ticked
  * starts folded so the page stays short. Sensitive powers say so.
  */
-export function ScopePicker({ grantable, value, onChange, preset, error, disabled }: {
+export function ScopePicker({ grantable, groups: given, value, onChange, preset, error, disabled }: {
   grantable: readonly string[];
+  /** Groups to offer instead of an agent's (a person's own key offers every scope they hold). */
+  groups?: ScopeGroup[];
   value: string[];
   onChange: (scopes: string[]) => void;
   /** The template's scopes, marked "Suggested". */
@@ -25,7 +27,7 @@ export function ScopePicker({ grantable, value, onChange, preset, error, disable
   error?: string;
   disabled?: boolean;
 }) {
-  const groups = useMemo(() => scopeGroups(grantable), [grantable]);
+  const groups = useMemo(() => given ?? scopeGroups(grantable), [given, grantable]);
   const selected = new Set(value);
   const suggested = new Set(preset ?? []);
   // Folded by default; the groups the template touches open (or, with no template, the ones already on).

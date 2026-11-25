@@ -35,6 +35,8 @@ import { demoNotifications } from '@/lib/demo-data';
 import type { ProfileActivityPage, TeamProfile } from '@/lib/team/profile';
 import type { GroupMemberView, GroupView } from '@/lib/groups';
 import type { IdentityView } from '@/lib/identities';
+import type { AssistantActivity, AssistantSetupView, AssistantStatusRow, MyAssistantView } from '@/lib/assistant';
+import type { ChatConnectionView } from '@/lib/chat/types';
 
 /**
  * Every read a screen makes outside the store, described once: its key, its
@@ -972,3 +974,65 @@ export function myIdentitiesRead(isDemo: boolean): Read<IdentityView[]> {
     },
   };
 }
+
+// ── The personal Assistant ──────────────────────────────────────────────
+
+/** Tables whose changes make the person's assistant view stale. */
+export const ASSISTANT_TABLES = ['team_members', 'assistant_preferences', 'chat_connections', 'api_keys', 'business_settings'] as const;
+
+/**
+ * The signed-in person's own assistant: whether assistants are on, what the
+ * workspace calls them, the assistant's state and settings, and the chat
+ * connections they can link. The sidebar reads it too (its entry shows only
+ * when the person has one), so both share one cache entry.
+ */
+export function myAssistantRead(isDemo: boolean): Read<MyAssistantView> {
+  return {
+    key: `my-assistant${isDemo ? ':demo' : ''}`,
+    tables: ASSISTANT_TABLES,
+    ttlMs: 5 * 60_000,
+    load: async () => {
+      if (isDemo) return { enabled: false, label: 'Assistant', agents_on: false, assistant: null, connections: [] };
+      return workspaceApi<MyAssistantView>('/api/workspace/assistant');
+    },
+  };
+}
+
+/** What the person's assistant did lately, with each undo, and its ready reply drafts. */
+export function myAssistantActivityRead(): Read<AssistantActivity> {
+  return {
+    key: 'my-assistant-activity',
+    tables: ['tasks', 'task_events', 'agent_runs', 'agent_activities', 'communications.plans', 'communications.reply_drafts'],
+    ttlMs: 60_000,
+    load: () => workspaceApi<AssistantActivity>('/api/workspace/assistant/activity'),
+  };
+}
+
+/** Settings > Assistants: the workspace switch and name (Owner). */
+export const assistantSettingsRead: Read<{ enabled: boolean; label: string; custom_label: string | null }> = {
+  key: 'assistant-settings',
+  tables: ['business_settings'],
+  load: () => workspaceApi('/api/workspace/assistants/settings'),
+};
+
+/** Settings > Assistants: every person's assistant and its state (Owner). */
+export const assistantStatusRead: Read<AssistantStatusRow[]> = {
+  key: 'assistant-status',
+  tables: ['team_members', 'api_keys', 'agent_health'],
+  ttlMs: 60_000,
+  load: async () => (await workspaceApi<{ assistants: AssistantStatusRow[] }>('/api/workspace/assistants/status')).assistants ?? [],
+};
+
+/** Settings > Assistants: chat connections, never a credential (Owner). */
+export const chatConnectionsRead: Read<ChatConnectionView[]> = {
+  key: 'chat-connections',
+  tables: ['chat_connections'],
+  load: async () => (await workspaceApi<{ connections: ChatConnectionView[] }>('/api/workspace/chat-connections')).connections ?? [],
+};
+
+/** Settings > Assistants: which roles and groups get an assistant (Owner). */
+export const assistantSetupsRead: Read<AssistantSetupView[]> = {
+  key: 'assistant-setups',
+  tables: ['assistant_setups', 'groups'],
+  load: async () => (await workspaceApi<{ setups: AssistantSetupView[] }>('/api/workspace/assistants/setups')).setups ?? [],
+};
