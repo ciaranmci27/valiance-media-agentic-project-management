@@ -120,6 +120,13 @@ function pureChecks() {
   check('state: a host silent for three intervals is broken', assistantState({ ...base, status: 'active', suspendedBy: null, liveKeys: 1,
     health: { reportedAt: new Date(Date.now() - 4 * 60_000).toISOString(), intervalSeconds: 60 } }).reason === 'offline'
     && assistantState({ ...base, status: 'active', suspendedBy: null, liveKeys: 1, health: { reportedAt: new Date(Date.now() - 60_000).toISOString(), intervalSeconds: 60 } }).state === 'working');
+  const pausedAt = new Date().toISOString();
+  check('state: every agent paused (the kill switch) is on hold, not working',
+    JSON.stringify(assistantState({ ...base, status: 'active', suspendedBy: null, liveKeys: 1, workspacePausedAt: pausedAt })) === JSON.stringify({ state: 'on_hold', reason: 'agents_paused' }));
+  check('state: the agent paused on its own page is on hold',
+    JSON.stringify(assistantState({ ...base, status: 'active', suspendedBy: null, liveKeys: 1, agentPausedAt: pausedAt })) === JSON.stringify({ state: 'on_hold', reason: 'agent_paused' }));
+  check('state: paused by its person stays theirs to resume, even with every agent paused',
+    assistantState({ ...base, status: 'suspended', suspendedBy: 'p', liveKeys: 1, workspacePausedAt: pausedAt }).state === 'paused');
 
   // Slack's documented example: v0=HMAC-SHA256("v0:<ts>:<body>").
   const known = slackSignature('8f742231b10e8888abcd99yyyzzz85a5', '1531420618', 'token=xyzz0WbapA4vBCDEFasx0q6G&team_id=T1DC2JH3J&team_domain=testteamnow&channel_id=G8PSS9T3V&channel_name=foobar&user_id=U2CERLKJA&user_name=roadrunner&command=%2Fwebhook-collect&text=&response_url=https%3A%2F%2Fhooks.slack.com%2Fcommands%2FT1DC2JH3J%2F397700885554%2F96rGlfmibIGlgcZRskXaIFfN&trigger_id=398738663015.47445629121.803a0bc887a14d10d2c447fce8b6703c');
@@ -426,6 +433,19 @@ async function main() {
     check('pause: Ana pauses hers; its key stops working', paused.body?.data?.assistant?.state === 'paused' && pausedKey.status !== 200, [paused.body?.data?.assistant?.state, pausedKey.status]);
     const resumed = await session(assistantRoute.PATCH, 'PATCH', '/api/workspace/assistant', {}, { paused: false });
     check('pause: and resumes it', resumed.body?.data?.assistant?.state === 'working', resumed.body?.data?.assistant);
+
+    // ── On hold: the kill switch, or the agent paused in Agents ────────
+    const toldBefore = await count('SELECT count(*)::int AS n FROM pm.team_member_notifications WHERE entity_id = $1', [s.anaAgent]);
+    await s.q('UPDATE pm.business_settings SET agents_paused_at = now(), agents_paused_by = $1', [s.owner]);
+    const allHeld = (await session(assistantRoute.GET, 'GET', '/api/workspace/assistant')).body?.data?.assistant;
+    await s.q('UPDATE pm.business_settings SET agents_paused_at = NULL, agents_paused_by = NULL');
+    check('on hold: with every agent paused, hers reads on hold, not working', allHeld?.state === 'on_hold' && allHeld.reason === 'agents_paused', allHeld);
+    await s.q('UPDATE pm.team_members SET agent_paused_at = now(), agent_paused_by = $2 WHERE id = $1', [s.anaAgent, s.owner]);
+    const oneHeld = (await session(assistantRoute.GET, 'GET', '/api/workspace/assistant')).body?.data?.assistant;
+    await s.q('UPDATE pm.team_members SET agent_paused_at = NULL, agent_paused_by = NULL WHERE id = $1', [s.anaAgent]);
+    check('on hold: paused on its agent page, it reads on hold too', oneHeld?.state === 'on_hold' && oneHeld.reason === 'agent_paused', oneHeld);
+    check('on hold: nobody is told it is broken', await count('SELECT count(*)::int AS n FROM pm.team_member_notifications WHERE entity_id = $1', [s.anaAgent]) === toldBefore);
+    check('on hold: resumed, it works again', (await session(assistantRoute.GET, 'GET', '/api/workspace/assistant')).body?.data?.assistant?.state === 'working');
 
     // ── Sort my inbox ──────────────────────────────────────────────────
     const anaInbox = randomUUID();

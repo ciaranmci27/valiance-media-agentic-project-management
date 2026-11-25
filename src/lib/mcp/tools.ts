@@ -4,6 +4,7 @@ import {
   openEventSchema, type AgentEventType,
 } from '@/lib/agent-events';
 import { API_ENDPOINT_PERMISSIONS } from '@/lib/access-control';
+import { agentLimitsPatchSchema } from '@/lib/agent-limits';
 import { WEBHOOK_EVENT_TYPES } from '@/lib/types';
 import { planSchema } from '@/lib/communications/plan-schemas';
 import { AGENT_MESSAGE_STATUSES, triageSchema } from '@/lib/communications/schemas';
@@ -1583,8 +1584,8 @@ export const PM_TOOLS: PmTool[] = [
   }),
   routeTool({
     name: 'update_agent',
-    lead: "Change an agent's name, role label, rules or owners.",
-    detail: "For an Owner, team.manage or one of the agent's owners (403 not_agent_owner otherwise). Send only what changes: name, title, description, avatar_url, agent_role (null clears it), rules (self_assign, close_policy, create_policy, escalate_to, escalate_to_group). owner_ids replaces its owners (people, never agents) and owner_group_ids its owner groups (any member manages it); both are for an Owner or one of its owners. Keys stay create_api_key's.",
+    lead: "Change an agent's name, rules, owners, limits or pause.",
+    detail: "For an Owner, team.manage or one of the agent's owners (403 not_agent_owner otherwise). Send only what changes: name, title, description, avatar_url, agent_role (null clears it), rules (self_assign, close_policy, create_policy, escalate_to, escalate_to_group). owner_ids replaces its owners (people, never agents) and owner_group_ids its owner groups (any member manages it); both are for an Owner or one of its owners. limits (max_concurrent_runs, rate_per_minute, budget_usd, budget_tokens, budget_period; null clears one) is a workspace Owner's only (403 owner_only). paused true stops its writes (reads, heartbeats and telemetry go on; other writes answer 423 agent_paused), false resumes it. Keys stay create_api_key's.",
     input: z.object({
       agent_id: id('agent_id'),
       name: z.string().min(1).max(100).optional(),
@@ -1601,8 +1602,10 @@ export const PM_TOOLS: PmTool[] = [
       }).strict().optional(),
       owner_ids: z.array(id('owner_ids')).max(20).optional(),
       owner_group_ids: z.array(id('owner_group_ids')).max(20).optional(),
+      limits: agentLimitsPatchSchema.optional(),
+      paused: z.boolean().optional(),
     }).strict().refine(
-      atLeastOne(['name', 'title', 'description', 'avatar_url', 'agent_role', 'rules', 'owner_ids', 'owner_group_ids']),
+      atLeastOne(['name', 'title', 'description', 'avatar_url', 'agent_role', 'rules', 'owner_ids', 'owner_group_ids', 'limits', 'paused']),
       'Send at least one field to change',
     ),
     permission: 'team.read',

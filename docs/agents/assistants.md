@@ -117,5 +117,7 @@ Settings > Assistants > **Status** lists every assistant. Each one that needs yo
 | Needs you: "The service that runs it stopped reporting." | Its last heartbeat is older than three of its promised intervals. | Restart the service. Check it beats for this assistant. |
 | Needs you: "An admin paused it." | Someone other than the person suspended the assistant's account. | Reactivate it from the Team page. |
 | Paused by them | The person pressed Pause. | Only they resume it, from their page. |
+| On hold: "Every agent is paused." | An Owner paused every agent (Settings > Security). | Resume agents there. |
+| On hold: "Paused on its agent page." | Someone paused this agent from its profile or with `paused: true`. | Resume it on its agent page. |
 
-Separate from these: when an Owner pauses every agent (Settings > Security), or pauses this agent from its profile, it can still read and report but its other writes answer `423`. See [Limits and pause](work-loop.md#limits-and-pause).
+On hold is deliberate, so nobody is notified. The person sees "On hold" on their page, with why. While on hold the assistant can still read and report, but its other writes answer `423`, replies in chat included: chat messages are still recorded and sent to it, and it answers once resumed. See [Limits and pause](work-loop.md#limits-and-pause).

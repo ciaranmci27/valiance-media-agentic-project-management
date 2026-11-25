@@ -199,7 +199,7 @@ Send `Idempotency-Key` on any POST to make retries safe. Use a fresh UUID per th
 
 ## Limits and pause
 
-No limit applies until an Owner sets one. An Owner sets them on the agent's profile (Rules and powers), or with `PATCH /api/v1/agents/{id}` and a `limits` object: `max_concurrent_runs`, `rate_per_minute`, `budget_usd`, `budget_tokens`, `budget_period` (`day`, `week` or `month`, UTC; `null` clears a field). Templates can carry limits.
+No limit applies until an Owner sets one. An Owner sets them on the agent's profile (Rules and powers), or with `PATCH /api/v1/agents/{id}` (MCP `update_agent`) and a `limits` object: `max_concurrent_runs`, `rate_per_minute`, `budget_usd`, `budget_tokens`, `budget_period` (`day`, `week` or `month`, UTC; `null` clears a field). Templates can carry limits.
 
 | Answer | Reason | Meaning | Do |
 |---|---|---|---|
@@ -223,6 +223,6 @@ Every other write answers 423. People are never paused.
 
 Who pauses:
 
-- One agent: its profile, or `PATCH /api/v1/agents/{id}` with `paused: true` (whoever may manage it).
+- One agent: its profile, or `PATCH /api/v1/agents/{id}` (MCP `update_agent`) with `paused: true` (whoever may manage it). `paused: false` resumes it.
 - Every agent: an Owner, from Settings > Security or the Agents home.
 - One agent on one project: the project's Agents tab, `set_project_agent` or `PUT /api/v1/projects/{id}/agents/{agentId}` with `status: "paused"`.

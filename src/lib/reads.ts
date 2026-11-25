@@ -1054,6 +1054,13 @@ export const personalKeyLifetimeRead: Read<{ personal_key_lifetime_days: number 
   load: () => workspaceApi('/api/workspace/key-settings/personal'),
 };
 
+/** Settings > Developers: how long a new agent key lasts, and the longest anyone but an Owner makes one (Owner). */
+export const agentKeyLifetimeRead: Read<{ agent_key_lifetime_days: number | null }> = {
+  key: 'agent-key-lifetime',
+  tables: ['business_settings'],
+  load: () => workspaceApi('/api/workspace/key-settings'),
+};
+
 /** Settings > Security: Let people connect AI tools (any member reads it; an Owner sets it). */
 export const connectAiSettingRead: Read<{ ready: boolean; enabled: boolean; api_enabled: boolean }> = {
   key: 'connect-ai-setting',

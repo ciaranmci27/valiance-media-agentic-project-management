@@ -9,6 +9,17 @@ Each section starts with `## X.Y.Z (YYYY-MM-DD)` and uses these headings, leavin
 - `### Database`: the core migration files in the release, one per line. `npm run db:migrate` applies them.
 - `### Breaking`: what an install must do when it takes this release.
 
+## 2.0.32 (2026-11-25)
+
+### Added
+- **Key lifetimes on Settings > Developers**: Owners set how long new people's keys and AI agent keys last. For everyone but an Owner, that lifetime is also the longest key they can make.
+- MCP `update_agent` takes `limits` and `paused`, the same as `PATCH /api/v1/agents/:id`.
+
+### Changed
+- An Assistant shows **On hold** while every agent is paused or its own agent is paused, instead of Working. Chat replies wait until it is resumed.
+- The `project_paused` hint points agents at `list_my_projects`.
+- API docs and `WEBHOOKS.md` cover agent limits, pause and owner groups, run parent and root ids, approvals asked of a group, the personal-assistant template, `context.memory` and the `assistant.message` payload.
+
 ## 2.0.31 (2026-11-25)
 
 ### Added

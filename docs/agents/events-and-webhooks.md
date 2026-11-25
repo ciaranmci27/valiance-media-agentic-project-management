@@ -46,7 +46,7 @@ Every work event's `data` carries `project_id`, `task_id`, `member_ids` (who it 
 
 ### assistant.message
 
-Chat text is private, so this event carries ids only: the message, its conversation and thread, the person, the agent, and the `read` and `reply` routes. The assistant fetches the text with its own key (`GET /api/v1/assistant/messages/{id}`) and answers with `POST /api/v1/assistant/messages/{id}/reply`.
+Chat text is private, so this event carries ids only: the message (with its provider, chat connection, conversation and thread), the person (id and name), the agent, the ids of the thread so far, and the `read` and `reply` routes. [WEBHOOKS.md](../../WEBHOOKS.md) lists every field. The assistant fetches the text with its own key (`GET /api/v1/assistant/messages/{id}`) and answers with `POST /api/v1/assistant/messages/{id}/reply`.
 
 It goes only to an endpoint whose `member_id` is a personal agent (`422 assistant_message_needs_personal_agent` otherwise). See [Assistants](assistants.md).
 

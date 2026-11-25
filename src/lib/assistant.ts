@@ -141,13 +141,24 @@ export type AssistantUndo = z.infer<typeof assistantUndoSchema>;
  * How the assistant is, in one word for the page:
  * - working: running.
  * - paused: its person paused it (they can resume it).
+ * - on_hold: every agent in the workspace is paused (the kill switch), or
+ *   someone paused this agent on its agent page. Deliberate, so nobody is
+ *   told it is broken; it picks up again once resumed there.
  * - getting_ready: just made, its harness has not collected its key yet.
  * - broken: paused by an admin, no key after the grace period, or its host
  *   stopped reporting well past its interval. The page says it is paused and
  *   that the admin was told; the admin is.
  */
-export type AssistantState = 'working' | 'paused' | 'getting_ready' | 'broken';
+export type AssistantState = 'working' | 'paused' | 'on_hold' | 'getting_ready' | 'broken';
 export type BrokenReason = 'paused_by_admin' | 'no_key' | 'offline';
+export type HoldReason = 'agents_paused' | 'agent_paused';
+export type AssistantReason = BrokenReason | HoldReason;
+
+/** A state with its reason: broken and on_hold always say why, the rest never do. */
+export type AssistantStatus =
+  | { state: 'broken'; reason: BrokenReason }
+  | { state: 'on_hold'; reason: HoldReason }
+  | { state: 'working' | 'paused' | 'getting_ready'; reason: null };
 
 /** A new assistant has this long to get its key before it reads as broken. */
 export const KEY_GRACE_MS = 15 * 60_000;
@@ -161,12 +172,18 @@ export function assistantState(input: {
   liveKeys: number;
   createdAt: string;
   health: { reportedAt: string; intervalSeconds: number } | null;
+  /** The workspace kill switch (business_settings.agents_paused_at). */
+  workspacePausedAt?: string | null;
+  /** This agent paused on its agent page (team_members.agent_paused_at). */
+  agentPausedAt?: string | null;
   now?: number;
-}): { state: AssistantState; reason: BrokenReason | null } {
+}): AssistantStatus {
   const now = input.now ?? Date.now();
   if (input.status === 'suspended') {
     return input.suspendedBy === input.personId ? { state: 'paused', reason: null } : { state: 'broken', reason: 'paused_by_admin' };
   }
+  if (input.workspacePausedAt) return { state: 'on_hold', reason: 'agents_paused' };
+  if (input.agentPausedAt) return { state: 'on_hold', reason: 'agent_paused' };
   if (input.liveKeys === 0) {
     return now - new Date(input.createdAt).getTime() < KEY_GRACE_MS ? { state: 'getting_ready', reason: null } : { state: 'broken', reason: 'no_key' };
   }
@@ -181,6 +198,22 @@ export const BROKEN_WORDS: Record<BrokenReason, string> = {
   no_key: 'It was never connected to the service that runs it.',
   offline: 'The service that runs it stopped reporting.',
 };
+
+/** Why it is on hold, for the person (My Assistant) and the Owner (Settings > Assistants). */
+export const HOLD_WORDS: Record<HoldReason, { person: string; owner: string }> = {
+  agents_paused: {
+    person: 'Every agent in this workspace is paused right now, yours too. It picks up again when an Owner resumes agents.',
+    owner: 'Every agent is paused.',
+  },
+  agent_paused: {
+    person: 'An admin paused your assistant. It picks up again when they resume it.',
+    owner: 'Paused on its agent page.',
+  },
+};
+
+/** One plain line on why, for a row that has a reason. */
+export const reasonWords = (reason: AssistantReason): string =>
+  reason in HOLD_WORDS ? HOLD_WORDS[reason as HoldReason].owner : BROKEN_WORDS[reason as BrokenReason];
 
 // ── What the page reads ───────────────────────────────────────────────────
 
@@ -204,7 +237,7 @@ export interface MyAssistantView {
     name: string;
     avatar_tone: number | null;
     state: AssistantState;
-    reason: BrokenReason | null;
+    reason: AssistantReason | null;
     preferences: AssistantPreferences;
     /** Whether the person has a personal inbox for "Sort my inbox" to handle. */
     has_personal_inbox: boolean;
@@ -246,7 +279,7 @@ export interface AssistantStatusRow {
   name: string;
   person: { id: string; name: string };
   state: AssistantState;
-  reason: BrokenReason | null;
+  reason: AssistantReason | null;
   created_at: string;
 }
 

@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { AlertTriangle, Loader2, Mail, Sparkles, Zap } from 'lucide-react';
+import { AlertTriangle, Loader2, Mail, PauseCircle, Sparkles, Zap } from 'lucide-react';
 import { Header } from '@/components/layout/Header';
 import { AgentAvatar } from '@/components/agent/AgentAvatar';
 import { QuestionCard } from '@/components/questions/QuestionCard';
@@ -12,7 +12,7 @@ import { useDemo } from '@/lib/demo-context';
 import { useRead } from '@/lib/query-cache';
 import { myAssistantActivityRead, myAssistantRead, useOpenQuestions } from '@/lib/reads';
 import { timeAgo } from '@/lib/task-times';
-import type { MyAssistantView } from '@/lib/assistant';
+import { HOLD_WORDS, type HoldReason, type MyAssistantView } from '@/lib/assistant';
 import { AssistantActivityBand } from './AssistantActivityBand';
 import { AssistantChatCard } from './AssistantChatCard';
 import { AssistantSettingsCard } from './AssistantSettingsCard';
@@ -23,6 +23,7 @@ type Assistant = NonNullable<MyAssistantView['assistant']>;
 const STATE_WORDS: Record<Assistant['state'], string> = {
   working: 'Working for you',
   paused: 'Paused by you',
+  on_hold: 'On hold',
   getting_ready: 'Getting ready',
   broken: 'Paused',
 };
@@ -115,6 +116,12 @@ function AssistantHome({ view, assistant, isDemo }: { view: MyAssistantView; ass
             <div role="status" className="flex items-start gap-3 rounded-xl bg-amber-500/[0.14] px-4 py-3">
               <AlertTriangle size={16} className="mt-0.5 flex-shrink-0 text-amber-300" aria-hidden="true" />
               <p className="text-sm text-amber-100">Your assistant is paused. Your admin has been told.</p>
+            </div>
+          )}
+          {assistant.state === 'on_hold' && assistant.reason && (
+            <div role="status" className="flex items-start gap-3 rounded-xl bg-white/[0.04] px-4 py-3">
+              <PauseCircle size={16} className="mt-0.5 flex-shrink-0 text-zinc-400" aria-hidden="true" />
+              <p className="text-sm text-zinc-300">{HOLD_WORDS[assistant.reason as HoldReason].person}</p>
             </div>
           )}
           {assistant.state === 'getting_ready' && (

@@ -99,7 +99,7 @@ export function projectPausedRefusal(gate: Pick<RequestGate, 'agent' | 'pausedPr
   return new ApiError(423, 'PROJECT_PAUSED', 'You are paused on this project: do not start or change work here until a person resumes you on it.', {
     reason: 'project_paused',
     project_id: projectId,
-    hint: 'Work on your other projects. list_my_assignments shows which ones are paused.',
+    hint: 'Work on your other projects. list_my_projects shows the status of each one: paused means start no new work there.',
   });
 }
 

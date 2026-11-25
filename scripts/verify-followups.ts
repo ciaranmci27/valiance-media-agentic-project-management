@@ -545,6 +545,48 @@ async function main() {
     await s.q('UPDATE pm.groups SET deleted_at = NULL WHERE id = $1', [group]);
     await s.q('DELETE FROM pm.inbox_handlers WHERE inbox_id = $1 AND handler_group_id = $2', [s.inbox, group]);
     check('app: the group no longer handling it ends it', !(await readable(s.cara, 'app')));
+
+    // ── 423 project_paused names a tool that shows it ─────────────────
+    const { projectPausedRefusal } = await import('../src/lib/api/request-gate');
+    const pausedHint = String((projectPausedRefusal({ agent: true, pausedProjectIds: [s.project] }, s.project)?.details as Loose)?.hint ?? '');
+    const hintTools: string[] = pausedHint.match(/\b[a-z]+(?:_[a-z]+)+\b/g) ?? [];
+    const listMine = PM_TOOLS.find((t) => t.name === 'list_my_projects');
+    check('423 project_paused: its hint names list_my_projects, a real tool that shows each project\'s paused status',
+      hintTools.includes('list_my_projects') && hintTools.every((n) => PM_TOOLS.some((t) => t.name === n)) && !!listMine && /paused/.test(listMine.detail), pausedHint);
+
+    // ── MCP update_agent: limits and paused, as PATCH /api/v1/agents/:id ──
+    const mintKey = async (memberId: string, scopes: string[]) => {
+      const secret = `pk_live_${randomUUID().replace(/-/g, '')}`;
+      await s.q(`INSERT INTO pm.api_keys (name, key_prefix, key_hash, team_member_id, created_by, scopes, permissions)
+        VALUES ('Setup key', 'pk_live', $1, $2, $2, $3, 'scoped')`, [sha(secret), memberId, scopes]);
+      return secret;
+    };
+    const ownerSetup = await mintKey(s.owner, ['team.read', 'team.manage']);
+    const anaSetup = await mintKey(s.ana, ['team.read']);
+    await s.q("INSERT INTO pm.team_member_permissions (member_id, permission_key, access_channel, effect) VALUES ($1, 'team.read', 'api', 'allow') ON CONFLICT DO NOTHING", [s.ana]);
+    const updateAgent = async (key: string, memberId: string, args: Record<string, unknown>) => {
+      try {
+        return await runTool(key, memberId, 'update_agent', { agent_id: s.scout, ...args });
+      } catch (error) {
+        return { refusedInput: error instanceof Error ? error.message.slice(0, 300) : String(error) };
+      }
+    };
+    const limited = await updateAgent(ownerSetup, s.owner, { limits: { max_concurrent_runs: 2, budget_usd: 50, budget_period: 'week' } });
+    const limitsRow = (await s.q('SELECT max_concurrent_runs, budget_usd, budget_period FROM pm.agent_limits WHERE agent_id = $1', [s.scout]).catch(() => []))[0];
+    check('mcp update_agent: an Owner sets limits, as the REST PATCH does', !limited?.isError && limited?.structuredContent?.data?.limits?.max_concurrent_runs === 2
+      && limited.structuredContent.data.limits.budget_period === 'week' && limitsRow?.max_concurrent_runs === 2, [limited, limitsRow]);
+    const anaLimits = await updateAgent(anaSetup, s.ana, { limits: { max_concurrent_runs: 9 } });
+    check('mcp update_agent: anyone else is refused limits (403 owner_only)', JSON.stringify(anaLimits ?? {}).includes('owner_only'), anaLimits);
+    const anaPause = await updateAgent(anaSetup, s.ana, { paused: true });
+    check('mcp update_agent: someone who cannot manage it cannot pause it', JSON.stringify(anaPause ?? {}).includes('not_agent_owner'), anaPause);
+    const pausedAgent = await updateAgent(ownerSetup, s.owner, { paused: true });
+    const [pausedRow] = await s.q('SELECT agent_paused_at, agent_paused_by FROM pm.team_members WHERE id = $1', [s.scout]);
+    check('mcp update_agent: whoever may manage it pauses it', !pausedAgent?.isError && !!pausedRow?.agent_paused_at && pausedRow.agent_paused_by === s.owner, [pausedAgent, pausedRow]);
+    const resumedAgent = await updateAgent(ownerSetup, s.owner, { paused: false });
+    const [resumedRow] = await s.q('SELECT agent_paused_at FROM pm.team_members WHERE id = $1', [s.scout]);
+    check('mcp update_agent: and resumes it', !resumedAgent?.isError && resumedRow?.agent_paused_at === null, [resumedAgent, resumedRow]);
+    // The audit and webhook bookkeeping these writes start runs after they answer: let it finish before the server closes.
+    await new Promise((resolve) => setTimeout(resolve, 500));
   } finally {
     await server.close();
     await db.close();

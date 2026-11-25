@@ -20,7 +20,7 @@ The order `pm_guide` recommends:
 2. `apply_agent_template` (optional): a template's rules, and with `create_key: true` a key with its scopes. (`POST /api/v1/agents/{id}/template`)
 3. `set_agent_projects`: which projects it may open. (`PATCH /api/v1/agents/{id}/projects`)
 4. `set_project_agent`: its assignment on a project, with the template's settings and instructions for that project only. (`PUT /api/v1/projects/{id}/agents/{agentId}`)
-5. `set_agent_rules` or `update_agent`: self-assign, close policy, create policy, who it escalates to, its owners.
+5. `set_agent_rules` or `update_agent`: self-assign, close policy, create policy, who it escalates to, its owners. `update_agent` also sets its limits (an Owner only) and pauses or resumes it.
 6. `create_api_key`: unless the template step made one. (`POST /api/v1/api-keys`)
 7. `create_webhook_endpoint` with `member_id` set to the agent, so its harness wakes on its own work.
 8. `get_agent_setup`: read the whole setup back and confirm it with the person.

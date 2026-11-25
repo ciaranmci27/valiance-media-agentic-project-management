@@ -21,7 +21,10 @@ Webhooks needs only the **Webhooks** module. Invoice events also need **Client
 invoicing**: while it is off, invoice events wait in order (their attempts
 untouched) and go out once it is back on. Every other event goes out with
 Client invoicing off. While the Webhooks module is off, nothing goes out and
-deliveries wait.
+deliveries wait. `assistant.message` is the exception: it is queued only while
+the Webhooks module is on when the message arrives. A message that arrives while
+it is off is never queued and waits for the assistant as pending
+(`GET /api/v1/assistant/messages`).
 
 ## Event types
 
@@ -40,6 +43,7 @@ deliveries wait.
 | `run.started` | An agent starts a run (POST /api/v1/agents/runs, MCP start_run). | the run |
 | `run.finished` | An agent run finishes: `succeeded`, `failed`, `cancelled` or `timed_out`. | the run |
 | `agent_event.created` | An agent records any event (POST /api/v1/agent-activities, MCP log_activity, host telemetry, a fleet alert). Opt in only: never a default. | the event itself |
+| `assistant.message` | A person messages their own assistant in a connected chat (Slack, Telegram). Opt in only, and only on an endpoint filtered to a personal agent. | the chat message |
 | `invoice.paid` | An invoice enters the `paid` status. | the invoice |
 | `invoice.updated` | A paid (or previously paid) invoice changes: an edit, an un-pay, a cancel. | the invoice |
 | `invoice.deleted` | A paid invoice is deleted. | the invoice |
@@ -80,6 +84,10 @@ everything.
   - for a run: the agent whose run it is;
   - for an agent event: the agent that recorded it (a fleet alert names no
     agent, so an endpoint with a member filter never receives one);
+  - for an assistant message: the personal agent it is for. It goes only to an
+    endpoint whose member filter is exactly that agent, never to one without a
+    member filter or with a project filter (saving an endpoint that lists
+    `assistant.message` without a personal agent as its member is refused);
   - for an invoice: nobody, so an endpoint with a member filter never receives
     invoice events.
 
@@ -242,7 +250,10 @@ suggestion in `source_task_suggestion_id`.
 `run: { id, agent_id, task_id, project_id, status, title, summary, model, trigger, tokens_in, tokens_out, cost_usd, external_id, external_url, started_at, finished_at, updated_at }`.
 `tokens_in`, `tokens_out` and `cost_usd` (US dollars) are the run's own totals
 as its harness reported them, `null` when it did not. `external_id` is the
-harness's own run id and `external_url` its trace link.
+harness's own run id and `external_url` its trace link. A run started with
+`parent_run_id` (a specialist's run on work another run handed it) also carries
+`parent_run_id` and `root_run_id` (the first run of its chain); any other run
+leaves both out, so its payload is unchanged.
 
 **`agent_event.created`** carries
 `agent_event: { id, seq, source, occurred_at, agent_id, type, labels, title, payload, project_id, task_id, run_id, principal_id }`,
@@ -252,6 +263,22 @@ type, `payload` the event's validated payload, `labels` the labels the agent or
 its harness set (an empty list when none), `run_id` the run a turn belongs to,
 and `principal_id` the person the agent acted for. Only a new event sends one;
 a later change (labels edited, a turn labelled late) shows in the export.
+
+**`assistant.message`** never carries chat text: chat is private, so the
+assistant reads the text with its own key. Its `data` holds:
+
+| Field | Meaning |
+| --- | --- |
+| `message` | `{ id, created_at, provider, connection_id, conversation_id, thread_id }`: the message's id, when it arrived, the chat provider (`slack`, `telegram`), the app's chat connection, and the provider's conversation and thread (`null` without a thread). |
+| `person` | `{ id, name }`: the person who wrote it, the assistant's own person. |
+| `agent_id` | The personal agent it is for. |
+| `thread_ids` | The ids of the thread so far, oldest first: up to the 10 latest earlier messages in the same conversation and thread, theirs and the assistant's answers to them. |
+| `read` | `{ "method": "GET", "path": "/api/v1/assistant/messages/{id}" }`: where the text is. |
+| `reply` | `{ "method": "POST", "path": "/api/v1/assistant/messages/{id}/reply" }`: where to answer. |
+| `member_ids` | The agent, as for every event. |
+
+It has no `project_id`, `task_id`, `project` or `actor_id`. A retry of the
+same chat message from its provider never sends a second event.
 
 ### Invoice events
 

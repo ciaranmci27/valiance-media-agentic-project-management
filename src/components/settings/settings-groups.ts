@@ -70,7 +70,7 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
   },
   // People's personal assistants: on or off, their name, who gets one, chat connections (Owners only).
   { key: 'assistants', href: '/settings/assistants', label: 'Assistants', icon: Sparkles, sectionIds: ['assistants', 'assistant-setups', 'assistant-status', 'chat-connections'] },
-  { key: 'developers', href: '/settings/developers', label: 'Developers', icon: Code2, sectionIds: ['api-keys', 'webhooks', 'webhook-retries', 'developer-docs'] },
+  { key: 'developers', href: '/settings/developers', label: 'Developers', icon: Code2, sectionIds: ['api-keys', 'key-lifetimes', 'webhooks', 'webhook-retries', 'developer-docs'] },
   // The kill switch for every agent, whether people may connect AI tools, the audit log and how long it is kept (Owners only).
   { key: 'security', href: '/settings/security', label: 'Security', icon: ShieldCheck, sectionIds: ['agents-pause', 'connect-ai-setting', 'audit-log', 'audit-settings'] },
   { key: 'data', href: '/settings/data', label: 'Data', icon: Database, sectionIds: ['trash', 'demo-mode'] },
@@ -139,6 +139,8 @@ export function useSettingsAccess() {
     hourApprovals: canManageSettings && hourApprovalsExist(access),
     // Every active member can create personal keys; none in demo mode.
     apiKeys: !isDemoMode && !isGuest,
+    // How long new keys last, for people and agents: Owners only.
+    keyLifetimes: isOwner && !isDemoMode,
     webhooks: webhooksState !== 'hidden',
     // Turning on retries writes a secret and Supabase Vault: Owners only, with webhooks on.
     webhookRetries: isOwner && !isDemoMode && isModuleEnabled(access, 'webhooks'),
@@ -177,7 +179,7 @@ export function useSettingsAccess() {
     portal: show.analyticsExclusions,
     email: show.smtp || show.emailInboxes || show.myInbox || show.receiving,
     assistants: show.assistants,
-    developers: show.apiKeys || show.webhooks || show.webhookRetries || show.developerDocs,
+    developers: show.apiKeys || show.keyLifetimes || show.webhooks || show.webhookRetries || show.developerDocs,
     security: show.agentsPause || show.connectAiSetting || show.auditLog,
     data: !isGuest,
   };

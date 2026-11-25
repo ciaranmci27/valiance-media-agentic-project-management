@@ -8,12 +8,13 @@ import { Button } from '@/components/ui/Button';
 import { TextInput } from '@/components/ui/inputs/TextInput';
 import { useRead } from '@/lib/query-cache';
 import { assistantStatusRead } from '@/lib/reads';
-import { BROKEN_WORDS, type AssistantState } from '@/lib/assistant';
+import { reasonWords, type AssistantState } from '@/lib/assistant';
 
 const STATE_PILL: Record<AssistantState, { label: string; className: string }> = {
   working: { label: 'Working', className: 'bg-emerald-500/[0.14] text-emerald-200' },
   getting_ready: { label: 'Getting ready', className: 'bg-white/[0.06] text-zinc-300' },
   paused: { label: 'Paused by them', className: 'bg-white/[0.06] text-zinc-300' },
+  on_hold: { label: 'On hold', className: 'bg-white/[0.06] text-zinc-300' },
   broken: { label: 'Needs you', className: 'bg-amber-500/[0.14] text-amber-200' },
 };
 
@@ -67,7 +68,7 @@ export function AssistantStatusSection() {
                 <div className="min-w-0">
                   <p className="truncate text-sm font-medium text-zinc-100">{row.person.name}</p>
                   <p className="truncate text-xs text-zinc-500">
-                    {row.name}{row.reason ? ` · ${BROKEN_WORDS[row.reason]}` : ''}
+                    {row.name}{row.reason ? ` · ${reasonWords(row.reason)}` : ''}
                   </p>
                 </div>
                 <div className="flex flex-shrink-0 items-center gap-2">

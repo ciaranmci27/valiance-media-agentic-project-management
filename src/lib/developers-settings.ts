@@ -130,6 +130,9 @@ export function rotateOverlapOptions(): { value: string; label: string; detail: 
 const KEY_LIFETIME_DAYS = [30, 90, 365] as const;
 export const NO_KEY_EXPIRY = 'none';
 
+/** A lifetime in words: "30 days", "1 year". */
+const lifetimeLabel = (days: number) => (days === 365 ? '1 year' : `${days} ${days === 1 ? 'day' : 'days'}`);
+
 /**
  * The New key dialog's expiry choices, each saying when the key would stop,
  * and the one it starts on: the workspace's personal key lifetime (null: no
@@ -143,7 +146,7 @@ export function keyLifetimeChoices(
   endsOn: (days: number) => string = (days) => `in ${days} days`,
   { owner = false }: { owner?: boolean } = {},
 ): { options: { value: string; label: string; description: string }[]; initial: string } {
-  const label = (days: number) => (days === 365 ? '1 year' : `${days} ${days === 1 ? 'day' : 'days'}`);
+  const label = lifetimeLabel;
   const capped = workspaceDays !== null && !owner;
   const days = [...new Set([...KEY_LIFETIME_DAYS, ...(workspaceDays === null ? [] : [workspaceDays])])]
     .filter((d) => !capped || d <= workspaceDays!)
@@ -159,6 +162,19 @@ export function keyLifetimeChoices(
     initial,
   };
 }
+
+/**
+ * Settings > Developers, Key lifetimes: what an Owner picks for new keys.
+ * The New key dialog's standard choices, a lifetime already set that is none
+ * of them, and No expiry.
+ */
+export function keyLifetimeSettingOptions(current: number | null): { value: string; label: string }[] {
+  const days = [...new Set([...KEY_LIFETIME_DAYS, ...(current === null ? [] : [current])])].sort((a, b) => a - b);
+  return [...days.map((d) => ({ value: String(d), label: lifetimeLabel(d) })), { value: NO_KEY_EXPIRY, label: 'No expiry' }];
+}
+
+/** A lifetime as a choice: its days, or 'none' for no expiry. */
+export const keyLifetimeChoice = (days: number | null): string => (days === null ? NO_KEY_EXPIRY : String(days));
 
 /** A choice as the API takes it: days, or null for no expiry. */
 export function keyLifetimeDays(choice: string): number | null {

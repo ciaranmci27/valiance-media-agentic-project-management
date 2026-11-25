@@ -3,7 +3,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { isModuleEnabled, type AccessContext } from '@/lib/access-control';
 import {
   assistantLabel, assistantState, preferencesToContext, readSwitches, readTone, ASSISTANT_DEFAULT_LABEL, BROKEN_WORDS, DEFAULT_PREFERENCES, SWITCH_WORDS,
-  type AssistantActivity, type AssistantActivityItem, type AssistantPreferences, type AssistantState, type AssistantStatusRow, type AssistantSwitch,
+  type AssistantActivity, type AssistantActivityItem, type AssistantPreferences, type AssistantState, type AssistantStatus, type AssistantStatusRow, type AssistantSwitch,
   type AssistantUndo, type BrokenReason, type ChatConnectionCard, type MyAssistantView, type UpdateMyAssistant,
 } from '@/lib/assistant';
 import { chatProviderLabel } from '@/lib/chat/types';
@@ -12,8 +12,10 @@ import { TELEMETRY_EVENT_TYPES } from '@/lib/agent-events';
 import { comms } from '@/lib/communications/db';
 import { moveToTrash } from '@/lib/supabase/trash';
 import { ApiError, forbidden, notFound } from './errors';
+import { missingLimitsSchema } from './agent-limits';
 import { readAll } from './read-all';
 import { trashApiError } from './trash';
+import { agentsPauseState } from './workspace-controls';
 
 /**
  * The personal Assistant on the server: the workspace switch and name, a
@@ -137,9 +139,29 @@ async function healthOf(service: SupabaseClient, agentIds: string[]): Promise<Ma
   return out;
 }
 
-export async function statesOf(service: SupabaseClient, agents: Row[]): Promise<Map<string, { state: AssistantState; reason: BrokenReason | null }>> {
+/**
+ * What is paused: the workspace kill switch, and each of these agents paused
+ * on its agent page (by the 423 request gate's rule). Both none on a
+ * database before them.
+ */
+async function pausesOf(service: SupabaseClient, agentIds: string[]): Promise<{ workspace: string | null; agents: Map<string, string> }> {
+  const agents = new Map<string, string>();
+  if (agentIds.length === 0) return { workspace: null, agents };
+  const [workspace, { data, error }] = await Promise.all([
+    agentsPauseState(service).then((state) => state.paused_at),
+    service.from('team_members').select('id, agent_paused_at').in('id', agentIds).not('agent_paused_at', 'is', null),
+  ]);
+  if (error) {
+    if (!missingLimitsSchema(error)) throw error;
+  } else {
+    for (const row of (data ?? []) as Row[]) agents.set(row.id as string, row.agent_paused_at as string);
+  }
+  return { workspace, agents };
+}
+
+export async function statesOf(service: SupabaseClient, agents: Row[]): Promise<Map<string, AssistantStatus>> {
   const ids = agents.map((agent) => agent.id as string);
-  const [keys, health] = await Promise.all([liveKeyCounts(service, ids), healthOf(service, ids)]);
+  const [keys, health, pauses] = await Promise.all([liveKeyCounts(service, ids), healthOf(service, ids), pausesOf(service, ids)]);
   return new Map(agents.map((agent) => [agent.id as string, assistantState({
     status: agent.status ?? 'active',
     suspendedBy: agent.suspended_by ?? null,
@@ -147,6 +169,8 @@ export async function statesOf(service: SupabaseClient, agents: Row[]): Promise<
     liveKeys: keys.get(agent.id) ?? 0,
     createdAt: agent.created_at,
     health: health.get(agent.id) ?? null,
+    workspacePausedAt: pauses.workspace,
+    agentPausedAt: pauses.agents.get(agent.id) ?? null,
   })]));
 }
 
@@ -466,7 +490,7 @@ export async function assistantStatusList(service: SupabaseClient, access: Acces
     readAll<Row>((from, to) => service.from('team_members').select('id, name').in('id', personIds).order('id').range(from, to)),
   ]);
   const names = new Map(people.map((person) => [person.id as string, person.name as string]));
-  const order: Record<AssistantState, number> = { broken: 0, getting_ready: 1, paused: 2, working: 3 };
+  const order: Record<AssistantState, number> = { broken: 0, getting_ready: 1, on_hold: 2, paused: 3, working: 4 };
   return agents.map((agent) => ({
     id: agent.id,
     name: agent.name,
