@@ -5,7 +5,10 @@ import { API_KEY_COLUMNS } from '@/lib/supabase/queries';
  * Revoking a key, from Settings or the API. A key made by another key over
  * the API records it (created_by_key_id), so revoking a key also revokes
  * every live key it made, and every key those made: a leaked key cannot
- * leave copies behind. pm.revoke_api_key_tree does it in one statement.
+ * leave copies behind. Through rotation it also reaches the keys a key
+ * replaced (rotated_from) and every key those made, so revoking a rotated
+ * key still takes down what its predecessors made. pm.revoke_api_key_tree
+ * does it in one statement.
  */
 
 export interface RevokeActor {

@@ -737,7 +737,7 @@ function CompanyOverview() {
   const chartData = sourceData ?? data;
 
   // ── Attribution (who produced the value) ────────────────────
-  // Hermes usage cost is agent-level, not project-attributed. With a project
+  // Agent usage cost is agent-level, not project-attributed. With a project
   // filter active, the global cost map is withheld so a whole-fleet cost is
   // never assigned to one project; agent rows then report cost as not
   // tracked instead of a misleading number.

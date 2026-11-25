@@ -133,7 +133,7 @@ export const AGENT_EVENT_SCHEMAS = {
     title: z.string().min(1).max(300).optional(),
   }),
 
-  // Emitted by the host-side Hermes publisher, never by an agent mid-turn.
+  // Emitted by the host-side publisher, never by an agent mid-turn.
   // source_usage_id is the idempotency key shared by the publisher and every
   // downstream analytics projection.
   'usage.recorded': z.object({
@@ -518,7 +518,7 @@ export function formatEventTitle(type: AgentEventType, payload: Record<string, u
       return p.kind === 'gateway' ? 'Gateway restarted' : 'Container restarted';
     case 'attention.message': {
       const kinds: Record<string, string> = {
-        telegram_reply: 'Replied on Telegram',
+        telegram_reply: 'Replied in chat',
         cron_delivery: 'Sent a scheduled update',
         pm_notify: 'Sent a notification',
         blocking_question: 'Asked a blocking question',
@@ -530,7 +530,7 @@ export function formatEventTitle(type: AgentEventType, payload: Record<string, u
     case 'dispatch.wake': {
       if (p.kind === 'continuation') return 'Woken to continue claimed work';
       if (p.kind === 'yielded') return 'Wake yielded to the schedule';
-      return p.waited_seconds ? `Woken by the dispatcher after ${p.waited_seconds}s` : 'Woken by the dispatcher';
+      return p.waited_seconds ? `Woken by a state change after ${p.waited_seconds}s` : 'Woken by a state change';
     }
     case 'billing.gap':
       return `Billing gap: ${p.minutes} min ${String(p.phase).replace(/_/g, ' ')}`;

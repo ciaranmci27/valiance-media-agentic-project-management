@@ -10,6 +10,7 @@ import {
 import { agentRulesOf, type AgentRules } from '@/lib/agent-rules';
 import { findAgentTemplate } from '@/lib/agent-templates';
 import { getBrand } from '@/lib/brand/server';
+import { personalAgentBrief } from '@/lib/personal-agents';
 import { IDEMPOTENCY_KEY_ARGUMENT } from '@/lib/mcp/core';
 import type { AgentProfile } from '@/lib/mcp/profiles';
 import { GUIDE_TOOL, PM_TOOLS } from '@/lib/mcp/tools';
@@ -114,6 +115,8 @@ export interface ContextPack {
   };
   /** The people responsible for it; [] reads as the workspace Owners. */
   owners: AgentOwner[] | null;
+  /** For a personal agent: the person it works for, and what that means for it, in plain words. Absent otherwise. */
+  works_for?: { id: string; name: string; says: string };
   key: { id: string | null; name: string | null; read_only: boolean; source: PackKey['source']; note?: string } | null;
   scopes: { scope: string; label: string; says: string }[] | null;
   /** Scopes on the key that the member does not hold, so they do nothing. */
@@ -505,6 +508,15 @@ export async function buildContextPack(
   }
 
   const template = templateKey ? findAgentTemplate(templateKey) : null;
+  // A personal agent knows whose it is, first.
+  let worksFor: ContextPack['works_for'];
+  if (isAgent && typeof row.delegate_of === 'string') {
+    const { data: person } = await service.from('team_members').select('id, name').eq('id', row.delegate_of).maybeSingle();
+    const name = (person as { name?: string } | null)?.name ?? 'your person';
+    worksFor = { id: row.delegate_of, name, says: personalAgentBrief(name) };
+  }
+  const conventions = conventionsFor(toolNames, health, (tools ?? PM_TOOLS).some((tool) => tool.write && IDEMPOTENCY_KEY_ARGUMENT in tool.input.shape),
+    !worksFor && !!effective?.includes('agents.act_for'));
   const pack: ContextPack = {
     format: 'pm-agent-context',
     version: 1,
@@ -516,6 +528,7 @@ export async function buildContextPack(
       description: row.description ?? null,
     },
     owners,
+    ...(worksFor ? { works_for: worksFor } : {}),
     key: key
       ? {
         id: key.id,
@@ -552,8 +565,7 @@ export async function buildContextPack(
     },
     assignments,
     tools: tools ? tools.map((tool) => ({ name: tool.name, lead: tool.lead })) : null,
-    conventions: conventionsFor(toolNames, health, (tools ?? PM_TOOLS).some((tool) => tool.write && IDEMPOTENCY_KEY_ARGUMENT in tool.input.shape),
-      !!effective?.includes('agents.act_for')),
+    conventions: worksFor ? [worksFor.says, ...conventions] : conventions,
     health,
     webhooks,
     template: template ? { key: template.key, label: template.label, context: template.context } : null,
@@ -580,6 +592,7 @@ export function renderContextPack(pack: ContextPack, as: 'agents' | 'skill' = 'a
   parts.push(`Generated from the ${pack.workspace} project management app on ${pack.generated_at}. It describes your setup as it was then: fetch it again (or call pm_guide) rather than editing it.`);
 
   const you = [`You act as ${pack.member.name}, a team member with the role ${pack.member.role}${pack.member.is_agent ? ` and the agent profile ${pack.member.profile}` : ''}. Everything you do is recorded under that name.`];
+  if (pack.works_for) you.unshift(pack.works_for.says);
   if (pack.member.agent_role) you.push(`Your role: ${pack.member.agent_role}.`);
   if (pack.member.description) you.push(pack.member.description.replace(/\s+/g, ' ').trim());
   if (pack.owners) {

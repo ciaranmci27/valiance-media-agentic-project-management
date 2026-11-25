@@ -1,8 +1,10 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { randomUUID } from 'node:crypto';
 import { isModuleEnabled, type AccessContext } from '@/lib/access-control';
 import { INVOICE_WEBHOOK_EVENT_TYPES, type WebhookEndpoint } from '@/lib/types';
 import { ApiError } from './errors';
-import { withEndpointColumns } from '@/lib/supabase/queries';
+import { insertWebhookEndpoint, withEndpointColumns } from '@/lib/supabase/queries';
+import { sealWebhookSecret } from '@/lib/webhooks/secret';
 
 /**
  * Webhook endpoints over the v1 API (/api/v1/webhook-endpoints), next to
@@ -36,6 +38,19 @@ export async function listWebhookEndpoints(
     return query;
   });
   return rows ?? [];
+}
+
+/**
+ * Adds an endpoint from the server with its secret sealed at rest (bound to
+ * the endpoint's id, chosen here), or stored as given while the host has no
+ * APP_ENCRYPTION_KEY. The caller keeps the plaintext to show once.
+ */
+export async function insertServerWebhookEndpoint(
+  service: SupabaseClient,
+  endpoint: Omit<Parameters<typeof insertWebhookEndpoint>[1], 'id'>,
+): Promise<WebhookEndpoint> {
+  const id = randomUUID();
+  return insertWebhookEndpoint(service, { ...endpoint, id, secret: sealWebhookSecret(id, endpoint.secret) });
 }
 
 const INVOICE_EVENTS: readonly string[] = INVOICE_WEBHOOK_EVENT_TYPES;

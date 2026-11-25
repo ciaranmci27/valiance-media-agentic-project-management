@@ -607,8 +607,8 @@ export const encryptionStatusRead: Read<boolean> = {
 
 /**
  * A project's active context entries, oldest first within each category.
- * The context panel and the audit questions card both read from this one
- * answer. Not in live sync: writers call invalidateTables(['project_context']).
+ * The context panel and any install card about the project's context read
+ * this one answer. Not in live sync: writers call invalidateTables(['project_context']).
  */
 export function projectContextRead(projectId: string): Read<ProjectContext[]> {
   return {

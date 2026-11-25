@@ -1,5 +1,6 @@
 import type { Project, Task, TaskReview, TaskSuggestion } from '@/lib/types';
 import { isOpenEventType } from '@/lib/agent-events';
+import { pendingSuggestionsInReach } from '@/lib/suggestion-reach';
 
 /**
  * The task's current independent review verdict: the newest review round,
@@ -223,7 +224,7 @@ export function computeNeedsYou(input: {
     }
   }
 
-  const pending = suggestions.filter(s => s.status === 'pending').length;
+  const pending = pendingSuggestionsInReach(suggestions, projects).length;
   if (includeSuggestions && pending > 0) {
     items.push({ kind: 'suggestions', count: pending });
   }

@@ -3,9 +3,9 @@ import { withApi } from '@/lib/api/middleware';
 import { success } from '@/lib/api/response';
 import { badRequest } from '@/lib/api/errors';
 import { logAudit } from '@/lib/api/audit';
-import { checkWebhookFields, listWebhookEndpoints, publicEndpoint } from '@/lib/api/webhook-endpoints';
+import { checkWebhookFields, insertServerWebhookEndpoint, listWebhookEndpoints, publicEndpoint } from '@/lib/api/webhook-endpoints';
 import { createWebhookEndpointSchema, type CreateWebhookEndpoint } from '@/lib/schemas';
-import { insertWebhookEndpoint, updateWebhookEndpoint } from '@/lib/supabase/queries';
+import { updateWebhookEndpoint } from '@/lib/supabase/queries';
 import { generateWebhookSecret } from '@/lib/webhooks/sign';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -36,7 +36,7 @@ export const GET = withApi(async ({ supabase, searchParams }) => {
 export const POST = withApi<CreateWebhookEndpoint>(async ({ supabase, body, access, apiKeyId, teamMemberId }) => {
   await checkWebhookFields(supabase, access, body);
   const secret = generateWebhookSecret();
-  let endpoint = await insertWebhookEndpoint(supabase, {
+  let endpoint = await insertServerWebhookEndpoint(supabase, {
     name: body.name,
     url: body.url,
     secret,

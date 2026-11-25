@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { setReadData, useRead } from '@/lib/query-cache';
 import { projectContextRead } from '@/lib/reads';
 import {
@@ -10,7 +10,6 @@ import {
 import { createClient } from '@/lib/supabase/client';
 import { toast } from '@/components/ui/Toast';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
-import { auditSelectionPrefix } from '@/lib/audit-questions';
 import { Textarea } from '@/components/ui/inputs/Textarea';
 import { Tooltip } from '@/components/ui/Tooltip';
 import {
@@ -111,17 +110,10 @@ export function ProjectContextPanel({ projectId }: ProjectContextPanelProps) {
 
   const supabase = createClient();
 
-  // A cached read shared with the audit questions card (reads.ts). The
-  // auditor's question selection is stored as a context entry but is
-  // configuration, not context: it renders as the Audit Questions card on
-  // the agent settings page, so showing the raw blob here would duplicate
-  // it as an uneditable wall of prose.
+  // A cached read (reads.ts): every entry the project holds, whoever wrote it.
   const contextRead = projectContextRead(projectId);
   const read = useRead(contextRead);
-  const entries = useMemo(
-    () => (read.data ?? []).filter(e => auditSelectionPrefix(String(e.content || '')) === null),
-    [read.data],
-  );
+  const entries = read.data ?? [];
   const loading = read.loading;
   const setEntries = (update: (current: ProjectContext[]) => ProjectContext[]) =>
     setReadData(contextRead, (current) => update(current ?? []));

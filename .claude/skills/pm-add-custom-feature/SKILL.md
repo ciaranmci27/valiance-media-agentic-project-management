@@ -16,6 +16,7 @@ Everything goes in `src/custom/` (code), `public/custom/` (files) and `supabase/
 | Page at `/x/<slug>` | `src/custom/index.ts` | `pages` |
 | Sidebar entry | `src/custom/index.ts` | `navItems` (`after: '/projects'` to place it) |
 | Project tab (`?tab=x-<key>`, gets `{ project }`) | `src/custom/index.ts` | `projectTabs` |
+| Badge beside a project's name on project lists and cards (gets `{ project }`, returns null when it does not apply) | `src/custom/index.ts` | `projectBadges` |
 | Dashboard card | `src/custom/index.ts` | `dashboardWidgets` (`placement`, `size`) |
 | Agent analytics card | `src/custom/index.ts` | `agentAnalyticsCards` (`size`; gets range, filters, the analytics model and events) |
 | Settings page at `/settings/custom/<key>` | `src/custom/index.ts` | `settingsSections` (Owners only by default) |

@@ -79,7 +79,6 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
   const canManageProject = hasPermission(access, 'projects.manage');
   const canManageProjectMembers = hasPermission(access, 'project_members.manage');
   const canManageContacts = hasPermission(access, 'contacts.manage');
-  const canManageAgents = hasPermission(access, 'agents.manage');
   // Time tracking is a module: switched off, its toggle is hidden and a save
   // leaves the project's stored setting as it was.
   const timeOn = isModuleEnabled(access, 'time');
@@ -96,8 +95,6 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
   const [billingAddress, setBillingAddress] = useState('');
   const [billingEmail, setBillingEmail] = useState('');
   const [taxRate, setTaxRate] = useState('');
-  const [autonomousEnabled, setAutonomousEnabled] = useState(false);
-  const [suggestionsPerCycle, setSuggestionsPerCycle] = useState(3);
   const [memberIds, setMemberIds] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [confirmStatusChange, setConfirmStatusChange] = useState(false);
@@ -129,8 +126,6 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
       setBillingAddress(project.billing_address ?? '');
       setBillingEmail(project.billing_email ?? '');
       setTaxRate(project.tax_rate != null ? String(project.tax_rate) : '');
-      setAutonomousEnabled(project.autonomous_enabled ?? false);
-      setSuggestionsPerCycle(project.suggestions_per_cycle ?? 2);
       setMemberIds(project.member_ids);
       const primaryClient = getPrimaryClient(project.id);
       setSelectedContactId(primaryClient?.contact_id || '');
@@ -148,8 +143,6 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
       setBillingAddress('');
       setBillingEmail('');
       setTaxRate('');
-      setAutonomousEnabled(false);
-      setSuggestionsPerCycle(3);
       setMemberIds([]);
       setSelectedContactId('');
     }
@@ -185,7 +178,6 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
       manageBilling: canManageBilling,
       manageMembers: canManageProjectMembers,
       manageContacts: canManageContacts,
-      manageAgents: canManageAgents,
       timeOn,
     };
     // One mapping for this modal and the guided setup (lib/project-form).
@@ -198,7 +190,6 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
       rights,
       project ?? null,
       teamMemberId || null,
-      { autonomous_enabled: autonomousEnabled, suggestions_per_cycle: suggestionsPerCycle },
     );
 
     let saved: boolean;

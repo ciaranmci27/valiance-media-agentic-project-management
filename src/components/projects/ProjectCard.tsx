@@ -1,18 +1,18 @@
 'use client';
 
 import Link from 'next/link';
-import { Calendar, Users, MoreVertical, Edit, Trash2, Bot } from 'lucide-react';
+import { Calendar, Users, MoreVertical, Edit, Trash2 } from 'lucide-react';
 import { Project } from '@/lib/types';
 import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
-import { hasPermission, isModuleEnabled } from '@/lib/access-control';
+import { hasPermission } from '@/lib/access-control';
 import { StatusBadge } from '@/components/ui/Badge';
 import { AvatarGroup } from '@/components/ui/Avatar';
-import { Tooltip } from '@/components/ui/Tooltip';
 import { useState, useRef } from 'react';
 import { Popover } from '@/components/ui/Popover';
 import { parseDateOnly } from '@/lib/date-utils';
 import { appLocale } from '@/lib/region';
+import { CustomProjectBadges } from './CustomProjectBadges';
 
 interface ProjectCardProps {
   project: Project;
@@ -26,8 +26,6 @@ export function ProjectCard({ project, onEdit, onDelete }: ProjectCardProps) {
   const [showMenu, setShowMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
-  const isAgentsEnabled = isModuleEnabled(access, 'agents');
-  const canManageAgents = hasPermission(access, 'agents.manage');
   const canReadContacts = hasPermission(access, 'contacts.read') || hasPermission(access, 'contacts.read_all');
 
   const projectTasks = getTasksByProject(project.id);
@@ -60,13 +58,7 @@ export function ProjectCard({ project, onEdit, onDelete }: ProjectCardProps) {
           </span>
           <div className="mt-1 flex items-center gap-1.5 flex-wrap">
             <StatusBadge status={project.status} />
-            {isAgentsEnabled && canManageAgents && project.autonomous_enabled && (
-              <Tooltip content="Autonomous agents enabled">
-                <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-white/[0.06] text-zinc-300">
-                  <Bot size={12} />
-                </span>
-              </Tooltip>
-            )}
+            <CustomProjectBadges project={project} />
             {primaryClient?.contact && (
               <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-white/[0.06] text-zinc-300">
                 {primaryClient.contact.name}

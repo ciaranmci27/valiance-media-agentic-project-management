@@ -2,11 +2,13 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { appKeyReady, appKeyState, type AppKeyState } from './app-key';
 import { decrypt as decryptSmtp, encrypt as encryptSmtp } from '@/lib/email/crypto';
 import { decrypt as decryptCredential, encrypt as encryptCredential, APP_SEALED_IV } from '@/lib/api/encryption';
+import { sealWebhookSecret } from '@/lib/webhooks/secret';
 
 /**
  * Moving saved secrets onto the app key (APP_ENCRYPTION_KEY): email account
  * passwords and project credentials still sealed under the older per-feature
- * keys are opened with those and sealed again with the app key. Safe to run
+ * keys are opened with those and sealed again with the app key, and webhook
+ * signing secrets still stored as plaintext are sealed. Safe to run
  * again: rows already on the app key are skipped. Settings > Workspace >
  * Encryption runs it and shows what is left; only at zero can the older
  * variables be removed from the host.
@@ -17,13 +19,13 @@ export interface EncryptionStatus {
   /** The older variables the host still has (names only). */
   legacyKeys: string[];
   /** Saved values still sealed under an older key. */
-  remaining: { smtp: number; credentials: number };
+  remaining: { smtp: number; credentials: number; webhooks: number };
 }
 
 const LEGACY_ENV = ['SMTP_ENCRYPTION_KEY', 'PROJECT_CREDENTIALS_ENCRYPTION_KEY'] as const;
 const PAGE = 500;
 
-async function countLegacy(service: SupabaseClient, table: 'smtp_accounts' | 'project_credentials', column: string): Promise<number> {
+async function countLegacy(service: SupabaseClient, table: 'smtp_accounts' | 'project_credentials' | 'webhook_endpoints', column: string): Promise<number> {
   // trash-checked: counts every saved value, those in Trash too: they all move to the new key.
   const { count, error } = await service.from(table).select('id', { count: 'exact', head: true }).not(column, 'like', 'pm1:%');
   if (error) throw error;
@@ -31,28 +33,29 @@ async function countLegacy(service: SupabaseClient, table: 'smtp_accounts' | 'pr
 }
 
 export async function encryptionStatus(service: SupabaseClient): Promise<EncryptionStatus> {
-  const [smtp, credentials] = await Promise.all([
+  const [smtp, credentials, webhooks] = await Promise.all([
     countLegacy(service, 'smtp_accounts', 'encrypted_password'),
     countLegacy(service, 'project_credentials', 'encrypted_data'),
+    countLegacy(service, 'webhook_endpoints', 'secret'),
   ]);
   return {
     appKey: appKeyState(),
     legacyKeys: LEGACY_ENV.filter((name) => !!process.env[name]?.trim()),
-    remaining: { smtp, credentials },
+    remaining: { smtp, credentials, webhooks },
   };
 }
 
 export interface ReencryptResult {
-  moved: { smtp: number; credentials: number };
+  moved: { smtp: number; credentials: number; webhooks: number };
   /** Rows the older keys could not open (the key changed or is missing): left as they are. */
-  failed: { smtp: string[]; credentials: string[] };
+  failed: { smtp: string[]; credentials: string[]; webhooks: string[] };
   status: EncryptionStatus;
 }
 
 export async function reencryptAll(service: SupabaseClient): Promise<ReencryptResult> {
   if (!appKeyReady()) throw new Error('Add APP_ENCRYPTION_KEY to your host first.');
-  const moved = { smtp: 0, credentials: 0 };
-  const failed = { smtp: [] as string[], credentials: [] as string[] };
+  const moved = { smtp: 0, credentials: 0, webhooks: 0 };
+  const failed = { smtp: [] as string[], credentials: [] as string[], webhooks: [] as string[] };
 
   // Email passwords, page by page in id order (keyset: each page starts after
   // the last id seen), so rows that fail never need excluding and the loop ends.
@@ -98,6 +101,27 @@ export async function reencryptAll(service: SupabaseClient): Promise<ReencryptRe
         if (changed?.length) moved.credentials += 1;
       } catch {
         failed.credentials.push(row.id);
+      }
+    }
+  }
+
+  // Webhook signing secrets stored as plaintext, sealed to their endpoint's id.
+  after = '';
+  for (;;) {
+    let query = service.from('webhook_endpoints').select('id, secret').not('secret', 'like', 'pm1:%').order('id').limit(PAGE);
+    if (after) query = query.gt('id', after);
+    const { data, error } = await query;
+    if (error) throw error;
+    if (!data?.length) break;
+    for (const row of data as Array<{ id: string; secret: string }>) {
+      after = row.id;
+      try {
+        const { data: changed, error: updateError } = await service.from('webhook_endpoints').update({ secret: sealWebhookSecret(row.id, row.secret) })
+          .eq('id', row.id).eq('secret', row.secret).select('id');
+        if (updateError) throw updateError;
+        if (changed?.length) moved.webhooks += 1;
+      } catch {
+        failed.webhooks.push(row.id);
       }
     }
   }

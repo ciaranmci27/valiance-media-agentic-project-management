@@ -41,6 +41,7 @@ Load the skill `pm-add-custom-feature`. Full reference: `src/custom/README.md`.
 |---|---|
 | A page (`/x/<slug>`) and its sidebar entry | `pages` and `navItems` in `src/custom/index.ts` |
 | A tab on every project | `projectTabs` in `src/custom/index.ts` |
+| A badge beside a project's name on project lists and cards | `projectBadges` in `src/custom/index.ts` |
 | A Dashboard card | `dashboardWidgets` in `src/custom/index.ts` |
 | An agent analytics card (below the breakdown on Agents > Analytics) | `agentAnalyticsCards` in `src/custom/index.ts` |
 | A Settings page (Owners only by default) | `settingsSections` in `src/custom/index.ts` |

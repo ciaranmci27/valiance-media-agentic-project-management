@@ -8,6 +8,7 @@ import {
   type AgentRunSummary,
 } from '@/lib/agent-runs';
 import type { QuestionView } from '@/lib/questions';
+import { pendingSuggestionsInReach } from '@/lib/suggestion-reach';
 import type { Project, Task, TaskReview, TaskSuggestion, TeamMember } from '@/lib/types';
 
 /**
@@ -84,7 +85,8 @@ export function buildAgentNeedsYou(input: {
   tasks: Task[];
   team: Pick<TeamMember, 'id' | 'role'>[];
   suggestions: TaskSuggestion[];
-  projects: Pick<Project, 'id' | 'autonomous_enabled'>[];
+  /** The projects the viewer reaches: every pending suggestion in one counts, from any agent. */
+  projects: Pick<Project, 'id'>[];
 }): AgentNeedsYou {
   const agentIds = new Set(input.team.filter((m) => m.role === 'agent').map((m) => m.id));
 
@@ -121,10 +123,7 @@ export function buildAgentNeedsYou(input: {
     })
     .sort((a, b) => newestFirst(a.task.updated_at, b.task.updated_at));
 
-  const autonomous = new Set(input.projects.filter((p) => p.autonomous_enabled).map((p) => p.id));
-  const pendingSuggestions = input.suggestions
-    .filter((s) => s.status === 'pending' && autonomous.has(s.project_id))
-    .sort((a, b) => newestFirst(a.created_at, b.created_at));
+  const pendingSuggestions = pendingSuggestionsInReach(input.suggestions, input.projects);
   const suggestions = pendingSuggestions.length;
 
   return {

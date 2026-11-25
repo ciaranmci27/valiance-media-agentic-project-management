@@ -6,19 +6,19 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import { useApp, defaultFilters } from '@/lib/store';
 import { Header } from '@/components/layout/Header';
 import { ProjectForm } from '@/components/projects/ProjectForm';
+import { CustomProjectBadges } from '@/components/projects/CustomProjectBadges';
 import { projectTrashMessage } from '@/components/projects/trash-message';
 import { Button } from '@/components/ui/Button';
 import { AvatarGroup } from '@/components/ui/Avatar';
-import { Tooltip } from '@/components/ui/Tooltip';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { SectionHeader } from '@/components/ui/SectionHeader';
 import { RowActionsMenu, type RowAction } from '@/components/ui/RowActionsMenu';
-import { Plus, FolderKanban, Calendar, Users, Edit, Trash2, Bot } from 'lucide-react';
+import { Plus, FolderKanban, Calendar, Users, Edit, Trash2 } from 'lucide-react';
 import { Project } from '@/lib/types';
 import { toast } from '@/components/ui/Toast';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { useAuth } from '@/lib/auth-context';
-import { hasPermission, isModuleEnabled } from '@/lib/access-control';
+import { hasPermission } from '@/lib/access-control';
 import { parseDateOnly } from '@/lib/date-utils';
 import { useUnreadByProject } from '@/components/tasks/TaskUnread';
 import { useWarmProject } from '@/lib/reads';
@@ -33,8 +33,6 @@ function ProjectsContent() {
   const unreadByProject = useUnreadByProject();
   const warmProject = useWarmProject();
   const canManageProjects = hasPermission(access, 'projects.manage');
-  const canManageAgents = hasPermission(access, 'agents.manage');
-  const isAgentsEnabled = isModuleEnabled(access, 'agents');
   const canReadContacts = hasPermission(access, 'contacts.read') || hasPermission(access, 'contacts.read_all');
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingProject, setEditingProject] = useState<Project | null>(null);
@@ -98,17 +96,20 @@ function ProjectsContent() {
       <div className="glass-card rounded-xl p-4 hover:border-white/[0.12] transition-colors">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <Link
-              href={`/projects/${p.id}`}
-              onClick={(e) => e.stopPropagation()}
-              onMouseEnter={() => warmProject(p.id)}
-              onFocus={() => warmProject(p.id)}
-              className="font-semibold text-white inline-flex items-center gap-2 truncate focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 rounded"
-            >
-              {p.color && <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: p.color }} />}
-              <span className="truncate">{p.name}</span>
-            </Link>
-            {unreadBadge(p)}
+            <div className="flex items-center gap-2 min-w-0">
+              <Link
+                href={`/projects/${p.id}`}
+                onClick={(e) => e.stopPropagation()}
+                onMouseEnter={() => warmProject(p.id)}
+                onFocus={() => warmProject(p.id)}
+                className="font-semibold text-white inline-flex items-center gap-2 truncate focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 rounded"
+              >
+                {p.color && <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: p.color }} />}
+                <span className="truncate">{p.name}</span>
+              </Link>
+              {unreadBadge(p)}
+              <CustomProjectBadges project={p} />
+            </div>
             {client?.contact && (
               <div className="mt-1.5">
                 <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-white/[0.06] text-zinc-300">{client.contact.name}</span>
@@ -165,13 +166,7 @@ function ProjectsContent() {
             {p.name}
           </Link>
           {unreadBadge(p)}
-          {isAgentsEnabled && canManageAgents && p.autonomous_enabled && (
-            <Tooltip content="Autonomous agents enabled">
-              <span className="inline-flex items-center px-1.5 py-0.5 rounded-full bg-white/[0.06] text-zinc-300 flex-shrink-0">
-                <Bot size={12} />
-              </span>
-            </Tooltip>
-          )}
+          <CustomProjectBadges project={p} />
         </div>
       ),
     },

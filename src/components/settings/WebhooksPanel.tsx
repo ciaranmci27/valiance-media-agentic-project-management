@@ -170,6 +170,22 @@ export function WebhooksPanel({ teamMemberId }: { teamMemberId: string | null })
 
   // Per-endpoint secret visibility
   const [shownSecrets, setShownSecrets] = useState<Record<string, boolean>>({});
+  // Secrets sealed at rest (pm1:), opened by the server on demand.
+  const [openedSecrets, setOpenedSecrets] = useState<Record<string, string>>({});
+  const isSealed = (endpoint: WebhookEndpoint) => endpoint.secret.startsWith('pm1:');
+  async function readSecret(endpoint: WebhookEndpoint): Promise<string | null> {
+    if (!isSealed(endpoint)) return endpoint.secret;
+    if (openedSecrets[endpoint.id]) return openedSecrets[endpoint.id];
+    const res = await fetch(`/api/workspace/webhook-endpoints/${endpoint.id}/secret`, { cache: 'no-store' });
+    const body = await res.json().catch(() => null);
+    const secret: string | null = res.ok ? body?.data?.secret ?? null : null;
+    if (!secret) {
+      toast('error', body?.error?.message ?? 'Could not open the signing secret');
+      return null;
+    }
+    setOpenedSecrets((prev) => ({ ...prev, [endpoint.id]: secret }));
+    return secret;
+  }
   const [deleteTarget, setDeleteTarget] = useState<WebhookEndpoint | null>(null);
   const [running, setRunning] = useState(false);
 
@@ -361,7 +377,7 @@ export function WebhooksPanel({ teamMemberId }: { teamMemberId: string | null })
       await load();
     } catch (e) {
       console.error(e);
-      toast('error', 'Failed to run dispatcher');
+      toast('error', 'Could not send deliveries');
     } finally {
       setRunning(false);
     }
@@ -646,12 +662,13 @@ export function WebhooksPanel({ teamMemberId }: { teamMemberId: string | null })
               {/* Secret reveal */}
               <div className="flex items-center gap-2 mt-3">
                 <code className="flex-1 px-2.5 py-1.5 bg-surface-raised border border-white/[0.08] rounded-md text-xs font-mono text-zinc-300 break-all select-all">
-                  {shownSecrets[endpoint.id] ? endpoint.secret : '•'.repeat(24)}
+                  {shownSecrets[endpoint.id] ? (isSealed(endpoint) ? openedSecrets[endpoint.id] ?? '' : endpoint.secret) : '•'.repeat(24)}
                 </code>
                 <button
-                  onClick={() =>
-                    setShownSecrets((prev) => ({ ...prev, [endpoint.id]: !prev[endpoint.id] }))
-                  }
+                  onClick={async () => {
+                    if (!shownSecrets[endpoint.id] && !(await readSecret(endpoint))) return;
+                    setShownSecrets((prev) => ({ ...prev, [endpoint.id]: !prev[endpoint.id] }));
+                  }}
                   aria-label={
                     shownSecrets[endpoint.id] ? 'Hide signing secret' : 'Reveal signing secret'
                   }
@@ -660,7 +677,10 @@ export function WebhooksPanel({ teamMemberId }: { teamMemberId: string | null })
                   {shownSecrets[endpoint.id] ? <EyeOff size={15} /> : <Eye size={15} />}
                 </button>
                 <button
-                  onClick={() => handleCopySecret(endpoint.secret)}
+                  onClick={async () => {
+                    const secret = await readSecret(endpoint);
+                    if (secret) handleCopySecret(secret);
+                  }}
                   aria-label="Copy signing secret"
                   className="p-1.5 text-zinc-400 hover:text-white hover:bg-white/[0.06] rounded-md transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
                 >

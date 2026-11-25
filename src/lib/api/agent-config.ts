@@ -5,7 +5,7 @@ import { findAgentTemplate, listAgentTemplates } from '@/lib/agent-templates';
 import { getBrand } from '@/lib/brand/server';
 import type { AgentConfigDocument, ApplyAgentTemplate, ConfigRef, ImportAgentConfig } from '@/lib/schemas/agent-config';
 import { createWebhookEndpointSchema } from '@/lib/schemas/webhooks';
-import { deleteWebhookEndpoint, insertWebhookEndpoint, updateWebhookEndpoint } from '@/lib/supabase/queries';
+import { deleteWebhookEndpoint, updateWebhookEndpoint } from '@/lib/supabase/queries';
 import { generateWebhookSecret } from '@/lib/webhooks/sign';
 import { accessAllowsProject, apiKeyAllows } from './access';
 import { agentTemplateEndpoint, AGENT_IMPORT_ENDPOINT, appliedTemplateKey, namedProject, reachableProjectNames } from './agent-context';
@@ -27,7 +27,7 @@ import {
 } from './agent-setup';
 import { ApiError, forbidden } from './errors';
 import { addOwners, canChangeOwners, checkOwnerIds } from './agent-owners';
-import { checkWebhookFields, listWebhookEndpoints, publicEndpoint, type PublicWebhookEndpoint } from './webhook-endpoints';
+import { checkWebhookFields, insertServerWebhookEndpoint, listWebhookEndpoints, publicEndpoint, type PublicWebhookEndpoint } from './webhook-endpoints';
 
 /**
  * Agent templates applied, and an agent's configuration exported and
@@ -565,7 +565,7 @@ export async function importAgentConfig(service: SupabaseClient, granter: Grante
       if (input.create_webhooks) {
         for (const hook of hookCreate) {
           const secret = generateWebhookSecret();
-          let endpoint = await insertWebhookEndpoint(service, {
+          let endpoint = await insertServerWebhookEndpoint(service, {
             name: hook.name, url: hook.url, secret, events: hook.events, description: hook.description, amount_basis: hook.amount_basis,
             project_ids: hook.project_ids, member_id: id, created_by: granter.memberId,
           });

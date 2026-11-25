@@ -1,6 +1,7 @@
 import { getServiceClient } from '@/lib/api/supabase-service';
 import { enabledModuleSet } from '@/lib/modules/server';
 import { buildSignatureHeader, WEBHOOK_SIGNATURE_HEADER } from './sign';
+import { openWebhookSecret } from './secret';
 
 // Claims due deliveries (claim_webhook_deliveries: a 2-minute lease per
 // delivery, head of the line per subject and endpoint) and POSTs each to its
@@ -59,6 +60,9 @@ export interface DispatchStore {
   ): Promise<DeliveryOutcome>;
 }
 
+/** Said when a sealed secret cannot be opened: the delivery waits for the key, retrying as any failure. */
+export const SEALED_SECRET_UNREADABLE = 'The signing secret is encrypted and APP_ENCRYPTION_KEY is missing or changed: set the key the secret was saved with';
+
 function serviceStore(): DispatchStore {
   const service = getServiceClient();
   return {
@@ -90,7 +94,16 @@ async function deliverOne(store: DispatchStore, d: ClaimedDelivery, summary: Dis
   let errorText: string | null = null;
 
   try {
-    const header = await buildSignatureHeader(d.endpoint_secret, body);
+    // A sealed secret is opened to sign; a plaintext one (from before, or made
+    // without the key) is used as it is and left as it is: only Settings >
+    // Workspace > Encryption moves it, so this release rolls back cleanly.
+    let secret: string;
+    try {
+      secret = openWebhookSecret(d.endpoint_id, d.endpoint_secret);
+    } catch {
+      throw new Error(SEALED_SECRET_UNREADABLE);
+    }
+    const header = await buildSignatureHeader(secret, body);
     const res = await fetch(d.endpoint_url, {
       method: 'POST',
       headers: {

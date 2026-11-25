@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import { useApp } from '@/lib/store';
 import { computeNeedsYou } from '@/lib/autonomy';
+import { pendingSuggestionsInReach } from '@/lib/suggestion-reach';
 import { useAuth } from '@/lib/auth-context';
 import { useDemo } from '@/lib/demo-context';
 import { Avatar } from '@/components/ui/Avatar';
@@ -47,7 +48,7 @@ export function Sidebar() {
   const pathname = usePathname();
   // The profile row opens Settings, so it reads active anywhere in that area.
   const inSettings = pathname === '/settings' || pathname.startsWith('/settings/');
-  const { projects, team, loading, getPendingSuggestionCount, timeEntries, tasks, taskSuggestions, agentActivity, reminders } = useApp();
+  const { projects, team, loading, timeEntries, tasks, taskSuggestions, agentActivity, reminders } = useApp();
   const { user, teamMemberId, access, signOut } = useAuth();
   const customNavItems = useCustomNavItems();
   const brand = useBrand();
@@ -113,7 +114,9 @@ export function Sidebar() {
 
   const isAgentsEnabled = isModuleEnabled(access, 'agents');
   const canManageAgents = hasPermission(access, 'agents.manage');
-  const pendingSuggestionCount = isAgentsEnabled && canManageAgents ? getPendingSuggestionCount() : 0;
+  // Every pending suggestion in a project this person reaches, from any agent:
+  // the same count as the Agents page's Needs you (suggestion-reach).
+  const pendingSuggestionCount = isAgentsEnabled && canManageAgents ? pendingSuggestionsInReach(taskSuggestions, projects).length : 0;
 
   // Radar's badge answers "does anything need me?" before the click. Same
   // computation as the page's top band, imported so they cannot disagree.

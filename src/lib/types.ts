@@ -25,7 +25,7 @@ export interface Project {
   integration_branch: string;
   /** Declared ship-to-users branch; the merge gate refuses it unconditionally. */
   production_branch: string;
-  /** Max suggestions awaiting review (pending + needs_info) before the auditor pauses. */
+  /** Max suggestions awaiting review (pending + needs_info) before an auditing agent pauses. */
   suggestion_queue_cap: number;
   /** Minimum hours between audit cycles on this project. */
   audit_interval_hours: number;
@@ -456,10 +456,12 @@ export interface TeamMember {
   email: string;
   avatar: string;
   role: 'owner' | 'admin' | 'member' | 'guest' | 'agent';
-  /** Display title ("Auditor", "Developer") shown wherever the member acts. */
+  /** Display title ("Reviewer", "Developer") shown wherever the member acts. */
   title?: string | null;
   status?: 'active' | 'suspended';
   suspended_at?: string | null;
+  /** For a personal agent: the person it works for (it never signs in). */
+  delegate_of?: string | null;
   suspended_by?: string | null;
   timezone?: string;
   notification_prefs?: NotificationPreferences;

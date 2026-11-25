@@ -57,13 +57,13 @@ export function ApproveModal({ suggestion, onClose, onApprove }: ApproveModalPro
   );
   const [dueDate, setDueDate] = useState('');
   const [taskType, setTaskType] = useState<TaskType | ''>(suggestion.task_type || '');
-  // Three outcomes, prefilled from the auditor's recommendation; the reviewer's
+  // Three outcomes, prefilled from the proposing agent's recommendation; the reviewer's
   // choice is the human confirmation and always wins.
   //   ai_ready:   dev agent claims it within one pickup cycle, auto-assigned.
   //   human_only: a person's own task.
   //   needs_spec: readiness needs_spec, which the dev agent never claims;
   //               the spec agent's sweep starts the interview instead. This
-  //               is the feature path: the auditor cannot spec a feature the
+  //               is the feature path: the proposing agent cannot spec a feature the
   //               way the owner wants it, so approval means "yes, but
   //               interview me".
   const [mode, setMode] = useState<'ai_ready' | 'human_only' | 'needs_spec'>(initialMode);

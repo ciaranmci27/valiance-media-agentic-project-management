@@ -9,6 +9,24 @@ Each section starts with `## X.Y.Z (YYYY-MM-DD)` and uses these headings, leavin
 - `### Database`: the core migration files in the release, one per line. `npm run db:migrate` applies them.
 - `### Breaking`: what an install must do when it takes this release.
 
+## 2.0.25 (2026-11-24)
+
+### Added
+- **Personal agents**: an agent bound to one person (`delegate_of`) always sees and does only what that person may, owns nothing beyond them, escalates to them first, and records them as who its work is for. One per person per template.
+- **Assistant setups by role or group** (Owner): `POST /api/workspace/assistants/provision` gives everyone a personal agent in one action (paged, with a dry run), and new members get one when they join. The agent tool collects each agent's key once (`POST /api/v1/assistants/{id}/key`, permission `assistants.provision`), so nobody handles hundreds of secrets.
+- **Leaving cleans up**: suspending a person pauses their personal agents and revokes their keys, passes and pending links in one step, and removes them as owner of agents until they return. Re-binding or unbinding a personal agent revokes its keys. Personal agents never get a sign-in.
+- **Key lifetime and rotation**: an optional lifetime for new agent keys (Settings, `key-settings`), and `POST /api/v1/api-keys/{id}/rotate` for a new secret with the old one kept for an overlap (24 hours by default, at most 7 days). Revoking a key also revokes what it, and every key it was rotated from, made.
+- **Webhook signing secrets are encrypted** for new endpoints when `APP_ENCRYPTION_KEY` is set. Settings > Encryption moves existing ones; deliveries never rewrite a secret in this release.
+- **Project badges from an install**: `projectBadges` in `src/custom/index.ts`.
+
+### Changed
+- Suggestions waiting for review count in every project you can reach, from any agent, no longer only in projects with one company's autonomy switch. Core screens no longer show or edit that company's fleet fields; an install edits them from its own project tab.
+- Core agent screens use generic wording ("Directed by a person", "Woken on demand", "Replied in chat").
+- A new core agent template, Personal assistant.
+
+### Database
+- `20261124001300_personal_agents_secrets.sql`: personal agent binding and its guards, assistant setups, provisioning, the suspend and re-bind cascades, key lifetime and rotation (with an hourly `pm-api-key-rotations` job), and a key revoke that follows rotations.
+
 ## 2.0.24 (2026-11-24)
 
 ### Changed

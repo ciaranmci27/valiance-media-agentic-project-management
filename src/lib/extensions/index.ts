@@ -28,6 +28,7 @@ export type {
   ExtensionsInput,
   NavItemExtension,
   PageExtension,
+  ProjectBadgeExtension,
   ProjectTabExtension,
   PublicRouteContext,
   SessionRouteContext,

@@ -1552,11 +1552,14 @@ export async function insertWebhookEndpoint(
     name: string; url: string; secret: string; events: string[]; description?: string;
     amount_basis?: WebhookEndpoint['amount_basis']; project_ids?: string[] | null; member_id?: string | null;
     agent_event_types?: string[] | null; created_by: string | null;
+    /** Chosen by the server when it seals the secret to the endpoint's id (lib/webhooks/secret.ts). */
+    id?: string;
   },
 ) {
   return withEndpointColumns<WebhookEndpoint>(WEBHOOK_ENDPOINT_COLUMNS, (columns) => supabase
     .from('webhook_endpoints')
     .insert({
+      ...(endpoint.id ? { id: endpoint.id } : {}),
       name: endpoint.name,
       url: endpoint.url,
       secret: endpoint.secret,

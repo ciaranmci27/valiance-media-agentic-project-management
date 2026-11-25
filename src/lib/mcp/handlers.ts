@@ -62,6 +62,10 @@ import * as projectContextSearch from '@/app/api/v1/projects/[id]/context/search
 import * as projectSetup from '@/app/api/v1/projects/setup/route';
 import * as apiKeys from '@/app/api/v1/api-keys/route';
 import * as apiKeyRevoke from '@/app/api/v1/api-keys/[id]/revoke/route';
+import * as apiKeyRotate from '@/app/api/v1/api-keys/[id]/rotate/route';
+import * as assistants from '@/app/api/v1/assistants/route';
+import * as assistantsProvision from '@/app/api/v1/assistants/provision/route';
+import * as assistantSetups from '@/app/api/v1/assistant-setups/route';
 import * as webhookEndpoints from '@/app/api/v1/webhook-endpoints/route';
 import * as webhookEndpoint from '@/app/api/v1/webhook-endpoints/[id]/route';
 import * as inboxMessages from '@/app/api/v1/inbox/messages/route';
@@ -165,6 +169,10 @@ export const ROUTE_MODULES: Record<string, RouteModule> = {
   '/api/v1/agent-templates': agentTemplates,
   '/api/v1/api-keys': apiKeys,
   '/api/v1/api-keys/{id}/revoke': apiKeyRevoke,
+  '/api/v1/api-keys/{id}/rotate': apiKeyRotate,
+  '/api/v1/assistants': assistants,
+  '/api/v1/assistants/provision': assistantsProvision,
+  '/api/v1/assistant-setups': assistantSetups,
   '/api/v1/webhook-endpoints': webhookEndpoints,
   '/api/v1/webhook-endpoints/{id}': webhookEndpoint,
   '/api/v1/inbox/messages': inboxMessages,

@@ -11,6 +11,7 @@ import {
   agentBacklog, agentRulesInWords, agentsTabFrom, backlogLine, buildAgentNeedsYou, canSeeRunTrace, currentRunByAgent, needsForAgent,
   formatRunDuration, runDurationMs, runFeedQuery, runTokens, toRunSummary, NO_RUN_FILTERS, RUNS_PAGE_SIZE,
 } from '@/lib/agents-tab';
+import { pendingSuggestionsInReach, suggestionsInReach } from '@/lib/suggestion-reach';
 import { AGENT_RUN_STALE_AFTER_SECONDS, type AgentRunSummary } from '@/lib/agent-runs';
 import { APPROVAL_DETAIL_ROWS_MAX, APPROVAL_DETAIL_VALUE_MAX, approvalDetailRows, type QuestionView } from '@/lib/questions';
 import type { Project, Task, TaskSuggestion, TeamMember } from '@/lib/types';
@@ -28,6 +29,8 @@ const BUILDER = '00000000-0000-4000-8000-0000000000a1';
 const AUDITOR = '00000000-0000-4000-8000-0000000000a2';
 const PROJECT_ID = '00000000-0000-4000-8000-0000000000b1';
 const QUIET_PROJECT_ID = '00000000-0000-4000-8000-0000000000c2';
+// A project the viewer cannot reach (not in their project list).
+const OTHER_PROJECT_ID = '00000000-0000-4000-8000-0000000000d3';
 
 const team = [
   { id: ME, name: 'Ciara Owner', role: 'owner' },
@@ -37,7 +40,8 @@ const team = [
 ] as TeamMember[];
 const projects = [
   { id: PROJECT_ID, name: 'Site', autonomous_enabled: true },
-  { id: QUIET_PROJECT_ID, name: 'Paused', autonomous_enabled: false },
+  // A fleet setting (autonomous_enabled) never narrows what a person reviews.
+  { id: QUIET_PROJECT_ID, name: 'Inbox work', autonomous_enabled: false },
 ] as Project[];
 
 function task(id: string, fields: Partial<Task> = {}): Task {
@@ -108,9 +112,11 @@ check('an unknown tab opens Needs you', agentsTabFrom('reports') === 'needs-you'
   const suggestions = [
     { id: 's1', status: 'pending', project_id: PROJECT_ID },
     { id: 's2', status: 'pending', project_id: PROJECT_ID },
-    // Agents are off on this project: the review queue hides it, so the count does too.
-    { id: 's3', status: 'pending', project_id: QUIET_PROJECT_ID },
+    // From any agent, in any project the viewer reaches: counted.
+    { id: 's3', status: 'pending', project_id: QUIET_PROJECT_ID, created_at: '2026-11-20T10:00:00Z' },
     { id: 's4', status: 'approved', project_id: PROJECT_ID },
+    // Outside the viewer's reach: never counted.
+    { id: 's5', status: 'pending', project_id: OTHER_PROJECT_ID },
   ] as TaskSuggestion[];
   const agentActivity = [{
     activity_type: 'task_failed', reference_type: 'task', reference_id: 'blocked-build',
@@ -135,18 +141,46 @@ check('an unknown tab opens Needs you', agentsTabFrom('reports') === 'needs-you'
   check('a held merge keeps its reviewer verdict slot; plain review has none',
     'reviewerVerdict' in needs.inReview.find((i) => i.task.id === 'held-merge')!
     && !('reviewerVerdict' in needs.inReview.find((i) => i.task.id === 'claimed-review')!));
-  check('suggestions count only pending ones in projects agents run', needs.suggestions === 2, needs.suggestions);
-  check('the pending suggestions themselves are listed for the inbox', needs.pendingSuggestions.map((s) => s.id).sort().join() === 's1,s2', needs.pendingSuggestions.map((s) => s.id));
+  check('suggestions count every pending one in a project the viewer reaches, whatever its fleet setting', needs.suggestions === 3, needs.suggestions);
+  check('the pending suggestions themselves are listed for the inbox', needs.pendingSuggestions.map((s) => s.id).sort().join() === 's1,s2,s3', needs.pendingSuggestions.map((s) => s.id));
 
   const builderOnly = needsForAgent(needs, BUILDER);
   check('one agent slice holds only its own items, and its own total',
     builderOnly.questions.every((q) => q.asked_by === BUILDER) && builderOnly.inReview.every((i) => i.agentId === BUILDER)
     && builderOnly.total === builderOnly.questions.length + builderOnly.blocked.length + builderOnly.inReview.length + builderOnly.pendingSuggestions.length
     && builderOnly.total < needs.total, builderOnly.total);
-  check('the tab count is every item', needs.total === 2 + 1 + 4 + 2, needs.total);
+  check('the tab count is every item', needs.total === 2 + 1 + 4 + 3, needs.total);
 
   const quiet = buildAgentNeedsYou({ needsYou: [], tasks: [], team, suggestions: [], projects });
   check('nothing waiting is zero', quiet.total === 0 && quiet.questions.length === 0 && quiet.inReview.length === 0);
+}
+
+// ── Suggestions in reach ──────────────────────────────────────────────
+{
+  // Generic installs: suggestions come from any agent (inbox triage, an
+  // approval policy, an auditor), in any project. Only the viewer's reach
+  // narrows them; no fleet setting does.
+  const reach = [{ id: PROJECT_ID }, { id: QUIET_PROJECT_ID }];
+  const rows = [
+    { id: 'triage', status: 'pending', project_id: QUIET_PROJECT_ID, created_at: '2026-11-21T09:00:00Z' },
+    { id: 'audit', status: 'pending', project_id: PROJECT_ID, created_at: '2026-11-22T09:00:00Z' },
+    { id: 'asked', status: 'needs_info', project_id: PROJECT_ID, created_at: '2026-11-23T09:00:00Z' },
+    { id: 'done', status: 'approved', project_id: QUIET_PROJECT_ID, created_at: '2026-11-19T09:00:00Z' },
+    { id: 'elsewhere', status: 'pending', project_id: OTHER_PROJECT_ID, created_at: '2026-11-24T09:00:00Z' },
+  ] as TaskSuggestion[];
+  const pending = pendingSuggestionsInReach(rows, reach).map((s) => s.id);
+  check('reach: every pending suggestion in a reachable project counts, from any agent', pending.join() === 'audit,triage', pending);
+  check('reach: a project outside the viewer list is never counted', !pending.includes('elsewhere'), pending);
+  check('reach: the queue keeps every status in reach, for its tabs and per-project groups',
+    suggestionsInReach(rows, reach).map((s) => s.id).sort().join() === 'asked,audit,done,triage', suggestionsInReach(rows, reach).map((s) => s.id));
+  check('reach: no projects reached, nothing counted', pendingSuggestionsInReach(rows, []).length === 0);
+  check('reach: a project with its fleet switch off still counts',
+    pendingSuggestionsInReach(rows, [{ id: QUIET_PROJECT_ID, autonomous_enabled: false } as Project]).map((s) => s.id).join() === 'triage');
+  const withCount = computeNeedsYou({
+    tasks: [], suggestions: rows, projects: reach as Project[], teamMemberId: ME, includeSuggestions: true, oversight: true,
+  });
+  const band = withCount.find((item) => item.kind === 'suggestions');
+  check('reach: the needs-you suggestions band counts the same set', band?.count === 2, band);
 }
 
 // ── Run feed query ────────────────────────────────────────────────────

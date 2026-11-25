@@ -16,6 +16,7 @@ import {
 import { toast } from '@/components/ui/Toast';
 import { BundleApproveModal } from '@/components/agent/BundleApproveModal';
 import { appLocale } from '@/lib/region';
+import { suggestionsInReach } from '@/lib/suggestion-reach';
 
 type StatusFilter = '' | 'pending' | 'needs_info' | 'approved' | 'rejected' | 'declined';
 
@@ -46,14 +47,10 @@ export function ReviewQueue({ onApprove, onEdit }: ReviewQueueProps) {
   const [collapsedProjects, setCollapsedProjects] = useState<Set<string>>(new Set());
   const [showBulkModal, setShowBulkModal] = useState(false);
 
-  // Only show suggestions from projects that still have autonomy enabled
-  const autonomousProjectIds = useMemo(() => new Set(
-    projects.filter(p => p.autonomous_enabled).map(p => p.id)
-  ), [projects]);
-
-  const activeSuggestions = useMemo(() =>
-    taskSuggestions.filter(s => autonomousProjectIds.has(s.project_id)),
-    [taskSuggestions, autonomousProjectIds]
+  // Every suggestion in a project the viewer reaches, from any agent.
+  const activeSuggestions = useMemo(
+    () => suggestionsInReach(taskSuggestions, projects),
+    [taskSuggestions, projects],
   );
 
   const statusTabs: { key: StatusFilter; label: string; count: number }[] = [
@@ -210,7 +207,7 @@ export function ReviewQueue({ onApprove, onEdit }: ReviewQueueProps) {
     let approved = 0;
     let bundles = 0;
     for (const group of bundleGroups) {
-      // The auditor's stated reason is the composed task's best default name,
+      // the proposing agent's stated reason is the composed task's best default name,
       // matching the BundleApproveModal's prefill.
       let reason: string | undefined;
       for (const m of group) {
@@ -269,7 +266,7 @@ export function ReviewQueue({ onApprove, onEdit }: ReviewQueueProps) {
 
   const isActionable = (s: TaskSuggestion) => s.status === 'pending' || s.status === 'needs_info';
 
-  // The auditor answers an info request by appending to the description with
+  // The proposing agent answers an info request by appending to the description with
   // this exact marker (its plugin owns the format). Splitting on it lets the UI
   // show a clean description plus a real Q&A block, and, more importantly, show
   // WHO HOLDS THE BALL: an unanswered request waits on the agent, an answered
@@ -417,7 +414,7 @@ export function ReviewQueue({ onApprove, onEdit }: ReviewQueueProps) {
                   const bid = `bundle:${bundleKey}`;
                   const bundleExpanded = expandedId === bid;
 
-                  // Title: the auditor's reason, else the members' common
+                  // Title: the proposing agent's reason, else the members' common
                   // leading words, else the first title plus a count.
                   let bundleReason: string | null = null;
                   for (const m of bundleMembers) {
@@ -830,7 +827,7 @@ export function ReviewQueue({ onApprove, onEdit }: ReviewQueueProps) {
                           {/* Metadata row */}
                           <div className="flex flex-wrap items-center gap-2">
                             {suggestion.metadata?.ai_readiness_recommendation && (
-                              <Tooltip content="The auditor's recommendation for who should build this">
+                              <Tooltip content="The agent's recommendation for who should build this">
                                 <span className={`px-2 py-0.5 rounded-full text-xs font-medium cursor-default ${
                                   suggestion.metadata.ai_readiness_recommendation === 'ai_ready'
                                     ? 'bg-cyan-500/15 text-cyan-300'
@@ -854,7 +851,7 @@ export function ReviewQueue({ onApprove, onEdit }: ReviewQueueProps) {
                               </Tooltip>
                             )}
                             {suggestion.effort_estimate && (
-                              <Tooltip content="The auditor's estimate of implementation size">
+                              <Tooltip content="The agent's estimate of implementation size">
                                 <span className={`px-2 py-0.5 rounded-full text-xs font-medium cursor-default ${effortColors[suggestion.effort_estimate]}`} tabIndex={0}>
                                   {titleCase(suggestion.effort_estimate)} Effort
                                 </span>

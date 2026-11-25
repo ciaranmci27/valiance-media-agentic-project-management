@@ -16,6 +16,7 @@ import {
   NO_ROSTER_FILTERS, SELECT_SEARCH_AFTER, type NeedsYouEntry, type RosterFacts,
 } from '@/lib/agents-ui';
 import { emptyProjectBasics, projectPayload, projectUpdatePayload, validateProjectBasics } from '@/lib/project-form';
+import { AGENT_FIELDS } from '@/lib/api/project-create';
 import { newKeyFrom, WorkspaceApiError } from '@/lib/agent-workspace';
 import { canAddAgentToProject, needsClamp, projectsLine, rosterProjects, showMoreLabel } from '@/lib/agents-ui';
 import { runPill, runTitle, triggerLabel } from '@/lib/agents-tab';
@@ -228,7 +229,7 @@ function agent(i: number, fields: Partial<RosterFacts> = {}): RosterFacts {
 
 // ── Project basics ────────────────────────────────────────────────────
 {
-  const rights = { manageBilling: false, manageMembers: true, manageContacts: true, manageAgents: false, timeOn: true };
+  const rights = { manageBilling: false, manageMembers: true, manageContacts: true, timeOn: true };
   const blank = emptyProjectBasics(ME);
   const errors = validateProjectBasics(blank, { creating: true, rights });
   check('a new project needs a name and, for who manages contacts, a client', 'name' in errors && 'clientId' in errors, errors);
@@ -242,6 +243,14 @@ function agent(i: number, fields: Partial<RosterFacts> = {}): RosterFacts {
   check('without member rights, a new project holds only its creator', noMembers.member_ids.join() === ME);
   const update = projectUpdatePayload(noMembers, { manageMembers: false, timeOn: false });
   check('an update leaves out members and time without the rights', !Object.keys(update).includes('member_ids') && !Object.keys(update).includes('time_tracking_enabled'));
+  // The fleet columns stay in the database for the fleet that reads them; core's forms never write them.
+  const everyRight = { manageBilling: true, manageMembers: true, manageContacts: true, timeOn: true };
+  const existing = { member_ids: [ME], hourly_rate: 120, autonomous_enabled: true, suggestions_per_cycle: 3, repo_path: 'acme/site' } as never;
+  const payloads = [payload, billing, noMembers, update,
+    projectPayload({ ...blank, name: 'Site' }, everyRight, existing, ME),
+    projectUpdatePayload(projectPayload({ ...blank, name: 'Site' }, everyRight, existing, ME), everyRight)];
+  const fleetKeys = payloads.flatMap((p) => Object.keys(p).filter((key) => (AGENT_FIELDS as readonly string[]).includes(key)));
+  check('project payloads never carry a fleet column', fleetKeys.length === 0, fleetKeys);
 }
 
 // ── Responses ─────────────────────────────────────────────────────────

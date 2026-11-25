@@ -46,7 +46,7 @@ interface TaskRowProps {
 }
 
 export function TaskRow({ task, onView, onDelete }: TaskRowProps) {
-  const { team, tasks, getProject, getSubtasks, getTaskUpdate } = useApp();
+  const { team, tasks, getSubtasks, getTaskUpdate } = useApp();
   const warmTask = useTaskWarmer();
   const { teamMemberId, access } = useAuth();
   const { locale } = useRegion();
@@ -152,7 +152,7 @@ export function TaskRow({ task, onView, onDelete }: TaskRowProps) {
             {isAgentsEnabled && canManageAgents && task.task_type && (
               <TaskTypeBadge taskType={task.task_type} />
             )}
-            {isAgentsEnabled && canManageAgents && task.ai_readiness === 'needs_spec' && getProject(task.project_id)?.autonomous_enabled && (
+            {isAgentsEnabled && canManageAgents && task.ai_readiness === 'needs_spec' && (
               <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium bg-sky-500/15 text-sky-300 border border-sky-500/30 rounded-full">
                 <FileQuestion size={10} aria-hidden="true" />
                 Needs spec
@@ -245,7 +245,7 @@ export function TaskRow({ task, onView, onDelete }: TaskRowProps) {
 /* Desktop table row view. Every cell below maps 1:1, in order, onto
    LIST_GRID_COLS; add or remove a column there and here together. */
 export function TaskRowDesktop({ task, onView, onDelete, selected, onToggleSelect }: TaskRowProps) {
-  const { team, tasks, getProject, getSubtasks, getTaskUpdate } = useApp();
+  const { team, tasks, getSubtasks, getTaskUpdate } = useApp();
   const warmTask = useTaskWarmer();
   const { teamMemberId, access } = useAuth();
   const { locale } = useRegion();
@@ -281,7 +281,7 @@ export function TaskRowDesktop({ task, onView, onDelete, selected, onToggleSelec
   const isBlocked = task.status !== 'done' && (task.blocked_by_ids || []).some(id => tasks.find(t => t.id === id)?.status !== 'done');
   // Only a task meant for the dev agent and still waiting on its spec is
   // flagged; a person's task (most tasks) carries no readiness chip.
-  const showSpecChip = isAgentsEnabled && canManageAgents && task.ai_readiness === 'needs_spec' && getProject(task.project_id)?.autonomous_enabled;
+  const showSpecChip = isAgentsEnabled && canManageAgents && task.ai_readiness === 'needs_spec';
 
   // Every bulk action edits the task, so only rows the viewer can edit are
   // selectable; a read-only row never joins a bulk edit it would fail.

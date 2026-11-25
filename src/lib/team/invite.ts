@@ -3,7 +3,7 @@ import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { z } from 'zod';
 import type { AccessContext } from '@/lib/access-control';
-import { canChangeSignInEmail, canInviteRole } from './invite-rules';
+import { canChangeSignInEmail, canHaveSignIn, canInviteRole, PERSONAL_AGENT_NO_SIGN_IN } from './invite-rules';
 
 /**
  * Inviting people to the workspace. The inviter gives a name, an email and a
@@ -37,6 +37,16 @@ export class InviteError extends Error {
 }
 
 export { canChangeSignInEmail, canInviteRole };
+
+/** Whether a member is a personal agent, which never signs in. A database before 20261124001300 has none. */
+async function isPersonalAgent(service: SupabaseClient, memberId: string): Promise<boolean> {
+  const { data, error } = await service.from('team_members').select('delegate_of').eq('id', memberId).maybeSingle();
+  if (error) {
+    if (['42703', 'PGRST204'].includes(error.code ?? '') || /delegate_of/.test(error.message ?? '')) return false;
+    throw new InviteError(500, error.message);
+  }
+  return !canHaveSignIn((data ?? {}) as { delegate_of?: string | null });
+}
 
 /** How long an invite link works. */
 export const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -111,6 +121,8 @@ async function liveInvite(service: SupabaseClient, token: unknown, now: Date): P
     .eq('id', invite.member_id)
     .maybeSingle();
   if (!member?.auth_user_id || member.status !== 'active') throw new InviteExpiredError();
+  // A personal agent never signs in, whatever link it was given before it was bound.
+  if (await isPersonalAgent(service, member.id)) throw new InviteExpiredError();
   const { data: user, error: userError } = await service.auth.admin.getUserById(member.auth_user_id);
   if (userError || !user?.user) throw new InviteExpiredError();
   // Someone who has signed in already has a password: the link is no longer theirs to use.
@@ -346,6 +358,7 @@ export async function reissueInvite(options: DeliveryOptions & {
   if (!member) throw new InviteError(404, 'Team member not found');
   if (member.login_owned === false) throw new InviteError(409, NOT_OUR_LOGIN);
   if (!canInviteRole(access.role, member.role)) throw new InviteError(403, 'Only an Owner can invite an Owner, an Admin or an agent');
+  if (await isPersonalAgent(service, member.id)) throw new InviteError(422, PERSONAL_AGENT_NO_SIGN_IN);
   if (!member.auth_user_id || !member.email) throw new InviteError(422, 'This person has no sign-in account');
   if (member.status !== 'active') throw new InviteError(422, 'Reactivate this person before inviting them again');
 

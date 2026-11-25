@@ -20,7 +20,9 @@ export function getEndpointScopes(endpoint: EndpointDoc): string[] {
   if (path === '/api/v1/identities' || path.startsWith('/api/v1/identities/:id')) return ['team.manage'];
   if (path.startsWith('/api/v1/identities') || path.endsWith('/identities')) return ['identities.read'];
   if (path.startsWith('/api/v1/groups')) return write ? ['groups.manage'] : ['team.read', 'team.manage', 'groups.manage'];
+  if (path === '/api/v1/api-keys/:id/rotate') return ['api_keys.manage_all', 'assistants.provision'];
   if (path.startsWith('/api/v1/api-keys')) return ['api_keys.manage_all'];
+  if (path.startsWith('/api/v1/assistants') || path.startsWith('/api/v1/assistant-setups')) return ['assistants.provision'];
   if (path.startsWith('/api/v1/webhook-endpoints')) return ['webhooks.manage'];
   if (path === '/api/v1/agents') return method === 'GET' ? ['team.read', 'team.manage'] : ['team.manage'];
   if (path === '/api/v1/agents/:id' || path === '/api/v1/agents/roles') return ['team.read', 'team.manage'];
@@ -202,6 +204,7 @@ export const endpoints: EndpointDoc[] = [
       { name: 'project', type: 'uuid', description: 'Only agents assigned to this project' },
       { name: 'status', type: 'active|suspended', description: 'Only active or suspended agents' },
       { name: 'search', type: 'string', description: 'Name contains' },
+      { name: 'personal', type: 'exclude|include|only', description: "People's personal agents: left out by default (GET /api/v1/assistants lists them), included, or only them" },
       { name: 'page', type: 'number', description: 'Page (default 1)' },
       { name: 'limit', type: 'number', description: 'Rows per page (1 to 100, default 25)' },
     ],
@@ -318,8 +321,12 @@ export const endpoints: EndpointDoc[] = [
       { name: 'permissions', type: 'scoped|read_only', required: false, description: 'read_only refuses every write the scopes would allow (default scoped)' },
     ],
   },
-  { method: 'POST', path: '/api/v1/api-keys/:id/revoke', description: 'Revoke a key, and with it every live key it made over the API, and every key those made (each gets its own audit row). Whatever uses them stops working at once, and a revoke cannot be undone; revoking again returns the key as it is. Returns the key plus cascaded_revokes, the ids of the descendants revoked with it.', group: 'API Keys',
+  { method: 'POST', path: '/api/v1/api-keys/:id/revoke', description: 'Revoke a key, and with it every live key it made over the API, and every key those made, and through rotation the keys it replaced and every key those made (each gets its own audit row). Whatever uses them stops working at once, and a revoke cannot be undone; revoking again returns the key as it is. Returns the key plus cascaded_revokes, the ids of the descendants revoked with it.', group: 'API Keys',
     params: [{ name: 'id', type: 'uuid', required: true, description: 'API key ID' }],
+  },
+  { method: 'POST', path: '/api/v1/api-keys/:id/rotate', description: "Replace a key with overlap: the successor has the same member, scopes, permissions and name, and its secret is in this answer only. The old key keeps working for overlap_hours, then ends: refused at once with 401 api_key_expired, and revoked within the hour. A key is replaced once (409 not_rotatable: rotate its newest key); a revoked or expired key cannot be (409 key_revoked, key_expired). Minting's rules apply: an Owner's key for an agent's key (403 owner_only), every scope still held by the key's member (422 scope_not_held) and carried by the calling key (403 scope_escalation). A key with assistants.provision rotates personal agents' keys only. The successor keeps the old key's place in the lineage, so revoking the key that made the old one revokes it too, and revoking the successor revokes the old key and every key it made. Revoking the old key early leaves the successor working. It lasts the workspace's agent key lifetime. Returns { key, secret, previous: { id, expires_at } } (201). The Idempotency-Key header is refused.", group: 'API Keys',
+    params: [{ name: 'id', type: 'uuid', required: true, description: 'API key ID' }],
+    body: [{ name: 'overlap_hours', type: 'number', required: false, description: 'How long the old key keeps working, 0 to 168 (default 24)' }],
   },
 
   // ─── Webhook Endpoints ────────────────────────────────────────────
@@ -2046,6 +2053,52 @@ export const endpoints: EndpointDoc[] = [
   { method: 'DELETE', path: '/api/v1/delegations/:id', description: 'Revoke one of your agent\'s delegation tokens at once (its id came with it).', group: 'Acting For Someone',
     params: [{ name: 'id', type: 'uuid', required: true, description: 'Delegation ID' }],
   },
+  // Personal agents
+  { method: 'GET', path: '/api/v1/assistants', description: "People's personal agents (one per person per template, bound to that person): each with its person, template, status (paused_with_person when its person's suspension paused it) and live keys, never a secret. Paginated. A personal agent's access is always its own and its person's together, on every call, with or without X-Act-For, and what it makes records its person as principal_id.", group: 'Personal Agents',
+    queryParams: [
+      { name: 'needs_key', type: 'boolean', description: 'Only active ones with no live key: the ones to collect a key for' },
+      { name: 'person_id', type: 'uuid', description: "Only this person's" },
+      { name: 'page', type: 'number', description: 'Page number' },
+      { name: 'limit', type: 'number', description: 'Items per page' },
+    ],
+  },
+  { method: 'POST', path: '/api/v1/assistants/:id/key', description: "The harness that runs personal agents collects one agent's key, once, so no person ever handles it: 409 key_exists while it has a live key (rotate that one instead). The key carries the agent's template scopes (or scopes), narrowed to what the agent holds with its person and this key carries; left_out names the rest. Minting's rules apply, so this is an Owner's key. The key records this one, so revoking this key revokes every key it collected. Returns { key, secret, left_out } (201); the secret is shown only here, and the Idempotency-Key header is refused.", group: 'Personal Agents',
+    params: [{ name: 'id', type: 'uuid', required: true, description: "The personal agent's member ID" }],
+    body: [
+      { name: 'name', type: 'string', required: false, description: "The key's name (default: the agent's name, then key)" },
+      { name: 'scopes', type: 'string[]', required: false, description: "Instead of the template's scopes; each must be grantable (422 scope_not_held, 403 scope_escalation)" },
+      { name: 'read_only', type: 'boolean', required: false, description: 'Refuse every write' },
+    ],
+  },
+  { method: 'POST', path: '/api/v1/assistants/provision', description: "Make a personal agent for every active person an enabled setup matches (by role, or by being in its group) who has none from its template. Idempotent: the database keeps one per person per template, so a second run makes nothing. Paged by people (limit); call again until remaining is 0. dry_run writes nothing and pages with after (next_after). Agents are made without keys. An Owner's key only. Returns setups, skipped_setups, agents (each with its person, setup_id, template_key and agent_id), total_missing, remaining and next_after.", group: 'Personal Agents',
+    body: [
+      { name: 'dry_run', type: 'boolean', required: false, description: 'Only say what would be made' },
+      { name: 'setup_id', type: 'uuid', required: false, description: 'Run one setup' },
+      { name: 'limit', type: 'number', required: false, description: 'People per call, 1 to 500 (default 100)' },
+      { name: 'after', type: 'uuid', required: false, description: "A dry run's next page: the next_after it gave" },
+    ],
+  },
+  { method: 'GET', path: '/api/v1/assistant-setups', description: "Assistant setups: which template a role or a group gets for its people's personal agents, with default settings, on or off. An Owner's key only.", group: 'Personal Agents' },
+  { method: 'POST', path: '/api/v1/assistant-setups', description: 'Add a setup. New people with its role get their personal agent when they join; POST /api/v1/assistants/provision covers everyone already here. 409 setup_exists when the role or group already has one with this template. Returns the setup (201).', group: 'Personal Agents',
+    body: [
+      { name: 'match_role', type: 'owner|admin|member|guest', required: false, description: 'The role it matches (or match_group_id, exactly one)' },
+      { name: 'match_group_id', type: 'uuid', required: false, description: 'The group it matches' },
+      { name: 'template_key', type: 'string', required: false, description: 'The template its agents are made from (default personal-assistant)' },
+      { name: 'settings', type: 'object', required: false, description: 'name_template ({first_name}, {name}), title, description, rules (agent_self_assign, agent_close_policy, agent_create_policy)' },
+      { name: 'enabled', type: 'boolean', required: false, description: 'On (default) or off' },
+    ],
+  },
+  { method: 'PATCH', path: '/api/v1/assistant-setups/:id', description: "Change a setup's template, settings or whether it is on. What it matches never changes.", group: 'Personal Agents',
+    params: [{ name: 'id', type: 'uuid', required: true, description: 'Setup ID' }],
+    body: [
+      { name: 'template_key', type: 'string', required: false, description: 'Another template' },
+      { name: 'settings', type: 'object', required: false, description: 'Replaces its settings' },
+      { name: 'enabled', type: 'boolean', required: false, description: 'On or off' },
+    ],
+  },
+  { method: 'DELETE', path: '/api/v1/assistant-setups/:id', description: 'Remove a setup. The agents it made stay with their people.', group: 'Personal Agents',
+    params: [{ name: 'id', type: 'uuid', required: true, description: 'Setup ID' }],
+  },
 ];
 
 export const groups = [...new Set(endpoints.map(e => e.group))];
@@ -2065,7 +2118,7 @@ export const IDEMPOTENCY_DOC = {
     'A retry while the first request is still running gets 409 IDEMPOTENCY_IN_FLIGHT. Wait a moment and retry with the same key.',
     'Only successful (2xx) answers are kept. An error is not, so a retry runs the request again and can succeed.',
     'MCP create tools (create_task, add_task_comment, ask_human, add_reminder and the other add_ and create_ tools) take the same thing as an idempotency_key argument, sharing this store. submit_triage_plan and record_email_triage pass theirs in the body instead, as the plan and triage routes keep their own key per email.',
-    'A POST whose answer holds a secret shown once (POST /api/v1/api-keys, POST /api/v1/webhook-endpoints) refuses the header with 400 idempotency_not_supported, so no secret is ever stored or handed out twice. After a timeout, list what exists before trying again.',
+    'A POST whose answer holds a secret shown once (POST /api/v1/api-keys, POST /api/v1/api-keys/{id}/rotate, POST /api/v1/assistants/{id}/key, POST /api/v1/webhook-endpoints) refuses the header with 400 idempotency_not_supported, so no secret is ever stored or handed out twice. After a timeout, list what exists before trying again.',
   ],
 } as const;
 
@@ -2083,6 +2136,7 @@ export const ACT_FOR_DOC = {
     'A token lasts 15 minutes and is bound to one agent: another agent\'s key, an expired or revoked token, or a key without agents.act_for is refused with 401 (reason act_for_invalid) or 403. A suspended person is 403 principal_suspended.',
     "What is the agent's own rather than the person's stays out of reach: its questions, runs and reminders count only on projects both reach (or, on nothing, when made for this same person); its bell, inboxes and shared credentials answer 403 act_for_not_allowed.",
     'Without the header nothing changes: the key acts as its agent, as before.',
+    "A personal agent (bound to one person) always acts for that person, with or without the header: its access is its own and its person's together, and principal_id is its person. A token it sends must name that same person (403 delegate_only).",
     'Accounts resolve only once verified: GET /api/v1/identities/resolve answers who a chat account is, and POST /api/v1/identities/link-requests gives a one-time link for a person to verify theirs. Send that link as a direct message to the account itself, with member_id when you know who it is.',
   ],
 } as const;
@@ -2113,6 +2167,7 @@ const GROUP_MODULE: Record<string, ModuleId> = {
   'Agent Runs': 'agents',
   'Agent Setup': 'agents',
   'Acting For Someone': 'agents',
+  'Personal Agents': 'agents',
   'Webhook Endpoints': 'webhooks',
 };
 

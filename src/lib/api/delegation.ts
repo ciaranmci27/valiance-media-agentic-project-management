@@ -115,6 +115,10 @@ export async function mintForSession(
   if (!agent || agent.role !== 'agent') throw notFound('Agent');
   if (agent.status === 'suspended') throw forbidden('This agent is suspended', { reason: 'agent_suspended' });
   const agentAccess = await resolveMemberAccess(service, agentId);
+  // Another person's personal agent never acts for you.
+  if (agentAccess?.principal_id && agentAccess.principal_id !== person.memberId) {
+    throw forbidden('This is someone else\'s personal agent', { reason: 'delegate_only' });
+  }
   if (!agentAccess || !accessAllows(agentAccess, 'agents.act_for', 'api')) {
     throw forbidden('This agent may not act for people: an Owner grants it Act for a person first', { reason: 'agent_cannot_act_for', needs: 'agents.act_for' });
   }
@@ -153,6 +157,14 @@ export async function verifyActFor(
   if (new Date(row.expires_at).getTime() <= Date.now()) throw actForInvalid('This delegation token expired');
   // Bound to one agent: another agent's key never borrows it.
   if (row.agent_id !== key.team_member_id) throw actForInvalid('This delegation token belongs to another agent');
+  // A personal agent already acts for its person (its access is theirs and
+  // its own together): a token may only name that same person.
+  if (agentAccess.principal_id) {
+    if (row.principal_id !== agentAccess.principal_id) {
+      throw forbidden('A personal agent acts only for the person it works for', { reason: 'delegate_only' });
+    }
+    return { principalId: row.principal_id, tokenId: row.id, access: agentAccess };
+  }
   const scopes = Array.isArray(key.scopes) ? key.scopes : [];
   if (!scopes.includes('agents.act_for') || !accessAllows(agentAccess, 'agents.act_for', 'api')) {
     throw new ApiError(403, 'FORBIDDEN', 'Acting for someone needs agents.act_for on both this key and its agent', {

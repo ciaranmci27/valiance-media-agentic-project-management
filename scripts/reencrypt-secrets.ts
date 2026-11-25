@@ -27,15 +27,15 @@ async function main() {
   if (process.argv.includes('--status')) {
     const status = await encryptionStatus(service);
     console.log(`APP_ENCRYPTION_KEY: ${status.appKey}`);
-    console.log(`Still on older keys: ${status.remaining.smtp} email password(s), ${status.remaining.credentials} credential(s)`);
+    console.log(`Still on older keys: ${status.remaining.smtp} email password(s), ${status.remaining.credentials} credential(s); ${status.remaining.webhooks} webhook signing secret(s) not yet encrypted`);
     if (status.legacyKeys.length) console.log(`Older keys still set: ${status.legacyKeys.join(', ')}`);
     return 0;
   }
   const result = await reencryptAll(service);
-  console.log(`Moved ${result.moved.smtp} email password(s) and ${result.moved.credentials} credential(s) to APP_ENCRYPTION_KEY.`);
+  console.log(`Moved ${result.moved.smtp} email password(s), ${result.moved.credentials} credential(s) and ${result.moved.webhooks} webhook signing secret(s) to APP_ENCRYPTION_KEY.`);
   const failed = result.failed.smtp.length + result.failed.credentials.length;
   if (failed) console.log(`${failed} could not be opened with the older keys (they are left as they are). Check SMTP_ENCRYPTION_KEY and PROJECT_CREDENTIALS_ENCRYPTION_KEY.`);
-  const left = result.status.remaining.smtp + result.status.remaining.credentials;
+  const left = result.status.remaining.smtp + result.status.remaining.credentials + result.status.remaining.webhooks;
   console.log(left ? `${left} still on older keys.` : 'Nothing left on older keys: you can remove SMTP_ENCRYPTION_KEY and PROJECT_CREDENTIALS_ENCRYPTION_KEY.');
   return failed ? 1 : 0;
 }

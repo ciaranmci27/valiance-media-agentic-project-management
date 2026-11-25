@@ -34,7 +34,7 @@ export function BundleApproveModal({
 }) {
   const { team } = useApp();
 
-  // The auditor's stated reason is the best default name for the task.
+  // the proposing agent's stated reason is the best default name for the task.
   let bundleReason: string | null = null;
   for (const s of suggestions) {
     const r = (s.metadata as Record<string, unknown> | null)?.bundle_reason;

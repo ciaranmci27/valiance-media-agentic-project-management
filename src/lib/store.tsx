@@ -488,7 +488,6 @@ interface AppContextType {
   // Agent helpers
   getGoalsByProject: (projectId: string) => ProjectGoal[];
   getSuggestionsByGoal: (goalId: string) => TaskSuggestion[];
-  getPendingSuggestionCount: () => number;
 
   // Time Entry CRUD
   addTimeEntry: (entry: Omit<TimeEntry, 'id' | 'created_at' | 'updated_at'>) => void;
@@ -3977,7 +3976,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const unbundleSuggestionAction = async (id: string) => {
     const suggestion = taskSuggestions.find(s => s.id === id);
     if (!suggestion) return false;
-    // metadata.unbundled is the marker the auditor respects: a manual
+    // metadata.unbundled is the marker an auditing agent respects: a manual
     // unbundle is final, never re-proposed into a bundle.
     const nextMetadata = { ...((suggestion.metadata || {}) as Record<string, unknown>), unbundled: true };
     setTaskSuggestions(s => s.map(sug => sug.id === id ? { ...sug, bundle_key: null, metadata: nextMetadata } : sug));
@@ -4337,7 +4336,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const getGoalsByProject = (projectId: string) => projectGoals.filter(g => g.project_id === projectId);
   const getSuggestionsByGoal = (goalId: string) => taskSuggestions.filter(s => s.goal_id === goalId);
-  const getPendingSuggestionCount = () => taskSuggestions.filter(s => s.status === 'pending').length;
 
   // Helpers
   const getProject = (id: string) => projects.find(p => p.id === id);
@@ -4663,7 +4661,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
       bulkDeclineSuggestions: bulkDeclineSuggestionsAction,
       getGoalsByProject,
       getSuggestionsByGoal,
-      getPendingSuggestionCount,
       getProject,
       getTasksByProject,
       getTeamMember,

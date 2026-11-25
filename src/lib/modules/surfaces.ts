@@ -70,7 +70,7 @@ export const MODULE_SURFACES: Record<ModuleId, ModuleSurface> = {
   webhooks: {
     tables: ['webhook_endpoints', 'webhook_events', 'webhook_deliveries'],
     rpcs: ['claim_webhook_deliveries', 'complete_webhook_delivery', 'requeue_webhook_delivery', 'webhook_retry_kick'],
-    routes: ['api/internal/webhooks', 'api/v1/webhook-endpoints', 'webhooks/docs'],
+    routes: ['api/internal/webhooks', 'api/v1/webhook-endpoints', 'api/workspace/webhook-endpoints', 'webhooks/docs'],
   },
   contacts: {
     tables: ['contacts', 'contact_emails', 'project_contacts'],
@@ -131,6 +131,8 @@ export const MODULE_SURFACES: Record<ModuleId, ModuleSurface> = {
       'agent_owner_groups', 'delegation_tokens',
       // What a provider's subscription costs, for the Analytics estimate.
       'provider_plans',
+      // Personal agents by role or group.
+      'assistant_setups',
     ],
     // The question sums for Agents > Analytics.
     rpcs: ['agent_question_stats'],
@@ -142,6 +144,8 @@ export const MODULE_SURFACES: Record<ModuleId, ModuleSurface> = {
       'api/v1/agents/me/projects', 'api/v1/projects/[id]/agents',
       'api/workspace/agents', 'api/workspace/agent-templates', 'api/workspace/projects/[id]/agents',
       'api/v1/delegations', 'api/workspace/delegations',
+      // People's personal agents, their setups and the harness collecting their keys.
+      'api/v1/assistants', 'api/v1/assistant-setups', 'api/workspace/assistants',
       '(protected)/agent',
     ],
   },
@@ -168,6 +172,8 @@ export const CORE_ROUTES: string[] = [
   'api/workspace/access', 'api/workspace/api-keys', 'api/workspace/brand', 'api/workspace/me', 'api/workspace/region', 'api/workspace/modules', 'api/workspace/setup-checks', 'api/workspace/secrets', 'api/workspace/encryption', 'api/workspace/webhook-retries', 'api/welcome',
   'api/workspace/projects', 'api/workspace/questions', 'api/workspace/tasks', 'api/workspace/team-directory', 'api/workspace/team-members',
   'api/workspace/updates',
+  // How long new agent keys last (Owner only), with AI agents on or off.
+  'api/workspace/key-settings',
   // Groups and linked identities (chat accounts) are about people, with AI agents on or off.
   'api/v1/groups', 'api/v1/identities', 'api/v1/members', 'api/workspace/groups', 'api/workspace/identities', '(protected)/link',
   // The install's own routes and pages (src/custom): each item names its own module, permission or role.

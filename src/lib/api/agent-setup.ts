@@ -8,13 +8,14 @@ import {
 import { agentRulesOf, AGENT_RULE_FIELDS, type AgentRules } from '@/lib/agent-rules';
 import { patchProject, API_KEY_COLUMNS } from '@/lib/supabase/queries';
 import type { ApiKey } from '@/lib/types';
-import { accessAllowsProject, apiKeyAllows, resolveMemberAccess, resolveProjectAccessLevels } from './access';
+import { accessAllowsProject, apiKeyAllows, delegateOf, resolveMemberAccess, resolveProjectAccessLevels } from './access';
 import { generateApiKey, hashApiKey } from './crypto';
 import { ApiError, forbidden, notFound } from './errors';
 import { listWebhookEndpoints } from './webhook-endpoints';
 import { appUrlFor, inviteMember, InviteError } from '@/lib/team/invite';
 import type { AgentProfile } from '@/lib/mcp/profiles';
 import { ownersOf } from './agent-owners';
+import { agentKeyExpiry } from './key-lifetime';
 
 /**
  * Setting up an agent over the v1 API and MCP: the rules that keep a key
@@ -31,6 +32,11 @@ import { ownersOf } from './agent-owners';
  *   assigned tasks), which is why only an Owner gives out an agent's sign-in
  *   (invite-rules.ts); a key for it follows the same rule. Never for an Owner
  *   other than yourself, never for another person: people make their own keys.
+ *   The one exception: a person makes keys for their own personal agent
+ *   (team_members.delegate_of), whose access is already theirs and its own
+ *   together.
+ * - A new agent key lasts the workspace's agent key lifetime
+ *   (business_settings.agent_key_lifetime_days; null: until revoked).
  * - A key made by a key records it (created_by_key_id), so revoking the
  *   parent revokes it too (lib/api/key-revoke.ts).
  * - Project access is changed only for agents, and only on projects the
@@ -50,6 +56,8 @@ export interface SetupTarget {
   name: string;
   role: string;
   self: boolean;
+  /** For a personal agent, the person it works for (its access is theirs and its own together). */
+  delegateOf: string | null;
   access: AccessContext;
 }
 
@@ -69,7 +77,8 @@ export async function loadSetupTarget(service: SupabaseClient, granter: Granter,
   }
   const access = data.id === granter.memberId ? granter.access : await resolveMemberAccess(service, data.id);
   if (!access) throw new Error(`Could not resolve access for member ${data.id}`);
-  return { id: data.id, name: data.name, role: data.role, self: data.id === granter.memberId, access };
+  const delegate = data.role === 'agent' ? await delegateOf(service, data.id) : null;
+  return { id: data.id, name: data.name, role: data.role, self: data.id === granter.memberId, delegateOf: delegate, access };
 }
 
 /** Agent members only: an Owner is never changed over the API, and people are configured in the app. */
@@ -92,7 +101,10 @@ export async function checkKeyGrant(
   input: { memberId: string; scopes: string[] },
 ): Promise<{ target: SetupTarget; scopes: string[] }> {
   const target = await loadSetupTarget(service, granter, input.memberId);
-  if (!target.self) {
+  // A person makes keys for their own personal agent: its access is theirs
+  // and its own together, so every scope below is held by both.
+  const ownPersonalAgent = target.role === 'agent' && !!target.delegateOf && target.delegateOf === granter.memberId;
+  if (!target.self && !ownPersonalAgent) {
     if (target.role === 'owner') {
       throw forbidden('A key is never made for an Owner other than yourself', { reason: 'owner_protected' });
     }
@@ -148,9 +160,14 @@ const missingColumn = (error: { code?: string; message?: string } | null) =>
  */
 export async function insertApiKey(
   service: SupabaseClient,
-  input: { name: string; memberId: string; createdBy: string; createdByKeyId: string | null; scopes: string[]; permissions: 'scoped' | 'read_only' },
+  input: {
+    name: string; memberId: string; createdBy: string; createdByKeyId: string | null; scopes: string[]; permissions: 'scoped' | 'read_only';
+    /** Left out: the workspace's lifetime for an agent's key (agentKeyExpiry), none for a person's. */
+    expiresAt?: string | null;
+  },
 ): Promise<{ key: ApiKey & { created_by_key_id: string | null }; secret: string }> {
   const secret = generateApiKey();
+  const expiresAt = input.expiresAt !== undefined ? input.expiresAt : await agentKeyExpiry(service, input.memberId);
   const { data, error } = await service
     .from('api_keys')
     .insert({
@@ -163,6 +180,7 @@ export async function insertApiKey(
       scopes: input.scopes,
       // A key made by a signed-in Owner (the hire flow) has no parent key, as one made in Settings.
       ...(input.createdByKeyId ? { created_by_key_id: input.createdByKeyId } : {}),
+      ...(expiresAt ? { expires_at: expiresAt } : {}),
     })
     .select(API_KEY_COLUMNS)
     .single();

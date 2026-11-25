@@ -74,7 +74,6 @@ export function ProjectSetupFlow() {
     manageBilling: hasPermission(access, 'billing.manage'),
     manageMembers: hasPermission(access, 'project_members.manage'),
     manageContacts: hasPermission(access, 'contacts.manage'),
-    manageAgents: false,
     timeOn: isModuleEnabled(access, 'time'),
   };
   const canCreate = hasPermission(access, 'projects.manage') && !isDemoMode;

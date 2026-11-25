@@ -141,8 +141,12 @@ export interface ResolvedApiKey {
   keyRow: ApiKeyRow;
   /** With an X-Act-For token: the agent's and the person's access together. */
   access: AccessContext;
-  /** Set when a valid X-Act-For token came with the key. */
-  principal: { id: string; tokenId: string } | null;
+  /**
+   * Set when a valid X-Act-For token came with the key (tokenId), and always
+   * for a personal agent's key: the person it works for (tokenId null when
+   * no token came).
+   */
+  principal: { id: string; tokenId: string | null; personal: boolean } | null;
 }
 
 /**
@@ -156,6 +160,11 @@ export interface ResolvedApiKey {
  * token must be live and the agent's own (else 401 act_for_invalid), and the
  * access answered is the agent's and the person's together. Without it,
  * nothing changes.
+ *
+ * A personal agent (team_members.delegate_of) always acts for its person:
+ * resolveMemberAccess answers its access and theirs together, and the person
+ * is the principal with or without the header. A token it sends must name
+ * that same person (else 403 delegate_only).
  */
 export async function resolveApiKey(apiKey: string | null, actFor: string | null = null): Promise<ResolvedApiKey> {
   if (!apiKey) throw unauthorized('Missing x-api-key header', { reason: 'missing_api_key' });
@@ -184,9 +193,9 @@ export async function resolveApiKey(apiKey: string | null, actFor: string | null
   if (!access || access.status !== 'active') throw forbidden('Linked team member is suspended', { reason: 'member_suspended' });
   if (actFor !== null) {
     const acting = await verifyActFor(supabase, actFor, keyRow as ApiKeyRow, access);
-    return { supabase, keyRow: keyRow as ApiKeyRow, access: acting.access, principal: { id: acting.principalId, tokenId: acting.tokenId } };
+    return { supabase, keyRow: keyRow as ApiKeyRow, access: acting.access, principal: { id: acting.principalId, tokenId: acting.tokenId, personal: !!access.principal_id } };
   }
-  return { supabase, keyRow: keyRow as ApiKeyRow, access, principal: null };
+  return { supabase, keyRow: keyRow as ApiKeyRow, access, principal: access.principal_id ? { id: access.principal_id, tokenId: null, personal: true } : null };
 }
 
 /** The X-Act-For token on a request: the header, else the one the MCP server carries for its in-process calls. */
@@ -285,15 +294,20 @@ export function withApi<TBody = unknown, TParams = Record<string, string>>(
       // Acting for a person, routes that read what is the agent's own by
       // grant rather than by project (its bell, the inboxes and credentials
       // shared with it) are closed: nothing there is the person's.
+      // A personal agent's own bell stays its own; inboxes and credentials
+      // shared with it are closed, as for any agent acting for someone.
       if (principal) {
         const path = request.nextUrl.pathname;
+        const ownBell = principal.personal;
         const ownByGrant = path.startsWith('/api/v1/inbox') || path.startsWith('/api/v1/inbound-emails')
           || /^\/api\/v1\/tasks\/[^/]+\/messages/.test(path) || path.includes('/credentials')
-          || (path.startsWith('/api/v1/notifications') && !(method === 'POST' && /^\/api\/v1\/notifications\/?$/.test(path)));
+          || (!ownBell && path.startsWith('/api/v1/notifications') && !(method === 'POST' && /^\/api\/v1\/notifications\/?$/.test(path)));
         if (ownByGrant) {
           throw forbidden('This is not available while acting for someone', {
             reason: 'act_for_not_allowed',
-            hint: 'Send the request without X-Act-For: it reads what is shared with your agent itself, not with the person.',
+            hint: ownBell
+              ? 'A personal agent works within its person\'s reach: inboxes and credentials shared with the agent itself stay closed.'
+              : 'Send the request without X-Act-For: it reads what is shared with your agent itself, not with the person.',
           });
         }
       }

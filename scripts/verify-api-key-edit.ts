@@ -58,7 +58,8 @@ async function seed(db: PGlite) {
       scopes text[] NOT NULL DEFAULT '{}',
       expires_at timestamptz,
       disabled_at timestamptz,
-      created_by_key_id uuid REFERENCES pm.api_keys(id)
+      created_by_key_id uuid REFERENCES pm.api_keys(id),
+      rotated_from uuid REFERENCES pm.api_keys(id)
     );
     CREATE TABLE pm.business_settings (id serial PRIMARY KEY, api_enabled boolean NOT NULL DEFAULT true);
     CREATE TABLE pm.role_permissions (role text, permission_key text, access_channel text);

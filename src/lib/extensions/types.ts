@@ -61,6 +61,17 @@ export interface ProjectTabExtension extends ExtensionAccess {
   component: ComponentType<{ project: Project }>;
 }
 
+/**
+ * A small badge beside a project's name on the Projects list and project
+ * cards, after the core badges. The component gets the project and returns
+ * null when the badge does not apply to it.
+ */
+export interface ProjectBadgeExtension extends ExtensionAccess {
+  /** Letters, numbers and dashes. */
+  key: string;
+  component: ComponentType<{ project: Project }>;
+}
+
 /** A card on the Dashboard. */
 export interface DashboardWidgetExtension extends ExtensionAccess {
   key: string;
@@ -120,6 +131,7 @@ export interface ExtensionsInput {
   navItems?: NavItemExtension[];
   pages?: PageExtension[];
   projectTabs?: ProjectTabExtension[];
+  projectBadges?: ProjectBadgeExtension[];
   dashboardWidgets?: DashboardWidgetExtension[];
   agentAnalyticsCards?: AgentAnalyticsCardExtension[];
   settingsSections?: SettingsSectionExtension[];

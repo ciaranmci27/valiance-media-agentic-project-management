@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { AGENT_RULE_FIELDS, agentRulesOf, type AgentRules, type AgentRulesUpdate } from '@/lib/agent-rules';
 import { insertComment } from '@/lib/supabase/queries';
+import { delegateOf } from './access';
 import { firstActiveOwner, ownerGroupIds } from './agent-owners';
 import { ApiError } from './errors';
 import { activeGroupMembers, liveGroup } from './groups';
@@ -84,7 +85,8 @@ async function reachableGroup(supabase: SupabaseClient, groupId: string | null):
 }
 
 /**
- * Who an agent escalates to: its own agent_escalate_to while that member is
+ * Who an agent escalates to: a personal agent's person while they are
+ * active, then its own agent_escalate_to while that member is
  * active, else its agent_escalate_to_group while that group is live with an
  * active member, else its first active owner (pm.agent_owners, oldest
  * first), else its first owner group with an active member, else the
@@ -94,6 +96,12 @@ async function reachableGroup(supabase: SupabaseClient, groupId: string | null):
  */
 export async function escalationRecipient(supabase: SupabaseClient, memberId: string): Promise<EscalationRecipient | null> {
   const member = await loadMemberRules(supabase, memberId);
+  // A personal agent escalates to its person while they are active.
+  const person = member.isAgent ? await delegateOf(supabase, memberId).catch(() => null) : null;
+  if (person) {
+    const { data } = await supabase.from('team_members').select('id').eq('id', person).eq('status', 'active').maybeSingle();
+    if (data) return { kind: 'member', id: person };
+  }
   const chosen = member.isAgent ? member.rules.agent_escalate_to : null;
   if (chosen) {
     const { data } = await supabase.from('team_members').select('id').eq('id', chosen).eq('status', 'active').maybeSingle();

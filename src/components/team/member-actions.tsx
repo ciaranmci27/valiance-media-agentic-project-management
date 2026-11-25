@@ -7,7 +7,7 @@ import { useAuth } from '@/lib/auth-context';
 import { useDemo } from '@/lib/demo-context';
 import { useRead } from '@/lib/query-cache';
 import { hasPermission } from '@/lib/access-control';
-import { canInviteRole } from '@/lib/team/invite-rules';
+import { canHaveSignIn, canInviteRole } from '@/lib/team/invite-rules';
 import type { TeamMember } from '@/lib/types';
 import type { RowAction } from '@/components/ui/RowActionsMenu';
 import { toast } from '@/components/ui/Toast';
@@ -77,7 +77,7 @@ export function useMemberActions() {
 
   /** Not signed in yet, and this person may invite someone of that role. */
   const canInvite = (member: TeamMember) =>
-    canManageTeam && pending.has(member.id) && member.status !== 'suspended' && canInviteRole(access?.role ?? '', member.role);
+    canManageTeam && pending.has(member.id) && member.status !== 'suspended' && canInviteRole(access?.role ?? '', member.role) && canHaveSignIn(member);
 
   const canEdit = (member: TeamMember) => canManageTeam || member.id === teamMemberId;
   const canSuspend = (member: TeamMember) =>

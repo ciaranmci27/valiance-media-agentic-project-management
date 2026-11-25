@@ -35,6 +35,12 @@ export function useCustomProjectTabs() {
   return useMemo(() => visibleTo(access, extensions.projectTabs), [access]);
 }
 
+/** The install's badges beside a project's name on project lists and cards, filtered for this member. */
+export function useCustomProjectBadges() {
+  const { access } = useAuth();
+  return useMemo(() => visibleTo(access, extensions.projectBadges), [access]);
+}
+
 export function useCustomDashboardWidgets(placement: 'top' | 'bottom') {
   const { access } = useAuth();
   return useMemo(

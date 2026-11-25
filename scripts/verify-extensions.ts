@@ -5,6 +5,9 @@
  * - API routes are session routes unless they say otherwise; public only when
  *   written out; a route's auth runs before its handler, every time.
  * - Module, permission and role filtering hide what a member may not see.
+ * - Core reads src/custom only through the starter's entry files, so project
+ *   tabs, project badges and analytics cards render nothing with an empty
+ *   starter; no core screen reads or edits the fleet columns.
  * - The brand is not in code: the old site config and core's logo files are
  *   gone, and no core file reaches for them.
  * - The Next config merge joins arrays and runs both redirect lists.
@@ -28,6 +31,7 @@ import {
   placeNavItems,
   settingsSectionAllowed,
   visibleNavItems,
+  visibleTo,
 } from '../src/lib/extensions/registry';
 import { dispatchApiRoute, type ApiDispatchDeps } from '../src/lib/extensions/api';
 import { mergeNextConfig } from '../src/lib/extensions/next-config';
@@ -84,6 +88,8 @@ function registry() {
     const starter = readFileSync(join(__dirname, '..', '..', 'release', 'app-custom-stubs', 'src', 'custom', 'index.ts'), 'utf8');
     check('stubs: the starter src/custom/index.ts is an empty registry', /export default defineExtensions\(\{\}\);/.test(starter));
     check('own install: src/custom/index.ts validates', Object.values(customExtensions).every((list) => Array.isArray(list)));
+    check('own install: the fleet settings tab and badge come from src/custom',
+      customExtensions.projectTabs.some((tab) => tab.key === 'fleet') && customExtensions.projectBadges.some((badge) => badge.key === 'autonomous'));
     check('stubs: src/custom/api.ts has no routes', customApi.length === 0);
     check('stubs: src/custom/middleware.ts opens no paths', customPublicPaths.length === 0);
   }
@@ -114,19 +120,43 @@ function registry() {
     agentAnalyticsCards: [{ key: 'a', title: 'A', component: Noop, permission: 'agents.everything' as never }],
   })));
   check('registry: no agent analytics cards by default, so core renders none', defineExtensions({}).agentAnalyticsCards.length === 0);
+  const dupBadge = thrown(() => defineExtensions({
+    projectBadges: [{ key: 'retainer', component: Noop }, { key: 'retainer', component: Noop }],
+  }));
+  check('registry: duplicate project badge keys are refused', !!dupBadge && dupBadge.includes('key "retainer"'), dupBadge);
+  check('registry: a project badge key with capitals is refused', !!thrown(() => defineExtensions({ projectBadges: [{ key: 'Retainer', component: Noop }] })));
+  check('registry: a project badge with an unknown module is refused', !!thrown(() => defineExtensions({
+    projectBadges: [{ key: 'a', component: Noop, module: 'nope' as never }],
+  })));
+  check('registry: no project badges by default, so core renders none', defineExtensions({}).projectBadges.length === 0);
   {
-    // Core never reaches into an install's own cards: the Analytics tab renders with none.
-    const coreFiles: string[] = [];
-    const walk = (dir: string) => {
-      for (const name of readdirSync(dir, { withFileTypes: true })) {
-        const full = join(dir, name.name);
-        if (name.isDirectory()) { if (full !== join(__dirname, '..', 'src', 'custom')) walk(full); }
-        else if (/\.(ts|tsx)$/.test(name.name)) coreFiles.push(full);
-      }
-    };
-    walk(join(__dirname, '..', 'src'));
-    const reaching = coreFiles.filter((file) => /['\"]@\/custom\/analytics/.test(readFileSync(file, 'utf8')));
-    check('core imports none of an install\'s analytics cards', reaching.length === 0, reaching);
+    // Core never reaches into an install's own code: it reads src/custom only
+    // through the starter's entry files, so the Analytics tab, the project
+    // tabs and the project badges render with an empty starter.
+    const app = join(__dirname, '..');
+    const custom = join(app, 'src', 'custom');
+    const coreFiles = filesUnder(join(app, 'src'), (path) => path === custom).filter((file) => /\.(ts|tsx)$/.test(file));
+    const ENTRY_FILES = new Set(['', 'index', 'api', 'agent-templates', 'agent-profiles', 'middleware', 'next.config', 'theme.css']);
+    // Static, side-effect and dynamic imports, by alias or by a relative path at any depth.
+    const customImport = /(?:\bfrom\s+|\bimport\s*\(\s*|\bimport\s+)['"](?:@\/|(?:\.\.?\/)+)custom(?:\/([^'"]*))?['"]/g;
+    const reaching = coreFiles.flatMap((file) => [...readFileSync(file, 'utf8').matchAll(customImport)]
+      .filter((m) => !ENTRY_FILES.has((m[1] ?? '').replace(/\.(ts|tsx)$/, '')))
+      .map((m) => `${file.slice(app.length + 1)}: ${m[0]}`));
+    check('core imports only the starter entry files from src/custom, never an install card or fleet screen', coreFiles.length > 100 && reaching.length === 0, reaching);
+    if (IS_SOURCE) {
+      // The fleet screens moved to Valiance's own src/custom/fleet; core keeps no copy.
+      const gone = ['AgentSettingsCard', 'ProjectPipelineStrip', 'AuditQuestionsCard', 'FleetStatusStrip', 'AutonomousProjects', 'AgentProjectsTab']
+        .map((name) => `src/components/agent/${name}.tsx`).concat('src/lib/audit-questions.ts')
+        .filter((path) => existsSync(join(app, path)));
+      check('fleet: the old core fleet components are gone', gone.length === 0, gone);
+    }
+    // The fleet columns stay in the database for the live fleet; no core screen reads or edits them.
+    const fleetColumns = /\b(autonomous_enabled|auto_merge_enabled|integration_branch|production_branch|suggestion_queue_cap|audit_interval_hours|sensitive_paths|suggestions_per_cycle|repo_path)\b/;
+    const screens = filesUnder(join(app, 'src', 'components'), () => false)
+      .concat(filesUnder(join(app, 'src', 'app'), (path) => path === join(app, 'src', 'app', 'api')))
+      .filter((file) => /\.tsx?$/.test(file) && fleetColumns.test(readFileSync(file, 'utf8')))
+      .map((file) => file.slice(app.length + 1));
+    check('fleet: no core screen reads or edits a fleet column', screens.length === 0, screens);
   }
   const dupSection = thrown(() => defineExtensions({
     settingsSections: [{ key: 'crm', label: 'A', icon: Icon, component: Noop }, { key: 'crm', label: 'B', icon: Icon, component: Noop }],
@@ -167,6 +197,18 @@ function filtering() {
   check('filter: a role rule hides from a signed-out viewer', !extensionAllowed(null, { roles: ['member'] }));
   check('filter: settings sections are Owners only by default', settingsSectionAllowed(owner, {}) && !settingsSectionAllowed(member, {}));
   check('filter: a settings section opens wider with a permission', settingsSectionAllowed(member, { permission: 'projects.read' }));
+
+  const badges = defineExtensions({
+    projectBadges: [
+      { key: 'everyone', component: Noop },
+      { key: 'agents', component: Noop, module: 'agents', permission: 'agents.manage' },
+    ],
+  }).projectBadges;
+  const agentsOff = access('owner', ['agents.manage'], MODULE_IDS.filter((id) => id !== 'agents'));
+  check('filter: a project badge without a rule shows to everyone', visibleTo(member, badges).map((b) => b.key).join() === 'everyone');
+  check('filter: a project badge shows with its module on and its permission held',
+    visibleTo(access('owner', ['agents.manage']), badges).map((b) => b.key).join() === 'everyone,agents');
+  check('filter: a project badge hides while its module is off', visibleTo(agentsOff, badges).map((b) => b.key).join() === 'everyone');
 
   const ext = defineExtensions({
     pages: [

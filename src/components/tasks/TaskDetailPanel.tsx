@@ -706,9 +706,7 @@ export function TaskDetailPanel({ task, onClose, onDelete, variant = 'panel' }: 
             <p className="col-span-2 -mt-1 text-xs text-zinc-400">
               {task.ai_readiness === 'needs_spec'
                 ? 'Meant for an agent; the spec is not written yet.'
-                : project?.autonomous_enabled
-                  ? 'An agent may pick this task up on its own.'
-                  : 'Ready for the dev agent once this project runs on its own.'}
+                : 'An agent may pick this task up on its own.'}
             </p>
           )}
           <DetailRow icon={Briefcase} label="Task type">

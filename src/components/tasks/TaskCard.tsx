@@ -97,7 +97,7 @@ export function TaskCard({ task, onView, onDelete, onMove }: TaskCardProps) {
   const openSubtasks = subtaskList.filter(s => s.status !== 'done');
   const doneSubtasks = subtaskList.filter(s => s.status === 'done');
   const loudPriority = task.priority === 'high' || task.priority === 'urgent';
-  const needsSpec = isAgentsEnabled && canManageAgents && task.ai_readiness === 'needs_spec' && !!getProject(task.project_id)?.autonomous_enabled;
+  const needsSpec = isAgentsEnabled && canManageAgents && task.ai_readiness === 'needs_spec';
   const openBlockers = task.status === 'done' ? [] : (task.blocked_by_ids || [])
     .map(id => tasks.find(t => t.id === id))
     .filter((t): t is Task => !!t && t.status !== 'done');

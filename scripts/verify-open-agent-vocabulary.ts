@@ -156,7 +156,7 @@ const KNOWN_EVENTS: Record<string, { payload: Record<string, unknown>; title: st
   'turn.failed': { payload: { source_turn_id: 'cron:f1', failure: 'dead', started_at: T0, finished_at: T1, duration_ms: 240000, error: 'gone', job_name: 'Work', trigger: 'schedule' }, title: 'Turn died mid-run: Work' },
   'agent.restarted': { payload: { kind: 'container', started_at: T0, deploy_commit: 'abc1234', source_ref: 'restart:container:t0' }, title: 'Container restarted' },
   'attention.message': { payload: { kind: 'blocking_question', at: T1, solicited: false, session_id: 's1', source_ref: 'attention:s1:c1' }, title: 'Asked a blocking question' },
-  'dispatch.wake': { payload: { kind: 'state_change', at: T1, waited_seconds: 42, source_ref: 'wake:t1' }, title: 'Woken by the dispatcher after 42s' },
+  'dispatch.wake': { payload: { kind: 'state_change', at: T1, waited_seconds: 42, source_ref: 'wake:t1' }, title: 'Woken by a state change after 42s' },
   'billing.gap': { payload: { start: T0, end: T1, minutes: 4, phase: 'mid_turn', origin: 'scheduled', source_turn_id: 'cron:w1' }, title: 'Billing gap: 4 min mid turn' },
   'eval.result': { payload: { suite: 'finance', score: 18, total: 20, passed: 18, failed: 2, complete: true, model: 'gpt-b', started_at: '20261010T190000Z' }, title: 'Eval finance: 18/20' },
   'review.started': { payload: { task_title: 'Fix the checkout total', round: 1, pr_url: PR }, title: 'Review round 1 started: PR #12' },

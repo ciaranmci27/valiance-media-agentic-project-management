@@ -30,7 +30,6 @@ export interface ProjectFormRights {
   manageBilling: boolean;
   manageMembers: boolean;
   manageContacts: boolean;
-  manageAgents: boolean;
   /** The Time module is on: off, a save leaves the stored setting alone. */
   timeOn: boolean;
 }
@@ -78,9 +77,8 @@ export function validateProjectBasics(fields: ProjectBasics, opts: { creating: b
 export function projectPayload(
   fields: ProjectBasics,
   rights: ProjectFormRights,
-  existing: Pick<Project, 'member_ids' | 'hourly_rate' | 'autonomous_enabled' | 'suggestions_per_cycle' | 'repo_path'> | null,
+  existing: Pick<Project, 'member_ids' | 'hourly_rate'> | null,
   self: string | null,
-  agentFields?: { autonomous_enabled: boolean; suggestions_per_cycle: number },
 ): Omit<Project, 'id' | 'created_at' | 'updated_at'> {
   return {
     name: fields.name.trim(),
@@ -103,13 +101,6 @@ export function projectPayload(
           billing_address: fields.billingAddress.trim() || null,
           billing_email: fields.billingEmail.trim() || null,
           tax_rate: numberOrNull(fields.taxRate),
-        }
-      : {}),
-    ...(rights.manageAgents && agentFields
-      ? {
-          autonomous_enabled: agentFields.autonomous_enabled,
-          suggestions_per_cycle: agentFields.suggestions_per_cycle,
-          repo_path: existing?.repo_path ?? null,
         }
       : {}),
   } as Omit<Project, 'id' | 'created_at' | 'updated_at'>;

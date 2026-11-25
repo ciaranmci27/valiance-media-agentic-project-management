@@ -35,7 +35,7 @@ export function EncryptionSection() {
   const [moved, setMoved] = useState<number | null>(null);
 
   const status = read.data;
-  const needed = !!status && (status.appKey !== 'set' || status.remaining.smtp + status.remaining.credentials > 0);
+  const needed = !!status && (status.appKey !== 'set' || status.remaining.smtp + status.remaining.credentials + status.remaining.webhooks > 0);
 
   const move = async () => {
     setMoving(true);
@@ -43,8 +43,8 @@ export function EncryptionSection() {
     setFailures(null);
     try {
       const result = await moveToAppKey();
-      const count = result.moved.smtp + result.moved.credentials;
-      const failed = result.failed.smtp.length + result.failed.credentials.length;
+      const count = result.moved.smtp + result.moved.credentials + result.moved.webhooks;
+      const failed = result.failed.smtp.length + result.failed.credentials.length + result.failed.webhooks.length;
       if (failed > 0) setFailures(result.failed);
       setMoved(count);
       setOutcome(failed > 0 && count === 0
@@ -220,7 +220,7 @@ function KeySet({
   failures,
   onMove,
 }: {
-  remaining: { smtp: number; credentials: number };
+  remaining: { smtp: number; credentials: number; webhooks: number };
   legacyKeys: string[];
   /** Values the move on this visit put on the new key; null before one. */
   moved: number | null;
@@ -229,10 +229,11 @@ function KeySet({
   failures: ReencryptResult['failed'] | null;
   onMove: () => void;
 }) {
-  const left = remaining.smtp + remaining.credentials;
+  const left = remaining.smtp + remaining.credentials + remaining.webhooks;
   const parts = [
     ...(remaining.smtp ? [plural(remaining.smtp, 'email password', 'email passwords')] : []),
     ...(remaining.credentials ? [plural(remaining.credentials, 'project credential', 'project credentials')] : []),
+    ...(remaining.webhooks ? [plural(remaining.webhooks, 'webhook signing secret', 'webhook signing secrets')] : []),
   ];
 
   const failureNotes: string[] = [];

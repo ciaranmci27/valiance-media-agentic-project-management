@@ -6,6 +6,7 @@ import { logAudit } from '@/lib/api/audit';
 import { forbidden } from '@/lib/api/errors';
 import { accessAllows } from '@/lib/api/access';
 import { canInviteRole } from '@/lib/team/invite-rules';
+import { autoProvisionOnJoin } from '@/lib/api/personal-agents';
 
 export const GET = withApi(async ({ supabase, searchParams, access }) => {
   const { page, limit, offset } = parsePagination(searchParams);
@@ -55,5 +56,7 @@ export const POST = withApi(async ({ supabase, body, apiKeyId, teamMemberId, acc
 
   if (error) throw error;
   logAudit(supabase, { method: 'POST', endpoint: '/api/v1/team-members', entityType: 'team_member', entityId: data.id, apiKeyId, teamMemberId, requestBody: body, afterSnapshot: data, statusCode: 201 });
+  // A person whose role has an assistant setup gets their personal agent now (never fails the add).
+  if (data.role !== 'agent') await autoProvisionOnJoin(supabase, data.id, teamMemberId);
   return created(data);
 }, { schema: createTeamMemberSchema });

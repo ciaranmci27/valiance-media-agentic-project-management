@@ -89,6 +89,11 @@ export interface AgentFilters {
   project?: string | null;
   status?: string | null;
   search?: string | null;
+  /**
+   * People's personal agents: left out by default (they have their own list,
+   * /assistants), included, or only them.
+   */
+  personal?: 'exclude' | 'include' | 'only' | null;
   offset: number;
   limit: number;
 }
@@ -98,7 +103,12 @@ export function agentFiltersFrom(searchParams: URLSearchParams): Omit<AgentFilte
   if (status && !['active', 'suspended'].includes(status)) {
     throw new ApiError(422, 'VALIDATION_ERROR', 'status is active or suspended', { reason: 'invalid_filter' });
   }
+  const personal = searchParams.get('personal');
+  if (personal && !['exclude', 'include', 'only'].includes(personal)) {
+    throw new ApiError(422, 'VALIDATION_ERROR', 'personal is exclude, include or only', { reason: 'invalid_filter' });
+  }
   return {
+    personal: personal as AgentFilters['personal'],
     role: searchParams.get('role'),
     owner: searchParams.get('owner'),
     template: searchParams.get('template'),
@@ -196,15 +206,26 @@ export async function listAgents(service: SupabaseClient, viewer: AgentCaller, f
     narrow([...new Set(rows.map((row) => row.agent_id))]);
   }
 
-  let query = service.from('team_members').select(MEMBER_LIST_COLUMNS, { count: 'exact' }).eq('role', 'agent');
-  if (scope.ids !== null) query = query.in('id', scope.ids.length ? scope.ids : NO_MATCH);
-  if (filters.role) query = query.eq('agent_role', filters.role);
-  if (filters.status) query = query.eq('status', filters.status);
-  if (filters.search) {
-    const term = filters.search.replace(/[,().%*\\]/g, '').trim();
-    if (term) query = query.ilike('name', `%${term}%`);
+  const personal = filters.personal ?? 'exclude';
+  const page = (byPersonal: boolean) => {
+    let query = service.from('team_members').select(MEMBER_LIST_COLUMNS, { count: 'exact' }).eq('role', 'agent');
+    if (scope.ids !== null) query = query.in('id', scope.ids.length ? scope.ids : NO_MATCH);
+    if (filters.role) query = query.eq('agent_role', filters.role);
+    if (filters.status) query = query.eq('status', filters.status);
+    if (filters.search) {
+      const term = filters.search.replace(/[,().%*\\]/g, '').trim();
+      if (term) query = query.ilike('name', `%${term}%`);
+    }
+    if (byPersonal && personal === 'exclude') query = query.is('delegate_of', null);
+    if (byPersonal && personal === 'only') query = query.not('delegate_of', 'is', null);
+    return query.order('name').range(filters.offset, filters.offset + filters.limit - 1);
+  };
+  let { data, error, count } = await page(personal !== 'include');
+  // Before 20261124001300 there are no personal agents: every agent is shared.
+  if (error && personal !== 'include' && /delegate_of/.test(error.message ?? '')) {
+    if (personal === 'only') return { rows: [], total: 0 };
+    ({ data, error, count } = await page(false));
   }
-  const { data, error, count } = await query.order('name').range(filters.offset, filters.offset + filters.limit - 1);
   if (missingSchema(error)) throw migrationPending();
   if (error) throw error;
   const members = (data ?? []) as unknown as Row[];

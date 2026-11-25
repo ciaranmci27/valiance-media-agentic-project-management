@@ -33,3 +33,9 @@ export const createMemberApiKeySchema = z.object({
   permissions: z.enum(['scoped', 'read_only']).default('scoped'),
 }).strict();
 export type CreateMemberApiKey = z.infer<typeof createMemberApiKeySchema>;
+
+/** Body of POST .../api-keys/{id}/rotate: how long the old key keeps working (hours, default 24). */
+export const rotateApiKeySchema = z.object({
+  overlap_hours: z.number().min(0).max(168).optional(),
+}).strict();
+export type RotateApiKey = z.infer<typeof rotateApiKeySchema>;

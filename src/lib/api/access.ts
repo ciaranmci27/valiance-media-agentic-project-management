@@ -1,6 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
-import { hasPermission, isModuleEnabled, type AccessContext, type PermissionKey, type TeamRole } from '@/lib/access-control';
+import { hasPermission, intersectAccess, isModuleEnabled, type AccessContext, type PermissionKey, type TeamRole } from '@/lib/access-control';
 import { createClient } from '@/lib/supabase/server';
 import { sessionUser, type SessionUser } from '@/lib/supabase/session-user';
 import { getActorClient, getServiceClient } from '@/lib/api/supabase-service';
@@ -80,8 +80,57 @@ export async function resolveMemberAccess(
 
   if (!member) return null;
 
-  return accessForMember(service, member);
+  const access = await accessForMember(service, member);
+  if (!access || access.role !== 'agent') return access;
+  // A personal agent never holds more than its person, whoever asks.
+  let person: string | null;
+  try {
+    person = await delegateOf(service, member.id);
+  } catch {
+    return null;
+  }
+  if (!person) return access;
+  const personAccess = await resolveMemberAccess(service, person);
+  if (!personAccess || personAccess.role === 'agent') return null;
+  return personalAgentAccess(access, personAccess);
 }
+
+/**
+ * The person a personal agent works for (team_members.delegate_of), or null.
+ * A database before 20261124001300_personal_agents_secrets.sql has none.
+ */
+export async function delegateOf(service: SupabaseClient, memberId: string): Promise<string | null> {
+  const { data, error } = await service.from('team_members').select('delegate_of').eq('id', memberId).maybeSingle();
+  if (error) {
+    if (isSchemaMissingError(error)) return null;
+    throw error;
+  }
+  return (data as { delegate_of?: string | null } | null)?.delegate_of ?? null;
+}
+
+/**
+ * A personal agent's access: its own and its person's together
+ * (intersectAccess), with principal_id naming the person. It reaches exactly
+ * the projects its person reaches: viewing assigned projects counts as
+ * viewing every project before the intersection, so its own project
+ * memberships add nothing and the person's reach decides. Its own
+ * bookkeeping (PERSONAL_AGENT_OWN_PERMISSIONS: recording its own runs and
+ * events) stays its own, since people never hold it and it reads nothing of
+ * theirs.
+ */
+export function personalAgentAccess(agent: AccessContext, person: AccessContext): AccessContext {
+  const reachAll = (list: AccessContext['api_permissions']): AccessContext['api_permissions'] =>
+    (list.includes('projects.read') && !list.includes('projects.read_all') ? [...list, 'projects.read_all'] : list);
+  const withOwn = (theirs: AccessContext['api_permissions'], mine: AccessContext['api_permissions']): AccessContext['api_permissions'] =>
+    [...theirs, ...PERSONAL_AGENT_OWN_PERMISSIONS.filter((permission) => mine.includes(permission) && !theirs.includes(permission))];
+  return intersectAccess(
+    { ...agent, app_permissions: reachAll(agent.app_permissions), api_permissions: reachAll(agent.api_permissions) },
+    { ...person, app_permissions: withOwn(person.app_permissions, agent.app_permissions), api_permissions: withOwn(person.api_permissions, agent.api_permissions) },
+  );
+}
+
+/** What a personal agent keeps of its own when its access meets its person's: writing its own activity, never reading anything. */
+export const PERSONAL_AGENT_OWN_PERMISSIONS: readonly PermissionKey[] = ['agent_activity.write'];
 
 /**
  * The permission half of resolveMemberAccess, for a caller that has already

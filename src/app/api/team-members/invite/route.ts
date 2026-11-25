@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { requireSessionAccess } from '@/lib/api/access';
+import { autoProvisionOnJoin } from '@/lib/api/personal-agents';
 import { appUrlFor, inviteMember, inviteSchema, InviteError, type InviteInput } from '@/lib/team/invite';
 
 /**
@@ -8,7 +9,8 @@ import { appUrlFor, inviteMember, inviteSchema, InviteError, type InviteInput } 
  * person gets a set-your-password link, emailed when SMTP is set up and
  * always returned as `invite.link`. With a password (older API callers) the
  * account signs in with it and `invite` is null. The body is the member row
- * either way, plus `invite`.
+ * either way, plus `invite`, and `assistants`: the personal agents an
+ * enabled assistant setup for their role made for them on joining.
  */
 export async function POST(req: NextRequest) {
   const auth = await requireSessionAccess({ permission: 'team.manage', memberColumns: 'name' });
@@ -33,7 +35,9 @@ export async function POST(req: NextRequest) {
       appUrl: appUrlFor(req.nextUrl.origin),
       inviterName: typeof memberRow?.name === 'string' ? memberRow.name : null,
     });
-    return NextResponse.json({ ...member, invite }, { status: 201 });
+    // A person whose role has an assistant setup gets their personal agent now (never fails the invite).
+    const assistants = input.role === 'agent' ? [] : await autoProvisionOnJoin(service, member.id, access.member_id);
+    return NextResponse.json({ ...member, invite, assistants }, { status: 201 });
   } catch (error) {
     if (error instanceof InviteError) return NextResponse.json({ error: error.message }, { status: error.status });
     return NextResponse.json({ error: error instanceof Error ? error.message : 'Failed to invite' }, { status: 500 });

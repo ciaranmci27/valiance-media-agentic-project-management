@@ -28,6 +28,7 @@ import { compareReminders, reminderGroup } from '@/lib/reminders';
 import { UnreadLabel, useCardUnread } from '@/components/tasks/TaskUnread';
 import { MyTaskSubtasks, type SubtaskFlag } from '@/components/tasks/MyTaskSubtasks';
 import { appLocale } from '@/lib/region';
+import { pendingSuggestionsInReach } from '@/lib/suggestion-reach';
 
 /**
  * Radar: the owner's attention surface. Three bands, strictest first:
@@ -149,7 +150,7 @@ function RadarPageContent() {
   // now": they are batch review work with their own home (the Agent queue
   // and its badge), not a one-click action here.
   const pendingSuggestions = isAgentsEnabled && canManageAgents
-    ? taskSuggestions.filter(s => s.status === 'pending').length
+    ? pendingSuggestionsInReach(taskSuggestions, projects).length
     : 0;
 
   const inProgress = useMemo(

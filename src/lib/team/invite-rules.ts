@@ -17,3 +17,16 @@ export function canInviteRole(inviterRole: string, role: string): boolean {
   if (role === 'owner' || role === 'admin' || role === 'agent') return inviterRole === 'owner';
   return true;
 }
+
+/**
+ * A personal agent (bound to one person, team_members.delegate_of) never
+ * signs in: it works through keys its harness collects, and a login would
+ * let whoever holds it act outside its person's reach. No invite, no
+ * set-password link, and the Team page offers neither.
+ */
+export function canHaveSignIn(member: { delegate_of?: string | null }): boolean {
+  return !member.delegate_of;
+}
+
+/** Why a personal agent gets no sign-in link, in the words the Team page and the API show. */
+export const PERSONAL_AGENT_NO_SIGN_IN = 'A personal agent never signs in: it works through keys its harness collects.';

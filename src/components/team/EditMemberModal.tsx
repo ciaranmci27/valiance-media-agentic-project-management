@@ -337,7 +337,7 @@ function EditMemberForm({ member, onClose }: { member: TeamMember; onClose: () =
             label="Title"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
-            placeholder={'e.g. "Developer", "Auditor"'}
+            placeholder={'e.g. "Developer", "Reviewer"'}
           />
 
           <Input

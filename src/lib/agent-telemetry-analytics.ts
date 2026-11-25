@@ -11,7 +11,7 @@ import { normalizePullRequestUrl } from '@/lib/agent-analytics';
  * Rules this file keeps:
  * - Every kind of time is tracked and labelled; none is folded into another.
  *   A turn without an outcome (published before outcomes existed) is
- *   `unlabelled`: never work, never idle. A directed (Telegram) turn is work,
+ *   `unlabelled`: never work, never idle. A directed (chat) turn is work,
  *   because a person started it.
  * - Effective runtime is outcome work only, minus rework on approved work.
  * - Lines are elapsed time. Overlapping turns of one agent are counted once,
@@ -34,7 +34,7 @@ export type TimeLine = 'work' | 'rework' | 'blocked' | 'waiting' | 'idle' | 'ski
  */
 export const TIME_LINES: TimeLine[] = ['work', 'rework', 'blocked', 'waiting', 'idle', 'skipped', 'unknown', 'unlabelled', 'failed'];
 
-export type TurnTrigger = 'schedule' | 'direct' | 'telegram' | 'unrecorded';
+export type TurnTrigger = 'schedule' | 'direct' | 'directed' | 'unrecorded';
 
 export interface Turn {
   id: string;
@@ -340,7 +340,7 @@ const emptyLines = (): LineTotals => ({
 });
 
 const triggerOf = (origin: string, trigger: unknown): TurnTrigger =>
-  origin === 'directed' ? 'telegram' : trigger === 'schedule' || trigger === 'direct' ? trigger : 'unrecorded';
+  origin === 'directed' ? 'directed' : trigger === 'schedule' || trigger === 'direct' ? trigger : 'unrecorded';
 
 function tokenTotal(tokens: unknown): number | null {
   if (!tokens || typeof tokens !== 'object') return null;
@@ -688,12 +688,12 @@ export function computeTelemetryAnalytics(input: TelemetryInput): TelemetryAnaly
       .sort((a, b) => b.activeMs - a.activeMs);
   };
   const byJob = breakdown((t) => t.origin === 'directed'
-    ? { key: 'directed', label: 'Directed (Telegram)' }
+    ? { key: 'directed', label: 'Directed by a person' }
     : { key: `job:${t.jobName ?? ''}`, label: t.jobName ?? 'Job not recorded' });
   const TRIGGER_LABELS: Record<TurnTrigger, string> = {
     schedule: 'Scheduled tick',
-    direct: 'Dispatcher wake',
-    telegram: 'Directed (Telegram)',
+    direct: 'Woken on demand',
+    directed: 'Directed by a person',
     unrecorded: 'Trigger not recorded',
   };
   const byTrigger = breakdown((t) => ({ key: t.trigger, label: TRIGGER_LABELS[t.trigger] }));

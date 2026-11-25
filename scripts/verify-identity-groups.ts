@@ -779,7 +779,7 @@ async function main() {
     check('scope: a key without agents.act_for cannot use one', scopeLost.status === 403 && reason(scopeLost) === 'missing_key_scope', scopeLost.body);
     await s.q("UPDATE pm.team_members SET status = 'suspended' WHERE id = $1", [s.morgan]);
     const suspendedUse = await v1(v1Project.GET, 'GET', `/api/v1/projects/${s.shared}`, { id: s.shared }, s.keys.finn, undefined, actFor);
-    check('suspended: a token for a suspended person stops working', suspendedUse.status === 403 && reason(suspendedUse) === 'principal_suspended', suspendedUse.body);
+    check('suspended: suspending the person revokes the token (the deprovision cascade)', suspendedUse.status === 401 && reason(suspendedUse) === 'act_for_invalid' && /revoked/.test(suspendedUse.body?.error?.message ?? ''), suspendedUse.body);
     await s.q("UPDATE pm.team_members SET status = 'active' WHERE id = $1", [s.morgan]);
     await s.q("UPDATE pm.delegation_tokens SET expires_at = now() - interval '1 second' WHERE id = $1", [grant.body.data.id]);
     const expiredUse = await v1(v1Project.GET, 'GET', `/api/v1/projects/${s.shared}`, { id: s.shared }, s.keys.finn, undefined, actFor);

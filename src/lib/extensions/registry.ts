@@ -77,6 +77,7 @@ export function defineExtensions(input: ExtensionsInput = {}): Extensions {
   const navItems = input.navItems ?? [];
   const pages = (input.pages ?? []).map((page) => ({ ...page, slug: normalizeSlug(page.slug ?? '') }));
   const projectTabs = input.projectTabs ?? [];
+  const projectBadges = input.projectBadges ?? [];
   const dashboardWidgets = input.dashboardWidgets ?? [];
   const agentAnalyticsCards = input.agentAnalyticsCards ?? [];
   const settingsSections = input.settingsSections ?? [];
@@ -99,6 +100,8 @@ export function defineExtensions(input: ExtensionsInput = {}): Extensions {
 
   checkKeys(projectTabs, 'project tabs');
   projectTabs.forEach((tab) => checkAccess(`project tab ${tab.key}`, tab));
+  checkKeys(projectBadges, 'project badges');
+  projectBadges.forEach((badge) => checkAccess(`project badge ${badge.key}`, badge));
   checkKeys(dashboardWidgets, 'dashboard widgets');
   dashboardWidgets.forEach((widget) => {
     if (widget.placement && !['top', 'bottom'].includes(widget.placement)) fail(`dashboard widget ${widget.key}: placement is 'top' or 'bottom'.`);
@@ -113,7 +116,7 @@ export function defineExtensions(input: ExtensionsInput = {}): Extensions {
   checkKeys(settingsSections, 'settings sections');
   settingsSections.forEach((section) => checkAccess(`settings section ${section.key}`, section));
 
-  return Object.freeze({ navItems, pages, projectTabs, dashboardWidgets, agentAnalyticsCards, settingsSections });
+  return Object.freeze({ navItems, pages, projectTabs, projectBadges, dashboardWidgets, agentAnalyticsCards, settingsSections });
 }
 
 // ---------------------------------------------------------------------------
