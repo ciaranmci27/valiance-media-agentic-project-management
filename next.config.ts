@@ -36,7 +36,7 @@ const coreNextConfig: NextConfig = {
   // localhost and 127.0.0.1 are different origins as far as this check is concerned,
   // so anything opened via the IP (browser typed it, an automated tool, etc.) got its
   // /_next/* asset requests blocked as cross-origin without this.
-  allowedDevOrigins: ['127.0.0.1', '192.168.127.227', '100.79.77.23', '**.ts.net'],
+  allowedDevOrigins: ['127.0.0.1', '192.168.127.227', '100.79.77.23', 'valiance-vps', '100.92.204.26', '**.ts.net'],
 
   // The Connect AI consent screen and sign-in never load inside another site's frame.
   async headers() {
