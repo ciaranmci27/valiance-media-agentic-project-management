@@ -3,7 +3,7 @@ import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { z } from 'zod';
 import type { AccessContext } from '@/lib/access-control';
-import { canChangeSignInEmail, canHaveSignIn, canInviteRole, PERSONAL_AGENT_NO_SIGN_IN } from './invite-rules';
+import { canChangeSignInEmail, canHaveSignIn, canInviteRole, NOT_OUR_LOGIN, PERSONAL_AGENT_NO_SIGN_IN } from './invite-rules';
 
 /**
  * Inviting people to the workspace. The inviter gives a name, an email and a
@@ -99,8 +99,8 @@ interface LiveInvite {
   authEmail: string | null;
 }
 
-/** The invite behind a token, if it can still be used. Reads only; spends nothing. */
-async function liveInvite(service: SupabaseClient, token: unknown, now: Date): Promise<LiveInvite> {
+/** The unused, unexpired invite behind a token and its active member. Reads only; spends nothing. */
+async function inviteRecord(service: SupabaseClient, token: unknown, now: Date): Promise<Omit<LiveInvite, 'authEmail'>> {
   if (typeof token !== 'string' || !TOKEN_SHAPE.test(token)) throw new InviteExpiredError();
   const hash = hashInviteToken(token);
   const { data: invite, error } = await service
@@ -123,6 +123,12 @@ async function liveInvite(service: SupabaseClient, token: unknown, now: Date): P
   if (!member?.auth_user_id || member.status !== 'active') throw new InviteExpiredError();
   // A personal agent never signs in, whatever link it was given before it was bound.
   if (await isPersonalAgent(service, member.id)) throw new InviteExpiredError();
+  return { invite, member };
+}
+
+/** The invite behind a token, if it can still be used. Reads only; spends nothing. */
+async function liveInvite(service: SupabaseClient, token: unknown, now: Date): Promise<LiveInvite> {
+  const { invite, member } = await inviteRecord(service, token, now);
   const { data: user, error: userError } = await service.auth.admin.getUserById(member.auth_user_id);
   if (userError || !user?.user) throw new InviteExpiredError();
   // Someone who has signed in already has a password: the link is no longer theirs to use.
@@ -167,6 +173,56 @@ export async function redeemInvite(
   const email = authEmail ?? member.email;
   if (!email) throw new InviteError(500, 'This account has no email to sign in with');
   return { email };
+}
+
+/** Why accepting an invite with Google was refused, as a sign-in error code the page explains. */
+export class GoogleInviteError extends InviteError {
+  constructor(public code: 'invite_email' | 'invite_expired' | 'invite_other_login') {
+    super(code === 'invite_expired' ? 410 : code === 'invite_email' ? 403 : 409, code);
+  }
+}
+
+const sameEmail = (a: string | null | undefined, b: string | null | undefined) =>
+  !!a && !!b && a.trim().toLowerCase() === b.trim().toLowerCase();
+
+/**
+ * Accepts an invite with Google, after the Google sign-in. Supabase links a
+ * Google account to the invited login by itself when their emails match (the
+ * invited login is confirmed), so the signed-in user must be the invited
+ * login, and the Google account's email must be the invited email.
+ * Otherwise nothing changes: a different email is refused (invite_email),
+ * and the same email on a separate login is never linked here
+ * (invite_other_login). The invite is used once; a login another app made
+ * never has a set-password link to accept.
+ */
+export async function acceptInviteWithGoogle(
+  service: SupabaseClient,
+  input: { token: unknown; userId: string; googleEmail: string | null; now?: Date },
+): Promise<{ memberId: string }> {
+  const now = input.now ?? new Date();
+  let record: Omit<LiveInvite, 'authEmail'>;
+  try {
+    record = await inviteRecord(service, input.token, now);
+  } catch (error) {
+    if (error instanceof InviteExpiredError) throw new GoogleInviteError('invite_expired');
+    throw error;
+  }
+  const { invite, member } = record;
+  const { data: owned } = await service.from('team_members').select('login_owned').eq('id', member.id).maybeSingle();
+  if ((owned as { login_owned?: boolean } | null)?.login_owned === false) throw new GoogleInviteError('invite_expired');
+  const { data: invited } = await service.auth.admin.getUserById(member.auth_user_id);
+  const invitedEmail = invited?.user?.email ?? member.email;
+  if (!sameEmail(input.googleEmail, invitedEmail)) throw new GoogleInviteError('invite_email');
+  if (input.userId !== member.auth_user_id) throw new GoogleInviteError('invite_other_login');
+  const { data: claimed, error: claimError } = await service
+    .from('team_invites')
+    .update({ used_at: now.toISOString() })
+    .eq('id', invite.id)
+    .is('used_at', null)
+    .select('id');
+  if (claimError) throw new InviteError(500, claimError.message);
+  if (!claimed?.length) throw new GoogleInviteError('invite_expired');
+  return { memberId: member.id };
 }
 
 export interface MailMessage { to: string; subject: string; html: string; text: string }
@@ -240,8 +296,7 @@ async function addMember(service: SupabaseClient, args: { authUserId: string; em
   return row;
 }
 
-/** A login PM did not make (another app's user): PM never changes its email, password or links. */
-export const NOT_OUR_LOGIN = 'This person signs in with an account from another app, so it is managed there.';
+export { NOT_OUR_LOGIN };
 
 /** The email has a login on this project that was never confirmed: never linked. */
 export const UNCONFIRMED_LOGIN = 'This email already has an account in another app here, but it has not been confirmed. Ask them to confirm their email in that app, then invite them again.';

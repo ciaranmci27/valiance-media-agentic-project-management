@@ -26,8 +26,10 @@ const SUPABASE_STANDINS = `
   CREATE SCHEMA auth;
   GRANT USAGE ON SCHEMA auth TO authenticated, anon, service_role;
   CREATE TABLE auth.users (id uuid PRIMARY KEY, email text, raw_user_meta_data jsonb DEFAULT '{}'::jsonb,
-    raw_app_meta_data jsonb DEFAULT '{}'::jsonb, email_confirmed_at timestamptz,
-    created_at timestamptz DEFAULT now());
+    raw_app_meta_data jsonb DEFAULT '{}'::jsonb, email_confirmed_at timestamptz, encrypted_password text,
+    last_sign_in_at timestamptz, created_at timestamptz DEFAULT now());
+  CREATE TABLE auth.identities (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid NOT NULL, provider text NOT NULL,
+    identity_data jsonb DEFAULT '{}'::jsonb, created_at timestamptz DEFAULT now());
   CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE
     AS $$ SELECT nullif(current_setting('request.jwt.claim.sub', true), '')::uuid $$;
   CREATE FUNCTION auth.role() RETURNS text LANGUAGE sql STABLE

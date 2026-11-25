@@ -30,3 +30,6 @@ export function canHaveSignIn(member: { delegate_of?: string | null }): boolean 
 
 /** Why a personal agent gets no sign-in link, in the words the Team page and the API show. */
 export const PERSONAL_AGENT_NO_SIGN_IN = 'A personal agent never signs in: it works through keys its harness collects.';
+
+/** A login PM did not make (another app's user): PM never changes its email, password or links. */
+export const NOT_OUR_LOGIN = 'This person signs in with an account from another app, so it is managed there.';

@@ -41,11 +41,11 @@ export const EMAIL_PAGES = {
 
 export const SETTINGS_GROUPS: SettingsGroup[] = [
   // Your own account first: everyone has it, so it is also where /settings opens.
-  { key: 'account', href: '/settings/account', label: 'Account', icon: User, sectionIds: ['profile', 'timezone', 'password', 'connect-ai', 'appearance'] },
+  { key: 'account', href: '/settings/account', label: 'Account', icon: User, sectionIds: ['profile', 'timezone', 'sign-in', 'password', 'connect-ai', 'appearance'] },
   // New versions of the app and how to install them (Owners only).
   { key: 'updates', href: '/settings/updates', label: 'Updates', icon: CircleArrowUp, sectionIds: ['updates'] },
-  // Workspace-wide: the modules, the brand and the region (Owners only).
-  { key: 'workspace', href: '/settings/workspace', label: 'Workspace', icon: LayoutGrid, sectionIds: ['features', 'brand', 'region', 'company-knowledge', 'provider-plans', 'encryption'] },
+  // Workspace-wide: the modules, the brand, how people sign in and the region (Owners only).
+  { key: 'workspace', href: '/settings/workspace', label: 'Workspace', icon: LayoutGrid, sectionIds: ['features', 'brand', 'sign-in-methods', 'region', 'company-knowledge', 'provider-plans', 'encryption'] },
   { key: 'notifications', href: '/settings/notifications', label: 'Notifications', icon: Bell, sectionIds: ['notifications'] },
   // Invoice details (Client invoicing) and hour approvals (either money
   // module). Was Business, at /settings/business, which still redirects here;
@@ -152,7 +152,8 @@ export function useSettingsAccess() {
     myInbox: canConnectOwnInbox,
     // The Resend keys mail arrives through: Owners only, with the Inbox on.
     receiving: isOwner && !isDemoMode && isModuleEnabled(access, 'inbox'),
-    password: !isDemoMode,
+    // Your own password and Google link. The demo workspace shows a sample, with nothing to change.
+    signIn: true,
     // The exclusions filter portal analytics, so they go with the portal.
     analyticsExclusions: canManageSettings && isModuleEnabled(access, 'portal'),
     // Hidden when the environment forces demo mode on.
@@ -165,13 +166,15 @@ export function useSettingsAccess() {
     auditLog: isOwner && !isDemoMode,
     // Your own AI tools (Connect AI): every person; agents never sign in.
     connectAi: access?.role !== 'agent',
+    // Email and password, Google or both: Owners only. The demo workspace shows it, with nothing to change.
+    signInMethods: isOwner,
     // Whether people may connect AI tools at all: Owners only.
     connectAiSetting: isOwner && !isDemoMode,
   };
 
   // A group shows in the menu while at least one of its sections does.
   const visibleGroups: Record<SettingsGroupKey, boolean> = {
-    workspace: show.features || show.brand || show.region || show.companyKnowledge || show.providerPlans || show.encryption,
+    workspace: show.features || show.brand || show.signInMethods || show.region || show.companyKnowledge || show.providerPlans || show.encryption,
     updates: show.updates,
     account: true,
     notifications: true,

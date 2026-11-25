@@ -4,11 +4,12 @@ import { EncryptionSection } from '@/components/settings/workspace/EncryptionSec
 import { BrandSection } from '@/components/settings/workspace/BrandSection';
 import { FeaturesSection } from '@/components/settings/workspace/FeaturesSection';
 import { RegionSection } from '@/components/settings/workspace/RegionSection';
+import { SignInMethodsSection } from '@/components/settings/workspace/SignInMethodsSection';
 import { ProviderPlansSection } from '@/components/settings/workspace/ProviderPlansSection';
 import { CompanyKnowledgeSection } from '@/components/settings/workspace/CompanyKnowledgeSection';
 import { useSettingsAccess } from '@/components/settings/settings-groups';
 
-/** Workspace: the parts of the app the workspace uses, its brand, its region, company knowledge, AI provider plans and, while it needs attention, its encryption key (Owners only). */
+/** Workspace: the parts of the app the workspace uses, its brand, how people sign in, its region, company knowledge, AI provider plans and, while it needs attention, its encryption key (Owners only). */
 export default function WorkspaceSettingsPage() {
   const { show } = useSettingsAccess();
   return (
@@ -21,6 +22,11 @@ export default function WorkspaceSettingsPage() {
       {show.brand && (
         <div id="brand" className="scroll-mt-6">
           <BrandSection />
+        </div>
+      )}
+      {show.signInMethods && (
+        <div id="sign-in-methods" className="scroll-mt-6">
+          <SignInMethodsSection />
         </div>
       )}
       {show.region && (

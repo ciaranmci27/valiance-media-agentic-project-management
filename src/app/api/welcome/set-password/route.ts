@@ -1,11 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServiceClient } from '@/lib/api/supabase-service';
 import { InviteError, InviteExpiredError, peekInvite, redeemInvite } from '@/lib/team/invite';
+import { googleProviderState, signInMethodsOrDefault } from '@/lib/api/sign-in';
+import { allowsGoogle, signInChoices } from '@/lib/sign-in';
 
 /**
  * The invite link's server side, open without signing in.
- * - GET ?token=: who the link is for (their name), to greet them. Spends nothing,
- *   so a mail scanner opening the link changes nothing.
+ * - GET ?token=: who the link is for (their name), to greet them, and the ways
+ *   they may join (password, google: the workspace's sign-in methods). Spends
+ *   nothing, so a mail scanner opening the link changes nothing.
  * - POST { token, password }: sets the password once and returns the email to
  *   sign in with.
  * Expired, used and unknown links all answer 410 "This link has expired".
@@ -44,8 +47,11 @@ const tooMany = () => NextResponse.json({ error: 'Too many tries. Wait a few min
 export async function GET(request: NextRequest) {
   if (limited(request)) return tooMany();
   try {
-    const data = await peekInvite(getServiceClient(), request.nextUrl.searchParams.get('token'));
-    return NextResponse.json({ data }, { headers: { 'Cache-Control': 'no-store' } });
+    const service = getServiceClient();
+    const invite = await peekInvite(service, request.nextUrl.searchParams.get('token'));
+    const methods = await signInMethodsOrDefault(service);
+    const choices = signInChoices(methods, allowsGoogle(methods) ? await googleProviderState() : 'unknown');
+    return NextResponse.json({ data: { ...invite, ...choices } }, { headers: { 'Cache-Control': 'no-store' } });
   } catch (error) {
     return answer(error);
   }

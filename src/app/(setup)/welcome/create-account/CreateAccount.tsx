@@ -11,7 +11,7 @@ import type { WizardStepId } from '@/lib/setup/gate';
  * While the host still lacks a required setting, "Connect your server" comes
  * first: a precondition, not one of the questions, so it sits above step 1.
  */
-export function CreateAccount({ steps, missing }: { steps: WizardStepId[]; missing: ServerCheck[] }) {
+export function CreateAccount({ steps, missing, google = false }: { steps: WizardStepId[]; missing: ServerCheck[]; google?: boolean }) {
   const blocked = missing.length > 0;
   return (
     <WizardChrome
@@ -21,7 +21,7 @@ export function CreateAccount({ steps, missing }: { steps: WizardStepId[]; missi
       banner={blocked ? <p className="mb-8 text-xs font-medium text-amber-200">Before you start</p> : undefined}
     >
       <div className="animate-fadeIn">
-        {blocked ? <ConnectServerStep missing={missing} /> : <AccountStep />}
+        {blocked ? <ConnectServerStep missing={missing} /> : <AccountStep google={google} />}
       </div>
     </WizardChrome>
   );

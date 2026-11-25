@@ -192,6 +192,8 @@ export const CORE_ROUTES: string[] = [
   'api/workspace/audit-log', 'api/workspace/audit-settings', 'api/v1/audit',
   // Connect AI: people sign their own AI tools in (OAuth for the MCP server), its switch (Owner) and the tool catalog.
   'api/oauth', 'api/workspace/connect-ai', 'api/v1/mcp',
+  // Signing in with Google: leaving for Google (sign-in, an invite, the first Owner, linking) and the sign-in methods switch (Owner).
+  'api/auth', 'api/workspace/sign-in-methods',
   // Context at every level (company knowledge, a group's, an agent's notes, a person's memory), as the project brief is core.
   'api/v1/context', 'api/workspace/context',
   // Groups and linked identities (chat accounts) are about people, with AI agents on or off.

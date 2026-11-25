@@ -102,7 +102,7 @@ Open your app right after it deploys. It checks what is missing and says what to
 
 Then the setup wizard:
 
-1. **Create your account.** The first account becomes the **Owner**. Until someone does this, every visit lands here, so do it before you share the address.
+1. **Create your account.** The first account becomes the **Owner**, with an email and password or, when Google is on in Supabase, with Google. Until someone does this, every visit lands here, so do it before you share the address.
 2. **Your workspace**: name, logo and color.
 3. **How you will use it**: a preset or modules one by one (next section), and your currency and number format.
 4. **Email**: connect the account invites and notifications are sent from (Google, Resend or any SMTP server). You can do this later in **Settings > Email**.
@@ -116,7 +116,20 @@ The app can live in a Supabase project your company already uses for other apps,
 
 - Everything the app makes is in `pm` and `pm_custom`, with `pm-` storage buckets and `pm-` scheduled jobs. Nothing in `public` or your other schemas is created, changed or read by the app or its updates.
 - Logins are shared, roles are not: someone becomes a PM member only when invited, with their own PM role. An invited person who already has a confirmed login signs in with it (an unconfirmed one is never linked: it could be someone else's sign-up); the app never changes the email or password of a login it did not create.
-- Before anyone can claim the Owner account on such a project, the setup wizard asks for a setup code: set `PM_SETUP_CODE` (any long random text) in your host first. Someone who already has a login can claim with it.
+- Before anyone can claim the Owner account on such a project, the setup wizard asks for a setup code: set `PM_SETUP_CODE` (any long random text) in your host first. Someone who already has a login can claim with it, with its password or with Google.
+
+### Sign in with Google (optional)
+
+People can sign in with Google beside, or instead of, their email and password. Nobody gets in just by having a Google account: only people on the team (invited, and not suspended) do.
+
+1. In Supabase, open **Authentication > Sign In / Providers** and turn on **Google** with a Google Cloud OAuth client. Google's own setup guide is linked there. On a project shared with other apps it may already be on: leave it as it is.
+2. In **Authentication > URL Configuration > Redirect URLs**, add `https://<your app>/auth/callback` (and `http://localhost:3009/auth/callback` for local work). On a shared project this list is shared with the other apps: add yours beside theirs and change nothing else.
+3. To let people link Google to an account that already has a password (**Settings > Account**), turn on manual linking (**Allow manual linking**) in **Authentication > Sign In / Providers**.
+4. In the app, an Owner picks **Settings > Workspace > Sign-in methods**: email and password, or Google (the default), email and password only, or Google only. The sign-in page shows Google only while the provider is really on in Supabase, so an install without it keeps the email and password form. Google only shows one Continue with Google button and no fields. The Owner always keeps a way in: Google only needs their own Google linked first, and email and password only needs a password of their own. A choice that would leave anyone else with no way in names them and asks first. The setting decides what the sign-in and invite pages offer; it does not sign out anyone already signed in.
+
+**Forgot password?** on the sign-in page asks Supabase to email a reset link, with its own reset email template (on a shared project, the one the other apps use). The page answers the same whatever the email, so it never says who has an account. The link opens on any device and comes back through the same `/auth/callback` address. A login another app made is told to sign in with Google or use that app's reset: the app never changes its password.
+
+Invited people can join with Google from their invite link when their Google account has the invited email. A Google account that is not on the team is signed out with one line telling them to ask for an invite. Supabase still records such an account as a login; on a project only this app uses, turning off **Allow new users to sign up** once the Owner account exists stops that, and invited people can still sign in.
 
 ### Receiving client email (optional)
 

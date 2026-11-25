@@ -4,6 +4,7 @@ import { readEnabledModules } from '@/lib/modules/server';
 import { firstOwnerNeeded } from '@/lib/setup/first-owner-server';
 import { wizardSteps } from '@/lib/setup/gate';
 import { missingServerSettings, supabaseConnected } from '@/lib/setup/checks';
+import { googleProviderState } from '@/lib/api/sign-in';
 import { CreateAccount } from './CreateAccount';
 
 export const dynamic = 'force-dynamic';
@@ -18,5 +19,8 @@ export default async function CreateAccountPage() {
   const modules = await readEnabledModules(getServiceClient()).catch(() => null);
   // Required settings still missing come first (names and purposes only; this page
   // exists only while nobody is on the team).
-  return <CreateAccount steps={wizardSteps(modules ?? undefined)} missing={missingServerSettings(process.env)} />;
+  // Claiming with Google is offered while Google is on in Supabase (a shared
+  // project often has it on already); the workspace setting starts after.
+  const google = (await googleProviderState()) === 'on';
+  return <CreateAccount steps={wizardSteps(modules ?? undefined)} missing={missingServerSettings(process.env)} google={google} />;
 }

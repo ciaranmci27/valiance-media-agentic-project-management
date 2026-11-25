@@ -1,112 +1,24 @@
-'use client';
+import { getServiceClient } from '@/lib/api/supabase-service';
+import { googleProviderState, signInMethodsOrDefault } from '@/lib/api/sign-in';
+import { allowsGoogle, DEFAULT_SIGN_IN_METHODS, parseSignInMethods, signInChoices } from '@/lib/sign-in';
+import { LoginForm } from './LoginForm';
 
-import { useState, useEffect } from 'react';
-import { createClient } from '@/lib/supabase/client';
-import { useRouter } from 'next/navigation';
-import { Loader2 } from 'lucide-react';
-import { Logo } from '@/components/ui/Logo';
-import { useBrand } from '@/lib/brand/context';
-import { TextInput } from '@/components/ui/inputs/TextInput';
-import { PasswordInput } from '@/components/ui/inputs/PasswordInput';
-import { safeNextPath } from '@/lib/supabase/next-path';
+export const dynamic = 'force-dynamic';
 
-const ENV_DEMO = process.env.NEXT_PUBLIC_DEMO_MODE === 'true';
-
-export default function LoginPage() {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
-  const router = useRouter();
-  const brand = useBrand();
-  const supabase = createClient();
-
-  useEffect(() => {
-    // Skip the demo auto-redirect when the middleware just bounced us here
-    // (auth=required): the public demo flag is set but the server-side
-    // DEMO_MODE latch is not, so redirecting again would loop forever.
-    const bouncedByAuth = new URLSearchParams(window.location.search).has('auth');
-    if (ENV_DEMO && !bouncedByAuth) {
-      router.replace('/dashboard');
-    }
-  }, [router]);
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError('');
-    setLoading(true);
-
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
-
-    if (error) {
-      setError(error.message);
-      setLoading(false);
-      return;
-    }
-
-    // Back to the link that sent them here (a task, an email), else the dashboard.
-    router.push(safeNextPath(new URLSearchParams(window.location.search).get('next')) ?? '/dashboard');
-  };
-
-  return (
-    <div className="w-full max-w-sm">
-      <div className="text-center mb-4">
-        <div className="flex flex-col items-center mb-4">
-          {/* This page follows the visitor's theme (unlike the sidebar and portal,
-              which pin dark chrome), so the lockup has to follow it too. Both are
-              rendered and CSS picks one: no flash, and nothing to hydrate. */}
-          <Logo className="h-12 w-auto dark:hidden" />
-          <Logo variant="dark" className="hidden h-12 w-auto dark:block" />
-          {/* With no logo the name already stands in its place. */}
-          {brand.showNameUnderLogo && brand.logos.light && (
-            <span className="text-white font-semibold text-[7px] tracking-[0.2em] uppercase">{brand.name}</span>
-          )}
-        </div>
-        <h1 className="text-2xl font-bold text-white">Welcome back</h1>
-        <p className="text-sm text-zinc-400 mt-1">Sign in to {brand.name}</p>
-      </div>
-
-      <form onSubmit={handleSubmit} className="space-y-4">
-        {error && (
-          <div className="p-3 text-sm text-red-300 bg-red-500/15 border border-red-500/30 rounded-lg">
-            {error}
-          </div>
-        )}
-
-        <TextInput
-          label="Email"
-          type="email"
-          value={email}
-          onChange={setEmail}
-          placeholder="you@example.com"
-          required
-        />
-
-        <PasswordInput
-          label="Password"
-          value={password}
-          onChange={setPassword}
-          placeholder="Your password"
-          required
-          showIcon={false}
-        />
-
-        <button
-          type="submit"
-          disabled={loading}
-          className="w-full py-2.5 px-4 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
-        >
-          {loading && <Loader2 size={16} className="animate-spin" />}
-          Sign in
-        </button>
-      </form>
-
-      <p className="text-center text-sm text-zinc-400 mt-4">
-        Contact your administrator for access.
-      </p>
-    </div>
-  );
+/**
+ * Sign-in: email and password, Google, or both, as an Owner set it in
+ * Settings > Workspace. Google shows only while it is on in Supabase too, and
+ * the password form stays whenever Google cannot be offered, so the page
+ * never shows no way in. The demo workspace shows both, or one shape at a
+ * time with ?preview=password|google|both (it has no setting to read).
+ */
+export default async function LoginPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
+  const params = await searchParams;
+  const returnedError = typeof params.error === 'string' ? params.error : null;
+  const demo = process.env.NEXT_PUBLIC_DEMO_MODE === 'true' && process.env.DEMO_MODE === 'true';
+  if (demo) return <LoginForm {...signInChoices(parseSignInMethods(params.preview), 'on')} returnedError={returnedError} />;
+  if (!process.env.SUPABASE_SERVICE_ROLE_KEY) return <LoginForm {...signInChoices(DEFAULT_SIGN_IN_METHODS, 'unknown')} returnedError={returnedError} />;
+  const methods = await signInMethodsOrDefault(getServiceClient());
+  const provider = allowsGoogle(methods) ? await googleProviderState() : 'unknown';
+  return <LoginForm {...signInChoices(methods, provider)} returnedError={returnedError} />;
 }

@@ -23,6 +23,9 @@ export interface WorkspaceContext {
   service: SupabaseClient;
   access: AccessContext;
   memberId: string;
+  /** The signed-in login (auth.users id), and a client acting as it with the session's own token. */
+  authUserId: string;
+  sessionClient: SupabaseClient;
   caller: AgentCaller;
   granter: Granter;
   request: Request;
@@ -45,10 +48,10 @@ export async function workspaceRoute(
 ): Promise<NextResponse> {
   const auth = await requireSessionAccess();
   if (auth.error) return auth.error;
-  const { access, memberId, service } = auth.data;
+  const { access, memberId, service, user, client } = auth.data;
   const { caller, granter } = sessionCaller(memberId, access);
   try {
-    const data = await handler({ service, access, memberId, caller, granter, request, appUrl: appUrlFor(new URL(request.url).origin) });
+    const data = await handler({ service, access, memberId, authUserId: user.id, sessionClient: client, caller, granter, request, appUrl: appUrlFor(new URL(request.url).origin) });
     if (data instanceof Response) return data as NextResponse;
     return NextResponse.json({ data }, {
       status: options.status ?? 200,

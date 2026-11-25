@@ -9,6 +9,26 @@ Each section starts with `## X.Y.Z (YYYY-MM-DD)` and uses these headings, leavin
 - `### Database`: the core migration files in the release, one per line. `npm run db:migrate` applies them.
 - `### Breaking`: what an install must do when it takes this release.
 
+## 2.0.37 (2026-11-25)
+
+### Added
+- **Sign in with Google**, next to email and password. An Owner picks the sign-in methods in Settings > Workspace (under Brand): email and password, Google, or both. The login page shows only what really works: Google appears only while the Google provider is on in Supabase, and Google only shows a single "Continue with Google" button.
+- **Forgot password** on the login page: an email link to set a new password. The answer never says whether an account exists.
+- **Sign-in in Settings > Account**: set or change your password, and link or unlink Google, always keeping one way in. A login another app made (a shared Supabase project) keeps its password; the app never changes it.
+- Invites can be accepted with Google when the Google email matches the invite. The first Owner can be claimed with Google after the setup code.
+- A member with no photo gets their Google photo; a photo they set is never replaced.
+- Changing the sign-in methods warns, by name, who would have no way in.
+
+### Changed
+- Only people on the team get in, by password or Google; anyone else is signed out with a plain message. Nobody is ever added by signing in.
+- The minimum password length in Settings > Account is 8, matching invites.
+
+### Database
+- `20261125000400_google_sign_in.sql`: `business_settings.sign_in_methods` (default both), Owner-only like other workspace settings, and three service-only functions the sign-in screens use.
+
+### Breaking
+- To offer Google, turn on the Google provider in Supabase (Authentication > Sign In / Providers), add `<your app url>/auth/callback` to Redirect URLs, and turn on manual linking. On a Supabase project shared with other apps, Google may already be on: your existing members can then sign in with Google as soon as this release lands. Choose Email and password in Settings > Workspace if you do not want that.
+
 ## 2.0.36 (2026-11-25)
 
 ### Changed

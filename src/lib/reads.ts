@@ -37,6 +37,7 @@ import type { ProfileActivityPage, TeamProfile } from '@/lib/team/profile';
 import type { GroupMemberView, GroupView } from '@/lib/groups';
 import type { IdentityView } from '@/lib/identities';
 import { CONNECT_SCOPES, type MyConnectionsView } from '@/lib/connect-ai';
+import { GOOGLE_NOT_LINKED, type AccountSignInView, type SignInMethodsView } from '@/lib/sign-in';
 import type { AssistantActivity, AssistantSetupView, AssistantStatusRow, MyAssistantView } from '@/lib/assistant';
 import type { ChatConnectionView } from '@/lib/chat/types';
 import type { ScopedBrief, ScopeRef } from '@/lib/context-scopes';
@@ -1130,6 +1131,35 @@ export const connectAiSettingRead: Read<{ ready: boolean; enabled: boolean; api_
   tables: ['business_settings'],
   load: () => workspaceApi('/api/workspace/connect-ai'),
 };
+
+/** Settings > Workspace: how people sign in, and whether Google is on in Supabase (Owner). The demo shows both on. */
+export function signInMethodsRead(isDemo: boolean): Read<SignInMethodsView> {
+  return {
+    key: `sign-in-methods${isDemo ? ':demo' : ''}`,
+    tables: ['business_settings', 'team_members'],
+    load: async () => (isDemo
+      ? {
+        ready: true, methods: 'both', google_provider: 'on',
+        stranded: { both: { count: 0, names: [] }, password: { count: 1, names: ['Marcus Johnson'] }, google: { count: 2, names: ['Emily Rodriguez', 'Priya Patel'] } },
+      }
+      : workspaceApi<SignInMethodsView>('/api/workspace/sign-in-methods')),
+  };
+}
+
+/** Settings > Account: the person's own sign-in (password, Google, what they may change). The demo shows a sample. */
+export function mySignInRead(isDemo: boolean): Read<AccountSignInView> {
+  return {
+    key: `my-sign-in${isDemo ? ':demo' : ''}`,
+    tables: ['business_settings', 'team_members'],
+    load: async () => (isDemo
+      ? {
+        methods: 'both', google_provider: 'on', email: 'demo@example.com', login_owned: true, has_password: true,
+        google: { linked: false, email: null },
+        refusals: { set_password: null, change_email: null, link_google: null, unlink_google: GOOGLE_NOT_LINKED },
+      }
+      : workspaceApi<AccountSignInView>('/api/workspace/me/sign-in')),
+  };
+}
 
 /** Settings > Account: the person's Connect AI view (the address, the switch, their connected apps). */
 export function myConnectionsRead(isDemo: boolean): Read<MyConnectionsView> {

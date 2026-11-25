@@ -27,6 +27,12 @@ function isPublicRoute(pathname: string) {
     // Shown when the Supabase settings themselves are missing: it reads nothing.
     pathname === '/setup-required' ||
     pathname === '/api/welcome/owner' ||
+    // Before leaving for Google (sign-in, an invite, the first Owner). Linking
+    // checks the session itself.
+    pathname === '/api/auth/google' ||
+    // Forgot password: asking for a link, and where the link lands (its tokens sign them in there).
+    pathname === '/api/auth/reset' ||
+    pathname === '/welcome/reset-password' ||
     pathname.startsWith('/auth') ||
     pathname.startsWith('/portal') ||
     pathname.startsWith('/api/portal') ||
