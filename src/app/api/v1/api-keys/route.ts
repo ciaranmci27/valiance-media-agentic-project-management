@@ -5,6 +5,7 @@ import { badRequest } from '@/lib/api/errors';
 import { parsePagination } from '@/lib/api/pagination';
 import { logAudit } from '@/lib/api/audit';
 import { checkKeyGrant, insertApiKey } from '@/lib/api/agent-setup';
+import { newKeyExpiry } from '@/lib/api/key-lifetime';
 import { createMemberApiKeySchema, type CreateMemberApiKey } from '@/lib/schemas';
 import { API_KEY_COLUMNS } from '@/lib/supabase/queries';
 
@@ -36,7 +37,11 @@ export const GET = withApi(async ({ supabase, searchParams }) => {
  * key's member and carried by the calling key; a key for anyone but your
  * own member only from an Owner's key, and only for an agent. The new key
  * records the key that made it (created_by_key_id), so revoking that key
- * revokes this one too. The full key is in this answer
+ * revokes this one too. expires_in_days (1 to 3650, or null for no expiry)
+ * sets when it ends; left out, the workspace's lifetime for the member's
+ * keys (an agent's, or a person's) decides. Unless the calling key is an
+ * Owner's, that lifetime is also the longest it may choose (no expiry, or
+ * longer, ends at the lifetime). The full key is in this answer
  * only, never stored and never shown again, so the Idempotency-Key header is
  * refused here.
  *
@@ -51,6 +56,7 @@ export const POST = withApi<CreateMemberApiKey>(async ({ supabase, body, access,
     createdByKeyId: apiKeyId,
     scopes: granted.scopes,
     permissions: body.permissions,
+    expiresAt: await newKeyExpiry(supabase, granted.target.id, body.expires_in_days, access),
   });
   logAudit(supabase, { method: 'POST', endpoint: '/api/v1/api-keys', entityType: 'api_key', entityId: key.id, apiKeyId, teamMemberId, requestBody: body, afterSnapshot: key, statusCode: 201 });
   return NextResponse.json({ success: true, data: { key, secret } }, { status: 201, headers: { 'Cache-Control': 'no-store' } });

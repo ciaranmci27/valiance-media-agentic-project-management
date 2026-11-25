@@ -1047,6 +1047,13 @@ export const agentsPauseRead: Read<AgentsPauseState> = {
   load: () => workspaceApi('/api/workspace/agents-pause'),
 };
 
+/** The New key dialog: how long a person's new key lasts unless they choose (any member reads it; an Owner sets it). */
+export const personalKeyLifetimeRead: Read<{ personal_key_lifetime_days: number | null }> = {
+  key: 'personal-key-lifetime',
+  tables: ['business_settings'],
+  load: () => workspaceApi('/api/workspace/key-settings/personal'),
+};
+
 /** Settings > Security: Let people connect AI tools (any member reads it; an Owner sets it). */
 export const connectAiSettingRead: Read<{ ready: boolean; enabled: boolean; api_enabled: boolean }> = {
   key: 'connect-ai-setting',

@@ -6,6 +6,7 @@ import { forbidden, notFound } from '@/lib/api/errors';
 import { patchTaskSuggestion } from '@/lib/supabase/queries';
 import { logAudit } from '@/lib/api/audit';
 import { accessAllows, accessAllowsProject } from '@/lib/api/access';
+import { assertSuggestionEmailReadable } from '@/lib/api/suggestion-email';
 
 export const GET = withApi<unknown, { id: string }>(async ({ supabase, params, access }) => {
   requireAgentsEnabled(access);
@@ -41,6 +42,12 @@ export const PATCH = withApi<any, { id: string }>(async ({ supabase, params, bod
     && accessAllows(access, 'suggestions.manage', 'api');
   if (!canReview && before.proposed_by !== teamMemberId) {
     throw forbidden('This API key can only update its own suggestions');
+  }
+
+  // A new email named in metadata must be one the key reads (approval links it).
+  const named = (body?.metadata as Record<string, unknown> | undefined)?.message_id;
+  if (body?.metadata && named !== (before.metadata as Record<string, unknown> | null)?.message_id) {
+    await assertSuggestionEmailReadable(supabase, { memberId: teamMemberId, access, metadata: body.metadata });
   }
 
   const updated = await patchTaskSuggestion(supabase, params.id, body);

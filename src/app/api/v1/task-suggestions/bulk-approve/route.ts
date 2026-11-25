@@ -5,6 +5,7 @@ import { requireAgentsEnabled } from '@/lib/api/agents';
 import { approveTaskSuggestion } from '@/lib/supabase/queries';
 import { logAudit } from '@/lib/api/audit';
 import { accessAllowsProject } from '@/lib/api/access';
+import { linkApprovedSuggestionEmail } from '@/lib/api/suggestion-email';
 
 export const POST = withApi(async ({ supabase, body, apiKeyId, teamMemberId, access }) => {
   requireAgentsEnabled(access);
@@ -25,6 +26,9 @@ export const POST = withApi(async ({ supabase, body, apiKeyId, teamMemberId, acc
       if (suggestion.status !== 'pending' && suggestion.status !== 'needs_info') { results.push({ id, success: false, error: `Cannot approve a suggestion with status "${suggestion.status}"` }); continue; }
       const result = await approveTaskSuggestion(supabase, id, {}, reviewedBy);
       results.push({ id, success: true, task_id: result.task.id });
+      // Made from an email: the email is linked to the new task, when the approver reads its inbox.
+      if (teamMemberId) await linkApprovedSuggestionEmail(supabase, { suggestionId: id, memberId: teamMemberId, access, channel: 'api' })
+        .catch((error) => console.error('[suggestions] bulk approve: linking the email failed:', error));
 
       logAudit(supabase, {
         method: 'POST',

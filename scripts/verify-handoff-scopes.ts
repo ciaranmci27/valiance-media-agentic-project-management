@@ -107,7 +107,7 @@ function pureChecks() {
 async function migrationChecks() {
   const at = SCHEMA_SQL.indexOf(SECTION);
   const banner = SCHEMA_SQL.lastIndexOf('\n-- ====', at);
-  check('schema.sql: the section is there, last', at > 0 && banner > 0 && !/^-- [A-Z][^\n]*\(\d{14}_[a-z_]+\.sql\)$/m.test(SCHEMA_SQL.slice(at + SECTION.length)));
+  check('schema.sql: the section is there, after Connect AI', at > 0 && banner > 0 && SCHEMA_SQL.indexOf('-- CONNECT AI (20261125000000_connect_ai.sql)') < at);
   const body = MIGRATION_SQL.slice(MIGRATION_SQL.indexOf('-- ---------------------------------------------------------------------------\n-- Handoff: parent and root runs')).trim();
   check('schema.sql: the section mirrors the migration body', body.length > 2000 && SCHEMA_SQL.slice(at).includes(body));
 

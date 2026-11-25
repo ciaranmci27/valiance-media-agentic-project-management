@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { accessAllows, requireSessionAccess } from '@/lib/api/access';
 import { generateApiKey, hashApiKey } from '@/lib/api/crypto';
+import { newKeyExpiry } from '@/lib/api/key-lifetime';
 import { API_ENDPOINT_PERMISSION_SET, type PermissionKey } from '@/lib/access-control';
 import { createApiKeySchema } from '@/lib/schemas/api-keys';
 import { API_KEY_COLUMNS } from '@/lib/supabase/queries';
@@ -10,7 +11,10 @@ export const dynamic = 'force-dynamic';
 /**
  * Creates an API key for the signed-in member. The key is generated and hashed
  * here, each scope must be an API permission the member holds on the api
- * channel, and the full key is returned once, never stored.
+ * channel, and the full key is returned once, never stored. expires_in_days
+ * (1 to 3650, or null for no expiry) sets when it ends; left out, the
+ * workspace's personal key lifetime decides (none until an Owner sets one).
+ * For anyone but an Owner that lifetime is also the most they may choose.
  */
 export async function POST(request: Request) {
   const auth = await requireSessionAccess();
@@ -33,6 +37,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: `Scopes not available to you: ${refused.join(', ')}` }, { status: 422 });
   }
 
+  const expiresAt = await newKeyExpiry(service, memberId, parsed.data.expires_in_days, access);
   const secret = generateApiKey();
   const { data, error } = await service
     .from('api_keys')
@@ -44,6 +49,7 @@ export async function POST(request: Request) {
       team_member_id: memberId,
       permissions: 'scoped',
       scopes,
+      ...(expiresAt ? { expires_at: expiresAt } : {}),
     })
     .select(API_KEY_COLUMNS)
     .single();

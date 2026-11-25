@@ -90,6 +90,11 @@ export const keySettingsSchema = z.object({
   agent_key_lifetime_days: z.number().int().min(1).max(3650).nullable(),
 }).strict();
 
+/** Body of PATCH /api/workspace/key-settings/personal: how long a person's new key lasts unless they choose (null: until revoked). */
+export const personalKeySettingsSchema = z.object({
+  personal_key_lifetime_days: z.number().int().min(1).max(3650).nullable(),
+}).strict();
+
 /** The name a personal agent starts with, from its setup's template ("{first_name}'s Assistant"). */
 export function assistantNameFor(personName: string, nameTemplate: string = ASSISTANT_DEFAULT_NAME_TEMPLATE): string {
   const name = personName.trim() || 'Someone';

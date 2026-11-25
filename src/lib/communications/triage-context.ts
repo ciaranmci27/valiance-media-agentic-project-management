@@ -22,7 +22,7 @@ import { messageFacts } from './speaker';
 import type { AccessibleMessage } from './agent-access';
 import type { AccessContext } from '@/lib/access-control';
 import { accessAllowsProject } from '@/lib/api/access';
-import { actingForOf } from './inbox-visibility';
+import { actingForOf, isMissingColumn } from './inbox-visibility';
 
 type Row = Record<string, unknown>;
 
@@ -220,27 +220,8 @@ export async function triageQueue(supabase: SupabaseClient, inboxIds: string[], 
   const modes = await inboxModes(supabase, inboxIds);
   const wanted = inboxIds.filter((id) => modes.get(id) === mode);
   if (mode === 'plans') {
-    // A meeting is always planned (its items wait as suggestions), whatever its inbox's mode.
-    if (!inboxIds.length) return [];
-    // Muted conversations are left out in the query, so they never fill the window.
-    const muted = (await rows<{ id: string }>(comms(supabase).from('conversations').select('id').in('inbox_id', inboxIds).not('muted_at', 'is', null))).map((c) => c.id);
-    let query = comms(supabase).from('messages').select('id, inbox_id, thread_id, subject, received_at, kind, topic, channel')
-      .in('inbox_id', inboxIds).eq('status', 'new')
-      .or(wanted.length ? `channel.eq.meeting,inbox_id.in.(${wanted.join(',')})` : 'channel.eq.meeting');
-    if (muted.length) query = query.not('thread_id', 'in', `(${muted.join(',')})`);
-    const candidates = await rows<Row>(query.order('received_at').limit(limit * 3));
-    if (!candidates.length) return [];
-    const conversations = await rows<{ id: string; last_message_at: string | null; muted_at: string | null }>(comms(supabase).from('conversations')
-      .select('id, last_message_at, muted_at').in('id', [...new Set(candidates.map((m) => m.thread_id as string))]));
-    const byId = new Map(conversations.map((c) => [c.id, c]));
-    const quietBefore = Date.now() - QUIET_MINUTES * 60_000;
-    return candidates.filter((m) => {
-      const conversation = byId.get(m.thread_id as string);
-      if (!conversation || conversation.muted_at) return false;
-      // A meeting arrives whole (one package), so it never waits for its conversation to go quiet.
-      const urgent = m.channel === 'meeting' || (m.kind === 'notification' && URGENT_TOPICS.includes(m.topic as string));
-      return urgent || !conversation.last_message_at || Date.parse(conversation.last_message_at) <= quietBefore;
-    }).slice(0, limit).map((m) => ({ id: m.id, inbox_id: m.inbox_id, conversation_id: m.thread_id, subject: m.subject, received_at: m.received_at }));
+    return (await readyToPlan(supabase, inboxIds, wanted, limit))
+      .map((m) => ({ id: m.id, inbox_id: m.inbox_id, conversation_id: m.thread_id, subject: m.subject, received_at: m.received_at }));
   }
   if (!wanted.length) return [];
   const since = new Date(Date.now() - 14 * 86_400_000).toISOString();
@@ -255,17 +236,67 @@ export async function triageQueue(supabase: SupabaseClient, inboxIds: string[], 
     .map((m) => ({ id: m.id, inbox_id: m.inbox_id, conversation_id: m.thread_id, subject: m.subject, received_at: m.received_at }));
 }
 
-/** The plan counts the signal adds: ready new messages in plan inboxes, and shadow work waiting. */
+/**
+ * The new messages ready to plan, oldest first, as stored, with requeued_at
+ * (when the message last went back to New for the agent; left out on a
+ * database before 20261125000200_followups.sql). wanted: the plan inboxes
+ * among inboxIds; a meeting is always planned, whatever its inbox's mode.
+ */
+async function readyToPlan(supabase: SupabaseClient, inboxIds: string[], wanted: string[], limit: number): Promise<Row[]> {
+  if (!inboxIds.length) return [];
+  // Muted conversations are left out in the query, so they never fill the window.
+  const muted = (await rows<{ id: string }>(comms(supabase).from('conversations').select('id').in('inbox_id', inboxIds).not('muted_at', 'is', null))).map((c) => c.id);
+  const read = (columns: string) => {
+    let query = comms(supabase).from('messages').select(columns)
+      .in('inbox_id', inboxIds).eq('status', 'new')
+      .or(wanted.length ? `channel.eq.meeting,inbox_id.in.(${wanted.join(',')})` : 'channel.eq.meeting');
+    if (muted.length) query = query.not('thread_id', 'in', `(${muted.join(',')})`);
+    return query.order('received_at').limit(limit * 3);
+  };
+  const columns = 'id, inbox_id, thread_id, subject, received_at, kind, topic, channel';
+  const withStamp = await read(`${columns}, requeued_at`);
+  if (withStamp.error && !isMissingColumn(withStamp.error)) throw withStamp.error;
+  const candidates = withStamp.error ? await rows<Row>(read(columns)) : (withStamp.data ?? []) as unknown as Row[];
+  if (!candidates.length) return [];
+  const conversations = await rows<{ id: string; last_message_at: string | null; muted_at: string | null }>(comms(supabase).from('conversations')
+    .select('id, last_message_at, muted_at').in('id', [...new Set(candidates.map((m) => m.thread_id as string))]));
+  const byId = new Map(conversations.map((c) => [c.id, c]));
+  const quietBefore = Date.now() - QUIET_MINUTES * 60_000;
+  return candidates.filter((m) => {
+    const conversation = byId.get(m.thread_id as string);
+    if (!conversation || conversation.muted_at) return false;
+    // A meeting arrives whole (one package), so it never waits for its conversation to go quiet.
+    const urgent = m.channel === 'meeting' || (m.kind === 'notification' && URGENT_TOPICS.includes(m.topic as string));
+    return urgent || !conversation.last_message_at || Date.parse(conversation.last_message_at) <= quietBefore;
+  }).slice(0, limit);
+}
+
+/** The latest of these times, or null. */
+function latestOf(times: (string | null | undefined)[]): string | null {
+  return times.reduce<string | null>((newest, at) => (at && (!newest || Date.parse(at) > Date.parse(newest)) ? at : newest), null);
+}
+
+/**
+ * The plan counts the signal adds: ready new messages in plan inboxes, and
+ * shadow work waiting. plans_newest_received_at is the newest ready message's
+ * arrival; plans_newest_queued_at the newest time anything ready joined the
+ * queue, by arriving or by going back to New (requeued_at: sent back,
+ * answered), so a dispatcher that wakes on a newer time also wakes for an
+ * old message sent back to it.
+ */
 export async function planSignal(supabase: SupabaseClient, inboxIds: string[]): Promise<{
   plans_new_count: number;
   plans_newest_received_at: string | null;
+  plans_newest_queued_at: string | null;
   shadow_pending_count: number;
 }> {
-  const [ready, shadow] = await Promise.all([triageQueue(supabase, inboxIds, 'plans', 200), triageQueue(supabase, inboxIds, 'shadow', 200)]);
+  const modes = await inboxModes(supabase, inboxIds);
+  const [ready, shadow] = await Promise.all([
+    readyToPlan(supabase, inboxIds, inboxIds.filter((id) => modes.get(id) === 'plans'), 200),
+    triageQueue(supabase, inboxIds, 'shadow', 200),
+  ]);
   // The newest ready message, so the dispatcher wakes for one that arrives as another is planned.
-  const newest = ready.reduce<string | null>((latest, m) => {
-    const at = m.received_at as string | null;
-    return at && (!latest || Date.parse(at) > Date.parse(latest)) ? at : latest;
-  }, null);
-  return { plans_new_count: ready.length, plans_newest_received_at: newest, shadow_pending_count: shadow.length };
+  const newest = latestOf(ready.map((m) => m.received_at as string | null));
+  const queued = latestOf(ready.flatMap((m) => [m.received_at as string | null, m.requeued_at as string | null | undefined]));
+  return { plans_new_count: ready.length, plans_newest_received_at: newest, plans_newest_queued_at: queued, shadow_pending_count: shadow.length };
 }

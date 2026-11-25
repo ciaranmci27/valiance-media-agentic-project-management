@@ -213,6 +213,12 @@ Updates are git merges. If your repository was started from copied files, the up
 
 ---
 
+## Agents
+
+Plug your own AI agents into the app, on any harness (Claude Code, Codex, LangGraph, a custom loop), over REST, MCP and webhooks: claims, questions, approvals, runs, events and identity are built in, and every person can have their own assistant in Slack or Telegram. Start with [Bring your own agent](docs/agents/README.md).
+
+---
+
 ## For AI agents
 
 - **`AGENTS.md`**: the rules every AI agent reads first. Where custom work goes, how to upgrade, which checks to run. Claude Code, Codex, Cursor and others read it.

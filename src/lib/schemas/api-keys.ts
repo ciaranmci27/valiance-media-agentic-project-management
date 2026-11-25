@@ -2,11 +2,19 @@ import { z } from 'zod';
 
 const keyName = z.string().trim().min(1, 'Name is required').max(100, 'Name is too long');
 const keyScopes = z.array(z.string()).min(1, 'Choose at least one scope');
+/**
+ * How many days a new key lasts (1 to 3650), or null for no expiry. Left out:
+ * the workspace's default (a person's key: personal_key_lifetime_days; an
+ * agent's: agent_key_lifetime_days).
+ */
+const expiresInDays = z.number().int('expires_in_days must be a whole number of days')
+  .min(1, 'expires_in_days must be 1 to 3650').max(3650, 'expires_in_days must be 1 to 3650').nullable().optional();
 
 /** Body of POST /api/workspace/api-keys. Scopes are checked against the member's api permissions in the route. */
 export const createApiKeySchema = z.object({
   name: keyName,
   scopes: keyScopes,
+  expires_in_days: expiresInDays,
 });
 
 /**
@@ -31,6 +39,7 @@ export const createMemberApiKeySchema = z.object({
   name: keyName,
   scopes: keyScopes,
   permissions: z.enum(['scoped', 'read_only']).default('scoped'),
+  expires_in_days: expiresInDays,
 }).strict();
 export type CreateMemberApiKey = z.infer<typeof createMemberApiKeySchema>;
 

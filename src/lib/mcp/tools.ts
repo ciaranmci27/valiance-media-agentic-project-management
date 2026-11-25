@@ -1705,6 +1705,7 @@ export const PM_TOOLS: PmTool[] = [
       name: z.string().min(1).max(100),
       scopes: z.array(API_SCOPE).min(1),
       read_only: z.boolean().optional(),
+      expires_in_days: z.number().int().min(1).max(3650).nullable().optional().describe("Days until the key stops working, or null for no expiry; left out, the workspace's key lifetime for that member, which caps it unless yours is an Owner's key"),
     }).strict(),
     permission: 'api_keys.manage_all',
     method: 'POST',
@@ -2428,7 +2429,7 @@ export const PM_TOOLS: PmTool[] = [
   routeTool({
     name: 'get_inbox_signal',
     lead: 'Check for new mail and inbox work waiting.',
-    detail: 'Counts for a cheap poll across your inboxes (or inbox_id; handled me: only the ones you handle): new_count and newest_received_at (for the older triage), plans_new_count and plans_newest_received_at (ready to plan), shadow_pending_count, unsummarized_count, drafts_requested and waiting_count (questions waiting on a person). Needs inbound_email.signal.',
+    detail: 'Counts for a cheap poll across your inboxes (or inbox_id; handled me: only the ones you handle): new_count and newest_received_at (for the older triage), plans_new_count and plans_newest_received_at (ready to plan), plans_newest_queued_at (the newest time anything ready joined the queue, an old message sent back or answered included: wake on it), shadow_pending_count, unsummarized_count, drafts_requested and waiting_count (questions waiting on a person). Needs inbound_email.signal.',
     input: z.object({ inbox_id: id('inbox_id').optional(), handled: z.enum(['me']).optional().describe('me: only the inboxes you handle, as yourself or through a group'), }).strict(),
     permission: 'inbound_email.signal',
     method: 'GET',

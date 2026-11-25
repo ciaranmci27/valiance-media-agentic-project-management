@@ -429,7 +429,8 @@ interface AppContextType {
 
   // API Key CRUD
   /** Creates a key on the server; resolves to the full key, shown once, or undefined on failure. */
-  addApiKey: (name: string, scopes: string[]) => Promise<string | undefined>;
+  /** expiresInDays: days until it ends, null for no expiry; left out, the workspace's personal key lifetime. */
+  addApiKey: (name: string, scopes: string[], expiresInDays?: number | null) => Promise<string | undefined>;
   revokeApiKey: (id: string) => void;
   /** Renames a key and/or replaces its scopes on the server; the secret stays the same. Throws the server's message on failure. */
   updateApiKey: (id: string, changes: { name?: string; scopes?: string[] }) => Promise<ApiKey | undefined>;
@@ -3715,14 +3716,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
     );
 
   // API Key CRUD
-  const addApiKeyAction = async (name: string, scopes: string[]): Promise<string | undefined> => {
+  const addApiKeyAction = async (name: string, scopes: string[], expiresInDays?: number | null): Promise<string | undefined> => {
     if (skipSupabase) return undefined;
 
     try {
       const response = await fetch('/api/workspace/api-keys', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, scopes }),
+        body: JSON.stringify({ name, scopes, ...(expiresInDays !== undefined ? { expires_in_days: expiresInDays } : {}) }),
       });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || 'Failed to create API key');
@@ -3860,6 +3861,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
   };
 
   // Task Suggestion review actions
+  // An approved suggestion an agent made from an email: the server links the
+  // email to the new task (the browser may not). Bookkeeping: the approval
+  // stands whatever happens here.
+  const linkSuggestionEmails = (approved: TaskSuggestion[]) => {
+    for (const suggestion of approved) {
+      if (!(suggestion.metadata as Record<string, unknown> | null)?.message_id || !suggestion.converted_task_id) continue;
+      void fetch(`/api/workspace/task-suggestions/${suggestion.id}/link-email`, { method: 'POST' })
+        .then((response) => { if (!response.ok) console.error('[suggestions] linking the email failed:', response.status); })
+        .catch((error) => console.error('[suggestions] linking the email failed:', error));
+    }
+  };
+
   const approveSuggestionAction = async (
     id: string,
     taskOverrides: { priority?: string; assigned_to?: string | null; due_date?: string | null; project_id?: string; task_type?: string | null; ai_readiness?: AiReadiness | null },
@@ -3900,6 +3913,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const result = await approveTaskSuggestionQuery(supabase, id, taskOverrides, reviewedBy);
       setTaskSuggestions(s => s.map(sug => sug.id === id ? result.suggestion : sug));
       setTasks(prev => [result.task, ...prev]);
+      linkSuggestionEmails([result.suggestion]);
 
       // Notify all members that a suggestion was approved
       kickWorkWebhooks();
@@ -3946,6 +3960,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     try {
       const result = await approveTaskSuggestionBundleQuery(supabase, ids, overrides, reviewedBy);
+      linkSuggestionEmails(result.suggestions);
       const updatedById = new Map(result.suggestions.map(u => [u.id, u]));
       setTaskSuggestions(s => s.map(sug => updatedById.get(sug.id) ?? sug));
       setTasks(prev => [result.task, ...prev]);

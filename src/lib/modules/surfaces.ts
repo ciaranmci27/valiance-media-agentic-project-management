@@ -149,6 +149,8 @@ export const MODULE_SURFACES: Record<ModuleId, ModuleSurface> = {
       // An agent's own assignments and a project's agents (pm.project_agents).
       'api/v1/agents/me/projects', 'api/v1/projects/[id]/agents',
       'api/workspace/agents', 'api/workspace/agent-templates', 'api/workspace/projects/[id]/agents',
+      // An approved suggestion made from an email links that email (the browser approves, the server links).
+      'api/workspace/task-suggestions',
       'api/v1/delegations', 'api/workspace/delegations',
       // People's personal agents, their setups and the harness collecting their keys.
       'api/v1/assistants', 'api/v1/assistant-setups', 'api/workspace/assistants',

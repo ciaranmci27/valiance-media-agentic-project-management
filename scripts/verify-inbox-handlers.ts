@@ -9,7 +9,8 @@
  *   inbox, a sender rule without a scope) still work and keep the rows in
  *   step; the constraints hold.
  * - handler_member_id and the primary row stay in step both ways; a group
- *   handler's members read the inbox, someone who joins later too.
+ *   handler's members get no copied grant, nor does someone who joins later
+ *   (they read it through the group: verify-followups.ts).
  * - Defaults apply only when a request leaves the field out: a plan's new
  *   task and reminder go to the inbox's default (a member, or a group's
  *   leads), a reminder with no project takes the default project; with no
@@ -163,12 +164,15 @@ async function migrationChecks() {
     (await fail(old, "INSERT INTO pm.sender_rules (match_kind, match_value, topic, action, source, scope, inbox_id) VALUES ('domain', 'tool.example', 'usage', 'fyi', 'agent', 'inbox', $1)", [created])) === null
     && /sender_rules_live_key/.test(await fail(old, "INSERT INTO pm.sender_rules (match_kind, match_value, topic, action, source) VALUES ('domain', 'tool.example', 'usage', 'fyi', 'agent')") ?? ''));
 
-  // A group handler: its members read the inbox, and so does whoever joins later.
+  // A group handler: its members read the inbox through the group, and so
+  // does whoever joins later, with no copied grant (since
+  // 20261125000200_followups.sql: pm.can_read_inbox; verify-followups.ts).
   await q('INSERT INTO pm.group_members (group_id, member_id) VALUES ($1, $2)', [group, person]);
   await q('INSERT INTO pm.inbox_handlers (inbox_id, handler_group_id) VALUES ($1, $2)', [handled, group]);
-  check('access: a group handler\'s member reads the inbox', (await q('SELECT 1 FROM pm.inbox_access WHERE inbox_id = $1 AND member_id = $2', [handled, person])).length === 1);
-  await q('INSERT INTO pm.group_members (group_id, member_id) VALUES ($1, $2)', [group, other]);
-  check('access: someone who joins the group later reads it too', (await q('SELECT 1 FROM pm.inbox_access WHERE inbox_id = $1 AND member_id = $2', [handled, other])).length === 1);
+  check('access: a group handler copies no grant to its members', (await q('SELECT 1 FROM pm.inbox_access WHERE inbox_id = $1 AND member_id = $2', [handled, person])).length === 0);
+  const joiner = (await q<{ id: string }>("INSERT INTO pm.team_members (name, email, role) VALUES ('Jo', 'jo@example.com', 'member') RETURNING id"))[0].id;
+  await q('INSERT INTO pm.group_members (group_id, member_id) VALUES ($1, $2)', [group, joiner]);
+  check('access: nor does joining the group later', (await q('SELECT 1 FROM pm.inbox_access WHERE inbox_id = $1 AND member_id = $2', [handled, joiner])).length === 0);
   check('sync: a group handler never touches the column', (await q('SELECT handler_member_id FROM pm.inboxes WHERE id = $1', [handled]))[0].handler_member_id === null);
   await old.close();
 }
@@ -555,10 +559,11 @@ async function main() {
     check('settings: the primary first, then the other handlers', saved.handler_member_id === ids.gale && saved.handlers[0]?.is_primary === true
       && JSON.stringify(saved.handlers.map(handlerKey).sort()) === JSON.stringify([`P:${ids.gale}:`, `o:${ids.atlas}:`, `o::${ids.support}`].sort()), saved.handlers);
     check('settings: defaults are saved', saved.default_assignee_group_id === ids.support && saved.default_assignee_member_id === null && saved.default_project_id === ids.acme && saved.decision_member_id === ids.mia, saved);
-    check('settings: handlers and the group\'s members read it, though not listed', [ids.gale, ids.atlas, ids.mia, ids.nina].every((m) => saved.access_member_ids.includes(m)), saved.access_member_ids);
+    check('settings: member handlers read it, though not listed; the group\'s members read it through the group, with no grant', [ids.gale, ids.atlas].every((m) => saved.access_member_ids.includes(m))
+      && ![ids.mia, ids.nina].some((m) => saved.access_member_ids.includes(m)), saved.access_member_ids);
     const resaved = await settings.updateInbox(owner, ids.inboxC, { ...inboxInput(saved), access_member_ids: [] });
     check('settings: a save that leaves handlers and defaults out keeps them', resaved.handlers.length === 3 && resaved.default_project_id === ids.acme && resaved.decision_member_id === ids.mia, resaved);
-    check('settings: saving who reads it never takes a handler\'s access away', [ids.gale, ids.atlas, ids.mia, ids.nina].every((m) => resaved.access_member_ids.includes(m)), resaved.access_member_ids);
+    check('settings: saving who reads it never takes a member handler\'s access away', [ids.gale, ids.atlas].every((m) => resaved.access_member_ids.includes(m)), resaved.access_member_ids);
     const swapped = await settings.updateInbox(owner, ids.inboxC, { ...inboxInput(resaved), handler_member_id: ids.atlas, handlers: [{ member_id: ids.gale }], default_assignee_group_id: null, decision_member_id: null, decision_group_id: ids.support });
     check('settings: a new primary and a new list', swapped.handler_member_id === ids.atlas
       && JSON.stringify(swapped.handlers.map((h) => [h.member_id, h.is_primary])) === JSON.stringify([[ids.atlas, true], [ids.gale, false]]), swapped.handlers);

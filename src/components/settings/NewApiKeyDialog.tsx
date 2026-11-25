@@ -4,17 +4,22 @@ import { useMemo, useState } from 'react';
 import Modal from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { TextInput } from '@/components/ui/inputs/TextInput';
+import { RadioGroup } from '@/components/ui/inputs/RadioGroup';
 import { StepFooter, StepPanel, Stepper, type FlowStep } from '@/components/ui/Stepper';
 import { ScopePicker } from '@/components/agent/PowersFields';
 import { SecretOnce } from '@/components/agent/ConnectPanel';
 import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
+import { appLocale } from '@/lib/region';
+import { useRead } from '@/lib/query-cache';
+import { personalKeyLifetimeRead } from '@/lib/reads';
 import { apiScopesFor } from '@/lib/access-control';
-import { keyScopeGroups } from '@/lib/developers-settings';
+import { keyLifetimeChoices, keyLifetimeDays, keyScopeGroups } from '@/lib/developers-settings';
 
 const STEPS: readonly FlowStep[] = [
   { key: 'name', label: 'Name' },
   { key: 'access', label: 'What it can do' },
+  { key: 'expiry', label: 'Expiry' },
   { key: 'key', label: 'Copy key' },
 ];
 
@@ -28,7 +33,8 @@ export interface NewKeyPreset {
 
 /**
  * New key, one step at a time: a name, what it can do (in plain words,
- * grouped as the Access page groups them), then the secret, once. Only
+ * grouped as the Access page groups them), how long it lasts (starting on
+ * the workspace's personal key lifetime), then the secret, once. Only
  * Done closes the secret step; closing forgets the secret. A preset fills
  * the name and ticks its scopes (those the person holds); both stay editable.
  */
@@ -58,11 +64,27 @@ function NewKeyFlow({ onClose, onHoldOpen, preset }: { onClose: () => void; onHo
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [secret, setSecret] = useState<string | null>(null);
+  // The workspace's personal key lifetime: undefined while it loads, null for
+  // no expiry (and when it cannot be read, so the choice starts on No expiry).
+  const lifetimeRead = useRead(personalKeyLifetimeRead);
+  const workspaceDays = lifetimeRead.failed ? null : lifetimeRead.data?.personal_key_lifetime_days;
+  const [lifetime, setLifetime] = useState<string | null>(null);
+  // For anyone but an Owner the workspace's lifetime is also the longest a key may last.
+  const owner = access?.role === 'owner';
+  const lifetimes = useMemo(() => keyLifetimeChoices(workspaceDays ?? null, (days) =>
+    `on ${new Date(Date.now() + days * 86_400_000).toLocaleDateString(appLocale(), { month: 'short', day: 'numeric', year: 'numeric' })}`, { owner }), [workspaceDays, owner]);
+  const chosen = lifetime ?? lifetimes.initial;
 
   const next = () => {
     if (!name.trim()) return setError('Give the key a name.');
     setError(null);
     setStep(1);
+  };
+
+  const toExpiry = () => {
+    if (scopes.length === 0) return setError('Choose at least one thing this key can do.');
+    setError(null);
+    setStep(2);
   };
 
   const create = async () => {
@@ -73,10 +95,10 @@ function NewKeyFlow({ onClose, onHoldOpen, preset }: { onClose: () => void; onHo
     let made: string | undefined;
     try {
       // The store says what went wrong in a toast; the step stays for another try.
-      made = await addApiKey(name.trim(), scopes);
+      made = await addApiKey(name.trim(), scopes, keyLifetimeDays(chosen));
       if (made) {
         setSecret(made);
-        setStep(2);
+        setStep(3);
       }
     } finally {
       setCreating(false);
@@ -87,7 +109,7 @@ function NewKeyFlow({ onClose, onHoldOpen, preset }: { onClose: () => void; onHo
 
   return (
     <div className="space-y-6">
-      <Stepper steps={STEPS} current={step} reached={secret ? 2 : Math.max(step, name.trim() ? 1 : 0)} onJump={secret ? undefined : (index) => { setError(null); setStep(index); }} label="New key progress" />
+      <Stepper steps={STEPS} current={step} reached={secret ? 3 : Math.max(step, name.trim() ? 1 : 0)} onJump={secret ? undefined : (index) => { setError(null); setStep(index); }} label="New key progress" />
 
       {step === 0 && (
         <StepPanel stepKey="key-name" title="Name the key" description="So you know where it is used later, like Zapier or a reporting script.">
@@ -110,7 +132,7 @@ function NewKeyFlow({ onClose, onHoldOpen, preset }: { onClose: () => void; onHo
         <StepPanel
           stepKey="key-access"
           title="What can it do?"
-          description="Tick only what this tool needs. It acts as you, within what your Owner lets you give. It works until you rotate or revoke it."
+          description="Tick only what this tool needs. It acts as you, within what your Owner lets you give."
         >
           {available.length === 0 ? (
             <p className="rounded-lg bg-white/[0.03] px-3.5 py-3 text-sm text-zinc-300">
@@ -121,17 +143,41 @@ function NewKeyFlow({ onClose, onHoldOpen, preset }: { onClose: () => void; onHo
           )}
           <StepFooter
             onBack={() => { setError(null); setStep(0); }}
-            onNext={() => { void create(); }}
-            nextLabel="Create key"
-            busy={creating}
-            busyLabel="Creating"
+            onNext={toExpiry}
             nextDisabled={scopes.length === 0}
             error={error}
           />
         </StepPanel>
       )}
 
-      {step === 2 && secret && (
+      {step === 2 && (
+        <StepPanel
+          stepKey="key-expiry"
+          title="How long should it work?"
+          description={!owner && typeof workspaceDays === 'number'
+            ? `A key that ends on its own is safer if it leaks. Your workspace lets keys last up to ${workspaceDays === 365 ? '1 year' : `${workspaceDays} days`}; rotate one before then to keep going.`
+            : 'A key that ends on its own is safer if it leaks. You can rotate it before then to keep going.'}
+        >
+          <RadioGroup
+            ariaLabel="Key expiry"
+            value={chosen}
+            onChange={setLifetime}
+            options={lifetimes.options}
+            disabled={creating || workspaceDays === undefined}
+          />
+          <StepFooter
+            onBack={() => { setError(null); setStep(1); }}
+            onNext={() => { void create(); }}
+            nextLabel="Create key"
+            busy={creating}
+            busyLabel="Creating"
+            nextDisabled={scopes.length === 0 || workspaceDays === undefined}
+            error={error}
+          />
+        </StepPanel>
+      )}
+
+      {step === 3 && secret && (
         <StepPanel stepKey="key-secret" title={`${name.trim()} is ready`} description={preset?.pasteHint ?? 'Paste the key where it is used. Tools send it in the x-api-key header.'}>
           <SecretOnce
             secret={{ secret }}

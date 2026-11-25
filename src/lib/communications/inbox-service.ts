@@ -1149,7 +1149,8 @@ export async function markThreadHandled(
  * (suggestions, and the conversation's open question, so a fresh plan may
  * ask its own) settles as expired with result.superseded, so nothing shows
  * as pending and the bell clears. What already applied stays; the new plan
- * reads it in its context, marked superseded.
+ * reads it in its context, marked superseded. Going back to New stamps
+ * requeued_at (a trigger), which the signal's plans_newest_queued_at wakes on.
  */
 export async function sendBackToAgent(ctx: InboxContext, threadId: string, messageId: string | null): Promise<{ message_id: string; superseded: number }> {
   const thread = await loadTriageableThread(ctx, threadId);
@@ -1197,7 +1198,8 @@ async function supersedeWaitingItems(ctx: InboxContext, conversationId: string, 
 /**
  * A person answers the agent's question on an email (the newest one whose
  * latest triage asks, by default): the answer is kept against that triage
- * and the email goes back to New, so the agent acts on it at once.
+ * and the email goes back to New, so the agent acts on it at once (stamping
+ * requeued_at, as a send back does).
  */
 export async function answerAgentQuestion(ctx: InboxContext, threadId: string, messageId: string | null, answer: string): Promise<{ message_id: string }> {
   const thread = await loadTriageableThread(ctx, threadId);

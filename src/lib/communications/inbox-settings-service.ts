@@ -217,18 +217,14 @@ async function validate(ctx: InboxContext, input: InboxSettingsRequest) {
 }
 
 /**
- * Who always reads an inbox because they handle it: its member handlers and
- * the members of its handler groups. Saving who else reads it never takes
- * their access away.
+ * Who always reads an inbox because they handle it: its member handlers.
+ * Saving who else reads it never takes their access away. A handler group's
+ * members read it through the group (pm.can_read_inbox and
+ * inbox-visibility.ts), so they get no grant here and lose it on leaving.
  */
 async function handlerReaders(service: SupabaseClient, inboxId: string): Promise<string[]> {
   const handlers = await inboxHandlerRows(service, [inboxId]);
-  const groups = handlers.map((row) => row.handler_group_id).filter((id): id is string => !!id);
-  const members = groups.length ? await many<{ member_id: string }>(service.from('group_members').select('member_id').in('group_id', groups)) : [];
-  return [...new Set([
-    ...handlers.map((row) => row.handler_member_id).filter((id): id is string => !!id),
-    ...members.map((row) => row.member_id),
-  ])];
+  return [...new Set(handlers.map((row) => row.handler_member_id).filter((id): id is string => !!id))];
 }
 
 async function setAccess(ctx: InboxContext, inboxId: string, requested: string[]) {
@@ -292,7 +288,8 @@ async function defaultsPatch(ctx: InboxContext, input: InboxSettingsRequest, cur
 /**
  * The handlers beside the primary, as the request lists them (left out, they
  * stay). The primary is handler_member_id, set with the inbox; listing it
- * again changes nothing. Removing a handler leaves the access it was given.
+ * again changes nothing. Removing a member handler leaves the access it was
+ * given; removing a group ends its members' access through it.
  */
 async function saveHandlers(ctx: InboxContext, inboxId: string, input: InboxSettingsRequest): Promise<void> {
   if (!input.handlers) return;

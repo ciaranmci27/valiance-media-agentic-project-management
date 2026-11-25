@@ -123,8 +123,14 @@ async function main() {
   // The before state already holds the sections after it, whose migrations run
   // after it in a real install: their own function grants are replayed after
   // it, as they land there.
+  // A function a later section drops (as 20261125000200 drops the group
+  // inbox copying) is left out: it is gone by the end of a real install.
+  await before.exec('RESET ROLE');
+  const live = new Set((await before.query<{ proname: string }>("SELECT p.proname FROM pg_proc p WHERE p.pronamespace = 'pm'::regnamespace")).rows.map((r) => r.proname));
   const laterGrants = (nextSection < 0 ? '' : SCHEMA.slice(nextSection)).split('\n')
-    .filter((line) => /^(GRANT|REVOKE) .* ON FUNCTION .*;\s*$/i.test(line)).join('\n');
+    .filter((line) => /^(GRANT|REVOKE) .* ON FUNCTION .*;\s*$/i.test(line))
+    .filter((line) => live.has(/ON FUNCTION pm\.([a-z0-9_]+)\(/i.exec(line)?.[1] ?? ''))
+    .join('\n');
   await before.exec(MIGRATION);
   await before.exec(laterGrants);
   const migrated = (await grants(before)).map(key);

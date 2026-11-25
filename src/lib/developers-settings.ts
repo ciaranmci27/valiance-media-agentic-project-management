@@ -126,6 +126,45 @@ export function rotateOverlapOptions(): { value: string; label: string; detail: 
   }));
 }
 
+/** How long a new personal key lasts: 30 days, 90 days, a year, or until revoked ('none'). */
+const KEY_LIFETIME_DAYS = [30, 90, 365] as const;
+export const NO_KEY_EXPIRY = 'none';
+
+/**
+ * The New key dialog's expiry choices, each saying when the key would stop,
+ * and the one it starts on: the workspace's personal key lifetime (null: no
+ * expiry), marked as the default. A lifetime that is none of the standard
+ * ones is offered too. For anyone but an Owner a lifetime that is set is
+ * also the limit: only choices within it are offered, and No expiry is not.
+ */
+export function keyLifetimeChoices(
+  workspaceDays: number | null,
+  /** When a key made now would stop, in words ("on Dec 25, 2026"). */
+  endsOn: (days: number) => string = (days) => `in ${days} days`,
+  { owner = false }: { owner?: boolean } = {},
+): { options: { value: string; label: string; description: string }[]; initial: string } {
+  const label = (days: number) => (days === 365 ? '1 year' : `${days} ${days === 1 ? 'day' : 'days'}`);
+  const capped = workspaceDays !== null && !owner;
+  const days = [...new Set([...KEY_LIFETIME_DAYS, ...(workspaceDays === null ? [] : [workspaceDays])])]
+    .filter((d) => !capped || d <= workspaceDays!)
+    .sort((a, b) => a - b);
+  const initial = workspaceDays === null ? NO_KEY_EXPIRY : String(workspaceDays);
+  const note = (value: string, detail: string) => (value !== initial ? detail
+    : capped ? `Your workspace's default and longest. ${detail}` : `Your workspace's default. ${detail}`);
+  return {
+    options: [
+      ...days.map((d) => ({ value: String(d), label: label(d), description: note(String(d), `It stops working ${endsOn(d)}.`) })),
+      ...(capped ? [] : [{ value: NO_KEY_EXPIRY, label: 'No expiry', description: note(NO_KEY_EXPIRY, 'It works until you rotate or revoke it.') }]),
+    ],
+    initial,
+  };
+}
+
+/** A choice as the API takes it: days, or null for no expiry. */
+export function keyLifetimeDays(choice: string): number | null {
+  return choice === NO_KEY_EXPIRY ? null : Number(choice);
+}
+
 /**
  * What a person's key may do, in the plain words and groups the Access page
  * uses. Unlike an agent's picker, every API scope the person holds is

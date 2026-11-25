@@ -6,6 +6,7 @@ import { notFound, badRequest, forbidden } from '@/lib/api/errors';
 import { approveTaskSuggestion } from '@/lib/supabase/queries';
 import { logAudit } from '@/lib/api/audit';
 import { accessAllowsProject } from '@/lib/api/access';
+import { linkApprovedSuggestionEmail } from '@/lib/api/suggestion-email';
 
 export const POST = withApi<any, { id: string }>(async ({ supabase, params, body, apiKeyId, teamMemberId, access }) => {
   requireAgentsEnabled(access);
@@ -26,6 +27,9 @@ export const POST = withApi<any, { id: string }>(async ({ supabase, params, body
 
   const reviewedBy = teamMemberId || apiKeyId;
   const result = await approveTaskSuggestion(supabase, params.id, (body || {}) as any, reviewedBy);
+  // Made from an email: the email is linked to the new task, when the approver reads its inbox.
+  if (teamMemberId) await linkApprovedSuggestionEmail(supabase, { suggestionId: params.id, memberId: teamMemberId, access, channel: 'api' })
+    .catch((error) => console.error('[suggestions] approve: linking the email failed:', error));
 
   logAudit(supabase, {
     method: 'POST',

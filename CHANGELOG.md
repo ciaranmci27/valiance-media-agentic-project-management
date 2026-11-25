@@ -9,6 +9,21 @@ Each section starts with `## X.Y.Z (YYYY-MM-DD)` and uses these headings, leavin
 - `### Database`: the core migration files in the release, one per line. `npm run db:migrate` applies them.
 - `### Breaking`: what an install must do when it takes this release.
 
+## 2.0.31 (2026-11-25)
+
+### Added
+- **Wake signal for mail sent back**: `GET /api/v1/inbox/signal` (and MCP `get_inbox_signal`) adds `plans_newest_queued_at`, the latest of when ready mail arrived or was put back for the agent (sent back, answered, moved out of Filtered). Agent hosts should wake when it moves.
+- **Expiry for personal API keys**: new keys take an expiry (30 days, 90 days, 1 year or none) in the New key dialog, and `expires_in_days` over the API and MCP. Owners can set a personal key lifetime (`/api/workspace/key-settings/personal`) that is the maximum for everyone else, as the agent key lifetime already is.
+- Approving a suggestion an agent made from an email links that email to the new task.
+- **Docs for bringing your own agent**: `docs/agents/` covers the work loop, events and webhooks, identity and access, setting everything up from a chat, and Assistants.
+
+### Changed
+- People in a group that handles an inbox read it while they are in the group, and lose it when they leave or the group stops handling it.
+- A suggestion that names an email (`metadata.message_id`) must name one its maker can read (422 `message_not_readable`); an agent's approval files the email under the normal project rules.
+
+### Database
+- `20261125000200_followups.sql`: `messages.requeued_at`, the personal key lifetime, group inbox access derived from membership, and removal of the access rows earlier releases copied for group handlers.
+
 ## 2.0.30 (2026-11-25)
 
 ### Added

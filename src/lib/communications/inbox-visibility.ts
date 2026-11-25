@@ -14,6 +14,9 @@ import { comms } from '@/lib/communications/db';
  * - A personal inbox (owner_member_id set): its owner, and the people and
  *   agents it was shared with, while the Inbox module is on. inbound_email.manage
  *   reads it only while business_settings.owners_read_personal_inboxes is on.
+ * - A member of a group that handles an inbox reads it as if granted, while
+ *   they are in the group, the group is live and it still handles the inbox
+ *   (derived here, never copied into inbox_access, so leaving ends it).
  * - An agent acting for a person (a personal agent: access.principal_id) reads
  *   only that person's own personal inboxes it was shared with ("Sort my
  *   inbox"), never a shared inbox, so it never reads more than its person.
@@ -34,7 +37,7 @@ export interface InboxReader {
   sharedGrants: boolean;
   /** business_settings.owners_read_personal_inboxes. */
   ownersReadPersonal: boolean;
-  /** The inboxes the reader was granted (inbox_access). */
+  /** The inboxes the reader was granted (inbox_access), and those a live group they are in handles. */
   granted: ReadonlySet<string>;
   /** A personal agent: only this person's personal inboxes it was granted. */
   onlyOwnedBy?: string | null;
@@ -108,10 +111,58 @@ export async function inboxOwnerOf(db: SupabaseClient, inboxId: string): Promise
   return row ? row.owner_member_id ?? null : undefined;
 }
 
+/** A table the database does not have yet (before 20261124001000_inbox_handlers.sql: groups, group handlers). */
+const isMissingTable = (error: unknown) => ['42P01', 'PGRST205', '42703', 'PGRST204'].includes((error as { code?: string } | null)?.code ?? '');
+
+/** The inboxes a live group the member is in handles. */
+async function groupHandledInboxIds(db: SupabaseClient, memberId: string): Promise<string[]> {
+  const { data: memberships, error } = await db.from('group_members').select('group_id').eq('member_id', memberId);
+  if (error) {
+    if (isMissingTable(error)) return [];
+    throw error;
+  }
+  const groupIds = [...new Set(((memberships ?? []) as { group_id: string }[]).map((row) => row.group_id))];
+  if (groupIds.length === 0) return [];
+  const [{ data: live, error: liveError }, { data: handled, error: handledError }] = await Promise.all([
+    db.from('groups').select('id').in('id', groupIds).is('deleted_at', null),
+    comms(db).from('inbox_handlers').select('inbox_id, handler_group_id').in('handler_group_id', groupIds),
+  ]);
+  if (liveError) throw liveError;
+  if (handledError) {
+    if (isMissingTable(handledError)) return [];
+    throw handledError;
+  }
+  const liveIds = new Set(((live ?? []) as { id: string }[]).map((row) => row.id));
+  return ((handled ?? []) as { inbox_id: string; handler_group_id: string }[])
+    .filter((row) => liveIds.has(row.handler_group_id)).map((row) => row.inbox_id);
+}
+
 async function grantedInboxIds(db: SupabaseClient, memberId: string): Promise<Set<string>> {
-  const { data, error } = await comms(db).from('inbox_access').select('inbox_id').eq('member_id', memberId);
+  const [{ data, error }, viaGroups] = await Promise.all([
+    comms(db).from('inbox_access').select('inbox_id').eq('member_id', memberId),
+    groupHandledInboxIds(db, memberId),
+  ]);
   if (error) throw error;
-  return new Set(((data ?? []) as { inbox_id: string }[]).map((row) => row.inbox_id));
+  return new Set([...((data ?? []) as { inbox_id: string }[]).map((row) => row.inbox_id), ...viaGroups]);
+}
+
+/** The members of the live groups that handle an inbox (they read it through the group). */
+async function inboxGroupReaderIds(db: SupabaseClient, inboxId: string): Promise<string[]> {
+  const { data: handlers, error } = await comms(db).from('inbox_handlers').select('handler_group_id').eq('inbox_id', inboxId).not('handler_group_id', 'is', null);
+  if (error) {
+    if (isMissingTable(error)) return [];
+    throw error;
+  }
+  const groupIds = [...new Set(((handlers ?? []) as { handler_group_id: string }[]).map((row) => row.handler_group_id))];
+  if (groupIds.length === 0) return [];
+  const [{ data: live, error: liveError }, { data: members, error: membersError }] = await Promise.all([
+    db.from('groups').select('id').in('id', groupIds).is('deleted_at', null),
+    db.from('group_members').select('group_id, member_id').in('group_id', groupIds),
+  ]);
+  if (liveError) throw liveError;
+  if (membersError) throw membersError;
+  const liveIds = new Set(((live ?? []) as { id: string }[]).map((row) => row.id));
+  return ((members ?? []) as { group_id: string; member_id: string }[]).filter((row) => liveIds.has(row.group_id)).map((row) => row.member_id);
 }
 
 /** The reader a member is on a channel, from their access. */
@@ -204,17 +255,18 @@ export async function triageableInboxIdsFor(db: SupabaseClient, memberId: string
 /**
  * The people (never agents) who read an inbox in the app: who to tell when
  * something in it waits on a person. A shared inbox: the workspace Owners and
- * the people granted it. A personal one: its owner and the people granted
- * it, never the Owners as such (under the workspace switch they read it, but
+ * the people granted it (or in a group that handles it). A personal one: its
+ * owner and the people granted it, never the Owners as such (under the workspace switch they read it, but
  * act on nothing, so nothing waits on them).
  */
 export async function inboxPeopleIds(db: SupabaseClient, inboxId: string): Promise<string[]> {
-  const [owner, { data: granted, error: grantError }] = await Promise.all([
+  const [owner, { data: granted, error: grantError }, viaGroups] = await Promise.all([
     inboxOwnerOf(db, inboxId).then((id) => id ?? null),
     comms(db).from('inbox_access').select('member_id').eq('inbox_id', inboxId),
+    inboxGroupReaderIds(db, inboxId),
   ]);
   if (grantError) throw grantError;
-  const ids = [...((granted ?? []) as { member_id: string }[]).map((row) => row.member_id), ...(owner ? [owner] : [])];
+  const ids = [...((granted ?? []) as { member_id: string }[]).map((row) => row.member_id), ...viaGroups, ...(owner ? [owner] : [])];
   const filters = [...(!owner ? ['role.eq.owner'] : []), ...(ids.length ? [`id.in.(${[...new Set(ids)].join(',')})`] : [])];
   if (!filters.length) return [];
   const { data: people, error } = await db.from('team_members').select('id, role, status').or(filters.join(','));

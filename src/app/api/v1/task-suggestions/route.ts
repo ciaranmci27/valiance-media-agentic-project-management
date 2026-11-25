@@ -7,6 +7,7 @@ import { forbidden, badRequest, notFound } from '@/lib/api/errors';
 import { insertTaskSuggestion } from '@/lib/supabase/queries';
 import { logAudit } from '@/lib/api/audit';
 import { accessAllows, accessAllowsProject } from '@/lib/api/access';
+import { assertSuggestionEmailReadable } from '@/lib/api/suggestion-email';
 import { postgrestList, trashedProjectIds } from '@/lib/supabase/trash';
 
 export const GET = withApi(async ({ supabase, searchParams, access }) => {
@@ -81,6 +82,8 @@ export const POST = withApi(async ({ supabase, body, apiKeyId, teamMemberId, acc
     .eq('project_id', suggestionInput.project_id)
     .maybeSingle();
   if (!goal) throw badRequest('goal_id must belong to project_id');
+  // Approving it links the email it names, so it may name only one the key reads.
+  await assertSuggestionEmailReadable(supabase, { memberId: teamMemberId, access, metadata: (body as { metadata?: unknown }).metadata });
 
   // Bundling: resolve the shared key server-side so the proposer cannot
   // invent keys or reach across projects. The target must be a PENDING
