@@ -36,6 +36,7 @@ import { demoNotifications } from '@/lib/demo-data';
 import type { ProfileActivityPage, TeamProfile } from '@/lib/team/profile';
 import type { GroupMemberView, GroupView } from '@/lib/groups';
 import type { IdentityView } from '@/lib/identities';
+import { CONNECT_SCOPES, type MyConnectionsView } from '@/lib/connect-ai';
 import type { AssistantActivity, AssistantSetupView, AssistantStatusRow, MyAssistantView } from '@/lib/assistant';
 import type { ChatConnectionView } from '@/lib/chat/types';
 
@@ -1044,6 +1045,28 @@ export const agentsPauseRead: Read<AgentsPauseState> = {
   tables: ['business_settings'],
   load: () => workspaceApi('/api/workspace/agents-pause'),
 };
+
+/** Settings > Security: Let people connect AI tools (any member reads it; an Owner sets it). */
+export const connectAiSettingRead: Read<{ ready: boolean; enabled: boolean; api_enabled: boolean }> = {
+  key: 'connect-ai-setting',
+  tables: ['business_settings'],
+  load: () => workspaceApi('/api/workspace/connect-ai'),
+};
+
+/** Settings > Account: the person's Connect AI view (the address, the switch, their connected apps). */
+export function myConnectionsRead(isDemo: boolean): Read<MyConnectionsView> {
+  return {
+    key: `my-connections${isDemo ? ':demo' : ''}`,
+    tables: ['business_settings', 'oauth_grants'],
+    load: async () => {
+      if (isDemo) {
+        const origin = typeof window === 'undefined' ? '' : window.location.origin;
+        return { ready: true, enabled: true, api_enabled: true, mcp_url: `${origin}/api/mcp`, workspace_name: 'Demo', scopes: [...CONNECT_SCOPES], connections: [] };
+      }
+      return workspaceApi<MyConnectionsView>('/api/workspace/me/connections');
+    },
+  };
+}
 
 /** Settings > Security: how long the audit log keeps rows, and the extra fields it redacts (Owner). */
 export const auditSettingsRead: Read<AuditSettings> = {

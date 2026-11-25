@@ -32,7 +32,7 @@ export function getEndpointScopes(endpoint: EndpointDoc): string[] {
   if (path === '/api/v1/projects/:id/agents/:agentId') return ['project_members.manage', 'team.read (an owner of the agent)'];
   if (path === '/api/v1/agents/:id/setup') return ['team.read', 'team.manage'];
   if (path === '/api/v1/agents/:id/projects') return ['project_members.manage'];
-  if (path === '/api/v1/agents/me/context') return ['any scope'];
+  if (path === '/api/v1/agents/me/context' || path === '/api/v1/mcp/tools') return ['any scope'];
   if (path === '/api/v1/agents/:id/context' || path === '/api/v1/agents/:id/export') return ['team.read', 'team.manage'];
   if (path === '/api/v1/agents/:id/template' || path === '/api/v1/agents/import' || path === '/api/v1/agent-templates') return ['team.manage'];
   if (path.includes('/inbound-emails') || path.startsWith('/api/v1/inbox/') || path === '/api/v1/tasks/:id/messages') {
@@ -2063,6 +2063,8 @@ export const endpoints: EndpointDoc[] = [
   { method: 'DELETE', path: '/api/v1/delegations/:id', description: 'Revoke one of your agent\'s delegation tokens at once (its id came with it).', group: 'Acting For Someone',
     params: [{ name: 'id', type: 'uuid', required: true, description: 'Delegation ID' }],
   },
+  // MCP tool catalog
+  { method: 'GET', path: '/api/v1/mcp/tools', description: "The MCP tool catalog as the caller sees it, for another MCP server that re-offers these tools inside its own: every tool this key (or a connected AI tool's token, sent as Authorization: Bearer) would list on the MCP server, each with name, description, inputSchema (JSON Schema), annotations (readOnlyHint, destructiveHint, idempotentHint) and routes (the v1 calls it makes). With X-Act-For it is the agent's and the person's tools together. Also version (it changes whenever the list, a description or a schema does: cache by it), server { name, version }, mcp_url and app_version. Never cached.", group: 'MCP Tools' },
   // Personal agents
   { method: 'GET', path: '/api/v1/assistants', description: "People's personal agents (one per person per template, bound to that person): each with its person, template, status (paused_with_person when its person's suspension paused it) and live keys, never a secret. Paginated. A personal agent's access is always its own and its person's together, on every call, with or without X-Act-For, and what it makes records its person as principal_id.", group: 'Personal Agents',
     queryParams: [
@@ -2167,6 +2169,40 @@ export const ACT_FOR_DOC = {
     'Without the header nothing changes: the key acts as its agent, as before.',
     "A personal agent (bound to one person) always acts for that person, with or without the header: its access is its own and its person's together, and principal_id is its person. A token it sends must name that same person (403 delegate_only).",
     'Accounts resolve only once verified: GET /api/v1/identities/resolve answers who a chat account is, and POST /api/v1/identities/link-requests gives a one-time link for a person to verify theirs. Send that link as a direct message to the account itself, with member_id when you know who it is.',
+  ],
+} as const;
+
+/**
+ * Connect AI: a person's AI tool signs in with OAuth instead of an API key,
+ * shown on the docs page after the MCP section.
+ */
+export const CONNECT_AI_DOC = {
+  summary:
+    'People connect Claude, ChatGPT, Cursor, Claude Code or Codex to their own work from Settings > Account > Connect AI: they paste the MCP address into the tool, sign in here and choose Allow. No key changes hands.',
+  rules: [
+    'The MCP server is an OAuth 2.1 resource server. A request without credentials gets 401 with WWW-Authenticate: Bearer resource_metadata="<app>/.well-known/oauth-protected-resource/api/mcp", scope="connect".',
+    'Discovery: /.well-known/oauth-protected-resource (RFC 9728, also with /api/mcp after it) and /.well-known/oauth-authorization-server (RFC 8414). The app is its own authorization server.',
+    "Registration: POST /api/oauth/register (RFC 7591). redirect_uris must be https, http on localhost, 127.0.0.1 or [::1] only, or an app's own scheme; never javascript: or data:. token_endpoint_auth_method none makes a public client; client_secret_post or client_secret_basic gets a secret, shown once. 20 an hour per address.",
+    'Authorization: GET /oauth/authorize with response_type=code, client_id, the exact registered redirect_uri, code_challenge and code_challenge_method=S256 (required), state, and resource (this MCP address, RFC 8707). The person signs in and sees what the tool may do. The redirect carries code, state and iss (RFC 9207).',
+    'Tokens: POST /api/oauth/token (form encoded). authorization_code takes code, client_id and code_verifier, and redirect_uri if you like (sent, it must match exactly); a code works once, only for the client it was issued to, for 60 seconds, and a second use revokes what it gave out. refresh_token takes refresh_token and client_id and answers a new access token and a new refresh token; an old refresh token used again revokes the whole connection. Access tokens last an hour, refresh tokens 30 days. Rate limited (429 slow_down).',
+    "What a token may do: the person's own access, limited to the connect set (projects.read, projects.read_all, tasks.read, tasks.create, tasks.manage_assigned, reminders.manage_own): their projects, tasks, comments, questions and reminders. Never admin powers, keys, people, settings or agents, even for an Owner.",
+    'Send it as Authorization: Bearer on the MCP server (and GET /api/v1/mcp/tools). Other v1 routes answer 401 connect_token_not_accepted. Calls run through the same checks, rate limit and audit log as an API key; audit rows say via mcp_oauth.',
+    'Disconnect (Settings > Account) or suspending the person stops a token at once, as does turning Connect AI off (an Owner, Settings > Security), which answers 403 connect_ai_off while off. Tokens are random and only their hashes are stored.',
+  ],
+} as const;
+
+/**
+ * Re-offering this app's tools in another MCP server (an enterprise's own
+ * gateway), shown on the docs page after Connect AI.
+ */
+export const REOFFER_DOC = {
+  summary:
+    'Another MCP server can offer these tools inside its own: read the catalog, list the tools under its own names, and forward each call here as the person who asked.',
+  rules: [
+    'Read GET /api/v1/mcp/tools for the tools, descriptions and JSON input schemas the caller may use, and a version to cache by. Read it per person (or per agent and person) when what people may do differs.',
+    "If your server holds the person's own Connect AI token (it ran the OAuth flow against this app for them), forward each call to this app's MCP server with Authorization: Bearer and that token. It acts as them, within the connect set.",
+    "If it does not, use your own agent's API key with agents.act_for and a delegation pass: mint a token for the person's verified identity (POST /api/v1/delegations) and send it as X-Act-For, with the key, on the MCP call (tools/call) or the v1 routes each tool names. The call may do only what the key, the agent and the person all allow, and records the person as principal_id.",
+    "Forward arguments as they are: each tool checks them against its own schema, and every call goes through this app's permissions, project reach, rate limit and audit log, so your server cannot widen what a person may do.",
   ],
 } as const;
 

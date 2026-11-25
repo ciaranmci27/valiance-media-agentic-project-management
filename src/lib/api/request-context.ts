@@ -18,12 +18,33 @@ export interface ApiRequestContext {
   actFor?: string | null;
   /** For an agent's key: the projects it is paused on (project_agents.status paused). */
   pausedProjectIds?: string[];
+  /**
+   * A Connect AI connection made the request (an OAuth access token on the
+   * MCP server). Set only by the MCP route after it checked the token, so the
+   * in-process calls accept it and the audit log records via mcp_oauth.
+   */
+  connection?: boolean;
 }
 
 export const apiRequestContext = new AsyncLocalStorage<ApiRequestContext>();
 
 export function currentApiVia(): ApiRequestContext['via'] {
   return apiRequestContext.getStore()?.via ?? 'rest';
+}
+
+/**
+ * What the audit log records as via: mcp_oauth for a Connect AI connection,
+ * else the door (rest, mcp).
+ */
+export function currentAuditVia(): 'rest' | 'mcp' | 'mcp_oauth' {
+  const store = apiRequestContext.getStore();
+  if (store?.connection) return 'mcp_oauth';
+  return store?.via ?? 'rest';
+}
+
+/** A Connect AI connection made the current request. */
+export function currentConnection(): boolean {
+  return apiRequestContext.getStore()?.connection === true;
 }
 
 /** The API key behind the current request, or null outside one. */

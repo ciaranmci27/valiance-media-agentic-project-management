@@ -1,7 +1,8 @@
 'use client';
 
 import { useSyncExternalStore } from 'react';
-import { BookOpen } from 'lucide-react';
+import Link from 'next/link';
+import { BookOpen, Sparkles } from 'lucide-react';
 import { SettingsSectionHeader } from '@/components/settings/SettingsSectionHeader';
 import { CopyButton } from '@/components/agent/ConnectPanel';
 import { Button } from '@/components/ui/Button';
@@ -11,7 +12,8 @@ const noSubscribe = () => () => {};
 
 /**
  * Settings > Developers > MCP and API docs: the addresses a tool or AI
- * client connects to with an API key, and the docs.
+ * client connects to with an API key, and the docs. People connecting their
+ * own AI tools are pointed to Connect AI in Settings > Account.
  */
 export function DeveloperDocsSection() {
   // This tab's address: the server renders nothing for it, the browser fills it in.
@@ -32,6 +34,13 @@ export function DeveloperDocsSection() {
         <Address label="MCP server" value={info?.mcp_url ?? ''} what="MCP server URL" />
         <Address label="REST API" value={info?.api_base ?? ''} what="REST API URL" />
       </ul>
+
+      <p className="mt-4 flex items-start gap-2 text-sm text-zinc-400">
+        <Sparkles size={15} className="mt-0.5 flex-shrink-0 text-zinc-400" aria-hidden="true" />
+        <span>
+          Using Claude, ChatGPT or Cursor on your own work? <Link href="/settings/account#connect-ai" className="rounded font-medium text-brand-300 underline underline-offset-2 hover:decoration-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500">Connect AI</Link> signs them in as you, no key needed.
+        </span>
+      </p>
     </section>
   );
 }

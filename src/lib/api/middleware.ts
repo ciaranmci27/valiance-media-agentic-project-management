@@ -10,6 +10,8 @@ import { errorResponse } from './response';
 import { accessAllows, accessAllowsProject, moduleOffFor, resolveMemberAccess } from './access';
 import { apiRequestContext } from './request-context';
 import { verifyActFor } from './delegation';
+import { resolveConnection, type ConnectionContext } from './connect-ai';
+import { isConnectAccessToken } from '@/lib/connect-ai';
 import { ACT_FOR_HEADER } from '@/lib/delegation';
 import { liveTaskIds } from './task-guards';
 import { afterResponse } from './after-response';
@@ -65,6 +67,12 @@ interface WithApiOptions<TBody> {
    * keep the secret in the database and hand it out again on a retry.
    */
   returnsSecret?: boolean;
+  /**
+   * Also accepts a Connect AI access token in Authorization: Bearer (the
+   * tool catalog). Elsewhere a connection's token works only through the
+   * MCP server, the one resource it is issued for.
+   */
+  acceptsConnection?: boolean;
 }
 
 type HandlerFn<TBody, TParams> = (ctx: ApiContext<TBody, TParams>) => Promise<Response>;
@@ -147,6 +155,17 @@ export interface ResolvedApiKey {
    * no token came).
    */
   principal: { id: string; tokenId: string | null; personal: boolean } | null;
+  /** Set when a Connect AI access token made the request: the person's own connection. */
+  connection?: ConnectionContext | null;
+}
+
+export interface ResolveApiKeyOptions {
+  /**
+   * Accept a Connect AI access token (pmat_...). Only the MCP route, its
+   * in-process calls and routes that opt in (acceptsConnection) do: anywhere
+   * else such a token is 401 connect_token_not_accepted.
+   */
+  connect?: boolean;
 }
 
 /**
@@ -166,8 +185,23 @@ export interface ResolvedApiKey {
  * is the principal with or without the header. A token it sends must name
  * that same person (else 403 delegate_only).
  */
-export async function resolveApiKey(apiKey: string | null, actFor: string | null = null): Promise<ResolvedApiKey> {
+export async function resolveApiKey(apiKey: string | null, actFor: string | null = null, options: ResolveApiKeyOptions = {}): Promise<ResolvedApiKey> {
   if (!apiKey) throw unauthorized('Missing x-api-key header', { reason: 'missing_api_key' });
+  if (isConnectAccessToken(apiKey)) {
+    if (!options.connect) {
+      throw unauthorized("A connected AI tool's sign-in works only on the MCP server", {
+        reason: 'connect_token_not_accepted',
+        hint: 'Call the MCP server with this token, or use an API key here.',
+      });
+    }
+    // A connection is the person themselves: there is nobody else to act for.
+    if (actFor !== null) {
+      throw forbidden('This is not available while acting for someone', { reason: 'act_for_not_allowed', hint: 'A connected AI tool already acts as its person. Send the request without X-Act-For.' });
+    }
+    const service = getServiceClient();
+    const resolved = await resolveConnection(service, apiKey);
+    return { supabase: service, keyRow: resolved.keyRow, access: resolved.access, principal: null, connection: resolved.connection };
+  }
 
   const keyHash = await hashApiKey(apiKey);
   const supabase = getServiceClient();
@@ -220,7 +254,12 @@ export function withApi<TBody = unknown, TParams = Record<string, string>>(
 
     try {
       const actFor = actForFrom(request);
-      const { supabase, keyRow, access, principal } = await resolveApiKey(request.headers.get('x-api-key'), actFor);
+      // A connection's token comes in-process from the MCP server (which
+      // checked it first) or, where a route opts in, as a bearer token.
+      const inConnection = apiRequestContext.getStore()?.connection === true;
+      const bearer = options?.acceptsConnection ? /^Bearer\s+(\S+)$/i.exec(request.headers.get('authorization') ?? '')?.[1] ?? null : null;
+      const credential = request.headers.get('x-api-key') ?? (bearer && isConnectAccessToken(bearer) ? bearer : null);
+      const { supabase, keyRow, access, principal, connection } = await resolveApiKey(credential, actFor, { connect: inConnection || !!options?.acceptsConnection });
       service = supabase;
 
       // The rate limit and, for an agent, what is paused, in one call.
@@ -506,7 +545,7 @@ export function withApi<TBody = unknown, TParams = Record<string, string>>(
       const via = apiRequestContext.getStore()?.via ?? 'rest';
       const principalId = principal?.id ?? null;
       const pausedProjectIds = gate.agent ? gate.pausedProjectIds : [];
-      const response = await apiRequestContext.run({ via, keyId: keyRow.id, principalId, actFor, pausedProjectIds }, () => handler({
+      const response = await apiRequestContext.run({ via, keyId: keyRow.id, principalId, actFor, pausedProjectIds, connection: !!connection }, () => handler({
         // Writes are logged as the key's member (agents are left out by the
         // database), and a task it creates records the key itself.
         supabase: getActorClient(keyRow.team_member_id, via === 'mcp' ? 'mcp' : 'api', keyRow.id),

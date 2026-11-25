@@ -20,7 +20,8 @@ export const GET = withApi(async ({ supabase, searchParams }) => {
   const { page, limit, offset } = parsePagination(searchParams);
   const memberId = searchParams.get('member_id');
   if (memberId && !UUID.test(memberId)) throw badRequest('member_id must be a team member id');
-  let query = supabase.from('api_keys').select(API_KEY_COLUMNS, { count: 'exact' });
+  // Connected AI tools' keys (permissions connection) are connections, not keys: never listed.
+  let query = supabase.from('api_keys').select(API_KEY_COLUMNS, { count: 'exact' }).neq('permissions', 'connection');
   if (memberId) query = query.eq('team_member_id', memberId);
   if (searchParams.get('include_revoked') !== 'true') query = query.is('revoked_at', null);
   const { data, count, error } = await query.order('created_at', { ascending: false }).range(offset, offset + limit - 1);

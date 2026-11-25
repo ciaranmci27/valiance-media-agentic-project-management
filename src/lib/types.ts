@@ -1123,7 +1123,8 @@ export interface ApiKey {
   id: string;
   name: string;
   key_prefix: string;
-  permissions: 'full' | 'read_only' | 'scoped';
+  /** connection: the key behind a connected AI tool (never listed, edited or rotated as a key). */
+  permissions: 'full' | 'read_only' | 'scoped' | 'connection';
   scopes?: string[];
   expires_at?: string | null;
   disabled_at?: string | null;

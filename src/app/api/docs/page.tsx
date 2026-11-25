@@ -17,15 +17,27 @@ import {
   ListFilter,
   Hash,
   Bot,
+  Sparkles,
 } from 'lucide-react';
 import { headers } from 'next/headers';
-import { ACT_FOR_DOC, endpoints, getEndpointScopes, groupModule, groups, IDEMPOTENCY_DOC, METHOD_COLORS } from './docs-data';
+import { ACT_FOR_DOC, CONNECT_AI_DOC, endpoints, getEndpointScopes, groupModule, groups, IDEMPOTENCY_DOC, METHOD_COLORS, REOFFER_DOC } from './docs-data';
 import { MODULES, moduleOfPermission } from '@/lib/modules/registry';
 import { DocsTocNav, type TocSection } from './DocsTocNav';
 import { AGENT_PROFILES } from '@/lib/mcp/profiles';
 import { PM_TOOLS } from '@/lib/mcp/tools';
 
 /* ── Helpers ───────────────────────────────────────────────── */
+
+/** Reading the catalog and forwarding one call, through an agent key and a delegation pass. */
+const REOFFER_EXAMPLE = (host: string) => [
+  "# The tools a person may use, through your agent's key and their pass",
+  `curl https://${host}/api/v1/mcp/tools -H "x-api-key: $AGENT_KEY" -H "X-Act-For: $DELEGATION_TOKEN"`,
+  '',
+  '# Forward one call as them',
+  `curl https://${host}/api/mcp -H "x-api-key: $AGENT_KEY" -H "X-Act-For: $DELEGATION_TOKEN" \\`,
+  '  -H "content-type: application/json" -H "accept: application/json, text/event-stream" \\',
+  `  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"search_tasks","arguments":{"search":"launch"}}}'`,
+].join('\n');
 
 function slugify(name: string) {
   return name.toLowerCase().replace(/\s+/g, '-');
@@ -136,6 +148,12 @@ export default async function ApiDocsPage() {
       mobileLabel: 'MCP',
       mobilePill: 'bg-violet-50 text-violet-700 hover:bg-violet-100',
     },
+    {
+      id: 'connect-ai',
+      label: 'Connect AI (OAuth)',
+      mobileLabel: 'OAuth',
+      mobilePill: 'bg-sky-50 text-sky-700 hover:bg-sky-100',
+    },
     ...grouped.map((g) => ({
       id: g.slug,
       label: g.name,
@@ -174,7 +192,7 @@ export default async function ApiDocsPage() {
       </header>
 
       {/* ── TOC navigation (client component) + grid layout ── */}
-      <DocsTocNav sections={tocSections} infoCutoff={3}>
+      <DocsTocNav sections={tocSections} infoCutoff={4}>
         <main className="space-y-6 min-w-0">
           {/* ── Authentication ── */}
           <section id="authentication" className="scroll-mt-16 lg:scroll-mt-6">
@@ -480,6 +498,38 @@ mcp_servers:
                   </table>
                 </div>
               </details>
+            </div>
+          </section>
+
+          {/* ── Connect AI and re-offering tools ── */}
+          <section id="connect-ai" className="scroll-mt-16 lg:scroll-mt-6">
+            <div className="bg-white rounded-xl border border-zinc-200 p-5 lg:p-6">
+              <div className="flex items-center gap-3 mb-5">
+                <div className="p-2 bg-sky-50 rounded-lg">
+                  <Sparkles className="text-sky-600" size={20} aria-hidden="true" />
+                </div>
+                <div>
+                  <h2 className="font-semibold text-zinc-900">Connect AI (OAuth)</h2>
+                  <p className="text-sm text-zinc-500">People sign their own AI tools in, with no key</p>
+                </div>
+              </div>
+              <p className="text-sm text-zinc-600">{CONNECT_AI_DOC.summary}</p>
+              <ul className="mt-3 space-y-1.5 list-disc pl-5">
+                {CONNECT_AI_DOC.rules.map((rule) => (
+                  <li key={rule} className="text-xs text-zinc-600">{rule}</li>
+                ))}
+              </ul>
+
+              <h3 className="mt-6 text-sm font-semibold text-zinc-900">Re-offer these tools in another MCP server</h3>
+              <p className="text-sm text-zinc-600 mt-1">{REOFFER_DOC.summary}</p>
+              <ul className="mt-3 space-y-1.5 list-disc pl-5">
+                {REOFFER_DOC.rules.map((rule) => (
+                  <li key={rule} className="text-xs text-zinc-600">{rule}</li>
+                ))}
+              </ul>
+              <div className="bg-zinc-900 rounded-lg p-4 mt-4">
+                <pre className="text-sm text-emerald-400 font-mono overflow-x-auto whitespace-pre">{REOFFER_EXAMPLE(host)}</pre>
+              </div>
             </div>
           </section>
 

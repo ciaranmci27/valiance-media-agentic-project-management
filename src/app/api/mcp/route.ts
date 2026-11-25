@@ -2,6 +2,8 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { createMcpHandler } from '@modelcontextprotocol/server';
 import { ApiError } from '@/lib/api/errors';
 import { resolveApiKey } from '@/lib/api/middleware';
+import { bearerChallenge } from '@/lib/api/connect-ai';
+import { isConnectAccessToken } from '@/lib/connect-ai';
 import { ACT_FOR_HEADER } from '@/lib/delegation';
 import { createPmServer, type McpCaller } from '@/lib/mcp/server';
 
@@ -22,6 +24,13 @@ export const maxDuration = 60;
  * token) makes every call act for that person, within their access: the tool
  * list is the agent's and the person's together, and each call carries the
  * token on to its route.
+ *
+ * Connect AI: a person's AI tool signs in with OAuth and sends its access
+ * token as Authorization: Bearer pmat_... The token stands for its
+ * connection's key (the connect scopes only) and the person's own access, so
+ * the tools listed and every call are theirs, and audit rows say mcp_oauth.
+ * A 401 carries the WWW-Authenticate challenge naming the protected resource
+ * metadata, so a tool given only this address finds where to sign in.
  */
 const mcp = createMcpHandler(
   ({ authInfo }) => createPmServer(authInfo?.extra?.caller as McpCaller),
@@ -56,14 +65,24 @@ function foreignOrigin(request: NextRequest): boolean {
   }
 }
 
+/** A 401 with the challenge: error="invalid_token" when a sign-in token came and is not live. */
+function unauthorizedRpc(request: NextRequest, message: string, data: unknown, tokenSent: boolean) {
+  const challenge = bearerChallenge(request.nextUrl.origin, tokenSent ? { code: 'invalid_token', description: message } : undefined);
+  return rpcError(401, message, data, { 'WWW-Authenticate': challenge });
+}
+
 export async function POST(request: NextRequest) {
   if (foreignOrigin(request)) return rpcError(403, 'This origin may not call the PM MCP server.');
   const key = readKey(request);
+  const connect = isConnectAccessToken(key);
+  if (!key) {
+    return unauthorizedRpc(request, 'Sign in to use this MCP server: connect your AI tool, or send an API key in x-api-key.', { reason: 'missing_api_key' }, false);
+  }
 
   let caller: McpCaller;
   try {
     const actFor = request.headers.get(ACT_FOR_HEADER);
-    const { supabase, keyRow, access, principal } = await resolveApiKey(key, actFor);
+    const { supabase, keyRow, access, principal, connection } = await resolveApiKey(key, actFor, { connect: true });
     const { data: member } = await supabase
       .from('team_members')
       .select('*')
@@ -80,8 +99,10 @@ export async function POST(request: NextRequest) {
       // profile the registry does not know is kept, and sees only pm_guide.
       profile: access.role === 'agent' && typeof member?.agent_profile === 'string' ? member.agent_profile : 'generic',
       ...(principal && actFor ? { actFor, principalId: principal.id } : {}),
+      ...(connection ? { connection: true } : {}),
     };
   } catch (caught) {
+    if (caught instanceof ApiError && caught.statusCode === 401) return unauthorizedRpc(request, caught.message, caught.details, connect);
     if (caught instanceof ApiError) return rpcError(caught.statusCode, caught.message, caught.details);
     console.error('[mcp] key', caught);
     return rpcError(500, 'Something went wrong on the server.', { reason: 'internal' });

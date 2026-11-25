@@ -203,6 +203,7 @@ export async function memberApiKeys(service: SupabaseClient, memberId: string): 
     .select(API_KEY_COLUMNS)
     .eq('team_member_id', memberId)
     .is('revoked_at', null)
+    .neq('permissions', 'connection')
     .order('created_at', { ascending: false });
   if (error) throw error;
   return (data ?? []) as unknown as ApiKey[];

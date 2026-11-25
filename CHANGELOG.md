@@ -9,6 +9,20 @@ Each section starts with `## X.Y.Z (YYYY-MM-DD)` and uses these headings, leavin
 - `### Database`: the core migration files in the release, one per line. `npm run db:migrate` applies them.
 - `### Breaking`: what an install must do when it takes this release.
 
+## 2.0.29 (2026-11-25)
+
+### Added
+- **Connect AI** (Settings > Account, and the sidebar): anyone connects Claude, ChatGPT, Cursor, Claude Code or Codex to their own projects and tasks by pasting one address and signing in. The tool can read their projects and tasks, create tasks, update tasks assigned to them and manage their own reminders, never more than they can, and never admin powers or keys, even for an Owner. Each person sees their connected apps, where each returns to, and can disconnect any of them. A personal key is offered for tools that cannot sign in.
+- The MCP server is now an OAuth 2.1 protected resource: discovery documents (`/.well-known/oauth-protected-resource`, `/.well-known/oauth-authorization-server`), open client registration, authorization code with PKCE (S256), rotating refresh tokens with reuse detection, and a consent screen that names where the tool returns to.
+- **Owners can turn connections off** for the whole workspace (Settings > Security); suspending a person disconnects their tools for good.
+- **Tool catalog**: `GET /api/v1/mcp/tools` lists the tools a caller may use, with their schemas and a version, so another MCP server can offer them.
+
+### Changed
+- Sign-in and the connect consent page can no longer be shown inside another site's frame.
+
+### Database
+- `20261125000000_connect_ai.sql`: OAuth clients, codes, grants and tokens (stored only as hashes), the workspace switch, an hourly clean-up (`pm-oauth-sweep`), and suspension revoking a person's connections.
+
 ## 2.0.28 (2026-11-25)
 
 ### Changed

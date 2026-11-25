@@ -18,12 +18,21 @@ const STEPS: readonly FlowStep[] = [
   { key: 'key', label: 'Copy key' },
 ];
 
+/** A name and ticked scopes the dialog starts with (Connect AI's "Use a personal key instead"). */
+export interface NewKeyPreset {
+  name: string;
+  scopes: string[];
+  /** Said on the last step, where the key goes. */
+  pasteHint?: string;
+}
+
 /**
  * New key, one step at a time: a name, what it can do (in plain words,
  * grouped as the Access page groups them), then the secret, once. Only
- * Done closes the secret step; closing forgets the secret.
+ * Done closes the secret step; closing forgets the secret. A preset fills
+ * the name and ticks its scopes (those the person holds); both stay editable.
  */
-export function NewApiKeyDialog({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
+export function NewApiKeyDialog({ isOpen, onClose, preset }: { isOpen: boolean; onClose: () => void; preset?: NewKeyPreset }) {
   // While a key is being made, and while its secret shows, a stray click,
   // Escape or the X leaves the dialog open: only Done closes it then.
   const [holdOpen, setHoldOpen] = useState(false);
@@ -33,19 +42,19 @@ export function NewApiKeyDialog({ isOpen, onClose }: { isOpen: boolean; onClose:
   };
   return (
     <Modal isOpen={isOpen} onClose={() => { if (!holdOpen) close(); }} title="New API key" size="lg">
-      {isOpen && <NewKeyFlow onClose={close} onHoldOpen={setHoldOpen} />}
+      {isOpen && <NewKeyFlow onClose={close} onHoldOpen={setHoldOpen} preset={preset} />}
     </Modal>
   );
 }
 
-function NewKeyFlow({ onClose, onHoldOpen }: { onClose: () => void; onHoldOpen: (hold: boolean) => void }) {
+function NewKeyFlow({ onClose, onHoldOpen, preset }: { onClose: () => void; onHoldOpen: (hold: boolean) => void; preset?: NewKeyPreset }) {
   const { addApiKey } = useApp();
   const { access } = useAuth();
   const available = useMemo(() => apiScopesFor(access), [access]);
   const groups = useMemo(() => keyScopeGroups(available), [available]);
   const [step, setStep] = useState(0);
-  const [name, setName] = useState('');
-  const [scopes, setScopes] = useState<string[]>([]);
+  const [name, setName] = useState(preset?.name ?? '');
+  const [scopes, setScopes] = useState<string[]>(() => (preset?.scopes ?? []).filter((scope) => (available as string[]).includes(scope)));
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [secret, setSecret] = useState<string | null>(null);
@@ -123,7 +132,7 @@ function NewKeyFlow({ onClose, onHoldOpen }: { onClose: () => void; onHoldOpen: 
       )}
 
       {step === 2 && secret && (
-        <StepPanel stepKey="key-secret" title={`${name.trim()} is ready`} description="Paste the key where it is used. Tools send it in the x-api-key header.">
+        <StepPanel stepKey="key-secret" title={`${name.trim()} is ready`} description={preset?.pasteHint ?? 'Paste the key where it is used. Tools send it in the x-api-key header.'}>
           <SecretOnce
             secret={{ secret }}
             heading="Copy the key now. You won't see this again."

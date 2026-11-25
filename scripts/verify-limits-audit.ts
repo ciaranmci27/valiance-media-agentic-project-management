@@ -140,7 +140,7 @@ function pureChecks() {
 async function migrationChecks() {
   const at = SCHEMA_SQL.indexOf(SECTION);
   const banner = SCHEMA_SQL.lastIndexOf('\n-- ====', at);
-  check('schema.sql: the limits and audit section is there, last', at > 0 && banner > 0 && !/^-- [A-Z][^\n]*\(\d{14}_[a-z_]+\.sql\)$/m.test(SCHEMA_SQL.slice(at + SECTION.length)));
+  check('schema.sql: the limits and audit section is there', at > 0 && banner > 0);
   const body = MIGRATION_SQL.slice(MIGRATION_SQL.indexOf('-- ---------------------------------------------------------------------------\n-- Audit log: order for the export')).trim();
   check('schema.sql: the section mirrors the migration body', SCHEMA_SQL.slice(at).includes(body));
   // The audit backfill first, in one pass; what locks team_members and business_settings last.

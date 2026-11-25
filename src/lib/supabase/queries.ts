@@ -1497,6 +1497,8 @@ export async function fetchApiKeys(supabase: SupabaseClient) {
   const { data, error } = await supabase
     .from('api_keys')
     .select(API_KEY_COLUMNS)
+    // Connected AI tools' keys are connections (Settings > Account), never listed as keys.
+    .neq('permissions', 'connection')
     .order('created_at', { ascending: false });
 
   if (error) throw error;

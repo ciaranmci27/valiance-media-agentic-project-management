@@ -45,7 +45,8 @@ async function editableKey(service: SupabaseClient, editor: KeyEditor, id: strin
   const { data, error } = await service.from('api_keys').select(API_KEY_COLUMNS).eq('id', id).maybeSingle();
   if (error) return { ok: false, failure: { status: 500, body: { error: 'Failed to load API key' } } };
   const key = data as ApiKey | null;
-  if (!key) return { ok: false, failure: NOT_FOUND };
+  // A connected app's key is not a key anyone edits: it is disconnected from Settings > Account.
+  if (!key || key.permissions === 'connection') return { ok: false, failure: NOT_FOUND };
 
   const visible = key.team_member_id === editor.memberId
     || key.created_by === editor.memberId

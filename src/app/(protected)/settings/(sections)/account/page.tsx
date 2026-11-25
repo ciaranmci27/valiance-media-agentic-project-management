@@ -5,6 +5,7 @@ import { TimezoneSection } from '@/components/settings/TimezoneSection';
 import { PasswordSection } from '@/components/settings/PasswordSection';
 import { AppearanceSection } from '@/components/settings/AppearanceSection';
 import { LinkedAccountsSection } from '@/components/settings/LinkedAccountsSection';
+import { ConnectAiSection } from '@/components/settings/ConnectAiSection';
 import { useSettingsAccess } from '@/components/settings/settings-groups';
 
 export default function AccountSettingsPage() {
@@ -15,6 +16,7 @@ export default function AccountSettingsPage() {
       <TimezoneSection />
       {/* No password change in demo mode */}
       {show.password && <PasswordSection />}
+      {show.connectAi && <ConnectAiSection canMakeKeys={show.apiKeys} />}
       <LinkedAccountsSection />
       <AppearanceSection />
     </>

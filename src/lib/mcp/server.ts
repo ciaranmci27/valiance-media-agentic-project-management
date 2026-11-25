@@ -26,6 +26,8 @@ export interface McpCaller {
   /** A checked X-Act-For token: every call acts for this person (principalId). */
   actFor?: string;
   principalId?: string;
+  /** A Connect AI connection: key is its OAuth access token, which the in-process calls carry. */
+  connection?: boolean;
 }
 
 /** Hermes spills larger results to disk; reads over this are refused with a hint. */
@@ -69,7 +71,7 @@ export function refusal(status: number, code: string, message: string, details: 
  * own schema, and the route writes its audit row tagged via = mcp, exactly
  * as for REST.
  */
-export function routeCaller(caller: Pick<McpCaller, 'key' | 'origin' | 'actFor'>): CallRoute {
+export function routeCaller(caller: Pick<McpCaller, 'key' | 'origin' | 'actFor' | 'connection'>): CallRoute {
   return async ({ method, path, params = {}, query, body, idempotencyKey }) => {
     const handler = routeHandler(path, method);
     if (!handler) return { status: 500, envelope: { success: false, error: { code: 'INTERNAL_ERROR', message: `No handler for ${method} ${path}` } } };
@@ -82,7 +84,7 @@ export function routeCaller(caller: Pick<McpCaller, 'key' | 'origin' | 'actFor'>
     const headers: Record<string, string> = { 'x-api-key': caller.key };
     if (body !== undefined) headers['content-type'] = 'application/json';
     if (idempotencyKey) headers['idempotency-key'] = idempotencyKey;
-    const response = await apiRequestContext.run({ via: 'mcp', actFor: caller.actFor ?? null }, () => handler(
+    const response = await apiRequestContext.run({ via: 'mcp', actFor: caller.actFor ?? null, connection: caller.connection === true }, () => handler(
       new NextRequest(`${caller.origin}${concrete}${search.size ? `?${search}` : ''}`, {
         method,
         headers,

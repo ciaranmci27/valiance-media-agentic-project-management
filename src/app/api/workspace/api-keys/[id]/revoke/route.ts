@@ -22,10 +22,11 @@ export async function POST(
 
   const { data: key } = await service
     .from('api_keys')
-    .select('id, team_member_id, created_by, revoked_at')
+    .select('id, team_member_id, created_by, revoked_at, permissions')
     .eq('id', id)
     .maybeSingle();
-  const allowed = key && (
+  // A connected app is disconnected from Settings > Account, never revoked as a key.
+  const allowed = key && key.permissions !== 'connection' && (
     key.team_member_id === memberId
       || key.created_by === memberId
       || accessAllows(access, 'api_keys.manage_all', 'app')

@@ -50,7 +50,7 @@ export interface AuditEntry {
   team_member_id: string | null;
   principal_id: string | null;
   api_key_id: string | null;
-  via: 'rest' | 'mcp' | 'app';
+  via: 'rest' | 'mcp' | 'app' | 'mcp_oauth';
   status_code: number;
   error: string | null;
   request_body: unknown;
@@ -91,4 +91,4 @@ export function auditActionLabel(entry: Pick<AuditEntry, 'method' | 'endpoint' |
   return `${verb[entry.method] ?? entry.method} ${what}`;
 }
 
-export const VIA_LABELS: Record<AuditEntry['via'], string> = { app: 'App', rest: 'API', mcp: 'MCP' };
+export const VIA_LABELS: Record<AuditEntry['via'], string> = { app: 'App', rest: 'API', mcp: 'MCP', mcp_oauth: 'Connected AI tool' };

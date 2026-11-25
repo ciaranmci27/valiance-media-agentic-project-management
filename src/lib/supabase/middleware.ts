@@ -31,8 +31,14 @@ function isPublicRoute(pathname: string) {
     pathname.startsWith('/portal') ||
     pathname.startsWith('/api/portal') ||
     pathname.startsWith('/api/v1') ||
-    // The MCP server authenticates an API key, like /api/v1.
+    // The MCP server authenticates an API key or a connected AI tool's token, like /api/v1.
     pathname === '/api/mcp' ||
+    // Connect AI (OAuth for the MCP server): the metadata documents, client
+    // registration and the token endpoint answer AI tools, never a browser
+    // session. The consent page (/oauth/authorize) stays behind sign-in.
+    pathname.startsWith('/.well-known/oauth-') ||
+    pathname === '/api/oauth/register' ||
+    pathname === '/api/oauth/token' ||
     pathname.startsWith('/api/docs') ||
     // The install's own endpoints: each route checks its declared auth itself
     // (a session by default, an API key, or public by explicit opt-in), so an

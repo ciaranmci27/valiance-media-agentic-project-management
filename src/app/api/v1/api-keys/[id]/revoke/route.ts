@@ -19,9 +19,10 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
  */
 export const POST = withApi<unknown, { id: string }>(async ({ supabase, params, apiKeyId, teamMemberId }) => {
   if (!UUID.test(params.id)) throw notFound('API key');
-  const { data: found, error: readError } = await supabase.from('api_keys').select('id').eq('id', params.id).maybeSingle();
+  const { data: found, error: readError } = await supabase.from('api_keys').select('id, permissions').eq('id', params.id).maybeSingle();
   if (readError) throw readError;
-  if (!found) throw notFound('API key');
+  // A connected app's key is not a key here: its person disconnects it in Settings > Account.
+  if (!found || found.permissions === 'connection') throw notFound('API key');
   const revoked = await revokeKeyTree(supabase, params.id, {
     memberId: teamMemberId,
     apiKeyId,

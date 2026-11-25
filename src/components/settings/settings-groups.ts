@@ -41,7 +41,7 @@ export const EMAIL_PAGES = {
 
 export const SETTINGS_GROUPS: SettingsGroup[] = [
   // Your own account first: everyone has it, so it is also where /settings opens.
-  { key: 'account', href: '/settings/account', label: 'Account', icon: User, sectionIds: ['profile', 'timezone', 'password', 'appearance'] },
+  { key: 'account', href: '/settings/account', label: 'Account', icon: User, sectionIds: ['profile', 'timezone', 'password', 'connect-ai', 'appearance'] },
   // New versions of the app and how to install them (Owners only).
   { key: 'updates', href: '/settings/updates', label: 'Updates', icon: CircleArrowUp, sectionIds: ['updates'] },
   // Workspace-wide: the modules, the brand and the region (Owners only).
@@ -71,8 +71,8 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
   // People's personal assistants: on or off, their name, who gets one, chat connections (Owners only).
   { key: 'assistants', href: '/settings/assistants', label: 'Assistants', icon: Sparkles, sectionIds: ['assistants', 'assistant-setups', 'assistant-status', 'chat-connections'] },
   { key: 'developers', href: '/settings/developers', label: 'Developers', icon: Code2, sectionIds: ['api-keys', 'webhooks', 'webhook-retries', 'developer-docs'] },
-  // The kill switch for every agent, the audit log and how long it is kept (Owners only).
-  { key: 'security', href: '/settings/security', label: 'Security', icon: ShieldCheck, sectionIds: ['agents-pause', 'audit-log', 'audit-settings'] },
+  // The kill switch for every agent, whether people may connect AI tools, the audit log and how long it is kept (Owners only).
+  { key: 'security', href: '/settings/security', label: 'Security', icon: ShieldCheck, sectionIds: ['agents-pause', 'connect-ai-setting', 'audit-log', 'audit-settings'] },
   { key: 'data', href: '/settings/data', label: 'Data', icon: Database, sectionIds: ['trash', 'demo-mode'] },
   // The install's own sections, after core's.
   ...customSettingsGroups(),
@@ -159,6 +159,10 @@ export function useSettingsAccess() {
     agentsPause: isOwner && !isDemoMode && isModuleEnabled(access, 'agents'),
     // Who changed what, and how long that is kept: Owners only. The demo workspace has no log.
     auditLog: isOwner && !isDemoMode,
+    // Your own AI tools (Connect AI): every person; agents never sign in.
+    connectAi: access?.role !== 'agent',
+    // Whether people may connect AI tools at all: Owners only.
+    connectAiSetting: isOwner && !isDemoMode,
   };
 
   // A group shows in the menu while at least one of its sections does.
@@ -172,7 +176,7 @@ export function useSettingsAccess() {
     email: show.smtp || show.emailInboxes || show.myInbox || show.receiving,
     assistants: show.assistants,
     developers: show.apiKeys || show.webhooks || show.webhookRetries || show.developerDocs,
-    security: show.agentsPause || show.auditLog,
+    security: show.agentsPause || show.connectAiSetting || show.auditLog,
     data: !isGuest,
   };
 

@@ -71,10 +71,11 @@ export async function rotateApiKey(
 ): Promise<RotatedKey> {
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(keyId)) throw notFound('API key');
   const overlapHours = input.overlap_hours ?? ROTATION_OVERLAP_DEFAULT_HOURS;
-  const { data, error } = await service.from('api_keys').select('id, team_member_id, scopes, revoked_at, expires_at').eq('id', keyId).maybeSingle();
+  const { data, error } = await service.from('api_keys').select('id, team_member_id, scopes, revoked_at, expires_at, permissions').eq('id', keyId).maybeSingle();
   if (error) throw error;
-  const old = data as { id: string; team_member_id: string | null; scopes: string[] | null; revoked_at: string | null; expires_at: string | null } | null;
-  if (!old || !old.team_member_id) throw notFound('API key');
+  const old = data as { id: string; team_member_id: string | null; scopes: string[] | null; revoked_at: string | null; expires_at: string | null; permissions: string } | null;
+  // A connected app's key is never rotated (that would hand out a secret for it).
+  if (!old || !old.team_member_id || old.permissions === 'connection') throw notFound('API key');
 
   const { caller } = actor;
   const own = old.team_member_id === caller.memberId;

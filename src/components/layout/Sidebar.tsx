@@ -431,6 +431,17 @@ export function Sidebar() {
               </div>
             </Link>
           )}
+          {/* Connect AI: every person's own AI tools, one click from anywhere. Agents never sign in. */}
+          {!loading && access?.role !== 'agent' && (
+            <Link
+              href="/settings/account#connect-ai"
+              onClick={closeSidebar}
+              className="w-full flex items-center gap-3 px-2 py-2 mt-1 rounded-lg text-zinc-400 hover:bg-white/5 hover:text-zinc-200 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+            >
+              <Sparkles size={16} aria-hidden="true" />
+              <span className="text-sm">Connect AI</span>
+            </Link>
+          )}
           {!isEnvForcedDemo && (
             <button
               onClick={signOut}

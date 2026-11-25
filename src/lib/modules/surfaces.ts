@@ -184,6 +184,8 @@ export const CORE_ROUTES: string[] = [
   'api/workspace/key-settings',
   // The audit log: Settings > Security (Owner only) and its export (audit.export).
   'api/workspace/audit-log', 'api/workspace/audit-settings', 'api/v1/audit',
+  // Connect AI: people sign their own AI tools in (OAuth for the MCP server), its switch (Owner) and the tool catalog.
+  'api/oauth', 'api/workspace/connect-ai', 'api/v1/mcp',
   // Groups and linked identities (chat accounts) are about people, with AI agents on or off.
   'api/v1/groups', 'api/v1/identities', 'api/v1/members', 'api/workspace/groups', 'api/workspace/identities', '(protected)/link',
   // The install's own routes and pages (src/custom): each item names its own module, permission or role.
@@ -203,6 +205,8 @@ export const CORE_TABLES: string[] = [
   'team_invites', 'team_member_notifications', 'team_member_permissions', 'team_members', 'trash_events', 'workspace_brand',
   'workspace_modules', 'workspace_region', 'app_secrets',
   'groups', 'group_members', 'member_identities', 'identity_link_requests',
+  // Connect AI: registered tools, connections, codes, tokens and the endpoints' rate windows.
+  'oauth_clients', 'oauth_grants', 'oauth_codes', 'oauth_tokens', 'oauth_rate_limit_windows',
 ];
 
 /** Core functions a signed-in member may call. */
