@@ -3,7 +3,7 @@
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import {
-  ArrowLeft, Briefcase, CheckSquare, Clock, DollarSign, FileText, FolderKanban, KeyRound,
+  ArrowLeft, Briefcase, CheckSquare, Clock, DollarSign, FileText, FolderKanban, KeyRound, LayoutTemplate,
   Megaphone, MessageSquare, RotateCcw, Trash2, UserCircle, type LucideIcon,
 } from 'lucide-react';
 import { useApp } from '@/lib/store';
@@ -22,7 +22,7 @@ type Group = 'all' | 'projects' | 'tasks' | 'billing' | 'clients' | 'files';
 const GROUPS: { key: Group; label: string; types: string[] }[] = [
   { key: 'all', label: 'All', types: [] },
   { key: 'projects', label: 'Projects', types: ['projects'] },
-  { key: 'tasks', label: 'Tasks', types: ['tasks', 'task_comments', 'task_files', 'reminders'] },
+  { key: 'tasks', label: 'Tasks', types: ['tasks', 'task_comments', 'task_files', 'reminders', 'task_templates'] },
   {
     key: 'billing',
     label: 'Billing',
@@ -37,6 +37,7 @@ const TYPES: Record<string, { label: string; icon: LucideIcon }> = {
   tasks: { label: 'Task', icon: CheckSquare },
   task_comments: { label: 'Comment', icon: MessageSquare },
   task_files: { label: 'Task file', icon: FileText },
+  task_templates: { label: 'Template', icon: LayoutTemplate },
   reminders: { label: 'Reminder', icon: Clock },
   project_credentials: { label: 'Credential', icon: KeyRound },
   entity_files: { label: 'File', icon: FileText },

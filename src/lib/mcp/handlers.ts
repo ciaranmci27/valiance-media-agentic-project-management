@@ -103,6 +103,10 @@ import * as group from '@/app/api/v1/groups/[id]/route';
 import * as groupMembers from '@/app/api/v1/groups/[id]/members/route';
 import * as groupMember from '@/app/api/v1/groups/[id]/members/[memberId]/route';
 import * as groupIdentities from '@/app/api/v1/groups/[id]/identities/route';
+import * as taskTemplates from '@/app/api/v1/task-templates/route';
+import * as taskTemplate from '@/app/api/v1/task-templates/[id]/route';
+import * as taskTemplateRun from '@/app/api/v1/task-templates/[id]/run/route';
+import * as taskTemplateRuns from '@/app/api/v1/task-templates/[id]/runs/route';
 import * as identityResolve from '@/app/api/v1/identities/resolve/route';
 import * as identityLinkRequests from '@/app/api/v1/identities/link-requests/route';
 import * as memberIdentities from '@/app/api/v1/members/[id]/identities/route';
@@ -223,6 +227,10 @@ export const ROUTE_MODULES: Record<string, RouteModule> = {
   '/api/v1/groups/{id}/members': groupMembers,
   '/api/v1/groups/{id}/members/{memberId}': groupMember,
   '/api/v1/groups/{id}/identities': groupIdentities,
+  '/api/v1/task-templates': taskTemplates,
+  '/api/v1/task-templates/{id}': taskTemplate,
+  '/api/v1/task-templates/{id}/run': taskTemplateRun,
+  '/api/v1/task-templates/{id}/runs': taskTemplateRuns,
   '/api/v1/identities/resolve': identityResolve,
   '/api/v1/identities/link-requests': identityLinkRequests,
   '/api/v1/members/{id}/identities': memberIdentities,

@@ -11,7 +11,7 @@ import {
   demoLeads, demoLeadInteractions, demoLeadProposals, demoLeadFields,
   demoLeadContacts, demoActivities,
   demoPortalSettings, demoPortalUpdates, demoPortalUpdateAttachments, demoEntityFiles, demoTimeEntries,
-  demoProjectGoals, demoTaskSuggestions, demoAgentActivity, demoProjectInvoices, demoReminders,
+  demoProjectGoals, demoTaskSuggestions, demoAgentActivity, demoProjectInvoices, demoReminders, demoTaskTemplates,
 } from '@/lib/demo-data';
 import {
   fetchTasks,
@@ -126,6 +126,9 @@ import { INBOX_CACHE_PREFIX, INBOX_TABLE_NAMES } from '@/lib/communications/db';
 import { PM_SCHEMA } from '@/lib/supabase/schema';
 import { parsePaymentRuleError } from '@/lib/invoice-payments';
 import { restoreFromTrash, TRASH_TABLES, TrashError, type TrashTable } from '@/lib/supabase/trash';
+import { workspaceApi } from '@/lib/agent-workspace';
+import { planRun, type PlannedTask, type RunTaskTemplateInput, type TaskTemplateRunResult } from '@/lib/task-templates';
+import { toLocalDateString } from '@/lib/date-utils';
 
 // A refused move to Trash says why (time on an invoice, payments from an
 // accounting connection, no permission); anything else gets the fallback.
@@ -340,6 +343,12 @@ interface AppContextType {
   addSubtask: (parentId: string, title: string) => Promise<Task | null>;
   /** Makes a task a subtask of `parentId`, or top-level again with null. */
   setTaskParent: (taskId: string, parentId: string | null) => Promise<boolean>;
+  /**
+   * Uses a task template: every task it makes is created on the server at
+   * once and shown here at once. Rejects with the server's error (a
+   * WorkspaceApiError naming the fields), so the form can say what to fix.
+   */
+  runTaskTemplate: (templateId: string, input: RunTaskTemplateInput) => Promise<TaskTemplateRunResult<Task>>;
 
   // Acceptance criteria
   addCriterion: (taskId: string, criterion: string) => void;
@@ -1734,6 +1743,83 @@ export function AppProvider({ children }: { children: ReactNode }) {
       toast('error', err instanceof Error ? err.message : 'Could not move the task');
       return false;
     }
+  };
+
+  // The demo has no server: a use makes its tasks here, as a demo task is
+  // made, from the same plan the server follows.
+  const runTemplateInDemo = (templateId: string, input: RunTaskTemplateInput): TaskTemplateRunResult<Task> => {
+    const template = demoTaskTemplates.find(t => t.id === templateId);
+    if (!template) throw new Error('This template is not in the demo.');
+    const projectId = template.project_id ?? input.project_id;
+    if (!projectId) throw new Error('Pick the project the tasks go in.');
+    const zone = team.find(m => m.id === teamMemberId)?.timezone;
+    const startDate = input.start_date ?? toLocalDateString(zone && zone !== 'UTC' ? zone : undefined);
+    const plan = planRun(template.items, { startDate, values: input.values ?? {}, runnerId: teamMemberId ?? null });
+    const now = new Date().toISOString();
+    const make = (task: Omit<PlannedTask, 'subtasks'>, parentId: string | null, order: number): Task => ({
+      id: crypto.randomUUID(),
+      project_id: projectId,
+      ...(parentId ? { parent_task_id: parentId, sort_order: order } : {}),
+      title: task.title,
+      description: task.description,
+      status: 'todo',
+      priority: task.priority,
+      due_date: task.due_date,
+      tags: task.tags,
+      assignee_ids: task.assignee_id ? [task.assignee_id] : [],
+      comments: [],
+      acceptance_criteria: [],
+      blocked_by_ids: [],
+      created_by: teamMemberId,
+      created_at: now,
+      updated_at: now,
+    } as Task);
+    const made: Task[] = [];
+    for (const task of plan) {
+      const parent = make(task, null, 0);
+      made.push(parent, ...task.subtasks.map((subtask, i) => make(subtask, parent.id, i)));
+    }
+    setTasks(prev => [...made, ...prev]);
+    const project = projects.find(p => p.id === projectId);
+    return {
+      run: {
+        id: crypto.randomUUID(), template_id: template.id, template_version: template.version, template_name: template.name,
+        project_id: projectId, project_name: project?.name ?? null, run_by: teamMemberId ?? null, run_by_name: actorName(),
+        via: 'app', schedule_id: null, start_date: startDate, values: input.values ?? {}, task_ids: made.map(t => t.id), created_at: now,
+      },
+      tasks: made,
+      notes: [],
+    };
+  };
+
+  // Task templates: the server creates every task (and records the run);
+  // they show here at once, and the team hears about it in one notification.
+  const runTaskTemplate = async (templateId: string, input: RunTaskTemplateInput): Promise<TaskTemplateRunResult<Task>> => {
+    if (skipSupabase) return runTemplateInDemo(templateId, input);
+    const result = await workspaceApi<TaskTemplateRunResult<Task>>(`/api/workspace/task-templates/${encodeURIComponent(templateId)}/run`, {
+      method: 'POST',
+      body: input,
+    });
+    setTasks(prev => {
+      const known = new Set(prev.map(t => t.id));
+      return [...result.tasks.filter(t => !known.has(t.id)), ...prev];
+    });
+    invalidateTables(['task_template_runs']);
+    kickWorkWebhooks();
+    const project = projects.find(p => p.id === result.run.project_id);
+    const count = result.tasks.length;
+    const where = project ? ` in ${project.name}` : '';
+    notify(allMemberIds(), `New tasks from "${result.run.template_name}"`, `${actorName()} used a template${where}: ${count} ${count === 1 ? 'task' : 'tasks'}.`,
+      `/projects/${result.run.project_id}`, 'project', result.run.project_id, 'task_created', {
+        subject: `${count} new ${count === 1 ? 'task' : 'tasks'}${where}: ${result.run.template_name}`.slice(0, 120),
+        details: [
+          ...(project ? [{ label: 'Project', value: project.name }] : []),
+          { label: 'Template', value: result.run.template_name.slice(0, 200) },
+          { label: 'Tasks', value: String(count) },
+          { label: 'Used by', value: actorName() },
+        ],
+      });
+    return result;
   };
 
   // Acceptance criteria
@@ -4301,6 +4387,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       return false;
     }
     // Live sync would catch up on its own; refetch now so it shows at once.
+    invalidateTables([recordType]);
     await Promise.all(trashSlices(recordType).map(slice => refreshSlice(slice)));
     return true;
   };
@@ -4601,6 +4688,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       getSubtasks,
       addSubtask,
       setTaskParent,
+      runTaskTemplate,
       addCriterion,
       toggleCriterion,
       updateCriterion,

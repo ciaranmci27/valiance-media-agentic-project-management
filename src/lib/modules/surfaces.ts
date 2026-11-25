@@ -196,6 +196,8 @@ export const CORE_ROUTES: string[] = [
   'api/v1/context', 'api/workspace/context',
   // Groups and linked identities (chat accounts) are about people, with AI agents on or off.
   'api/v1/groups', 'api/v1/identities', 'api/v1/members', 'api/workspace/groups', 'api/workspace/identities', '(protected)/link',
+  // Task templates make tasks, which are core.
+  'api/v1/task-templates', 'api/workspace/task-templates', '(protected)/templates',
   // The install's own routes and pages (src/custom): each item names its own module, permission or role.
   'api/x', '(protected)/x',
   '(protected)/dashboard', '(protected)/my-tasks', '(protected)/notifications', '(protected)/projects',
@@ -213,6 +215,8 @@ export const CORE_TABLES: string[] = [
   'team_invites', 'team_member_notifications', 'team_member_permissions', 'team_members', 'trash_events', 'workspace_brand',
   'workspace_modules', 'workspace_region', 'app_secrets',
   'groups', 'group_members', 'member_identities', 'identity_link_requests',
+  // Task templates and every use of one.
+  'task_templates', 'task_template_runs',
   // Connect AI: registered tools, connections, codes, tokens and the endpoints' rate windows.
   'oauth_clients', 'oauth_grants', 'oauth_codes', 'oauth_tokens', 'oauth_rate_limit_windows',
 ];

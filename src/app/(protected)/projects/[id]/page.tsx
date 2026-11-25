@@ -12,6 +12,8 @@ import { BoardView } from '@/components/views/BoardView';
 import { ListView } from '@/components/views/ListView';
 import { CalendarView } from '@/components/views/CalendarView';
 import { NewTaskPanel } from '@/components/tasks/NewTaskPanel';
+import { TemplatePicker } from '@/components/templates/UseTemplateButton';
+import { UseTemplatePanel } from '@/components/templates/UseTemplatePanel';
 import { TaskDetailPanel } from '@/components/tasks/TaskDetailPanel';
 import { TaskMoveDialog } from '@/components/tasks/MoveTaskDialog';
 import { ProjectForm } from '@/components/projects/ProjectForm';
@@ -33,7 +35,7 @@ import { Avatar } from '@/components/ui/Avatar';
 import { toast } from '@/components/ui/Toast';
 import { useTaskUrlParam } from '@/lib/use-task-url';
 import {
-  Plus, LayoutGrid, List, Calendar,
+  Plus, LayoutGrid, LayoutTemplate, List, Calendar,
   Edit, ChevronRight, Trash2, Clock, FolderInput,
 } from 'lucide-react';
 import { Task, ViewMode } from '@/lib/types';
@@ -99,6 +101,7 @@ export default function ProjectDetailPage() {
   const [isContactsPanelOpen, setIsContactsPanelOpen] = useState(false);
   // A new task being drafted in the side panel, with a calendar day's date when it came from one.
   const [newTask, setNewTask] = useState<{ dueDate?: string } | null>(null);
+  const [usingTemplate, setUsingTemplate] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<{ type: 'task' | 'project' | 'bulk'; id: string } | null>(null);
   const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set());
   const [showBulkMenu, setShowBulkMenu] = useState(false);
@@ -579,7 +582,16 @@ export default function ProjectDetailPage() {
             {allProjectTasks.length > 0 && <TaskFilterControl tasks={allProjectTasks} />}
           </>}
           primary={canCreateTasks && (
-            <ToolbarButton icon={<Plus />} label="Add task" onClick={() => setNewTask({})} />
+            <>
+              <TemplatePicker
+                projectId={projectId}
+                onPick={(template) => setUsingTemplate(template.id)}
+                trigger={({ open, toggle }) => (
+                  <ToolbarButton variant="secondary" icon={<LayoutTemplate />} label="From a template" onClick={toggle} aria-expanded={open} aria-haspopup="listbox" />
+                )}
+              />
+              <ToolbarButton icon={<Plus />} label="Add task" onClick={() => setNewTask({})} />
+            </>
           )}
         />
 
@@ -709,6 +721,15 @@ export default function ProjectDetailPage() {
             setNewTask(null);
             setViewingTaskId(task.id);
           }}
+        />
+      )}
+
+      {/* Tasks from a template, previewed and filled in the same side panel. */}
+      {usingTemplate && (
+        <UseTemplatePanel
+          templateId={usingTemplate}
+          projectId={projectId}
+          onClose={() => setUsingTemplate(null)}
         />
       )}
 

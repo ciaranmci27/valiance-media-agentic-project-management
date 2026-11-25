@@ -1159,6 +1159,7 @@ export const WORK_WEBHOOK_EVENT_TYPES = [
   'question.asked', 'question.answered', 'question.cancelled',
   'suggestion.created', 'suggestion.decided', 'review.submitted',
   'run.started', 'run.finished',
+  'template.run',
 ] as const;
 
 /**

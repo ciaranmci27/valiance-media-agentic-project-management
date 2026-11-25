@@ -9,6 +9,18 @@ Each section starts with `## X.Y.Z (YYYY-MM-DD)` and uses these headings, leavin
 - `### Database`: the core migration files in the release, one per line. `npm run db:migrate` applies them.
 - `### Breaking`: what an install must do when it takes this release.
 
+## 2.0.34 (2026-11-25)
+
+### Added
+- **Task templates**: set up repeat work once, then make it in one click. A template is one task or a playbook of tasks with subtasks, due dates counted in days from a start date, fill-in fields such as `{product}` used in titles and descriptions, and an assignee per task (a named person, or whoever uses it). A template can be locked to one project.
+- **Where to use them**: a Templates page in the sidebar, "From a template" in the New task panel, and "From a template" on a project's Tasks tab. Using one shows every task it will make before anything is created, and makes them all or none.
+- `templates.manage` permission (Owners and Admins by default) to set templates up; using one needs `tasks.create` and access to the project.
+- REST `/api/v1/task-templates` (list, get, create, update, delete to Trash, `POST /:id/run`, `GET /:id/runs`), MCP tools `list_task_templates`, `get_task_template`, `run_task_template`, `create_task_template`, `update_task_template`, and the `template.run` webhook event.
+- Templates go to Settings > Trash and can be restored.
+
+### Database
+- `20261125000300_task_templates.sql`: `task_templates`, `task_template_runs`, the `task_template_run_stats` view, the `templates.manage` permission, and task templates added to the Trash functions.
+
 ## 2.0.33 (2026-11-25)
 
 ### Changed

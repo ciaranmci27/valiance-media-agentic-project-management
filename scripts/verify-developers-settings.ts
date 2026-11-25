@@ -152,9 +152,9 @@ const draft = (fields: Partial<WebhookDraft> = {}): WebhookDraft => ({
 }
 {
   check('a whole group reads as its name', eventSummary(['question.asked', 'question.answered', 'question.cancelled']).join() === 'Questions');
-  check('part of a group says how much', eventSummary(['task.created', 'task.updated']).join() === 'Work: 2 of 7');
+  check('part of a group says how much', eventSummary(['task.created', 'task.updated']).join() === 'Work: 2 of 8');
   check('groups read in order', eventSummary(['invoice.paid', 'run.started', 'run.finished']).join('|') === 'Agent runs|Invoices: 1 of 5');
-  check('an unknown event still shows by name', eventSummary(['task.created', 'custom.thing']).join('|') === 'Work: 1 of 7|custom.thing');
+  check('an unknown event still shows by name', eventSummary(['task.created', 'custom.thing']).join('|') === 'Work: 1 of 8|custom.thing');
 }
 
 if (failures.length) {

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { AlignLeft, Bot, Briefcase, Calendar, CircleDot, Flag, Lock, Tag, Users, X } from 'lucide-react';
+import { AlignLeft, Bot, Briefcase, Calendar, CircleDot, Flag, LayoutTemplate, Lock, Tag, Users, X } from 'lucide-react';
 import { TASK_TYPES, type AiReadiness, type Task, type TaskType } from '@/lib/types';
 import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
@@ -11,6 +11,8 @@ import { Button } from '@/components/ui/Button';
 import { DateInput } from '@/components/ui/inputs/DateInput';
 import { toast } from '@/components/ui/Toast';
 import { TaskPanelShell } from './TaskPanelShell';
+import { TemplatePicker } from '@/components/templates/UseTemplateButton';
+import { UseTemplatePanel } from '@/components/templates/UseTemplatePanel';
 import {
   DescriptionField, DetailRow, INLINE_DATE_CLASS, PeopleChips, PickField, PRIORITY_OPTIONS, STATUS_OPTIONS, TagsField, TitleField,
   taskTypeLabel, WHO_DOES_IT,
@@ -65,6 +67,8 @@ export function NewTaskPanel({ projectId, initialDueDate, onClose, onCreated }: 
     ai_readiness: null,
   }));
   const [creating, setCreating] = useState(false);
+  // A template picked instead: its Use panel takes this one's place, and closing it comes back here.
+  const [usingTemplate, setUsingTemplate] = useState<string | null>(null);
   // The title as typed so far: it is saved to the draft only on Enter or leaving the field.
   const [typed, setTyped] = useState('');
   const set = <K extends keyof Draft>(key: K, value: Draft[K]) => setDraft((current) => ({ ...current, [key]: value }));
@@ -107,6 +111,10 @@ export function NewTaskPanel({ projectId, initialDueDate, onClose, onCreated }: 
   const status = STATUS_OPTIONS.find((option) => option.value === draft.status)!;
   const priority = PRIORITY_OPTIONS.find((option) => option.value === draft.priority)!;
 
+  if (usingTemplate) {
+    return <UseTemplatePanel templateId={usingTemplate} projectId={projectId} onClose={() => setUsingTemplate(null)} onDone={() => onClose()} />;
+  }
+
   return (
     <TaskPanelShell
       labelledBy="new-task-title"
@@ -143,7 +151,25 @@ export function NewTaskPanel({ projectId, initialDueDate, onClose, onCreated }: 
       }
       footer={
         <div className="flex items-center justify-between gap-3 border-t border-white/[0.06] px-5 py-3">
-          <p className="text-xs text-zinc-400">Enter in the title creates it.</p>
+          <div className="flex min-w-0 items-center gap-3">
+            <TemplatePicker
+              projectId={projectId}
+              onPick={(template) => setUsingTemplate(template.id)}
+              trigger={({ open, toggle }) => (
+                <button
+                  type="button"
+                  onClick={toggle}
+                  aria-expanded={open}
+                  aria-haspopup="listbox"
+                  className="inline-flex items-center gap-1.5 rounded-md px-1.5 py-1 -mx-1.5 text-xs font-medium text-zinc-300 transition-colors hover:bg-white/[0.06] hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+                >
+                  <LayoutTemplate size={13} aria-hidden="true" />
+                  From a template
+                </button>
+              )}
+            />
+            <p className="hidden truncate text-xs text-zinc-400 sm:block">Enter in the title creates it.</p>
+          </div>
           <Button size="sm" onClick={() => void create()} disabled={!(typed || draft.title).trim() || creating}>
             {creating ? 'Creating' : 'Create task'}
           </Button>

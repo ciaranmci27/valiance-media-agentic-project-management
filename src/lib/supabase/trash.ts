@@ -14,7 +14,7 @@ export const TRASH_TABLES = [
   'entity_files', 'portal_updates', 'portal_update_attachments', 'contacts', 'leads',
   'lead_interactions', 'lead_proposals', 'lead_fields',
   'project_time_entries', 'project_invoices', 'invoice_payments', 'project_hourly_rates',
-  'project_retainers', 'project_retainer_amounts', 'task_files',
+  'project_retainers', 'project_retainer_amounts', 'task_files', 'task_templates',
 ] as const;
 
 export type TrashTable = (typeof TRASH_TABLES)[number];
@@ -45,6 +45,7 @@ export const TRASH_TABLE_MODULE: Record<TrashTable, ModuleId | 'core'> = {
   project_retainers: 'billing',
   project_retainer_amounts: 'billing',
   task_files: 'core',
+  task_templates: 'core',
 };
 
 export type TrashErrorReason = 'not_found' | 'forbidden' | 'blocked' | 'invalid';

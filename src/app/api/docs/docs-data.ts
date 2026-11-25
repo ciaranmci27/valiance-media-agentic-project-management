@@ -20,6 +20,8 @@ export function getEndpointScopes(endpoint: EndpointDoc): string[] {
   if (path === '/api/v1/identities' || path.startsWith('/api/v1/identities/:id')) return ['team.manage'];
   if (path.startsWith('/api/v1/identities') || path.endsWith('/identities')) return ['identities.read'];
   if (path.startsWith('/api/v1/groups')) return write ? ['groups.manage'] : ['team.read', 'team.manage', 'groups.manage'];
+  if (path === '/api/v1/task-templates/:id/run') return ['tasks.create'];
+  if (path.startsWith('/api/v1/task-templates')) return write ? ['templates.manage'] : ['tasks.create', 'templates.manage'];
   if (path === '/api/v1/api-keys/:id/rotate') return ['api_keys.manage_all', 'assistants.provision'];
   if (path.startsWith('/api/v1/api-keys')) return ['api_keys.manage_all'];
   if (path.startsWith('/api/v1/assistant/')) return ['notifications.manage_own'];
@@ -2022,6 +2024,47 @@ export const endpoints: EndpointDoc[] = [
   },
   { method: 'DELETE', path: '/api/v1/groups/:id/members/:memberId', description: 'Take a member out of a group.', group: 'Groups',
     params: [{ name: 'id', type: 'uuid', required: true, description: 'Group ID' }, { name: 'memberId', type: 'uuid', required: true, description: 'Team member ID' }],
+  },
+  { method: 'GET', path: '/api/v1/task-templates', description: 'List task templates by name, paginated, without their tasks: one task or a playbook (an ordered list of tasks with subtasks) used again and again. A template locked to a project (project_id) is listed only to members who can open that project. Each with fields (its fill-ins), item_count, task_count, version, run_count and last_run_at.', group: 'Task Templates',
+    queryParams: [
+      { name: 'search', type: 'string', description: 'Matches names' },
+      { name: 'project_id', type: 'uuid', description: 'Only templates usable in this project: unlocked ones and the ones locked to it' },
+      { name: 'page', type: 'number', description: 'Page number (default 1)' },
+      { name: 'limit', type: 'number', description: 'Items per page (default 25, max 100)' },
+    ],
+  },
+  { method: 'POST', path: '/api/v1/task-templates', description: 'Create a template for the whole workspace (there are no personal templates; the creator is recorded). Every {key} used in a title or description needs a field with that key, or the request is 422.', group: 'Task Templates',
+    body: [
+      { name: 'name', type: 'string', required: true, description: '1 to 120 characters' },
+      { name: 'description', type: 'string', required: false, description: 'Up to 2000 characters: when to use it' },
+      { name: 'project_id', type: 'uuid|null', required: false, description: 'Locks it to this project: shown only there, and it always creates there. Null or left out: any project.' },
+      { name: 'fields', type: '{ key, label }[]', required: false, description: 'Fill-in fields (up to 10), asked for when it is used. key is lowercase letters, numbers and underscores: {product} in a title uses the field with key product.' },
+      { name: 'items', type: 'object[]', required: true, description: 'The tasks in order (1 to 50, 200 with subtasks): title (required), description, priority (low, medium, high, urgent), tags, assignee ("runner" for whoever uses it, a member id, or null), due_in_days (days after the start date, or null) and subtasks (up to 30, the same fields, one level deep)' },
+    ],
+  },
+  { method: 'GET', path: '/api/v1/task-templates/:id', description: 'Get one template with its tasks (items), fields, version, run_count, last_run_at and created_by_name.', group: 'Task Templates',
+    params: [{ name: 'id', type: 'uuid', required: true, description: 'Template ID' }],
+  },
+  { method: 'PATCH', path: '/api/v1/task-templates/:id', description: 'Change a template. Send only what changes; fields and items are replaced whole, so send both when the fill-ins change. Its version goes up by one when what it makes changes; runs already made keep the version they used.', group: 'Task Templates',
+    params: [{ name: 'id', type: 'uuid', required: true, description: 'Template ID' }],
+  },
+  { method: 'DELETE', path: '/api/v1/task-templates/:id', description: 'Move a template to Trash. It leaves the library; the tasks it already made and its runs stay as they are.', group: 'Task Templates',
+    params: [{ name: 'id', type: 'uuid', required: true, description: 'Template ID' }],
+  },
+  { method: 'POST', path: '/api/v1/task-templates/:id/run', description: "Use a template: every task and subtask is created in the project at once, through the same task service as POST /api/v1/tasks (each sends task.created), then the run is recorded (one template.run webhook). Fill-ins are replaced by values, due dates count from start_date, and \"runner\" assignees become the key's member. A named assignee who cannot open the project is left off, and notes says so. Answers 201 with { run, tasks, notes }. 422 locked_to_project, project_required or missing_values.", group: 'Task Templates',
+    params: [{ name: 'id', type: 'uuid', required: true, description: 'Template ID' }],
+    body: [
+      { name: 'project_id', type: 'uuid', required: false, description: 'Where the tasks go. Left out for a template locked to a project; another project is refused.' },
+      { name: 'start_date', type: 'YYYY-MM-DD', required: false, description: "Due dates count from here. Default: today in the member's time zone." },
+      { name: 'values', type: 'object', required: false, description: 'A value for every fill-in field, by key (up to 200 characters each): { "product": "Aurora" }' },
+    ],
+  },
+  { method: 'GET', path: '/api/v1/task-templates/:id/runs', description: "A template's runs, newest first, paginated: run_by, via (app, api, mcp or schedule), project, start_date, values, template_version and task_ids (every task it made). Only runs on projects the key's member can open.", group: 'Task Templates',
+    params: [{ name: 'id', type: 'uuid', required: true, description: 'Template ID' }],
+    queryParams: [
+      { name: 'page', type: 'number', description: 'Page number (default 1)' },
+      { name: 'limit', type: 'number', description: 'Items per page (default 25, max 100)' },
+    ],
   },
   { method: 'GET', path: '/api/v1/groups/:id/identities', description: 'How to reach a group: { group, members }, its members (leads first) paginated, each with active and their verified accounts. A suspended member is listed with active false and no accounts.', group: 'Linked Identities',
     params: [{ name: 'id', type: 'uuid', required: true, description: 'Group ID' }],

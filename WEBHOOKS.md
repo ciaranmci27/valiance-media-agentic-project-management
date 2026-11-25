@@ -42,6 +42,7 @@ it is off is never queued and waits for the assistant as pending
 | `suggestion.decided` | A suggestion is approved, rejected or declined. | the suggestion |
 | `run.started` | An agent starts a run (POST /api/v1/agents/runs, MCP start_run). | the run |
 | `run.finished` | An agent run finishes: `succeeded`, `failed`, `cancelled` or `timed_out`. | the run |
+| `template.run` | A task template is used (by hand, POST /api/v1/task-templates/{id}/run, MCP run_task_template). Each task it makes also sends its own `task.created`. | the run |
 | `agent_event.created` | An agent records any event (POST /api/v1/agent-activities, MCP log_activity, host telemetry, a fleet alert). Opt in only: never a default. | the event itself |
 | `assistant.message` | A person messages their own assistant in a connected chat (Slack, Telegram). Opt in only, and only on an endpoint filtered to a personal agent. | the chat message |
 | `invoice.paid` | An invoice enters the `paid` status. | the invoice |
@@ -254,6 +255,13 @@ harness's own run id and `external_url` its trace link. A run started with
 `parent_run_id` (a specialist's run on work another run handed it) also carries
 `parent_run_id` and `root_run_id` (the first run of its chain); any other run
 leaves both out, so its payload is unchanged.
+
+**Template events** (`template.run`) add
+`run: { id, template_id, template_version, template_name, project_id, run_by, via, schedule_id, start_date, field_values, task_ids, created_at }`,
+plus `project` and `project_id`. `via` is `app`, `api`, `mcp` or `schedule`;
+`task_ids` lists every task the use made, subtasks included, in the order they
+were made. It concerns who ran it and everyone its tasks were assigned to, so an
+endpoint filtered to an agent hears about a playbook that gives it work.
 
 **`agent_event.created`** carries
 `agent_event: { id, seq, source, occurred_at, agent_id, type, labels, title, payload, project_id, task_id, run_id, principal_id }`,

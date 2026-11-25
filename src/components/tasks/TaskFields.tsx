@@ -63,8 +63,9 @@ const IN_PLACE = '!border-transparent !bg-white/[0.04] !shadow-none !-mx-1.5 !px
 // The title's editor is the title: same font, padding and height, only the
 // hover's surface and a thin ring to show it has focus.
 const TITLE_IN_PLACE = '!-mx-1.5 !px-1.5 !py-0 !border-0 !rounded-md !bg-white/[0.05] !shadow-none ![font:inherit] ![color:inherit] ![letter-spacing:inherit] focus-within:!ring-1 focus-within:!ring-white/25';
-const MENU = 'bg-surface-raised rounded-lg shadow-xl border border-white/[0.08] py-1';
-const MENU_ITEM = 'w-full flex items-center gap-2.5 px-3 py-2 text-sm text-left hover:bg-white/[0.06] transition-colors focus:outline-none focus-visible:bg-white/[0.06]';
+// The list a value opens (and the template picker beside the task panel).
+export const MENU = 'bg-surface-raised rounded-lg shadow-xl border border-white/[0.08] py-1';
+export const MENU_ITEM = 'w-full flex items-center gap-2.5 px-3 py-2 text-sm text-left hover:bg-white/[0.06] transition-colors focus:outline-none focus-visible:bg-white/[0.06]';
 
 /** The title: a heading that becomes a text field. Empty puts the old title back. */
 export function TitleField({ value, onChange, onSubmit, onTyping, canEdit, as: Tag = 'h2', id, className = '', placeholder = 'Task title', autoFocus = false }: {

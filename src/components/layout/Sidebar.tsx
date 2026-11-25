@@ -22,6 +22,7 @@ import {
   Wallet,
   Inbox,
   Sparkles,
+  LayoutTemplate,
 } from 'lucide-react';
 import { useApp } from '@/lib/store';
 import { computeNeedsYou } from '@/lib/autonomy';
@@ -163,6 +164,9 @@ export function Sidebar() {
     ...(hasPermission(access, 'projects.read') || hasPermission(access, 'projects.read_all')
       ? [{ href: '/projects', icon: FolderKanban, label: 'Projects',
           count: { value: unreadTasks, label: `${plural(unreadTasks, 'unread task')} across your projects`, tone: 'brand' as const } }] : []),
+    // Repeat work set up once: whoever creates tasks uses templates; Manage templates sets them up.
+    ...(hasPermission(access, 'tasks.create') || hasPermission(access, 'templates.manage')
+      ? [{ href: '/templates', icon: LayoutTemplate, label: 'Templates' }] : []),
     ...(hasPermission(access, 'leads.read') || hasPermission(access, 'leads.read_all') || hasPermission(access, 'leads.manage')
       ? [{ href: '/leads', icon: Target, label: 'Leads' }] : []),
     ...(hasPermission(access, 'contacts.read') || hasPermission(access, 'contacts.read_all')

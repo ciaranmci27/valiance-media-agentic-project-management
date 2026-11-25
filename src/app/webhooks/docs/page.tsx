@@ -141,6 +141,7 @@ export default function WebhooksDocsPage() {
                   [<code key="e" className="text-brand-600 font-mono text-xs">suggestion.decided</code>, 'A suggestion is approved, rejected or declined.'],
                   [<code key="e" className="text-brand-600 font-mono text-xs">run.started</code>, 'An agent starts a run. data.run holds it.'],
                   [<code key="e" className="text-brand-600 font-mono text-xs">run.finished</code>, 'An agent run finishes: succeeded, failed, cancelled or timed_out.'],
+                  [<code key="e" className="text-brand-600 font-mono text-xs">template.run</code>, 'A task template is used. data.run holds it, with task_ids for every task it made.'],
                   [<code key="e" className="text-brand-600 font-mono text-xs">invoice.paid</code>, 'An invoice enters the paid status.'],
                   [<code key="e" className="text-brand-600 font-mono text-xs">invoice.updated</code>, 'A paid (or previously paid) invoice changes: an edit, an un-pay, or a cancel.'],
                   [<code key="e" className="text-brand-600 font-mono text-xs">invoice.deleted</code>, 'A paid invoice is deleted.'],

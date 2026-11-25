@@ -9,6 +9,7 @@ import { WEBHOOK_EVENT_TYPES } from '@/lib/types';
 import { planSchema } from '@/lib/communications/plan-schemas';
 import { AGENT_MESSAGE_STATUSES, triageSchema } from '@/lib/communications/schemas';
 import { MAIL_TOPICS, RULE_ACTIONS } from '@/lib/communications/sorting';
+import { TEMPLATE_NAME_MAX, templateFieldSchema, templateTaskSchema } from '@/lib/task-templates';
 import { idempotencyKeyInput, routeTool, type PmTool } from './core';
 
 /**
@@ -735,6 +736,92 @@ export const PM_TOOLS: PmTool[] = [
     method: 'PATCH',
     path: '/api/v1/tasks/{id}/acceptance-criteria/{criterionId}',
     request: ({ task_id, criterion_id, ...body }) => ({ params: { id: task_id, criterionId: criterion_id }, body }),
+  }),
+  // Task templates: one task or a playbook, used again and again.
+  routeTool({
+    name: 'list_task_templates',
+    lead: 'List task templates and playbooks you can use.',
+    detail: 'By name, paged, without their tasks (get_task_template has them). project_id lists only those usable in that project: unlocked ones and the ones locked to it. Each with fields (the fill-ins run_task_template asks for), item_count, task_count, project_id (locked to it, or null), run_count and last_run_at.',
+    input: z.object({
+      search: z.string().min(1).max(200).optional(),
+      project_id: id('project_id').optional(),
+      page,
+      limit: limit(50),
+    }).strict(),
+    permission: ['tasks.create', 'templates.manage'],
+    method: 'GET',
+    path: '/api/v1/task-templates',
+    request: (args) => ({ query: args }),
+  }),
+  routeTool({
+    name: 'get_task_template',
+    lead: 'Read one task template with its tasks.',
+    detail: 'items are its tasks in order, each with title, description, priority, tags, assignee ("runner" for whoever uses it, a member id, or null), due_in_days (after the start date) and subtasks. {key} in a title or description is a fill-in from fields.',
+    input: z.object({ template_id: id('template_id') }).strict(),
+    permission: ['tasks.create', 'templates.manage'],
+    method: 'GET',
+    path: '/api/v1/task-templates/{id}',
+    request: ({ template_id }) => ({ params: { id: template_id } }),
+  }),
+  routeTool({
+    name: 'run_task_template',
+    lead: 'Use a task template: create all its tasks at once.',
+    detail: 'Creates every task and subtask in the project, fill-ins replaced by values (one per field, by key) and due dates counted from start_date (YYYY-MM-DD, default today). Leave out project_id for a template locked to a project; another project is 422 locked_to_project. Needs tasks.create on the project. Answers { run, tasks, notes }: notes say who was left unassigned because they cannot open the project.',
+    input: z.object({
+      template_id: id('template_id'),
+      project_id: id('project_id').optional(),
+      start_date: date.optional(),
+      values: z.record(z.string(), z.string().max(200)).optional().describe('A value for every fill-in field, by key: { "product": "Aurora" }'),
+      idempotency_key: idempotencyKeyInput,
+    }).strict(),
+    permission: 'tasks.create',
+    method: 'POST',
+    path: '/api/v1/task-templates/{id}/run',
+    request: ({ template_id, ...body }) => ({ params: { id: template_id }, body }),
+    present: (data) => {
+      const result = (data ?? {}) as { run?: unknown; tasks?: Record<string, unknown>[]; notes?: string[] };
+      return {
+        run: result.run,
+        tasks: (result.tasks ?? []).map((task) => ({
+          id: task.id, title: task.title, parent_task_id: task.parent_task_id ?? null, due_date: task.due_date ?? null, assignee_ids: task.assignee_ids ?? [],
+        })),
+        notes: result.notes ?? [],
+      };
+    },
+  }),
+  routeTool({
+    name: 'create_task_template',
+    lead: 'Create a task template or playbook for everyone.',
+    detail: 'Needs templates.manage. items are the tasks in order (1 to 50), each with optional subtasks (one level). assignee is "runner" (whoever uses it), a member id, or null; due_in_days counts from the start date picked when it is used. Every {key} used in a title or description needs a field { key, label }. project_id locks it to that project.',
+    input: z.object({
+      name: z.string().min(1).max(TEMPLATE_NAME_MAX),
+      description: z.string().max(2000).optional(),
+      project_id: id('project_id').nullable().optional(),
+      fields: z.array(templateFieldSchema).max(10).optional(),
+      items: z.array(templateTaskSchema).min(1).max(50),
+      idempotency_key: idempotencyKeyInput,
+    }).strict(),
+    permission: 'templates.manage',
+    method: 'POST',
+    path: '/api/v1/task-templates',
+    request: (body) => ({ body }),
+  }),
+  routeTool({
+    name: 'update_task_template',
+    lead: 'Change a task template: its name, fields or tasks.',
+    detail: 'Needs templates.manage. Send only what changes; fields and items are replaced whole, so send both when the fill-ins change. Its version goes up when what it makes changes. Runs already made keep the version they used.',
+    input: z.object({
+      template_id: id('template_id'),
+      name: z.string().min(1).max(TEMPLATE_NAME_MAX).optional(),
+      description: z.string().max(2000).optional(),
+      project_id: id('project_id').nullable().optional(),
+      fields: z.array(templateFieldSchema).max(10).optional(),
+      items: z.array(templateTaskSchema).min(1).max(50).optional(),
+    }).strict().refine(atLeastOne(['name', 'description', 'project_id', 'fields', 'items']), 'Send at least one field to change'),
+    permission: 'templates.manage',
+    method: 'PATCH',
+    path: '/api/v1/task-templates/{id}',
+    request: ({ template_id, ...body }) => ({ params: { id: template_id }, body }),
   }),
   {
     name: 'submit_task_review',

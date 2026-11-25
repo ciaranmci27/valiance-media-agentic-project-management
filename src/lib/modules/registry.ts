@@ -168,6 +168,7 @@ export const PERMISSION_MODULE: Record<PermissionKey, ModuleId | 'core'> = {
   'tasks.create': 'core',
   'tasks.manage_assigned': 'core',
   'tasks.manage_all': 'core',
+  'templates.manage': 'core',
   'time.manage_own': 'time',
   'time.read_all': 'time',
   'time.manage_all': 'time',

@@ -1,6 +1,7 @@
 import type { TeamMember, Contact, ContactEmail, Project, ProjectContact, Task, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, TeamActivity, PortalSettings, PortalUpdate, PortalUpdateAttachment, EntityFile, TimeEntry, Notification, ProjectGoal, TaskSuggestion, AgentActivity, ProjectInvoice, ClientCommunication, PortalAnalyticsResponse, PortalSessionSummary, EmployeeEarningsData, Reminder } from './types';
 import { DEFAULT_SECTION_ORDER } from './types';
 import { DEFAULT_ITEM_COLOR } from '@/lib/brand';
+import type { TaskTemplateRunView, TaskTemplateView } from '@/lib/task-templates';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -2021,4 +2022,102 @@ export function buildDemoPortalAnalytics(
         country_hint: null,
       })),
   };
+}
+
+// ---------------------------------------------------------------------------
+// TASK TEMPLATES
+// ---------------------------------------------------------------------------
+// Repeat work set up once: one task, a playbook with subtasks and a fill-in,
+// and one locked to a project, so the Templates page and the Use panel have
+// something real to open in the demo.
+const demoTemplate = (template: Omit<TaskTemplateView, 'item_count' | 'task_count' | 'project_name' | 'created_by_name'>): TaskTemplateView => ({
+  ...template,
+  item_count: template.items.length,
+  task_count: template.items.reduce((sum, task) => sum + 1 + task.subtasks.length, 0),
+  project_name: demoProjects.find(p => p.id === template.project_id)?.name ?? null,
+  created_by_name: demoTeam.find(m => m.id === template.created_by)?.name ?? null,
+});
+
+export const demoTaskTemplates: TaskTemplateView[] = [
+  demoTemplate({
+    id: 'e7e7e7e7-0001-4000-8000-000000000001',
+    name: 'Monthly payroll upload',
+    description: 'Use it on the first working day of each month.',
+    project_id: null,
+    fields: [{ key: 'month', label: 'Month' }],
+    items: [
+      { title: 'Upload the {month} payroll sheet', description: 'Export hours from the timesheet, check them, then upload the sheet to the payroll provider.', priority: 'high', tags: ['payroll'], assignee: 'runner', due_in_days: 3, subtasks: [] },
+    ],
+    version: 2, run_count: 4, last_run_at: daysAgo(24), created_by: TM1, created_at: daysAgo(130), updated_at: daysAgo(60),
+  }),
+  demoTemplate({
+    id: 'e7e7e7e7-0002-4000-8000-000000000002',
+    name: 'Product launch',
+    description: 'Everything a new product launch needs, from the brief to the review a month later.',
+    project_id: null,
+    fields: [{ key: 'product', label: 'Product' }],
+    items: [
+      {
+        title: 'Write the {product} launch brief', description: 'Who {product} is for, what is new, and the launch date.', priority: 'high', tags: ['launch'], assignee: 'runner', due_in_days: 2,
+        subtasks: [
+          { title: 'Agree the {product} launch date', description: '', priority: 'medium', tags: [], assignee: 'runner', due_in_days: 1 },
+          { title: 'List who needs to know', description: '', priority: 'medium', tags: [], assignee: TM2, due_in_days: 2 },
+        ],
+      },
+      { title: 'Design the {product} launch assets', description: 'Hero image, social cards and an email header.', priority: 'medium', tags: ['launch', 'design'], assignee: TM3, due_in_days: 7, subtasks: [] },
+      { title: 'Write the {product} announcement', description: '', priority: 'medium', tags: ['launch'], assignee: TM2, due_in_days: 10, subtasks: [] },
+      {
+        title: 'Set up the {product} landing page', description: '', priority: 'medium', tags: ['launch'], assignee: TM4, due_in_days: 14,
+        subtasks: [
+          { title: 'Add {product} to the pricing page', description: '', priority: 'low', tags: [], assignee: TM4, due_in_days: 14 },
+        ],
+      },
+      { title: 'Launch {product}', description: '', priority: 'urgent', tags: ['launch'], assignee: 'runner', due_in_days: 21, subtasks: [] },
+      { title: 'Review how the {product} launch went', description: 'What worked, what to change next time.', priority: 'low', tags: ['launch'], assignee: 'runner', due_in_days: 28, subtasks: [] },
+    ],
+    version: 3, run_count: 2, last_run_at: daysAgo(9), created_by: TM1, created_at: daysAgo(90), updated_at: daysAgo(12),
+  }),
+  demoTemplate({
+    id: 'e7e7e7e7-0003-4000-8000-000000000003',
+    name: 'Bloomwell sprint review',
+    description: 'At the end of every two-week sprint with the Bloomwell team.',
+    project_id: P_BLOOM,
+    fields: [{ key: 'sprint', label: 'Sprint' }],
+    items: [
+      {
+        title: 'Run the sprint {sprint} review with Bloomwell', description: 'Demo what shipped and agree what comes next.', priority: 'medium', tags: ['sprint'], assignee: 'runner', due_in_days: 0,
+        subtasks: [
+          { title: 'Record the sprint {sprint} demo', description: '', priority: 'medium', tags: [], assignee: TM3, due_in_days: 0 },
+          { title: 'Send the sprint {sprint} notes to the client', description: '', priority: 'medium', tags: [], assignee: 'runner', due_in_days: 1 },
+        ],
+      },
+      { title: 'Plan sprint {sprint} retro actions', description: '', priority: 'low', tags: ['sprint'], assignee: null, due_in_days: 2, subtasks: [] },
+    ],
+    version: 1, run_count: 6, last_run_at: daysAgo(3), created_by: TM1, created_at: daysAgo(17), updated_at: daysAgo(17),
+  }),
+];
+
+/** Who used the demo templates last, for each one's Recent uses. */
+export function demoTaskTemplateRuns(templateId: string): TaskTemplateRunView[] {
+  const template = demoTaskTemplates.find(t => t.id === templateId);
+  if (!template) return [];
+  const project = template.project_id ?? P_CREST;
+  const projectName = demoProjects.find(p => p.id === project)?.name ?? null;
+  const people = [TM1, TM2, TM3];
+  return Array.from({ length: Math.min(template.run_count, 3) }, (_, i) => ({
+    id: templateId.slice(0, 32) + String(i).padStart(4, '0'),
+    template_id: templateId,
+    template_version: template.version,
+    template_name: template.name,
+    project_id: project,
+    project_name: projectName,
+    run_by: people[i % people.length],
+    run_by_name: demoTeam.find(m => m.id === people[i % people.length])?.name ?? null,
+    via: 'app' as const,
+    schedule_id: null,
+    start_date: daysAgo(3 + i * 14).slice(0, 10),
+    values: {},
+    task_ids: [],
+    created_at: daysAgo(3 + i * 14),
+  }));
 }

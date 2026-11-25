@@ -227,6 +227,7 @@ export const WEBHOOK_EVENT_LABELS: Record<string, string> = {
   'review.submitted': 'Review submitted',
   'run.started': 'Agent run started',
   'run.finished': 'Agent run finished',
+  'template.run': 'Template used',
   'agent_event.created': 'Every agent event',
   'assistant.message': 'Chat message for an assistant',
   'invoice.paid': 'Invoice paid',
@@ -250,8 +251,8 @@ export const WEBHOOK_EVENT_GROUPS: readonly WebhookEventGroup[] = [
   {
     id: 'work',
     label: 'Work',
-    description: 'Tasks made, changed or moved to Trash, comments, suggestions and reviews.',
-    events: ['task.created', 'task.updated', 'task.deleted', 'comment.created', 'suggestion.created', 'suggestion.decided', 'review.submitted'],
+    description: 'Tasks made, changed or moved to Trash, comments, suggestions, reviews and templates used.',
+    events: ['task.created', 'task.updated', 'task.deleted', 'comment.created', 'suggestion.created', 'suggestion.decided', 'review.submitted', 'template.run'],
   },
   { id: 'questions', label: 'Questions', description: 'Questions asked, answered or withdrawn.', events: ['question.asked', 'question.answered', 'question.cancelled'] },
   { id: 'runs', label: 'Agent runs', description: 'When an agent starts and finishes a run.', events: ['run.started', 'run.finished'] },

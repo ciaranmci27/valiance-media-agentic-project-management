@@ -32,7 +32,7 @@ import type {
   AgentActivity, BillingForecastItem, ProjectBillingPlan, ProjectBillingRun, ProjectContext, TaskSource, TeamActivity,
 } from '@/lib/types';
 import type { InboxAttention } from '@/lib/communications/inbox-view';
-import { demoNotifications } from '@/lib/demo-data';
+import { demoNotifications, demoTaskTemplateRuns, demoTaskTemplates } from '@/lib/demo-data';
 import type { ProfileActivityPage, TeamProfile } from '@/lib/team/profile';
 import type { GroupMemberView, GroupView } from '@/lib/groups';
 import type { IdentityView } from '@/lib/identities';
@@ -40,6 +40,7 @@ import { CONNECT_SCOPES, type MyConnectionsView } from '@/lib/connect-ai';
 import type { AssistantActivity, AssistantSetupView, AssistantStatusRow, MyAssistantView } from '@/lib/assistant';
 import type { ChatConnectionView } from '@/lib/chat/types';
 import type { ScopedBrief, ScopeRef } from '@/lib/context-scopes';
+import { templateSummary, type TaskTemplateRunView, type TaskTemplateSummary, type TaskTemplateView } from '@/lib/task-templates';
 
 /**
  * Every read a screen makes outside the store, described once: its key, its
@@ -974,6 +975,68 @@ export function myIdentitiesRead(isDemo: boolean): Read<IdentityView[]> {
       if (isDemo) return [];
       const data = await workspaceApi<{ identities: IdentityView[] }>('/api/workspace/me/identities');
       return data.identities ?? [];
+    },
+  };
+}
+
+// ── Task templates ──────────────────────────────────────────────────────
+
+/** The tables a template read comes from. */
+export const TEMPLATE_TABLES = ['task_templates', 'task_template_runs'] as const;
+
+/**
+ * The template library the person may use, by name, without each one's
+ * tasks: every template, or with projectId only the ones usable there
+ * (unlocked, or locked to it). A page of 200 at a time, never one call per
+ * template. The Templates page and the New task picker share it.
+ */
+export function taskTemplatesRead(isDemo: boolean, projectId: string | null = null): Read<TaskTemplateSummary[]> {
+  return {
+    key: `task-templates:${isDemo ? 'demo:' : ''}${projectId ?? 'all'}`,
+    tables: TEMPLATE_TABLES,
+    ttlMs: 2 * 60_000,
+    load: async () => {
+      if (isDemo) {
+        return demoTaskTemplates
+          .filter((t) => !projectId || !t.project_id || t.project_id === projectId)
+          .map(templateSummary)
+          .sort((a, b) => a.name.localeCompare(b.name));
+      }
+      const url = projectId ? `/api/workspace/task-templates?project_id=${encodeURIComponent(projectId)}` : '/api/workspace/task-templates';
+      return allPages<TaskTemplateSummary>(url, 'templates');
+    },
+  };
+}
+
+/** One template with its tasks: what its panel edits and what using it previews. */
+export function taskTemplateRead(templateId: string, isDemo = false): Read<TaskTemplateView> {
+  return {
+    key: `task-template:${isDemo ? 'demo:' : ''}${templateId}`,
+    tables: TEMPLATE_TABLES,
+    load: async () => {
+      if (isDemo) {
+        const found = demoTaskTemplates.find((t) => t.id === templateId);
+        if (!found) throw new Error('Template not found');
+        return found;
+      }
+      return workspaceApi<TaskTemplateView>(`/api/workspace/task-templates/${encodeURIComponent(templateId)}`);
+    },
+  };
+}
+
+/** A template's latest uses, newest first (its panel's history). */
+export function taskTemplateRunsRead(templateId: string, isDemo = false): Read<{ rows: TaskTemplateRunView[]; total: number }> {
+  return {
+    key: `task-template-runs:${isDemo ? 'demo:' : ''}${templateId}`,
+    tables: ['task_template_runs'],
+    load: async () => {
+      if (isDemo) {
+        const rows = demoTaskTemplateRuns(templateId);
+        return { rows, total: demoTaskTemplates.find((t) => t.id === templateId)?.run_count ?? rows.length };
+      }
+      const data = await workspaceApi<{ runs: TaskTemplateRunView[]; meta?: { total?: number } }>(
+        `/api/workspace/task-templates/${encodeURIComponent(templateId)}/runs?limit=10`);
+      return { rows: data.runs ?? [], total: data.meta?.total ?? data.runs?.length ?? 0 };
     },
   };
 }
