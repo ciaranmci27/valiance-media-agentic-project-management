@@ -9,6 +9,11 @@ Each section starts with `## X.Y.Z (YYYY-MM-DD)` and uses these headings, leavin
 - `### Database`: the core migration files in the release, one per line. `npm run db:migrate` applies them.
 - `### Breaking`: what an install must do when it takes this release.
 
+## 2.0.36 (2026-11-25)
+
+### Changed
+- A task templates test no longer fails at random on a slow machine: its database call limit leaves room for background work. Nothing in the app changed.
+
 ## 2.0.35 (2026-11-25)
 
 ### Changed
