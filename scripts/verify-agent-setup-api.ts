@@ -428,7 +428,8 @@ async function main() {
     const settingsRevoke = await settingsRevokeRoute.POST(new Request(`http://localhost/api/workspace/api-keys/${root.id}/revoke`, { method: 'POST' }), { params: Promise.resolve({ id: root.id }) });
     const revokedAll = await Promise.all(ids2.map(lineage));
     check('lineage: revoking in Settings revokes the whole tree', settingsRevoke.status === 200 && revokedAll.every((row) => !!row?.revoked_at), revokedAll);
-    const appAudit = await s.q("SELECT entity_id, via, request_body FROM pm.api_audit_log WHERE via = 'app' AND entity_id = ANY($1::uuid[])", [ids2]);
+    // The revoke route's own rows (the database also records each key's row change, under /app/api_keys).
+    const appAudit = await s.q("SELECT entity_id, via, request_body FROM pm.api_audit_log WHERE via = 'app' AND entity_id = ANY($1::uuid[]) AND endpoint LIKE '/api/workspace/%'", [ids2]);
     check('lineage: one audit row per key revoked from Settings', appAudit.length === 3 && appAudit.filter((row) => row.request_body?.cascaded_from === root.id).length === 2, appAudit);
 
     // A self-minting chain of any length goes with its root: no depth cap.

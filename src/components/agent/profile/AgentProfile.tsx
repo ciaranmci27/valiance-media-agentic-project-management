@@ -37,6 +37,7 @@ import { useAgentRoster } from '@/components/agent/AgentRoster';
 import { useAgentNeedsYou, NeedsYouView } from '@/components/agent/NeedsYouView';
 import { AssignmentList, saveAssignment } from '@/components/agent/AssignmentList';
 import { RulesFields, ScopePicker } from '@/components/agent/PowersFields';
+import { LimitsPanel } from '@/components/agent/profile/LimitsPanel';
 import { ConnectSnippets, downloadText, SecretOnce } from '@/components/agent/ConnectPanel';
 import { ActivityTimeline } from '@/components/agent/ActivityTimeline';
 import { RunFeed } from '@/components/agent/runs/RunFeed';
@@ -205,7 +206,7 @@ export function AgentProfile({ agentId }: { agentId: string }) {
         ))}
 
         {panel('rules', detail.loading ? <LoadingRows /> : detail.failed ? <Failed onRetry={detail.reload} what="its rules" /> : data && (
-          <RulesAndPowers detail={data} canManage={canManage} />
+          <RulesAndPowers detail={data} canManage={canManage} canEditLimits={!isDemoMode && access?.role === 'owner'} />
         ))}
 
         {panel('connect', detail.loading ? <LoadingRows /> : detail.failed ? <Failed onRetry={detail.reload} what="its keys" /> : data && (
@@ -478,7 +479,7 @@ function AgentProjects({ detail, canEdit, templateLabels, schemaFor }: {
   );
 }
 
-function RulesAndPowers({ detail, canManage }: { detail: AgentDetail; canManage: boolean }) {
+function RulesAndPowers({ detail, canManage, canEditLimits }: { detail: AgentDetail; canManage: boolean; canEditLimits: boolean }) {
   const { team } = useApp();
   const { isDemoMode } = useDemo();
   const roles = useRead(agentRolesRead(isDemoMode));
@@ -559,6 +560,18 @@ function RulesAndPowers({ detail, canManage }: { detail: AgentDetail; canManage:
           {dirty && <Button variant="ghost" onClick={() => { setName(agent.name); setTitle(agent.title ?? ''); setRole(agent.agent_role ?? ''); setDescription(agent.description ?? ''); setRules(savedRules()); }}>Discard</Button>}
           <Button onClick={save} disabled={!dirty || busy || !name.trim() || !!roleProblem}>{busy ? 'Saving' : 'Save changes'}</Button>
         </div>
+      )}
+      {detail.usage !== undefined && (
+        <LimitsPanel
+          key={JSON.stringify(detail.limits ?? null)}
+          agentId={agent.id}
+          agentName={agent.name}
+          limits={detail.limits}
+          usage={detail.usage}
+          pausedAt={agent.paused_at ?? null}
+          canEditLimits={canEditLimits}
+          canPause={canManage}
+        />
       )}
     </div>
   );

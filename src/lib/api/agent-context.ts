@@ -1,3 +1,5 @@
+import { agentLimitsOf, limitsInWords, type AgentLimits, type AgentUsage } from '@/lib/agent-limits';
+import { loadLimitState } from './agent-limits';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
 import {
@@ -155,6 +157,21 @@ export interface ContextPack {
     is_active: boolean;
   }[] | null;
   template: { key: string; label: string; context: string } | null;
+  /**
+   * For an agent: its limits (null fields: no limit), what counts against
+   * them now, whether it or every agent is paused, and all of it in words.
+   * Absent on a database before limits.
+   */
+  limits?: {
+    max_concurrent_runs: number | null;
+    rate_per_minute: number | null;
+    budget_usd: number | null;
+    budget_tokens: number | null;
+    budget_period: AgentLimits['budget_period'];
+    usage: AgentUsage | null;
+    paused: { agent_paused_at: string | null; workspace_paused_at: string | null };
+    says: string[];
+  } | null;
   omitted: { part: string; needs: string }[];
   cut_to_fit?: string[];
 }
@@ -464,7 +481,7 @@ export async function buildContextPack(
   const toolNames = new Set((tools ?? PM_TOOLS).map((tool) => tool.name));
 
   const rules = agentRulesOf(isAgent ? row : null);
-  const [escalation, levels, projects, healthRow, templateKey, brand, owners, assignments] = await Promise.all([
+  const [escalation, levels, projects, healthRow, templateKey, brand, owners, assignments, limitState, workspacePause] = await Promise.all([
     isAgent ? escalationRecipient(service, row.id) : Promise.resolve(null),
     resolveProjectAccessLevels(service, [{ id: row.id, role: row.role, status: row.status }]),
     agentProjects(service, viewer, row.id),
@@ -475,6 +492,11 @@ export async function buildContextPack(
     getBrand(),
     isAgent ? ownersOf(service, [row.id]).then((map) => map.get(row.id) ?? []) : Promise.resolve(null),
     isAgent ? packAssignments(service, viewer, row.id) : Promise.resolve(null),
+    isAgent ? loadLimitState(service, row.id, true) : Promise.resolve(null),
+    isAgent
+      ? service.from('business_settings').select('agents_paused_at').limit(1).maybeSingle()
+        .then((result) => (result.error ? null : ((result.data as Row | null)?.agents_paused_at as string | null) ?? null))
+      : Promise.resolve(null),
   ]);
   const escalateId = escalation?.id ?? null;
   let escalateName: string | null = null;
@@ -515,6 +537,17 @@ export async function buildContextPack(
   }
 
   const template = templateKey ? findAgentTemplate(templateKey) : null;
+  let limits: ContextPack['limits'] = null;
+  if (isAgent && limitState) {
+    const l = limitState.limits ?? agentLimitsOf(null);
+    const paused = { agent_paused_at: (row.agent_paused_at as string | null | undefined) ?? null, workspace_paused_at: workspacePause };
+    const pausedSays = paused.workspace_paused_at
+      ? ['Every agent in this workspace is paused right now: reads, heartbeats and telemetry work; other writes answer 423 agents_paused.']
+      : paused.agent_paused_at
+        ? ['You are paused right now: reads, heartbeats and telemetry work; other writes answer 423 agent_paused until a person resumes you.']
+        : [];
+    limits = { ...l, usage: limitState.usage, paused, says: [...pausedSays, ...limitsInWords(limitState.limits, limitState.usage)] };
+  }
   // A personal agent knows whose it is, first.
   let worksFor: ContextPack['works_for'];
   if (isAgent && typeof row.delegate_of === 'string') {
@@ -577,6 +610,7 @@ export async function buildContextPack(
     health,
     webhooks,
     template: template ? { key: template.key, label: template.label, context: template.context } : null,
+    ...(limits ? { limits } : {}),
     omitted,
   };
   return fitPack(pack);
@@ -615,6 +649,8 @@ export function renderContextPack(pack: ContextPack, as: 'agents' | 'skill' = 'a
   if (pack.works_for?.preferences_say?.length) parts.push(`## What ${pack.works_for.name} wants from you\n\n${bullet(pack.works_for.preferences_say)}`);
 
   if (pack.rules) parts.push(`## Your rules\n\n${bullet(pack.rules.says)}`);
+
+  if (pack.limits) parts.push(`## Your limits\n\n${bullet(pack.limits.says)}`);
 
   if (pack.scopes) {
     const scopeLines = pack.scopes.map((scope) => `\`${scope.scope}\`: ${scope.label}.${scope.says ? ` ${scope.says}` : ''}`);

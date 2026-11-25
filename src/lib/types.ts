@@ -463,6 +463,8 @@ export interface TeamMember {
   /** For a personal agent: the person it works for (it never signs in). */
   delegate_of?: string | null;
   suspended_by?: string | null;
+  /** For an agent: when it was paused (reads, heartbeats and telemetry only); null while it works. */
+  agent_paused_at?: string | null;
   timezone?: string;
   notification_prefs?: NotificationPreferences;
   email_notifications_enabled?: boolean;

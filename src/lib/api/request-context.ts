@@ -16,6 +16,8 @@ export interface ApiRequestContext {
   principalId?: string | null;
   /** The raw X-Act-For token, so the MCP server's in-process calls carry it on. */
   actFor?: string | null;
+  /** For an agent's key: the projects it is paused on (project_agents.status paused). */
+  pausedProjectIds?: string[];
 }
 
 export const apiRequestContext = new AsyncLocalStorage<ApiRequestContext>();
@@ -38,4 +40,9 @@ export function currentPrincipalId(): string | null {
 export function currentActorVia(): 'app' | 'api' | 'mcp' {
   const via = apiRequestContext.getStore()?.via;
   return via === 'mcp' ? 'mcp' : via === 'rest' ? 'api' : 'app';
+}
+
+/** The projects the current request's agent is paused on ([] outside one, or for a person). */
+export function currentPausedProjectIds(): string[] {
+  return apiRequestContext.getStore()?.pausedProjectIds ?? [];
 }

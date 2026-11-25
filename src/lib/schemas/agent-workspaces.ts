@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { AGENT_CLOSE_POLICIES, AGENT_CREATE_POLICIES } from '@/lib/agent-rules';
+import { agentLimitsPatchSchema } from '@/lib/agent-limits';
 import { agentProfileSchema } from '@/lib/mcp/profiles';
 import { AGENT_ROLE_PATTERN, PROJECT_AGENT_INSTRUCTIONS_MAX, PROJECT_AGENT_STATUSES } from '@/lib/project-agents';
 import { BRIEF_ENTRY_MAX, BRIEF_SECTION_KEYS } from '@/lib/project-brief';
@@ -94,6 +95,10 @@ export const patchAgentSchema = z.object({
   rules: agentRulesPatchSchema.optional(),
   owner_ids: z.array(uuid('owner_ids')).max(20).optional(),
   owner_group_ids: z.array(uuid('owner_group_ids')).max(20).optional(),
+  /** Its limits (an Owner only): any field, null clears it. */
+  limits: agentLimitsPatchSchema.optional(),
+  /** Pause or resume it (whoever may manage it): reads, heartbeats and telemetry go on, other writes stop. */
+  paused: z.boolean().optional(),
 }).strict().refine((body) => Object.values(body).some((value) => value !== undefined), 'Send at least one field to change');
 export type PatchAgent = z.infer<typeof patchAgentSchema>;
 

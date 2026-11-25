@@ -1,3 +1,4 @@
+import type { AgentLimits, AgentUsage } from '@/lib/agent-limits';
 import type { AgentRules } from '@/lib/agent-rules';
 import type { AgentRunSummary } from '@/lib/agent-runs';
 
@@ -81,8 +82,13 @@ export interface AgentDetail {
     avatar_url: string | null;
     status: 'active' | 'suspended';
     agent_role: string | null;
+    /** When it was paused (reads, heartbeats and telemetry only); null while it works. */
+    paused_at?: string | null;
   };
   rules: AgentRules & { agent_escalate_to_group?: string | null };
+  /** Its limits (null: none set); absent or null usage on a database before limits. */
+  limits?: AgentLimits | null;
+  usage?: AgentUsage | null;
   health: unknown;
   current_run: AgentRunSummary | null;
   projects: ProjectAgentAssignment[];

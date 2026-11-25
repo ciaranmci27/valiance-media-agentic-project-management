@@ -1,3 +1,4 @@
+import { insertAuditRows } from '@/lib/api/audit';
 import { forbidden } from '@/lib/api/errors';
 import { agentKeyLifetimeDays, setAgentKeyLifetimeDays } from '@/lib/api/key-lifetime';
 import { readWorkspaceBody, workspaceRoute } from '@/lib/api/workspace-route';
@@ -23,7 +24,7 @@ export async function PATCH(request: Request) {
     const body = await readWorkspaceBody(request, keySettingsSchema);
     const before = await agentKeyLifetimeDays(service);
     const days = await setAgentKeyLifetimeDays(service, body.agent_key_lifetime_days);
-    const { error } = await service.from('api_audit_log').insert({
+    const { error } = await insertAuditRows(service, {
       method: 'PATCH', endpoint: '/api/workspace/key-settings', entity_type: 'workspace_key_settings', team_member_id: memberId,
       before_snapshot: { agent_key_lifetime_days: before }, after_snapshot: { agent_key_lifetime_days: days }, status_code: 200, via: 'app',
     });

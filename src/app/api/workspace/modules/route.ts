@@ -1,3 +1,4 @@
+import { insertAuditRows } from '@/lib/api/audit';
 import { NextResponse, type NextRequest } from 'next/server';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { foreignOrigin, isDemoWorkspace, isSchemaMissing, migrationMissing, requireOwner } from '@/lib/api/owner-route';
@@ -112,7 +113,7 @@ export async function PUT(request: NextRequest) {
   const after: WorkspaceModulesState = { modules: next, setupCompleted, setupCompletedAt };
   // The app's own audit row (via 'app'), with the set as it was and as it is.
   afterResponse('workspace modules audit', async () => {
-    const { error } = await service.from('api_audit_log').insert({
+    const { error } = await insertAuditRows(service, {
       method: 'PUT',
       endpoint: '/api/workspace/modules',
       entity_type: 'workspace_modules',

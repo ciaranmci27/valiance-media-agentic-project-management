@@ -1,3 +1,5 @@
+import { agentLimitsRow, loadLimitState, setAgentLimits } from './agent-limits';
+import { insertAuditRows } from './audit';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { randomBytes } from 'node:crypto';
 import { API_ENDPOINT_PERMISSION_SET, apiScopesFor, type AccessContext, type PermissionKey } from '@/lib/access-control';
@@ -319,6 +321,8 @@ function agentView(row: Row) {
     agent_role: (row.agent_role as string | null) ?? null,
     agent_profile: (row.agent_profile as string) ?? 'generic',
     created_at: row.created_at as string,
+    /** When it was paused (reads, heartbeats and telemetry only); null while it works. */
+    paused_at: (row.agent_paused_at as string | null | undefined) ?? null,
   };
 }
 
@@ -347,7 +351,7 @@ export async function agentDetail(service: SupabaseClient, viewer: AgentCaller, 
   const omitted: string[] = [];
   if (!canKeys) omitted.push('keys');
   if (!canHooks) omitted.push('webhooks');
-  const [health, run, assignments, owners, keys, webhooks, templateKey, access, canManage, ownerGroups] = await Promise.all([
+  const [health, run, assignments, owners, keys, webhooks, templateKey, access, canManage, ownerGroups, limitState] = await Promise.all([
     service.from('agent_health').select('*').eq('member_id', agentId).maybeSingle().then(({ data }) => (data as Row | null) ?? null),
     service.from('agent_runs').select('*').eq('agent_id', agentId).eq('status', 'running').order('started_at', { ascending: false }).limit(1)
       .then(async ({ data, error }) => {
@@ -366,10 +370,14 @@ export async function agentDetail(service: SupabaseClient, viewer: AgentCaller, 
     memberProjectAccess(service, viewer, [agentId]).then((map) => map.get(agentId) ?? { visible: [], total: 0 }),
     canManageAgent(service, viewer, agentId),
     ownerGroupsOf(service, [agentId]).then((map) => map.get(agentId) ?? []),
+    loadLimitState(service, agentId, true),
   ]);
   return {
     agent: agentView(row),
     rules: rulesWithGroup(row),
+    // Its limits (null: none) and what counts against them now; both null on a database before them.
+    limits: limitState?.limits ?? null,
+    usage: limitState?.usage ?? null,
     health,
     current_run: run,
     projects: assignments.rows,
@@ -400,8 +408,12 @@ export async function agentDetail(service: SupabaseClient, viewer: AgentCaller, 
 export async function patchAgent(service: SupabaseClient, caller: AgentCaller, agentId: string, body: PatchAgent) {
   requireAgentsEnabled(caller.access);
   const before = await loadAgentRow(service, agentId);
-  const touchesProfile = ['name', 'title', 'description', 'avatar_url', 'agent_role', 'rules'].some((field) => (body as Row)[field] !== undefined);
+  const touchesProfile = ['name', 'title', 'description', 'avatar_url', 'agent_role', 'rules', 'paused'].some((field) => (body as Row)[field] !== undefined);
   if (touchesProfile) await requireManageAgent(service, caller, agentId);
+  // Limits spend money and set how hard it may run: a workspace Owner's to set.
+  if (body.limits !== undefined && caller.access.role !== 'owner') {
+    throw forbidden("Only a workspace Owner sets an agent's limits", { reason: 'owner_only' });
+  }
   const rules = await agentRulesColumns(service, { id: agentId, role: 'agent' }, rulesColumnsFrom(body.rules));
   const changes: Row = {
     ...(body.name !== undefined ? { name: body.name } : {}),
@@ -410,6 +422,9 @@ export async function patchAgent(service: SupabaseClient, caller: AgentCaller, a
     ...(body.avatar_url !== undefined ? { avatar: body.avatar_url ?? '' } : {}),
     ...(body.agent_role !== undefined ? { agent_role: body.agent_role || null } : {}),
     ...rules,
+    // Pausing again keeps when and by whom it was first paused.
+    ...(body.paused === true && !before.agent_paused_at ? { agent_paused_at: new Date().toISOString(), agent_paused_by: caller.memberId } : {}),
+    ...(body.paused === false && before.agent_paused_at ? { agent_paused_at: null, agent_paused_by: null } : {}),
   };
   // Owners are checked (and refused) before anything changes.
   let owners: { added: string[]; removed: string[] } | null = null;
@@ -422,10 +437,13 @@ export async function patchAgent(service: SupabaseClient, caller: AgentCaller, a
     if (error) throw error;
     row = data as Row;
   }
+  const limitsBefore = body.limits !== undefined ? await agentLimitsRow(service, agentId) : undefined;
+  const limits = body.limits !== undefined ? await setAgentLimits(service, agentId, body.limits, caller.memberId) : undefined;
   return {
-    before: { ...agentView(before), rules: rulesWithGroup(before) },
+    before: { ...agentView(before), rules: rulesWithGroup(before), ...(limitsBefore !== undefined ? { limits: limitsBefore } : {}) },
     agent: agentView(row),
     rules: rulesWithGroup(row),
+    ...(limits !== undefined ? { limits } : {}),
     owners: (await ownersOf(service, [agentId])).get(agentId) ?? [],
     owners_changed: owners,
     owner_groups: (await ownerGroupsOf(service, [agentId])).get(agentId) ?? [],
@@ -592,6 +610,10 @@ export async function hireAgent(service: SupabaseClient, caller: AgentCaller, gr
       row = data as Row;
       state.done.push('rules set');
     }
+    if (template?.limits) {
+      await setAgentLimits(service, agentId, template.limits, caller.memberId);
+      state.done.push('limits set');
+    }
     state.ownersAdded = await addOwners(service, agentId, owners, caller.memberId);
     state.ownerGroupsAdded = await addOwnerGroups(service, agentId, ownerGroupIds, caller.memberId);
 
@@ -609,7 +631,7 @@ export async function hireAgent(service: SupabaseClient, caller: AgentCaller, gr
     }
 
     // The template is recorded where the context pack and export look for it.
-    const { error: auditError } = await service.from('api_audit_log').insert({
+    const { error: auditError } = await insertAuditRows(service, {
       method: 'POST', endpoint: AGENT_HIRE_ENDPOINT, entity_type: 'team_member', entity_id: agentId, api_key_id: null, team_member_id: caller.memberId,
       request_body: { template: template?.key ?? null, project_ids: projectIds, create_key: !!input.create_key, scopes: keyScopes },
       after_snapshot: { agent: agentView(row), assignments: state.assignmentIds }, status_code: 201, via: 'app',
@@ -696,7 +718,7 @@ async function undoHire(service: SupabaseClient, caller: AgentCaller, state: Hir
     ...(failed.length ? { rollback_failed: failed } : {}),
     cause,
   };
-  const { error } = await service.from('api_audit_log').insert({
+  const { error } = await insertAuditRows(service, {
     method: 'POST', endpoint: AGENT_HIRE_ENDPOINT, entity_type: 'team_member', entity_id: agentId, api_key_id: null, team_member_id: caller.memberId,
     request_body: null, after_snapshot: details, status_code: 500, error: cause, via: 'app',
   });

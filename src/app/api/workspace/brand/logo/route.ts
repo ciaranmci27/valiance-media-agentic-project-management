@@ -1,3 +1,4 @@
+import { insertAuditRows } from '@/lib/api/audit';
 import { NextResponse, type NextRequest } from 'next/server';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { afterResponse } from '@/lib/api/after-response';
@@ -45,7 +46,7 @@ async function respond(service: SupabaseClient) {
 
 function audit(service: SupabaseClient, memberId: string, method: 'POST' | 'DELETE', kind: LogoKind, before: string | null, after: string | null) {
   afterResponse('workspace brand logo audit', async () => {
-    const { error } = await service.from('api_audit_log').insert({
+    const { error } = await insertAuditRows(service, {
       method,
       endpoint: `/api/workspace/brand/logo?kind=${kind}`,
       entity_type: 'workspace_brand',

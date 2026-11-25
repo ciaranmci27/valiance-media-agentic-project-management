@@ -1,3 +1,4 @@
+import { insertAuditRows } from './audit';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { API_KEY_COLUMNS } from '@/lib/supabase/queries';
 
@@ -52,7 +53,7 @@ export async function revokeKeyTree(service: SupabaseClient, keyId: string, acto
     const { data: keys, error: readError } = await service.from('api_keys').select(API_KEY_COLUMNS).in('id', rows.map((row) => row.id));
     if (readError) throw readError;
     const byId = new Map(((keys ?? []) as unknown as { id: string }[]).map((key) => [key.id, key]));
-    const { error: auditError } = await service.from('api_audit_log').insert(rows.map((row) => ({
+    const { error: auditError } = await insertAuditRows(service, rows.map((row) => ({
       method: 'POST',
       endpoint: actor.endpoint,
       entity_type: 'api_key',

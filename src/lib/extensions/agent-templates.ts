@@ -1,5 +1,6 @@
 import { API_ENDPOINT_PERMISSION_SET, type PermissionKey } from '@/lib/access-control';
 import { AGENT_CLOSE_POLICIES, AGENT_CREATE_POLICIES, type AgentClosePolicy, type AgentCreatePolicy } from '@/lib/agent-rules';
+import { agentLimitsPatchSchema, type AgentLimitsPatch } from '@/lib/agent-limits';
 import { isModuleId, type ModuleId } from '@/lib/modules/registry';
 import { WEBHOOK_EVENT_TYPES, type WebhookEventType } from '@/lib/types';
 import { AGENT_ROLE_PATTERN, settingsFieldsProblem, type SettingsField } from '@/lib/project-agents';
@@ -31,6 +32,10 @@ import { ExtensionError } from './registry';
  *   watcher). For people only: it drives no behaviour.
  * - profile: the MCP profile an agent hired from it starts with, where it
  *   matters (lib/mcp/profiles.ts). Left out, the agent keeps generic.
+ * - limits: the limits an agent hired from it (or set up from it) starts
+ *   with: max_concurrent_runs, rate_per_minute, budget_usd, budget_tokens,
+ *   budget_period (lib/agent-limits.ts). Left out, it starts with none, and
+ *   an Owner can change them on the agent afterwards.
  */
 export interface AgentTemplateRules {
   agent_self_assign: boolean;
@@ -50,6 +55,7 @@ export interface AgentTemplate {
   settings?: SettingsField[];
   role?: string;
   profile?: string;
+  limits?: AgentLimitsPatch;
 }
 
 export const AGENT_TEMPLATE_CONTEXT_MAX = 2000;
@@ -92,6 +98,10 @@ function checkTemplate(template: AgentTemplate) {
   }
   if (template.profile !== undefined && !/^[a-z][a-z0-9-]{0,39}$/.test(template.profile)) {
     fail(`${where}: profile "${template.profile}" is not a profile value.`);
+  }
+  if (template.limits !== undefined) {
+    const limits = agentLimitsPatchSchema.safeParse(template.limits);
+    if (!limits.success) fail(`${where}: limits ${limits.error.issues.map((issue) => `${issue.path.join('.') || 'value'} ${issue.message}`).join('; ')}.`);
   }
 }
 

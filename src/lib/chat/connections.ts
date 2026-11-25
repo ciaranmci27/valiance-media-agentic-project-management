@@ -1,3 +1,4 @@
+import { insertAuditRows } from '@/lib/api/audit';
 import { randomUUID } from 'node:crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { AccessContext } from '@/lib/access-control';
@@ -143,7 +144,7 @@ export async function deleteChatConnection(service: SupabaseClient, access: Acce
 }
 
 async function audit(service: SupabaseClient, memberId: string, method: string, id: string, body: Row) {
-  const { error } = await service.from('api_audit_log').insert({
+  const { error } = await insertAuditRows(service, {
     method, endpoint: `/api/workspace/chat-connections${method === 'POST' ? '' : `/${id}`}`, entity_type: 'chat_connection', entity_id: id,
     team_member_id: memberId, request_body: body, status_code: 200, via: 'app',
   });

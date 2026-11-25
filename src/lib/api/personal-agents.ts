@@ -1,3 +1,4 @@
+import { insertAuditRows } from './audit';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { apiScopesFor, type AccessContext } from '@/lib/access-control';
 import { findAgentTemplate } from '@/lib/agent-templates';
@@ -484,7 +485,7 @@ export async function bindPersonalAgent(service: SupabaseClient, caller: AgentCa
   if (setError) fail(setError);
   const row = (Array.isArray(data) ? data[0] : data) as Row | null;
   if (!row) throw notFound('Agent');
-  const { error: auditError } = await service.from('api_audit_log').insert({
+  const { error: auditError } = await insertAuditRows(service, {
     method: 'POST', endpoint: '/api/workspace/assistants/bind', entity_type: 'team_member', entity_id: agentId, team_member_id: caller.memberId,
     before_snapshot: { delegate_of: before }, after_snapshot: { delegate_of: row.delegate_of ?? null }, status_code: 200, via: 'app',
   });
@@ -552,7 +553,7 @@ export async function mintOwnPersonalAgentKey(
     scopes: granted.scopes,
     permissions: input.read_only ? 'read_only' : 'scoped',
   });
-  const { error } = await service.from('api_audit_log').insert({
+  const { error } = await insertAuditRows(service, {
     method: 'POST', endpoint: `/api/workspace/assistants/${agentId}/keys`, entity_type: 'api_key', entity_id: made.key.id, team_member_id: person.memberId,
     request_body: { agent_id: agentId, scopes: granted.scopes }, after_snapshot: made.key, status_code: 201, via: 'app',
   });

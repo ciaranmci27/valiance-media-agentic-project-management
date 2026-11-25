@@ -1,3 +1,4 @@
+import { insertAuditRows } from '@/lib/api/audit';
 import { NextResponse, type NextRequest } from 'next/server';
 import { afterResponse } from '@/lib/api/after-response';
 import { foreignOrigin, isDemoWorkspace, requireOwner } from '@/lib/api/owner-route';
@@ -28,7 +29,7 @@ export async function POST(request: NextRequest) {
   try {
     const result = await reencryptAll(auth.data.service);
     afterResponse('workspace encryption audit', async () => {
-      const { error } = await auth.data.service.from('api_audit_log').insert({
+      const { error } = await insertAuditRows(auth.data.service, {
         method: 'POST', endpoint: '/api/workspace/encryption', entity_type: 'workspace_encryption', team_member_id: auth.data.memberId,
         request_body: {}, before_snapshot: null,
         after_snapshot: { moved: result.moved, failed: { smtp: result.failed.smtp.length, credentials: result.failed.credentials.length }, remaining: result.status.remaining },

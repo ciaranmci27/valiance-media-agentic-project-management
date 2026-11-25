@@ -93,6 +93,7 @@ export function getEndpointScopes(endpoint: EndpointDoc): string[] {
   if (path.includes('/portal')) return write ? ['portal.manage'] : ['portal.read', 'portal.manage'];
   if (path.includes('/context')) return write ? ['project_context.manage'] : ['project_context.read', 'project_context.manage'];
   if (path.includes('/goals')) return write ? ['goals.manage'] : ['goals.read', 'goals.manage'];
+  if (path === '/api/v1/audit/export') return ['audit.export'];
   if (path.includes('/audit-log') || path.includes('/activities')) return ['audit.read'];
   if (path.includes('/team-members')) return write ? ['team.manage'] : ['team.read', 'team.manage'];
   return write ? ['projects.manage'] : ['projects.read', 'projects.read_all', 'projects.manage'];
@@ -1448,6 +1449,14 @@ export const endpoints: EndpointDoc[] = [
     params: [
       { name: 'entityType', type: 'string', required: true, description: 'Entity type (task, project, lead, contact, etc.)' },
       { name: 'entityId', type: 'uuid', required: true, description: 'Entity ID' },
+    ],
+  },
+  { method: 'GET', path: '/api/v1/audit/export', description: 'Every audit row, in the order it was written, for a compliance or data system. A page of rows after cursor, with meta.next_cursor to resume from and meta.has_more; keep next_cursor and pass it as cursor next time. The log is append-only, so each row comes once. Rows in a transaction still open wait until it ends, so a resumed export never skips one. Each row: id, seq, timestamp, method, endpoint, entity_type, entity_id, api_key_id, team_member_id (who), principal_id (who an agent acted for), via (rest, mcp or app), status_code, error, request_body, before_snapshot, after_snapshot. Secrets were redacted when the row was written. format=ndjson answers one row per line, with the cursor in the X-Next-Cursor and X-Has-More headers. Needs audit.export (Owners hold it).', group: 'Audit Log',
+    queryParams: [
+      { name: 'cursor', type: 'string', description: 'next_cursor from the previous page; left out, from the beginning' },
+      { name: 'since', type: 'ISO 8601', description: 'Only rows written at or after this time' },
+      { name: 'limit', type: 'number', description: 'Rows per page (default 500, max 1000)' },
+      { name: 'format', type: 'json|ndjson', description: 'ndjson: one row per line (default json, the API envelope)' },
     ],
   },
 

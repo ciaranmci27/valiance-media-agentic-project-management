@@ -18,6 +18,9 @@ import {
 import { postgrestList, trashedProjectIds } from '@/lib/supabase/trash';
 import { accessAllows, accessAllowsProject, apiKeyAllows } from './access';
 import { requireAgentsEnabled } from './agents';
+import { afterResponse } from './after-response';
+import { checkBudgetAfterUsage, enforceRunStart } from './agent-limits';
+import { assertProjectWritable } from './request-gate';
 import { ApiError, badRequest, forbidden, notFound } from './errors';
 
 /**
@@ -298,6 +301,7 @@ export async function startRun(ctx: RunsContext, input: StartAgentRunInput): Pro
   requireAgentsEnabled(ctx.access);
   const agentId = await resolveAgent(ctx, input.agent_id);
   const place = await resolvePlace(ctx, input);
+  assertProjectWritable(place.project_id);
   if (input.started_at && Date.parse(input.started_at) > Date.now() + 60_000) {
     throw invalid('started_at cannot be in the future', { reason: 'starts_in_future' });
   }
@@ -306,6 +310,8 @@ export async function startRun(ctx: RunsContext, input: StartAgentRunInput): Pro
     const existing = await runByExternalId(ctx.db, agentId, input.external_id);
     if (existing) return { run: await updateExisting(ctx, existing, input, place), created: false };
   }
+  // A new run, past the agent's limits: 409 limit_concurrent_runs or 402 budget_exceeded.
+  await enforceRunStart(ctx.db, agentId);
 
   const row: Row = {
     ...fieldsFrom(input, null),
@@ -373,6 +379,11 @@ export async function updateRun(ctx: RunsContext, id: string, input: UpdateAgent
   if (Object.keys(changes).length === 0) return presentRun(ctx.db, row);
   const { data, error } = await ctx.db.from('agent_runs').update(changes).eq('id', row.id).select('*').single();
   if (error) throw runWriteError(error);
+  // Spend it reports may use up the agent's budget: its owners hear once a period.
+  if (changes.cost_usd !== undefined || changes.tokens_in !== undefined || changes.tokens_out !== undefined) {
+    const agentId = row.agent_id as string;
+    afterResponse('run budget check', async () => { await checkBudgetAfterUsage(ctx.db, agentId); });
+  }
   // Another write finished it between our read and this one: the database
   // kept the first finish (handle_agent_run_before_write), so this one lost.
   if (changes.status !== undefined && data.status !== changes.status) {

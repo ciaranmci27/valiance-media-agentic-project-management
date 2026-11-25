@@ -1,3 +1,4 @@
+import { insertAuditRows } from '@/lib/api/audit';
 import { randomBytes } from 'node:crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { NextResponse, type NextRequest } from 'next/server';
@@ -91,7 +92,7 @@ export async function POST(request: NextRequest) {
   }
 
   afterResponse('webhook retries audit', async () => {
-    const { error: auditError } = await service.from('api_audit_log').insert({
+    const { error: auditError } = await insertAuditRows(service, {
       method: 'POST', endpoint: '/api/workspace/webhook-retries', entity_type: 'workspace_webhook_retries', team_member_id: memberId,
       request_body: {}, before_snapshot: null, after_snapshot: { on: true }, status_code: 200, via: 'app',
     });

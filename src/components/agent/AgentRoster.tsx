@@ -89,6 +89,7 @@ export function useAgentRoster(): { entries: RosterEntry[]; ready: boolean } {
       .map((agent): RosterEntry => {
         const more = extra.get(agent.id);
         const suspended = agent.status === 'suspended';
+        const paused = !suspended && !!agent.agent_paused_at;
         const trace = (byAgent.get(agent.id) ?? []).reduce((t, a) => ingestIntoTrace(t, a), emptyTrace());
         const agentHealth = health[agent.id];
         const status = suspended ? null : deriveStatus(trace, now, busyMoodForTitle(agent.title), agentHealth);
@@ -109,12 +110,12 @@ export function useAgentRoster(): { entries: RosterEntry[]; ready: boolean } {
           projectCount: onProjects.count,
           setUp: more?.assignments?.total ?? null,
           projectsCapped: onProjects.capped,
-          presence: presenceOf(status?.mood ?? null, suspended),
+          presence: presenceOf(status?.mood ?? null, suspended, paused),
           lastSeenAt: trace.seenAt,
           currentRunTitle: run?.title ?? null,
           avatar: agent.avatar || more?.avatar_url || null,
           suspended,
-          sentence: status ? statusSentence(status, now) : 'Suspended: cannot act',
+          sentence: paused ? 'Paused: reads and reports only' : status ? statusSentence(status, now) : 'Suspended: cannot act',
           statusNote: agentHealth?.statusNote?.trim() || null,
           currentRun: run,
           lastLine: trace.lastLine ?? null,

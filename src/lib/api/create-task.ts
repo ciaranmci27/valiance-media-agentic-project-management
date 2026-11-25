@@ -1,3 +1,5 @@
+import { assertProjectWritable } from './request-gate';
+import { currentPausedProjectIds } from './request-context';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { logAudit } from '@/lib/api/audit';
 import { accessAllows, accessAllowsProject } from '@/lib/api/access';
@@ -255,6 +257,10 @@ export async function createTaskWithRules(ctx: CreateTaskContext, endpoint: stri
   const { occurrence_note: occurrenceNote, ...body } = ctx.body as Record<string, unknown> & { occurrence_note?: string };
   const dedupeKey = typeof body.dedupe_key === 'string' ? body.dedupe_key : null;
   const member = await loadMemberRules(supabase, teamMemberId);
+  // An agent paused on the project creates nothing there (looked up only when it is paused somewhere).
+  if (currentPausedProjectIds().length > 0) {
+    assertProjectWritable(await targetProject(supabase, body, access).catch(() => null));
+  }
 
   let projectId: string | null = null;
   if (dedupeKey) {

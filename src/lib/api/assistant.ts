@@ -1,3 +1,4 @@
+import { insertAuditRows } from './audit';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { isModuleEnabled, type AccessContext } from '@/lib/access-control';
 import {
@@ -77,7 +78,7 @@ export async function updateAssistantSettings(service: SupabaseClient, access: A
   if (input.label !== undefined) changes.assistant_label = input.label?.trim() ? input.label.trim() : null;
   const { error: writeError } = await service.from('business_settings').update(changes).eq('id', (settings as Row).id);
   if (writeError) fail(writeError);
-  const { error: auditError } = await service.from('api_audit_log').insert({
+  const { error: auditError } = await insertAuditRows(service, {
     method: 'PATCH', endpoint: '/api/workspace/assistants/settings', entity_type: 'business_settings', entity_id: (settings as Row).id,
     team_member_id: memberId, request_body: changes, status_code: 200, via: 'app',
   });
@@ -326,7 +327,7 @@ export async function updateMyAssistant(service: SupabaseClient, memberId: strin
       await setSortInbox(service, agent.id, memberId, input.switches.sort_inbox);
     }
   }
-  const { error: auditError } = await service.from('api_audit_log').insert({
+  const { error: auditError } = await insertAuditRows(service, {
     method: 'PATCH', endpoint: '/api/workspace/assistant', entity_type: 'team_member', entity_id: agent.id, team_member_id: memberId,
     request_body: input, status_code: 200, via: 'app',
   });

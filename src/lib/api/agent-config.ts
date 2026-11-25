@@ -10,6 +10,7 @@ import { generateWebhookSecret } from '@/lib/webhooks/sign';
 import { accessAllowsProject, apiKeyAllows } from './access';
 import { agentTemplateEndpoint, AGENT_IMPORT_ENDPOINT, appliedTemplateKey, namedProject, reachableProjectNames } from './agent-context';
 import { logAudit } from './audit';
+import { setAgentLimits } from './agent-limits';
 import { revokeKeyTree } from './key-revoke';
 import { currentApiVia } from './request-context';
 import { agentRulesColumns } from './agent-rules';
@@ -129,6 +130,8 @@ export async function applyAgentTemplate(
   const { data: member, error } = await service.from('team_members').update(columns).eq('id', target.id).select().single();
   if (error) throw error;
 
+  // The template's limits, when it has any (an Owner changes them later).
+  if (template.limits) await setAgentLimits(service, target.id, template.limits, granter.memberId);
   const rules = Object.fromEntries(AGENT_RULE_FIELDS.map((field) => [field, (member as Row)[field]]));
   let made: Awaited<ReturnType<typeof insertApiKey>> | null = null;
   if (granted) {

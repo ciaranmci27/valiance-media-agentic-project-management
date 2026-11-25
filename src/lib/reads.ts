@@ -1,5 +1,6 @@
 'use client';
 
+import { auditQuery, type AgentsPauseState, type AuditEntry, type AuditFilters, type AuditSettings } from '@/lib/audit-log';
 import { useCallback, useEffect, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/lib/auth-context';
@@ -1036,3 +1037,28 @@ export const assistantSetupsRead: Read<AssistantSetupView[]> = {
   tables: ['assistant_setups', 'groups'],
   load: async () => (await workspaceApi<{ setups: AssistantSetupView[] }>('/api/workspace/assistants/setups')).setups ?? [],
 };
+
+/** The kill switch for every agent: whether every agent is paused, since when and by whom. */
+export const agentsPauseRead: Read<AgentsPauseState> = {
+  key: 'agents-pause',
+  tables: ['business_settings'],
+  load: () => workspaceApi('/api/workspace/agents-pause'),
+};
+
+/** Settings > Security: how long the audit log keeps rows, and the extra fields it redacts (Owner). */
+export const auditSettingsRead: Read<AuditSettings> = {
+  key: 'audit-settings',
+  tables: ['business_settings'],
+  load: () => workspaceApi('/api/workspace/audit-settings'),
+};
+
+/** Settings > Security: one page of the audit log with these filters (Owner). */
+export function auditLogRead(filters: AuditFilters, page: number): Read<{ entries: AuditEntry[]; total: number; page: number; page_size: number; names: Record<string, string> }> {
+  const query = auditQuery(filters, page);
+  return {
+    key: `audit-log:${query}`,
+    tables: ['api_audit_log'],
+    ttlMs: 15_000,
+    load: () => workspaceApi(`/api/workspace/audit-log${query ? `?${query}` : ''}`),
+  };
+}

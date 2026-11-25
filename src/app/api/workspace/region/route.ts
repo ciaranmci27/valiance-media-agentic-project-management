@@ -1,3 +1,4 @@
+import { insertAuditRows } from '@/lib/api/audit';
 import { NextResponse, type NextRequest } from 'next/server';
 import { afterResponse } from '@/lib/api/after-response';
 import { foreignOrigin, isDemoWorkspace, isSchemaMissing, migrationMissing, requireOwner } from '@/lib/api/owner-route';
@@ -68,7 +69,7 @@ export async function PUT(request: NextRequest) {
   expireRegion();
 
   afterResponse('workspace region audit', async () => {
-    const { error: auditError } = await service.from('api_audit_log').insert({
+    const { error: auditError } = await insertAuditRows(service, {
       method: 'PUT',
       endpoint: '/api/workspace/region',
       entity_type: 'workspace_region',

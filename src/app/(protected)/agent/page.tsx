@@ -24,6 +24,7 @@ import { ProjectTabs, projectPanelId, projectTabId, type ProjectTab } from '@/co
 import { TaskDetailPanel } from '@/components/tasks/TaskDetailPanel';
 import { NeedsYouView, useAgentNeedsYou } from '@/components/agent/NeedsYouView';
 import { AgentRoster } from '@/components/agent/AgentRoster';
+import { AgentsPauseBanner, PauseAllButton } from '@/components/agent/AgentsPauseBanner';
 import { RunFeed } from '@/components/agent/runs/RunFeed';
 import { AgentAnalytics } from '@/components/agent/analytics/AgentAnalytics';
 
@@ -182,14 +183,20 @@ function AgentsPage() {
             ? `${needs.total} ${needs.total === 1 ? 'thing needs' : 'things need'} you: questions, approvals and agent work.`
             : SUBTITLES[active]}
         </span>}
-        actions={canAddAgent ? (
-          <Button icon={<Plus size={16} aria-hidden="true" />} href="/agent/new">
-            Hire an agent
-          </Button>
-        ) : undefined}
+        actions={(
+          <div className="flex items-center gap-2">
+            <PauseAllButton />
+            {canAddAgent && (
+              <Button icon={<Plus size={16} aria-hidden="true" />} href="/agent/new">
+                Hire an agent
+              </Button>
+            )}
+          </div>
+        )}
       />
 
       <div className="p-4 lg:p-6 space-y-4 lg:space-y-6">
+        <AgentsPauseBanner />
         <ProjectTabs label="Agent views" tabs={tabs} active={active} onChange={(tab) => goTo(tab)} />
 
         {panel('needs-you', <NeedsYouView needs={needs} onOpenTask={openTask} />)}

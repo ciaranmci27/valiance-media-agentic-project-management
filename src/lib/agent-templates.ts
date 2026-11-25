@@ -164,5 +164,7 @@ export function agentTemplateView(template: AgentTemplate) {
     /** The same as role: the label an agent hired from it starts with. */
     default_role: template.role ?? null,
     profile: template.profile ?? null,
+    /** The limits an agent set up from it starts with; null for none. */
+    limits: template.limits ?? null,
   };
 }

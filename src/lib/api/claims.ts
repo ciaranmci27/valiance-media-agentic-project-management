@@ -5,6 +5,7 @@ import { formatEventTitle } from '@/lib/agent-events';
 import { accessAllows } from './access';
 import { afterResponse } from './after-response';
 import { loadMemberRules } from './agent-rules';
+import { enforceClaimLimit } from './agent-limits';
 import { ApiError, badRequest, forbidden, notFound } from './errors';
 
 /**
@@ -169,6 +170,10 @@ export async function claimTask(actor: ClaimActor, taskId: string, leaseMinutes?
     }
     assign = true;
   }
+
+  // A new claim (not renewing one it holds) past the agent's limit: 409 limit_concurrent_claims.
+  const renewing = task.claimed_by === memberId && !!task.claim_expires_at && new Date(task.claim_expires_at as string).getTime() > Date.now();
+  if (!renewing && actor.access.role === 'agent') await enforceClaimLimit(supabase, memberId);
 
   const result = await rpc(supabase, 'claim_task', { p_task_id: taskId, p_member_id: memberId, p_lease_minutes: lease, p_assign: assign });
   if (result.outcome === 'not_found') throw notFound('Task');

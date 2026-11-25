@@ -1,4 +1,4 @@
-import { Bell, CircleArrowUp, Code2, Database, Globe, LayoutGrid, Mail, Receipt, Sparkles, User, type LucideIcon } from 'lucide-react';
+import { Bell, CircleArrowUp, Code2, Database, Globe, LayoutGrid, Mail, Receipt, ShieldCheck, Sparkles, User, type LucideIcon } from 'lucide-react';
 import { hourApprovalsExist } from '@/lib/finance/finance-views';
 import { useAuth } from '@/lib/auth-context';
 import { useDemo } from '@/lib/demo-context';
@@ -14,7 +14,7 @@ import { webhooksSectionState } from '@/lib/developers-settings';
  */
 
 /** Core groups, then the install's own Settings sections (src/custom), keyed `custom:<key>`. */
-export type SettingsGroupKey = 'workspace' | 'updates' | 'account' | 'notifications' | 'billing' | 'portal' | 'email' | 'assistants' | 'developers' | 'data' | `custom:${string}`;
+export type SettingsGroupKey = 'workspace' | 'updates' | 'account' | 'notifications' | 'billing' | 'portal' | 'email' | 'assistants' | 'developers' | 'security' | 'data' | `custom:${string}`;
 
 export interface SettingsGroup {
   key: SettingsGroupKey;
@@ -71,6 +71,8 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
   // People's personal assistants: on or off, their name, who gets one, chat connections (Owners only).
   { key: 'assistants', href: '/settings/assistants', label: 'Assistants', icon: Sparkles, sectionIds: ['assistants', 'assistant-setups', 'assistant-status', 'chat-connections'] },
   { key: 'developers', href: '/settings/developers', label: 'Developers', icon: Code2, sectionIds: ['api-keys', 'webhooks', 'webhook-retries', 'developer-docs'] },
+  // The kill switch for every agent, the audit log and how long it is kept (Owners only).
+  { key: 'security', href: '/settings/security', label: 'Security', icon: ShieldCheck, sectionIds: ['agents-pause', 'audit-log', 'audit-settings'] },
   { key: 'data', href: '/settings/data', label: 'Data', icon: Database, sectionIds: ['trash', 'demo-mode'] },
   // The install's own sections, after core's.
   ...customSettingsGroups(),
@@ -153,6 +155,10 @@ export function useSettingsAccess() {
     demoMode: canManageSettings && !isEnvForcedDemo,
     // People's assistants and the chat connections they answer through: Owners only.
     assistants: isOwner && !isDemoMode,
+    // Pausing every agent at once: Owners only, with AI agents on.
+    agentsPause: isOwner && !isDemoMode && isModuleEnabled(access, 'agents'),
+    // Who changed what, and how long that is kept: Owners only. The demo workspace has no log.
+    auditLog: isOwner && !isDemoMode,
   };
 
   // A group shows in the menu while at least one of its sections does.
@@ -166,6 +172,7 @@ export function useSettingsAccess() {
     email: show.smtp || show.emailInboxes || show.myInbox || show.receiving,
     assistants: show.assistants,
     developers: show.apiKeys || show.webhooks || show.webhookRetries || show.developerDocs,
+    security: show.agentsPause || show.auditLog,
     data: !isGuest,
   };
 

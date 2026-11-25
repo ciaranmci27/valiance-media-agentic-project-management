@@ -135,6 +135,8 @@ export const MODULE_SURFACES: Record<ModuleId, ModuleSurface> = {
       'assistant_setups',
       // The personal Assistant: a person's settings for theirs, and the chat switchboard.
       'assistant_preferences', 'chat_connections', 'chat_messages', 'chat_rate_limits',
+      // Per-agent limits and the per-agent request windows.
+      'agent_limits', 'agent_rate_limit_windows',
     ],
     // The question sums for Agents > Analytics.
     rpcs: ['agent_question_stats'],
@@ -151,6 +153,8 @@ export const MODULE_SURFACES: Record<ModuleId, ModuleSurface> = {
       '(protected)/agent',
       // My Assistant, its chat (inbound from providers, replies and the poll), and chat connections.
       'api/workspace/assistant', 'api/workspace/chat-connections', 'api/v1/assistant', 'api/chat', '(protected)/assistant',
+      // The kill switch for every agent.
+      'api/workspace/agents-pause',
     ],
   },
 };
@@ -178,6 +182,8 @@ export const CORE_ROUTES: string[] = [
   'api/workspace/updates',
   // How long new agent keys last (Owner only), with AI agents on or off.
   'api/workspace/key-settings',
+  // The audit log: Settings > Security (Owner only) and its export (audit.export).
+  'api/workspace/audit-log', 'api/workspace/audit-settings', 'api/v1/audit',
   // Groups and linked identities (chat accounts) are about people, with AI agents on or off.
   'api/v1/groups', 'api/v1/identities', 'api/v1/members', 'api/workspace/groups', 'api/workspace/identities', '(protected)/link',
   // The install's own routes and pages (src/custom): each item names its own module, permission or role.

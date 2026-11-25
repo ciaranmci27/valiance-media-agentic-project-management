@@ -1,3 +1,4 @@
+import { insertAuditRows } from './audit';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { API_KEY_COLUMNS } from '@/lib/supabase/queries';
 import type { ApiKey } from '@/lib/types';
@@ -124,7 +125,7 @@ export async function rotateApiKey(
   const key = { ...Object.fromEntries(API_KEY_COLUMNS.split(',').map((column) => column.trim()).map((column) => [column, row[column] ?? null])), rotated_from: keyId } as unknown as RotatedKey['key'];
   const previous = { id: keyId, expires_at: (before as { expires_at: string }).expires_at };
 
-  const { error: auditError } = await service.from('api_audit_log').insert({
+  const { error: auditError } = await insertAuditRows(service, {
     method: 'POST',
     endpoint: actor.endpoint,
     entity_type: 'api_key',
@@ -132,7 +133,8 @@ export async function rotateApiKey(
     api_key_id: actor.apiKeyId,
     team_member_id: caller.memberId,
     request_body: { rotated_from: keyId, overlap_hours: overlapHours },
-    after_snapshot: { key, previous },
+    // new_key, not key: the redactor keeps its name, prefix, scopes and expiry (a field named key is a secret).
+    after_snapshot: { new_key: key, previous },
     status_code: 201,
     ...(actor.via !== 'rest' ? { via: actor.via } : {}),
   });

@@ -16,6 +16,7 @@ export const PERMISSIONS = [
   'settings.manage',
   'smtp.manage',
   'audit.read',
+  'audit.export',
   'api_keys.manage_all',
   'webhooks.manage',
   'notifications.manage_own',
@@ -103,6 +104,8 @@ export const API_ENDPOINT_PERMISSIONS = [
   'agent_events.export',
   // A harness that runs people's personal agents: lists them and collects each one's key once. No role holds it by default.
   'assistants.provision',
+  // Every audit row, in order, for a compliance or data system (GET /api/v1/audit/export). Owners only by default.
+  'audit.export',
 ] as const satisfies readonly PermissionKey[];
 
 export const API_ENDPOINT_PERMISSION_SET = new Set<PermissionKey>(API_ENDPOINT_PERMISSIONS);
@@ -298,6 +301,7 @@ export const PERMISSION_GROUPS: Array<{
       { key: 'settings.manage', label: 'Business settings', description: 'Manage workspace and invoice identity settings.' },
       { key: 'smtp.manage', label: 'Email settings', description: 'Manage SMTP accounts and outbound email configuration.' },
       { key: 'audit.read', label: 'View audit log', description: 'Review security and API activity.' },
+      { key: 'audit.export', label: 'Export audit log', description: 'Allow a compliance or data system key to read every audit row, in order, from a resumable cursor (GET /api/v1/audit/export). Read only. Owners hold it; no other role does by default.' },
       { key: 'api_keys.manage_all', label: 'Manage all API keys', description: 'Inspect, edit, disable, and revoke every member key.' },
       { key: 'webhooks.manage', label: 'Manage webhooks', description: 'Create, edit, and remove outbound webhook endpoints and view deliveries.' },
       { key: 'notifications.manage_own', label: 'Manage own notifications', description: 'Read and update only the member\'s own notifications through the API.' },

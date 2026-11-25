@@ -1,3 +1,4 @@
+import { insertAuditRows } from '@/lib/api/audit';
 import { NextResponse, type NextRequest } from 'next/server';
 import { afterResponse } from '@/lib/api/after-response';
 import { foreignOrigin, isDemoWorkspace, requireOwner } from '@/lib/api/owner-route';
@@ -19,7 +20,7 @@ async function state(service: Parameters<typeof secretStatuses>[0]) {
 
 function audit(service: Parameters<typeof secretStatuses>[0], memberId: string, method: 'POST' | 'DELETE', name: SecretName) {
   afterResponse('workspace secrets audit', async () => {
-    const { error } = await service.from('api_audit_log').insert({
+    const { error } = await insertAuditRows(service, {
       method, endpoint: '/api/workspace/secrets', entity_type: 'workspace_secrets', team_member_id: memberId,
       // The name only: a secret's value never reaches the audit log.
       request_body: { name }, before_snapshot: null, after_snapshot: null, status_code: 200, via: 'app',

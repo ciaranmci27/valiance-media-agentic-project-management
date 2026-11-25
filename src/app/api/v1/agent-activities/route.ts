@@ -1,3 +1,5 @@
+import { afterResponse } from '@/lib/api/after-response';
+import { checkBudgetAfterUsage } from '@/lib/api/agent-limits';
 import { z } from 'zod';
 import { withApi } from '@/lib/api/middleware';
 import { created, paginated } from '@/lib/api/response';
@@ -262,6 +264,11 @@ export const POST = withApi(async ({ supabase, body, apiKeyId, teamMemberId, acc
       throw new ApiError(503, 'SERVICE_UNAVAILABLE', 'note and custom events are recorded once the database update 20261124000600_open_agent_vocabulary.sql is applied', { reason: 'migration_pending' });
     }
     throw error;
+  }
+
+  // Usage is always kept; when it uses up the agent's budget, its owners hear once a period.
+  if (agentId && (parsed.activity_type === 'usage.recorded' || parsed.activity_type === 'turn.completed')) {
+    afterResponse('usage budget check', async () => { await checkBudgetAfterUsage(supabase, agentId); });
   }
 
   logAudit(supabase, {

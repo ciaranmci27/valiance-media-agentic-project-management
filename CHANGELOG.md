@@ -9,6 +9,19 @@ Each section starts with `## X.Y.Z (YYYY-MM-DD)` and uses these headings, leavin
 - `### Database`: the core migration files in the release, one per line. `npm run db:migrate` applies them.
 - `### Breaking`: what an install must do when it takes this release.
 
+## 2.0.27 (2026-11-25)
+
+### Added
+- **Limits per agent** (an agent's Rules and powers, Owner): runs at once, requests per minute (across all its keys) and a budget in dollars or tokens per day, week or month. Over budget, new runs are refused (402) and its owners are told once per period; usage is always recorded. Templates can carry limits. No limit applies until one is set.
+- **Pause**: pause one agent from its profile, or every agent at once (Owner only) from Settings > Security or the Agents home. Paused agents still read, report health and usage, and finish or release what they hold; people are never paused. Pausing an agent's assignment on a project stops its writes there.
+- **Audit log** (Settings > Security, Owner): filter by who, who it was for, action and date, keep entries for as long as you choose (`audit_retention_days`, daily clean-up), and export with `GET /api/v1/audit/export` (permission `audit.export`). Signed-in changes to members, keys, agents, settings, permissions and modules are recorded too.
+
+### Changed
+- The audit log is append-only: nothing can edit or delete an entry except the retention clean-up, and secrets, tokens and webhook address paths are removed before anything is written. Public and signed-in database roles can no longer write to it or to the team activity log.
+
+### Database
+- `20261124001500_limits_audit.sql`: agent limits, the pause switches, a single request gate for limits and pause, the audit log export order, append-only and retention, write-time redaction, and audit rows for signed-in security changes.
+
 ## 2.0.26 (2026-11-24)
 
 ### Added

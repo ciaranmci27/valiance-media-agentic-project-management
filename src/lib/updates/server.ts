@@ -1,3 +1,4 @@
+import { insertAuditRows } from '@/lib/api/audit';
 import 'server-only';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { requireSessionAccess } from '@/lib/api/access';
@@ -88,7 +89,7 @@ export async function updatesDeps(): Promise<UpdatesDeps> {
       if (!client) return;
       // The app's own audit row (via 'app'), with the state before and after. Never the token.
       afterResponse('workspace updates audit', async () => {
-        const { error } = await client.from('api_audit_log').insert({
+        const { error } = await insertAuditRows(client, {
           method: entry.method,
           endpoint: entry.endpoint,
           entity_type: 'workspace_updates',

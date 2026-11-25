@@ -4,7 +4,7 @@ import { SupabaseClient } from '@supabase/supabase-js';
 import type { AccessContext, PermissionKey } from '@/lib/access-control';
 import { getActorClient, getServiceClient } from './supabase-service';
 import { hashApiKey } from './crypto';
-import { checkRateLimit } from './rate-limit';
+import { passRequestGate, pausedRefusal, projectPausedRefusal, pauseExempt, type RequestGate } from './request-gate';
 import { ApiError, unauthorized, forbidden, tooManyRequests, badRequest, notFound, moduleOff } from './errors';
 import { errorResponse } from './response';
 import { accessAllows, accessAllowsProject, moduleOffFor, resolveMemberAccess } from './access';
@@ -28,10 +28,10 @@ export const TASK_COLLECTION_ACTIONS: ReadonlySet<string> = new Set(['reorder', 
 
 function applyRateLimitHeaders(
   response: Response,
-  rateInfo: { remaining: number; resetAt: number } | null,
+  rateInfo: { remaining: number; resetAt: number; limit: number } | null,
 ): Response {
   if (rateInfo) {
-    response.headers.set('X-RateLimit-Limit', '120');
+    response.headers.set('X-RateLimit-Limit', String(rateInfo.limit));
     response.headers.set('X-RateLimit-Remaining', String(rateInfo.remaining));
     response.headers.set('X-RateLimit-Reset', String(Math.ceil(rateInfo.resetAt / 1000)));
   }
@@ -213,7 +213,7 @@ export function withApi<TBody = unknown, TParams = Record<string, string>>(
     request: NextRequest,
     routeContext?: { params?: Promise<TParams> | TParams },
   ): Promise<Response> => {
-    let rateInfo: { remaining: number; resetAt: number } | null = null;
+    let rateInfo: { remaining: number; resetAt: number; limit: number } | null = null;
     // The Idempotency-Key this request claimed, until its answer is stored or the key released.
     let idempotency: IdempotencyClaim | null = null;
     let service: SupabaseClient | null = null;
@@ -223,12 +223,21 @@ export function withApi<TBody = unknown, TParams = Record<string, string>>(
       const { supabase, keyRow, access, principal } = await resolveApiKey(request.headers.get('x-api-key'), actFor);
       service = supabase;
 
-      const rateResult = await checkRateLimit(supabase, keyRow.id);
-      rateInfo = { remaining: rateResult.remaining, resetAt: rateResult.resetAt };
-      if (!rateResult.allowed) throw tooManyRequests();
+      // The rate limit and, for an agent, what is paused, in one call.
+      const gate: RequestGate = await passRequestGate(supabase, keyRow.id, keyRow.team_member_id);
+      rateInfo = { remaining: gate.remaining, resetAt: gate.resetAt, limit: gate.limit };
+      if (!gate.allowed) throw tooManyRequests();
 
       const method = request.method;
       const isWrite = method !== 'GET' && method !== 'HEAD';
+      // A paused agent (the kill switch, or its own pause) still reads,
+      // beats and reports telemetry; its other writes stop here.
+      if (isWrite) {
+        const paused = pausedRefusal(gate, request.nextUrl.pathname, method);
+        if (paused) throw paused;
+      }
+      // An agent paused on a project writes nothing there (what is exempt above too stays open).
+      const projectWriteRefusal = (id: string) => (isWrite && !pauseExempt(request.nextUrl.pathname, method) ? projectPausedRefusal(gate, id) : null);
       if (keyRow.permissions === 'read_only' && method !== 'GET' && method !== 'HEAD') {
         throw forbidden('Read-only API key cannot perform write operations', {
           reason: 'read_only_key',
@@ -334,6 +343,8 @@ export function withApi<TBody = unknown, TParams = Record<string, string>>(
           .is('deleted_at', null)
           .maybeSingle();
         if (!liveProject) throw notFound('Project');
+        const pausedHere = projectWriteRefusal(projectId);
+        if (pausedHere) throw pausedHere;
       }
 
       // `reorder` is a collection action, not a task id; its handler authorizes
@@ -363,6 +374,8 @@ export function withApi<TBody = unknown, TParams = Record<string, string>>(
             hint: "Assign the linked member to this task's project, or grant projects.read_all.",
           });
         }
+        const pausedHere = projectWriteRefusal(task.project_id);
+        if (pausedHere) throw pausedHere;
         const isCommentWrite = request.nextUrl.pathname.includes('/comments') && isWrite;
         // Claiming decides for itself who may (an unassigned task can be
         // picked up, which assigns it), so it skips the assigned-only check.
@@ -492,7 +505,8 @@ export function withApi<TBody = unknown, TParams = Record<string, string>>(
       // The MCP server marks its in-process calls; a header could be sent by anyone.
       const via = apiRequestContext.getStore()?.via ?? 'rest';
       const principalId = principal?.id ?? null;
-      const response = await apiRequestContext.run({ via, keyId: keyRow.id, principalId, actFor }, () => handler({
+      const pausedProjectIds = gate.agent ? gate.pausedProjectIds : [];
+      const response = await apiRequestContext.run({ via, keyId: keyRow.id, principalId, actFor, pausedProjectIds }, () => handler({
         // Writes are logged as the key's member (agents are left out by the
         // database), and a task it creates records the key itself.
         supabase: getActorClient(keyRow.team_member_id, via === 'mcp' ? 'mcp' : 'api', keyRow.id),
