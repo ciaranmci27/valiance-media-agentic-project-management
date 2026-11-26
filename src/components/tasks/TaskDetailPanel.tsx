@@ -75,6 +75,7 @@ import { claimUntil, liveClaim, occurrenceLabel } from '@/lib/claims';
 import { useOpenQuestions } from '@/lib/reads';
 import { QuestionCard } from '@/components/questions/QuestionCard';
 import { InitiativeField } from '@/components/initiatives/InitiativeField';
+import { TaskRepeatRow } from '@/components/schedules/TaskRepeatField';
 import {
   DescriptionField, DetailRow, INLINE_DATE_CLASS, PeopleChips, PickField, PRIORITY_OPTIONS, STATUS_OPTIONS, TagsField, TitleField,
   taskTypeLabel, WHO_DOES_IT,
@@ -659,6 +660,8 @@ export function TaskDetailPanel({ task, onClose, onDelete, variant = 'panel' }: 
           <span className="text-zinc-500">Not set</span>
         )}
       </DetailRow>
+
+      {!task.parent_task_id && <TaskRepeatRow task={task} canEdit={canEdit && hasPermission(access, 'tasks.create')} />}
 
       <DetailRow icon={Tag} label="Tags">
         <TagsField value={task.tags} onChange={(tags) => updateTask(task.id, { tags })} canEdit={canEdit} />

@@ -12,6 +12,7 @@ import {
   demoLeadContacts, demoActivities,
   demoPortalSettings, demoPortalUpdates, demoPortalUpdateAttachments, demoEntityFiles, demoTimeEntries,
   demoProjectGoals, demoTaskSuggestions, demoAgentActivity, demoProjectInvoices, demoReminders, demoTaskTemplates,
+  demoInitiatives, demoInitiativeTemplateRuns,
 } from '@/lib/demo-data';
 import {
   fetchTasks,
@@ -127,7 +128,7 @@ import { PM_SCHEMA } from '@/lib/supabase/schema';
 import { parsePaymentRuleError } from '@/lib/invoice-payments';
 import { restoreFromTrash, TRASH_TABLES, TrashError, type TrashTable } from '@/lib/supabase/trash';
 import { workspaceApi } from '@/lib/agent-workspace';
-import { planRun, type PlannedTask, type RunTaskTemplateInput, type TaskTemplateRunResult } from '@/lib/task-templates';
+import { keyDatesOf, mainKeyDate, planRun, RUNNER, type PlannedTask, type RunTaskTemplateInput, type TaskTemplateRunResult } from '@/lib/task-templates';
 import { toLocalDateString } from '@/lib/date-utils';
 
 // A refused move to Trash says why (time on an invoice, payments from an
@@ -1764,9 +1765,43 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const projectId = template.project_id ?? input.project_id;
     if (!projectId) throw new Error('Pick the project the tasks go in.');
     const zone = team.find(m => m.id === teamMemberId)?.timezone;
-    const startDate = input.start_date ?? toLocalDateString(zone && zone !== 'UTC' ? zone : undefined);
-    const plan = planRun(template.items, { startDate, values: input.values ?? {}, runnerId: teamMemberId ?? null });
+    const today = toLocalDateString(zone && zone !== 'UTC' ? zone : undefined);
+    const keyDateList = keyDatesOf(template.key_dates);
+    const keyDates: Record<string, string> = { ...(input.key_dates ?? {}) };
+    if (keyDateList.some(k => k.key === 'start')) keyDates.start = keyDates.start ?? input.start_date ?? today;
+    const startDate = keyDates.start ?? keyDates[keyDateList[0].key] ?? today;
+    // Roles: the run's map ("runner" is you), else the template's default member.
+    const roleMembers: Record<string, string> = {};
+    for (const role of template.roles ?? []) {
+      const asked = input.roles && Object.prototype.hasOwnProperty.call(input.roles, role.key) ? input.roles[role.key] : undefined;
+      const member = asked === undefined ? role.default_member_id ?? null : asked === RUNNER ? teamMemberId ?? null : asked;
+      if (member) roleMembers[role.key] = member;
+    }
+    const plan = planRun(template.items, {
+      keyDates, defaultAnchor: keyDateList[0].key, values: input.values ?? {}, runnerId: teamMemberId ?? null, roleMembers,
+    });
     const now = new Date().toISOString();
+    // The initiative the run makes, when asked: named from the run, targeting the main key date.
+    let initiative: TaskTemplateRunResult<Task>['initiative'] = null;
+    if (input.create_initiative) {
+      const asks = input.initiative ?? {};
+      const shown = Object.values(input.values ?? {}).filter(Boolean);
+      const target = keyDates[mainKeyDate(keyDateList).key] ?? null;
+      const owner = asks.owner_role ? roleMembers[asks.owner_role] ?? null : asks.owner_group_id ? null : asks.owner_member_id ?? teamMemberId ?? null;
+      const row = {
+        id: crypto.randomUUID(), project_id: projectId,
+        name: (asks.name ?? (shown.length ? `${template.name}: ${shown.join(', ')}` : template.name)).slice(0, 120),
+        description: template.description, owner_member_id: owner, owner_group_id: asks.owner_group_id ?? null,
+        status: 'active' as const, health: null, start_date: Object.values(keyDates).sort()[0] ?? null, target_date: target,
+        sort_order: demoInitiatives.filter(i => i.project_id === projectId).length, created_by: teamMemberId ?? null, created_at: now, updated_at: now,
+      };
+      demoInitiatives.push(row);
+      initiative = {
+        id: row.id, project_id: projectId, name: row.name, status: row.status, start_date: row.start_date, target_date: row.target_date,
+        owner_member_id: row.owner_member_id, owner_group_id: row.owner_group_id,
+      };
+      invalidateTables(['initiatives']);
+    }
     const make = (task: Omit<PlannedTask, 'subtasks'>, parentId: string | null, order: number): Task => ({
       id: crypto.randomUUID(),
       project_id: projectId,
@@ -1781,25 +1816,46 @@ export function AppProvider({ children }: { children: ReactNode }) {
       comments: [],
       acceptance_criteria: [],
       blocked_by_ids: [],
+      initiative_id: initiative?.id ?? null,
       created_by: teamMemberId,
       created_at: now,
       updated_at: now,
     } as Task);
     const made: Task[] = [];
+    const links: { task_id: string; item_key: string; planned_due_date: string | null }[] = [];
     for (const task of plan) {
       const parent = make(task, null, 0);
-      made.push(parent, ...task.subtasks.map((subtask, i) => make(subtask, parent.id, i)));
+      const kids = task.subtasks.map((subtask, i) => make(subtask, parent.id, i));
+      made.push(parent, ...kids);
+      links.push({ task_id: parent.id, item_key: task.key as string, planned_due_date: task.due_date },
+        ...task.subtasks.map((subtask, i) => ({ task_id: kids[i].id, item_key: subtask.key as string, planned_due_date: subtask.due_date })));
     }
     setTasks(prev => [...made, ...prev]);
     const project = projects.find(p => p.id === projectId);
+    const runId = crypto.randomUUID();
+    if (initiative) {
+      demoInitiativeTemplateRuns.push({
+        initiative_id: initiative.id,
+        project_id: projectId,
+        tasks: links,
+        run: {
+          run_id: runId, template_id: template.id, template_name: template.name, run_by_name: actorName(), created_at: now,
+          key_dates: keyDateList.filter(k => keyDates[k.key]).map(k => ({
+            key: k.key, label: k.label, date: keyDates[k.key], main: k.key === mainKeyDate(keyDateList).key,
+          })),
+        },
+      });
+    }
     return {
       run: {
-        id: crypto.randomUUID(), template_id: template.id, template_version: template.version, template_name: template.name,
+        id: runId, template_id: template.id, template_version: template.version, template_name: template.name,
         project_id: projectId, project_name: project?.name ?? null, run_by: teamMemberId ?? null, run_by_name: actorName(),
         via: 'app', schedule_id: null, start_date: startDate, values: input.values ?? {}, task_ids: made.map(t => t.id), created_at: now,
+        key_dates: keyDates, role_members: roleMembers, initiative_id: initiative?.id ?? null,
       },
       tasks: made,
       notes: [],
+      initiative,
     };
   };
 
@@ -1816,6 +1872,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       return [...result.tasks.filter(t => !known.has(t.id)), ...prev];
     });
     invalidateTables(['task_template_runs']);
+    // A run that made an initiative: the project's Initiatives tab and its page read it fresh.
+    if (result.initiative) invalidateTables(['initiatives']);
     kickWorkWebhooks();
     const project = projects.find(p => p.id === result.run.project_id);
     const count = result.tasks.length;

@@ -9,6 +9,24 @@ Each section starts with `## X.Y.Z (YYYY-MM-DD)` and uses these headings, leavin
 - `### Database`: the core migration files in the release, one per line. `npm run db:migrate` applies them.
 - `### Breaking`: what an install must do when it takes this release.
 
+## 2.0.47 (2026-11-26)
+
+### Added
+- **Templates live with the work.** Settings > Templates lists company-wide and project-only templates with a switch between them, and every project has its own templates behind "Manage templates" at the foot of the "From a template" picker. The Templates sidebar entry is gone; `/templates` now opens Settings > Templates.
+- **A new template editor**: key dates ("Launch date", with one main date), roles (required or not, with a default person), fill-in fields (text, date, person or choice), an AI guidance note, and steps that are due a number of days before or after a key date, done by a role, a person or whoever runs it, and that can wait on other steps. Problems show at the exact field as you type, and Save waits until there are none.
+- **Running a template** is a short flow: key dates, roles, fields, then a preview of every dated, assigned task (past due dates flagged) before anything is made. By default the run creates an initiative for its tasks, and you land on it.
+- **Change dates**: an initiative made from a template shows which template and key dates it came from, and Change dates moves its unfinished tasks with the new dates, after a preview that lists what moves and what keeps its date (tasks you changed by hand stay unless you tick them). Over the API: `POST /api/v1/task-templates/runs/:runId/reflow` (MCP `reflow_template_run`) with `dry_run`.
+- **AI drafts a run, a person approves it.** An agent proposes a run (`draft_template_run`, `POST /api/v1/task-templates/:id/drafts`), which becomes an approval for a person. The project's Initiatives tab shows a Needs approval card, and the approval offers Review: the same dated task list, with steps the agent added or left out marked. Only a person approves, the tasks are created as them, and a draft is never run twice.
+- **Recurring work on one scheduler**: schedule a template (every Monday, the 1st of each month, the last Friday, every 2 weeks, in your time zone, with an end date), with its own roles and fill-ins, optional initiative per run and "skip if the last one is still open"; and Repeat on any task, on a schedule or after it is done, copying title, description, people, tags, priority, initiative and subtasks with shifted dates. Missed dates after downtime run once; a schedule whose owner lost access, was paused or turned the assistant switch off pauses and says why. Settings > Templates lists schedules with their next run and history. API `/api/v1/schedules`, `/api/v1/task-templates/:id/schedules`, `/api/v1/tasks/:id/repeat`, and MCP tools.
+
+### Changed
+- Edit project, the template editor and the initiative panel share one "discard changes?" guard.
+- An install's own sidebar item placed after Templates now sits after Projects.
+
+### Database
+- `20261126000300_template_reflow_drafts.sql`: AI-drafted template runs and their approval, and moving a run's dates.
+- `20261126000400_schedules.sql`: schedules for templates and repeating tasks, their occurrence history, and the `pm-schedules-due` job.
+
 ## 2.0.46 (2026-11-26)
 
 ### Added

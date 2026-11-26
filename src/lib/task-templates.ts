@@ -234,6 +234,44 @@ export const runTaskTemplateSchema = z.object({
 }).strict();
 export type RunTaskTemplateInput = z.infer<typeof runTaskTemplateSchema>;
 
+/** Steps a draft adds (whole tasks, as a template's items) and removes (item keys), relative to the template. */
+export const TEMPLATE_DRAFT_EXTRA_MAX = 20;
+export const TEMPLATE_DRAFT_NOTE_MAX = 2000;
+
+/**
+ * What draft_template_run takes: what a run takes, plus the steps it adds or
+ * removes, who decides it (asked_to or asked_to_group; default the template's
+ * owner, else the project's manager), when the approval expires, a note on
+ * why, and the proposer's own idempotency key.
+ */
+export const draftTemplateRunSchema = runTaskTemplateSchema.extend({
+  extra_steps: z.array(templateTaskSchema).max(TEMPLATE_DRAFT_EXTRA_MAX, `A draft adds ${TEMPLATE_DRAFT_EXTRA_MAX} steps at most`).optional(),
+  removed_steps: z.array(itemKey).max(TEMPLATE_ITEMS_MAX).optional(),
+  note: z.string().trim().max(TEMPLATE_DRAFT_NOTE_MAX, `A note is ${TEMPLATE_DRAFT_NOTE_MAX} characters at most`).optional(),
+  asked_to: z.string().regex(UUID, 'asked_to must be a team member id').optional(),
+  asked_to_group: z.string().regex(UUID, 'asked_to_group must be a group id').optional(),
+  expires_at: z.iso.datetime({ offset: true, message: 'expires_at must be an ISO 8601 time' }).optional(),
+  idempotency_key: z.string().trim().min(1).max(255).regex(/^[!-~]+$/, 'idempotency_key is visible ASCII characters').optional(),
+}).strict();
+export type DraftTemplateRunInput = z.infer<typeof draftTemplateRunSchema>;
+
+/** What a reflow takes: the key dates that change, the hand-changed tasks to move anyway, and whether to write. */
+export const reflowTemplateRunSchema = z.object({
+  key_dates: z.record(z.string(), date).refine((value) => Object.keys(value).length > 0, 'Send at least one key date'),
+  include_task_ids: z.array(z.string().regex(UUID, 'include_task_ids holds task ids')).max(TEMPLATE_TASKS_MAX).optional(),
+  dry_run: z.boolean().optional(),
+}).strict();
+export type ReflowTemplateRunInput = z.infer<typeof reflowTemplateRunSchema>;
+
+/** A decision on a draft: an optional note for the proposer. */
+export const decideTemplateDraftSchema = z.object({
+  note: z.string().trim().min(1).max(TEMPLATE_DRAFT_NOTE_MAX).optional(),
+}).strict();
+export type DecideTemplateDraftInput = z.infer<typeof decideTemplateDraftSchema>;
+
+export const TEMPLATE_DRAFT_STATUSES = ['pending', 'approved', 'rejected', 'expired'] as const;
+export type TemplateDraftStatus = (typeof TEMPLATE_DRAFT_STATUSES)[number];
+
 // ── Views ─────────────────────────────────────────────────────────────────
 
 /** A template as the library lists it: everything but its tasks. */
@@ -313,6 +351,12 @@ export interface TaskTemplateRunView {
   role_members?: Record<string, string>;
   /** The initiative the run made, or null. */
   initiative_id?: string | null;
+  /** The draft a person approved to make it, or null (always sent by the server from 2.0.47). */
+  draft_id?: string | null;
+  /** Who drafted it (an agent, usually), or null. */
+  drafted_by?: string | null;
+  /** "Drafted by Atlas" for a run made from a draft, else null. */
+  note?: string | null;
 }
 
 /** The initiative a run made, as the run answers it. */
@@ -338,6 +382,20 @@ export interface TaskTemplateRunResult<TTask = Record<string, unknown>> {
 }
 
 // ── Pure helpers ──────────────────────────────────────────────────────────
+
+/** A planned task due before today. */
+export interface TemplatePastDue {
+  key: string | null;
+  title: string;
+  due_date: string;
+}
+
+/** The planned tasks (subtasks after their parent) due before today. */
+export function pastDueOf(tasks: readonly { key?: string | null; title: string; due_date: string | null; subtasks?: readonly { key?: string | null; title: string; due_date: string | null }[] }[], today: string): TemplatePastDue[] {
+  return tasks.flatMap((task) => [task, ...(task.subtasks ?? [])])
+    .filter((task) => !!task.due_date && task.due_date < today)
+    .map((task) => ({ key: task.key ?? null, title: task.title, due_date: task.due_date as string }));
+}
 
 /** The fill-ins a text uses, in order, each once. */
 export function placeholdersIn(text: string): string[] {
@@ -550,7 +608,9 @@ export type TemplateIssueCode =
   | 'project_not_found' | 'assignee_not_active' | 'member_not_active'
   // A run
   | 'project_required' | 'locked_to_project' | 'missing_values' | 'missing_key_date' | 'unknown_key_date' | 'invalid_date'
-  | 'role_unmapped' | 'cannot_assign_others' | 'owner_not_found';
+  | 'role_unmapped' | 'cannot_assign_others' | 'owner_not_found'
+  // Drafts and reflow
+  | 'unknown_step';
 
 /** One error: where (a JSON path such as items[2].depends_on[0]), what and how to fix it. */
 export interface TemplateIssue {

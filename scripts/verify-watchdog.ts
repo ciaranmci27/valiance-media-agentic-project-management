@@ -34,7 +34,7 @@ import { randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { PGlite } from '@electric-sql/pglite';
-import { actAs, createFullSchemaDatabase, SCHEMA_PATH } from './full-schema-db';
+import { actAs, applyMigrationsFrom, createFullSchemaDatabase, SCHEMA_PATH } from './full-schema-db';
 import { startFakePostgrest } from './fake-postgrest';
 import { diffSnapshots, pmSnapshot } from './lib/pm-catalog';
 
@@ -86,6 +86,8 @@ async function migrationChecks() {
   const ran = (await q<Loose>('SELECT pm.run_watchdog() AS w'))[0].w;
   check('upgrade: a question that expired long before is not told about', ran.askers_told === 0
     && (await q('SELECT 1 FROM pm.team_member_notifications')).length === 0, ran);
+  // An upgrade runs the later migrations after it: one that redefines what it also sets (the notification types) wins, as it does there.
+  await applyMigrationsFrom(old, `${MIGRATION}~`);
   const fresh = await createFullSchemaDatabase();
   const diff = diffSnapshots(await pmSnapshot(fresh), await pmSnapshot(old));
   check('upgrade: the migration, run twice on the schema without it, matches schema.sql', diff.length === 0, diff.slice(0, 10));

@@ -15,6 +15,7 @@ import { subtaskProgress } from '@/lib/subtasks';
 import { lastActivityAt, taskTimesTooltip, timeAgo } from '@/lib/task-times';
 import { useTaskWarmer } from '@/lib/reads';
 import { useTaskFileCount } from './task-file-counts';
+import { TaskRepeatIcon } from '@/components/schedules/TaskRepeatIcon';
 import { useMoveTaskMenuAction } from './MoveTaskDialog';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { parseDateOnly, isDateOverdue } from '@/lib/date-utils';
@@ -202,6 +203,8 @@ export function TaskRow({ task, onView, onDelete }: TaskRowProps) {
               </span>
             )}
 
+            {!task.parent_task_id && <TaskRepeatIcon taskId={task.id} size={12} className="text-zinc-400" />}
+
             <Tooltip content={taskTimesTooltip(task.created_at, lastAt)}>
               <span className="text-xs text-zinc-500 flex items-center gap-1 whitespace-nowrap">
                 <Clock size={12} />
@@ -385,6 +388,7 @@ export function TaskRowDesktop({ task, onView, onDelete, selected, onToggleSelec
             </span>
           </Tooltip>
         )}
+        {!task.parent_task_id && <TaskRepeatIcon taskId={task.id} size={12} className="text-zinc-500" />}
         {task.tags.slice(0, 2).map(tag => (
           <span
             key={tag}

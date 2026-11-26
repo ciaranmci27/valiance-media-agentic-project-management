@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { Calendar, FileText, Users, X, type LucideIcon } from 'lucide-react';
 import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
@@ -17,7 +17,7 @@ import { TextInput } from '@/components/ui/inputs/TextInput';
 import { Textarea } from '@/components/ui/inputs/Textarea';
 import { Select, type SelectOption } from '@/components/ui/inputs/Select';
 import { DateInput } from '@/components/ui/inputs/DateInput';
-import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { useDiscardGuard } from '@/components/ui/useDiscardGuard';
 import { toast } from '@/components/ui/Toast';
 import { TaskPanelShell } from '@/components/tasks/TaskPanelShell';
 import { createInitiative, updateInitiative, writeError } from './initiative-actions';
@@ -98,19 +98,7 @@ export function InitiativePanel({ projectId, initiative = null, onClose, onSaved
   const dirty = JSON.stringify(fields) !== JSON.stringify(initial);
   const [saving, setSaving] = useState(false);
   const [showErrors, setShowErrors] = useState(false);
-  const [confirmDiscard, setConfirmDiscard] = useState(false);
-
-  useEffect(() => {
-    if (!dirty) return;
-    const handler = (e: BeforeUnloadEvent) => { e.preventDefault(); };
-    window.addEventListener('beforeunload', handler);
-    return () => window.removeEventListener('beforeunload', handler);
-  }, [dirty]);
-
-  const requestClose = () => {
-    if (dirty) setConfirmDiscard(true);
-    else onClose();
-  };
+  const { requestClose, dialog: discardDialog } = useDiscardGuard(dirty, onClose, `Your edits to this ${INITIATIVE_LABEL.lower} are not saved. Discarding them cannot be undone.`);
 
   const parsed = createInitiativeSchema.safeParse(payloadOf(fields));
   const errors: Partial<Record<'name' | 'target_date' | 'owner_group_id', string>> = {};
@@ -173,17 +161,7 @@ export function InitiativePanel({ projectId, initiative = null, onClose, onSaved
     <TaskPanelShell
       labelledBy="initiative-panel-title"
       onClose={requestClose}
-      after={(
-        <ConfirmDialog
-          isOpen={confirmDiscard}
-          onClose={() => setConfirmDiscard(false)}
-          onConfirm={onClose}
-          title="Discard changes?"
-          message={`Your edits to this ${INITIATIVE_LABEL.lower} are not saved. Discarding them cannot be undone.`}
-          confirmLabel="Discard"
-          doubleConfirm={false}
-        />
-      )}
+      after={discardDialog}
       header={(
         <div className="flex items-start gap-3 px-5 pt-4 pb-3 flex-shrink-0">
           <div className="min-w-0 flex-1">

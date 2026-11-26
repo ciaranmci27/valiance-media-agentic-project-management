@@ -17,6 +17,7 @@ import { TASK_STATUS_LABELS, taskAsText, taskUrl, copyText } from '@/lib/task-co
 import { nextReminderFor, reminderGroup, whenLabel } from '@/lib/reminders';
 import { TaskLinkCountBadges, useTaskLinkCounts } from '@/components/inbox/TaskSourceEmails';
 import { useTaskFileCount } from './task-file-counts';
+import { TaskRepeatIcon } from '@/components/schedules/TaskRepeatIcon';
 import { useOpenQuestions, useTaskWarmer } from '@/lib/reads';
 import { QuestionCard } from '@/components/questions/QuestionCard';
 import { UnreadLabel, useCardUnread } from './TaskUnread';
@@ -414,6 +415,7 @@ export function TaskCard({ task, onView, onDelete, onMove }: TaskCardProps) {
                 </span>
               </Tooltip>
             )}
+            {!task.parent_task_id && <TaskRepeatIcon taskId={task.id} />}
             <Tooltip content={taskTimesTooltip(task.created_at, lastAt)} className="flex-shrink-0">
               <span className="flex items-center gap-1 whitespace-nowrap">
                 <History size={14} aria-hidden="true" />

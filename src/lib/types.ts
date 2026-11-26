@@ -1109,7 +1109,7 @@ export interface EntityFile {
 // NOTIFICATIONS
 // ============================================================
 
-export type NotificationEntityType = 'task' | 'project' | 'lead' | 'comment' | 'member' | 'contact' | 'suggestion' | 'goal' | 'question' | 'invoice' | 'reminder' | 'webhook';
+export type NotificationEntityType = 'task' | 'project' | 'lead' | 'comment' | 'member' | 'contact' | 'suggestion' | 'goal' | 'question' | 'invoice' | 'reminder' | 'webhook' | 'schedule';
 
 export interface Notification {
   id: string;

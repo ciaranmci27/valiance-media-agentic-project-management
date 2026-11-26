@@ -34,8 +34,11 @@ import type {
 } from '@/lib/types';
 import type { InboxAttention } from '@/lib/communications/inbox-view';
 import {
-  demoInitiativeDetail, demoInitiativeEntryViews, demoInitiatives, demoInitiativeView, demoNotifications, demoTaskTemplateRuns, demoTaskTemplates,
+  DEMO_ADMIN_TEAM_MEMBER_ID, demoInitiativeDetail, demoInitiativeEntryViews, demoInitiatives, demoInitiativeView, demoNotifications, demoProjects,
+  demoTaskTemplateRuns, demoTaskTemplates, demoTeam, demoTemplateDrafts, demoScheduleOccurrences, demoSchedules,
 } from '@/lib/demo-data';
+import type { ScheduleKind, ScheduleOccurrenceView, ScheduleView } from '@/lib/schedules';
+import { localDraftPreview, type TemplateDraftDetail, type TemplateDraftView } from '@/lib/template-ui';
 import { sortInitiatives, type InitiativeDetail, type InitiativeEntryView, type InitiativeView } from '@/lib/initiatives';
 import type { InitiativeEntryKind, InitiativeEntryStatus } from '@/lib/types';
 import type { ProfileActivityPage, TeamProfile } from '@/lib/team/profile';
@@ -1043,6 +1046,116 @@ export function taskTemplateRunsRead(templateId: string, isDemo = false): Read<{
       const data = await workspaceApi<{ runs: TaskTemplateRunView[]; meta?: { total?: number } }>(
         `/api/workspace/task-templates/${encodeURIComponent(templateId)}/runs?limit=10`);
       return { rows: data.runs ?? [], total: data.meta?.total ?? data.runs?.length ?? 0 };
+    },
+  };
+}
+
+// ── Schedules ───────────────────────────────────────────────────────────
+
+/**
+ * The tables a schedule read comes from. Schedules are not on the realtime
+ * feed, so a write here invalidates them by name; a task repeat also follows
+ * tasks (the copy it makes becomes its current task).
+ */
+export const SCHEDULE_TABLES = ['schedules'] as const;
+
+export interface ScheduleList {
+  schedules: ScheduleView[];
+  total: number;
+  /** False: the database cannot wake the app yet, so nothing runs on its own. */
+  scheduler_ready: boolean;
+}
+
+/**
+ * Every schedule the person can see, soonest next first (one page of 200):
+ * template schedules for Settings > Templates, or task repeats for the task
+ * cards and panel. One read per kind, never one call per card.
+ */
+export function schedulesRead(isDemo: boolean, kind: ScheduleKind | null = null): Read<ScheduleList> {
+  return {
+    key: `schedules:${isDemo ? 'demo:' : ''}${kind ?? 'all'}`,
+    tables: kind === 'task' ? [...SCHEDULE_TABLES, 'tasks'] : kind === 'template' ? [...SCHEDULE_TABLES, 'task_template_runs'] : [...SCHEDULE_TABLES, 'tasks', 'task_template_runs'],
+    ttlMs: 60_000,
+    load: async () => {
+      if (isDemo) {
+        const schedules = demoSchedules.filter((s) => !kind || s.kind === kind);
+        return { schedules, total: schedules.length, scheduler_ready: true };
+      }
+      const data = await workspaceApi<Partial<ScheduleList>>(`/api/workspace/schedules${kind ? `?kind=${kind}` : ''}`);
+      return { schedules: data.schedules ?? [], total: data.total ?? data.schedules?.length ?? 0, scheduler_ready: data.scheduler_ready ?? true };
+    },
+  };
+}
+
+/** One schedule: what its panel edits (a deep link opens it by id). */
+export function scheduleRead(scheduleId: string, isDemo = false): Read<ScheduleView> {
+  return {
+    key: `schedule:${isDemo ? 'demo:' : ''}${scheduleId}`,
+    tables: [...SCHEDULE_TABLES, 'task_template_runs'],
+    load: async () => {
+      if (isDemo) {
+        const found = demoSchedules.find((s) => s.id === scheduleId);
+        if (!found) throw new Error('Schedule not found');
+        return found;
+      }
+      return workspaceApi<ScheduleView>(`/api/workspace/schedules/${encodeURIComponent(scheduleId)}`);
+    },
+  };
+}
+
+/** What a schedule made, skipped or failed, newest first: the last 20 (its panel's History). */
+export function scheduleOccurrencesRead(scheduleId: string, isDemo = false): Read<ScheduleOccurrenceView[]> {
+  return {
+    key: `schedule-occurrences:${isDemo ? 'demo:' : ''}${scheduleId}`,
+    tables: [...SCHEDULE_TABLES, 'task_template_runs'],
+    load: async () => {
+      if (isDemo) return demoScheduleOccurrences(scheduleId);
+      const data = await workspaceApi<{ occurrences?: ScheduleOccurrenceView[] }>(`/api/workspace/schedules/${encodeURIComponent(scheduleId)}/occurrences`);
+      return data.occurrences ?? [];
+    },
+  };
+}
+
+/** The tables a template draft read comes from: the draft, and the approval that decides it. */
+export const TEMPLATE_DRAFT_TABLES = ['task_template_run_drafts', 'questions'] as const;
+
+/**
+ * A project's drafts waiting for a decision, newest first (the Initiatives
+ * tab's "Needs approval" cards). One read per project, without previews.
+ */
+export function projectTemplateDraftsRead(projectId: string, isDemo = false): Read<TemplateDraftView[]> {
+  return {
+    key: `template-drafts:${isDemo ? 'demo:' : ''}${projectId}`,
+    tables: TEMPLATE_DRAFT_TABLES,
+    load: async () => {
+      if (isDemo) return demoTemplateDrafts.filter((d) => d.project_id === projectId && d.status === 'pending');
+      const data = await workspaceApi<{ drafts: TemplateDraftView[] }>(
+        `/api/workspace/task-templates/drafts?project_id=${encodeURIComponent(projectId)}&status=pending&limit=100`);
+      return data.drafts ?? [];
+    },
+  };
+}
+
+/** One draft with its preview: what approving would make, as the reader (the review panel). */
+export function templateDraftRead(draftId: string, isDemo = false): Read<TemplateDraftDetail> {
+  return {
+    key: `template-draft:${isDemo ? 'demo:' : ''}${draftId}`,
+    tables: [...TEMPLATE_DRAFT_TABLES, 'task_templates'],
+    load: async () => {
+      if (isDemo) {
+        const draft = demoTemplateDrafts.find((d) => d.id === draftId);
+        const template = draft && demoTaskTemplates.find((t) => t.id === draft.template_id);
+        if (!draft || !template) throw new Error('Draft not found');
+        const nameOf = (id: string) => demoTeam.find((m) => m.id === id)?.name ?? null;
+        return {
+          ...draft,
+          preview: draft.status === 'pending' ? localDraftPreview(draft, template, {
+            runnerId: DEMO_ADMIN_TEAM_MEMBER_ID, today: toLocalDateString(), nameOf,
+            projectName: demoProjects.find((p) => p.id === draft.project_id)?.name ?? null,
+          }) : null,
+        };
+      }
+      return workspaceApi<TemplateDraftDetail>(`/api/workspace/task-templates/drafts/${encodeURIComponent(draftId)}`);
     },
   };
 }

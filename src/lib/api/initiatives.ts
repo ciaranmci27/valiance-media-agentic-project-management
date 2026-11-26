@@ -1,9 +1,10 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import {
   INITIATIVE_READ_LIMITS, type Bounded, type CreateInitiativeEntryInput, type CreateInitiativeInput, type InitiativeBriefEntry,
-  type InitiativeDetail, type InitiativeEntryView, type InitiativeOwner, type InitiativeProgress, type InitiativeView,
+  type InitiativeDetail, type InitiativeEntryView, type InitiativeOwner, type InitiativeProgress, type InitiativeTemplateRun, type InitiativeView,
   type UpdateInitiativeEntryInput, type UpdateInitiativeInput,
 } from '@/lib/initiatives';
+import { keyDatesOf, mainKeyDate, type TemplateKeyDate } from '@/lib/task-templates';
 import type { Initiative, InitiativeEntry, InitiativeEntryKind, InitiativeEntryStatus } from '@/lib/types';
 import { restoreFromTrash } from '@/lib/supabase/trash';
 import { accessAllowsProject } from './access';
@@ -324,23 +325,60 @@ async function boundedEntries(service: SupabaseClient, initiativeId: string, lim
 }
 
 /**
+ * The template run that made this initiative (task_template_runs.initiative_id),
+ * with its key dates labelled from the run's own snapshot, in the template's
+ * order; null when no run made it, or before the templates update.
+ */
+export async function initiativeTemplateRun(service: SupabaseClient, initiativeId: string): Promise<InitiativeTemplateRun | null> {
+  const { data, error } = await service.from('task_template_runs')
+    .select('id, template_id, snapshot, key_dates, start_date, created_at, run_by_member:team_members(name)')
+    .eq('initiative_id', initiativeId).order('created_at', { ascending: false }).limit(1).maybeSingle();
+  if (error) {
+    // A database before templates v2 has no initiative_id on runs: no run made it.
+    if (['42P01', '42703', 'PGRST205', 'PGRST204', 'PGRST200'].includes(error.code ?? '') || /initiative_id|task_template_runs/.test(error.message ?? '')) return null;
+    throw error;
+  }
+  const run = data as Row | null;
+  if (!run) return null;
+  const snapshot = (run.snapshot ?? {}) as { name?: string; key_dates?: TemplateKeyDate[] };
+  const list = keyDatesOf(Array.isArray(snapshot.key_dates) ? snapshot.key_dates : null);
+  const main = mainKeyDate(list).key;
+  const stored = run.key_dates && typeof run.key_dates === 'object' ? run.key_dates as Record<string, string> : {};
+  const startDate = typeof run.start_date === 'string' ? run.start_date.slice(0, 10) : null;
+  const dates: Record<string, string> = Object.keys(stored).length ? stored : (startDate ? { start: startDate } : {});
+  const runBy = Array.isArray(run.run_by_member) ? run.run_by_member[0] : run.run_by_member;
+  return {
+    run_id: run.id,
+    template_id: run.template_id,
+    template_name: String(snapshot.name ?? ''),
+    key_dates: list.filter((keyDate) => dates[keyDate.key]).map((keyDate) => ({
+      key: keyDate.key, label: keyDate.label, date: String(dates[keyDate.key]).slice(0, 10), main: keyDate.key === main,
+    })),
+    run_by_name: (runBy?.name as string | undefined) ?? null,
+    created_at: run.created_at,
+  };
+}
+
+/**
  * One initiative's starting read: the header with progress, its open issues
  * (newest 20) and last 10 entries for whoever may read the log, its pinned
- * brief entries for whoever reads project context, and what the reader may
- * do. `more` says how many were left out.
+ * brief entries for whoever reads project context, the template run that
+ * made it (null when none did), and what the reader may do. `more` says how many were left out.
  */
 export async function getInitiative(service: SupabaseClient, caller: AgentCaller, projectId: string, initiativeId: string): Promise<InitiativeDetail> {
   const row = await loadRow(service, caller, projectId, initiativeId);
   const log = canUseLog(caller);
   const brief = readsBrief(caller);
-  const [[view], openIssues, recent, pinned] = await Promise.all([
+  const [[view], openIssues, recent, pinned, templateRun] = await Promise.all([
     present(service, caller, [row]),
     log ? boundedEntries(service, row.id, INITIATIVE_READ_LIMITS.openIssues, true) : Promise.resolve(null),
     log ? boundedEntries(service, row.id, INITIATIVE_READ_LIMITS.recentEntries, false) : Promise.resolve(null),
     brief ? pinnedInitiativeBrief(service, row.id) : Promise.resolve(null),
+    initiativeTemplateRun(service, row.id),
   ]);
   return {
     initiative: view,
+    template_run: templateRun,
     open_issues: openIssues,
     recent_entries: recent,
     brief: pinned,

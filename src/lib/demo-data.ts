@@ -1,9 +1,15 @@
 import type { TeamMember, Contact, ContactEmail, Project, ProjectContact, Task, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, TeamActivity, PortalSettings, PortalUpdate, PortalUpdateAttachment, EntityFile, TimeEntry, Notification, ProjectGoal, TaskSuggestion, AgentActivity, ProjectInvoice, ClientCommunication, PortalAnalyticsResponse, PortalSessionSummary, EmployeeEarningsData, Reminder } from './types';
 import { DEFAULT_SECTION_ORDER } from './types';
 import { DEFAULT_ITEM_COLOR } from '@/lib/brand';
-import type { TaskTemplateRunView, TaskTemplateView } from '@/lib/task-templates';
+import { assignTemplateKeys, planRun, type TaskTemplateRunView, type TaskTemplateView } from '@/lib/task-templates';
+import type { TemplateDraftView } from '@/lib/api/template-drafts';
+import type { RunTaskLink } from '@/lib/template-ui';
 import type { Initiative, InitiativeEntry } from './types';
-import type { InitiativeDetail, InitiativeEntryView, InitiativeView } from '@/lib/initiatives';
+import type { InitiativeDetail, InitiativeEntryView, InitiativeTemplateRun, InitiativeView } from '@/lib/initiatives';
+import {
+  addDays, dateInZone, describeRecurrence, lastOnOrBefore, nextAfter, nextOnOrAfter, upcomingDates,
+  type Recurrence, type ScheduleOccurrenceView, type ScheduleView,
+} from '@/lib/schedules';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -406,6 +412,7 @@ const demoTaskRows: DemoTask[] = [
 const DEMO_INITIATIVE_BRAND = '1d1d1d1d-0001-4000-8000-000000000001';
 const DEMO_INITIATIVE_WEB = '1d1d1d1d-0002-4000-8000-000000000002';
 const DEMO_INITIATIVE_PRINT = '1d1d1d1d-0003-4000-8000-000000000003';
+const DEMO_INITIATIVE_LAUNCH = '1d1d1d1d-0004-4000-8000-000000000004';
 const DEMO_TASK_INITIATIVE: Record<string, string> = {
   'e5e5e5e5-0001-4000-8000-000000000001': DEMO_INITIATIVE_BRAND,
   'e5e5e5e5-0002-4000-8000-000000000002': DEMO_INITIATIVE_BRAND,
@@ -2044,16 +2051,27 @@ export function buildDemoPortalAnalytics(
 // ---------------------------------------------------------------------------
 // TASK TEMPLATES
 // ---------------------------------------------------------------------------
-// Repeat work set up once: one task, a playbook with subtasks and a fill-in,
-// and one locked to a project, so the Templates page and the Use panel have
-// something real to open in the demo.
-const demoTemplate = (template: Omit<TaskTemplateView, 'item_count' | 'task_count' | 'project_name' | 'created_by_name'>): TaskTemplateView => ({
-  ...template,
-  item_count: template.items.length,
-  task_count: template.items.reduce((sum, task) => sum + 1 + task.subtasks.length, 0),
-  project_name: demoProjects.find(p => p.id === template.project_id)?.name ?? null,
-  created_by_name: demoTeam.find(m => m.id === template.created_by)?.name ?? null,
-});
+// Repeat work set up once: one task, a launch playbook planned back from its
+// launch date with roles and dependencies, and two project templates, so
+// Settings > Templates, the picker and the run flow have something real to
+// open in the demo.
+const demoTemplate = (template: Omit<TaskTemplateView, 'item_count' | 'task_count' | 'project_name' | 'created_by_name' | 'scope'>): TaskTemplateView => {
+  const items = assignTemplateKeys(template.items);
+  return {
+    ...template,
+    items,
+    scope: template.project_id ? 'project' : 'workspace',
+    key_dates: template.key_dates ?? [{ key: 'start', label: 'Start date' }],
+    roles: template.roles ?? [],
+    guidance: template.guidance ?? '',
+    item_count: items.length,
+    task_count: items.reduce((sum, task) => sum + 1 + task.subtasks.length, 0),
+    project_name: demoProjects.find(p => p.id === template.project_id)?.name ?? null,
+    created_by_name: demoTeam.find(m => m.id === template.created_by)?.name ?? null,
+  };
+};
+
+const DEMO_TEMPLATE_PRINT = 'e7e7e7e7-0004-4000-8000-000000000004';
 
 export const demoTaskTemplates: TaskTemplateView[] = [
   demoTemplate({
@@ -2070,27 +2088,29 @@ export const demoTaskTemplates: TaskTemplateView[] = [
   demoTemplate({
     id: 'e7e7e7e7-0002-4000-8000-000000000002',
     name: 'Product launch',
-    description: 'Everything a new product launch needs, from the brief to the review a month later.',
+    description: 'Everything a new product launch needs, planned back from the launch date.',
     project_id: null,
-    fields: [{ key: 'product', label: 'Product' }],
+    guidance: 'Set the launch date from the release plan. The copywriter writes the announcement; the reviewer checks it before it goes out.',
+    key_dates: [{ key: 'kickoff', label: 'Kickoff' }, { key: 'launch', label: 'Launch date', main: true }],
+    roles: [
+      { key: 'designer', label: 'Designer', required: true, default_member_id: TM3 },
+      { key: 'copywriter', label: 'Copywriter', default_member_id: TM2 },
+      { key: 'reviewer', label: 'Reviewer', default_member_id: null },
+    ],
+    fields: [{ key: 'product', label: 'Product' }, { key: 'tier', label: 'Launch tier', type: 'choice', options: ['Small', 'Major'] }],
     items: [
       {
-        title: 'Write the {product} launch brief', description: 'Who {product} is for, what is new, and the launch date.', priority: 'high', tags: ['launch'], assignee: 'runner', due_in_days: 2,
+        key: 'brief', title: 'Write the {product} launch brief', description: 'Who {product} is for, what is new, and the launch date.', priority: 'high', tags: ['launch'], assignee: 'runner', anchor: 'kickoff', due_in_days: 2,
         subtasks: [
-          { title: 'Agree the {product} launch date', description: '', priority: 'medium', tags: [], assignee: 'runner', due_in_days: 1 },
-          { title: 'List who needs to know', description: '', priority: 'medium', tags: [], assignee: TM2, due_in_days: 2 },
+          { title: 'Agree the {product} launch date', description: '', priority: 'medium', tags: [], assignee: 'runner', anchor: 'kickoff', due_in_days: 1 },
+          { title: 'List who needs to know', description: '', priority: 'medium', tags: [], assignee: 'runner', anchor: 'kickoff', due_in_days: 2 },
         ],
       },
-      { title: 'Design the {product} launch assets', description: 'Hero image, social cards and an email header.', priority: 'medium', tags: ['launch', 'design'], assignee: TM3, due_in_days: 7, subtasks: [] },
-      { title: 'Write the {product} announcement', description: '', priority: 'medium', tags: ['launch'], assignee: TM2, due_in_days: 10, subtasks: [] },
-      {
-        title: 'Set up the {product} landing page', description: '', priority: 'medium', tags: ['launch'], assignee: TM4, due_in_days: 14,
-        subtasks: [
-          { title: 'Add {product} to the pricing page', description: '', priority: 'low', tags: [], assignee: TM4, due_in_days: 14 },
-        ],
-      },
-      { title: 'Launch {product}', description: '', priority: 'urgent', tags: ['launch'], assignee: 'runner', due_in_days: 21, subtasks: [] },
-      { title: 'Review how the {product} launch went', description: 'What worked, what to change next time.', priority: 'low', tags: ['launch'], assignee: 'runner', due_in_days: 28, subtasks: [] },
+      { key: 'assets', title: 'Design the {product} launch assets', description: 'Hero image, social cards and an email header.', priority: 'medium', tags: ['launch', 'design'], assignee: null, role: 'designer', anchor: 'launch', due_in_days: -14, depends_on: ['brief'], subtasks: [] },
+      { key: 'copy', title: 'Write the {product} announcement ({tier} launch)', description: '', priority: 'medium', tags: ['launch'], assignee: null, role: 'copywriter', anchor: 'launch', due_in_days: -7, depends_on: ['brief'], subtasks: [] },
+      { key: 'review', title: 'Review the {product} announcement', description: '', priority: 'medium', tags: ['launch'], assignee: null, role: 'reviewer', anchor: 'launch', due_in_days: -3, depends_on: ['copy', 'assets'], subtasks: [] },
+      { key: 'ship', title: 'Launch {product}', description: '', priority: 'urgent', tags: ['launch'], assignee: 'runner', anchor: 'launch', due_in_days: 0, depends_on: ['review'], subtasks: [] },
+      { key: 'retro', title: 'Review how the {product} launch went', description: 'What worked, what to change next time.', priority: 'low', tags: ['launch'], assignee: 'runner', anchor: 'launch', due_in_days: 14, depends_on: ['ship'], subtasks: [] },
     ],
     version: 3, run_count: 2, last_run_at: daysAgo(9), created_by: TM1, created_at: daysAgo(90), updated_at: daysAgo(12),
   }),
@@ -2111,6 +2131,22 @@ export const demoTaskTemplates: TaskTemplateView[] = [
       { title: 'Plan sprint {sprint} retro actions', description: '', priority: 'low', tags: ['sprint'], assignee: null, due_in_days: 2, subtasks: [] },
     ],
     version: 1, run_count: 6, last_run_at: daysAgo(3), created_by: TM1, created_at: daysAgo(17), updated_at: daysAgo(17),
+  }),
+  demoTemplate({
+    id: DEMO_TEMPLATE_PRINT,
+    name: 'Print run for an event',
+    description: 'Cards, letterhead and anything printed, ready before an event.',
+    project_id: P_CREST,
+    guidance: 'Ask the printer for their deadline first; the event date comes from the client.',
+    key_dates: [{ key: 'print_deadline', label: 'Print deadline' }, { key: 'event', label: 'Event date', main: true }],
+    roles: [{ key: 'designer', label: 'Designer', required: true, default_member_id: TM3 }],
+    fields: [{ key: 'event_name', label: 'Event name' }],
+    items: [
+      { key: 'files', title: 'Prepare print files for {event_name}', description: 'CMYK PDFs with bleed.', priority: 'high', tags: ['print'], assignee: null, role: 'designer', anchor: 'print_deadline', due_in_days: -5, subtasks: [] },
+      { key: 'proof', title: 'Approve the printer proof', description: '', priority: 'high', tags: ['print'], assignee: 'runner', anchor: 'print_deadline', due_in_days: -1, depends_on: ['files'], subtasks: [] },
+      { key: 'deliver', title: 'Get the prints delivered for {event_name}', description: '', priority: 'medium', tags: ['print'], assignee: 'runner', anchor: 'event', due_in_days: -3, depends_on: ['proof'], subtasks: [] },
+    ],
+    version: 1, run_count: 1, last_run_at: daysAgo(20), created_by: TM1, created_at: daysAgo(40), updated_at: daysAgo(40),
   }),
 ];
 
@@ -2136,8 +2172,131 @@ export function demoTaskTemplateRuns(templateId: string): TaskTemplateRunView[] 
     values: {},
     task_ids: [],
     created_at: daysAgo(3 + i * 14),
+    key_dates: {},
+    role_members: Object.fromEntries((template.roles ?? []).filter(r => r.default_member_id).map(r => [r.key, r.default_member_id as string])),
+    initiative_id: templateId === DEMO_TEMPLATE_PRINT && i === 0 ? DEMO_INITIATIVE_PRINT
+      : templateId === DEMO_TEMPLATE_LAUNCH && i === 0 ? DEMO_INITIATIVE_LAUNCH : null,
   }));
 }
+
+// ---------------------------------------------------------------------------
+// A live template run (NeoForge's launch, made from Product launch) to change
+// dates on, and a run an agent drafted for a person to approve.
+// ---------------------------------------------------------------------------
+const DEMO_TEMPLATE_LAUNCH = 'e7e7e7e7-0002-4000-8000-000000000002';
+const DEMO_ATLAS = 'a1a1a1a1-0006-4000-8000-000000000006';
+const dayFromNow = (n: number) => new Date(Date.now() + n * 86_400_000).toISOString().slice(0, 10);
+const shiftDay = (day: string, n: number) => new Date(Date.parse(`${day}T00:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
+const LAUNCH_KEY_DATES = { kickoff: dayFromNow(-6), launch: dayFromNow(24) };
+const LAUNCH_VALUES = { product: 'NeoForge site', tier: 'Major' };
+const launchTemplate = demoTaskTemplates.find(t => t.id === DEMO_TEMPLATE_LAUNCH)!;
+const launchPlan = planRun(assignTemplateKeys(launchTemplate.items), {
+  keyDates: LAUNCH_KEY_DATES, defaultAnchor: 'kickoff', values: LAUNCH_VALUES, runnerId: TM1,
+  roleMembers: { designer: TM3, copywriter: TM2, reviewer: DEMO_ATLAS },
+});
+const launchTaskId = (n: number) => `e5e5e5e5-0101-4000-8000-${String(100 + n).padStart(12, '0')}`;
+/** The brief is done; the launch day was moved by hand (two days later than planned), so changing dates keeps it unless opted in. */
+const LAUNCH_STATUS: Record<string, Task['status']> = { brief: 'done', assets: 'in_progress' };
+const demoLaunchLinks: RunTaskLink[] = [];
+let launchCount = 0;
+const launchTask = (task: (typeof launchPlan)[number] | (typeof launchPlan)[number]['subtasks'][number], order: number, parent: { id: string; status: Task['status'] } | null): DemoTask => {
+  const id = launchTaskId(++launchCount);
+  const status = parent ? (parent.status === 'done' ? 'done' : 'todo') : LAUNCH_STATUS[task.key ?? ''] ?? 'todo';
+  const due = task.key === 'ship' && task.due_date ? shiftDay(task.due_date, 2) : task.due_date;
+  demoLaunchLinks.push({ task_id: id, item_key: task.key as string, planned_due_date: task.due_date });
+  return {
+    id, project_id: 'c3c3c3c3-0003-4000-8000-000000000003', parent_task_id: parent?.id ?? null, initiative_id: DEMO_INITIATIVE_LAUNCH,
+    title: task.title, description: task.description, status, priority: task.priority, assignee_ids: task.assignee_id ? [task.assignee_id] : [],
+    due_date: due, tags: task.tags, comments: [], sort_order: order, completed_at: status === 'done' ? daysAgo(3) : null,
+    created_by: TM1, created_at: daysAgo(8), updated_at: daysAgo(1),
+  };
+};
+// Appended to the task list (it is built above, before the templates it is planned from).
+demoTasks.push(...launchPlan.flatMap((task, order) => {
+  const parent = launchTask(task, order, null);
+  return [parent, ...task.subtasks.map((subtask, j) => launchTask(subtask, j, parent))];
+}));
+
+/**
+ * Template runs drafted for a person to approve. Atlas drafted the pricing
+ * page launch from Product launch (version 2; the template is at 3 now): one
+ * step added, the retro left out.
+ */
+export const demoTemplateDrafts: TemplateDraftView[] = [
+  {
+    id: 'd7d7d7d7-0001-4000-8000-000000000001',
+    template_id: DEMO_TEMPLATE_LAUNCH,
+    template_name: 'Product launch',
+    template_version: 2,
+    current_template_version: 3,
+    template_changed: true,
+    project_id: 'c3c3c3c3-0003-4000-8000-000000000003',
+    project_name: 'NeoForge Website',
+    status: 'pending',
+    note: 'The pricing page ships with the Series B announcement, so the launch date comes from the press calendar. A small launch: I left out the retro and added a sales briefing.',
+    key_dates: { kickoff: dayFromNow(3), launch: dayFromNow(31) },
+    key_date_labels: { kickoff: 'Kickoff', launch: 'Launch date' },
+    roles: { designer: TM3, copywriter: TM2, reviewer: TM1 },
+    values: { product: 'NeoForge pricing page', tier: 'Small' },
+    create_initiative: true,
+    initiative: null,
+    extra_steps: [
+      { key: 't7', title: 'Brief the sales team on the {product}', description: 'Walk sales through the new tiers before launch day.', priority: 'medium', tags: ['launch'], assignee: null, role: 'copywriter', anchor: 'launch', due_in_days: -2, subtasks: [] },
+    ],
+    removed_steps: ['retro'],
+    proposed_by: DEMO_ATLAS,
+    proposed_by_name: 'Atlas',
+    principal_id: null,
+    question_id: 'a9a9a9a9-0001-4000-8000-000000000001',
+    decided_by: null,
+    decided_by_name: null,
+    decided_at: null,
+    run_id: null,
+    created_at: hoursAgo(2),
+    updated_at: hoursAgo(2),
+  },
+];
+
+/**
+ * The template runs that made demo initiatives, by initiative (Print
+ * collateral came from the print run template); a demo run that makes an
+ * initiative adds to it.
+ */
+export const demoInitiativeTemplateRuns: { initiative_id: string; project_id: string; run: InitiativeTemplateRun; tasks: RunTaskLink[] }[] = [
+  {
+    initiative_id: DEMO_INITIATIVE_LAUNCH,
+    project_id: 'c3c3c3c3-0003-4000-8000-000000000003',
+    run: {
+      run_id: DEMO_TEMPLATE_LAUNCH.slice(0, 32) + '0000',
+      template_id: DEMO_TEMPLATE_LAUNCH,
+      template_name: 'Product launch',
+      key_dates: [
+        { key: 'kickoff', label: 'Kickoff', date: LAUNCH_KEY_DATES.kickoff, main: false },
+        { key: 'launch', label: 'Launch date', date: LAUNCH_KEY_DATES.launch, main: true },
+      ],
+      run_by_name: 'Sarah Chen',
+      created_at: daysAgo(8),
+    },
+    tasks: demoLaunchLinks,
+  },
+  {
+    initiative_id: DEMO_INITIATIVE_PRINT,
+    project_id: P_CREST,
+    run: {
+      run_id: DEMO_TEMPLATE_PRINT.slice(0, 32) + '0000',
+      template_id: DEMO_TEMPLATE_PRINT,
+      template_name: 'Print run for an event',
+      key_dates: [
+        { key: 'print_deadline', label: 'Print deadline', date: '2026-03-25', main: false },
+        { key: 'event', label: 'Event date', date: '2026-04-01', main: true },
+      ],
+      run_by_name: 'Sarah Chen',
+      created_at: daysAgo(20),
+    },
+    // Planned for five days before the print deadline; moved a day by hand.
+    tasks: [{ task_id: 'e5e5e5e5-0004-4000-8000-000000000004', item_key: 'files', planned_due_date: '2026-03-20' }],
+  },
+];
 
 // ---------------------------------------------------------------------------
 // INITIATIVES (Crest Financial Rebrand): bodies of work with their own board and log
@@ -2160,6 +2319,12 @@ export const demoInitiatives: Initiative[] = [
     description: 'Business cards, letterhead and envelopes in the new identity, in time for the April 5 conference.',
     owner_member_id: TM1, owner_group_id: null, status: 'planned', health: null,
     start_date: '2026-03-15', target_date: '2026-04-01', sort_order: 2, created_by: TM1, created_at: daysAgo(20), updated_at: daysAgo(10),
+  },
+  {
+    id: DEMO_INITIATIVE_LAUNCH, project_id: 'c3c3c3c3-0003-4000-8000-000000000003', name: 'Product launch: NeoForge site, Major',
+    description: 'Everything a new product launch needs, planned back from the launch date.',
+    owner_member_id: TM1, owner_group_id: null, status: 'active', health: 'on_track',
+    start_date: LAUNCH_KEY_DATES.kickoff, target_date: LAUNCH_KEY_DATES.launch, sort_order: 0, created_by: TM1, created_at: daysAgo(8), updated_at: daysAgo(1),
   },
 ];
 
@@ -2217,9 +2382,95 @@ export function demoInitiativeDetail(initiativeId: string): InitiativeDetail | n
   const open = entries.filter(e => e.kind === 'issue' && e.status === 'open');
   return {
     initiative: demoInitiativeView(initiative),
+    template_run: demoInitiativeTemplateRuns.find(r => r.initiative_id === initiativeId)?.run ?? null,
     open_issues: { rows: open.slice(0, 20), more: Math.max(0, open.length - 20) },
     recent_entries: { rows: entries.slice(0, 10), more: Math.max(0, entries.length - 10) },
     brief: { rows: [], more: 0 },
     can: { edit: true, trash: true, log: true, read_brief: true, edit_brief: true },
   };
+}
+
+// ---------------------------------------------------------------------------
+// Schedules: Monthly payroll upload runs on the 1st of every month in Crest,
+// and Solstice's client review repeats every Monday.
+// ---------------------------------------------------------------------------
+const DEMO_ZONE = 'America/Phoenix';
+const scheduleToday = dateInZone(Date.now(), DEMO_ZONE);
+const PAYROLL_RULE: Recurrence = { freq: 'monthly', interval: 1, month_day: 1 };
+const PAYROLL_START = `${addDays(scheduleToday, -100).slice(0, 8)}01`;
+const payrollLast = lastOnOrBefore(PAYROLL_RULE, PAYROLL_START, addDays(scheduleToday, -1));
+const payrollNext = nextOnOrAfter(PAYROLL_RULE, PAYROLL_START, scheduleToday);
+const REVIEW_RULE: Recurrence = { freq: 'weekly', interval: 1, weekdays: [1] };
+const REVIEW_TASK = 'e5e5e5e5-0023-4000-8000-000000000023';
+const reviewDue = nextOnOrAfter(REVIEW_RULE, scheduleToday, scheduleToday);
+// The repeating task is due on the coming Monday, so its next copy reads true.
+const reviewTask = demoTasks.find(t => t.id === REVIEW_TASK);
+if (reviewTask) reviewTask.due_date = reviewDue;
+
+const demoSchedule = (s: Pick<ScheduleView, 'id' | 'kind' | 'project_id' | 'recurrence' | 'start_date' | 'next_on'> & Partial<ScheduleView>): ScheduleView => ({
+  template_id: null, template_name: null, task_id: null, task_title: null,
+  project_name: demoProjects.find(p => p.id === s.project_id)?.name ?? null,
+  recurrence_label: describeRecurrence(s.recurrence),
+  timezone: DEMO_ZONE, end_date: null, mode: 'schedule', roles: {}, values: {}, key_date_offsets: {},
+  create_initiative: false, skip_if_open: true, status: 'active', paused_reason: null,
+  next_run_at: s.next_on ? `${s.next_on}T07:00:00.000Z` : null,
+  upcoming: s.next_on ? upcomingDates(s.recurrence, s.start_date, s.next_on, 5) : [],
+  last_run_at: null, last_outcome: null, last_reason: null,
+  run_as: TM1, run_as_name: demoTeam.find(m => m.id === TM1)?.name ?? null, created_by: TM1,
+  created_at: daysAgo(100), updated_at: daysAgo(30), can_edit: true,
+  ...s,
+});
+
+export const demoSchedules: ScheduleView[] = [
+  demoSchedule({
+    id: 'e8e8e8e8-0001-4000-8000-000000000001',
+    kind: 'template',
+    template_id: 'e7e7e7e7-0001-4000-8000-000000000001',
+    template_name: 'Monthly payroll upload',
+    project_id: P_CREST,
+    recurrence: PAYROLL_RULE,
+    start_date: PAYROLL_START,
+    next_on: payrollNext,
+    roles: {},
+    last_run_at: payrollLast ? `${payrollLast}T07:00:12.000Z` : null,
+    last_outcome: payrollLast ? 'created' : null,
+  }),
+  demoSchedule({
+    id: 'e8e8e8e8-0002-4000-8000-000000000002',
+    kind: 'task',
+    task_id: REVIEW_TASK,
+    task_title: reviewTask?.title ?? 'Staging deploy & client review',
+    project_id: P_SOLSTICE,
+    recurrence: REVIEW_RULE,
+    start_date: reviewDue,
+    next_on: nextAfter(REVIEW_RULE, reviewDue, reviewDue),
+    upcoming: upcomingDates(REVIEW_RULE, reviewDue, addDays(reviewDue, 1), 5),
+    created_at: daysAgo(21), updated_at: daysAgo(21),
+  }),
+];
+
+/** What the payroll schedule did on its last four dates: three made, one skipped while the last run was open. */
+export function demoScheduleOccurrences(scheduleId: string): ScheduleOccurrenceView[] {
+  const schedule = demoSchedules.find(s => s.id === scheduleId);
+  if (!schedule || schedule.kind !== 'template') return [];
+  const out: ScheduleOccurrenceView[] = [];
+  let day = lastOnOrBefore(schedule.recurrence, schedule.start_date, addDays(scheduleToday, -1));
+  while (day && out.length < 4) {
+    const skipped = out.length === 2;
+    out.push({
+      id: `${scheduleId.slice(0, 24)}${String(out.length).padStart(12, '0')}`,
+      schedule_id: scheduleId,
+      scheduled_for: day,
+      status: skipped ? 'skipped' : 'created',
+      reason: skipped ? 'previous_run_open' : null,
+      error: null,
+      attempts: 1,
+      run_id: null,
+      task_id: null,
+      started_at: `${day}T07:00:05.000Z`,
+      finished_at: `${day}T07:00:12.000Z`,
+    });
+    day = lastOnOrBefore(schedule.recurrence, schedule.start_date, addDays(day, -1));
+  }
+  return out;
 }

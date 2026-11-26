@@ -36,6 +36,7 @@ export const TEMPLATE_ERROR_CODES: Record<TemplateIssueCode, string> = {
   role_unmapped: 'A required role (or the initiative owner role) has nobody.',
   cannot_assign_others: 'The run maps a role to someone else, which needs tasks.manage_all (403).',
   owner_not_found: "The initiative's owner is not an active member or a live group.",
+  unknown_step: "removed_steps names a step the template does not have, or include_task_ids names a task the run did not make.",
 };
 
 /** The worked example: a product launch planned back from its launch date. */

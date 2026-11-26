@@ -191,6 +191,25 @@ export async function ensureWebhookRetries(service: SupabaseClient): Promise<boo
   }
 }
 
+/**
+ * Schedules (/api/internal/schedules/run) are woken with the same scheduler
+ * secret and Vault address. Setting up a schedule calls this: when nothing
+ * set the secret up yet and everything it needs is there, it sets it up
+ * (an Owner's "retries off" still keeps retries off). Never throws; answers
+ * whether the scheduler can wake the app.
+ */
+export async function ensureSchedulerSecret(service: SupabaseClient): Promise<boolean> {
+  try {
+    if (process.env.WEBHOOK_SCHEDULER_ENABLED === 'true' || await savedInApp(service, 'webhook_scheduler_secret')) return true;
+    if (!appKeyReady() || !webhookAppUrl() || !(await vaultReady(service))) return false;
+    await setUp(service, null, false);
+    return true;
+  } catch (error) {
+    console.error('[schedules] could not set up the scheduler', error);
+    return false;
+  }
+}
+
 /** For tests: forget what this process has seen. */
 export function resetWebhookRetriesCheck(): void {
   autoChecked = false;

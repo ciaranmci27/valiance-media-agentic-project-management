@@ -242,6 +242,8 @@ Set the task to done with `update_task` (`PATCH /api/v1/tasks/{id}`, `status: "d
 | `agent_self_assign` | `true` (default) | May claim unassigned `ai_ready` work. |
 | `agent_escalate_to` | member or `null` | Who its questions go to. `agent_escalate_to_group` names a group instead. |
 
+Work that comes back on a rhythm (a weekly report, the 1st of the month) needs no loop of your own: `set_task_repeat` makes the next copy of a task, and `create_template_schedule` runs a playbook on a schedule ([Task templates](templates.md#run-a-template-on-a-schedule)).
+
 An Owner sets these on the agent's profile, with `set_agent_rules`, or with `PATCH /api/v1/agents/{id}` (`rules`). Reviews: `submit_task_review` takes a verdict and notes, with `pr_url` and `head_sha` together for a pull request.
 
 ## Heartbeat

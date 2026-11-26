@@ -236,6 +236,13 @@ function filtering() {
   ).map((item) => item.href);
   check('nav: custom entries sit after their anchor or at the end; a core href is not repeated',
     placed.join(' ') === '/dashboard /projects /x/mid /team /x/end /x/lost', placed);
+  // Templates left the sidebar for Settings: an entry placed after it keeps its spot, after Projects.
+  const retired = placeNavItems(
+    [{ href: '/dashboard' }, { href: '/projects' }, { href: '/leads' }],
+    [{ href: '/x/playbooks', after: '/templates' }],
+  ).map((item) => item.href);
+  check('nav: an entry after a retired core entry (/templates) sits where it was, after Projects',
+    retired.join(' ') === '/dashboard /projects /x/playbooks /leads', retired);
 }
 
 async function apiRoutes() {

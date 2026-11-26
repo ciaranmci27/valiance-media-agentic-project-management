@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useParams, usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { BookOpen, Calendar, ChevronLeft, CircleAlert, Edit, LayoutGrid, Layers, ScrollText, Trash2, Users } from 'lucide-react';
+import { BookOpen, Calendar, CalendarCog, ChevronLeft, CircleAlert, Edit, LayoutGrid, Layers, ScrollText, Trash2, Users } from 'lucide-react';
 import { useApp, defaultFilters } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
 import { useDemo } from '@/lib/demo-context';
@@ -26,6 +26,8 @@ import { ProjectTaskViews } from '@/components/projects/ProjectTaskViews';
 import { ContextBrief } from '@/components/projects/BriefTab';
 import { InitiativePanel } from '@/components/initiatives/InitiativePanel';
 import { InitiativeLog } from '@/components/initiatives/InitiativeLog';
+import { InitiativeTemplateStrip } from '@/components/initiatives/InitiativeTemplateStrip';
+import { ChangeDatesPanel } from '@/components/templates/ChangeDatesPanel';
 import { InitiativeProgressBar, InitiativeStatusPill, initiativeDatesLabel } from '@/components/initiatives/InitiativeBits';
 import { leaveTrashNotice, trashInitiative, writeError } from '@/components/initiatives/initiative-actions';
 
@@ -51,6 +53,7 @@ export default function InitiativePage() {
   const { getProject, tasks, team, deleteTask, setFilters, loading } = useApp();
   const read = useRead(initiativeRead(projectId, initiativeId, isDemoMode));
   const [editing, setEditing] = useState(false);
+  const [changingDates, setChangingDates] = useState(false);
   const [confirmDeleteTask, setConfirmDeleteTask] = useState<string | null>(null);
 
   useEffect(() => { setFilters(defaultFilters); }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -180,6 +183,27 @@ export default function InitiativePage() {
       />
 
       <div className="px-4 lg:px-6 pt-4 space-y-5 pb-4 lg:pb-6">
+        {/* A template run made it: which template, the run's key dates, and Change dates for whoever may create tasks here. */}
+        {detail.template_run && (
+          <InitiativeTemplateStrip
+            run={detail.template_run}
+            action={detail.can.edit ? (
+              <Button variant="ghost" size="sm" icon={<CalendarCog size={14} aria-hidden="true" />} onClick={() => setChangingDates(true)}>
+                Change dates
+              </Button>
+            ) : undefined}
+          />
+        )}
+        {changingDates && detail.template_run && (
+          <ChangeDatesPanel
+            run={detail.template_run}
+            initiativeId={live.id}
+            initiativeName={live.name}
+            onClose={() => setChangingDates(false)}
+            onRefresh={read.reload}
+          />
+        )}
+
         {/* What it is and where it stands. */}
         <section className="glass-card rounded-xl px-4 py-4 sm:px-5" aria-label={`About this ${INITIATIVE_LABEL.lower}`}>
           <div className="flex flex-wrap items-center gap-2">

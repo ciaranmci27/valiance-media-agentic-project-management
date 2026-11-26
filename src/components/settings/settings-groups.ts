@@ -1,4 +1,4 @@
-import { Bell, CircleArrowUp, Code2, Database, Globe, LayoutGrid, Mail, Receipt, ShieldCheck, Sparkles, User, type LucideIcon } from 'lucide-react';
+import { Bell, CircleArrowUp, Code2, Database, Globe, LayoutGrid, LayoutTemplate, Mail, Receipt, ShieldCheck, Sparkles, User, type LucideIcon } from 'lucide-react';
 import { hourApprovalsExist } from '@/lib/finance/finance-views';
 import { useAuth } from '@/lib/auth-context';
 import { useDemo } from '@/lib/demo-context';
@@ -14,7 +14,7 @@ import { webhooksSectionState } from '@/lib/developers-settings';
  */
 
 /** Core groups, then the install's own Settings sections (src/custom), keyed `custom:<key>`. */
-export type SettingsGroupKey = 'workspace' | 'updates' | 'account' | 'notifications' | 'billing' | 'portal' | 'email' | 'assistants' | 'developers' | 'security' | 'data' | `custom:${string}`;
+export type SettingsGroupKey = 'workspace' | 'templates' | 'updates' | 'account' | 'notifications' | 'billing' | 'portal' | 'email' | 'assistants' | 'developers' | 'security' | 'data' | `custom:${string}`;
 
 export interface SettingsGroup {
   key: SettingsGroupKey;
@@ -46,6 +46,8 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
   { key: 'updates', href: '/settings/updates', label: 'Updates', icon: CircleArrowUp, sectionIds: ['updates'] },
   // Workspace-wide: the modules, the brand, how people sign in and the region (Owners only).
   { key: 'workspace', href: '/settings/workspace', label: 'Workspace', icon: LayoutGrid, sectionIds: ['features', 'brand', 'sign-in-methods', 'region', 'company-knowledge', 'provider-plans', 'encryption'] },
+  // Playbooks for repeat work: company-wide ones and every project's own. Anyone who uses or writes templates.
+  { key: 'templates', href: '/settings/templates', label: 'Templates', icon: LayoutTemplate, sectionIds: ['templates'] },
   { key: 'notifications', href: '/settings/notifications', label: 'Notifications', icon: Bell, sectionIds: ['notifications'] },
   // Invoice details (Client invoicing) and hour approvals (either money
   // module). Was Business, at /settings/business, which still redirects here;
@@ -156,6 +158,8 @@ export function useSettingsAccess() {
     signIn: true,
     // The exclusions filter portal analytics, so they go with the portal.
     analyticsExclusions: canManageSettings && isModuleEnabled(access, 'portal'),
+    // Templates: whoever uses them (Create tasks) or writes them. The demo shows them to review, with saving off.
+    templates: hasPermission(access, 'tasks.create') || hasPermission(access, 'templates.manage'),
     // Hidden when the environment forces demo mode on.
     demoMode: canManageSettings && !isEnvForcedDemo,
     // People's assistants and the chat connections they answer through: Owners only.
@@ -177,6 +181,7 @@ export function useSettingsAccess() {
   // A group shows in the menu while at least one of its sections does.
   const visibleGroups: Record<SettingsGroupKey, boolean> = {
     workspace: show.features || show.brand || show.signInMethods || show.region || show.companyKnowledge || show.providerPlans || show.encryption,
+    templates: show.templates,
     updates: show.updates,
     account: true,
     notifications: true,

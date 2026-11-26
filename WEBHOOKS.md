@@ -361,7 +361,7 @@ plus `project` and `project_id`. `via` is `app`, `api`, `mcp` or `schedule`;
 were made. `key_dates` is the date each of the template's key dates was set to
 (`{ "kickoff": "2026-12-01", "launch": "2027-01-15" }`; `{}` for a run
 recorded before key dates, whose `start_date` is its start), and
-`initiative_id` the initiative the run made (`null` when it made none). It concerns who ran it and everyone its tasks were assigned to, so an
+`initiative_id` the initiative the run made (`null` when it made none). A schedule's run has `via` `schedule` and its `schedule_id`; a task repeat's copy sends `task.created` like any new task. It concerns who ran it and everyone its tasks were assigned to, so an
 endpoint filtered to an agent hears about a playbook that gives it work.
 
 **Initiative events** (`initiative.created`, `initiative.updated`,

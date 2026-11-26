@@ -168,10 +168,12 @@ function pureChecks() {
 
 async function migrationChecks() {
   const at = SCHEMA_SQL.indexOf(BANNER);
-  check('schema.sql: its last section is the migration, word for word', at > 0 && SCHEMA_SQL.slice(at + BANNER.length) === MIGRATION_SQL);
+  // Its section runs to the next migration's banner (a later release's section follows it), or to the end.
+  const next = SCHEMA_SQL.indexOf('\n-- ============================================================\n-- ', at + BANNER.length);
+  check('schema.sql: its section is the migration, word for word', at > 0 && SCHEMA_SQL.slice(at + BANNER.length, next < 0 ? undefined : next) === MIGRATION_SQL);
   check('migration: no em or en dash', !MIGRATION_SQL.includes(String.fromCharCode(0x2013)) && !MIGRATION_SQL.includes(String.fromCharCode(0x2014)));
   const later = readdirSync(join(__dirname, '..', 'supabase', 'migrations')).filter((f) => f.endsWith('.sql') && f > MIGRATION);
-  check('migration: the newest one (its section is last)', later.length === 0, later);
+  check('migration: every later migration has its own section after this one', later.every((f) => SCHEMA_SQL.indexOf(`(${f})`, at + BANNER.length) > 0), later);
 
   const old = await createFullSchemaDatabase({ schemaSql: SCHEMA_SQL.slice(0, at) });
   await old.exec('RESET ROLE');
@@ -471,6 +473,14 @@ async function main() {
       && p.initiative.name === 'Product launch: Aurora, Major' && p.initiative.owner?.id === s.atlas && p.initiative.status === 'active', { deps: p?.dependencies, initiative: p?.initiative });
     check('preview: titles take the fill-ins; roles say where each member came from', p?.tasks?.[2]?.title === 'Write the Aurora announcement (Major launch)'
       && p.roles.find((r: Loose) => r.key === 'designer')?.source === 'run' && p.roles.find((r: Loose) => r.key === 'designer')?.member_name === 'Atlas', p?.roles);
+    // A due date before today (the caller's time zone) is noted per task, subtasks too; a future plan notes none.
+    const pastPreview = (await session(previewRoute.POST, 'POST', `/api/workspace/task-templates/${launchId}/preview`, { id: launchId }, { ...runInput, key_dates: { kickoff: '2020-01-06', launch: '2099-03-02' } })).body?.data;
+    const futurePreview = (await session(previewRoute.POST, 'POST', `/api/workspace/task-templates/${launchId}/preview`, { id: launchId }, { ...runInput, key_dates: { kickoff: '2099-01-05', launch: '2099-03-02' } })).body?.data;
+    const pastBrief = (pastPreview?.past_due ?? []).find((d: Loose) => d.key === 'brief');
+    check('preview: past_due names each task due before today (key, title, date), and nothing for a future plan', pastPreview?.ok === true
+      && pastBrief?.due_date === '2020-01-08' && pastBrief.title === pastPreview.tasks[0].title
+      && (pastPreview.past_due as Loose[]).every((d) => d.due_date < '2026-01-01') && !(pastPreview.past_due as Loose[]).some((d) => d.key === 'ship')
+      && Array.isArray(futurePreview?.past_due) && futurePreview.past_due.length === 0, { past: pastPreview?.past_due, future: futurePreview?.past_due });
 
     const ran = await session(runRoute.POST, 'POST', `/api/workspace/task-templates/${launchId}/run`, { id: launchId }, runInput);
     const made = (ran.body?.data?.tasks ?? []) as Loose[];

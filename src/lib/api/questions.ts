@@ -860,12 +860,20 @@ function notOpen(row: QuestionRow): ApiError | null {
   return new ApiError(409, 'CONFLICT', message, { reason: `question_${status}`, status });
 }
 
+/** What else a decision did: a template draft the approval was about (template-drafts.ts). */
+export interface AnswerHooks {
+  onDraft?: (outcome: import('./template-drafts').DraftOutcome) => void;
+}
+
 /**
  * Answers a question: asked_to, the Owner, or a team manager. An approval:
  * whom it names, or the Owner, through a door that may decide it
- * (approvalDecision), recorded in decided_via. Twice is 409.
+ * (approvalDecision), recorded in decided_via. Twice is 409. An approval
+ * about a template draft (action type template_run) decides the draft first,
+ * as the decider (a person only): approving makes its run; if that fails the
+ * approval stays open.
  */
-export async function answerQuestion(ctx: QuestionsContext, id: string, input: AnswerQuestionInput): Promise<QuestionView> {
+export async function answerQuestion(ctx: QuestionsContext, id: string, input: AnswerQuestionInput, hooks: AnswerHooks = {}): Promise<QuestionView> {
   const row = await loadRow(ctx, id);
   if (row.asked_to_group && row.asked_by === ctx.memberId) {
     throw forbidden(isApproval(row) ? 'You asked for this approval: someone else in the group decides it.' : 'You asked this group: someone else in it answers.', { reason: 'asked_self' });
@@ -888,6 +896,12 @@ export async function answerQuestion(ctx: QuestionsContext, id: string, input: A
     if (!choice) throw invalid('choice must be one of the question\'s choices', { reason: 'unknown_choice', choices });
   } else if (!textAnswers({ choices, allow_other: row.allow_other })) {
     throw invalid(isApproval(row) ? 'Send choice approve or reject; text is an optional note.' : 'Pick one of the choices.', { reason: 'choice_required', choices });
+  }
+  if (decider && row.action?.type === 'template_run' && (choice === 'approve' || choice === 'reject')) {
+    // Loaded on demand: the drafts module builds on this one.
+    const { decideDraftForApproval } = await import('./template-drafts');
+    const outcome = await decideDraftForApproval(ctx, row.id, choice, decider);
+    if (outcome) hooks.onDraft?.(outcome);
   }
   const now = new Date().toISOString();
   const answered = { status: 'answered', answer_choice: choice, answer_text: input.text ?? null, answered_by: decider?.by ?? ctx.memberId, answered_at: now };

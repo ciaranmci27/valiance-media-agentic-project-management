@@ -20,6 +20,7 @@ import { Button } from '@/components/ui/Button';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { toast } from '@/components/ui/Toast';
 import { Bone, EmptyCard, Skeleton, TabToolbar, ToolbarButton } from '@/components/projects/TabLayout';
+import { NeedsApprovalDrafts } from '@/components/templates/TemplateDraftCards';
 import { InitiativePanel } from './InitiativePanel';
 import { InitiativeProgressBar, InitiativeStatusPill, shortDay } from './InitiativeBits';
 import { clearTrashNotice, peekTrashNotice, restoreInitiative, writeError } from './initiative-actions';
@@ -31,7 +32,8 @@ export const initiativeHref = (projectId: string, initiativeId: string) =>
  * A project's initiatives as cards: name, description, owner, status (and
  * health while active), target date, progress from the tasks on screen and
  * the log's last update. Done ones wait behind "Show done". Anyone who may
- * create tasks here starts a new one in the side panel.
+ * create tasks here starts a new one in the side panel. Template runs an
+ * agent drafted here wait above them, under "Needs approval".
  */
 export function InitiativesTab({ projectId }: { projectId: string }) {
   const router = useRouter();
@@ -119,6 +121,7 @@ export function InitiativesTab({ projectId }: { projectId: string }) {
     return (
       <>
         {notice}
+        <NeedsApprovalDrafts projectId={projectId} />
         <EmptyCard
           icon={<Layers />}
           title={`No ${INITIATIVE_LABEL.lowerPlural} yet`}
@@ -158,6 +161,8 @@ export function InitiativesTab({ projectId }: { projectId: string }) {
       />
 
       {notice}
+
+      <NeedsApprovalDrafts projectId={projectId} />
 
       {shown.length === 0 ? (
         <EmptyCard

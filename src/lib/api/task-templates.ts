@@ -1,10 +1,10 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import {
-  assignTemplateKeys, isCalendarDate, issuesFromZod, keyDatesOf, mainKeyDate, missingValues, planRun, RUNNER, taskCount,
+  assignTemplateKeys, isCalendarDate, issuesFromZod, keyDatesOf, mainKeyDate, missingValues, pastDueOf, planRun, RUNNER, taskCount,
   TEMPLATE_FIELD_KEY, templateDocumentSchema, templateIssue, templateIssues, templatePatchSchema, templateScope,
   type PlannedTask, type RunTaskTemplateInput, type TaskTemplateRunResult, type TaskTemplateRunView, type TaskTemplateSummary,
-  type TaskTemplateView, type TemplateField, type TemplateIssue, type TemplateKeyDate, type TemplateRole, type TemplateRunInitiative,
-  type TemplateRunVia, type TemplateScope, type TemplateTask,
+  type TaskTemplateView, type TemplateField, type TemplateIssue, type TemplateKeyDate, type TemplateRole,
+  type TemplatePastDue, type TemplateRunInitiative, type TemplateRunVia, type TemplateScope, type TemplateTask,
 } from '@/lib/task-templates';
 import { toLocalDateString } from '@/lib/date-utils';
 import { moveToTrash } from '@/lib/supabase/trash';
@@ -48,6 +48,11 @@ import { ApiError, forbidden, notFound } from './errors';
  *   its task links in one transaction. If anything fails, the tasks and the
  *   initiative go to Trash and nothing is recorded, so a retry never doubles
  *   a playbook. previewTemplateRun is the same plan, writing nothing.
+ * - A draft (template-drafts.ts) plans from the template as it saw it (its
+ *   snapshot) with the steps it adds and removes; approved, it is made here
+ *   as the person who approved it, every role map and added step checked
+ *   against their own assign rights.
+ * - A reflow (template-reflow.ts) moves a live run's key dates.
  * Lists are paged and every read is a fixed number of queries.
  */
 
@@ -56,7 +61,7 @@ type Row = Record<string, any>;
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const SUMMARY_COLUMNS = 'id, name, description, project_id, fields, items, key_dates, roles, guidance, version, created_by, created_at, updated_at';
-const RUN_COLUMNS = 'id, template_id, template_version, snapshot, project_id, run_by, via, schedule_id, start_date, field_values, task_ids, key_dates, role_members, initiative_id, created_at';
+export const RUN_COLUMNS = 'id, template_id, template_version, snapshot, project_id, run_by, via, schedule_id, start_date, field_values, task_ids, key_dates, role_members, initiative_id, created_at';
 
 /** A database without the template tables or the templates v2 columns yet (new code before its migration). */
 export const missingTemplatesSchema = (error: { code?: string; message?: string } | null | undefined) =>
@@ -168,7 +173,7 @@ const fieldsOf = (row: Row): TemplateField[] => (Array.isArray(row.fields) ? row
 const keyDatesOfRow = (row: Row): TemplateKeyDate[] => keyDatesOf(Array.isArray(row.key_dates) ? row.key_dates as TemplateKeyDate[] : null);
 const rolesOf = (row: Row): TemplateRole[] => (Array.isArray(row.roles) ? row.roles as TemplateRole[] : []);
 
-async function projectNames(service: SupabaseClient, ids: (string | null)[]): Promise<Map<string, string>> {
+export async function projectNames(service: SupabaseClient, ids: (string | null)[]): Promise<Map<string, string>> {
   const unique = [...new Set(ids.filter((id): id is string => !!id))];
   if (!unique.length) return new Map();
   const { data, error } = await service.from('projects').select('id, name').in('id', unique).is('deleted_at', null);
@@ -176,7 +181,7 @@ async function projectNames(service: SupabaseClient, ids: (string | null)[]): Pr
   return new Map(((data ?? []) as { id: string; name: string }[]).map((p) => [p.id, p.name]));
 }
 
-async function memberNames(service: SupabaseClient, ids: (string | null)[]): Promise<Map<string, string>> {
+export async function memberNames(service: SupabaseClient, ids: (string | null)[]): Promise<Map<string, string>> {
   const unique = [...new Set(ids.filter((id): id is string => !!id))];
   if (!unique.length) return new Map();
   const { data, error } = await service.from('team_members').select('id, name').in('id', unique);
@@ -185,7 +190,7 @@ async function memberNames(service: SupabaseClient, ids: (string | null)[]): Pro
 }
 
 /** Active members by id, with their names. */
-async function activeMembers(service: SupabaseClient, ids: (string | null | undefined)[]): Promise<Map<string, string>> {
+export async function activeMembers(service: SupabaseClient, ids: (string | null | undefined)[]): Promise<Map<string, string>> {
   const unique = [...new Set(ids.filter((id): id is string => !!id && UUID.test(id)))];
   if (!unique.length) return new Map();
   const { data, error } = await service.from('team_members').select('id, name, status').in('id', unique);
@@ -286,7 +291,7 @@ export async function listTemplates(service: SupabaseClient, caller: AgentCaller
   return { rows: rows.map((row) => summary(caller, row, projects, stats.get(row.id))), total: count ?? rows.length };
 }
 
-async function loadTemplateRow(service: SupabaseClient, caller: AgentCaller, templateId: string): Promise<Row> {
+export async function loadTemplateRow(service: SupabaseClient, caller: AgentCaller, templateId: string): Promise<Row> {
   requireRead(caller);
   if (!UUID.test(templateId)) throw notFound('Template');
   const { data, error } = await service.from('task_templates').select(SUMMARY_COLUMNS).eq('id', templateId).is('deleted_at', null).maybeSingle();
@@ -503,7 +508,7 @@ export async function trashTemplate(service: SupabaseClient, caller: AgentCaller
 
 const objectOf = (value: unknown): Record<string, string> => (value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, string> : {});
 
-function presentRun(row: Row, projects: Map<string, string>, names: Map<string, string>): TaskTemplateRunView {
+export function presentRun(row: Row, projects: Map<string, string>, names: Map<string, string>): TaskTemplateRunView {
   // A date column: YYYY-MM-DD, however the driver hands it over.
   const startDate = String(row.start_date ?? '').slice(0, 10);
   const keyDates = objectOf(row.key_dates);
@@ -526,6 +531,9 @@ function presentRun(row: Row, projects: Map<string, string>, names: Map<string, 
     key_dates: Object.keys(keyDates).length ? keyDates : (startDate ? { start: startDate } : {}),
     role_members: objectOf(row.role_members),
     initiative_id: row.initiative_id ?? null,
+    draft_id: (row.snapshot?.draft?.id as string | undefined) ?? null,
+    drafted_by: (row.snapshot?.draft?.drafted_by as string | undefined) ?? null,
+    note: row.snapshot?.draft ? `Drafted by ${(row.snapshot.draft.drafted_by_name as string | undefined) || 'an agent'}` : null,
   };
 }
 
@@ -546,7 +554,7 @@ export async function listRuns(service: SupabaseClient, caller: AgentCaller, tem
 }
 
 /** Today in the runner's own time zone (the workspace's day when they have none). */
-async function runnerToday(service: SupabaseClient, memberId: string): Promise<string> {
+export async function runnerToday(service: SupabaseClient, memberId: string): Promise<string> {
   const { data } = await service.from('team_members').select('timezone').eq('id', memberId).maybeSingle();
   const zone = (data as { timezone?: string | null } | null)?.timezone || undefined;
   try {
@@ -601,8 +609,86 @@ export interface PlannedInitiative {
   owner: { kind: 'member' | 'group'; id: string; name: string | null } | null;
 }
 
+/** The template as a draft saw it: what its snapshot holds. */
+export interface TemplateSnapshot {
+  name: string;
+  description: string;
+  version: number;
+  fields: TemplateField[];
+  items: TemplateTask[];
+  key_dates: TemplateKeyDate[];
+  roles: TemplateRole[];
+  guidance: string;
+}
+
+/** A draft being proposed, previewed or approved: the template as it saw it, and the steps it adds and removes. */
+export interface DraftSource {
+  snapshot: TemplateSnapshot;
+  /** Whole tasks it adds, keyed, after the template's own. */
+  extra: TemplateTask[];
+  /** Keys of the template's tasks (or subtasks) it leaves out. */
+  removed: string[];
+  /** The draft and who drafted it, for the run's note (approving). */
+  id?: string;
+  draftedBy?: string | null;
+  draftedByName?: string | null;
+}
+
+export interface PrepareOptions {
+  draft?: DraftSource;
+  /**
+   * Proposing a draft: role maps and added steps are not checked against the
+   * caller's assign rights (whoever approves is checked instead).
+   */
+  proposing?: boolean;
+}
+
+/** The template's tasks with a draft's steps left out and added: dependencies on a removed step are dropped. */
+export function draftItems(base: TemplateTask[], draft: Pick<DraftSource, 'extra' | 'removed'> | undefined): TemplateTask[] {
+  if (!draft) return base;
+  const removed = new Set(draft.removed);
+  const kept = base.filter((task) => !removed.has(task.key as string)).map((task) => ({
+    ...task,
+    ...(task.depends_on ? { depends_on: task.depends_on.filter((key) => !removed.has(key)) } : {}),
+    subtasks: (task.subtasks ?? []).filter((subtask) => !removed.has(subtask.key as string)),
+  }));
+  return assignTemplateKeys([...kept, ...draft.extra]);
+}
+
+/**
+ * A draft's own steps against the workspace and the caller: every key it
+ * removes is one of the template's, every assignee it names is active, and
+ * (approving) an assignee other than the approver needs tasks.manage_all,
+ * since the agent chose them, not the template's author.
+ */
+async function draftStepIssues(service: SupabaseClient, caller: AgentCaller, draft: DraftSource, assignsOthers: boolean, proposing: boolean): Promise<TemplateIssue[]> {
+  const issues: TemplateIssue[] = [];
+  const known = new Set(assignTemplateKeys(draft.snapshot.items).flatMap((task) => [task.key as string, ...(task.subtasks ?? []).map((s) => s.key as string)]));
+  draft.removed.forEach((key, i) => {
+    if (!known.has(key)) {
+      issues.push(templateIssue(['removed_steps', i], 'unknown_step', `"${key}" is not one of the template's steps`, 'Use the key of a task or subtask in the template (get_task_template lists them).'));
+    }
+  });
+  const named = draft.extra.flatMap((task) => [task.assignee, ...(task.subtasks ?? []).map((s) => s.assignee)]);
+  const active = await activeMembers(service, named);
+  draft.extra.forEach((task, i) => {
+    const check = (assignee: string | null | undefined, path: (string | number)[]) => {
+      if (!assignee || assignee === RUNNER) return;
+      if (!active.has(assignee)) {
+        issues.push(templateIssue([...path, 'assignee'], 'assignee_not_active', 'Every assignee must be an active team member', 'Use an active member id, "runner" (whoever approves it), or null.', { member_id: assignee }));
+      } else if (!proposing && assignee !== caller.memberId && !assignsOthers) {
+        issues.push(templateIssue([...path, 'assignee'], 'cannot_assign_others', 'You may approve an added step only when it is assigned to you',
+          'Assigning tasks to others needs tasks.manage_all. Ask someone who may assign others to approve it, or reject it and ask for the step unassigned.'));
+      }
+    };
+    check(task.assignee, ['extra_steps', i]);
+    (task.subtasks ?? []).forEach((subtask, j) => check(subtask.assignee, ['extra_steps', i, 'subtasks', j]));
+  });
+  return issues;
+}
+
 /** A run worked out, before anything is written: what preview shows and run makes. */
-interface PreparedRun {
+export interface PreparedRun {
   row: Row;
   items: TemplateTask[];
   fields: TemplateField[];
@@ -622,6 +708,8 @@ interface PreparedRun {
   notes: string[];
   errors: TemplateIssue[];
   initiative: (PlannedInitiative & { owner_member_id: string | null; owner_group_id: string | null; description: string }) | null;
+  /** Who it is worked out for: their time zone says what today is (past_due). */
+  callerId: string;
 }
 
 /**
@@ -630,8 +718,14 @@ interface PreparedRun {
  * are collected in errors (each with its path and fix); the caller's own
  * rights (tasks.create, reaching the project) are refused at once.
  */
-async function prepareRun(service: SupabaseClient, caller: AgentCaller, templateId: string, input: RunTaskTemplateInput): Promise<PreparedRun> {
-  const row = await loadTemplateRow(service, caller, templateId);
+export async function prepareRun(service: SupabaseClient, caller: AgentCaller, templateId: string, input: RunTaskTemplateInput, options: PrepareOptions = {}): Promise<PreparedRun> {
+  const current = await loadTemplateRow(service, caller, templateId);
+  // A draft plans from the template as it saw it; the project lock and access are today's.
+  const snapshot = options.draft?.snapshot;
+  const row: Row = snapshot ? {
+    ...current, name: snapshot.name, description: snapshot.description, version: snapshot.version, fields: snapshot.fields,
+    items: snapshot.items, key_dates: snapshot.key_dates, roles: snapshot.roles, guidance: snapshot.guidance,
+  } : current;
   if (!canRunTemplates(caller)) {
     throw forbidden('Using a template creates tasks, which needs tasks.create', {
       reason: 'missing_permission', needs: 'tasks.create', hint: 'Ask an Owner to grant you Create tasks.',
@@ -641,7 +735,7 @@ async function prepareRun(service: SupabaseClient, caller: AgentCaller, template
   const notes: string[] = [];
 
   // The project: a project's template creates only there.
-  const lockedTo = (row.project_id as string | null) ?? null;
+  const lockedTo = (current.project_id as string | null) ?? null;
   if (lockedTo && input.project_id && input.project_id !== lockedTo) {
     errors.push(templateIssue(['project_id'], 'locked_to_project', 'This template belongs to another project and always creates there', 'Leave project_id out, or use the template\'s own project.', { project_id: lockedTo }));
   }
@@ -732,7 +826,7 @@ async function prepareRun(service: SupabaseClient, caller: AgentCaller, template
       if (memberId && !active.has(memberId)) {
         errors.push(templateIssue(['roles', role.key], 'member_not_active', `${role.label} must go to an active team member`, 'Use an active member id (a person or an agent), "runner", or null.'));
         memberId = null;
-      } else if (memberId && memberId !== caller.memberId && !assignsOthers) {
+      } else if (memberId && memberId !== caller.memberId && !assignsOthers && !options.proposing) {
         errors.push(templateIssue(['roles', role.key], 'cannot_assign_others', `You may assign ${role.label} only to yourself`,
           'Assigning tasks to others needs tasks.manage_all. Map the role to "runner", leave it to its default member, or ask someone who may assign others to run it.'));
         memberId = null;
@@ -807,7 +901,8 @@ async function prepareRun(service: SupabaseClient, caller: AgentCaller, template
     };
   }
 
-  const items = itemsOf(row);
+  const items = draftItems(itemsOf(row), options.draft);
+  if (options.draft) errors.push(...await draftStepIssues(service, caller, options.draft, assignsOthers, !!options.proposing));
   const plan = planRun(items, {
     keyDates, defaultAnchor: keyDateList[0].key, values: display, runnerId: caller.memberId, roleMembers,
   });
@@ -819,7 +914,7 @@ async function prepareRun(service: SupabaseClient, caller: AgentCaller, template
   }
   return {
     row, items, fields, keyDateList, roleList, projectId, projectName, keyDates, startDate, mainKey, values, display, roles, roleMembers,
-    plan, allowed, notes, errors, initiative,
+    plan, allowed, notes, errors, initiative, callerId: caller.memberId,
   };
 }
 
@@ -856,6 +951,8 @@ export interface TemplateRunPreview {
   initiative: PlannedInitiative | null;
   task_count: number;
   notes: string[];
+  /** Every task and subtask the plan dates before today in the caller's time zone, in plan order (a note per task on screen). */
+  past_due: TemplatePastDue[];
 }
 
 /**
@@ -864,8 +961,15 @@ export interface TemplateRunPreview {
  * rules (paused, approval) are checked only by the run itself.
  */
 export async function previewTemplateRun(service: SupabaseClient, caller: AgentCaller, templateId: string, input: RunTaskTemplateInput): Promise<TemplateRunPreview> {
-  const prepared = await prepareRun(service, caller, templateId, input);
-  const names = await memberNames(service, prepared.plan.flatMap((task) => [task.assignee_id, ...task.subtasks.map((s) => s.assignee_id)]));
+  return previewOfPrepared(service, await prepareRun(service, caller, templateId, input));
+}
+
+/** The preview of a run already worked out (prepareRun). */
+export async function previewOfPrepared(service: SupabaseClient, prepared: PreparedRun): Promise<TemplateRunPreview> {
+  const [names, today] = await Promise.all([
+    memberNames(service, prepared.plan.flatMap((task) => [task.assignee_id, ...task.subtasks.map((s) => s.assignee_id)])),
+    runnerToday(service, prepared.callerId),
+  ]);
   const tasks = prepared.plan.map((task) => ({
     ...previewTask(task, prepared.allowed, names),
     depends_on: task.depends_on ?? [],
@@ -888,12 +992,15 @@ export async function previewTemplateRun(service: SupabaseClient, caller: AgentC
     } : null,
     task_count: taskCount(prepared.items),
     notes: prepared.notes,
+    past_due: pastDueOf(tasks, today),
   };
 }
 
 export interface CreateRunOptions {
   /** The schedule that runs it (schedules, later). */
   scheduleId?: string | null;
+  /** The draft a person approved: planned from its snapshot and steps, noted as drafted by its proposer. */
+  draft?: DraftSource;
 }
 
 /**
@@ -913,7 +1020,7 @@ export async function createTemplateRun(
   via: TemplateRunVia,
   options: CreateRunOptions = {},
 ): Promise<TaskTemplateRunResult> {
-  const prepared = await prepareRun(service, caller, templateId, input);
+  const prepared = await prepareRun(service, caller, templateId, input, { draft: options.draft });
   // The rules an agent runs under apply as for any task it creates.
   await requireAssistantSwitch(service, caller.memberId, caller.access, 'create_tasks');
   if (prepared.projectId) assertProjectWritable(prepared.projectId);
@@ -935,7 +1042,8 @@ export async function createTemplateRun(
   // createTaskAs checks per task was checked once above, so each task is one
   // save_task call, the same one every task goes through: activity, task
   // events and task.created webhooks fire as for any task.
-  const sourceNote = `From the template "${row.name}"`.slice(0, 200);
+  const draftedBy = options.draft ? options.draft.draftedByName || 'an agent' : null;
+  const sourceNote = `From the template "${row.name}"${draftedBy ? `, drafted by ${draftedBy}` : ''}`.slice(0, 200);
   type Saved = Awaited<ReturnType<typeof insertTask>>;
   let initiative: TemplateRunInitiative | null = null;
   const save = (task: Omit<PlannedTask, 'subtasks'>, parent: { id: string; order: number } | null): Promise<Saved> => insertTask(
@@ -1017,6 +1125,7 @@ export async function createTemplateRun(
         snapshot: {
           name: row.name, description: row.description ?? '', fields: prepared.fields, items: prepared.items,
           key_dates: prepared.keyDateList, roles: prepared.roleList, guidance: row.guidance ?? '',
+          ...(options.draft?.id ? { draft: { id: options.draft.id, drafted_by: options.draft.draftedBy ?? null, drafted_by_name: options.draft.draftedByName ?? null } } : {}),
         },
         project_id: projectId,
         run_by: caller.memberId,
@@ -1053,6 +1162,15 @@ export async function createTemplateRun(
     memberNames(service, [caller.memberId]),
   ]);
   if (readError) fail(readError);
+  if (options.draft && initiative) {
+    // The initiative says where it came from. A note that cannot be written never undoes a recorded run.
+    const { error: noteError } = await service.from('initiative_entries').insert({
+      initiative_id: initiative.id, project_id: projectId, kind: 'note', title: `Drafted by ${draftedBy}`.slice(0, 200),
+      body: `Made from a draft of the template "${row.name}", approved by ${names.get(caller.memberId) ?? 'a person'}.`.slice(0, 5000),
+      created_by: caller.memberId,
+    });
+    if (noteError) console.error('[task-templates] could not note the draft on the initiative', initiative.id, noteError);
+  }
   return {
     run: presentRun(run as Row, new Map([[projectId, projectName]]), names),
     tasks: created as unknown as Row[],

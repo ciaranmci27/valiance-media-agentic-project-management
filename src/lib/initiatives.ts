@@ -188,8 +188,24 @@ export interface InitiativeBriefEntry {
  * the header with progress, open issues (newest 20), the last 10 entries and
  * the pinned brief entries. null parts are ones the reader may not see.
  */
+/**
+ * The template run that made an initiative (task_template_runs.initiative_id):
+ * the template's name and the run's key dates in the template's order. The
+ * initiative page shows it as one strip under the header.
+ */
+export interface InitiativeTemplateRun {
+  run_id: string;
+  template_id: string;
+  template_name: string;
+  key_dates: { key: string; label: string; date: string; main: boolean }[];
+  run_by_name: string | null;
+  created_at: string;
+}
+
 export interface InitiativeDetail {
   initiative: InitiativeView;
+  /** The template run that made it, or null (no run made it). The strip shows only when it is there. */
+  template_run?: InitiativeTemplateRun | null;
   open_issues: Bounded<InitiativeEntryView> | null;
   recent_entries: Bounded<InitiativeEntryView> | null;
   brief: Bounded<InitiativeBriefEntry> | null;

@@ -46,9 +46,11 @@ function filter(column: string, expression: string, params: unknown[]): string {
   const op = expression.slice(0, dot);
   // A value with reserved characters (a timestamp inside `or`) comes double quoted.
   const value = expression.slice(dot + 1).replace(/^"(.*)"$/, "$1");
-  // `col->>key` filters a jsonb field as text, as PostgREST does.
-  const path = /^([a-z_][a-z0-9_]*)->>([a-z_][a-z0-9_]*)$/.exec(column);
-  const col = path ? `${ident(path[1])}->>'${path[2]}'` : ident(column);
+  // `col->>key` (or `col->a->>key`) filters a jsonb field as text, as PostgREST does.
+  const path = /^([a-z_][a-z0-9_]*)((?:->[a-z_][a-z0-9_]*)*)->>([a-z_][a-z0-9_]*)$/.exec(column);
+  const col = path
+    ? `${ident(path[1])}${path[2].split('->').filter(Boolean).map((key) => `->'${key}'`).join('')}->>'${path[3]}'`
+    : ident(column);
   const bind = (v: unknown) => {
     params.push(v);
     return `$${params.length}`;

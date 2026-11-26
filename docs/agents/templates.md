@@ -121,6 +121,78 @@ Send the same input to `run_task_template`. The run makes the initiative (becaus
 - **Assigning others**: a run that maps a role to anyone but you needs `tasks.manage_all` (403 `cannot_assign_others`). A role's default member and assignees written in the template stand, because the template's author chose them. Someone who cannot open the project is left unassigned, and `notes` says so.
 - **Key dates**: every key date needs a date in the run, except `start`, which defaults to today (`start_date` sets it too).
 - **Initiative**: off by default, so a run behaves as it always has. `create_initiative: true` makes one; `initiative.owner_role`, `owner_member_id` or `owner_group_id` picks one owner (default: you). Sending `initiative` without `create_initiative: true` is refused.
-- **Agents whose new tasks need approval** cannot run templates; preview still works.
+- **Agents whose new tasks need approval** cannot run templates (403 `needs_approval`); they draft a run instead (below). Preview still works.
 - **Older clients**: a client that replaces `items` without the newer item properties drops them for those tasks, and the tasks get new keys. Keep each task's `key` when you edit.
 - **Idempotency**: create, update and run take an idempotency key; the same update sent twice also leaves one version.
+
+## Change a live run's dates (reflow)
+
+A run that made an initiative stays live: when a key date moves, its tasks can move with it. `reflow_template_run` (`POST /api/v1/task-templates/runs/:runId/reflow`) takes the run's id (`run.id` from the run), `key_dates` with only the dates that change, optional `include_task_ids`, and `dry_run`.
+
+```json
+{ "run_id": "<run id>", "key_dates": { "launch": "2027-01-22" }, "dry_run": true }
+```
+
+- **Dates come from key date plus offset**, from the run's own copy of the template. Dependencies never move dates.
+- **Only untouched tasks move**: not done, not in Trash, and still due on the date the run planned. A task someone changed by hand comes back in `kept` with `reason: "hand_changed"`; send its id in `include_task_ids` to move it anyway. Done and trashed tasks come back in `ignored`.
+- **Only what you may edit moves**: `tasks.manage_all`, or `tasks.manage_assigned` for your own tasks and their subtasks. The rest comes back in `kept` with `reason: "cannot_edit"`. Using it needs `tasks.create` on the project.
+- **The initiative's target date** follows the main key date under the same rule: only while it still is the old main key date.
+- **Warnings** name every new key date or due date before today.
+- `dry_run: true` answers the plan and writes nothing. Without it, everything changes in one transaction: the tasks, their planned dates, the run's key dates and the initiative's target. A person's change is logged in the team activity log (`initiative.key_dates`).
+- 409 `run_not_live`: the run made no initiative. 409 `run_changed`: someone changed the dates a moment ago; dry run again.
+
+## Draft a run for a person to approve
+
+An agent can propose a run from real data, and a person approves it. Nothing is created until they do. It is how an agent whose new tasks need approval uses templates.
+
+1. **Draft**: `draft_template_run` (`POST /api/v1/task-templates/:id/drafts`) takes what `run_task_template` takes, plus `extra_steps` (whole tasks to add, as template items), `removed_steps` (keys of the template's tasks or subtasks to leave out), `note` (why, for the person deciding), and an `idempotency_key`. It is checked like a run, every error with its path. Role maps and added steps are not limited by your own rights: the approver's are checked when they decide.
+2. **The approval**: the draft asks through the approvals primitive: a question of kind `approval`, action type `template_run`, `details.draft_id`. It goes to the template's owner when they may create tasks in the project, else a person who manages the project, unless you name `asked_to` or `asked_to_group`. It expires in 14 days unless `expires_at` says otherwise. Their bell rings, and `question.created` fires.
+3. **Wait**: `get_template_run_draft` answers `status`: `pending`, `approved` (with `run_id`), `rejected`, or `expired` (its approval expired or was withdrawn). Or wait for `question.answered`.
+
+```json
+{
+  "template_id": "<id>",
+  "project_id": "<project id>",
+  "key_dates": { "kickoff": "2027-05-03", "launch": "2027-06-01" },
+  "roles": { "designer": "<member id>" },
+  "values": { "product": "Nova", "tier": "Minor" },
+  "create_initiative": true,
+  "extra_steps": [{ "title": "Press kit for {product}", "anchor": "launch", "due_in_days": -3 }],
+  "removed_steps": ["retro"],
+  "note": "Launch date from the release plan; no retro for a minor launch.",
+  "idempotency_key": "nova-launch-draft"
+}
+```
+
+While it is pending, the draft carries `preview`: the run it would make, each task marked `change: "added"` when the draft adds it, `removed_tasks`, and `template_changed_since` when the template changed after you drafted. The draft still makes what it saw.
+
+**Deciding** is for people only. Approve on the approval card in the app, `POST /api/v1/task-templates/drafts/:draftId/approve` (or `/reject`) in the app or with a person's own key holding `approvals.decide`, all go the same way: only whom the approval names (or the Owner), never an agent, a personal agent acting for its person included (403 `draft_needs_person`). The approver needs `tasks.create` on the project, and every role map and added step is checked against their own right to assign others (403 `cannot_assign_others`). Approving makes the run as the approver, through the same path as any run (`template.run` fires), noted "Drafted by <agent>" on the run (`draft_id`, `drafted_by`, `note`) and on its initiative. A second approve is 409 `draft_decided`. If the run cannot be made, the draft stays pending and the approval open.
+
+## Run a template on a schedule
+
+`create_template_schedule` (`POST /api/v1/task-templates/:id/schedules`) runs a template on every date of a recurrence: the payroll upload on the 1st of each month, the Monday report every week.
+
+```json
+{
+  "recurrence": { "freq": "monthly", "month_day": 1 },
+  "timezone": "America/New_York",
+  "roles": { "owner": "runner" },
+  "values": { "client": "Acme" },
+  "skip_if_open": true
+}
+```
+
+- **recurrence**: `freq` daily, weekly or monthly, `interval` (every N), `weekdays` for weekly (0 Sunday to 6 Saturday), and for monthly either `month_day` (1 to 31; the 31st is each month's last day) or `month_week` (1 to 4, -1 for the last) with `month_weekday` (the first Monday, the last Friday).
+- **When**: each run happens at the start of its date in `timezone` (an IANA zone, default the workspace's), from `start_date` (default today) to `end_date` (optional).
+- **Key dates**: every key date is the run date plus `key_date_offsets[key]` days (default 0).
+- **Fill-ins**: a field keyed `date` or `month` is filled on each run (`2026-12-01`, `December 2026`); the rest come from `values`.
+- **skip_if_open** (default true): while the previous run still has a task not done, the run is skipped and recorded with reason `previous_run_open`.
+- **Who runs it**: the schedule runs as `run_as`, whoever set it up or last changed what it makes, with their rights checked on each run. Losing them, or the template or project going to Trash, pauses the schedule and notifies them (`paused_reason`).
+- **Checked like a run**: setting it up previews its first date, so a refusal lists every error with its path, as `preview_task_template_run` does.
+- **Exactly once**: each date runs once (a run claims it before making anything). After downtime only the latest missed date runs, its dates anchored to that date, never the time it ran. A failed run is tried once more five minutes later, then the schedule pauses with a notification.
+
+Each run is an ordinary run (`via: "schedule"`, `schedule_id` set, `template.run` as usual). `list_schedules`, `get_schedule` (with `upcoming`, the next five dates) and `list_schedule_occurrences` (created, skipped with a reason, failed with an error) show what it does; `update_schedule`, `pause_schedule`, `resume_schedule` (from today, missed dates are not made) and `delete_schedule` change it.
+
+### A task that repeats
+
+`set_task_repeat` (`PUT /api/v1/tasks/:id/repeat`) makes a single task repeat on the same scheduler, with the same `recurrence`. Its copies are due on the recurrence's dates counted from the task's due date (a task without one gets the first date on or after today). `mode` `schedule` (the default) makes the next copy when the current one falls due, so one copy is always ahead; `after_done` makes it when the current one is completed, due on the next date after that day. A copy keeps the title, description, assignees, project, initiative, tags and priority, with its subtasks copied unchecked; the repeat then follows the newest copy. `clear_task_repeat` stops it.

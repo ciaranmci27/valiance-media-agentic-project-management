@@ -119,6 +119,15 @@ import * as taskTemplateRuns from '@/app/api/v1/task-templates/[id]/runs/route';
 import * as taskTemplateSchema from '@/app/api/v1/task-templates/schema/route';
 import * as taskTemplateValidate from '@/app/api/v1/task-templates/validate/route';
 import * as taskTemplatePreview from '@/app/api/v1/task-templates/[id]/preview/route';
+import * as taskTemplateDraft from '@/app/api/v1/task-templates/[id]/drafts/route';
+import * as templateRunDrafts from '@/app/api/v1/task-templates/drafts/route';
+import * as templateRunDraftOne from '@/app/api/v1/task-templates/drafts/[draftId]/route';
+import * as templateRunReflow from '@/app/api/v1/task-templates/runs/[runId]/reflow/route';
+import * as templateSchedules from '@/app/api/v1/task-templates/[id]/schedules/route';
+import * as schedulesList from '@/app/api/v1/schedules/route';
+import * as scheduleOne from '@/app/api/v1/schedules/[id]/route';
+import * as scheduleOccurrences from '@/app/api/v1/schedules/[id]/occurrences/route';
+import * as taskRepeat from '@/app/api/v1/tasks/[id]/repeat/route';
 import * as identityResolve from '@/app/api/v1/identities/resolve/route';
 import * as identityLinkRequests from '@/app/api/v1/identities/link-requests/route';
 import * as memberIdentities from '@/app/api/v1/members/[id]/identities/route';
@@ -255,6 +264,15 @@ export const ROUTE_MODULES: Record<string, RouteModule> = {
   '/api/v1/task-templates/schema': taskTemplateSchema,
   '/api/v1/task-templates/validate': taskTemplateValidate,
   '/api/v1/task-templates/{id}/preview': taskTemplatePreview,
+  '/api/v1/task-templates/{id}/drafts': taskTemplateDraft,
+  '/api/v1/task-templates/drafts': templateRunDrafts,
+  '/api/v1/task-templates/drafts/{draftId}': templateRunDraftOne,
+  '/api/v1/task-templates/runs/{runId}/reflow': templateRunReflow,
+  '/api/v1/task-templates/{id}/schedules': templateSchedules,
+  '/api/v1/schedules': schedulesList,
+  '/api/v1/schedules/{id}': scheduleOne,
+  '/api/v1/schedules/{id}/occurrences': scheduleOccurrences,
+  '/api/v1/tasks/{id}/repeat': taskRepeat,
   '/api/v1/identities/resolve': identityResolve,
   '/api/v1/identities/link-requests': identityLinkRequests,
   '/api/v1/members/{id}/identities': memberIdentities,

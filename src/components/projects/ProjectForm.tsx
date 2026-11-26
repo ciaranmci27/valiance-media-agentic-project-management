@@ -14,6 +14,7 @@ import { Toggle } from '@/components/ui/inputs/Toggle';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { ContactForm } from '@/components/contacts/ContactForm';
 import { TaskPanelShell } from '@/components/tasks/TaskPanelShell';
+import { useDiscardGuard } from '@/components/ui/useDiscardGuard';
 import { ProjectColorPicker } from './ProjectColorPicker';
 import { useBrand } from '@/lib/brand/context';
 import { useAuth } from '@/lib/auth-context';
@@ -157,46 +158,14 @@ function ProjectEditPanel({ project, onClose }: { project: Project; onClose: () 
   return <ProjectDetailsPanel project={project} onClose={onClose} />;
 }
 
-/**
- * Closing with unsaved edits asks first: the edits are only in the form, so
- * they cannot be brought back. Leaving the page warns too.
- */
-function useDiscardGuard(dirty: boolean, onClose: () => void) {
-  const [confirmDiscard, setConfirmDiscard] = useState(false);
-
-  useEffect(() => {
-    if (!dirty) return;
-    const handler = (e: BeforeUnloadEvent) => { e.preventDefault(); };
-    window.addEventListener('beforeunload', handler);
-    return () => window.removeEventListener('beforeunload', handler);
-  }, [dirty]);
-
-  const requestClose = () => {
-    if (dirty) setConfirmDiscard(true);
-    else onClose();
-  };
-
-  const dialog = (
-    <ConfirmDialog
-      isOpen={confirmDiscard}
-      onClose={() => setConfirmDiscard(false)}
-      onConfirm={onClose}
-      title="Discard changes?"
-      message="Your edits to this project are not saved. Discarding them cannot be undone."
-      confirmLabel="Discard"
-      doubleConfirm={false}
-    />
-  );
-
-  return { requestClose, dialog };
-}
+const PROJECT_DISCARD = 'Your edits to this project are not saved. Discarding them cannot be undone.';
 
 function ProjectMembersPanel({ project, onClose }: { project: Project; onClose: () => void }) {
   const { team, updateProject } = useApp();
   const [memberIds, setMemberIds] = useState<string[]>(project.member_ids);
   const [saving, setSaving] = useState(false);
   const dirty = JSON.stringify(memberIds) !== JSON.stringify(project.member_ids);
-  const { requestClose, dialog } = useDiscardGuard(dirty, onClose);
+  const { requestClose, dialog } = useDiscardGuard(dirty, onClose, PROJECT_DISCARD);
 
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -294,7 +263,7 @@ function ProjectDetailsPanel({ project, onClose }: { project: Project; onClose: 
   }, [errorTick]);
   const [showBudgetHistory, setShowBudgetHistory] = useState(false);
   const [budgetHistory, setBudgetHistory] = useState<ProjectBudgetHistoryEntry[] | null>(null);
-  const { requestClose, dialog: discardDialog } = useDiscardGuard(dirty, onClose);
+  const { requestClose, dialog: discardDialog } = useDiscardGuard(dirty, onClose, PROJECT_DISCARD);
 
   useEffect(() => {
     if (!rights.manageBilling) return;

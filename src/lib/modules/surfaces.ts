@@ -205,6 +205,8 @@ export const CORE_ROUTES: string[] = [
   'api/v1/groups', 'api/v1/identities', 'api/v1/members', 'api/workspace/groups', 'api/workspace/identities', '(protected)/link',
   // Task templates make tasks, which are core.
   'api/v1/task-templates', 'api/workspace/task-templates', '(protected)/templates',
+  // Schedules make tasks (a template on a schedule, a task's repeat), and the scheduler that runs them.
+  'api/v1/schedules', 'api/workspace/schedules', 'api/internal/schedules',
   // The install's own routes and pages (src/custom): each item names its own module, permission or role.
   'api/x', '(protected)/x',
   '(protected)/dashboard', '(protected)/my-tasks', '(protected)/notifications', '(protected)/projects',
@@ -222,8 +224,10 @@ export const CORE_TABLES: string[] = [
   'team_invites', 'team_member_notifications', 'team_member_permissions', 'team_members', 'trash_events', 'workspace_brand',
   'workspace_modules', 'workspace_region', 'app_secrets',
   'groups', 'group_members', 'member_identities', 'identity_link_requests',
-  // Task templates, every use of one, and which item each task a use made came from.
-  'task_templates', 'task_template_runs', 'task_template_run_tasks',
+  // Task templates, every use of one, which item each task a use made came from, and runs proposed for approval.
+  'task_templates', 'task_template_runs', 'task_template_run_tasks', 'task_template_run_drafts',
+  // Schedules (recurring templates and task repeats) and each date they ran for.
+  'schedules', 'schedule_occurrences',
   // Initiatives inside a project and their logs, as tasks are core.
   'initiatives', 'initiative_entries',
   // Connect AI: registered tools, connections, codes, tokens and the endpoints' rate windows.

@@ -2,13 +2,14 @@
 
 import { useRef, useState, type ReactNode } from 'react';
 import Link from 'next/link';
-import { LayoutTemplate, Lock, Search } from 'lucide-react';
+import { LayoutTemplate, Search, Settings2 } from 'lucide-react';
 import { useAuth } from '@/lib/auth-context';
 import { useDemo } from '@/lib/demo-context';
 import { hasPermission } from '@/lib/access-control';
 import { useRead, warmRead } from '@/lib/query-cache';
 import { taskTemplateRead, taskTemplatesRead, useIntent } from '@/lib/reads';
 import { templateSizeLabel, type TaskTemplateRunResult, type TaskTemplateSummary } from '@/lib/task-templates';
+import { canWriteSomeTemplate } from '@/lib/template-ui';
 import type { Task } from '@/lib/types';
 import { Button } from '@/components/ui/Button';
 import { Popover } from '@/components/ui/Popover';
@@ -24,15 +25,19 @@ export function useCanUseTemplates(): boolean {
 
 /**
  * The templates usable in a project (or anywhere), as a list that opens
- * under its trigger: searched once there are more than six, each with what
- * it makes and whether it is locked to this project. Picking one hands its
- * id back; pointing at one reads it ahead, so its panel opens ready.
+ * under its trigger: in a project, its own templates first, then the
+ * company-wide ones, each with what it makes and what it asks for; searched
+ * once there are more than six. "Manage templates" sits at the foot (the
+ * project's Templates panel, or Settings > Templates). Picking one hands its
+ * id back; pointing at one reads it ahead, so its run opens ready.
  */
-export function TemplatePicker({ projectId, trigger, onPick }: {
+export function TemplatePicker({ projectId, trigger, onPick, onManage }: {
   projectId?: string | null;
   /** The button that opens it, given whether it is open and how to toggle it. */
   trigger: (props: { open: boolean; toggle: () => void }) => ReactNode;
   onPick: (template: TaskTemplateSummary) => void;
+  /** Opens where this project's templates are managed; left out, the foot links to Settings > Templates. */
+  onManage?: () => void;
 }) {
   const { access } = useAuth();
   const { isDemoMode } = useDemo();
@@ -41,10 +46,38 @@ export function TemplatePicker({ projectId, trigger, onPick }: {
   const [query, setQuery] = useState('');
   const list = useRead(open ? taskTemplatesRead(isDemoMode, projectId ?? null) : null);
   const intent = useIntent();
-  const canManage = !isDemoMode && hasPermission(access, 'templates.manage');
+  const canWrite = canWriteSomeTemplate(access);
   const rows = list.data ?? [];
   const needle = query.trim().toLowerCase();
   const shown = needle ? rows.filter((t) => t.name.toLowerCase().includes(needle)) : rows;
+  const own = projectId ? shown.filter((t) => t.project_id === projectId) : [];
+  const company = projectId ? shown.filter((t) => !t.project_id) : shown;
+  const manageHref = projectId ? `/settings/templates?project=${encodeURIComponent(projectId)}` : '/settings/templates';
+
+  const option = (template: TaskTemplateSummary) => (
+    <button
+      key={template.id}
+      type="button"
+      role="option"
+      aria-selected={false}
+      onClick={() => { setOpen(false); onPick(template); }}
+      {...intent(() => void warmRead(taskTemplateRead(template.id, isDemoMode)))}
+      className={`${MENU_ITEM} text-zinc-200`}
+    >
+      <LayoutTemplate size={15} className="flex-shrink-0 text-brand-300" aria-hidden="true" />
+      <span className="min-w-0 flex-1">
+        <span className="block truncate">{template.name}</span>
+        <span className="block truncate text-xs text-zinc-400">{templateSizeLabel(template)}{template.fields.length ? `, asks for ${template.fields.map((f) => f.label).join(', ')}` : ''}</span>
+      </span>
+    </button>
+  );
+  const group = (label: string, items: TaskTemplateSummary[]) => (items.length ? (
+    <div role="group" aria-label={label}>
+      <p className="px-3 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wider text-zinc-500">{label}</p>
+      {items.map(option)}
+    </div>
+  ) : null);
+  const manageClass = 'flex w-full items-center gap-2 px-3 py-2 text-sm text-zinc-300 transition-colors hover:bg-white/[0.06] hover:text-white focus:outline-none focus-visible:bg-white/[0.06]';
 
   return (
     <div ref={anchor} className="inline-flex">
@@ -60,31 +93,26 @@ export function TemplatePicker({ projectId, trigger, onPick }: {
           {list.failed && <p role="alert" className="px-3 py-2 text-sm text-red-300">Could not load templates.</p>}
           {!list.loading && !list.failed && rows.length === 0 && (
             <div className="px-3 py-3 text-sm">
-              <p className="text-zinc-300">No templates yet.</p>
-              <p className="mt-0.5 text-xs text-zinc-400">
-                {canManage ? <>Set up repeat work once in <Link href="/templates" className="text-brand-300 hover:text-brand-200 underline-offset-2 hover:underline">Templates</Link>.</> : 'An Owner or Admin can set them up in Templates.'}
+              <p className="font-medium text-zinc-200">No templates yet</p>
+              <p className="mt-0.5 text-xs leading-relaxed text-zinc-400">
+                A template makes the same tasks every time, with due dates that fall into place.
+                {canWrite ? ' Set one up under Manage templates.' : ' Ask whoever manages this project to set one up.'}
               </p>
             </div>
           )}
           {rows.length > 0 && shown.length === 0 && <p className="px-3 py-2 text-sm text-zinc-400">Nothing matches.</p>}
-          {shown.map((template) => (
-            <button
-              key={template.id}
-              type="button"
-              role="option"
-              aria-selected={false}
-              onClick={() => { setOpen(false); onPick(template); }}
-              {...intent(() => void warmRead(taskTemplateRead(template.id, isDemoMode)))}
-              className={`${MENU_ITEM} text-zinc-200`}
-            >
-              <LayoutTemplate size={15} className="flex-shrink-0 text-brand-300" aria-hidden="true" />
-              <span className="min-w-0 flex-1">
-                <span className="block truncate">{template.name}</span>
-                <span className="block truncate text-xs text-zinc-400">{templateSizeLabel(template)}{template.fields.length ? `, asks for ${template.fields.map((f) => f.label).join(', ')}` : ''}</span>
-              </span>
-              {template.project_id && <Lock size={13} className="flex-shrink-0 text-zinc-500" aria-label="Only in this project" />}
+          {projectId ? <>{group('This project', own)}{group('Company-wide', company)}</> : company.map(option)}
+        </div>
+        <div className="mt-1 border-t border-white/[0.06] pt-1">
+          {onManage ? (
+            <button type="button" onClick={() => { setOpen(false); onManage(); }} className={manageClass}>
+              <Settings2 size={14} className="flex-shrink-0 text-zinc-400" aria-hidden="true" />Manage templates
             </button>
-          ))}
+          ) : (
+            <Link href={manageHref} onClick={() => setOpen(false)} className={manageClass}>
+              <Settings2 size={14} className="flex-shrink-0 text-zinc-400" aria-hidden="true" />Manage templates
+            </Link>
+          )}
         </div>
       </Popover>
     </div>

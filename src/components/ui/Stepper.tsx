@@ -142,8 +142,12 @@ export function StepPanel({ stepKey, title, description, children }: {
   );
 }
 
-/** Back and Next at the foot of a step. Next says what it does on the step that commits ("Hire Nova"). */
-export function StepFooter({ onBack, onNext, nextLabel = 'Next', busy = false, busyLabel, nextDisabled = false, error, extra }: {
+/**
+ * Back and Next at the foot of a step. Next says what it does on the step that
+ * commits ("Hire Nova"). `bar` pins it as a side panel's save bar instead of
+ * under the step's fields.
+ */
+export function StepFooter({ onBack, onNext, nextLabel = 'Next', busy = false, busyLabel, nextDisabled = false, error, extra, variant = 'inline' }: {
   onBack?: () => void;
   onNext?: () => void;
   nextLabel?: string;
@@ -153,14 +157,15 @@ export function StepFooter({ onBack, onNext, nextLabel = 'Next', busy = false, b
   /** A step-level problem (the server's), shown above the buttons. */
   error?: string | null;
   extra?: ReactNode;
+  variant?: 'inline' | 'bar';
 }) {
   return (
-    <div className="mt-10 border-t border-white/[0.06] pt-5">
+    <div className={variant === 'bar' ? 'border-t border-white/[0.06] px-5 py-3' : 'mt-10 border-t border-white/[0.06] pt-5'}>
       {error && <p role="alert" className="mb-4 rounded-lg bg-red-500/[0.12] px-3 py-2 text-sm text-red-200">{error}</p>}
       <div className="flex items-center justify-between gap-3">
         <div>
           {onBack && (
-            <Button variant="ghost" icon={<ArrowLeft size={15} aria-hidden="true" />} onClick={onBack} disabled={busy}>
+            <Button variant="ghost" size={variant === 'bar' ? 'sm' : 'md'} icon={<ArrowLeft size={15} aria-hidden="true" />} onClick={onBack} disabled={busy}>
               Back
             </Button>
           )}
@@ -169,6 +174,7 @@ export function StepFooter({ onBack, onNext, nextLabel = 'Next', busy = false, b
           {extra}
           {onNext && (
             <Button
+              size={variant === 'bar' ? 'sm' : 'md'}
               onClick={onNext}
               disabled={busy || nextDisabled}
               icon={busy ? <Loader2 size={15} className="animate-spin motion-reduce:animate-none" aria-hidden="true" /> : undefined}

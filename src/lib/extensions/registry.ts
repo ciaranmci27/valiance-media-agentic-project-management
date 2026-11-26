@@ -166,6 +166,13 @@ export function visibleNavItems(access: AccessContext | null | undefined, extens
 }
 
 /**
+ * Core sidebar entries that moved elsewhere, each to the entry it sat after,
+ * so an install's `after` naming one keeps its place. Templates moved to
+ * Settings > Templates.
+ */
+const RETIRED_NAV_ANCHORS: Record<string, string> = { '/templates': '/projects' };
+
+/**
  * Places custom entries among the core ones: after their `after` entry when it
  * is shown, else at the end. An entry repeating a core href is left out: core's wins.
  */
@@ -175,7 +182,8 @@ export function placeNavItems<T extends { href: string }>(core: T[], custom: (T 
   const taken = new Set(core.map((entry) => entry.href));
   for (const item of custom) {
     if (taken.has(item.href)) continue;
-    const at = item.after ? out.findIndex((entry) => entry.href === item.after) : -1;
+    const anchor = item.after && !taken.has(item.after) ? RETIRED_NAV_ANCHORS[item.after] ?? item.after : item.after;
+    const at = anchor ? out.findIndex((entry) => entry.href === anchor) : -1;
     if (at === -1) tail.push(item);
     else out.splice(at + 1, 0, item);
   }

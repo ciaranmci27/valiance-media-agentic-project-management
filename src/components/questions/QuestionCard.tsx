@@ -1,11 +1,12 @@
 'use client';
 
 import { useId, useState, type ReactNode } from 'react';
-import { Check, ExternalLink, MessageCircleQuestion, ShieldCheck } from 'lucide-react';
+import { Check, Eye, ExternalLink, MessageCircleQuestion, ShieldCheck } from 'lucide-react';
 import { useAuth } from '@/lib/auth-context';
 import { Button } from '@/components/ui/Button';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Textarea } from '@/components/ui/inputs/Textarea';
+import { TemplateDraftReviewPanel } from '@/components/templates/TemplateDraftReviewPanel';
 import { invalidateTables } from '@/lib/query-cache';
 import { ANSWER_MAX, answerLine, approvalDetailRows, approvalTypeLabel, decisionLine, externalLinkHost, textAnswers, type QuestionView } from '@/lib/questions';
 import { timeAgo } from '@/lib/task-times';
@@ -30,6 +31,8 @@ import { appLocale } from '@/lib/region';
  * board card), an optional note, and Approve and Reject buttons that send at
  * once. Whoever it names, or the Owner, decides it; once decided it says by
  * whom and how ("Approved by Mia in the app", "Approved by Reviewer AI").
+ * A template run an agent drafted adds Review, which opens the draft's
+ * review panel (what approving makes, Approve and Reject there too).
  *
  * A question asked to a group reads "Asked to Finance (any member)", and is
  * yours to answer when you are in that group. One an agent asked for someone
@@ -73,6 +76,7 @@ export function QuestionCard({ question, variant = 'panel', place, onOpenTask }:
   const [confirmCancel, setConfirmCancel] = useState(false);
   const [deciding, setDeciding] = useState<'approve' | 'reject' | null>(null);
   const [showAllDetails, setShowAllDetails] = useState(false);
+  const [reviewing, setReviewing] = useState(false);
   const detailsId = useId();
 
   const forYou = question.asked_to === teamMemberId || question.asked_to_you === true;
@@ -84,6 +88,9 @@ export function QuestionCard({ question, variant = 'panel', place, onOpenTask }:
   const canSend = !busy && (choice !== null || (words && text.trim().length > 0));
   const compact = variant === 'card';
   const Icon = approval ? ShieldCheck : MessageCircleQuestion;
+  // A template run an agent drafted: Review opens what approving would make.
+  const draftId = approval && question.action?.type === 'template_run' && typeof question.action.details?.draft_id === 'string'
+    ? question.action.details.draft_id : null;
 
   const label = group
     ? `Asked to ${group}`
@@ -293,7 +300,16 @@ export function QuestionCard({ question, variant = 'panel', place, onOpenTask }:
     </div>
   );
 
-  const controls = (question.can_answer || question.can_cancel) && (
+  const reviewButton = draftId && (
+    <Button type="button" size="sm" variant="secondary" icon={<Eye size={13} aria-hidden="true" />} onClick={() => setReviewing(true)}>
+      Review
+    </Button>
+  );
+  const reviewPanel = draftId && reviewing && (
+    <TemplateDraftReviewPanel draftId={draftId} approval={question} onClose={() => { setReviewing(false); invalidateTables(['questions']); }} />
+  );
+
+  const controls = (question.can_answer || question.can_cancel || draftId) && (
     <>
       {question.can_answer && (words || approval) && (
         <Textarea
@@ -318,6 +334,7 @@ export function QuestionCard({ question, variant = 'panel', place, onOpenTask }:
       )}
       {error && <p className="mt-2 text-xs text-red-300" role="alert">{error}</p>}
       <div className={`flex flex-wrap items-center gap-2 ${compact ? 'mt-2' : 'mt-3'}`}>
+        {reviewButton}
         {question.can_answer && approval && (
           <>
             <Button type="button" size="sm" onClick={() => void answer('approve')} disabled={!!busy}>
@@ -379,6 +396,7 @@ export function QuestionCard({ question, variant = 'panel', place, onOpenTask }:
           </div>
         </div>
         {dialog}
+        {reviewPanel}
       </div>
     );
   }
@@ -390,6 +408,7 @@ export function QuestionCard({ question, variant = 'panel', place, onOpenTask }:
       {choiceButtons}
       {controls}
       {dialog}
+      {reviewPanel}
     </div>
   );
 }

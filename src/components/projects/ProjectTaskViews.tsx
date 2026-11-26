@@ -21,6 +21,7 @@ import { NewTaskPanel } from '@/components/tasks/NewTaskPanel';
 import { TaskMoveDialog } from '@/components/tasks/MoveTaskDialog';
 import { TemplatePicker } from '@/components/templates/UseTemplateButton';
 import { UseTemplatePanel } from '@/components/templates/UseTemplatePanel';
+import { ProjectTemplatesPanel } from '@/components/templates/ProjectTemplatesPanel';
 import { BoardView } from '@/components/views/BoardView';
 import { ListView } from '@/components/views/ListView';
 import { CalendarView } from '@/components/views/CalendarView';
@@ -70,6 +71,7 @@ export function ProjectTaskViews({ projectId, taskFilter, newTaskInitiativeId = 
   // A new task being drafted in the side panel, with a calendar day's date when it came from one.
   const [newTask, setNewTask] = useState<{ dueDate?: string } | null>(null);
   const [usingTemplate, setUsingTemplate] = useState<string | null>(null);
+  const [managingTemplates, setManagingTemplates] = useState(false);
   const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
   const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set());
   const [showBulkMenu, setShowBulkMenu] = useState(false);
@@ -398,6 +400,7 @@ export function ProjectTaskViews({ projectId, taskFilter, newTaskInitiativeId = 
               <TemplatePicker
                 projectId={projectId}
                 onPick={(template) => setUsingTemplate(template.id)}
+                onManage={() => setManagingTemplates(true)}
                 trigger={({ open, toggle }) => (
                   <ToolbarButton variant="secondary" icon={<LayoutTemplate />} label="From a template" onClick={toggle} aria-expanded={open} aria-haspopup="listbox" />
                 )}
@@ -477,6 +480,8 @@ export function ProjectTaskViews({ projectId, taskFilter, newTaskInitiativeId = 
           onClose={() => setUsingTemplate(null)}
         />
       )}
+      {/* The project's own templates, from "Manage templates" at the picker's foot. */}
+      {managingTemplates && <ProjectTemplatesPanel projectId={projectId} onClose={() => setManagingTemplates(false)} />}
 
       <ConfirmDialog
         isOpen={confirmBulkDelete}
