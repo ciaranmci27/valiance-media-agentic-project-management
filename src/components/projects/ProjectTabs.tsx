@@ -1,101 +1,26 @@
 'use client';
 
-import { useRef, type KeyboardEvent } from 'react';
-import { LivePulse } from '@/components/ui/LivePulse';
-import { CountBadge } from '@/components/ui/CountBadge';
-import { useIntent } from '@/lib/reads';
+import { Tabs, tabId, tabPanelId, type TabItem } from '@/components/ui/Tabs';
 
-export interface ProjectTab<K extends string> {
-  key: K;
-  label: string;
-  /** Small count after the label, e.g. open tasks. Hidden when 0 or absent. */
-  count?: number;
-  /** Shows the live pulse after the label, e.g. Time tracking while your timer runs. */
-  live?: boolean;
-  /** A count badge after the label (CountBadge), e.g. unread tasks; hidden at 0. */
-  badge?: { count: number; label: string };
-  /** Warms what the tab reads (reads.ts) when the pointer rests on it or it takes focus. */
-  warm?: () => void;
-}
+/**
+ * The project page's section tabs: the shared underline `Tabs`
+ * (`src/components/ui/Tabs.tsx`) with the `project` id prefix. Kept so the
+ * pages that use it (project, Agents home, an agent's profile, Finances)
+ * keep working; new screens use `Tabs` directly.
+ */
 
-interface ProjectTabsProps<K extends string> {
+export type ProjectTab<K extends string> = TabItem<K>;
+
+export const projectTabId = (key: string) => tabId('project', key);
+export const projectPanelId = (key: string) => tabPanelId('project', key);
+
+export function ProjectTabs<K extends string>({ tabs, active, onChange, label = 'Project sections' }: {
   tabs: ProjectTab<K>[];
   active: K;
   onChange: (key: K) => void;
   /** Names the tab list for screen readers. */
   label?: string;
-}
-
-export const projectTabId = (key: string) => `project-tab-${key}`;
-export const projectPanelId = (key: string) => `project-panel-${key}`;
-
-/**
- * Page-level tab bar for the project page: an underline strip, so it never
- * reads as one more segmented control beside the task view toggle. Arrow keys
- * move between tabs (roving tabindex), as the ARIA tabs pattern expects.
- */
-export function ProjectTabs<K extends string>({ tabs, active, onChange, label = 'Project sections' }: ProjectTabsProps<K>) {
-  const refs = useRef<(HTMLButtonElement | null)[]>([]);
-  const intent = useIntent();
-
-  const onKeyDown = (e: KeyboardEvent<HTMLButtonElement>, index: number) => {
-    let next = -1;
-    if (e.key === 'ArrowRight') next = (index + 1) % tabs.length;
-    else if (e.key === 'ArrowLeft') next = (index - 1 + tabs.length) % tabs.length;
-    else if (e.key === 'Home') next = 0;
-    else if (e.key === 'End') next = tabs.length - 1;
-    if (next === -1) return;
-    e.preventDefault();
-    refs.current[next]?.focus();
-    onChange(tabs[next].key);
-  };
-
-  // The hairline is on the wrapper. The strip reaches 1px down over it
-  // (-mb-px pb-px), so each underline still covers the hairline but stays
-  // inside the strip: nothing overflows vertically, and a sideways swipe on a
-  // narrow screen scrolls only sideways instead of wobbling up and down.
-  return (
-    <div className="border-b border-white/[0.08]">
-      <div
-        role="tablist"
-        aria-label={label}
-        className="flex items-end gap-1 -mb-px pb-px overflow-x-auto overflow-y-hidden overscroll-x-contain scrollbar-none"
-      >
-        {tabs.map((tab, index) => {
-          const selected = tab.key === active;
-          return (
-            <button
-              key={tab.key}
-              ref={(el) => { refs.current[index] = el; }}
-              type="button"
-              role="tab"
-              id={projectTabId(tab.key)}
-              aria-selected={selected}
-              aria-controls={projectPanelId(tab.key)}
-              tabIndex={selected ? 0 : -1}
-              onClick={() => onChange(tab.key)}
-              onKeyDown={(e) => onKeyDown(e, index)}
-              {...(tab.warm && !selected ? intent(tab.warm) : {})}
-              className={`relative flex items-center gap-1.5 whitespace-nowrap px-3 pt-2 pb-2.5 text-sm font-medium rounded-t-md transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-500 ${
-                selected ? 'text-white' : 'text-zinc-400 hover:text-zinc-200'
-              }`}
-            >
-              {tab.label}
-              {tab.live && <LivePulse label="Your timer is running on this project" />}
-              {tab.badge && <CountBadge count={tab.badge.count} label={tab.badge.label} />}
-              {!!tab.count && (
-                <span className={`text-xs tabular-nums ${selected ? 'text-zinc-300' : 'text-zinc-500'}`}>
-                  {tab.count}
-                </span>
-              )}
-              <span
-                aria-hidden="true"
-                className={`absolute inset-x-2 -bottom-px h-0.5 rounded-full transition-colors ${selected ? 'bg-brand-400' : 'bg-transparent'}`}
-              />
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
+}) {
+  const withLive = tabs.map((tab) => (tab.live && !tab.liveLabel ? { ...tab, liveLabel: 'Your timer is running on this project' } : tab));
+  return <Tabs tabs={withLive} active={active} onChange={onChange} label={label} idPrefix="project" />;
 }

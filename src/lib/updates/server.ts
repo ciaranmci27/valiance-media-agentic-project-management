@@ -34,6 +34,8 @@ export async function updatesDeps(): Promise<UpdatesDeps> {
     env: {
       PM_GITHUB_TOKEN: github.github_token ?? undefined,
       PM_GITHUB_REPO: github.github_repo ?? undefined,
+      // Optional read-only token for the release repo, only from the host.
+      PM_UPSTREAM_TOKEN: process.env.PM_UPSTREAM_TOKEN,
       PM_INSTALL_ROLE: process.env.PM_INSTALL_ROLE,
       PM_SOURCE_LAYOUT: process.env.PM_SOURCE_LAYOUT,
       // Database updates: read for whether they are set, never sent anywhere.

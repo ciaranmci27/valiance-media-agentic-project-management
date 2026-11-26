@@ -108,19 +108,26 @@ function connectionFor(deps: UpdatesDeps, reuse = false): Promise<ConnectionCont
 /** Statuses where the repo is open with the token and its runs can be read. */
 const RUN_READABLE = new Set<ConnectionInfo['status']>(['workflow_missing', 'merge_commits_disabled', 'secret_missing', 'permissions_unconfirmed', 'connected']);
 
-/** The install's token reads the upstream releases (60 anonymous reads an hour per IP is easy to share away); the source install reads anonymously. */
-function releaseToken(deps: UpdatesDeps): string | null {
-  return installRole(deps.env) === 'source' ? null : deps.env.PM_GITHUB_TOKEN?.trim() || null;
+/**
+ * The credentials the release list is read with, both optional: PM_UPSTREAM_TOKEN
+ * (the release repo's read-only token, on any install) first, then the
+ * install's PM_GITHUB_TOKEN (never on the source install), then anonymous.
+ */
+function releaseCredentials(deps: UpdatesDeps): { upstreamToken: string | null; token: string | null } {
+  return {
+    upstreamToken: deps.env.PM_UPSTREAM_TOKEN?.trim() || null,
+    token: installRole(deps.env) === 'source' ? null : deps.env.PM_GITHUB_TOKEN?.trim() || null,
+  };
 }
 
 /** The pending release for a version, read again once before refusing (a release published since the cached read). */
 async function findPendingRelease(version: string, deps: UpdatesDeps): Promise<ReleaseInfo | NextResponse> {
   const current = deps.currentVersion();
-  const token = releaseToken(deps);
-  let list = await readReleases({ fetch: deps.fetch, now: deps.now, token });
+  const credentials = releaseCredentials(deps);
+  let list = await readReleases({ fetch: deps.fetch, now: deps.now, ...credentials });
   let release = pendingReleases(list.releases, current).find((item) => item.version === version) ?? null;
   if (!release) {
-    list = await readReleases({ refresh: true, fetch: deps.fetch, now: deps.now, token });
+    list = await readReleases({ refresh: true, fetch: deps.fetch, now: deps.now, ...credentials });
     release = pendingReleases(list.releases, current).find((item) => item.version === version) ?? null;
   }
   if (release) return release;
@@ -137,7 +144,7 @@ export async function getUpdates(request: NextRequest, deps: UpdatesDeps): Promi
   const current = deps.currentVersion();
   const refresh = request.nextUrl.searchParams.get('refresh') === '1';
   const [list, connection, database] = await Promise.all([
-    readReleases({ refresh, fetch: deps.fetch, now: deps.now, token: releaseToken(deps) }),
+    readReleases({ refresh, fetch: deps.fetch, now: deps.now, ...releaseCredentials(deps) }),
     role === 'source' ? Promise.resolve(null) : connectionFor(deps, !refresh),
     readDatabase(deps),
   ]);

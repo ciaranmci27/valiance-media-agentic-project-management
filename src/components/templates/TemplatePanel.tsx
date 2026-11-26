@@ -31,6 +31,7 @@ import { Textarea } from '@/components/ui/inputs/Textarea';
 import { toast } from '@/components/ui/Toast';
 import { useDiscardGuard } from '@/components/ui/useDiscardGuard';
 import { TaskPanelShell } from '@/components/tasks/TaskPanelShell';
+import { PanelHeader } from '@/components/ui/PanelHeader';
 import { PRIORITY_OPTIONS, TagsField } from '@/components/tasks/TaskFields';
 import { ScopeChip } from './TemplateLibrary';
 
@@ -197,7 +198,7 @@ export function TemplatePanel({ templateId, starter, projectId = null, onClose, 
   const saved = useRead(templateId ? taskTemplateRead(templateId, isDemoMode) : null);
   if (templateId && !saved.data) {
     return (
-      <TaskPanelShell labelledBy="template-title" onClose={onClose} header={<PanelHeader title={saved.failed ? 'Template' : 'Loading template'} onClose={onClose} />}>
+      <TaskPanelShell labelledBy="template-title" onClose={onClose} header={<PanelHeader id="template-title" title={saved.failed ? 'Template' : 'Loading template'} onClose={onClose} />}>
         {saved.failed ? (
           <div role="alert" className="flex flex-col items-center gap-3 px-5 py-12 text-center">
             <p className="text-sm text-zinc-300">Could not open this template. It may be in Trash.</p>
@@ -219,25 +220,6 @@ export function TemplatePanel({ templateId, starter, projectId = null, onClose, 
       onSchedule={onSchedule}
       onSaved={onSaved}
     />
-  );
-}
-
-function PanelHeader({ title, eyebrow, onClose }: { title: string; eyebrow?: string; onClose: () => void }) {
-  return (
-    <div className="flex items-start gap-3 px-5 pt-4 pb-3 flex-shrink-0">
-      <div className="min-w-0 flex-1">
-        {eyebrow && <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-zinc-400">{eyebrow}</p>}
-        <h2 id="template-title" className="text-base font-semibold leading-snug text-white break-words">{title}</h2>
-      </div>
-      <button
-        type="button"
-        onClick={onClose}
-        aria-label="Close"
-        className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.06] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
-      >
-        <X size={18} aria-hidden="true" />
-      </button>
-    </div>
   );
 }
 
@@ -450,7 +432,7 @@ function TemplateEditor({ template, starter, presetProject, onClose, onUse, onSc
     <TaskPanelShell
       labelledBy="template-title"
       onClose={requestClose}
-      header={<PanelHeader title={template ? 'Edit template' : 'New template'} eyebrow={template?.name} onClose={requestClose} />}
+      header={<PanelHeader id="template-title" title={template ? 'Edit template' : 'New template'} detail={template?.name} onClose={requestClose} />}
       footer={
         <div className="flex items-center justify-between gap-3 border-t border-white/[0.06] px-5 py-3">
           <div className="flex min-w-0 items-center gap-1">
@@ -850,7 +832,7 @@ function TemplateReadView({ template, onClose, onUse, onSchedule, runs }: {
     <TaskPanelShell
       labelledBy="template-title"
       onClose={onClose}
-      header={<PanelHeader title={template.name} eyebrow="Template" onClose={onClose} />}
+      header={<PanelHeader id="template-title" title={template.name} onClose={onClose} />}
       footer={onUse || onSchedule ? (
         <div className="flex items-center justify-between gap-3 border-t border-white/[0.06] px-5 py-3">
           <p className="truncate text-xs text-zinc-400">Ask whoever manages it to change it.</p>

@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { Check, History, Info, Layers, MinusCircle, RefreshCw, Sparkles, X } from 'lucide-react';
+import { Check, History, Info, Layers, MinusCircle, RefreshCw, Sparkles } from 'lucide-react';
 import { useAuth } from '@/lib/auth-context';
 import { useDemo } from '@/lib/demo-context';
 import { useRead } from '@/lib/query-cache';
@@ -17,6 +17,7 @@ import { filledTitle, type ScreenIssue, type TemplateDraftDetail } from '@/lib/t
 import { Button } from '@/components/ui/Button';
 import { Textarea } from '@/components/ui/inputs/Textarea';
 import { TaskPanelShell } from '@/components/tasks/TaskPanelShell';
+import { PanelHeader } from '@/components/ui/PanelHeader';
 import { PastDueNotes, RunPreviewList, shortDate } from './RunPreviewList';
 import { decideDraft, type DraftDecision } from './template-run-actions';
 
@@ -51,28 +52,17 @@ export function TemplateDraftReviewPanel({ draftId, approval: given, onClose }: 
   const draft = read.data;
 
   const header = (
-    <div className="flex items-start gap-3 px-5 pt-4 pb-3 flex-shrink-0">
-      <div className="min-w-0 flex-1">
-        <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-zinc-400">Review draft</p>
-        <h2 id="draft-review-title" className="text-base font-semibold leading-snug text-white break-words">
-          {draft ? draft.template_name : read.failed ? 'Draft' : 'Loading draft'}
-        </h2>
-        {draft && (
-          <p className="mt-0.5 text-xs text-zinc-400">
-            Drafted by {draft.proposed_by_name ?? 'an agent'} <time dateTime={draft.created_at}>{timeAgo(draft.created_at)}</time>
-            {draft.project_name ? ` in ${draft.project_name}` : ''}
-          </p>
-        )}
-      </div>
-      <button
-        type="button"
-        onClick={onClose}
-        aria-label="Close"
-        className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.06] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
-      >
-        <X size={18} aria-hidden="true" />
-      </button>
-    </div>
+    <PanelHeader
+      id="draft-review-title"
+      title="Review draft"
+      detail={draft ? (
+        <>
+          {draft.template_name}, drafted by {draft.proposed_by_name ?? 'an agent'} <time dateTime={draft.created_at}>{timeAgo(draft.created_at)}</time>
+          {draft.project_name ? ` in ${draft.project_name}` : ''}
+        </>
+      ) : undefined}
+      onClose={onClose}
+    />
   );
 
   if (!draft) {

@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
-import { AlertTriangle, CalendarClock, Lock, Pause, Play, RefreshCw, Trash2, Undo2, X } from 'lucide-react';
+import { AlertTriangle, CalendarClock, Lock, Pause, Play, RefreshCw, Trash2, Undo2 } from 'lucide-react';
 import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
 import { useDemo } from '@/lib/demo-context';
@@ -25,6 +25,7 @@ import { Toggle } from '@/components/ui/inputs/Toggle';
 import { toast } from '@/components/ui/Toast';
 import { useDiscardGuard } from '@/components/ui/useDiscardGuard';
 import { TaskPanelShell } from '@/components/tasks/TaskPanelShell';
+import { PanelHeader } from '@/components/ui/PanelHeader';
 import { RecurrencePicker } from './RecurrencePicker';
 import {
   errorText, refreshSchedules, removeSchedule, scheduleStatusLine, setSchedulePaused, todayIn, undoRemoveSchedule, useRemovedSchedules,
@@ -56,7 +57,7 @@ export function SchedulePanel({ templateId: givenTemplate = null, scheduleId: gi
   const failed = (scheduleId && schedule.failed && !schedule.data) || (template.failed && !template.data) || (scheduleId && schedule.data && !templateId);
   if (failed || !template.data || (scheduleId && !schedule.data)) {
     return (
-      <TaskPanelShell labelledBy="schedule-title" onClose={onClose} header={<PanelHeader title={failed ? 'Schedule' : 'Loading schedule'} onClose={onClose} />}>
+      <TaskPanelShell labelledBy="schedule-title" onClose={onClose} header={<PanelHeader id="schedule-title" title={failed ? 'Schedule' : 'Loading schedule'} onClose={onClose} />}>
         {failed ? (
           <div role="alert" className="flex flex-col items-center gap-3 px-5 py-12 text-center">
             <p className="text-sm text-zinc-300">{scheduleId && schedule.data && !templateId ? 'Its template is gone, so this schedule cannot run.' : 'Could not open this schedule. It may have been removed.'}</p>
@@ -74,26 +75,6 @@ export function SchedulePanel({ templateId: givenTemplate = null, scheduleId: gi
       onOpen={setScheduleId}
       onClose={onClose}
     />
-  );
-}
-
-function PanelHeader({ title, eyebrow, detail, onClose }: { title: string; eyebrow?: string; detail?: string; onClose: () => void }) {
-  return (
-    <div className="flex items-start gap-3 px-5 pt-4 pb-3 flex-shrink-0">
-      <div className="min-w-0 flex-1">
-        {eyebrow && <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-zinc-400">{eyebrow}</p>}
-        <h2 id="schedule-title" className="text-base font-semibold leading-snug text-white break-words">{title}</h2>
-        {detail && <p className="mt-0.5 text-xs text-zinc-400">{detail}</p>}
-      </div>
-      <button
-        type="button"
-        onClick={onClose}
-        aria-label="Close"
-        className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.06] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
-      >
-        <X size={18} aria-hidden="true" />
-      </button>
-    </div>
   );
 }
 
@@ -314,7 +295,7 @@ function ScheduleForm({ template: t, schedule, onOpen, onClose }: {
 
   if (isRemoved && schedule) {
     return (
-      <TaskPanelShell labelledBy="schedule-title" onClose={onClose} header={<PanelHeader title={t.name} eyebrow="Schedule" onClose={onClose} />}>
+      <TaskPanelShell labelledBy="schedule-title" onClose={onClose} header={<PanelHeader id="schedule-title" title="Schedule" detail={`${t.name}, ${templateSizeLabel(t)}`} onClose={onClose} />}>
         <div role="status" className="flex flex-col items-center gap-3 px-5 py-14 text-center">
           <span className="flex h-10 w-10 items-center justify-center rounded-full bg-white/[0.05] text-zinc-400" aria-hidden="true"><Trash2 size={18} /></span>
           <p className="text-sm font-medium text-zinc-100">Schedule removed</p>
@@ -332,7 +313,7 @@ function ScheduleForm({ template: t, schedule, onOpen, onClose }: {
     <TaskPanelShell
       labelledBy="schedule-title"
       onClose={requestClose}
-      header={<PanelHeader title={schedule ? 'Edit schedule' : 'Schedule a template'} eyebrow={t.name} detail={templateSizeLabel(t)} onClose={requestClose} />}
+      header={<PanelHeader id="schedule-title" title={schedule ? 'Edit schedule' : 'Schedule a template'} detail={`${t.name}, ${templateSizeLabel(t)}`} onClose={requestClose} />}
       footer={
         <div className="border-t border-white/[0.06] px-5 py-3">
           {formError && <p role="alert" className="mb-2 text-xs text-red-300">{formError}</p>}

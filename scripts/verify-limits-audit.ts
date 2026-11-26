@@ -574,6 +574,13 @@ async function main() {
 
     // ── Session coverage ──────────────────────────────────────────────
     const accessChange = await session(accessRoute.PUT, 'PUT', '/api/workspace/access', {}, { target: 'role', role: 'member', permission_key: 'goals.manage', access_channel: 'app', enabled: true });
+    // An agent only uses the API: an app-channel grant for it is refused, the API one works, removing an old app one is allowed.
+    const agentApp = await session(accessRoute.PUT, 'PUT', '/api/workspace/access', {}, { target: 'member', member_id: s.jeff, permission_key: 'agents.act_for', access_channel: 'app', effect: 'allow' });
+    const agentApi = await session(accessRoute.PUT, 'PUT', '/api/workspace/access', {}, { target: 'member', member_id: s.jeff, permission_key: 'agents.act_for', access_channel: 'api', effect: 'allow' });
+    const agentAppClear = await session(accessRoute.PUT, 'PUT', '/api/workspace/access', {}, { target: 'member', member_id: s.jeff, permission_key: 'agents.act_for', access_channel: 'app', effect: null });
+    const agentRoleApp = await session(accessRoute.PUT, 'PUT', '/api/workspace/access', {}, { target: 'role', role: 'agent', permission_key: 'goals.manage', access_channel: 'app', enabled: true });
+    check('access: an agent’s grant is refused on the app channel, works on the API, an old app one can be removed', agentApp.status === 422 && agentApp.body?.reason === 'agent_api_only'
+      && agentApi.status === 200 && agentAppClear.status === 200 && agentRoleApp.status === 422, [agentApp.body, agentApi.body, agentAppClear.body, agentRoleApp.body]);
     const memberChange = await session(memberRoute.PATCH, 'PATCH', `/api/workspace/team-members/${s.ana}`, { id: s.ana }, { role: 'admin' });
     const keyMade = await session(apiKeysRoute.POST, 'POST', '/api/workspace/api-keys', {}, { name: 'Laptop', scopes: ['tasks.read'] });
     const rows = await s.q<Loose>("SELECT entity_type, method, team_member_id, after_snapshot FROM pm.api_audit_log WHERE via = 'app' AND team_member_id = $1 AND endpoint LIKE '/app/%' ORDER BY seq", [s.owner]);

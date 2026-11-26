@@ -51,8 +51,9 @@ const LINK = 'rounded font-medium text-brand-300 underline underline-offset-2 ho
  * Settings > Developers > API keys: the person's own keys, for scripts and
  * tools that call the API as them. New key is a short guided dialog; each
  * key can be edited, rotated (with an overlap) or revoked. An Owner also
- * sees other people's keys. Agent keys are listed with Revoke (so one can be
- * stopped even with the Agents module off) and a link to their agent's
+ * sees other people's keys. Agent keys are listed with Edit (an Owner may
+ * give the agent a power its role lacks there) and Revoke (so one can be
+ * stopped even with the Agents module off), and a link to their agent's
  * profile, where they are made and rotated. A key a rotation replaced says
  * so and is not rotated again; Revoke names every other key it takes down.
  * While workspace API access is off, a banner says every key is refused.
@@ -108,7 +109,7 @@ export function ApiKeysSection() {
   };
 
   const revokeAction = (key: ApiKey): RowAction => ({ label: 'Revoke', icon: <Ban size={14} aria-hidden="true" />, onClick: () => setRevokeTarget(key), variant: 'danger', divider: true });
-  // Agent keys: always listed and revocable; Open Connect only where the profile opens.
+  // Agent keys: always listed, editable and revocable; Open Connect only where the profile opens.
   const agentRow = agentKeyRow({ agentsOn, canManageAgents: hasPermission(access, 'agents.manage') });
 
   const actionsFor = (key: ApiKey, own: boolean): RowAction[] => [
@@ -204,7 +205,7 @@ export function ApiKeysSection() {
                           Open Connect
                         </Button>
                       ) : undefined}
-                      actions={[revokeAction(key)]}
+                      actions={actionsFor(key, false)}
                     />
                   ))}
                 </KeyList>

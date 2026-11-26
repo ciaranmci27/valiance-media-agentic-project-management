@@ -15,9 +15,9 @@ const PRIORITY_ORDER: Record<string, number> = { urgent: 0, high: 1, medium: 2, 
 // Board column order, so list and board tell the same story. Backlog comes
 // last, folded, the way the board keeps it below To Do.
 const STATUS_GROUPS: { key: Task['status']; label: string; dot: string }[] = [
-  { key: 'todo', label: 'To Do', dot: 'bg-zinc-300' },
-  { key: 'in_progress', label: 'In Progress', dot: 'bg-brand-500' },
-  { key: 'in_review', label: 'In Review', dot: 'bg-amber-500' },
+  { key: 'todo', label: 'To do', dot: 'bg-zinc-300' },
+  { key: 'in_progress', label: 'In progress', dot: 'bg-brand-500' },
+  { key: 'in_review', label: 'In review', dot: 'bg-amber-500' },
   { key: 'done', label: 'Done', dot: 'bg-emerald-500' },
   { key: 'backlog', label: 'Backlog', dot: 'border border-dashed border-zinc-400' },
 ];

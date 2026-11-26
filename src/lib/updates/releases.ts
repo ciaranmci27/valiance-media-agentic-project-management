@@ -1,13 +1,19 @@
 /**
- * The public repo's releases. Each release's notes are its CHANGELOG.md
+ * The release repo's releases. Each release's notes are its CHANGELOG.md
  * section, so the headings say what it carries.
  *
- * GitHub allows 60 unauthenticated reads an hour per IP, and hosts share IPs.
- * An install with PM_GITHUB_TOKEN reads with it (any token can read a public
- * repo); that answer is never put in Next's fetch cache, only parsed and kept
- * in this server's memory for six hours under a hash of the token. Without a
- * token (and on the source install) the read is anonymous and Next's fetch
- * cache keeps it six hours. A refresh reads GitHub again either way.
+ * The release repo may be public or private. Reads go, in order, with
+ * PM_UPSTREAM_TOKEN (the read-only token Valiance Media issues for the
+ * release repo), then the install's PM_GITHUB_TOKEN (any token can read a
+ * public repo, and 60 anonymous reads an hour per IP is easy to share away),
+ * then anonymously. A refused credential (401, 403, 404) moves on to the next;
+ * a rate limit or an outage stops there. With neither token set the read is
+ * anonymous, exactly as for a public repo.
+ *
+ * A read with a token is never put in Next's fetch cache, only parsed and
+ * kept in this server's memory for six hours under a hash of the tokens. An
+ * anonymous read is kept six hours by Next's fetch cache. A refresh reads
+ * GitHub again either way.
  */
 import { createHash } from 'node:crypto';
 import { UPSTREAM_REPO } from './config';
@@ -93,6 +99,17 @@ export function pendingReleases(releases: ReleaseInfo[], current: string): Relea
     .sort((a, b) => compareVersions(a.version, b.version));
 }
 
+/** Every read was refused and no token was given: the release repo is private (or gone). */
+export const PRIVATE_RELEASES_MESSAGE =
+  'The release repository is private. Set PM_UPSTREAM_TOKEN (the read-only token Valiance Media issues for it) in your host\'s environment settings, then redeploy.';
+/** PM_UPSTREAM_TOKEN was given and refused, and nothing else could read the releases. */
+export const UPSTREAM_TOKEN_REFUSED_MESSAGE =
+  'GitHub refused PM_UPSTREAM_TOKEN for the release repository. It may have expired or lost access: get a new one from Valiance Media, update it in your host\'s environment settings, then redeploy.';
+
+/** 401, 403 without a rate limit, or 404: this credential cannot read the release repo. */
+const isRefusal = (error: unknown): error is GitHubError =>
+  error instanceof GitHubError && (error.kind === 'unauthorized' || error.kind === 'forbidden' || error.kind === 'not_found');
+
 function readableError(error: unknown): string {
   if (error instanceof GitHubError) {
     if (error.kind === 'rate_limited') {
@@ -133,32 +150,43 @@ async function fetchReleases(options: { refresh?: boolean; fetch?: FetchLike; no
 }
 
 /**
- * The release list, newest first, or a readable error. `token` is the
- * install's PM_GITHUB_TOKEN when it has one; leave it out on the source install.
+ * The release list, newest first, or a readable error. `upstreamToken` is
+ * PM_UPSTREAM_TOKEN when set; `token` is the install's PM_GITHUB_TOKEN (leave
+ * it out on the source install). Both are optional.
  */
-export async function readReleases(options: { refresh?: boolean; fetch?: FetchLike; now?: () => Date; token?: string | null } = {}): Promise<ReleaseList> {
+export async function readReleases(options: { refresh?: boolean; fetch?: FetchLike; now?: () => Date; token?: string | null; upstreamToken?: string | null } = {}): Promise<ReleaseList> {
   const now = options.now ?? (() => new Date());
-  const token = options.token?.trim() || null;
-  const key = token ? tokenKey(token) : null;
+  const upstreamToken = options.upstreamToken?.trim() || null;
+  const installToken = options.token?.trim() || null;
+  const attempts: Array<{ token: string | null; upstream: boolean }> = [];
+  if (upstreamToken) attempts.push({ token: upstreamToken, upstream: true });
+  if (installToken && installToken !== upstreamToken) attempts.push({ token: installToken, upstream: false });
+  attempts.push({ token: null, upstream: false });
+
+  const key = upstreamToken || installToken ? tokenKey(`${upstreamToken ?? ''}\n${installToken ?? ''}`) : null;
   if (key && !options.refresh) {
     const hit = tokenCache.get(key);
     if (hit && hit.expires > now().getTime()) return hit.list;
   }
-  try {
-    const list = await fetchReleases({ refresh: options.refresh, fetch: options.fetch, now, token });
-    if (key && !list.error) tokenCache.set(key, { list, expires: now().getTime() + RELEASES_REVALIDATE_SECONDS * 1000 });
-    return list;
-  } catch (error) {
-    // A refused token still leaves the anonymous read: 401, or a token scoped
-    // to one repo that GitHub refuses on the public upstream (403 or 404).
-    // A rate limit is not retried.
-    if (token && error instanceof GitHubError && (error.kind === 'unauthorized' || error.kind === 'forbidden' || error.kind === 'not_found')) {
-      try {
-        return await fetchReleases({ refresh: options.refresh, fetch: options.fetch, now, token: null });
-      } catch (anonymous) {
-        return { releases: [], checkedAt: null, error: readableError(anonymous) };
-      }
+
+  let lastError: unknown = null;
+  let upstreamRefused = false;
+  for (const attempt of attempts) {
+    try {
+      const list = await fetchReleases({ refresh: options.refresh, fetch: options.fetch, now, token: attempt.token });
+      if (key && !list.error) tokenCache.set(key, { list, expires: now().getTime() + RELEASES_REVALIDATE_SECONDS * 1000 });
+      return list;
+    } catch (error) {
+      lastError = error;
+      // A rate limit or an outage is not retried with another credential.
+      if (!isRefusal(error)) return { releases: [], checkedAt: null, error: readableError(error) };
+      if (attempt.upstream) upstreamRefused = true;
     }
-    return { releases: [], checkedAt: null, error: readableError(error) };
   }
+  // Every credential, the anonymous read last, was refused.
+  if (upstreamRefused) return { releases: [], checkedAt: null, error: UPSTREAM_TOKEN_REFUSED_MESSAGE };
+  if (lastError instanceof GitHubError && (lastError.kind === 'not_found' || lastError.kind === 'unauthorized')) {
+    return { releases: [], checkedAt: null, error: PRIVATE_RELEASES_MESSAGE };
+  }
+  return { releases: [], checkedAt: null, error: readableError(lastError) };
 }

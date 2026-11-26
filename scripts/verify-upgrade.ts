@@ -12,7 +12,7 @@
  *
  *   npm run -s test:upgrade
  */
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -21,7 +21,7 @@ import { isAllowedInstallChange, isClientOwned } from './lib/core-paths';
 import { checkCustomSql, customSchemaFor } from './lib/custom-sql';
 import { git, gitRun } from './lib/git';
 import { mergeJson, mergeJsonText, type Json } from './lib/json-merge';
-import { clearGeneratedTypes, normalizeRemote, upgrade, type UpgradeSummary } from './upgrade';
+import { clearGeneratedTypes, isAuthFailure, normalizeRemote, upgrade, upstreamAccessMessage, upstreamAuthEnv, type UpgradeSummary } from './upgrade';
 
 const APP = join(__dirname, '..');
 
@@ -284,9 +284,9 @@ DROP POLICY IF EXISTS "members read notes" ON pm_custom.acme_notes;
 CREATE POLICY "members read notes" ON pm_custom.acme_notes FOR SELECT TO authenticated USING (true);
 `;
 
-function runCli(args: string[]): { code: number; output: string } {
+function runCli(args: string[], options: { cwd?: string; env?: NodeJS.ProcessEnv } = {}): { code: number; output: string } {
   const result = spawnSync(process.execPath, [require.resolve('tsx/cli'), '--tsconfig', join(APP, 'tsconfig.mcp-test.json'), join(APP, 'scripts', 'upgrade.ts'), ...args], {
-    cwd: client, encoding: 'utf8', env: process.env,
+    cwd: options.cwd ?? client, encoding: 'utf8', env: options.env ?? process.env,
   });
   return { code: result.status ?? 1, output: `${result.stdout}${result.stderr}` };
 }
@@ -524,11 +524,165 @@ function scenario() {
   check('source monorepo: no upstream remote was added', gitRun(mono, ['remote', 'get-url', 'upstream']).code !== 0);
 }
 
+/* ------------------------------------------------------------------ */
+/* A private release repo: PM_UPSTREAM_TOKEN                           */
+/* ------------------------------------------------------------------ */
+
+const UPSTREAM_TOKEN = 'github_pat_UPSTREAM_TEST_ONLY_never_real_7';
+const basicOf = (token: string) => Buffer.from(`x-access-token:${token}`).toString('base64');
+
+function upstreamTokenUnitCases() {
+  const url = 'https://github.com/acme/release.git';
+  const env = upstreamAuthEnv(url, UPSTREAM_TOKEN, {});
+  check('upstream auth: one header, scoped to exactly the upstream URL', same(env, {
+    GIT_CONFIG_COUNT: '1',
+    GIT_CONFIG_KEY_0: `http.${url}.extraheader`,
+    GIT_CONFIG_VALUE_0: `AUTHORIZATION: basic ${basicOf(UPSTREAM_TOKEN)}`,
+    GIT_TERMINAL_PROMPT: '0',
+  }), env);
+  const kept = upstreamAuthEnv(url, UPSTREAM_TOKEN, { GIT_CONFIG_COUNT: '2', GIT_CONFIG_KEY_0: 'a.b', GIT_CONFIG_VALUE_0: '1', GIT_CONFIG_KEY_1: 'c.d', GIT_CONFIG_VALUE_1: '2' });
+  check('upstream auth: config already in the environment is kept', kept?.GIT_CONFIG_COUNT === '3' && kept.GIT_CONFIG_KEY_2 === `http.${url}.extraheader` && !('GIT_CONFIG_KEY_0' in kept), kept);
+  check('upstream auth: no token, no header (public repos read as before)', upstreamAuthEnv(url, null, {}) === null && upstreamAuthEnv(url, '   ', {}) === null);
+  check('upstream auth: never for ssh or a local folder', upstreamAuthEnv('git@github.com:acme/release.git', UPSTREAM_TOKEN, {}) === null && upstreamAuthEnv('/tmp/release', UPSTREAM_TOKEN, {}) === null);
+  check('upstream auth: the raw token is in no value', Object.values(env ?? {}).every((value) => !value.includes(UPSTREAM_TOKEN)));
+  const refusals = [
+    "fatal: could not read Username for 'https://github.com': No such device or address",
+    "fatal: could not read Username for 'https://github.com': terminal prompts disabled",
+    "remote: Repository not found.\nfatal: repository 'https://github.com/acme/release.git/' not found",
+    "fatal: Authentication failed for 'https://github.com/acme/release.git/'",
+    'fatal: unable to access \'https://github.com/acme/release.git/\': The requested URL returned error: 403',
+  ];
+  check('upstream auth: git\'s refusals are recognised', refusals.every(isAuthFailure), refusals.filter((text) => !isAuthFailure(text)));
+  check('upstream auth: other fetch failures are not', !isAuthFailure("fatal: unable to access 'https://github.com/x/': Could not resolve host: github.com"));
+  const local = upstreamAccessMessage(url, false, {});
+  const actions = upstreamAccessMessage(url, false, { GITHUB_ACTIONS: 'true' });
+  const refused = upstreamAccessMessage(url, true, {});
+  check('upstream auth: the message names PM_UPSTREAM_TOKEN and says the repo is private', /private/.test(local) && /PM_UPSTREAM_TOKEN/.test(local) && /environment/.test(local), local);
+  check('upstream auth: in Actions it says where the secret goes', /Actions secret named PM_UPSTREAM_TOKEN/.test(actions) && /Settings > Secrets and variables > Actions/.test(actions), actions);
+  check('upstream auth: a refused token says so', /refused PM_UPSTREAM_TOKEN/.test(refused), refused);
+}
+
+/** Blocks this thread for a moment (the git server runs in its own process). */
+const pause = (ms: number) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+
+/**
+ * A git server over plain HTTP (git's dumb protocol: static files) in its own
+ * process, since upgrade() blocks this one. `expected` is the Authorization
+ * value it requires, or null for a public repo. Every request is logged as
+ * "<path> <authorization or ->".
+ */
+function startGitServer(root: string, expected: string | null, log: string): { url: string; stop: () => void } {
+  const portFile = `${log}.port`;
+  const script = `
+    const http = require('http'), fs = require('fs'), path = require('path');
+    const [root, expected, log, portFile] = process.argv.slice(1);
+    const server = http.createServer((req, res) => {
+      const auth = req.headers.authorization || '-';
+      const rel = decodeURIComponent(new URL(req.url, 'http://x').pathname);
+      fs.appendFileSync(log, rel + ' ' + auth + '\\n');
+      if (expected !== 'public' && auth.toLowerCase() !== expected.toLowerCase()) {
+        res.writeHead(401, { 'WWW-Authenticate': 'Basic realm="release"' });
+        return res.end('Unauthorized');
+      }
+      const file = path.join(root, rel);
+      if (!file.startsWith(root)) { res.writeHead(404); return res.end(); }
+      fs.readFile(file, (error, data) => {
+        if (error) { res.writeHead(404); return res.end(); }
+        res.writeHead(200, { 'Content-Type': 'application/octet-stream' });
+        res.end(data);
+      });
+    });
+    server.listen(0, '127.0.0.1', () => fs.writeFileSync(portFile, String(server.address().port)));
+  `;
+  const child = spawn(process.execPath, ['-e', script, root, expected ?? 'public', log, portFile], { stdio: 'ignore' });
+  for (let i = 0; i < 200 && !existsSync(portFile); i++) pause(25);
+  if (!existsSync(portFile)) {
+    child.kill();
+    throw new Error('the test git server did not start');
+  }
+  return { url: `http://127.0.0.1:${readFileSync(portFile, 'utf8').trim()}/release.git`, stop: () => child.kill() };
+}
+
+function privateUpstreamCases() {
+  // Installs at the newest release so far, made before the next release exists.
+  const make = (name: string) => {
+    const dir = join(tmp, name);
+    git(tmp, ['clone', '-q', upstream, dir]);
+    return dir;
+  };
+  const publicClient = make('client-public');
+  const privateClient = make('client-private');
+  const cliClient = make('client-cli');
+  const before = git(privateClient, ['rev-parse', 'HEAD']);
+  put(upstream, 'src/core.ts', 'export const core = 7;\nexport const other = 1;\n');
+  release('1.6.0');
+
+  // The release repo as a web server would serve it.
+  const served = join(tmp, 'served');
+  mkdirSync(served);
+  git(tmp, ['clone', '-q', '--bare', upstream, join(served, 'release.git')]);
+  git(join(served, 'release.git'), ['update-server-info']);
+
+  const header = `basic ${basicOf(UPSTREAM_TOKEN)}`;
+  const publicLog = join(tmp, 'public.log');
+  const privateLog = join(tmp, 'private.log');
+  const publicServer = startGitServer(served, null, publicLog);
+  const privateServer = startGitServer(served, header, privateLog);
+  // No credential helper and no prompt: an unanswered 401 fails at once, as on a CI runner.
+  const prompt = process.env.GIT_TERMINAL_PROMPT;
+  process.env.GIT_TERMINAL_PROMPT = '0';
+  try {
+    // Public, no token: exactly as before. Anonymous, merged, no Authorization header ever sent.
+    const open = upgrade({ root: publicClient, skipChecks: true, upstreamUrl: publicServer.url });
+    check('public upstream, no token: merged as before', open.exitCode === 0 && open.merged && open.to === '1.6.0', open);
+    const publicRequests = readFileSync(publicLog, 'utf8').trim().split('\n');
+    check('public upstream, no token: no Authorization header sent', publicRequests.length > 0 && publicRequests.every((line) => line.endsWith(' -')), publicRequests);
+
+    // Private, no token: exit 1, nothing changed, the message names PM_UPSTREAM_TOKEN.
+    const closed = upgrade({ root: privateClient, skipChecks: true, upstreamUrl: privateServer.url });
+    check('private upstream, no token: exit 1 naming PM_UPSTREAM_TOKEN', closed.exitCode === 1 && !closed.merged && /private/.test(closed.message) && /PM_UPSTREAM_TOKEN/.test(closed.message), closed.message);
+    check('private upstream, no token: nothing changed', git(privateClient, ['rev-parse', 'HEAD']) === before && git(privateClient, ['status', '--porcelain']) === '');
+
+    // Private, a wrong token: exit 1, says the token was refused.
+    const wrong = upgrade({ root: privateClient, skipChecks: true, upstreamUrl: privateServer.url, upstreamToken: 'github_pat_WRONG_TEST_ONLY' });
+    check('private upstream, refused token: exit 1 saying so', wrong.exitCode === 1 && /refused PM_UPSTREAM_TOKEN/.test(wrong.message) && !wrong.message.includes('github_pat_WRONG_TEST_ONLY'), wrong.message);
+
+    // Private, the right token: merged, the header sent, and never written to git config.
+    const opened = upgrade({ root: privateClient, skipChecks: true, upstreamUrl: privateServer.url, upstreamToken: UPSTREAM_TOKEN });
+    check('private upstream, PM_UPSTREAM_TOKEN: merged', opened.exitCode === 0 && opened.merged && opened.to === '1.6.0', opened);
+    check('private upstream, PM_UPSTREAM_TOKEN: the fetch sent it as the Authorization header',
+      readFileSync(privateLog, 'utf8').split('\n').some((line) => line.endsWith(` ${header}`)));
+    const config = readFileSync(join(privateClient, '.git', 'config'), 'utf8');
+    check('private upstream, PM_UPSTREAM_TOKEN: never written to .git/config', !config.includes(UPSTREAM_TOKEN) && !config.includes(basicOf(UPSTREAM_TOKEN)) && !/extraheader/i.test(config), config);
+    check('private upstream, PM_UPSTREAM_TOKEN: git config has no extraheader at all', gitRun(privateClient, ['config', '--get-regexp', 'extraheader']).code !== 0);
+    check('private upstream, PM_UPSTREAM_TOKEN: the upstream remote URL carries no credentials', !/@/.test(git(privateClient, ['remote', 'get-url', 'upstream'])));
+
+    // The CLI reads PM_UPSTREAM_TOKEN from the environment; --fetch-only fetches and merges nothing.
+    const cliHead = git(cliClient, ['rev-parse', 'HEAD']);
+    const cliEnv = { ...process.env, PM_UPSTREAM_TOKEN: UPSTREAM_TOKEN };
+    const fetched = runCli(['--fetch-only', '--upstream', privateServer.url], { cwd: cliClient, env: cliEnv });
+    check('cli: --fetch-only with PM_UPSTREAM_TOKEN fetches and names the newest release', fetched.code === 0 && /v1\.6\.0/.test(fetched.output) && !fetched.output.includes(UPSTREAM_TOKEN), fetched.output);
+    check('cli: --fetch-only merges nothing', git(cliClient, ['rev-parse', 'HEAD']) === cliHead && gitRun(cliClient, ['rev-parse', '-q', '--verify', 'refs/tags/v1.6.0']).code === 0);
+    const { PM_UPSTREAM_TOKEN: _unused, ...withoutToken } = cliEnv;
+    void _unused;
+    gitRun(cliClient, ['tag', '-d', 'v1.6.0']);
+    const denied = runCli(['--fetch-only', '--upstream', privateServer.url], { cwd: cliClient, env: withoutToken });
+    check('cli: without PM_UPSTREAM_TOKEN on a private repo, exit 1 naming it', denied.code === 1 && /PM_UPSTREAM_TOKEN/.test(denied.output), denied.output);
+  } finally {
+    if (prompt === undefined) delete process.env.GIT_TERMINAL_PROMPT;
+    else process.env.GIT_TERMINAL_PROMPT = prompt;
+    publicServer.stop();
+    privateServer.stop();
+  }
+}
+
 try {
   jsonMergeCases();
   generatedTypesCases();
   rulesCases();
+  upstreamTokenUnitCases();
   scenario();
+  privateUpstreamCases();
 } catch (err) {
   failures.push(`crashed: ${err instanceof Error ? err.stack : String(err)}`);
 } finally {

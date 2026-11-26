@@ -69,7 +69,7 @@ export const Checkbox = forwardRef<HTMLInputElement, CheckboxProps>(function Che
         className={`${controlSize} mt-0.5 flex flex-shrink-0 items-center justify-center rounded-[5px] border transition-all duration-150 peer-focus-visible:ring-2 peer-focus-visible:ring-input-ring peer-focus-visible:ring-offset-1 ${
           checked || indeterminate
             ? 'border-input-accent bg-input-accent text-input-accent-fg'
-            : 'border-input-border bg-input-bg peer-hover:border-input-border-hover'
+            : 'border-input-check-border bg-input-bg peer-hover:border-input-check-border-hover'
         }`}
       >
         {indeterminate ? (

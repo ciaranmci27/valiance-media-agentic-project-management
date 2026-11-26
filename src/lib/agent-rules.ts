@@ -60,7 +60,7 @@ export const AGENT_RULE_LABELS = {
 
 export const CLOSE_POLICY_OPTIONS: { value: AgentClosePolicy; label: string; detail: string }[] = [
   { value: 'close', label: 'Close the task', detail: 'Setting a task to Done finishes it.' },
-  { value: 'review', label: 'Send to review', detail: 'Done moves the task to In Review for a person to check.' },
+  { value: 'review', label: 'Send to review', detail: 'Done moves the task to In review for a person to check.' },
 ];
 
 export const CREATE_POLICY_OPTIONS: { value: AgentCreatePolicy; label: string; detail: string }[] = [

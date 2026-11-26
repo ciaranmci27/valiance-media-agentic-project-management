@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { AlignLeft, Bot, Briefcase, Calendar, CircleDot, Flag, LayoutTemplate, Lock, Tag, Users, X } from 'lucide-react';
+import { AlignLeft, Bot, Briefcase, Calendar, CircleDot, Flag, LayoutTemplate, Lock, Tag, Users } from 'lucide-react';
 import { TASK_TYPES, type AiReadiness, type Task, type TaskType } from '@/lib/types';
 import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/Button';
 import { DateInput } from '@/components/ui/inputs/DateInput';
 import { toast } from '@/components/ui/Toast';
 import { TaskPanelShell } from './TaskPanelShell';
+import { PanelHeader } from '@/components/ui/PanelHeader';
 import { TemplatePicker } from '@/components/templates/UseTemplateButton';
 import { UseTemplatePanel } from '@/components/templates/UseTemplatePanel';
 import { InitiativeField } from '@/components/initiatives/InitiativeField';
@@ -126,11 +127,9 @@ export function NewTaskPanel({ projectId, initialDueDate, initialInitiativeId = 
       labelledBy="new-task-title"
       onClose={close}
       header={
-        <div className="flex items-start gap-3 px-5 pt-4 pb-3 flex-shrink-0">
-          <div className="min-w-0 flex-1">
-            <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-zinc-400">
-              New task{project ? ` in ${project.name}` : ''}
-            </p>
+        <PanelHeader
+          detail={project ? `In ${project.name}` : undefined}
+          title={(
             <TitleField
               as="h2"
               id="new-task-title"
@@ -143,17 +142,10 @@ export function NewTaskPanel({ projectId, initialDueDate, initialInitiativeId = 
               placeholder="What needs doing?"
               className="pt-0.5 text-base font-semibold text-white leading-snug break-words"
             />
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Discard new task"
-            title="Discard"
-            className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.06] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
-          >
-            <X size={18} aria-hidden="true" />
-          </button>
-        </div>
+          )}
+          onClose={onClose}
+          closeLabel="Discard new task"
+        />
       }
       footer={
         <div className="flex items-center justify-between gap-3 border-t border-white/[0.06] px-5 py-3">

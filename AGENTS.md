@@ -97,10 +97,12 @@ npm run upgrade            # merges the newest release, then installs, type-chec
 
 The newest release can be several versions ahead. Read every `CHANGELOG.md` section between the installed version and the target, and do all their `### Breaking` and `### Database` items.
 
+The release repo can be public or private. While it is public, nothing is needed. While it is private, set `PM_UPSTREAM_TOKEN` (the read-only token Valiance Media issues for it) in the environment, or use a GitHub account with access; without it the upgrade exits 1 and says so. `npm run upgrade -- --fetch-only` fetches the release tags (with the token when set) and changes nothing else. The same token, as an Actions secret and a host variable, serves the workflows and Settings > Updates (`README.md`, "If the release repository is private").
+
 | Exit | Meaning | Do |
 |---|---|---|
 | 0 | Updated, or already up to date | Run `npm run db:migrate` if it lists new migrations. Review, then push. |
-| 1 | Error (uncommitted changes, wrong `upstream` remote, a merge in progress) | Fix what the message says and run it again. |
+| 1 | Error (uncommitted changes, wrong `upstream` remote, a merge in progress, no access to a private release repo) | Fix what the message says and run it again. |
 | 2 | Conflict: this install changed a core file the release also changed. The merge was aborted; nothing changed. | Move each listed change into `src/custom`, restore the file, commit, run the upgrade again. |
 | 3 | No shared history with the public repo | Follow the steps it prints. |
 | 4 | Merged, but a check failed | The merge commit stays. Fix the failure on this branch before pushing. |
@@ -125,6 +127,7 @@ After a release with a `### Database` section in `CHANGELOG.md`, apply its migra
 - **Functions are locked down** (2.0.8): no `pm` function is callable by `anon`, and `authenticated` only gets the ones row policies, column defaults, checks or signed-in screens need. A new function must `REVOKE ALL ON FUNCTION ... FROM PUBLIC, anon` and grant only what it needs; one members call from the browser goes on the list in `scripts/verify-function-grants.ts`. `npm run test:function-grants` fails otherwise.
 - **Migrations** go in `supabase/migrations/<YYYYMMDDHHMMSS>_<name>.sql`. Each is additive, safe to run twice, and works with the previous release's code: installs apply it before or after deploying the new code. Never edit a migration that has shipped; add a new one.
 - **`supabase/schema.sql`** is updated in place in the same commit, so a fresh install gets the same database.
+- **Everything a person can do, an agent can do.** Every action in the app ships with its REST route (`/api/v1`, documented in `src/app/api/docs/docs-data.ts`) and its MCP tool in the same change, with the same permission. The only exceptions are actions that must never pass through an agent (pasting a bot token or other secret, starting an AI setup session); each one says why in a comment where it is enforced.
 - **Contract changes are additive; deprecate in docs-data before removing.** v1 routes, MCP tools and webhook payloads only gain fields. A removal or rename first gets `deprecated` (with its replacement) in `src/app/api/docs/docs-data.ts` or on the tool, and is kept at least 3 releases (`docs/agents/README.md`, Compatibility).
 - **A new permission** gets its module in `PERMISSION_MODULE` (`src/lib/modules/registry.ts`) and its `permission_modules` row in the migration.
 - **A new module** goes in `MODULE_IDS` and `MODULES`, with its `workspace_modules` row in the same migration. `npm run test:modules` fails until the registry and the database agree.

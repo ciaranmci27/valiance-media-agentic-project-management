@@ -64,6 +64,7 @@ import { NewSinceDivider, useLookedSince, useUnreadSubtasks } from './TaskUnread
 import { TaskActivity, useTaskActivityCount } from './TaskActivity';
 import { TaskFiles } from './TaskFiles';
 import { TaskPanelShell } from './TaskPanelShell';
+import { PanelHeader } from '@/components/ui/PanelHeader';
 import { useTaskUrlParam } from '@/lib/use-task-url';
 import { subtaskProgress } from '@/lib/subtasks';
 import { lastActivityAt, timeAgo } from '@/lib/task-times';
@@ -1271,28 +1272,22 @@ export function TaskDetailPanel({ task, onClose, onDelete, variant = 'panel' }: 
       onClose={onClose}
       after={dialogs}
       header={
-        <div className="flex items-start gap-3 px-5 pt-4 pb-3 flex-shrink-0">
-          <TitleField
-            key={task.id}
-            as="h2"
-            id={`task-title-${task.id}`}
-            value={task.title}
-            onChange={(title) => updateTask(task.id, { title })}
-            canEdit={canEdit}
-            className="flex-1 min-w-0 pt-0.5 text-base font-semibold text-white leading-snug break-words"
-          />
-          <div className="flex items-center gap-1 flex-shrink-0">
-            <TaskActionsMenu task={task} onDelete={onDelete} showOpenAsPage />
-            <button
-              type="button"
-              onClick={onClose}
-              aria-label="Close task"
-              className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.06] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
-            >
-              <X size={18} aria-hidden="true" />
-            </button>
-          </div>
-        </div>
+        <PanelHeader
+          title={(
+            <TitleField
+              key={task.id}
+              as="h2"
+              id={`task-title-${task.id}`}
+              value={task.title}
+              onChange={(title) => updateTask(task.id, { title })}
+              canEdit={canEdit}
+              className="min-w-0 pt-0.5 text-base font-semibold text-white leading-snug break-words"
+            />
+          )}
+          actions={<TaskActionsMenu task={task} onDelete={onDelete} showOpenAsPage />}
+          onClose={onClose}
+          closeLabel="Close task"
+        />
       }
     >
       {questionCards && <div className="px-5 pb-4">{questionCards}</div>}

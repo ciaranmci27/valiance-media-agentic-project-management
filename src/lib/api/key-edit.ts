@@ -14,6 +14,7 @@ import { updateApiKeySchema } from '@/lib/schemas/api-keys';
 import { API_KEY_COLUMNS } from '@/lib/supabase/queries';
 import type { ApiKey } from '@/lib/types';
 import { resolveMemberAccess } from './access';
+import { addAgentScopeGrants, agentScopesBeyondRole, assertMayGiveAgentScopes, mayGiveAgentScopes, removeAgentScopeGrants } from './agent-scope-grants';
 import { checkKeyGrant, loadSetupTarget, type Granter } from './agent-setup';
 import { insertAuditRows } from './audit';
 import { ApiError, notFound } from './errors';
@@ -36,6 +37,10 @@ import { KEY_PAUSE_COLUMNS, missingPauseColumns, setupKeyFixed, withKeyState } f
  *   rules, checkKeyGrant: the calling key carries it, an Owner's key for an
  *   agent's key). An agent's key never gains NEVER_AGENT_SCOPES, and a
  *   personal agent's key gains scopes only from its person.
+ * - In Settings, an Owner may add a power a workspace agent's role lacks, as
+ *   making its key on the profile does (agent-scope-grants.ts): the agent is
+ *   given it on the API channel first, the grant is undone if the edit then
+ *   fails, and the audit row names it (scopes_given). Anyone else is refused.
  * - Scopes the key already carries stay, even ones its member no longer
  *   holds (they grant nothing while not held), so a removal never fails
  *   because of them.
@@ -52,10 +57,11 @@ export interface KeyEditor {
 type Failure = { status: 403 | 404 | 409 | 422 | 500; body: { error: string } };
 
 export type KeyEditOptionsResult =
-  | { status: 200; body: { data: { key: ApiKey; available_scopes: PermissionKey[] } } }
+  | { status: 200; body: { data: { key: ApiKey; available_scopes: PermissionKey[]; for_agent: boolean } } }
   | Failure;
 
-export type KeyEditResult = { status: 200; body: { data: ApiKey } } | Failure;
+/** scopes_given: powers this edit gave the agent beyond its role (now its own, as a per-member allow). */
+export type KeyEditResult = { status: 200; body: { data: ApiKey; scopes_given?: string[] } } | Failure;
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const NOT_FOUND: Failure = { status: 404, body: { error: 'API key not found' } };
@@ -120,7 +126,9 @@ async function editableKey(service: SupabaseClient, editor: KeyEditor, id: strin
 /**
  * What the edit form needs: the key, and the scopes a key for its member may
  * carry (the member's api permissions, not the editor's). Scopes the editor
- * cannot add are locked in the grid (lib/permission-grid.ts).
+ * cannot add are locked in the grid (lib/permission-grid.ts). for_agent: the
+ * key is a workspace agent's (not a personal one's), so the form takes the
+ * agent picker, where an Owner may give a power the agent's role lacks.
  */
 export async function apiKeyEditOptions(
   service: SupabaseClient,
@@ -129,7 +137,9 @@ export async function apiKeyEditOptions(
 ): Promise<KeyEditOptionsResult> {
   const loaded = await editableKey(service, editor, id);
   if (!loaded.ok) return loaded.failure;
-  return { status: 200, body: { data: { key: withKeyState(loaded.key), available_scopes: apiScopesFor(loaded.memberAccess) } } };
+  const { key, memberAccess } = loaded;
+  const forAgent = memberAccess.role === 'agent' && !memberAccess.principal_id;
+  return { status: 200, body: { data: { key: withKeyState(key), available_scopes: apiScopesFor(memberAccess), for_agent: forAgent } } };
 }
 
 /** The scopes a body asks for, deduplicated, and what that adds and removes. */
@@ -154,7 +164,7 @@ async function writeEdit(
   service: SupabaseClient,
   before: ApiKey,
   changes: { name?: string; scopes?: string[] },
-  audit: { memberId: string; apiKeyId: string | null; endpoint: string; via: 'rest' | 'mcp' | 'app'; added: string[]; removed: string[] },
+  audit: { memberId: string; apiKeyId: string | null; endpoint: string; via: 'rest' | 'mcp' | 'app'; added: string[]; removed: string[]; scopesGiven?: string[] },
 ): Promise<ApiKey | null> {
   const { data, error } = await service
     .from('api_keys')
@@ -175,7 +185,12 @@ async function writeEdit(
     entity_id: before.id,
     api_key_id: audit.apiKeyId,
     team_member_id: audit.memberId,
-    request_body: { ...changes, ...(changes.scopes ? { added: audit.added, removed: audit.removed } : {}) },
+    request_body: {
+      ...changes,
+      ...(changes.scopes ? { added: audit.added, removed: audit.removed } : {}),
+      // Powers given to the agent with this edit (the per-member allows on the API channel).
+      ...(audit.scopesGiven?.length ? { scopes_given: audit.scopesGiven } : {}),
+    },
     before_snapshot: withKeyState(before),
     after_snapshot: withKeyState(after),
     status_code: 200,
@@ -207,6 +222,7 @@ export async function editApiKey(
   const changes: { name?: string; scopes?: string[] } = {};
   let added: string[] = [];
   let removed: string[] = [];
+  let beyondRole: string[] = [];
   if (parsed.data.name !== undefined) changes.name = parsed.data.name;
   if (parsed.data.scopes !== undefined) {
     ({ added, removed } = scopeChange(key, parsed.data.scopes));
@@ -214,10 +230,23 @@ export async function editApiKey(
     if (added.length > 0 && memberAccess.principal_id && memberAccess.principal_id !== editor.memberId) {
       return { status: 403, body: { error: 'Only the person this personal agent works for adds to its key. You can still remove scopes.' } };
     }
+    // A workspace agent (not a personal one) can be given a power its role
+    // lacks with its key, exactly as making a key does (agent-scope-grants.ts):
+    // an Owner only, never a never-for-agents scope. Anyone else keeps the
+    // rule that the agent must already hold it.
+    if (added.length > 0 && memberAccess.role === 'agent' && !memberAccess.principal_id && mayGiveAgentScopes(editor.access)) {
+      const granter: Granter = { memberId: editor.memberId, access: editor.access, scopes: apiScopesFor(editor.access) };
+      try {
+        beyondRole = await agentScopesBeyondRole(service, granter, key.team_member_id!, added);
+      } catch {
+        return { status: 500, body: { error: "Failed to load the key member's access" } };
+      }
+    }
     const limits: GrantLimits = {
       channel: 'api',
       holderIsAgent: memberAccess.role === 'agent',
-      holderHolds: apiScopesFor(memberAccess),
+      // What the member will hold: its own, plus what this edit gives it.
+      holderHolds: [...apiScopesFor(memberAccess), ...beyondRole],
       // Your own key: what you hold is what the member holds.
       editorHolds: self ? null : apiScopesFor(editor.access),
     };
@@ -236,16 +265,33 @@ export async function editApiKey(
       // Plain labels first, the key after each for whoever reads the API docs.
       return { status: 422, body: { error: `${whose}: ${labelled(scopes)}` } };
     }
+    // The creation path's own check: never-for-agents scopes, and an Owner only.
+    try {
+      assertMayGiveAgentScopes(editor.access, beyondRole);
+    } catch (refusal) {
+      if (refusal instanceof ApiError) return { status: refusal.statusCode === 403 ? 403 : 422, body: { error: refusal.message } };
+      throw refusal;
+    }
     changes.scopes = [...new Set(parsed.data.scopes)];
   }
 
+  // The agent gets the powers first (a key carries only what its member
+  // holds), and loses them again if the key is then not changed.
+  let given: { added: string[]; wasDenied: string[] } = { added: [], wasDenied: [] };
+  const undoGrants = () => removeAgentScopeGrants(service, key.team_member_id!, given)
+    .catch((error) => console.error('[API] key edit scope grants not undone', error));
   try {
+    given = await addAgentScopeGrants(service, key.team_member_id!, beyondRole, editor.memberId);
     const after = await writeEdit(service, key, changes, {
-      memberId: editor.memberId, apiKeyId: null, endpoint: `/api/workspace/api-keys/${id}`, via: 'app', added, removed,
+      memberId: editor.memberId, apiKeyId: null, endpoint: `/api/workspace/api-keys/${id}`, via: 'app', added, removed, scopesGiven: beyondRole,
     });
-    if (!after) return REVOKED;
-    return { status: 200, body: { data: after } };
+    if (!after) {
+      await undoGrants();
+      return REVOKED;
+    }
+    return { status: 200, body: { data: after, ...(beyondRole.length ? { scopes_given: beyondRole } : {}) } };
   } catch {
+    await undoGrants();
     return { status: 500, body: { error: 'Failed to update API key' } };
   }
 }

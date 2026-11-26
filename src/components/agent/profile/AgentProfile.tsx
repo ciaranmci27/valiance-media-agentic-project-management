@@ -62,6 +62,7 @@ import { DEMO_NOTICE, LimitsPanel, useAgentPause } from '@/components/agent/prof
 import { ConnectSnippets, downloadText } from '@/components/agent/ConnectPanel';
 import { NewApiKeyDialog } from '@/components/settings/NewApiKeyDialog';
 import { RotateApiKeyDialog } from '@/components/settings/RotateApiKeyDialog';
+import { EditApiKeyModal } from '@/components/settings/EditApiKeyModal';
 import { ActivityTimeline } from '@/components/agent/ActivityTimeline';
 import { RunFeed } from '@/components/agent/runs/RunFeed';
 import { RunDetailModal, RunStarted, RunStatusPill, runLengthLabel } from '@/components/agent/runs/RunParts';
@@ -160,10 +161,13 @@ export function AgentProfile({ agentId }: { agentId: string }) {
 
   // Keys, by the server's rules: api_keys.manage_all sees and revokes them; a
   // workspace Owner with it makes and rotates them, never for a personal
-  // agent (its person does) and never for a suspended one.
+  // agent (its person does) and never for a suspended one. Editing a key's
+  // name and powers needs api_keys.manage_all (an Owner may also give a power
+  // the agent's role lacks there), never for a suspended agent.
   const manageAllKeys = isDemoMode || hasPermission(access, 'api_keys.manage_all');
   const keyPowers = {
     mint: !person && !suspended && (isDemoMode || (isWorkspaceOwner && manageAllKeys)),
+    edit: !suspended && manageAllKeys,
     revoke: isDemoMode || isWorkspaceOwner || manageAllKeys,
   };
   // Owners change only for a workspace Owner or an existing owner of this agent (the server's rule); a personal agent's stay as they are.
@@ -1059,8 +1063,8 @@ const EXPIRY_TONES = { muted: 'text-zinc-500', warning: 'text-amber-300', danger
 
 function ConnectTab({ detail, powers, suspended, templateScopes }: {
   detail: AgentDetail;
-  /** mint: make and rotate keys; revoke: revoke them (the server's rules). */
-  powers: { mint: boolean; revoke: boolean };
+  /** mint: make and rotate keys; edit: change a key's name and powers; revoke: revoke them (the server's rules). */
+  powers: { mint: boolean; edit: boolean; revoke: boolean };
   suspended: boolean;
   templateScopes: string[] | null;
 }) {
@@ -1070,6 +1074,7 @@ function ConnectTab({ detail, powers, suspended, templateScopes }: {
   const [making, setMaking] = useState(false);
   const [revoking, setRevoking] = useState<AgentKeyView | null>(null);
   const [rotating, setRotating] = useState<ApiKey | null>(null);
+  const [editing, setEditing] = useState<ApiKey | null>(null);
   const all = detail.keys ?? [];
   const working = activeKeys(all, now);
   const ended = endedKeys(all, now);
@@ -1146,6 +1151,9 @@ function ConnectTab({ detail, powers, suspended, templateScopes }: {
                           Rotate
                         </Button>
                       )}
+                      {powers.edit && (state === 'active' || state === 'disabled') && (
+                        <Button variant="ghost" size="sm" onClick={() => { if (!demoStops(isDemoMode)) setEditing(asApiKey(key, detail.agent.id)); }}>Edit</Button>
+                      )}
                       {powers.revoke && <Button variant="ghost" size="sm" onClick={() => setRevoking(key)}>Revoke</Button>}
                     </div>
                   </li>
@@ -1154,6 +1162,9 @@ function ConnectTab({ detail, powers, suspended, templateScopes }: {
             </ul>
             {powers.mint && working.length > 0 && (
               <p className="text-xs text-zinc-500">Rotate gives a new secret with the same powers; the old one keeps working for a while, so {name} never drops off.</p>
+            )}
+            {powers.edit && working.length > 0 && (
+              <p className="text-xs text-zinc-500">Edit changes a key&apos;s name or powers in place; the secret stays the same, so nothing on {name}&apos;s host changes.</p>
             )}
           </>
         )}
@@ -1173,6 +1184,7 @@ function ConnectTab({ detail, powers, suspended, templateScopes }: {
         <NewApiKeyDialog isOpen={making} onClose={() => setMaking(false)} agent={{ id: detail.agent.id, name, scopes: held }} preset={preset} />
       )}
       <RotateApiKeyDialog apiKey={rotating} onClose={() => { setRotating(null); invalidateTables(['api_keys']); }} />
+      {powers.edit && <EditApiKeyModal apiKey={editing} memberName={name} onClose={() => setEditing(null)} />}
       <ConfirmDialog
         isOpen={!!revoking}
         onClose={() => setRevoking(null)}

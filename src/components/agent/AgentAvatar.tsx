@@ -1,11 +1,12 @@
 'use client';
 
-import { avatarTone, initialsOf, PRESENCE_LABELS, type Presence } from '@/lib/agents-ui';
+import { PRESENCE_LABELS, type Presence } from '@/lib/agents-ui';
+import { avatarFace, avatarPicture } from '@/components/ui/Avatar';
 
 /**
- * An agent's face, with presence: initials on its own tone (one of the
- * avatar tone tokens, picked from its name so the hire flow's preview wears
- * the tone the agent keeps) or its picture, and a status dot. A working
+ * An agent's face, with presence: initials on its own tone (avatarFace, the
+ * one tone and initials function Avatar uses too, picked from the name so the
+ * hire flow's preview wears the tone the agent keeps) or its picture, and a status dot. A working
  * agent's ring breathes softly; reduced motion keeps the ring still. The
  * dot's colours are the one agent vocabulary (lib/agent-status MOOD_STYLE):
  * emerald producing, amber ready and waiting, red needs a person.
@@ -19,9 +20,6 @@ const SIZES = {
   xl: { box: 'h-[72px] w-[72px] text-2xl', dot: 'h-4 w-4 ring-[3px]' },
 } as const;
 
-/** Static class names, so Tailwind sees every tone (one per --color-avatar-N token). */
-const TONE_BG = ['', 'bg-avatar-1', 'bg-avatar-2', 'bg-avatar-3', 'bg-avatar-4', 'bg-avatar-5', 'bg-avatar-6', 'bg-avatar-7', 'bg-avatar-8'];
-
 /** Text colour for each presence, read by the dot (bg-current) and the breathing ring (currentColor). */
 export const PRESENCE_TEXT: Record<Presence, string> = {
   working: 'text-emerald-400',
@@ -33,9 +31,6 @@ export const PRESENCE_TEXT: Record<Presence, string> = {
   suspended: 'text-zinc-500',
   paused: 'text-zinc-500',
 };
-
-/** The name decides the tone; an unnamed avatar falls back to its id. */
-const toneKey = (name: string, id: string) => name.trim().toLowerCase() || id;
 
 const LIVE: ReadonlySet<Presence> = new Set(['working', 'reviewing']);
 
@@ -53,7 +48,8 @@ export function AgentAvatar({ id, name, src, presence, size = 'md', label, tone,
   className?: string;
 }) {
   const s = SIZES[size];
-  const picture = src && /^(https?:|\/|blob:)/.test(src) ? src : null;
+  const picture = avatarPicture(src);
+  const face = avatarFace(name, id, tone);
   const live = !!presence && LIVE.has(presence);
   const off = presence === 'suspended' || presence === 'paused';
   return (
@@ -66,7 +62,7 @@ export function AgentAvatar({ id, name, src, presence, size = 'md', label, tone,
           // eslint-disable-next-line @next/next/no-img-element -- agent pictures are arbitrary https links
           <img src={picture} alt="" className="h-full w-full object-cover" />
         ) : (
-          <span className={`flex h-full w-full items-center justify-center text-white ${TONE_BG[tone && tone >= 1 && tone <= 8 ? tone : avatarTone(toneKey(name, id))]}`}>{initialsOf(name)}</span>
+          <span className={`flex h-full w-full items-center justify-center text-white ${face.toneClass}`}>{face.initials}</span>
         )}
       </span>
       {presence && (

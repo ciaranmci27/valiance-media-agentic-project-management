@@ -24,6 +24,7 @@
 
 import { EVENT_STATE, isAgentEventType, isHostRecordEvent, isOpenEventType } from '@/lib/agent-events';
 import { DEFAULT_HEARTBEAT_INTERVAL_SECONDS } from '@/lib/schemas/agent-health';
+import { formatElapsed } from '@/lib/time-format';
 export { isBookkeepingEvent } from '@/lib/agent-events';
 
 export type AgentMood = 'idle' | 'working' | 'reviewing' | 'blocked' | 'celebrating' | 'offline';
@@ -328,12 +329,8 @@ export function moodLabel(mood: AgentMood): string {
 }
 
 export function elapsedLabel(sinceMs: number, now: number): string {
-  const s = Math.max(0, Math.floor((now - sinceMs) / 1000));
-  // Seconds read as noise ("Idle for 0s"): under a minute is said in words.
-  if (s < 60) return 'under a minute';
-  const m = Math.floor(s / 60);
-  if (m < 60) return `${m}m`;
-  return `${Math.floor(m / 60)}h ${m % 60}m`;
+  // Seconds read as noise ("Idle for 0s"): under a minute is said in words (lib/time-format).
+  return formatElapsed(now - sinceMs);
 }
 
 /**

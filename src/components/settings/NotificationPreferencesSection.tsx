@@ -52,7 +52,7 @@ const NOTIF_GROUPS: {
       {
         key: 'task_status',
         label: 'Status changes',
-        desc: 'Task moved to In Progress, Done, etc.',
+        desc: 'A task moves to In progress, Done or another status',
       },
       { key: 'task_assignments', label: 'Assignments', desc: 'Someone is assigned to a task' },
       {

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Info, Layers, Lock, RefreshCw, Sparkles, X } from 'lucide-react';
+import { Info, Layers, Lock, RefreshCw, Sparkles } from 'lucide-react';
 import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
 import { useDemo } from '@/lib/demo-context';
@@ -25,6 +25,7 @@ import { Toggle } from '@/components/ui/inputs/Toggle';
 import { StepFooter, Stepper, type FlowStep } from '@/components/ui/Stepper';
 import { toast } from '@/components/ui/Toast';
 import { TaskPanelShell } from '@/components/tasks/TaskPanelShell';
+import { PanelHeader } from '@/components/ui/PanelHeader';
 import { PastDueNotes, RunPreviewList, shortDate } from './RunPreviewList';
 
 type StepKey = 'dates' | 'roles' | 'fields' | 'preview';
@@ -51,26 +52,12 @@ export function UseTemplatePanel({ templateId, projectId: presetProject, onClose
 }) {
   const { isDemoMode } = useDemo();
   const template = useRead(taskTemplateRead(templateId, isDemoMode));
-  const header = (title: string, size?: string) => (
-    <div className="flex items-start gap-3 px-5 pt-4 pb-3 flex-shrink-0">
-      <div className="min-w-0 flex-1">
-        <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-zinc-400">Use template</p>
-        <h2 id="use-template-title" className="text-base font-semibold leading-snug text-white break-words">{title}</h2>
-        {size && <p className="mt-0.5 text-xs text-zinc-400">{size}</p>}
-      </div>
-      <button
-        type="button"
-        onClick={onClose}
-        aria-label="Close"
-        className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.06] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
-      >
-        <X size={18} aria-hidden="true" />
-      </button>
-    </div>
+  const header = (detail?: string) => (
+    <PanelHeader id="use-template-title" title="Use template" detail={detail} onClose={onClose} />
   );
   if (!template.data) {
     return (
-      <TaskPanelShell labelledBy="use-template-title" onClose={onClose} header={header(template.failed ? 'Template' : 'Loading template')}>
+      <TaskPanelShell labelledBy="use-template-title" onClose={onClose} header={header()}>
         {template.failed ? (
           <div role="alert" className="flex flex-col items-center gap-3 px-5 py-12 text-center">
             <p className="text-sm text-zinc-300">Could not open this template. It may be in Trash.</p>
@@ -80,7 +67,7 @@ export function UseTemplatePanel({ templateId, projectId: presetProject, onClose
       </TaskPanelShell>
     );
   }
-  return <RunFlow template={template.data} presetProject={presetProject ?? null} header={header(template.data.name, templateSizeLabel(template.data))} onClose={onClose} onDone={onDone} />;
+  return <RunFlow template={template.data} presetProject={presetProject ?? null} header={header(`${template.data.name}, ${templateSizeLabel(template.data)}`)} onClose={onClose} onDone={onDone} />;
 }
 
 function RunFlow({ template: t, presetProject, header, onClose, onDone }: {

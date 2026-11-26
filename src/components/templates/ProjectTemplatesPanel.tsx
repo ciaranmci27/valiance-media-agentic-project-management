@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { LayoutTemplate, Plus, RefreshCw, X } from 'lucide-react';
+import { LayoutTemplate, Plus, RefreshCw } from 'lucide-react';
 import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
 import { useDemo } from '@/lib/demo-context';
@@ -12,6 +12,7 @@ import { taskTemplatesRead } from '@/lib/reads';
 import { canWriteTemplateIn } from '@/lib/template-ui';
 import { Button } from '@/components/ui/Button';
 import { TaskPanelShell } from '@/components/tasks/TaskPanelShell';
+import { PanelHeader } from '@/components/ui/PanelHeader';
 import { TemplatePanel } from './TemplatePanel';
 import { UseTemplatePanel } from './UseTemplatePanel';
 import { TemplateRow, useTemplateRowActions } from './TemplateLibrary';
@@ -66,22 +67,7 @@ export function ProjectTemplatesPanel({ projectId, onClose }: { projectId: strin
     <TaskPanelShell
       labelledBy="project-templates-title"
       onClose={onClose}
-      header={
-        <div className="flex items-start gap-3 px-5 pt-4 pb-3 flex-shrink-0">
-          <div className="min-w-0 flex-1">
-            <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-zinc-400">{project?.name ?? 'Project'}</p>
-            <h2 id="project-templates-title" className="text-base font-semibold leading-snug text-white">This project&apos;s templates</h2>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close"
-            className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.06] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
-          >
-            <X size={18} aria-hidden="true" />
-          </button>
-        </div>
-      }
+      header={<PanelHeader id="project-templates-title" title="This project's templates" detail={project?.name} onClose={onClose} />}
       footer={canWrite ? (
         <div className="flex items-center justify-between gap-3 border-t border-white/[0.06] px-5 py-3">
           <p className="truncate text-xs text-zinc-400">{rows.length} {rows.length === 1 ? 'template' : 'templates'}</p>

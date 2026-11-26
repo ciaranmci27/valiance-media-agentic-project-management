@@ -1,6 +1,7 @@
 import { createElement, type CSSProperties } from 'react';
 import { Archive, File, FileText, Globe, Image as ImageIcon, type LucideIcon, type LucideProps } from 'lucide-react';
 import { appLocale } from '@/lib/region';
+import { formatAgo } from '@/lib/time-format';
 
 /** What the shared FilePreviewModal needs to open a file. */
 export type PreviewFile = { id?: string; name: string; file_url: string; mime_type: string };
@@ -16,25 +17,9 @@ export function formatFileSize(bytes: number): string {
   return `${Math.round(bytes / (1024 * 1024))} MB`;
 }
 
+/** "Just now", "5 min ago", "Yesterday", "Nov 26": the one time format family (lib/time-format). */
 export function relativeTime(dateStr: string): string {
-  const now = Date.now();
-  const then = new Date(dateStr).getTime();
-  const diff = now - then;
-  const seconds = Math.floor(diff / 1000);
-  const minutes = Math.floor(seconds / 60);
-  const hours = Math.floor(minutes / 60);
-  const days = Math.floor(hours / 24);
-  const weeks = Math.floor(days / 7);
-  const months = Math.floor(days / 30);
-
-  if (seconds < 60) return 'Just now';
-  if (minutes < 60) return `${minutes}m ago`;
-  if (hours < 24) return `${hours}h ago`;
-  if (days === 1) return 'Yesterday';
-  if (days < 7) return `${days}d ago`;
-  if (weeks < 5) return `${weeks}w ago`;
-  if (months < 12) return `${months}mo ago`;
-  return formatDate(dateStr);
+  return formatAgo(dateStr);
 }
 
 /** "Aug 12, 2026" from an ISO timestamp. */

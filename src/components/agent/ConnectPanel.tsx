@@ -63,7 +63,7 @@ export function SecretOnce({ secret, heading = 'Copy the key now. It is not show
         {heading}
       </p>
       <p className="mt-1 text-xs leading-relaxed text-amber-300/80">
-        {hint ?? <>Put it in the agent&apos;s environment as <span className="font-mono">{CONNECT_KEY_ENV}</span>. Lost it? Make a new key and revoke this one.</>}
+        {hint ?? <>Put it in the agent&apos;s environment as <span className="font-mono">{CONNECT_KEY_ENV}</span>. Lost it? Make a new key and revoke this one. To change what it can do, use Edit on the key; no new key needed.</>}
       </p>
       <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
         <code className="min-w-0 flex-1 select-all break-all rounded-lg bg-black/30 px-3 py-2.5 font-mono text-xs text-white">{secret.secret}</code>

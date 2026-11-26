@@ -7,6 +7,9 @@
  *   PM_GITHUB_REPO    owner/name of this install's repo
  *   PM_INSTALL_ROLE   "source" on the install releases are published from
  *   PM_SOURCE_LAYOUT  "1" when next.config.ts found the monorepo layout at build time
+ *   PM_UPSTREAM_TOKEN optional: a read-only token for the release repo, issued
+ *                     by Valiance Media, needed only while that repo is private.
+ *                     Read by releases.ts, never by the connection checks below.
  *
  * Fine-grained tokens have no Checks permission, so nothing here reads check
  * runs or annotations: checks come from the Actions API and commit statuses.
@@ -19,7 +22,7 @@ export const UPDATE_WORKFLOW_FILE = 'core-update.yml';
 export const UPDATE_WORKFLOW_PATH = `.github/workflows/${UPDATE_WORKFLOW_FILE}`;
 export const UPDATE_SECRET_NAME = 'PM_UPDATE_TOKEN';
 
-export type UpdatesEnv = Partial<Record<'PM_GITHUB_TOKEN' | 'PM_GITHUB_REPO' | 'PM_INSTALL_ROLE' | 'PM_SOURCE_LAYOUT', string | undefined>>;
+export type UpdatesEnv = Partial<Record<'PM_GITHUB_TOKEN' | 'PM_GITHUB_REPO' | 'PM_INSTALL_ROLE' | 'PM_SOURCE_LAYOUT' | 'PM_UPSTREAM_TOKEN', string | undefined>>;
 
 /** The source install says so (PM_INSTALL_ROLE=source) or was built inside the monorepo (PM_SOURCE_LAYOUT=1). */
 export function installRole(env: UpdatesEnv): InstallRole {

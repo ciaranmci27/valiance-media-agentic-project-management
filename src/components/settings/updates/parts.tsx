@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Check, ChevronDown, Copy, ExternalLink, RotateCw } from 'lucide-react';
-import { timeAgo } from '@/lib/task-times';
+import { formatAgo } from '@/lib/time-format';
 import { Button } from '@/components/ui/Button';
 import { toast } from '@/components/ui/Toast';
 
@@ -83,8 +83,7 @@ export function Mono({ children }: { children: ReactNode }) {
 
 /** "5 min ago", "yesterday", "Oct 24": a time read mid-sentence (dates stay capitalised). */
 export function agoWords(iso: string): string {
-  const ago = timeAgo(iso);
-  return ago === 'Just now' || ago === 'Yesterday' ? ago.toLowerCase() : ago;
+  return formatAgo(iso, { midSentence: true });
 }
 
 /** "Checked 5 min ago", "Not checked yet". */

@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import type { CSSProperties, ReactNode } from 'react';
-import { ChevronRight, type LucideIcon } from 'lucide-react';
+import { ArrowDown, ArrowUp, ChevronRight, Minus, type LucideIcon } from 'lucide-react';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { Sparkline } from '@/components/ui/Sparkline';
 
@@ -24,6 +24,13 @@ export interface Stat {
   /** Makes the stat a toggle button (aria-pressed), e.g. to pick what a chart shows. */
   onSelect?: () => void;
   selected?: boolean;
+  /**
+   * Change against the last period (DESIGN.md Rule 16): `value` ("12%"), its `direction`, and `good`
+   * when up or down has a clear good or bad meaning (spend up is bad: good 'down'). Green when it
+   * moved the good way, red the bad way, neutral without `good`. `against` names the period
+   * ("vs last 30 days"); left out, `context` follows instead.
+   */
+  change?: { value: ReactNode; direction: 'up' | 'down' | 'flat'; good?: 'up' | 'down'; against?: ReactNode };
   /** A small trend line, shown beside the value once the strip is a row. */
   spark?: number[];
   /** React key when the label is not a plain string. */
@@ -121,10 +128,11 @@ export function StatStrip({ stats, bare = false, loading = false, label, classNa
           const Icon = stat.icon;
           const interactive = !!stat.href || !!stat.onSelect;
           const pad = bare ? 'py-2.5 strip-row:px-4 strip-row:py-3' : 'px-4 py-3 strip-row:px-5 strip-row:py-4';
-          const cellClass = `grid h-full w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 text-left [grid-template-areas:'label_value''context_value'] strip-row:content-start strip-row:items-start strip-row:gap-x-3 strip-row:[grid-template-areas:'label_label''value_spark''context_context'] ${pad} ${
+          const cellClass = `relative grid h-full w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 text-left [grid-template-areas:'label_value''context_value'] strip-row:content-start strip-row:items-start strip-row:gap-x-3 strip-row:[grid-template-areas:'label_label''value_spark''context_context'] ${pad} ${
             interactive
               ? `transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-500 ${
-                  stat.selected ? 'bg-brand-500/[0.14]' : 'hover:bg-white/[0.03]'
+                  // Selected: a brand underline (Rule 16), never a boxed tile.
+                  stat.selected ? 'bg-white/[0.03] after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:bg-brand-400' : 'hover:bg-white/[0.03]'
                 }`
               : ''
           }`;
@@ -161,8 +169,11 @@ export function StatStrip({ stats, bare = false, loading = false, label, classNa
                   <Sparkline data={stat.spark} className={stat.selected === false ? 'text-zinc-500' : 'text-brand-400'} />
                 </span>
               )}
-              {stat.context && !loading && (
-                <span className="[grid-area:context] block min-w-0 truncate text-xs text-zinc-500 strip-row:mt-0.5 strip-row:line-clamp-2 strip-row:whitespace-normal">{stat.context}</span>
+              {(stat.context || stat.change) && !loading && (
+                <span className="[grid-area:context] block min-w-0 truncate text-xs text-zinc-500 strip-row:mt-0.5 strip-row:line-clamp-2 strip-row:whitespace-normal">
+                  {stat.change && <ChangeMark change={stat.change} />}
+                  {stat.change ? stat.change.against ?? stat.context : stat.context}
+                </span>
               )}
             </>
           );
@@ -188,5 +199,21 @@ export function StatStrip({ stats, bare = false, loading = false, label, classNa
         })}
       </ul>
     </div>
+  );
+}
+
+/** "↑ 12%": the change against the last period, green or red only when the direction has a meaning. */
+function ChangeMark({ change }: { change: NonNullable<Stat['change']> }) {
+  const Icon = change.direction === 'up' ? ArrowUp : change.direction === 'down' ? ArrowDown : Minus;
+  const tone = !change.good || change.direction === 'flat'
+    ? 'text-zinc-300'
+    : change.direction === change.good ? 'text-emerald-300' : 'text-red-300';
+  const words = change.direction === 'up' ? 'Up' : change.direction === 'down' ? 'Down' : 'No change,';
+  return (
+    <span className={`mr-1 inline-flex items-center gap-0.5 font-medium tabular-nums ${tone}`}>
+      <Icon size={11} aria-hidden="true" />
+      <span className="sr-only">{words} </span>
+      {change.value}
+    </span>
   );
 }

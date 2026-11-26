@@ -215,6 +215,8 @@ export const CORE_ROUTES: string[] = [
   'api/x', '(protected)/x',
   '(protected)/dashboard', '(protected)/my-tasks', '(protected)/notifications', '(protected)/projects',
   '(protected)/reminders', '(protected)/settings', '(protected)/team', '(protected)/welcome',
+  // The live pattern page (DESIGN.md): every pattern with the real components, for members and the demo.
+  '(protected)/design',
   // Public and developer pages.
   'smtp/docs', '(dashboard)/email-preview', 'dev',
 ];

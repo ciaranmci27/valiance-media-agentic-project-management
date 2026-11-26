@@ -188,7 +188,7 @@ export function ActivityTimeline({
       onChange={chooseFilter}
     />
   ) : undefined;
-  const pad = frame === 'card' ? 'px-5 pb-5' : '';
+  const pad = frame === 'card' ? 'px-4 pb-4 lg:px-5 lg:pb-5' : '';
   const body = loading ? (
     <div className={`${pad} space-y-3`} role="status" aria-label="Loading activity">
       {[0, 1, 2, 3].map((n) => (

@@ -10,7 +10,11 @@
  * the AGENT's permissions, not their own; someone else's key is hidden; a
  * creator who is not the key's member cannot edit; revoked, expired and
  * suspended-member keys are refused; the secret never changes; and the next
- * request with the same key sees the new scopes.
+ * request with the same key sees the new scopes. An Owner gives an agent a
+ * power beyond its role by editing its key (agent-scope-grants.ts, as making
+ * a key does): the grant on the API channel, the scope on the key and the
+ * audit row; a non-owner admin, a never-for-agents scope and a personal
+ * agent's key are refused; a failed write takes the grant back.
  *
  * Run: npx tsx --tsconfig tsconfig.mcp-test.json scripts/verify-api-key-edit.ts
  */
@@ -35,6 +39,7 @@ const MEMBER = randomUUID();
 const OTHER = randomUUID();
 const AGENT = randomUUID();
 const GONE = randomUUID();
+const PERSONAL = randomUUID();
 const hash = (key: string) => createHash('sha256').update(key).digest('hex');
 
 async function seed(db: PGlite) {
@@ -42,7 +47,7 @@ async function seed(db: PGlite) {
     CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role BYPASSRLS;
     CREATE SCHEMA pm; SET search_path TO pm, public;
     GRANT USAGE ON SCHEMA pm TO service_role;
-    CREATE TABLE pm.team_members (id uuid PRIMARY KEY, name text NOT NULL, role text NOT NULL, status text NOT NULL DEFAULT 'active');
+    CREATE TABLE pm.team_members (id uuid PRIMARY KEY, name text NOT NULL, role text NOT NULL, status text NOT NULL DEFAULT 'active', delegate_of uuid);
     CREATE TABLE pm.api_keys (
       id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
       name text NOT NULL,
@@ -65,7 +70,8 @@ async function seed(db: PGlite) {
     CREATE TABLE pm.api_audit_log (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), method text, endpoint text, entity_type text, entity_id uuid,
       api_key_id uuid, team_member_id uuid, request_body jsonb, before_snapshot jsonb, after_snapshot jsonb, status_code integer, via text);
     CREATE TABLE pm.role_permissions (role text, permission_key text, access_channel text);
-    CREATE TABLE pm.team_member_permissions (member_id uuid, permission_key text, access_channel text, effect text);
+    CREATE TABLE pm.team_member_permissions (member_id uuid, permission_key text, access_channel text, effect text, created_by uuid,
+      UNIQUE (member_id, permission_key, access_channel));
     CREATE TABLE pm.project_members (member_id uuid, project_id uuid);
     CREATE FUNCTION pm.consume_api_rate_limit(p_api_key_id uuid, p_limit integer, p_window_seconds integer) RETURNS jsonb
       LANGUAGE sql AS $$ SELECT jsonb_build_object('allowed', true, 'remaining', p_limit - 1, 'reset_at', now() + make_interval(secs => p_window_seconds)) $$;
@@ -85,6 +91,8 @@ async function seed(db: PGlite) {
       ($1, 'Owner', 'owner'), ($2, 'Ada', 'admin'), ($3, 'Mia', 'member'), ($4, 'Otto', 'member'), ($5, 'Builder', 'agent'), ($6, 'Gus', 'member')`,
     [OWNER, ADMIN, MEMBER, OTHER, AGENT, GONE],
   );
+  // Mia's personal agent: its key gains scopes only from Mia.
+  await db.query("INSERT INTO team_members(id, name, role, delegate_of) VALUES ($1, 'Assistant', 'agent', $2)", [PERSONAL, MEMBER]);
   const grants: [string, string, string][] = [
     ['admin', 'api_keys.manage_all', 'app'],
     ['admin', 'tasks.read', 'api'], ['admin', 'tasks.create', 'api'], ['admin', 'projects.read', 'api'], ['admin', 'team.read', 'api'], ['admin', 'notifications.send', 'api'],
@@ -94,7 +102,7 @@ async function seed(db: PGlite) {
   for (const [role, key, channel] of grants)
     await db.query('INSERT INTO role_permissions VALUES ($1, $2, $3)', [role, key, channel]);
   // A per-member deny wins over the role grant, for the editor and the key's member alike.
-  await db.query("INSERT INTO team_member_permissions VALUES ($1, 'projects.read', 'api', 'deny')", [OTHER]);
+  await db.query("INSERT INTO team_member_permissions(member_id, permission_key, access_channel, effect) VALUES ($1, 'projects.read', 'api', 'deny')", [OTHER]);
 }
 
 async function insertKey(db: PGlite, fields: { member: string | null; createdBy: string | null; scopes: string[]; name?: string; revoked?: boolean; expired?: boolean }) {
@@ -227,6 +235,75 @@ async function main() {
     check('owner: any API scope', result.status === 200, result);
     result = await editApiKey(service, owner, ownerKey.id, { scopes: ['access.manage'] });
     check('owner: an app-only permission is still not an API scope', result.status === 422, result);
+
+    // Powers beyond an agent's role, given by editing its key.
+    const grantsOf = async (member: string) =>
+      (await db.query<{ permission_key: string; access_channel: string; effect: string; created_by: string | null }>(
+        'SELECT permission_key, access_channel, effect, created_by FROM team_member_permissions WHERE member_id = $1 ORDER BY permission_key', [member])).rows;
+    const auditFor = async (keyId: string) =>
+      (await db.query<{ team_member_id: string; request_body: Record<string, unknown>; before_snapshot: { scopes: string[] }; after_snapshot: { scopes: string[] }; via: string | null }>(
+        "SELECT team_member_id, request_body, before_snapshot, after_snapshot, via FROM api_audit_log WHERE entity_id = $1 AND method = 'PATCH' ORDER BY ctid", [keyId])).rows;
+    const actFor = withApi(async () => Response.json({ ok: true }), { permission: 'agents.act_for' });
+    const callActFor = (secret: string) =>
+      actFor(new NextRequest('http://localhost/api/v1/act-for', { headers: { 'x-api-key': secret } }));
+
+    const hermes = await insertKey(db, { member: AGENT, createdBy: OWNER, scopes: ['tasks.read'], name: 'Hermes 2' });
+    const agentOptions = await apiKeyEditOptions(service, owner, hermes.id);
+    check("options: an agent's key says so, for the agent picker", agentOptions.status === 200 && agentOptions.body.data.for_agent === true, agentOptions);
+    const ownOptions = await apiKeyEditOptions(service, mia, own.id);
+    check("options: a person's key is not an agent's", ownOptions.status === 200 && ownOptions.body.data.for_agent === false, ownOptions);
+    const personalKey = await insertKey(db, { member: PERSONAL, createdBy: MEMBER, scopes: ['tasks.read'], name: 'Assistant' });
+    const personalOptions = await apiKeyEditOptions(service, owner, personalKey.id);
+    check("options: a personal agent's key keeps the plain picker", personalOptions.status === 200 && personalOptions.body.data.for_agent === false, personalOptions);
+
+    // A non-owner who manages every key cannot give the agent a power its role lacks.
+    result = await editApiKey(service, ada, hermes.id, { scopes: ['tasks.read', 'agents.act_for'] });
+    check('beyond role: a non-owner admin is refused', result.status === 422 && /Not allowed for the key's member: Act for a person \(agents\.act_for\)/.test(errorOf(result)), result);
+    check('beyond role: a refused admin gives the agent nothing', (await grantsOf(AGENT)).length === 0, await grantsOf(AGENT));
+
+    // Never-for-agents scopes, even for an Owner.
+    result = await editApiKey(service, owner, hermes.id, { scopes: ['tasks.read', 'agents.act_for', 'meetings.write'] });
+    check('beyond role: a never-for-agents scope is refused for an Owner', result.status === 422 && /An agent key never carries: .*meetings\.write/.test(errorOf(result)), result);
+    check('beyond role: a refused edit gives the agent nothing', (await grantsOf(AGENT)).length === 0 && (await row(hermes.id)).scopes.join() === 'tasks.read', await grantsOf(AGENT));
+
+    // A personal agent's key: only its person adds, an Owner included.
+    result = await editApiKey(service, owner, personalKey.id, { scopes: ['tasks.read', 'agents.act_for'] });
+    check("beyond role: a personal agent's key is not given powers by an Owner", result.status === 403 && (await grantsOf(PERSONAL)).length === 0, result);
+
+    // An Owner gives it: the agent holds it on the API channel, the key carries it.
+    check('beyond role: before the edit the key cannot act for a person', (await callActFor(hermes.secret)).status === 403);
+    result = await editApiKey(service, owner, hermes.id, { scopes: ['tasks.read', 'agents.act_for'] });
+    check('beyond role: an Owner adds a power the agent role lacks', result.status === 200, result);
+    check('beyond role: the answer names what was given', result.status === 200 && JSON.stringify(result.body.scopes_given) === '["agents.act_for"]', result);
+    check('beyond role: the agent is given it on the API channel, by the Owner',
+      JSON.stringify(await grantsOf(AGENT)) === JSON.stringify([{ permission_key: 'agents.act_for', access_channel: 'api', effect: 'allow', created_by: OWNER }]), await grantsOf(AGENT));
+    check('beyond role: the key carries it', (await row(hermes.id)).scopes.join() === 'tasks.read,agents.act_for', await row(hermes.id));
+    check('beyond role: the same secret now acts for a person', (await callActFor(hermes.secret)).status === 200);
+    const audits = await auditFor(hermes.id);
+    const last = audits[audits.length - 1];
+    check('beyond role: the audit row has the key before and after, and the grant',
+      !!last && last.team_member_id === OWNER && last.via === 'app'
+        && last.before_snapshot.scopes.join() === 'tasks.read' && last.after_snapshot.scopes.join() === 'tasks.read,agents.act_for'
+        && JSON.stringify(last.request_body.scopes_given) === '["agents.act_for"]' && JSON.stringify(last.request_body.added) === '["agents.act_for"]', last);
+    // Removing it later is a plain edit: the agent keeps what it was given.
+    result = await editApiKey(service, owner, hermes.id, { scopes: ['tasks.read'] });
+    check('beyond role: a later removal gives nothing new', result.status === 200 && result.body.scopes_given === undefined && (await grantsOf(AGENT)).length === 1, result);
+
+    // A failed write takes the grant back: a row it added goes, a deny it replaced returns.
+    await db.query("INSERT INTO team_member_permissions(member_id, permission_key, access_channel, effect) VALUES ($1, 'projects.read', 'api', 'deny')", [AGENT]);
+    await db.exec(`
+      CREATE FUNCTION pm.test_refuse_key_write() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'write refused'; END $$;
+      CREATE TRIGGER test_refuse_key_write BEFORE UPDATE ON pm.api_keys FOR EACH ROW WHEN (OLD.name = 'Boom') EXECUTE FUNCTION pm.test_refuse_key_write();
+    `);
+    const boom = await insertKey(db, { member: AGENT, createdBy: OWNER, scopes: ['tasks.read'], name: 'Boom' });
+    // Who and what each row allows or denies (removeAgentScopeGrants puts a deny's effect back, not its author).
+    const effects = async () => (await grantsOf(AGENT)).map(({ permission_key, access_channel, effect }) => `${permission_key}:${access_channel}:${effect}`);
+    const grantsBefore = await effects();
+    result = await editApiKey(service, owner, boom.id, { scopes: ['tasks.read', 'tasks.create', 'projects.read'] });
+    check('beyond role: a failed write is a 500', result.status === 500, result);
+    check('beyond role: a failed write undoes the grant (added row gone, replaced deny back)',
+      JSON.stringify(await effects()) === JSON.stringify(grantsBefore) && grantsBefore.join() === 'agents.act_for:api:allow,projects.read:api:deny', { before: grantsBefore, after: await effects() });
+    check('beyond role: a failed write leaves the key as it was', (await row(boom.id)).scopes.join() === 'tasks.read');
   } finally {
     await server.close();
     await db.close();

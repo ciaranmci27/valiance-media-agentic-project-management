@@ -2,7 +2,8 @@ name: Core checks
 
 # Type-check, core-file check, lint of the install's own code and tests on every pull request (update
 # pull requests included) and every push to the default branch. Settings >
-# Updates reads these results before Apply. Read-only: no secrets, and pull
+# Updates reads these results before Apply. Read-only: the only secret is the
+# optional PM_UPSTREAM_TOKEN (read-only, for a private release repo), and pull
 # requests from forks run with the same read-only token.
 
 on:
@@ -36,7 +37,37 @@ jobs:
 
       - name: Fetch release tags
         # check:core tells an install's own changes from core by the release tags.
-        run: git fetch --quiet --force --no-recurse-submodules --tags "https://github.com/${UPSTREAM_REPO}.git"
+        # The release repo may be private. The release repo reads itself with
+        # this run's own token; an install uses its optional PM_UPSTREAM_TOKEN
+        # secret. With no token the fetch is anonymous, as for a public repo.
+        # The token goes in a header scoped to the upstream URL, never in a
+        # URL or .git/config.
+        env:
+          UPSTREAM_TOKEN: ${{ github.repository == env.UPSTREAM_REPO && github.token || secrets.PM_UPSTREAM_TOKEN }}
+        run: |
+          url="https://github.com/${UPSTREAM_REPO}.git"
+          git_auth=()
+          if [[ -n "$UPSTREAM_TOKEN" ]]; then
+            auth=$(printf 'x-access-token:%s' "$UPSTREAM_TOKEN" | base64 -w0)
+            echo "::add-mask::${auth}"
+            git_auth=(-c "http.${url}.extraheader=AUTHORIZATION: basic ${auth}")
+          fi
+          # Git's refusals, the same pattern as AUTH_FAILURE in scripts/upgrade.ts: only these
+          # mean a token is missing or wrong; anything else is GitHub being out of reach.
+          auth_failure='could not read (username|password)|authentication failed|terminal prompts disabled|repository not found|returned error: 40[134]|permission denied \(publickey\)|access denied|invalid username or password'
+          if ! err=$(GIT_TERMINAL_PROMPT=0 git "${git_auth[@]}" fetch --quiet --force --no-recurse-submodules --tags "$url" 2>&1 >/dev/null); then
+            [[ -n "$err" ]] && printf '%s\n' "$err" >&2
+            if ! grep -Eiq "$auth_failure" <<< "$err"; then
+              echo "::error title=Could not reach GitHub::Could not reach GitHub to fetch the release tags from ${UPSTREAM_REPO}. This is usually a passing network problem: re-run this job."
+            elif [[ -z "$UPSTREAM_TOKEN" ]]; then
+              echo "::error title=Release repo is private::Could not read ${UPSTREAM_REPO}. Add the read-only token Valiance Media issues for it as an Actions secret named PM_UPSTREAM_TOKEN in this repository (Settings > Secrets and variables > Actions)."
+            elif [[ "$GITHUB_REPOSITORY" == "$UPSTREAM_REPO" ]]; then
+              echo "::error title=Release tags::Could not fetch this repository's own tags."
+            else
+              echo "::error title=PM_UPSTREAM_TOKEN refused::GitHub refused PM_UPSTREAM_TOKEN for ${UPSTREAM_REPO}. Get a new token from Valiance Media and update the PM_UPSTREAM_TOKEN Actions secret (Settings > Secrets and variables > Actions)."
+            fi
+            exit 1
+          fi
 
       - name: Set up Node
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0

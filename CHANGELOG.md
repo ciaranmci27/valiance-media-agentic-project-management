@@ -9,6 +9,25 @@ Each section starts with `## X.Y.Z (YYYY-MM-DD)` and uses these headings, leavin
 - `### Database`: the core migration files in the release, one per line. `npm run db:migrate` applies them.
 - `### Breaking`: what an install must do when it takes this release.
 
+## 2.0.49 (2026-11-27)
+
+### Added
+- **Edit an agent's key in place**: "Edit name and access" on agent keys in Settings > Developers and Edit on each key in the agent's Connect tab. An Owner can add a power the agent's role lacks (such as Act for a person) right there; it is granted to the agent and put on the key in one step, with no new key to copy.
+- **A private release repository works too.** Optional `PM_UPSTREAM_TOKEN` (a read-only token for the release repository) lets Core checks, the Core update workflow, `npm run upgrade` and Settings > Updates read releases when the repository is private. With a public repository and no token, nothing changes. `npm run upgrade -- --fetch-only` fetches release tags and prints the newest, merging nothing (it adds the `upstream` remote if it is missing).
+- **One design system, written down and checked.** `DESIGN.md` has binding Rules for every screen. New shared pieces: `Pill`, `PanelHeader`, `Card`, `EmptyState`, `UndoLine`, `SaveBar`, `IconButton`, `ShowMore`, `Tabs`, `FilterButton`, `LineChart`, `PermissionGrid`, and one time format family (`src/lib/time-format.ts`). `/design` shows every pattern with the real components, in light and dark. `npm run check:design` fails on banned markup above a baseline that only goes down; it checks custom code in `src/custom` too.
+- A toast can carry one action, such as Undo.
+- `AGENTS.md` release rule: everything a person can do in the app ships with its REST route and MCP tool, or a stated reason it must stay with a person.
+
+### Changed
+- Roles & permissions refuses to give an agent a permission on the app channel (`422 agent_api_only`): agents only use the API, so the grant would do nothing. Removing an old one still works.
+- The Core update workflow scopes each GitHub token to its own repository URL.
+- Status labels are sentence case ("In progress") everywhere and use five tones; `Badge variant="purple"` now shows the brand tone.
+- A person or agent has the same avatar tone and initials everywhere; avatar colors no longer come from the brand color.
+- Times read one way: "5 min ago", "2 h ago", "Yesterday", "Nov 26"; durations "16 min", "1 h 5 min".
+- Side panels have one header, with no uppercase label above the title.
+- A selected stat is underlined in the brand color instead of filled. Cards are padded 16px on phones and 20px on wide screens.
+- Light mode: pale status text and unticked boxes now meet contrast.
+
 ## 2.0.48 (2026-11-27)
 
 ### Added

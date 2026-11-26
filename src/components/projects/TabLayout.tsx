@@ -1,9 +1,11 @@
 'use client';
 
 import { cloneElement, useState, type ComponentProps, type ReactElement, type ReactNode } from 'react';
-import { ArrowRight, Search, type LucideIcon } from 'lucide-react';
+import { ArrowRight, Search } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { TextInput } from '@/components/ui/inputs/TextInput';
+import { Card } from '@/components/ui/Card';
+import { EmptyState } from '@/components/ui/EmptyState';
 
 /**
  * Layout pieces every project tab is built from, so the tabs read as one
@@ -152,27 +154,11 @@ interface RailCardProps {
  * action on the right, so the tabs read as one workspace.
  */
 export function RailCard({ title, afterTitle, icon, action, description, className, bodyClassName, children }: RailCardProps) {
-  const heading = (
-    <h2 className="flex items-center gap-2 text-sm font-semibold text-white">
-      {icon}
-      {title}
-      {afterTitle}
-    </h2>
-  );
+  // The shared Card (ui/Card.tsx, DESIGN.md Rule 2); RailCard stays for its callers.
   return (
-    <section className={`glass-card rounded-xl ${className ?? ''}`}>
-      {/* Wraps on a narrow screen, so a wide action (a filter) drops below the title instead of squeezing it. */}
-      <div className={`px-5 pt-4 pb-3 flex flex-wrap ${description ? 'items-start' : 'items-center'} justify-between gap-3`}>
-        {description ? (
-          <div className="min-w-0">
-            {heading}
-            <p className="mt-1 text-xs text-zinc-400">{description}</p>
-          </div>
-        ) : heading}
-        {action}
-      </div>
-      <div className={bodyClassName ?? 'px-5 pb-5'}>{children}</div>
-    </section>
+    <Card title={title} afterTitle={afterTitle} icon={icon} action={action} description={description} className={className} bodyClassName={bodyClassName}>
+      {children}
+    </Card>
   );
 }
 
@@ -233,21 +219,15 @@ interface EmptyCardProps {
   action?: ReactNode;
 }
 
-/** The standard empty state for a tab with nothing in it yet. */
+/** The standard empty state for a tab with nothing in it yet: `EmptyState` framed (DESIGN.md Rule 5). */
 export function EmptyCard({ icon, title, description, action }: EmptyCardProps) {
-  return (
-    <div className="glass-card rounded-xl flex flex-col items-center justify-center px-6 py-16 text-center">
-      <div className="w-10 h-10 rounded-full bg-white/[0.06] flex items-center justify-center mb-3">
-        {cloneElement(icon, { size: 18, className: 'text-zinc-500', 'aria-hidden': 'true' })}
-      </div>
-      <p className="text-sm font-medium text-zinc-300">{title}</p>
-      {description && <p className="text-xs text-zinc-400 mt-1 max-w-md">{description}</p>}
-      {action && <div className="mt-4">{action}</div>}
-    </div>
-  );
+  return <EmptyState framed icon={icon} title={title} description={description} action={action} className="!py-16" />;
 }
 
-/** The line inside a list card when the search or filter hides everything. */
+/**
+ * The line inside a list card when the search or filter hides everything.
+ * New code uses `EmptyState variant="filtered"`, which also offers Clear filters.
+ */
 export function NoMatches({ children }: { children: ReactNode }) {
   return <p className="px-5 py-10 text-center text-sm text-zinc-400">{children}</p>;
 }
@@ -279,42 +259,5 @@ export function useKeptViews<K extends string>(active: K): ReadonlySet<K> {
   return seen.has(active) ? seen : new Set([...seen, active]);
 }
 
-export interface SubNavItem<K extends string> {
-  key: K;
-  label: string;
-  count?: number;
-  icon?: LucideIcon;
-  /** Shown from sm up; phones show the icon alone when one is set. */
-  hideLabelOnMobile?: boolean;
-}
-
-/**
- * Views within one tab (Inbox / Sent). A segmented control, so it reads as a
- * level below the underline tab bar.
- */
-export function SubNav<K extends string>({ items, active, onChange, label }: {
-  items: SubNavItem<K>[];
-  active: K;
-  onChange: (key: K) => void;
-  label: string;
-}) {
-  return (
-    <div className="seg-track" role="tablist" aria-label={label}>
-      {items.map((item) => (
-        <button
-          key={item.key}
-          type="button"
-          role="tab"
-          aria-selected={item.key === active}
-          aria-label={item.icon && item.hideLabelOnMobile ? item.label : undefined}
-          onClick={() => onChange(item.key)}
-          className={`seg-item flex items-center gap-1.5 whitespace-nowrap ${item.key === active ? 'is-active' : ''}`}
-        >
-          {item.icon && <item.icon size={16} aria-hidden="true" />}
-          <span className={item.icon && item.hideLabelOnMobile ? 'hidden sm:inline' : undefined}>{item.label}</span>
-          {!!item.count && <span className="text-xs tabular-nums text-zinc-400">{item.count}</span>}
-        </button>
-      ))}
-    </div>
-  );
-}
+// SubNav lives in ui/Tabs (DESIGN.md Rule 3); re-exported so existing imports keep working.
+export { SubNav, type SubNavItem } from '@/components/ui/Tabs';

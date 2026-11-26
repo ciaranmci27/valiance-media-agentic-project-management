@@ -7,12 +7,14 @@ description: Update this install to a newer core release. Load when asked to upd
 
 Releases are `vX.Y.Z` tags on `ciaranmci27/valiance-media-agentic-project-management`. The upgrade merges the tag into this repo. It never pushes.
 
+That repo may be private. If a fetch says GitHub asked for access, it is: set `PM_UPSTREAM_TOKEN` in the environment (the read-only token Valiance Media issues for it; ask the owner, never print it) or use a GitHub account with access, then run again. While it is public, no token is needed.
+
 ## Steps
 
 1. **Start clean.** `git status` shows nothing to commit. Commit or set aside any work first.
 2. **Read every release you will take.** The upgrade jumps to the newest release, which can be several versions ahead. Find the target and read its changelog:
    ```bash
-   git fetch upstream --tags              # first time: git remote add upstream https://github.com/ciaranmci27/valiance-media-agentic-project-management.git
+   npm run upgrade -- --fetch-only        # adds the upstream remote if missing, fetches the tags (with PM_UPSTREAM_TOKEN when set), changes nothing else
    git tag --list 'v*' --sort=-v:refname | head -1
    git show v<target>:CHANGELOG.md
    ```
@@ -29,7 +31,7 @@ Releases are `vX.Y.Z` tags on `ciaranmci27/valiance-media-agentic-project-manage
 | Exit | Do |
 |---|---|
 | 0 | Go to step 5. |
-| 1 | Fix what the message says (uncommitted changes, `upstream` pointing elsewhere, a merge already open) and run it again. |
+| 1 | Fix what the message says (uncommitted changes, `upstream` pointing elsewhere, a merge already open, a private release repo without `PM_UPSTREAM_TOKEN`) and run it again. |
 | 2 | Conflict. Nothing changed. Go to **Resolve a conflict**. |
 | 3 | No shared history. Follow the printed steps; tell the owner, because it means re-creating the repo from the public one. |
 | 4 | Merged, a check failed. The merge commit stays. Read the failing check's output, fix it in client-owned paths, commit. |

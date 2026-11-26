@@ -58,6 +58,15 @@ Updates merge each release into your code, so your repository must start as a co
    npm install
    ```
 
+If the release repository is private, cloning it needs access: a GitHub account Valiance Media has given access, or the read-only token Valiance Media issued you (`PM_UPSTREAM_TOKEN`, see [If the release repository is private](#if-the-release-repository-is-private)). With the token, replace the `git clone` line with:
+
+```bash
+export PM_UPSTREAM_TOKEN=<the token>
+git -c "http.https://github.com/ciaranmci27/valiance-media-agentic-project-management.git.extraheader=AUTHORIZATION: basic $(printf 'x-access-token:%s' "$PM_UPSTREAM_TOKEN" | base64 | tr -d '\n')" clone https://github.com/ciaranmci27/valiance-media-agentic-project-management.git my-pm
+```
+
+The token travels as a header for that one command and is never saved in the repository's settings.
+
 The `checkout` line starts you on the newest release. The public `main` branch can carry work that is not released yet, and an install should only ever run releases. `upstream` is where releases come from. `origin` is your own repository.
 
 ### 2. Set up the database
@@ -221,6 +230,16 @@ git push
 ```
 
 It merges the newest release, which can be several versions ahead, so read the notes of every release in between. It keeps your dependencies, scripts and crons in `package.json` and `vercel.json`, then installs, type-checks and runs the tests. It never pushes. Add `-- --to v1.4.0` for a specific release, or `-- --branch update/v1.4.0` to merge on a new branch.
+
+### If the release repository is private
+
+While the release repository is public, skip this: everything reads it anonymously. If it is private, Valiance Media issues your install a read-only token for it. Put it in up to three places, each under the name `PM_UPSTREAM_TOKEN`:
+
+1. Your host's environment variables, then redeploy. Settings > Updates reads the release list with it.
+2. Your repository's Actions secrets (Settings > Secrets and variables > Actions). The update and checks workflows fetch releases with it. Dependabot pull requests do not receive Actions secrets: if you use Dependabot, add it as a Dependabot secret too.
+3. Your shell, before `npm run upgrade` (or use a GitHub account that has access).
+
+Without it, Settings > Updates says the release repository is private, and the workflows and `npm run upgrade` stop with a message naming `PM_UPSTREAM_TOKEN`. The token is only ever sent to the release repository, as a header, and never saved in git's settings.
 
 ### If an update stops on a conflict
 

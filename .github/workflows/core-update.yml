@@ -7,7 +7,16 @@ name: Core update
 #
 # PM_UPDATE_TOKEN (Actions secret) is the install's fine-grained token, stored
 # by Settings > Updates > Finish setup. GITHUB_TOKEN cannot push changes to
-# workflow files, which releases can carry.
+# workflow files, which releases can carry. It is only ever sent to this
+# install's own repository (origin).
+#
+# PM_UPSTREAM_TOKEN (Actions secret, optional) is the read-only token Valiance
+# Media issues for the release repo, needed only while that repo is private.
+# It is only ever sent to the release repo: npm run upgrade scopes it to the
+# upstream URL, and it reads the release notes. Without it everything runs as
+# for a public repo: an anonymous fetch, and the notes read with
+# PM_UPDATE_TOKEN as before. A private repo with no token stops with a
+# PM_UPDATE_RESULT line that names PM_UPSTREAM_TOKEN.
 
 run-name: Update to v${{ inputs.version }}
 
@@ -79,6 +88,10 @@ jobs:
 
       - name: Merge the release and run the checks
         id: upgrade
+        env:
+          # upgrade.ts sends it only to the upstream URL and drops it from the
+          # environment before installing and running the checks.
+          PM_UPSTREAM_TOKEN: ${{ secrets.PM_UPSTREAM_TOKEN }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -155,7 +168,9 @@ jobs:
           branch="update/$VERSION"
           auth=$(printf 'x-access-token:%s' "$PM_UPDATE_TOKEN" | base64 -w0)
           echo "::add-mask::${auth}"
-          git_auth=(-c "http.https://github.com/.extraheader=AUTHORIZATION: basic ${auth}")
+          # Scoped to this install's own repository, so it never reaches upstream.
+          origin_url=$(git remote get-url origin)
+          git_auth=(-c "http.${origin_url}.extraheader=AUTHORIZATION: basic ${auth}")
           # The update branch is this workflow's output: a newer run replaces it,
           # but only if nobody pushed to it since it was read.
           if remote_sha=$(git "${git_auth[@]}" ls-remote --exit-code --heads origin "refs/heads/$branch" | cut -f1); then
@@ -167,10 +182,15 @@ jobs:
       - name: Open or update the pull request
         env:
           GH_TOKEN: ${{ secrets.PM_UPDATE_TOKEN }}
+          PM_UPSTREAM_TOKEN: ${{ secrets.PM_UPSTREAM_TOKEN }}
         run: |
           branch="update/$VERSION"
           notes_file="$RUNNER_TEMP/notes.md"
-          if ! gh release view "v$VERSION" --repo "$UPSTREAM_REPO" --json body --jq .body > "$notes_file" 2>/dev/null || [[ ! -s "$notes_file" ]]; then
+          # The release notes come from upstream: read with PM_UPSTREAM_TOKEN
+          # when set; without it, with the install's token as before (any
+          # token can read a public repo). A failed read falls back to a link.
+          notes_token="${PM_UPSTREAM_TOKEN:-$GH_TOKEN}"
+          if ! GH_TOKEN="$notes_token" gh release view "v$VERSION" --repo "$UPSTREAM_REPO" --json body --jq .body > "$notes_file" 2>/dev/null || [[ ! -s "$notes_file" ]]; then
             echo "Release notes: https://github.com/$UPSTREAM_REPO/releases/tag/v$VERSION" > "$notes_file"
           fi
           node <<'NODE'

@@ -20,7 +20,7 @@ import {
 import type { AgentRunSummary } from '@/lib/agent-runs';
 import type { AgentOwner } from '@/lib/agent-workspace';
 import type { AgentActivity } from '@/lib/types';
-import { timeAgo } from '@/lib/task-times';
+import { formatAgo } from '@/lib/time-format';
 import { Button } from '@/components/ui/Button';
 import { TextInput } from '@/components/ui/inputs/TextInput';
 import { Select } from '@/components/ui/inputs/Select';
@@ -134,8 +134,7 @@ export function useAgentRoster(): { entries: RosterEntry[]; ready: boolean } {
 }
 
 function activeAgo(at: number): string {
-  const ago = timeAgo(new Date(at).toISOString());
-  return ago === 'Just now' || ago === 'Yesterday' ? ago.toLowerCase() : ago;
+  return formatAgo(at, { midSentence: true });
 }
 
 const PRESENCE_FILTERS: { value: RosterFilters['presence']; label: string }[] = [

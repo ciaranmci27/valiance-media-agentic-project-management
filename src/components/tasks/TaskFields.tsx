@@ -19,9 +19,9 @@ import { Textarea } from '@/components/ui/inputs/Textarea';
 
 export const STATUS_OPTIONS: { value: Task['status']; label: string; color: string }[] = [
   { value: 'backlog', label: 'Backlog', color: 'border border-dashed border-zinc-400' },
-  { value: 'todo', label: 'To Do', color: 'bg-zinc-400' },
-  { value: 'in_progress', label: 'In Progress', color: 'bg-brand-500' },
-  { value: 'in_review', label: 'In Review', color: 'bg-amber-500' },
+  { value: 'todo', label: 'To do', color: 'bg-zinc-400' },
+  { value: 'in_progress', label: 'In progress', color: 'bg-brand-500' },
+  { value: 'in_review', label: 'In review', color: 'bg-amber-500' },
   { value: 'done', label: 'Done', color: 'bg-emerald-500' },
 ];
 

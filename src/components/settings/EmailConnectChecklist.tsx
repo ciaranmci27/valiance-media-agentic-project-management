@@ -3,7 +3,7 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { Check, ChevronDown, Copy } from 'lucide-react';
 import { toast } from '@/components/ui/Toast';
-import { appLocale } from '@/lib/region';
+import { formatAgo } from '@/lib/time-format';
 import { Tooltip } from '@/components/ui/Tooltip';
 
 /**
@@ -19,17 +19,9 @@ import { Tooltip } from '@/components/ui/Tooltip';
 const COPY_BUTTON =
   'p-1 rounded text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.06] transition-colors flex-shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500';
 
-/** "just now", "5m ago", "2h ago", "3d ago", then a date. */
+/** "just now", "5 min ago", "yesterday", "Nov 26": read mid-sentence ("last email 5 min ago"), from lib/time-format. */
 export function relativeTime(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return 'just now';
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  if (days < 30) return `${days}d ago`;
-  return new Date(iso).toLocaleDateString(appLocale(), { month: 'short', day: 'numeric' });
+  return formatAgo(iso, { midSentence: true });
 }
 
 /** An icon button that copies a value, with a tooltip and a toast. */

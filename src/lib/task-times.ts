@@ -1,5 +1,6 @@
 import type { Task, TaskUpdate } from '@/lib/types';
 import { appLocale } from '@/lib/region';
+import { formatAgo } from '@/lib/time-format';
 
 /**
  * When anything last happened on a task. A task's own updated_at moves only
@@ -23,26 +24,12 @@ export function lastActivityAt(
 }
 
 /**
- * The way Messages does it: "Just now", "5 min ago", "3 hours ago" while it is
+ * The way Messages does it: "Just now", "5 min ago", "2 h ago" while it is
  * still today, "Yesterday", then the date ("Oct 24", with the year when it is
- * not this year).
+ * not this year). A wrapper over the one time format family (lib/time-format).
  */
 export function timeAgo(dateStr: string, now: Date = new Date()): string {
-  const then = new Date(dateStr);
-  const mins = Math.floor((now.getTime() - then.getTime()) / 60000);
-  if (mins < 1) return 'Just now';
-  if (mins < 60) return `${mins} min ago`;
-  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-  if (then.getTime() >= startOfToday) {
-    const hours = Math.floor(mins / 60);
-    return `${hours} ${hours === 1 ? 'hour' : 'hours'} ago`;
-  }
-  if (then.getTime() >= startOfToday - 86_400_000) return 'Yesterday';
-  return then.toLocaleDateString(appLocale(), {
-    month: 'short',
-    day: 'numeric',
-    ...(then.getFullYear() === now.getFullYear() ? {} : { year: 'numeric' }),
-  });
+  return formatAgo(dateStr, { now });
 }
 
 /** "Created Oct 12, 2026". */
@@ -52,8 +39,6 @@ export function createdLabel(createdAt: string): string {
 
 /** Both times, for a tooltip: "Created Oct 12, 2026 · Updated 30 min ago". */
 export function taskTimesTooltip(createdAt: string, lastAt: string): string {
-  const updated = timeAgo(lastAt);
   // Mid-sentence: "Updated just now", "Updated yesterday".
-  const phrase = updated === 'Just now' || updated === 'Yesterday' ? updated.toLowerCase() : updated;
-  return `${createdLabel(createdAt)} · Updated ${phrase}`;
+  return `${createdLabel(createdAt)} · Updated ${formatAgo(lastAt, { midSentence: true })}`;
 }

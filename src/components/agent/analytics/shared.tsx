@@ -6,6 +6,7 @@ import { Tooltip } from '@/components/ui/Tooltip';
 import { StatStrip, type Stat as StripStat } from '@/components/ui/StatStrip';
 import { formatNumber } from '@/lib/format';
 import { appLocale } from '@/lib/region';
+import { formatDateTime } from '@/lib/time-format';
 
 /**
  * Presentation shared by the Agent Analytics cards (core's, and an install's
@@ -44,8 +45,9 @@ export function fmtSeconds(seconds: number): string {
   return seconds < 60 ? `${Math.round(seconds)}s` : fmtDuration(seconds * 1000);
 }
 
+/** "Nov 26, 1:15 PM": the one time format family (lib/time-format). */
 export function fmtWhen(ms: number): string {
-  return new Date(ms).toLocaleString(appLocale(), { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  return formatDateTime(ms);
 }
 
 export function fmtDay(ms: number): string {

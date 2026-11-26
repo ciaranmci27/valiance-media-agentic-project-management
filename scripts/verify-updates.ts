@@ -17,15 +17,16 @@
  */
 import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
-import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { NextRequest, NextResponse } from 'next/server';
 import { UPSTREAM_REPO } from '../src/lib/updates/config';
+import { AUTH_FAILURE } from './upgrade';
 import { clearConnectionCache, PROBE_REF, PROBE_SECRET_NAME, readConnection } from '../src/lib/updates/connection';
 import { createGitHubClient, sealSecret, type FetchLike } from '../src/lib/updates/github';
 import { getUpdates, isSameOrigin, postApply, postPrepare, postSetup, type AuditEntry, type UpdatesDeps } from '../src/lib/updates/handlers';
-import { clearReleaseCache, parseReleaseNotes, pendingReleases, readReleases, toReleaseInfo } from '../src/lib/updates/releases';
+import { clearReleaseCache, parseReleaseNotes, pendingReleases, PRIVATE_RELEASES_MESSAGE, readReleases, toReleaseInfo, UPSTREAM_TOKEN_REFUSED_MESSAGE } from '../src/lib/updates/releases';
 import { canApply, deriveRun, parseHiddenSummary, parseResultMarker } from '../src/lib/updates/run';
 import { canUpdate, compareVersions, parseVersion, REQUIRED_TOKEN_PERMISSIONS, type ReleaseInfo, type UpdateRun, type UpdatesState } from '../src/lib/updates/types';
 import { DEPLOY_WATCH_MS, deployDeadline, isDeployStalled, runProgress, runSteps, shouldPoll, updatePhase, updateSignal, type RunProgress } from '../src/components/settings/updates/update-phase';
@@ -228,6 +229,93 @@ async function releaseListCases() {
   clearReleaseCache();
   const offline = await readReleases({ fetch: async () => { throw new TypeError('fetch failed'); } });
   check('releases: offline is a readable error', /Could not reach GitHub/.test(offline.error ?? ''), offline.error);
+  await upstreamTokenCases();
+}
+
+const UPSTREAM_TOKEN = 'github_pat_UPSTREAM_TEST_ONLY_never_real_42';
+
+/**
+ * A release repo that answers each credential its own way: `allow` lists the
+ * Authorization values that read it ('anonymous' for none); every other
+ * credential gets `refusal` (404 by default, as GitHub answers a private repo).
+ */
+function releaseRepo(allow: Array<string | 'anonymous'>, refusal: Answer = notFound) {
+  return fakeGitHub({ [`GET /repos/${UPSTREAM_REPO}/releases`]: (_url, init) => {
+    const auth = new Headers(init?.headers).get('authorization') ?? 'anonymous';
+    return allow.includes(auth) ? { body: [{ tag_name: 'v1.4.0', body: '' }] } : refusal;
+  } });
+}
+const authsOf = (calls: Call[]) => calls.map((call) => call.auth);
+
+async function upstreamTokenCases() {
+  // A public repo with no token: anonymous, one read, no message, exactly as before PM_UPSTREAM_TOKEN existed.
+  clearReleaseCache();
+  const publicRepo = releaseRepo(['anonymous', `Bearer ${TOKEN}`, `Bearer ${UPSTREAM_TOKEN}`]);
+  const publicRead = await readReleases({ fetch: publicRepo.fetch });
+  check('upstream token: a public repo with no token reads once, anonymously, with no message', publicRead.error === null && publicRead.releases.length === 1
+    && JSON.stringify(authsOf(publicRepo.calls)) === JSON.stringify([null]), { publicRead, auth: authsOf(publicRepo.calls) });
+
+  // PM_UPSTREAM_TOKEN is tried first, before PM_GITHUB_TOKEN and anonymous.
+  clearReleaseCache();
+  const both = releaseRepo([`Bearer ${UPSTREAM_TOKEN}`, `Bearer ${TOKEN}`, 'anonymous']);
+  const bothRead = await readReleases({ fetch: both.fetch, token: TOKEN, upstreamToken: UPSTREAM_TOKEN });
+  check('upstream token: read first, and only, when it works', bothRead.error === null
+    && JSON.stringify(authsOf(both.calls)) === JSON.stringify([`Bearer ${UPSTREAM_TOKEN}`]) && both.calls[0].init?.cache === 'no-store', authsOf(both.calls));
+
+  // A private repo the upstream token reads: works with no install token at all, anonymous never tried.
+  clearReleaseCache();
+  const privateRepo = releaseRepo([`Bearer ${UPSTREAM_TOKEN}`]);
+  const privateRead = await readReleases({ fetch: privateRepo.fetch, upstreamToken: UPSTREAM_TOKEN });
+  check('upstream token: reads a private repo', privateRead.error === null && privateRead.releases[0]?.version === '1.4.0' && privateRepo.calls.length === 1, { privateRead, auth: authsOf(privateRepo.calls) });
+
+  // Refused upstream token, public repo: PM_GITHUB_TOKEN next, then anonymous.
+  clearReleaseCache();
+  const installReads = releaseRepo([`Bearer ${TOKEN}`], { status: 401, body: { message: 'Bad credentials' } });
+  const installRead = await readReleases({ fetch: installReads.fetch, token: TOKEN, upstreamToken: UPSTREAM_TOKEN });
+  check('upstream token: refused, then PM_GITHUB_TOKEN', installRead.error === null
+    && JSON.stringify(authsOf(installReads.calls)) === JSON.stringify([`Bearer ${UPSTREAM_TOKEN}`, `Bearer ${TOKEN}`]), authsOf(installReads.calls));
+  clearReleaseCache();
+  const anonymousOnly = releaseRepo(['anonymous']);
+  const anonymousRead = await readReleases({ fetch: anonymousOnly.fetch, token: TOKEN, upstreamToken: UPSTREAM_TOKEN });
+  check('upstream token: both tokens refused on a public repo, the anonymous read answers', anonymousRead.error === null
+    && JSON.stringify(authsOf(anonymousOnly.calls)) === JSON.stringify([`Bearer ${UPSTREAM_TOKEN}`, `Bearer ${TOKEN}`, null]), authsOf(anonymousOnly.calls));
+
+  // A private repo with no upstream token: one plain message naming PM_UPSTREAM_TOKEN.
+  for (const [label, refusal] of [['404', notFound], ['401', { status: 401, body: { message: 'Requires authentication' } }]] as const) {
+    clearReleaseCache();
+    const hidden = releaseRepo([], refusal);
+    const hiddenRead = await readReleases({ fetch: hidden.fetch });
+    check(`upstream token: a private repo (${label}) with no token says so and names PM_UPSTREAM_TOKEN`, hiddenRead.error === PRIVATE_RELEASES_MESSAGE
+      && /private/.test(hiddenRead.error ?? '') && /PM_UPSTREAM_TOKEN/.test(hiddenRead.error ?? '') && hiddenRead.releases.length === 0, hiddenRead);
+  }
+  clearReleaseCache();
+  const scopedOnly = releaseRepo([]);
+  const scopedRead = await readReleases({ fetch: scopedOnly.fetch, token: TOKEN });
+  check('upstream token: a private repo with only the install token (scoped to its own repo) gets the same message', scopedRead.error === PRIVATE_RELEASES_MESSAGE
+    && JSON.stringify(authsOf(scopedOnly.calls)) === JSON.stringify([`Bearer ${TOKEN}`, null]), { scopedRead, auth: authsOf(scopedOnly.calls) });
+
+  // A refused upstream token on a private repo: the message says the token was refused.
+  clearReleaseCache();
+  const expired = releaseRepo([], { status: 401, body: { message: 'Bad credentials' } });
+  const expiredRead = await readReleases({ fetch: expired.fetch, token: TOKEN, upstreamToken: UPSTREAM_TOKEN });
+  check('upstream token: refused on a private repo says the token was refused', expiredRead.error === UPSTREAM_TOKEN_REFUSED_MESSAGE
+    && authsOf(expired.calls).length === 3, { expiredRead, auth: authsOf(expired.calls) });
+
+  // A rate limit on the upstream token stops there.
+  clearReleaseCache();
+  const limited = fakeGitHub({ [`GET /repos/${UPSTREAM_REPO}/releases`]: { status: 403, body: { message: 'API rate limit exceeded' }, headers: { 'x-ratelimit-remaining': '0' } } });
+  const limitedRead = await readReleases({ fetch: limited.fetch, token: TOKEN, upstreamToken: UPSTREAM_TOKEN });
+  check('upstream token: a rate limit is not retried with other credentials', limited.calls.length === 1 && /limit/.test(limitedRead.error ?? ''), limited.calls.length);
+
+  // The in-memory list is kept per pair of tokens, never shared.
+  clearReleaseCache();
+  const counted = releaseRepo([`Bearer ${UPSTREAM_TOKEN}`, 'Bearer github_pat_OTHER_UPSTREAM']);
+  await readReleases({ fetch: counted.fetch, upstreamToken: UPSTREAM_TOKEN, now: () => NOW });
+  await readReleases({ fetch: counted.fetch, upstreamToken: UPSTREAM_TOKEN, now: () => new Date(NOW.getTime() + 60 * 60 * 1000) });
+  check('upstream token: the list is kept in memory for its token', counted.calls.length === 1, counted.calls.length);
+  await readReleases({ fetch: counted.fetch, upstreamToken: 'github_pat_OTHER_UPSTREAM', now: () => NOW });
+  check('upstream token: another upstream token never shares it', counted.calls.length === 2 && counted.calls[1].auth === 'Bearer github_pat_OTHER_UPSTREAM', authsOf(counted.calls));
+  clearReleaseCache();
 }
 
 async function connectionCases() {
@@ -703,6 +791,23 @@ async function routeCases() {
   const sourceData = source.body.data as UpdatesState;
   check('get: source install reads releases, no connection, no run', source.status === 200 && sourceData.role === 'source' && sourceData.connection === null && sourceData.run === null && sourceData.pending.length === 2, sourceData);
   check('get: the source install reads releases anonymously even with a token set', releaseReads(sourceHarness).every((call) => call.auth === null) && sourceHarness.calls.every((call) => call.path.endsWith('/releases')));
+  // PM_UPSTREAM_TOKEN, when set, reads the release list first on an install and on the source install.
+  const withUpstream = harness({ env: { PM_UPSTREAM_TOKEN: UPSTREAM_TOKEN } });
+  const withUpstreamData = (await json(await getUpdates(get(), withUpstream.deps))).body.data as UpdatesState;
+  check('get: an install with PM_UPSTREAM_TOKEN reads releases with it first', withUpstreamData.latest?.version === '1.4.0'
+    && JSON.stringify(releaseReads(withUpstream).map((call) => call.auth)) === JSON.stringify([`Bearer ${UPSTREAM_TOKEN}`]), releaseReads(withUpstream).map((call) => call.auth));
+  const sourceUpstream = harness({ env: { PM_INSTALL_ROLE: 'source', PM_UPSTREAM_TOKEN: UPSTREAM_TOKEN } });
+  await getUpdates(get(), sourceUpstream.deps);
+  check('get: the source install reads releases with PM_UPSTREAM_TOKEN, never PM_GITHUB_TOKEN', JSON.stringify(releaseReads(sourceUpstream).map((call) => call.auth)) === JSON.stringify([`Bearer ${UPSTREAM_TOKEN}`]), releaseReads(sourceUpstream).map((call) => call.auth));
+  // A private release repo and no PM_UPSTREAM_TOKEN: the page still answers, with the plain message.
+  const privateRoutes = { [`GET /repos/${UPSTREAM_REPO}/releases`]: notFound };
+  const privateSource = (await json(await getUpdates(get(), harness({ env: { PM_INSTALL_ROLE: 'source' }, routes: privateRoutes }).deps)));
+  const privateSourceData = privateSource.body.data as UpdatesState;
+  check('get: the source install, private repo, no token: 200 with the private-repo message', privateSource.status === 200 && privateSourceData.role === 'source'
+    && privateSourceData.releasesError === PRIVATE_RELEASES_MESSAGE && privateSourceData.latest === null, privateSource);
+  const privateInstall = (await json(await getUpdates(get(), harness({ routes: privateRoutes }).deps))).body.data as UpdatesState;
+  check('get: an install, private repo, no upstream token: the private-repo message, the connection still read', privateInstall.releasesError === PRIVATE_RELEASES_MESSAGE
+    && privateInstall.connection?.status === 'connected' && privateInstall.pending.length === 0, privateInstall);
   const layoutData = (await json(await getUpdates(get(), harness({ env: { PM_SOURCE_LAYOUT: '1' } }).deps))).body.data as UpdatesState;
   check('get: PM_SOURCE_LAYOUT=1 is the source install', layoutData.role === 'source' && layoutData.connection === null, layoutData.role);
   check('get: non-owner refused', (await getUpdates(get(), harness({ role: 'member' }).deps)).status === 403);
@@ -928,6 +1033,176 @@ function workflowCases() {
   // Core is linted where it is built; an install's checks never fail on code it cannot edit.
   check('core-checks.yml: lints only the install code', !checks.includes('npm run lint'));
   check('core-checks.yml: concurrency per ref', /group: core-checks-\$\{\{ github\.ref \}\}/.test(checks));
+  workflowTokenCases();
+}
+
+/** One step's run block, dedented, by its name. */
+function stepScript(text: string, name: string): string | null {
+  const lines = text.replace(/\r\n/g, '\n').split('\n');
+  const start = lines.findIndex((line) => line.trim() === `- name: ${name}`);
+  if (start < 0) return null;
+  const stepIndent = lines[start].search(/\S/);
+  for (let i = start + 1; i < lines.length; i++) {
+    if (lines[i].trim() && lines[i].search(/\S/) <= stepIndent) return null;
+    const run = /^(\s*)run:\s*\|\s*$/.exec(lines[i]);
+    if (!run) continue;
+    const body: string[] = [];
+    for (let j = i + 1; j < lines.length; j++) {
+      if (lines[j].trim() !== '' && lines[j].search(/\S/) <= run[1].length) break;
+      body.push(lines[j]);
+    }
+    const indent = Math.min(...body.filter((line) => line.trim()).map((line) => line.search(/\S/)));
+    return body.map((line) => line.slice(indent)).join('\n');
+  }
+  return null;
+}
+
+/** Git Bash on Windows (never WSL's bash), bash elsewhere; null when there is none. */
+function findBash(): string | null {
+  if (process.platform !== 'win32') return spawnSync('bash', ['-c', 'true']).status === 0 ? 'bash' : null;
+  for (const base of [process.env.ProgramFiles, process.env['ProgramFiles(x86)'], process.env.LOCALAPPDATA && join(process.env.LOCALAPPDATA, 'Programs')]) {
+    const candidate = base && join(base, 'Git', 'bin', 'bash.exe');
+    if (candidate && existsSync(candidate)) return candidate;
+  }
+  return null;
+}
+
+/**
+ * Runs a workflow step's real script the way Actions does (bash -eo pipefail)
+ * with stub git and gh first on PATH. The stubs record every call (arguments,
+ * and GH_TOKEN for gh); git answers `remote get-url origin` with the install's
+ * repo, `ls-remote` with "no such branch", and everything else with STUB_GIT_EXIT,
+ * writing STUB_GIT_STDERR to stderr first (what git says when it fails).
+ */
+function runStep(bash: string, script: string, env: Record<string, string>, gitExit = 0, gitStderr = ''): { status: number | null; out: string; calls: string[][] } {
+  const temp = mkdtempSync(join(tmpdir(), 'pm-step-'));
+  try {
+    const log = join(temp, 'calls.log');
+    writeFileSync(join(temp, 'git'), [
+      '#!/usr/bin/env bash',
+      '{ printf "%s\\0" git "$@"; printf "\\n"; } >> "$STUB_LOG"',
+      'if [[ "$1" == remote && "$2" == get-url ]]; then echo "https://github.com/acme/pm"; exit 0; fi',
+      'for arg in "$@"; do [[ "$arg" == ls-remote ]] && exit 2; done',
+      '[[ -n "${STUB_GIT_STDERR:-}" ]] && printf "%s\\n" "$STUB_GIT_STDERR" >&2',
+      'exit "${STUB_GIT_EXIT:-0}"',
+      '',
+    ].join('\n'), { mode: 0o755 });
+    writeFileSync(join(temp, 'gh'), [
+      '#!/usr/bin/env bash',
+      '{ printf "%s\\0" gh "GH_TOKEN=${GH_TOKEN:-}" "$@"; printf "\\n"; } >> "$STUB_LOG"',
+      'if [[ "$1" == release ]]; then echo "Release notes."; fi',
+      'exit 0',
+      '',
+    ].join('\n'), { mode: 0o755 });
+    writeFileSync(join(temp, 'upgrade.json'), '{}');
+    const file = join(temp, 'step.sh');
+    writeFileSync(file, `PATH="$(cd "$STUB_DIR" && pwd):$PATH"\n${script}\n`);
+    const result = spawnSync(bash, ['--noprofile', '--norc', '-eo', 'pipefail', file], {
+      encoding: 'utf8',
+      env: { ...process.env, STUB_DIR: temp, STUB_LOG: log, STUB_GIT_EXIT: String(gitExit), STUB_GIT_STDERR: gitStderr, RUNNER_TEMP: temp, UPSTREAM_REPO, GITHUB_REPOSITORY: REPO, DEFAULT_BRANCH: 'main', VERSION: '1.4.0', ...env },
+    });
+    const calls = existsSync(log) ? readFileSync(log, 'utf8').split('\n').filter(Boolean).map((line) => line.split('\0').filter((part, i, all) => i < all.length - 1 || part !== '')) : [];
+    return { status: result.status, out: `${result.stdout ?? ''}${result.stderr ?? ''}`, calls };
+  } finally {
+    rmSync(temp, { recursive: true, force: true });
+  }
+}
+
+/**
+ * Tokens in the workflows: never in a URL or .git/config, each Authorization
+ * header scoped to the one URL it is for (the release repo or the install's own
+ * origin), PM_UPSTREAM_TOKEN optional, and with no token every step behaves as
+ * it did for a public release repo.
+ */
+function workflowTokenCases() {
+  const basic = (token: string) => Buffer.from(`x-access-token:${token}`).toString('base64');
+  const files = Object.fromEntries(['core-checks.yml', 'core-update.yml'].map((file) => [file, readFileSync(join(APP, '.github', 'workflows', file), 'utf8').replace(/\r\n/g, '\n')]));
+  for (const [file, text] of Object.entries(files)) {
+    check(`${file}: no credentials in a URL`, !/https?:\/\/[^\s"'/]*@/.test(text) && !/https?:\/\/[^\s"']*\$\{?\w*(token|auth)/i.test(text), text.match(/https?:\/\/\S*/g));
+    check(`${file}: no header written to git config`, !/git\s+config[^\n]*extraheader/.test(text));
+    check(`${file}: no header scoped to all of github.com`, !/http\.https:\/\/github\.com\/\.extraheader/.test(text));
+    const headers = runBlocks(text).flatMap((block) => block.split('\n')).filter((line) => line.includes('extraheader'));
+    check(`${file}: every header is scoped to one named URL`, headers.length > 0 && headers.every((line) => /-c "http\.\$\{(url|origin_url)\}\.extraheader=AUTHORIZATION: basic \$\{auth\}"/.test(line)), headers.map((line) => line.trim()));
+    check(`${file}: every checkout leaves no token behind`, (text.match(/uses: actions\/checkout@/g) ?? []).length === (text.match(/persist-credentials: false/g) ?? []).length);
+  }
+  const checks = files['core-checks.yml'];
+  check('core-checks.yml: the release repo reads itself with its own token, an install with PM_UPSTREAM_TOKEN',
+    checks.includes('UPSTREAM_TOKEN: ${{ github.repository == env.UPSTREAM_REPO && github.token || secrets.PM_UPSTREAM_TOKEN }}'));
+  const update = files['core-update.yml'];
+  check('core-update.yml: npm run upgrade gets PM_UPSTREAM_TOKEN, nothing else does by default',
+    /- name: Merge the release and run the checks\n\s+id: upgrade\n\s+env:\n(?:\s+#.*\n)*\s+PM_UPSTREAM_TOKEN: \$\{\{ secrets\.PM_UPSTREAM_TOKEN \}\}/.test(update)
+    && !/- name: (Install|Check out|Set up Node|Push the update branch)\n(?:(?!- name:)[\s\S])*PM_UPSTREAM_TOKEN/.test(update));
+  check('core-update.yml: no up-front stop when PM_UPSTREAM_TOKEN is unset (a public repo needs none)', !/HAS_UPSTREAM_TOKEN|secrets\.PM_UPSTREAM_TOKEN != ''/.test(update));
+
+  const bash = findBash();
+  if (!bash) {
+    console.log('updates: no bash found; workflow step scripts were not run (shape checks still ran)');
+    return;
+  }
+  const fetchStep = stepScript(checks, 'Fetch release tags');
+  check('core-checks.yml: Fetch release tags step found', !!fetchStep);
+  if (fetchStep) {
+    const upstreamUrl = `https://github.com/${UPSTREAM_REPO}.git`;
+    const fetches = (calls: string[][]) => calls.filter((call) => call.includes('fetch'));
+    // Public, no token: anonymous, as before; no error, no header.
+    const open = runStep(bash, fetchStep, { UPSTREAM_TOKEN: '' });
+    check('core-checks fetch: public repo, no token: anonymous fetch, passes, no annotation', open.status === 0 && !open.out.includes('::error')
+      && fetches(open.calls).length === 1 && !fetches(open.calls)[0].some((arg) => /extraheader/.test(arg)) && fetches(open.calls)[0].includes(upstreamUrl), open);
+    // What git says when GitHub wants credentials, and when it cannot be reached at all.
+    const noCredentials = "fatal: could not read Username for 'https://github.com': terminal prompts disabled";
+    const badToken = "remote: Invalid username or token.\nfatal: Authentication failed for 'https://github.com/x.git/'";
+    const offline = "fatal: unable to access 'https://github.com/x.git/': Could not resolve host: github.com";
+    // Private, no token: fails with one line naming PM_UPSTREAM_TOKEN and where it goes.
+    const closed = runStep(bash, fetchStep, { UPSTREAM_TOKEN: '' }, 128, noCredentials);
+    const closedErrors = closed.out.split('\n').filter((line) => line.startsWith('::error'));
+    check('core-checks fetch: private repo, no token: fails with one line naming PM_UPSTREAM_TOKEN', closed.status === 1 && closedErrors.length === 1
+      && /PM_UPSTREAM_TOKEN/.test(closedErrors[0]) && /Actions secret/.test(closedErrors[0]), closed.out);
+    // With a token: one header, scoped to the upstream URL, the value masked, the raw token never on the command line.
+    const token = 'github_pat_STEP_TEST_ONLY_99';
+    const authed = runStep(bash, fetchStep, { UPSTREAM_TOKEN: token });
+    const call = fetches(authed.calls)[0] ?? [];
+    check('core-checks fetch: the token goes in a header scoped to the upstream URL', authed.status === 0
+      && call.includes(`http.${upstreamUrl}.extraheader=AUTHORIZATION: basic ${basic(token)}`) && call.includes(upstreamUrl), call);
+    check('core-checks fetch: the header value is masked and the raw token is never an argument', authed.out.includes(`::add-mask::${basic(token)}`)
+      && authed.calls.every((args) => args.every((arg) => !arg.includes(token))), authed.out);
+    const refused = runStep(bash, fetchStep, { UPSTREAM_TOKEN: token }, 128, badToken);
+    check('core-checks fetch: a refused token says so', refused.status === 1 && /refused PM_UPSTREAM_TOKEN/.test(refused.out), refused.out);
+    // GitHub out of reach: fails, says so and to retry, and never blames a token, with or without one.
+    for (const [label, value] of [['no token', ''], ['a token', token]] as const) {
+      const down = runStep(bash, fetchStep, { UPSTREAM_TOKEN: value }, 128, offline);
+      const downErrors = down.out.split('\n').filter((line) => line.startsWith('::error'));
+      check(`core-checks fetch: a network failure with ${label} says GitHub could not be reached, not private or refused`, down.status === 1 && downErrors.length === 1
+        && /could not reach GitHub/i.test(downErrors[0]) && /re-run/i.test(downErrors[0]) && !/PM_UPSTREAM_TOKEN|private|refused/i.test(downErrors[0]), down.out);
+      check(`core-checks fetch: git's own error is shown with ${label}`, down.out.includes('Could not resolve host'), down.out);
+    }
+    const pattern = /auth_failure='([^']*)'/.exec(fetchStep)?.[1];
+    check('core-checks fetch: tells auth failures by the same pattern as scripts/upgrade.ts', pattern === AUTH_FAILURE.source, { workflow: pattern, upgrade: AUTH_FAILURE.source });
+  }
+
+  const pushStep = stepScript(update, 'Push the update branch');
+  check('core-update.yml: Push the update branch step found', !!pushStep);
+  if (pushStep) {
+    const token = 'github_pat_PUSH_TEST_ONLY_77';
+    const pushed = runStep(bash, pushStep, { PM_UPDATE_TOKEN: token });
+    const push = pushed.calls.find((args) => args.includes('push')) ?? [];
+    check('core-update push: PM_UPDATE_TOKEN is scoped to the install\'s own origin URL', pushed.status === 0
+      && push.includes('http.https://github.com/acme/pm.extraheader=AUTHORIZATION: basic ' + basic(token))
+      && pushed.calls.every((args) => args.every((arg) => !arg.includes(token) && !arg.includes(UPSTREAM_REPO))), pushed.calls);
+  }
+
+  const prStep = stepScript(update, 'Open or update the pull request');
+  check('core-update.yml: Open or update the pull request step found', !!prStep);
+  if (prStep) {
+    const ghCalls = (calls: string[][]) => calls.filter((args) => args[0] === 'gh');
+    const tokenFor = (calls: string[][], verb: string) => ghCalls(calls).filter((args) => args[2] === verb).map((args) => args[1]);
+    const withUpstream = runStep(bash, prStep, { GH_TOKEN: 'update-token', PM_UPSTREAM_TOKEN: 'upstream-token' });
+    check('core-update notes: read from upstream with PM_UPSTREAM_TOKEN; pull requests with PM_UPDATE_TOKEN', withUpstream.status === 0
+      && JSON.stringify(tokenFor(withUpstream.calls, 'release')) === JSON.stringify(['GH_TOKEN=upstream-token'])
+      && tokenFor(withUpstream.calls, 'pr').length === 2 && tokenFor(withUpstream.calls, 'pr').every((value) => value === 'GH_TOKEN=update-token'), { out: withUpstream.out, calls: ghCalls(withUpstream.calls) });
+    const withoutUpstream = runStep(bash, prStep, { GH_TOKEN: 'update-token', PM_UPSTREAM_TOKEN: '' });
+    check('core-update notes: no PM_UPSTREAM_TOKEN reads them as before, with PM_UPDATE_TOKEN', withoutUpstream.status === 0
+      && JSON.stringify(tokenFor(withoutUpstream.calls, 'release')) === JSON.stringify(['GH_TOKEN=update-token']), ghCalls(withoutUpstream.calls));
+  }
 }
 
 // ---------------------------------------------------------------------------

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { Calendar, ChevronDown, Clock, FileText, History, Plus, Receipt, Users, X, type LucideIcon } from 'lucide-react';
+import { Calendar, ChevronDown, Clock, FileText, History, Plus, Receipt, Users, type LucideIcon } from 'lucide-react';
 import { Project, ProjectBudgetHistoryEntry } from '@/lib/types';
 import { useApp } from '@/lib/store';
 import { Button } from '@/components/ui/Button';
@@ -14,6 +14,7 @@ import { Toggle } from '@/components/ui/inputs/Toggle';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { ContactForm } from '@/components/contacts/ContactForm';
 import { TaskPanelShell } from '@/components/tasks/TaskPanelShell';
+import { PanelHeader } from '@/components/ui/PanelHeader';
 import { useDiscardGuard } from '@/components/ui/useDiscardGuard';
 import { ProjectColorPicker } from './ProjectColorPicker';
 import { useBrand } from '@/lib/brand/context';
@@ -82,28 +83,6 @@ function Section({ icon: Icon, title, description, children }: {
       {description && <p className="mb-4 text-xs text-zinc-400">{description}</p>}
       <div className="space-y-4">{children}</div>
     </section>
-  );
-}
-
-/** The panel header: what it is, the project's saved name, and a way out. */
-function PanelHeader({ eyebrow, title, onClose }: { eyebrow: string; title: string; onClose: () => void }) {
-  return (
-    <div className="flex items-start gap-3 px-5 pt-4 pb-3 flex-shrink-0">
-      <div className="min-w-0 flex-1">
-        <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-zinc-400">{eyebrow}</p>
-        <h2 id="edit-project-title" className="pt-0.5 text-base font-semibold text-white leading-snug break-words">
-          {title}
-        </h2>
-      </div>
-      <button
-        type="button"
-        onClick={onClose}
-        aria-label="Close"
-        className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.06] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
-      >
-        <X size={18} aria-hidden="true" />
-      </button>
-    </div>
   );
 }
 
@@ -183,7 +162,7 @@ function ProjectMembersPanel({ project, onClose }: { project: Project; onClose: 
       labelledBy="edit-project-title"
       onClose={requestClose}
       after={dialog}
-      header={<PanelHeader eyebrow="Project members" title={project.name} onClose={requestClose} />}
+      header={<PanelHeader id="edit-project-title" title="Project members" detail={project.name} onClose={requestClose} />}
       footer={<PanelFooter dirty={dirty} saving={saving} saveLabel="Save members" onCancel={requestClose} />}
     >
       <form id={FORM_ID} onSubmit={save}>
@@ -330,7 +309,7 @@ function ProjectDetailsPanel({ project, onClose }: { project: Project; onClose: 
     <TaskPanelShell
       labelledBy="edit-project-title"
       onClose={requestClose}
-      header={<PanelHeader eyebrow="Edit project" title={project.name} onClose={requestClose} />}
+      header={<PanelHeader id="edit-project-title" title="Edit project" detail={project.name} onClose={requestClose} />}
       footer={<PanelFooter dirty={dirty} saving={saving} saveLabel="Save changes" onCancel={requestClose} />}
       after={
         <>

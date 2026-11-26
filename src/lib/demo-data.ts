@@ -1371,7 +1371,7 @@ export const demoNotifications: Notification[] = [
   {
     id: 'notif-0007-4000-8000-000000000007',
     user_id: 'a1a1a1a1-0001-4000-8000-000000000001',
-    title: '"Write API documentation" moved to In Review',
+    title: '"Write API documentation" moved to In review',
     message: 'Jake Thompson updated the task status.',
     link: '/projects/c3c3c3c3-0002-4000-8000-000000000002',
     is_read: true,

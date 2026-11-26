@@ -89,13 +89,13 @@ export async function GET(req: NextRequest) {
     case 'team-task-status': {
       const result = buildNotificationEmail({
         brand,
-        title: '"Design homepage wireframes" moved to In Progress',
+        title: '"Design homepage wireframes" moved to In progress',
         message: 'Marcus updated the task status on Acme Corp Rebrand.',
         link: '/projects/acme-corp-rebrand',
         details: [
           { label: 'Project', value: 'Acme Corp Rebrand' },
-          { label: 'From', value: 'To Do' },
-          { label: 'To', value: 'In Progress' },
+          { label: 'From', value: 'To do' },
+          { label: 'To', value: 'In progress' },
         ],
       });
       html = result.html;

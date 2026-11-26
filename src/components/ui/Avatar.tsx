@@ -1,63 +1,72 @@
 'use client';
 
-import { useBrand } from '@/lib/brand/context';
+import { avatarTone, initialsOf } from '@/lib/agents-ui';
+
+/**
+ * The one face for a person or an agent (DESIGN.md Rule 11): their picture,
+ * or their initials on one of the eight avatar tone tokens. The tone and the
+ * initials come from one function (avatarFace), shared with AgentAvatar, so
+ * Atlas wears the same tone and the same "AT" on Agents, Team, a project's
+ * Overview and Analytics. The name picks the tone (every caller has it, and
+ * an agent's hire preview keeps the tone it is hired with); the id is the
+ * fallback for a record without a name.
+ */
 
 interface AvatarProps {
   name: string;
   src?: string;
+  /** A stable id; used for the tone only when the name is empty. */
+  id?: string;
+  /** One of the eight tones, when a person chose it (their assistant); left out, the name picks it. */
+  tone?: number | null;
+  /** Legacy: a raw background color. Prefer the tones. */
   color?: string;
   size?: 'xs' | 'sm' | 'md' | 'lg';
   className?: string;
 }
 
 const sizeClasses = {
-  xs: 'w-5 h-5 text-[10px]',
-  sm: 'w-6 h-6 text-xs',
+  xs: 'w-5 h-5 text-[9px]',
+  sm: 'w-6 h-6 text-[11px]',
   md: 'w-8 h-8 text-sm',
   lg: 'w-10 h-10 text-base',
 };
 
-function getInitials(name: string): string {
-  return name
-    .split(' ')
-    .map(part => part[0])
-    .join('')
-    .toUpperCase()
-    .slice(0, 2);
+/** Static class names, so Tailwind sees every tone (one per --color-avatar-N token). */
+export const AVATAR_TONE_BG = ['', 'bg-avatar-1', 'bg-avatar-2', 'bg-avatar-3', 'bg-avatar-4', 'bg-avatar-5', 'bg-avatar-6', 'bg-avatar-7', 'bg-avatar-8'] as const;
+
+/** The tone number (1 to 8) and initials for a face. One source for Avatar and AgentAvatar. */
+export function avatarFace(name: string, id?: string | null, tone?: number | null): { tone: number; initials: string; toneClass: string } {
+  const picked = tone && tone >= 1 && tone <= 8 ? tone : avatarTone(name.trim().toLowerCase() || id || '?');
+  return { tone: picked, initials: initialsOf(name), toneClass: AVATAR_TONE_BG[picked] };
 }
 
-const OTHER_COLORS = ['#8B5CF6', '#EC4899', '#EF4444', '#F59E0B', '#10B981', '#06B6D4', '#3B82F6'];
-
-function stringToColor(str: string, brandColor: string): string {
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    hash = str.charCodeAt(i) + ((hash << 5) - hash);
-  }
-  const colors = [brandColor, ...OTHER_COLORS];
-  return colors[Math.abs(hash) % colors.length];
+/** A picture link the app can show (uploaded, relative or a local preview). */
+export function avatarPicture(src: string | null | undefined): string | null {
+  return src && /^(https?:|\/|blob:)/.test(src) ? src : null;
 }
 
-export function Avatar({ name, src, color, size = 'md', className = '' }: AvatarProps) {
-  const brand = useBrand();
-  const initials = getInitials(name);
-  const bgColor = color || stringToColor(name, brand.colors.brand[500]);
+export function Avatar({ name, src, id, tone, color, size = 'md', className = '' }: AvatarProps) {
+  const picture = avatarPicture(src);
 
-  if (src && (src.startsWith('http') || src.startsWith('/') || src.startsWith('blob:'))) {
+  if (picture) {
     return (
+      // eslint-disable-next-line @next/next/no-img-element -- avatars are arbitrary uploaded links
       <img
-        src={src}
+        src={picture}
         alt={name}
-        className={`${sizeClasses[size]} rounded-full object-cover ${className}`}
+        className={`${sizeClasses[size]} flex-shrink-0 rounded-full object-cover ${className}`}
       />
     );
   }
 
+  const face = avatarFace(name, id, tone);
   return (
-    <div 
-      className={`${sizeClasses[size]} rounded-full flex items-center justify-center font-medium text-white ${className}`}
-      style={{ backgroundColor: bgColor }}
+    <div
+      className={`${sizeClasses[size]} flex flex-shrink-0 select-none items-center justify-center rounded-full font-semibold tracking-tight text-white ${color ? '' : face.toneClass} ${className}`}
+      style={color ? { backgroundColor: color } : undefined}
     >
-      {initials}
+      {face.initials}
     </div>
   );
 }
@@ -86,6 +95,7 @@ export function AvatarGroup({ users, max = 4, size = 'sm' }: AvatarGroupProps) {
       {visible.map((user) => (
         <Avatar
           key={user.id}
+          id={user.id}
           name={user.name}
           src={user.avatar}
           size={size}

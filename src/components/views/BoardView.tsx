@@ -42,9 +42,9 @@ function finishedAt(task: Task): number {
 const bySortOrder = (a: Task, b: Task) => (a.sort_order ?? 0) - (b.sort_order ?? 0);
 
 export const BOARD_COLUMNS = [
-  { id: 'todo', title: 'To Do', color: 'bg-zinc-400' },
-  { id: 'in_progress', title: 'In Progress', color: 'bg-brand-500' },
-  { id: 'in_review', title: 'In Review', color: 'bg-amber-500' },
+  { id: 'todo', title: 'To do', color: 'bg-zinc-400' },
+  { id: 'in_progress', title: 'In progress', color: 'bg-brand-500' },
+  { id: 'in_review', title: 'In review', color: 'bg-amber-500' },
   { id: 'done', title: 'Done', color: 'bg-emerald-500' },
 ] as const;
 

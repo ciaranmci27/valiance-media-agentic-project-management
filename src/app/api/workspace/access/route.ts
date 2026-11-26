@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { accessAllows, requireSessionAccess } from '@/lib/api/access';
-import { PERMISSIONS, TEAM_ROLES, type AccessChannel, type AccessContext, type PermissionEffect } from '@/lib/access-control';
+import { PERMISSIONS, TEAM_ROLES, accessChannelsFor, type AccessChannel, type AccessContext, type PermissionEffect } from '@/lib/access-control';
 
 /**
  * Roles & permissions (Team): an Owner, or anyone an Owner gave Manage
@@ -9,6 +9,10 @@ import { PERMISSIONS, TEAM_ROLES, type AccessChannel, type AccessContext, type P
  * role's defaults) and never gives or takes away Manage access itself: only
  * an Owner does, so the power cannot spread or grow on its own.
  */
+// An agent never signs in: a grant on the app channel would do nothing and
+// disagree with what its key can carry. Removing an old one is still allowed.
+const AGENT_APP_CHANNEL = 'An agent only uses the API, so its permissions are set on the API channel.';
+
 const managesAccess = (access: AccessContext) => access.role === 'owner' || accessAllows(access, 'access.manage', 'app');
 
 export async function GET() {
@@ -64,6 +68,9 @@ export async function PUT(request: Request) {
     if (typeof body.enabled !== 'boolean') {
       return NextResponse.json({ error: 'Enabled must be true or false' }, { status: 422 });
     }
+    if (body.enabled && !accessChannelsFor(body.role as never).includes(body.access_channel!)) {
+      return NextResponse.json({ error: AGENT_APP_CHANNEL, reason: 'agent_api_only' }, { status: 422 });
+    }
     const match = {
       role: body.role,
       permission_key: body.permission_key,
@@ -89,6 +96,9 @@ export async function PUT(request: Request) {
     if (!targetMember) return NextResponse.json({ error: 'Team member not found' }, { status: 404 });
     if (targetMember.role === 'owner') {
       return NextResponse.json({ error: 'Owners always have full access and cannot have overrides' }, { status: 409 });
+    }
+    if (body.effect && !accessChannelsFor(targetMember.role as never).includes(body.access_channel!)) {
+      return NextResponse.json({ error: AGENT_APP_CHANNEL, reason: 'agent_api_only' }, { status: 422 });
     }
     const match = {
       member_id: body.member_id,

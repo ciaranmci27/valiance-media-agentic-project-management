@@ -164,7 +164,7 @@ export function StepFooter({ onBack, onNext, nextLabel = 'Next', busy = false, b
 }) {
   return (
     <div className={variant === 'bar' ? 'border-t border-white/[0.06] px-5 py-3' : 'mt-10 border-t border-white/[0.06] pt-5'}>
-      {error && <p role="alert" className="mb-4 rounded-lg bg-red-500/[0.12] px-3 py-2 text-sm text-red-200">{error}</p>}
+      {error && <p role="alert" className="mb-4 rounded-lg bg-red-500/[0.12] px-3 py-2 text-sm text-red-300">{error}</p>}
       <div className="flex items-center justify-between gap-3">
         <div>
           {onBack && (
@@ -267,7 +267,7 @@ export function ChoiceCard({ id, selected, focusable, onSelect, icon, title, des
           {selected && <Check size={12} strokeWidth={3} />}
         </span>
       </span>
-      <span id={`${id}-title`} className={`mt-4 text-[15px] font-semibold ${selected ? 'text-brand-50' : 'text-white'}`}>{title}</span>
+      <span id={`${id}-title`} className="mt-4 text-base font-semibold text-white">{title}</span>
       {description && <span id={`${id}-desc`} className={`mt-1 text-sm leading-relaxed ${selected ? 'text-zinc-200' : 'text-zinc-400'}`}>{description}</span>}
       {meta && <span className={`mt-auto pt-4 text-xs ${selected ? 'text-brand-200' : 'text-zinc-500'}`}>{meta}</span>}
       {selected && <span className="sr-only">Selected</span>}

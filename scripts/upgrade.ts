@@ -8,6 +8,14 @@
  *   npm run upgrade -- --json summary.json   also write a JSON summary (for CI and the app)
  *   npm run upgrade -- --skip-checks         skip install, type-check, check:core and tests
  *   npm run upgrade -- --upstream <url>      fetch releases from another URL (a mirror, or a test repo)
+ *   npm run upgrade -- --fetch-only          only fetch the release tags and print the newest
+ *
+ * The release repo may be private. With PM_UPSTREAM_TOKEN in the environment
+ * (the read-only token Valiance Media issues for it), the fetch sends it as an
+ * http.<upstream url>.extraheader passed through git's GIT_CONFIG_* variables:
+ * never in a URL, never in .git/config, never on the command line, and never
+ * passed on to npm, tsc or the tests. Without it, git uses your own
+ * credentials, exactly as for a public repo.
  *
  * How a merge resolves: package.json and vercel.json merge as JSON (the
  * install's dependencies, scripts and crons survive; the release wins a real
@@ -34,6 +42,10 @@ export interface UpgradeOptions {
   json?: string;
   skipChecks?: boolean;
   upstreamUrl?: string;
+  /** PM_UPSTREAM_TOKEN: optional read-only token for a private release repo. */
+  upstreamToken?: string | null;
+  /** Only add the upstream remote and fetch the release tags; merge nothing. */
+  fetchOnly?: boolean;
   log?: (line: string) => void;
 }
 
@@ -79,6 +91,66 @@ class UpgradeStop extends Error {
   constructor(public exitCode: number, message: string) {
     super(message);
   }
+}
+
+/**
+ * Git config for one fetch, as GIT_CONFIG_COUNT/KEY/VALUE environment
+ * variables (git 2.31+): the token as a basic Authorization header scoped to
+ * exactly the upstream URL, so it reaches no other remote. Entries already in
+ * the environment are kept. Null without a token or for a non-http(s) URL
+ * (ssh and local paths use their own access).
+ */
+export function upstreamAuthEnv(url: string, token: string | null | undefined, env: Partial<Record<string, string>> = process.env): Record<string, string> | null {
+  const value = token?.trim();
+  if (!value || !/^https?:\/\//i.test(url)) return null;
+  const existing = Number.parseInt(env.GIT_CONFIG_COUNT ?? '', 10);
+  const index = Number.isInteger(existing) && existing > 0 ? existing : 0;
+  const basic = Buffer.from(`x-access-token:${value}`, 'utf8').toString('base64');
+  return {
+    GIT_CONFIG_COUNT: String(index + 1),
+    [`GIT_CONFIG_KEY_${index}`]: `http.${url}.extraheader`,
+    [`GIT_CONFIG_VALUE_${index}`]: `AUTHORIZATION: basic ${basic}`,
+    // A refused token fails at once instead of asking for a password.
+    GIT_TERMINAL_PROMPT: '0',
+  };
+}
+
+/** git's words when the remote wants credentials it did not get, or refused the ones it got. core-checks.yml uses the same pattern. */
+export const AUTH_FAILURE = /could not read (username|password)|authentication failed|terminal prompts disabled|repository not found|returned error: 40[134]|permission denied \(publickey\)|access denied|invalid username or password/i;
+
+export function isAuthFailure(gitOutput: string): boolean {
+  return AUTH_FAILURE.test(gitOutput);
+}
+
+/** The exit-1 message when GitHub refused the release fetch. */
+export function upstreamAccessMessage(url: string, withToken: boolean, env: Partial<Record<string, string>> = process.env): string {
+  const inActions = env.GITHUB_ACTIONS === 'true';
+  if (withToken) {
+    return [
+      `GitHub refused PM_UPSTREAM_TOKEN when fetching releases from ${url}. It may have expired or lost access: get a new one from Valiance Media, then`,
+      inActions ? 'update the PM_UPSTREAM_TOKEN Actions secret in this repository (Settings > Secrets and variables > Actions).' : 'set it again and run the upgrade again.',
+    ].join(' ');
+  }
+  return [
+    `Could not fetch releases from ${url}: GitHub asked for access, so the release repository is private.`,
+    inActions
+      ? 'Add the read-only token Valiance Media issues for it as an Actions secret named PM_UPSTREAM_TOKEN in this repository (Settings > Secrets and variables > Actions), then try again.'
+      : 'Set PM_UPSTREAM_TOKEN (the read-only token Valiance Media issues for it) in your environment and run again, or use a GitHub account that has access to it.',
+  ].join(' ');
+}
+
+/** Fetches release tags from the upstream remote, with PM_UPSTREAM_TOKEN when given. Throws an UpgradeStop on failure. */
+function fetchUpstream(root: string, url: string, token: string | null | undefined): void {
+  const auth = upstreamAuthEnv(url, token);
+  const result = spawnSync('git', ['-c', 'core.quotepath=off', 'fetch', '--quiet', '--no-recurse-submodules', '--tags', 'upstream'], {
+    cwd: root, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
+    env: auth ? { ...process.env, ...auth } : process.env,
+  });
+  if (result.error) throw result.error;
+  if (result.status === 0) return;
+  const output = `${result.stderr ?? ''}${result.stdout ?? ''}`.trim();
+  if (isAuthFailure(output)) throw new UpgradeStop(1, upstreamAccessMessage(url, Boolean(auth)));
+  throw new UpgradeStop(1, `git fetch upstream failed: ${output}`);
 }
 
 function readVersion(root: string): string {
@@ -164,10 +236,10 @@ export function upgrade(options: UpgradeOptions): UpgradeSummary {
     if (gitRun(root, ['rev-parse', '--show-prefix']).stdout.trim() !== '') {
       throw new UpgradeStop(1, 'The app must be the top level of its git repository to take release merges.');
     }
-    if (gitRun(root, ['rev-parse', '-q', '--verify', 'MERGE_HEAD']).code === 0) {
+    if (!options.fetchOnly && gitRun(root, ['rev-parse', '-q', '--verify', 'MERGE_HEAD']).code === 0) {
       throw new UpgradeStop(1, 'A merge is already in progress. Finish it or run git merge --abort, then try again.');
     }
-    const dirty = lines(git(root, ['status', '--porcelain', '--untracked-files=normal']));
+    const dirty = options.fetchOnly ? [] : lines(git(root, ['status', '--porcelain', '--untracked-files=normal']));
     if (dirty.length) {
       throw new UpgradeStop(1, `The working tree has uncommitted changes (${dirty.length} file(s)). Commit or stash them first.`);
     }
@@ -186,11 +258,18 @@ export function upgrade(options: UpgradeOptions): UpgradeSummary {
         throw new UpgradeStop(1, `Remote upstream points at ${existing.stdout.trim()}, not ${url}. Fix it with: git remote set-url upstream ${url} (or pass --upstream <url>).`);
       }
     }
-    log('Fetching release tags...');
-    git(root, ['fetch', '--quiet', '--no-recurse-submodules', '--tags', 'upstream']);
+    // The remote as configured, so the token's header is scoped to exactly the URL git fetches.
+    const fetchUrl = git(root, ['remote', 'get-url', 'upstream']);
+    log(upstreamAuthEnv(fetchUrl, options.upstreamToken) ? 'Fetching release tags with PM_UPSTREAM_TOKEN...' : 'Fetching release tags...');
+    fetchUpstream(root, fetchUrl, options.upstreamToken);
 
     // The target release.
     const tags = releaseTags(root);
+    if (options.fetchOnly) {
+      summary.to = tags[0] ? tags[0].slice(1) : null;
+      summary.message = tags[0] ? `Fetched the release tags. Newest release: ${tags[0]} (this install runs v${summary.from}).` : 'Fetched the release tags. No release yet.';
+      return summary;
+    }
     const current = parseSemver(summary.from);
     let target: string | undefined;
     if (options.to) {
@@ -216,7 +295,7 @@ export function upgrade(options: UpgradeOptions): UpgradeSummary {
       throw new UpgradeStop(3, [
         `${target} shares no history with this repository, so it cannot be merged.`,
         'An install must be a copy of the public repo with its full history. To fix it:',
-        `  1. git clone https://github.com/${UPSTREAM_REPO}.git <new-folder>`,
+        `  1. git clone https://github.com/${UPSTREAM_REPO}.git <new-folder> (while the release repository is private, with a GitHub account that has access to it)`,
         `  2. In it: git checkout -B main ${target}, then copy in your client-owned files (src/custom, supabase/migrations/custom, public/custom, your own .claude skills, agents, commands and settings.local.json, .github/workflows/custom-*.yml) and re-apply your package.json and vercel.json changes.`,
         '  3. git remote rename origin upstream, git remote add origin <your repo URL>, then commit and push.',
       ].join('\n'));
@@ -385,15 +464,20 @@ export function parseArgs(argv: string[]): Omit<UpgradeOptions, 'root' | 'log'> 
     else if (arg === '--json') options.json = value(i++, arg);
     else if (arg === '--upstream') options.upstreamUrl = value(i++, arg);
     else if (arg === '--skip-checks') options.skipChecks = true;
-    else throw new Error(`Unknown option ${arg}. Options: --to vX.Y.Z --branch <name> --json <file> --skip-checks --upstream <url>`);
+    else if (arg === '--fetch-only') options.fetchOnly = true;
+    else throw new Error(`Unknown option ${arg}. Options: --to vX.Y.Z --branch <name> --json <file> --skip-checks --upstream <url> --fetch-only`);
   }
   return options;
 }
 
 if (require.main === module) {
   let code = 1;
+  // Read once, then dropped from the environment: npm install, tsc and the
+  // tests this script runs never see the token.
+  const upstreamToken = process.env.PM_UPSTREAM_TOKEN?.trim() || null;
+  delete process.env.PM_UPSTREAM_TOKEN;
   try {
-    const summary = upgrade({ root: process.cwd(), ...parseArgs(process.argv.slice(2)), log: line => console.log(line) });
+    const summary = upgrade({ root: process.cwd(), ...parseArgs(process.argv.slice(2)), upstreamToken, log: line => console.log(line) });
     (summary.exitCode === 0 ? console.log : console.error)(summary.message);
     code = summary.exitCode;
   } catch (err) {
