@@ -9,7 +9,8 @@ import { toast } from '@/components/ui/Toast';
 import { isModuleEnabled } from '@/lib/access-control';
 import { workspaceApi } from '@/lib/agent-workspace';
 import { useAuth } from '@/lib/auth-context';
-import { DATA_RETENTION_FIELDS, retentionChoices, type DataRetentionKey, type DataRetentionSettings } from '@/lib/data-retention';
+import { DATA_RETENTION_FIELDS, DATA_RETENTION_RUN_UTC, retentionChoices, shortenedRetention, type DataRetentionKey, type DataRetentionSettings } from '@/lib/data-retention';
+import { useRetentionConfirm } from '@/components/settings/security/RetentionConfirm';
 import { useDemo } from '@/lib/demo-context';
 import { invalidateTables, setReadData, useRead } from '@/lib/query-cache';
 import { dataRetentionRead } from '@/lib/reads';
@@ -21,9 +22,10 @@ const toDays = (value: string) => (value === FOREVER ? null : Number(value));
 /**
  * Settings > Security > Keeping data (Owners only): how long data that grows
  * on its own is kept, one plain choice each, "Keep forever" included. A
- * daily job removes what is older; anything still in use stays. Settings
- * for a module that is off are hidden. The demo shows the defaults, with
- * nothing to change.
+ * daily job removes what is older; anything still in use stays. Shortening
+ * a period asks first, with about how many rows go and when. Settings for a
+ * module that is off are hidden. The demo shows the defaults, with nothing
+ * to change, and says so.
  */
 export function DataRetentionSection() {
   const { access } = useAuth();
@@ -39,10 +41,19 @@ export function DataRetentionSection() {
   useEffect(() => { setDraft(saved); }, [saved]);
 
   const changed = !!draft && !!saved && fields.some((field) => draft[field.key] !== saved[field.key]);
+  const confirm = useRetentionConfirm(DATA_RETENTION_RUN_UTC);
 
-  const save = async () => {
-    if (!draft || !saved) return;
-    const body = Object.fromEntries(fields.filter((field) => draft[field.key] !== saved[field.key]).map((field) => [field.key, toDays(draft[field.key])]));
+  const save = () => {
+    if (!draft || !saved || !settings) return;
+    const body = Object.fromEntries(fields.filter((field) => draft[field.key] !== saved[field.key]).map((field) => [field.key, toDays(draft[field.key])])) as Partial<DataRetentionSettings>;
+    const shorter = shortenedRetention(settings, body, fields.map((field) => field.key));
+    void confirm.ask(shorter.map((key) => {
+      const field = fields.find((f) => f.key === key)!;
+      return { key, label: field.label, days: body[key] as number, unit: key === 'chat_retention_days' ? 'texts' as const : 'rows' as const };
+    }), () => { void write(body); });
+  };
+
+  const write = async (body: Partial<DataRetentionSettings>) => {
     setBusy(true);
     try {
       const next = await workspaceApi<DataRetentionSettings>('/api/workspace/data-retention', { method: 'PUT', body });
@@ -70,6 +81,9 @@ export function DataRetentionSection() {
         <p className="text-sm text-zinc-400" role="status">{read.failed ? 'Could not load the settings.' : 'Loading'}</p>
       ) : (
         <div className="grid max-w-2xl gap-4 sm:grid-cols-2">
+          {isDemoMode && (
+            <p role="note" className="rounded-lg bg-white/[0.04] px-3.5 py-3 text-sm text-zinc-300 sm:col-span-2">Sample settings: changes are off in the demo.</p>
+          )}
           {fields.map((field) => (
             <Select
               key={field.key}
@@ -85,10 +99,11 @@ export function DataRetentionSection() {
             {changed && (
               <Button variant="ghost" onClick={() => setDraft(saved)}>Discard</Button>
             )}
-            <Button onClick={save} disabled={!changed || busy || isDemoMode}>{busy ? 'Saving' : 'Save'}</Button>
+            <Button onClick={save} disabled={!changed || busy || confirm.counting || isDemoMode}>{busy ? 'Saving' : confirm.counting ? 'Checking' : 'Save'}</Button>
           </div>
         </div>
       )}
+      {confirm.dialog}
     </section>
   );
 }

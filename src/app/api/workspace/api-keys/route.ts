@@ -2,11 +2,39 @@ import { NextResponse } from 'next/server';
 import { accessAllows, requireSessionAccess } from '@/lib/api/access';
 import { generateApiKey, hashApiKey } from '@/lib/api/crypto';
 import { newKeyExpiry } from '@/lib/api/key-lifetime';
-import { API_ENDPOINT_PERMISSION_SET, type PermissionKey } from '@/lib/access-control';
+import { API_ENDPOINT_PERMISSION_SET, permissionLabel, type PermissionKey } from '@/lib/access-control';
 import { createApiKeySchema } from '@/lib/schemas/api-keys';
 import { API_KEY_COLUMNS } from '@/lib/supabase/queries';
+import { listVisibleKeys } from '@/lib/api/key-manage';
+import { API_KEY_STATE_FILTERS, parseKeyStateFilter } from '@/lib/api-key-state';
 
 export const dynamic = 'force-dynamic';
+
+/**
+ * The keys the signed-in member can see (their own, ones they created, or
+ * every key with api_keys.manage_all), newest first, each with its state
+ * (active, paused, expired, revoked) and pause fields; never a hash or a
+ * connected AI tool's key. ?state= narrows to one state, or to ended
+ * (expired and revoked), for the Active, Paused and Ended tabs. counts has
+ * every visible key by state, whatever the filter.
+ * Answers { data: { keys, counts } }.
+ */
+export async function GET(request: Request) {
+  const auth = await requireSessionAccess();
+  if (auth.error) return auth.error;
+  const { access, memberId, service } = auth.data;
+  const state = parseKeyStateFilter(new URL(request.url).searchParams.get('state'));
+  if (state === undefined) {
+    return NextResponse.json({ error: `state must be one of ${API_KEY_STATE_FILTERS.join(', ')}` }, { status: 400 });
+  }
+  try {
+    const data = await listVisibleKeys(service, { memberId, access }, state);
+    return NextResponse.json({ data }, { headers: { 'Cache-Control': 'no-store' } });
+  } catch (error) {
+    console.error('[API] listing API keys failed', error);
+    return NextResponse.json({ error: 'Failed to load API keys' }, { status: 500 });
+  }
+}
 
 /**
  * Creates an API key for the signed-in member. The key is generated and hashed
@@ -34,7 +62,7 @@ export async function POST(request: Request) {
     !API_ENDPOINT_PERMISSION_SET.has(scope as PermissionKey)
       || !accessAllows(access, scope as PermissionKey, 'api'));
   if (refused.length > 0) {
-    return NextResponse.json({ error: `Scopes not available to you: ${refused.join(', ')}` }, { status: 422 });
+    return NextResponse.json({ error: `Not available to you: ${refused.map((scope) => `${permissionLabel(scope)} (${scope})`).join(', ')}` }, { status: 422 });
   }
 
   const expiresAt = await newKeyExpiry(service, memberId, parsed.data.expires_in_days, access);

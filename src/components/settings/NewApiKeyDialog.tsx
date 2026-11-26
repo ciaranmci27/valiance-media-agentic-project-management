@@ -16,6 +16,8 @@ import { agentKeyLifetimeRead, personalKeyLifetimeRead } from '@/lib/reads';
 import { apiScopesFor } from '@/lib/access-control';
 import { newKeyFrom, workspaceApi, type NewKey } from '@/lib/agent-workspace';
 import { keyLifetimeChoices, keyLifetimeDays, keyScopeGroups } from '@/lib/developers-settings';
+import { AGENT_KEY_SCOPE_BEYOND_ROLE, startingKeyScopes } from '@/lib/agent-profile';
+import { scopeLabel, scopesBeyondRole } from '@/lib/agents-ui';
 
 const STEPS: readonly FlowStep[] = [
   { key: 'name', label: 'Name' },
@@ -36,6 +38,12 @@ export interface NewKeyPreset {
 export interface NewKeyAgent {
   id: string;
   name: string;
+  /**
+   * What the agent holds now (the profile read's key_scopes_available). The
+   * others you may give are marked: an Owner ticking one gives it to this
+   * agent with the key; for anyone else they stay greyed.
+   */
+  scopes?: readonly string[];
 }
 
 /**
@@ -69,11 +77,15 @@ function NewKeyFlow({ onClose, onHoldOpen, preset, agent }: { onClose: () => voi
   const { addApiKey } = useApp();
   const { access } = useAuth();
   const available = useMemo(() => apiScopesFor(access), [access]);
+  // An agent's picker marks what it lacks; only an Owner may give it (agent-scope-grants.ts).
+  const owner = access?.role === 'owner';
+  const agentHeld = agent?.scopes ?? null;
   // An agent's key takes the agent picker's groups (never the scopes no agent holds).
   const groups = useMemo(() => (agent ? undefined : keyScopeGroups(available)), [available, agent]);
   const [step, setStep] = useState(0);
   const [name, setName] = useState(preset?.name ?? '');
-  const [scopes, setScopes] = useState<string[]>(() => (preset?.scopes ?? []).filter((scope) => (available as string[]).includes(scope)));
+  const [scopes, setScopes] = useState<string[]>(() => startingKeyScopes(preset?.scopes ?? [], available, agentHeld, owner));
+  const given = agent ? scopesBeyondRole(scopes, agentHeld) : [];
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [secret, setSecret] = useState<string | null>(null);
@@ -88,7 +100,6 @@ function NewKeyFlow({ onClose, onHoldOpen, preset, agent }: { onClose: () => voi
   const agentDays = agentLifetimeRead.data?.agent_key_lifetime_days;
   const [lifetime, setLifetime] = useState<string | null>(null);
   // For anyone but an Owner the workspace's lifetime is also the longest a key may last.
-  const owner = access?.role === 'owner';
   const lifetimes = useMemo(() => keyLifetimeChoices(workspaceDays ?? null, (days) =>
     `on ${new Date(Date.now() + days * 86_400_000).toLocaleDateString(appLocale(), { month: 'short', day: 'numeric', year: 'numeric' })}`, { owner }), [workspaceDays, owner]);
   const chosen = lifetime ?? lifetimes.initial;
@@ -171,10 +182,17 @@ function NewKeyFlow({ onClose, onHoldOpen, preset, agent }: { onClose: () => voi
         >
           {available.length === 0 ? (
             <p className="rounded-lg bg-white/[0.03] px-3.5 py-3 text-sm text-zinc-300">
-              No API access is turned on for you yet. Ask an Owner to allow some in Team &gt; Access.
+              No API access is turned on for you yet. Ask an Owner to allow some in Team &gt; Roles &amp; permissions.
             </p>
           ) : (
-            <ScopePicker grantable={available} groups={groups} value={scopes} onChange={(value) => { setScopes(value); if (error) setError(null); }} disabled={creating} />
+            <ScopePicker
+              grantable={available}
+              groups={groups}
+              value={scopes}
+              onChange={(value) => { setScopes(value); if (error) setError(null); }}
+              disabled={creating}
+              {...(agent ? { agentHeld, mayGiveBeyondRole: owner, beyondRoleNote: AGENT_KEY_SCOPE_BEYOND_ROLE } : {})}
+            />
           )}
           <StepFooter
             onBack={() => { setError(null); setStep(0); }}
@@ -202,6 +220,11 @@ function NewKeyFlow({ onClose, onHoldOpen, preset, agent }: { onClose: () => voi
                 : agentDays === null
                   ? 'It works until it is revoked.'
                   : `It works for ${agentDays === 365 ? '1 year' : `${agentDays} days`}, until ${agentEndsOn(agentDays)}. Make a new one before then to keep ${agent.name} connected.`}
+              {given.length > 0 && (
+                <span className="mt-2 block text-zinc-400">
+                  Making it also gives {agent.name} what agents don&apos;t have by default: {given.map(scopeLabel).join(', ')}.
+                </span>
+              )}
             </p>
           ) : (
             <RadioGroup

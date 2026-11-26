@@ -103,10 +103,10 @@ async function seed(db: PGlite) {
   const apex = (await q<{ id: string }>("INSERT INTO pm.projects (name) VALUES ('Apex') RETURNING id"))[0].id;
   // Relay escalates to another agent: an approval has no one to go to by default.
   await q('UPDATE pm.team_members SET agent_escalate_to = $1 WHERE id = $2', [reviewer, relay]);
-  // An Owner took approvals.decide away from Max in Team > Access.
+  // An Owner took approvals.decide away from Max in Team > Roles & permissions.
   await q("INSERT INTO pm.team_member_permissions (member_id, permission_key, access_channel, effect) VALUES ($1, 'approvals.decide', 'api', 'deny')", [max]);
   for (const m of [mia, max, nina, builder, reviewer, relay]) await q('INSERT INTO pm.project_members (project_id, member_id) VALUES ($1, $2)', [apex, m]);
-  // A key, with its scopes granted to its member on the API (as an Owner does in Team > Access).
+  // A key, with its scopes granted to its member on the API (as an Owner does in Team > Roles & permissions).
   const key = async (memberId: string, scopes: string[], grant = true) => {
     const secret = `pk_live_${randomUUID().replace(/-/g, '')}`;
     await q(`INSERT INTO pm.api_keys (name, key_prefix, key_hash, team_member_id, scopes, permissions)

@@ -1,4 +1,5 @@
 import { apiScopesFor, type AccessContext, type PermissionKey } from '@/lib/access-control';
+import type { AiSetupSessionView } from '@/lib/ai-setup';
 
 /**
  * Connect AI: a person connects an AI tool (Claude, ChatGPT, Cursor, Claude
@@ -66,7 +67,7 @@ export function connectAbilities(scopes: readonly string[]): string[] {
 }
 
 /** What a connection never does, said once under the list. */
-export const CONNECT_NEVER = 'It cannot change settings, manage people or agents, or make keys. It acts as you, so it never sees more than you do.';
+export const CONNECT_NEVER = 'It cannot change settings, manage people or agents, or make keys. It acts as you, so it never sees more than you do. An Owner can later let it set up agents for one hour, from Hire an agent.';
 
 /** How long things last. */
 export const CONNECT_ACCESS_TOKEN_SECONDS = 60 * 60;
@@ -256,5 +257,7 @@ export interface MyConnectionsView {
   /** What a new connection of theirs would get. */
   scopes: string[];
   connections: ConnectionView[];
+  /** Live AI setup sessions (Hire an agent > Set it up with AI), each with End now here too. */
+  setup_sessions?: AiSetupSessionView[];
 }
 

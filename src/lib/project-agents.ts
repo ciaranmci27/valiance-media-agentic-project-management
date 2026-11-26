@@ -103,6 +103,8 @@ export interface SettingsError {
   key: string;
   reason: SettingsErrorReason;
   message: string;
+  /** The problem without the field's label, for a form that shows it under that label. */
+  detail?: string;
 }
 
 export type SettingsCheck =
@@ -115,7 +117,9 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 
 /** One value against its field: null when it passes, else the problem. */
 export function checkSettingValue(field: SettingsField, value: unknown): SettingsError | null {
-  const fail = (reason: SettingsErrorReason, message: string): SettingsError => ({ key: field.key, reason, message: `${field.label}: ${message}` });
+  const fail = (reason: SettingsErrorReason, message: string): SettingsError => ({
+    key: field.key, reason, message: `${field.label}: ${message}`, detail: `${message.charAt(0).toUpperCase()}${message.slice(1)}.`,
+  });
   switch (field.type) {
     case 'boolean':
       return typeof value === 'boolean' ? null : fail('wrong_type', 'must be true or false');
@@ -194,7 +198,7 @@ export function validateTemplateSettings(
     let value = (input as Record<string, unknown>)[field.key];
     if (isEmpty(value) && options.withDefaults && field.default !== undefined && field.default !== null) value = field.default;
     if (isEmpty(value)) {
-      if (field.required) errors.push({ key: field.key, reason: 'required', message: `${field.label} is required` });
+      if (field.required) errors.push({ key: field.key, reason: 'required', message: `${field.label} is required`, detail: 'Fill this in.' });
       continue;
     }
     const problem = checkSettingValue(field, value);
@@ -216,10 +220,10 @@ export function defaultSettings(fields: readonly SettingsField[] | undefined): S
   return out;
 }
 
-/** Errors as { key: message }, for a form to show beside each field. */
+/** Errors as { key: message }, for a form to show under each field's label (so without it). */
 export function settingsErrorFields(errors: readonly SettingsError[]): Record<string, string> {
   const out: Record<string, string> = {};
-  for (const error of errors) if (!(error.key in out)) out[error.key || '_'] = error.message;
+  for (const error of errors) if (!(error.key in out)) out[error.key || '_'] = (error.key && error.detail) || error.message;
   return out;
 }
 

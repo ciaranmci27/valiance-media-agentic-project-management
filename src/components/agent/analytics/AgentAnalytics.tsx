@@ -1,6 +1,7 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState, type SetStateAction } from 'react';
+import Link from 'next/link';
 import {
   Activity, Ban, CircleCheck, Clock, Coins, Cpu, DollarSign, GitMerge, MessageCircleQuestion, RotateCcw,
   SlidersHorizontal, Timer, TrendingUp, TriangleAlert, type LucideIcon,
@@ -12,6 +13,7 @@ import { hasPermission, isModuleEnabled } from '@/lib/access-control';
 import { useCustomAgentAnalyticsCards } from '@/lib/extensions/hooks';
 import { useRead } from '@/lib/query-cache';
 import { agentsListRead } from '@/lib/reads';
+import { useRemembered } from '@/lib/use-remembered';
 import { roleLabel } from '@/lib/agents-ui';
 import { toDateKey } from '@/lib/finance/vesting';
 import { toLocalDateKey } from '@/lib/date-utils';
@@ -95,6 +97,24 @@ function dayLabel(key: string, gran: Granularity, todayKey: string, long = false
   return long && gran === 'week' ? `Week of ${text}` : text;
 }
 
+/** The report's remembered view in this browser: its range and its project and agent filters. */
+interface AnalyticsPrefs {
+  preset: RangePreset;
+  customStart: string;
+  customEnd: string;
+  projects: string[];
+  agents: string[];
+}
+
+const NO_PREFS: AnalyticsPrefs = { preset: DEFAULT_PRESET, customStart: '', customEnd: '', projects: [], agents: [] };
+const PRESETS: readonly RangePreset[] = ['7d', '30d', '90d', 'mtd', 'all', 'custom'];
+const isStrings = (v: unknown): v is string[] => Array.isArray(v) && v.every((x) => typeof x === 'string');
+const isAnalyticsPrefs = (v: unknown): v is AnalyticsPrefs => {
+  const p = v as AnalyticsPrefs | null;
+  return !!p && typeof p === 'object' && PRESETS.includes(p.preset) && typeof p.customStart === 'string' && typeof p.customEnd === 'string'
+    && isStrings(p.projects) && isStrings(p.agents);
+};
+
 export function AgentAnalytics() {
   const { agentActivity: recentActivity, timeEntries, team, projects, tasks, taskSuggestions } = useApp();
   const { isDemoMode } = useDemo();
@@ -106,11 +126,22 @@ export function AgentAnalytics() {
   const [now] = useState(() => Date.now());
   const todayKey = toLocalDateKey(new Date(now).toISOString(), timezone);
 
-  const [preset, setPreset] = useState<RangePreset>(DEFAULT_PRESET);
-  const [customStart, setCustomStart] = useState('');
-  const [customEnd, setCustomEnd] = useState('');
-  const [selectedProjectIds, setSelectedProjectIds] = useState<Set<string>>(() => new Set());
-  const [selectedAgentIds, setSelectedAgentIds] = useState<Set<string>>(() => new Set());
+  // The range and filters come back on the next visit (this browser only).
+  const [prefs, setPrefs] = useRemembered<AnalyticsPrefs>('pm:agent-analytics', NO_PREFS, isAnalyticsPrefs);
+  const { preset, customStart, customEnd } = prefs;
+  const selectedProjectIds = useMemo(() => new Set(prefs.projects), [prefs.projects]);
+  const selectedAgentIds = useMemo(() => new Set(prefs.agents), [prefs.agents]);
+  const setPreset = useCallback((next: RangePreset) => setPrefs((p) => ({ ...p, preset: next })), [setPrefs]);
+  const setCustomStart = useCallback((next: string) => setPrefs((p) => ({ ...p, customStart: next })), [setPrefs]);
+  const setCustomEnd = useCallback((next: string) => setPrefs((p) => ({ ...p, customEnd: next })), [setPrefs]);
+  const setSelectedProjectIds = useCallback((next: SetStateAction<Set<string>>) => setPrefs((p) => {
+    const resolved = typeof next === 'function' ? next(new Set(p.projects)) : next;
+    return { ...p, projects: [...resolved] };
+  }), [setPrefs]);
+  const setSelectedAgentIds = useCallback((next: SetStateAction<Set<string>>) => setPrefs((p) => {
+    const resolved = typeof next === 'function' ? next(new Set(p.agents)) : next;
+    return { ...p, agents: [...resolved] };
+  }), [setPrefs]);
   const [selectedLabels, setSelectedLabels] = useState<Set<string>>(() => new Set());
   const [picked, setPicked] = useState<MetricKey | null>(null);
   const [expanded, setExpanded] = useState(false);
@@ -331,6 +362,12 @@ export function AgentAnalytics() {
     .map((p) => ({ id: p.id, name: p.name, color: p.color })), [projects]);
   const filterAgents = useMemo(() => roster.map((m) => ({ id: m.id, name: m.name, avatar: m.avatar || null })), [roster]);
   const filtered = selectedAgentIds.size > 0 || selectedProjectIds.size > 0 || selectedLabels.size > 0;
+  const runsHref = useMemo(() => {
+    const params = new URLSearchParams({ tab: 'runs', from: range.startKey, to: range.endKey });
+    if (selectedAgentIds.size === 1) params.set('agent', [...selectedAgentIds][0]);
+    if (selectedProjectIds.size === 1) params.set('project', [...selectedProjectIds][0]);
+    return `/agent?${params.toString()}`;
+  }, [range.startKey, range.endKey, selectedAgentIds, selectedProjectIds]);
 
   return (
     <div className="space-y-4 lg:space-y-6">
@@ -390,11 +427,19 @@ export function AgentAnalytics() {
               };
             })}
           />
-          {!measuring && (arranged.more > 0 || expanded) && (
-            <div className="flex justify-end">
-              <Button variant="ghost" size="sm" icon={<SlidersHorizontal size={14} aria-hidden="true" />} aria-expanded={expanded} onClick={() => setExpanded((v) => !v)}>
-                {expanded ? 'Fewer stats' : `More stats (${arranged.more})`}
-              </Button>
+          {!measuring && (
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              {/* The same runs in the Runs list: this range, and the one agent or project picked. */}
+              {runsAvailable && s.run > 0 && (
+                <Link href={runsHref} className="rounded px-2 py-1 text-xs font-medium text-brand-300 hover:text-brand-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500">
+                  See these runs
+                </Link>
+              )}
+              {(arranged.more > 0 || expanded) && (
+                <Button variant="ghost" size="sm" icon={<SlidersHorizontal size={14} aria-hidden="true" />} aria-expanded={expanded} onClick={() => setExpanded((v) => !v)}>
+                  {expanded ? 'Fewer stats' : `More stats (${arranged.more})`}
+                </Button>
+              )}
             </div>
           )}
         </div>

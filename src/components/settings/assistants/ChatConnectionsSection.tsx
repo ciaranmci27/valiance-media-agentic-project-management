@@ -10,13 +10,18 @@ import { ProviderLogo } from '@/components/ui/ProviderLogo';
 import { Toggle } from '@/components/ui/inputs/Toggle';
 import { toast } from '@/components/ui/Toast';
 import { workspaceApi } from '@/lib/agent-workspace';
+import { useDemo } from '@/lib/demo-context';
 import { invalidateTables, useRead } from '@/lib/query-cache';
-import { chatConnectionsRead } from '@/lib/reads';
-import { CHAT_APPS, CHAT_PROVIDERS, chatAppConnectable, freeChatKinds, type ChatConnectionView, type ChatProvider } from '@/lib/chat/types';
+import { chatConnectionsReadFor } from '@/lib/reads';
+import {
+  CHAT_APPS, CHAT_CONNECTED_DAYS, CHAT_PROVIDERS, chatAppConnectable, chatConnectionHealth, freeChatKinds, type ChatConnectionHealth, type ChatConnectionView, type ChatProvider,
+} from '@/lib/chat/types';
 import { AddChatConnectionDialog, SLACK_EVENTS } from './AddChatConnectionDialog';
 import { CompanyChatPanel } from './CompanyChatPanel';
 import { CopyField } from './CopyField';
 import { DiscordLinks, DiscordRelaySecret } from './DiscordRelay';
+import { ReplaceTokenDialog } from './ReplaceTokenDialog';
+import { demoBlocked } from './demo';
 
 /** A chat app's mark on a quiet neutral tile, the same in both themes. */
 function LogoTile({ provider, size = 'md' }: { provider: string; size?: 'md' | 'lg' }) {
@@ -27,12 +32,43 @@ function LogoTile({ provider, size = 'md' }: { provider: string; size?: 'md' | '
   );
 }
 
-/** One line of status: off, waiting for the relay (Discord, until it says hello), waiting on agents (company), or connected. */
-export function connectionStatus(connection: ChatConnectionView): { label: string; variant: 'default' | 'warning' | 'success' } {
-  if (!connection.enabled) return { label: 'Off', variant: 'default' };
-  if (connection.provider === 'discord' && !connection.last_inbound_at) return { label: 'Waiting for relay', variant: 'warning' };
-  if (connection.kind === 'company' && connection.agents.length === 0) return { label: 'Needs agents', variant: 'warning' };
-  return { label: 'Connected', variant: 'success' };
+const PROVIDER_WAITING: Record<string, string> = { discord: 'Waiting for relay', slack: 'Waiting for Slack', telegram: 'Waiting for first message' };
+
+/**
+ * One honest word for a connection (chatConnectionHealth decides): Off;
+ * Not receiving when the provider's requests fail the check; Waiting until
+ * anything verified arrives (Slack's URL check, a Discord relay's hello,
+ * Telegram's first message); Needs agents (company); Connected while it
+ * heard something in the last CHAT_CONNECTED_DAYS days; else Quiet.
+ */
+export function connectionStatus(connection: ChatConnectionView): { health: ChatConnectionHealth; label: string; variant: 'default' | 'warning' | 'success' | 'danger' } {
+  const health = chatConnectionHealth(connection);
+  switch (health) {
+    case 'off': return { health, label: 'Off', variant: 'default' };
+    case 'not_receiving': return { health, label: 'Not receiving', variant: 'danger' };
+    case 'waiting': return { health, label: PROVIDER_WAITING[connection.provider] ?? 'Waiting for first message', variant: 'warning' };
+    case 'needs_agents': return { health, label: 'Needs agents', variant: 'warning' };
+    case 'quiet': return { health, label: 'Quiet', variant: 'default' };
+    default: return { health, label: 'Connected', variant: 'success' };
+  }
+}
+
+/** The line under a connection: what its status means and what to do about it. */
+function statusLine(connection: ChatConnectionView, health: ChatConnectionHealth): string {
+  const heard = connection.last_inbound_at ? new Date(connection.last_inbound_at).toLocaleString() : null;
+  if (health === 'not_receiving') {
+    if (connection.provider === 'slack') return "Slack's requests fail the signing check: the signing secret is wrong. Replace it below.";
+    if (connection.provider === 'discord') return "The relay's requests fail the check: give it the current relay secret (PM_RELAY_SECRET), or make a new one.";
+    return "Telegram's requests fail the check. Replace the token to set its webhook again.";
+  }
+  if (health === 'waiting') {
+    if (connection.provider === 'slack') return 'Nothing from Slack yet. Paste the Request URL into Event Subscriptions. If Slack says it did not respond, the signing secret is wrong.';
+    if (connection.provider === 'discord') return 'Run the relay with the current secret to start hearing Discord.';
+    return 'Nothing yet. Message the bot to check it.';
+  }
+  if (health === 'quiet') return `No messages in ${CHAT_CONNECTED_DAYS} days${heard ? `: the last was ${heard}` : ''}.`;
+  if (connection.provider === 'discord') return heard ? `Relay last heard ${heard}` : 'Run the relay to start hearing Discord';
+  return heard ? `Last message ${heard}` : 'No messages yet';
 }
 
 /**
@@ -46,10 +82,14 @@ export function connectionStatus(connection: ChatConnectionView): { label: strin
  * app and kind, freeChatKinds) and goes once all are used. A Discord row
  * reads "Waiting for relay" until its relay first says hello, shows the
  * relay's address, the bot's invite link and the guide, and can make a new
- * relay secret (shown once, in the row).
+ * relay secret (shown once, in the row), which reads "Waiting for relay"
+ * again until the relay says hello with it. A wrong or leaked token (or
+ * Slack signing secret) is replaced in place, keeping the Request URL, the
+ * history and everyone's links. The demo shows samples with changes off.
  */
 export function ChatConnectionsSection() {
-  const read = useRead(chatConnectionsRead);
+  const { isDemoMode } = useDemo();
+  const read = useRead(chatConnectionsReadFor(isDemoMode));
   const connections = read.data ?? [];
   const free = freeChatKinds(connections);
   const anyFree = CHAT_PROVIDERS.some((provider) => chatAppConnectable(provider) && free[provider].length > 0);
@@ -60,10 +100,12 @@ export function ChatConnectionsSection() {
   const [renewing, setRenewing] = useState<ChatConnectionView | null>(null);
   /** A relay secret just renewed, shown in its row until Done. */
   const [renewed, setRenewed] = useState<{ connection: ChatConnectionView; secret: string } | null>(null);
+  const [replacing, setReplacing] = useState<ChatConnectionView | null>(null);
 
-  const startAdding = (provider: ChatProvider | null) => { setAdding({ provider }); setMade(null); };
+  const startAdding = (provider: ChatProvider | null) => { if (demoBlocked(isDemoMode)) return; setAdding({ provider }); setMade(null); };
 
   const toggle = async (connection: ChatConnectionView, enabled: boolean) => {
+    if (demoBlocked(isDemoMode)) return;
     setBusy(connection.id);
     try {
       await workspaceApi(`/api/workspace/chat-connections/${connection.id}`, { method: 'PATCH', body: { enabled } });
@@ -120,7 +162,7 @@ export function ChatConnectionsSection() {
 
       {made?.provider === 'slack' && (
         <div className="mb-5 space-y-3 rounded-lg bg-emerald-500/[0.08] p-4">
-          <p className="text-sm text-emerald-100">Last step: in your Slack app, open Event Subscriptions, turn it on, and paste this Request URL. Subscribe to the bot events {SLACK_EVENTS[made.kind]}.</p>
+          <p className="text-sm text-zinc-100">Last step: in your Slack app, open Event Subscriptions, turn it on, and paste this Request URL. Subscribe to the bot events {SLACK_EVENTS[made.kind]}. If Slack says the URL didn&apos;t respond, the signing secret is wrong: use Replace token or secret on the row below.</p>
           <CopyField label="Request URL" value={made.inbound_url} />
         </div>
       )}
@@ -181,22 +223,20 @@ export function ChatConnectionsSection() {
                         <p className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-sm font-medium text-zinc-100">
                           <span>{connection.provider_label}</span>
                           <Badge variant={connection.kind === 'company' ? 'info' : 'default'}>{connection.kind === 'company' ? 'Company' : 'Personal'}</Badge>
-                          <Badge variant={status.variant}>{status.label}</Badge>
+                          <Badge variant={status.variant} className="whitespace-nowrap">{status.label}</Badge>
                         </p>
                         <p className="mt-0.5 truncate text-xs text-zinc-400">
                           {connection.display_name}{connection.bot_handle ? ` · ${connection.bot_handle}` : ''}
                         </p>
-                        <p className="truncate text-[11px] text-zinc-500">
-                          {connection.provider === 'discord'
-                            ? connection.last_inbound_at ? `Relay last heard ${new Date(connection.last_inbound_at).toLocaleString()}` : 'Run the relay to start hearing Discord'
-                            : connection.last_inbound_at ? `Last message ${new Date(connection.last_inbound_at).toLocaleString()}` : 'No messages yet'}
+                        <p className={`text-[11px] ${status.health === 'not_receiving' ? 'text-red-300' : status.health === 'waiting' ? 'text-amber-300' : 'text-zinc-500'}`}>
+                          {statusLine(connection, status.health)}
                         </p>
                       </div>
                       <div className="flex flex-shrink-0 items-center gap-1.5">
                         <Toggle size="sm" checked={connection.enabled} disabled={busy === connection.id} onChange={(value) => void toggle(connection, value)} aria-label={`${name} on`} />
                         <button
                           type="button"
-                          onClick={() => setRemoving(connection)}
+                          onClick={() => { if (!demoBlocked(isDemoMode)) setRemoving(connection); }}
                           className="rounded-md p-1.5 text-zinc-500 transition-colors hover:bg-rose-500/15 hover:text-rose-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-500"
                           aria-label={`Disconnect ${name}`}
                         >
@@ -206,8 +246,7 @@ export function ChatConnectionsSection() {
                     </div>
                   </div>
                 </div>
-                {(connection.provider === 'slack' || connection.provider === 'discord' || connection.kind === 'company') && (
-                  <div className="sm:pl-12">
+                <div className="sm:pl-12">
                     {connection.provider === 'slack' && (
                       <div className="mt-3"><CopyField label={`Request URL for Slack (events: ${SLACK_EVENTS[connection.kind]})`} value={connection.inbound_url} /></div>
                     )}
@@ -221,13 +260,22 @@ export function ChatConnectionsSection() {
                         <CopyField label="Relay address (PM_INBOUND_URL)" value={connection.inbound_url} />
                         <div className="flex flex-wrap items-center justify-between gap-2">
                           <DiscordLinks connection={connection} />
-                          <Button size="sm" variant="ghost" disabled={busy === connection.id} onClick={() => setRenewing(connection)}>New relay secret</Button>
+                          <div className="flex flex-wrap items-center gap-1">
+                            <Button size="sm" variant="ghost" disabled={busy === connection.id} onClick={() => { if (!demoBlocked(isDemoMode)) setRenewing(connection); }}>New relay secret</Button>
+                            <Button size="sm" variant="ghost" disabled={busy === connection.id} onClick={() => { if (!demoBlocked(isDemoMode)) setReplacing(connection); }}>Replace token</Button>
+                          </div>
                         </div>
                       </div>
                     ))}
-                    {connection.kind === 'company' && <CompanyChatPanel connection={connection} />}
-                  </div>
-                )}
+                    {connection.provider !== 'discord' && (
+                      <div className="mt-2 flex justify-end">
+                        <Button size="sm" variant="ghost" disabled={busy === connection.id} onClick={() => { if (!demoBlocked(isDemoMode)) setReplacing(connection); }}>
+                          {connection.provider === 'slack' ? 'Replace token or secret' : 'Replace token'}
+                        </Button>
+                      </div>
+                    )}
+                    {connection.kind === 'company' && <CompanyChatPanel connection={connection} isDemo={isDemoMode} />}
+                </div>
               </li>
             );
           })}
@@ -247,12 +295,22 @@ export function ChatConnectionsSection() {
         }}
       />
 
+      <ReplaceTokenDialog
+        connection={replacing}
+        onClose={() => setReplacing(null)}
+        onReplaced={(view) => {
+          invalidateTables(['chat_connections']);
+          setReplacing(null);
+          toast('success', `${view.provider_label} ${view.provider === 'slack' ? 'token or secret' : 'token'} replaced`);
+        }}
+      />
+
       <ConfirmDialog
         isOpen={!!renewing}
         onClose={() => setRenewing(null)}
         onConfirm={renew}
         title="Make a new relay secret?"
-        message="The relay stops getting through until you give it the new secret (PM_RELAY_SECRET). The old one stops working at once."
+        message="The relay stops getting through until you give it the new secret (PM_RELAY_SECRET). The old one stops working at once, and the connection reads Waiting for relay until the relay says hello with the new one."
         confirmLabel="Make new secret"
         doubleConfirm={false}
       />

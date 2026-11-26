@@ -849,15 +849,31 @@ export async function listQuestions(ctx: QuestionsContext, filters: QuestionFilt
   return { rows: await present(ctx, rows), total: count ?? rows.length };
 }
 
-function notOpen(row: QuestionRow): ApiError | null {
+/**
+ * The 409 for a question no longer open, naming who handled it when someone
+ * did ("Already answered by Mia."): details.handled_by and handled_by_name,
+ * so a screen can take the item away and say why.
+ */
+async function notOpen(ctx: QuestionsContext, row: QuestionRow): Promise<ApiError | null> {
   const status = effectiveQuestionStatus(row);
   if (status === 'open') return null;
-  const message = {
-    answered: 'This question has already been answered.',
-    cancelled: 'This question was cancelled.',
-    expired: 'This question expired before anyone answered it.',
-  }[status];
-  return new ApiError(409, 'CONFLICT', message, { reason: `question_${status}`, status });
+  const by = status === 'answered' ? row.answered_by : status === 'cancelled' ? row.cancelled_by : null;
+  let name: string | null = null;
+  if (by) {
+    const { data } = await ctx.db.from('team_members').select('name').eq('id', by).maybeSingle();
+    name = (data as { name?: string | null } | null)?.name?.trim() || null;
+  }
+  const verb = status === 'answered'
+    ? (isApproval(row) ? (row.answer_choice === 'reject' ? 'rejected' : 'approved') : 'answered')
+    : 'cancelled';
+  const message = name && status !== 'expired'
+    ? `Already ${verb} by ${name}.`
+    : {
+      answered: 'This question has already been answered.',
+      cancelled: 'This question was cancelled.',
+      expired: 'This question expired before anyone answered it.',
+    }[status];
+  return new ApiError(409, 'CONFLICT', message, { reason: `question_${status}`, status, handled_by: by, handled_by_name: name });
 }
 
 /** What else a decision did: a template draft the approval was about (template-drafts.ts). */
@@ -886,7 +902,7 @@ export async function answerQuestion(ctx: QuestionsContext, id: string, input: A
   } else if (!canAnswer(ctx, row, null)) {
     throw forbidden('Only the person asked, the Owner, or someone who may manage the team can answer this question.', { reason: 'not_asked' });
   }
-  const closed = notOpen(row);
+  const closed = await notOpen(ctx, row);
   if (closed) throw closed;
   const choices = Array.isArray(row.choices) ? row.choices : [];
   let choice: string | null = null;
@@ -897,12 +913,6 @@ export async function answerQuestion(ctx: QuestionsContext, id: string, input: A
   } else if (!textAnswers({ choices, allow_other: row.allow_other })) {
     throw invalid(isApproval(row) ? 'Send choice approve or reject; text is an optional note.' : 'Pick one of the choices.', { reason: 'choice_required', choices });
   }
-  if (decider && row.action?.type === 'template_run' && (choice === 'approve' || choice === 'reject')) {
-    // Loaded on demand: the drafts module builds on this one.
-    const { decideDraftForApproval } = await import('./template-drafts');
-    const outcome = await decideDraftForApproval(ctx, row.id, choice, decider);
-    if (outcome) hooks.onDraft?.(outcome);
-  }
   const now = new Date().toISOString();
   const answered = { status: 'answered', answer_choice: choice, answer_text: input.text ?? null, answered_by: decider?.by ?? ctx.memberId, answered_at: now };
   const write = (fields: Record<string, unknown>) => ctx.db
@@ -912,16 +922,41 @@ export async function answerQuestion(ctx: QuestionsContext, id: string, input: A
     .eq('status', 'open')
     .select(SELECT)
     .maybeSingle();
-  // A plain question writes exactly what it always did; an approval adds how it was decided.
-  let { data, error } = await write(decider ? { ...answered, decided_via: decider.via } : answered);
-  // A database before 20261125000700 has no decided_via yet: the decision stands, unrecorded.
-  if (decider && missingDecidedVia(error)) ({ data, error } = await write(answered));
-  if (error) throw error;
-  if (!data) {
-    // Someone else answered or cancelled it a moment ago.
-    throw notOpen(await loadRow(ctx, id)) ?? new ApiError(409, 'CONFLICT', 'This question just changed. Read it again.', { reason: 'question_changed' });
+  let stored: QuestionRow | null = null;
+  // The one write that decides it: open to answered, so a second decision, or
+  // one racing a cancel or an expiry, finds nothing open and is 409.
+  const record = async () => {
+    // A plain question writes exactly what it always did; an approval adds how it was decided.
+    let { data, error } = await write(decider ? { ...answered, decided_via: decider.via } : answered);
+    // A database before 20261125000700 has no decided_via yet: the decision stands, unrecorded.
+    if (decider && missingDecidedVia(error)) ({ data, error } = await write(answered));
+    if (error) throw error;
+    if (!data) {
+      // Someone else answered or cancelled it a moment ago.
+      throw await notOpen(ctx, await loadRow(ctx, id)) ?? new ApiError(409, 'CONFLICT', 'This question just changed. Read it again.', { reason: 'question_changed' });
+    }
+    stored = data as QuestionRow;
+  };
+  // Undoes this call's own decision. Answered is final for everyone else
+  // (nothing but this undo moves it back), so the row is still the one this call stored.
+  const reopen = async () => {
+    const cleared = { status: 'open', answer_choice: null, answer_text: null, answered_by: null, answered_at: null };
+    const undo = (fields: Record<string, unknown>) => ctx.db.from('questions').update(fields).eq('id', id).eq('status', 'answered').eq('answered_by', answered.answered_by);
+    let { error } = await undo(decider ? { ...cleared, decided_via: null } : cleared);
+    if (decider && missingDecidedVia(error)) ({ error } = await undo(cleared));
+    if (error) console.error('[questions] could not reopen an approval after its decision failed', id, error);
+    stored = null;
+  };
+  if (decider && row.action?.type === 'template_run' && (choice === 'approve' || choice === 'reject')) {
+    // Loaded on demand: the drafts module builds on this one. It records the
+    // decision itself, after checking the run and before claiming the draft,
+    // so tasks never exist beside a cancelled or expired approval.
+    const { decideDraftForApproval } = await import('./template-drafts');
+    const outcome = await decideDraftForApproval(ctx, row.id, choice, decider, { record, reopen });
+    if (outcome) hooks.onDraft?.(outcome);
   }
-  return (await present(ctx, await withPlaces(ctx, [data as QuestionRow])))[0];
+  if (!stored) await record();
+  return (await present(ctx, await withPlaces(ctx, [stored as unknown as QuestionRow])))[0];
 }
 
 /** Withdraws an open question: the asker, the Owner, or a team manager. */
@@ -930,7 +965,7 @@ export async function cancelQuestion(ctx: QuestionsContext, id: string): Promise
   if (!canCancel(ctx, row)) {
     throw forbidden('Only whoever asked, the Owner, or someone who may manage the team can cancel this question.', { reason: 'not_asker' });
   }
-  const closed = notOpen(row);
+  const closed = await notOpen(ctx, row);
   if (closed) throw closed;
   const { data, error } = await ctx.db
     .from('questions')
@@ -941,7 +976,7 @@ export async function cancelQuestion(ctx: QuestionsContext, id: string): Promise
     .maybeSingle();
   if (error) throw error;
   if (!data) {
-    throw notOpen(await loadRow(ctx, id)) ?? new ApiError(409, 'CONFLICT', 'This question just changed. Read it again.', { reason: 'question_changed' });
+    throw await notOpen(ctx, await loadRow(ctx, id)) ?? new ApiError(409, 'CONFLICT', 'This question just changed. Read it again.', { reason: 'question_changed' });
   }
   return (await present(ctx, await withPlaces(ctx, [data as QuestionRow])))[0];
 }

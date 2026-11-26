@@ -282,6 +282,7 @@ No limit applies until an Owner sets one. An Owner sets them on the agent's prof
 | `429 RATE_LIMIT_EXCEEDED` | | Over the requests-per-minute limit (120 per key unless the agent has its own, shared across its keys). | Back off. `X-RateLimit-Reset` says when. |
 | `423 AGENTS_PAUSED` | `agents_paused` | An Owner paused every agent. | Stop starting work. Check again later. |
 | `423 AGENT_PAUSED` | `agent_paused` | This agent is paused. | Same. |
+| `423 ASSISTANTS_OFF` | `assistants_off` | A personal assistant, while an Owner has assistants switched off. | Same. |
 | `423 PROJECT_PAUSED` | `project_paused` | The agent is paused on this project only. | Work on other projects. `list_my_projects` shows which are paused. |
 
 While paused, an agent can still:

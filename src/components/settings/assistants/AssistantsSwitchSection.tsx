@@ -9,24 +9,29 @@ import { TextInput } from '@/components/ui/inputs/TextInput';
 import { Toggle } from '@/components/ui/inputs/Toggle';
 import { toast } from '@/components/ui/Toast';
 import { workspaceApi } from '@/lib/agent-workspace';
+import { useDemo } from '@/lib/demo-context';
 import { invalidateTables, setReadData, useRead } from '@/lib/query-cache';
-import { assistantSettingsRead } from '@/lib/reads';
+import { assistantSettingsRead, assistantSettingsReadFor } from '@/lib/reads';
 import { ASSISTANT_DEFAULT_LABEL, ASSISTANT_LABEL_MAX } from '@/lib/assistant';
+import { demoBlocked } from './demo';
 
 /**
- * Settings > Assistants, first card: assistants on or off for everyone, and
- * what the workspace calls them (the sidebar entry and the page title).
- * Assistants run on AI agents, so with that switched off this says where to
- * turn it on instead.
+ * Settings > Assistants: assistants on or off for everyone, and what the
+ * workspace calls them (the sidebar entry and the page title). Off puts
+ * every assistant on hold: it stops working, its person keeps their page
+ * and controls, and nobody new gets one until it is back on. Assistants run
+ * on AI agents, so with that switched off this says where to turn it on.
  */
 export function AssistantsSwitchSection({ agentsOn }: { agentsOn: boolean }) {
-  const read = useRead(assistantSettingsRead);
+  const { isDemoMode } = useDemo();
+  const read = useRead(assistantSettingsReadFor(isDemoMode));
   const settings = read.data;
   const [label, setLabel] = useState('');
   const [busy, setBusy] = useState(false);
   useEffect(() => setLabel(settings?.custom_label ?? ''), [settings?.custom_label]);
 
   const save = async (patch: { enabled?: boolean; label?: string | null }, done: string) => {
+    if (demoBlocked(isDemoMode)) return;
     setBusy(true);
     try {
       const next = await workspaceApi<{ enabled: boolean; label: string; custom_label: string | null }>('/api/workspace/assistants/settings', { method: 'PATCH', body: patch });
@@ -48,7 +53,7 @@ export function AssistantsSwitchSection({ agentsOn }: { agentsOn: boolean }) {
         icon={Sparkles}
         headingId="assistants-heading"
         title="Assistants"
-        description="Everyone gets their own assistant: it sorts their inbox, keeps their tasks and reminders moving, and answers them in chat. People set theirs up on their own page."
+        description="The people you choose below each get their own assistant: it sorts their inbox, keeps their tasks and reminders moving, and answers them in chat. Each person sets theirs up on their own page."
       />
       {!agentsOn ? (
         <p className="rounded-lg bg-white/[0.03] px-4 py-3 text-sm text-zinc-300">
@@ -64,7 +69,9 @@ export function AssistantsSwitchSection({ agentsOn }: { agentsOn: boolean }) {
             disabled={busy}
             onChange={(enabled) => void save({ enabled }, enabled ? 'Assistants are on' : 'Assistants are off')}
             label="Turn on assistants"
-            description={settings.enabled ? 'People with an assistant see it in their sidebar.' : 'Off: nobody sees an assistant, and chat messages get a short "not turned on yet" answer.'}
+            description={settings.enabled
+              ? 'People with an assistant see it in their sidebar. Off: every assistant stops and waits, and nobody new gets one.'
+              : 'Off: every assistant is on hold and does nothing. People still see theirs, with their controls, and chat messages get a short "assistants are off" answer.'}
           />
           <form
             className="max-w-md"
@@ -75,7 +82,7 @@ export function AssistantsSwitchSection({ agentsOn }: { agentsOn: boolean }) {
           >
             <TextInput
               label="What you call them"
-              description="Shown in the sidebar and on each person's page."
+              description="Sidebar and page name"
               placeholder={ASSISTANT_DEFAULT_LABEL}
               value={label}
               onChange={setLabel}

@@ -83,7 +83,7 @@ export async function POST(request: NextRequest) {
   let caller: McpCaller;
   try {
     const actFor = request.headers.get(ACT_FOR_HEADER);
-    const { supabase, keyRow, access, principal, connection } = await resolveApiKey(key, actFor, { connect: true });
+    const { supabase, keyRow, access, principal, connection, aiSetup } = await resolveApiKey(key, actFor, { connect: true });
     const { data: member } = await supabase
       .from('team_members')
       .select('*')
@@ -104,6 +104,7 @@ export async function POST(request: NextRequest) {
       profileDefinition: await resolveAgentProfile(supabase, profile),
       ...(principal && actFor ? { actFor, principalId: principal.id } : {}),
       ...(connection ? { connection: true } : {}),
+      ...(aiSetup ? { aiSetup: { scopes: aiSetup.scopes, only: aiSetup.kind === 'key', clientName: aiSetup.clientName, expiresAt: aiSetup.expiresAt } } : {}),
     };
   } catch (caught) {
     if (caught instanceof ApiError && caught.statusCode === 401) return unauthorizedRpc(request, caught.message, caught.details, connect);

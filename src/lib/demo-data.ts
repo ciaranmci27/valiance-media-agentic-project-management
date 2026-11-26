@@ -406,6 +406,9 @@ const demoTaskRows: DemoTask[] = [
     ],
     created_at: daysAgo(120), updated_at: daysAgo(30),
   },
+
+  // === An agent's own work (Atlas is blocked on it: Agents > Needs you) ===
+  { id: 'e5e5e5e5-0099-4000-8000-000000000099', project_id: 'c3c3c3c3-0002-4000-8000-000000000002', title: 'Add CSV export to reports', description: 'Stream report rows to a CSV file and email a download link.', status: 'in_progress', priority: 'medium', assignee_ids: ['a1a1a1a1-0006-4000-8000-000000000006'], claimed_by: 'a1a1a1a1-0006-4000-8000-000000000006', ai_readiness: 'ai_ready', due_date: null, tags: ['development'], comments: [], created_at: daysAgo(2), updated_at: hoursAgo(1) },
 ];
 
 // The demo initiatives (below) and the tasks on their boards.
@@ -1607,7 +1610,8 @@ export const demoTaskSuggestions: TaskSuggestion[] = [
     proposed_by: 'a1a1a1a1-0006-4000-8000-000000000006',
     assigned_to: null,
     title: 'Add motion design guidelines to brand document',
-    description: 'Define easing curves, animation durations, and transition patterns for interactive elements on the website.',
+    // The agent answered the info request: it is back with the person to decide.
+    description: 'Define easing curves, animation durations, and transition patterns for interactive elements on the website.\n\n--- Answer to info request ---\nAsked: Should we match Crest\'s existing motion patterns from their current mobile app, or start fresh with our own system?\nAnswer: Match the app. Its easing and durations are already documented, so the website will feel like the same brand.',
     reasoning: 'The dev team is using inconsistent animation timings across components. A standard set of motion tokens would fix this.',
     priority: 'low',
     effort_estimate: 'small',
@@ -1762,6 +1766,8 @@ function demoTelemetry(): AgentActivity[] {
 // ---------------------------------------------------------------------------
 export const demoAgentActivity: AgentActivity[] = [
   ...demoTelemetry(),
+  // Atlas stops on the CSV export: a typed blocked event, so it shows as Blocked in Needs you.
+  { id: 'aact-0199-4000-8000-000000000199', agent_id: 'a1a1a1a1-0006-4000-8000-000000000006', project_id: 'c3c3c3c3-0002-4000-8000-000000000002', activity_type: 'blocked', title: 'Blocked: Which storage bucket should the exports go to?', description: '', reference_type: 'task', reference_id: 'e5e5e5e5-0099-4000-8000-000000000099', metadata: { task_id: 'e5e5e5e5-0099-4000-8000-000000000099', task_title: 'Add CSV export to reports', reason: 'Which storage bucket should the exports go to? Production has two and I do not want to guess.' }, created_at: hoursAgo(1) },
   // Atlas's pending billed session (te-0010): narration landing inside the
   // session window so the agent session review modal shows a real timeline.
   { id: 'aact-0101-4000-8000-000000000101', agent_id: 'a1a1a1a1-0006-4000-8000-000000000006', project_id: 'c3c3c3c3-0002-4000-8000-000000000002', activity_type: 'task_started', title: 'Starting: Add CSV export to reports', description: '', reference_type: null, reference_id: null, metadata: {}, created_at: dayAtTime(1, 9, 2) },

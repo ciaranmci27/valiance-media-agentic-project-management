@@ -2,7 +2,7 @@
 
 import { useState, type ReactNode } from 'react';
 import { Check, Copy, Download, KeyRound } from 'lucide-react';
-import { buildConnectInfo, CONNECT_KEY_ENV } from '@/lib/agent-connect';
+import { buildConnectInfo, connectSnippetsWithKey, CONNECT_KEY_ENV } from '@/lib/agent-connect';
 import type { ConnectInfo, NewKey } from '@/lib/agent-workspace';
 import { Button } from '@/components/ui/Button';
 import { toast } from '@/components/ui/Toast';
@@ -10,15 +10,16 @@ import { toast } from '@/components/ui/Toast';
 /**
  * How an agent's host connects: the key secret once (when one was just
  * made), then copy-ready snippets for Claude Code, Codex and any MCP client,
- * and the agent's AGENTS.md to download. The snippets never hold the key:
- * they read it from PM_API_KEY, so the secret is pasted in one place.
+ * and the agent's AGENTS.md to download. The snippets read the key from
+ * PM_API_KEY, except while a key just made is on screen: then they carry it
+ * in their headers (never a URL) so they paste and work.
  */
 
 const TABS = [
-  { key: 'claude_code', label: 'Claude Code', hint: 'Run this in the agent’s terminal.' },
-  { key: 'codex', label: 'Codex', hint: 'Add this to ~/.codex/config.toml.' },
-  { key: 'generic_mcp_json', label: 'Any MCP client', hint: 'Add this server to the client’s MCP config.' },
-  { key: 'env', label: 'Env file', hint: 'For a host that reads its settings from the environment.' },
+  { key: 'claude_code', label: 'Claude Code', hint: 'Run this in the agent’s terminal.', yourHint: 'Run this in your terminal, then start Claude Code there.' },
+  { key: 'codex', label: 'Codex', hint: 'Add this to ~/.codex/config.toml.', yourHint: 'Add this to ~/.codex/config.toml.' },
+  { key: 'generic_mcp_json', label: 'Any MCP client', hint: 'Add this server to the client’s MCP config.', yourHint: 'Add this server to your tool’s MCP config.' },
+  { key: 'env', label: 'Env file', hint: 'For a host that reads its settings from the environment.', yourHint: 'For a tool that reads its settings from the environment.' },
 ] as const;
 
 export function copyText(text: string, what: string) {
@@ -72,21 +73,25 @@ export function SecretOnce({ secret, heading = 'Copy the key now. It is not show
   );
 }
 
-export function ConnectSnippets({ connect, agentName, onDownloadBrief, briefBusy }: {
+export function ConnectSnippets({ connect, agentName, onDownloadBrief, briefBusy, secret, forYou = false }: {
   connect?: ConnectInfo | null;
   agentName: string;
   /** Downloads the agent's AGENTS.md (its context pack). */
   onDownloadBrief?: () => void;
   briefBusy?: boolean;
+  /** A key just made, while it is on screen: the snippets carry it in their headers so they paste and work. */
+  secret?: string | null;
+  /** The snippets are for the person's own AI tool (a setup key), not an agent's host. */
+  forYou?: boolean;
 }) {
   const info = connect ?? buildConnectInfo(typeof window === 'undefined' ? '' : window.location.origin);
   const [tab, setTab] = useState<(typeof TABS)[number]['key']>('claude_code');
   const current = TABS.find((t) => t.key === tab)!;
-  const text = info.snippets[tab];
+  const text = connectSnippetsWithKey(info, secret)[tab];
   return (
     <div className="space-y-4">
       <div className="overflow-hidden rounded-2xl bg-white/[0.025] ring-1 ring-inset ring-white/[0.06]">
-        <div role="tablist" aria-label="Where the agent runs" className="flex overflow-x-auto border-b border-white/[0.06] px-2 scrollbar-none">
+        <div role="tablist" aria-label={forYou ? 'Your AI tool' : 'Where the agent runs'} className="flex overflow-x-auto border-b border-white/[0.06] px-2 scrollbar-none">
           {TABS.map((t) => (
             <button
               key={t.key}
@@ -103,7 +108,7 @@ export function ConnectSnippets({ connect, agentName, onDownloadBrief, briefBusy
         </div>
         <div role="tabpanel" className="p-4">
           <div className="flex items-center justify-between gap-3">
-            <p className="text-xs text-zinc-400">{current.hint}</p>
+            <p className="text-xs text-zinc-400">{forYou ? current.yourHint : current.hint}{secret ? ' It holds the key, so keep it private.' : ''}</p>
             <CopyButton text={text} what={current.label} />
           </div>
           <pre className="mt-3 overflow-x-auto whitespace-pre rounded-lg bg-black/25 p-3 font-mono text-xs leading-relaxed text-zinc-100">{text}</pre>

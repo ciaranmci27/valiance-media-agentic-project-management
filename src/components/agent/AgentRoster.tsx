@@ -8,10 +8,11 @@ import { useAuth } from '@/lib/auth-context';
 import { useDemo } from '@/lib/demo-context';
 import { hasPermission } from '@/lib/access-control';
 import { useRead } from '@/lib/query-cache';
-import { agentRolesRead, agentsListRead, agentTemplatesRead, runningAgentRunsRead, useAgentWarmer } from '@/lib/reads';
+import { agentRolesRead, agentsListRead, agentsPauseDemoRead, agentsPauseRead, agentTemplatesRead, runningAgentRunsRead, useAgentWarmer } from '@/lib/reads';
+import { useRemembered } from '@/lib/use-remembered';
 import { useAgentHealth } from '@/lib/use-agent-health';
 import { busyMoodForTitle, deriveStatus, emptyTrace, ingestIntoTrace, statusSentence } from '@/lib/agent-status';
-import { agentBacklog, backlogLine, currentRunByAgent, runTitle, type BacklogState } from '@/lib/agents-tab';
+import { agentBacklog, agentPausedNow, backlogLine, currentRunByAgent, runTitle, type BacklogState } from '@/lib/agents-tab';
 import {
   defaultOwnerFilter, facetCounts, filterRoster, groupRoster, presenceOf, projectsLine, roleLabel, rosterProjects, sortRoster, windowOf,
   NO_ROSTER_FILTERS, PRESENCE_LABELS, type Presence, type RosterFacts, type RosterFilters, type RosterGroup, type RosterSort, showMoreLabel,
@@ -61,6 +62,8 @@ export function useAgentRoster(): { entries: RosterEntry[]; ready: boolean } {
   const health = useAgentHealth();
   const running = useRead(runningAgentRunsRead(isDemoMode));
   const list = useRead(agentsListRead(isDemoMode));
+  // Pause every agent: every card reads Paused while it is on, as the banner says.
+  const workspacePausedAt = useRead(isDemoMode ? agentsPauseDemoRead : agentsPauseRead).data?.paused_at ?? null;
 
   // A ticking clock, so "5 min ago" and offline-by-silence stay true while the tab sits open.
   const [now, setNow] = useState(() => Date.now());
@@ -89,7 +92,7 @@ export function useAgentRoster(): { entries: RosterEntry[]; ready: boolean } {
       .map((agent): RosterEntry => {
         const more = extra.get(agent.id);
         const suspended = agent.status === 'suspended';
-        const paused = !suspended && !!agent.agent_paused_at;
+        const paused = agentPausedNow(agent, workspacePausedAt);
         const trace = (byAgent.get(agent.id) ?? []).reduce((t, a) => ingestIntoTrace(t, a), emptyTrace());
         const agentHealth = health[agent.id];
         const status = suspended ? null : deriveStatus(trace, now, busyMoodForTitle(agent.title), agentHealth);
@@ -115,14 +118,16 @@ export function useAgentRoster(): { entries: RosterEntry[]; ready: boolean } {
           currentRunTitle: run?.title ?? null,
           avatar: agent.avatar || more?.avatar_url || null,
           suspended,
-          sentence: paused ? 'Paused: reads and reports only' : status ? statusSentence(status, now) : 'Suspended: cannot act',
+          sentence: paused
+            ? (agent.agent_paused_at ? 'Paused: reads and reports only' : 'Paused with every agent: reads and reports only')
+            : status ? statusSentence(status, now) : 'Suspended: cannot act',
           statusNote: agentHealth?.statusNote?.trim() || null,
-          currentRun: run,
+          currentRun: paused ? null : run,
           lastLine: trace.lastLine ?? null,
           backlog: suspended ? null : agentBacklog(tasks, agent.id, now, busy),
         };
       });
-  }, [team, agentActivity, tasks, projects, health, running.data, list.data, now]);
+  }, [team, agentActivity, tasks, projects, health, running.data, list.data, now, workspacePausedAt]);
 
   // Ready once the list read settles (or fails: the team rows still show).
   return { entries, ready: !list.loading };
@@ -137,8 +142,27 @@ const PRESENCE_FILTERS: { value: RosterFilters['presence']; label: string }[] = 
   { value: 'any', label: 'All' },
   { value: 'active', label: 'Working' },
   { value: 'attention', label: 'Needs a look' },
-  { value: 'off', label: 'Paused' },
+  { value: 'off', label: 'Paused or suspended' },
 ];
+
+/** The roster's remembered view: its filters (search aside), sort and grouping. */
+interface RosterPrefs {
+  filters: Omit<RosterFilters, 'q'>;
+  sort: RosterSort;
+  group: RosterGroup;
+}
+
+const isRosterPrefs = (value: unknown): value is RosterPrefs => {
+  const v = value as RosterPrefs | null;
+  return !!v && typeof v === 'object' && !!v.filters && typeof v.filters === 'object'
+    && ['any', 'active', 'attention', 'off'].includes(v.filters.presence)
+    && ['status', 'name', 'recent'].includes(v.sort) && ['none', 'role', 'status', 'owner', 'template'].includes(v.group);
+};
+
+const EVERY_AGENT: Omit<RosterFilters, 'q'> = { presence: NO_ROSTER_FILTERS.presence, role: null, templateKey: null, projectId: null, owner: null };
+
+/** The order the summary line counts presences in: every presence, so the counts add up to the total. */
+const SUMMARY_ORDER: Presence[] = ['working', 'reviewing', 'shipped', 'blocked', 'offline', 'idle', 'paused', 'suspended'];
 
 export function AgentRoster({ onHire }: { onHire?: () => void }) {
   const { entries, ready } = useAgentRoster();
@@ -150,21 +174,33 @@ export function AgentRoster({ onHire }: { onHire?: () => void }) {
   const warmAgent = useAgentWarmer();
   const canHire = !!onHire && access?.role === 'owner' && hasPermission(access, 'team.manage');
 
-  const [filters, setFilters] = useState<RosterFilters>(NO_ROSTER_FILTERS);
-  const [sort, setSort] = useState<RosterSort>('status');
-  const [group, setGroup] = useState<RosterGroup>('none');
+  // This browser remembers the view; until it is changed, the default is
+  // "My agents" when the viewer owns any (decided once the owners are known).
+  const [prefs, setPrefs] = useRemembered<RosterPrefs | null>('pm:agents-roster', null, (v): v is RosterPrefs | null => v === null || isRosterPrefs(v));
+  const [q, setQ] = useState('');
   const [pages, setPages] = useState(1);
   const [moreOpen, setMoreOpen] = useState(false);
 
-  // "My agents" is where the roster opens when the viewer owns any; decided once the owners are known.
-  const [ownerDecided, setOwnerDecided] = useState(false);
-  if (!ownerDecided && ready && entries.length) {
-    setOwnerDecided(true);
-    const mine = defaultOwnerFilter(entries, teamMemberId || null);
-    if (mine) setFilters((f) => ({ ...f, owner: mine }));
-  }
+  const defaultFilters = useMemo<Omit<RosterFilters, 'q'>>(() => {
+    const mine = ready ? defaultOwnerFilter(entries, teamMemberId || null) : null;
+    return mine ? { ...EVERY_AGENT, owner: mine } : EVERY_AGENT;
+  }, [ready, entries, teamMemberId]);
+  const filters = useMemo<RosterFilters>(() => ({ ...(prefs?.filters ?? defaultFilters), q }), [prefs, defaultFilters, q]);
+  const sort: RosterSort = prefs?.sort ?? 'status';
+  const group: RosterGroup = prefs?.group ?? 'none';
+  const savePrefs = (patch: Partial<RosterPrefs>) => setPrefs((p) => ({ filters: p?.filters ?? defaultFilters, sort: p?.sort ?? 'status', group: p?.group ?? 'none', ...patch }));
 
-  const update = (patch: Partial<RosterFilters>) => { setFilters((f) => ({ ...f, ...patch })); setPages(1); };
+  const update = (patch: Partial<RosterFilters>) => {
+    const { q: nextQ, ...rest } = patch;
+    if (nextQ !== undefined) setQ(nextQ);
+    if (Object.keys(rest).length) savePrefs({ filters: { ...(prefs?.filters ?? defaultFilters), ...rest } });
+    setPages(1);
+  };
+  const setSort = (next: RosterSort) => savePrefs({ sort: next });
+  const setGroup = (next: RosterGroup) => savePrefs({ group: next });
+  // Back to where the roster opens (My agents when the viewer owns any), not to everyone's.
+  const clearFilters = () => { setQ(''); setPrefs(null); setPages(1); };
+  const showEveryAgent = () => { setQ(''); savePrefs({ filters: EVERY_AGENT }); setPages(1); };
 
   const templateNames = useMemo(() => new Map((templates.data ?? []).map((t) => [t.key, t.label])), [templates.data]);
   const ownerNames = useMemo(() => new Map(team.map((m) => [m.id, m.name])), [team]);
@@ -188,16 +224,18 @@ export function AgentRoster({ onHire }: { onHire?: () => void }) {
     for (const e of entries) c[e.presence] = (c[e.presence] ?? 0) + 1;
     return c;
   }, [entries]);
-  const filtered = JSON.stringify(filters) !== JSON.stringify(NO_ROSTER_FILTERS);
+  // Clear shows only when the view differs from where the roster opens.
+  const filtered = !!q || JSON.stringify(prefs?.filters ?? defaultFilters) !== JSON.stringify(defaultFilters);
   const extraFilters = [filters.projectId, filters.templateKey, filters.owner && filters.owner !== 'me' ? filters.owner : null].filter(Boolean).length;
 
   if (entries.length === 0) {
     return (
       <div className="flex flex-col items-center px-6 py-20 text-center">
         <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-brand-500/[0.12] text-brand-300" aria-hidden="true"><Bot size={26} /></span>
-        <h2 className="mt-5 text-lg font-semibold tracking-tight text-white">Hire your first agent</h2>
+        <h2 className="mt-5 text-lg font-semibold tracking-tight text-white">{canHire ? 'Hire your first agent' : 'No agents yet'}</h2>
         <p className="mt-2 max-w-md text-sm leading-relaxed text-zinc-400">
-          An agent is a teammate that works through the API and MCP: it picks up tasks, asks you when it is stuck, and reports what it did. Pick a template, give it projects, connect it in a few minutes.
+          An agent is a teammate that works through the API and MCP: it picks up tasks, asks you when it is stuck, and reports what it did.
+          {canHire ? ' Pick a template, give it projects, connect it in a few minutes.' : ' Only the Owner hires agents: ask them to hire one, and it shows here.'}
         </p>
         {canHire && <Button className="mt-6" icon={<Plus size={16} aria-hidden="true" />} onClick={onHire}>Hire an agent</Button>}
       </div>
@@ -216,7 +254,7 @@ export function AgentRoster({ onHire }: { onHire?: () => void }) {
       {/* The team at a glance: one quiet line, never one tile per agent. */}
       <p className="text-sm text-zinc-400">
         <span className="font-medium text-zinc-200">{entries.length} {entries.length === 1 ? 'agent' : 'agents'}</span>
-        {(['working', 'reviewing', 'blocked', 'offline', 'idle', 'suspended'] as Presence[]).filter((p) => counts[p]).map((p) => (
+        {SUMMARY_ORDER.filter((p) => counts[p]).map((p) => (
           <span key={p}> · {counts[p]} {PRESENCE_LABELS[p].toLowerCase()}</span>
         ))}
       </p>
@@ -226,7 +264,7 @@ export function AgentRoster({ onHire }: { onHire?: () => void }) {
           <TextInput type="search" aria-label="Search agents" placeholder="Search agents, roles, runs" value={filters.q} onChange={(q) => update({ q })} leftIcon={Search} clearable />
         </div>
         <div className="flex min-w-0 flex-wrap items-center gap-2">
-          <div className="seg-track" role="group" aria-label="Status">
+          <div className="seg-track max-w-full overflow-x-auto" role="group" aria-label="Status">
             {PRESENCE_FILTERS.map((f) => (
               <button key={f.value} type="button" className={`seg-item ${filters.presence === f.value ? 'is-active' : ''}`} aria-pressed={filters.presence === f.value} onClick={() => update({ presence: f.value })}>
                 {f.label}
@@ -242,7 +280,7 @@ export function AgentRoster({ onHire }: { onHire?: () => void }) {
           <Button variant="secondary" icon={<SlidersHorizontal size={14} aria-hidden="true" />} onClick={() => setMoreOpen(!moreOpen)} aria-expanded={moreOpen} aria-controls="roster-more-filters">
             Filter and sort{extraFilters ? ` (${extraFilters})` : ''}
           </Button>
-          {filtered && <Button variant="ghost" onClick={() => { setFilters(NO_ROSTER_FILTERS); setPages(1); }}>Clear</Button>}
+          {filtered && <Button variant="ghost" onClick={clearFilters}>Clear</Button>}
         </div>
       </div>
 
@@ -290,7 +328,7 @@ export function AgentRoster({ onHire }: { onHire?: () => void }) {
       {visible.length === 0 ? (
         <div className="py-16 text-center">
           <p className="text-sm text-zinc-300">No agents match.</p>
-          <Button variant="ghost" size="sm" className="mt-2" onClick={() => { setFilters(NO_ROSTER_FILTERS); setPages(1); }}>Show every agent</Button>
+          <Button variant="ghost" size="sm" className="mt-2" onClick={showEveryAgent}>Show every agent</Button>
         </div>
       ) : (
         <div className="space-y-8">

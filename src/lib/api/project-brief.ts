@@ -13,6 +13,7 @@ import {
   type BriefSectionKey,
   type ProjectBrief,
 } from '@/lib/project-brief';
+import { briefEntryChanges } from '@/lib/project-agents-ui';
 import { callerHolds, type AgentCaller } from './agent-owners';
 import { requireReachableProject } from './project-agents';
 import { BRIEF_CONTEXT_COLUMNS } from './project-context';
@@ -26,7 +27,9 @@ import { ApiError, forbidden, notFound } from './errors';
  * - Read with project_context.read on a project the caller reaches; goals
  *   too with goals.read while AI agents is on (else named in omitted).
  * - Write with project_context.manage. Removing an entry archives it
- *   (is_active false), as the v1 route always has.
+ *   (is_active false), as the v1 route always has. A person who edits an
+ *   entry, or marks it checked, takes it over: source becomes human, so
+ *   "Written by an agent" clears.
  * - Bounded: each section answers its first BRIEF_SECTION_PAGE entries
  *   (pinned first, then the newest) with its total; ?section= pages one
  *   section; search answers at most BRIEF_SEARCH_MAX, best first, over the
@@ -88,6 +91,15 @@ async function sectionPage(service: SupabaseClient, projectId: string, section: 
   return { key: section, label, entries: ((data ?? []) as unknown as Row[]).map(briefEntry), total: count ?? 0 };
 }
 
+/** Pinned and agent-written entries across the whole brief, not only the pages read. */
+async function briefCounts(service: SupabaseClient, projectId: string): Promise<{ pinned_total: number; agent_total: number }> {
+  const base = () => service.from('project_context').select('id', { count: 'exact', head: true }).eq('project_id', projectId).eq('is_active', true);
+  const [pinned, agent] = await Promise.all([base().eq('pinned', true), base().eq('source', 'agent')]);
+  if (pinned.error) throw pinned.error;
+  if (agent.error) throw agent.error;
+  return { pinned_total: pinned.count ?? 0, agent_total: agent.count ?? 0 };
+}
+
 /**
  * The brief: every section's first page (or one section's page with
  * section), and the project's live goals.
@@ -105,16 +117,18 @@ export async function readBrief(
   const omitted: string[] = [];
   const seeGoals = isModuleEnabled(caller.access, 'agents') && (callerHolds(caller, 'goals.read') || callerHolds(caller, 'goals.manage'));
   if (!seeGoals) omitted.push('goals');
-  const [sections, goals] = await Promise.all([
+  const [sections, goals, counts] = await Promise.all([
     Promise.all(keys.map((key) => sectionPage(service, projectId, key, options.section ? options.offset ?? 0 : 0, limit))),
     seeGoals
       ? service.from('project_goals').select('id, title, description, target_date, status, created_at').eq('project_id', projectId)
         .is('archived_at', null).order('created_at').limit(50)
         .then(({ data, error }) => { if (error) throw error; return (data ?? []) as Row[]; })
       : Promise.resolve([] as Row[]),
+    options.section ? Promise.resolve(null) : briefCounts(service, projectId),
   ]);
   return {
     sections,
+    ...(counts ?? {}),
     goals: goals.map((goal): BriefGoal => ({
       id: goal.id, title: goal.title, description: goal.description ?? null, target_date: goal.target_date ?? null, status: goal.status,
     })),
@@ -172,16 +186,19 @@ export interface BriefEntryPatch {
   content?: string;
   pinned?: boolean;
   is_active?: boolean;
+  /** A person confirms an agent's entry: it reads as theirs from now on. */
+  checked?: boolean;
 }
 
 export async function updateBriefEntry(service: SupabaseClient, caller: AgentCaller, projectId: string, entryId: string, patch: BriefEntryPatch) {
   requireWrite(caller);
   await requireReachableProject(service, caller, projectId);
   const before = await loadEntry(service, projectId, entryId);
-  const changes: Row = {};
-  if (patch.content !== undefined) changes.content = checkContent(patch.content);
-  if (patch.pinned !== undefined) changes.pinned = patch.pinned;
-  if (patch.is_active !== undefined) changes.is_active = patch.is_active;
+  const changes: Row = briefEntryChanges(
+    before,
+    { ...patch, ...(patch.content !== undefined ? { content: checkContent(patch.content) } : {}) },
+    caller.access.role === 'agent',
+  );
   if (patch.section !== undefined && patch.section !== before.section) {
     changes.section = patch.section;
     // The category follows the section, unless the category already reads in it.

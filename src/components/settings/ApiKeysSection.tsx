@@ -1,8 +1,8 @@
 'use client';
 
-import { useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import Link from 'next/link';
-import { Ban, Bot, ChevronDown, KeyRound, Pencil, Plus, RefreshCw } from 'lucide-react';
+import { Ban, Bot, ChevronDown, KeyRound, Pencil, Plus, RefreshCw, ShieldOff } from 'lucide-react';
 import { appLocale } from '@/lib/region';
 import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
@@ -14,8 +14,11 @@ import { SettingsSectionHeader } from '@/components/settings/SettingsSectionHead
 import { EditApiKeyModal } from '@/components/settings/EditApiKeyModal';
 import { NewApiKeyDialog } from '@/components/settings/NewApiKeyDialog';
 import { RotateApiKeyDialog } from '@/components/settings/RotateApiKeyDialog';
-import { canEditApiKey, hasPermission, isModuleEnabled } from '@/lib/access-control';
-import { agentKeyRow, groupApiKeys, keyExpiry } from '@/lib/developers-settings';
+import { canEditApiKey, hasPermission, isModuleEnabled, permissionLabel } from '@/lib/access-control';
+import { agentKeyRow, groupApiKeys, keyExpiry, replacedKeyIds } from '@/lib/developers-settings';
+import { useRead } from '@/lib/query-cache';
+import { connectAiSettingRead } from '@/lib/reads';
+import { useDemo } from '@/lib/demo-context';
 import type { ApiKey } from '@/lib/types';
 
 /** For "Last used ...": never, just now, 5m ago, 3d ago, then the date. */
@@ -50,12 +53,17 @@ const LINK = 'rounded font-medium text-brand-300 underline underline-offset-2 ho
  * key can be edited, rotated (with an overlap) or revoked. An Owner also
  * sees other people's keys. Agent keys are listed with Revoke (so one can be
  * stopped even with the Agents module off) and a link to their agent's
- * profile, where they are made and rotated.
+ * profile, where they are made and rotated. A key a rotation replaced says
+ * so and is not rotated again; Revoke names every other key it takes down.
+ * While workspace API access is off, a banner says every key is refused.
  */
 export function ApiKeysSection() {
   const { team, apiKeys, revokeApiKey } = useApp();
   const { teamMemberId, access } = useAuth();
+  const { isDemoMode } = useDemo();
   const agentsOn = isModuleEnabled(access, 'agents');
+  const isOwner = access?.role === 'owner';
+  const apiSwitch = useRead(isDemoMode ? null : connectAiSettingRead).data;
 
   const [creating, setCreating] = useState(false);
   const [revokeTarget, setRevokeTarget] = useState<ApiKey | null>(null);
@@ -65,12 +73,37 @@ export function ApiKeysSection() {
 
   const agentIds = useMemo(() => new Set(team.filter((m) => m.role === 'agent').map((m) => m.id)), [team]);
   const { mine, people, agents, ended } = groupApiKeys(apiKeys, teamMemberId, agentIds);
+  const replaced = useMemo(() => replacedKeyIds(apiKeys), [apiKeys]);
   const memberName = (id: string | null) => (id ? team.find((m) => m.id === id)?.name : null) ?? 'Unknown member';
+
+  // What else a revoke takes down (keys this one made, keys it replaced), read before the confirm.
+  const [alsoRevoked, setAlsoRevoked] = useState<{ id: string; names: string[] | null } | null>(null);
+  useEffect(() => {
+    if (!revokeTarget || isDemoMode) return;
+    const id = revokeTarget.id;
+    let live = true;
+    fetch(`/api/workspace/api-keys/${encodeURIComponent(id)}/revoke`, { cache: 'no-store' })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((payload) => {
+        if (!live) return;
+        const also = (payload?.data?.also ?? null) as { name: string; member_name: string | null }[] | null;
+        setAlsoRevoked({ id, names: also ? also.map((key) => (key.member_name ? `${key.name} (${key.member_name})` : key.name)) : null });
+      })
+      .catch(() => { if (live) setAlsoRevoked({ id, names: null }); });
+    return () => { live = false; };
+  }, [revokeTarget, isDemoMode]);
+  const also = alsoRevoked && alsoRevoked.id === revokeTarget?.id ? alsoRevoked.names : null;
+  const revokeMessage = !revokeTarget ? '' : [
+    `This will permanently revoke "${revokeTarget.name}". Anything using it stops working immediately.`,
+    also && also.length > 0
+      ? `It also revokes ${also.length === 1 ? 'the key' : `${also.length} keys`} it made or replaced: ${also.slice(0, 5).join(', ')}${also.length > 5 ? `, and ${also.length - 5} more` : ''}.`
+      : null,
+  ].filter(Boolean).join(' ');
 
   const handleRevokeKey = () => {
     if (!revokeTarget) return;
     revokeApiKey(revokeTarget.id);
-    toast('success', 'API key revoked');
+    toast('success', also && also.length > 0 ? `API key revoked, with ${also.length} ${also.length === 1 ? 'key' : 'keys'} it made` : 'API key revoked');
     setRevokeTarget(null);
   };
 
@@ -82,8 +115,8 @@ export function ApiKeysSection() {
     ...(canEditApiKey(access, teamMemberId, key)
       ? [{ label: 'Edit name and access', icon: <Pencil size={14} aria-hidden="true" />, onClick: () => setEditTarget(key) }]
       : []),
-    // Rotating is for your own keys (an agent's rotate on its profile).
-    ...(own ? [{ label: 'Rotate', icon: <RefreshCw size={14} aria-hidden="true" />, onClick: () => setRotateTarget(key) }] : []),
+    // Rotating is for your own keys (an agent's rotate on its profile), and a key is replaced once: rotate its newest key.
+    ...(own && !replaced.has(key.id) ? [{ label: 'Rotate', icon: <RefreshCw size={14} aria-hidden="true" />, onClick: () => setRotateTarget(key) }] : []),
     revokeAction(key),
   ];
 
@@ -102,10 +135,22 @@ export function ApiKeysSection() {
           )}
         />
 
+        {apiSwitch && !apiSwitch.api_enabled && (
+          <div role="status" className="mb-4 flex items-start gap-3 rounded-lg bg-amber-500/[0.14] px-3.5 py-3 text-sm text-amber-100">
+            <ShieldOff size={16} className="mt-0.5 flex-shrink-0" aria-hidden="true" />
+            <p className="min-w-0 flex-1">
+              API access is off for this workspace, so every key below is refused until it is back on.{' '}
+              {isOwner
+                ? <Link href="/settings/security#api-access" className={LINK}>Turn it on in Security</Link>
+                : 'Ask an Owner to turn it on.'}
+            </p>
+          </div>
+        )}
+
         {mine.length > 0 ? (
           <KeyList label="Your API keys">
             {mine.map((key) => (
-              <KeyRow key={key.id} apiKey={key} actions={actionsFor(key, true)} />
+              <KeyRow key={key.id} apiKey={key} replaced={replaced.has(key.id)} actions={actionsFor(key, true)} />
             ))}
           </KeyList>
         ) : (
@@ -121,7 +166,7 @@ export function ApiKeysSection() {
             <p className="mb-2 text-xs font-medium text-zinc-400">Other people&apos;s keys</p>
             <KeyList label="Other people's API keys">
               {people.map((key) => (
-                <KeyRow key={key.id} apiKey={key} owner={memberName(key.team_member_id)} actions={actionsFor(key, false)} />
+                <KeyRow key={key.id} apiKey={key} replaced={replaced.has(key.id)} owner={memberName(key.team_member_id)} actions={actionsFor(key, false)} />
               ))}
             </KeyList>
           </div>
@@ -138,7 +183,10 @@ export function ApiKeysSection() {
                     {agentRow.openConnect && <Link href="/agent?tab=agents" className={LINK}>Open agents</Link>}
                   </>
                 ) : (
-                  'AI agents are switched off. Their keys keep working until you revoke them here.'
+                  <>
+                    AI agents are switched off, but their keys keep working until you revoke them here.{' '}
+                    {isOwner && <Link href="/settings/security#agents-pause" className={LINK}>Pause every agent</Link>}
+                  </>
                 )}
               </p>
             </div>
@@ -149,6 +197,7 @@ export function ApiKeysSection() {
                     <KeyRow
                       key={key.id}
                       apiKey={key}
+                      replaced={replaced.has(key.id)}
                       owner={memberName(key.team_member_id)}
                       trailing={agentRow.openConnect ? (
                         <Button size="sm" variant="secondary" href={`/agent/${key.team_member_id}?tab=connect`}>
@@ -190,7 +239,7 @@ export function ApiKeysSection() {
                     <code className="font-mono text-xs text-zinc-500">{key.key_prefix}...</code>
                   </div>
                   <span className="flex-shrink-0 text-xs text-zinc-400">
-                    {key.revoked_at ? `Revoked ${formatDate(key.revoked_at)}` : `Expired ${formatDate(key.expires_at!)}`}
+                    {key.revoked_at ? `Revoked ${formatDate(key.revoked_at)}` : key.disabled_at ? `Disabled ${formatDate(key.disabled_at)}` : `Expired ${formatDate(key.expires_at!)}`}
                   </span>
                 </div>
               ))}
@@ -219,7 +268,7 @@ export function ApiKeysSection() {
         onClose={() => setRevokeTarget(null)}
         onConfirm={handleRevokeKey}
         title="Revoke API key"
-        message={`This will permanently revoke "${revokeTarget?.name}". Anything using this key stops working immediately.`}
+        message={revokeMessage}
         confirmLabel="Revoke"
         variant="danger"
       />
@@ -236,18 +285,36 @@ function KeyList({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
-/** One working key: name, access, prefix, then created, last used and expiry. */
-function KeyRow({ apiKey, owner, actions, trailing }: { apiKey: ApiKey; owner?: string; actions?: RowAction[]; trailing?: ReactNode }) {
-  const scopeCount = apiKey.scopes?.length ?? 0;
+/**
+ * One working key: name, access (the count opens the list of what it may
+ * do, in plain words), prefix, then created, last used and expiry. A key a
+ * rotation replaced says so beside when it ends.
+ */
+function KeyRow({ apiKey, owner, actions, trailing, replaced = false }: { apiKey: ApiKey; owner?: string; actions?: RowAction[]; trailing?: ReactNode; replaced?: boolean }) {
+  const scopes = apiKey.scopes ?? [];
+  const scopeCount = scopes.length;
   const expiry = keyExpiry(apiKey.expires_at, new Date(), formatDate);
+  const [showScopes, setShowScopes] = useState(false);
+  const listId = `key-scopes-${apiKey.id}`;
   return (
     <li className="flex items-start gap-3 px-4 py-3">
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
           <p className="min-w-0 truncate text-sm font-medium text-white">{apiKey.name}</p>
-          <span className="flex-shrink-0 rounded bg-brand-500/15 px-1.5 py-0.5 text-[10px] font-medium text-brand-300">
+          <button
+            type="button"
+            onClick={() => setShowScopes((open) => !open)}
+            aria-expanded={showScopes}
+            aria-controls={listId}
+            disabled={scopeCount === 0}
+            className="flex flex-shrink-0 items-center gap-1 rounded bg-brand-500/15 px-1.5 py-0.5 text-[10px] font-medium text-brand-300 transition-colors hover:bg-brand-500/25 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 disabled:cursor-default disabled:hover:bg-brand-500/15"
+          >
             {scopeCount} {scopeCount === 1 ? 'permission' : 'permissions'}
-          </span>
+            {scopeCount > 0 && <ChevronDown size={10} aria-hidden="true" className={`transition-transform duration-200 ${showScopes ? 'rotate-180' : ''}`} />}
+          </button>
+          {replaced && (
+            <span className="flex-shrink-0 rounded bg-white/[0.06] px-1.5 py-0.5 text-[10px] font-medium text-zinc-300">Replaced</span>
+          )}
           {owner && (
             <span className="flex-shrink-0 rounded bg-white/[0.06] px-1.5 py-0.5 text-[10px] font-medium text-zinc-300">{owner}</span>
           )}
@@ -256,8 +323,15 @@ function KeyRow({ apiKey, owner, actions, trailing }: { apiKey: ApiKey; owner?: 
         <p className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-zinc-400">
           <span>Created {formatDate(apiKey.created_at)}</span>
           <span>Last used {formatRelativeTime(apiKey.last_used_at)}</span>
-          <span className={EXPIRY_TONES[expiry.tone]}>{expiry.label}</span>
+          <span className={EXPIRY_TONES[expiry.tone]}>{replaced ? `Replaced by a newer key. ${expiry.label}` : expiry.label}</span>
         </p>
+        {showScopes && scopeCount > 0 && (
+          <ul id={listId} aria-label={`What ${apiKey.name} may do`} className="mt-2 flex flex-wrap gap-1.5">
+            {scopes.map((scope) => (
+              <li key={scope} className="rounded bg-white/[0.05] px-1.5 py-0.5 text-[11px] text-zinc-300">{permissionLabel(scope)}</li>
+            ))}
+          </ul>
+        )}
       </div>
       <div className="flex flex-shrink-0 items-center">
         {trailing}

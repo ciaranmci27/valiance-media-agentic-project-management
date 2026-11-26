@@ -59,6 +59,48 @@ export function retentionChoices(field: DataRetentionField, current: number | nu
     : [...listed, { value: current, label: `${current} days` }].sort((a, b) => (a.value ?? Infinity) - (b.value ?? Infinity));
 }
 
+// ── Shortening a period ─────────────────────────────────────────────────
+
+/** Days, with forever (null) longer than any number of days. */
+const daysOrForever = (days: number | null) => (days === null ? Infinity : days);
+
+/** The settings whose period gets shorter (each removes older rows at the next cleanup), in the order given. */
+export function shortenedRetention<K extends string>(saved: Record<K, number | null>, next: Partial<Record<K, number | null>>, keys: readonly K[]): K[] {
+  return keys.filter((key) => next[key] !== undefined && daysOrForever(next[key] as number | null) < daysOrForever(saved[key]));
+}
+
+/** The daily cleanup jobs' times, UTC (pg_cron pm-retention and pm-audit-retention). */
+export const DATA_RETENTION_RUN_UTC = { hour: 3, minute: 47 } as const;
+export const AUDIT_RETENTION_RUN_UTC = { hour: 3, minute: 23 } as const;
+
+/** The next time a daily UTC job runs after now. */
+export function nextDailyRun(at: { hour: number; minute: number }, now: Date = new Date()): Date {
+  const run = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), at.hour, at.minute));
+  if (run.getTime() <= now.getTime()) run.setUTCDate(run.getUTCDate() + 1);
+  return run;
+}
+
+/** How many rows a period removes, in words: "about 1,240 rows", "no rows yet". Chat text is blanked, not removed. */
+export function rowsInWords(rows: number | null, unit: 'rows' | 'texts' = 'rows'): string {
+  if (rows === null) return unit === 'texts' ? 'older message text' : 'older rows';
+  if (rows === 0) return unit === 'texts' ? 'no message text yet' : 'no rows yet';
+  const one = unit === 'texts' ? 'message text' : 'row';
+  const many = unit === 'texts' ? 'message texts' : 'rows';
+  return `about ${rows.toLocaleString('en-US')} ${rows === 1 ? one : many}`;
+}
+
+/**
+ * The confirmation before a shorter period is saved: one line per setting,
+ * what goes and about how many rows, then when and that it cannot be undone.
+ */
+export function retentionConfirmMessage(
+  items: readonly { label: string; days: number; rows: number | null; unit?: 'rows' | 'texts' }[],
+  runsAt: string,
+): string {
+  const lines = items.map((item) => `${item.label}: ${item.unit === 'texts' ? 'blanks' : 'removes'} ${rowsInWords(item.rows, item.unit)} older than ${item.days} days.`);
+  return `${lines.join(' ')} This happens at the next daily cleanup, ${runsAt}, and cannot be undone.`;
+}
+
 export const dataRetentionSchema = z.object(Object.fromEntries(
   DATA_RETENTION_FIELDS.map((field) => [field.key, z.number().int().min(field.minDays, `${field.label}: keep at least ${field.minDays} days`).max(3650).nullable().optional()]),
 ) as Record<DataRetentionKey, z.ZodOptional<z.ZodNullable<z.ZodNumber>>>).strict()

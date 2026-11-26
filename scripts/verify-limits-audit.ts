@@ -583,6 +583,28 @@ async function main() {
       await s.q('SELECT method, team_member_id, after_snapshot, endpoint FROM pm.api_audit_log WHERE entity_type = $1 ORDER BY seq DESC LIMIT 3', ['team_member']));
     const keyRow = has('api_key', 'POST');
     check('coverage: a new key is audited, its hash never stored', keyMade.status < 300 && keyRow?.after_snapshot?.key_hash === REDACTED && keyRow.after_snapshot.name === 'Laptop', [keyMade.status, keyRow?.after_snapshot]);
+
+    // ── Manage access (access.manage): enforced, never self-escalating ──────
+    const anaTries = async () => {
+      as(LOGINS.ana);
+      const answers = {
+        read: (await session(accessRoute.GET, 'GET', '/api/workspace/access')).status,
+        other: (await session(accessRoute.PUT, 'PUT', '/api/workspace/access', {}, { target: 'member', member_id: s.jeff, permission_key: 'goals.read', access_channel: 'api', effect: 'allow' })).status,
+        self: (await session(accessRoute.PUT, 'PUT', '/api/workspace/access', {}, { target: 'member', member_id: s.ana, permission_key: 'settings.manage', access_channel: 'app', effect: 'allow' })).status,
+        ownRole: (await session(accessRoute.PUT, 'PUT', '/api/workspace/access', {}, { target: 'role', role: 'admin', permission_key: 'settings.manage', access_channel: 'app', enabled: true })).status,
+        spread: (await session(accessRoute.PUT, 'PUT', '/api/workspace/access', {}, { target: 'member', member_id: s.jeff, permission_key: 'access.manage', access_channel: 'app', effect: 'allow' })).status,
+      };
+      as(LOGINS.owner);
+      return answers;
+    };
+    const without = await anaTries();
+    check('access.manage: an admin without it cannot read or change access (403)', without.read === 403 && without.other === 403, without);
+    const granted = await session(accessRoute.PUT, 'PUT', '/api/workspace/access', {}, { target: 'member', member_id: s.ana, permission_key: 'access.manage', access_channel: 'app', effect: 'allow' });
+    const withIt = await anaTries();
+    check('access.manage: an Owner gives it; then she reads and changes someone else\'s access', granted.status === 200 && withIt.read === 200 && withIt.other === 200, [granted.status, withIt]);
+    check('access.manage: never her own access, her own role\'s defaults, or Manage access itself (403)', withIt.self === 403 && withIt.ownRole === 403 && withIt.spread === 403, withIt);
+    await session(accessRoute.PUT, 'PUT', '/api/workspace/access', {}, { target: 'member', member_id: s.ana, permission_key: 'access.manage', access_channel: 'app', effect: null });
+    await session(accessRoute.PUT, 'PUT', '/api/workspace/access', {}, { target: 'member', member_id: s.jeff, permission_key: 'goals.read', access_channel: 'api', effect: null });
     await s.q("UPDATE pm.team_members SET role = 'member' WHERE id = $1", [s.ana]);
     await actAs(db, LOGINS.owner.id);
     await db.query("INSERT INTO pm.webhook_endpoints (name, url, secret, events) VALUES ('CRM', 'https://hooks.slack.com/services/T000/B000/tokentoken', 'whsec_live', '{task.created}')");
@@ -608,6 +630,17 @@ async function main() {
     check('redaction: a rotation row keeps the new key\'s prefix, name and scopes, never its secret', rotated.status === 201 && typeof rotationRow?.after_snapshot?.new_key?.key_prefix === 'string'
       && rotationRow.after_snapshot.new_key.key_prefix.length > 0 && rotationRow.after_snapshot.new_key.name === 'Seed key' && Array.isArray(rotationRow.after_snapshot.new_key.scopes)
       && !JSON.stringify(rotationRow).includes(rotated.body?.data?.secret ?? 'no-secret'), [rotated.status, rotationRow]);
+    // A person's capped key keeps a lifetime when rotated: never no expiry, never past the cap.
+    await s.q('UPDATE pm.business_settings SET personal_key_lifetime_days = 30');
+    const cappedKey = (await s.q<Loose>(`INSERT INTO pm.api_keys (name, key_prefix, key_hash, team_member_id, created_by, scopes, permissions, expires_at)
+      VALUES ('Ana for a day', 'pk_live', 'hash-capped-ana', $1, $1, '{tasks.read}', 'scoped', now() + interval '1 day') RETURNING id`, [s.ana]))[0].id as string;
+    as(LOGINS.ana);
+    const anaRotated = await session(rotateRoute.POST, 'POST', `/api/workspace/api-keys/${cappedKey}/rotate`, { id: cappedKey }, { overlap_hours: 1 });
+    as(LOGINS.owner);
+    const anaNewEnds = Date.parse(anaRotated.body?.data?.key?.expires_at ?? '');
+    check('rotation: a person\'s 1-day key rotated under a 30-day cap lasts a day again, never no expiry', anaRotated.status === 201
+      && Math.abs(anaNewEnds - (Date.now() + 86_400_000)) < 600_000, [anaRotated.status, anaRotated.body?.data?.key?.expires_at ?? anaRotated.body]);
+    await s.q('UPDATE pm.business_settings SET personal_key_lifetime_days = NULL');
     check('coverage: ordinary task edits are not audited as app rows (the activity log covers them)', await count("SELECT count(*)::int AS n FROM pm.api_audit_log WHERE endpoint LIKE '/app/tasks%'") === 0);
 
     // ── principal_id and redaction at write time ──────────────────────

@@ -54,6 +54,8 @@ export function useMemberActions() {
   const isOwner = access?.role === 'owner';
   const canManageTeam = hasPermission(access, 'team.manage');
   const canManageCompensation = hasPermission(access, 'compensation.manage');
+  // Roles & permissions: Owners, and anyone an Owner gave Manage access (never for their own row).
+  const canManageAccess = isOwner || hasPermission(access, 'access.manage');
   const pendingRead = useRead(canManageTeam && !isDemoMode ? pendingInvitesRead : null);
   const pending = new Set(pendingRead.data ?? []);
 
@@ -88,7 +90,7 @@ export function useMemberActions() {
     if (canEdit(member)) {
       actions.push({ label: 'Edit', icon: <Edit size={14} />, onClick: () => setEditing(member) });
     }
-    if (isOwner && member.role !== 'owner') {
+    if (canManageAccess && member.role !== 'owner' && (isOwner || member.id !== teamMemberId)) {
       actions.push({ label: 'Permissions', icon: <SlidersHorizontal size={14} />, onClick: () => openAccess(member.id) });
     }
     if (canManageCompensation && member.role !== 'owner') {
@@ -142,6 +144,7 @@ export function useMemberActions() {
     isPendingInvite: (member: TeamMember) => pending.has(member.id),
     isOwner,
     canManageTeam,
+    canManageAccess,
     modals,
   };
 }

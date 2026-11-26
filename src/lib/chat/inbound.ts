@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { alertOf, readAssistantSettings, findPersonalAgent, missingAssistantSchema, notifyAssistantBroken, statesOf } from '@/lib/api/assistant';
-import type { AssistantStatus } from '@/lib/assistant';
+import { alertOf, assistantFixer, readAssistantSettings, findPersonalAgent, missingAssistantSchema, notifyAssistantBroken, statesOf } from '@/lib/api/assistant';
+import { BROKEN_WORDS, type AssistantFixer, type AssistantStatus } from '@/lib/assistant';
 import { createLinkRequest, findIdentity } from '@/lib/api/identities';
 import { afterResponse } from '@/lib/api/after-response';
 import { readStoredBrand } from '@/lib/brand/server';
@@ -18,9 +18,12 @@ import { assistantMessagePayload, chatMessagePayload } from './messages';
  * 1. The connection must exist, have an adapter and readable credentials,
  *    and the adapter must verify the request (Slack's signature, Telegram's
  *    secret token, the Discord relay's signature) before anything is read. Each of those failing answers
- *    the same 401, so nobody can tell whether a connection exists. Slack's
- *    URL challenge is answered once verified. An event from another Slack
- *    workspace than the connection's is ignored.
+ *    the same 401, so nobody can tell whether a connection exists. A known
+ *    connection's refused request is stamped (last_refused_at), so Settings
+ *    can say it is not receiving. Slack's URL challenge is answered once
+ *    verified, and counts as heard. An event from another Slack workspace
+ *    than the connection's is ignored. A connection switched off answers a
+ *    message spoken to it with one line a day per chat: it is switched off.
  * 2. A retry of a delivery already recorded (the provider's event id) is a
  *    no-op; inbound messages are rate limited per connection and per sender.
  * 3. The connection's kind decides the rest.
@@ -31,18 +34,23 @@ import { assistantMessagePayload, chatMessagePayload } from './messages';
  *  - The sender is resolved through a verified linked account in this
  *    connection's workspace (or, for providers with no workspaces, one with
  *    none). Someone unknown gets a one-time link to connect their account
- *    (the existing link handshake), at most once an hour. Someone suspended
- *    or with no assistant gets one plain line.
- *  - A paused assistant (by its person, or by an admin) is never sent the
- *    message: it is recorded as unrouted. Otherwise the message is recorded
+ *    (the existing link handshake), and no second one while that link is
+ *    still open (unused and unexpired). Someone suspended or with no
+ *    assistant gets one plain line.
+ *  - A paused assistant (by its person, or by an admin) is not sent the
+ *    message yet: it is held (unrouted, for its agent, not handled) and
+ *    delivered when the assistant works again, oldest first, the newest
+ *    HELD_CHAT_LIMIT of them (deliverHeldChat). Otherwise the message is recorded
  *    for the person's assistant and sent to its webhook: assistant.message
  *    (exactly as before) and chat.message, both ids only; with no endpoint
  *    it waits for the assistant to fetch it. No act-for token: a personal
  *    agent is already narrowed to its person.
  *  - When the assistant will not answer right now (on hold, paused, broken:
- *    the states the person's page shows), the app says so itself, once per
- *    chat per spell. A broken one, or one on hold whose host stopped
- *    reporting, tells its admins (once a day).
+ *    the states the person's page shows), the app says so itself, with why,
+ *    once per chat per spell. A broken one, or one on hold whose host
+ *    stopped reporting, tells its admins (once a day), and the line says an
+ *    admin was told only when one was; an Owner, or someone with nobody to
+ *    tell, is pointed to Settings > Assistants instead.
  *
  * The company bot (kind company): channels and DMs, to the company agents
  * the Owner chose (routeCompany has the rules). A request (a DM, a mention
@@ -80,8 +88,8 @@ export const CHAT_RATE_LIMIT = 120;
 /** Inbound messages per sender per minute, so one stranger cannot flood a public bot. */
 export const CHAT_SENDER_RATE_LIMIT = 20;
 const CHAT_RATE_WINDOW_SECONDS = 60;
-/** An unknown sender gets one link at most this often. */
-export const LINK_THROTTLE_MS = 60 * 60_000;
+/** Messages held while an assistant was paused that reach it when it works again: the newest this many. */
+export const HELD_CHAT_LIMIT = 20;
 
 const done = (body: Record<string, unknown>, status = 200): InboundResult => ({ status, body });
 /** The one answer for an unknown connection, a bad signature, no adapter or unreadable credentials. */
@@ -146,17 +154,23 @@ export async function handleChatInbound(
     console.error(`[chat] connection ${connection.id}: credentials cannot be opened (APP_ENCRYPTION_KEY missing or changed)`);
     return refused();
   }
-  if (!adapter.verify({ headers: request.headers, body: request.body, credentials })) return refused();
+  if (!adapter.verify({ headers: request.headers, body: request.body, credentials })) {
+    await stampRefused(service, connection.id);
+    return refused();
+  }
 
   const parsed: ParsedInbound = adapter.parse(request.body, request.headers);
-  if (parsed.kind === 'challenge') return done({ challenge: parsed.challenge });
+  // Slack's URL check, signed: the signing secret works, so the connection is heard.
+  if (parsed.kind === 'challenge') {
+    await stampHeard(service, connection.id);
+    return done({ challenge: parsed.challenge });
+  }
   // A relay's hello (Discord): verified, so the connection is heard. Nothing is recorded.
   if (parsed.kind === 'ping') {
-    await service.from('chat_connections').update({ last_inbound_at: new Date().toISOString() }).eq('id', connection.id);
+    await stampHeard(service, connection.id);
     return done({ status: 'ok' });
   }
   if (parsed.kind === 'ignore') return done({ status: 'ignored', reason: parsed.reason });
-  if (connection.enabled === false) return done({ status: 'ignored', reason: 'connection_off' });
   // Another workspace's event (a Slack app installed twice): not this connection's.
   if (adapter.hasWorkspaces && connection.external_workspace_id && parsed.workspaceId !== connection.external_workspace_id) {
     return done({ status: 'ignored', reason: 'other_workspace' });
@@ -172,6 +186,11 @@ export async function handleChatInbound(
   const kind = connectionKind(connection);
   // The personal bot answers DMs only: a channel or group is never its business.
   if (kind === 'personal' && !parsed.direct) return done({ status: 'ignored', reason: 'personal_dm_only' });
+  // Switched off: one line a day where someone spoke to it, never silence; nothing recorded.
+  if (connection.enabled === false) {
+    if (parsed.direct || parsed.addressed) await offNoticeOnce(service, { connection, adapter, credentials }, parsed);
+    return done({ status: 'ignored', reason: 'connection_off' });
+  }
 
   console.info(`[chat] inbound on ${connection.provider} ${kind} connection ${connection.id}, ${parsed.text.length} characters`);
   await service.from('chat_connections').update({ last_inbound_at: new Date().toISOString() }).eq('id', connection.id);
@@ -241,17 +260,22 @@ async function startedMessageAnswered(service: SupabaseClient, connectionId: str
   return null;
 }
 
-/** Someone not linked yet: a one-time link in a one-to-one chat (once an hour), never where others read it. */
+/**
+ * Someone not linked yet: a one-time link in a one-to-one chat, never where
+ * others read it. While the last link sent is still open (unused and
+ * unexpired), a reminder instead of a second link; once it is used or has
+ * expired, a fresh one at once. The link names nobody as its requester: the
+ * person started it themselves by messaging the bot.
+ */
 async function strangerWords(service: SupabaseClient, ctx: Ctx, parsed: Message, workspaceId: string | null, appUrl: string): Promise<string> {
   if (!parsed.direct) return CHAT_WORDS.linkDirectly;
-  const { adapter, connection } = ctx;
-  const since = new Date(Date.now() - LINK_THROTTLE_MS).toISOString();
-  let recentQuery = service.from('identity_link_requests').select('id').eq('provider', adapter.identityProvider).eq('external_id', parsed.userId)
-    .gte('created_at', since);
-  recentQuery = workspaceId === null ? recentQuery.is('workspace_id', null) : recentQuery.eq('workspace_id', workspaceId);
-  const { data: recent } = await recentQuery.limit(1);
-  if ((recent ?? []).length) return CHAT_WORDS.linkAgain;
-  const link = await createLinkRequest(service, { memberId: connection.created_by ?? null, keyId: null } as { memberId: string; keyId: string | null }, {
+  const { adapter } = ctx;
+  let openQuery = service.from('identity_link_requests').select('id').eq('provider', adapter.identityProvider).eq('external_id', parsed.userId)
+    .is('consumed_at', null).gt('expires_at', new Date().toISOString());
+  openQuery = workspaceId === null ? openQuery.is('workspace_id', null) : openQuery.eq('workspace_id', workspaceId);
+  const { data: open } = await openQuery.limit(1);
+  if ((open ?? []).length) return CHAT_WORDS.linkAgain;
+  const link = await createLinkRequest(service, { memberId: null, keyId: null } as unknown as { memberId: string; keyId: string | null }, {
     provider: adapter.identityProvider, external_id: parsed.userId, workspace_id: workspaceId, handle: parsed.userHandle,
   }, appUrl);
   let workspace = 'this workspace';
@@ -299,25 +323,30 @@ async function handlePersonal(service: SupabaseClient, ctx: Ctx, parsed: Message
   if (!agent) return unrouted(known, CHAT_WORDS.noAssistant);
   const status = (await statesOf(service, [agent])).get(agent.id)!;
   const alert = alertOf(status);
+  const fixer = alert ? await assistantFixer(service, agent.id, { id: member.id, role: member.role }) : 'admin';
   const quiet = {
     ctx, agentId: agent.id, conversationId: parsed.conversationId, threadId: parsed.threadId, replyTo: null,
     // The same state the person's page shows, and when that spell began: one line per chat per spell.
     spell: `${status.state}:${status.reason ?? ''}:${status.since ?? ''}`,
-    text: quietWords(status, agent.name, settings.label, `${appUrl.replace(/\/+$/, '')}/assistant`),
+    text: quietWords(status, agent.name, settings.label, `${appUrl.replace(/\/+$/, '')}/assistant`, fixer),
     addressed: true,
   };
   const tellAdmins = () => alert
     ? notifyAssistantBroken(service, { id: agent.id, name: agent.name }, { id: member.id, name: member.name }, alert)
     : Promise.resolve(0);
 
-  // Paused by its person or by an admin: recorded, never sent to it, as before.
-  if (status.state === 'paused' || (status.state === 'broken' && status.reason === 'paused_by_admin')) {
-    const id = await record({ ...known, agent_id: agent.id, status: 'unrouted', handled_at: new Date().toISOString() });
+  // Paused by its person or by an admin: held for it (unrouted, not
+  // handled), never sent to it now; deliverHeldChat sends it on resume.
+  if (status.state === 'paused' || (status.state === 'on_hold' && status.reason === 'paused_by_admin')) {
+    const id = await record({ ...known, agent_id: agent.id, status: 'unrouted' });
     if (!id) return done({ status: 'duplicate' });
     await tellAdmins();
     await noticeOnce(service, { ...quiet, replyToId: id });
-    return done({ status: 'unrouted', id });
+    return done({ status: 'unrouted', id, held: true });
   }
+
+  // Anything held for it while it was paused goes first, oldest first.
+  await deliverHeldChat(service, agent.id);
 
   // For the assistant: recorded, then sent to its webhook or left for it to
   // fetch. On hold or broken it answers once it is back; the person hears
@@ -536,19 +565,123 @@ async function deliver(service: SupabaseClient, id: string, agentId: string, web
   return done({ status: options.request ? 'notified' : 'context', id });
 }
 
-/** The line for an assistant that will not answer right now, or null when it will (working, getting ready). */
-export function quietWords(status: AssistantStatus, name: string, page: string, resumeUrl: string): string | null {
-  if (status.state === 'on_hold') return QUIET_WORDS.onHold(name);
+/** Why it is not working, in the middle of a sentence: "its key expired or was revoked". */
+const brokenWhy = (status: AssistantStatus): string =>
+  status.state === 'broken' ? BROKEN_WORDS[status.reason].replace(/\.$/, '').replace(/^./, (first) => first.toLowerCase()) : '';
+
+/**
+ * The line for an assistant that will not answer right now, with why, or
+ * null when it will (working, getting ready). An admin "has been told" only
+ * when one was (fixer admin); otherwise it says where to fix it.
+ */
+export function quietWords(status: AssistantStatus, name: string, page: string, resumeUrl: string, fixer: AssistantFixer = 'admin'): string | null {
+  if (status.state === 'on_hold') {
+    if (status.hostDown) return QUIET_WORDS.hostDown(name, fixer);
+    if (status.reason === 'paused_by_admin') return QUIET_WORDS.pausedByAdmin(name);
+    return QUIET_WORDS.onHold(name);
+  }
   if (status.state === 'paused') return QUIET_WORDS.paused(name, page, resumeUrl);
-  if (status.state === 'broken') return QUIET_WORDS.broken(name);
+  if (status.state === 'broken') return QUIET_WORDS.broken(name, brokenWhy(status), fixer);
   return null;
 }
 
-/** A company agent: on hold (a pause meant to end) says it will answer; paused, suspended, unconnected or a dead host says it can't. */
+/** A company agent: on hold (a pause meant to end) says it will answer; suspended, unconnected or a dead host says it can't. */
 export function companyQuietWords(status: AssistantStatus, name: string): string | null {
-  if (status.state === 'on_hold' && !status.hostDown) return QUIET_WORDS.onHold(name);
+  if (status.state === 'on_hold' && !status.hostDown && status.reason !== 'paused_by_admin') return QUIET_WORDS.onHold(name);
   if (status.state === 'on_hold' || status.state === 'paused' || status.state === 'broken') return QUIET_WORDS.companyDown(name);
   return null;
+}
+
+/** The connection was heard: a verified request, its refusals left behind. */
+async function stampHeard(service: SupabaseClient, connectionId: string): Promise<void> {
+  await service.from('chat_connections').update({ last_inbound_at: new Date().toISOString() }).eq('id', connectionId);
+}
+
+/**
+ * A request to a known connection failed the provider's check: stamped at
+ * most once a minute, so a flood costs no more than a write a minute.
+ * Never fails the answer (a database before 20261127000100 has no column).
+ */
+async function stampRefused(service: SupabaseClient, connectionId: string): Promise<void> {
+  try {
+    const now = Date.now();
+    const { data, error: readError } = await service.from('chat_connections').select('last_refused_at').eq('id', connectionId).maybeSingle();
+    if (readError) return;
+    const last = (data as Row | null)?.last_refused_at;
+    if (last && now - new Date(last).getTime() < 60_000) return;
+    const { error } = await service.from('chat_connections').update({ last_refused_at: new Date(now).toISOString() }).eq('id', connectionId);
+    if (error && !missingColumn(error)) console.error(`[chat] connection ${connectionId}: could not record a refused request`, error.code);
+  } catch {
+    // The 401 stands either way.
+  }
+}
+
+/**
+ * A switched-off connection spoken to: "This chat is switched off here. Ask
+ * your admin.", once a day per chat (the marker is the line's own outbound
+ * row, keyed by the chat and the day). In a channel, in the message's
+ * thread. Never fails the request.
+ */
+async function offNoticeOnce(service: SupabaseClient, ctx: Ctx, parsed: Message): Promise<void> {
+  const { connection, adapter, credentials } = ctx;
+  const day = new Date().toISOString().slice(0, 10);
+  const marker = `off:${createHash('sha256').update([connection.id, parsed.conversationId, day].join('\n')).digest('hex')}`;
+  const text = CHAT_WORDS.connectionOff;
+  try {
+    const { data, error } = await service.from('chat_messages').insert({
+      connection_id: connection.id, direction: 'outbound', status: 'sent', conversation_id: parsed.conversationId, thread_id: parsed.threadId, text, dedupe_key: marker,
+    }).select('id').single();
+    if (error?.code === '23505') return;
+    if (error) throw error;
+    const rowId = (data as Row).id as string;
+    try {
+      const sent = await adapter.send(credentials, { conversationId: parsed.conversationId, threadId: parsed.threadId, replyTo: parsed.direct ? null : parsed.messageId, text });
+      await service.from('chat_messages').update({ external_message_id: sent.externalMessageId }).eq('id', rowId);
+    } catch (failure) {
+      const reason = failure instanceof Error ? failure.message.slice(0, 500) : 'Send failed';
+      await service.from('chat_messages').update({ status: 'failed', error: reason, dedupe_key: null }).eq('id', rowId);
+    }
+  } catch (error) {
+    console.error(`[chat] off notice on connection ${connection.id} could not be recorded`, (error as { code?: string })?.code ?? error);
+  }
+}
+
+/**
+ * Sends a personal assistant what was held for it while it was paused (by
+ * its person or an admin): inbound messages recorded for it as unrouted and
+ * not yet handled. The newest HELD_CHAT_LIMIT go to it, oldest first, as
+ * pending messages (and to its webhook, as any message); older ones are
+ * marked handled and stay in the record. Only for an agent that is not
+ * suspended. Answers how many it sent. Safe to call often: with nothing
+ * held it is one read.
+ */
+export async function deliverHeldChat(service: SupabaseClient, agentId: string): Promise<number> {
+  const { data, error } = await service.from('chat_messages').select('id, created_at')
+    .eq('agent_id', agentId).eq('direction', 'inbound').eq('status', 'unrouted').is('handled_at', null)
+    .order('created_at', { ascending: false }).order('id', { ascending: false }).limit(500);
+  if (error) {
+    if (missingAssistantSchema(error)) return 0;
+    throw error;
+  }
+  const held = (data ?? []) as Row[];
+  if (held.length === 0) return 0;
+  const { data: agent } = await service.from('team_members').select('id, status').eq('id', agentId).maybeSingle();
+  if (!agent || (agent as Row).status === 'suspended') return 0;
+  const sending = held.slice(0, HELD_CHAT_LIMIT).reverse();
+  const dropped = held.slice(HELD_CHAT_LIMIT).map((row) => row.id as string);
+  if (dropped.length) {
+    await service.from('chat_messages').update({ handled_at: new Date().toISOString() }).in('id', dropped).eq('status', 'unrouted');
+  }
+  const webhooksOn = (await enabledModuleSet(service)).has('webhooks');
+  let sent = 0;
+  for (const row of sending) {
+    // Claimed one at a time, so two callers never send the same message twice.
+    const { data: claimed } = await service.from('chat_messages').update({ status: 'pending' }).eq('id', row.id).eq('status', 'unrouted').is('handled_at', null).select('id');
+    if (!(claimed ?? []).length) continue;
+    await deliver(service, row.id as string, agentId, webhooksOn, { legacy: true, request: true });
+    sent++;
+  }
+  return sent;
 }
 
 /** The bot's own handle (@name) in the text: a mention in a shared chat. */
@@ -594,4 +727,37 @@ async function noticeOnce(service: SupabaseClient, notice: {
   } catch (error) {
     console.error(`[chat] notice on connection ${connection.id} could not be recorded`, (error as { code?: string })?.code ?? error);
   }
+}
+
+/**
+ * After someone links their chat account from the link the bot sent them,
+ * the bot says so in that chat, so they know to write again: "Linked. Nova
+ * answers you here now." (their assistant's name) on the personal bot, a
+ * plain "ask away" on the company bot. The chat is the newest one this
+ * account wrote to on a switched-on connection of that provider (and Slack
+ * workspace). Never throws: linking stands either way.
+ */
+export async function greetLinkedAccount(service: SupabaseClient, identity: { provider: string; external_id: string; workspace_id: string | null; member_id: string }): Promise<boolean> {
+  try {
+    const { data } = await service.from('chat_messages').select('id, connection_id, conversation_id, thread_id, created_at')
+      .eq('direction', 'inbound').eq('external_user_id', identity.external_id).order('created_at', { ascending: false }).limit(10);
+    for (const message of (data ?? []) as Row[]) {
+      const connection = await loadConnection(service, message.connection_id);
+      if (!connection || connection.enabled === false) continue;
+      const adapter = chatAdapter(connection.provider);
+      if (!adapter || adapter.identityProvider !== identity.provider) continue;
+      if (adapter.hasWorkspaces && (connection.external_workspace_id ?? null) !== (identity.workspace_id ?? null)) continue;
+      const credentials = openCredentials(connection as { id: string; credentials: string });
+      let text: string = CHAT_WORDS.linkedCompany;
+      if (connectionKind(connection) === 'personal') {
+        const agent = await findPersonalAgent(service, identity.member_id);
+        text = agent ? CHAT_WORDS.linked(agent.name) : CHAT_WORDS.linkedNoAssistant;
+      }
+      await answer(service, { connection, adapter, credentials }, { id: message.id, conversationId: message.conversation_id, threadId: message.thread_id ?? null }, text);
+      return true;
+    }
+  } catch (error) {
+    console.error('[chat] could not greet a linked account', (error as { code?: string })?.code ?? error);
+  }
+  return false;
 }

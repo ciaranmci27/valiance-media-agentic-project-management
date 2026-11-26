@@ -1496,15 +1496,20 @@ export async function updateEntityFileVisibility(supabase: SupabaseClient, id: s
 export const API_KEY_COLUMNS = 'id, name, key_prefix, permissions, scopes, expires_at, disabled_at, last_used_at, revoked_at, created_by, team_member_id, created_at, updated_at';
 
 export async function fetchApiKeys(supabase: SupabaseClient) {
-  const { data, error } = await supabase
+  // rotated_from marks a key a newer one replaced (Settings shows it as
+  // Replaced); a database before rotation has no such column, so read without it there.
+  const read = (columns: string) => supabase
     .from('api_keys')
-    .select(API_KEY_COLUMNS)
+    .select(columns)
     // Connected AI tools' keys are connections (Settings > Account), never listed as keys.
     .neq('permissions', 'connection')
     .order('created_at', { ascending: false });
-
+  let { data, error } = await read(`${API_KEY_COLUMNS}, rotated_from`);
+  if (error && (error.code === '42703' || error.code === 'PGRST204' || /rotated_from/.test(error.message ?? ''))) {
+    ({ data, error } = await read(API_KEY_COLUMNS));
+  }
   if (error) throw error;
-  return (data || []) as ApiKey[];
+  return (data || []) as unknown as ApiKey[];
 }
 
 // ============================================================
@@ -1616,10 +1621,13 @@ export async function deleteWebhookEndpoint(supabase: SupabaseClient, id: string
   if (error) throw error;
 }
 
-export async function fetchWebhookDeliveries(supabase: SupabaseClient, limit = 25) {
-  const { data, error } = await supabase
+/** The newest deliveries, across every endpoint or (endpointId) to one. */
+export async function fetchWebhookDeliveries(supabase: SupabaseClient, limit = 25, endpointId?: string) {
+  let query = supabase
     .from('webhook_deliveries')
-    .select('*, webhook_events(event_id, event_type, created_at)')
+    .select('*, webhook_events(event_id, event_type, created_at)');
+  if (endpointId) query = query.eq('endpoint_id', endpointId);
+  const { data, error } = await query
     .order('created_at', { ascending: false })
     .limit(limit);
   if (error) throw error;

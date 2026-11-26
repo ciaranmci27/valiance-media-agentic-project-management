@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { isModuleEnabled, type AccessContext } from '@/lib/access-control';
 import { INVOICE_WEBHOOK_EVENT_TYPES, type WebhookEndpoint } from '@/lib/types';
 import { ApiError, forbidden } from './errors';
-import { accessAllows, apiKeyAllows } from './access';
+import { apiKeyAllows } from './access';
 import { insertWebhookEndpoint, withEndpointColumns } from '@/lib/supabase/queries';
 import { sealWebhookSecret } from '@/lib/webhooks/secret';
 
@@ -62,11 +62,12 @@ const INVOICE_EVENTS: readonly string[] = INVOICE_WEBHOOK_EVENT_TYPES;
  * personal agent it made): an active Owner, or a key carrying
  * assistants.provision (the assistant host's), as for the setups
  * themselves. scopes is the key's on the api channel; null or left out for
- * a signed-in member.
+ * a signed-in member, who must be an Owner.
  */
 export function canScopeToAssistantSetup(access: AccessContext, scopes?: string[] | null): boolean {
   if (access.role === 'owner' && access.status === 'active') return true;
-  return scopes ? apiKeyAllows(access, scopes, 'assistants.provision') : accessAllows(access, 'assistants.provision', 'app');
+  // Signed in, only an Owner (the database guard says the same); assistants.provision is a key scope.
+  return !!scopes && apiKeyAllows(access, scopes, 'assistants.provision');
 }
 
 /**

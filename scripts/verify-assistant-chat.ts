@@ -20,6 +20,14 @@
  *   to agent to webhook with an X-Act-For token, provider retries, the poll
  *   fallback, replies through the adapters, the rate limit.
  * - The live fleet's keys and tool lists are untouched.
+ * - Assistant fixes (20261127000100): assistants off is a hold (the page
+ *   keeps the assistant and its controls, its writes answer 423); a pause by
+ *   an admin is a hold with no alert; chat lines say why and who fixes it;
+ *   messages sent while paused reach the assistant on resume (the newest
+ *   20); a chat connection's honest status (waiting, connected, not
+ *   receiving); a token or signing secret replaced in place keeps history;
+ *   one connection per provider and kind; a stranger's link names nobody and
+ *   a fresh one comes once the last expired.
  *
  *   npm run -s test:assistant-chat
  */
@@ -36,6 +44,8 @@ import { diffSnapshots, pmSnapshot } from './lib/pm-catalog';
 import {
   assistantState, assistantStateSince, preferencesToContext, readSwitches, DEFAULT_PREFERENCES, DEFAULT_SWITCHES, KEY_GRACE_MS,
 } from '../src/lib/assistant';
+import { chatConnectionHealth } from '../src/lib/chat/types';
+import { quietWords } from '../src/lib/chat/inbound';
 import { slackAdapter, slackSignature } from '../src/lib/chat/providers/slack';
 import { telegramAdapter } from '../src/lib/chat/providers/telegram';
 import { chatHttp } from '../src/lib/chat/providers/adapter';
@@ -48,6 +58,9 @@ const SECTION = '-- ASSISTANT AND CHAT SWITCHBOARD (20261124001400_assistant_cha
 const SCOPE_MIGRATION = '20261125000900_webhook_setup_scope.sql';
 const SCOPE_SQL = readFileSync(join(__dirname, '..', 'supabase', 'migrations', SCOPE_MIGRATION), 'utf8').replace(/\r\n/g, '\n');
 const SCOPE_SECTION = '-- WEBHOOK SETUP SCOPE (20261125000900_webhook_setup_scope.sql)';
+const FIXES_MIGRATION = '20261127000100_assistant_fixes.sql';
+const FIXES_SQL = readFileSync(join(__dirname, '..', 'supabase', 'migrations', FIXES_MIGRATION), 'utf8').replace(/\r\n/g, '\n');
+const FIXES_SECTION = '-- ASSISTANT FIXES (20261127000100_assistant_fixes.sql)';
 const APP_KEY = 'c'.repeat(64);
 const SLACK_SECRET = 'f0e1d2c3b4a5968778695a4b3c2d1e0f';
 const SLACK_TOKEN = 'xoxb-1111-2222-abcdefghijklmnop';
@@ -118,7 +131,28 @@ function pureChecks() {
   const base = { personId: 'p', createdAt: new Date(Date.now() - 3600_000).toISOString(), health: null };
   check('state: working with a key', assistantState({ ...base, status: 'active', suspendedBy: null, liveKeys: 1 }).state === 'working');
   check('state: paused by its person', assistantState({ ...base, status: 'suspended', suspendedBy: 'p', liveKeys: 1 }).state === 'paused');
-  check('state: paused by an admin is broken', JSON.stringify(assistantState({ ...base, status: 'suspended', suspendedBy: 'o', liveKeys: 1 })) === JSON.stringify({ state: 'broken', reason: 'paused_by_admin' }));
+  check('state: paused by an admin is a hold with its own reason, not broken', JSON.stringify(assistantState({ ...base, status: 'suspended', suspendedBy: 'o', liveKeys: 1 })) === JSON.stringify({ state: 'on_hold', reason: 'paused_by_admin' }));
+  check('state: an admin pause never reads host down (its keys stop with it)', JSON.stringify(assistantState({ ...base, status: 'suspended', suspendedBy: 'o', liveKeys: 0,
+    health: { reportedAt: new Date(Date.now() - 3600_000).toISOString(), intervalSeconds: 60 } })) === JSON.stringify({ state: 'on_hold', reason: 'paused_by_admin' }));
+  check('state: assistants off is a hold', JSON.stringify(assistantState({ ...base, status: 'active', suspendedBy: null, liveKeys: 1, assistantsOff: true })) === JSON.stringify({ state: 'on_hold', reason: 'assistants_off' }));
+  check('state: its person\'s pause still wins over assistants off', assistantState({ ...base, status: 'suspended', suspendedBy: 'p', liveKeys: 1, assistantsOff: true }).state === 'paused');
+  check('state: a key that ran out or was revoked says so, not "never connected"', assistantState({ ...base, status: 'active', suspendedBy: null, liveKeys: 0, lastKeyAt: new Date(Date.now() - 86400_000).toISOString() }).reason === 'key_lapsed');
+  const lapsed = { state: 'broken', reason: 'key_lapsed' } as const;
+  check('chat line: not working says why, and an admin was told only when one was',
+    quietWords(lapsed, 'Nova', 'Assistant', 'https://x/assistant', 'admin') === "Nova can't answer right now: its key expired or was revoked. Your admin has been told."
+      && quietWords(lapsed, 'Nova', 'Assistant', 'https://x/assistant', 'settings') === "Nova can't answer right now: its key expired or was revoked. Fix it in Settings > Assistants.",
+    quietWords(lapsed, 'Nova', 'Assistant', 'https://x/assistant', 'settings'));
+  check('chat line: an admin pause reads as a hold that ends, not as broken', quietWords({ state: 'on_hold', reason: 'paused_by_admin' }, 'Nova', 'Assistant', 'u') === 'Nova is paused by an admin. It gets what you send meanwhile when they resume it.');
+  const conn = { enabled: true, kind: 'personal' as const, agents: [] };
+  const recent = new Date(Date.now() - 3600_000).toISOString();
+  check('chat status: nothing verified yet is waiting, a recent message is connected, an old one is quiet',
+    chatConnectionHealth({ ...conn, last_inbound_at: null, last_refused_at: null }) === 'waiting'
+      && chatConnectionHealth({ ...conn, last_inbound_at: recent, last_refused_at: null }) === 'connected'
+      && chatConnectionHealth({ ...conn, last_inbound_at: new Date(Date.now() - 30 * 86400_000).toISOString(), last_refused_at: null }) === 'quiet');
+  check('chat status: a refusal after the last verified request is not receiving; one before it is not',
+    chatConnectionHealth({ ...conn, last_inbound_at: null, last_refused_at: recent }) === 'not_receiving'
+      && chatConnectionHealth({ ...conn, last_inbound_at: new Date().toISOString(), last_refused_at: recent }) === 'connected'
+      && chatConnectionHealth({ ...conn, enabled: false, last_inbound_at: null, last_refused_at: recent }) === 'off');
   check('state: just made without a key is getting ready', assistantState({ ...base, createdAt: new Date(Date.now() - KEY_GRACE_MS / 2).toISOString(), status: 'active', suspendedBy: null, liveKeys: 0 }).state === 'getting_ready');
   check('state: no key past the grace period is broken', assistantState({ ...base, status: 'active', suspendedBy: null, liveKeys: 0 }).reason === 'no_key');
   check('state: a host silent for three intervals is broken', assistantState({ ...base, status: 'active', suspendedBy: null, liveKeys: 1,
@@ -210,6 +244,47 @@ async function migrationChecks() {
   check('database: credentials are stored sealed only', /chat_connections_credentials_sealed/.test(plain ?? ''), plain);
   await old.close();
   await setupScopeMigrationChecks();
+  await fixesMigrationChecks();
+}
+
+/** 20261127000100: mirrored in schema.sql, safe twice on the schema before it, its new function the server's only, the gate answers assistants_off. */
+async function fixesMigrationChecks() {
+  const at = SCHEMA_SQL.indexOf(FIXES_SECTION);
+  const banner = SCHEMA_SQL.lastIndexOf('\n-- ====', at);
+  const body = FIXES_SQL.slice(FIXES_SQL.indexOf('-- ---------------------------------------------------------------------------\n-- One gate')).trim();
+  check('schema.sql: the assistant fixes section mirrors its migration', at > 0 && SCHEMA_SQL.slice(at).includes(body));
+  const old = await createFullSchemaDatabase({ schemaSql: SCHEMA_SQL.slice(0, banner) });
+  await applyMigrationsFrom(old, FIXES_MIGRATION);
+  const fresh = await createFullSchemaDatabase();
+  const diff = diffSnapshots(await pmSnapshot(fresh), await pmSnapshot(old));
+  check('upgrade: the assistant fixes migration, run twice, matches schema.sql', diff.length === 0, diff.slice(0, 10));
+  await fresh.close();
+  const q = async <T = Loose>(sql: string, params: unknown[] = []) => (await old.query<T>(sql, params)).rows;
+  const grants = await q<Loose>(`SELECT has_function_privilege('anon', p.oid, 'EXECUTE') AS anon, has_function_privilege('authenticated', p.oid, 'EXECUTE') AS auth,
+    has_function_privilege('service_role', p.oid, 'EXECUTE') AS svc FROM pg_proc p WHERE p.pronamespace = 'pm'::regnamespace AND p.proname IN ('set_chat_connection_agents', 'api_request_gate')`);
+  check('grants: set_chat_connection_agents and the gate are the server\'s only', grants.length === 2 && grants.every((g: Loose) => !g.anon && !g.auth && g.svc), grants);
+  await old.exec('RESET ROLE');
+  await old.exec('DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users');
+  const person = (await q<{ id: string }>("INSERT INTO pm.team_members (name, email, role) VALUES ('Pat', 'pat@example.com', 'member') RETURNING id"))[0].id;
+  const personal = (await q<{ id: string }>("INSERT INTO pm.team_members (name, email, role, delegate_of) VALUES ('Pat''s Assistant', 'pat.a@example.com', 'agent', $1) RETURNING id", [person]))[0].id;
+  const shared = (await q<{ id: string }>("INSERT INTO pm.team_members (name, email, role) VALUES ('Ops', 'ops@example.com', 'agent') RETURNING id"))[0].id;
+  await q("INSERT INTO pm.business_settings (business_name) SELECT 'Acme' WHERE NOT EXISTS (SELECT 1 FROM pm.business_settings)");
+  const gate = async (member: string) => {
+    const key = (await q<{ id: string }>("INSERT INTO pm.api_keys (name, key_prefix, key_hash, team_member_id, created_by, scopes, permissions) VALUES ('k', 'pk_live', md5(random()::text), $1, $1, '{}', 'scoped') RETURNING id", [member]))[0].id;
+    await actAs(old, null);
+    const answer = (await old.query<{ g: Loose }>('SELECT pm.api_request_gate($1, $2) AS g', [key, member])).rows[0].g;
+    await old.exec('RESET ROLE');
+    return answer;
+  };
+  await q('UPDATE pm.business_settings SET assistants_enabled = false');
+  const offPersonal = await gate(personal);
+  const offShared = await gate(shared);
+  const offPerson = await gate(person);
+  await q('UPDATE pm.business_settings SET assistants_enabled = true');
+  const onPersonal = await gate(personal);
+  check('gate: assistants off holds a personal agent only, never a company agent or a person', offPersonal?.assistants_off === true && offShared?.assistants_off === false
+    && offPerson?.assistants_off === false && onPersonal?.assistants_off === false, { offPersonal, offShared, offPerson, onPersonal });
+  await old.close();
 }
 
 /** 20261125000900: mirrored in schema.sql, safe twice, fills in the setup of agents made before, locked down. */
@@ -316,14 +391,16 @@ async function main() {
   // Chat providers: every call is recorded and answered here; nothing leaves the machine.
   const providerCalls: { url: string; body: Loose }[] = [];
   let slackRefuses = false;
+  let slackTeam = 'T1';
+  let telegramBotId = 999;
   chatHttp.fetch = async (input, init) => {
     const url = String(input);
     const body = JSON.parse(String(init?.body ?? '{}'));
     providerCalls.push({ url, body });
     const json = (value: unknown) => new Response(JSON.stringify(value), { status: 200, headers: { 'content-type': 'application/json' } });
-    if (url.endsWith('/auth.test')) return json({ ok: true, team_id: 'T1', team: 'Acme', user: 'assistant', user_id: 'UBOT' });
+    if (url.endsWith('/auth.test')) return json({ ok: true, team_id: slackTeam, team: 'Acme', user: 'assistant', user_id: 'UBOT' });
     if (url.endsWith('/chat.postMessage')) return json(slackRefuses ? { ok: false, error: 'channel_not_found' } : { ok: true, ts: `${Date.now()}.0001` });
-    if (url.endsWith('/getMe')) return json({ ok: true, result: { id: 999, username: 'acme_assistant_bot', first_name: 'Acme' } });
+    if (url.endsWith('/getMe')) return json({ ok: true, result: { id: telegramBotId, username: 'acme_assistant_bot', first_name: 'Acme' } });
     if (url.endsWith('/setWebhook') || url.endsWith('/deleteWebhook')) return json({ ok: true, result: true });
     if (url.endsWith('/sendMessage')) return json({ ok: true, result: { message_id: 42 } });
     return json({ ok: false, error: 'unknown_method' });
@@ -414,7 +491,19 @@ async function main() {
     // ── The workspace switch ───────────────────────────────────────────
     as(LOGINS.ana);
     const anaOff = await session(assistantRoute.GET, 'GET', '/api/workspace/assistant');
-    check('my assistant: while assistants are off, nobody has one to see', anaOff.status === 200 && anaOff.body.data.enabled === false && anaOff.body.data.assistant === null, anaOff.body);
+    check('assistants off: her page keeps hers, on hold because assistants are off, never a 403', anaOff.status === 200 && anaOff.body.data.enabled === false
+      && anaOff.body.data.assistant?.id === s.anaAgent && anaOff.body.data.assistant.state === 'on_hold' && anaOff.body.data.assistant.reason === 'assistants_off', anaOff.body);
+    const offActivity = await session(activityRoute.GET, 'GET', '/api/workspace/assistant/activity');
+    const offPause = await session(assistantRoute.PATCH, 'PATCH', '/api/workspace/assistant', {}, { paused: true });
+    const offResume = await session(assistantRoute.PATCH, 'PATCH', '/api/workspace/assistant', {}, { paused: false });
+    check('assistants off: she keeps her controls (what it did, Pause and Resume)', offActivity.status === 200 && offPause.body?.data?.assistant?.state === 'paused'
+      && offResume.body?.data?.assistant?.state === 'on_hold', [offActivity.status, offPause.body, offResume.body?.data?.assistant]);
+    const offWrite = await v1(v1Tasks.POST, 'POST', '/api/v1/tasks', {}, s.keys.anaAgent.secret, { project_id: s.project, title: 'While assistants are off' });
+    check('assistants off: its writes stop, 423 assistants_off', offWrite.status === 423 && reason(offWrite) === 'assistants_off', offWrite.body);
+    const offRead = await v1(v1Projects.GET, 'GET', '/api/v1/projects', {}, s.keys.anaAgent.secret);
+    check('assistants off: it still reads', offRead.status === 200, offRead.body);
+    const offFleet = await v1(v1Tasks.POST, 'POST', '/api/v1/tasks', {}, s.keys.jeff.secret, { project_id: s.project, title: 'Fleet work while assistants are off' });
+    check('assistants off: a company agent is not held', offFleet.status === 201, offFleet.body);
     const anaEnables = await session(settingsRoute.PATCH, 'PATCH', '/api/workspace/assistants/settings', {}, { enabled: true });
     check('settings: a member cannot turn assistants on', anaEnables.status === 403 && reason(anaEnables) === 'owner_only', anaEnables.body);
     as(LOGINS.owner);
@@ -441,6 +530,9 @@ async function main() {
     await session(assistantRoute.GET, 'GET', '/api/workspace/assistant');
     check('broken: told once a day, not on every visit', await count("SELECT count(*)::int AS n FROM pm.team_member_notifications WHERE entity_id = $1", [s.benAgent]) === 1);
     check('broken: Ben himself is not notified about his own assistant', await count('SELECT count(*)::int AS n FROM pm.team_member_notifications WHERE user_id = $1', [s.ben]) === 0);
+    check('broken: his page reads not working, and that an admin was told (one was)', benBroken.body?.data?.assistant?.fixer === 'admin', benBroken.body?.data?.assistant);
+    const toldLink = (await s.q<Loose>("SELECT title, link FROM pm.team_member_notifications WHERE user_id = $1 AND entity_id = $2", [s.owner, s.benAgent]))[0];
+    check('broken: the Owner\'s bell opens the agent service step, and says not working', toldLink?.link === '/settings/assistants#assistant-service' && /not working/.test(toldLink?.title ?? ''), toldLink);
     const benKey = await s.key(s.benAgent, TEMPLATE_SCOPES);
 
     // ── Settings feed the context pack, and the guard ──────────────────
@@ -646,13 +738,23 @@ async function main() {
     check('connections: Slack is checked with auth.test and saved sealed, with its Request URL', slack.status === 201 && slack.body.data.inbound_url === `https://pm.example.com/api/chat/inbound/${slackId}`
       && stored?.credentials.startsWith('pm1:') && !stored.credentials.includes('xoxb') && stored.external_workspace_id === 'T1' && !slack.text.includes(SLACK_TOKEN), { body: slack.body, stored });
     const again = await session(connectionsRoute.POST, 'POST', '/api/workspace/chat-connections', {}, { provider: 'slack', bot_token: SLACK_TOKEN, signing_secret: SLACK_SECRET });
-    check('connections: the same Slack workspace twice is 409', again.status === 409 && reason(again) === 'connection_exists', again.body);
+    check('connections: the same Slack workspace twice is 409', again.status === 409 && ['connection_exists', 'slot_taken'].includes(reason(again)), again.body);
     const telegram = await session(connectionsRoute.POST, 'POST', '/api/workspace/chat-connections', {}, { provider: 'telegram', bot_token: TELEGRAM_TOKEN });
     const telegramId = telegram.body?.data?.id as string;
     const hook = providerCalls.find((call) => call.url.endsWith('/setWebhook'));
     const telegramSecret = hook?.body?.secret_token as string;
     check('connections: Telegram gets its webhook set to this connection, with a secret token', telegram.status === 201 && telegram.body.data.bot_handle === '@acme_assistant_bot'
       && hook?.body?.url === `https://pm.example.com/api/chat/inbound/${telegramId}` && /^[a-f0-9]{64}$/.test(telegramSecret ?? ''), { body: telegram.body, hook });
+    const callsBefore = providerCalls.length;
+    const secondTelegram = await session(connectionsRoute.POST, 'POST', '/api/workspace/chat-connections', {}, { provider: 'telegram', bot_token: '987654321:BBHdqTcvCH1vGWJxfSeofSAs0K5PALDsawQ' });
+    check('slots: a second personal Telegram bot is refused by the server, before the provider is called', secondTelegram.status === 409 && reason(secondTelegram) === 'slot_taken'
+      && providerCalls.length === callsBefore && await count("SELECT count(*)::int AS n FROM pm.chat_connections WHERE provider = 'telegram'") === 1, secondTelegram.body);
+    const health = async (id: string) => {
+      const listed = await session(connectionsRoute.GET, 'GET', '/api/workspace/chat-connections');
+      const row = (listed.body?.data?.connections ?? []).find((c: Loose) => c.id === id);
+      return row ? chatConnectionHealth(row) : null;
+    };
+    check('honest status: a new Slack connection waits for Slack, not "Connected"', await health(slackId) === 'waiting');
     as(LOGINS.ana);
     const anaCards = await session(assistantRoute.GET, 'GET', '/api/workspace/assistant');
     check('my assistant: Ana sees both chats to connect, Telegram with a link that opens it', anaCards.body?.data?.connections?.length === 2
@@ -662,8 +764,15 @@ async function main() {
     const challenge = { type: 'url_verification', challenge: 'chal-123', token: 'x' };
     const answeredChallenge = await inbound(slackId, challenge, slackSigned(challenge));
     check('slack: the URL challenge is answered once signed', answeredChallenge.status === 200 && answeredChallenge.body?.challenge === 'chal-123', answeredChallenge.body);
+    as(LOGINS.owner);
+    check('honest status: Slack\'s signed URL check counts as heard: connected', await health(slackId) === 'connected');
     const forged = await inbound(slackId, challenge, slackSigned(challenge, {}, 'wrongwrongwrongwrongwrongwrong12'));
     check('slack: a bad signature is 401, before anything is read', forged.status === 401, forged.body);
+    check('honest status: a request that fails the signing check reads not receiving', await health(slackId) === 'not_receiving'
+      && (await s.q<Loose>('SELECT last_refused_at FROM pm.chat_connections WHERE id = $1', [slackId]))[0]?.last_refused_at !== null);
+    await inbound(slackId, challenge, slackSigned(challenge));
+    check('honest status: a verified request after it is connected again', await health(slackId) === 'connected');
+    as(LOGINS.ana);
     const unknownConnection = await inbound(randomUUID(), challenge, slackSigned(challenge));
     const noAdapter = (await s.q<{ id: string }>("INSERT INTO pm.chat_connections (provider, display_name, credentials) VALUES ('teams', 'Teams', 'pm1:x') RETURNING id"))[0].id;
     const unreadable = (await s.q<{ id: string }>("INSERT INTO pm.chat_connections (provider, display_name, credentials) VALUES ('slack', 'Broken', 'pm1:garbage') RETURNING id"))[0].id;
@@ -682,6 +791,11 @@ async function main() {
     check('unknown sender: recorded as unrouted, answered with a one-time link to connect', strangerIn.status === 200 && strangerIn.body.status === 'unrouted'
       && prompt?.body?.channel === 'D_STRANGER' && /https:\/\/pm\.example\.com\/link\/pl_[a-f0-9]{64}/.test(prompt.body.text)
       && await count("SELECT count(*)::int AS n FROM pm.identity_link_requests WHERE provider = 'slack' AND external_id = 'U_STRANGER' AND workspace_id = 'T1'") === 1, { body: strangerIn.body, prompt });
+    check('link page: a link the person started from chat names nobody as its requester', await count("SELECT count(*)::int AS n FROM pm.identity_link_requests WHERE external_id = 'U_STRANGER' AND requested_by IS NULL AND requested_by_key_id IS NULL") === 1);
+    const linkToken = /\/link\/(pl_[a-f0-9]{64})/.exec(prompt?.body?.text ?? '')?.[1] ?? '';
+    const linkRoute = await import('../src/app/api/workspace/identities/link/[token]/route');
+    const linkView = await session(linkRoute.GET, 'GET', `/api/workspace/identities/link/${linkToken}`, { token: linkToken });
+    check('link page: it reads "you messaged the bot", never that the Owner asked', linkView.status === 200 && linkView.body?.data?.from_chat === true && linkView.body.data.requested_by_name === null, linkView.body);
     providerCalls.length = 0;
     const stranger2 = event('EvStranger2', 'U_STRANGER', 'hello?', 'D_STRANGER');
     await inbound(slackId, stranger2, slackSigned(stranger2));
@@ -691,10 +805,13 @@ async function main() {
     const stranger2b = event('EvStranger2b', 'U_STRANGER', 'hello again?', 'D_STRANGER');
     await inbound(slackId, stranger2b, slackSigned(stranger2b));
     check('unknown sender: minutes later, still no second link (one an hour)', await count("SELECT count(*)::int AS n FROM pm.identity_link_requests WHERE external_id = 'U_STRANGER'") === 1);
-    await s.q("UPDATE pm.identity_link_requests SET created_at = now() - interval '61 minutes' WHERE external_id = 'U_STRANGER'");
+    // The link expired after 15 minutes: the next message gets a fresh one at once, no hour's wait.
+    await s.q("UPDATE pm.identity_link_requests SET created_at = now() - interval '16 minutes', expires_at = now() - interval '1 minute' WHERE external_id = 'U_STRANGER'");
+    providerCalls.length = 0;
     const stranger3 = event('EvStranger3', 'U_STRANGER', 'still me', 'D_STRANGER');
     await inbound(slackId, stranger3, slackSigned(stranger3));
-    check('unknown sender: an hour later, a fresh link', await count("SELECT count(*)::int AS n FROM pm.identity_link_requests WHERE external_id = 'U_STRANGER'") === 2);
+    check('unknown sender: once the link expired, a fresh one at once', await count("SELECT count(*)::int AS n FROM pm.identity_link_requests WHERE external_id = 'U_STRANGER'") === 2
+      && /\/link\/pl_/.test(providerCalls[0]?.body?.text ?? ''), providerCalls);
     providerCalls.length = 0;
     const inChannel = { type: 'event_callback', team_id: 'T1', event_id: 'EvChannel1', event: { type: 'app_mention', user: 'U_OTHER', text: '<@UBOT> hi', channel: 'C_TEAM', ts: '5.5' } };
     const inChannelIn = await inbound(slackId, inChannel, slackSigned(inChannel));
@@ -839,13 +956,17 @@ async function main() {
 
     // ── Paused by an admin ─────────────────────────────────────────────
     await s.q("UPDATE pm.team_members SET status = 'suspended', suspended_by = $1, suspended_at = now() WHERE id = $2", [s.owner, s.benAgent]);
+    const toldBeforePause = await count("SELECT count(*)::int AS n FROM pm.team_member_notifications WHERE entity_id = $1", [s.benAgent]);
     as(LOGINS.ben);
+    const benPausedView = (await session(assistantRoute.GET, 'GET', '/api/workspace/assistant')).body?.data?.assistant;
+    check('admin pause: his page reads on hold, paused by an admin, not broken', benPausedView?.state === 'on_hold' && benPausedView.reason === 'paused_by_admin', benPausedView);
     const benResume = await session(assistantRoute.PATCH, 'PATCH', '/api/workspace/assistant', {}, { paused: false });
     check('admin pause: Ben cannot resume what an admin paused', benResume.status === 403 && reason(benResume) === 'paused_by_admin', benResume.body);
     providerCalls.length = 0;
     const toPaused = await inbound(telegramId, update(103, 'hello?'), { 'x-telegram-bot-api-secret-token': telegramSecret });
-    check('admin pause: chat gets the broken line with its name, nothing reaches the assistant', toPaused.body?.status === 'unrouted'
-      && providerCalls.some((call) => call.body?.text === "Ben's Assistant can't answer right now. Your admin has been told."), [toPaused.body, providerCalls]);
+    check('admin pause: chat says it is paused by an admin and gets the message on resume; nothing reaches it now', toPaused.body?.status === 'unrouted' && toPaused.body?.held === true
+      && providerCalls.some((call) => call.body?.text === "Ben's Assistant is paused by an admin. It gets what you send meanwhile when they resume it."), [toPaused.body, providerCalls]);
+    check('admin pause: nobody is alerted about a deliberate pause', await count("SELECT count(*)::int AS n FROM pm.team_member_notifications WHERE entity_id = $1", [s.benAgent]) === toldBeforePause);
     providerCalls.length = 0;
     const toPausedAgain = await inbound(telegramId, update(104, 'anyone?'), { 'x-telegram-bot-api-secret-token': telegramSecret });
     check('admin pause: a second message in the same chat gets no second line', toPausedAgain.body?.status === 'unrouted'
@@ -865,8 +986,28 @@ async function main() {
     as(LOGINS.owner);
     const status = await session(statusRoute.GET, 'GET', '/api/workspace/assistants/status');
     const rows = status.body?.data?.assistants ?? [];
-    check('status: the Owner sees each with its state, broken first', status.status === 200 && rows[0]?.id === s.benAgent && rows[0].state === 'broken' && rows[0].reason === 'paused_by_admin'
-      && rows.some((r: Loose) => r.id === s.anaAgent && r.state === 'working'), rows);
+    check('status: the Owner sees each with its state; an admin pause is on hold, not needs you', status.status === 200
+      && rows.some((r: Loose) => r.id === s.benAgent && r.state === 'on_hold' && r.reason === 'paused_by_admin')
+      && rows.some((r: Loose) => r.id === s.anaAgent && r.state === 'working') && !rows.some((r: Loose) => r.state === 'broken'), rows);
+
+    // Held while paused: the newest 20 reach it on resume, oldest first; older ones are kept, marked handled.
+    for (let i = 0; i < 21; i++) {
+      await s.q(`INSERT INTO pm.chat_messages (connection_id, direction, status, conversation_id, external_user_id, member_id, agent_id, text, dedupe_key, created_at)
+        VALUES ($1, 'inbound', 'unrouted', '5550001', '5550001', $2, $3, $4, $5, now() - interval '1 day' + make_interval(mins => $6))`, [telegramId, s.ben, s.benAgent, `old ${i}`, `held:${i}`, i]);
+    }
+    const { deliverHeldChat } = await import('../src/lib/chat/inbound');
+    const whileSuspended = await deliverHeldChat(service, s.benAgent);
+    await s.q("UPDATE pm.team_members SET status = 'active', suspended_by = NULL, suspended_at = NULL WHERE id = $1", [s.benAgent]);
+    const sentOnResume = await deliverHeldChat(service, s.benAgent);
+    const heldRows = await s.q<Loose>("SELECT dedupe_key, status, handled_at FROM pm.chat_messages WHERE agent_id = $1 AND direction = 'inbound' AND (dedupe_key LIKE 'held:%' OR dedupe_key IN ('update:103', 'update:104')) ORDER BY created_at", [s.benAgent]);
+    const deliveredHeld = heldRows.filter((row) => row.status !== 'unrouted');
+    check('paused messages: nothing is delivered while still paused', whileSuspended === 0, whileSuspended);
+    check('paused messages: on resume the newest 20 reach it (pending or notified), the 3 oldest are kept and marked handled', sentOnResume === 20 && deliveredHeld.length === 20
+      && heldRows.slice(0, 3).every((row) => row.status === 'unrouted' && row.handled_at !== null) && deliveredHeld.every((row) => ['pending', 'notified'].includes(row.status)),
+      { sentOnResume, heldRows: heldRows.map((row) => `${row.dedupe_key}:${row.status}`) });
+    check('paused messages: delivered once, a second call sends nothing', await deliverHeldChat(service, s.benAgent) === 0);
+    // Back to how the rest of this script expects Ben's assistant: paused by an admin.
+    await s.q("UPDATE pm.team_members SET status = 'suspended', suspended_by = $1, suspended_at = now() WHERE id = $2", [s.owner, s.benAgent]);
 
     // ── Can't answer right now: one line per chat per spell ────────────
     const slackLines = () => providerCalls.filter((call) => call.url.endsWith('/chat.postMessage')).map((call) => call.body?.text as string);
@@ -914,7 +1055,7 @@ async function main() {
     as(LOGINS.owner);
     const deadRows = (await session(statusRoute.GET, 'GET', '/api/workspace/assistants/status')).body?.data?.assistants ?? [];
     const deadRow = deadRows.find((r: Loose) => r.id === s.anaAgent);
-    check('dead host: Status shows it on hold with its host down, right after the broken ones', deadRow?.state === 'on_hold' && deadRow.host_down === true && deadRows[1]?.id === s.anaAgent, deadRows);
+    check('dead host: Status shows it on hold with its host down, first (nothing is broken)', deadRow?.state === 'on_hold' && deadRow.host_down === true && deadRows[0]?.id === s.anaAgent, deadRows);
     const hostTold = await s.q<Loose>("SELECT title FROM pm.team_member_notifications WHERE user_id = $1 AND entity_type = 'member' AND entity_id = $2", [s.owner, s.anaAgent]);
     check('dead host: the admin is told, once', hostTold.length === 1 && /host is not responding/.test(hostTold[0].title), hostTold);
     as(LOGINS.ana);
@@ -929,12 +1070,55 @@ async function main() {
     await session(assistantRoute.PATCH, 'PATCH', '/api/workspace/assistant', {}, { paused: true });
     providerCalls.length = 0;
     const toHerPaused = await fromAnaNow('EvPaused1', 'Are you there?');
-    check('paused by her: the line with its name and a link to her page, nothing reaches it', toHerPaused.body?.status === 'unrouted'
-      && JSON.stringify(slackLines()) === JSON.stringify(['Nova is paused. Resume it from your Helper page to get answers.\nhttps://pm.example.com/assistant']), [toHerPaused.body, providerCalls]);
+    check('paused by her: the line with its name and a link to her page, held, nothing reaches it yet', toHerPaused.body?.status === 'unrouted' && toHerPaused.body?.held === true
+      && JSON.stringify(slackLines()) === JSON.stringify(['Nova is paused. Resume it from your Helper page: it gets what you send meanwhile when you do.\nhttps://pm.example.com/assistant']), [toHerPaused.body, providerCalls]);
     providerCalls.length = 0;
     await fromAnaNow('EvPaused2', 'Hello?');
     check('paused by her: once, not on every message', slackLines().length === 0, providerCalls);
     await session(assistantRoute.PATCH, 'PATCH', '/api/workspace/assistant', {}, { paused: false });
+    const herHeld = await s.q<Loose>("SELECT dedupe_key, status FROM pm.chat_messages WHERE dedupe_key IN ('EvPaused1', 'EvPaused2') ORDER BY created_at");
+    check('paused by her: resuming delivers what she sent meanwhile, both messages', herHeld.length === 2 && herHeld.every((row) => ['pending', 'notified'].includes(row.status)), herHeld);
+
+    // ── Replace a token or signing secret, in place ───────────────────
+    as(LOGINS.owner);
+    const historyBefore = await count('SELECT count(*)::int AS n FROM pm.chat_messages WHERE connection_id = $1', [slackId]);
+    const NEW_SECRET = 'a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5';
+    const replaced = await session(connectionRoute.PATCH, 'PATCH', `/api/workspace/chat-connections/${slackId}`, { id: slackId }, { bot_token: 'xoxb-3333-4444-replacedtokenvalue', signing_secret: NEW_SECRET });
+    const replacedRow = (await s.q<Loose>('SELECT id, credentials FROM pm.chat_connections WHERE id = $1', [slackId]))[0];
+    check('replace: a new token and signing secret keep the connection, its Request URL and its history', replaced.status === 200 && replaced.body?.data?.id === slackId
+      && replaced.body.data.inbound_url === `https://pm.example.com/api/chat/inbound/${slackId}` && !replaced.text.includes('replacedtokenvalue')
+      && await count('SELECT count(*)::int AS n FROM pm.chat_messages WHERE connection_id = $1', [slackId]) === historyBefore && replacedRow?.credentials?.startsWith('pm1:'), replaced.body);
+    const oldSigned = await inbound(slackId, challenge, slackSigned(challenge));
+    const newSigned = await inbound(slackId, challenge, slackSigned(challenge, {}, NEW_SECRET));
+    check('replace: the old signing secret stops working, the new one works', oldSigned.status === 401 && newSigned.status === 200 && newSigned.body?.challenge === 'chal-123', [oldSigned.status, newSigned.body]);
+    slackTeam = 'T9';
+    const otherWorkspace = await session(connectionRoute.PATCH, 'PATCH', `/api/workspace/chat-connections/${slackId}`, { id: slackId }, { bot_token: 'xoxb-5555-6666-otherworkspacetoken' });
+    slackTeam = 'T1';
+    check('replace: a token for another Slack workspace is refused, nothing changes', otherWorkspace.status === 422 && reason(otherWorkspace) === 'different_bot'
+      && (await s.q<Loose>('SELECT credentials FROM pm.chat_connections WHERE id = $1', [slackId]))[0]?.credentials === replacedRow?.credentials, otherWorkspace.body);
+    // Another bot's Telegram token: refused before its webhook is touched, so that bot keeps working.
+    const telegramBefore = (await s.q<Loose>('SELECT credentials FROM pm.chat_connections WHERE id = $1', [telegramId]))[0]?.credentials;
+    providerCalls.length = 0;
+    telegramBotId = 4242;
+    const otherBot = await session(connectionRoute.PATCH, 'PATCH', `/api/workspace/chat-connections/${telegramId}`, { id: telegramId }, { bot_token: '424242424:CCHdqTcvCH1vGWJxfSeofSAs0K5PALDsawQ' });
+    telegramBotId = 999;
+    check('replace: a Telegram token for another bot is refused and its webhook is never set', otherBot.status === 422 && reason(otherBot) === 'different_bot'
+      && !providerCalls.some((call) => call.url.endsWith('/setWebhook'))
+      && (await s.q<Loose>('SELECT credentials FROM pm.chat_connections WHERE id = $1', [telegramId]))[0]?.credentials === telegramBefore, { body: otherBot.body, providerCalls });
+    const badShape = await session(connectionRoute.PATCH, 'PATCH', `/api/workspace/chat-connections/${slackId}`, { id: slackId }, { signing_secret: 'not a secret' });
+    check('replace: a signing secret in the wrong shape is refused', badShape.status === 422 && reason(badShape) === 'invalid_signing_secret', badShape.body);
+
+    // Linked from chat: the bot says so where they wrote, so they know to write again.
+    providerCalls.length = 0;
+    const newbie = event('EvNewbie1', 'U_NEWBIE', 'hi', 'D_NEWBIE');
+    await inbound(slackId, newbie, slackSigned(newbie, {}, NEW_SECRET));
+    const newbieToken = /\/link\/(pl_[a-f0-9]{64})/.exec(slackLines()[0] ?? '')?.[1] ?? '';
+    providerCalls.length = 0;
+    const confirmed = await session(linkRoute.POST, 'POST', `/api/workspace/identities/link/${newbieToken}`, { token: newbieToken });
+    await settle();
+    check('linked: confirming the link makes the bot say so in the chat they wrote from', confirmed.status === 200 && !!newbieToken
+      && providerCalls.some((call) => call.body?.channel === 'D_NEWBIE' && /^Linked\./.test(call.body?.text ?? '')), { confirmed: confirmed.body, providerCalls });
+    as(LOGINS.ana);
     await s.q('DELETE FROM pm.agent_health WHERE member_id = $1', [s.anaAgent]);
     as(LOGINS.owner);
 

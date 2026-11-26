@@ -8,6 +8,7 @@ import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Textarea } from '@/components/ui/inputs/Textarea';
 import { TemplateDraftReviewPanel } from '@/components/templates/TemplateDraftReviewPanel';
 import { invalidateTables } from '@/lib/query-cache';
+import { useNeedsYouActions, type ActionResult } from '@/lib/needs-you-actions';
 import { ANSWER_MAX, answerLine, approvalDetailRows, approvalTypeLabel, decisionLine, externalLinkHost, textAnswers, type QuestionView } from '@/lib/questions';
 import { timeAgo } from '@/lib/task-times';
 import { groupTargetLabel } from '@/lib/groups';
@@ -31,8 +32,10 @@ import { appLocale } from '@/lib/region';
  * board card), an optional note, and Approve and Reject buttons that send at
  * once. Whoever it names, or the Owner, decides it; once decided it says by
  * whom and how ("Approved by Mia in the app", "Approved by Reviewer AI").
- * A template run an agent drafted adds Review, which opens the draft's
- * review panel (what approving makes, Approve and Reject there too).
+ * A template run an agent drafted leads with Review, which opens the draft's
+ * review panel: approving makes tasks, so it is approved there, where the
+ * tasks are listed (the card keeps Reject). When the question was decided
+ * or withdrawn meanwhile (409), the card says so and asks for a fresh list.
  *
  * A question asked to a group reads "Asked to Finance (any member)", and is
  * yours to answer when you are in that group. One an agent asked for someone
@@ -40,17 +43,6 @@ import { appLocale } from '@/lib/region';
  */
 
 type Variant = 'panel' | 'card' | 'band';
-
-async function post(path: string, body: unknown): Promise<QuestionView> {
-  const response = await fetch(path, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  const payload = await response.json().catch(() => null) as { data?: QuestionView; error?: string } | null;
-  if (!response.ok || !payload?.data) throw new Error(payload?.error || 'Something went wrong. Try again.');
-  return payload.data;
-}
 
 function expiresLabel(iso: string): string {
   const when = new Date(iso);
@@ -68,6 +60,7 @@ export function QuestionCard({ question, variant = 'panel', place, onOpenTask }:
   onOpenTask?: (taskId: string) => void;
 }) {
   const { teamMemberId } = useAuth();
+  const actions = useNeedsYouActions();
   const [choice, setChoice] = useState<string | null>(null);
   const [text, setText] = useState('');
   const [busy, setBusy] = useState<'answer' | 'cancel' | null>(null);
@@ -77,6 +70,8 @@ export function QuestionCard({ question, variant = 'panel', place, onOpenTask }:
   const [deciding, setDeciding] = useState<'approve' | 'reject' | null>(null);
   const [showAllDetails, setShowAllDetails] = useState(false);
   const [reviewing, setReviewing] = useState(false);
+  /** The server's word when it refused because the question is no longer open. */
+  const [closed, setClosed] = useState<string | null>(null);
   const detailsId = useId();
 
   const forYou = question.asked_to === teamMemberId || question.asked_to_you === true;
@@ -102,39 +97,37 @@ export function QuestionCard({ question, variant = 'panel', place, onOpenTask }:
   const headline = approval ? question.action?.summary ?? question.question : question.question;
   const context = approval && question.question !== headline ? question.question : null;
 
+  // The card shows its own outcome line first, so the item stays on the
+  // lists until the server answers (optimistic: false); the action layer
+  // refreshes them after.
   const answer = async (decide?: 'approve' | 'reject') => {
     if (!decide && !canSend) return;
     setBusy('answer');
     setDeciding(decide ?? null);
     setError(null);
-    try {
-      const body: { choice?: string; text?: string } = {};
-      if (decide) body.choice = decide;
-      else if (choice !== null) body.choice = choice;
-      if (text.trim()) body.text = text.trim();
-      setResult(await post(`/api/workspace/questions/${question.id}/answer`, body));
-      // Live sync does this too; a write it misses still refreshes the lists and the bell.
-      invalidateTables(['questions', 'team_member_notifications']);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not send the answer');
-    } finally {
-      setBusy(null);
-      setDeciding(null);
-    }
+    const body: { choice?: string; text?: string } = {};
+    if (decide) body.choice = decide;
+    else if (choice !== null) body.choice = choice;
+    if (text.trim()) body.text = text.trim();
+    settle(await actions.answer(question, body, { optimistic: false }));
+    setBusy(null);
+    setDeciding(null);
   };
 
   const cancel = async () => {
     setBusy('cancel');
     setError(null);
-    try {
-      setResult(await post(`/api/workspace/questions/${question.id}/cancel`, {}));
-      invalidateTables(['questions', 'team_member_notifications']);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not cancel the question');
-    } finally {
-      setBusy(null);
-    }
+    settle(await actions.cancel(question, { optimistic: false }));
+    setBusy(null);
   };
+
+  // Decided or withdrawn by someone else meanwhile ("Already answered by
+  // Mia."): say so and drop the controls; the lists refetch and it leaves.
+  function settle(outcome: ActionResult<QuestionView>) {
+    if (outcome.status === 'done') setResult(outcome.data);
+    else if (outcome.status === 'handled') setClosed(outcome.message);
+    else setError(outcome.message);
+  }
 
   // Clicks inside a board card must not open the task.
   const stop = compact
@@ -145,6 +138,17 @@ export function QuestionCard({ question, variant = 'panel', place, onOpenTask }:
   const wrapper = variant === 'band'
     ? 'px-4 py-3'
     : `${surface} ${compact ? 'mt-2 rounded-[10px] px-3 py-2.5' : 'rounded-xl p-3.5'}`;
+
+  if (closed) {
+    return (
+      <div className={wrapper} role="status" {...stop}>
+        <p className={`flex items-start gap-2 ${compact ? 'text-xs' : 'text-sm'} text-zinc-300`}>
+          <Check size={compact ? 13 : 15} className="mt-0.5 flex-shrink-0 text-zinc-400" aria-hidden="true" />
+          <span className="min-w-0 break-words">{closed}</span>
+        </p>
+      </div>
+    );
+  }
 
   if (result) {
     const yours = result.answered_by === teamMemberId;
@@ -166,7 +170,7 @@ export function QuestionCard({ question, variant = 'panel', place, onOpenTask }:
   const header: ReactNode = (
     <div className={`flex items-center gap-2 ${compact ? 'text-[11px]' : 'text-xs'}`}>
       <Icon size={compact ? 13 : 14} className={forYou ? 'text-amber-300' : 'text-zinc-400'} aria-hidden="true" />
-      <span className={`font-medium ${forYou ? 'text-amber-200' : 'text-zinc-300'}`}>{label}</span>
+      <span className={`font-medium ${forYou ? 'text-amber-300' : 'text-zinc-300'}`}>{label}</span>
       <span className="ml-auto flex min-w-0 items-center gap-1 text-zinc-500">
         <span className="truncate">{from}</span>
         <span aria-hidden="true">·</span>
@@ -300,9 +304,10 @@ export function QuestionCard({ question, variant = 'panel', place, onOpenTask }:
     </div>
   );
 
+  // A drafted template run is approved in its review, where the tasks it makes are listed.
   const reviewButton = draftId && (
-    <Button type="button" size="sm" variant="secondary" icon={<Eye size={13} aria-hidden="true" />} onClick={() => setReviewing(true)}>
-      Review
+    <Button type="button" size="sm" icon={<Eye size={13} aria-hidden="true" />} onClick={() => setReviewing(true)}>
+      {question.can_answer ? 'Review and approve' : 'Review'}
     </Button>
   );
   const reviewPanel = draftId && reviewing && (
@@ -337,9 +342,11 @@ export function QuestionCard({ question, variant = 'panel', place, onOpenTask }:
         {reviewButton}
         {question.can_answer && approval && (
           <>
-            <Button type="button" size="sm" onClick={() => void answer('approve')} disabled={!!busy}>
-              {deciding === 'approve' ? 'Approving' : 'Approve'}
-            </Button>
+            {!draftId && (
+              <Button type="button" size="sm" onClick={() => void answer('approve')} disabled={!!busy}>
+                {deciding === 'approve' ? 'Approving' : 'Approve'}
+              </Button>
+            )}
             <Button type="button" size="sm" variant="secondary" onClick={() => void answer('reject')} disabled={!!busy}>
               {deciding === 'reject' ? 'Rejecting' : 'Reject'}
             </Button>
@@ -385,11 +392,16 @@ export function QuestionCard({ question, variant = 'panel', place, onOpenTask }:
             <p className="whitespace-pre-wrap break-words text-sm font-medium text-white">{headline}</p>
             {contextText}
             {actionText}
-            <p className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-zinc-500">
+            <p className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-1.5 text-xs text-zinc-500">
+              <span className={`flex-shrink-0 font-medium ${forYou ? 'text-amber-300' : 'text-zinc-300'}`}>{label}</span>
+              <span className="text-zinc-600" aria-hidden="true">·</span>
               <span className="flex-shrink-0">{from}</span>
               {placeLine && <><span className="text-zinc-600" aria-hidden="true">·</span>{placeLine}</>}
               <span className="text-zinc-600" aria-hidden="true">·</span>
               <time dateTime={question.created_at} className="flex-shrink-0 tabular-nums">{timeAgo(question.created_at)}</time>
+              {question.expires_at && !question.can_answer && !question.can_cancel && (
+                <><span className="text-zinc-600" aria-hidden="true">·</span><span className="flex-shrink-0 tabular-nums">{expiresLabel(question.expires_at)}</span></>
+              )}
             </p>
             {choiceButtons}
             {controls}

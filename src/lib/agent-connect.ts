@@ -4,9 +4,10 @@
  * plain env file. Pure, so the hire flow and an agent's Connect tab build the
  * same text.
  *
- * The snippets never hold a key. They read it from the PM_API_KEY
- * environment variable, so a key shown once is pasted in one place (the
- * host's env) and never lands in a config file, a chat or a screenshot.
+ * The stored snippets never hold a key. They read it from the PM_API_KEY
+ * environment variable. While a key just made is on screen, the screens
+ * show them with it written into the header (connectSnippetsWithKey), so
+ * they paste and work; a key never goes in a URL.
  * Authentication is the v1 API key in x-api-key (the MCP route also takes
  * Authorization: Bearer, which is what Codex sends).
  */
@@ -34,6 +35,38 @@ export interface ConnectInfo {
 /** The app's address without a trailing slash. */
 export function appBase(appUrl: string): string {
   return appUrl.replace(/\/+$/, '');
+}
+
+/**
+ * The same snippets with a key just made written in, for the moment it is on
+ * screen, so they paste and work. The key only ever goes in a header
+ * (x-api-key, which the MCP route and the v1 API read) or the env file's
+ * value: never in a URL, which ends up in logs, history and proxies. With
+ * no secret the snippets are as buildConnectInfo made them.
+ */
+export function connectSnippetsWithKey(info: ConnectInfo, secret: string | null | undefined): ConnectSnippets {
+  const key = secret?.trim();
+  if (!key) return info.snippets;
+  const quotedToml = JSON.stringify(key);
+  return {
+    claude_code: `claude mcp add --transport http ${MCP_SERVER_NAME} ${info.mcp_url} --header "x-api-key: ${key}"`,
+    codex: [
+      '# ~/.codex/config.toml',
+      `[mcp_servers.${MCP_SERVER_NAME}]`,
+      `url = "${info.mcp_url}"`,
+      `http_headers = { "x-api-key" = ${quotedToml} }`,
+    ].join('\n'),
+    generic_mcp_json: JSON.stringify({
+      mcpServers: {
+        [MCP_SERVER_NAME]: { type: 'http', url: info.mcp_url, headers: { 'x-api-key': key } },
+      },
+    }, null, 2),
+    env: [
+      `PM_API_URL=${info.api_base}`,
+      `PM_MCP_URL=${info.mcp_url}`,
+      `${info.key_env}=${key}`,
+    ].join('\n'),
+  };
 }
 
 export function buildConnectInfo(appUrl: string): ConnectInfo {

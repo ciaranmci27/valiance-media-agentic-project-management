@@ -104,7 +104,9 @@ function Review({ draft, given, header, onClose }: {
   const approval = given ?? open.data?.find((q) => q.id === draft.question_id) ?? null;
   const checking = !isDemoMode && !given && pending && open.loading;
   const mayCreate = hasPermission(access, 'tasks.create');
-  const mayDecide = isDemoMode || (!!approval?.can_answer && mayCreate);
+  // Rejecting makes nothing, so the approval's own rule is enough (the server's too); approving makes tasks.
+  const mayReject = isDemoMode || !!approval?.can_answer;
+  const mayDecide = mayReject && (isDemoMode || mayCreate);
 
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState<'approve' | 'reject' | null>(null);
@@ -152,17 +154,17 @@ function Review({ draft, given, header, onClose }: {
         autoResize
         maxHeight={120}
         maxLength={TEMPLATE_DRAFT_NOTE_MAX}
-        disabled={!mayDecide}
+        disabled={!mayReject}
       />
       {error && <p role="alert" className="rounded-lg bg-red-500/[0.12] px-3 py-2 text-sm text-red-200">{error}</p>}
       {!mayDecide && !checking && (
         <p className="flex items-start gap-1.5 text-xs text-zinc-400">
           <Info size={13} className="mt-0.5 flex-shrink-0" aria-hidden="true" />
-          {mayCreate ? deciderLine(approval) : 'Approving makes tasks, which needs Create tasks in this project.'}
+          {!mayReject ? deciderLine(approval) : 'You can reject it. Approving makes tasks, which needs Create tasks in this project.'}
         </p>
       )}
       <div className="flex items-center justify-end gap-2">
-        <Button variant="secondary" size="sm" onClick={() => void decide('reject')} disabled={!mayDecide || !!busy}>
+        <Button variant="secondary" size="sm" onClick={() => void decide('reject')} disabled={!mayReject || !!busy}>
           {busy === 'reject' ? 'Rejecting' : 'Reject'}
         </Button>
         <Button size="sm" onClick={() => void decide('approve')} disabled={!mayDecide || !!busy || !preview?.ok}>

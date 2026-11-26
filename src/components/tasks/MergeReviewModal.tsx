@@ -43,11 +43,11 @@ export function MergeReviewModal({
   const depthGuidance = {
     'Quick skim': 'A small, tightly-specced change: skim the sensitive surface below and the diff summary.',
     'Standard review': 'A moderate change: read the diff with the criteria beside it.',
-    'Deep review': 'A feature-sized change: block out real time and review it like a colleague’s PR.',
+    'Deep review': 'A feature-sized change: block out real time and review it like a colleague’s pull request.',
   }[profile.reviewDepth];
 
   return (
-    <Modal isOpen={open} onClose={onClose} title="Merge review" size="lg">
+    <Modal isOpen={open} onClose={onClose} title="Review changes" size="lg">
       <div className="space-y-4">
         <div>
           <h3 className="text-base font-semibold text-white leading-snug">{task.title}</h3>
@@ -136,10 +136,13 @@ export function MergeReviewModal({
             <Button variant="ghost" icon={<PanelRight size={14} />} onClick={() => { onClose(); onOpenTask(task); }}>
               Open task
             </Button>
-            {profile.prUrl && (
+            {profile.prUrl ? (
               <a href={profile.prUrl} target="_blank" rel="noopener noreferrer">
-                <Button icon={<ExternalLink size={14} />}>Review the PR</Button>
+                <Button icon={<ExternalLink size={14} />}>Open the pull request</Button>
               </a>
+            ) : (
+              // The agent posts the link on the task when it opens one; until then there is nothing to merge here.
+              <span className="text-xs text-zinc-400">No pull request link yet</span>
             )}
           </div>
         </div>

@@ -1,16 +1,17 @@
 'use client';
 
 import { useState } from 'react';
-import { ChevronDown, ChevronLeft, ChevronRight, ScrollText } from 'lucide-react';
+import { ChevronDown, ChevronLeft, ChevronRight, Download, ScrollText } from 'lucide-react';
 import { SettingsSectionHeader } from '@/components/settings/SettingsSectionHeader';
 import { Button } from '@/components/ui/Button';
 import { DateInput } from '@/components/ui/inputs/DateInput';
 import { Select } from '@/components/ui/inputs/Select';
 import { TextInput } from '@/components/ui/inputs/TextInput';
+import { toast } from '@/components/ui/Toast';
 import { useApp } from '@/lib/store';
 import { useRead } from '@/lib/query-cache';
 import { auditLogRead } from '@/lib/reads';
-import { NO_AUDIT_FILTERS, VIA_LABELS, auditActionLabel, type AuditEntry, type AuditFilters } from '@/lib/audit-log';
+import { NO_AUDIT_FILTERS, VIA_LABELS, auditActionLabel, auditQuery, type AuditEntry, type AuditFilters } from '@/lib/audit-log';
 
 const ANYONE = '';
 
@@ -19,8 +20,9 @@ const when = (iso: string) => new Date(iso).toLocaleString(undefined, { dateStyl
 /**
  * Settings > Security > Audit log: who changed what, newest first. Filters
  * by who did it, who it was done for (an agent acting for a person), the
- * action and dates; pages of 50. Each row opens to what was sent and the
- * state before and after (secrets were never stored).
+ * action and dates (the viewer's own days); pages of 50. Each row opens to
+ * what was sent and the state before and after (secrets were never stored).
+ * Export downloads every row the filters shown match, as CSV.
  */
 export function AuditLogSection() {
   const { team } = useApp();
@@ -43,6 +45,38 @@ export function AuditLogSection() {
     setOpen(null);
   };
   const filtered = JSON.stringify(filters) !== JSON.stringify(NO_AUDIT_FILTERS);
+  const [exporting, setExporting] = useState(false);
+
+  // Every row the filters shown match (not the ones still being typed), as a CSV download.
+  const exportRows = async () => {
+    setExporting(true);
+    try {
+      const query = auditQuery(filters, 0);
+      const response = await fetch(`/api/workspace/audit-log?format=csv${query ? `&${query}` : ''}`, { cache: 'no-store' });
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        throw new Error(body?.error?.message ?? 'Could not export the audit log.');
+      }
+      const blob = await response.blob();
+      const name = /filename="([^"]+)"/.exec(response.headers.get('Content-Disposition') ?? '')?.[1] ?? 'audit-log.csv';
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = name;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      const rows = Number(response.headers.get('X-Row-Count') ?? 0);
+      toast('success', response.headers.get('X-Truncated') === 'true'
+        ? `Exported the newest ${rows.toLocaleString()} rows. Narrow the dates for the rest.`
+        : `Exported ${rows.toLocaleString()} ${rows === 1 ? 'row' : 'rows'}`);
+    } catch (error) {
+      toast('error', error instanceof Error ? error.message : 'Could not export the audit log.');
+    } finally {
+      setExporting(false);
+    }
+  };
 
   return (
     <section className="glass-card rounded-xl p-4 lg:p-6" aria-labelledby="audit-log-heading">
@@ -51,6 +85,11 @@ export function AuditLogSection() {
         headingId="audit-log-heading"
         title="Audit log"
         description="Who changed members, keys, agents, settings, permissions and modules, and every API and MCP write. Rows never change once written."
+        action={(
+          <Button size="sm" variant="secondary" onClick={() => { void exportRows(); }} disabled={exporting || !data || data.total === 0} icon={<Download size={14} aria-hidden="true" />}>
+            {exporting ? 'Exporting' : filtered ? 'Export these rows' : 'Export'}
+          </Button>
+        )}
       />
       <form
         className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5"

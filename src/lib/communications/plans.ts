@@ -26,6 +26,7 @@ import { createTaskAs, suggestInstead } from '@/lib/api/create-task';
 import { loadMemberRules } from '@/lib/api/agent-rules';
 import { createReminder } from '@/lib/api/reminders';
 import { assistantSwitchesOff } from '@/lib/api/assistant';
+import { upsertNotification } from '@/lib/api/notifications';
 import { insertComment, patchTask } from '@/lib/supabase/queries';
 import { moveToTrash, restoreFromTrash } from '@/lib/supabase/trash';
 import { addTaskFile, type TaskFilesContext } from '@/lib/task-files/service';
@@ -856,15 +857,16 @@ export async function syncWaitingNotification(db: SupabaseClient, message: PlanM
   // The inbox's decision recipient when it names one (as POST /notifications audience owner), else everyone who can act on it.
   const recipients = (await inboxDecisionRecipients(db, message.inbox_id)) ?? await inboxPeople(db, message.inbox_id);
   for (const person of recipients) {
-    const { error: notifyError } = await db.rpc('upsert_notification', {
-      p_user_id: person,
-      p_title: `${agentName || 'Your agent'} needs you on "${(message.subject ?? 'an email').slice(0, 80)}"`,
-      p_message: parts.join(' · ').slice(0, 300),
-      p_link: inboxLink(message),
-      p_entity_type: 'question',
-      p_entity_id: message.id,
+    // A receipt: the decision itself is the inbox's to show.
+    await upsertNotification(db, {
+      userId: person,
+      title: `${agentName || 'Your agent'} needs you on "${(message.subject ?? 'an email').slice(0, 80)}"`,
+      message: parts.join(' · ').slice(0, 300),
+      link: inboxLink(message),
+      entityType: 'question',
+      entityId: message.id,
+      category: 'inbox_decision',
     });
-    if (notifyError) throw notifyError;
   }
 }
 

@@ -38,6 +38,9 @@ const MEMBER_FUNCTIONS = [
   // Column defaults and check constraints.
   'workspace_currency', 'email_inbox_verification_code', 'email_is_address',
   'email_is_hostname', 'email_domain_is_public',
+  // Index expressions: the unread notification dedup index (20261127000700),
+  // evaluated as the member who marks their own notification read.
+  'notification_is_receipt',
   // Browser and session RPCs.
   'save_task', 'convert_lead', 'requeue_webhook_delivery', 'mark_task_seen',
   'mark_tasks_seen', 'my_task_updates', 'agent_analytics_window',

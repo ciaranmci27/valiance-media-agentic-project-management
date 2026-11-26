@@ -8,7 +8,8 @@ import { PriorityBadge } from '@/components/ui/Badge';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { TaskDetailPanel } from '@/components/tasks/TaskDetailPanel';
 import { useTaskUrlParam } from '@/lib/use-task-url';
-import { useOpenQuestions, useTaskWarmer } from '@/lib/reads';
+import { useTaskWarmer } from '@/lib/reads';
+import { useNeedsYou } from '@/lib/use-needs-you';
 import { QuestionCard } from '@/components/questions/QuestionCard';
 import Link from 'next/link';
 import {
@@ -19,7 +20,7 @@ import { Task } from '@/lib/types';
 import { parseDateOnly } from '@/lib/date-utils';
 import { hasPermission, isModuleEnabled } from '@/lib/access-control';
 import {
-  computeNeedsYou, getTaskLane, getReviewProfile, type NeedsYouItem,
+  getTaskLane, getReviewProfile, type NeedsYouItem,
 } from '@/lib/autonomy';
 import { MergeReviewModal } from '@/components/tasks/MergeReviewModal';
 import { ReminderRow } from '@/components/reminders/ReminderRow';
@@ -92,7 +93,6 @@ function RadarPageContent() {
   const { taskId: viewingTaskId, openTask: setViewingTaskId, closeTask: closeViewingTask } = useTaskUrlParam();
   // Pointing at a task warms its panel, so it opens with its emails and files.
   const warmTask = useTaskWarmer();
-  const openQuestions = useOpenQuestions();
   const [reviewingTaskId, setReviewingTaskId] = useState<string | null>(null);
   const [deletingTaskId, setDeletingTaskId] = useState<string | null>(null);
   const [showDoneReminders, setShowDoneReminders] = useState(false);
@@ -118,19 +118,8 @@ function RadarPageContent() {
       );
   }, [suggestionById, projectById]);
 
-  const needsYou = useMemo(
-    () => computeNeedsYou({
-      tasks,
-      suggestions: taskSuggestions,
-      projects,
-      teamMemberId,
-      includeSuggestions: false,
-      oversight: canManageAgents,
-      agentActivity,
-      questions: openQuestions,
-    }),
-    [tasks, taskSuggestions, projects, teamMemberId, canManageAgents, agentActivity, openQuestions],
-  );
+  // Needs you now: the one answer the sidebar badge counts (snoozed items left out).
+  const needsYou = useNeedsYou().items;
   // Questions asked to you: one row each, answered in place.
   const questionsForYou = needsYou.flatMap(item => (item.kind === 'question' && item.openQuestion ? [item.openQuestion] : []));
 

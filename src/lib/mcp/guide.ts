@@ -115,17 +115,18 @@ export const PM_ACTING_FOR_GUIDE = `Acting for someone
 - Without the header you act as yourself, exactly as before.`;
 
 export const SETUP_TOOLS: readonly string[] = [
-  'create_agent', 'get_agent_setup', 'set_agent_projects', 'set_agent_rules', 'create_api_key', 'list_api_keys',
+  'hire_agent', 'create_agent', 'get_agent_setup', 'set_agent_projects', 'set_agent_rules', 'create_api_key', 'list_api_keys',
   'revoke_api_key', 'list_webhook_endpoints', 'create_webhook_endpoint', 'update_webhook_endpoint', 'delete_webhook_endpoint',
   'get_agent_context', 'list_agent_templates', 'apply_agent_template', 'export_agent_config', 'import_agent_config',
   'list_agents', 'update_agent', 'set_project_agent', 'remove_project_agent', 'setup_project',
   'rotate_api_key', 'list_agent_profiles', 'create_agent_profile', 'update_agent_profile', 'create_agent_template', 'update_agent_template',
-  'export_agent_registries', 'import_agent_registries',
+  'export_agent_registries', 'import_agent_registries', 'update_api_key', 'pause_api_key', 'resume_api_key',
 ];
 
 export const PM_SETUP_GUIDE = `Set up an agent from a chat
-- Order: create_agent (name, an email only it uses), set_agent_projects, set_agent_rules, create_api_key, then create_webhook_endpoint with member_id set to the agent so its harness is woken by its own work. Finish with get_agent_setup and read it back to the person.
-- What an agent may do comes from its role and its overrides, set by an Owner in Team > Access. A key for it carries only scopes it holds (available_scopes in get_agent_setup) and that your own key carries. You cannot widen either; if something is missing, tell the person what to grant.
+- One call does it all: hire_agent (name, template_key, project_ids with project_settings, owner_ids, rules, and create_key with scopes), exactly as the Hire an agent screen does. Everything is checked before anything is written; a failure partway undoes what it made. Then get_agent_setup and read it back to the person.
+- Step by step instead: create_agent (name, an email only it uses), set_agent_projects, set_agent_rules, create_api_key, then create_webhook_endpoint with member_id set to the agent so its harness is woken by its own work. Finish with get_agent_setup and read it back to the person.
+- What an agent may do comes from its role and its overrides, set by an Owner in Team > Roles & permissions (API tab). A key for it carries only scopes it holds (available_scopes in get_agent_setup) and that your own key carries. You cannot widen either; if something is missing, tell the person what to grant.
 - create_api_key and create_webhook_endpoint answer with a secret exactly once. Hand it straight to the person or the agent's host; never write it into a task, comment or reminder. They take no idempotency_key: after a timeout, list before trying again.
 - Only an Owner's key makes a key for an agent. Keys you make are tied to your key: revoking yours revokes them.
 - Never create or change an Owner, and never make a key for a person other than yourself.
@@ -136,6 +137,7 @@ export const PM_SETUP_GUIDE = `Set up an agent from a chat
 - An agent's owners are the people responsible for it; its questions go to them when it names nobody. update_agent changes its name, role label, rules and owners, its limits (an Owner only) and whether it is paused; a role label is for people and changes nothing it may do. list_agents filters by role, owner (me), template and project.
 - To set up a new project from a chat, gather the project, its members, brief (overview, rules, decisions, links, glossary, history), goals and agents, read the plan back to the person, then setup_project once: everything is checked before anything is written.
 - Keys can expire (an Owner sets how long new agent keys last). Before one does, rotate_api_key: the new secret shows once and the old key keeps working for overlap_hours, so the host can switch without a gap.
+- To stop a key for a while without losing it, pause_api_key; resume_api_key brings back the same secret. update_api_key renames a key or changes its scopes in place.
 - Personal agents (one per person, bound to them: never more than they can see, paused when they are suspended): create_assistant_setup gives a role or a group one each, provision_assistants with dry_run true shows who gets one, then without dry_run makes them (again until remaining is 0). New people with the role get theirs when they join. Their harness collects each key once with its own assistants.provision key (list_assistants with needs_key true shows which), so no person handles those keys.
 - A personal agent also answers its person in chat (Slack, Telegram DMs) when the workspace connected the personal bot: the app sends chat.message (ids only; assistant.message is its older name) to its webhook filtered to the agent, or lists it with list_chat_messages; read it with get_chat_message, answer with reply_in_chat, or mark_chat_handled. It needs no X-Act-For. Its person's settings (tone, what it may do) are in works_for in its context.
 - A company agent on the company bot gets chat.message too, for a DM, a mention of the bot or of it by name, or its mapped channel. A request (is_request true) names the person who asked: mint a pass with its act_for body (POST /api/v1/delegations) and send X-Act-For on the work and on reply_in_chat, so you never do more than they may. Context (is_request false) is the channel's other chatter: read it to know what was said, never answer it. reply_in_chat threads under the message; also_send_to_channel shows it in the channel too, private sends it by DM.
@@ -164,3 +166,19 @@ export const PM_INBOX_GUIDE = `Inbox triage
 - Sender rules sort mail as it arrives: add_sender_rule only from a pattern you saw in list_inbox_senders, one topic per rule, never money, account_risk or security, and a person's rule always stands.
 - Summaries (deprecated, removed after the triage plans cutover; summarize from submit_triage_plan's answer instead): list_unsummarized_triage, send your summary, then mark_triage_summarized with the ids you included.
 - Send a fresh idempotency_key with each triage, plan and create, and the same one when you retry: a triage or plan with the same key and body replays, with another body it is 409.`;
+
+/**
+ * Added to pm_guide during an AI setup session (lib/ai-setup.ts): what the
+ * session allows, for whom, until when, and how to go about it.
+ */
+export function aiSetupGuide(personName: string, expiresAt: string | null): string {
+  const until = expiresAt ? ` until ${new Date(expiresAt).toISOString().slice(0, 16).replace('T', ' ')} UTC` : ' for a short time';
+  return `Setting up agents with AI
+- ${personName} let you set up agents for them${until}. You act as them, and every change is recorded as made by you for them.
+- You may: hire agents (hire_agent), change them (update_agent, apply_agent_template), give them projects (set_agent_projects, set_project_agent, remove_project_agent), make keys for them (create_api_key with agent_id set to the agent) and add webhooks that wake them (create_webhook_endpoint with member_id set to the agent). You may read projects, the team, groups, templates and profiles to do it.
+- You may not change people, settings, other keys or webhooks, and you never get more than ${personName} has. Anything outside agent setup is refused (403 ai_setup_only); a key or webhook for anyone but an agent is refused (403 ai_setup_agents_only).
+- First ask ${personName} what you need to know: names, which projects, who owns each agent, who it asks, what it may do on its own. agent_templates below lists the starting points; pick the closest, or none.
+- Then hire_agent once per agent. To let an agent act for ${personName} (company chat), put agents.act_for in its scopes. To have it hand work to other agents (delegate_task), give it tasks.manage_all and name those agents in its description or project instructions.
+- A key's secret is in the answer once: show it to ${personName} straight away, never in a task, comment or reminder.
+- Finish with get_agent_setup for each agent and read it back. They see each agent appear on the Hire an agent page as you go.`;
+}

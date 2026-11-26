@@ -158,6 +158,9 @@ function ProjectEditPanel({ project, onClose }: { project: Project; onClose: () 
   return <ProjectDetailsPanel project={project} onClose={onClose} />;
 }
 
+/** A team member in a picker: agents say so, since taking one off ends its setup on the project. */
+const memberOption = (m: { id: string; name: string; role?: string }) => ({ value: m.id, label: m.role === 'agent' ? `${m.name} (agent)` : m.name });
+
 const PROJECT_DISCARD = 'Your edits to this project are not saved. Discarding them cannot be undone.';
 
 function ProjectMembersPanel({ project, onClose }: { project: Project; onClose: () => void }) {
@@ -187,7 +190,7 @@ function ProjectMembersPanel({ project, onClose }: { project: Project; onClose: 
         <Section icon={Users} title="People">
           <MultiSelect
             label="Team members"
-            options={team.map((m) => ({ value: m.id, label: m.name }))}
+            options={team.map(memberOption)}
             value={memberIds}
             onChange={setMemberIds}
             placeholder="Select team members"
@@ -425,7 +428,7 @@ function ProjectDetailsPanel({ project, onClose }: { project: Project; onClose: 
             {rights.manageMembers && (
               <MultiSelect
                 label="Team members"
-                options={team.map((m) => ({ value: m.id, label: m.name }))}
+                options={team.map(memberOption)}
                 value={fields.memberIds}
                 onChange={(memberIds) => set({ memberIds })}
                 placeholder="Select team members"

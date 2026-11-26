@@ -60,6 +60,8 @@ export interface ScopedBrief {
   sections: BriefSection[];
   /** Whether the reader may add, change and remove entries here. */
   can_edit: boolean;
+  /** Pinned entries in the whole scope (a full read only). */
+  pinned_total?: number;
 }
 
 const uuid = z.uuid('scope_id must be an id');
@@ -91,6 +93,8 @@ export const patchScopedEntrySchema = z.object({
   section: z.enum(BRIEF_SECTION_KEYS).optional(),
   content: z.string().trim().min(1).max(BRIEF_ENTRY_MAX).optional(),
   pinned: z.boolean().optional(),
+  /** A person confirms an agent's entry: "Written by an agent" clears. */
+  checked: z.literal(true).optional(),
 }).strict().refine((body) => Object.keys(body).length > 0, 'Send something to change');
 export type PatchScopedEntry = z.infer<typeof patchScopedEntrySchema>;
 

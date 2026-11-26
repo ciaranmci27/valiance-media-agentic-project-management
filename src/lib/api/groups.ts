@@ -1,10 +1,12 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import {
-  slugifyGroupName, type AddGroupMembersInput, type CreateGroupInput, type GroupMemberView, type GroupRole, type GroupView, type UpdateGroupInput,
+  slugifyGroupName, GROUP_USAGE_NAMES, type AddGroupMembersInput, type CreateGroupInput, type GroupMemberView, type GroupRole, type GroupUsage,
+  type GroupUsageList, type GroupView, type UpdateGroupInput,
 } from '@/lib/groups';
 import { callerHolds, type AgentCaller } from './agent-owners';
 import { sanitizeSearch } from './pagination';
 import { readAll } from './read-all';
+import { findAgentTemplate } from '@/lib/agent-templates';
 import { ApiError, forbidden, notFound } from './errors';
 
 /**
@@ -245,8 +247,20 @@ export async function createGroup(service: SupabaseClient, caller: AgentCaller, 
   if (rows.length) {
     const { error: membersError } = await service.from('group_members').insert(rows);
     if (membersError) throw membersError;
+    await provisionGroupJoiners(service, rows.map((row) => row.member_id), caller.memberId);
   }
   return getGroup(service, caller, group.id);
+}
+
+/**
+ * People who just joined a group get the assistants its setups give (as
+ * roles do on join). Loaded on use: personal agents pull in far more than a
+ * group change needs. Never fails the change.
+ */
+async function provisionGroupJoiners(service: SupabaseClient, memberIds: string[], actorId: string | null): Promise<void> {
+  if (memberIds.length === 0) return;
+  const { provisionForPeople } = await import('./personal-agents');
+  await provisionForPeople(service, memberIds, actorId);
 }
 
 export async function updateGroup(service: SupabaseClient, caller: AgentCaller, groupId: string, input: UpdateGroupInput): Promise<{ before: GroupView; group: GroupView }> {
@@ -325,16 +339,75 @@ export async function addGroupMembers(service: SupabaseClient, caller: AgentCall
     service.from('group_members').select('member_id, role').eq('group_id', groupId).in('member_id', ids).order('member_id').range(from, to));
   const have = new Map(existing.map((row) => [row.member_id, row.role]));
   const added = ids.filter((id) => !have.has(id));
-  const updated = ids.filter((id) => have.has(id) && have.get(id) !== role);
+  // only_new: who is in it already keeps their role (picking a lead as "Member" never demotes them).
+  const updated = input.only_new ? [] : ids.filter((id) => have.has(id) && have.get(id) !== role);
   if (added.length) {
     const { error } = await service.from('group_members').insert(added.map((member_id) => ({ group_id: groupId, member_id, role, created_by: caller.memberId })));
     if (error) throw error;
+    await provisionGroupJoiners(service, added, caller.memberId);
   }
   if (updated.length) {
     const { error } = await service.from('group_members').update({ role }).eq('group_id', groupId).in('member_id', updated);
     if (error) throw error;
   }
   return { added, updated };
+}
+
+/**
+ * What a group controls, for whoever reads the group: the agents it owns and
+ * that escalate to it, the inboxes it handles, decides for or gets new work
+ * from, the initiatives it owns and the assistant setups matching it. Each
+ * list is its count and the first GROUP_USAGE_NAMES names; a fixed number of
+ * reads whatever the size. A table an older database lacks reads as none.
+ */
+export async function groupUsage(service: SupabaseClient, caller: AgentCaller, groupId: string): Promise<GroupUsage> {
+  await loadGroupRow(service, caller, groupId);
+  const none: GroupUsageList = { total: 0, names: [] };
+  const listOf = (rows: { name?: string | null }[], total: number | null): GroupUsageList => ({
+    total: total ?? rows.length,
+    names: rows.map((row) => row.name ?? '').filter(Boolean).slice(0, GROUP_USAGE_NAMES),
+  });
+  const soft = async (work: () => PromiseLike<{ data: unknown; count?: number | null; error: { code?: string; message?: string } | null }>): Promise<GroupUsageList> => {
+    const { data, count, error } = await work();
+    if (error) {
+      if (missingGroupsSchema(error) || ['42P01', 'PGRST205', '42703', 'PGRST204', 'PGRST200'].includes(error.code ?? '')) return none;
+      throw error;
+    }
+    return listOf((data ?? []) as { name?: string | null }[], count ?? null);
+  };
+  // Rows that only carry ids (inbox handlers, inbox defaults), read softly too.
+  const ids = async (work: () => PromiseLike<{ data: unknown; error: { code?: string; message?: string } | null }>, field: string): Promise<string[]> => {
+    const { data, error } = await work();
+    if (error) {
+      if (missingGroupsSchema(error) || ['42P01', 'PGRST205', '42703', 'PGRST204'].includes(error.code ?? '')) return [];
+      throw error;
+    }
+    return ((data ?? []) as Row[]).map((row) => row[field] as string);
+  };
+  const [owns, escalations, initiatives, setups, handled, defaulted] = await Promise.all([
+    soft(async () => {
+      const result = await service.from('agent_owner_groups').select('agent:team_members!agent_owner_groups_agent_id_fkey!inner(name)', { count: 'exact' }).eq('group_id', groupId).limit(GROUP_USAGE_NAMES);
+      return { ...result, data: ((result.data ?? []) as Row[]).map((row) => ({ name: (Array.isArray(row.agent) ? row.agent[0] : row.agent)?.name ?? null })) };
+    }),
+    soft(() => service.from('team_members').select('name', { count: 'exact' }).eq('agent_escalate_to_group', groupId).limit(GROUP_USAGE_NAMES)),
+    soft(() => service.from('initiatives').select('name', { count: 'exact' }).eq('owner_group_id', groupId).is('deleted_at', null).limit(GROUP_USAGE_NAMES)),
+    soft(async () => {
+      const result = await service.from('assistant_setups').select('template_key', { count: 'exact' }).eq('match_group_id', groupId).limit(GROUP_USAGE_NAMES);
+      // A setup has no name of its own: it reads as its template's label.
+      return { ...result, data: ((result.data ?? []) as Row[]).map((row) => ({ name: findAgentTemplate(String(row.template_key ?? ''))?.label ?? (row.template_key as string | null) ?? null })) };
+    }),
+    ids(() => service.from('inbox_handlers').select('inbox_id').eq('handler_group_id', groupId).limit(500), 'inbox_id'),
+    ids(() => service.from('inboxes').select('id').or(`default_assignee_group_id.eq.${groupId},decision_group_id.eq.${groupId}`).limit(500), 'id'),
+  ]);
+  // Inboxes: the ones it handles, is the default for or decides for, each once, by name.
+  const inboxIds = [...new Set([...handled, ...defaulted])];
+  let inboxes: GroupUsageList = none;
+  if (inboxIds.length) {
+    const { data, error } = await service.from('inboxes').select('name').in('id', inboxIds).order('name').limit(GROUP_USAGE_NAMES);
+    if (error) throw error;
+    inboxes = listOf((data ?? []) as { name: string }[], inboxIds.length);
+  }
+  return { owns_agents: owns, escalations, inboxes, initiatives, assistant_setups: setups };
 }
 
 export async function setGroupMemberRole(service: SupabaseClient, caller: AgentCaller, groupId: string, memberId: string, role: GroupRole): Promise<{ member_id: string; role: GroupRole }> {

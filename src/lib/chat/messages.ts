@@ -285,6 +285,11 @@ export async function listAssistantMessages(
   filters: { status: string; limit: number },
 ): Promise<{ messages: (AssistantChatMessage & { thread: ThreadItem[] })[] }> {
   await requireCaller(service, caller);
+  // A personal assistant back from a pause polls: what was held for it meanwhile is pending now.
+  if (filters.status === 'pending' || filters.status === 'all') {
+    const { deliverHeldChat } = await import('./inbound');
+    await deliverHeldChat(service, caller.memberId).catch((error) => console.error('[chat] could not deliver held chat', (error as { code?: string })?.code ?? error));
+  }
   const rows = await selectMessages((columns) => {
     let query = service.from('chat_messages').select(columns).eq('agent_id', caller.memberId).eq('direction', 'inbound');
     if (filters.status !== 'all') query = query.eq('status', filters.status);

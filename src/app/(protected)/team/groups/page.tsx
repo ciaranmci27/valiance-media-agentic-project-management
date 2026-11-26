@@ -9,7 +9,8 @@ import { useAuth } from '@/lib/auth-context';
 import { useDemo } from '@/lib/demo-context';
 import { hasPermission } from '@/lib/access-control';
 import { invalidateTables } from '@/lib/query-cache';
-import { groupsPageRead, GROUPS_PAGE_SIZE } from '@/lib/reads';
+import { groupsPageRead, GROUP_TABLES, GROUPS_PAGE_SIZE } from '@/lib/reads';
+import { demoCreateGroup, demoGroupsPage } from '@/lib/demo-project-agents';
 import { showMoreLabel } from '@/lib/agents-ui';
 import { workspaceApi, fieldErrorsFrom } from '@/lib/agent-workspace';
 import { GROUP_DESCRIPTION_MAX, GROUP_NAME_MAX, slugifyGroupName, type GroupView } from '@/lib/groups';
@@ -28,14 +29,15 @@ import { useDebounced, usePagedRead } from '@/components/team/groups/paged';
  * member answers), an agent escalating to it, a group owning an agent.
  * Everyone who sees the team sees the groups; an Owner or someone with
  * Manage groups creates and changes them. Searched on the server and shown
- * a page at a time, so dozens of groups read the same as three.
+ * a page at a time, so dozens of groups read the same as three. The demo
+ * Owner works on sample groups whose changes last until a reload.
  */
 export default function GroupsPage() {
   const router = useRouter();
   const { filters, setFilters } = useApp();
   const { access } = useAuth();
   const { isDemoMode } = useDemo();
-  const canManage = !isDemoMode && (access?.role === 'owner' || hasPermission(access, 'groups.manage'));
+  const canManage = access?.role === 'owner' || hasPermission(access, 'groups.manage');
   const [creating, setCreating] = useState(false);
 
   useEffect(() => {
@@ -43,7 +45,9 @@ export default function GroupsPage() {
   }, [setFilters]);
 
   const search = useDebounced(filters.search.trim());
-  const readFor = useCallback((page: number) => groupsPageRead(search, page, isDemoMode), [search, isDemoMode]);
+  const readFor = useCallback((page: number) => (isDemoMode
+    ? { key: `groups:demo-sample:${search}:${page}`, tables: GROUP_TABLES, load: async () => demoGroupsPage(search) }
+    : groupsPageRead(search, page, false)), [search, isDemoMode]);
   const list = usePagedRead<GroupView>(readFor, search);
 
   const href = (g: GroupView) => `/team/groups/${g.id}`;
@@ -122,7 +126,7 @@ export default function GroupsPage() {
 
       <div className="space-y-4 p-4 lg:p-6">
         <p className="max-w-2xl text-sm text-zinc-400">
-          Ask a group instead of one person: every member gets the question and any of them can answer. Agents can escalate to a group, and a group can own an agent.
+          Ask a group instead of one person: every member gets the question and any of them can answer. A group can also own agents (its members manage them), handle an inbox and own initiatives, so who is in it matters.
         </p>
         {list.failed && !list.rows.length ? (
           <div role="alert" className="glass-card flex flex-col items-center gap-3 rounded-xl py-12 text-center">
@@ -136,7 +140,7 @@ export default function GroupsPage() {
             <UsersRound className="mx-auto mb-3 text-zinc-500" size={36} aria-hidden="true" />
             <h3 className="mb-1 font-medium text-zinc-300">{search ? 'No groups match your search' : 'No groups yet'}</h3>
             <p className="text-sm text-zinc-400">
-              {search ? 'Try another name.' : canManage ? 'Make one for a team people ask together, such as Finance or Support.' : 'An Owner can make groups for teams people ask together.'}
+              {search ? 'Try another name.' : canManage ? 'Make one for a team people ask together, such as Finance or Support.' : 'An Owner, or someone who manages groups, makes them for teams people ask together.'}
             </p>
             {canManage && !search && <Button className="mt-4" icon={<Plus size={16} />} onClick={() => setCreating(true)}>New group</Button>}
           </div>
@@ -180,6 +184,7 @@ function CreateGroupModal({ isOpen, onClose, onCreated }: { isOpen: boolean; onC
   const [description, setDescription] = useState('');
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
+  const { isDemoMode } = useDemo();
   const suggested = slugifyGroupName(name);
 
   const close = () => {
@@ -193,7 +198,9 @@ function CreateGroupModal({ isOpen, onClose, onCreated }: { isOpen: boolean; onC
     setBusy(true);
     setErrors({});
     try {
-      const group = await workspaceApi<GroupView>('/api/workspace/groups', {
+      const group = isDemoMode
+        ? demoCreateGroup({ name: name.trim(), slug: slug.trim() || suggested || 'group', description: description.trim() })
+        : await workspaceApi<GroupView>('/api/workspace/groups', {
         method: 'POST',
         body: { name: name.trim(), ...(slug.trim() ? { slug: slug.trim() } : {}), ...(description.trim() ? { description: description.trim() } : {}) },
       });
@@ -204,7 +211,7 @@ function CreateGroupModal({ isOpen, onClose, onCreated }: { isOpen: boolean; onC
     } catch (error) {
       const fields = fieldErrorsFrom(error);
       const reason = (error as { details?: { reason?: string } }).details?.reason;
-      setErrors(reason === 'slug_taken' ? { slug: 'Another group uses this slug.' } : Object.keys(fields).length ? fields : { form: error instanceof Error ? error.message : 'Could not create the group' });
+      setErrors(reason === 'slug_taken' ? { slug: 'Another group uses this short name.' } : Object.keys(fields).length ? fields : { form: error instanceof Error ? error.message : 'Could not create the group' });
     } finally {
       setBusy(false);
     }
@@ -215,8 +222,8 @@ function CreateGroupModal({ isOpen, onClose, onCreated }: { isOpen: boolean; onC
       <form onSubmit={submit} className="space-y-4">
         <TextInput label="Name *" value={name} onChange={setName} placeholder="Finance" error={errors.name} autoFocus maxLength={GROUP_NAME_MAX} />
         <TextInput
-          label="Slug"
-          description="Short id for chat tools and the API."
+          label="Short name for chat tools"
+          description="How chat tools and the API name it. Made from the name if you leave it empty."
           value={slug}
           onChange={(v) => setSlug(v.toLowerCase())}
           placeholder={suggested || 'finance'}

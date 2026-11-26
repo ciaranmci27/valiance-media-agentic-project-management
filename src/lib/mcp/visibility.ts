@@ -5,6 +5,7 @@ import { checkAgentProfileTools, type AgentProfileDefinition } from '@/lib/exten
 import type { PmTool } from './core';
 import { AGENT_PROFILES, profileSeesTool, type AgentProfile } from './profiles';
 import { GUIDE_TOOL, PM_TOOLS } from './tools';
+import { AI_SETUP_TOOLS } from '@/lib/ai-setup';
 
 // A profile that names a tool that does not exist stops here, on first load.
 checkAgentProfileTools(AGENT_PROFILES, PM_TOOLS.map((tool) => tool.name));
@@ -24,6 +25,11 @@ export interface ToolViewer {
    * registry knows the value). Left out, only code's profiles are asked.
    */
   profileDefinition?: AgentProfileDefinition | null;
+  /**
+   * A live AI setup session (lib/ai-setup.ts): the setup tools are judged
+   * with its powers added; with only (a setup key) no other tool is seen.
+   */
+  aiSetup?: { scopes: readonly string[]; only: boolean } | null;
 }
 
 /**
@@ -32,6 +38,13 @@ export interface ToolViewer {
  * of a switched-off module is held by nobody, so a module's tools go with it.
  */
 export function toolVisible(tool: PmTool, caller: ToolViewer): boolean {
+  if (caller.aiSetup) {
+    const { aiSetup, ...rest } = caller;
+    if (AI_SETUP_TOOLS.includes(tool.name)) {
+      return toolVisible(tool, { ...rest, scopes: [...new Set([...caller.scopes, ...aiSetup.scopes])] }) || (!aiSetup.only && toolVisible(tool, rest));
+    }
+    return !aiSetup.only && toolVisible(tool, rest);
+  }
   if (tool.profiles && !tool.profiles.includes(caller.profile)) return false;
   if (tool.name !== GUIDE_TOOL && !profileSeesTool(caller.profile, tool.name, caller.profileDefinition)) return false;
   if (tool.agentsOnly && caller.access.role !== 'agent') return false;

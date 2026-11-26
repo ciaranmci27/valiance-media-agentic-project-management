@@ -230,6 +230,9 @@ async function seed(db: PGlite) {
     RETURNS jsonb LANGUAGE sql AS $$ SELECT jsonb_build_object('allowed', true, 'remaining', p_limit - 1,
       'reset_at', now() + make_interval(secs => p_window_seconds)) $$;`);
   await q('UPDATE pm.workspace_modules SET enabled = true');
+  // Assistants on: a personal agent's writes are on hold while they are off (the 423 gate).
+  await q("INSERT INTO pm.business_settings (business_name) SELECT 'Acme' WHERE NOT EXISTS (SELECT 1 FROM pm.business_settings)");
+  await q('UPDATE pm.business_settings SET assistants_enabled = true');
   const member = async (name: string, role: string, login?: { id: string; email: string }) => {
     const id = (await q<{ id: string }>('INSERT INTO pm.team_members (name, email, role) VALUES ($1, $2, $3) RETURNING id', [name, login?.email ?? `${name.toLowerCase().replace(/\s+/g, '.')}@example.com`, role]))[0].id;
     if (login) {
@@ -300,6 +303,7 @@ async function main() {
     const memberRoute = await import('../src/app/api/workspace/team-members/[id]/route');
     const secretRoute = await import('../src/app/api/workspace/webhook-endpoints/[id]/secret/route');
     const agentsRoute = await import('../src/app/api/workspace/agents/route');
+    const agentRoute = await import('../src/app/api/workspace/agents/[id]/route');
     const reissueRoute = await import('../src/app/api/team-members/[id]/invite/route');
     const { issueInvite, peekInvite } = await import('../src/lib/team/invite');
     const v1Assistants = await import('../src/app/api/v1/assistants/route');
@@ -411,6 +415,20 @@ async function main() {
     check('agents: the Agents list leaves personal agents out by default; personal=only lists them', agentsList.status === 200
       && !agentsList.body.data.agents.some((a: Loose) => a.id === anaAgent.id) && agentsList.body.data.agents.some((a: Loose) => a.id === s.jeff)
       && onlyPersonal.body?.data?.agents?.length === 2, [agentsList.body?.data?.meta, onlyPersonal.body?.data?.meta]);
+    // The profile read: a personal agent names its person and their pause, and offers no key scopes (its person makes its keys).
+    const anaName = (await s.q<Loose>('SELECT name FROM pm.team_members WHERE id = $1', [s.ana]))[0].name;
+    await s.q('UPDATE pm.team_members SET delegate_paused_at = now() WHERE id = $1', [anaAgent.id]);
+    const personalDetail = await session(agentRoute.GET, 'GET', `/api/workspace/agents/${anaAgent.id}`, { id: anaAgent.id });
+    await s.q('UPDATE pm.team_members SET delegate_paused_at = NULL WHERE id = $1', [anaAgent.id]);
+    const sharedDetail = await session(agentRoute.GET, 'GET', `/api/workspace/agents/${s.jeff}`, { id: s.jeff });
+    const pd = personalDetail.body?.data;
+    const sd = sharedDetail.body?.data;
+    check('profile: a personal agent names who it works for and their pause, with no key scopes on offer', personalDetail.status === 200
+      && pd.agent.delegate_of === s.ana && pd.person?.id === s.ana && pd.person.name === anaName && pd.person.status === 'active' && !!pd.person.paused_at
+      && pd.key_scopes_available === undefined, pd && { agent: pd.agent, person: pd.person, key_scopes_available: pd.key_scopes_available });
+    check('profile: a shared agent works for nobody; its keys carry expiry, and what a new key may hold is listed', sharedDetail.status === 200
+      && sd.agent.delegate_of === null && sd.person === null && Array.isArray(sd.key_scopes_available) && sd.key_scopes_available.includes('tasks.read')
+      && sd.keys.every((k: Loose) => 'expires_at' in k && 'disabled_at' in k), sd && { agent: sd.agent, person: sd.person, held: sd.key_scopes_available, keys: sd.keys });
     as(LOGINS.ana);
     const anaMine = await session(meRoute.GET, 'GET', '/api/workspace/assistants/me');
     const anaAll = await session(assistantsRoute.GET, 'GET', '/api/workspace/assistants');
@@ -547,6 +565,12 @@ async function main() {
     await session(keySettings.PATCH, 'PATCH', '/api/workspace/key-settings', {}, { agent_key_lifetime_days: null });
 
     // ── Auto-provision on join ─────────────────────────────────────────
+    // Assistants off: every assistant on hold, and nobody new gets one.
+    await s.q('UPDATE pm.business_settings SET assistants_enabled = false');
+    const offJoin = await sessionNext(inviteRoute.POST, '/api/team-members/invite', { name: 'Fay Off', email: 'fay@example.com', role: 'member' });
+    check('join: while assistants are off, a joiner gets none', offJoin.status === 201 && offJoin.body.assistants?.length === 0
+      && await count('SELECT count(*)::int AS n FROM pm.team_members WHERE delegate_of = $1', [offJoin.body?.id]) === 0, offJoin.body);
+    await s.q('UPDATE pm.business_settings SET assistants_enabled = true');
     const invited = await sessionNext(inviteRoute.POST, '/api/team-members/invite', { name: 'Cara Diaz', email: 'cara@example.com', role: 'member' });
     const cara = invited.body?.id as string;
     check('join: a new member gets their personal agent at once', invited.status === 201 && invited.body.assistants?.length === 1
@@ -569,6 +593,24 @@ async function main() {
     const gusAgent = (await s.q<Loose>('SELECT name FROM pm.team_members WHERE delegate_of = $1', [gus]))[0];
     check('groups: provisioning makes it, named by the group\'s setup; one setup per person and template', groupRun.status === 200 && gusAgent?.name === 'Gus helper'
       && await count('SELECT count(*)::int AS n FROM pm.team_members WHERE delegate_of = $1', [gus]) === 1, { body: groupRun.body?.data?.agents, gusAgent });
+
+    // Joining a group with a setup gives that person theirs at once, as joining a role does.
+    const groupMembersRoute = await import('../src/app/api/workspace/groups/[id]/members/route');
+    const gil = (await sessionNext(inviteRoute.POST, '/api/team-members/invite', { name: 'Gil Guest', email: 'gil@example.com', role: 'guest' })).body?.id as string;
+    const gilBefore = await count('SELECT count(*)::int AS n FROM pm.team_members WHERE delegate_of = $1', [gil]);
+    const joined = await session(groupMembersRoute.POST, 'POST', `/api/workspace/groups/${contractors}/members`, { id: contractors }, { member_ids: [gil] });
+    const gilAgent = (await s.q<Loose>('SELECT name, assistant_setup_id FROM pm.team_members WHERE delegate_of = $1', [gil]))[0];
+    check('groups: someone added to a group with a setup gets their assistant at once, named by that setup', gilBefore === 0 && joined.status === 200
+      && gilAgent?.name === 'Gil Guest helper', { joined: joined.body, gilAgent });
+    await session(groupMembersRoute.POST, 'POST', `/api/workspace/groups/${contractors}/members`, { id: contractors }, { member_ids: [gil], role: 'lead' });
+    check('groups: changing their role in the group makes no second one', await count('SELECT count(*)::int AS n FROM pm.team_members WHERE delegate_of = $1', [gil]) === 1);
+
+    // A role change re-checks too: a guest made a member gets the members' assistant.
+    const hal = (await sessionNext(inviteRoute.POST, '/api/team-members/invite', { name: 'Hal Guest', email: 'hal@example.com', role: 'guest' })).body?.id as string;
+    const halBefore = await count('SELECT count(*)::int AS n FROM pm.team_members WHERE delegate_of = $1', [hal]);
+    const promoted = await session(memberRoute.PATCH, 'PATCH', `/api/workspace/team-members/${hal}`, { id: hal }, { role: 'member' });
+    check('roles: someone whose role changes to one with a setup gets their assistant then', halBefore === 0 && promoted.status === 200
+      && await count('SELECT count(*)::int AS n FROM pm.team_members WHERE delegate_of = $1', [hal]) === 1, promoted.body);
 
     // ── A rotated harness key still takes down what it collected ──────
     const hSecret = `pk_live_${randomUUID().replace(/-/g, '')}`;

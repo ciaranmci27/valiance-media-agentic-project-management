@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, type ReactNode } from 'react';
+import Link from 'next/link';
 import { Check, Link2, Loader2 } from 'lucide-react';
 import { SettingsSectionHeader } from '@/components/settings/SettingsSectionHeader';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
@@ -94,7 +95,7 @@ export function useUnlinkChatAccount() {
 }
 
 /**
- * Settings > Account: the chat accounts (Slack, Teams, Telegram, ...) linked
+ * Settings > Account: the chat accounts (Slack, Telegram, Discord) linked
  * to this person, so their assistant knows who is asking and can act for
  * them. An account is added only by the person confirming a link the
  * assistant sends (or by an admin); here they see each one and unlink it.
@@ -128,7 +129,7 @@ export function LinkedAccountsSection() {
         </div>
       ) : identities.length === 0 ? (
         <p className="rounded-lg bg-white/[0.03] px-4 py-3 text-sm text-zinc-400">
-          No chat accounts yet. When you message your assistant from Slack, Teams or another chat, it sends you a one-time link: open it while signed in here to link that account.
+          No chat accounts yet. Message your workspace&apos;s assistant bot in Slack, Telegram or Discord and it sends you a one-time link: open it while signed in here. Your <Link href="/assistant#chat-accounts" className="text-brand-300 underline-offset-2 hover:underline">Assistant page</Link> shows which bot to message.
         </p>
       ) : (
         <ul className="divide-y divide-white/[0.06] overflow-hidden rounded-lg border border-white/[0.08]">

@@ -55,6 +55,8 @@ export type UpdateGroupInput = z.infer<typeof updateGroupSchema>;
 export const addGroupMembersSchema = z.object({
   member_ids: z.array(uuid('member_ids')).min(1, 'Name at least one member').max(GROUP_MEMBERS_BATCH_MAX, `At most ${GROUP_MEMBERS_BATCH_MAX} at a time`),
   role: z.enum(GROUP_ROLES).optional(),
+  /** true: only people not in it yet are added; anyone already in keeps their role. */
+  only_new: z.boolean().optional(),
 }).strict();
 export type AddGroupMembersInput = z.infer<typeof addGroupMembersSchema>;
 
@@ -88,6 +90,45 @@ export interface GroupMemberView {
   /** Their role in the group. */
   role: GroupRole;
   added_at: string;
+}
+
+/**
+ * What a group controls, so changing who is in it says what that changes:
+ * agents it owns (its members manage them), agents that escalate to it,
+ * inboxes it handles or decides for or gets new work from, initiatives it
+ * owns, and assistant setups that give its members an assistant. Each list
+ * holds the first few names and the count of all.
+ */
+export interface GroupUsageList {
+  total: number;
+  names: string[];
+}
+
+export interface GroupUsage {
+  owns_agents: GroupUsageList;
+  escalations: GroupUsageList;
+  inboxes: GroupUsageList;
+  initiatives: GroupUsageList;
+  assistant_setups: GroupUsageList;
+}
+
+/** How many names a usage list carries. */
+export const GROUP_USAGE_NAMES = 5;
+
+/** What its members do through the group, as verb phrases ("manage the agents Atlas and Scout", "handle 3 inboxes"), for a dialog. Empty when nothing. */
+export function groupUsagePhrases(usage: GroupUsage | null | undefined): string[] {
+  if (!usage) return [];
+  // "the agents Atlas and Scout" for one or two named, "4 agents" past that.
+  const things = (list: GroupUsageList, one: string, many: string) => (list.names.length === list.total && list.total <= 2
+    ? `the ${list.total === 1 ? one : many} ${list.names.join(' and ')}`
+    : `${list.total} ${list.total === 1 ? one : many}`);
+  return [
+    usage.owns_agents.total ? `manage ${things(usage.owns_agents, 'agent', 'agents')}` : null,
+    usage.escalations.total ? `answer questions from ${things(usage.escalations, 'agent', 'agents')}` : null,
+    usage.inboxes.total ? `handle ${things(usage.inboxes, 'inbox', 'inboxes')}` : null,
+    usage.initiatives.total ? `own ${things(usage.initiatives, 'initiative', 'initiatives')}` : null,
+    usage.assistant_setups.total ? 'get the assistant its setup gives' : null,
+  ].filter((part): part is string => !!part);
 }
 
 /** A group as a target, where a person's name would read: "Finance (any member)". */

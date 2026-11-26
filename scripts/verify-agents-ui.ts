@@ -19,6 +19,11 @@ import { emptyProjectBasics, projectPayload, projectUpdatePayload, validateProje
 import { AGENT_FIELDS } from '@/lib/api/project-create';
 import { newKeyFrom, WorkspaceApiError } from '@/lib/agent-workspace';
 import { canAddAgentToProject, needsClamp, projectsLine, rosterProjects, showMoreLabel } from '@/lib/agents-ui';
+import {
+  hireRefusal, hireTemplates, keyExpiryLine, limitsLine, projectFromLink, readsInbox, sameNameMember, scopesBeyondRole, worksOutsideProjects,
+  HIRE_HIDDEN_TEMPLATES, HIRE_STEPS, HIRE_STEPS_BEFORE_HIRE,
+} from '@/lib/agents-ui';
+import { buildConnectInfo, connectSnippetsWithKey } from '@/lib/agent-connect';
 import { runPill, runTitle, triggerLabel } from '@/lib/agents-tab';
 import type { AgentTemplateView, SettingsField } from '@/lib/agent-workspace';
 
@@ -88,15 +93,28 @@ const builder: AgentTemplateView = {
   check('a new hire is owned by who hires it', draft.ownerIds.join() === ME);
   check('the template step needs a choice', 'template' in validateHireStep('template', draft, null, grantable));
   draft = setDraftProjects(draft, ['p1'], []);
-  draft = applyTemplate(draft, builder, grantable);
+  draft = applyTemplate(draft, null, builder, grantable);
   check('a template presets role, rules and only the scopes the hirer may grant',
     draft.role === 'builder' && draft.rules.agent_close_policy === 'review' && draft.scopes.join() === 'tasks.read,tasks.manage_assigned', draft);
   check('a template gives picked projects its default settings', draft.projects.p1.settings.working_branch === 'dev', draft.projects);
-  check('starting blank clears presets', applyTemplate(draft, null, grantable).scopes.length === 0 && applyTemplate(draft, null, grantable).templateKey === '');
+  check('starting blank clears presets', applyTemplate(draft, builder, null, grantable).scopes.length === 0 && applyTemplate(draft, builder, null, grantable).templateKey === '');
+
+  // Switching templates rebuilds the draft: nothing of the first template survives.
+  const fresh = setDraftProjects(emptyHireDraft(ME), ['p1'], []);
+  const blank = applyTemplate(fresh, null, null, grantable);
+  const backToBlank = applyTemplate(applyTemplate(fresh, null, builder, grantable), builder, null, grantable);
+  check('a template then blank leaves nothing of the template', JSON.stringify(backToBlank) === JSON.stringify(blank), backToBlank);
+  const other: AgentTemplateView = { key: 'reporter', label: 'Reporter', description: 'Sends a summary.', role: 'reporter', rules: { agent_close_policy: 'close' }, scopes: ['projects.read'] };
+  const viaBuilder = applyTemplate(applyTemplate(fresh, null, builder, grantable), builder, other, grantable);
+  check('a template then another is the same as the other alone', JSON.stringify(viaBuilder) === JSON.stringify(applyTemplate(fresh, null, other, grantable)), viaBuilder);
+  const typed = { ...applyTemplate(fresh, null, builder, grantable), name: 'Nova', title: 'Site builder', role: 'Builder', description: '', projects: { p1: { settings: { working_branch: 'main' }, instructions: 'Only the API' } } };
+  const switched = applyTemplate(typed, builder, null, grantable);
+  check('a switch keeps what the person typed and drops what the template suggested',
+    switched.name === 'Nova' && switched.title === 'Site builder' && switched.role === '' && switched.description === ''
+      && switched.projects.p1.instructions === 'Only the API' && Object.keys(switched.projects.p1.settings).length === 0, switched);
 
   check('identity needs a name', 'name' in validateHireStep('identity', draft, builder, grantable));
   check('a role must be plain words', 'role' in validateHireStep('identity', { ...draft, name: 'Nova', role: 'Builder!!' }, builder, grantable));
-  check('a picture must be an https link', 'avatarUrl' in validateHireStep('identity', { ...draft, name: 'Nova', avatarUrl: 'http://x/a.png' }, builder, grantable));
   draft = { ...draft, name: 'Nova' };
   check('a named agent passes identity', Object.keys(validateHireStep('identity', draft, builder, grantable)).length === 0);
 
@@ -116,13 +134,86 @@ const builder: AgentTemplateView = {
   const body = hireRequestFrom({ ...draft, role: ' Code Reviewer ', projects: { p1: { settings: { ...draft.projects.p1.settings, notes: '' }, instructions: '  ship small  ' } } });
   check('the hire body sends the role as the server stores it, trimmed instructions and no empty settings',
     body.agent_role === 'code-reviewer' && body.project_settings.p1.instructions === 'ship small' && !('notes' in body.project_settings.p1.settings) && body.owner_ids?.join() === ME, body);
+  const handed = hireRequestFrom({ ...draft, ownerIds: [MATE] });
+  check('owners are sent as picked: taking yourself out leaves only who you named', JSON.stringify(handed.owner_ids) === JSON.stringify([MATE]), handed.owner_ids);
+  check('with no owners picked, none are sent (the server makes the hirer its owner)', !('owner_ids' in hireRequestFrom({ ...draft, ownerIds: [] })));
+  check('more than 20 people as owners is refused on Identity',
+    'owners' in validateHireStep('identity', { ...draft, ownerIds: Array.from({ length: 21 }, (_, i) => `p${i}`) }, builder, grantable)
+    && !('owners' in validateHireStep('identity', { ...draft, ownerIds: Array.from({ length: 20 }, (_, i) => `p${i}`) }, builder, grantable)));
+}
+
+// ── Hire flow: blank, review, templates offered, refusals, snippets ───
+{
+  const blankDraft = emptyHireDraft(ME);
+  check('a new draft starts careful: works only what it is given, finished work to review',
+    blankDraft.rules.agent_self_assign === false && blankDraft.rules.agent_close_policy === 'review', blankDraft.rules);
+  const chosenBlank = applyTemplate(applyTemplate(blankDraft, null, builder, ['tasks.read']), builder, null, ['tasks.read']);
+  check('picking Start blank (also after a template) keeps the careful rules',
+    chosenBlank.templateKey === '' && chosenBlank.rules.agent_self_assign === false && chosenBlank.rules.agent_close_policy === 'review', chosenBlank.rules);
+  const watcher: AgentTemplateView = { key: 'w', label: 'W', description: '', rules: { agent_self_assign: true, agent_close_policy: 'close' }, scopes: ['tasks.read'] };
+  const fromWatcher = applyTemplate(blankDraft, null, watcher, ['tasks.read']);
+  check('a template still sets its own rules', fromWatcher.rules.agent_self_assign === true && fromWatcher.rules.agent_close_policy === 'close', fromWatcher.rules);
+
+  const keys = HIRE_STEPS.map((s) => s.key).join();
+  check('Review comes after Powers and before the hire (Connect)', keys === 'template,identity,projects,powers,review,connect,done', keys);
+  check('the stepper reaches only the steps before the hire', HIRE_STEPS[HIRE_STEPS_BEFORE_HIRE].key === 'connect' && HIRE_STEPS_BEFORE_HIRE === 5);
+  const ready = { ...setDraftProjects(applyTemplate(blankDraft, null, null, []), [], []), name: 'Nova', createKey: false };
+  check('Review checks every step before it, so a hire never skips a broken one',
+    firstInvalidHireStep({ ...ready, name: '' }, null, [], 'review') === 'identity' && firstInvalidHireStep(ready, null, [], 'review') === null
+      && Object.keys(validateHireStep('review', ready, null, [])).length === 0);
+
+  const all = [{ key: 'builder' }, { key: 'personal-assistant' }, { key: 'external-agent' }];
+  check('the personal assistant template is not offered for hire', hireTemplates(all).map((t) => t.key).join() === 'builder,external-agent' && HIRE_HIDDEN_TEMPLATES.includes('personal-assistant'));
+
+  const groups = scopeGroups(['tasks.read', 'files.upload', 'agents.act_for'], ['tasks.read']);
+  const flat = groups.flatMap((g) => g.scopes);
+  check('powers the agent role lacks are offered and marked, the rest plain',
+    flat.find((s) => s.key === 'agents.act_for')?.beyondRole === true && flat.find((s) => s.key === 'files.upload')?.beyondRole === true
+      && !flat.find((s) => s.key === 'tasks.read')?.beyondRole && flat.length === 3, flat);
+  check('without the agent role set nothing is marked', scopeGroups(['tasks.read', 'agents.act_for']).flatMap((g) => g.scopes).every((s) => !s.beyondRole));
+  check('never-for-agents scopes are never offered', !scopeGroups(['audit.export', 'tasks.read'], ['tasks.read']).flatMap((g) => g.scopes).some((s) => s.key === 'audit.export'));
+  check('Review names what the hire gives beyond the role', scopesBeyondRole(['tasks.read', 'agents.act_for'], ['tasks.read']).join() === 'agents.act_for'
+    && scopesBeyondRole(['agents.act_for'], null).length === 0);
+  check('a template preset keeps a power beyond the role (an Owner gives it)', applyTemplate(blankDraft, null, { ...watcher, scopes: ['tasks.read', 'agents.act_for'] }, ['tasks.read', 'agents.act_for']).scopes.join() === 'tasks.read,agents.act_for');
+
+  const names = { member: (id: string) => ({ sam: 'Sam' } as Record<string, string>)[id], project: (id: string) => ({ apex: 'Apex' } as Record<string, string>)[id] };
+  const owner = hireRefusal({ message: 'Every owner must be an active team member', details: { reason: 'owner_not_active', owner_ids: ['sam'] } }, names);
+  check('a refused owner goes back to Identity, by name', owner.step === 'identity' && owner.fields.owners?.includes('Sam') && !owner.message.includes('sam'), owner);
+  const trashed = hireRefusal({ message: 'Project not found. It may be in Trash.', details: { reason: 'not_found_or_in_trash', project_ids: ['apex'] } }, names);
+  check('a trashed project goes back to Projects, by name', trashed.step === 'projects' && trashed.message.startsWith('Apex'), trashed);
+  const scope = hireRefusal({ message: 'x', details: { reason: 'scope_needs_owner', not_held: ['agents.act_for'] } }, names);
+  check('a refused power goes back to Powers in plain words', scope.step === 'powers' && scope.message.includes('Act for a person') && !scope.message.includes('agents.act_for'), scope);
+  const partway = hireRefusal({ message: 'x', details: { reason: 'hire_incomplete', agent_id: 'a1', remains: ['The agent stays in Team, suspended.'] } }, names);
+  check('a hire that stopped partway names the suspended agent it left', partway.step === null && partway.incomplete?.agentId === 'a1' && partway.incomplete.remains.length === 1, partway);
+
+  check('a ?project= link to a project that is not open is dropped', projectFromLink('gone', ['p1']).dropped && projectFromLink('p1', ['p1']).projectId === 'p1' && !projectFromLink(null, []).dropped);
+  check('a same-named active member is found, any case; a suspended one is not',
+    sameNameMember(' nova ', [{ name: 'Nova', status: 'active' }])?.name === 'Nova' && sameNameMember('Nova', [{ name: 'Nova', status: 'suspended' }]) === null);
+  check('an agent that works in another system has no task rules', worksOutsideProjects({ scopes: ['agent_activity.write', 'questions.ask'] }) && !worksOutsideProjects({ scopes: ['tasks.read'] }) && !worksOutsideProjects(null));
+  check('inbox powers need an inbox grant', readsInbox(['inbound_email.read']) && !readsInbox(['tasks.read']));
+  check('template limits read as one line', limitsLine({ max_concurrent_runs: 2, budget_usd: 50, budget_period: 'month' }) === '2 runs at once · $50 a month' && limitsLine(null) === null && limitsLine({}) === null);
+  check('a key with an end says when', /^Expires /.test(keyExpiryLine('2027-03-03T00:00:00Z') ?? '') && keyExpiryLine(null, null) === null && /^Expires /.test(keyExpiryLine(undefined, 30) ?? ''));
+
+  // While a key is on screen the snippets carry it, in a header, never in a URL.
+  const info = buildConnectInfo('https://pm.example.com');
+  const secret = 'pk_live_abc123secret';
+  const filled = connectSnippetsWithKey(info, secret);
+  const urls = Object.values(filled).flatMap((text) => text.match(/https?:\/\/\S+/g) ?? []);
+  check('snippets with a key carry it in every one', Object.values(filled).every((text) => text.includes(secret)), filled);
+  check('the key is never in a URL', urls.length > 0 && urls.every((u) => !u.includes(secret) && !u.includes('?')), urls);
+  check('the key goes in a header (x-api-key)', filled.claude_code.includes(`--header "x-api-key: ${secret}"`)
+    && JSON.parse(filled.generic_mcp_json).mcpServers.pm.headers['x-api-key'] === secret && filled.codex.includes(`http_headers = { "x-api-key" = "${secret}" }`), filled);
+  check('without a key the snippets read it from the environment', JSON.stringify(connectSnippetsWithKey(info, null)) === JSON.stringify(info.snippets)
+    && !JSON.stringify(info.snippets).includes(secret));
 }
 
 // ── Powers ────────────────────────────────────────────────────────────
 {
   const groups = scopeGroups(['tasks.read', 'meetings.write', 'fleet_alerts.write', 'api_keys.manage_all', 'smtp.manage']);
   const keys = groups.flatMap((g) => g.scopes.map((s) => s.key));
-  check('powers list only grantable API scopes, never a host or meeting key', keys.includes('tasks.read') && !keys.includes('meetings.write') && !keys.includes('fleet_alerts.write') && !keys.includes('smtp.manage'), keys);
+  check('powers list only grantable API scopes, never a meeting key', keys.includes('tasks.read') && !keys.includes('meetings.write') && !keys.includes('smtp.manage'), keys);
+  // The server that runs the agents often posts its alerts with an agent's own key.
+  check('fleet alerts stay grantable to an agent (the host publisher uses an agent key)', keys.includes('fleet_alerts.write'), keys);
   check('a key that makes keys is marked sensitive', groups.flatMap((g) => g.scopes).find((s) => s.key === 'api_keys.manage_all')?.sensitive === true);
   check('empty groups are left out', groups.every((g) => g.scopes.length > 0));
 }
@@ -302,7 +393,7 @@ function agent(i: number, fields: Partial<RosterFacts> = {}): RosterFacts {
   check('a generated summary is skipped too', runTitle({ ...turn, summary: 'Ran 2m (assigned)', trigger: 'assigned' }) === 'Assigned work');
   check('a stored run keeps its own title', runTitle({ ...turn, source: 'run', title: 'Ship the brief tab' }) === 'Ship the brief tab'
     && runTitle({ ...turn, source: 'run', title: null }) === 'Untitled run');
-  check('an unknown trigger reads in Title Case', triggerLabel('nightly_audit') === 'Nightly Audit' && triggerLabel(null) === 'Agent turn');
+  check('an unknown trigger reads in Title Case', triggerLabel('nightly_audit') === 'Nightly Audit' && triggerLabel(null) === 'Agent step');
 }
 
 // ── Run pills and brief clamp (round 2) ───────────────────────────────
@@ -312,9 +403,9 @@ function agent(i: number, fields: Partial<RosterFacts> = {}): RosterFacts {
   check('a failed or erroring turn reads Failed', runPill(turn('failed')).label === 'Failed' && runPill(turn('error')).tone === 'danger');
   check('an idle, skipped or waiting turn reads No work, neutral',
     ['idle', 'skipped', 'waiting', 'no_work'].every((o) => runPill(turn(o)).label === 'No work' && runPill(turn(o)).tone === 'default'));
-  check('a turn that worked reads Done', runPill(turn('work')).label === 'Done' && runPill(turn('ok')).label === 'Done' && runPill(turn(null)).label === 'Done');
+  check('a turn that worked reads Succeeded, the label the Succeeded filter shows', runPill(turn('work')).label === 'Succeeded' && runPill(turn('ok')).label === 'Succeeded' && runPill(turn(null)).label === 'Succeeded');
   check('a stored run keeps its real status', runPill({ source: 'run', status: 'failed', outcome: 'work' }).label === 'Failed'
-    && runPill({ source: 'run', status: 'timed_out', outcome: null }).tone === 'warning');
+    && runPill({ source: 'run', status: 'timed_out', outcome: null }).tone === 'danger');
   check('anything running reads Running', runPill({ source: 'turn', status: 'running', outcome: 'idle' }).running);
 
   check('a short entry is not clamped', !needsClamp('One rule.\nAnother rule.'));

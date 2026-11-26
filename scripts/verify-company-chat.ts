@@ -350,15 +350,20 @@ async function main() {
     const stored = (await s.q<Loose>('SELECT kind, external_bot_id FROM pm.chat_connections WHERE id = $1', [companyId]))[0];
     check('connections: a connection is personal unless asked; a company app joins the same Slack workspace', personal.status === 201 && personal.body.data.kind === 'personal'
       && company.status === 201 && company.body.data.kind === 'company' && stored?.external_bot_id === 'UBOTC01', { personal: personal.body, company: company.body, stored });
+    const callsBeforeTwice = providerCalls.length;
     const twice = await session(connectionsRoute.POST, 'POST', '/api/workspace/chat-connections', {}, { provider: 'slack', kind: 'company', bot_token: COMPANY_TOKEN, signing_secret: COMPANY_SECRET });
-    check('connections: the same bot twice is refused, 409', twice.status === 409 && reason(twice) === 'connection_exists', twice.body);
+    check('connections: the same bot twice is refused, 409', twice.status === 409 && ['connection_exists', 'slot_taken'].includes(reason(twice)), twice.body);
+    const otherApp = await session(connectionsRoute.POST, 'POST', '/api/workspace/chat-connections', {}, { provider: 'slack', kind: 'company', bot_token: 'xoxb-7777-8888-anothercompanyapp', signing_secret: COMPANY_SECRET });
+    check('slots: a second company Slack app is refused by the server (one per app and kind), before Slack is called', otherApp.status === 409 && reason(otherApp) === 'slot_taken'
+      && providerCalls.length === callsBeforeTwice && await count("SELECT count(*)::int AS n FROM pm.chat_connections WHERE provider = 'slack' AND kind = 'company'") === 1, otherApp.body);
 
     // ── Which agents the company bot reaches ───────────────────────────
     const agentsPath = `/api/workspace/chat-connections/${companyId}/agents`;
     const withPersonal = await session(agentsRoute.PUT, 'PUT', agentsPath, { id: companyId }, { agent_ids: [s.anaAgent], default_agent_id: null });
     check('agents: a personal assistant is refused', withPersonal.status === 422 && reason(withPersonal) === 'personal_agent', withPersonal.body);
     const withJeff = await session(agentsRoute.PUT, 'PUT', agentsPath, { id: companyId }, { agent_ids: [s.jeff], default_agent_id: s.jeff });
-    check('agents: an agent that may not act for people is refused', withJeff.status === 422 && reason(withJeff) === 'agent_cannot_act_for', withJeff.body);
+    check('agents: an agent that may not act for people is refused, and told where to grant it', withJeff.status === 422 && reason(withJeff) === 'agent_cannot_act_for'
+      && /Permissions/.test(withJeff.body?.error?.message ?? '') && !/Team > Access/.test(withJeff.body?.error?.message ?? ''), withJeff.body);
     const badDefault = await session(agentsRoute.PUT, 'PUT', agentsPath, { id: companyId }, { agent_ids: [s.ops], default_agent_id: s.finance });
     check('agents: the default must be one of them', badDefault.status === 422, badDefault.body);
     const set = await session(agentsRoute.PUT, 'PUT', agentsPath, { id: companyId }, { agent_ids: [s.finance, s.ops], default_agent_id: s.ops });
@@ -597,6 +602,23 @@ async function main() {
       && tgSent.body.reply_parameters?.message_id === 31 && !('username' in tgSent.body), { tgReply: tgReply.body, tgSent });
 
     check('logs: no token was ever written to the audit log', await count("SELECT count(*)::int AS n FROM pm.api_audit_log WHERE request_body::text LIKE '%xoxb%' OR request_body::text LIKE '%AAHdq%'") === 0);
+
+    // ── The Owner's list: who may be picked, and agents taken off in one step ──
+    const listed = await session(connectionsRoute.GET, 'GET', '/api/workspace/chat-connections');
+    const companyView = (listed.body?.data?.connections ?? []).find((c: Loose) => c.id === companyId);
+    const candidate = (id: string) => (companyView?.candidates ?? []).find((c: Loose) => c.id === id);
+    check('picker: every company agent is offered with whether it may act for people; personal assistants are not', candidate(s.ops)?.can_act_for === true
+      && candidate(s.jeff)?.can_act_for === false && !candidate(s.anaAgent), companyView?.candidates);
+    const financeChannels = await count('SELECT count(*)::int AS n FROM pm.chat_channel_routes WHERE connection_id = $1 AND agent_id = $2', [companyId, s.finance]);
+    const opsChannels = await count('SELECT count(*)::int AS n FROM pm.chat_channel_routes WHERE connection_id = $1 AND agent_id = $2', [companyId, s.ops]);
+    const takenOff = await session(agentsRoute.PUT, 'PUT', agentsPath, { id: companyId }, { agent_ids: [s.ops], default_agent_id: s.ops });
+    check('agents: taking one off removes it and its channel mappings together; the rest stay', takenOff.status === 200 && financeChannels > 0
+      && await count('SELECT count(*)::int AS n FROM pm.chat_channel_routes WHERE connection_id = $1 AND agent_id = $2', [companyId, s.finance]) === 0
+      && await count('SELECT count(*)::int AS n FROM pm.chat_channel_routes WHERE connection_id = $1 AND agent_id = $2', [companyId, s.ops]) === opsChannels
+      && takenOff.body.data.agents.length === 1 && takenOff.body.data.agents[0].is_default === true, takenOff.body);
+    const refusedAtomically = await s.q<Loose>('SELECT pm.set_chat_connection_agents($1, $2::uuid[], $3, $4)', [companyId, [s.ops], s.finance, s.owner]).then(() => null, (e: Error) => e.message);
+    check('agents: the database refuses a default that is not one of them, changing nothing', /default agent must be one of the agents/.test(refusedAtomically ?? '')
+      && await count('SELECT count(*)::int AS n FROM pm.chat_connection_agents WHERE connection_id = $1 AND is_default', [companyId]) === 1, refusedAtomically);
   } finally {
     // Let the dispatch kicked after the last write finish before the server goes.
     await new Promise((resolve) => setTimeout(resolve, 500));

@@ -9,9 +9,9 @@ import { assistantPending, missingAssistantSchema } from '@/lib/api/assistant';
 import { chatAdapter, ChatProviderError, type ChatCredentials } from './providers';
 import { newRelaySecret } from './providers/discord';
 import {
-  chatInboundUrl, chatProviderLabel,
+  chatInboundUrl, chatProviderLabel, CHAT_TOKEN_SHAPES, SLACK_SIGNING_SECRET_SHAPE,
   type ChatChannelRouteView, type ChatConnectionAgentsInput, type ChatConnectionAgentView, type ChatConnectionKind, type ChatConnectionView,
-  type ChatListenMode, type CreateChatChannelInput, type CreateChatConnection, type UpdateChatChannelInput,
+  type ChatListenMode, type ChatProvider, type CreateChatChannelInput, type CreateChatConnection, type UpdateChatChannelInput, type UpdateChatConnection,
 } from './types';
 
 /**
@@ -25,7 +25,11 @@ import {
  * A connection is one of two bots: personal (DMs only, to each person's own
  * assistant) or company (channels and DMs, to the company agents chosen
  * here, one of them the default, with channels mapped to an agent and a
- * listen mode each). Server only.
+ * listen mode each). One connection per provider and kind (freeChatKinds):
+ * a second personal Telegram bot, say, is refused here, not only hidden on
+ * the screen. A wrong or leaked token or signing secret is replaced on the
+ * same connection (its Request URL, history and people's links stay).
+ * Server only.
  */
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- rows are read field by field
@@ -64,7 +68,12 @@ export function openCredentials(row: { id: string; credentials: string }): ChatC
 /** A connection's kind; every connection before 20261125001100 is personal. */
 export const connectionKind = (row: Row | null | undefined): ChatConnectionKind => (row?.kind === 'company' ? 'company' : 'personal');
 
-export function presentConnection(row: Row, appUrl: string, extras: { agents?: ChatConnectionAgentView[]; channels?: ChatChannelRouteView[] } = {}): ChatConnectionView {
+export function presentConnection(row: Row, appUrl: string, extras: {
+  agents?: ChatConnectionAgentView[];
+  channels?: ChatChannelRouteView[];
+  candidates?: ChatConnectionView['candidates'];
+  recentChannels?: ChatConnectionView['recent_channels'];
+} = {}): ChatConnectionView {
   return {
     id: row.id,
     provider: row.provider,
@@ -76,10 +85,56 @@ export function presentConnection(row: Row, appUrl: string, extras: { agents?: C
     enabled: row.enabled !== false,
     inbound_url: chatInboundUrl(appUrl, row.id),
     last_inbound_at: row.last_inbound_at ?? null,
+    last_refused_at: row.last_refused_at ?? null,
     created_at: row.created_at,
     agents: extras.agents ?? [],
     channels: extras.channels ?? [],
+    ...(extras.candidates ? { candidates: extras.candidates } : {}),
+    ...(extras.recentChannels ? { recent_channels: extras.recentChannels } : {}),
   };
+}
+
+/** Each connection's last refused request (20261127000100); none on a database before it. */
+async function refusalsOf(service: SupabaseClient, ids: string[]): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  if (ids.length === 0) return out;
+  const { data, error } = await service.from('chat_connections').select('id, last_refused_at').in('id', ids).not('last_refused_at', 'is', null);
+  if (error) return out;
+  for (const row of (data ?? []) as Row[]) out.set(row.id as string, row.last_refused_at as string);
+  return out;
+}
+
+/**
+ * Every company agent an Owner could put on a company connection, and
+ * whether it may act for people (agents.act_for), which it needs first.
+ */
+async function companyCandidates(service: SupabaseClient): Promise<NonNullable<ChatConnectionView['candidates']>> {
+  const { data, error } = await service.from('team_members').select('id, name, status').eq('role', 'agent').is('delegate_of', null).order('name');
+  if (error) return [];
+  const rows = ((data ?? []) as Row[]).filter((row) => row.status !== 'suspended');
+  return Promise.all(rows.map(async (row) => {
+    const access = await resolveMemberAccess(service, row.id).catch(() => null);
+    return { id: row.id as string, name: row.name as string, can_act_for: !!access && accessAllows(access, 'agents.act_for', 'api') };
+  }));
+}
+
+/** Chats a company bot heard in the last 30 days that are not mapped yet (a private group's id is found this way), newest first. */
+async function recentChannelsOf(service: SupabaseClient, connectionIds: string[], routes: Map<string, ChatChannelRouteView[]>): Promise<Map<string, NonNullable<ChatConnectionView['recent_channels']>>> {
+  const out = new Map<string, NonNullable<ChatConnectionView['recent_channels']>>();
+  if (connectionIds.length === 0) return out;
+  const since = new Date(Date.now() - 30 * 86_400_000).toISOString();
+  const { data, error } = await service.from('chat_messages').select('connection_id, conversation_id, created_at')
+    .in('connection_id', connectionIds).eq('direction', 'inbound').eq('is_direct', false).gte('created_at', since)
+    .order('created_at', { ascending: false }).limit(500);
+  if (error) return out;
+  for (const row of (data ?? []) as Row[]) {
+    const mapped = new Set((routes.get(row.connection_id) ?? []).map((route) => route.channel_id));
+    const list = out.get(row.connection_id) ?? [];
+    if (mapped.has(row.conversation_id) || list.some((entry) => entry.id === row.conversation_id) || list.length >= 8) continue;
+    list.push({ id: row.conversation_id, name: null, last_at: row.created_at });
+    out.set(row.connection_id, list);
+  }
+  return out;
 }
 
 /** One connection; on a database before 20261125001100 it reads as personal. */
@@ -154,8 +209,26 @@ export async function listChatConnections(service: SupabaseClient, access: Acces
   if (error) fail(error);
   const rows = (data ?? []) as Row[];
   const company = rows.filter((row) => connectionKind(row) === 'company').map((row) => row.id as string);
-  const [agents, channels] = await Promise.all([agentsOf(service, company), routesOf(service, company)]);
-  return rows.map((row) => presentConnection(row, appUrl, { agents: agents.get(row.id), channels: channels.get(row.id) }));
+  const [agents, channels, refusals, candidates] = await Promise.all([
+    agentsOf(service, company), routesOf(service, company), refusalsOf(service, rows.map((row) => row.id as string)),
+    company.length ? companyCandidates(service) : Promise.resolve([]),
+  ]);
+  const recent = await recentChannelsOf(service, company, channels);
+  return rows.map((row) => presentConnection({ ...row, last_refused_at: refusals.get(row.id) ?? null }, appUrl, connectionKind(row) === 'company'
+    ? { agents: agents.get(row.id), channels: channels.get(row.id), candidates, recentChannels: recent.get(row.id) ?? [] }
+    : {}));
+}
+
+/** One per provider and kind: the second personal (or company) bot of a provider is refused. */
+async function requireFreeSlot(service: SupabaseClient, provider: string, kind: ChatConnectionKind): Promise<void> {
+  let { data, error }: { data: unknown; error: { code?: string; message?: string } | null } = await service.from('chat_connections').select('id, kind').eq('provider', provider);
+  if (missingColumn(error)) ({ data, error } = await service.from('chat_connections').select('id').eq('provider', provider));
+  if (error) fail(error);
+  if (((data ?? []) as Row[]).some((row) => connectionKind(row) === kind)) {
+    throw new ApiError(409, 'CONFLICT', `${chatProviderLabel(provider)} already has a ${kind} connection. Each app has one personal and one company connection: replace its token instead, or disconnect it first.`, {
+      reason: 'slot_taken', provider, kind,
+    });
+  }
 }
 
 const providerError = (error: unknown): never => {
@@ -176,6 +249,7 @@ export async function createChatConnection(
     throw new ApiError(422, 'VALIDATION_ERROR', 'Add the encryption key first (Settings > Workspace > Encryption): bot tokens are only stored encrypted.', { reason: 'encryption_key_missing' });
   }
   const kind: ChatConnectionKind = input.kind ?? 'personal';
+  await requireFreeSlot(service, input.provider, kind);
   const adapter = chatAdapter(input.provider)!;
   const id = randomUUID();
   // Each adapter's connect returns what is stored (Telegram adds its secret token, Discord its relay secret).
@@ -247,39 +321,97 @@ export async function storeCredentials(service: SupabaseClient, connectionId: st
   }
 }
 
+/**
+ * Renames, switches on or off, makes a new Discord relay secret, or
+ * replaces the bot token and Slack signing secret, all on the same
+ * connection. A new relay secret resets the row to "Waiting for relay" until
+ * the relay says hello with it. A new token is checked with the provider
+ * (connect again: Telegram's webhook is set anew) and must be for the same
+ * bot or Slack workspace, so history and people's links keep meaning what
+ * they did; the Request URL never changes.
+ */
 export async function updateChatConnection(
   service: SupabaseClient,
   access: AccessContext,
   memberId: string,
   id: string,
-  patch: { display_name?: string; enabled?: boolean; new_relay_secret?: true },
+  patch: UpdateChatConnection,
   appUrl: string,
 ): Promise<ChatConnectionView> {
   requireOwner(access);
   const row = await loadConnection(service, id);
   if (!row) throw notFound('Chat connection');
-  const { new_relay_secret: rotate, ...fields } = patch;
+  const { new_relay_secret: rotate, bot_token: botToken, signing_secret: signingSecret, ...fields } = patch;
   const changes: Row = { ...fields };
   let relaySecret: string | null = null;
-  if (rotate) {
-    // The old secret stops working at once; the relay needs the new one.
-    if (row.provider !== 'discord') throw new ApiError(409, 'CONFLICT', 'Only a Discord connection has a relay secret', { reason: 'no_relay' });
+  const replacing = botToken !== undefined || signingSecret !== undefined;
+  if (rotate || replacing) {
     let credentials: ChatCredentials;
     try {
       credentials = openCredentials(row as { id: string; credentials: string });
     } catch {
       throw new ApiError(409, 'CONFLICT', "This connection's credentials cannot be opened (the encryption key changed). Connect it again.", { reason: 'credentials_unreadable' });
     }
-    relaySecret = newRelaySecret();
-    changes.credentials = sealCredentials(id, { ...credentials, relay_secret: relaySecret });
+    if (replacing) credentials = await replacedCredentials(row, credentials, { botToken, signingSecret }, appUrl);
+    if (rotate) {
+      // The old secret stops working at once; the relay needs the new one.
+      if (row.provider !== 'discord') throw new ApiError(409, 'CONFLICT', 'Only a Discord connection has a relay secret', { reason: 'no_relay' });
+      relaySecret = newRelaySecret();
+      credentials = { ...credentials, relay_secret: relaySecret };
+      // Not heard with the new secret yet: "Waiting for relay" until its hello.
+      changes.last_inbound_at = null;
+    }
+    changes.credentials = sealCredentials(id, credentials);
   }
   if (Object.keys(changes).length) {
     const { error } = await service.from('chat_connections').update(changes).eq('id', id);
     if (error) fail(error);
+    // Whatever was refused before belongs to the old secret.
+    if (rotate || replacing) await service.from('chat_connections').update({ last_refused_at: null }).eq('id', id).then(() => undefined, () => undefined);
   }
-  await audit(service, memberId, 'PATCH', id, rotate ? { ...fields, new_relay_secret: true } : fields);
+  await audit(service, memberId, 'PATCH', id, {
+    ...fields, ...(rotate ? { new_relay_secret: true } : {}), ...(botToken !== undefined ? { bot_token: 'replaced' } : {}), ...(signingSecret !== undefined ? { signing_secret: 'replaced' } : {}),
+  });
   const view = await presentFull(service, (await loadConnection(service, id))!, appUrl);
   return relaySecret ? { ...view, relay_secret: relaySecret } : view;
+}
+
+/**
+ * The credentials with a new bot token and (Slack) signing secret, checked:
+ * each in its provider's shape, the token with the provider (connect: for
+ * Telegram that sets the webhook to this same address again), and for the
+ * same bot or workspace this connection is for. Nothing is saved here.
+ */
+async function replacedCredentials(row: Row, current: ChatCredentials, input: { botToken?: string; signingSecret?: string }, appUrl: string): Promise<ChatCredentials> {
+  const provider = row.provider as ChatProvider;
+  const adapter = chatAdapter(provider);
+  if (!adapter) throw new ApiError(501, 'NOT_IMPLEMENTED', `${row.provider} has no adapter yet`, { reason: 'no_adapter' });
+  if (input.signingSecret !== undefined && provider !== 'slack') {
+    throw new ApiError(422, 'VALIDATION_ERROR', 'Only Slack has a signing secret', { reason: 'no_signing_secret' });
+  }
+  if (input.signingSecret !== undefined && !SLACK_SIGNING_SECRET_SHAPE.pattern.test(input.signingSecret)) {
+    throw new ApiError(422, 'VALIDATION_ERROR', SLACK_SIGNING_SECRET_SHAPE.message, { reason: 'invalid_signing_secret' });
+  }
+  let next: ChatCredentials = { ...current, ...(input.signingSecret !== undefined ? { signing_secret: input.signingSecret } : {}) };
+  if (input.botToken === undefined) return next;
+  if (!CHAT_TOKEN_SHAPES[provider].bot_token.test(input.botToken)) {
+    throw new ApiError(422, 'VALIDATION_ERROR', CHAT_TOKEN_SHAPES[provider].message, { reason: 'invalid_bot_token' });
+  }
+  const connected = await adapter.connect({
+    credentials: { ...next, bot_token: input.botToken }, inboundUrl: chatInboundUrl(appUrl, row.id), displayName: row.display_name, kind: connectionKind(row),
+    expectedBotId: row.external_bot_id,
+  }).catch(providerError);
+  const sameBot = !row.external_bot_id || !connected.botId || connected.botId === row.external_bot_id;
+  const sameWorkspace = !adapter.hasWorkspaces || !row.external_workspace_id || connected.workspaceId === row.external_workspace_id;
+  if (!sameBot || !sameWorkspace) {
+    throw new ApiError(422, 'VALIDATION_ERROR', adapter.hasWorkspaces
+      ? `That token is for another ${chatProviderLabel(provider)} workspace or app. Use the token of the app this connection is for, or add a new connection.`
+      : `That token is for another ${chatProviderLabel(provider)} bot. Use this bot's new token, or add a new connection.`, { reason: 'different_bot' });
+  }
+  // What connect made stays (Telegram's new webhook secret); the relay secret is kept unless rotated.
+  next = { ...next, ...connected.credentials };
+  if (current.relay_secret) next.relay_secret = current.relay_secret;
+  return next;
 }
 
 /** Removes a connection and its chat history; Telegram's webhook goes with it. */
@@ -338,12 +470,23 @@ export async function setConnectionAgents(
       }
       const agentAccess = await resolveMemberAccess(service, agentId);
       if (!agentAccess || !accessAllows(agentAccess, 'agents.act_for', 'api')) {
-        throw new ApiError(422, 'VALIDATION_ERROR', `${agent.name} may not act for people yet. Grant it Act for a person in Team > Access first: it answers for whoever wrote, within what they may do.`, {
+        throw new ApiError(422, 'VALIDATION_ERROR', `${agent.name} may not act for people yet. Open ${agent.name} in Team, then Permissions, and grant Act for a person: it answers for whoever wrote, within what they may do.`, {
           reason: 'agent_cannot_act_for', agent_id: agentId, needs: 'agents.act_for',
         });
       }
     }
   }
+  // One transaction (20261127000100): an agent taken off and its channel
+  // mappings go together, or nothing changes.
+  const { error: rpcError } = await service.rpc('set_chat_connection_agents', {
+    p_connection_id: id, p_agent_ids: ids, p_default: input.default_agent_id, p_actor: memberId,
+  });
+  if (!rpcError) {
+    await audit(service, memberId, 'PUT', id, { agent_ids: ids, default_agent_id: input.default_agent_id }, '/agents');
+    return presentFull(service, row, appUrl);
+  }
+  if (!(rpcError.code === 'PGRST202' || rpcError.code === '42883')) failCompany(rpcError);
+  // A database before it: the same steps one at a time.
   const table = () => service.from('chat_connection_agents');
   let removeQuery = table().delete().eq('connection_id', id);
   if (ids.length) removeQuery = removeQuery.not('agent_id', 'in', `(${ids.join(',')})`);

@@ -10,7 +10,7 @@ Who an agent is, what it may do, and how every action is traced back to a key an
 - **Revoking cascades.** Revoking a key also revokes every key it made, and every key in its rotation line.
 - **Acting for a person never adds access.** It is the agent's access and the person's together: the intersection.
 - **A personal agent is bound to one person.** It always works within that person's access, and everything it does records them.
-- **People's own AI tools get a fixed, small set**: their projects, tasks, comments, questions and reminders. Never admin powers or keys, even for an Owner.
+- **People's own AI tools get a fixed, small set**: their projects, tasks, comments, questions and reminders. Never admin powers or keys, even for an Owner, with one exception an Owner grants by hand: one hour of agent setup, on the setup routes only, ended at any time ([Set up agents with AI](setup-by-ai.md#set-up-agents-with-ai-one-hour)).
 - **Secrets are shown once.** API key secrets, delegation passes, link URLs and OAuth tokens are stored only as hashes. Chat bot tokens are stored encrypted, and so are webhook signing secrets for endpoints made while `APP_ENCRYPTION_KEY` is set (Settings > Encryption moves older ones).
 - **The audit log is append-only**, with secrets removed before anything is written.
 - **Profiles narrow tools, never widen them.** An agent profile decides which MCP tools an agent sees. Its keys still decide what each call may do.
@@ -52,7 +52,7 @@ Scopes an agent setup usually meets:
 | `audit.read`, `audit.export` | Read the audit log; export it from a cursor |
 | `fleet_alerts.write` | Post fleet-wide alerts that name no agent, and nothing else |
 
-An Owner's key can carry any of these. Other roles do not hold `api_keys.manage_all`, `webhooks.manage`, `agent_events.export`, `assistants.provision`, `groups.manage`, `identities.*`, `agents.act_for` or `audit.export` on the API by default. An Owner grants them to a member, such as an agent or a data system's member, in Team > Access.
+An Owner's key can carry any of these. Other roles do not hold `api_keys.manage_all`, `webhooks.manage`, `agent_events.export`, `assistants.provision`, `groups.manage`, `identities.*`, `agents.act_for` or `audit.export` on the API by default. An Owner grants them to a member, such as an agent or a data system's member, in Team > Roles & permissions.
 
 `get_agent_setup` (`GET /api/v1/agents/{id}/setup`) shows `available_scopes`: what a key for that agent may carry.
 
@@ -88,6 +88,14 @@ So an Owner's setup key that made ten agent keys can retire all of them in one c
   - The successor keeps the old key's place in the lineage.
 
 To rotate without a gap: rotate, put the new secret in the host, restart, and let the old key run out.
+
+## Pause, edit and list by state
+
+- **Pause**: `pause_api_key` (`POST /api/v1/api-keys/{id}/pause`, or Pause in Settings) stops a key without losing it. Whatever uses it gets `401 api_key_paused`; its secret, name and scopes stay. An agent's own pause is not touched. `resume_api_key` (`POST /api/v1/api-keys/{id}/resume`) brings the same secret back. A paused key is not rotated (`409 key_paused`): resume it first.
+- **Edit**: `update_api_key` (`PATCH /api/v1/api-keys/{id}`) renames a key or replaces its scopes in place. Removing scopes is always allowed. A new scope is added only as making a key would allow it: the key's member holds it, and whoever edits holds it too (over the API, the calling key carries it and an Owner's key edits an agent's key). An agent's key never gains a scope agents never carry.
+- **AI setup keys** (`pk_setup_`, one hour) stay as they were made: never edited, paused, resumed or rotated (`409 setup_key_fixed`). Revoke one instead.
+- **State**: every key in a list has `state` (`active`, `paused`, `expired`, `revoked`). `?state=` narrows a list to one, or to `ended` (expired and revoked).
+- Who may pause, resume or revoke a key in Settings: its member, whoever created it, and holders of `api_keys.manage_all`. Over the API: a key with `api_keys.manage_all`. Every pause, resume and edit is in the audit log with the key before and after.
 
 ## Groups
 
@@ -190,7 +198,7 @@ Routes: `GET`, `POST /api/v1/context` with `scope_type: "member"`, `search_conte
 
 ## Audit log
 
-Every API write, and signed-in changes to members, keys, agents, settings, permissions and modules, is recorded with who did it, who it was for (`principal_id`) and how (`via`: `rest`, `mcp`, `mcp_oauth` for a connected AI tool, or `app`).
+Every API write, and signed-in changes to members, keys, agents, settings, permissions and modules, is recorded with who did it, who it was for (`principal_id`) and how (`via`: `rest`, `mcp`, `mcp_oauth` for a connected AI tool, or `app`). A change an AI tool makes while setting up agents for an Owner names the tool's key and the Owner as `principal_id`.
 
 - **Append-only**: nothing edits or deletes an entry except the retention clean-up.
 - **Redacted at write time**: secrets, tokens and webhook address paths never reach it.

@@ -15,7 +15,10 @@ import {
   BookOpen,
   Pencil,
   ListChecks,
+  KeyRound,
 } from 'lucide-react';
+import Modal from '@/components/ui/Modal';
+import { SecretOnce } from '@/components/agent/ConnectPanel';
 import { createClient } from '@/lib/supabase/client';
 import { appLocale } from '@/lib/region';
 import { Button } from '@/components/ui/Button';
@@ -30,11 +33,15 @@ import { WebhookEndpointDialog, type SaveEndpoint } from '@/components/settings/
 import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
 import { isModuleEnabled } from '@/lib/access-control';
+import { webhookRetriesRead } from '@/components/settings/secrets-data';
 import { useRead } from '@/lib/query-cache';
 import { assistantSetupsRead } from '@/lib/reads';
 import type { AssistantSetupView } from '@/lib/assistant';
 import { generateWebhookSecret } from '@/lib/webhooks/sign';
-import { endpointHealth, eventSummary, hasInvoiceEvents, webhookFields, type EndpointHealth } from '@/lib/developers-settings';
+import {
+  deliveryDetailLine, endpointHealth, eventSummary, hasInvoiceEvents, webhookFields, webhookSaveError, CHAT_WEBHOOK_EVENTS, ENDPOINT_HEALTH_DELIVERIES,
+  type EndpointHealth,
+} from '@/lib/developers-settings';
 import {
   fetchWebhookEndpoints,
   insertWebhookEndpoint,
@@ -70,11 +77,11 @@ const STATUS_STYLES: Record<WebhookDeliveryStatus, string> = {
 };
 
 const HEALTH: Record<EndpointHealth['state'], { label: (h: EndpointHealth) => string; className: string }> = {
-  ok: { label: () => 'Active', className: 'bg-emerald-500/[0.14] text-emerald-200' },
+  ok: { label: () => 'Active', className: 'bg-emerald-500/[0.14] text-emerald-300' },
   idle: { label: () => 'Active, nothing sent yet', className: 'bg-white/[0.06] text-zinc-300' },
   paused: { label: () => 'Paused', className: 'bg-white/[0.06] text-zinc-300' },
-  retrying: { label: (h) => `Retrying ${h.retrying}`, className: 'bg-amber-500/[0.14] text-amber-200' },
-  failing: { label: (h) => `${h.failed} failed`, className: 'bg-red-500/[0.14] text-red-200' },
+  retrying: { label: (h) => `Retrying ${h.retrying}`, className: 'bg-amber-500/[0.14] text-amber-300' },
+  failing: { label: (h) => `${h.failed} failed`, className: 'bg-red-500/[0.14] text-red-300' },
 };
 
 const ICON_BUTTON = 'p-1.5 text-zinc-400 hover:text-white hover:bg-white/[0.06] rounded-md transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500';
@@ -84,13 +91,6 @@ function deliveryLabel(d: WebhookDelivery): string {
   return d.status === 'pending' && d.attempts > 0 ? 'retrying' : d.status;
 }
 
-function deliveryDetail(d: WebhookDelivery): string {
-  if (d.status === 'succeeded') return `Delivered ${formatWhen(d.delivered_at)}`;
-  if (d.status === 'delivering') return 'Sending now';
-  if (d.status === 'failed') return d.last_error || 'Failed';
-  if (d.attempts > 0) return `${d.last_error || 'Failed'}, next try ${formatWhen(d.next_attempt_at)}`;
-  return 'Queued';
-}
 
 function formatWhen(value: string | null): string {
   if (!value) return 'not yet';
@@ -100,6 +100,15 @@ function formatWhen(value: string | null): string {
     hour: '2-digit',
     minute: '2-digit',
   });
+}
+
+/** What deleting an endpoint stops, beyond its URL: people's assistants for a setup or chat endpoint, and its history. */
+function deleteMessage(endpoint: WebhookEndpoint): string {
+  const chat = endpoint.events.some((event) => CHAT_WEBHOOK_EVENTS.includes(event));
+  const assistants = endpoint.assistant_setup_id
+    ? ' People\'s assistants from its assistant setup stop answering.'
+    : chat ? ' The agent it carries chat for stops answering chat.' : '';
+  return `Delete “${endpoint.name}”? Events stop being delivered to ${endpoint.url}.${assistants} Its delivery history, and anything still waiting to send, is removed.`;
 }
 
 /**
@@ -114,9 +123,15 @@ export function WebhooksPanel({ teamMemberId }: { teamMemberId: string | null })
   const { access } = useAuth();
   // Invoice events need Client invoicing; without it they are neither offered nor sent.
   const billingOn = isModuleEnabled(access, 'billing');
+  // Whether scheduled retries run (Owners read it). Unknown counts as on, as before.
+  const retries = useRead(access?.role === 'owner' ? webhookRetriesRead : null);
+  const retriesOn = retries.data ? retries.data.on : true;
+  const deliveryDetail = (d: WebhookDelivery) => deliveryDetailLine(d, retriesOn, formatWhen);
 
   const [endpoints, setEndpoints] = useState<WebhookEndpoint[]>([]);
   const [deliveries, setDeliveries] = useState<WebhookDelivery[]>([]);
+  // Each endpoint's own latest deliveries, for its health (never just the newest across all of them).
+  const [healthDeliveries, setHealthDeliveries] = useState<Record<string, WebhookDelivery[]>>({});
   const [loading, setLoading] = useState(true);
   const [dialog, setDialog] = useState<{ editing: WebhookEndpoint | null } | null>(null);
   const [deliveriesFor, setDeliveriesFor] = useState(ALL_ENDPOINTS);
@@ -135,6 +150,11 @@ export function WebhooksPanel({ teamMemberId }: { teamMemberId: string | null })
   ];
   const projectName = (id: string) => projects.find((p) => p.id === id)?.name ?? 'Unknown project';
   const memberName = (id: string) => team.find((m) => m.id === id)?.name ?? 'Unknown member';
+  const memberKind = (id: string) => {
+    const member = team.find((m) => m.id === id);
+    if (!member) return null;
+    return member.role !== 'agent' ? 'person' as const : member.delegate_of ? 'personal_agent' as const : 'agent' as const;
+  };
   const endpointName = (id: string) => endpoints.find((e) => e.id === id)?.name ?? 'Deleted endpoint';
   // Setup names only when an endpoint is scoped to one (Owners read setups; others see the plain label).
   const setups = useRead(endpoints.some((e) => e.assistant_setup_id) ? assistantSetupsRead : null).data ?? [];
@@ -163,6 +183,9 @@ export function WebhooksPanel({ teamMemberId }: { teamMemberId: string | null })
     return secret;
   }
   const [deleteTarget, setDeleteTarget] = useState<WebhookEndpoint | null>(null);
+  const [pauseTarget, setPauseTarget] = useState<WebhookEndpoint | null>(null);
+  const [secretTarget, setSecretTarget] = useState<WebhookEndpoint | null>(null);
+  const [newSecret, setNewSecret] = useState<{ endpoint: WebhookEndpoint; secret: string } | null>(null);
   const [running, setRunning] = useState(false);
 
   const load = useCallback(async () => {
@@ -171,8 +194,11 @@ export function WebhooksPanel({ teamMemberId }: { teamMemberId: string | null })
         fetchWebhookEndpoints(supabase),
         fetchWebhookDeliveries(supabase, 25),
       ]);
+      // Health reads each endpoint's own newest deliveries, one small read each.
+      const own = await Promise.all(eps.map(async (endpoint) => [endpoint.id, await fetchWebhookDeliveries(supabase, ENDPOINT_HEALTH_DELIVERIES, endpoint.id)] as const));
       setEndpoints(eps);
       setDeliveries(dels);
+      setHealthDeliveries(Object.fromEntries(own));
     } catch (e) {
       console.error('Failed to load webhooks', e);
       toast('error', 'Failed to load webhooks');
@@ -204,12 +230,18 @@ export function WebhooksPanel({ teamMemberId }: { teamMemberId: string | null })
       return secret;
     } catch (e) {
       console.error('Failed to save webhook', e);
-      throw new Error(editing ? 'Could not save the endpoint. Try again.' : 'Could not create the endpoint. Try again.');
+      // The database's own rules (chat, setup scope, permission) say what to change; anything else asks to try again.
+      throw new Error(webhookSaveError(e, !!editing));
     }
   };
 
-  async function handleToggleActive(endpoint: WebhookEndpoint) {
+  async function handleToggleActive(endpoint: WebhookEndpoint, confirmed = false) {
     const next = !endpoint.is_active;
+    // Pausing drops events instead of holding them, so it asks first.
+    if (!next && !confirmed) {
+      setPauseTarget(endpoint);
+      return;
+    }
     setEndpoints((prev) => prev.map((e) => (e.id === endpoint.id ? { ...e, is_active: next } : e)));
     try {
       await updateWebhookEndpoint(supabase, endpoint.id, { is_active: next });
@@ -235,6 +267,24 @@ export function WebhooksPanel({ teamMemberId }: { teamMemberId: string | null })
       console.error(e);
       toast('error', 'Failed to delete endpoint');
       load();
+    }
+  }
+
+  async function handleNewSecret() {
+    if (!secretTarget) return;
+    const endpoint = secretTarget;
+    setSecretTarget(null);
+    try {
+      const res = await fetch(`/api/workspace/webhook-endpoints/${endpoint.id}/secret`, { method: 'POST', cache: 'no-store' });
+      const body = await res.json().catch(() => null);
+      const secret: string | null = res.ok ? body?.data?.secret ?? null : null;
+      if (!secret) throw new Error(body?.error?.message ?? 'Could not make a new signing secret.');
+      // The row's copy is stale now: the next reveal reads the new one.
+      setOpenedSecrets((prev) => ({ ...prev, [endpoint.id]: secret }));
+      void load();
+      setNewSecret({ endpoint, secret });
+    } catch (e) {
+      toast('error', e instanceof Error ? e.message : 'Could not make a new signing secret.');
     }
   }
 
@@ -316,7 +366,7 @@ export function WebhooksPanel({ teamMemberId }: { teamMemberId: string | null })
       ) : (
         <ul className="space-y-3">
           {endpoints.map((endpoint) => {
-            const health = endpointHealth(endpoint, deliveries);
+            const health = endpointHealth(endpoint, healthDeliveries[endpoint.id] ?? deliveries);
             const look = HEALTH[health.state];
             return (
               <li key={endpoint.id} className="rounded-lg border border-white/[0.08] bg-white/[0.02] p-4">
@@ -340,6 +390,7 @@ export function WebhooksPanel({ teamMemberId }: { teamMemberId: string | null })
                       actions={[
                         { label: 'Edit', icon: <Pencil size={14} aria-hidden="true" />, onClick: () => setDialog({ editing: endpoint }) },
                         { label: 'View deliveries', icon: <ListChecks size={14} aria-hidden="true" />, onClick: () => showDeliveries(endpoint) },
+                        { label: 'New signing secret', icon: <KeyRound size={14} aria-hidden="true" />, onClick: () => setSecretTarget(endpoint) },
                         { label: 'Delete', icon: <Trash2 size={14} aria-hidden="true" />, onClick: () => setDeleteTarget(endpoint), variant: 'danger', divider: true },
                       ]}
                     />
@@ -380,7 +431,7 @@ export function WebhooksPanel({ teamMemberId }: { teamMemberId: string | null })
 
                 <p className="mt-2 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-zinc-400">
                   <span>Last delivery {formatWhen(endpoint.last_delivery_at)}</span>
-                  {health.failed > 0 && <span className="text-red-300">{health.failed} failed recently</span>}
+                  {health.failed > 0 && <span className={health.state === 'failing' ? 'text-red-300' : 'text-zinc-400'}>{health.state === 'failing' ? `${health.failed} failed recently` : `${health.failed} failed earlier, delivered since`}</span>}
                   {health.retrying > 0 && <span className="text-amber-300">{health.retrying} retrying</span>}
                   {(health.failed > 0 || health.retrying > 0) && (
                     <button type="button" onClick={() => showDeliveries(endpoint)} className="rounded font-medium text-brand-300 underline underline-offset-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500">
@@ -547,6 +598,7 @@ export function WebhooksPanel({ teamMemberId }: { teamMemberId: string | null })
         billingOn={billingOn}
         projectOptions={projectOptions}
         memberOptions={memberOptions}
+        memberKind={memberKind}
         onSave={saveEndpoint}
         onClose={() => setDialog(null)}
       />
@@ -556,11 +608,50 @@ export function WebhooksPanel({ teamMemberId }: { teamMemberId: string | null })
         onClose={() => setDeleteTarget(null)}
         onConfirm={handleDelete}
         title="Delete webhook endpoint"
-        message={`Delete “${deleteTarget?.name}”? Events will stop being delivered to this URL.`}
+        message={deleteTarget ? deleteMessage(deleteTarget) : ''}
         confirmLabel="Delete"
         variant="danger"
         doubleConfirm={false}
       />
+
+      <ConfirmDialog
+        isOpen={!!pauseTarget}
+        onClose={() => setPauseTarget(null)}
+        onConfirm={() => { const target = pauseTarget; setPauseTarget(null); if (target) void handleToggleActive(target, true); }}
+        title={`Pause ${pauseTarget?.name ?? 'this endpoint'}?`}
+        message={pauseTarget ? `While paused, events are not sent or kept. Anything that happens until you turn it back on will never reach ${pauseTarget.url}.` : ''}
+        confirmLabel="Pause"
+        variant="danger"
+        doubleConfirm={false}
+      />
+
+      <ConfirmDialog
+        isOpen={!!secretTarget}
+        onClose={() => setSecretTarget(null)}
+        onConfirm={() => { void handleNewSecret(); }}
+        title={`New signing secret for ${secretTarget?.name ?? 'this endpoint'}?`}
+        message="The old secret stops at once: every delivery from now on is signed with the new one, so put it into your receiver straight away. The endpoint keeps its filters and delivery history."
+        confirmLabel="Make a new secret"
+        variant="danger"
+        doubleConfirm={false}
+      />
+
+      <Modal isOpen={!!newSecret} onClose={() => {}} title={newSecret ? `New secret for ${newSecret.endpoint.name}` : 'New signing secret'} size="md">
+        {newSecret && (
+          <div className="space-y-4">
+            <SecretOnce
+              secret={{ secret: newSecret.secret }}
+              heading="Copy the new signing secret into your receiver now."
+              what="Signing secret"
+              copyLabel="Copy secret"
+              hint="The old secret no longer verifies. You can reveal this one again from the endpoint's row."
+            />
+            <div className="flex justify-end">
+              <Button onClick={() => setNewSecret(null)}>Done</Button>
+            </div>
+          </div>
+        )}
+      </Modal>
     </section>
   );
 }

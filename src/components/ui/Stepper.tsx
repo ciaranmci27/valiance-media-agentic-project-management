@@ -87,11 +87,13 @@ export function Stepper({ steps, current, reached, onJump, label = 'Progress' }:
 }
 
 /** The page around a flow: title, a way out, the stepper, the step, and an aside. */
-export function FlowShell({ title, subtitle, exitHref, exitLabel = 'Cancel', stepper, aside, children }: {
+export function FlowShell({ title, subtitle, exitHref, exitLabel = 'Cancel', onExit, stepper, aside, children }: {
   title: string;
   subtitle?: ReactNode;
   exitHref: string;
   exitLabel?: string;
+  /** Asks before leaving (unsaved work, a secret not yet saved): called instead of following the link. */
+  onExit?: () => void;
   stepper: ReactNode;
   aside?: ReactNode;
   children: ReactNode;
@@ -106,6 +108,7 @@ export function FlowShell({ title, subtitle, exitHref, exitLabel = 'Cancel', ste
           </div>
           <Link
             href={exitHref}
+            onClick={onExit ? (e) => { if (e.metaKey || e.ctrlKey || e.shiftKey) return; e.preventDefault(); onExit(); } : undefined}
             className="inline-flex flex-shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm text-zinc-400 transition-colors hover:bg-white/[0.06] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
           >
             <X size={15} aria-hidden="true" />

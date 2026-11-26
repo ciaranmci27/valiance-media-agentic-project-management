@@ -86,8 +86,58 @@ export async function newKeyExpiry(
   const { data: member, error } = await service.from('team_members').select('role').eq('id', memberId).maybeSingle();
   if (error) throw error;
   const lifetime = (member as { role?: string } | null)?.role === 'agent' ? await agentKeyLifetimeDays(service) : await personalKeyLifetimeDays(service);
-  const days = expiresInDays === undefined ? lifetime
-    : granter.role === 'owner' || lifetime === null ? expiresInDays
-    : expiresInDays === null ? lifetime : Math.min(expiresInDays, lifetime);
+  const days = expiresInDays === undefined ? lifetime : capKeyLifetime(expiresInDays, lifetime, granter.role);
+  return days === null ? null : new Date(now.getTime() + days * 86_400_000).toISOString();
+}
+
+/**
+ * A chosen lifetime held to the workspace's (days; null: until revoked). An
+ * Owner's choice stands; for anyone else a lifetime that is set is the most
+ * they get: no expiry, or a longer one, ends at the lifetime instead.
+ */
+export function capKeyLifetime(chosen: number | null, lifetime: number | null, granterRole: string): number | null {
+  if (granterRole === 'owner' || lifetime === null) return chosen;
+  return chosen === null ? lifetime : Math.min(chosen, lifetime);
+}
+
+/**
+ * How long a rotated key's successor lasts, in days (null: until revoked).
+ * An agent's: the workspace's agent key lifetime, as for any new agent key.
+ * A person's: as long as the old key was made to last (created to expiry),
+ * held to the workspace's personal key lifetime for anyone but an Owner, so
+ * a rotation never turns a capped key into one that never ends.
+ */
+export function rotatedKeyLifetimeDays(input: {
+  agent: boolean;
+  old: { created_at: string; expires_at: string | null };
+  agentLifetimeDays: number | null;
+  personalLifetimeDays: number | null;
+  granterRole: string;
+}): number | null {
+  if (input.agent) return input.agentLifetimeDays;
+  const { created_at, expires_at } = input.old;
+  const made = expires_at ? Math.max(0, Date.parse(expires_at) - Date.parse(created_at)) / 86_400_000 : null;
+  // A lifetime under an hour reads as an hour, so a successor is never born expired.
+  const chosen = made === null ? null : Math.max(made, 1 / 24);
+  return capKeyLifetime(chosen, input.personalLifetimeDays, input.granterRole);
+}
+
+/** When a rotated key's successor made now ends (null: until revoked), by rotatedKeyLifetimeDays. */
+export async function rotatedKeyExpiry(
+  service: SupabaseClient,
+  old: { team_member_id: string; created_at: string; expires_at: string | null },
+  granter: { role: string },
+  now = new Date(),
+): Promise<string | null> {
+  const { data: member, error } = await service.from('team_members').select('role').eq('id', old.team_member_id).maybeSingle();
+  if (error) throw error;
+  const agent = (member as { role?: string } | null)?.role === 'agent';
+  const days = rotatedKeyLifetimeDays({
+    agent,
+    old,
+    agentLifetimeDays: agent ? await agentKeyLifetimeDays(service) : null,
+    personalLifetimeDays: agent ? null : await personalKeyLifetimeDays(service),
+    granterRole: granter.role,
+  });
   return days === null ? null : new Date(now.getTime() + days * 86_400_000).toISOString();
 }

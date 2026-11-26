@@ -62,6 +62,8 @@ async function seed(db: PGlite) {
       rotated_from uuid REFERENCES pm.api_keys(id)
     );
     CREATE TABLE pm.business_settings (id serial PRIMARY KEY, api_enabled boolean NOT NULL DEFAULT true);
+    CREATE TABLE pm.api_audit_log (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), method text, endpoint text, entity_type text, entity_id uuid,
+      api_key_id uuid, team_member_id uuid, request_body jsonb, before_snapshot jsonb, after_snapshot jsonb, status_code integer, via text);
     CREATE TABLE pm.role_permissions (role text, permission_key text, access_channel text);
     CREATE TABLE pm.team_member_permissions (member_id uuid, permission_key text, access_channel text, effect text);
     CREATE TABLE pm.project_members (member_id uuid, project_id uuid);
@@ -85,7 +87,7 @@ async function seed(db: PGlite) {
   );
   const grants: [string, string, string][] = [
     ['admin', 'api_keys.manage_all', 'app'],
-    ['admin', 'tasks.read', 'api'], ['admin', 'tasks.create', 'api'], ['admin', 'projects.read', 'api'], ['admin', 'team.read', 'api'],
+    ['admin', 'tasks.read', 'api'], ['admin', 'tasks.create', 'api'], ['admin', 'projects.read', 'api'], ['admin', 'team.read', 'api'], ['admin', 'notifications.send', 'api'],
     ['member', 'tasks.read', 'api'], ['member', 'projects.read', 'api'],
     ['agent', 'tasks.read', 'api'], ['agent', 'team.read', 'api'], ['agent', 'notifications.send', 'api'],
   ];
@@ -157,7 +159,7 @@ async function main() {
 
     // Scopes the member does not hold.
     result = await editApiKey(service, mia, own.id, { scopes: ['tasks.read', 'tasks.create'] });
-    check('own key: a scope the member lacks is refused', result.status === 422 && /not available to you: tasks\.create/.test(errorOf(result)), result);
+    check('own key: a scope the member lacks is refused', result.status === 422 && /Not available to you: Create tasks \(tasks\.create\)/.test(errorOf(result)), result);
     result = await editApiKey(service, mia, own.id, { scopes: ['not.a.scope'] });
     check('own key: an unknown scope is refused', result.status === 422, result);
     check('own key: a refused edit changes nothing', (await row(own.id)).scopes.join() === 'tasks.read');
@@ -187,7 +189,7 @@ async function main() {
     const offered = options.status === 200 ? options.body.data.available_scopes : [];
     check("options: the key member's scopes, not the editor's", JSON.stringify(offered) === JSON.stringify(['team.read', 'notifications.send', 'tasks.read']) && !offered.includes('tasks.create'), offered);
     result = await editApiKey(service, ada, agentKey.id, { scopes: ['tasks.read', 'tasks.create'] });
-    check("manage_all: a scope the editor holds but the key's member does not is refused", result.status === 422 && /not held by the key's member: tasks\.create/.test(errorOf(result)), result);
+    check("manage_all: a scope the editor holds but the key's member does not is refused", result.status === 422 && /Not allowed for the key's member: Create tasks \(tasks\.create\)/.test(errorOf(result)), result);
     result = await editApiKey(service, mia, agentKey.id, { scopes: ['tasks.read'] });
     check('without manage_all an agent key is hidden', result.status === 404, result);
 

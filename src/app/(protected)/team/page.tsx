@@ -23,7 +23,7 @@ export default function TeamPage() {
   const { isDemoMode } = useDemo();
   const router = useRouter();
   const [isInviteOpen, setIsInviteOpen] = useState(false);
-  const { buildActions, openAccess, isOwner, canManageTeam, isPendingInvite, modals } = useMemberActions();
+  const { buildActions, openAccess, isOwner, canManageTeam, canManageAccess, isPendingInvite, modals } = useMemberActions();
 
   useEffect(() => {
     setFilters(defaultFilters);
@@ -165,7 +165,7 @@ export default function TeamPage() {
             <Button variant="secondary" icon={<UsersRound size={16} />} href="/team/groups">
               Groups
             </Button>
-            {canManageTeam && !isDemoMode && isOwner && (
+            {!isDemoMode && canManageAccess && (
               <Button
                 variant="secondary"
                 icon={<SlidersHorizontal size={16} />}

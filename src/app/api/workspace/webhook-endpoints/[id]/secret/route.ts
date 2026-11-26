@@ -1,7 +1,8 @@
 import { accessAllows } from '@/lib/api/access';
 import { ApiError, forbidden, notFound } from '@/lib/api/errors';
 import { workspaceRoute } from '@/lib/api/workspace-route';
-import { openWebhookSecret, sealStoredWebhookSecret } from '@/lib/webhooks/secret';
+import { openWebhookSecret, sealStoredWebhookSecret, sealWebhookSecret } from '@/lib/webhooks/secret';
+import { generateWebhookSecret } from '@/lib/webhooks/sign';
 
 export const dynamic = 'force-dynamic';
 
@@ -33,6 +34,27 @@ export async function GET(request: Request, { params }: Params) {
     }
     // A plaintext secret read with the key set is sealed in place; a failure there never stops the reveal.
     await sealStoredWebhookSecret(service, id, stored).catch((e) => console.error('[webhooks] could not seal a signing secret', id, e));
+    return { secret };
+  }, { noStore: true });
+}
+
+/**
+ * A new signing secret for the endpoint (Settings > Developers, New signing
+ * secret), for when the old one may have leaked: the endpoint keeps its id,
+ * filters and delivery history. Sealed at rest when the host has
+ * APP_ENCRYPTION_KEY. The old secret stops at once: deliveries from now on
+ * are signed with the new one. Needs webhooks.manage. Answers { secret },
+ * shown once (it can be revealed again from the row).
+ */
+export async function POST(request: Request, { params }: Params) {
+  const { id } = await params;
+  return workspaceRoute(request, async ({ service, access }) => {
+    if (!accessAllows(access, 'webhooks.manage', 'app')) throw forbidden('Webhook secrets need Manage webhooks', { reason: 'missing_permission' });
+    if (!UUID.test(id)) throw notFound('Webhook endpoint');
+    const secret = generateWebhookSecret();
+    const { data, error } = await service.from('webhook_endpoints').update({ secret: sealWebhookSecret(id, secret) }).eq('id', id).select('id');
+    if (error) throw error;
+    if (!data?.length) throw notFound('Webhook endpoint');
     return { secret };
   }, { noStore: true });
 }

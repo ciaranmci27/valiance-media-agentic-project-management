@@ -10,10 +10,12 @@ import { appLocale } from '@/lib/region';
 import type { IdentityView, LinkRequestView } from '@/lib/identities';
 
 /**
- * Link a chat account: a company assistant sent this one-time link so the
- * signed-in person can prove a Slack, Teams or Telegram account is theirs.
- * It names the account and who asked, and Confirm links it. A used, expired
- * or someone else's link says so plainly, with what to do next.
+ * Link a chat account: a chat bot sent this one-time link so the signed-in
+ * person can prove a Slack, Telegram or Discord account is theirs. A link
+ * they started by messaging the bot says so ("You messaged the Slack bot");
+ * one an agent asked for names it. Confirm links it. A used, expired or
+ * someone else's link says so plainly, with what to do next: message the
+ * bot again for a new one.
  */
 
 type Loaded =
@@ -72,7 +74,7 @@ export default function LinkAccountPage() {
         )}
         {state.kind === 'missing' && (
           <Outcome icon={AlertTriangle} tone="danger" title="This link does not work"
-            body="It may be mistyped, or it was never made. Ask the assistant for a new link." />
+            body="It may be mistyped, or it was never made. Message the bot again for a new link." />
         )}
         {state.kind === 'failed' && (
           <Outcome icon={AlertTriangle} tone="danger" title="Could not load this link" body={state.message}
@@ -80,7 +82,7 @@ export default function LinkAccountPage() {
         )}
         {state.kind === 'linked' && (
           <Outcome icon={CheckCircle2} tone="success" title={`${state.link.provider_label} account linked`}
-            body={`Assistants now know ${state.identity.handle ?? state.identity.external_id} is you, and can act for you within your access. You can unlink it any time.`}
+            body={`${state.identity.handle ?? state.identity.external_id} is linked to you. The bot says so in ${state.link.provider_label}: message it there and your assistant answers. You can unlink it any time.`}
             action={<Button href="/settings/account#chat-accounts">See chat accounts</Button>} />
         )}
         {state.kind === 'ready' && (() => {
@@ -92,22 +94,24 @@ export default function LinkAccountPage() {
           }
           if (link.state === 'used') {
             return <Outcome icon={Clock} tone="muted" title="This link was already used"
-              body="Each link works once. If the account is not linked yet, ask the assistant for a new link." />;
+              body="Each link works once. If the account is not linked yet, message the bot again for a new link." />;
           }
           if (link.state === 'expired') {
             return <Outcome icon={Clock} tone="muted" title="This link expired"
-              body="Links last 15 minutes. Ask the assistant for a new one." />;
+              body="Links last 15 minutes. Message the bot again and it sends a new one at once." />;
           }
           if (link.state === 'wrong_member') {
             return <Outcome icon={UserX} tone="danger" title="This link is for someone else"
-              body="It was made for another person. Sign out and sign in as them, or ask the assistant for a link of your own." />;
+              body="It was made for another person. Sign out and sign in as them, or message the bot yourself for a link of your own." />;
           }
           return (
             <div>
               <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-brand-500/15 text-brand-300" aria-hidden="true"><Link2 size={22} /></span>
-              <h1 className="mt-4 text-lg font-semibold text-white">Link your {link.provider_label} account?</h1>
+              <h1 className="mt-4 text-lg font-semibold text-white">{link.from_chat ? `You messaged the ${link.provider_label} bot` : `Link your ${link.provider_label} account?`}</h1>
               <p className="mt-1.5 text-sm text-zinc-400">
-                {link.requested_by_name ? `${link.requested_by_name} asked` : 'An assistant asked'} to link this account to you, so it knows who is asking and can act for you within your access.
+                {link.from_chat
+                  ? 'Link this account to you? Then the bot knows who is asking, and your assistant can act for you within your access.'
+                  : `${link.requested_by_name ? `${link.requested_by_name} asked` : 'An assistant asked'} to link this account to you, so it knows who is asking and can act for you within your access.`}
               </p>
               <dl className="mt-5 divide-y divide-white/[0.06] rounded-lg bg-white/[0.03] text-sm">
                 <div className="flex justify-between gap-4 px-4 py-2.5"><dt className="text-zinc-500">Account</dt><dd className="min-w-0 truncate text-zinc-100">{link.handle ?? link.external_id}</dd></div>

@@ -1,11 +1,12 @@
-import type { NeedsYouItem } from '@/lib/autonomy';
+import { latestReview, type NeedsYouItem } from '@/lib/autonomy';
 import { agentRulesOf, ESCALATE_DEFAULT_LABEL } from '@/lib/agent-rules';
 import { groupTargetLabel } from '@/lib/groups';
 import {
-  AGENT_RUN_STATUSES,
+  RUN_FILTER_STATUSES,
   effectiveRunStatus,
-  type AgentRunStatus,
+  runDisplayStatus,
   type AgentRunSummary,
+  type RunDisplayStatus,
 } from '@/lib/agent-runs';
 import type { QuestionView } from '@/lib/questions';
 import { pendingSuggestionsInReach } from '@/lib/suggestion-reach';
@@ -46,11 +47,15 @@ export interface AgentBlockedItem {
   task: Task;
   /** The agent's question, verbatim. */
   question: string;
+  /** The blocked agent (agentOfTask); null when no agent is named on the task. */
+  agentId: string | null;
+  /** The open question the block raised, when it names one. */
+  questionId?: string;
 }
 
 export interface AgentReviewItem {
   task: Task;
-  /** The agent whose work it is (the claim first, then the creator, then an assignee). */
+  /** The agent whose work it is (agentOfTask: the claim first, then an agent assignee). */
   agentId: string;
   /** The independent reviewer's verdict when the task holds for a merge; undefined when it does not. */
   reviewerVerdict?: TaskReview | null;
@@ -72,6 +77,17 @@ export interface AgentNeedsYou {
 }
 
 const newestFirst = (a: string, b: string) => (a < b ? 1 : a > b ? -1 : 0);
+
+/**
+ * The agent whose work a task is: the agent that claimed it, else its first
+ * agent assignee. Creating a task is not doing it: an agent that only made a
+ * person's task (triage) is never its agent. One rule for every Needs you row
+ * and each agent's own slice, so a row is always filed under the same agent.
+ */
+export function agentOfTask(task: Pick<Task, 'claimed_by' | 'assignee_ids'>, agentIds: ReadonlySet<string>): string | null {
+  if (task.claimed_by && agentIds.has(task.claimed_by)) return task.claimed_by;
+  return (task.assignee_ids ?? []).find((id) => agentIds.has(id)) ?? null;
+}
 
 /**
  * Everything waiting on the signed-in person from agents, grouped by kind.
@@ -96,25 +112,28 @@ export function buildAgentNeedsYou(input: {
     .sort((a, b) => newestFirst(a.created_at, b.created_at));
 
   const blocked = input.needsYou
-    .flatMap((item) => (item.kind === 'blocked' && item.task ? [{ task: item.task, question: item.question ?? '' }] : []))
+    .flatMap((item): AgentBlockedItem[] => (item.kind === 'blocked' && item.task
+      ? [{ task: item.task, question: item.question ?? '', agentId: agentOfTask(item.task, agentIds), ...(item.questionId ? { questionId: item.questionId } : {}) }]
+      : []))
     .sort((a, b) => newestFirst(a.task.updated_at, b.task.updated_at));
 
   const merges = new Map(input.needsYou
     .filter((item) => item.kind === 'merge' && item.task)
     .map((item) => [item.task!.id, item.reviewerVerdict ?? null]));
 
-  const agentOf = (task: Task): string | null => {
-    if (task.claimed_by && agentIds.has(task.claimed_by)) return task.claimed_by;
-    if (task.created_by && agentIds.has(task.created_by)) return task.created_by;
-    return task.assignee_ids.find((id) => agentIds.has(id)) ?? null;
-  };
   const inReview = input.tasks
     .flatMap((task) => {
       if (task.status !== 'in_review') return [];
-      const agentId = agentOf(task);
+      const agentId = agentOfTask(task, agentIds);
       // A held agent merge counts even when no agent is named on it: it is
       // agent work by its lane, and computeNeedsYou already put it here.
-      if (!agentId && !merges.has(task.id)) return [];
+      if (!merges.has(task.id)) {
+        // A subtask is a piece of its parent (you only wait on it), a
+        // human-only task is a person's however it was assigned, and work the
+        // reviewer sent back waits on the agent, not on you.
+        if (!agentId || task.parent_task_id || task.ai_readiness === 'human_only') return [];
+        if (latestReview(task)?.verdict === 'changes_requested') return [];
+      }
       return [{
         task,
         agentId: agentId ?? '',
@@ -147,7 +166,7 @@ export function needsYouCountLabel(total: number): string {
 /** What one agent is waiting on the person for: its slice of Needs you, for its profile. */
 export function needsForAgent(needs: AgentNeedsYou, agentId: string): AgentNeedsYou {
   const questions = needs.questions.filter((q) => q.asked_by === agentId);
-  const blocked = needs.blocked.filter(({ task }) => task.claimed_by === agentId || (!task.claimed_by && task.assignee_ids.includes(agentId)));
+  const blocked = needs.blocked.filter((item) => item.agentId === agentId);
   const inReview = needs.inReview.filter((item) => item.agentId === agentId);
   const pendingSuggestions = needs.pendingSuggestions.filter((s) => s.proposed_by === agentId);
   return {
@@ -166,42 +185,72 @@ export const RUNS_PAGE_SIZE = 25;
 
 export interface RunFeedFilters {
   agentId: string | null;
-  status: AgentRunStatus | null;
+  /** What the row shows (display_status): a turn's outcome, a run's status. */
+  status: RunDisplayStatus | null;
   projectId: string | null;
+  /** Started on or after this day (YYYY-MM-DD, the viewer's own days). */
+  from?: string | null;
+  /** Started on or before this day (YYYY-MM-DD). */
+  to?: string | null;
 }
 
-export const NO_RUN_FILTERS: RunFeedFilters = { agentId: null, status: null, projectId: null };
+export const NO_RUN_FILTERS: RunFeedFilters = { agentId: null, status: null, projectId: null, from: null, to: null };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const DATE_KEY = /^\d{4}-\d{2}-\d{2}$/;
 
-/** The columns of pm.agent_run_feed a run row reads. */
-export const RUN_FEED_COLUMNS = 'id, source, agent_id, task_id, project_id, status, outcome, title, summary, model, trigger, started_at, finished_at, duration_ms, tokens_in, tokens_out, cost_usd, external_id, external_url, updated_at';
+/** Whether a value is a run status the Runs filter offers. */
+export const isRunFilterStatus = (value: string | null | undefined): value is RunDisplayStatus =>
+  !!value && (RUN_FILTER_STATUSES as readonly string[]).includes(value);
+
+/** Whether a value is a real YYYY-MM-DD day. */
+export const isDateKey = (value: string | null | undefined): value is string =>
+  !!value && DATE_KEY.test(value) && !Number.isNaN(Date.parse(`${value}T00:00:00Z`));
+
+/** The columns of pm.agent_run_rows (the run feed plus display_status, 20261127000200) a run row reads. */
+export const RUN_FEED_COLUMNS = 'id, source, agent_id, task_id, project_id, status, display_status, outcome, title, summary, model, trigger, started_at, finished_at, duration_ms, tokens_in, tokens_out, cost_usd, external_id, external_url, updated_at';
 
 export interface RunFeedQuery {
   /** The read's cache key: one entry per filter set and page. */
   key: string;
   /** Column equalities to apply, in order. */
-  eq: [column: 'agent_id' | 'status' | 'project_id', value: string][];
+  eq: [column: 'agent_id' | 'display_status' | 'project_id', value: string][];
+  /** The days runs started in, as local-midnight bounds on sort_at: gte inclusive, lt exclusive. */
+  started: { gte?: string; lt?: string };
   /** Inclusive range for PostgREST. */
   from: number;
   to: number;
 }
 
+/** Local midnight of a YYYY-MM-DD day, plus some days, as ISO. */
+function dayStartIso(key: string, plusDays = 0): string {
+  const [y, m, d] = key.split('-').map(Number);
+  return new Date(y, m - 1, d + plusDays).toISOString();
+}
+
 /**
  * The run feed's query for one set of filters and a zero-based page. A
- * filter that is not a real id or status is dropped rather than sent, so a
- * stale URL or a bad value lists everything instead of failing.
+ * filter that is not a real id, status or day is dropped rather than sent,
+ * so a stale URL or a bad value lists everything instead of failing. Status
+ * filters on display_status, the same column the pill shows.
  */
 export function runFeedQuery(filters: RunFeedFilters, page: number, pageSize = RUNS_PAGE_SIZE): RunFeedQuery {
   const safePage = Number.isInteger(page) && page > 0 ? page : 0;
   const eq: RunFeedQuery['eq'] = [];
   if (filters.agentId && UUID.test(filters.agentId)) eq.push(['agent_id', filters.agentId]);
-  if (filters.status && (AGENT_RUN_STATUSES as readonly string[]).includes(filters.status)) eq.push(['status', filters.status]);
+  if (isRunFilterStatus(filters.status)) eq.push(['display_status', filters.status]);
   if (filters.projectId && UUID.test(filters.projectId)) eq.push(['project_id', filters.projectId]);
+  const fromDay = isDateKey(filters.from) ? filters.from : null;
+  const toDay = isDateKey(filters.to) ? filters.to : null;
+  const started: RunFeedQuery['started'] = {
+    ...(fromDay ? { gte: dayStartIso(fromDay) } : {}),
+    ...(toDay ? { lt: dayStartIso(toDay, 1) } : {}),
+  };
   const from = safePage * pageSize;
   return {
-    key: `agent-run-feed:${eq.map(([column, value]) => `${column}=${value}`).join('&')}:${from}:${pageSize}`,
+    key: `agent-run-feed:${eq.map(([column, value]) => `${column}=${value}`).join('&')}:${fromDay ?? ''}..${toDay ?? ''}:${from}:${pageSize}`,
     eq,
+    started,
     from,
     to: from + pageSize - 1,
   };
@@ -212,16 +261,22 @@ const num = (value: unknown): number | null => (value === null || value === unde
 /** One pm.agent_run_feed row as the screens show it, the agent's name from the team list. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- rows are read field by field
 export function toRunSummary(row: Record<string, any>, names: ReadonlyMap<string, string>): AgentRunSummary {
+  const source = row.source === 'turn' ? 'turn' as const : 'run' as const;
+  // The view reads a stale run as timed_out already; this keeps the one rule if it ever lags.
+  const status = source === 'turn' ? 'succeeded' as const : effectiveRunStatus({ status: row.status, updated_at: row.updated_at });
+  const outcome = row.outcome ?? null;
+  const computed = runDisplayStatus({ source, status, outcome });
   return {
     id: row.id,
-    source: row.source === 'turn' ? 'turn' : 'run',
+    source,
     agent_id: row.agent_id,
     agent_name: names.get(row.agent_id) ?? null,
     task_id: row.task_id ?? null,
     project_id: row.project_id ?? null,
-    // The view reads a stale run as timed_out already; this keeps the one rule if it ever lags.
-    status: row.source === 'turn' ? 'succeeded' : effectiveRunStatus({ status: row.status, updated_at: row.updated_at }),
-    outcome: row.outcome ?? null,
+    status,
+    outcome,
+    // The view's column; a run the client already reads as timed out (the view lagging) takes the client's rule.
+    display_status: source === 'run' && status !== row.status ? computed : (row.display_status ?? computed),
     title: row.title ?? null,
     summary: row.summary ?? null,
     model: row.model ?? null,
@@ -238,11 +293,11 @@ export function toRunSummary(row: Record<string, any>, names: ReadonlyMap<string
   };
 }
 
-/** How long a run took, or has been going while it runs; null when unknown. */
+/** How long a run took, or has been going while it runs or waits on a person; null when unknown. */
 export function runDurationMs(run: Pick<AgentRunSummary, 'status' | 'started_at' | 'finished_at' | 'duration_ms'>, now = Date.now()): number | null {
   if (run.duration_ms !== null) return Math.max(0, run.duration_ms);
   if (run.finished_at) return Math.max(0, Date.parse(run.finished_at) - Date.parse(run.started_at));
-  if (run.status === 'running') return Math.max(0, now - Date.parse(run.started_at));
+  if (run.status === 'running' || run.status === 'waiting') return Math.max(0, now - Date.parse(run.started_at));
   return null;
 }
 
@@ -257,13 +312,15 @@ export function canSeeRunTrace(run: Pick<AgentRunSummary, 'agent_id' | 'external
   return !!run.external_url && (canManageAgents || (!!viewerId && run.agent_id === viewerId));
 }
 
-export const RUN_STATUS_LABELS: Record<AgentRunStatus, string> = {
+export const RUN_STATUS_LABELS: Record<Exclude<RunDisplayStatus, 'other'>, string> = {
   running: 'Running',
   waiting: 'Waiting on a person',
   succeeded: 'Succeeded',
   failed: 'Failed',
-  cancelled: 'Cancelled',
+  blocked: 'Blocked',
+  no_work: 'No work',
   timed_out: 'Timed out',
+  cancelled: 'Cancelled',
 };
 
 /** "45s", "12m", "1h 5m": a run's length in a few characters. */
@@ -294,7 +351,7 @@ const OUTCOME_WORDS: Record<string, string> = {
 
 /** "scheduled" reads "Scheduled check"; an unknown trigger reads in Title Case words. */
 export function triggerLabel(trigger: string | null): string {
-  if (!trigger) return 'Agent turn';
+  if (!trigger) return 'Agent step';
   return TRIGGER_LABELS[trigger] ?? trigger.replace(/[_.-]+/g, ' ').trim().replace(/(^|\s)\w/g, (c) => c.toUpperCase());
 }
 
@@ -319,24 +376,26 @@ export function runTitle(run: Pick<AgentRunSummary, 'source' | 'title' | 'summar
 
 export type RunPillTone = 'info' | 'success' | 'danger' | 'warning' | 'default';
 
+// Waiting on a person and blocked read like other work waiting on someone:
+// amber, never a failure. A run that timed out did not finish: red, a
+// failure, as Analytics counts it.
+const RUN_PILL_TONES: Record<RunDisplayStatus, RunPillTone> = {
+  running: 'info', waiting: 'warning', succeeded: 'success', failed: 'danger', blocked: 'warning',
+  no_work: 'default', timed_out: 'danger', cancelled: 'default', other: 'default',
+};
+
 /**
- * The pill a run row wears. A stored run shows its real status. A turn
+ * The pill a run row wears: its display status (runDisplayStatus, the same
+ * column the Runs filter matches). A stored run shows its real status; a turn
  * (always "succeeded" as a process) shows what it came to, so the pill never
- * contradicts its title: blocked, failed, no work, or done.
+ * contradicts its title or the filter it was found under.
  */
-export function runPill(run: Pick<AgentRunSummary, 'source' | 'status' | 'outcome'>): { label: string; tone: RunPillTone; running: boolean } {
-  if (run.status === 'running') return { label: RUN_STATUS_LABELS.running, tone: 'info', running: true };
-  if (run.source !== 'turn') {
-    // Waiting on a person reads like other work waiting on someone: amber, never a failure.
-    const tone: Record<AgentRunStatus, RunPillTone> = { running: 'info', waiting: 'warning', succeeded: 'success', failed: 'danger', timed_out: 'warning', cancelled: 'default' };
-    return { label: RUN_STATUS_LABELS[run.status], tone: tone[run.status], running: false };
-  }
-  const outcome = (run.outcome ?? '').toLowerCase();
-  if (outcome === 'blocked') return { label: 'Blocked', tone: 'warning', running: false };
-  if (outcome === 'failed' || outcome === 'error') return { label: 'Failed', tone: 'danger', running: false };
-  if (['idle', 'skipped', 'waiting', 'no_work', 'nothing', 'nothing_to_do'].includes(outcome)) return { label: 'No work', tone: 'default', running: false };
-  if (!outcome || ['work', 'worked', 'ok', 'done', 'shipped', 'succeeded'].includes(outcome)) return { label: 'Done', tone: 'success', running: false };
-  return { label: outcome.replace(/[_.-]+/g, ' ').replace(/^\w/, (c) => c.toUpperCase()), tone: 'default', running: false };
+export function runPill(run: Pick<AgentRunSummary, 'source' | 'status' | 'outcome'> & { display_status?: RunDisplayStatus }): { label: string; tone: RunPillTone; running: boolean; status: RunDisplayStatus } {
+  const status = run.display_status ?? runDisplayStatus(run);
+  const label = status === 'other'
+    ? (run.outcome ?? '').replace(/[_.-]+/g, ' ').trim().replace(/^\w/, (c) => c.toUpperCase()) || 'Finished'
+    : RUN_STATUS_LABELS[status];
+  return { label, tone: RUN_PILL_TONES[status], running: status === 'running', status };
 }
 
 /** The newest running run per agent: what each agent is on right now. */
@@ -361,16 +420,25 @@ export function agentRulesInWords(
   const rules = agentRulesOf(member);
   const groupId = typeof member?.agent_escalate_to_group === 'string' ? member.agent_escalate_to_group : null;
   const group = groupId ? groups.find((g) => g.id === groupId) : undefined;
-  // Someone no longer on the team (or a group gone) reads as the fallback the server uses: the Owner.
+  // Someone no longer on the team (or a group gone) reads as the fallback the server uses: its owners.
   const escalatesTo = (rules.agent_escalate_to && team.find((m) => m.id === rules.agent_escalate_to)?.name)
     || (group ? groupTargetLabel(group.name) : null)
-    || ESCALATE_DEFAULT_LABEL.replace(/^The /, 'the ');
+    || ESCALATE_DEFAULT_LABEL.charAt(0).toLowerCase() + ESCALATE_DEFAULT_LABEL.slice(1);
   return [
     rules.agent_self_assign ? 'Picks up unassigned work' : 'Works only when assigned',
     rules.agent_close_policy === 'review' ? 'Sends finished work to review' : 'Closes its own tasks',
     rules.agent_create_policy === 'approval' ? 'New tasks need approval' : 'New tasks go live',
     `Escalates to ${escalatesTo}`,
   ];
+}
+
+/**
+ * Whether an agent reads as paused right now: its own pause, or Pause every
+ * agent for the whole workspace. A suspended agent reads as suspended.
+ */
+export function agentPausedNow(agent: { status?: string | null; agent_paused_at?: string | null }, workspacePausedAt: string | null | undefined): boolean {
+  if (agent.status === 'suspended') return false;
+  return !!agent.agent_paused_at || !!workspacePausedAt;
 }
 
 // Claimable work sitting past one missed pickup check reads as "waiting";

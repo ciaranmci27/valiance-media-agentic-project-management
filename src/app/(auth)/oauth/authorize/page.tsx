@@ -48,11 +48,18 @@ export default async function AuthorizePage({ searchParams }: { searchParams: Pr
 
   const scopes = connectScopesFor(access);
   const abilities = connectAbilities(scopes);
-  const blocked = !state.ready || !state.enabled || !state.apiEnabled
-    ? 'Connecting AI tools is turned off for this workspace. An Owner can turn it on in Settings > Security.'
-    : access.role === 'agent' || scopes.length === 0
-      ? 'Your account has no access to share with an AI tool yet. Ask an Owner to give you API access in Team > Access.'
-      : check.kind === 'redirect_error' ? `The tool sent a request this app cannot accept: ${check.description}` : null;
+  const owner = access.role === 'owner';
+  const blocked = !state.apiEnabled
+    ? (owner
+      ? 'API access is turned off for this workspace, so AI tools cannot connect. Turn on API access in Settings > Security, then try again.'
+      : 'API access is turned off for this workspace, so AI tools cannot connect. An Owner can turn it on in Settings > Security.')
+    : !state.ready || !state.enabled
+      ? (owner
+        ? 'Connecting AI tools is turned off for this workspace. Turn on "Let people connect AI tools" in Settings > Security, then try again.'
+        : 'Connecting AI tools is turned off for this workspace. An Owner can turn it on in Settings > Security.')
+      : access.role === 'agent' || scopes.length === 0
+        ? 'Your account has no access to share with an AI tool yet. Ask an Owner to give you some in Team > Roles & permissions, on the API tab.'
+        : check.kind === 'redirect_error' ? `The tool sent a request this app cannot accept: ${check.description}` : null;
   const name = check.client.client_name;
   const back = redirectHost(check.redirectUri);
   const words = consentWords(name, check.redirectUri);

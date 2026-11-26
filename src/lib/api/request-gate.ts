@@ -9,8 +9,9 @@ import { currentPausedProjectIds } from './request-context';
  * request against the right limit (the agent's own rate_per_minute across
  * all its keys when set, else DEFAULT_RATE_PER_MINUTE per key, both in the
  * database so every server instance shares them) and, for an agent, says
- * what is paused: the workspace (the kill switch), the agent itself, and the
- * projects it is paused on.
+ * what is paused: the workspace (the kill switch), the agent itself, the
+ * projects it is paused on, and, for a personal agent, assistants switched
+ * off for the workspace (assistants_off, 20261127000100).
  *
  * While paused, an agent's key still reads, beats, reports telemetry and
  * winds down (finishes a run, releases a claim): PAUSE_EXEMPT. Every other
@@ -26,6 +27,8 @@ export interface RequestGate {
   agent: boolean;
   workspacePausedAt: string | null;
   agentPausedAt: string | null;
+  /** A personal agent while assistants are switched off for the workspace: on hold like any pause. */
+  assistantsOff: boolean;
   pausedProjectIds: string[];
 }
 
@@ -44,7 +47,7 @@ export async function passRequestGate(supabase: SupabaseClient, apiKeyId: string
   if (error) {
     if (!missingGate(error)) throw error;
     const rate = await checkRateLimit(supabase, apiKeyId);
-    return { ...rate, limit: DEFAULT_RATE_PER_MINUTE, agent: false, workspacePausedAt: null, agentPausedAt: null, pausedProjectIds: [] };
+    return { ...rate, limit: DEFAULT_RATE_PER_MINUTE, agent: false, workspacePausedAt: null, agentPausedAt: null, assistantsOff: false, pausedProjectIds: [] };
   }
   const gate = (data ?? {}) as Record<string, unknown>;
   return {
@@ -55,6 +58,7 @@ export async function passRequestGate(supabase: SupabaseClient, apiKeyId: string
     agent: gate.agent === true,
     workspacePausedAt: typeof gate.workspace_paused_at === 'string' ? gate.workspace_paused_at : null,
     agentPausedAt: typeof gate.agent_paused_at === 'string' ? gate.agent_paused_at : null,
+    assistantsOff: gate.assistants_off === true,
     pausedProjectIds: Array.isArray(gate.paused_project_ids) ? (gate.paused_project_ids as string[]) : [],
   };
 }
@@ -73,13 +77,19 @@ export function pauseExempt(pathname: string, method: string): boolean {
   return false;
 }
 
-/** 423 for a write from a paused agent (the workspace switch first, then its own pause); null when it may go on. */
+/** 423 for a write from a paused agent (the workspace switch first, then assistants off, then its own pause); null when it may go on. */
 export function pausedRefusal(gate: RequestGate, pathname: string, method: string): ApiError | null {
   if (!gate.agent || pauseExempt(pathname, method)) return null;
   if (gate.workspacePausedAt) {
     return new ApiError(423, 'AGENTS_PAUSED', 'Every agent in this workspace is paused. Reads, heartbeats and telemetry still work; nothing else does until an Owner resumes agents.', {
       reason: 'agents_paused',
       paused_at: gate.workspacePausedAt,
+      hint: 'Stop starting new work. Keep reporting your heartbeat and usage, and check again later.',
+    });
+  }
+  if (gate.assistantsOff) {
+    return new ApiError(423, 'ASSISTANTS_OFF', 'Assistants are switched off in this workspace, so every personal assistant is on hold. Reads, heartbeats and telemetry still work; nothing else does until an Owner turns assistants back on.', {
+      reason: 'assistants_off',
       hint: 'Stop starting new work. Keep reporting your heartbeat and usage, and check again later.',
     });
   }

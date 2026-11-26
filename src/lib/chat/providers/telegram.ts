@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import {
   ChatProviderError, cleanFileName, cleanMimeType, countOrNull, downloadCapped, postJson, safeEqual, tooLarge,
-  type ChatAdapter, type InboundAttachment, type ParsedInbound,
+  type ChatAdapter, type ConnectResult, type InboundAttachment, type ParsedInbound,
 } from './adapter';
 
 /**
@@ -123,12 +123,17 @@ export const telegramAdapter: ChatAdapter = {
     throw new ChatProviderError('telegram', 'chat_not_found', `Telegram does not know a group called ${chatId}. Add the bot to the group and paste the group's chat id instead.`);
   },
 
-  async connect({ credentials, inboundUrl, displayName }) {
+  async connect({ credentials, inboundUrl, displayName, expectedBotId }) {
     const me = await postJson('telegram', botUrl(credentials.bot_token, 'getMe'), {});
     if (me.ok !== true) {
       throw new ChatProviderError('telegram', String(me.error_code ?? 'failed'), 'Telegram did not accept that bot token. Copy it from BotFather again.');
     }
     const bot = me.result as Loose;
+    // Another bot's token: never point its webhook here (that would cut off whatever uses it).
+    if (expectedBotId && bot?.id !== undefined && String(bot.id) !== expectedBotId) {
+      const other: ConnectResult = { credentials: { bot_token: credentials.bot_token }, workspaceId: String(bot.id), botId: String(bot.id), botHandle: null, displayName: displayName ?? 'Telegram' };
+      return other;
+    }
     if (!/^https:\/\//.test(inboundUrl)) {
       throw new ChatProviderError('telegram', 'not_https', `Telegram only sends to a public https address, and this app is at ${new URL(inboundUrl).origin}.`);
     }

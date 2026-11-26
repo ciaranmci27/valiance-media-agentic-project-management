@@ -30,15 +30,34 @@ const WINDOW = 10;
 /**
  * What the assistant did, newest first, one plain line each. Undo acts at
  * once (no confirm: each can be done again) and the line then says what
- * happened: a task it made goes to Trash, a task it finished reopens, an
- * email it sorted is put back through the Inbox's own undo.
+ * happened: a task it made goes to Trash (with Restore beside it), a task it
+ * finished goes back to the status it had, an email it sorted is put back
+ * through the Inbox's own undo.
  */
-export function AssistantActivityBand({ assistantName }: { assistantName: string }) {
-  const read = useRead(myAssistantActivityRead());
+export function AssistantActivityBand({ assistantName, isDemo = false }: { assistantName: string; isDemo?: boolean }) {
+  const read = useRead(myAssistantActivityRead(isDemo));
   const [shown, setShown] = useState(WINDOW);
   const [undoing, setUndoing] = useState<string | null>(null);
   const [undone, setUndone] = useState<Record<string, string>>({});
+  const [restored, setRestored] = useState<Record<string, true>>({});
   const items = read.data?.items ?? [];
+
+  const restore = async (item: AssistantActivityItem, restoreUndo: NonNullable<AssistantActivityItem['restore']>) => {
+    setUndoing(item.id);
+    try {
+      await workspaceApi('/api/workspace/assistant/undo', { method: 'POST', body: restoreUndo });
+      invalidateTables(['tasks']);
+      setRestored((current) => ({ ...current, [item.id]: true }));
+      setUndone((current) => { const next = { ...current }; delete next[item.id]; return next; });
+      setReadData(myAssistantActivityRead(isDemo), (current) => (current
+        ? { ...current, items: current.items.map((row) => (row.id === item.id ? { ...row, undone: false, restore: null, undo: { kind: 'task_created' as const, id: restoreUndo.id } } : row)) }
+        : current as never));
+    } catch (error) {
+      toast('error', error instanceof Error ? error.message : 'Could not restore it. Try again.');
+    } finally {
+      setUndoing(null);
+    }
+  };
 
   const undo = async (item: AssistantActivityItem) => {
     if (!item.undo) return;
@@ -52,8 +71,9 @@ export function AssistantActivityBand({ assistantName }: { assistantName: string
         invalidateTables(['tasks']);
       }
       setUndone((current) => ({ ...current, [item.id]: UNDO_WORDS[item.undo!.kind] }));
-      setReadData(myAssistantActivityRead(), (current) => (current
-        ? { ...current, items: current.items.map((row) => (row.id === item.id ? { ...row, undo: null, undone: true } : row)) }
+      const restoreUndo = item.undo.kind === 'task_created' ? { kind: 'task_restore' as const, id: item.undo.id } : null;
+      setReadData(myAssistantActivityRead(isDemo), (current) => (current
+        ? { ...current, items: current.items.map((row) => (row.id === item.id ? { ...row, undo: null, undone: true, restore: restoreUndo } : row)) }
         : current as never));
     } catch (error) {
       toast('error', error instanceof Error ? error.message : 'Could not undo. Try again.');
@@ -85,7 +105,8 @@ export function AssistantActivityBand({ assistantName }: { assistantName: string
         <ul className="divide-y divide-white/[0.04]">
           {items.slice(0, shown).map((item) => {
             const Icon = KIND_ICON[item.kind];
-            const doneWords = undone[item.id] ?? (item.undone ? 'Undone' : null);
+            const doneWords = undone[item.id] ?? (item.undone ? (item.kind === 'task_created' ? 'In Trash' : 'Undone') : null);
+            const canRestore = !!item.restore && !restored[item.id];
             const line = <span className="text-sm text-zinc-200 break-words">{item.text}</span>;
             return (
               <li key={item.id} className="flex items-start gap-3 px-4 py-2.5">
@@ -97,7 +118,14 @@ export function AssistantActivityBand({ assistantName }: { assistantName: string
                   <p className="text-[11px] text-zinc-500 tabular-nums">{timeAgo(item.at)}</p>
                 </div>
                 {doneWords ? (
-                  <span className="flex-shrink-0 rounded-full bg-white/[0.05] px-2 py-0.5 text-[11px] text-zinc-400">{doneWords}</span>
+                  <span className="flex flex-shrink-0 items-center gap-1.5">
+                    <span className="rounded-full bg-white/[0.05] px-2 py-0.5 text-[11px] text-zinc-400">{doneWords}</span>
+                    {canRestore && item.restore && (
+                      <Button size="sm" variant="ghost" disabled={undoing === item.id} onClick={() => void restore(item, item.restore!)}>
+                        {undoing === item.id ? 'Restoring' : 'Restore'}
+                      </Button>
+                    )}
+                  </span>
                 ) : item.undo ? (
                   <Button size="sm" variant="ghost" disabled={undoing === item.id} onClick={() => void undo(item)}>
                     {undoing === item.id ? 'Undoing' : 'Undo'}

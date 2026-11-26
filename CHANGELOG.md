@@ -9,6 +9,39 @@ Each section starts with `## X.Y.Z (YYYY-MM-DD)` and uses these headings, leavin
 - `### Database`: the core migration files in the release, one per line. `npm run db:migrate` applies them.
 - `### Breaking`: what an install must do when it takes this release.
 
+## 2.0.48 (2026-11-27)
+
+### Added
+- **Set up agents with AI.** Hire an agent now starts with "Set it up with AI" or "Step by step". An Owner lets a connected AI tool (Claude, ChatGPT) set up agents for one hour, or makes a one-hour setup key for a tool that is not connected. The page shows each agent as the AI makes it, with Review and End access now. Over MCP the session adds `hire_agent` and the setup tools only; over REST, `POST /api/v1/agents/hire`. Every change is recorded as the tool acting for the Owner.
+- **API keys you can manage**: Pause and Resume (the secret keeps working again on resume), edit a key's name and scopes, and each key's state (active, paused, expired, revoked) with a `state` filter. Over the API: `POST /api/v1/api-keys/:id/pause` and `/resume`, `PATCH /api/v1/api-keys/:id`, MCP `pause_api_key`, `resume_api_key`, `update_api_key`. Every change is in the audit log with before and after.
+- **Hiring and agent profiles**: upload a picture when hiring or later from the profile, a review step before hiring, powers beyond the agent's role (Owner only), the key in the connect snippets' header, a webhook field, and Take off project.
+- **Settings > Assistants** starts with the Agent service step (its key shown once, then Waiting, then Connected). Chat connections show Waiting, Connected, Quiet, Not receiving or Off; a bot token or Slack signing secret can be replaced in place; messages sent while an assistant was paused are delivered when it works again.
+- **Notifications foundation**: mark notifications done, snooze anything until later, a grouped feed, and one Needs-you count shared by My Tasks and Agents. `GET /api/v1/notifications` gains `view` and `category` filters and new fields.
+- **Agents home**: a Decided view, and declining a suggestion with a reason.
+- **Projects and groups**: change the template a project's agent works from, Pause here for an agent with access but no setup, Mark checked on entries an agent wrote, a group's "Used for" list, and "Also change the role of anyone already in it" when adding people to a group (`only_new`).
+- **Settings**: audit log CSV export, a preview of what a shorter retention removes, a preview of the keys a revoke takes with it, and each webhook endpoint's health.
+- **Design rules**: `DESIGN.md` now has binding Rules for every screen, and `AGENTS.md` points every builder at them.
+
+### Changed
+- Notices that announce something waiting on you (a question, an approval, an agent's findings, an inbox decision) no longer appear in the Notifications list or its count; the item itself lives in My Tasks or Agents, counted once.
+- A paused key's replaced secret stops working too, and a key cannot be rotated while it is paused.
+- Removing an agent from a project's members also removes its setup on that project.
+- Adding people to a group no longer changes the role of anyone already in it unless you tick the option.
+- An added key scope must be held by the person editing the key as well as by the key's member. An AI setup key cannot be edited, paused or rotated.
+- Replacing a Telegram bot token refuses another bot's token before touching that bot's webhook.
+- Keys an AI setup session makes for agents do not depend on the setup key, so revoking it later leaves them working.
+
+### Database
+- `20261127000100_assistant_fixes.sql`: personal agents held while Assistants is off, chat connection refusals, switching a connection's agents in one step.
+- `20261127000200_agents_home_fixes.sql`: one display status for agent runs, and runs in the feed name their task.
+- `20261127000400_project_agent_fixes.sql`: an agent's project setup goes when its project membership does; pinning keeps an entry's updated time.
+- `20261127000500_ai_setup.sql`: AI setup sessions.
+- `20261127000600_key_management.sql`: pausing API keys.
+- `20261127000700_notifications_foundation.sql`: notification categories, done and snooze, the grouped feed.
+
+### Breaking
+- **Personal agents need Assistants on.** While Settings > Assistants is off, personal agents are held: their writes get `423 assistants_off`. If you run personal agents, turn Assistants on before or right after updating.
+
 ## 2.0.47 (2026-11-26)
 
 ### Added

@@ -6,7 +6,8 @@ import { callerHolds, type AgentCaller } from './agent-owners';
 import { checkKeyGrant, type Granter } from './agent-setup';
 import { generateApiKey, hashApiKey } from './crypto';
 import { ApiError, forbidden, notFound } from './errors';
-import { agentKeyExpiry } from './key-lifetime';
+import { rotatedKeyExpiry } from './key-lifetime';
+import { setupKeyFixed } from './key-manage';
 
 /**
  * Rotating a key with overlap (POST /api/v1/api-keys/{id}/rotate, and the
@@ -25,8 +26,10 @@ import { agentKeyExpiry } from './key-lifetime';
  *   agent's key; every scope still held by the key's member and grantable
  *   by the caller. A harness key with assistants.provision rotates personal
  *   agents' keys only.
- * - The successor's lifetime is the workspace's agent key lifetime (none
- *   for a person's key).
+ * - The successor's lifetime: the workspace's agent key lifetime for an
+ *   agent's key. A person's lasts as long as the old key was made to last,
+ *   held to the workspace's personal key lifetime for anyone but an Owner
+ *   (rotatedKeyLifetimeDays), so a rotation never lifts the cap.
  */
 
 export const ROTATION_OVERLAP_DEFAULT_HOURS = 24;
@@ -71,9 +74,9 @@ export async function rotateApiKey(
 ): Promise<RotatedKey> {
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(keyId)) throw notFound('API key');
   const overlapHours = input.overlap_hours ?? ROTATION_OVERLAP_DEFAULT_HOURS;
-  const { data, error } = await service.from('api_keys').select('id, team_member_id, scopes, revoked_at, expires_at, permissions').eq('id', keyId).maybeSingle();
+  const { data, error } = await service.from('api_keys').select('id, key_prefix, team_member_id, scopes, revoked_at, expires_at, permissions, created_at').eq('id', keyId).maybeSingle();
   if (error) throw error;
-  const old = data as { id: string; team_member_id: string | null; scopes: string[] | null; revoked_at: string | null; expires_at: string | null; permissions: string } | null;
+  const old = data as { id: string; key_prefix: string; team_member_id: string | null; scopes: string[] | null; revoked_at: string | null; expires_at: string | null; permissions: string; created_at: string } | null;
   // A connected app's key is never rotated (that would hand out a secret for it).
   if (!old || !old.team_member_id || old.permissions === 'connection') throw notFound('API key');
 
@@ -94,12 +97,15 @@ export async function rotateApiKey(
   if (old.expires_at && new Date(old.expires_at).getTime() <= Date.now()) {
     throw new ApiError(409, 'CONFLICT', 'This key has expired: make a new one instead', { reason: 'key_expired' });
   }
+  // A setup key's limit rests on its secret's prefix: a successor would lose it.
+  const fixed = setupKeyFixed(old);
+  if (fixed) throw fixed;
   // Minting's rules, for the same member and scopes.
   await checkKeyGrant(service, actor.granter, { memberId: old.team_member_id, scopes: old.scopes ?? [], harness });
 
   await revokeRotatedKeys(service);
   const secret = generateApiKey();
-  const expiresAt = await agentKeyExpiry(service, old.team_member_id);
+  const expiresAt = await rotatedKeyExpiry(service, { team_member_id: old.team_member_id, created_at: old.created_at, expires_at: old.expires_at }, actor.granter.access);
   const { data: newId, error: rotateError } = await service.rpc('rotate_api_key', {
     p_key_id: keyId,
     p_key_prefix: secret.slice(0, 15),
@@ -110,6 +116,12 @@ export async function rotateApiKey(
   });
   if (missingFunction(rotateError)) throw migrationPending();
   if (rotateError) {
+    // A paused key: a working successor would quietly undo the pause, so
+    // pm.rotate_api_key refuses it under its row lock (20261127000600), with
+    // no window between a check and the rotation.
+    if (rotateError.code === '55000' && (rotateError.hint === 'key_paused' || /is paused/.test(rotateError.message ?? ''))) {
+      throw new ApiError(409, 'CONFLICT', 'This key is paused: resume it before rotating it', { reason: 'key_paused' });
+    }
     if (rotateError.code === '55000' || rotateError.code === '23505') {
       throw new ApiError(409, 'CONFLICT', 'This key was already replaced, or is revoked or expired: rotate its newest key', { reason: 'not_rotatable' });
     }

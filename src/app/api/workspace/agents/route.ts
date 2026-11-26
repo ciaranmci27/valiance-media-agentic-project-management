@@ -24,9 +24,12 @@ export async function GET(request: Request) {
 
 /**
  * Hires an agent in one call (Owner only): the agent with no sign-in, its
- * template's role, profile and rules, its owners (the hirer and any named),
+ * template's role, profile and rules, its owners as owner_ids names them
+ * (the hirer only when that is empty or left out),
  * project access and assignments with settings checked against the
- * template, optionally a key (its secret in this answer only), and how its
+ * template, optionally a key (its secret in this answer only, with
+ * expires_at; a scope the agent role lacks is given to this agent as a
+ * per-member allow first, by an Owner only: scopes_beyond_role), and how its
  * host connects. Never cached. A failure after the first write undoes what
  * the call made (reason hire_incomplete).
  */

@@ -121,13 +121,56 @@ export const createChatConnectionSchema = z.discriminatedUnion('provider', [
 ]);
 export type CreateChatConnection = z.infer<typeof createChatConnectionSchema>;
 
-/** PATCH /api/workspace/chat-connections/{id}. */
+/**
+ * PATCH /api/workspace/chat-connections/{id}. bot_token and signing_secret
+ * replace what the connection signs and sends with, on the same connection:
+ * its id, Request URL, history and people's links stay. A new token must be
+ * for the same bot (Telegram, Discord) or workspace (Slack). Each is checked
+ * against its provider's shape in the server (createChatConnectionSchema).
+ */
 export const updateChatConnectionSchema = z.object({
   display_name: z.string().trim().min(1, 'Give it a name').max(100).optional(),
   enabled: z.boolean().optional(),
   /** Discord: make a new relay secret (the old one stops working). The answer carries it once, as relay_secret. */
   new_relay_secret: z.literal(true).optional(),
-}).strict().refine((body) => Object.keys(body).length > 0, 'Send display_name, enabled or new_relay_secret');
+  bot_token: z.string().trim().min(1).max(300).optional(),
+  /** Slack only. */
+  signing_secret: z.string().trim().min(1).max(200).optional(),
+}).strict().refine((body) => Object.keys(body).length > 0, 'Send display_name, enabled, new_relay_secret, bot_token or signing_secret');
+export type UpdateChatConnection = z.infer<typeof updateChatConnectionSchema>;
+
+/** The provider's own shape for a bot token or Slack signing secret, said in its words (shared by connect and replace). */
+export const CHAT_TOKEN_SHAPES: Record<ChatProvider, { bot_token: RegExp; message: string }> = {
+  slack: { bot_token: /^xoxb-[A-Za-z0-9-]{10,250}$/, message: 'The bot token starts with xoxb-: copy it from OAuth & Permissions in your Slack app' },
+  telegram: { bot_token: /^\d{5,20}:[A-Za-z0-9_-]{30,64}$/, message: 'The bot token looks like 123456:ABC-DEF...: BotFather sends it when you make the bot' },
+  discord: { bot_token: /^[A-Za-z0-9_-]{18,100}\.[A-Za-z0-9_-]{4,20}\.[A-Za-z0-9_-]{20,120}$/, message: 'Copy the bot token from the Bot page of your app in the Discord Developer Portal (Reset Token shows it)' },
+};
+export const SLACK_SIGNING_SECRET_SHAPE = { pattern: /^[A-Za-z0-9]{16,128}$/, message: 'The signing secret is under Basic Information in your Slack app' };
+
+/** A connection with no message in this many days reads Quiet instead of Connected. */
+export const CHAT_CONNECTED_DAYS = 14;
+
+/**
+ * A connection's status, honestly, for the Owner's list:
+ * - off: switched off.
+ * - not_receiving: the provider's last request failed the check (a wrong
+ *   signing secret, an old relay secret), and nothing verified came after it.
+ * - waiting: nothing verified heard yet (Discord: the relay's hello).
+ * - needs_agents: a company connection with no agents chosen.
+ * - connected: a verified request within CHAT_CONNECTED_DAYS.
+ * - quiet: heard once, but nothing for longer than that.
+ */
+export type ChatConnectionHealth = 'off' | 'not_receiving' | 'waiting' | 'needs_agents' | 'connected' | 'quiet';
+
+export function chatConnectionHealth(connection: Pick<ChatConnectionView, 'enabled' | 'kind' | 'agents' | 'last_inbound_at' | 'last_refused_at'>, now = Date.now()): ChatConnectionHealth {
+  if (!connection.enabled) return 'off';
+  const heard = connection.last_inbound_at ? new Date(connection.last_inbound_at).getTime() : null;
+  const refused = connection.last_refused_at ? new Date(connection.last_refused_at).getTime() : null;
+  if (refused !== null && (heard === null || refused > heard)) return 'not_receiving';
+  if (heard === null) return 'waiting';
+  if (connection.kind === 'company' && connection.agents.length === 0) return 'needs_agents';
+  return now - heard <= CHAT_CONNECTED_DAYS * 86_400_000 ? 'connected' : 'quiet';
+}
 
 /** PUT /api/workspace/chat-connections/{id}/agents: the company agents it reaches, and the default. */
 export const chatConnectionAgentsSchema = z.object({
@@ -181,8 +224,10 @@ export interface ChatConnectionView {
   enabled: boolean;
   /** Where the provider sends messages (Slack's Request URL, the Discord relay's PM_INBOUND_URL). */
   inbound_url: string;
-  /** The last verified request from the provider (Discord: from the relay, its hello included). Null: nothing heard yet. */
+  /** The last verified request from the provider (Discord: from the relay, its hello included; Slack: its URL check too). Null: nothing heard yet. */
   last_inbound_at: string | null;
+  /** The last request that failed the provider's check (a wrong signing secret, an old relay secret), or null. */
+  last_refused_at: string | null;
   /**
    * Discord only, and only in the answer that made it (connecting, or
    * new_relay_secret): the secret the relay signs with (PM_RELAY_SECRET).
@@ -193,6 +238,14 @@ export interface ChatConnectionView {
   /** Company connections: the agents it reaches (the default marked) and the mapped channels. Empty for personal ones. */
   agents: ChatConnectionAgentView[];
   channels: ChatChannelRouteView[];
+  /**
+   * Company connections, in the Owner's list: every company agent that could
+   * be chosen, and whether it may act for people (agents.act_for), which it
+   * needs before it can be.
+   */
+  candidates?: { id: string; name: string; can_act_for: boolean }[];
+  /** Company connections, in the Owner's list: chats the bot heard lately that are not mapped yet, to map by picking. */
+  recent_channels?: { id: string; name: string | null; last_at: string }[];
 }
 
 /** GET /api/v1/chat/messages?status= (and the deprecated /api/v1/assistant/messages). context: channel messages recorded for you, never to answer. */
@@ -309,11 +362,17 @@ export interface AssistantChatMessage {
 export const CHAT_WORDS = {
   linkPrompt: (workspace: string, url: string) =>
     `Hi! I don't know who you are in ${workspace} yet. Open this link while signed in to connect this account: ${url}\nIt works once and expires in 15 minutes.`,
-  linkAgain: 'I sent you a link to connect this account. Open it while signed in; if it expired, message me again in an hour.',
+  linkAgain: 'I sent you a link to connect this account a moment ago. Open it while signed in. If it expires, message me again for a new one.',
   linkDirectly: 'Message me directly to connect your account.',
   inactive: 'This account is not active here. Ask your admin.',
   noAssistant: "You don't have an assistant yet. Ask your admin to set one up.",
-  assistantsOff: 'Assistants are not turned on yet. Ask your admin.',
+  assistantsOff: 'Assistants are off in this workspace right now. Ask your admin.',
+  /** A connection an Owner switched off, spoken to. Once a day per chat. */
+  connectionOff: 'This chat is switched off here. Ask your admin.',
+  /** After someone links their account from the link the bot sent: who answers them here now. */
+  linked: (name: string) => `Linked. ${name} answers you here now.`,
+  linkedNoAssistant: "Linked. You don't have an assistant yet: ask your admin to set one up.",
+  linkedCompany: 'Linked. Ask away: the AI here now knows who you are.',
   /** A company bot with nobody to answer here: no agent named, no channel mapping, no default. */
   noAgentHere: 'No AI is set up to answer here yet. Ask your admin.',
   agentsOff: 'AI agents are not turned on yet. Ask your admin.',
@@ -326,8 +385,15 @@ export const CHAT_WORDS = {
  */
 export const QUIET_WORDS = {
   onHold: (name: string) => `${name} is on hold right now and will answer when it's back.`,
-  paused: (name: string, page: string, url: string) => `${name} is paused. Resume it from your ${page} page to get answers.\n${url}`,
-  broken: (name: string) => `${name} can't answer right now. Your admin has been told.`,
+  /** Held for it: what they send meanwhile reaches it when they resume (the newest 20). */
+  paused: (name: string, page: string, url: string) => `${name} is paused. Resume it from your ${page} page: it gets what you send meanwhile when you do.\n${url}`,
+  pausedByAdmin: (name: string) => `${name} is paused by an admin. It gets what you send meanwhile when they resume it.`,
+  /** On hold, and its host stopped reporting. fixer: an admin was told, or the person fixes it in Settings. */
+  hostDown: (name: string, fixer: 'admin' | 'settings') =>
+    `${name} is on hold and its host is not responding. ${fixer === 'admin' ? 'Your admin has been told.' : 'Fix it in Settings > Assistants.'}`,
+  /** Not working: why ("its key expired or was revoked"), then who fixes it. */
+  broken: (name: string, why: string, fixer: 'admin' | 'settings') =>
+    `${name} can't answer right now${why ? `: ${why}` : ''}. ${fixer === 'admin' ? 'Your admin has been told.' : 'Fix it in Settings > Assistants.'}`,
   /** A company agent that is paused, suspended, never connected, or whose host stopped reporting. */
   companyDown: (name: string) => `${name} can't answer right now. Try again later.`,
 } as const;

@@ -216,6 +216,9 @@ async function seed(db: PGlite) {
     return (await db.query<T>(sql, params)).rows;
   };
   await db.exec('DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users');
+  // Assistants on: a personal agent's writes are on hold while they are off (the 423 gate, 20261127000100).
+  await q("INSERT INTO pm.business_settings (business_name) SELECT 'Acme' WHERE NOT EXISTS (SELECT 1 FROM pm.business_settings)");
+  await q('UPDATE pm.business_settings SET assistants_enabled = true');
   await q('UPDATE pm.workspace_modules SET enabled = true');
   const member = async (name: string, role: string, login?: { id: string; email: string }, extra: Record<string, string> = {}) => {
     const cols = Object.keys(extra);

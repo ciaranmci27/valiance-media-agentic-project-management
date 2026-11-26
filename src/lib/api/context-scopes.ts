@@ -7,6 +7,7 @@ import {
 import {
   isContextScope, type AddScopedEntry, type ContextScope, type PatchScopedEntry, type ScopedBrief, type ScopedEntry, type ScopeRef,
 } from '@/lib/context-scopes';
+import { briefEntryChanges, PINNED_REACH } from '@/lib/project-agents-ui';
 import { accessAllowsProject } from './access';
 import { callerChannel, callerHolds, canManageAgent, type AgentCaller } from './agent-owners';
 import { canManageGroups, groupIdsOf, isGroupMember, liveGroup } from './groups';
@@ -238,8 +239,26 @@ export async function readScopedBrief(
   const access = await requireScope(service, caller, ref, false);
   const limit = Math.min(Math.max(options.limit ?? BRIEF_SECTION_PAGE, 1), 200);
   const keys = options.section ? [options.section] : BRIEF_SECTIONS.map((s) => s.key);
-  const sections = await Promise.all(keys.map((key) => sectionPage(service, ref, key, options.section ? options.offset ?? 0 : 0, limit)));
-  return { scope: { scope_type: ref.scope_type, scope_id: ref.scope_id ?? null }, name: access.name, sections, can_edit: access.write };
+  const [sections, pinnedTotal] = await Promise.all([
+    Promise.all(keys.map((key) => sectionPage(service, ref, key, options.section ? options.offset ?? 0 : 0, limit))),
+    options.section ? Promise.resolve(null) : scopePinnedCount(service, ref),
+  ]);
+  return {
+    scope: { scope_type: ref.scope_type, scope_id: ref.scope_id ?? null },
+    name: access.name,
+    sections,
+    can_edit: access.write,
+    ...(pinnedTotal === null ? {} : { pinned_total: pinnedTotal }),
+  };
+}
+
+/** Pinned entries across the whole scope, so a screen can say how many reach an agent. */
+async function scopePinnedCount(service: SupabaseClient, ref: ScopeRef): Promise<number> {
+  const base = service.from('project_context').select('id', { count: 'exact', head: true }).eq('scope_type', ref.scope_type);
+  const { count, error } = await (ref.scope_id ? base.eq('scope_id', ref.scope_id) : base.is('scope_id', null)).eq('is_active', true).eq('pinned', true);
+  if (missingScopeColumns(error)) throw pending();
+  if (error) throw error;
+  return count ?? 0;
 }
 
 /** Adds an entry to a scope, recorded as an agent's when an agent writes it. */
@@ -287,9 +306,8 @@ export async function updateScopedEntry(service: SupabaseClient, caller: AgentCa
   const access = await scopeAccess(service, caller, refOf(before));
   if (!access.read || !before.is_active) throw notFound('Context entry');
   if (!access.write) throw denied(refOf(before), true);
-  const changes: Row = {};
-  if (patch.content !== undefined) changes.content = patch.content;
-  if (patch.pinned !== undefined) changes.pinned = patch.pinned;
+  // A person who edits an entry, or marks it checked, takes it over: "Written by an agent" clears.
+  const changes: Row = briefEntryChanges(before, patch, caller.access.role === 'agent');
   if (patch.section !== undefined && patch.section !== before.section) {
     changes.section = patch.section;
     if (sectionOfCategory(before.category) !== patch.section) changes.category = SECTION_CATEGORY[patch.section];
@@ -409,11 +427,11 @@ export async function searchScopedContext(
 // ── Pinned entries for an agent's context ────────────────────────────────
 
 export const SCOPED_PINNED_LIMITS = {
-  /** Pinned entries per scope, and in all. */
-  perScope: 5,
+  /** Pinned entries per scope, and in all (the screens say so: PINNED_REACH). */
+  perScope: PINNED_REACH.perScope,
   total: 20,
   /** Characters of one entry. */
-  entry: 500,
+  entry: PINNED_REACH.entry,
 } as const;
 
 export interface PinnedScope {

@@ -493,7 +493,8 @@ interface AppContextType {
   unbundleSuggestion: (id: string) => Promise<boolean>;
   rejectSuggestion: (id: string, reason: string | undefined, reviewedBy: string) => Promise<boolean>;
   requestInfoOnSuggestion: (id: string, infoRequest: string, reviewedBy: string) => void;
-  updateSuggestion: (id: string, updates: Partial<TaskSuggestion>) => void;
+  /** Resolves true once saved; a failed save is reverted and toasted. */
+  updateSuggestion: (id: string, updates: Partial<TaskSuggestion>) => Promise<boolean>;
   bulkApproveSuggestions: (ids: string[]) => Promise<number>;
   bulkRejectSuggestions: (ids: string[], reason?: string) => Promise<number>;
   bulkDeclineSuggestions: (ids: string[]) => Promise<number>;
@@ -1116,9 +1117,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
           }
           break;
         case 'notifications':
-          // The sidebar badge and notifications page own their fetches; this
-          // event is the same one they already dispatch after local changes.
-          window.dispatchEvent(new Event('notifications-updated'));
+          // Nothing to fetch here: notifications are cached reads
+          // (reads.ts), already marked stale by invalidateTables above.
           break;
         case 'comms':
           setCommsRefreshSignal(s => s + 1);
@@ -3903,7 +3903,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || 'Failed to revoke API key');
       const revoked = payload.data as ApiKey;
-      setApiKeys(keys => keys.map(k => k.id === id ? revoked : k));
+      // Keys it made (and keys it replaced) go with it: mark each one the server revoked.
+      const cascaded = new Set<string>(Array.isArray(payload.revoked_ids) ? payload.revoked_ids : []);
+      const at = revoked.revoked_at ?? new Date().toISOString();
+      setApiKeys(keys => keys.map(k => k.id === id ? { ...k, ...revoked } : cascaded.has(k.id) ? { ...k, revoked_at: k.revoked_at ?? at } : k));
       if (existing) {
         notify(adminMemberIds(), `API key revoked: "${existing.name}"`, `${actorName()} revoked an API key.`, '/settings/developers#api-keys', 'member', null, 'api_keys');
       }
@@ -4197,10 +4200,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (err instanceof Error && err.message === 'Suggestion has already been reviewed') {
         const { data } = await supabase.from('task_suggestions').select('*').eq('id', id).maybeSingle();
         if (data) setTaskSuggestions(s => s.map(sug => sug.id === id ? data as TaskSuggestion : sug));
+        toast('error', 'This suggestion was already reviewed by someone else');
         return false;
       }
       setTaskSuggestions(s => s.map(sug => sug.id === id ? suggestion : sug));
       console.error('[declineSuggestion] failed:', err);
+      toast('error', 'Could not decline the suggestion. Try again.');
       return false;
     }
   };
@@ -4273,19 +4278,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const updateSuggestionAction = async (id: string, updates: Partial<TaskSuggestion>) => {
+  const updateSuggestionAction = async (id: string, updates: Partial<TaskSuggestion>): Promise<boolean> => {
     const prev = taskSuggestions;
     const suggestion = taskSuggestions.find(s => s.id === id);
     setTaskSuggestions(s => s.map(sug =>
       sug.id === id ? { ...sug, ...updates, updated_at: new Date().toISOString() } : sug
     ));
-    if (skipSupabase) return;
+    if (skipSupabase) return true;
 
     try {
       const updated = await patchTaskSuggestionQuery(supabase, id, updates);
       setTaskSuggestions(s => s.map(sug => sug.id === id ? updated : sug));
 
-      // If reopening a rejected suggestion, deactivate the lesson_learned entry
+      // If reopening a rejected suggestion, deactivate the lesson_learned entry (a declined one recorded none)
       if (suggestion && suggestion.status === 'rejected' && updates.status === 'pending') {
         supabase
           .from('project_context')
@@ -4297,11 +4302,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
           .then(() => invalidateTables(['project_context']), (err: any) => console.error('[reopen] Failed to deactivate lesson_learned entry:', err));
       }
 
-      if (suggestion) {
-      }
+      return true;
     } catch (err) {
       setTaskSuggestions(rollbackScope(prev, sug => sug.id === id));
       toast('error', 'Failed to update suggestion');
+      return false;
     }
   };
 

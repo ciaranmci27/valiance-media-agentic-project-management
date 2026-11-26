@@ -24,6 +24,13 @@ export interface ApiRequestContext {
    * in-process calls accept it and the audit log records via mcp_oauth.
    */
   connection?: boolean;
+  /**
+   * An AI setup session's powers let this request through (a setup route,
+   * lib/ai-setup.ts): who it is for and which session. Set only by withApi
+   * after it found the live session, so the audit log records the call as
+   * made by the tool for its person.
+   */
+  aiSetup?: { sessionId: string | null; memberId: string; clientName: string } | null;
 }
 
 export const apiRequestContext = new AsyncLocalStorage<ApiRequestContext>();
@@ -45,6 +52,11 @@ export function currentAuditVia(): 'rest' | 'mcp' | 'mcp_oauth' {
 /** A Connect AI connection made the current request. */
 export function currentConnection(): boolean {
   return apiRequestContext.getStore()?.connection === true;
+}
+
+/** The AI setup session whose powers let the current request through, or null. */
+export function currentAiSetup(): ApiRequestContext['aiSetup'] {
+  return apiRequestContext.getStore()?.aiSetup ?? null;
 }
 
 /** The API key behind the current request, or null outside one. */

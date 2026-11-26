@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
-import { KeyRound, Loader2, Sparkles, Unplug } from 'lucide-react';
+import { Bot, KeyRound, Loader2, Sparkles, Unplug } from 'lucide-react';
 import { SettingsSectionHeader } from '@/components/settings/SettingsSectionHeader';
 import { NewApiKeyDialog } from '@/components/settings/NewApiKeyDialog';
 import { CopyButton } from '@/components/agent/ConnectPanel';
@@ -16,9 +16,12 @@ import { invalidateTables, useRead } from '@/lib/query-cache';
 import { myConnectionsRead } from '@/lib/reads';
 import { timeAgo } from '@/lib/task-times';
 import { appLocale } from '@/lib/region';
-import { connectAbilities, connectKeyPreset, connectToolGuides, type ConnectionView, type ConnectToolGuide } from '@/lib/connect-ai';
+import { CONNECT_MEMORY_SCOPE, connectAbilities, connectKeyPreset, connectToolGuides, type ConnectionView, type ConnectToolGuide } from '@/lib/connect-ai';
+import type { AiSetupSessionView } from '@/lib/ai-setup';
 
 const LINK = 'rounded font-medium text-brand-300 underline underline-offset-2 hover:decoration-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500';
+
+const timeOf = (iso: string) => new Date(iso).toLocaleTimeString(appLocale(), { hour: 'numeric', minute: '2-digit' });
 
 const connectedOn = (iso: string) => new Date(iso).toLocaleDateString(appLocale(), { month: 'short', day: 'numeric', year: 'numeric' });
 
@@ -46,6 +49,24 @@ export function ConnectAiSection({ canMakeKeys }: { canMakeKeys: boolean }) {
     pasteHint: 'Paste the key into your tool where it asks for an API key or header. It sends it as x-api-key.',
   }), [access]);
   const isOwner = access?.role === 'owner';
+  const [ending, setEnding] = useState<string | null>(null);
+  const setupSessions = view?.setup_sessions ?? [];
+  const setupFor = (grantId: string) => setupSessions.find((session) => session.grant_id === grantId) ?? null;
+  const keySessions = setupSessions.filter((session) => session.kind === 'key');
+
+  // Ending a setup session is undone by starting a new one from Hire an agent, so it acts at once.
+  const endSetup = async (session: AiSetupSessionView) => {
+    setEnding(session.id);
+    try {
+      await workspaceApi(`/api/workspace/ai-setup/${encodeURIComponent(session.id)}`, { method: 'DELETE' });
+      invalidateTables(['ai_setup_sessions']);
+      toast('success', session.kind === 'key' ? 'Setup key stopped' : `${session.client_name} can no longer set up agents`);
+    } catch (error) {
+      toast('error', error instanceof Error ? error.message : 'Could not end it. Try again.');
+    } finally {
+      setEnding(null);
+    }
+  };
 
   const disconnect = async () => {
     if (!removing) return;
@@ -96,8 +117,10 @@ export function ConnectAiSection({ canMakeKeys }: { canMakeKeys: boolean }) {
               {blocked === 'off' && (isOwner
                 ? <>Connecting AI tools is turned off for this workspace. <Link href="/settings/security#connect-ai-setting" className={LINK}>Turn it on in Security</Link></>
                 : 'Connecting AI tools is turned off for this workspace. Ask an Owner to turn it on.')}
-              {blocked === 'api_off' && 'API access is turned off for this workspace, so AI tools cannot connect. Ask an Owner.'}
-              {blocked === 'no_access' && 'You have no access to share with an AI tool yet. Ask an Owner to give you API access in Team > Access.'}
+              {blocked === 'api_off' && (isOwner
+                ? <>API access is turned off for this workspace, so AI tools cannot connect. <Link href="/settings/security#api-access" className={LINK}>Turn on API access in Security</Link></>
+                : 'API access is turned off for this workspace, so AI tools cannot connect. Ask an Owner to turn it on in Settings > Security.')}
+              {blocked === 'no_access' && 'You have no access to share with an AI tool yet. Ask an Owner to give you some in Team > Roles & permissions, on the API tab.'}
             </p>
           )}
 
@@ -172,6 +195,14 @@ export function ConnectAiSection({ canMakeKeys }: { canMakeKeys: boolean }) {
                         <span aria-hidden="true"> · </span>
                         Signs in from {connection.redirect_host}
                       </p>
+                      {setupFor(connection.id) && (
+                        <SetupLine session={setupFor(connection.id)!} busy={ending === setupFor(connection.id)!.id} onEnd={endSetup} />
+                      )}
+                      <p className="mt-0.5 text-xs text-zinc-400">
+                        {connection.scopes.includes(CONNECT_MEMORY_SCOPE)
+                          ? 'Can read and add to your memory. To stop that, disconnect it and connect again without it.'
+                          : 'Cannot read your memory.'}
+                      </p>
                     </div>
                     <Button
                       variant="secondary"
@@ -188,6 +219,20 @@ export function ConnectAiSection({ canMakeKeys }: { canMakeKeys: boolean }) {
               </ul>
             )}
           </div>
+
+          {keySessions.length > 0 && (
+            <div>
+              <p className="mb-2 text-xs font-medium text-zinc-400">Setting up agents</p>
+              <ul className="divide-y divide-white/[0.06] overflow-hidden rounded-lg border border-white/[0.08]" aria-label="Setup keys">
+                {keySessions.map((session) => (
+                  <li key={session.id} className="bg-surface-raised px-3 py-2.5">
+                    <p className="truncate text-sm font-medium text-zinc-100">{session.client_name}</p>
+                    <SetupLine session={session} busy={ending === session.id} onEnd={endSetup} />
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
 
           {canMakeKeys && !blocked && (
             <div className="flex flex-col gap-3 border-t border-white/[0.06] pt-4 sm:flex-row sm:items-center sm:justify-between">
@@ -222,5 +267,26 @@ function Snippet({ snippet }: { snippet: NonNullable<ConnectToolGuide['snippet']
         <span className="flex-shrink-0"><CopyButton text={snippet.text} what={snippet.label} /></span>
       </span>
     </span>
+  );
+}
+
+/** A live AI setup session under its tool: until when, with End now. */
+function SetupLine({ session, busy, onEnd }: { session: AiSetupSessionView; busy: boolean; onEnd: (session: AiSetupSessionView) => void }) {
+  return (
+    <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md bg-brand-500/[0.10] px-2.5 py-1.5 text-xs text-zinc-200">
+      <span className="flex min-w-0 items-center gap-1.5">
+        <Bot size={12} aria-hidden="true" className="flex-shrink-0" />
+        Can set up agents until {timeOf(session.expires_at)}.{' '}
+        <Link href="/agent/new?mode=ai" className={LINK}>See what it made</Link>
+      </span>
+      <button
+        type="button"
+        onClick={() => onEnd(session)}
+        disabled={busy}
+        className="rounded font-medium text-brand-300 underline underline-offset-2 hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 disabled:opacity-60"
+      >
+        {busy ? 'Ending' : 'End now'}
+      </button>
+    </div>
   );
 }

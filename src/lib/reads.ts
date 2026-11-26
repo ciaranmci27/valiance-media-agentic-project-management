@@ -22,6 +22,8 @@ import {
 import { listTaskFiles, taskFileCandidates, type TaskFileCandidates, type TaskFileView } from '@/lib/task-files/client';
 import { invalidateTables, peekRead, useRead, warmReads, type Read } from '@/lib/query-cache';
 import type { QuestionView } from '@/lib/questions';
+import type { NotificationFeedView, NotificationPage, Snooze } from '@/lib/notifications';
+import { demoNotificationPage, demoSnoozes, demoUnreadCount } from '@/lib/demo-notifications';
 import {
   workspaceApi, type AgentDetail, type AgentListItem, type AgentTemplateView, type BriefEntry, type ProjectAgentAssignment, type ProjectBrief,
 } from '@/lib/agent-workspace';
@@ -34,9 +36,11 @@ import type {
 } from '@/lib/types';
 import type { InboxAttention } from '@/lib/communications/inbox-view';
 import {
-  DEMO_ADMIN_TEAM_MEMBER_ID, demoInitiativeDetail, demoInitiativeEntryViews, demoInitiatives, demoInitiativeView, demoNotifications, demoProjects,
+  DEMO_ADMIN_TEAM_MEMBER_ID, demoInitiativeDetail, demoInitiativeEntryViews, demoInitiatives, demoInitiativeView, demoProjects,
   demoTaskTemplateRuns, demoTaskTemplates, demoTeam, demoTemplateDrafts, demoScheduleOccurrences, demoSchedules,
 } from '@/lib/demo-data';
+import { demoAgentActivityFor, demoAgentContext, demoAgentDetail } from '@/lib/demo-agent-profile';
+import { demoDecidedQuestions, demoOpenQuestions, demoRunDetail, demoRunFamily, demoRunFeedPage, demoRunRow } from '@/lib/demo-agents-home';
 import type { ScheduleKind, ScheduleOccurrenceView, ScheduleView } from '@/lib/schedules';
 import { localDraftPreview, type TemplateDraftDetail, type TemplateDraftView } from '@/lib/template-ui';
 import { sortInitiatives, type InitiativeDetail, type InitiativeEntryView, type InitiativeView } from '@/lib/initiatives';
@@ -45,8 +49,12 @@ import type { ProfileActivityPage, TeamProfile } from '@/lib/team/profile';
 import type { GroupMemberView, GroupView } from '@/lib/groups';
 import type { IdentityView } from '@/lib/identities';
 import { CONNECT_SCOPES, type MyConnectionsView } from '@/lib/connect-ai';
+import type { AiSetupView } from '@/lib/ai-setup';
 import { GOOGLE_NOT_LINKED, type AccountSignInView, type SignInMethodsView } from '@/lib/sign-in';
-import type { AssistantActivity, AssistantSetupView, AssistantStatusRow, MyAssistantView } from '@/lib/assistant';
+import type { AssistantActivity, AssistantServiceView, AssistantSetupView, AssistantStatusRow, MyAssistantView } from '@/lib/assistant';
+import {
+  DEMO_ASSISTANT_SERVICE, DEMO_ASSISTANT_SETTINGS, DEMO_ASSISTANT_SETUPS, DEMO_ASSISTANT_STATUS, DEMO_CHAT_CONNECTIONS, DEMO_MY_ASSISTANT, DEMO_MY_ASSISTANT_ACTIVITY,
+} from '@/lib/assistant-demo';
 import type { ChatConnectionView } from '@/lib/chat/types';
 import type { ScopedBrief, ScopeRef } from '@/lib/context-scopes';
 import { templateSummary, type TaskTemplateRunView, type TaskTemplateSummary, type TaskTemplateView } from '@/lib/task-templates';
@@ -474,7 +482,7 @@ export function useTaskWarmer(): (taskId: string) => IntentHandlers {
 /**
  * The open questions the person can see (asked by them, to them, or on tasks
  * and projects they can open): one read for the task panel, the cards, My
- * Tasks and the sidebar count. Demo mode has none.
+ * Tasks and the sidebar count. Demo mode has its own few.
  */
 export function openQuestionsRead(isDemo: boolean): Read<QuestionView[]> {
   return {
@@ -482,7 +490,7 @@ export function openQuestionsRead(isDemo: boolean): Read<QuestionView[]> {
     tables: ['questions'],
     ttlMs: 5 * 60_000,
     load: async () => {
-      if (isDemo) return [];
+      if (isDemo) return demoOpenQuestions();
       const response = await fetch('/api/workspace/questions', { cache: 'no-store' });
       const body = await response.json().catch(() => null) as { data?: QuestionView[]; error?: string } | null;
       if (!response.ok || !body?.data) throw new Error(body?.error || 'Could not load questions');
@@ -500,25 +508,81 @@ export function useOpenQuestions(): QuestionView[] {
 
 const NO_QUESTIONS: QuestionView[] = [];
 
+/**
+ * Questions and approvals decided lately that the person can see, newest
+ * first (Needs you's Decided view): who answered, how and when.
+ */
+export function decidedQuestionsRead(isDemo: boolean): Read<QuestionView[]> {
+  return {
+    key: `decided-questions${isDemo ? ':demo' : ''}`,
+    tables: ['questions'],
+    ttlMs: 5 * 60_000,
+    load: async () => {
+      if (isDemo) return demoDecidedQuestions();
+      const response = await fetch('/api/workspace/questions?view=decided', { cache: 'no-store' });
+      const body = await response.json().catch(() => null) as { data?: QuestionView[]; error?: string } | null;
+      if (!response.ok || !body?.data) throw new Error(body?.error || 'Could not load decided questions');
+      return body.data;
+    },
+  };
+}
+
 // ── Sidebar ─────────────────────────────────────────────────────────────
 
-/** The Notifications tab's count: unread notifications. */
+/**
+ * The Notifications tab's count: unread Updates. A notice that announces a
+ * Needs you item (a receipt) never counts here, nor a done or snoozed one:
+ * that item is counted once, in Needs you.
+ */
 export function unreadNotificationsRead(isDemo: boolean): Read<number> {
   return {
     key: `unread-notifications${isDemo ? ':demo' : ''}`,
-    tables: ['team_member_notifications'],
+    tables: NOTIFICATION_TABLES,
     ttlMs: 5 * 60_000,
     load: async () => {
-      if (isDemo) return demoNotifications.filter((n) => !n.is_read).length;
-      const { count, error } = await createClient()
-        .from('team_member_notifications')
-        .select('*', { count: 'exact', head: true })
-        .eq('is_read', false)
-        .is('cleared_at', null);
-      if (error) throw error;
-      return count ?? 0;
+      if (isDemo) return demoUnreadCount();
+      return (await getWorkspaceData<{ unread: number }>('/api/workspace/notifications?count=1', 'notifications')).unread;
     },
   };
+}
+
+/** What makes a notification read stale: its rows, and the member's snoozes. */
+export const NOTIFICATION_TABLES = ['team_member_notifications', 'member_snoozes'] as const;
+
+/** The first page of the member's Updates (updates, unread or done) with the unread count. */
+export function notificationsRead(view: NotificationFeedView, isDemo: boolean): Read<NotificationPage> {
+  return {
+    key: `notifications:${view}${isDemo ? ':demo' : ''}`,
+    tables: NOTIFICATION_TABLES,
+    load: async () => (isDemo ? demoNotificationPage(view) : fetchNotificationPage(view, null)),
+  };
+}
+
+/** A page of the member's Updates after `before` (a page's next_cursor), for Load more. */
+export function fetchNotificationPage(view: NotificationFeedView, before: string | null): Promise<NotificationPage> {
+  const query = new URLSearchParams({ view, ...(before ? { before } : {}) });
+  return getWorkspaceData<NotificationPage>(`/api/workspace/notifications?${query}`, 'notifications');
+}
+
+/** The member's snoozes still in force: Needs you and Updates leave these out until they wake. */
+export function mySnoozesRead(isDemo: boolean): Read<Snooze[]> {
+  return {
+    key: `my-snoozes${isDemo ? ':demo' : ''}`,
+    tables: ['member_snoozes'],
+    ttlMs: 5 * 60_000,
+    load: async () => (isDemo ? demoSnoozes() : getWorkspaceData<Snooze[]>('/api/workspace/notifications/snoozes', 'snoozes')),
+  };
+}
+
+/** A workspace route's { data }, failing with the server's own words. */
+async function getWorkspaceData<T>(url: string, what: string): Promise<T> {
+  const response = await fetch(url, { cache: 'no-store' });
+  const body = await response.json().catch(() => null) as { data?: T; error?: string | { message?: string } } | null;
+  if (!response.ok || !body || body.data === undefined) {
+    const message = typeof body?.error === 'string' ? body.error : body?.error?.message;
+    throw new Error(message || `Could not load ${what}`);
+  }
+  return body.data;
 }
 
 /** The Inbox tab's count: threads waiting on a person, by how pressing. */
@@ -657,11 +721,11 @@ const NO_NAMES: ReadonlyMap<string, string> = new Map();
 const RUN_FEED_TABLES = ['agent_runs', AGENT_TURNS_CACHE_TABLE] as const;
 
 /**
- * One page of the run feed (pm.agent_run_feed: stored runs plus turns that
+ * One page of the run feed (pm.agent_run_rows: pm.agent_run_feed, stored runs plus turns that
  * name no run), newest first, for one set of filters. Read as the signed-in
  * member, so row security decides what it holds: their own runs, or every
  * run with agents.manage, never one on a task or project in Trash. Demo mode
- * has none.
+ * reads its own few (demo-agents-home.ts).
  */
 export function agentRunFeedRead(filters: RunFeedFilters, page: number, isDemo: boolean, pageSize = RUNS_PAGE_SIZE): Read<AgentRunFeedPage> {
   const query = runFeedQuery(filters, page, pageSize);
@@ -669,9 +733,11 @@ export function agentRunFeedRead(filters: RunFeedFilters, page: number, isDemo: 
     key: `${query.key}${isDemo ? ':demo' : ''}`,
     tables: RUN_FEED_TABLES,
     load: async () => {
-      if (isDemo) return { runs: [], total: 0 };
-      let request = createClient().from('agent_run_feed').select(RUN_FEED_COLUMNS, { count: 'exact' });
+      if (isDemo) return demoRunFeedPage(filters, page, pageSize);
+      let request = createClient().from('agent_run_rows').select(RUN_FEED_COLUMNS, { count: 'exact' });
       for (const [column, value] of query.eq) request = request.eq(column, value);
+      if (query.started.gte) request = request.gte('sort_at', query.started.gte);
+      if (query.started.lt) request = request.lt('sort_at', query.started.lt);
       const { data, count, error } = await request
         .order('sort_at', { ascending: false })
         .order('id', { ascending: false })
@@ -695,12 +761,31 @@ export interface AgentRunDetail {
   notes: AgentRunNote[];
 }
 
-/** A stored run's plan and notes, for its detail. A turn has neither. */
-export function agentRunDetailRead(runId: string): Read<AgentRunDetail> {
+/**
+ * One row of the run feed by id (a run or a turn), for a run opened from
+ * somewhere its page is not loaded: a chain of agents, a link. Null when the
+ * reader cannot see it.
+ */
+export function agentRunRowRead(runId: string, isDemo = false): Read<AgentRunSummary | null> {
   return {
-    key: `agent-run-detail:${runId}`,
+    key: `agent-run-row:${runId}${isDemo ? ':demo' : ''}`,
+    tables: RUN_FEED_TABLES,
+    load: async () => {
+      if (isDemo) return demoRunRow(runId);
+      const { data, error } = await createClient().from('agent_run_rows').select(RUN_FEED_COLUMNS).eq('id', runId).maybeSingle();
+      if (error) throw error;
+      return data ? toRunSummary(data as Record<string, unknown>, NO_NAMES) : null;
+    },
+  };
+}
+
+/** A stored run's plan and notes, for its detail. A turn has neither. */
+export function agentRunDetailRead(runId: string, isDemo = false): Read<AgentRunDetail> {
+  return {
+    key: `agent-run-detail:${runId}${isDemo ? ':demo' : ''}`,
     tables: ['agent_runs'],
     load: async () => {
+      if (isDemo) return demoRunDetail(runId);
       const { data, error } = await createClient().from('agent_runs').select('plan, notes').eq('id', runId).maybeSingle();
       if (error) throw error;
       const row = data as { plan?: unknown; notes?: unknown } | null;
@@ -752,14 +837,46 @@ export async function loadTeamProfileActivity(memberId: string, before: string):
 export function agentTemplatesRead(isDemo: boolean): Read<AgentTemplateView[]> {
   return {
     key: `agent-templates${isDemo ? ':demo' : ''}`,
+    // An Owner's own templates are rows: a new or changed one shows at once.
+    tables: ['agent_template_rows'],
     ttlMs: 10 * 60_000,
     load: async () => {
-      if (isDemo) return [];
+      if (isDemo) {
+        // The demo offers core's templates as they ship, so the hire flow can be walked.
+        const { CORE_AGENT_TEMPLATES, agentTemplateView } = await import('@/lib/agent-templates');
+        return CORE_AGENT_TEMPLATES.map(agentTemplateView) as AgentTemplateView[];
+      }
       const data = await workspaceApi<{ templates: AgentTemplateView[] }>('/api/workspace/agent-templates');
       return data.templates ?? [];
     },
   };
 }
+
+/**
+ * The API scopes a new agent can hold (its role's, on the API channel): the
+ * hire flow offers only these. The demo answers with the agent role's
+ * defaults as a fresh install ships them.
+ */
+export function agentNewScopesRead(isDemo: boolean): Read<string[]> {
+  return {
+    key: `agent-new-scopes${isDemo ? ':demo' : ''}`,
+    tables: ['role_permissions'],
+    ttlMs: 5 * 60_000,
+    load: async () => {
+      if (isDemo) return [...DEMO_AGENT_SCOPES];
+      const data = await workspaceApi<{ scopes: string[] }>('/api/workspace/agents/scopes');
+      return data.scopes ?? [];
+    },
+  };
+}
+
+/** The agent role's API scopes on a fresh install (supabase/schema.sql), for the demo's hire flow. */
+const DEMO_AGENT_SCOPES = [
+  'projects.read', 'tasks.read', 'tasks.create', 'tasks.manage_assigned', 'project_context.read', 'project_context.manage',
+  'goals.read', 'goals.manage', 'suggestions.manage', 'suggestions.create', 'files.read', 'notifications.manage_own', 'notifications.send',
+  'time.manage_own', 'reminders.manage_own', 'agent_activity.write', 'inbound_email.read', 'inbound_email.triage', 'inbound_email.signal',
+  'questions.ask',
+] as const;
 
 /** Most pages a list read walks (200 rows each): far past any real roster, never unbounded. */
 const LIST_PAGES_MAX = 10;
@@ -807,21 +924,27 @@ export function agentRolesRead(isDemo: boolean): Read<string[]> {
 }
 
 /** One agent's profile as the viewer may see it: rules, owners, assignments, keys (never secrets). */
-export function agentDetailRead(agentId: string): Read<AgentDetail> {
+export function agentDetailRead(agentId: string, isDemo = false): Read<AgentDetail> {
   return {
-    key: `agent-detail:${agentId}`,
+    key: `agent-detail:${isDemo ? 'demo:' : ''}${agentId}`,
     tables: ['team_members', 'project_agents', 'agent_owners', 'api_keys'],
-    load: () => workspaceApi<AgentDetail>(`/api/workspace/agents/${encodeURIComponent(agentId)}`),
+    load: async () => {
+      if (!isDemo) return workspaceApi<AgentDetail>(`/api/workspace/agents/${encodeURIComponent(agentId)}`);
+      const detail = demoAgentDetail(agentId);
+      if (!detail) throw new Error('No such agent');
+      return detail;
+    },
   };
 }
 
 /** The agent's context pack as Markdown (AGENTS.md), as the viewer may see it. */
-export function agentContextRead(agentId: string): Read<string> {
+export function agentContextRead(agentId: string, isDemo = false): Read<string> {
   return {
-    key: `agent-context:${agentId}`,
+    key: `agent-context:${isDemo ? 'demo:' : ''}${agentId}`,
     tables: ['project_context', 'project_agents', 'team_members', 'project_goals'],
     ttlMs: 60_000,
     load: async () => {
+      if (isDemo) return demoAgentContext(agentId);
       const response = await fetch(`/api/workspace/agents/${encodeURIComponent(agentId)}/context?format=md`, { cache: 'no-store' });
       if (!response.ok) throw new Error('Could not load the context pack');
       if ((response.headers.get('content-type') ?? '').includes('json')) {
@@ -871,7 +994,7 @@ export function useAgentWarmer(): (agentId: string) => IntentHandlers {
   const intent = useIntent();
   return useCallback(
     (agentId: string) => intent(() => warmReads([
-      agentDetailRead(agentId),
+      agentDetailRead(agentId, isDemoMode),
       agentRunFeedRead({ ...NO_RUN_FILTERS, agentId }, 0, isDemoMode, 8),
     ])),
     [intent, isDemoMode],
@@ -892,11 +1015,11 @@ export function projectBriefSectionRead(projectId: string, section: string, page
 }
 
 /** One agent's newest activity (narrative only), read for that agent alone: the store's feed is everyone's newest. */
-export function agentActivityRead(agentId: string): Read<AgentActivity[]> {
+export function agentActivityRead(agentId: string, isDemo = false): Read<AgentActivity[]> {
   return {
-    key: `agent-activity:${agentId}`,
+    key: `agent-activity:${isDemo ? 'demo:' : ''}${agentId}`,
     tables: ['agent_activities'],
-    load: () => fetchAgentActivity(createClient(), { agent_id: agentId }),
+    load: async () => (isDemo ? demoAgentActivityFor(agentId) : fetchAgentActivity(createClient(), { agent_id: agentId })),
   };
 }
 
@@ -1246,21 +1369,24 @@ export function myAssistantRead(isDemo: boolean): Read<MyAssistantView> {
     tables: ASSISTANT_TABLES,
     ttlMs: 5 * 60_000,
     load: async () => {
-      if (isDemo) return { enabled: false, label: 'Assistant', agents_on: false, assistant: null, connections: [] };
+      if (isDemo) return DEMO_MY_ASSISTANT;
       return workspaceApi<MyAssistantView>('/api/workspace/assistant');
     },
   };
 }
 
 /** What the person's assistant did lately, with each undo, and its ready reply drafts. */
-export function myAssistantActivityRead(): Read<AssistantActivity> {
+export function myAssistantActivityRead(isDemo = false): Read<AssistantActivity> {
   return {
-    key: 'my-assistant-activity',
+    key: `my-assistant-activity${isDemo ? ':demo' : ''}`,
     tables: ['tasks', 'task_events', 'agent_runs', 'agent_activities', 'communications.plans', 'communications.reply_drafts'],
     ttlMs: 60_000,
-    load: () => workspaceApi<AssistantActivity>('/api/workspace/assistant/activity'),
+    load: async () => (isDemo ? DEMO_MY_ASSISTANT_ACTIVITY : workspaceApi<AssistantActivity>('/api/workspace/assistant/activity')),
   };
 }
+
+/** A demo read: sample data, never the server. */
+const demoRead = <T,>(key: string, tables: readonly string[], data: T): Read<T> => ({ key: `${key}:demo`, tables, load: async () => data });
 
 /** Settings > Assistants: the workspace switch and name (Owner). */
 export const assistantSettingsRead: Read<{ enabled: boolean; label: string; custom_label: string | null }> = {
@@ -1272,7 +1398,7 @@ export const assistantSettingsRead: Read<{ enabled: boolean; label: string; cust
 /** Settings > Assistants: every person's assistant and its state (Owner). */
 export const assistantStatusRead: Read<AssistantStatusRow[]> = {
   key: 'assistant-status',
-  tables: ['team_members', 'api_keys', 'agent_health'],
+  tables: ['team_members', 'api_keys', 'agent_health', 'business_settings'],
   ttlMs: 60_000,
   load: async () => (await workspaceApi<{ assistants: AssistantStatusRow[] }>('/api/workspace/assistants/status')).assistants ?? [],
 };
@@ -1291,11 +1417,32 @@ export const assistantSetupsRead: Read<AssistantSetupView[]> = {
   load: async () => (await workspaceApi<{ setups: AssistantSetupView[] }>('/api/workspace/assistants/setups')).setups ?? [],
 };
 
+/** Settings > Assistants: the agent service that runs everyone's assistants (Owner). */
+export const assistantServiceRead: Read<AssistantServiceView> = {
+  key: 'assistant-service',
+  tables: ['api_keys'],
+  ttlMs: 60_000,
+  load: () => workspaceApi<AssistantServiceView>('/api/workspace/assistants/service'),
+};
+
+/** Settings > Assistants' reads, with sample data in the demo workspace (where changes are off). */
+export const assistantSettingsReadFor = (isDemo: boolean) => (isDemo ? demoRead('assistant-settings', ['business_settings'], DEMO_ASSISTANT_SETTINGS) : assistantSettingsRead);
+export const assistantStatusReadFor = (isDemo: boolean) => (isDemo ? demoRead('assistant-status', ['team_members'], DEMO_ASSISTANT_STATUS) : assistantStatusRead);
+export const chatConnectionsReadFor = (isDemo: boolean) => (isDemo ? demoRead('chat-connections', ['chat_connections'], DEMO_CHAT_CONNECTIONS) : chatConnectionsRead);
+export const assistantSetupsReadFor = (isDemo: boolean) => (isDemo ? demoRead('assistant-setups', ['assistant_setups'], DEMO_ASSISTANT_SETUPS) : assistantSetupsRead);
+export const assistantServiceReadFor = (isDemo: boolean) => (isDemo ? demoRead('assistant-service', ['api_keys'], DEMO_ASSISTANT_SERVICE) : assistantServiceRead);
+
 /** The kill switch for every agent: whether every agent is paused, since when and by whom. */
 export const agentsPauseRead: Read<AgentsPauseState> = {
   key: 'agents-pause',
   tables: ['business_settings'],
   load: () => workspaceApi('/api/workspace/agents-pause'),
+};
+
+/** The demo's pause switch: starts off, and Pause all flips it in the browser only. */
+export const agentsPauseDemoRead: Read<AgentsPauseState> = {
+  key: 'agents-pause:demo',
+  load: async () => ({ paused_at: null, paused_by: null }),
 };
 
 /** The New key dialog: how long a person's new key lasts unless they choose (any member reads it; an Owner sets it). */
@@ -1348,11 +1495,22 @@ export function mySignInRead(isDemo: boolean): Read<AccountSignInView> {
   };
 }
 
+/**
+ * Hire an agent > Set it up with AI: the person's connected tools, live and
+ * recent setup sessions and the agents each made. The demo keeps its own
+ * pretend session on the page, so it has no read.
+ */
+export const aiSetupRead: Read<AiSetupView> = {
+  key: 'ai-setup',
+  tables: ['ai_setup_sessions', 'oauth_grants', 'team_members', 'project_members', 'api_keys'],
+  load: () => workspaceApi<AiSetupView>('/api/workspace/ai-setup'),
+};
+
 /** Settings > Account: the person's Connect AI view (the address, the switch, their connected apps). */
 export function myConnectionsRead(isDemo: boolean): Read<MyConnectionsView> {
   return {
     key: `my-connections${isDemo ? ':demo' : ''}`,
-    tables: ['business_settings', 'oauth_grants'],
+    tables: ['business_settings', 'oauth_grants', 'ai_setup_sessions'],
     load: async () => {
       if (isDemo) {
         const origin = typeof window === 'undefined' ? '' : window.location.origin;
@@ -1499,11 +1657,12 @@ function orderChain(rows: Omit<AgentRunChainRun, 'depth'>[], rootId: string): Ag
  * reader may see runs (their own, or every one with agents.manage). Empty
  * before the update.
  */
-export function agentRunFamilyRead(runId: string): Read<AgentRunFamily> {
+export function agentRunFamilyRead(runId: string, isDemo = false): Read<AgentRunFamily> {
   return {
-    key: `agent-run-family:${runId}`,
+    key: `agent-run-family:${runId}${isDemo ? ':demo' : ''}`,
     tables: ['agent_runs'],
     load: async () => {
+      if (isDemo) return demoRunFamily(runId);
       const client = createClient();
       const { data: own, error } = await client.from('agent_runs').select('parent_run_id, root_run_id').eq('id', runId).maybeSingle();
       if (error) return { parent: null, children: [], chain: [] };

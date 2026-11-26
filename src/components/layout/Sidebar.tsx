@@ -23,8 +23,8 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { useApp } from '@/lib/store';
-import { computeNeedsYou } from '@/lib/autonomy';
-import { buildAgentNeedsYou, needsYouCountLabel } from '@/lib/agents-tab';
+import { needsYouCountLabel } from '@/lib/agents-tab';
+import { useNeedsYou } from '@/lib/use-needs-you';
 import { useAuth } from '@/lib/auth-context';
 import { useDemo } from '@/lib/demo-context';
 import { Avatar } from '@/components/ui/Avatar';
@@ -32,8 +32,8 @@ import { Logo } from '@/components/ui/Logo';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { LivePulse } from '@/components/ui/LivePulse';
 import { useUnreadByProject } from '@/components/tasks/TaskUnread';
-import { inboxAttentionRead, inboxLandingRead, myAssistantRead, unreadNotificationsRead, useIntent, useOpenQuestions, useWarmActiveProjects, useWarmProject } from '@/lib/reads';
-import { invalidateTables, useRead, warmRead } from '@/lib/query-cache';
+import { inboxAttentionRead, inboxLandingRead, myAssistantRead, unreadNotificationsRead, useIntent, useWarmActiveProjects, useWarmProject } from '@/lib/reads';
+import { useRead, warmRead } from '@/lib/query-cache';
 import { CountBadge, type CountBadgeTone } from '@/components/ui/CountBadge';
 import { isRunning } from '@/lib/time-entry-utils';
 import { useBrand } from '@/lib/brand/context';
@@ -50,7 +50,7 @@ export function Sidebar() {
   const pathname = usePathname();
   // The profile row opens Settings, so it reads active anywhere in that area.
   const inSettings = pathname === '/settings' || pathname.startsWith('/settings/');
-  const { projects, team, loading, timeEntries, tasks, taskSuggestions, agentActivity, reminders } = useApp();
+  const { projects, team, loading, timeEntries, reminders } = useApp();
   const { user, teamMemberId, access, signOut } = useAuth();
   const customNavItems = useCustomNavItems();
   const brand = useBrand();
@@ -101,14 +101,10 @@ export function Sidebar() {
   }, []);
 
   // The tabs' counts are cached reads (reads.ts): live sync refreshes them as
-  // notifications and inbox rows change, never a refetch per route change.
-  // The notifications page's own marks (no realtime echo needed) say so too.
+  // notifications and inbox rows change, never a refetch per route change,
+  // and the action layer's own writes mark them stale. Unread notifications
+  // leave out receipts (a question asked to you is counted once, in Needs you).
   const unreadNotifications = useRead(unreadNotificationsRead(isDemoMode)).data ?? 0;
-  useEffect(() => {
-    const handler = () => invalidateTables(['team_member_notifications']);
-    window.addEventListener('notifications-updated', handler);
-    return () => window.removeEventListener('notifications-updated', handler);
-  }, []);
   const canReadInbox = canOpenInbox(access);
   const inboxAttention = useRead(canReadInbox ? inboxAttentionRead(isDemoMode) : null).data ?? NO_ATTENTION;
   // Pointing at a tab warms its landing screen.
@@ -129,35 +125,19 @@ export function Sidebar() {
   // The person's own assistant, under the name the workspace gives it: shown
   // only while assistants are on and the person has one.
   const myAssistant = useRead(isAgentsEnabled && teamMemberId && access?.role !== 'agent' ? myAssistantRead(isDemoMode) : null).data;
-  const assistantEntry: NavEntry | null = myAssistant?.enabled && myAssistant.assistant
+  // Someone who has an assistant keeps its entry while assistants are off: it is on hold, and its controls stay theirs.
+  const assistantEntry: NavEntry | null = myAssistant?.assistant
     ? { href: '/assistant', icon: Sparkles, label: myAssistant.label }
     : null;
-  // Radar's badge answers "does anything need me?" before the click. Same
-  // computation as the page's top band, imported so they cannot disagree.
-  // Suggestions are excluded here on purpose: the Agent tab's own badge
-  // already counts them, and one signal per fact is the rule.
-  // Questions asked to you are rows in My Tasks' Needs you now too.
-  const openQuestions = useOpenQuestions();
-  const radarNeeds = useMemo(() => computeNeedsYou({
-    tasks,
-    suggestions: taskSuggestions,
-    projects,
-    teamMemberId: teamMemberId || null,
-    includeSuggestions: false,
-    oversight: canManageAgents,
-    agentActivity,
-    questions: openQuestions,
-  }), [tasks, taskSuggestions, projects, teamMemberId, canManageAgents, agentActivity, openQuestions]);
-  const radarCount = radarNeeds.length;
-  // The Agents badge is the Agents page's Needs you count: the same
-  // buildAgentNeedsYou over the same computeNeedsYou answer useAgentNeedsYou
-  // reads (questions, approvals, blocked work, reviews and suggestions).
-  const agentsNeedsYouCount = useMemo(
-    () => (isAgentsEnabled && canManageAgents
-      ? buildAgentNeedsYou({ needsYou: radarNeeds, tasks, team, suggestions: taskSuggestions, projects }).total
-      : 0),
-    [isAgentsEnabled, canManageAgents, radarNeeds, tasks, team, taskSuggestions, projects],
-  );
+  // Radar's badge answers "does anything need me?" before the click: the
+  // same useNeedsYou My Tasks lists, so they cannot disagree. Suggestions are
+  // excluded on purpose: the Agent tab's own badge already counts them, and
+  // one signal per fact is the rule.
+  const needsYou = useNeedsYou();
+  const radarCount = needsYou.count;
+  // The Agents badge is the Agents page's Needs you count: the agents' slice
+  // of the same answer (questions, approvals, blocked work, reviews and suggestions).
+  const agentsNeedsYouCount = isAgentsEnabled && canManageAgents ? needsYou.agents.total : 0;
 
   // Your reminders that want you now (overdue or due today): rows in My
   // Tasks' Needs you now, so they count toward its badge.

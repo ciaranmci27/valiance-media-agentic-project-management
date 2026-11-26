@@ -1,15 +1,17 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Bell, CheckSquare, FolderKanban, Target, MessageSquare, Users, Loader2, CheckCheck, Webhook, Repeat } from 'lucide-react';
 import { useDemo } from '@/lib/demo-context';
-import { demoNotifications } from '@/lib/demo-data';
-import { createClient } from '@/lib/supabase/client';
 import { Header } from '@/components/layout/Header';
 import { Button } from '@/components/ui/Button';
-import type { Notification, NotificationEntityType } from '@/lib/types';
+import type { NotificationEntityType } from '@/lib/types';
 import { appLocale } from '@/lib/region';
+import { peekRead, setReadData, useRead } from '@/lib/query-cache';
+import { fetchNotificationPage, notificationsRead, unreadNotificationsRead } from '@/lib/reads';
+import { useNeedsYouActions } from '@/lib/needs-you-actions';
+import type { NotificationFeedView, NotificationPage, NotificationView } from '@/lib/notifications';
 
 type FilterTab = 'all' | 'unread';
 
@@ -40,138 +42,81 @@ function getEntityIcon(entityType: NotificationEntityType | null) {
   }
 }
 
-const PAGE_SIZE = 30;
+/** Later pages, kept under the first page they follow; a fresh first page drops them. */
+interface MorePages {
+  base: NotificationPage | undefined;
+  items: NotificationView[];
+  cursor: string | null;
+}
 
+const VIEWS: readonly NotificationFeedView[] = ['updates', 'unread'];
+
+/**
+ * Updates: notifications about what happened, newest first. A notice that
+ * announces something waiting on you (a question or approval asked, an
+ * agent's findings, an inbox decision) is not listed here: that item is in
+ * Needs you, counted once. The first page is a cached read (live sync
+ * refreshes it); Load more reads the pages after it.
+ */
 export default function NotificationsPage() {
   const router = useRouter();
   const { isDemoMode } = useDemo();
-  const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [unreadCount, setUnreadCount] = useState(0);
+  const actions = useNeedsYouActions();
   const [filter, setFilter] = useState<FilterTab>('all');
-  const [isLoading, setIsLoading] = useState(true);
+  const view: NotificationFeedView = filter === 'unread' ? 'unread' : 'updates';
+  const first = useRead(notificationsRead(view, isDemoMode));
+  const unreadCount = useRead(unreadNotificationsRead(isDemoMode)).data ?? first.data?.unread ?? 0;
+  const [more, setMore] = useState<MorePages>({ base: undefined, items: [], cursor: null });
   const [isLoadingMore, setIsLoadingMore] = useState(false);
-  const [hasMore, setHasMore] = useState(true);
-  const loadingMoreRef = useRef(false);
 
-  const fetchNotifications = useCallback(async (loadMore = false, tab: FilterTab = filter, opts: { silent?: boolean } = {}) => {
-    if (loadMore) {
-      if (loadingMoreRef.current || !hasMore) return;
-      loadingMoreRef.current = true;
-      setIsLoadingMore(true);
-    } else if (!opts.silent) {
-      // Only a foreground load (first paint, tab switch) may show the loader.
-      // Event-driven refreshes arrive AFTER an optimistic update has already
-      // painted the correct list; flashing the loader then unmounts correct
-      // content twice, which reads as the whole screen flickering.
-      setIsLoading(true);
-      setHasMore(true);
-    }
+  // A refreshed or switched first page starts the list over, as a new notification should.
+  const current = more.base === first.data ? more : { base: first.data, items: [], cursor: first.data?.next_cursor ?? null };
+  const notifications = [...(first.data?.items ?? []), ...current.items];
+  const isLoading = first.loading;
+  const hasMore = !!current.cursor && !isDemoMode;
 
-    if (isDemoMode) {
-      const list = tab === 'unread' ? demoNotifications.filter(n => !n.is_read) : [...demoNotifications];
-      setNotifications(list);
-      setUnreadCount(demoNotifications.filter(n => !n.is_read).length);
-      setHasMore(false);
-      setIsLoading(false);
-      setIsLoadingMore(false);
-      loadingMoreRef.current = false;
-      return;
-    }
-
-    const supabase = createClient();
-    const offset = loadMore ? notifications.length : 0;
-
+  const loadMore = async () => {
+    if (isLoadingMore || !current.cursor) return;
+    setIsLoadingMore(true);
     try {
-      let listQuery = supabase
-        .from('team_member_notifications')
-        .select('*')
-        .is('cleared_at', null)
-        .order('created_at', { ascending: false })
-        .range(offset, offset + PAGE_SIZE - 1);
-      if (tab === 'unread') listQuery = listQuery.eq('is_read', false);
-
-      const [listResult, countResult] = await Promise.all([
-        listQuery,
-        supabase
-          .from('team_member_notifications')
-          .select('*', { count: 'exact', head: true })
-          .eq('is_read', false)
-          .is('cleared_at', null),
-      ]);
-
-      if (listResult.data) {
-        const rows = listResult.data as Notification[];
-        setNotifications(prev => (loadMore ? [...prev, ...rows] : rows));
-        setHasMore(rows.length === PAGE_SIZE);
-      }
-      if (countResult.count !== null) setUnreadCount(countResult.count);
+      const page = await fetchNotificationPage(view, current.cursor);
+      setMore({ base: first.data, items: [...current.items, ...page.items], cursor: page.next_cursor });
     } catch (error) {
       console.error('Error fetching notifications:', error);
     } finally {
-      setIsLoading(false);
       setIsLoadingMore(false);
-      loadingMoreRef.current = false;
     }
-  }, [filter, hasMore, isDemoMode, notifications.length]);
+  };
 
-  // Initial load + reload whenever the filter tab changes.
-  useEffect(() => {
-    fetchNotifications(false, filter);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filter, isDemoMode]);
-
-  // Live refresh: the store's realtime sync dispatches this event whenever a
-  // notification row changes server-side (and this page dispatches it after
-  // its own writes). Refetch resets to the first page, which is fine for a
-  // "new notification arrived" signal.
-  useEffect(() => {
-    const handler = () => fetchNotifications(false, filter, { silent: true });
-    window.addEventListener('notifications-updated', handler);
-    return () => window.removeEventListener('notifications-updated', handler);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filter, isDemoMode]);
+  // Shown at once on every cached list and the count; the write then refreshes them.
+  const markLocally = (read: (n: NotificationView) => boolean) => {
+    const update = (list: NotificationView[]) => list.map((n) => (read(n) ? { ...n, is_read: true } : n));
+    for (const v of VIEWS) {
+      const cached = notificationsRead(v, isDemoMode);
+      const page = peekRead(cached);
+      if (!page) continue;
+      setReadData(cached, () => ({ ...page, items: v === 'unread' ? page.items.filter((n) => !read(n)) : update(page.items) }));
+    }
+    // Pages loaded after the first one stay, under the first page as it now reads.
+    const base = first.data;
+    const nextBase = peekRead(notificationsRead(view, isDemoMode));
+    setMore((m) => (m.base && m.base === base ? { base: nextBase, items: update(m.items), cursor: m.cursor } : m));
+  };
 
   const handleMarkAsRead = async (id: string) => {
-    setNotifications(prev =>
-      filter === 'unread'
-        ? prev.filter(n => n.id !== id)
-        : prev.map(n => (n.id === id ? { ...n, is_read: true } : n)),
-    );
-    setUnreadCount(prev => Math.max(0, prev - 1));
-    if (isDemoMode) {
-      window.dispatchEvent(new Event('notifications-updated'));
-      return;
-    }
-    try {
-      await createClient().from('team_member_notifications').update({ is_read: true }).eq('id', id);
-    } catch (error) {
-      console.error('Error marking notification as read:', error);
-    }
-    // Dispatched after the write commits so listeners refetch the new truth,
-    // not the pre-write state.
-    window.dispatchEvent(new Event('notifications-updated'));
+    markLocally((n) => n.id === id);
+    setReadData(unreadNotificationsRead(isDemoMode), (n) => Math.max(0, (n ?? 0) - 1));
+    await actions.markRead([id]);
   };
 
   const handleMarkAllAsRead = async () => {
     if (unreadCount === 0) return;
-    setNotifications(prev => (filter === 'unread' ? [] : prev.map(n => ({ ...n, is_read: true }))));
-    setUnreadCount(0);
-    if (isDemoMode) {
-      window.dispatchEvent(new Event('notifications-updated'));
-      return;
-    }
-    try {
-      await createClient()
-        .from('team_member_notifications')
-        .update({ is_read: true })
-        .eq('is_read', false);
-    } catch (error) {
-      console.error('Error marking all as read:', error);
-    }
-    window.dispatchEvent(new Event('notifications-updated'));
+    markLocally(() => true);
+    setReadData(unreadNotificationsRead(isDemoMode), () => 0);
+    await actions.markRead('all');
   };
 
-  const handleNotificationClick = async (notification: Notification) => {
+  const handleNotificationClick = async (notification: NotificationView) => {
     if (!notification.is_read) await handleMarkAsRead(notification.id);
     if (notification.link) router.push(notification.link);
   };
@@ -276,7 +221,7 @@ export default function NotificationsPage() {
 
         {!isLoading && hasMore && notifications.length > 0 && (
           <div className="flex justify-center">
-            <Button variant="ghost" size="sm" onClick={() => fetchNotifications(true)} disabled={isLoadingMore}>
+            <Button variant="ghost" size="sm" onClick={() => void loadMore()} disabled={isLoadingMore}>
               {isLoadingMore ? <Loader2 size={16} className="animate-spin" /> : 'Load more'}
             </Button>
           </div>

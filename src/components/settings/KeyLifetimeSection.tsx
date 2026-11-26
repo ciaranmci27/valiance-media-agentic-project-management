@@ -79,7 +79,7 @@ export function KeyLifetimeSection({ agentsOn }: { agentsOn: boolean }) {
             value={personal!}
             onChange={setPersonal}
             options={keyLifetimeSettingOptions(personalDays ?? null)}
-            helperText="New keys start here. Only an Owner can make one that lasts longer."
+            helperText="New keys start here, and a rotated key keeps its own length within it. Only an Owner can make one that lasts longer."
           />
           {agentsOn && (
             <Select
@@ -87,7 +87,7 @@ export function KeyLifetimeSection({ agentsOn }: { agentsOn: boolean }) {
               value={agent!}
               onChange={setAgent}
               options={keyLifetimeSettingOptions(agentDays ?? null)}
-              helperText="New agent keys last this long. Only an Owner can make one that lasts longer."
+              helperText="Every new agent key lasts this long, and so does each key a rotation makes. Rotate before it ends to keep the agent connected."
             />
           )}
           <div className="flex justify-end gap-2 sm:col-span-2">

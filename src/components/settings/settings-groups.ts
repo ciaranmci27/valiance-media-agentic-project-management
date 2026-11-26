@@ -70,8 +70,8 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
       'mail-rules': EMAIL_PAGES.rules,
     },
   },
-  // People's personal assistants: on or off, their name, who gets one, chat connections (Owners only).
-  { key: 'assistants', href: '/settings/assistants', label: 'Assistants', icon: Sparkles, sectionIds: ['assistants', 'assistant-setups', 'assistant-status', 'chat-connections'] },
+  // People's personal assistants: the agent service that runs them, on or off, their name, who gets one, chat connections (Owners only).
+  { key: 'assistants', href: '/settings/assistants', label: 'Assistants', icon: Sparkles, sectionIds: ['assistant-service', 'assistants', 'assistant-setups', 'assistant-status', 'chat-connections'] },
   { key: 'developers', href: '/settings/developers', label: 'Developers', icon: Code2, sectionIds: ['api-keys', 'key-lifetimes', 'webhooks', 'webhook-retries', 'developer-docs'] },
   // The kill switch for every agent, whether people may connect AI tools, the audit log and how long it is kept (Owners only).
   { key: 'security', href: '/settings/security', label: 'Security', icon: ShieldCheck, sectionIds: ['agents-pause', 'connect-ai-setting', 'audit-log', 'audit-settings', 'data-retention'] },
@@ -131,8 +131,9 @@ export function useSettingsAccess() {
     encryption: isOwner && !isDemoMode,
     // What AI provider subscriptions cost, for the analytics estimate: Owners only, with AI agents on.
     providerPlans: isOwner && !isDemoMode && isModuleEnabled(access, 'agents'),
-    // What every member and agent should know (workspace context): Owners and settings managers write it.
-    companyKnowledge: (isOwner || canManageSettings) && !isDemoMode,
+    // What every member and agent should know (workspace context): every member but a guest reads it,
+    // as the server allows; Owners and settings managers write it. The demo shows sample entries.
+    companyKnowledge: !isGuest && access?.role !== 'agent',
     // Owners only. In demo mode the page says updates are off there.
     updates: isOwner,
     // Billing: invoice details only mean something with Client invoicing on;
@@ -162,10 +163,11 @@ export function useSettingsAccess() {
     templates: hasPermission(access, 'tasks.create') || hasPermission(access, 'templates.manage'),
     // Hidden when the environment forces demo mode on.
     demoMode: canManageSettings && !isEnvForcedDemo,
-    // People's assistants and the chat connections they answer through: Owners only.
-    assistants: isOwner && !isDemoMode,
-    // Pausing every agent at once: Owners only, with AI agents on.
-    agentsPause: isOwner && !isDemoMode && isModuleEnabled(access, 'agents'),
+    // People's assistants and the chat connections they answer through: Owners only. The demo shows samples, with changes off.
+    assistants: isOwner,
+    // Pausing every agent at once: Owners only, whether or not AI agents are on
+    // (agent keys and personal assistants keep working while the module is off).
+    agentsPause: isOwner && !isDemoMode,
     // Who changed what, and how long that is kept: Owners only. The demo workspace has no log.
     auditLog: isOwner && !isDemoMode,
     // How long data that grows on its own is kept: Owners only. The demo workspace shows the defaults, with nothing to change.

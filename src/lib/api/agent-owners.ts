@@ -235,10 +235,11 @@ export const AGENT_OWNERS_MAX = 20;
 
 /**
  * Checks a list of owners: active people (never an agent, never the agent
- * itself), deduplicated, at most AGENT_OWNERS_MAX. Throws 422 naming the
- * ones refused.
+ * itself), deduplicated, at most AGENT_OWNERS_MAX. An owner it already has
+ * (`current`) may stay while suspended, so editing the rest never needs them
+ * removed first. Throws 422 naming the ones refused.
  */
-export async function checkOwnerIds(service: SupabaseClient, agentId: string | null, ownerIds: string[]): Promise<string[]> {
+export async function checkOwnerIds(service: SupabaseClient, agentId: string | null, ownerIds: string[], current: readonly string[] = []): Promise<string[]> {
   const ids = [...new Set(ownerIds)];
   if (ids.length > AGENT_OWNERS_MAX) {
     throw new ApiError(422, 'VALIDATION_ERROR', `An agent has at most ${AGENT_OWNERS_MAX} owners`, { reason: 'too_many_owners' });
@@ -255,7 +256,8 @@ export async function checkOwnerIds(service: SupabaseClient, agentId: string | n
     throw new ApiError(422, 'VALIDATION_ERROR', 'An agent is owned by people, never by another agent', { reason: 'owner_is_agent', owner_ids: agents });
   }
   const active = new Set(rows.filter((row) => row.status === 'active').map((row) => row.id));
-  const missing = ids.filter((id) => !active.has(id));
+  const kept = new Set(rows.filter((row) => current.includes(row.id)).map((row) => row.id));
+  const missing = ids.filter((id) => !active.has(id) && !kept.has(id));
   if (missing.length) {
     throw new ApiError(422, 'VALIDATION_ERROR', 'Every owner must be an active team member', { reason: 'owner_not_active', owner_ids: missing });
   }
@@ -289,10 +291,10 @@ export async function setOwners(service: SupabaseClient, caller: AgentCaller, ag
   if (!(await canChangeOwners(service, caller, agentId))) {
     throw forbidden('Only an Owner or one of this agent\'s owners changes who owns it', { reason: 'not_agent_owner' });
   }
-  const ids = await checkOwnerIds(service, agentId, ownerIds);
   const { data: existing, error } = await service.from('agent_owners').select('member_id').eq('agent_id', agentId);
   if (error) throw error;
   const have = ((existing ?? []) as { member_id: string }[]).map((row) => row.member_id);
+  const ids = await checkOwnerIds(service, agentId, ownerIds, have);
   const removed = have.filter((id) => !ids.includes(id));
   if (removed.length) {
     const { error: deleteError } = await service.from('agent_owners').delete().eq('agent_id', agentId).in('member_id', removed);

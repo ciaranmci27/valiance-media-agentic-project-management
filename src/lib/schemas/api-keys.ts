@@ -18,9 +18,9 @@ export const createApiKeySchema = z.object({
 });
 
 /**
- * Body of PATCH /api/workspace/api-keys/[id]: a new name, new scopes, or
- * both. Scopes are checked against the key's member's api permissions in
- * lib/api/key-edit.ts; the secret never changes.
+ * Body of PATCH /api/workspace/api-keys/[id] and /api/v1/api-keys/[id]: a
+ * new name, new scopes, or both. lib/api/key-edit.ts checks the scopes; the
+ * secret never changes.
  */
 export const updateApiKeySchema = z
   .object({
@@ -28,6 +28,7 @@ export const updateApiKeySchema = z
     scopes: keyScopes.optional(),
   })
   .refine((body) => body.name !== undefined || body.scopes !== undefined, 'Send a name or scopes to change');
+export type UpdateApiKey = z.infer<typeof updateApiKeySchema>;
 
 /**
  * Body of POST /api/v1/api-keys: a key for the caller's own member or for an

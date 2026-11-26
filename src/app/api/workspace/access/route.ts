@@ -1,11 +1,20 @@
 import { NextResponse } from 'next/server';
-import { requireSessionAccess } from '@/lib/api/access';
-import { PERMISSIONS, TEAM_ROLES, type AccessChannel, type PermissionEffect } from '@/lib/access-control';
+import { accessAllows, requireSessionAccess } from '@/lib/api/access';
+import { PERMISSIONS, TEAM_ROLES, type AccessChannel, type AccessContext, type PermissionEffect } from '@/lib/access-control';
+
+/**
+ * Roles & permissions (Team): an Owner, or anyone an Owner gave Manage
+ * access (access.manage; no role holds it by default). A holder who is not
+ * an Owner never changes their own access (their own overrides or their own
+ * role's defaults) and never gives or takes away Manage access itself: only
+ * an Owner does, so the power cannot spread or grow on its own.
+ */
+const managesAccess = (access: AccessContext) => access.role === 'owner' || accessAllows(access, 'access.manage', 'app');
 
 export async function GET() {
   const auth = await requireSessionAccess();
   if (auth.error) return auth.error;
-  if (auth.data.access.role !== 'owner') return NextResponse.json({ error: 'Owner access required' }, { status: 403 });
+  if (!managesAccess(auth.data.access)) return NextResponse.json({ error: 'Manage access required' }, { status: 403 });
   const { service } = auth.data;
   const [roles, members] = await Promise.all([
     service.from('role_permissions').select('*').order('role').order('permission_key'),
@@ -20,8 +29,9 @@ export async function GET() {
 export async function PUT(request: Request) {
   const auth = await requireSessionAccess();
   if (auth.error) return auth.error;
-  if (auth.data.access.role !== 'owner') return NextResponse.json({ error: 'Owner access required' }, { status: 403 });
-  const { memberId, service } = auth.data;
+  if (!managesAccess(auth.data.access)) return NextResponse.json({ error: 'Manage access required' }, { status: 403 });
+  const { memberId, service, access } = auth.data;
+  const owner = access.role === 'owner';
   const body = await request.json() as {
     target: 'role' | 'member';
     role?: string;
@@ -40,10 +50,16 @@ export async function PUT(request: Request) {
   if (!['role', 'member'].includes(body.target)) {
     return NextResponse.json({ error: 'Invalid permission target' }, { status: 422 });
   }
+  if (!owner && body.permission_key === 'access.manage') {
+    return NextResponse.json({ error: 'Only an Owner gives or takes away Manage access' }, { status: 403 });
+  }
 
   if (body.target === 'role') {
     if (!body.role || body.role === 'owner' || !TEAM_ROLES.includes(body.role as never)) {
       return NextResponse.json({ error: 'Invalid editable role' }, { status: 422 });
+    }
+    if (!owner && body.role === access.role) {
+      return NextResponse.json({ error: 'You cannot change the defaults of your own role. Ask an Owner.' }, { status: 403 });
     }
     if (typeof body.enabled !== 'boolean') {
       return NextResponse.json({ error: 'Enabled must be true or false' }, { status: 422 });
@@ -59,6 +75,9 @@ export async function PUT(request: Request) {
     if (result.error) return NextResponse.json({ error: result.error.message }, { status: 500 });
   } else {
     if (!body.member_id) return NextResponse.json({ error: 'Member is required' }, { status: 422 });
+    if (!owner && body.member_id === memberId) {
+      return NextResponse.json({ error: 'You cannot change your own access. Ask an Owner.' }, { status: 403 });
+    }
     if (body.effect !== null && body.effect !== 'allow' && body.effect !== 'deny') {
       return NextResponse.json({ error: 'Invalid permission effect' }, { status: 422 });
     }

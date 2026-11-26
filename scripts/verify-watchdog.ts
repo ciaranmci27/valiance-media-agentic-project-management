@@ -56,14 +56,22 @@ type Loose = any;
 const OWNER_LOGIN = { id: '0b5c1e9a-6f7d-4c1e-9a1b-000000000001', email: 'olivia@example.com' };
 const ADMIN_LOGIN = { id: '0b5c1e9a-6f7d-4c1e-9a1b-000000000002', email: 'ana@example.com' };
 
-/** schema.sql without this migration's section: what an install had before it. */
+/**
+ * schema.sql without this migration's section: what an install had before it.
+ * A later section that calls a function this migration creates goes too (it
+ * could not load without it); the later migrations bring it back, as they do
+ * on an upgrade.
+ */
 function schemaWithoutSection(): string {
+  const heading = /\n-- =+\n-- [A-Z][^\n]*\(\d{14}_[a-z0-9_]+\.sql\)/g;
+  const starts: number[] = [];
+  for (let m = heading.exec(SCHEMA_SQL); m; m = heading.exec(SCHEMA_SQL)) starts.push(m.index);
   const at = SCHEMA_SQL.indexOf(SECTION);
-  const start = SCHEMA_SQL.lastIndexOf('\n-- ====', at);
-  const next = /\n-- =+\n-- [A-Z][^\n]*\(\d{14}_[a-z0-9_]+\.sql\)/g;
-  next.lastIndex = at + SECTION.length;
-  const end = next.exec(SCHEMA_SQL)?.index ?? SCHEMA_SQL.length;
-  return SCHEMA_SQL.slice(0, start) + SCHEMA_SQL.slice(end);
+  const sections = starts.map((s, i) => SCHEMA_SQL.slice(s, starts[i + 1] ?? SCHEMA_SQL.length));
+  const own = starts.filter((s) => s < at).length - 1;
+  const created = [...MIGRATION_SQL.matchAll(/CREATE OR REPLACE FUNCTION (pm\.[a-z_]+)\(/g)].map((m) => m[1]);
+  const later = sections.slice(own + 1).filter((piece) => !created.some((name) => piece.includes(`${name}(`)));
+  return SCHEMA_SQL.slice(0, starts[0]) + sections.slice(0, own).join('') + later.join('');
 }
 
 async function migrationChecks() {
@@ -127,7 +135,7 @@ async function seed(db: PGlite) {
   const buddy = (await q<{ id: string }>("INSERT INTO pm.team_members (name, email, role, delegate_of, assistant_template) VALUES ('Buddy', 'buddy@agents.invalid', 'agent', $1, 'personal-assistant') RETURNING id", [mia]))[0].id;
   await q('INSERT INTO pm.agent_owners (agent_id, member_id) VALUES ($1, $2)', [nova, pat]);
   await q('UPDATE pm.team_members SET agent_paused_at = now() WHERE id = $1', [sleepy]);
-  // Mia manages webhooks (Team > Access).
+  // Mia manages webhooks (Team > Roles & permissions).
   await q("INSERT INTO pm.team_member_permissions (member_id, permission_key, access_channel, effect) VALUES ($1, 'webhooks.manage', 'app', 'allow')", [mia]);
   const project = (await q<{ id: string }>("INSERT INTO pm.projects (name) VALUES ('Apex') RETURNING id"))[0].id;
   const listening = (await q<{ id: string }>(`INSERT INTO pm.webhook_endpoints (name, url, secret, events)

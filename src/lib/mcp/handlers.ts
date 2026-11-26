@@ -65,6 +65,7 @@ import * as agentContext from '@/app/api/v1/agents/[id]/context/route';
 import * as agentExport from '@/app/api/v1/agents/[id]/export/route';
 import * as agentTemplate from '@/app/api/v1/agents/[id]/template/route';
 import * as agentImport from '@/app/api/v1/agents/import/route';
+import * as agentHire from '@/app/api/v1/agents/hire/route';
 import * as myContext from '@/app/api/v1/agents/me/context/route';
 import * as myStatus from '@/app/api/v1/agents/me/status/route';
 import * as agentTemplates from '@/app/api/v1/agent-templates/route';
@@ -77,6 +78,9 @@ import * as projectSetup from '@/app/api/v1/projects/setup/route';
 import * as apiKeys from '@/app/api/v1/api-keys/route';
 import * as apiKeyRevoke from '@/app/api/v1/api-keys/[id]/revoke/route';
 import * as apiKeyRotate from '@/app/api/v1/api-keys/[id]/rotate/route';
+import * as apiKeyOne from '@/app/api/v1/api-keys/[id]/route';
+import * as apiKeyPause from '@/app/api/v1/api-keys/[id]/pause/route';
+import * as apiKeyResume from '@/app/api/v1/api-keys/[id]/resume/route';
 import * as assistants from '@/app/api/v1/assistants/route';
 import * as assistantsProvision from '@/app/api/v1/assistants/provision/route';
 import * as assistantMessages from '@/app/api/v1/assistant/messages/route';
@@ -209,6 +213,7 @@ export const ROUTE_MODULES: Record<string, RouteModule> = {
   '/api/v1/agents/{id}/export': agentExport,
   '/api/v1/agents/{id}/template': agentTemplate,
   '/api/v1/agents/import': agentImport,
+  '/api/v1/agents/hire': agentHire,
   '/api/v1/agents/me/context': myContext,
   '/api/v1/agents/me/status': myStatus,
   '/api/v1/agents/me/projects': myProjects,
@@ -222,6 +227,9 @@ export const ROUTE_MODULES: Record<string, RouteModule> = {
   '/api/v1/api-keys': apiKeys,
   '/api/v1/api-keys/{id}/revoke': apiKeyRevoke,
   '/api/v1/api-keys/{id}/rotate': apiKeyRotate,
+  '/api/v1/api-keys/{id}': apiKeyOne,
+  '/api/v1/api-keys/{id}/pause': apiKeyPause,
+  '/api/v1/api-keys/{id}/resume': apiKeyResume,
   '/api/v1/assistants': assistants,
   '/api/v1/assistants/provision': assistantsProvision,
   '/api/v1/assistant/messages': assistantMessages,

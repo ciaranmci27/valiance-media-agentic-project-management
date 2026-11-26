@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { Trash2, UsersRound, Wand2 } from 'lucide-react';
+import { AlertTriangle, Trash2, UsersRound, Wand2 } from 'lucide-react';
 import { SettingsSectionHeader } from '@/components/settings/SettingsSectionHeader';
 import { Button } from '@/components/ui/Button';
 import { Select } from '@/components/ui/inputs/Select';
@@ -10,24 +10,30 @@ import { toast } from '@/components/ui/Toast';
 import { workspaceApi } from '@/lib/agent-workspace';
 import { useDemo } from '@/lib/demo-context';
 import { invalidateTables, useRead } from '@/lib/query-cache';
-import { allGroupsRead, assistantSetupsRead } from '@/lib/reads';
-import type { AssistantSetupView, ProvisionPreview } from '@/lib/assistant';
+import { allGroupsRead, assistantSetupsReadFor } from '@/lib/reads';
+import { skippedSetupWords, type AssistantSetupView, type ProvisionPreview } from '@/lib/assistant';
+import { demoBlocked } from './demo';
 
 const ROLE_WORDS: Record<string, string> = { owner: 'Owners', admin: 'Admins', member: 'Members', guest: 'Guests' };
 
 const PREVIEW_NAMES = 8;
-/** People per provisioning call; the loop runs until nobody is left. */
+/** People per provisioning call; the loop runs until nobody is left or a round makes nobody new. */
 const PAGE = 200;
+const MAX_ROUNDS = 50;
 
 /**
  * Who gets an assistant: roles and groups, each on or off, and one button
  * that gives everyone they match theirs. The button shows who first (a dry
- * run), then makes them, page by page, until nobody is missing. New people
- * with a listed role get theirs the moment they join.
+ * run), then makes them, page by page, until nobody is missing, and says
+ * how many people got one and how many could not. A setup that cannot be
+ * used (its template is gone, or its feature is off) says why on its row
+ * and in the preview. New people in a listed role or group get theirs when
+ * they join it, and someone whose role changes to a listed one gets theirs
+ * then too.
  */
 export function AssistantSetupsSection() {
   const { isDemoMode } = useDemo();
-  const read = useRead(assistantSetupsRead);
+  const read = useRead(assistantSetupsReadFor(isDemoMode));
   const groups = useRead(allGroupsRead(isDemoMode)).data ?? [];
   const setups = useMemo(() => read.data ?? [], [read.data]);
   const [adding, setAdding] = useState('');
@@ -43,6 +49,7 @@ export function AssistantSetupsSection() {
 
   const refresh = () => invalidateTables(['assistant_setups', 'team_members']);
   const run = async (key: string, work: () => Promise<void>) => {
+    if (demoBlocked(isDemoMode)) return;
     setBusy(key);
     try {
       await work();
@@ -76,14 +83,20 @@ export function AssistantSetupsSection() {
     setPreview(await workspaceApi<ProvisionPreview>('/api/workspace/assistants/provision', { method: 'POST', body: { dry_run: true, limit: PAGE } }));
   });
   const giveEveryone = () => run('give', async () => {
-    let made = 0;
-    for (let round = 0; round < 50; round++) {
+    const given = new Set<string>();
+    let failed = new Set<string>();
+    for (let round = 0; round < MAX_ROUNDS; round++) {
       const page = await workspaceApi<ProvisionPreview>('/api/workspace/assistants/provision', { method: 'POST', body: { limit: PAGE } });
-      made += page.agents.filter((agent) => agent.agent_id).length;
-      if (page.remaining === 0 || page.agents.length === 0) break;
+      const before = given.size;
+      for (const agent of page.agents) if (agent.agent_id) given.add(agent.person.id);
+      // Whoever this round could not give one to; a later round may.
+      failed = new Set(page.agents.filter((agent) => !agent.agent_id && !given.has(agent.person.id)).map((agent) => agent.person.id));
+      // Done when nobody is left, or a round makes nobody new (the rest keep failing).
+      if (page.remaining === 0 || page.agents.length === 0 || given.size === before) break;
     }
     setPreview(null);
-    setResult(made === 0 ? 'Everyone already has theirs.' : `Gave ${made} ${made === 1 ? 'person' : 'people'} their assistant.`);
+    const gave = given.size === 0 ? 'Nobody new got one.' : `Gave ${given.size} ${given.size === 1 ? 'person' : 'people'} their assistant.`;
+    setResult(failed.size > 0 ? `${gave} ${failed.size} couldn't be given one: try again, or check the agent service.` : given.size === 0 ? 'Everyone already has theirs.' : gave);
     invalidateTables(['team_members', 'api_keys']);
   });
 
@@ -96,7 +109,7 @@ export function AssistantSetupsSection() {
         icon={UsersRound}
         headingId="assistant-setups-heading"
         title="Who gets one"
-        description="Pick roles or groups. New people in them get their assistant when they join; give everyone already here theirs in one step."
+        description="Pick roles or groups. People who join one, or move into a listed role, get their assistant then; give everyone already here theirs in one step."
       />
 
       {setups.length > 0 && (
@@ -105,7 +118,13 @@ export function AssistantSetupsSection() {
             <li key={setup.id} className="flex items-center justify-between gap-3 bg-surface-raised px-3 py-2.5">
               <div className="min-w-0">
                 <p className="truncate text-sm font-medium text-zinc-100">{label(setup)}</p>
-                <p className="truncate text-xs text-zinc-500">{setup.match_role ? 'Everyone with this role' : 'Everyone in this group'}</p>
+                {setup.skipped_reason ? (
+                  <p className="flex items-start gap-1.5 text-xs text-amber-300">
+                    <AlertTriangle size={12} className="mt-0.5 flex-shrink-0" aria-hidden="true" />{skippedSetupWords(setup.skipped_reason)}
+                  </p>
+                ) : (
+                  <p className="truncate text-xs text-zinc-500">{setup.match_role ? 'Everyone with this role' : 'Everyone in this group'}</p>
+                )}
               </div>
               <div className="flex flex-shrink-0 items-center gap-2">
                 <Toggle size="sm" checked={setup.enabled} disabled={busy === setup.id} onChange={(value) => void toggle(setup, value)} aria-label={`${label(setup)} get an assistant`} />
@@ -136,11 +155,24 @@ export function AssistantSetupsSection() {
       </div>
 
       <div className="mt-5 border-t border-white/[0.06] pt-5">
-        {result && <p className="mb-3 text-sm text-emerald-200" role="status">{result}</p>}
+        {result && <p className="mb-3 text-sm text-emerald-300" role="status">{result}</p>}
         {preview ? (
           <div className="rounded-lg bg-white/[0.04] px-4 py-3">
+            {preview.skipped_setups.length > 0 && (
+              <ul className="mb-3 space-y-1">
+                {preview.skipped_setups.map((skip) => {
+                  const setup = setups.find((row) => row.id === skip.setup_id);
+                  return (
+                    <li key={skip.setup_id} className="flex items-start gap-1.5 text-sm text-amber-300">
+                      <AlertTriangle size={13} className="mt-0.5 flex-shrink-0" aria-hidden="true" />
+                      <span><span className="font-medium">{setup ? label(setup) : 'A setup'}:</span> {skippedSetupWords(skip.reason)}</span>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
             {preview.total_missing === 0 ? (
-              <p className="text-sm text-zinc-300">Everyone these roles and groups match already has theirs.</p>
+              <p className="text-sm text-zinc-300">{preview.skipped_setups.length > 0 ? 'Nobody else is missing one from the setups that work.' : 'Everyone these roles and groups match already has theirs.'}</p>
             ) : (
               <>
                 <p className="text-sm text-zinc-200">
@@ -150,7 +182,7 @@ export function AssistantSetupsSection() {
                     {preview.total_missing > Math.min(PREVIEW_NAMES, preview.agents.length) ? ` and ${preview.total_missing - Math.min(PREVIEW_NAMES, preview.agents.length)} more` : ''}
                   </span>
                 </p>
-                <p className="mt-1 text-xs text-zinc-500">Each one starts working once your agent service connects it. Nothing is sent to anyone.</p>
+                <p className="mt-1 text-xs text-zinc-500">Each one starts working once your agent service (above) collects its key. Nothing is sent to anyone.</p>
               </>
             )}
             <div className="mt-3 flex flex-wrap gap-2">

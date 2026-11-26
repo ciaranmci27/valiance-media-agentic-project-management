@@ -45,3 +45,38 @@ export async function setDataRetentionSettings(db: SupabaseClient, patch: DataRe
   }
   return dataRetentionSettings(db);
 }
+
+/** A setting the retention preview counts: Keeping data's, or the audit log's (audit_retention_days). */
+export type RetentionPreviewKey = (typeof DATA_RETENTION_KEYS)[number] | 'audit_retention_days';
+
+/**
+ * About how many rows each period would remove at the next daily cleanup
+ * (chat: how many texts it would blank), counted the way the jobs choose
+ * them (pm.apply_data_retention, pm.purge_audit_log) less the few rows they
+ * keep for state. Null for a period kept forever or a table this database
+ * lacks. Nothing changes.
+ */
+export async function retentionPreview(db: SupabaseClient, periods: Partial<Record<RetentionPreviewKey, number | null>>, now: Date = new Date()): Promise<Partial<Record<RetentionPreviewKey, number | null>>> {
+  const cutoff = (days: number) => new Date(now.getTime() - days * 86_400_000).toISOString();
+  const count = async (key: RetentionPreviewKey, days: number): Promise<number | null> => {
+    const before = cutoff(days);
+    const head = { count: 'exact' as const, head: true };
+    const query = key === 'webhook_retention_days'
+      ? db.from('webhook_deliveries').select('id', head).in('status', ['succeeded', 'failed']).lt('created_at', before)
+      : key === 'agent_health_history_days'
+        ? db.from('agent_health_history').select('id', head).lt('changed_at', before)
+        : key === 'agent_activity_retention_days'
+          ? db.from('agent_activities').select('id', head).lt('created_at', before).not('activity_type', 'like', 'billing.%')
+          : key === 'agent_run_retention_days'
+            ? db.from('agent_runs').select('id', head).neq('status', 'running').lt('finished_at', before)
+            : key === 'chat_retention_days'
+              ? db.from('chat_messages').select('id', head).neq('text', '').lt('created_at', before)
+              : db.from('api_audit_log').select('id', head).lt('timestamp', before);
+    const { count: rows, error } = await query;
+    return error ? null : rows ?? 0;
+  };
+  const entries = await Promise.all(Object.entries(periods).map(async ([key, days]) => [
+    key, typeof days === 'number' && days > 0 ? await count(key as RetentionPreviewKey, days) : null,
+  ] as const));
+  return Object.fromEntries(entries);
+}

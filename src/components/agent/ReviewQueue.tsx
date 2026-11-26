@@ -16,19 +16,21 @@ import {
 import { toast } from '@/components/ui/Toast';
 import { BundleApproveModal } from '@/components/agent/BundleApproveModal';
 import { appLocale } from '@/lib/region';
-import { suggestionsInReach } from '@/lib/suggestion-reach';
+import { splitInfoAnswer, suggestionsInReach } from '@/lib/suggestion-reach';
 
 type StatusFilter = '' | 'pending' | 'needs_info' | 'approved' | 'rejected' | 'declined';
 
 interface ReviewQueueProps {
   onApprove: (id: string) => void;
   onEdit?: (id: string) => void;
+  /** Opens the one Decline dialog (an optional reason rejects it with a lesson for the agent). */
+  onDecline: (id: string) => void;
 }
 
-export function ReviewQueue({ onApprove, onEdit }: ReviewQueueProps) {
+export function ReviewQueue({ onApprove, onEdit, onDecline }: ReviewQueueProps) {
   const {
     taskSuggestions, projects, projectGoals, team,
-    rejectSuggestion, declineSuggestion, requestInfoOnSuggestion, updateSuggestion,
+    requestInfoOnSuggestion, updateSuggestion,
     bulkApproveSuggestions, bulkRejectSuggestions, bulkDeclineSuggestions,
     approveSuggestionBundle, bundleSuggestions, unbundleSuggestion,
   } = useApp();
@@ -40,8 +42,6 @@ export function ReviewQueue({ onApprove, onEdit }: ReviewQueueProps) {
   // The bundle whose approve-together modal is open, by shared key.
   const [bundleModalKey, setBundleModalKey] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [rejectInputId, setRejectInputId] = useState<string | null>(null);
-  const [rejectReason, setRejectReason] = useState('');
   const [infoInputId, setInfoInputId] = useState<string | null>(null);
   const [infoText, setInfoText] = useState('');
   const [collapsedProjects, setCollapsedProjects] = useState<Set<string>>(new Set());
@@ -56,7 +56,7 @@ export function ReviewQueue({ onApprove, onEdit }: ReviewQueueProps) {
   const statusTabs: { key: StatusFilter; label: string; count: number }[] = [
     { key: '', label: 'All', count: activeSuggestions.length },
     { key: 'pending', label: 'Pending', count: activeSuggestions.filter(s => s.status === 'pending').length },
-    { key: 'needs_info', label: 'Needs Info', count: activeSuggestions.filter(s => s.status === 'needs_info').length },
+    { key: 'needs_info', label: 'Asked for info', count: activeSuggestions.filter(s => s.status === 'needs_info').length },
     { key: 'approved', label: 'Approved', count: activeSuggestions.filter(s => s.status === 'approved').length },
     { key: 'rejected', label: 'Rejected', count: activeSuggestions.filter(s => s.status === 'rejected').length },
     { key: 'declined', label: 'Declined', count: activeSuggestions.filter(s => s.status === 'declined').length },
@@ -164,12 +164,6 @@ export function ReviewQueue({ onApprove, onEdit }: ReviewQueueProps) {
     });
   };
 
-  const handleReject = async (id: string) => {
-    setRejectInputId(null);
-    setRejectReason('');
-    const ok = await rejectSuggestion(id, rejectReason || undefined, teamMemberId || '');
-    if (ok) toast('success', 'Suggestion rejected');
-  };
 
   const handleRequestInfo = (id: string) => {
     if (!infoText.trim()) return;
@@ -179,9 +173,18 @@ export function ReviewQueue({ onApprove, onEdit }: ReviewQueueProps) {
     toast('success', 'Info requested');
   };
 
-  const handleReopen = (id: string) => {
-    updateSuggestion(id, { status: 'pending', rejection_reason: null, reviewed_by: null, reviewed_at: null } as any);
-    toast('success', 'Suggestion reopened');
+  // Rejected or declined: back to pending, to decide again (the server allows either).
+  const handleReopen = async (id: string) => {
+    if (await updateSuggestion(id, { status: 'pending', rejection_reason: null, reviewed_by: null, reviewed_at: null } as unknown as Partial<TaskSuggestion>)) {
+      toast('success', 'Suggestion reopened');
+    }
+  };
+
+  /** "by Sarah Chen, 2h ago": who reviewed a suggestion and when. */
+  const reviewedLine = (s: TaskSuggestion) => {
+    const who = s.reviewed_by ? (s.reviewed_by === teamMemberId ? 'by you' : `by ${getAgentName(s.reviewed_by)}`) : '';
+    const when = s.reviewed_at ? formatTime(s.reviewed_at) : '';
+    return [who, when && (when === 'Just now' ? 'just now' : `${when} ago`.replace(/^(\w{3} \d+) ago$/, 'on $1'))].filter(Boolean).join(', ');
   };
 
   // Bulk approve honors bundles: members sharing a bundle_key compose ONE
@@ -266,23 +269,12 @@ export function ReviewQueue({ onApprove, onEdit }: ReviewQueueProps) {
 
   const isActionable = (s: TaskSuggestion) => s.status === 'pending' || s.status === 'needs_info';
 
-  // The proposing agent answers an info request by appending to the description with
-  // this exact marker (its plugin owns the format). Splitting on it lets the UI
-  // show a clean description plus a real Q&A block, and, more importantly, show
-  // WHO HOLDS THE BALL: an unanswered request waits on the agent, an answered
-  // one is back on the Owner. Without this the two states are indistinguishable.
-  const ANSWER_MARKER = '\n\n--- Answer to info request ---';
-  const splitAnswer = (s: TaskSuggestion): { description: string; answer: string | null } => {
-    const idx = s.description.indexOf(ANSWER_MARKER);
-    if (idx === -1) return { description: s.description, answer: null };
-    const raw = s.description.slice(idx + ANSWER_MARKER.length).trim();
-    // The addendum carries "Asked: ..." then "Answer: ..."; the box already
-    // renders the question, so display only the answer text.
-    const answer = raw.replace(/^Asked:[\s\S]*?\nAnswer:\s*/, '').replace(/^Answer:\s*/, '');
-    return { description: s.description.slice(0, idx).trimEnd(), answer };
-  };
-
-  const rejectTarget = rejectInputId ? activeSuggestions.find(s => s.id === rejectInputId) : null;
+  // The proposing agent answers an info request by appending to the description
+  // with a marker (suggestion-reach.ts). Splitting on it shows a clean
+  // description plus a real Q&A block, and WHO HOLDS THE BALL: an unanswered
+  // request waits on the agent, an answered one is back with the person (and
+  // counts in Needs you again).
+  const splitAnswer = splitInfoAnswer;
   const infoTarget = infoInputId ? activeSuggestions.find(s => s.id === infoInputId) : null;
 
   return (
@@ -292,7 +284,7 @@ export function ReviewQueue({ onApprove, onEdit }: ReviewQueueProps) {
       <div className="p-4 border-b border-white/[0.06] flex-shrink-0">
         {/* Mobile: title + Pending/All toggle */}
         <div className="flex items-center justify-between lg:hidden">
-          <h2 className="font-semibold text-white">Review Queue</h2>
+          <h2 className="font-semibold text-white">Suggestions</h2>
           <div className="seg-track">
             {[{ key: 'pending' as StatusFilter, label: 'Pending' }, { key: '' as StatusFilter, label: 'All' }].map((tab) => (
               <button
@@ -309,7 +301,7 @@ export function ReviewQueue({ onApprove, onEdit }: ReviewQueueProps) {
         {/* Desktop: title + full filter tabs */}
         <div className="hidden lg:block">
           <div className="flex items-center justify-between mb-3">
-            <h2 className="font-semibold text-white">Review Queue</h2>
+            <h2 className="font-semibold text-white">Suggestions</h2>
           </div>
 
           <div className="seg-track">
@@ -568,10 +560,10 @@ export function ReviewQueue({ onApprove, onEdit }: ReviewQueueProps) {
                                         Approve solo
                                       </button>
                                       <button
-                                        onClick={(e) => { e.stopPropagation(); setRejectInputId(m.id); }}
-                                        className="px-2 py-1 rounded-md text-[11px] font-medium text-red-300 hover:bg-red-500/10 transition-colors"
+                                        onClick={(e) => { e.stopPropagation(); onDecline(m.id); }}
+                                        className="px-2 py-1 rounded-md text-[11px] font-medium text-zinc-300 hover:bg-white/[0.08] transition-colors"
                                       >
-                                        Reject
+                                        Decline
                                       </button>
                                       <button
                                         onClick={async (e) => {
@@ -643,7 +635,7 @@ export function ReviewQueue({ onApprove, onEdit }: ReviewQueueProps) {
                             {suggestion.status === 'needs_info' && (
                               splitAnswer(suggestion).answer !== null ? (
                                 <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase bg-emerald-500/15 text-emerald-300">
-                                  Answered
+                                  Agent answered
                                 </span>
                               ) : (
                                 <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase bg-amber-500/15 text-amber-300">
@@ -661,6 +653,14 @@ export function ReviewQueue({ onApprove, onEdit }: ReviewQueueProps) {
                                 Rejected
                               </span>
                             )}
+                            {suggestion.status === 'declined' && (
+                              <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase bg-white/[0.08] text-zinc-300">
+                                Declined
+                              </span>
+                            )}
+                            {['approved', 'rejected', 'declined'].includes(suggestion.status) && reviewedLine(suggestion) && (
+                              <span className="text-[11px] text-zinc-500">{reviewedLine(suggestion)}</span>
+                            )}
                           </div>
                           <div className="flex items-center gap-1.5 mt-1">
                             <p className="text-xs text-zinc-500 truncate"><span className="text-zinc-400">Goal:</span> {getGoalTitle(suggestion.goal_id)}</p>
@@ -673,7 +673,7 @@ export function ReviewQueue({ onApprove, onEdit }: ReviewQueueProps) {
                         <div className="flex items-center gap-2 flex-shrink-0">
                           {/* Desktop action buttons */}
                           {isActionable(suggestion) && (
-                            <div className="hidden lg:flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <div className="hidden lg:flex items-center gap-1">
                               <Tooltip content="Approve">
                                 <button
                                   onClick={(e) => { e.stopPropagation(); onApprove(suggestion.id); }}
@@ -702,26 +702,14 @@ export function ReviewQueue({ onApprove, onEdit }: ReviewQueueProps) {
                                   </button>
                                 </Tooltip>
                               )}
-                              <Tooltip content="Reject (teaches the agent why)">
-                                <button
-                                  onClick={(e) => { e.stopPropagation(); setRejectInputId(suggestion.id); setRejectReason(''); }}
-                                  className="p-1.5 rounded-lg text-red-500 hover:bg-red-500/15 transition-colors"
-                                >
-                                  <X size={16} />
-                                </button>
-                              </Tooltip>
-                              <Tooltip content="Decline (no lesson recorded)">
-                                <button
-                                  onClick={async (e) => {
-                                    e.stopPropagation();
-                                    const ok = await declineSuggestion(suggestion.id, teamMemberId || '');
-                                    if (ok) toast('success', 'Suggestion declined');
-                                  }}
-                                  className="p-1.5 rounded-lg text-zinc-400 hover:bg-white/[0.08] transition-colors"
-                                >
-                                  <Ban size={16} />
-                                </button>
-                              </Tooltip>
+                              {/* One Decline: its dialog says what a reason changes (rejected with a lesson) and what no reason means. */}
+                              <button
+                                onClick={(e) => { e.stopPropagation(); onDecline(suggestion.id); }}
+                                className="ml-1 inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-zinc-300 hover:bg-white/[0.08] hover:text-white transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+                              >
+                                <Ban size={13} aria-hidden="true" />
+                                Decline
+                              </button>
                             </div>
                           )}
 
@@ -878,7 +866,7 @@ export function ReviewQueue({ onApprove, onEdit }: ReviewQueueProps) {
                             return (
                               <div className={`rounded-lg p-3 border ${answer ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-amber-500/15 border-amber-500/30'}`}>
                                 <p className={`text-xs font-semibold mb-1 ${answer ? 'text-emerald-300' : 'text-amber-300'}`}>
-                                  {answer ? 'Info Request, Answered' : 'Info Requested, waiting on the agent'}
+                                  {answer ? 'The agent answered your question' : 'You asked for more info: waiting on the agent'}
                                 </p>
                                 <p className="text-sm text-zinc-300">
                                   <span className="text-zinc-500">You asked: </span>{suggestion.info_request}
@@ -895,7 +883,7 @@ export function ReviewQueue({ onApprove, onEdit }: ReviewQueueProps) {
                           {/* Rejection reason display */}
                           {suggestion.rejection_reason && (
                             <div className="bg-red-500/15 rounded-lg p-3 border border-red-500/30">
-                              <p className="text-xs font-semibold text-red-300 mb-1">Rejection Reason</p>
+                              <p className="text-xs font-semibold text-red-300 mb-1">Why it was rejected</p>
                               <p className="text-sm text-red-300">{suggestion.rejection_reason}</p>
                             </div>
                           )}
@@ -917,8 +905,8 @@ export function ReviewQueue({ onApprove, onEdit }: ReviewQueueProps) {
                             </div>
                           )}
 
-                          {/* Reopen rejected suggestion */}
-                          {suggestion.status === 'rejected' && (
+                          {/* Reopen a rejected or declined suggestion */}
+                          {(suggestion.status === 'rejected' || suggestion.status === 'declined') && (
                             <div className="flex gap-2">
                               <button
                                 onClick={(e) => { e.stopPropagation(); handleReopen(suggestion.id); }}
@@ -959,11 +947,11 @@ export function ReviewQueue({ onApprove, onEdit }: ReviewQueueProps) {
                                 </button>
                               )}
                               <button
-                                onClick={(e) => { e.stopPropagation(); setRejectInputId(suggestion.id); setRejectReason(''); }}
-                                className="flex items-center justify-center gap-1.5 py-2 rounded-lg text-sm font-medium text-red-400 bg-red-500/15 hover:bg-red-500/15 transition-colors"
+                                onClick={(e) => { e.stopPropagation(); onDecline(suggestion.id); }}
+                                className="flex items-center justify-center gap-1.5 py-2 rounded-lg text-sm font-medium text-zinc-300 bg-white/[0.06] hover:bg-white/[0.08] transition-colors"
                               >
-                                <X size={14} />
-                                Reject
+                                <Ban size={14} />
+                                Decline
                               </button>
                             </div>
                           )}
@@ -989,7 +977,7 @@ export function ReviewQueue({ onApprove, onEdit }: ReviewQueueProps) {
               {statusFilter ? `No ${statusFilter.replace('_', ' ')} suggestions` : 'No suggestions yet'}
             </p>
             <p className="text-xs text-zinc-500 mt-1">
-              Suggestions from AI agents will appear here
+              When an agent suggests a task, it shows here for you to approve or decline.
             </p>
           </div>
         )}
@@ -1080,31 +1068,6 @@ export function ReviewQueue({ onApprove, onEdit }: ReviewQueueProps) {
         />
       );
     })()}
-
-    {/* Reject Modal */}
-    <Modal isOpen={!!rejectInputId} onClose={() => setRejectInputId(null)} title="Reject Suggestion" size="sm">
-      {rejectTarget && (
-        <div className="space-y-4">
-          <div>
-            <p className="text-sm font-medium text-white mb-1">{rejectTarget.title}</p>
-            <p className="text-xs text-zinc-400"><span className="font-medium">Goal:</span> {getGoalTitle(rejectTarget.goal_id)}</p>
-          </div>
-          <Textarea
-            label="Reason (optional)"
-            value={rejectReason}
-            onChange={setRejectReason}
-            placeholder="Why are you rejecting this suggestion?"
-            rows={3}
-            autoFocus
-            onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleReject(rejectInputId!); }}
-          />
-          <div className="flex justify-end gap-2">
-            <Button size="sm" variant="ghost" onClick={() => setRejectInputId(null)}>Cancel</Button>
-            <Button size="sm" variant="danger" onClick={() => handleReject(rejectInputId!)}>Reject</Button>
-          </div>
-        </div>
-      )}
-    </Modal>
 
     {/* Request Info Modal */}
     <Modal isOpen={!!infoInputId} onClose={() => setInfoInputId(null)} title="Request Info" size="sm">
@@ -1223,7 +1186,10 @@ export function ReviewQueue({ onApprove, onEdit }: ReviewQueueProps) {
           );
         })()}
 
-        {/* Actions */}
+        {/* Actions, with what Reject and Decline each mean said in words */}
+        <p className="text-xs text-zinc-400">
+          Reject: no, and the agent learns why it was unwanted. Decline: not now, with no feedback for the agent.
+        </p>
         <div className="flex flex-col sm:flex-row gap-2 pt-2">
           <button
             onClick={() => {
@@ -1246,7 +1212,7 @@ export function ReviewQueue({ onApprove, onEdit }: ReviewQueueProps) {
             className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-sm font-medium text-red-400 bg-red-500/15 hover:bg-red-500/15 transition-colors"
           >
             <X size={14} />
-            Reject All
+            Reject all
           </button>
           <button
             onClick={async () => {
@@ -1259,7 +1225,7 @@ export function ReviewQueue({ onApprove, onEdit }: ReviewQueueProps) {
             className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-sm font-medium text-zinc-300 bg-white/[0.06] hover:bg-white/[0.08] transition-colors"
           >
             <Ban size={14} />
-            Decline All
+            Decline all
           </button>
         </div>
 

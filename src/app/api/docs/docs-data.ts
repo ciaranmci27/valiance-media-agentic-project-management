@@ -66,7 +66,7 @@ export function getEndpointScopes(endpoint: EndpointDoc): string[] {
   if (path === '/api/v1/agents/:id/projects') return ['project_members.manage'];
   if (path === '/api/v1/agents/me/context' || path === '/api/v1/agents/me/status' || path === '/api/v1/mcp/tools') return ['any scope'];
   if (path === '/api/v1/agents/:id/context' || path === '/api/v1/agents/:id/export') return ['team.read', 'team.manage'];
-  if (path === '/api/v1/agents/:id/template' || path === '/api/v1/agents/import' || path === '/api/v1/agent-templates') return ['team.manage'];
+  if (path === '/api/v1/agents/:id/template' || path === '/api/v1/agents/import' || path === '/api/v1/agents/hire' || path === '/api/v1/agent-templates') return ['team.manage'];
   if (path === '/api/v1/agent-profiles' && !write) return ['team.read', 'team.manage'];
   if (path.startsWith('/api/v1/agent-profiles') || path.startsWith('/api/v1/agent-templates/') || path.startsWith('/api/v1/agent-registries')) return ['team.manage'];
   if (path === '/api/v1/tasks/:id/delegate') return ['tasks.create', 'tasks.manage_all'];
@@ -239,6 +239,25 @@ export const endpoints: EndpointDoc[] = [
       { name: 'owner_ids', type: 'uuid[]', required: false, description: 'People responsible for it besides you (you always become one). Never an agent (422 owner_is_agent).' },
     ],
   },
+  { method: 'POST', path: '/api/v1/agents/hire', description: "Hire an agent in one call, exactly as the Hire an agent screen does: the agent with no sign-in, its template's role, profile, rules and limits, its owners (you when none are named), project access and assignments with each project's settings checked against the template, optionally a key, and how its host connects. A scope the agent role lacks is given to this agent alone first (scopes_beyond_role), by an Owner only. Everything is checked before the first write; a failure after it undoes what the call made (500 hire_incomplete, saying what stays). The key's secret is in this answer only, so Idempotency-Key is refused. Owner keys only. Returns { agent, rules, template_key, assignments, access_added, scopes_beyond_role, key?, connect } (201).", group: 'Agent Setup',
+    body: [
+      { name: 'name', type: 'string', required: true, description: 'Display name (1 to 100 characters)' },
+      { name: 'title', type: 'string', required: false, description: 'Shown with its name (up to 80 characters)' },
+      { name: 'description', type: 'string', required: false, description: 'What it is for (up to 2000 characters)' },
+      { name: 'agent_role', type: 'string', required: false, description: "A role label for people; left out, the template's" },
+      { name: 'agent_profile', type: 'string', required: false, description: "Which MCP tools it sees; left out, the template's or generic" },
+      { name: 'email', type: 'string', required: false, description: 'An address only it uses; left out, one is made up' },
+      { name: 'template_key', type: 'string', required: false, description: 'A key from GET /api/v1/agent-templates; left out, it starts blank' },
+      { name: 'owner_ids', type: 'uuid[]', required: false, description: 'People responsible for it (you when empty)' },
+      { name: 'owner_group_ids', type: 'uuid[]', required: false, description: 'Groups that own it beside its people' },
+      { name: 'rules', type: 'object', required: false, description: "agent_self_assign, agent_close_policy, agent_create_policy, agent_escalate_to, agent_escalate_to_group; over the template's" },
+      { name: 'project_ids', type: 'uuid[]', required: false, description: 'Projects it works on (up to 200)' },
+      { name: 'project_settings', type: 'object', required: false, description: 'Per project id: { settings, instructions, status } for that project only' },
+      { name: 'create_key', type: 'boolean', required: false, description: 'Make a key now (needs api_keys.manage_all)' },
+      { name: 'key_name', type: 'string', required: false, description: "The key's name" },
+      { name: 'scopes', type: 'string[]', required: false, description: "The key's scopes; left out, the template's. Each must be one your key may grant." },
+    ],
+  },
   { method: 'GET', path: '/api/v1/agents', description: "The agents, by name, paged: each with id, name, title, description, avatar_url, status, agent_role, agent_profile, template_key, owners ([{ id, name, avatar_url }]; none reads as the workspace Owners), project_ids (up to 50 it is assigned to that you reach), assignments ({ active, total }), health (its agent_health row or null) and current_run (its running run or null). A fixed number of reads per page, however many agents.", group: 'Agent Setup',
     queryParams: [
       { name: 'role', type: 'string', description: 'Only agents with this role label' },
@@ -352,9 +371,10 @@ export const endpoints: EndpointDoc[] = [
   },
 
   // ─── API Keys ─────────────────────────────────────────────────────
-  { method: 'GET', path: '/api/v1/api-keys', description: 'List API keys, as Settings > Developers does: never a hash or a secret. Live keys only unless include_revoked. Paginated.', group: 'API Keys',
+  { method: 'GET', path: '/api/v1/api-keys', description: 'List API keys, as Settings > Developers does: never a hash or a secret. Each key has state (active, paused, expired or revoked) and paused_at, paused_by. Live keys only unless include_revoked or state. Paginated.', group: 'API Keys',
     queryParams: [
       { name: 'member_id', type: 'uuid', description: 'Only keys that act as this member' },
+      { name: 'state', type: 'active|paused|expired|revoked|ended', description: 'Only keys in this state; ended is expired and revoked together. Replaces include_revoked when sent' },
       { name: 'include_revoked', type: 'boolean', description: 'Include revoked keys (default false)' },
       { name: 'page', type: 'number', description: 'Page number (default 1)' },
       { name: 'limit', type: 'number', description: 'Items per page (default 25, max 100)' },
@@ -372,7 +392,20 @@ export const endpoints: EndpointDoc[] = [
   { method: 'POST', path: '/api/v1/api-keys/:id/revoke', description: 'Revoke a key, and with it every live key it made over the API, and every key those made, and through rotation the keys it replaced and every key those made (each gets its own audit row). Whatever uses them stops working at once, and a revoke cannot be undone; revoking again returns the key as it is. Returns the key plus cascaded_revokes, the ids of the descendants revoked with it.', group: 'API Keys',
     params: [{ name: 'id', type: 'uuid', required: true, description: 'API key ID' }],
   },
-  { method: 'POST', path: '/api/v1/api-keys/:id/rotate', description: "Replace a key with overlap: the successor has the same member, scopes, permissions and name, and its secret is in this answer only. The old key keeps working for overlap_hours, then ends: refused at once with 401 api_key_expired, and revoked within the hour. A key is replaced once (409 not_rotatable: rotate its newest key); a revoked or expired key cannot be (409 key_revoked, key_expired). Minting's rules apply: an Owner's key for an agent's key (403 owner_only), every scope still held by the key's member (422 scope_not_held) and carried by the calling key (403 scope_escalation). A key with assistants.provision rotates personal agents' keys only. The successor keeps the old key's place in the lineage, so revoking the key that made the old one revokes it too, and revoking the successor revokes the old key and every key it made. Revoking the old key early leaves the successor working. It lasts the workspace's agent key lifetime. Returns { key, secret, previous: { id, expires_at } } (201). The Idempotency-Key header is refused.", group: 'API Keys',
+  { method: 'PATCH', path: '/api/v1/api-keys/:id', description: "Rename a key and/or replace its scopes, as Settings > Developers does. The secret stays the same and the change applies from the key's next request. Removing scopes is always allowed. A scope the key does not carry yet is added by minting's rules: held by the key's member (422 scope_not_held), carried by the calling key (403 scope_escalation), an Owner's key for anyone else's key and only an agent's (403 owner_only, not_an_agent), never one agents never carry (422 scope_never_for_agents). A revoked or expired key cannot be changed (409 key_revoked, key_expired), nor a one-hour AI setup key (409 setup_key_fixed). Audited with the key before and after. Returns the key with its state.", group: 'API Keys',
+    params: [{ name: 'id', type: 'uuid', required: true, description: 'API key ID' }],
+    body: [
+      { name: 'name', type: 'string', required: false, description: 'What the key is for (1 to 100 characters)' },
+      { name: 'scopes', type: 'string[]', required: false, description: 'The full new list of scopes, at least one. Send name, scopes or both' },
+    ],
+  },
+  { method: 'POST', path: '/api/v1/api-keys/:id/pause', description: "Pause a key: whatever uses it is refused with 401 api_key_paused until it is resumed. It keeps its secret, name and scopes, and an agent's own pause is not touched. Pausing again returns the key as it is; a revoked or expired key cannot be paused (409 key_revoked, key_expired), a one-hour AI setup key is never paused or resumed (409 setup_key_fixed), and a paused key is not rotated (409 key_paused). Audited with the key before and after. Returns the key with its state.", group: 'API Keys',
+    params: [{ name: 'id', type: 'uuid', required: true, description: 'API key ID' }],
+  },
+  { method: 'POST', path: '/api/v1/api-keys/:id/resume', description: 'Resume a paused key: the same secret works again from its next request. Resuming a key that is not paused returns it as it is; a revoked or expired key cannot be resumed (409 key_revoked, key_expired), nor a one-hour AI setup key (409 setup_key_fixed). Audited with the key before and after. Returns the key with its state.', group: 'API Keys',
+    params: [{ name: 'id', type: 'uuid', required: true, description: 'API key ID' }],
+  },
+  { method: 'POST', path: '/api/v1/api-keys/:id/rotate', description: "Replace a key with overlap: the successor has the same member, scopes, permissions and name, and its secret is in this answer only. The old key keeps working for overlap_hours, then ends: refused at once with 401 api_key_expired, and revoked within the hour. A key is replaced once (409 not_rotatable: rotate its newest key); a revoked or expired key cannot be (409 key_revoked, key_expired), nor a paused key (409 key_paused) or a one-hour AI setup key (409 setup_key_fixed). Minting's rules apply: an Owner's key for an agent's key (403 owner_only), every scope still held by the key's member (422 scope_not_held) and carried by the calling key (403 scope_escalation). A key with assistants.provision rotates personal agents' keys only. The successor keeps the old key's place in the lineage, so revoking the key that made the old one revokes it too, and revoking the successor revokes the old key and every key it made. Revoking the old key early leaves the successor working. It lasts the workspace's agent key lifetime. Returns { key, secret, previous: { id, expires_at } } (201). The Idempotency-Key header is refused.", group: 'API Keys',
     params: [{ name: 'id', type: 'uuid', required: true, description: 'API key ID' }],
     body: [{ name: 'overlap_hours', type: 'number', required: false, description: 'How long the old key keeps working, 0 to 168 (default 24)' }],
   },
@@ -2096,15 +2129,17 @@ export const endpoints: EndpointDoc[] = [
   { method: 'GET', path: '/api/v1/approvals/:id', description: 'Get one approval: status, action, decision (approved, rejected or null), decided_by, decided_by_name, answered_at and answer_text (the note). Act only on decision approved; expired or cancelled means no. 404 for one the key cannot see, or a plain question.', group: 'Questions',
     params: [{ name: 'id', type: 'uuid', required: true, description: 'Approval (question) ID' }],
   },
-  { method: 'GET', path: '/api/v1/notifications', description: 'List notifications for the team member linked to this API key. Requires the API key to be linked to a team member. Paginated.', group: 'Notifications',
+  { method: 'GET', path: '/api/v1/notifications', description: 'List notifications for the team member linked to this API key. Requires the API key to be linked to a team member. Paginated. Each carries category (what kind of notice: question_asked, approval_requested, findings_nudge, inbox_decision, invoice_drafts, reminder, task_comments and so on), project_id and actor_id when known, and done_at (marked done in the app; done implies read). Notices with category question_asked, approval_requested, findings_nudge or inbox_decision announce something waiting on the person (Needs you): the app lists that item, not the notice, so view=updates leaves them out. 503 database_update_needed for view or category before the database has 20261127000700.', group: 'Notifications',
     queryParams: [
       { name: 'page', type: 'number', description: 'Page number (default 1)' },
       { name: 'limit', type: 'number', description: 'Items per page (default 25, max 100)' },
       { name: 'is_read', type: 'boolean', description: 'Filter by read status (true = read only, false = unread only)' },
-      { name: 'entity_type', type: 'string', description: 'Filter by entity type: task, project, lead, comment, member, contact, suggestion, goal, question' },
+      { name: 'entity_type', type: 'string', description: 'Filter by entity type: task, project, lead, comment, member, contact, suggestion, goal, question, invoice, reminder, webhook, schedule' },
+      { name: 'view', type: 'string', description: 'all (default: every notification, as before), updates (not done, Needs you receipts left out, as the app lists Updates) or done (marked done)' },
+      { name: 'category', type: 'string', description: 'Filter by category, for example task_comments or invoice_drafts' },
     ],
   },
-  { method: 'POST', path: '/api/v1/notifications', description: "Send an in-app notification to the Owner (optionally admins too). Built for agent blocking questions and escalations; recipients are resolved server-side by role, never targeted directly. About one inbox (inbox_id, message_id or conversation_id), audience owner goes to that inbox's decision recipient when it has one (a member, or every active member of a group), else the Owner as before. Requires agents to be enabled.", group: 'Notifications',
+  { method: 'POST', path: '/api/v1/notifications', description: "Send an in-app notification to the Owner (optionally admins too). Built for agent blocking questions and escalations; recipients are resolved server-side by role, never targeted directly. About one inbox (inbox_id, message_id or conversation_id), audience owner goes to that inbox's decision recipient when it has one (a member, or every active member of a group), else the Owner as before. Requires agents to be enabled. The notice is stored with category agent_message, an update the person reads in the app (category findings_nudge for the project nudge titled <agent>'s findings are waiting on you, which clears once no suggestion waits).", group: 'Notifications',
     body: [
       { name: 'title', type: 'string', required: true, description: 'Short headline shown in the inbox' },
       { name: 'message', type: 'string', required: true, description: 'The question or escalation detail' },
@@ -2168,11 +2203,12 @@ export const endpoints: EndpointDoc[] = [
       { name: 'limit', type: 'number', description: 'Items per page (default 25, max 100)' },
     ],
   },
-  { method: 'POST', path: '/api/v1/groups/:id/members', description: 'Add members to a group (people or agents, up to 500 at once). Anyone already in it takes the role sent. Answers { added, updated }.', group: 'Groups',
+  { method: 'POST', path: '/api/v1/groups/:id/members', description: 'Add members to a group (people or agents, up to 500 at once). Anyone already in it takes the role sent, unless only_new is true. Answers { added, updated }.', group: 'Groups',
     params: [{ name: 'id', type: 'uuid', required: true, description: 'Group ID' }],
     body: [
       { name: 'member_ids', type: 'uuid[]', required: true, description: 'Active team members' },
       { name: 'role', type: 'member|lead', required: false, description: 'Default member' },
+      { name: 'only_new', type: 'boolean', required: false, description: 'true: only people not in it yet are added; anyone already in keeps their role' },
     ],
   },
   { method: 'PATCH', path: '/api/v1/groups/:id/members/:memberId', description: 'Make a member a lead, or a plain member again.', group: 'Groups',
@@ -2480,7 +2516,7 @@ export const endpoints: EndpointDoc[] = [
       { name: 'limit', type: 'number', description: '1 to 100 (default 20)' },
     ],
   },
-  { method: 'POST', path: '/api/v1/chat/messages', description: "Start a chat conversation (a digest, an alert, a daily report). A personal assistant messages only its own person, by DM on a personal connection where they linked a verified account (403 recipient_not_allowed for anyone else or any channel). A company agent works on company connections that list it (403 not_on_connection): it posts only in a channel mapped to it (403 channel_not_allowed; being the default agent does not widen this), or DMs an active member with a verified linked account there while acting for them (X-Act-For naming them; 403 act_for_mismatch for anyone else) or, unasked, only with chat.notify on both the agent and the key (403 chat_notify_required). Under the agent's own name and avatar where the provider allows. Recorded as a started message (no webhook event); a reply to it (its thread, a quote of it, or the next messages in that DM within a day) comes back to the same agent as chat.message, route reply on a company connection, in_reply_to naming it. Rate limited per connection: 60 an hour per agent and 20 an hour per recipient (429 chat_rate_limited, with limit and reset_at). 409 no_linked_chat, choose_connection (with options), assistants_off; 423 while the agent or every agent is paused; 502 provider_refused (recorded as failed). Send an Idempotency-Key to make a retry safe. Answers id, status, connection_id, provider, conversation_id, external_message_id, direct and to { person_id, channel_id, channel_name }.", group: 'Chat',
+  { method: 'POST', path: '/api/v1/chat/messages', description: "Start a chat conversation (a digest, an alert, a daily report). A personal assistant messages only its own person, by DM on a personal connection where they linked a verified account (403 recipient_not_allowed for anyone else or any channel). A company agent works on company connections that list it (403 not_on_connection): it posts only in a channel mapped to it (403 channel_not_allowed; being the default agent does not widen this), or DMs an active member with a verified linked account there while acting for them (X-Act-For naming them; 403 act_for_mismatch for anyone else) or, unasked, only with chat.notify on both the agent and the key (403 chat_notify_required). Under the agent's own name and avatar where the provider allows. Recorded as a started message (no webhook event); a reply to it (its thread, a quote of it, or the next messages in that DM within a day) comes back to the same agent as chat.message, route reply on a company connection, in_reply_to naming it. Rate limited per connection: 60 an hour per agent and 20 an hour per recipient (429 chat_rate_limited, with limit and reset_at). 409 no_linked_chat, choose_connection (with options); 423 while the agent or every agent is paused, or, for a personal assistant, while assistants are switched off (assistants_off); 502 provider_refused (recorded as failed). Send an Idempotency-Key to make a retry safe. Answers id, status, connection_id, provider, conversation_id, external_message_id, direct and to { person_id, channel_id, channel_name }.", group: 'Chat',
     body: [
       { name: 'text', type: 'string', required: true, description: 'Plain text, up to 20,000 characters (Telegram splits it at 4,000, Discord at 2,000)' },
       { name: 'person_id', type: 'uuid', required: false, description: "Who to DM. A personal assistant may leave it out (its person); a company agent sends this or channel" },
@@ -2555,7 +2591,7 @@ export const endpoints: EndpointDoc[] = [
       { name: 'limit', type: 'number', description: '1 to 50, default 20' },
     ],
   },
-  { method: 'PATCH', path: '/api/v1/context/:entryId', description: 'Change an entry in a scope the caller may write: content, section, pinned. 404 for one it cannot read.', group: 'Context',
+  { method: 'PATCH', path: '/api/v1/context/:entryId', description: "Change an entry in a scope the caller may write: content, section, pinned, or checked: true (a person confirms an agent's entry). A person editing its content or checking it makes it theirs (source human). 404 for one it cannot read.", group: 'Context',
     params: [{ name: 'entryId', type: 'uuid', required: true, description: 'Entry ID' }],
   },
   { method: 'DELETE', path: '/api/v1/context/:entryId', description: "Remove an entry: archived, or deleted from a person's memory (it is theirs). Answers { id, deleted, archived }.", group: 'Context',
@@ -2620,6 +2656,7 @@ export const ACT_FOR_DOC = {
     'A token lasts 15 minutes and is bound to one agent: another agent\'s key, an expired or revoked token, or a key without agents.act_for is refused with 401 (reason act_for_invalid) or 403. A suspended person is 403 principal_suspended.',
     "What is the agent's own rather than the person's stays out of reach: its questions, runs and reminders count only on projects both reach (or, on nothing, when made for this same person); its bell, inboxes and shared credentials answer 403 act_for_not_allowed.",
     'Without the header nothing changes: the key acts as its agent, as before.',
+    "Agents do not hold agents.act_for by default. An Owner gives it to one agent when hiring it in the app (Agents > Hire, with Act for a person on its key): the hire adds that agent a per-member allow on the API channel, the row Team > Roles & permissions writes, and the hire answers it in scopes_beyond_role. The same goes for any scope the agent role lacks; a scope an agent key never carries is refused (422 scope_never_for_agents), and only an Owner may give one (403 scope_needs_owner). Owners and owner_ids on that hire are as sent: the hirer becomes an owner only when owner_ids is empty or left out.",
     "A personal agent (bound to one person) always acts for that person, with or without the header: its access is its own and its person's together, and principal_id is its person. A token it sends must name that same person (403 delegate_only).",
     'Accounts resolve only once verified: GET /api/v1/identities/resolve answers who a chat account is, and POST /api/v1/identities/link-requests gives a one-time link for a person to verify theirs. Send that link as a direct message to the account itself, with member_id when you know who it is.',
   ],

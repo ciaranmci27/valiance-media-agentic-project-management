@@ -63,6 +63,7 @@ export function AvatarUpload({
           <button
             type="button"
             onClick={() => inputRef.current?.click()}
+            aria-label={currentSrc ? 'Change picture' : 'Upload a picture'}
             className="absolute inset-0 rounded-full bg-black/30 sm:bg-black/0 sm:group-hover:bg-black/40 sm:focus-visible:bg-black/40 flex items-center justify-center transition-all cursor-pointer"
           >
             <Camera
@@ -87,6 +88,7 @@ export function AvatarUpload({
               e.stopPropagation();
               onRemove();
             }}
+            aria-label="Remove picture"
             className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-red-500 text-white flex items-center justify-center sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100 transition-opacity hover:bg-red-600"
           >
             <X size={12} />

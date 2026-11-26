@@ -95,46 +95,97 @@ const DAY = /^\d{4}-\d{2}-\d{2}$/;
 const AUDIT_COLUMNS = 'id, timestamp, method, endpoint, entity_type, entity_id, team_member_id, principal_id, api_key_id, via, status_code, error, request_body, before_snapshot, after_snapshot';
 
 /**
- * One page of the audit log, newest first, with the names of who did it and
- * who it was for. Filters: member (who), acting_for (principal), action (text
- * in the method, endpoint or entity type), from and to (days, inclusive, UTC).
+ * A day bound for the audit filters: an ISO time as given (Settings sends
+ * the viewer's local day as from = its start, to = the start of the day
+ * after, exclusive), or a day (YYYY-MM-DD, UTC; to is then inclusive).
  */
-export async function listAuditLog(db: SupabaseClient, searchParams: URLSearchParams): Promise<{ entries: AuditEntry[]; total: number; page: number; page_size: number; names: Record<string, string> }> {
+function auditBound(value: string | null, end: boolean): string | null {
+  if (!value) return null;
+  if (DAY.test(value)) return end ? new Date(Date.parse(`${value}T00:00:00Z`) + 86_400_000).toISOString() : `${value}T00:00:00Z`;
+  const at = Date.parse(value);
+  if (Number.isNaN(at)) throw badRequest('from and to are days (YYYY-MM-DD) or ISO times');
+  return new Date(at).toISOString();
+}
+
+/** The audit log's filters from the query string, checked. */
+function auditFilters(searchParams: URLSearchParams) {
   const member = searchParams.get('member');
   const actingFor = searchParams.get('acting_for');
   const action = (searchParams.get('action') ?? '').trim();
-  const from = searchParams.get('from');
-  const to = searchParams.get('to');
-  const page = Math.max(0, Math.floor(Number(searchParams.get('page') ?? 0)) || 0);
   if (member && !UUID.test(member)) throw badRequest('member must be a team member id');
   if (actingFor && !UUID.test(actingFor)) throw badRequest('acting_for must be a team member id');
-  if ((from && !DAY.test(from)) || (to && !DAY.test(to))) throw badRequest('from and to are days: YYYY-MM-DD');
   if (action.length > 100) throw badRequest('action is 100 characters at most');
+  return { member, actingFor, action, from: auditBound(searchParams.get('from'), false), to: auditBound(searchParams.get('to'), true) };
+}
 
-  let query = db.from('api_audit_log').select(AUDIT_COLUMNS, { count: 'exact' });
-  if (member) query = query.eq('team_member_id', member);
-  if (actingFor) query = query.eq('principal_id', actingFor);
-  if (from) query = query.gte('timestamp', `${from}T00:00:00Z`);
-  if (to) query = query.lt('timestamp', new Date(Date.parse(`${to}T00:00:00Z`) + 86_400_000).toISOString());
-  if (action) {
+/** The audit log query with these filters, newest first. */
+function filteredAuditQuery(db: SupabaseClient, filters: ReturnType<typeof auditFilters>, count: boolean) {
+  let query = db.from('api_audit_log').select(AUDIT_COLUMNS, count ? { count: 'exact' } : undefined);
+  if (filters.member) query = query.eq('team_member_id', filters.member);
+  if (filters.actingFor) query = query.eq('principal_id', filters.actingFor);
+  if (filters.from) query = query.gte('timestamp', filters.from);
+  if (filters.to) query = query.lt('timestamp', filters.to);
+  if (filters.action) {
     // Commas and parentheses would break the filter list; they mean nothing in an action.
-    const term = action.replace(/[,()*"\\]/g, ' ').trim();
+    const term = filters.action.replace(/[,()*"\\]/g, ' ').trim();
     const method = ['POST', 'PUT', 'PATCH', 'DELETE', 'GET'].find((m) => m === term.toUpperCase());
     if (method) query = query.eq('method', method);
     else if (term) query = query.or(`endpoint.ilike.*${term}*,entity_type.ilike.*${term}*`);
   }
-  const { data, count, error } = await query
-    .order('timestamp', { ascending: false })
-    .order('id', { ascending: false })
-    .range(page * AUDIT_PAGE_SIZE, page * AUDIT_PAGE_SIZE + AUDIT_PAGE_SIZE - 1);
-  if (error) throw error;
-  const entries = (data ?? []) as unknown as AuditEntry[];
+  return query.order('timestamp', { ascending: false }).order('id', { ascending: false });
+}
+
+/** The names of who did it and who it was for. */
+async function auditNames(db: SupabaseClient, entries: readonly AuditEntry[]): Promise<Record<string, string>> {
   const ids = [...new Set(entries.flatMap((entry) => [entry.team_member_id, entry.principal_id]).filter((id): id is string => !!id))];
   const names: Record<string, string> = {};
-  if (ids.length) {
-    const { data: people, error: peopleError } = await db.from('team_members').select('id, name').in('id', ids);
+  for (let at = 0; at < ids.length; at += 200) {
+    const { data: people, error: peopleError } = await db.from('team_members').select('id, name').in('id', ids.slice(at, at + 200));
     if (peopleError) throw peopleError;
     for (const person of (people ?? []) as Row[]) names[person.id as string] = person.name as string;
   }
-  return { entries, total: count ?? 0, page, page_size: AUDIT_PAGE_SIZE, names };
+  return names;
+}
+
+/**
+ * One page of the audit log, newest first, with the names of who did it and
+ * who it was for. Filters: member (who), acting_for (principal), action (text
+ * in the method, endpoint or entity type), from and to (ISO times, to
+ * exclusive; or days, inclusive, UTC).
+ */
+export async function listAuditLog(db: SupabaseClient, searchParams: URLSearchParams): Promise<{ entries: AuditEntry[]; total: number; page: number; page_size: number; names: Record<string, string> }> {
+  const filters = auditFilters(searchParams);
+  const page = Math.max(0, Math.floor(Number(searchParams.get('page') ?? 0)) || 0);
+  const { data, count, error } = await filteredAuditQuery(db, filters, true)
+    .range(page * AUDIT_PAGE_SIZE, page * AUDIT_PAGE_SIZE + AUDIT_PAGE_SIZE - 1);
+  if (error) throw error;
+  const entries = (data ?? []) as unknown as AuditEntry[];
+  return { entries, total: count ?? 0, page, page_size: AUDIT_PAGE_SIZE, names: await auditNames(db, entries) };
+}
+
+/** The most rows one Settings export holds; past it, narrow the filters (or use the export API). */
+export const AUDIT_EXPORT_MAX_ROWS = 50_000;
+const AUDIT_EXPORT_BATCH = 1000;
+
+/**
+ * Every audit row matching the Settings filters, newest first, for the
+ * Export button: up to AUDIT_EXPORT_MAX_ROWS (truncated says when there were
+ * more). The cursor export API (GET /api/v1/audit/export) is for systems.
+ */
+export async function exportAuditRows(db: SupabaseClient, searchParams: URLSearchParams): Promise<{ entries: AuditEntry[]; names: Record<string, string>; truncated: boolean }> {
+  const filters = auditFilters(searchParams);
+  const entries: AuditEntry[] = [];
+  let truncated = false;
+  for (let at = 0; ; at += AUDIT_EXPORT_BATCH) {
+    const { data, error } = await filteredAuditQuery(db, filters, false).range(at, at + AUDIT_EXPORT_BATCH - 1);
+    if (error) throw error;
+    const batch = (data ?? []) as unknown as AuditEntry[];
+    entries.push(...batch);
+    if (batch.length < AUDIT_EXPORT_BATCH) break;
+    if (entries.length >= AUDIT_EXPORT_MAX_ROWS) {
+      truncated = true;
+      break;
+    }
+  }
+  return { entries: entries.slice(0, AUDIT_EXPORT_MAX_ROWS), names: await auditNames(db, entries), truncated };
 }

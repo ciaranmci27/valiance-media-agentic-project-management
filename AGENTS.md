@@ -79,6 +79,10 @@ Rules for custom code:
 - Throw `ApiError` (`@/lib/api/errors`) for errors; answer with `success()` (`@/lib/api/response`).
 - A duplicate slug or key stops the build and names it.
 
+## Screens
+
+Before building or changing anything people see, core or custom, read `DESIGN.md`, section **Rules (binding)**, and use only the components and patterns it names. If a screen needs something the Rules do not cover, stop and ask; never invent a new pattern, size, color or component. The live pattern page at `/design` shows every pattern with the real components. `npm run check:design` fails on banned markup (hand-rolled pills, one-off heading sizes, raw colors, confirm-before-Trash and the like); run it with the other checks. A screen is done only when it reads well in light and dark, on desktop and at 390px.
+
 ## When core must change
 
 Don't patch it. Load the skill `pm-propose-core-change` and write a proposal for Valiance Media. The best proposals ask for a new setting, module or plug-in point, so this install and every other one can use it without editing core. Until the release ships, build what you can in `src/custom`.
@@ -112,6 +116,7 @@ After a release with a `### Database` section in `CHANGELOG.md`, apply its migra
 | `npx tsc --noEmit` | Types across the app, `src/custom` and `scripts` |
 | `npx eslint src/custom` | ESLint with the Next.js rules, on this install's own code |
 | `npm run check:core` | No core file changed; custom migrations stay in schema `pm_custom` (files dated before 2.0: `custom`). In the source monorepo it says there is nothing to check. |
+| `npm run check:design` | Screens follow `DESIGN.md` Rules: no banned markup in core or `src/custom` |
 | `npm run test:core` | Core's test suite on an in-memory database: permissions, modules, plug-in points, upgrade, migrations, the agent guard. No network or database needed. |
 
 ## Release rules (source monorepo only)

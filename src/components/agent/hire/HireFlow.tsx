@@ -1,44 +1,57 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import Link from 'next/link';
-import { useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import {
-  Activity, ArrowRight, Bot, ChevronDown, FileText, Hammer, Inbox, KeyRound, Lock, PartyPopper, Plug, Plus, Search, Sparkles,
+  Activity, ArrowRight, Bot, ChevronDown, ExternalLink, FileText, Hammer, Inbox, KeyRound, Lock, PartyPopper, Plug, Plus, Search, Sparkles, Webhook,
 } from 'lucide-react';
 import { useApp } from '@/lib/store';
+import { createClient } from '@/lib/supabase/client';
+import { pmStorage } from '@/lib/supabase/storage';
+import { BUCKETS } from '@/lib/supabase/schema';
 import { useAuth } from '@/lib/auth-context';
 import { useDemo } from '@/lib/demo-context';
 import { apiScopesFor, hasPermission } from '@/lib/access-control';
+import { buildConnectInfo } from '@/lib/agent-connect';
 import { invalidateTables, loadRead, useRead, type ReadState } from '@/lib/query-cache';
-import { agentContextRead, agentRolesRead, agentTemplatesRead, allGroupsRead } from '@/lib/reads';
+import { agentContextRead, agentKeyLifetimeRead, agentNewScopesRead, agentRolesRead, agentTemplatesRead, allGroupsRead } from '@/lib/reads';
 import {
-  applyTemplate, emptyHireDraft, firstInvalidHireStep, hireRequestFrom, normalizeRole, roleLabel, roleSuggestions,
-  setDraftProjects, settingsSummary, validateHireStep, windowOf, HIRE_STEPS, type HireDraft, type HireStep, showMoreLabel,
-  ownerPickerValue, splitOwnerPicker,
+  applyTemplate, emptyHireDraft, firstInvalidHireStep, hireRefusal, hireRequestFrom, hireTemplates, keyExpiryLine, limitsLine, listOf, normalizeRole,
+  ownerPickerValue, projectFromLink, readsInbox, roleLabel, roleSuggestions, sameNameMember, scopeLabel, scopesBeyondRole, setDraftProjects,
+  settingsSummary, showMoreLabel, splitOwnerPicker, validateHireStep, windowOf, worksOutsideProjects, HIRE_OWNERS_MAX, HIRE_STEPS, HIRE_STEPS_BEFORE_HIRE,
+  type HireDraft, type HireRefusal, type HireStep,
 } from '@/lib/agents-ui';
 import { groupTargetLabel } from '@/lib/groups';
-import { fieldErrorsFrom, newKeyFrom, workspaceApi, type AgentTemplateView, type HireResponse, type NewKey } from '@/lib/agent-workspace';
+import { newKeyFrom, workspaceApi, type AgentTemplateView, type HireResponse, type NewKey, type ProjectAgentAssignment } from '@/lib/agent-workspace';
+import { webhookUrlError } from '@/lib/webhooks/endpoint-input';
 import { Button } from '@/components/ui/Button';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { TextInput } from '@/components/ui/inputs/TextInput';
 import { Textarea } from '@/components/ui/inputs/Textarea';
 import { MultiSelect } from '@/components/ui/inputs/MultiSelect';
 import { Toggle } from '@/components/ui/inputs/Toggle';
-import { ChatSetupAside, ChoiceCard, ChoiceGroup, FlowShell, StepFooter, StepPanel, Stepper } from '@/components/ui/Stepper';
+import { AvatarUpload } from '@/components/ui/AvatarUpload';
+import { ChoiceCard, ChoiceGroup, FlowShell, StepFooter, StepPanel, Stepper } from '@/components/ui/Stepper';
 import { Bone, Skeleton } from '@/components/projects/TabLayout';
 import { AgentAvatar } from '@/components/agent/AgentAvatar';
 import { InstructionsField, SettingsForm } from '@/components/agent/SettingsForm';
 import { RulesFields, ScopePicker } from '@/components/agent/PowersFields';
 import { ConnectSnippets, downloadText, SecretOnce } from '@/components/agent/ConnectPanel';
 import { toast } from '@/components/ui/Toast';
+import { HireStart, type HireMode } from './HireStart';
+import { AiSetupFlow } from './AiSetupFlow';
 
 /**
- * Hire an agent: a full page in six steps. Template (or blank), identity,
+ * Hire an agent: a full page in seven steps. Template (or blank), identity,
  * projects with each project's settings form and instructions, powers
- * (scopes in plain words, rules as switches), connect (the key once,
- * snippets, AGENTS.md), done. Each step checks itself before Next with the
- * server's own rules; the agent is created when Powers is confirmed, so
- * nothing half-made is left behind by Back. Owners only, like the server.
+ * (scopes in plain words, rules as switches), review (everything together
+ * before the one step that cannot be undone), connect (the key once, the
+ * snippets carrying it while it shows, an optional webhook, AGENTS.md),
+ * done. Each step checks itself before Next with the server's own rules,
+ * and a refusal returns to the step that can fix it. The agent is created
+ * from Review, so nothing half-made is left behind by Back. Owners only,
+ * like the server. In the demo every step works and the hire is pretend.
  */
 
 const TEMPLATE_ICONS: Record<string, typeof Bot> = {
@@ -50,48 +63,106 @@ const TEMPLATE_ICONS: Record<string, typeof Bot> = {
 };
 
 const PROJECTS_PAGE = 10;
+const AGENTS_HREF = '/agent?tab=agents';
+const INBOXES_HREF = '/settings/email/handler';
+const WEBHOOKS_HREF = '/settings/developers#webhooks';
+const STEP_INDEX = Object.fromEntries(HIRE_STEPS.map((s, i) => [s.key, i])) as Record<HireStep, number>;
+
+const randomHex = (bytes: number) => Array.from(crypto.getRandomValues(new Uint8Array(bytes)), (b) => b.toString(16).padStart(2, '0')).join('');
 
 export function HireFlow() {
+  const router = useRouter();
   const searchParams = useSearchParams();
-  const { team, projects } = useApp();
+  const { team, projects, updateTeamMember, loading: storeLoading } = useApp();
   const { access, teamMemberId } = useAuth();
   const { isDemoMode } = useDemo();
   const templates = useRead(agentTemplatesRead(isDemoMode));
   const roles = useRead(agentRolesRead(isDemoMode));
+  const agentScopes = useRead(agentNewScopesRead(isDemoMode));
+  const lifetime = useRead(isDemoMode ? null : agentKeyLifetimeRead);
   const groups = useRead(allGroupsRead(isDemoMode)).data ?? [];
   const grantable = useMemo(() => apiScopesFor(access), [access]);
   const isOwner = access?.role === 'owner' && hasPermission(access, 'team.manage');
+  const mayAddWebhook = hasPermission(access, 'webhooks.manage');
+
+  // The first screen asks how to set it up: with AI, or step by step (?mode= keeps the choice).
+  const modeParam = searchParams.get('mode');
+  const [mode, setMode] = useState<HireMode | null>(modeParam === 'ai' || modeParam === 'manual' ? modeParam : null);
+  const pickMode = (next: HireMode) => {
+    setMode(next);
+    const params = new URLSearchParams(searchParams.toString());
+    params.set('mode', next);
+    router.replace(`/agent/new?${params.toString()}`, { scroll: false });
+    window.scrollTo({ top: 0 });
+  };
 
   const [draft, setDraft] = useState<HireDraft>(() => {
     const base = emptyHireDraft(teamMemberId || null);
     const fromProject = searchParams.get('project');
     return fromProject ? { ...base, projectIds: [fromProject], projects: { [fromProject]: { settings: {}, instructions: '' } } } : base;
   });
+  const pristine = useRef(JSON.stringify(draft));
+  const [linkDropped, setLinkDropped] = useState(false);
   const [stepIndex, setStepIndex] = useState(0);
   const [reached, setReached] = useState(0);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
+  const [incomplete, setIncomplete] = useState<HireRefusal['incomplete']>(null);
   const [hired, setHired] = useState<HireResponse | null>(null);
   const [secret, setSecret] = useState<NewKey | null>(null);
+  const [secretSaved, setSecretSaved] = useState(false);
+  const [confirmLeave, setConfirmLeave] = useState(false);
   const [briefBusy, setBriefBusy] = useState(false);
+  // The chosen picture, cropped: shown from a local link until the agent exists, then uploaded.
+  const [picture, setPicture] = useState<{ blob: Blob; url: string } | null>(null);
+  useEffect(() => () => { if (picture) URL.revokeObjectURL(picture.url); }, [picture]);
 
   const step = HIRE_STEPS[stepIndex].key as HireStep;
   const template = (templates.data ?? []).find((t) => t.key === draft.templateKey) ?? null;
   const people = useMemo(() => team.filter((m) => m.role !== 'agent' && m.status !== 'suspended').sort((a, b) => a.name.localeCompare(b.name)), [team]);
   const openProjects = useMemo(() => projects.filter((p) => p.status !== 'archived').sort((a, b) => a.name.localeCompare(b.name)), [projects]);
+  const done = hired !== null;
 
-  if (isDemoMode || !isOwner) {
+  // A ?project= link to an archived, trashed or unknown project is dropped once projects load, and the Projects step says so.
+  const fromProject = searchParams.get('project');
+  useEffect(() => {
+    if (storeLoading || !fromProject) return;
+    const { dropped } = projectFromLink(fromProject, openProjects.map((p) => p.id));
+    if (!dropped) return;
+    setDraft((d) => setDraftProjects(d, d.projectIds.filter((id) => id !== fromProject), template?.settings ?? []));
+    setLinkDropped(true);
+    pristine.current = JSON.stringify({ ...JSON.parse(pristine.current), projectIds: [], projects: {} });
+    // Once, when projects arrive.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [storeLoading, fromProject]);
+
+  // Leaving loses a draft before the hire, and a key shown once while it is on screen.
+  const keyAtRisk = done && !!secret && !secretSaved;
+  const draftAtRisk = !done && JSON.stringify(draft) !== pristine.current;
+  const atRisk = mode === 'manual' && (keyAtRisk || draftAtRisk);
+  useEffect(() => {
+    if (!atRisk) return;
+    const handler = (e: BeforeUnloadEvent) => { e.preventDefault(); };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, [atRisk]);
+
+  if (!isOwner) {
     return (
       <div className="flex min-h-[70vh] flex-col items-center justify-center px-6 text-center">
         <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white/[0.06] text-zinc-300" aria-hidden="true"><Lock size={20} /></span>
         <h1 className="mt-4 text-lg font-semibold text-white">Only an Owner can hire an agent</h1>
-        <p className="mt-1.5 max-w-sm text-sm text-zinc-400">
-          {isDemoMode ? 'Hiring is switched off in the demo.' : 'An agent gets its own keys and powers, so a workspace Owner sets it up. Ask one to hire it, then they can make you its owner.'}
-        </p>
-        <Button variant="secondary" className="mt-5" href="/agent?tab=agents">Back to agents</Button>
+        <p className="mt-1.5 max-w-sm text-sm text-zinc-400">An agent gets its own keys and powers, so a workspace Owner sets it up. Ask one to hire it, then they can make you its owner.</p>
+        <Button variant="secondary" className="mt-5" href={AGENTS_HREF}>Back to agents</Button>
       </div>
     );
+  }
+
+  if (mode === null) return <HireStart exitHref={AGENTS_HREF} onPick={pickMode} isDemo={isDemoMode} />;
+  if (mode === 'ai') {
+    const linked = fromProject ? openProjects.find((p) => p.id === fromProject)?.name ?? null : null;
+    return <AiSetupFlow exitHref={AGENTS_HREF} onManual={() => pickMode('manual')} projectName={linked} />;
   }
 
   const go = (index: number) => {
@@ -106,38 +177,63 @@ export function HireFlow() {
     const found = validateHireStep(step, draft, template, grantable);
     setErrors(found);
     if (Object.keys(found).length) return;
-    if (step === 'powers') return hire();
+    if (step === 'review') return hire();
     go(stepIndex + 1);
   };
 
+  const memberName = (id: string) => team.find((m) => m.id === id)?.name;
+  const projectName = (id: string) => projects.find((p) => p.id === id)?.name;
+
   const hire = async () => {
     // Every earlier step must still pass (a template change can unsettle the projects step).
-    const bad = firstInvalidHireStep(draft, template, grantable, 'connect');
+    const bad = firstInvalidHireStep(draft, template, grantable, 'review');
     if (bad) {
-      go(HIRE_STEPS.findIndex((s) => s.key === bad));
+      go(STEP_INDEX[bad]);
       setErrors(validateHireStep(bad, draft, template, grantable));
       return;
     }
     setBusy(true);
     setServerError(null);
+    setIncomplete(null);
     try {
-      // One call: the server checks every part first and undoes what it made if a later write fails.
-      const result = await workspaceApi<HireResponse>('/api/workspace/agents', { method: 'POST', body: hireRequestFrom(draft) });
-      invalidateTables(['team_members', 'project_agents', 'agent_owners']);
+      const result = isDemoMode ? demoHire(draft) : await workspaceApi<HireResponse>('/api/workspace/agents', { method: 'POST', body: hireRequestFrom(draft) });
+      if (!isDemoMode) invalidateTables(['team_members', 'project_agents', 'agent_owners', 'team_member_permissions']);
       setHired(result);
+      if (picture && !isDemoMode) void uploadPicture(result.agent.id, picture.blob);
       // The agent exists now; a key without its secret is reported, never shown as an empty box.
       try {
         setSecret(result.key ? newKeyFrom(result.key) : null);
       } catch (error) {
         toast('error', error instanceof Error ? error.message : 'The key secret did not arrive');
       }
-      go(stepIndex + 1);
+      go(STEP_INDEX.connect);
     } catch (error) {
-      const fields = fieldErrorsFrom(error);
-      setErrors(fields);
-      setServerError(error instanceof Error ? error.message : 'Could not hire the agent');
+      const refusal = hireRefusal(
+        { message: error instanceof Error ? error.message : 'Could not hire the agent', details: (error as { details?: unknown })?.details },
+        { member: memberName, project: projectName },
+      );
+      // The refusal is shown on the step that can fix it.
+      if (refusal.step) go(STEP_INDEX[refusal.step]);
+      setErrors(refusal.fields);
+      setServerError(refusal.message);
+      setIncomplete(refusal.incomplete);
     } finally {
       setBusy(false);
+    }
+  };
+
+  // The agent's member row takes the picture the way a member's own does
+  // (same bucket, fixed path, same update); a failed upload leaves the hire standing.
+  const uploadPicture = async (memberId: string, blob: Blob) => {
+    try {
+      const supabase = createClient();
+      const path = `team/${memberId}.jpg`;
+      const { error } = await pmStorage(supabase).from(BUCKETS.avatars).upload(path, blob, { upsert: true, contentType: 'image/jpeg' });
+      if (error) throw error;
+      const { data: { publicUrl } } = pmStorage(supabase).from(BUCKETS.avatars).getPublicUrl(path);
+      if (!(await updateTeamMember(memberId, { avatar: `${publicUrl}?t=${Date.now()}` }))) throw new Error('avatar not saved');
+    } catch {
+      toast('error', "Hired. The picture didn't upload; add it from the agent's page.");
     }
   };
 
@@ -145,11 +241,15 @@ export function HireFlow() {
     if (!hired) return;
     setBusy(true);
     try {
-      const key = newKeyFrom(await workspaceApi<{ key: NewKey }>(`/api/workspace/agents/${hired.agent.id}/keys`, { method: 'POST', body: { name: `${draft.name.trim()} key`, scopes: draft.scopes } }));
+      const key = isDemoMode
+        ? demoKey(draft.scopes, draft.name)
+        : newKeyFrom(await workspaceApi<{ key: NewKey }>(`/api/workspace/agents/${hired.agent.id}/keys`, { method: 'POST', body: { name: `${draft.name.trim()} key`, scopes: draft.scopes } }));
       setSecret(key);
-      invalidateTables(['api_keys']);
+      setSecretSaved(false);
+      if (!isDemoMode) invalidateTables(['api_keys']);
     } catch (error) {
-      toast('error', error instanceof Error ? error.message : 'Could not make a key');
+      const refusal = hireRefusal({ message: error instanceof Error ? error.message : 'Could not make a key', details: (error as { details?: unknown })?.details }, { member: memberName, project: projectName });
+      toast('error', refusal.message);
     } finally {
       setBusy(false);
     }
@@ -157,6 +257,10 @@ export function HireFlow() {
 
   const downloadBrief = async () => {
     if (!hired) return;
+    if (isDemoMode) {
+      toast('info', 'AGENTS.md is made from a real agent. It is not in the demo.');
+      return;
+    }
     setBriefBusy(true);
     try {
       downloadText('AGENTS.md', await loadRead(agentContextRead(hired.agent.id), { force: true }));
@@ -168,27 +272,64 @@ export function HireFlow() {
   };
 
   const pickTemplate = (t: AgentTemplateView | null) => {
-    setDraft(applyTemplate(draft, t, grantable));
+    // Picking the template already chosen changes nothing; any other rebuilds the draft from it.
+    if ((t?.key ?? '') === draft.templateKey) return;
+    setDraft(applyTemplate(draft, template, t, grantable));
     setErrors({});
   };
 
+  const leave = () => router.push(AGENTS_HREF);
+  const requestExit = () => { if (atRisk) setConfirmLeave(true); else leave(); };
+
   const name = draft.name.trim() || 'your agent';
-  const done = hired !== null;
+  const outside = worksOutsideProjects(template);
+  const inbox = readsInbox(template?.scopes ?? draft.scopes);
+  const templateLimits = limitsLine(template?.limits);
+  const firstOwner = draft.ownerIds[0] ? memberName(draft.ownerIds[0]) : null;
+  const escalateLabel = `Its owners (first: ${draft.ownerIds[0] === teamMemberId || !firstOwner ? 'you' : firstOwner})`;
+  const beyondRole = scopesBeyondRole(draft.createKey ? draft.scopes : [], agentScopes.data);
+  const duplicate = sameNameMember(draft.name, team);
+  const expiry = keyExpiryLine(secret?.expires_at, secret?.expires_at === undefined ? lifetime.data?.agent_key_lifetime_days : null);
+
+  const scopePicker = (
+    agentScopes.loading && !agentScopes.data
+      ? <Skeleton label="Loading powers" className="space-y-2">{[0, 1, 2].map((i) => <Bone key={i} className="h-12 rounded-xl" />)}</Skeleton>
+      : (
+        <ScopePicker
+          grantable={grantable}
+          agentHeld={agentScopes.data ?? null}
+          mayGiveBeyondRole={access?.role === 'owner'}
+          value={draft.scopes}
+          onChange={(scopes) => setDraft({ ...draft, scopes })}
+          preset={template?.scopes}
+          error={errors.scopes}
+        />
+      )
+  );
 
   return (
     <FlowShell
       title="Hire an agent"
-      subtitle="A teammate that works through MCP and the API. About three minutes."
-      exitHref="/agent?tab=agents"
+      subtitle={isDemoMode ? 'A teammate that works alongside you. In the demo, every step works and the hire is pretend.' : 'A teammate that works alongside you. About three minutes.'}
+      exitHref={AGENTS_HREF}
       exitLabel={done ? 'Close' : 'Cancel'}
-      stepper={<Stepper steps={HIRE_STEPS} current={stepIndex} reached={done ? stepIndex : Math.min(reached, 3)} onJump={done ? undefined : go} label="Hiring steps" />}
-      aside={stepIndex < 4 ? (
-        <div className="space-y-4">
-          <HirePreview draft={draft} template={template} />
-          <ChatSetupAside
-            prompt={'"Hire a builder called Nova for the Website project. It sends finished work to review and escalates to me."'}
-            tools={['list_agent_templates', 'create_agent', 'apply_agent_template', 'set_project_agent', 'create_api_key']}
-          />
+      onExit={requestExit}
+      stepper={<Stepper steps={HIRE_STEPS} current={stepIndex} reached={done ? stepIndex : Math.min(reached, HIRE_STEPS_BEFORE_HIRE - 1)} onJump={done ? undefined : go} label="Hiring steps" />}
+      aside={stepIndex < STEP_INDEX.review ? (
+        <div className="hidden space-y-4 lg:block">
+          <HirePreview draft={draft} template={template} pictureUrl={picture?.url ?? null} outside={outside} />
+          <button
+            type="button"
+            onClick={() => pickMode('ai')}
+            className="group flex w-full items-center gap-3 rounded-2xl bg-white/[0.02] p-4 text-left ring-1 ring-inset ring-white/[0.06] transition-colors hover:bg-white/[0.05] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+          >
+            <Sparkles size={16} className="flex-shrink-0 text-brand-300" aria-hidden="true" />
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm font-medium text-white">Rather have AI do it?</span>
+              <span className="block text-xs text-zinc-400">Describe it in a sentence; your AI tool sets it up</span>
+            </span>
+            <ArrowRight size={15} className="flex-shrink-0 text-zinc-500 group-hover:text-zinc-300" aria-hidden="true" />
+          </button>
         </div>
       ) : undefined}
     >
@@ -203,28 +344,50 @@ export function HireFlow() {
         <StepPanel key="identity" stepKey="identity" title="Who is it?" description="How it shows up across the workspace: on tasks, in comments, in Needs you.">
           <div className="space-y-5">
             <div className="grid gap-4 sm:grid-cols-2">
-              <TextInput label="Name *" value={draft.name} onChange={(v) => setDraft({ ...draft, name: v })} placeholder="Nova" error={errors.name} autoFocus maxLength={80} />
+              <div>
+                <TextInput label="Name *" value={draft.name} onChange={(v) => setDraft({ ...draft, name: v })} placeholder="Nova" error={errors.name} autoFocus maxLength={80} />
+                {duplicate && !errors.name && (
+                  <p className="mt-1.5 text-xs text-amber-200">{duplicate.role === 'agent' ? 'An agent' : 'Someone'} on the team is already called {duplicate.name}. A different name keeps mentions clear.</p>
+                )}
+              </div>
               <TextInput label="Title" value={draft.title} onChange={(v) => setDraft({ ...draft, title: v })} placeholder="Builder" error={errors.title} maxLength={80} />
             </div>
             <RoleField value={draft.role} onChange={(role) => setDraft({ ...draft, role })} inUse={roles.data ?? []} templateRole={template?.role ?? null} error={errors.role} />
-            <MultiSelect
-              label="Owners"
-              description={groups.length ? 'People or groups. They get its questions and approvals, and can change it; in a group, any member can.' : 'They get its questions and approvals, and can change it.'}
-              value={ownerPickerValue(draft.ownerIds, draft.ownerGroupIds)}
-              onChange={(values) => {
-                const { ownerIds, groupIds } = splitOwnerPicker(values);
-                setDraft({ ...draft, ownerIds, ownerGroupIds: groupIds });
-              }}
-              options={[
-                ...people.map((p) => ({ value: p.id, label: p.id === teamMemberId ? `${p.name} (you)` : p.name })),
-                ...groups.map((g) => ({ value: ownerPickerValue([], [g.id])[0], label: groupTargetLabel(g.name) })),
-              ]}
-              searchable
-              placeholder="Workspace Owners"
-            />
-            <div className="grid gap-4 sm:grid-cols-[auto_minmax(0,1fr)] sm:items-end">
-              <AgentAvatar id={draft.name || 'new-agent'} name={draft.name || 'New agent'} src={draft.avatarUrl || null} size="lg" />
-              <TextInput label="Picture link" value={draft.avatarUrl} onChange={(v) => setDraft({ ...draft, avatarUrl: v })} placeholder="https:// (optional; initials otherwise)" type="url" error={errors.avatarUrl} />
+            <div>
+              <MultiSelect
+                label="Owners"
+                description={groups.length
+                  ? `People or groups, up to ${HIRE_OWNERS_MAX} each. They get its questions and approvals, and can change it; in a group, any member can.`
+                  : `Up to ${HIRE_OWNERS_MAX}. They get its questions and approvals, and can change it.`}
+                value={ownerPickerValue(draft.ownerIds, draft.ownerGroupIds)}
+                onChange={(values) => {
+                  const { ownerIds, groupIds } = splitOwnerPicker(values);
+                  setDraft({ ...draft, ownerIds, ownerGroupIds: groupIds });
+                }}
+                options={[
+                  ...people.map((p) => ({ value: p.id, label: p.id === teamMemberId ? `${p.name} (you)` : p.name })),
+                  ...groups.map((g) => ({ value: ownerPickerValue([], [g.id])[0], label: groupTargetLabel(g.name) })),
+                ]}
+                searchable
+                placeholder="You (only you can manage it)"
+                error={errors.owners}
+              />
+              {draft.ownerIds.length === 0 && draft.ownerGroupIds.length > 0 && (
+                <p className="mt-1.5 text-xs text-zinc-500">With no person picked, you are an owner too.</p>
+              )}
+            </div>
+            <div className="flex items-center gap-4">
+              <AvatarUpload
+                name={draft.name.trim() || 'New agent'}
+                currentSrc={picture?.url}
+                size="md"
+                onCropped={(blob) => setPicture({ blob, url: URL.createObjectURL(blob) })}
+                onRemove={picture ? () => setPicture(null) : undefined}
+              />
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-zinc-200">Picture</p>
+                <p className="mt-0.5 text-xs text-zinc-500">Optional. Its initials show otherwise.</p>
+              </div>
             </div>
             <Textarea
               label="Personality and purpose"
@@ -236,14 +399,17 @@ export function HireFlow() {
               error={errors.description}
             />
           </div>
-          <StepFooter onBack={() => go(stepIndex - 1)} onNext={next} />
+          <StepFooter onBack={() => go(stepIndex - 1)} onNext={next} error={serverError} />
         </StepPanel>
       )}
 
       {step === 'projects' && (
         <StepPanel key="projects" stepKey="projects" title="Where does it work?" description="Pick its projects. Each gets its own settings and instructions; it reads each project's brief too.">
-          <ProjectsStep draft={draft} setDraft={setDraft} template={template} projects={openProjects} errors={errors} />
-          <StepFooter onBack={() => go(stepIndex - 1)} onNext={next} nextLabel={draft.projectIds.length ? 'Next' : 'Skip for now'} />
+          {linkDropped && (
+            <p className="mb-4 rounded-xl bg-amber-500/[0.10] px-4 py-3 text-sm text-amber-200">The project in the link is archived, in Trash or gone, so it was left off. Pick another below.</p>
+          )}
+          <ProjectsStep draft={draft} setDraft={setDraft} template={template} projects={openProjects} errors={errors} outside={outside} />
+          <StepFooter onBack={() => go(stepIndex - 1)} onNext={next} nextLabel={draft.projectIds.length ? 'Next' : 'Skip for now'} error={serverError} />
         </StepPanel>
       )}
 
@@ -252,60 +418,232 @@ export function HireFlow() {
           <div className="space-y-8">
             <section aria-labelledby="powers-key">
               <div className="flex flex-wrap items-center justify-between gap-3">
-                <h3 id="powers-key" className="text-sm font-semibold text-white">Its key</h3>
-                <Toggle checked={draft.createKey} onChange={(createKey) => setDraft({ ...draft, createKey })} label="Make a key now" size="sm" />
+                <h3 id="powers-key" className="text-sm font-semibold text-white">Its access</h3>
+                <Toggle checked={draft.createKey} onChange={(createKey) => setDraft({ ...draft, createKey })} label="Give it access now (a key)" size="sm" />
               </div>
-              <p className="mt-1 text-xs text-zinc-500">{draft.createKey ? `${draft.scopes.length} powers on` : 'You can make its key later from its profile.'}</p>
-              {draft.createKey && (
-                <div className="mt-3">
-                  <ScopePicker grantable={grantable} value={draft.scopes} onChange={(scopes) => setDraft({ ...draft, scopes })} preset={template?.scopes} error={errors.scopes} />
-                </div>
+              <p className="mt-1 text-xs text-zinc-500">
+                {draft.createKey ? `${draft.scopes.length} ${draft.scopes.length === 1 ? 'power' : 'powers'} on. The key is shown once, after hiring.` : 'You can make its key on the next steps, or later from its profile.'}
+              </p>
+              {draft.createKey && <div className="mt-3">{scopePicker}</div>}
+              {templateLimits && (
+                <p className="mt-3 rounded-xl bg-white/[0.04] px-4 py-3 text-sm text-zinc-300">
+                  <span className="text-zinc-500">Limits from the template: </span>{templateLimits}. Change them on its profile after hiring.
+                </p>
               )}
+              {inbox && <InboxNote className="mt-3" />}
             </section>
             <section aria-labelledby="powers-rules">
               <h3 id="powers-rules" className="text-sm font-semibold text-white">Its rules</h3>
-              <p className="mt-1 mb-3 text-xs text-zinc-500">How it works alongside people. Change them any time on its profile.</p>
-              <RulesFields value={draft.rules} onChange={(rules) => setDraft({ ...draft, rules })} people={people} groups={groups} />
+              <p className="mt-1 mb-3 text-xs text-zinc-500">
+                {outside ? 'It has no task queue here, so only who answers its questions applies.' : 'How it works alongside people. Change them any time on its profile.'}
+              </p>
+              <RulesFields
+                value={draft.rules}
+                onChange={(rules) => setDraft({ ...draft, rules })}
+                people={people}
+                groups={groups}
+                escalateDefaultLabel={escalateLabel}
+                taskRules={!outside}
+              />
             </section>
           </div>
-          <StepFooter onBack={() => go(stepIndex - 1)} onNext={next} nextLabel={`Hire ${name}`} busy={busy} busyLabel="Hiring" error={serverError} />
+          <StepFooter onBack={() => go(stepIndex - 1)} onNext={next} nextLabel="Review" error={serverError} />
+        </StepPanel>
+      )}
+
+      {step === 'review' && (
+        <StepPanel key="review" stepKey="review" title={`Hire ${name}?`} description="Everything together before it joins. An agent can be suspended later, never deleted.">
+          <ReviewStep
+            draft={draft}
+            template={template}
+            pictureUrl={picture?.url ?? null}
+            ownerNames={draft.ownerIds.map((id) => (id === teamMemberId ? `${memberName(id) ?? 'You'} (you)` : memberName(id) ?? 'Someone'))}
+            groupNames={draft.ownerGroupIds.map((id) => groups.find((g) => g.id === id)?.name ?? 'A group')}
+            projectNames={draft.projectIds.map((id) => projectName(id) ?? 'Project')}
+            escalateTo={draft.rules.agent_escalate_to_group
+              ? groupTargetLabel(groups.find((g) => g.id === draft.rules.agent_escalate_to_group)?.name ?? 'a group')
+              : draft.rules.agent_escalate_to ? memberName(draft.rules.agent_escalate_to) ?? 'Someone' : escalateLabel}
+            beyondRole={beyondRole}
+            limits={templateLimits}
+            outside={outside}
+            onEdit={(s) => go(STEP_INDEX[s])}
+          />
+          {incomplete && (
+            <div role="alert" className="mt-6 rounded-xl bg-amber-500/[0.10] px-4 py-3 text-sm text-amber-100">
+              <p>{incomplete.remains[0] ?? 'The agent stays in Team, suspended.'} Hiring again makes a new agent.</p>
+              <Link href={`/agent/${incomplete.agentId}`} className="mt-1.5 inline-flex items-center gap-1 font-medium text-amber-200 underline-offset-2 hover:underline">
+                Open the suspended agent <ExternalLink size={12} aria-hidden="true" />
+              </Link>
+            </div>
+          )}
+          <StepFooter onBack={() => go(stepIndex - 1)} onNext={next} nextLabel={`Hire ${name}`} busy={busy} busyLabel="Hiring" error={incomplete ? null : serverError} />
         </StepPanel>
       )}
 
       {step === 'connect' && hired && (
-        <StepPanel key="connect" stepKey="connect" title={`Connect ${hired.agent.name}`} description="Point the agent's host at this workspace. The snippets read the key from its environment, so the key never sits in a config file.">
+        <StepPanel key="connect" stepKey="connect" title={`Connect ${hired.agent.name}`} description="Point the agent's host at this workspace. While the key shows, the snippets carry it, so they paste and work.">
           <div className="space-y-5">
-            {secret ? <SecretOnce secret={secret} /> : (
-              <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-white/[0.025] px-4 py-3 ring-1 ring-inset ring-white/[0.06]">
-                <p className="text-sm text-zinc-300">No key yet. It needs one to connect.</p>
-                <Button size="sm" icon={<KeyRound size={13} aria-hidden="true" />} onClick={createKeyNow} disabled={busy || draft.scopes.length === 0}>Make a key</Button>
-              </div>
+            {secret ? (
+              <SecretOnce
+                secret={secret}
+                heading={isDemoMode ? 'A sample key: the demo makes no real one.' : 'Copy the key now. It is not shown again.'}
+                hint={isDemoMode ? 'It does not work anywhere. The snippets below show where a real key goes.' : <>
+                  Paste one of the snippets below as is, or put it in the agent&apos;s environment as PM_API_KEY. Lost it? Make a new key and revoke this one.{' '}
+                  {expiry ? <span className="font-medium">{expiry}.</span> : 'It works until it is revoked.'}
+                </>}
+              />
+            ) : (
+              <MakeKeyPanel
+                busy={busy}
+                count={draft.scopes.length}
+                onMake={createKeyNow}
+                picker={scopePicker}
+              />
             )}
-            <ConnectSnippets connect={hired.connect} agentName={hired.agent.name} onDownloadBrief={downloadBrief} briefBusy={briefBusy} />
+            <ConnectSnippets connect={hired.connect} agentName={hired.agent.name} onDownloadBrief={downloadBrief} briefBusy={briefBusy} secret={secret?.secret ?? null} />
+            {template?.webhook_events?.length ? (
+              <WebhookField agentId={hired.agent.id} events={template.webhook_events} mayAdd={mayAddWebhook} isDemo={isDemoMode} />
+            ) : null}
+            {inbox && <InboxNote />}
           </div>
-          <StepFooter onNext={() => go(stepIndex + 1)} nextLabel={secret ? 'I saved the key' : 'Next'} />
+          <StepFooter onNext={() => { setSecretSaved(true); go(STEP_INDEX.done); }} nextLabel={secret ? 'I saved the key' : 'Next'} />
         </StepPanel>
       )}
 
       {step === 'done' && hired && (
-        <StepPanel key="done" stepKey="done" title={`${hired.agent.name} is on the team`} description="It shows on the roster as soon as it checks in. Questions and approvals from it land in Needs you.">
+        <StepPanel key="done" stepKey="done" title={`${hired.agent.name} is on the team`} description="It's on the roster now as Idle until it connects. Questions and approvals from it land in Needs you.">
           <div className="flex flex-col items-start gap-6 rounded-2xl bg-white/[0.025] p-6 ring-1 ring-inset ring-white/[0.06] sm:flex-row sm:items-center">
-            <AgentAvatar id={hired.agent.id} name={hired.agent.name} src={draft.avatarUrl || null} presence="idle" size="xl" />
+            <AgentAvatar id={hired.agent.id} name={hired.agent.name} src={picture?.url ?? null} presence="idle" size="xl" />
             <div className="min-w-0 flex-1">
-              <p className="flex items-center gap-2 text-lg font-semibold text-white"><PartyPopper size={18} className="text-brand-300" aria-hidden="true" />Hired</p>
+              <p className="flex items-center gap-2 text-lg font-semibold text-white"><PartyPopper size={18} className="text-brand-300" aria-hidden="true" />{isDemoMode ? 'Hired (demo)' : 'Hired'}</p>
               <p className="mt-1 text-sm text-zinc-400">
                 {[normalizeRole(draft.role) ? roleLabel(normalizeRole(draft.role)!) : null, template?.label, `${hired.assignments.length} ${hired.assignments.length === 1 ? 'project' : 'projects'}`].filter(Boolean).join(' · ')}
               </p>
             </div>
           </div>
+          {inbox && <InboxNote className="mt-4" />}
           <div className="mt-8 flex flex-wrap gap-3">
-            <Button href={`/agent/${hired.agent.id}`} icon={<ArrowRight size={15} aria-hidden="true" />}>Open its profile</Button>
-            <Button variant="secondary" icon={<Plus size={15} aria-hidden="true" />} onClick={() => window.location.assign('/agent/new')}>Hire another</Button>
-            <Button variant="ghost" href="/agent?tab=agents">Back to agents</Button>
+            {!isDemoMode && <Button href={`/agent/${hired.agent.id}`} icon={<ArrowRight size={15} aria-hidden="true" />}>Open its profile</Button>}
+            <Button variant={isDemoMode ? 'primary' : 'secondary'} icon={<Plus size={15} aria-hidden="true" />} onClick={() => window.location.assign('/agent/new')}>Hire another</Button>
+            <Button variant="ghost" href={AGENTS_HREF}>Back to agents</Button>
           </div>
         </StepPanel>
       )}
+
+      <ConfirmDialog
+        isOpen={confirmLeave}
+        onClose={() => setConfirmLeave(false)}
+        onConfirm={leave}
+        title={keyAtRisk ? 'Leave without the key?' : 'Discard this hire?'}
+        message={keyAtRisk
+          ? 'The key is not shown again. If you leave now, make a new key from its profile and revoke this one.'
+          : 'What you filled in is not saved. Discarding it cannot be undone.'}
+        confirmLabel={keyAtRisk ? 'Leave' : 'Discard'}
+        doubleConfirm={false}
+      />
     </FlowShell>
+  );
+}
+
+/** A pretend hire for the demo: an agent with a made-up id and, when asked for, a sample key. */
+function demoHire(draft: HireDraft): HireResponse {
+  return {
+    agent: { id: `demo-agent-${randomHex(4)}`, name: draft.name.trim() },
+    assignments: draft.projectIds.map((id) => ({ project_id: id }) as unknown as ProjectAgentAssignment),
+    ...(draft.createKey ? { key: demoKey(draft.scopes, draft.name) } : {}),
+    connect: buildConnectInfo(window.location.origin),
+  };
+}
+
+function demoKey(scopes: string[], name: string): NewKey {
+  return { id: `demo-key-${randomHex(4)}`, name: `${name.trim()} key`, prefix: 'pk_demo_', scopes, secret: `pk_demo_${randomHex(20)}`, expires_at: null };
+}
+
+function InboxNote({ className = '' }: { className?: string }) {
+  return (
+    <p className={`rounded-xl bg-white/[0.04] px-4 py-3 text-sm text-zinc-300 ${className}`}>
+      It reads only the shared inboxes it is given. After hiring, grant it one in{' '}
+      <Link href={INBOXES_HREF} className="font-medium text-brand-300 underline-offset-2 hover:underline">Settings &gt; Email &gt; Shared inboxes</Link>
+      , or its queue stays empty.
+    </p>
+  );
+}
+
+/** Connect with no key yet: pick its powers right here, then make it. */
+function MakeKeyPanel({ busy, count, onMake, picker }: { busy: boolean; count: number; onMake: () => void; picker: ReactNode }) {
+  return (
+    <section aria-labelledby="connect-key" className="rounded-2xl bg-white/[0.025] p-4 ring-1 ring-inset ring-white/[0.06] sm:p-5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h3 id="connect-key" className="text-sm font-semibold text-white">No key yet</h3>
+          <p className="mt-0.5 text-xs text-zinc-400">It needs one to connect. Pick what it may do, then make the key.</p>
+        </div>
+        <Button size="sm" icon={<KeyRound size={13} aria-hidden="true" />} onClick={onMake} disabled={busy || count === 0}>
+          {count === 0 ? 'Pick a power first' : `Make a key with ${count} ${count === 1 ? 'power' : 'powers'}`}
+        </Button>
+      </div>
+      <div className="mt-4">{picker}</div>
+    </section>
+  );
+}
+
+/** An optional webhook that wakes the agent for its own work, for the events its template names. */
+function WebhookField({ agentId, events, mayAdd, isDemo }: { agentId: string; events: string[]; mayAdd: boolean; isDemo: boolean }) {
+  const [url, setUrl] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [made, setMade] = useState<{ secret: string } | null>(null);
+  const eventList = <span className="font-mono text-zinc-300">{events.join(', ')}</span>;
+  if (!mayAdd) {
+    return (
+      <p className="rounded-xl bg-white/[0.04] px-4 py-3 text-sm text-zinc-300">
+        Its template expects a webhook for {eventList}. Someone who manages webhooks adds one in{' '}
+        <Link href={WEBHOOKS_HREF} className="font-medium text-brand-300 underline-offset-2 hover:underline">Settings &gt; Developers</Link>, filtered to this agent.
+      </p>
+    );
+  }
+  if (made) {
+    return (
+      <SecretOnce
+        secret={made}
+        heading="Webhook added. Copy its signing secret."
+        what="Signing secret"
+        copyLabel="Copy secret"
+        hint={<>Its harness checks each delivery with it. {isDemo ? 'A sample: the demo adds no webhook.' : <>It stays in <Link href={WEBHOOKS_HREF} className="underline">Settings &gt; Developers</Link> too.</>}</>}
+      />
+    );
+  }
+  const add = async () => {
+    const problem = url.trim() ? webhookUrlError(url.trim()) : 'Enter the URL its harness listens on.';
+    if (problem) { setError(problem); return; }
+    setBusy(true);
+    setError(null);
+    try {
+      if (isDemo) {
+        setMade({ secret: `whsec_demo_${randomHex(16)}` });
+      } else {
+        const result = await workspaceApi<{ secret: string }>(`/api/workspace/agents/${agentId}/webhook`, { method: 'POST', body: { url: url.trim(), events } });
+        invalidateTables(['webhook_endpoints']);
+        setMade({ secret: result.secret });
+      }
+    } catch (e) {
+      const fields = (e as { details?: { fields?: Record<string, string> } })?.details?.fields;
+      setError(fields?.url ?? (e instanceof Error ? e.message : 'Could not add the webhook'));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <section aria-labelledby="connect-webhook" className="rounded-2xl bg-white/[0.025] p-4 ring-1 ring-inset ring-white/[0.06] sm:p-5">
+      <h3 id="connect-webhook" className="flex items-center gap-2 text-sm font-semibold text-white"><Webhook size={14} aria-hidden="true" />Wake it with a webhook <span className="font-normal text-zinc-500">(optional)</span></h3>
+      <p className="mt-1 text-xs leading-relaxed text-zinc-400">Its template works from webhooks rather than polling. It gets {eventList} for its own work.</p>
+      <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-start">
+        <div className="min-w-0 flex-1">
+          <TextInput type="url" aria-label="Webhook URL" placeholder="https://agent-host.example.com/hooks/pm" value={url} onChange={(v) => { setUrl(v); if (error) setError(null); }} error={error ?? undefined} />
+        </div>
+        <Button variant="secondary" onClick={add} disabled={busy}>{busy ? 'Adding' : 'Add webhook'}</Button>
+      </div>
+    </section>
   );
 }
 
@@ -316,14 +654,15 @@ function TemplateStep({ templates, selected, onPick, error }: {
   error?: string;
 }) {
   const [q, setQ] = useState('');
-  if (templates.loading) {
+  if (templates.loading && !templates.data) {
     return (
       <Skeleton label="Loading templates" className="grid gap-3 sm:grid-cols-2">
         {[0, 1, 2, 3].map((i) => <Bone key={i} className="h-44 rounded-2xl" />)}
       </Skeleton>
     );
   }
-  const list = templates.data ?? [];
+  const list = hireTemplates(templates.data ?? []);
+  const hidesAssistant = (templates.data ?? []).length > list.length;
   const needle = q.trim().toLowerCase();
   const shown = needle ? list.filter((t) => `${t.label} ${t.description} ${t.role ?? ''}`.toLowerCase().includes(needle)) : list;
   return (
@@ -338,6 +677,7 @@ function TemplateStep({ templates, selected, onPick, error }: {
       <ChoiceGroup label="Templates" className="grid gap-3 sm:grid-cols-2">
         {shown.map((t, index) => {
           const Icon = TEMPLATE_ICONS[t.key] ?? Sparkles;
+          const limits = limitsLine(t.limits);
           return (
             <ChoiceCard
               key={t.key}
@@ -348,7 +688,7 @@ function TemplateStep({ templates, selected, onPick, error }: {
               icon={<Icon size={18} />}
               title={t.label}
               description={t.description}
-              meta={[t.role ? roleLabel(t.role) : null, `${t.scopes.length} powers`, t.settings?.length ? `${t.settings.length} settings` : null].filter(Boolean).join(' · ')}
+              meta={[t.role ? roleLabel(t.role) : null, `${t.scopes.length} powers`, t.settings?.length ? `${t.settings.length} settings` : null, limits ? `Limits: ${limits}` : null].filter(Boolean).join(' · ')}
             />
           );
         })}
@@ -359,10 +699,23 @@ function TemplateStep({ templates, selected, onPick, error }: {
           onSelect={() => onPick(null)}
           icon={<Bot size={18} />}
           title="Start blank"
-          description="No presets. You choose every power and rule yourself."
+          description="No template. Starts careful: it works only what it's given and sends finished work to review."
           meta="For a custom agent"
         />
       </ChoiceGroup>
+      {hidesAssistant && (
+        <Link
+          href="/settings/assistants"
+          className="group flex items-center gap-4 rounded-2xl bg-white/[0.02] p-4 ring-1 ring-inset ring-white/[0.06] transition-colors hover:bg-white/[0.05] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+        >
+          <span className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-white/[0.06] text-zinc-300 group-hover:text-white" aria-hidden="true"><Sparkles size={18} /></span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-sm font-semibold text-white">Looking for a personal assistant?</span>
+            <span className="mt-0.5 block text-sm text-zinc-400">Personal assistants are set up per person in Settings &gt; Assistants.</span>
+          </span>
+          <ArrowRight size={15} className="flex-shrink-0 text-zinc-500 group-hover:text-zinc-300" aria-hidden="true" />
+        </Link>
+      )}
     </div>
   );
 }
@@ -404,20 +757,19 @@ function RoleField({ value, onChange, inUse, templateRole, error }: {
   );
 }
 
-function ProjectsStep({ draft, setDraft, template, projects, errors }: {
+function ProjectsStep({ draft, setDraft, template, projects, errors, outside }: {
   draft: HireDraft;
   setDraft: (d: HireDraft) => void;
   template: AgentTemplateView | null;
   projects: { id: string; name: string; color: string }[];
   errors: Record<string, string>;
+  outside: boolean;
 }) {
   const schema = template?.settings ?? [];
   const [open, setOpen] = useState<string | null>(draft.projectIds[0] ?? null);
   const [pages, setPages] = useState(1);
   const { shown, hidden } = windowOf(draft.projectIds, pages, PROJECTS_PAGE);
   const nameOf = new Map(projects.map((p) => [p.id, p]));
-  // A template whose powers touch no project or task (an agent that works in another system) needs none.
-  const outside = !!template && !template.scopes.some((s) => s.startsWith('projects.') || s.startsWith('tasks.'));
   return (
     <div className="space-y-4">
       {outside && (
@@ -432,7 +784,7 @@ function ProjectsStep({ draft, setDraft, template, projects, errors }: {
         placeholder="Pick projects"
       />
       {draft.projectIds.length === 0 ? (outside ? null : (
-        <p className="rounded-xl bg-white/[0.02] px-4 py-3 text-sm text-zinc-500">No projects yet. It can still answer questions and work tasks assigned to it in projects it can open.</p>
+        <p className="rounded-xl bg-white/[0.02] px-4 py-3 text-sm text-zinc-400">With no projects it can&apos;t see any tasks yet. Add it to a project later from the project&apos;s Agents tab.</p>
       )) : (
         <ul className="space-y-2">
           {shown.map((id) => {
@@ -485,13 +837,83 @@ function ProjectsStep({ draft, setDraft, template, projects, errors }: {
   );
 }
 
+/** Everything the hire will make, in one place, each part with a way back to change it. */
+function ReviewStep({ draft, template, pictureUrl, ownerNames, groupNames, projectNames, escalateTo, beyondRole, limits, outside, onEdit }: {
+  draft: HireDraft;
+  template: AgentTemplateView | null;
+  pictureUrl: string | null;
+  ownerNames: string[];
+  groupNames: string[];
+  projectNames: string[];
+  escalateTo: string;
+  beyondRole: string[];
+  limits: string | null;
+  outside: boolean;
+  onEdit: (step: HireStep) => void;
+}) {
+  const role = normalizeRole(draft.role);
+  const owners = [...ownerNames, ...groupNames.map(groupTargetLabel)];
+  const rules = [
+    ...(outside ? [] : [
+      draft.rules.agent_self_assign ? 'Picks up unassigned work' : 'Works only what it is given',
+      draft.rules.agent_close_policy === 'review' ? 'Sends finished work to review' : 'Closes its own tasks',
+      draft.rules.agent_create_policy === 'approval' ? 'New tasks need approval' : 'Makes live tasks',
+    ]),
+    `Asks ${escalateTo.replace(/^Its /, 'its ')}`,
+  ];
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-4 rounded-2xl bg-white/[0.025] p-4 ring-1 ring-inset ring-white/[0.06]">
+        <AgentAvatar id={draft.name || 'new-agent'} name={draft.name || 'New agent'} src={pictureUrl} presence="idle" size="lg" />
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-base font-semibold text-white">{draft.name.trim()}</p>
+          <p className="truncate text-sm text-zinc-400">
+            {[...new Set([draft.title.trim() || null, role ? roleLabel(role) : null, template ? `${template.label} template` : 'Blank'].filter(Boolean))].join(' · ')}
+          </p>
+        </div>
+        <div className="-mr-2"><Button variant="ghost" size="sm" onClick={() => onEdit('identity')} aria-label="Change name and identity">Change</Button></div>
+      </div>
+      <dl className="divide-y divide-white/[0.06] rounded-2xl bg-white/[0.025] ring-1 ring-inset ring-white/[0.06]">
+        <ReviewRow label="Owners" onEdit={() => onEdit('identity')}>{owners.length ? listOf(owners) : 'You (only you can manage it)'}</ReviewRow>
+        <ReviewRow label="Projects" onEdit={() => onEdit('projects')}>{projectNames.length ? listOf(projectNames) : outside ? 'None: it works in another system' : 'None yet'}</ReviewRow>
+        <ReviewRow label="Access" onEdit={() => onEdit('powers')}>
+          {draft.createKey ? (
+            <>
+              <span>A key with {draft.scopes.length} {draft.scopes.length === 1 ? 'power' : 'powers'}: {listOf(draft.scopes.map(scopeLabel))}.</span>
+              {beyondRole.length > 0 && (
+                <span className="mt-1 block text-amber-200">Given to this agent beyond what agents have by default: {listOf(beyondRole.map(scopeLabel))}.</span>
+              )}
+            </>
+          ) : 'No key yet. You can make one on the next step.'}
+        </ReviewRow>
+        <ReviewRow label="Rules" onEdit={() => onEdit('powers')}>{rules.join(' · ')}</ReviewRow>
+        {limits && <ReviewRow label="Limits" onEdit={null}>{limits} (from the template)</ReviewRow>}
+      </dl>
+    </div>
+  );
+}
+
+function ReviewRow({ label, onEdit, children }: { label: string; onEdit: (() => void) | null; children: ReactNode }) {
+  return (
+    <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-4 gap-y-1 px-4 py-3.5 sm:grid-cols-[120px_minmax(0,1fr)_auto]">
+      <dt className="self-center text-xs font-medium text-zinc-500 sm:self-start sm:pt-0.5">{label}</dt>
+      <dd className="col-span-2 row-start-2 min-w-0 text-sm leading-relaxed text-zinc-200 sm:col-span-1 sm:col-start-2 sm:row-start-1">{children}</dd>
+      {onEdit && (
+        <div className="col-start-2 row-start-1 -my-1 -mr-2 sm:col-start-3">
+          <Button variant="ghost" size="sm" onClick={onEdit} aria-label={`Change ${label.toLowerCase()}`}>Change</Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** The agent taking shape, beside the steps on desktop. */
-function HirePreview({ draft, template }: { draft: HireDraft; template: AgentTemplateView | null }) {
+function HirePreview({ draft, template, pictureUrl, outside }: { draft: HireDraft; template: AgentTemplateView | null; pictureUrl: string | null; outside: boolean }) {
   const role = normalizeRole(draft.role);
   return (
-    <div className="hidden rounded-2xl bg-white/[0.03] p-5 ring-1 ring-inset ring-white/[0.06] lg:block">
+    <div className="rounded-2xl bg-white/[0.03] p-5 ring-1 ring-inset ring-white/[0.06]">
       <div className="flex items-center gap-3">
-        <AgentAvatar id={draft.name || 'new-agent'} name={draft.name || 'New agent'} src={draft.avatarUrl || null} presence="idle" size="md" />
+        <AgentAvatar id={draft.name || 'new-agent'} name={draft.name || 'New agent'} src={pictureUrl} presence="idle" size="md" />
         <div className="min-w-0">
           <p className="truncate text-sm font-semibold text-white">{draft.name.trim() || 'New agent'}</p>
           <p className="truncate text-xs text-zinc-500">{[role ? roleLabel(role) : null, template?.label ?? (draft.templateKey === '' ? 'Blank' : null)].filter(Boolean).join(' · ') || 'Pick a template'}</p>
@@ -500,10 +922,12 @@ function HirePreview({ draft, template }: { draft: HireDraft; template: AgentTem
       <dl className="mt-4 space-y-1.5 text-xs">
         <div className="flex justify-between gap-3"><dt className="text-zinc-500">Projects</dt><dd className="tabular-nums text-zinc-300">{draft.projectIds.length}</dd></div>
         <div className="flex justify-between gap-3"><dt className="text-zinc-500">Powers</dt><dd className="tabular-nums text-zinc-300">{draft.createKey ? draft.scopes.length : 'No key yet'}</dd></div>
-        <div className="flex justify-between gap-3"><dt className="text-zinc-500">Finished work</dt><dd className="text-zinc-300">{draft.rules.agent_close_policy === 'review' ? 'Goes to review' : 'Closes itself'}</dd></div>
+        {!outside && (
+          <div className="flex justify-between gap-3"><dt className="text-zinc-500">Finished work</dt><dd className="text-zinc-300">{draft.rules.agent_close_policy === 'review' ? 'Goes to review' : 'Closes itself'}</dd></div>
+        )}
       </dl>
       <p className="mt-4 text-[11px] text-zinc-500">
-        <Link href="/agent?tab=agents" className="hover:text-zinc-300">See the roster</Link>
+        <Link href={AGENTS_HREF} className="hover:text-zinc-300">See the roster</Link>
       </p>
     </div>
   );

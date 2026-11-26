@@ -1121,6 +1121,14 @@ export interface Notification {
   entity_type: NotificationEntityType | null;
   entity_id: string | null;
   created_at: string;
+  /** What kind of notice (question_asked, invoice_drafts, task_comments...); missing before 20261127000700. */
+  category?: string | null;
+  /** The project it hangs on, when known. */
+  project_id?: string | null;
+  /** Who caused it, when known. */
+  actor_id?: string | null;
+  /** Marked done: hidden from Updates. Done implies read. */
+  done_at?: string | null;
 }
 
 // ============================================================
@@ -1142,6 +1150,13 @@ export interface ApiKey {
   team_member_id: string | null;
   created_at: string;
   updated_at: string;
+  /** The key this one replaced by rotation; read for Settings only (left out on a database before it). */
+  rotated_from?: string | null;
+  /** When it was paused and by whom (20261127000600); read by the key routes, left out before that migration. */
+  paused_at?: string | null;
+  paused_by?: string | null;
+  /** Where it stands (lib/api-key-state.ts), on the key routes' answers. */
+  state?: 'active' | 'paused' | 'expired' | 'revoked';
 }
 
 export interface RolePermission {

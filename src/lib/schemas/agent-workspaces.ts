@@ -133,6 +133,8 @@ export const updateBriefEntrySchema = z.object({
   section: sectionSchema.optional(),
   content: contentSchema.optional(),
   pinned: z.boolean().optional(),
+  /** A person confirms an agent's entry: "Written by an agent" clears. */
+  checked: z.literal(true).optional(),
 }).strict().refine((body) => Object.values(body).some((value) => value !== undefined), 'Send at least one field to change');
 export type UpdateBriefEntry = z.infer<typeof updateBriefEntrySchema>;
 

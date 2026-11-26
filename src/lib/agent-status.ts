@@ -329,7 +329,8 @@ export function moodLabel(mood: AgentMood): string {
 
 export function elapsedLabel(sinceMs: number, now: number): string {
   const s = Math.max(0, Math.floor((now - sinceMs) / 1000));
-  if (s < 60) return `${s}s`;
+  // Seconds read as noise ("Idle for 0s"): under a minute is said in words.
+  if (s < 60) return 'under a minute';
   const m = Math.floor(s / 60);
   if (m < 60) return `${m}m`;
   return `${Math.floor(m / 60)}h ${m % 60}m`;

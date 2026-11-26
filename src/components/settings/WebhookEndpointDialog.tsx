@@ -12,17 +12,17 @@ import { StepFooter, StepPanel, Stepper, type FlowStep } from '@/components/ui/S
 import { SecretOnce } from '@/components/agent/ConnectPanel';
 import {
   firstWebhookProblem,
+  groupEventsFor,
   hasInvoiceEvents,
   webhookEventGroups,
   webhookStepProblem,
   WEBHOOK_EVENT_LABELS,
   type WebhookDraft,
+  type WebhookFormContext,
   type WebhookStep,
 } from '@/lib/developers-settings';
 import { WEBHOOK_SIGNATURE_HEADER } from '@/lib/webhooks/sign';
 import {
-  INVOICE_WEBHOOK_EVENT_TYPES,
-  WORK_WEBHOOK_EVENT_TYPES,
   type WebhookAmountBasis,
   type WebhookEndpoint,
 } from '@/lib/types';
@@ -43,16 +43,15 @@ const SECRET_STEP: FlowStep = { key: 'secret', label: 'Secret' };
 /** Saves the draft: the new endpoint's signing secret on create, null after an edit. Throws to stay open. */
 export type SaveEndpoint = (draft: WebhookDraft) => Promise<string | null>;
 
-function draftFrom(endpoint: WebhookEndpoint | null, billingOn: boolean): WebhookDraft {
+function draftFrom(endpoint: WebhookEndpoint | null): WebhookDraft {
   if (!endpoint) {
     return {
       name: '',
       url: '',
       description: '',
-      // A new endpoint starts on the full invoice lifecycle (a receiver that
-      // reconciles needs un-pay, edit and delete too, not just invoice.paid),
-      // or on every work event when there is no invoicing.
-      events: billingOn ? [...INVOICE_WEBHOOK_EVENT_TYPES] : [...WORK_WEBHOOK_EVENT_TYPES],
+      // A new endpoint starts with nothing ticked: what it is for (an agent,
+      // a data system, accounting) decides its events, never a default.
+      events: [],
       amountBasis: 'gross',
       projectIds: [],
       memberId: '',
@@ -76,12 +75,14 @@ function draftFrom(endpoint: WebhookEndpoint | null, billingOn: boolean): Webhoo
  * which filters, then (new only) the signing secret with how to verify it.
  * Editing opens with every step reachable and Save on each.
  */
-export function WebhookEndpointDialog({ isOpen, editing, billingOn, projectOptions, memberOptions, onSave, onClose }: {
+export function WebhookEndpointDialog({ isOpen, editing, billingOn, projectOptions, memberOptions, memberKind, onSave, onClose }: {
   isOpen: boolean;
   editing: WebhookEndpoint | null;
   billingOn: boolean;
   projectOptions: SelectOption[];
   memberOptions: SelectOption[];
+  /** What kind of member an id is, for the chat rules (one agent, or one person's own assistant). */
+  memberKind?: WebhookFormContext['memberKind'];
   onSave: SaveEndpoint;
   onClose: () => void;
 }) {
@@ -95,6 +96,7 @@ export function WebhookEndpointDialog({ isOpen, editing, billingOn, projectOptio
           billingOn={billingOn}
           projectOptions={projectOptions}
           memberOptions={memberOptions}
+          memberKind={memberKind}
           onSave={onSave}
           onClose={onClose}
           onBusy={setBusy}
@@ -104,16 +106,21 @@ export function WebhookEndpointDialog({ isOpen, editing, billingOn, projectOptio
   );
 }
 
-function EndpointFlow({ editing, billingOn, projectOptions, memberOptions, onSave, onClose, onBusy }: {
+function EndpointFlow({ editing, billingOn, projectOptions, memberOptions, memberKind, onSave, onClose, onBusy }: {
   editing: WebhookEndpoint | null;
   billingOn: boolean;
   projectOptions: SelectOption[];
   memberOptions: SelectOption[];
+  memberKind?: WebhookFormContext['memberKind'];
   onSave: SaveEndpoint;
   onClose: () => void;
   onBusy: (busy: boolean) => void;
 }) {
-  const [draft, setDraft] = useState<WebhookDraft>(() => draftFrom(editing, billingOn));
+  const [draft, setDraft] = useState<WebhookDraft>(() => draftFrom(editing));
+  // An endpoint scoped to an assistant setup sends for every assistant it
+  // made, which takes the place of a member filter.
+  const setupScoped = !!editing?.assistant_setup_id;
+  const context: WebhookFormContext = { memberKind, setupScoped };
   const [step, setStep] = useState(0);
   const [reached, setReached] = useState(editing ? FORM_STEPS.length - 1 : 0);
   const [error, setError] = useState<string | null>(null);
@@ -134,13 +141,13 @@ function EndpointFlow({ editing, billingOn, projectOptions, memberOptions, onSav
   };
 
   const next = () => {
-    const problem = webhookStepProblem(draft, FORM_STEPS[step].key);
+    const problem = webhookStepProblem(draft, FORM_STEPS[step].key, context);
     if (problem) return setError(problem);
     go(step + 1);
   };
 
   const save = async () => {
-    const problem = firstWebhookProblem(draft);
+    const problem = firstWebhookProblem(draft, context);
     if (problem) {
       setStep(FORM_STEPS.findIndex((s) => s.key === problem.step));
       setError(problem.message);
@@ -214,20 +221,23 @@ function EndpointFlow({ editing, billingOn, projectOptions, memberOptions, onSav
           <div className="space-y-4">
             <div role="group" aria-label="Events" className="rounded-lg border border-white/[0.08] bg-surface-raised divide-y divide-white/[0.06]">
               {webhookEventGroups(billingOn).map((group) => {
-                const on = group.events.filter((evt) => draft.events.includes(evt)).length;
+                // An older name it already has shows (and can be unticked); the group box never adds one.
+                const shown = groupEventsFor(group, draft.events);
+                const on = shown.filter((evt) => draft.events.includes(evt)).length;
+                const allMain = group.events.every((evt) => draft.events.includes(evt));
                 return (
                   <div key={group.id} className="divide-y divide-white/[0.06]">
                     <div className="bg-white/[0.02] px-3 py-2.5">
                       <Checkbox
                         size="sm"
-                        checked={on === group.events.length}
-                        indeterminate={on > 0 && on < group.events.length}
-                        onChange={() => toggleGroup(group.events)}
+                        checked={allMain && on === shown.length}
+                        indeterminate={on > 0 && !(allMain && on === shown.length)}
+                        onChange={() => toggleGroup(group.events.every((evt) => draft.events.includes(evt)) ? shown : group.events)}
                         label={group.label}
                         description={group.description}
                       />
                     </div>
-                    {group.events.length > 1 && group.events.map((evt) => (
+                    {shown.length > 1 && shown.map((evt) => (
                       <div key={evt} className="py-2.5 pl-8 pr-3">
                         <Checkbox
                           size="sm"
@@ -268,7 +278,9 @@ function EndpointFlow({ editing, billingOn, projectOptions, memberOptions, onSav
               onChange={(v) => set('projectIds', v)}
               options={projectOptions}
               placeholder="Every project"
-              description="Only events on these projects."
+              description={draft.events.some((evt) => evt === 'chat.message' || evt === 'assistant.message')
+                ? 'Only events on these projects. Chat is never tied to a project, so leave this empty while Chat is ticked.'
+                : 'Only events on these projects.'}
             />
             <Select
               label="Member"
@@ -277,7 +289,12 @@ function EndpointFlow({ editing, billingOn, projectOptions, memberOptions, onSav
               onChange={(v) => set('memberId', v)}
               options={memberOptions}
               searchable
-              description="Only events that concern this member: tasks assigned to or claimed by them, comments and reviews on those tasks, questions asked to or by them, and their suggestions. For an agent, this is its own work."
+              disabled={setupScoped && !draft.memberId}
+              description={setupScoped
+                ? 'This endpoint sends for every assistant from an assistant setup, so it is not limited to one member.'
+                : draft.events.includes('chat.message')
+                  ? "Chat goes to one agent: pick the agent this endpoint answers for. Other events are limited to that agent's own work."
+                  : 'Only events that concern this member: tasks assigned to or claimed by them, comments and reviews on those tasks, questions asked to or by them, and their suggestions. For an agent, this is its own work.'}
             />
             {draft.events.includes('agent_event.created') && (
               <TextInput

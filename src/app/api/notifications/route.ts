@@ -12,6 +12,8 @@ import {
 import { sendTransactional } from '@/lib/email/send-mail';
 import { buildNotificationEmail } from '@/lib/email/templates/team/notification';
 import { getBrand } from '@/lib/brand/server';
+import { upsertNotification } from '@/lib/api/notifications';
+import { isReceiptCategory } from '@/lib/notifications';
 
 export const dynamic = 'force-dynamic';
 
@@ -170,15 +172,18 @@ export async function POST(req: NextRequest) {
     return prefs[body.category] !== false;
   });
   await Promise.all(inApp.map(member =>
-    service.rpc('upsert_notification', {
-      p_user_id: member.id,
-      p_title: body.title,
-      p_message: body.message,
-      p_link: body.link,
-      p_entity_type: body.entity_type,
-      p_entity_id: body.entity_id,
-    }).then(({ error }) => {
-      if (error) console.error('[notifications] in-app upsert failed', { userId: member.id, error: error.message });
+    upsertNotification(service, {
+      userId: member.id,
+      title: body.title,
+      message: body.message,
+      link: body.link,
+      entityType: body.entity_type,
+      entityId: body.entity_id,
+      // A receipt is its producer's to name; a screen's notice is always an update.
+      category: isReceiptCategory(body.category) ? null : body.category,
+      actorId: callerId,
+    }).catch((error: { message?: string }) => {
+      console.error('[notifications] in-app upsert failed', { userId: member.id, error: error?.message });
     }),
   ));
 

@@ -39,7 +39,7 @@ import { NextRequest } from 'next/server';
 import { actAs, applyMigrationsFrom, createFullSchemaDatabase, SCHEMA_PATH } from './full-schema-db';
 import { startFakePostgrest } from './fake-postgrest';
 import { diffSnapshots, pmSnapshot } from './lib/pm-catalog';
-import { AGENT_RUN_STALE_AFTER_SECONDS, effectiveRunStatus } from '../src/lib/agent-runs';
+import { AGENT_RUN_STALE_AFTER_SECONDS, effectiveRunStatus, runDisplayStatus } from '../src/lib/agent-runs';
 
 const MIGRATION = '20261124000500_agent_runs.sql';
 const MIGRATION_SQL = readFileSync(join(__dirname, '..', 'supabase', 'migrations', MIGRATION), 'utf8').replace(/\r\n/g, '\n');
@@ -310,6 +310,29 @@ async function main() {
     check('stale: the stored row stays running (no job, no write on read)', stored.status === 'running', stored);
     const viewRow = (await s.q<{ status: string }>('SELECT status FROM pm.agent_run_feed WHERE id = $1', [stale]))[0];
     check('stale: the view reads it timed_out too', viewRow?.status === 'timed_out', viewRow);
+    const staleShown = (await s.q<{ display_status: string }>('SELECT display_status FROM pm.agent_run_rows WHERE id = $1', [stale]))[0];
+    check('display: a stale run shows timed_out, the status the Runs filter matches', staleShown?.display_status === 'timed_out', staleShown);
+
+    // --- What a row shows (display_status, 20261127000200) -------------------------------------
+    // A turn shows its outcome, by the same rule as runDisplayStatus, so filtering by a status
+    // lists exactly the rows wearing that pill. A turn carries its task.
+    const shownTask = await s.task('Show what a turn came to');
+    const outcomes = ['blocked', 'error', 'failed', 'work', 'unknown', 'idle', null];
+    const displayTurns: { id: string; outcome: string | null }[] = [];
+    for (const outcome of outcomes) {
+      const metadata = { source_turn_id: `display-${outcome ?? 'none'}`, origin: 'directed', duration_ms: 1000, ...(outcome ? { outcome } : {}), task_id: shownTask };
+      const id = (await s.q<{ id: string }>(`INSERT INTO pm.agent_activities (agent_id, activity_type, title, metadata) VALUES ($1, 'turn.completed', 'Ran 1s (directed)', $2) RETURNING id`, [s.builder.id, metadata]))[0].id;
+      displayTurns.push({ id, outcome });
+    }
+    const shown = await s.q<{ id: string; display_status: string; task_id: string | null; status: string }>('SELECT id, display_status, task_id, status FROM pm.agent_run_rows WHERE id = ANY($1::uuid[])', [displayTurns.map((t) => t.id)]);
+    const mismatched = displayTurns.filter((t) => shown.find((r) => r.id === t.id)?.display_status !== runDisplayStatus({ source: 'turn', status: 'succeeded', outcome: t.outcome }));
+    check('display: a turn shows its outcome by the browser rule (blocked, failed, no work, succeeded, other)', shown.length === outcomes.length && mismatched.length === 0,
+      shown.map((r) => [displayTurns.find((t) => t.id === r.id)?.outcome, r.display_status]));
+    check('display: a turn row still has status succeeded (unchanged column) and now carries its task', shown.every((r) => r.status === 'succeeded' && r.task_id === shownTask), shown);
+    const failedOnly = await s.q<{ id: string }>("SELECT id FROM pm.agent_run_rows WHERE display_status = 'failed' AND id = ANY($1::uuid[])", [displayTurns.map((t) => t.id)]);
+    check('display: filtering failed lists the failed and errored turns, the rows whose pill says Failed', failedOnly.length === 2, failedOnly);
+    // These turns were only for this check: the turn counts below are about the builder's own turns.
+    await s.q('DELETE FROM pm.agent_activities WHERE id = ANY($1::uuid[])', [displayTurns.map((t) => t.id)]);
     const timedOut = await list(s.keys.builder, '?status=timed_out');
     const running = await list(s.keys.builder, '?status=running');
     check('stale: status=timed_out lists it and status=running does not', timedOut.body.data.some((r: Loose) => r.id === stale)

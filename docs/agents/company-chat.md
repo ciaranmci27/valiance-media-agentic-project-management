@@ -11,7 +11,7 @@ Settings > Assistants > **Chat** > **Add chat** > **Company AI (channels and DMs
 **Slack**
 
 1. At api.slack.com/apps, create an app for your workspace, separate from the personal assistants app.
-2. Under OAuth & Permissions, add the bot scopes `chat:write`, `chat:write.customize`, `im:history`, `im:write`, `channels:history`, `groups:history`, `channels:read` and `groups:read`, then install it.
+2. Under OAuth & Permissions, add the bot scopes `chat:write`, `chat:write.customize`, `im:history`, `im:write`, `channels:history`, `groups:history`, `channels:read`, `groups:read` and `files:read`, then install it. Changed the scopes later? Reinstall the app.
 3. Under App Home, turn on the Messages Tab.
 4. In the app, choose Slack, paste the Bot User OAuth Token and the Signing Secret, and press **Connect**.
 5. Copy the **Request URL**. In Event Subscriptions, paste it and subscribe to the bot events `message.im`, `message.channels` and `message.groups`.
@@ -45,19 +45,19 @@ Manage Webhooks lets each reply carry the agent's own name and avatar: the app m
 On the connection, **Choose agents**:
 
 - Only company agents (not personal assistants).
-- Each must hold **Act for a person** (`agents.act_for`, Team > Access). Without it the app refuses it (`422 agent_cannot_act_for`).
+- Each must hold **Act for a person** (`agents.act_for`: Team, the agent, Permissions). Without it the app refuses it (`422 agent_cannot_act_for`). The picker marks agents without it, with **Grant it** beside each.
 - One is the **default**: DMs to the bot go there.
 
 ## Map channels
 
-Type a channel's name (`#finance`, or a public Telegram group's `@name`) or paste its id (`C0123ABC`, `-100123...`, or a Discord channel id from Copy Channel ID), pick an agent and what it hears:
+Type a channel's name (`#finance`, or a public Telegram group's `@name`) or paste its id (`C0123ABC`, `-100123...`, or a Discord channel id from Copy Channel ID), pick an agent and what it hears. A private group has no name to look up: mention the bot there once, then pick it from **Heard lately** under the field:
 
 | Listen | What is recorded |
 |---|---|
 | **Mentions only** (default) | Only messages that mention the bot or name an agent. |
 | **Every message** | Every message, as context for the mapped agent. A mention is still a request. |
 
-Removing an agent from the connection removes its channel mappings.
+Removing an agent from the connection removes its channel mappings, in one step (the dialog names them first).
 
 ## Who gets a message
 
@@ -147,7 +147,7 @@ Who it may reach:
 | Where | Rule |
 |---|---|
 | A channel | Only a channel mapped to the agent on a company connection that lists it. Being the default agent does not widen this: the default answers DMs, it does not post wherever it likes. Map the channel to it. Otherwise `403 channel_not_allowed`. |
-| A person's DM (`person_id`) | Only an active member with a verified linked account on that connection, and only while acting for them (`X-Act-For` naming them; `403 act_for_mismatch` for anyone else), or unasked with **Message people unasked** (`chat.notify`) on both the agent and its key (`403 chat_notify_required`). No role holds `chat.notify` by default: an Owner grants it to the agent under Team > Access and adds it to the key. |
+| A person's DM (`person_id`) | Only an active member with a verified linked account on that connection, and only while acting for them (`X-Act-For` naming them; `403 act_for_mismatch` for anyone else), or unasked with **Message people unasked** (`chat.notify`) on both the agent and its key (`403 chat_notify_required`). No role holds `chat.notify` by default: an Owner grants it to the agent under Team > Roles & permissions and adds it to the key. |
 
 - Each connection allows 60 started messages an hour per agent and 20 an hour per recipient, a person or a channel, whichever agents send (`429 chat_rate_limited`).
 - A paused or on-hold agent cannot send (`423`, like other writes).

@@ -26,7 +26,10 @@
  *   changed since is reported and the draft makes what it saw; a run recorded
  *   before its read back failed keeps the draft approved with that run (a
  *   retry is 409, nothing twice); a template in Trash at approve time is 404
- *   template_not_found, not 403 not_asked.
+ *   template_not_found, not 403 not_asked; the approval's decision is
+ *   recorded before the draft is claimed or any task made, so an approval
+ *   cancelled while the run is checked is 409 with nothing made and the draft
+ *   expired; a run that fails before it is recorded reopens the approval.
  * - The initiative read (session, v1, MCP) names the template run that made
  *   it: template, labelled key dates, who ran it; null for one made by hand.
  *
@@ -68,10 +71,25 @@ const LOGINS = {
 let signedIn = LOGINS.owner;
 /** Armed by a check: the next read of one run by id fails, as a read back after the run is recorded would. */
 let failNextRunRead = false;
+/** Armed by a check: the next call recording a template run fails before anything is recorded. */
+let failNextRunRecord = false;
+/** Armed by a check: runs once, before the next request matching it is served (a race in the window). */
+let beforeRequest: { match: (request: IncomingMessage, url: URL) => boolean; run: () => Promise<unknown> } | null = null;
 const sha = (value: string) => createHash('sha256').update(value).digest('hex');
 
 function authStandIn() {
   return async (request: IncomingMessage, response: ServerResponse, url: URL) => {
+    if (beforeRequest && beforeRequest.match(request, url)) {
+      const armed = beforeRequest;
+      beforeRequest = null;
+      await armed.run();
+    }
+    if (failNextRunRecord && request.method === 'POST' && url.pathname.endsWith('/rpc/record_task_template_run')) {
+      failNextRunRecord = false;
+      response.writeHead(500, { 'Content-Type': 'application/json' });
+      response.end(JSON.stringify({ code: 'XX000', message: 'record failed (test)', details: null, hint: null }));
+      return true;
+    }
     if (failNextRunRead && request.method === 'GET' && url.pathname.endsWith('/task_template_runs') && url.searchParams.has('id')) {
       failNextRunRead = false;
       response.writeHead(500, { 'Content-Type': 'application/json' });
@@ -150,6 +168,9 @@ async function seed(db: PGlite) {
     return (await db.query<T>(sql, params)).rows;
   };
   await db.exec('DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users');
+  // Assistants on: a personal agent's writes are on hold while they are off (the 423 gate, 20261127000100).
+  await q("INSERT INTO pm.business_settings (business_name) SELECT 'Acme' WHERE NOT EXISTS (SELECT 1 FROM pm.business_settings)");
+  await q('UPDATE pm.business_settings SET assistants_enabled = true');
   await db.exec(`DROP FUNCTION pm.consume_api_rate_limit(uuid, integer, integer);
     CREATE FUNCTION pm.consume_api_rate_limit(p_api_key_id uuid, p_limit integer, p_window_seconds integer)
     RETURNS jsonb LANGUAGE sql AS $$ SELECT jsonb_build_object('allowed', true, 'remaining', p_limit - 1,
@@ -542,6 +563,60 @@ async function main() {
     as(LOGINS.nina);
     const hiddenApproval = await session(approveRoute.POST, 'POST', `/api/workspace/task-templates/drafts/${draft9?.id}/approve`, { draftId: draft9?.id }, {});
     check('approve: someone the approval does not name still reads 403 not_asked', hiddenApproval.status === 403 && reason(hiddenApproval) === 'not_asked', hiddenApproval.body);
+
+    // The decision comes first: the approval is withdrawn while the approver's run is being checked
+    // (the template read). The decision write finds it no longer open, so nothing is claimed or made.
+    const draft10 = (await v1(v1Draft.POST, 'POST', `/api/v1/task-templates/${T}/drafts`, { id: T }, s.keys.atlas, { ...draftInput, idempotency_key: 'nova-draft-10', values: { product: 'Hydra' } })).body?.data;
+    as(LOGINS.morgan);
+    beforeRequest = {
+      match: (request, url) => request.method === 'GET' && url.pathname.endsWith('/task_templates'),
+      // A withdrawal as the cancel path makes it: only an open question is cancelled.
+      run: () => s.q("UPDATE pm.questions SET status = 'cancelled', cancelled_by = asked_by, cancelled_at = now() WHERE id = $1 AND status = 'open'", [draft10?.question_id]),
+    };
+    const raced = await session(answerRoute.POST, 'POST', `/api/workspace/questions/${draft10?.question_id}/answer`, { id: draft10?.question_id }, { choice: 'approve' });
+    const raceArmed = beforeRequest !== null;
+    beforeRequest = null;
+    const draft10Row = (await s.q<Loose>('SELECT status, run_id FROM pm.task_template_run_drafts WHERE id = $1', [draft10?.id]))[0];
+    check('decision order: an approval withdrawn while the run is checked is 409, no tasks made, the draft expired with it',
+      !raceArmed && raced.status === 409
+      && await count("SELECT count(*)::int AS n FROM pm.tasks WHERE title LIKE '%Hydra%'") === 0
+      && await count("SELECT count(*)::int AS n FROM pm.task_template_runs WHERE snapshot -> 'draft' ->> 'id' = $1", [draft10?.id]) === 0
+      && draft10Row?.status === 'expired' && draft10Row.run_id === null
+      && (await s.q<Loose>('SELECT status FROM pm.questions WHERE id = $1', [draft10?.question_id]))[0]?.status === 'cancelled',
+      { status: raced.status, body: raced.body, raceArmed, draft10Row });
+
+    // A withdrawal that arrives while the tasks are being made (after the draft is claimed) finds the
+    // approval already decided: it never leaves tasks beside a cancelled approval.
+    const draft12 = (await v1(v1Draft.POST, 'POST', `/api/v1/task-templates/${T}/drafts`, { id: T }, s.keys.atlas, { ...draftInput, idempotency_key: 'nova-draft-12', values: { product: 'Draco' } })).body?.data;
+    beforeRequest = {
+      match: (request, url) => request.method === 'POST' && url.pathname.endsWith('/rpc/record_task_template_run'),
+      run: () => s.q("UPDATE pm.questions SET status = 'cancelled', cancelled_by = asked_by, cancelled_at = now() WHERE id = $1 AND status = 'open'", [draft12?.question_id]),
+    };
+    const lateCancel = await session(answerRoute.POST, 'POST', `/api/workspace/questions/${draft12?.question_id}/answer`, { id: draft12?.question_id }, { choice: 'approve' });
+    const lateArmed = beforeRequest !== null;
+    beforeRequest = null;
+    const q12 = (await s.q<Loose>('SELECT status, answer_choice FROM pm.questions WHERE id = $1', [draft12?.question_id]))[0];
+    const draft12Tasks = await count("SELECT count(*)::int AS n FROM pm.tasks WHERE title LIKE '%Draco%' AND deleted_at IS NULL");
+    check('decision order: a withdrawal while the tasks are made finds the approval decided; the tasks stand beside an approved approval, never a cancelled one',
+      !lateArmed && lateCancel.status === 200 && q12?.status === 'answered' && q12.answer_choice === 'approve' && draft12Tasks > 0
+      && (await s.q<Loose>('SELECT status FROM pm.task_template_run_drafts WHERE id = $1', [draft12?.id]))[0]?.status === 'approved',
+      { status: lateCancel.status, body: lateCancel.body?.error ?? null, lateArmed, q12, draft12Tasks });
+
+    // The run fails before it is recorded: the decision is undone, the draft waits and its approval is open again.
+    const draft11 = (await v1(v1Draft.POST, 'POST', `/api/v1/task-templates/${T}/drafts`, { id: T }, s.keys.atlas, { ...draftInput, idempotency_key: 'nova-draft-11', values: { product: 'Lynx' } })).body?.data;
+    failNextRunRecord = true;
+    const runFails = await session(answerRoute.POST, 'POST', `/api/workspace/questions/${draft11?.question_id}/answer`, { id: draft11?.question_id }, { choice: 'approve' });
+    const recordArmed = failNextRunRecord;
+    failNextRunRecord = false;
+    const q11 = (await s.q<Loose>('SELECT status, answer_choice, answered_by, decided_via FROM pm.questions WHERE id = $1', [draft11?.question_id]))[0];
+    check('decision order: a run that fails before it is recorded reopens the approval (no answer kept) and leaves the draft pending, nothing made (a partly made run goes to Trash)',
+      !recordArmed && runFails.status >= 400 && q11?.status === 'open' && q11.answer_choice === null && q11.answered_by === null && q11.decided_via === null
+      && (await s.q<Loose>('SELECT status FROM pm.task_template_run_drafts WHERE id = $1', [draft11?.id]))[0]?.status === 'pending'
+      && await count("SELECT count(*)::int AS n FROM pm.tasks WHERE title LIKE '%Lynx%' AND deleted_at IS NULL") === 0,
+      { status: runFails.status, body: runFails.body, recordArmed, q11 });
+    const retry11 = await session(answerRoute.POST, 'POST', `/api/workspace/questions/${draft11?.question_id}/answer`, { id: draft11?.question_id }, { choice: 'approve' });
+    check('decision order: approving it again then works once', retry11.status === 200
+      && await count("SELECT count(*)::int AS n FROM pm.task_template_runs WHERE snapshot -> 'draft' ->> 'id' = $1", [draft11?.id]) === 1, retry11.body);
   } finally {
     await server.close();
     await db.close();

@@ -1,7 +1,8 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { Trash2 } from 'lucide-react';
+import { AlertTriangle, Trash2 } from 'lucide-react';
+import { AccessControlModal } from '@/components/team/AccessControlModal';
 import Modal from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { Checkbox } from '@/components/ui/inputs/Checkbox';
@@ -12,19 +13,28 @@ import { useApp } from '@/lib/store';
 import { workspaceApi } from '@/lib/agent-workspace';
 import { invalidateTables } from '@/lib/query-cache';
 import type { ChatConnectionView, ChatListenMode } from '@/lib/chat/types';
+import { demoBlocked } from './demo';
 
 const LISTEN_OPTIONS: SelectOption[] = [
   { value: 'mentions', label: 'Mentions only', detail: 'Answers when someone mentions the bot or the agent' },
   { value: 'all', label: 'Every message', detail: 'Also reads the rest as context, never answering it' },
 ];
 
+/** Where a private chat's id comes from, per provider, when it cannot be found by name. */
+const FIND_ID_HINT: Record<string, string> = {
+  telegram: 'A private group has no name to look up: mention the bot there once (or reply to it), then pick it from Heard lately.',
+  discord: 'In Discord, turn on Developer Mode (User Settings > Advanced), then right-click the channel and Copy Channel ID. Or mention the bot there once and pick it from Heard lately.',
+  slack: 'A private channel: invite the bot, then type its name, or paste its id from the bottom of the channel details.',
+};
+
 /**
  * A company connection's settings, inside its row: which company agents it
  * reaches and the default (a DM, or a mention of the bot where no channel is
  * mapped, goes there), and channels mapped to an agent with how much it
- * hears. Each change saves at once.
+ * hears. A channel the bot heard lately can be picked instead of typing its
+ * id. Each change saves at once (none in the demo).
  */
-export function CompanyChatPanel({ connection }: { connection: ChatConnectionView }) {
+export function CompanyChatPanel({ connection, isDemo = false }: { connection: ChatConnectionView; isDemo?: boolean }) {
   const { team } = useApp();
   const [choosing, setChoosing] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
@@ -39,6 +49,7 @@ export function CompanyChatPanel({ connection }: { connection: ChatConnectionVie
   const fallback = connection.agents.find((agent) => agent.is_default);
 
   const save = async (key: string, path: string, method: 'POST' | 'PATCH' | 'DELETE', body?: unknown, done?: string) => {
+    if (demoBlocked(isDemo)) return false;
     setBusy(key);
     try {
       await workspaceApi<ChatConnectionView>(`${base}${path}`, { method, ...(body === undefined ? {} : { body }) });
@@ -71,7 +82,7 @@ export function CompanyChatPanel({ connection }: { connection: ChatConnectionVie
       <div>
         <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="text-xs font-medium text-zinc-400">Agents it reaches</p>
-          <Button size="sm" variant="ghost" onClick={() => setChoosing(true)}>{connection.agents.length ? 'Change' : 'Choose agents'}</Button>
+          <Button size="sm" variant="ghost" onClick={() => { if (!demoBlocked(isDemo)) setChoosing(true); }}>{connection.agents.length ? 'Change' : 'Choose agents'}</Button>
         </div>
         {connection.agents.length === 0 ? (
           <p className="mt-1 text-sm text-zinc-400">None yet. Until you choose, nobody answers here.</p>
@@ -127,23 +138,39 @@ export function CompanyChatPanel({ connection }: { connection: ChatConnectionVie
           <Button size="sm" type="submit" variant="secondary" disabled={busy === 'add-channel'}>{busy === 'add-channel' ? 'Mapping' : 'Map channel'}</Button>
         </form>
         {channelError && <p className="mt-2 text-sm text-red-300" role="alert">{channelError}</p>}
+        {(connection.recent_channels ?? []).length > 0 && (
+          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+            <span className="text-[11px] text-zinc-500">Heard lately:</span>
+            {(connection.recent_channels ?? []).map((recent) => (
+              <button key={recent.id} type="button" onClick={() => { setChannel(recent.id); setChannelError(null); }}
+                className="rounded-full bg-white/[0.05] px-2.5 py-1 font-mono text-[11px] text-zinc-300 hover:bg-white/[0.09] hover:text-zinc-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+                aria-label={`Use ${recent.name ?? recent.id}`}>
+                {recent.name ?? recent.id}
+              </button>
+            ))}
+          </div>
+        )}
+        {FIND_ID_HINT[connection.provider] && <p className="mt-1.5 text-[11px] text-zinc-500">{FIND_ID_HINT[connection.provider]}</p>}
       </div>
 
       <ChooseAgentsDialog
         isOpen={choosing}
         connection={connection}
-        candidates={team.filter((member) => member.role === 'agent' && !member.delegate_of && member.status !== 'suspended').map((member) => ({ id: member.id, name: member.name }))}
+        candidates={connection.candidates
+          ?? team.filter((member) => member.role === 'agent' && !member.delegate_of && member.status !== 'suspended').map((member) => ({ id: member.id, name: member.name, can_act_for: true }))}
         onClose={() => setChoosing(false)}
       />
     </div>
   );
 }
 
+type Candidate = { id: string; name: string; can_act_for: boolean };
+
 /** Which company agents the connection reaches, and the default among them. */
 function ChooseAgentsDialog({ isOpen, connection, candidates, onClose }: {
   isOpen: boolean;
   connection: ChatConnectionView;
-  candidates: { id: string; name: string }[];
+  candidates: Candidate[];
   onClose: () => void;
 }) {
   return (
@@ -153,18 +180,25 @@ function ChooseAgentsDialog({ isOpen, connection, candidates, onClose }: {
   );
 }
 
-function ChooseAgents({ connection, candidates, onClose }: { connection: ChatConnectionView; candidates: { id: string; name: string }[]; onClose: () => void }) {
+function ChooseAgents({ connection, candidates, onClose }: { connection: ChatConnectionView; candidates: Candidate[]; onClose: () => void }) {
+  const { team } = useApp();
   const [picked, setPicked] = useState<string[]>(() => connection.agents.map((agent) => agent.id));
   const [fallback, setFallback] = useState<string>(() => connection.agents.find((agent) => agent.is_default)?.id ?? '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [granting, setGranting] = useState<string | null>(null);
   // Agents already on it stay listed even if the team list has not loaded them.
   const rows = useMemo(() => {
-    const byId = new Map(candidates.map((agent) => [agent.id, agent]));
-    for (const agent of connection.agents) if (!byId.has(agent.id)) byId.set(agent.id, { id: agent.id, name: agent.name });
+    const byId = new Map<string, Candidate>(candidates.map((agent) => [agent.id, agent]));
+    for (const agent of connection.agents) if (!byId.has(agent.id)) byId.set(agent.id, { id: agent.id, name: agent.name, can_act_for: true });
     return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name));
   }, [candidates, connection.agents]);
   const defaultId = picked.includes(fallback) ? fallback : picked[0] ?? '';
+  // Taking an agent off takes its channel mappings with it: say which, before saving.
+  const unmapped = connection.agents.filter((agent) => !picked.includes(agent.id)).map((agent) => ({
+    name: agent.name,
+    channels: connection.channels.filter((route) => route.agent_id === agent.id).map((route) => route.channel_name ?? route.channel_id),
+  })).filter((entry) => entry.channels.length > 0);
 
   const save = async () => {
     setSaving(true);
@@ -183,29 +217,44 @@ function ChooseAgents({ connection, candidates, onClose }: { connection: ChatCon
 
   return (
     <div className="space-y-4">
-      <p className="text-sm text-zinc-400">Company agents only: each answers for the person who asked, within what they may do, so it needs Act for a person in Team &gt; Access.</p>
+      <p className="text-sm text-zinc-400">Company agents only: each answers for the person who asked, within what they may do, so it needs Act for a person (Team, the agent, Permissions).</p>
       {rows.length === 0 ? (
         <p className="rounded-lg bg-white/[0.03] px-3 py-2 text-sm text-zinc-400">No company agents yet. Hire one from Agents first.</p>
       ) : (
         <ul className="max-h-72 space-y-1 overflow-y-auto">
-          {rows.map((agent) => (
-            <li key={agent.id} className="rounded-lg px-2 py-1.5 hover:bg-white/[0.03]">
-              <Checkbox
-                checked={picked.includes(agent.id)}
-                onChange={(checked) => setPicked((prev) => (checked ? [...prev, agent.id] : prev.filter((id) => id !== agent.id)))}
-                label={agent.name}
-              />
-            </li>
-          ))}
+          {rows.map((agent) => {
+            const blocked = !agent.can_act_for && !picked.includes(agent.id);
+            return (
+              <li key={agent.id} className="flex items-center justify-between gap-2 rounded-lg px-2 py-1.5 hover:bg-white/[0.03]">
+                <Checkbox
+                  checked={picked.includes(agent.id)}
+                  disabled={blocked}
+                  onChange={(checked) => setPicked((prev) => (checked ? [...prev, agent.id] : prev.filter((id) => id !== agent.id)))}
+                  label={agent.name}
+                  description={agent.can_act_for ? undefined : 'Needs Act for a person first'}
+                />
+                {!agent.can_act_for && (
+                  <Button size="sm" variant="ghost" onClick={() => setGranting(agent.id)}>Grant it</Button>
+                )}
+              </li>
+            );
+          })}
         </ul>
       )}
       <Select label="Default agent" value={defaultId} options={picked.map((id) => ({ value: id, label: rows.find((agent) => agent.id === id)?.name ?? 'Agent' }))}
         placeholder="Choose agents first" disabled={picked.length === 0} onChange={setFallback} helperText="DMs to the bot go here." />
-      {error && <p role="alert" className="rounded-lg bg-red-500/[0.12] px-3 py-2 text-sm text-red-200">{error}</p>}
+      {unmapped.length > 0 && (
+        <p role="note" className="flex items-start gap-2 rounded-lg bg-amber-500/[0.12] px-3 py-2 text-sm text-zinc-200">
+          <AlertTriangle size={14} className="mt-0.5 flex-shrink-0 text-amber-300" aria-hidden="true" />
+          <span>{unmapped.map((entry) => `Removing ${entry.name} unmaps ${entry.channels.join(', ')}`).join('. ')}.</span>
+        </p>
+      )}
+      {error && <p role="alert" className="rounded-lg bg-red-500/[0.12] px-3 py-2 text-sm text-red-300">{error}</p>}
       <div className="flex justify-end gap-2">
         <Button variant="ghost" onClick={onClose} disabled={saving}>Cancel</Button>
         <Button onClick={() => { void save(); }} disabled={saving}>{saving ? 'Saving' : 'Save agents'}</Button>
       </div>
+      <AccessControlModal isOpen={!!granting} onClose={() => { setGranting(null); invalidateTables(['chat_connections']); }} team={team} initialMemberId={granting} />
     </div>
   );
 }

@@ -12,6 +12,8 @@ import { createNotificationSchema } from '@/lib/schemas';
 import { requireAgentsEnabled } from '@/lib/api/agents';
 import { logAudit } from '@/lib/api/audit';
 import { z } from 'zod';
+import { RECEIPT_CATEGORIES, agentNoticeCategory } from '@/lib/notifications';
+import { missingFoundation, notificationsNotReady, upsertNotification } from '@/lib/api/notifications';
 
 export const GET = withApi(async ({ supabase, searchParams, teamMemberId }) => {
   if (!teamMemberId) throw badRequest('API key must be linked to a team member to access notifications');
@@ -19,6 +21,12 @@ export const GET = withApi(async ({ supabase, searchParams, teamMemberId }) => {
   const { page, limit, offset } = parsePagination(searchParams);
   const isRead = searchParams.get('is_read');
   const entityType = searchParams.get('entity_type');
+  // view: all (every notification, as before), updates (what the app lists
+  // as Updates: not done, receipts left out) or done.
+  const view = searchParams.get('view') ?? 'all';
+  if (!['all', 'updates', 'done'].includes(view)) throw badRequest('view must be all, updates or done');
+  const category = searchParams.get('category');
+  if (category !== null && !/^[a-z][a-z0-9_]{0,59}$/.test(category)) throw badRequest('category must be a category key such as task_comments');
 
   let query = supabase
     .from('team_member_notifications')
@@ -30,12 +38,18 @@ export const GET = withApi(async ({ supabase, searchParams, teamMemberId }) => {
   else if (isRead === 'false') query = query.eq('is_read', false);
 
   if (entityType) query = query.eq('entity_type', entityType);
+  if (category) query = query.eq('category', category);
+  if (view === 'updates') query = query.is('done_at', null).not('category', 'in', `(${RECEIPT_CATEGORIES.join(',')})`);
+  if (view === 'done') query = query.not('done_at', 'is', null);
 
   const { data, count, error } = await query
     .order('created_at', { ascending: false })
     .range(offset, offset + limit - 1);
 
-  if (error) throw error;
+  if (error) {
+    if ((view !== 'all' || category) && missingFoundation(error)) throw notificationsNotReady();
+    throw error;
+  }
   return paginated(data || [], { page, limit, total: count || 0 });
 }, { permission: 'notifications.manage_own' });
 
@@ -96,16 +110,21 @@ export const POST = withApi(async ({ supabase, body, apiKeyId, teamMemberId, acc
   // distinct questions; passing entity_id (e.g. a comment id) opts into dedup.
   const entityId = notification.entity_id || randomUUID();
 
+  // Named here, never worked out from the free-text title: an agent's
+  // escalation is an update the person reads (agent_message), not a receipt
+  // for a question nobody asked. Only the findings nudge convention is one.
+  const category = agentNoticeCategory(notification.entity_type, notification.title);
   for (const recipient of recipients || []) {
-    const { error: notifyError } = await supabase.rpc('upsert_notification', {
-      p_user_id: recipient.id,
-      p_title: notification.title,
-      p_message: notification.message,
-      p_link: notification.link || null,
-      p_entity_type: notification.entity_type,
-      p_entity_id: entityId,
+    await upsertNotification(supabase, {
+      userId: recipient.id,
+      title: notification.title,
+      message: notification.message,
+      link: notification.link || null,
+      entityType: notification.entity_type,
+      entityId,
+      category,
+      actorId: teamMemberId ?? null,
     });
-    if (notifyError) throw notifyError;
   }
 
   const result = { notified: (recipients || []).length, entity_id: entityId };

@@ -111,7 +111,7 @@ export async function checkKeyGrant(
   if (target.role === 'agent' && target.delegateOf && !ownPersonalAgent && !input.harness) {
     throw forbidden("Only the person a personal agent works for, or the harness that runs personal agents, gets it a key", {
       reason: 'personal_agent_owner_only',
-      hint: 'The person makes one on My Assistant, or the harness collects it with assistants.provision.',
+      hint: 'The agent service collects it with assistants.provision: an Owner connects that service in Settings > Assistants.',
     });
   }
   if (!target.self && !ownPersonalAgent) {
@@ -140,10 +140,11 @@ export async function checkKeyGrant(
   const held = new Set<string>(apiScopesFor(target.access));
   const notHeld = scopes.filter((scope) => !held.has(scope));
   if (notHeld.length > 0) {
-    throw new ApiError(422, 'VALIDATION_ERROR', `Scopes not held by the key's member: ${notHeld.join(', ')}`, {
+    // Plain words first (the screens show the message as is); the API detail stays in the hint.
+    throw new ApiError(422, 'VALIDATION_ERROR', `${target.name} is not allowed to do this, so a key for it cannot either: ${notHeld.join(', ')}. Leave it off the key, or an Owner allows it for ${target.name}'s role in Team > Roles & permissions first.`, {
       reason: 'scope_not_held',
       not_held: notHeld,
-      hint: "An Owner grants these to the member's role or as API overrides in Team > Access. get_agent_setup lists what the agent holds.",
+      hint: "An Owner grants these to the member's role or as API overrides in Team > Roles & permissions. get_agent_setup lists what the agent holds.",
     });
   }
   const grantable = grantableScopes(granter);

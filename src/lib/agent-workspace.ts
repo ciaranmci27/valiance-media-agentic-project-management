@@ -37,6 +37,8 @@ export interface AgentTemplateView {
   module?: string;
   /** The role label an agent from this template starts with ("builder"). */
   role?: string | null;
+  /** The limits an agent hired from it starts with; null for none. */
+  limits?: Partial<AgentLimits> | null;
 }
 
 // ── Agents ──────────────────────────────────────────────────────────────
@@ -71,6 +73,10 @@ export interface AgentKeyView {
   created_at?: string;
   last_used_at?: string | null;
   revoked_at?: string | null;
+  /** When it stops working (an agent key lifetime, or a rotation's overlap); null: until revoked. */
+  expires_at?: string | null;
+  /** When it was switched off; it no longer works. */
+  disabled_at?: string | null;
 }
 
 export interface AgentDetail {
@@ -84,7 +90,13 @@ export interface AgentDetail {
     agent_role: string | null;
     /** When it was paused (reads, heartbeats and telemetry only); null while it works. */
     paused_at?: string | null;
+    /** A personal agent's person (team_members.delegate_of); null for a shared agent. */
+    delegate_of?: string | null;
   };
+  /** A personal agent's person, and when they paused it on My Assistant; null for a shared agent. */
+  person?: { id: string; name: string; status: 'active' | 'suspended'; paused_at: string | null } | null;
+  /** The scopes a new key for it may carry (what it holds); sent with its keys. */
+  key_scopes_available?: string[];
   rules: AgentRules & { agent_escalate_to_group?: string | null };
   /** Its limits (null: none set); absent or null usage on a database before limits. */
   limits?: AgentLimits | null;
@@ -95,7 +107,7 @@ export interface AgentDetail {
   /** Every assignment the viewer reaches; projects holds the first 100. */
   projects_total?: number;
   /** Projects it has access to (project members) that the viewer reaches; how it actually works on them. */
-  project_access?: { projects: { id: string; name: string; status: string }[]; hidden_count: number };
+  project_access?: { projects: { id: string; name: string; status: string }[]; hidden_count: number; total?: number };
   /** Only for who may manage every key; never a secret. */
   keys?: AgentKeyView[];
   webhooks?: unknown[];
@@ -117,6 +129,8 @@ export interface NewKey {
   scopes: string[];
   /** Shown once, never stored on the screen past the step that shows it. */
   secret: string;
+  /** When the workspace's agent key lifetime ends it (a hire's key carries it); null or absent: until revoked. */
+  expires_at?: string | null;
 }
 
 export interface HireRequest {

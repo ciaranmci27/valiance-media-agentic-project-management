@@ -72,16 +72,50 @@ export interface AuditFilters {
 
 export const NO_AUDIT_FILTERS: AuditFilters = { member: null, actingFor: null, action: '', from: null, to: null };
 
-/** The query string for /api/workspace/audit-log. */
+/** The start of a local day (YYYY-MM-DD in this browser's time zone) as an ISO time. */
+export function localDayStart(day: string): string {
+  const [year, month, date] = day.split('-').map(Number);
+  return new Date(year, month - 1, date).toISOString();
+}
+
+/**
+ * The query string for /api/workspace/audit-log. Days are the viewer's own:
+ * from is the start of that local day, to the start of the local day after
+ * (exclusive), sent as ISO times, so a row dated today in the list is in a
+ * filter for today.
+ */
 export function auditQuery(filters: AuditFilters, page: number): string {
   const params = new URLSearchParams();
   if (filters.member) params.set('member', filters.member);
   if (filters.actingFor) params.set('acting_for', filters.actingFor);
   if (filters.action.trim()) params.set('action', filters.action.trim());
-  if (filters.from) params.set('from', filters.from);
-  if (filters.to) params.set('to', filters.to);
+  if (filters.from) params.set('from', localDayStart(filters.from));
+  if (filters.to) {
+    const [year, month, date] = filters.to.split('-').map(Number);
+    params.set('to', new Date(year, month - 1, date + 1).toISOString());
+  }
   if (page > 0) params.set('page', String(page));
   return params.toString();
+}
+
+const CSV_COLUMNS = ['timestamp', 'who', 'acting_for', 'via', 'method', 'endpoint', 'entity_type', 'entity_id', 'status_code', 'error', 'request_body', 'before', 'after'] as const;
+
+/** One CSV cell: quoted when it holds a comma, quote or line break; objects as JSON; a leading = + - @, tab or carriage return neutralised for spreadsheets. */
+function csvCell(value: unknown): string {
+  if (value === null || value === undefined) return '';
+  let text = typeof value === 'string' ? value : typeof value === 'object' ? JSON.stringify(value) : String(value);
+  if (/^[=+\-@\t\r]/.test(text)) text = `'${text}`;
+  return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+/** Audit rows as CSV, with names for who did it and who it was for. */
+export function auditCsv(entries: readonly AuditEntry[], names: Record<string, string>): string {
+  const name = (id: string | null) => (id ? names[id] ?? id : '');
+  const rows = entries.map((entry) => [
+    entry.timestamp, name(entry.team_member_id), name(entry.principal_id), entry.via, entry.method, entry.endpoint, entry.entity_type,
+    entry.entity_id, entry.status_code, entry.error, entry.request_body, entry.before_snapshot, entry.after_snapshot,
+  ].map(csvCell).join(','));
+  return [CSV_COLUMNS.join(','), ...rows].join('\r\n') + '\r\n';
 }
 
 /** The action in words: what was done, to what, from where. */

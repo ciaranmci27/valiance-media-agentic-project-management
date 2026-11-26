@@ -382,9 +382,9 @@ export const discordAdapter: ChatAdapter = {
     }
   },
 
-  openUrl() {
-    // People find the bot in the server they share with it and message it there.
-    return null;
+  openUrl({ botId }) {
+    // The bot's profile, from which a person who shares a server with it messages it.
+    return botId && /^\d{5,25}$/.test(botId) ? `https://discord.com/users/${botId}` : null;
   },
 
   async fetchAttachment(credentials, attachment, maxBytes) {

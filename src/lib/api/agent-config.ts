@@ -171,7 +171,7 @@ export async function applyAgentTemplate(
         scopes: template.scopes,
         not_held,
         hint: not_held.length
-          ? `A key with these scopes needs the agent to hold ${not_held.join(', ')} first: an Owner grants them in Team > Access.`
+          ? `A key with these scopes needs the agent to hold ${not_held.join(', ')} first: an Owner grants them in Team > Roles & permissions (API tab).`
           : 'Send create_key: true, or make one with create_api_key and these scopes.',
       },
     webhook_events: template.webhook_events ?? [],
@@ -482,7 +482,7 @@ export async function importAgentConfig(service: SupabaseClient, granter: Grante
       const notHeld = [...new Set(keyCreate.flatMap((key) => key.not_held))];
       if (notHeld.length) {
         throw new ApiError(422, 'VALIDATION_ERROR', `Scopes the agent would not hold: ${notHeld.join(', ')}`, {
-          reason: 'scope_not_held', not_held: notHeld, hint: 'An Owner grants these in Team > Access, or import without create_keys.',
+          reason: 'scope_not_held', not_held: notHeld, hint: 'An Owner grants these in Team > Roles & permissions (API tab), or import without create_keys.',
         });
       }
     }

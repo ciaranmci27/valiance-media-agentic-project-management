@@ -1,6 +1,6 @@
 import { SupabaseClient } from '@supabase/supabase-js';
 import { afterResponse } from './after-response';
-import { currentAuditVia, currentConnection, currentPrincipalId } from './request-context';
+import { currentAiSetup, currentAuditVia, currentConnection, currentPrincipalId } from './request-context';
 import { auditRedactKeys, redactAuditRow } from './audit-redact';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- audit rows are plain JSON
@@ -16,7 +16,8 @@ export async function insertAuditRows(db: SupabaseClient, rows: AuditRow | Audit
   const list = Array.isArray(rows) ? rows : [rows];
   if (list.length === 0) return { error: null };
   const extra = await auditRedactKeys(db);
-  const principalId = currentPrincipalId();
+  // An AI setup session's call is made by the tool (its key) for its person.
+  const principalId = currentPrincipalId() ?? currentAiSetup()?.memberId ?? null;
   // Inside a Connect AI connection's request, what names the MCP door names the connection.
   const connection = currentConnection();
   const prepared = list.map((row) => {
@@ -45,7 +46,7 @@ export function logAudit(
 ): void {
   // Read while the request is still in scope; the write runs after it.
   const via = currentAuditVia();
-  const principalId = currentPrincipalId();
+  const principalId = currentPrincipalId() ?? currentAiSetup()?.memberId ?? null;
   // Keep the request fast while guaranteeing Next.js keeps the work alive
   // after the response has been sent.
   afterResponse('audit log write', async () => {

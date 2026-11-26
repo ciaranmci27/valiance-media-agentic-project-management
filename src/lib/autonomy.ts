@@ -117,17 +117,38 @@ export interface NeedsYouItem {
   count?: number;
   /** blocked only: the agent's question, verbatim. */
   question?: string;
+  /** blocked only: the open question it raised, when the block names one. */
+  questionId?: string;
   /** question only: an open question asked to you, answered in place. */
   openQuestion?: QuestionView;
   /** merge only: the independent reviewer's current verdict, if any. */
   reviewerVerdict?: TaskReview | null;
 }
 
-// The structured blocked signal: the agent logs a task-referenced activity
-// entry titled "BLOCKED: <question>" when it raises a blocking question, and
-// the first milestone it logs after resuming supersedes it, so the signal
+// The blocked signal: the agent logs a typed blocked event (activity_type
+// "blocked", titled "Blocked: <reason>") when it raises a blocking question,
+// or, before the typed vocabulary, an entry titled "BLOCKED: <question>". The
+// first milestone it logs after resuming supersedes it, so the signal
 // self-clears with no state to manage.
-const BLOCKED_PREFIX = 'BLOCKED: ';
+const LEGACY_BLOCKED_PREFIX = 'BLOCKED: ';
+const TYPED_BLOCKED_PREFIX = /^blocked:\s*/i;
+
+type BlockSignal = { activity_type?: string; title: string; description: string; metadata?: Record<string, unknown> | null };
+
+/** Whether an activity row says its agent is blocked: the typed event, or the legacy title. */
+export function isBlockedSignal(row: Pick<BlockSignal, 'activity_type' | 'title'>): boolean {
+  return row.activity_type === 'blocked' || row.title.startsWith(LEGACY_BLOCKED_PREFIX);
+}
+
+/** The agent's words for a block: its description, the typed reason, or the title without its prefix. */
+export function blockedReason(row: BlockSignal): string {
+  if (row.description?.trim()) return row.description.trim();
+  const reason = row.metadata && typeof row.metadata.reason === 'string' ? row.metadata.reason.trim() : '';
+  if (reason) return reason;
+  return row.title.startsWith(LEGACY_BLOCKED_PREFIX)
+    ? row.title.slice(LEGACY_BLOCKED_PREFIX.length)
+    : row.title.replace(TYPED_BLOCKED_PREFIX, '');
+}
 
 export function computeNeedsYou(input: {
   tasks: Task[];
@@ -142,7 +163,7 @@ export function computeNeedsYou(input: {
    * "waiting on your review", is noise that inflates the badge.
    */
   oversight: boolean;
-  agentActivity?: { activity_type?: string; reference_type: string | null; reference_id: string | null; title: string; description: string; created_at: string }[];
+  agentActivity?: { activity_type?: string; reference_type: string | null; reference_id: string | null; title: string; description: string; metadata?: Record<string, unknown> | null; created_at: string }[];
   /** Open questions the viewer can see; the ones asked to them are theirs to answer. */
   questions?: QuestionView[];
 }): NeedsYouItem[] {
@@ -170,22 +191,28 @@ export function computeNeedsYou(input: {
   }
 
   // Blocked agents come next: a blocker stalls the whole serial pipeline
-  // until answered, so nothing on this list outranks it.
+  // until answered, so nothing on this list outranks it. A block that names
+  // a question shows only while that question is open, and not when the
+  // question is already on this list (asked to you): one thing, counted once.
+  const openQuestionIds = new Set(questions.filter(q => q.status === 'open').map(q => q.id));
+  const listedQuestionIds = new Set(items.flatMap(item => (item.openQuestion ? [item.openQuestion.id] : [])));
   for (const task of tasks) {
     if (task.status !== 'in_progress') continue;
     const latest = agentActivity
       // An open event (note, custom.*) is the agent's own words: its title is
       // never read as a block, and it never hides one.
       .filter(a => a.reference_type === 'task' && a.reference_id === task.id && !isOpenEventType(a.activity_type ?? ''))
-      .reduce<{ title: string; description: string; created_at: string } | null>(
+      .reduce<(typeof agentActivity)[number] | null>(
         (best, a) => (!best || a.created_at > best.created_at ? a : best), null);
-    if (latest && latest.title.startsWith(BLOCKED_PREFIX)) {
-      items.push({
-        kind: 'blocked',
-        task,
-        question: latest.description || latest.title.slice(BLOCKED_PREFIX.length),
-      });
-    }
+    if (!latest || !isBlockedSignal(latest)) continue;
+    const questionId = typeof latest.metadata?.question_id === 'string' ? latest.metadata.question_id : undefined;
+    if (questionId && (!openQuestionIds.has(questionId) || listedQuestionIds.has(questionId))) continue;
+    items.push({
+      kind: 'blocked',
+      task,
+      question: blockedReason(latest),
+      ...(questionId ? { questionId } : {}),
+    });
   }
 
   // Agent PRs sitting in review: the build is done and the only remaining
@@ -196,7 +223,10 @@ export function computeNeedsYou(input: {
     if (!oversight || task.status !== 'in_review') continue;
     const lane = laneOf(task);
     if (lane === 'needs_merge' || lane === 'merge_unknown') {
-      items.push({ kind: 'merge', task, lane, reviewerVerdict: latestReview(task) });
+      const verdict = latestReview(task);
+      // Changes requested: the agent is fixing it, so nothing waits on you yet.
+      if (verdict?.verdict === 'changes_requested') continue;
+      items.push({ kind: 'merge', task, lane, reviewerVerdict: verdict });
     }
   }
 

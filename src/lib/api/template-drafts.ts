@@ -35,11 +35,15 @@ import {
  * - Deciding: through the approval (answerQuestion), so whoever the approval
  *   names (or the Owner) decides, by the 2.0.41 door rules; and never an
  *   agent caller, a personal agent acting for its person included. The
- *   approver needs tasks.create on the project. Approving claims the draft
- *   atomically (pending to approved; a second approve is 409), then makes the
- *   run as the approver through createTemplateRun, from the draft's snapshot,
- *   every role map and added step checked against the approver's own assign
- *   rights; if that fails the claim is released, unless the run was recorded
+ *   approver needs tasks.create on the project. Approving checks the run as
+ *   the approver first, then records the approval's decision (open to
+ *   answered: a question cancelled or expired meanwhile is 409 and nothing is
+ *   made), then claims the draft atomically (pending to approved; a second
+ *   approve is 409), then makes the run as the approver through
+ *   createTemplateRun, from the draft's snapshot, every role map and added
+ *   step checked against the approver's own assign rights. Tasks therefore
+ *   never exist beside a cancelled or expired approval. If the run fails, the
+ *   claim is released and the approval reopened, unless the run was recorded
  *   (only its read back failed): then the draft stays approved and links it.
  *   A template or project gone by then is 404 template_not_found or
  *   project_not_found, never read as the approval being hidden. The run and
@@ -525,13 +529,24 @@ const decided = (status: string) => new ApiError(409, 'CONFLICT', status === 'ap
   ? 'This draft was already approved.'
   : `This draft is ${status}.`, { reason: 'draft_decided', status });
 
+/** How the approval's own decision is stored, handed in by answerQuestion. */
+export interface ApprovalDecisionStore {
+  /** Records the decision (open to answered); throws 409 when the approval is no longer open. */
+  record: () => Promise<void>;
+  /** Puts a recorded decision back to open, after a decision that could not be carried out. */
+  reopen: () => Promise<void>;
+}
+
 /**
- * Decides the draft an approval is about, before the approval itself is
- * stored (answerQuestion calls this once it knows the decider): null when the
- * approval is about no draft. Approving makes the run as the person deciding;
- * a failure leaves the draft pending and the approval open.
+ * Decides the draft an approval is about (answerQuestion calls this once it
+ * knows the decider): null when the approval is about no draft, and then
+ * nothing is recorded here. The approval's decision is recorded before the
+ * draft is claimed and before any task is made, so a question cancelled or
+ * expired meanwhile stops it with a 409 and nothing made. Approving makes the
+ * run as the person deciding; a failure before the run is recorded leaves the
+ * draft pending and the approval open again.
  */
-export async function decideDraftForApproval(ctx: QuestionsContext, questionId: string, decision: 'approve' | 'reject', decider: { by: string; via: DecidedVia }): Promise<DraftOutcome | null> {
+export async function decideDraftForApproval(ctx: QuestionsContext, questionId: string, decision: 'approve' | 'reject', decider: { by: string; via: DecidedVia }, store: ApprovalDecisionStore): Promise<DraftOutcome | null> {
   const service = ctx.db;
   const { data, error } = await service.from('task_template_run_drafts').select(DRAFT_COLUMNS).eq('question_id', questionId).is('deleted_at', null).maybeSingle();
   if (error) {
@@ -553,10 +568,17 @@ export async function decideDraftForApproval(ctx: QuestionsContext, questionId: 
     .eq('id', row.id).eq('status', 'pending').is('deleted_at', null)
     .select('id').maybeSingle();
 
-  if (decision === 'reject') {
-    const { data: claimed, error: claimError } = await claim('rejected');
+  // The draft could not be claimed after the decision was recorded: undo the decision, say why.
+  const claimFailed = async (claimError: unknown): Promise<never> => {
+    await store.reopen();
     if (claimError) throw claimError;
-    if (!claimed) throw decided((await reread(service, row.id)) ?? 'decided');
+    throw decided((await reread(service, row.id)) ?? 'decided');
+  };
+
+  if (decision === 'reject') {
+    await store.record();
+    const { data: claimed, error: claimError } = await claim('rejected');
+    if (claimError || !claimed) await claimFailed(claimError);
     return { draft_id: row.id, status: 'rejected', run: null, template_changed_since: null };
   }
 
@@ -568,9 +590,10 @@ export async function decideDraftForApproval(ctx: QuestionsContext, questionId: 
   if (prepared.errors.length) {
     throw templateErrors(prepared.errors, prepared.errors.some((issue) => issue.code === 'cannot_assign_others') ? 403 : 422);
   }
+  // The decision first: a cancelled or expired approval stops here, before anything is claimed or made.
+  await store.record();
   const { data: claimed, error: claimError } = await claim('approved');
-  if (claimError) throw claimError;
-  if (!claimed) throw decided((await reread(service, row.id)) ?? 'decided');
+  if (claimError || !claimed) await claimFailed(claimError);
   let run: TaskTemplateRunResult;
   try {
     run = await createTemplateRun(service, caller, row.template_id, input, ctx.channel === 'app' ? 'app' : currentActorVia() === 'mcp' ? 'mcp' : 'api', { draft: source });
@@ -586,9 +609,10 @@ export async function decideDraftForApproval(ctx: QuestionsContext, questionId: 
       throw runError;
     }
     if (!recorded) {
-      // Not made: the draft waits again.
+      // Not made: the draft waits again, and so does its approval.
       await service.from('task_template_run_drafts').update({ status: 'pending', decided_by: null, decided_at: null })
         .eq('id', row.id).eq('status', 'approved').is('run_id', null);
+      await store.reopen();
       throw goneAtApprove(runError, row);
     }
     console.error('[template-drafts] the draft made its run, but reading it back failed', row.id, runError);

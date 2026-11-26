@@ -1,5 +1,6 @@
 import { agentLimitsRow, loadLimitState, setAgentLimits } from './agent-limits';
 import { insertAuditRows } from './audit';
+import { currentAuditVia } from './request-context';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { randomBytes } from 'node:crypto';
 import { API_ENDPOINT_PERMISSION_SET, apiScopesFor, type AccessContext, type PermissionKey } from '@/lib/access-control';
@@ -8,7 +9,7 @@ import { buildConnectInfo, type ConnectInfo } from '@/lib/agent-connect';
 import type { AgentOwner, ProjectAgentAssignment } from '@/lib/project-agents';
 import { rulesColumnsFrom, type AgentKeyInput, type HireAgent, type PatchAgent } from '@/lib/schemas/agent-workspaces';
 import type { AgentRunSummary } from '@/lib/agent-runs';
-import { accessAllows, accessAllowsProject } from './access';
+import { accessAllows, accessAllowsProject, resolveMemberAccess } from './access';
 import {
   addOwners,
   agentsOwnedBy,
@@ -31,7 +32,7 @@ import { presentStoredRuns } from './agent-runs';
 import { checkKeyGrant, createAgentMember, grantableScopes, insertApiKey, memberApiKeys, type Granter } from './agent-setup';
 import { AGENT_HIRE_ENDPOINT, appliedTemplateKey, appliedTemplateKeys, recordTemplateKey } from './agent-context';
 import { agentTemplateRegistry, assertKnownAgentProfile } from './agent-registries';
-import { newAgentScopes } from './agent-config';
+import { addAgentScopeGrants, agentScopesBeyondRole, assertMayGiveAgentScopes, removeAgentScopeGrants } from './agent-scope-grants';
 import { revokeKeyTree } from './key-revoke';
 import { listWebhookEndpoints, type PublicWebhookEndpoint } from './webhook-endpoints';
 import {
@@ -354,7 +355,9 @@ export async function agentDetail(service: SupabaseClient, viewer: AgentCaller, 
   const omitted: string[] = [];
   if (!canKeys) omitted.push('keys');
   if (!canHooks) omitted.push('webhooks');
-  const [health, run, assignments, owners, keys, webhooks, templateKey, access, canManage, ownerGroups, limitState, isOwner] = await Promise.all([
+  // A personal agent works for one person (team_members.delegate_of): its keys are theirs to make, its escalation theirs.
+  const delegateId = typeof row.delegate_of === 'string' ? row.delegate_of : null;
+  const [health, run, assignments, owners, keys, webhooks, templateKey, access, canManage, ownerGroups, limitState, isOwner, person, heldScopes] = await Promise.all([
     service.from('agent_health').select('*').eq('member_id', agentId).maybeSingle().then(({ data }) => (data as Row | null) ?? null),
     service.from('agent_runs').select('*').eq('agent_id', agentId).eq('status', 'running').order('started_at', { ascending: false }).limit(1)
       .then(async ({ data, error }) => {
@@ -376,9 +379,25 @@ export async function agentDetail(service: SupabaseClient, viewer: AgentCaller, 
     loadLimitState(service, agentId, true),
     // One of its owners, in person or through a group: who may open its profile without agents.manage.
     isAgentOwner(service, agentId, viewer.memberId),
+    delegateId
+      ? service.from('team_members').select('id, name, status').eq('id', delegateId).maybeSingle().then(({ data }) => (data as Row | null) ?? null)
+      : Promise.resolve(null),
+    // What a key for it may carry (checkKeyGrant's rule), for whoever makes its keys.
+    canKeys && !delegateId
+      ? resolveMemberAccess(service, agentId).then((agentAccess) => (agentAccess ? apiScopesFor(agentAccess) as string[] : []))
+      : Promise.resolve(null),
   ]);
   return {
-    agent: agentView(row),
+    agent: { ...agentView(row), delegate_of: delegateId },
+    // A personal agent's person, and whether they paused it on My Assistant.
+    person: delegateId
+      ? {
+        id: delegateId,
+        name: (person?.name as string | undefined) ?? '',
+        status: person?.status === 'suspended' ? 'suspended' as const : 'active' as const,
+        paused_at: (row.delegate_paused_at as string | null | undefined) ?? null,
+      }
+      : null,
     rules: rulesWithGroup(row),
     // Its limits (null: none) and what counts against them now; both null on a database before them.
     limits: limitState?.limits ?? null,
@@ -396,8 +415,12 @@ export async function agentDetail(service: SupabaseClient, viewer: AgentCaller, 
       ? keys.map((key) => ({
         id: key.id, name: key.name, prefix: key.key_prefix, scopes: key.scopes ?? [], permissions: key.permissions,
         created_at: key.created_at, last_used_at: key.last_used_at ?? null, revoked_at: key.revoked_at ?? null,
+        // An ended key (past its expiry, or switched off) is listed but no longer works.
+        expires_at: key.expires_at ?? null, disabled_at: key.disabled_at ?? null,
       }))
       : undefined,
+    // The scopes a new key for it may carry (what it holds on the api channel); with its keys only.
+    key_scopes_available: heldScopes ?? undefined,
     webhooks: (webhooks as PublicWebhookEndpoint[] | null) ?? undefined,
     template_key: templateKey,
     can_manage: canManage,
@@ -473,25 +496,52 @@ export interface NewAgentKey {
  * (checkKeyGrant: an Owner's for an agent, api_keys.manage_all, every scope
  * held by the agent and by the signed-in member). Its secret is in this
  * answer only. An owner of the agent who is not an Owner cannot.
+ *
+ * A scope its role lacks is given to this one agent first, as at hire
+ * (agent-scope-grants.ts: an Owner only, never a never-for-agents scope),
+ * and taken back if the key is then refused. A personal agent is never
+ * given anything here: its person makes its keys.
  */
-export async function mintAgentKey(service: SupabaseClient, caller: AgentCaller, granter: Granter, agentId: string, input: AgentKeyInput): Promise<NewAgentKey> {
+export async function mintAgentKey(service: SupabaseClient, caller: AgentCaller, granter: Granter, agentId: string, input: AgentKeyInput): Promise<NewAgentKey & { scopes_given: string[] }> {
   requireAgentsEnabled(caller.access);
   if (!callerHolds(caller, 'api_keys.manage_all')) {
     throw forbidden('Making a key needs api_keys.manage_all', { reason: 'missing_key_scope', needs: 'api_keys.manage_all' });
   }
   const row = await loadAgentRow(service, agentId);
-  const granted = await checkKeyGrant(service, granter, { memberId: agentId, scopes: input.scopes });
-  const made = await insertApiKey(service, {
-    name: input.name ?? `${row.name} key`,
-    memberId: agentId,
-    createdBy: caller.memberId,
-    createdByKeyId: null,
-    scopes: granted.scopes,
-    permissions: input.read_only ? 'read_only' : 'scoped',
-  });
-  return {
-    id: made.key.id, name: made.key.name, prefix: made.key.key_prefix, scopes: made.key.scopes ?? [], permissions: made.key.permissions, secret: made.secret,
-  };
+  const scopes = [...new Set(input.scopes)];
+  let beyondRole: string[] = [];
+  if (!row.delegate_of && row.status === 'active') {
+    // What a key can never grant is refused before anything is given.
+    const unknown = scopes.filter((scope) => !API_ENDPOINT_PERMISSION_SET.has(scope as PermissionKey));
+    if (unknown.length) throw new ApiError(422, 'VALIDATION_ERROR', `Not API scopes: ${unknown.join(', ')}`, { reason: 'unknown_scope' });
+    const grantable = grantableScopes(granter);
+    const beyondCaller = scopes.filter((scope) => !grantable.has(scope));
+    if (beyondCaller.length) {
+      throw forbidden(`A key can only carry scopes you hold yourself: ${beyondCaller.join(', ')}`, { reason: 'scope_escalation', beyond_caller: beyondCaller });
+    }
+    beyondRole = await agentScopesBeyondRole(service, granter, agentId, scopes);
+    assertMayGiveAgentScopes(caller.access, beyondRole);
+  }
+  const given = await addAgentScopeGrants(service, agentId, beyondRole, caller.memberId);
+  try {
+    const granted = await checkKeyGrant(service, granter, { memberId: agentId, scopes });
+    const made = await insertApiKey(service, {
+      name: input.name ?? `${row.name} key`,
+      memberId: agentId,
+      createdBy: caller.memberId,
+      createdByKeyId: null,
+      scopes: granted.scopes,
+      permissions: input.read_only ? 'read_only' : 'scoped',
+    });
+    return {
+      id: made.key.id, name: made.key.name, prefix: made.key.key_prefix, scopes: made.key.scopes ?? [], permissions: made.key.permissions, secret: made.secret,
+      // Powers this key gave the agent beyond its role (now its own, as a per-member allow).
+      scopes_given: beyondRole,
+    };
+  } catch (failure) {
+    await removeAgentScopeGrants(service, agentId, given).catch((error) => console.error('[agents] key scope grants not undone', error));
+    throw failure;
+  }
 }
 
 /**
@@ -528,6 +578,8 @@ export interface HireResult {
   template_key: string | null;
   assignments: ProjectAgentAssignment[];
   access_added: string[];
+  /** Scopes the agent role lacks that this hire gave the agent (per-member allows on the API channel). */
+  scopes_beyond_role: string[];
   key?: NewAgentKey;
   connect: ConnectInfo;
 }
@@ -537,7 +589,13 @@ export interface HireResult {
  * the AI agents module on. Every part is checked before the first write; a
  * failure after it undoes what this call made (undoHire).
  */
-export async function hireAgent(service: SupabaseClient, caller: AgentCaller, granter: Granter, input: HireAgent, appUrl: string): Promise<HireResult> {
+export async function hireAgent(
+  service: SupabaseClient, caller: AgentCaller, granter: Granter, input: HireAgent, appUrl: string,
+  /** Over the API (POST /api/v1/agents/hire): the calling key, so the audit row names it and the door it came through. */
+  options: { apiKeyId?: string | null } = {},
+): Promise<HireResult> {
+  const apiKeyId = options.apiKeyId ?? null;
+  const via = apiKeyId ? currentAuditVia() : 'app';
   requireAgentsEnabled(caller.access);
   if (caller.access.role !== 'owner') {
     throw forbidden('Only an Owner hires an agent', { reason: 'owner_only' });
@@ -567,11 +625,13 @@ export async function hireAgent(service: SupabaseClient, caller: AgentCaller, gr
     return newAssignmentRow(caller, projectId, '', { template_key: template?.key ?? null, settings: own.settings, instructions: own.instructions, status: own.status },
       `${projectId}: `, templates);
   });
-  const owners = await checkOwnerIds(service, null, [caller.memberId, ...(input.owner_ids ?? [])]);
+  // The owners as sent; the hirer only when none are named, so an agent always has one.
+  const owners = await checkOwnerIds(service, null, input.owner_ids?.length ? input.owner_ids : [caller.memberId]);
   const ownerGroupIds = input.owner_group_ids?.length ? await checkOwnerGroupIds(service, input.owner_group_ids) : [];
   const rulesInput = { ...(template?.rules ?? {}), ...rulesColumnsFrom(input.rules) };
   await agentRulesColumns(service, { id: '00000000-0000-4000-8000-000000000000', role: 'agent' }, rulesInput);
   let keyScopes: string[] | null = null;
+  let beyondRole: string[] = [];
   if (input.create_key) {
     if (!callerHolds(caller, 'api_keys.manage_all')) {
       throw forbidden('Making a key needs api_keys.manage_all', { reason: 'missing_key_scope', needs: 'api_keys.manage_all' });
@@ -585,17 +645,15 @@ export async function hireAgent(service: SupabaseClient, caller: AgentCaller, gr
     if (beyond.length) {
       throw forbidden(`A key can only carry scopes you hold yourself: ${beyond.join(', ')}`, { reason: 'scope_escalation', beyond_caller: beyond });
     }
-    const held = await newAgentScopes(service, granter);
-    const notHeld = keyScopes.filter((scope) => !held.has(scope));
-    if (notHeld.length) {
-      throw new ApiError(422, 'VALIDATION_ERROR', `Scopes a new agent would not hold: ${notHeld.join(', ')}`, {
-        reason: 'scope_not_held', not_held: notHeld, hint: 'An Owner grants these to the agent role in Team > Access first, or leave them off the key.',
-      });
-    }
+    // Powers the agent role lacks are given to this agent alone (who manages access only), so the key can carry them.
+    beyondRole = await agentScopesBeyondRole(service, granter, null, keyScopes);
+    assertMayGiveAgentScopes(caller.access, beyondRole);
   }
 
   // 2. Write, undoing on a failure.
-  const state: HireState = { agentId: null, done: [], ownersAdded: [], ownerGroupsAdded: [], accessAdded: [], assignmentIds: [], keyId: null };
+  const state: HireState = {
+    agentId: null, done: [], ownersAdded: [], ownerGroupsAdded: [], accessAdded: [], assignmentIds: [], keyId: null, scopeGrants: { added: [], wasDenied: [] },
+  };
   try {
     const member = await createAgentMember(service, caller.access, {
       name: input.name,
@@ -622,6 +680,10 @@ export async function hireAgent(service: SupabaseClient, caller: AgentCaller, gr
       await setAgentLimits(service, agentId, template.limits, caller.memberId);
       state.done.push('limits set');
     }
+    if (beyondRole.length) {
+      state.scopeGrants = await addAgentScopeGrants(service, agentId, beyondRole, caller.memberId);
+      state.done.push('powers beyond its role given');
+    }
     state.ownersAdded = await addOwners(service, agentId, owners, caller.memberId);
     state.ownerGroupsAdded = await addOwnerGroups(service, agentId, ownerGroupIds, caller.memberId);
 
@@ -640,14 +702,15 @@ export async function hireAgent(service: SupabaseClient, caller: AgentCaller, gr
 
     // The template is recorded where the context pack and export look for it.
     const { error: auditError } = await insertAuditRows(service, {
-      method: 'POST', endpoint: AGENT_HIRE_ENDPOINT, entity_type: 'team_member', entity_id: agentId, api_key_id: null, team_member_id: caller.memberId,
+      method: 'POST', endpoint: AGENT_HIRE_ENDPOINT, entity_type: 'team_member', entity_id: agentId, api_key_id: apiKeyId, team_member_id: caller.memberId,
       request_body: { template: template?.key ?? null, project_ids: projectIds, create_key: !!input.create_key, scopes: keyScopes },
-      after_snapshot: { agent: agentView(row), assignments: state.assignmentIds }, status_code: 201, via: 'app',
+      after_snapshot: { agent: agentView(row), assignments: state.assignmentIds }, status_code: 201, via,
     });
     if (auditError) console.error('[agents] hire audit write failed', auditError);
     if (template) await recordTemplateKey(service, agentId, template.key);
 
-    let key: NewAgentKey | undefined;
+    // With the workspace's key lifetime, the key says when it ends (null: until revoked).
+    let key: (NewAgentKey & { expires_at: string | null }) | undefined;
     if (keyScopes) {
       const granted = await checkKeyGrant(service, granter, { memberId: agentId, scopes: keyScopes });
       const made = await insertApiKey(service, {
@@ -655,7 +718,10 @@ export async function hireAgent(service: SupabaseClient, caller: AgentCaller, gr
         memberId: agentId, createdBy: caller.memberId, createdByKeyId: null, scopes: granted.scopes, permissions: 'scoped',
       });
       state.keyId = made.key.id;
-      key = { id: made.key.id, name: made.key.name, prefix: made.key.key_prefix, scopes: made.key.scopes ?? [], permissions: made.key.permissions, secret: made.secret };
+      key = {
+        id: made.key.id, name: made.key.name, prefix: made.key.key_prefix, scopes: made.key.scopes ?? [], permissions: made.key.permissions, secret: made.secret,
+        expires_at: (made.key as { expires_at?: string | null }).expires_at ?? null,
+      };
     }
 
     return {
@@ -668,12 +734,13 @@ export async function hireAgent(service: SupabaseClient, caller: AgentCaller, gr
       template_key: template?.key ?? null,
       assignments,
       access_added: state.accessAdded,
+      scopes_beyond_role: beyondRole,
       ...(key ? { key } : {}),
       connect: buildConnectInfo(appUrl),
     };
   } catch (failure) {
     if (!state.agentId) throw failure;
-    return undoHire(service, caller, state, failure);
+    return undoHire(service, caller, state, failure, { apiKeyId, via });
   }
 }
 
@@ -685,16 +752,19 @@ interface HireState {
   accessAdded: string[];
   assignmentIds: string[];
   keyId: string | null;
+  /** Powers given beyond the agent role (per-member allows on the API channel). */
+  scopeGrants: { added: string[]; wasDenied: string[] };
 }
 
 /**
  * Undoes a hire that failed after the agent was made: its key revoked (with
- * its own audit row), the assignments, owners and project access this call
- * added removed, and the agent suspended, so nothing half made can act. A
+ * its own audit row), the assignments, owners, project access and powers
+ * beyond its role this call added removed, and the agent suspended, so
+ * nothing half made can act. A
  * member is never deleted (their login stays, suspended). Throws an answer
  * saying what was undone and what stays.
  */
-async function undoHire(service: SupabaseClient, caller: AgentCaller, state: HireState, failure: unknown): Promise<never> {
+async function undoHire(service: SupabaseClient, caller: AgentCaller, state: HireState, failure: unknown, door: { apiKeyId: string | null; via: string }): Promise<never> {
   const agentId = state.agentId as string;
   const cause = failure instanceof Error ? failure.message : String((failure as { message?: string })?.message ?? failure);
   const rolledBack: string[] = [];
@@ -718,6 +788,9 @@ async function undoHire(service: SupabaseClient, caller: AgentCaller, state: Hir
   if (state.accessAdded.length) await step('project access removed', () => service.from('project_members').delete().eq('member_id', agentId).in('project_id', state.accessAdded));
   if (state.ownersAdded.length) await step('owners removed', () => service.from('agent_owners').delete().eq('agent_id', agentId).in('member_id', state.ownersAdded));
   if (state.ownerGroupsAdded.length) await step('owner groups removed', () => service.from('agent_owner_groups').delete().eq('agent_id', agentId).in('group_id', state.ownerGroupsAdded));
+  if (state.scopeGrants.added.length || state.scopeGrants.wasDenied.length) {
+    await step('powers beyond its role removed', () => removeAgentScopeGrants(service, agentId, state.scopeGrants));
+  }
   await step('agent suspended', () => service.from('team_members').update({ status: 'suspended' }).eq('id', agentId));
   const details = {
     reason: 'hire_incomplete',
@@ -728,8 +801,8 @@ async function undoHire(service: SupabaseClient, caller: AgentCaller, state: Hir
     cause,
   };
   const { error } = await insertAuditRows(service, {
-    method: 'POST', endpoint: AGENT_HIRE_ENDPOINT, entity_type: 'team_member', entity_id: agentId, api_key_id: null, team_member_id: caller.memberId,
-    request_body: null, after_snapshot: details, status_code: 500, error: cause, via: 'app',
+    method: 'POST', endpoint: AGENT_HIRE_ENDPOINT, entity_type: 'team_member', entity_id: agentId, api_key_id: door.apiKeyId, team_member_id: caller.memberId,
+    request_body: null, after_snapshot: details, status_code: 500, error: cause, via: door.via,
   });
   if (error) console.error('[agents] hire rollback audit failed', error);
   if (failure instanceof ApiError) {

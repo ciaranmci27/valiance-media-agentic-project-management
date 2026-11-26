@@ -8,13 +8,34 @@ A tool shows up only for a key that holds its permission, on both the key and it
 
 - **An Owner's own key** in their MCP client sees them, and `pm_guide` adds a setup section.
 - **Agents' keys** normally do not, so their tool list stays about doing the work.
-- **A person's connected AI tool** (Connect AI) never does, even for an Owner.
+- **A person's connected AI tool** (Connect AI) does not, even for an Owner, except for the hour an Owner lets it set up agents (below).
+
+## Set up agents with AI (one hour)
+
+The first screen of Hire an agent (`/agent/new`) asks: **Set it up with AI** (recommended) or **Step by step**. With AI, an Owner lets their own AI tool do the setup for one hour:
+
+- **A connected tool** (Connect AI): "Let Claude set up agents for the next hour", after a consent step that lists exactly what it allows. For that hour the connection also gets the agent setup tools below, with the Owner's own API powers. Its other tools stay what they were.
+- **No connected tool**: a one-hour setup key of the Owner's own (`pk_setup_...`, shown once), with copy-ready settings that carry it in a header, never the URL. It carries only `team.read`, `team.manage`, `project_members.manage`, `projects.read`, `api_keys.manage_all` and `webhooks.manage`, and works on the setup routes only (`403 ai_setup_only` anywhere else).
+
+A ready prompt to copy tells the AI to read `pm_guide` first (in a session it explains the session and lists the agent templates), ask what it needs, hire each agent with `hire_agent`, and read each one back. The page lists each agent as the AI hires it, with its role, powers and projects, and a link to its profile.
+
+The rules:
+
+- **Setup tools only**: `pm_guide`, `list_agent_templates`, `list_agent_profiles`, `list_projects`, `list_team`, `list_groups`, `list_agents`, `get_agent_setup`, `get_agent_context`, `hire_agent`, `create_agent`, `apply_agent_template`, `update_agent`, `set_agent_projects`, `set_project_agent`, `remove_project_agent`, `create_api_key`, `list_webhook_endpoints`, `create_webhook_endpoint` (the list is `AI_SETUP_TOOLS` in `src/lib/ai-setup.ts`).
+- **Agents only**: a key or a webhook it makes names an agent (`member_id`), never a person or the Owner; every agent a call names must be an agent (`403 ai_setup_agents_only`).
+- **Never more than the Owner**: every call goes through the same routes and checks as the screens (`hireAgent`, the scope grants, the key rules), against the Owner's live access. Only an Owner starts one; someone who stops being one loses it at once.
+- **It ends on its own** after an hour. **End now** on the same page or in Settings > Account > Connect AI stops it at once (a setup key is disabled). The agents and keys it made stay.
+- **Audited**: starting and ending are recorded as the Owner (`entity_type: ai_setup_session`); each change it makes is recorded with the tool's key (`api_key_id`), the Owner as `team_member_id` and `principal_id`, and `via` `mcp_oauth` (a connected tool) or `mcp` / `rest` (a setup key).
+
+Session routes (signed in): `GET /api/workspace/ai-setup` (connected tools, live and recent sessions, the agents each made), `POST /api/workspace/ai-setup` (`{ kind: "connection", grant_id }` or `{ kind: "key" }`), `DELETE /api/workspace/ai-setup/{id}`.
 
 Secrets (keys, signing secrets) come back once. The AI should hand them straight to the person or the agent's host, never into a task, comment or reminder.
 
 ## Set up an agent
 
-The order `pm_guide` recommends:
+One call does it all: `hire_agent` (`POST /api/v1/agents/hire`), the same as the Hire an agent screen: name, `template_key`, `project_ids` with `project_settings`, owners, rules, and with `create_key` a key carrying `scopes`. Everything is checked before anything is written; a failure partway undoes what it made.
+
+Or step by step, in the order `pm_guide` recommends:
 
 1. `create_agent`: name, and an email only this agent uses. Optional title, role label, description, owners and `agent_profile`. Owner keys only. (`POST /api/v1/agents`)
 2. `apply_agent_template` (optional): a template's rules, and with `create_key: true` a key with its scopes. (`POST /api/v1/agents/{id}/template`)
@@ -29,7 +50,7 @@ Then `get_agent_context` with `format: "md"` gives the `AGENTS.md` to hand the a
 
 Other tools: `list_agents` (filter by role, owner, template, project), `remove_project_agent`, `list_api_keys`, `revoke_api_key`, `rotate_api_key`, `list_webhook_endpoints`, `update_webhook_endpoint`, `delete_webhook_endpoint`.
 
-What an agent may do comes from its role and its overrides, set by an Owner in Team > Access. A key carries only scopes the agent holds and the calling key carries. If something is missing, the AI tells the person what to grant; it cannot widen either.
+What an agent may do comes from its role and its overrides, set by an Owner in Team > Roles & permissions. A key carries only scopes the agent holds and the calling key carries. If something is missing, the AI tells the person what to grant; it cannot widen either.
 
 ## Set up a project
 
@@ -122,7 +143,7 @@ For a person:
 
 A personal key is offered for tools that cannot sign in.
 
-What a connected tool may do: the person's own projects, tasks, comments, questions and reminders, never more than they can. Never admin powers, keys, people, settings or agents, even for an Owner. With the person's tick on the consent screen, it also reads and adds to their personal memory.
+What a connected tool may do: the person's own projects, tasks, comments, questions and reminders, never more than they can. Never admin powers, keys, people, settings or agents, even for an Owner, unless an Owner lets it set up agents for an hour ([above](#set-up-agents-with-ai-one-hour)). With the person's tick on the consent screen, it also reads and adds to their personal memory.
 
 Each person sees their connected apps and can disconnect any of them. An Owner turns connections off for everyone in Settings > Security (`403 connect_ai_off`). Suspending a person disconnects their tools for good.
 

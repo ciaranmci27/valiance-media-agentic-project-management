@@ -25,7 +25,7 @@ export function AssistantMemoryCard({ personId, assistantName, remembering, isDe
         <p className="mb-4 text-sm text-zinc-400">
           {remembering
             ? `Only you and ${assistantName} see this. Delete anything you want it to forget.`
-            : `Remember things for me is off, so ${assistantName} keeps nothing new. Anything it kept before stays here until you delete it.`}
+            : `Remember things for me is off: while it is off, ${assistantName} can't read or add notes. Anything it kept before stays here until you delete it.`}
         </p>
         {isDemo ? (
           <p className="text-sm text-zinc-500">Nothing yet.</p>

@@ -110,6 +110,8 @@ export interface LinkRequestView {
   expires_at: string;
   /** Who asked for it (the harness's agent), when known. */
   requested_by_name: string | null;
+  /** The person started it themselves, by messaging a chat bot (nobody else asked). */
+  from_chat: boolean;
   /** open, used, expired, or wrong_member (it names someone else). */
   state: 'open' | 'used' | 'expired' | 'wrong_member';
   /** Set when the identity is already linked to the person reading. */

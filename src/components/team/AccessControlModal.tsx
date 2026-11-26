@@ -4,9 +4,11 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react
 import { Check, X } from 'lucide-react';
 import Modal from '@/components/ui/Modal';
 import {
-  API_ENDPOINT_PERMISSION_SET,
+  KEY_ONLY_PERMISSIONS,
   PERMISSION_GROUPS,
+  accessChannelsFor,
   isModuleEnabled,
+  permissionOffered,
   type AccessChannel,
   type PermissionEffect,
   type PermissionKey,
@@ -18,6 +20,7 @@ import { Select } from '@/components/ui/inputs/Select';
 import { Avatar } from '@/components/ui/Avatar';
 import { useAuth } from '@/lib/auth-context';
 import { MODULE_IDS, moduleOfPermission } from '@/lib/modules/registry';
+import { NEVER_AGENT_SCOPES } from '@/lib/agents-ui';
 
 type AccessData = {
   role_permissions: RolePermission[];
@@ -208,6 +211,14 @@ export function AccessControlModal({
         row.access_channel === channel,
     )?.effect || null;
   const selectedMember = members.find((member) => member.id === memberId);
+  // Whose permissions these are: the role picked, or the member's role. An
+  // agent never signs in, so it has only the API channel.
+  const subjectRole: TeamRole = targetType === 'role' ? role : ((selectedMember?.role as TeamRole | undefined) ?? 'member');
+  const channels = accessChannelsFor(subjectRole);
+  const shownChannel: AccessChannel = channels.includes(channel) ? channel : channels[0];
+  useEffect(() => {
+    if (shownChannel !== channel) setChannel(shownChannel);
+  }, [shownChannel, channel]);
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Roles & permissions" size="4xl">
@@ -253,23 +264,36 @@ export function AccessControlModal({
               />
             )}
           </div>
-          <div className="flex h-[38px] rounded-lg border border-white/[0.08] p-1">
-            <button
-              type="button"
-              className={`h-full rounded-md px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-1 ${channel === 'app' ? 'bg-brand-600 text-white' : 'text-zinc-300'}`}
-              onClick={() => setChannel('app')}
-            >
-              App
-            </button>
-            <button
-              type="button"
-              className={`h-full rounded-md px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-1 ${channel === 'api' ? 'bg-brand-600 text-white' : 'text-zinc-300'}`}
-              onClick={() => setChannel('api')}
-            >
-              API
-            </button>
-          </div>
+          {channels.length > 1 ? (
+            <div role="group" aria-label="Where it applies" className="flex h-[38px] rounded-lg border border-white/[0.08] p-1">
+              <button
+                type="button"
+                aria-pressed={shownChannel === 'app'}
+                className={`h-full rounded-md px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-1 ${shownChannel === 'app' ? 'bg-brand-600 text-white' : 'text-zinc-300'}`}
+                onClick={() => setChannel('app')}
+              >
+                App
+              </button>
+              <button
+                type="button"
+                aria-pressed={shownChannel === 'api'}
+                className={`h-full rounded-md px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-1 ${shownChannel === 'api' ? 'bg-brand-600 text-white' : 'text-zinc-300'}`}
+                onClick={() => setChannel('api')}
+              >
+                API
+              </button>
+            </div>
+          ) : (
+            <p className="flex h-[38px] items-center rounded-lg bg-white/[0.04] px-3 text-sm text-zinc-300">API only</p>
+          )}
         </div>
+        <p className="text-xs text-zinc-400">
+          {channels.length === 1
+            ? 'Agents never sign in, so only what their keys may do is set here.'
+            : shownChannel === 'app'
+              ? 'App: what they can do signed in. API: what their API keys and connected AI tools may do.'
+              : 'API: what their API keys and connected AI tools may do. A key also does only what is ticked on it. "Keys only" ones mean nothing in the app.'}
+        </p>
         {targetType === 'role' ? (
           <p className="text-xs text-zinc-400">
             These defaults apply to everyone with the selected role. Owners always have full access.
@@ -287,21 +311,12 @@ export function AccessControlModal({
           <div className="grid md:grid-cols-2 gap-4">
             {PERMISSION_GROUPS.map((group) => ({
               ...group,
+              // Only where the server honours it: App for app checks, API for
+              // API scopes, never what nothing reads, and nothing an agent cannot use for one.
               permissions: group.permissions.filter((permission) =>
-                permissionShown(permission.key) && (channel === 'api'
-                  ? API_ENDPOINT_PERMISSION_SET.has(permission.key)
-                  : ![
-                      'notifications.manage_own',
-                      'reminders.manage_own',
-                      'suggestions.create',
-                      'agent_activity.write',
-                      'fleet_alerts.write',
-                      'meetings.write',
-                      'agent_events.export',
-                      'audit.export',
-                      'approvals.decide',
-                      'questions.ask',
-                    ].includes(permission.key)),
+                permissionShown(permission.key) && permissionOffered(permission.key, shownChannel, subjectRole, NEVER_AGENT_SCOPES)
+                  // Only an Owner gives or takes away Manage access (the server says the same).
+                  && (permission.key !== 'access.manage' || access?.role === 'owner'),
               ),
             }))
               .filter((group) => group.permissions.length > 0)
@@ -374,16 +389,17 @@ export function AccessControlModal({
                           key={permission.key}
                           onClick={onRowClick}
                           aria-label={`${permission.label}: ${stateLabel}. ${isMember ? 'Click to cycle Inherit, Allow, Deny.' : 'Click to toggle.'}`}
-                          title={
-                            isMember
-                              ? `Inherit follows the ${selectedMember?.role || 'role'} default (currently ${inherited ? 'on' : 'off'}). Click to cycle: Inherit → Allow → Deny.`
-                              : undefined
-                          }
                           className="w-full px-4 py-3 flex gap-3 justify-between items-center text-left transition-colors hover:bg-white/[0.03] focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-500"
                         >
                           <div className="min-w-0">
-                            <p className="text-sm font-medium text-zinc-100">{permission.label}</p>
+                            <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-sm font-medium text-zinc-100">
+                              {permission.label}
+                              {shownChannel === 'api' && KEY_ONLY_PERMISSIONS.has(permission.key) && (
+                                <span className="rounded bg-white/[0.06] px-1.5 py-0.5 text-[10px] font-medium text-zinc-300">Keys only</span>
+                              )}
+                            </p>
                             <p className="text-xs text-zinc-400 mt-0.5">{permission.description}</p>
+                            <code className="mt-0.5 block font-mono text-[10px] text-zinc-500">{permission.key}</code>
                           </div>
                           <div className="flex items-center gap-2 flex-shrink-0">
                             {tag}

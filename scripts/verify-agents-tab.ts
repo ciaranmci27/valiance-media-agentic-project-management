@@ -8,11 +8,11 @@
  */
 import { computeNeedsYou } from '@/lib/autonomy';
 import {
-  agentBacklog, agentRulesInWords, agentsTabFrom, backlogLine, buildAgentNeedsYou, canSeeRunTrace, currentRunByAgent, needsForAgent,
-  formatRunDuration, runDurationMs, runFeedQuery, runTokens, toRunSummary, NO_RUN_FILTERS, RUNS_PAGE_SIZE,
+  agentBacklog, agentPausedNow, agentRulesInWords, agentsTabFrom, backlogLine, buildAgentNeedsYou, canSeeRunTrace, currentRunByAgent, needsForAgent,
+  formatRunDuration, runDurationMs, runFeedQuery, runPill, runTokens, toRunSummary, NO_RUN_FILTERS, RUN_STATUS_LABELS, RUNS_PAGE_SIZE,
 } from '@/lib/agents-tab';
-import { pendingSuggestionsInReach, suggestionsInReach } from '@/lib/suggestion-reach';
-import { AGENT_RUN_STALE_AFTER_SECONDS, type AgentRunSummary } from '@/lib/agent-runs';
+import { INFO_ANSWER_MARKER, pendingSuggestionsInReach, suggestionsInReach } from '@/lib/suggestion-reach';
+import { AGENT_RUN_STALE_AFTER_SECONDS, RUN_FILTER_STATUSES, runDisplayStatus, type AgentRunSummary } from '@/lib/agent-runs';
 import { APPROVAL_DETAIL_ROWS_MAX, APPROVAL_DETAIL_VALUE_MAX, approvalDetailRows, type QuestionView } from '@/lib/questions';
 import type { Project, Task, TaskSuggestion, TeamMember } from '@/lib/types';
 
@@ -88,8 +88,30 @@ check('an unknown tab opens Needs you', agentsTabFrom('reports') === 'needs-you'
   const tasks: Task[] = [
     // Claimed by the builder and finished into review (its close policy).
     task('claimed-review', { status: 'in_review', claimed_by: BUILDER, updated_at: '2026-11-21T09:00:00Z' }),
-    // Created by the auditor, assigned to a person, in review: still agent work.
+    // Created by the auditor (triage), assigned to a person, in review: the person's work, not the agent's.
     task('created-review', { status: 'in_review', created_by: AUDITOR, assignee_ids: [MATE], updated_at: '2026-11-22T09:00:00Z' }),
+    // A human-only task, even one an agent is assigned: a person's work.
+    task('human-only-review', { status: 'in_review', assignee_ids: [BUILDER], ai_readiness: 'human_only', updated_at: '2026-11-22T10:00:00Z' }),
+    // A subtask in review is a piece of its parent: you only wait on it.
+    task('sub-review', { status: 'in_review', claimed_by: BUILDER, parent_task_id: 'claimed-review', updated_at: '2026-11-22T11:00:00Z' }),
+    // The reviewer sent it back: the agent is fixing it, nothing waits on you.
+    task('sent-back', {
+      status: 'in_review', claimed_by: BUILDER, updated_at: '2026-11-22T12:00:00Z',
+      reviews: [{ id: 'rv1', task_id: 'sent-back', round: 2, verdict: 'changes_requested', created_at: '2026-11-22T12:00:00Z' } as never],
+    }),
+    // A held merge the reviewer sent back: waiting on the agent, not on your merge.
+    task('merge-sent-back', {
+      status: 'in_review', ai_readiness: 'ai_ready', updated_at: '2026-11-23T10:00:00Z',
+      reviews: [{ id: 'rv2', task_id: 'merge-sent-back', round: 1, verdict: 'changes_requested', created_at: '2026-11-23T10:00:00Z' } as never],
+    }),
+    // Typed blocked event (activity_type blocked, "Blocked: ..."): shows as blocked.
+    task('typed-blocked', { status: 'in_progress', claimed_by: AUDITOR, updated_at: '2026-11-21T09:00:00Z' }),
+    // Blocked on a question already listed for me: counted once, as the question.
+    task('asked-blocked', { status: 'in_progress', claimed_by: AUDITOR, updated_at: '2026-11-21T08:00:00Z' }),
+    // Blocked on a question that is no longer open (answered): not blocked any more.
+    task('answered-blocked', { status: 'in_progress', claimed_by: BUILDER, updated_at: '2026-11-21T07:00:00Z' }),
+    // A person on the task first, the agent second: the block is filed under the agent.
+    task('person-first-blocked', { status: 'in_progress', assignee_ids: [MATE, BUILDER], updated_at: '2026-11-21T06:00:00Z' }),
     // Assigned to the builder with no claim left: agent work in review.
     task('assigned-review', { status: 'in_review', assignee_ids: [BUILDER], updated_at: '2026-11-20T09:00:00Z' }),
     // A person's own work in review is not agent work.
@@ -121,6 +143,18 @@ check('an unknown tab opens Needs you', agentsTabFrom('reports') === 'needs-you'
   const agentActivity = [{
     activity_type: 'task_failed', reference_type: 'task', reference_id: 'blocked-build',
     title: 'BLOCKED: Which API key should I use?', description: '', created_at: '2026-11-19T09:00:00Z',
+  }, {
+    activity_type: 'blocked', reference_type: 'task', reference_id: 'typed-blocked',
+    title: 'Blocked: Need the staging bucket', description: '', metadata: { reason: 'Need the staging bucket name' }, created_at: '2026-11-21T09:00:00Z',
+  }, {
+    activity_type: 'blocked', reference_type: 'task', reference_id: 'asked-blocked',
+    title: 'Blocked: Ship it?', description: '', metadata: { reason: 'Ship it?', question_id: 'newer-question' }, created_at: '2026-11-22T10:00:00Z',
+  }, {
+    activity_type: 'blocked', reference_type: 'task', reference_id: 'answered-blocked',
+    title: 'Blocked: Which font?', description: '', metadata: { reason: 'Which font?', question_id: 'long-answered' }, created_at: '2026-11-20T10:00:00Z',
+  }, {
+    activity_type: 'blocked', reference_type: 'task', reference_id: 'person-first-blocked',
+    title: 'Blocked: Which region?', description: '', metadata: { reason: 'Which region?' }, created_at: '2026-11-21T06:00:00Z',
   }];
 
   const needsYou = computeNeedsYou({
@@ -129,14 +163,28 @@ check('an unknown tab opens Needs you', agentsTabFrom('reports') === 'needs-you'
   const needs = buildAgentNeedsYou({ needsYou, tasks, team, suggestions, projects });
 
   check('only questions agents asked me', needs.questions.map((q) => q.id).join() === 'newer-question,older-approval', needs.questions.map((q) => q.id));
-  check('blocked agents come from the shared list, with the question verbatim',
-    needs.blocked.length === 1 && needs.blocked[0].task.id === 'blocked-build' && needs.blocked[0].question === 'Which API key should I use?', needs.blocked);
+  const blockedIds = needs.blocked.map((b) => b.task.id);
+  check('blocked agents come from the shared list, with the question verbatim (the legacy title still works)',
+    needs.blocked.find((b) => b.task.id === 'blocked-build')?.question === 'Which API key should I use?', needs.blocked);
+  check('blocked by type: a typed blocked event ("Blocked: ...") shows, with the agent\'s reason',
+    needs.blocked.find((b) => b.task.id === 'typed-blocked')?.question === 'Need the staging bucket name', needs.blocked);
+  check('blocked by type: a block on a question already listed for me is counted once, as the question', !blockedIds.includes('asked-blocked'), blockedIds);
+  check('blocked by type: a block on a question no longer open is over', !blockedIds.includes('answered-blocked'), blockedIds);
+  check('blocked: newest first, exactly the live blocks', blockedIds.join() === 'typed-blocked,person-first-blocked,blocked-build', blockedIds);
+  check('blocked: one rule names the agent (the claim, else the first agent assignee, never a person)',
+    needs.blocked.find((b) => b.task.id === 'person-first-blocked')?.agentId === BUILDER
+    && needs.blocked.find((b) => b.task.id === 'typed-blocked')?.agentId === AUDITOR, needs.blocked.map((b) => [b.task.id, b.agentId]));
+  check('blocked: an agent\'s slice holds its own blocks by the same rule',
+    needsForAgent(needs, BUILDER).blocked.map((b) => b.task.id).sort().join() === 'blocked-build,person-first-blocked');
   const review = needs.inReview.map((item) => item.task.id);
-  check('agent work in review: claimed, created or assigned by an agent, plus held merges, newest first',
-    review.join() === 'held-merge,created-review,claimed-review,assigned-review', review);
+  check('agent work in review: claimed or assigned to an agent, plus held merges, newest first',
+    review.join() === 'held-merge,claimed-review,assigned-review', review);
   check('a person\'s own work in review is not agent work', !review.includes('human-review'), review);
+  check('To review: a task an agent only created is the person\'s, not the agent\'s', !review.includes('created-review'), review);
+  check('To review: a human-only task never counts, whoever is assigned', !review.includes('human-only-review'), review);
+  check('To review: a subtask in review never counts', !review.includes('sub-review'), review);
+  check('To review: work the reviewer sent back waits on the agent, held merge or not', !review.includes('sent-back') && !review.includes('merge-sent-back'), review);
   check('the agent behind each review is named', needs.inReview.find((i) => i.task.id === 'claimed-review')?.agentId === BUILDER
-    && needs.inReview.find((i) => i.task.id === 'created-review')?.agentId === AUDITOR
     && needs.inReview.find((i) => i.task.id === 'assigned-review')?.agentId === BUILDER);
   check('a held merge keeps its reviewer verdict slot; plain review has none',
     'reviewerVerdict' in needs.inReview.find((i) => i.task.id === 'held-merge')!
@@ -149,7 +197,7 @@ check('an unknown tab opens Needs you', agentsTabFrom('reports') === 'needs-you'
     builderOnly.questions.every((q) => q.asked_by === BUILDER) && builderOnly.inReview.every((i) => i.agentId === BUILDER)
     && builderOnly.total === builderOnly.questions.length + builderOnly.blocked.length + builderOnly.inReview.length + builderOnly.pendingSuggestions.length
     && builderOnly.total < needs.total, builderOnly.total);
-  check('the tab count is every item', needs.total === 2 + 1 + 4 + 3, needs.total);
+  check('the tab count is every item', needs.total === 2 + 3 + 3 + 3, needs.total);
 
   const quiet = buildAgentNeedsYou({ needsYou: [], tasks: [], team, suggestions: [], projects });
   check('nothing waiting is zero', quiet.total === 0 && quiet.questions.length === 0 && quiet.inReview.length === 0);
@@ -164,15 +212,18 @@ check('an unknown tab opens Needs you', agentsTabFrom('reports') === 'needs-you'
   const rows = [
     { id: 'triage', status: 'pending', project_id: QUIET_PROJECT_ID, created_at: '2026-11-21T09:00:00Z' },
     { id: 'audit', status: 'pending', project_id: PROJECT_ID, created_at: '2026-11-22T09:00:00Z' },
-    { id: 'asked', status: 'needs_info', project_id: PROJECT_ID, created_at: '2026-11-23T09:00:00Z' },
+    { id: 'asked', status: 'needs_info', project_id: PROJECT_ID, description: 'Add a sitemap.', created_at: '2026-11-23T09:00:00Z' },
+    // The agent answered the info request: back with the person, so it counts again.
+    { id: 'answered', status: 'needs_info', project_id: PROJECT_ID, description: `Add a robots file.${INFO_ANSWER_MARKER}\nAsked: Which paths?\nAnswer: Only /admin.`, created_at: '2026-11-20T09:00:00Z' },
     { id: 'done', status: 'approved', project_id: QUIET_PROJECT_ID, created_at: '2026-11-19T09:00:00Z' },
     { id: 'elsewhere', status: 'pending', project_id: OTHER_PROJECT_ID, created_at: '2026-11-24T09:00:00Z' },
   ] as TaskSuggestion[];
   const pending = pendingSuggestionsInReach(rows, reach).map((s) => s.id);
-  check('reach: every pending suggestion in a reachable project counts, from any agent', pending.join() === 'audit,triage', pending);
+  check('reach: every pending suggestion in a reachable project counts, from any agent, and an answered info request with them', pending.join() === 'audit,triage,answered', pending);
+  check('needs_info: an info request the agent has not answered waits on the agent, not counted', !pending.includes('asked'), pending);
   check('reach: a project outside the viewer list is never counted', !pending.includes('elsewhere'), pending);
   check('reach: the queue keeps every status in reach, for its tabs and per-project groups',
-    suggestionsInReach(rows, reach).map((s) => s.id).sort().join() === 'asked,audit,done,triage', suggestionsInReach(rows, reach).map((s) => s.id));
+    suggestionsInReach(rows, reach).map((s) => s.id).sort().join() === 'answered,asked,audit,done,triage', suggestionsInReach(rows, reach).map((s) => s.id));
   check('reach: no projects reached, nothing counted', pendingSuggestionsInReach(rows, []).length === 0);
   check('reach: a project with its fleet switch off still counts',
     pendingSuggestionsInReach(rows, [{ id: QUIET_PROJECT_ID, autonomous_enabled: false } as Project]).map((s) => s.id).join() === 'triage');
@@ -180,7 +231,7 @@ check('an unknown tab opens Needs you', agentsTabFrom('reports') === 'needs-you'
     tasks: [], suggestions: rows, projects: reach as Project[], teamMemberId: ME, includeSuggestions: true, oversight: true,
   });
   const band = withCount.find((item) => item.kind === 'suggestions');
-  check('reach: the needs-you suggestions band counts the same set', band?.count === 2, band);
+  check('reach: the needs-you suggestions band counts the same set', band?.count === 3, band);
 }
 
 // ── Run feed query ────────────────────────────────────────────────────
@@ -188,7 +239,15 @@ check('an unknown tab opens Needs you', agentsTabFrom('reports') === 'needs-you'
   const all = runFeedQuery(NO_RUN_FILTERS, 0);
   check('no filters: no equalities, the first page', all.eq.length === 0 && all.from === 0 && all.to === RUNS_PAGE_SIZE - 1, all);
   const filtered = runFeedQuery({ agentId: BUILDER, status: 'failed', projectId: PROJECT_ID }, 2);
-  check('filters become equalities on the view', JSON.stringify(filtered.eq) === JSON.stringify([['agent_id', BUILDER], ['status', 'failed'], ['project_id', PROJECT_ID]]), filtered.eq);
+  check('filters become equalities on the view; status matches display_status (what the pill shows)',
+    JSON.stringify(filtered.eq) === JSON.stringify([['agent_id', BUILDER], ['display_status', 'failed'], ['project_id', PROJECT_ID]]), filtered.eq);
+  check('status filter: a turn outcome (blocked, no work) can be filtered on; other cannot',
+    runFeedQuery({ ...NO_RUN_FILTERS, status: 'blocked' }, 0).eq[0]?.[1] === 'blocked' && runFeedQuery({ ...NO_RUN_FILTERS, status: 'no_work' }, 0).eq[0]?.[1] === 'no_work'
+    && runFeedQuery({ ...NO_RUN_FILTERS, status: 'other' }, 0).eq.length === 0);
+  const ranged = runFeedQuery({ ...NO_RUN_FILTERS, from: '2026-11-01', to: '2026-11-26' }, 0);
+  check('date range: from and to become local-midnight bounds, the end day included',
+    ranged.started.gte === new Date(2026, 10, 1).toISOString() && ranged.started.lt === new Date(2026, 10, 27).toISOString() && ranged.key !== all.key, ranged.started);
+  check('date range: a bad day is dropped', Object.keys(runFeedQuery({ ...NO_RUN_FILTERS, from: '2026-13-45', to: 'soon' }, 0).started).length === 0);
   check('page 3 reads rows 50 to 74', filtered.from === 2 * RUNS_PAGE_SIZE && filtered.to === 3 * RUNS_PAGE_SIZE - 1, filtered);
   check('each filter set and page has its own cache key', new Set([
     all.key, filtered.key, runFeedQuery({ ...NO_RUN_FILTERS, agentId: BUILDER }, 0).key, runFeedQuery(NO_RUN_FILTERS, 1).key,
@@ -197,6 +256,23 @@ check('an unknown tab opens Needs you', agentsTabFrom('reports') === 'needs-you'
   const bad = runFeedQuery({ agentId: "x' or 1=1", status: 'exploded' as never, projectId: 'not-a-uuid' }, -4);
   check('a bad id, status or page is dropped, never sent', bad.eq.length === 0 && bad.from === 0, bad);
   check('a smaller page size (the roster) changes the range and key', runFeedQuery(NO_RUN_FILTERS, 0, 8).to === 7 && runFeedQuery(NO_RUN_FILTERS, 0, 8).key !== all.key);
+
+  // The display status: one value for the filter and the pill.
+  const turn = (outcome: string | null) => ({ source: 'turn' as const, status: 'succeeded' as const, outcome });
+  check('display status: a turn shows its outcome, never its process status',
+    runDisplayStatus(turn('blocked')) === 'blocked' && runDisplayStatus(turn('error')) === 'failed' && runDisplayStatus(turn('failed')) === 'failed'
+    && runDisplayStatus(turn('idle')) === 'no_work' && runDisplayStatus(turn('work')) === 'succeeded' && runDisplayStatus(turn(null)) === 'succeeded'
+    && runDisplayStatus(turn('unknown')) === 'other');
+  check('display status: a stored run shows its status', runDisplayStatus({ source: 'run', status: 'waiting', outcome: null }) === 'waiting'
+    && runDisplayStatus({ source: 'run', status: 'timed_out', outcome: null }) === 'timed_out');
+  check('display status: every filter status has the pill label the filter shows',
+    RUN_FILTER_STATUSES.every((status) => runPill({ source: 'run', status: 'succeeded', outcome: null, display_status: status }).label === RUN_STATUS_LABELS[status]));
+  check('display status: a failed turn wears Failed, the label the Failed filter shows', runPill(turn('failed')).label === RUN_STATUS_LABELS.failed && runPill(turn('failed')).status === 'failed');
+  check('display status: a timed out run is red, as Analytics counts it a failure', runPill({ source: 'run', status: 'timed_out', outcome: null }).tone === 'danger');
+  const fromView = toRunSummary({ id: 't9', source: 'turn', agent_id: BUILDER, status: 'succeeded', display_status: 'blocked', outcome: 'blocked', started_at: '2026-11-24T11:00:00Z', updated_at: '2026-11-24T11:00:00Z' }, new Map());
+  check('display status: a row keeps the view\'s display_status', fromView.display_status === 'blocked' && runPill(fromView).label === 'Blocked', fromView);
+  const beforeView = toRunSummary({ id: 't10', source: 'turn', agent_id: BUILDER, status: 'succeeded', outcome: 'idle', started_at: '2026-11-24T11:00:00Z', updated_at: '2026-11-24T11:00:00Z' }, new Map());
+  check('display status: a view without the column (before the update) is computed the same way', beforeView.display_status === 'no_work', beforeView);
 }
 
 // ── Run rows ──────────────────────────────────────────────────────────
@@ -222,6 +298,7 @@ check('an unknown tab opens Needs you', agentsTabFrom('reports') === 'needs-you'
   const live = { status: 'running' as const, started_at: '2026-11-24T11:55:00Z', finished_at: null, duration_ms: null };
   check('a running run counts its time so far', runDurationMs(live, now) === 5 * 60_000);
   check('an unfinished run that is not running has no length', runDurationMs({ ...live, status: 'cancelled' }, now) === null);
+  check('a run waiting on a person counts how long it has gone', runDurationMs({ ...live, status: 'waiting' }, now) === 5 * 60_000);
   check('durations read short', formatRunDuration(45_000) === '45s' && formatRunDuration(65 * 60_000) === '1h 5m' && formatRunDuration(null) === '');
 
   check('the trace is for who manages agents', canSeeRunTrace(row, MATE, true));
@@ -243,10 +320,10 @@ check('an unknown tab opens Needs you', agentsTabFrom('reports') === 'needs-you'
   const builder = team.find((m) => m.id === BUILDER)!;
   const auditor = team.find((m) => m.id === AUDITOR)!;
   check('an agent nobody configured reads the defaults', agentRulesInWords(builder, team).join(' | ')
-    === 'Picks up unassigned work | Closes its own tasks | New tasks go live | Escalates to the Owner', agentRulesInWords(builder, team));
+    === 'Picks up unassigned work | Closes its own tasks | New tasks go live | Escalates to its owners', agentRulesInWords(builder, team));
   check('set rules read in plain words, naming who it escalates to', agentRulesInWords(auditor, team).join(' | ')
     === 'Works only when assigned | Sends finished work to review | New tasks need approval | Escalates to Aleisha Mate', agentRulesInWords(auditor, team));
-  check('an escalation target who left reads as the Owner', agentRulesInWords({ ...auditor, agent_escalate_to: '00000000-0000-4000-8000-00000000dead' }, team)[3] === 'Escalates to the Owner');
+  check('an escalation target who left reads as its owners', agentRulesInWords({ ...auditor, agent_escalate_to: '00000000-0000-4000-8000-00000000dead' }, team)[3] === 'Escalates to its owners');
 
   const now = Date.parse('2026-11-24T12:00:00Z');
   const waiting = (mins: number) => [{ status: 'todo' as const, ai_readiness: 'ai_ready' as const, assignee_ids: [BUILDER], updated_at: new Date(now - mins * 60_000).toISOString() }];
@@ -256,6 +333,12 @@ check('an unknown tab opens Needs you', agentsTabFrom('reports') === 'needs-you'
   const stalled = agentBacklog(waiting(180), BUILDER, now, false);
   check('past the stall threshold it is unclaimed', stalled?.state === 'stalled' && backlogLine(stalled) === 'Work unclaimed 3h', stalled);
   check('a busy agent shows no backlog', agentBacklog(waiting(180), BUILDER, now, true) === null);
+
+  // Pause every agent: every card reads Paused while it is on.
+  check('pause-all: every agent reads paused while the workspace is paused', agentPausedNow({ status: 'active', agent_paused_at: null }, '2026-11-24T11:00:00Z'));
+  check('pause-all: an agent reads paused on its own pause too, and working agents do not', agentPausedNow({ status: 'active', agent_paused_at: '2026-11-24T10:00:00Z' }, null)
+    && !agentPausedNow({ status: 'active', agent_paused_at: null }, null));
+  check('pause-all: a suspended agent reads suspended, not paused', !agentPausedNow({ status: 'suspended', agent_paused_at: null }, '2026-11-24T11:00:00Z'));
   check('someone else\'s or unready work is not this agent\'s backlog',
     agentBacklog(waiting(180), AUDITOR, now, false) === null
     && agentBacklog([{ ...waiting(180)[0], ai_readiness: 'human_only' as never }], BUILDER, now, false) === null);

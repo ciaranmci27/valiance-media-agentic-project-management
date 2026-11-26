@@ -20,6 +20,67 @@ export interface RevokeActor {
   via: 'rest' | 'mcp' | 'app';
 }
 
+export interface LineageKey {
+  id: string;
+  name: string;
+  team_member_id: string | null;
+  created_by_key_id: string | null;
+  rotated_from: string | null;
+  revoked_at: string | null;
+}
+
+/**
+ * The live keys a revoke would also take down, without revoking anything:
+ * pm.revoke_api_key_tree's walk (the keys a key made, and through rotation
+ * the keys it replaced and what those made), nearest first. Pure, over the
+ * workspace's keys.
+ */
+export function keyTreeOf(keys: readonly LineageKey[], keyId: string): LineageKey[] {
+  const byId = new Map(keys.map((key) => [key.id, key]));
+  const madeBy = new Map<string, LineageKey[]>();
+  for (const key of keys) {
+    if (!key.created_by_key_id) continue;
+    madeBy.set(key.created_by_key_id, [...(madeBy.get(key.created_by_key_id) ?? []), key]);
+  }
+  const seen = new Set([keyId]);
+  const found: LineageKey[] = [];
+  let frontier = [keyId];
+  while (frontier.length) {
+    const next: string[] = [];
+    for (const id of frontier) {
+      const replaced = byId.get(id)?.rotated_from;
+      const children = [...(madeBy.get(id) ?? []), ...(replaced && byId.has(replaced) ? [byId.get(replaced)!] : [])];
+      for (const child of children) {
+        if (seen.has(child.id)) continue;
+        seen.add(child.id);
+        next.push(child.id);
+        if (!child.revoked_at) found.push(child);
+      }
+    }
+    frontier = next;
+  }
+  return found;
+}
+
+const missingLineage = (error: { code?: string; message?: string } | null) =>
+  !!error && (error.code === '42703' || error.code === 'PGRST204' || /created_by_key_id|rotated_from/.test(error.message ?? ''));
+
+/** The live keys revoking this one would also revoke, with their member's name. Empty on a database without lineage. */
+export async function previewKeyTree(service: SupabaseClient, keyId: string): Promise<{ id: string; name: string; member_name: string | null }[]> {
+  const { data, error } = await service.from('api_keys').select('id, name, team_member_id, created_by_key_id, rotated_from, revoked_at');
+  if (missingLineage(error)) return [];
+  if (error) throw error;
+  const tree = keyTreeOf((data ?? []) as LineageKey[], keyId);
+  if (tree.length === 0) return [];
+  const memberIds = [...new Set(tree.map((key) => key.team_member_id).filter((id): id is string => !!id))];
+  const { data: members, error: memberError } = memberIds.length
+    ? await service.from('team_members').select('id, name').in('id', memberIds)
+    : { data: [], error: null };
+  if (memberError) throw memberError;
+  const names = new Map(((members ?? []) as { id: string; name: string }[]).map((member) => [member.id, member.name]));
+  return tree.map((key) => ({ id: key.id, name: key.name, member_name: key.team_member_id ? names.get(key.team_member_id) ?? null : null }));
+}
+
 const missingFunction = (error: { code?: string; message?: string } | null) =>
   !!error && (error.code === 'PGRST202' || error.code === '42883' || /could not find the function|does not exist/i.test(error.message ?? ''));
 

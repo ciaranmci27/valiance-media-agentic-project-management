@@ -103,4 +103,8 @@ export interface ProjectBrief {
   goals: BriefGoal[];
   /** Parts the viewer may not read (goals need goals.read and AI agents). */
   omitted: string[];
+  /** Pinned entries in the whole brief (a full read only). */
+  pinned_total?: number;
+  /** Entries an agent wrote that no person has taken over yet (a full read only). */
+  agent_total?: number;
 }

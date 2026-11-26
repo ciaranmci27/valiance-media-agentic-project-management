@@ -171,8 +171,10 @@ export const slackAdapter: ChatAdapter = {
     // Nothing to undo: the Slack app stays as the Owner made it.
   },
 
-  openUrl() {
-    return null;
+  openUrl({ workspaceId, botId }) {
+    // Slack's own redirect opens a DM with the bot user, in the app or the browser.
+    if (!workspaceId || !botId || !/^[A-Z0-9]+$/.test(workspaceId) || !/^[A-Z0-9]+$/.test(botId)) return null;
+    return `https://slack.com/app_redirect?team=${workspaceId}&channel=${botId}`;
   },
 
   async fetchAttachment(credentials, attachment, maxBytes) {

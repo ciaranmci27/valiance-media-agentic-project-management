@@ -5,6 +5,7 @@ import { ApiError, forbidden, notFound } from '@/lib/api/errors';
 import { logAudit } from '@/lib/api/audit';
 import { accessAllows } from '@/lib/api/access';
 import { agentRulesColumns } from '@/lib/api/agent-rules';
+import { provisionForPeople } from '@/lib/api/personal-agents';
 import { AGENT_RULE_FIELDS, type AgentRulesUpdate } from '@/lib/agent-rules';
 
 export const GET = withApi(async ({ supabase, params, access }) => {
@@ -57,6 +58,8 @@ export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemb
 
   if (error) throw error;
   if (!data) throw notFound('Team member');
+  // A new role (or a person back from suspension) may call for an assistant a setup gives.
+  if (('role' in requested || requested.status === 'active') && data.role !== 'agent') await provisionForPeople(supabase, [id], teamMemberId);
   logAudit(supabase, { method: 'PATCH', endpoint: `/api/v1/team-members/${id}`, entityType: 'team_member', entityId: id, apiKeyId, teamMemberId, requestBody: body, beforeSnapshot: before, afterSnapshot: data, statusCode: 200 });
   return success(data);
 }, { schema: updateTeamMemberSchema, permission: 'team.manage' });

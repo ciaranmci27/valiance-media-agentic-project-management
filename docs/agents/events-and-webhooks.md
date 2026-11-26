@@ -147,7 +147,7 @@ They show on the feed and in the export. They never change an agent's status or 
 
 ## Piping everything to a warehouse
 
-1. Make an API key for the data system with `agent_events.export`. No role holds it by default: an Owner grants it to the key's member as an API permission in Team > Access.
+1. Make an API key for the data system with `agent_events.export`. No role holds it by default: an Owner grants it to the key's member as an API permission in Team > Roles & permissions.
 2. Page the export with `limit=1000` and load each row by `id`.
 3. Store `next_cursor` after each page.
 4. Poll every minute or so. To pull sooner, add an `agent_event.created` webhook and pull on each delivery.

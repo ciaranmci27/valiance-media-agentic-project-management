@@ -1,6 +1,7 @@
 import { API_ENDPOINT_PERMISSIONS, PERMISSION_GROUPS, type PermissionKey } from '@/lib/access-control';
 import { DEFAULT_AGENT_RULES, type AgentRulesDraft } from '@/lib/agent-rules';
 import type { AgentMood } from '@/lib/agent-status';
+import { appLocale } from '@/lib/region/active';
 import {
   AGENT_ROLE_MAX, normalizeAgentRole, settingsErrorFields, validateTemplateSettings,
 } from '@/lib/project-agents';
@@ -54,6 +55,7 @@ export const HIRE_STEPS = [
   { key: 'identity', label: 'Identity' },
   { key: 'projects', label: 'Projects' },
   { key: 'powers', label: 'Powers' },
+  { key: 'review', label: 'Review' },
   { key: 'connect', label: 'Connect' },
   { key: 'done', label: 'Done' },
 ] as const satisfies readonly StepDef<string>[];
@@ -87,7 +89,6 @@ export interface HireDraft {
   title: string;
   role: string;
   description: string;
-  avatarUrl: string;
   ownerIds: string[];
   /** Groups that own it beside its people. */
   ownerGroupIds: string[];
@@ -98,6 +99,18 @@ export interface HireDraft {
   rules: AgentRulesDraft;
 }
 
+/** The steps before the agent exists: Back and the stepper reach only these. */
+export const HIRE_STEPS_BEFORE_HIRE = HIRE_STEPS.findIndex((s) => s.key === 'connect');
+
+/**
+ * A blank agent starts careful: it works only what it is given and sends
+ * finished work to review (a template sets its own rules).
+ */
+export const BLANK_HIRE_RULES: AgentRulesDraft = { ...DEFAULT_AGENT_RULES, agent_self_assign: false, agent_close_policy: 'review', agent_escalate_to_group: null };
+
+/** Most people and most groups an agent has as owners (the server's caps). */
+export const HIRE_OWNERS_MAX = 20;
+
 export function emptyHireDraft(ownerId: string | null): HireDraft {
   return {
     templateKey: null,
@@ -105,34 +118,47 @@ export function emptyHireDraft(ownerId: string | null): HireDraft {
     title: '',
     role: '',
     description: '',
-    avatarUrl: '',
     ownerIds: ownerId ? [ownerId] : [],
     ownerGroupIds: [],
     projectIds: [],
     projects: {},
     createKey: true,
     scopes: [],
-    rules: { ...DEFAULT_AGENT_RULES, agent_escalate_to_group: null },
+    rules: { ...BLANK_HIRE_RULES },
   };
 }
 
+/** What a template fills in that a person may then change (blank fills in nothing). */
+function templateSuggestions(template: AgentTemplateView | null) {
+  return { title: template?.label ?? '', description: template?.description ?? '', role: normalizeRole(template?.role ?? '') ?? '' };
+}
+
 /**
- * Picking a template presets what it declares: scopes (only those the hirer
- * may grant), rules, role, and default settings on every project already
- * picked. Starting blank clears the template's presets but keeps identity.
+ * Seeds the draft from a template, on the first pick and on every change.
+ * Everything a template decides (scopes, only those the hirer may grant;
+ * rules; role, title and description; each picked project's settings) comes
+ * from the new template alone, so nothing of the previous one survives.
+ * What the person chose stays: name, owners, projects and their
+ * instructions, the escalation target, the key switch, and a title, role or
+ * description they changed from the previous template's suggestion.
  */
-export function applyTemplate(draft: HireDraft, template: AgentTemplateView | null, grantable: readonly string[]): HireDraft {
+export function applyTemplate(
+  draft: HireDraft, previous: AgentTemplateView | null, template: AgentTemplateView | null, grantable: readonly string[],
+): HireDraft {
   const allowed = new Set(grantable);
   const schema = template?.settings ?? [];
+  const was = templateSuggestions(previous);
+  const next = templateSuggestions(template);
+  const typedRole = normalizeRole(draft.role) ?? '';
   return {
     ...draft,
     templateKey: template?.key ?? '',
-    title: draft.title || template?.label || '',
-    role: template?.role ? normalizeRole(template.role) ?? draft.role : draft.role,
-    description: draft.description || template?.description || '',
+    title: draft.title.trim() && draft.title !== was.title ? draft.title : next.title,
+    description: draft.description.trim() && draft.description !== was.description ? draft.description : next.description,
+    role: typedRole && typedRole !== was.role ? draft.role : next.role,
     scopes: template ? template.scopes.filter((s) => allowed.has(s)) : [],
     rules: {
-      ...DEFAULT_AGENT_RULES, ...(template?.rules ?? {}),
+      ...(template ? { ...DEFAULT_AGENT_RULES, ...template.rules } : BLANK_HIRE_RULES),
       agent_escalate_to: draft.rules.agent_escalate_to, agent_escalate_to_group: draft.rules.agent_escalate_to_group,
     },
     projects: Object.fromEntries(draft.projectIds.map((id) => [id, {
@@ -164,7 +190,8 @@ export function validateHireStep(step: HireStep, draft: HireDraft, template: Age
     if (draft.description.length > AGENT_DESCRIPTION_MAX) errors.description = `Keep this under ${AGENT_DESCRIPTION_MAX} characters.`;
     const roleProblem = roleError(draft.role);
     if (roleProblem) errors.role = roleProblem;
-    if (draft.avatarUrl.trim() && !/^https:\/\/\S+$/i.test(draft.avatarUrl.trim())) errors.avatarUrl = 'Use an https link to an image.';
+    if (draft.ownerIds.length > HIRE_OWNERS_MAX) errors.owners = `An agent has at most ${HIRE_OWNERS_MAX} people as owners.`;
+    else if (draft.ownerGroupIds.length > HIRE_OWNERS_MAX) errors.owners = `An agent has at most ${HIRE_OWNERS_MAX} groups as owners.`;
   } else if (step === 'projects') {
     const schema = template?.settings ?? [];
     for (const id of draft.projectIds) {
@@ -176,7 +203,7 @@ export function validateHireStep(step: HireStep, draft: HireDraft, template: Age
     const allowed = new Set(grantable);
     if (draft.createKey && draft.scopes.length === 0) errors.scopes = 'Pick at least one power, or skip the key for now.';
     const outside = draft.scopes.filter((s) => !allowed.has(s));
-    if (outside.length) errors.scopes = `You cannot grant: ${outside.join(', ')}.`;
+    if (outside.length) errors.scopes = `You can't give ${listOf(outside.map(scopeLabel))}: a key carries only what you hold yourself.`;
   }
   return errors;
 }
@@ -197,7 +224,6 @@ export function hireRequestFrom(draft: HireDraft) {
     name: draft.name.trim(),
     ...(draft.title.trim() ? { title: draft.title.trim() } : {}),
     ...(draft.description.trim() ? { description: draft.description.trim() } : {}),
-    ...(draft.avatarUrl.trim() ? { avatar_url: draft.avatarUrl.trim() } : {}),
     ...(role ? { agent_role: role } : {}),
     ...(draft.ownerIds.length ? { owner_ids: draft.ownerIds } : {}),
     ...(draft.ownerGroupIds.length ? { owner_group_ids: draft.ownerGroupIds } : {}),
@@ -243,6 +269,147 @@ export function splitOwnerPicker(values: readonly string[]): { ownerIds: string[
     ownerIds: values.filter((v) => !v.startsWith(OWNER_GROUP_PREFIX)),
     groupIds: values.filter((v) => v.startsWith(OWNER_GROUP_PREFIX)).map((v) => v.slice(OWNER_GROUP_PREFIX.length)),
   };
+}
+
+// ── Hiring: what the flow offers and how it explains the server ─────────
+
+/**
+ * Templates the hire flow leaves out: a personal assistant is made per
+ * person by an assistant setup (Settings > Assistants), never hired as a
+ * workspace agent, so its card points there instead.
+ */
+export const HIRE_HIDDEN_TEMPLATES: readonly string[] = ['personal-assistant'];
+
+/** The templates the hire flow offers. */
+export function hireTemplates<T extends Pick<AgentTemplateView, 'key'>>(templates: readonly T[]): T[] {
+  return templates.filter((t) => !HIRE_HIDDEN_TEMPLATES.includes(t.key));
+}
+
+/** A template whose powers touch no project or task: an agent that works in another system. */
+export function worksOutsideProjects(template: Pick<AgentTemplateView, 'scopes'> | null): boolean {
+  return !!template && !template.scopes.some((s) => s.startsWith('projects.') || s.startsWith('tasks.'));
+}
+
+/** Powers that read an inbox: the agent needs a shared inbox granted before it has anything to sort. */
+export function readsInbox(scopes: readonly string[]): boolean {
+  return scopes.some((s) => s.startsWith('inbound_email.'));
+}
+
+/** An active member already called this (any case), so mentions and name lookups would be ambiguous. */
+export function sameNameMember<T extends { name: string; status?: string | null }>(name: string, members: readonly T[]): T | null {
+  const wanted = name.trim().toLowerCase();
+  if (!wanted) return null;
+  return members.find((m) => m.status !== 'suspended' && m.name.trim().toLowerCase() === wanted) ?? null;
+}
+
+/**
+ * The project a ?project= link names, kept only when it is one of the open
+ * projects: an archived, trashed or made-up id is dropped (and the flow says
+ * so) rather than stuck on the draft as a nameless row the hire refuses.
+ */
+export function projectFromLink(fromProject: string | null, openProjectIds: readonly string[]): { projectId: string | null; dropped: boolean } {
+  if (!fromProject) return { projectId: null, dropped: false };
+  return openProjectIds.includes(fromProject) ? { projectId: fromProject, dropped: false } : { projectId: null, dropped: true };
+}
+
+/** A template's limits as one line ("2 runs at once · $50 a month"), or null when it sets none. */
+export function limitsLine(limits: Partial<{
+  max_concurrent_runs: number | null; rate_per_minute: number | null; budget_usd: number | null; budget_tokens: number | null; budget_period: string;
+}> | null | undefined): string | null {
+  if (!limits) return null;
+  const period = limits.budget_period ? ` a ${limits.budget_period}` : '';
+  const parts = [
+    limits.max_concurrent_runs ? `${limits.max_concurrent_runs} ${limits.max_concurrent_runs === 1 ? 'run' : 'runs'} at once` : null,
+    limits.rate_per_minute ? `${limits.rate_per_minute.toLocaleString('en-US')} requests a minute` : null,
+    limits.budget_usd ? `$${limits.budget_usd.toLocaleString('en-US')}${period}` : null,
+    limits.budget_tokens ? `${limits.budget_tokens.toLocaleString('en-US')} tokens${period}` : null,
+  ].filter((p): p is string => !!p);
+  return parts.length ? parts.join(' · ') : null;
+}
+
+/** Which hire step a refusal belongs on, from the server's reason. */
+export function hireStepForReason(reason: string | null | undefined): HireStep | null {
+  if (!reason) return null;
+  if (reason.startsWith('owner_') || reason === 'too_many_owners' || reason === 'too_many_owner_groups') return 'identity';
+  if (['not_found_or_in_trash', 'invalid_settings', 'unknown_project', 'project_access_needed'].includes(reason)) return 'projects';
+  if (reason.startsWith('scope') || ['unknown_scope', 'missing_key_scope'].includes(reason)) return 'powers';
+  if (['unknown_template', 'module_off'].includes(reason)) return 'template';
+  return null;
+}
+
+export interface HireRefusal {
+  /** The step to go back to (null: stay where it failed). */
+  step: HireStep | null;
+  /** In plain words, with names, never raw ids or scope keys. */
+  message: string;
+  /** Field errors to show on that step. */
+  fields: StepErrors;
+  /** A hire that stopped partway: the agent stays, suspended. */
+  incomplete: { agentId: string; remains: string[] } | null;
+}
+
+/**
+ * A refused hire, explained on the step that can fix it: owners and projects
+ * by name, powers in plain words with the way to turn them on, and a hire
+ * that stopped partway with what it left behind.
+ */
+export function hireRefusal(
+  error: { message: string; details?: unknown },
+  names: { member: (id: string) => string | undefined; project: (id: string) => string | undefined },
+): HireRefusal {
+  const d = (error.details && typeof error.details === 'object' ? error.details : {}) as {
+    reason?: string; owner_ids?: string[]; project_ids?: string[]; not_held?: string[]; beyond_caller?: string[];
+    agent_id?: string; remains?: string[];
+  };
+  const reason = d.reason ?? null;
+  const step = hireStepForReason(reason);
+  const people = (ids: string[] | undefined) => listOf((ids ?? []).map((id) => names.member(id) ?? 'someone who left'));
+  const places = (ids: string[] | undefined) => listOf((ids ?? []).map((id) => names.project(id) ?? 'a project that is gone'));
+  const incomplete = d.agent_id && Array.isArray(d.remains) ? { agentId: d.agent_id, remains: d.remains } : null;
+  let message = error.message;
+  const fields: StepErrors = {};
+  switch (reason) {
+    case 'owner_not_active':
+      message = `${people(d.owner_ids)} can no longer own it (not an active member). Pick someone else.`;
+      fields.owners = message;
+      break;
+    case 'owner_is_agent':
+      message = `An agent can't own another agent: take ${people(d.owner_ids)} off its owners.`;
+      fields.owners = message;
+      break;
+    case 'too_many_owners':
+    case 'too_many_owner_groups':
+    case 'owner_group_not_found':
+      fields.owners = message;
+      break;
+    case 'not_found_or_in_trash':
+      message = `${places(d.project_ids)} is archived, in Trash or gone. Take it off and go on.`;
+      break;
+    case 'scope_needs_owner':
+    case 'scope_not_held':
+      message = `${AGENT_SCOPE_OWNER_ONLY.replace(/\.$/, '')}: ${listOf((d.not_held ?? []).map(scopeLabel))}.`;
+      fields.scopes = message;
+      break;
+    case 'scope_never_for_agents':
+      message = `An agent key never carries ${listOf((d.not_held ?? []).map(scopeLabel))}. Take it off.`;
+      fields.scopes = message;
+      break;
+    case 'scope_escalation':
+      message = `You can't give ${listOf((d.beyond_caller ?? []).map(scopeLabel))}: a key carries only what you hold yourself.`;
+      fields.scopes = message;
+      break;
+    default:
+      if (step === 'projects' && d.project_ids?.length) message = `${message} (${places(d.project_ids)})`;
+  }
+  if (incomplete) message = 'It stopped partway, so what it made was undone. The agent stays in Team, suspended.';
+  return { step, message, fields, incomplete };
+}
+
+/** "Expires 3 Mar 2027" for a key with an end, or null for one that lasts until revoked. */
+export function keyExpiryLine(expiresAt: string | null | undefined, lifetimeDays?: number | null, now = Date.now()): string | null {
+  const at = expiresAt ? new Date(expiresAt) : lifetimeDays ? new Date(now + lifetimeDays * 86_400_000) : null;
+  if (!at || Number.isNaN(at.getTime())) return null;
+  return `Expires ${at.toLocaleDateString(appLocale(), { day: 'numeric', month: 'short', year: 'numeric' })}`;
 }
 
 // ── Who may put an agent on a project ───────────────────────────────────
@@ -348,28 +515,68 @@ export function settingsSummary(schema: readonly SettingsField[], values: Settin
 
 // ── Powers ──────────────────────────────────────────────────────────────
 
-/** Scopes an agent key never carries: a host's alert key, a person's meeting script, a data system's export key and a person's own memory. */
-export const NEVER_AGENT_SCOPES: readonly PermissionKey[] = ['fleet_alerts.write', 'meetings.write', 'agent_events.export', 'audit.export', 'context.memory'];
+/**
+ * Scopes an agent key never carries: a host's alert key, a person's meeting
+ * script, a data system's export key, a person's own memory, and the
+ * assistant host's provisioning (collecting keys is an Owner's, so it does
+ * nothing for an agent).
+ */
+export const NEVER_AGENT_SCOPES: readonly PermissionKey[] = ['meetings.write', 'agent_events.export', 'audit.export', 'context.memory', 'assistants.provision'];
 /** Scopes that let a key set up other keys and webhooks: shown with a warning. */
 export const SENSITIVE_SCOPES: readonly PermissionKey[] = ['api_keys.manage_all', 'webhooks.manage', 'credentials.manage', 'credentials.reveal_shared', 'invoices.manage', 'invoices.record_payments'];
 
 export interface ScopeGroup {
   id: string;
   label: string;
-  scopes: { key: PermissionKey; label: string; description: string; sensitive: boolean }[];
+  scopes: { key: PermissionKey; label: string; description: string; sensitive: boolean; beyondRole?: boolean }[];
 }
 
-/** Every power an agent key may carry that the hirer may grant, in plain words, grouped as Access shows them. */
-export function scopeGroups(grantable: readonly string[]): ScopeGroup[] {
+/**
+ * Every power an agent key may carry that the hirer may grant, in plain
+ * words, grouped as Access shows them. With `agentHeld` (what the agent's
+ * role holds, GET /api/workspace/agents/scopes for a new one), the others
+ * are marked beyondRole: giving one gives this agent that power (a
+ * per-member allow, which only an Owner may add), so a picker says so.
+ */
+export function scopeGroups(grantable: readonly string[], agentHeld?: readonly string[] | null): ScopeGroup[] {
   const allowed = new Set(grantable);
+  const held = agentHeld ? new Set(agentHeld) : null;
   const apiScopes = new Set<string>(API_ENDPOINT_PERMISSIONS);
   return PERMISSION_GROUPS.map((group) => ({
     id: group.id,
     label: group.label,
     scopes: group.permissions
       .filter((p) => apiScopes.has(p.key) && allowed.has(p.key) && !NEVER_AGENT_SCOPES.includes(p.key))
-      .map((p) => ({ key: p.key, label: p.label, description: p.description, sensitive: SENSITIVE_SCOPES.includes(p.key) })),
+      .map((p) => ({
+        key: p.key, label: p.label, description: p.description, sensitive: SENSITIVE_SCOPES.includes(p.key),
+        ...(held && !held.has(p.key) ? { beyondRole: true } : {}),
+      })),
   })).filter((group) => group.scopes.length > 0);
+}
+
+/** A power the agent role lacks, which hiring gives this one agent. */
+export const AGENT_SCOPE_BEYOND_ROLE = "Agents don't have this by default; hiring gives it to this one.";
+/** The same power for someone who may not add it. */
+export const AGENT_SCOPE_OWNER_ONLY = 'Only an Owner can give agents this.';
+
+/** The draft's powers the agent role lacks: what the hire gives this agent on top (named on Review). */
+export function scopesBeyondRole(scopes: readonly string[], agentHeld: readonly string[] | null | undefined): string[] {
+  if (!agentHeld) return [];
+  const held = new Set(agentHeld);
+  return scopes.filter((s) => !held.has(s));
+}
+
+const SCOPE_LABELS = new Map<string, string>(PERMISSION_GROUPS.flatMap((g) => g.permissions.map((p) => [p.key, p.label] as const)));
+
+/** A scope in plain words ("Upload files"), or its key when Access does not list it. */
+export function scopeLabel(key: string): string {
+  return SCOPE_LABELS.get(key) ?? key;
+}
+
+/** "A", "A and B", "A, B and C". */
+export function listOf(items: readonly string[]): string {
+  if (items.length <= 1) return items[0] ?? '';
+  return `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`;
 }
 
 // ── Roles ───────────────────────────────────────────────────────────────

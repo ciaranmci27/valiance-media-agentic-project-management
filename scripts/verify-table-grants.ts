@@ -67,7 +67,7 @@ const MEMBER_TABLES: Record<string, string> = {
   // The brand: the sign-in page reads it before anyone signs in (anon too).
   workspace_brand: 'SELECT',
   // Views run as the caller (security_invoker): read only.
-  agent_run_feed: 'SELECT', conversation_participants: 'SELECT',
+  agent_run_feed: 'SELECT', agent_run_rows: 'SELECT', conversation_participants: 'SELECT',
   group_member_counts: 'SELECT', project_agent_counts: 'SELECT',
   task_template_run_stats: 'SELECT',
   // A full row policy (ALL, or all four commands) and no delete guard: the
@@ -97,6 +97,7 @@ const MEMBER_TABLES: Record<string, string> = {
   // Partial row policies.
   task_views: 'SELECT,INSERT,UPDATE', // pm.mark_task_seen(s) upsert the member's own look
   team_member_notifications: 'SELECT,UPDATE,DELETE', // read, mark read, dismiss your own
+  member_snoozes: ALL, // a member's own snoozes (row policy member_snoozes_own); live sync needs SELECT
   webhook_deliveries: 'SELECT,UPDATE', // pm.requeue_webhook_delivery (SECURITY INVOKER)
   workspace_region: 'SELECT,INSERT,UPDATE', // an Owner sets the region
 };

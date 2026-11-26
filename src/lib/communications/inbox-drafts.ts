@@ -5,6 +5,7 @@ import { InboxError, loadTriageableThread, many, one, type InboxContext } from '
 import { comms } from '@/lib/communications/db';
 import { inboxDecisionRecipients, primaryPersonHandler } from './inbox-handlers';
 import { inboxOwnerOf } from './inbox-visibility';
+import { readPreferences } from '@/lib/api/assistant';
 
 /**
  * Reply drafts on request. A person asks for one on a thread (optionally
@@ -82,6 +83,9 @@ export async function requestReplyDraft(ctx: InboxContext, threadId: string, req
   const { data: inbox, error: inboxError } = await comms(ctx.service).from('inboxes').select('handler_member_id').eq('id', thread.inbox_id).maybeSingle();
   if (inboxError) throw inboxError;
   if (!inbox?.handler_member_id) throw new InboxError(409, 'This inbox has no agent to write a draft. Choose one in its settings.');
+  // A person's assistant with Draft replies off would never answer: say so now, not after the wait.
+  const offFor = await draftRepliesOffFor(ctx.service, inbox.handler_member_id);
+  if (offFor) throw new InboxError(409, `${offFor} has Draft replies switched off, so it writes no drafts. Its person turns it on from their Assistant page.`);
   const waiting = await one<DraftRow & Record<string, unknown>>(comms(ctx.service).from('reply_drafts').select(DRAFT_COLUMNS)
     .eq('thread_id', thread.id).eq('status', 'requested').order('created_at', { ascending: false }).limit(1).maybeSingle());
   if (waiting) {
@@ -103,6 +107,14 @@ export async function requestReplyDraft(ctx: InboxContext, threadId: string, req
   }).select(DRAFT_COLUMNS).single());
   if (!row) throw new InboxError(500, 'Could not ask for a draft');
   return (await presentDrafts(ctx.service, [row]))[0];
+}
+
+/** The handler's name when it is a personal assistant whose person switched Draft replies off; null otherwise. */
+async function draftRepliesOffFor(service: SupabaseClient, handlerId: string): Promise<string | null> {
+  const handler = await one<{ name: string; delegate_of: string | null }>(service.from('team_members').select('name, delegate_of').eq('id', handlerId).maybeSingle()).catch(() => null);
+  if (!handler?.delegate_of) return null;
+  const preferences = await readPreferences(service, handlerId);
+  return preferences.switches.draft_replies ? null : handler.name;
 }
 
 /**

@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server';
 import { ZodSchema, ZodError } from 'zod';
 import { SupabaseClient } from '@supabase/supabase-js';
-import type { AccessContext, PermissionKey } from '@/lib/access-control';
+import { PERMISSION_IMPLIED_BY, type AccessContext, type PermissionKey } from '@/lib/access-control';
 import { getActorClient, getServiceClient } from './supabase-service';
 import { hashApiKey } from './crypto';
 import { passRequestGate, pausedRefusal, projectPausedRefusal, pauseExempt, type RequestGate } from './request-gate';
@@ -12,11 +12,14 @@ import { apiRequestContext } from './request-context';
 import { verifyActFor } from './delegation';
 import { resolveConnection, type ConnectionContext } from './connect-ai';
 import { isConnectAccessToken } from '@/lib/connect-ai';
+import { aiSetupRoute, isAiSetupKey } from '@/lib/ai-setup';
+import { assertAiSetupCall, connectionSetupGrant, keySetupGrant, type AiSetupGrant } from './ai-setup';
 import { ACT_FOR_HEADER } from '@/lib/delegation';
 import { liveTaskIds } from './task-guards';
 import { afterResponse } from './after-response';
 import { kickWebhooks } from '@/lib/webhooks/kick';
 import { API_VERSION, API_VERSION_HEADER } from './version';
+import { missingPauseColumns, successorPaused } from './key-manage';
 import {
   claimIdempotencyKey,
   finishIdempotencyKey,
@@ -92,25 +95,9 @@ interface WithApiOptions<TBody> {
 
 type HandlerFn<TBody, TParams> = (ctx: ApiContext<TBody, TParams>) => Promise<Response>;
 
-/** A permission plus the broader ones that imply it, as withApi accepts them. */
+/** A permission plus the broader ones that imply it, as withApi accepts them (PERMISSION_IMPLIED_BY). */
 export function permissionAlternatives(permission: PermissionKey): PermissionKey[] {
-  const implications: Partial<Record<PermissionKey, PermissionKey[]>> = {
-    'team.read': ['team.manage'],
-    'projects.read': ['projects.read_all', 'projects.manage'],
-    'tasks.read': ['tasks.manage_all'],
-    'tasks.manage_assigned': ['tasks.manage_all'],
-    'contacts.read': ['contacts.read_all', 'contacts.manage'],
-    'leads.read': ['leads.read_all', 'leads.manage'],
-    'files.read': ['files.manage'],
-    'portal.read': ['portal.manage'],
-    'communications.read': ['communications.manage'],
-    'credentials.reveal_shared': ['credentials.manage'],
-    'invoices.read': ['invoices.manage'],
-    'invoices.record_payments': ['invoices.manage'],
-    'project_context.read': ['project_context.manage'],
-    'goals.read': ['goals.manage'],
-  };
-  return [permission, ...(implications[permission] || [])];
+  return [permission, ...(PERMISSION_IMPLIED_BY[permission] || [])];
 }
 
 export interface ApiKeyRow {
@@ -135,6 +122,12 @@ export interface ResolvedApiKey {
   principal: { id: string; tokenId: string | null; personal: boolean } | null;
   /** Set when a Connect AI access token made the request: the person's own connection. */
   connection?: ConnectionContext | null;
+  /**
+   * An AI setup session behind the request (lib/ai-setup.ts): a connection
+   * elevated for an hour, or a setup key. withApi applies it on the setup
+   * routes only; a setup key is refused everywhere else.
+   */
+  aiSetup?: AiSetupGrant | null;
 }
 
 export interface ResolveApiKeyOptions {
@@ -178,22 +171,42 @@ export async function resolveApiKey(apiKey: string | null, actFor: string | null
     }
     const service = getServiceClient();
     const resolved = await resolveConnection(service, apiKey);
-    return { supabase: service, keyRow: resolved.keyRow, access: resolved.access, principal: null, connection: resolved.connection };
+    const aiSetup = await connectionSetupGrant(service, resolved.connection.grantId, resolved.keyRow.team_member_id, resolved.access);
+    return { supabase: service, keyRow: resolved.keyRow, access: resolved.access, principal: null, connection: resolved.connection, aiSetup };
   }
 
   const keyHash = await hashApiKey(apiKey);
   const supabase = getServiceClient();
-  const { data: keyRow, error: keyError } = await supabase
+  const lookup = (columns: string) => supabase
     .from('api_keys')
-    .select('id, permissions, team_member_id, scopes, expires_at, disabled_at')
+    .select(columns)
     .eq('key_hash', keyHash)
     .is('revoked_at', null)
     .maybeSingle();
+  const KEY_COLUMNS = 'id, permissions, team_member_id, scopes, expires_at, disabled_at';
+  let { data: found, error: keyError } = await lookup(`${KEY_COLUMNS}, paused_at`);
+  // A database before 20261127000600 has no paused_at: no key there is paused.
+  if (missingPauseColumns(keyError)) ({ data: found, error: keyError } = await lookup(KEY_COLUMNS));
+  const keyRow = found as unknown as (ApiKeyRow & { paused_at?: string | null }) | null;
 
   if (keyError || !keyRow) throw unauthorized('Invalid or revoked API key', { reason: 'invalid_api_key' });
   if (keyRow.disabled_at) throw unauthorized('API key is disabled', { reason: 'api_key_disabled' });
   if (keyRow.expires_at && new Date(keyRow.expires_at).getTime() <= Date.now()) {
     throw unauthorized('API key is expired', { reason: 'api_key_expired' });
+  }
+  if (keyRow.paused_at) {
+    throw unauthorized('API key is paused', {
+      reason: 'api_key_paused',
+      hint: 'Whoever manages this key resumes it in Settings > Developers, or with POST /api/v1/api-keys/{id}/resume. It keeps the same secret.',
+    });
+  }
+  // A replaced key ends at its overlap, so only a key with an end can have a
+  // successor: while that successor is paused, this secret is stopped too.
+  if (keyRow.expires_at && await successorPaused(supabase, keyRow.id)) {
+    throw unauthorized('API key is paused', {
+      reason: 'api_key_paused',
+      hint: 'This key was replaced, and its replacement is paused. Whoever manages the replacement resumes it in Settings > Developers.',
+    });
   }
   if (!keyRow.team_member_id) throw unauthorized('API key is not linked to a team member', { reason: 'api_key_not_linked' });
 
@@ -203,6 +216,12 @@ export async function resolveApiKey(apiKey: string | null, actFor: string | null
   ]);
   if (businessSettings?.api_enabled === false) throw forbidden('Workspace API access is disabled', { reason: 'api_disabled' });
   if (!access || access.status !== 'active') throw forbidden('Linked team member is suspended', { reason: 'member_suspended' });
+  // A setup key works for its person alone, on the setup routes alone.
+  if (isAiSetupKey(apiKey)) {
+    if (actFor !== null) throw forbidden('This is not available while acting for someone', { reason: 'act_for_not_allowed', hint: 'A setup key acts as its person. Send the request without X-Act-For.' });
+    const aiSetup = await keySetupGrant(supabase, keyRow.id, keyRow.team_member_id, access);
+    return { supabase, keyRow: keyRow as ApiKeyRow, access, principal: null, aiSetup };
+  }
   if (actFor !== null) {
     const acting = await verifyActFor(supabase, actFor, keyRow as ApiKeyRow, access);
     return { supabase, keyRow: keyRow as ApiKeyRow, access: acting.access, principal: { id: acting.principalId, tokenId: acting.tokenId, personal: !!access.principal_id } };
@@ -237,8 +256,20 @@ export function withApi<TBody = unknown, TParams = Record<string, string>>(
       const inConnection = apiRequestContext.getStore()?.connection === true;
       const bearer = options?.acceptsConnection ? /^Bearer\s+(\S+)$/i.exec(request.headers.get('authorization') ?? '')?.[1] ?? null : null;
       const credential = request.headers.get('x-api-key') ?? (bearer && isConnectAccessToken(bearer) ? bearer : null);
-      const { supabase, keyRow, access, principal, connection } = await resolveApiKey(credential, actFor, { connect: inConnection || !!options?.acceptsConnection });
+      const { supabase, keyRow, access, principal, connection, aiSetup } = await resolveApiKey(credential, actFor, { connect: inConnection || !!options?.acceptsConnection });
       service = supabase;
+
+      // An AI setup session (lib/ai-setup.ts) reaches the setup routes only.
+      // There its calls carry the person's API powers as of its start, still
+      // checked against their access below; a setup key goes nowhere else.
+      const onSetupRoute = !!aiSetup && aiSetupRoute(request.method, request.nextUrl.pathname) !== null;
+      if (aiSetup?.kind === 'key' && !onSetupRoute) {
+        throw forbidden('This setup key only sets up agents', {
+          reason: 'ai_setup_only',
+          hint: 'It works with the agent setup tools for an hour. Use your own key or a connected AI tool for anything else.',
+        });
+      }
+      const setupGrant = onSetupRoute ? aiSetup : null;
 
       // The rate limit and, for an agent, what is paused, in one call.
       const gate: RequestGate = await passRequestGate(supabase, keyRow.id, keyRow.team_member_id);
@@ -275,7 +306,8 @@ export function withApi<TBody = unknown, TParams = Record<string, string>>(
         ? requiredPermission
         : [requiredPermission];
       const requiredPermissions = [...new Set(configuredPermissions.flatMap(permissionAlternatives))];
-      const scopes = Array.isArray(keyRow.scopes) ? keyRow.scopes : [];
+      const keyScopes = Array.isArray(keyRow.scopes) ? keyRow.scopes : [];
+      const scopes = setupGrant ? [...new Set([...keyScopes, ...setupGrant.scopes])] : keyScopes;
       const grantedPermission = requiredPermissions.find((permission) =>
         scopes.includes(permission) && accessAllows(access, permission, 'api'));
       if (!grantedPermission) {
@@ -497,6 +529,8 @@ export function withApi<TBody = unknown, TParams = Record<string, string>>(
         }
         body = options.schema.parse(raw);
       }
+      // A session's call changes agents only (lib/api/ai-setup.ts).
+      if (setupGrant) await assertAiSetupCall(supabase, { method, pathname: request.nextUrl.pathname, body, memberId: keyRow.team_member_id });
 
       // Last, once the request is known to be valid and allowed: a refused
       // request claims nothing. A replay answers without running the handler.
@@ -522,7 +556,8 @@ export function withApi<TBody = unknown, TParams = Record<string, string>>(
       const via = apiRequestContext.getStore()?.via ?? 'rest';
       const principalId = principal?.id ?? null;
       const pausedProjectIds = gate.agent ? gate.pausedProjectIds : [];
-      const response = await apiRequestContext.run({ via, keyId: keyRow.id, principalId, actFor, pausedProjectIds, connection: !!connection }, () => handler({
+      const aiSetupContext = setupGrant ? { sessionId: setupGrant.sessionId, memberId: setupGrant.memberId, clientName: setupGrant.clientName } : null;
+      const response = await apiRequestContext.run({ via, keyId: keyRow.id, principalId, actFor, pausedProjectIds, connection: !!connection, aiSetup: aiSetupContext }, () => handler({
         // Writes are logged as the key's member (agents are left out by the
         // database), and a task it creates records the key itself.
         supabase: getActorClient(keyRow.team_member_id, via === 'mcp' ? 'mcp' : 'api', keyRow.id),

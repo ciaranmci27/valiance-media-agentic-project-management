@@ -33,6 +33,13 @@ yarn-error.log*
 # env files (can opt-in for committing if needed)
 .env
 .env.local
+.env.*.local
+
+# local test stack (npm run local:up): Supabase CLI state and its dev build
+/scripts/local/supabase/.temp/
+/scripts/local/supabase/.branches/
+/scripts/local/supabase/snippets/
+/.next-local/
 
 # vercel
 .vercel

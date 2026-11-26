@@ -1,15 +1,17 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import { AlertTriangle, ExternalLink, PlayCircle, RefreshCw } from 'lucide-react';
 import { useApp } from '@/lib/store';
 import { useDemo } from '@/lib/demo-context';
 import { useRead } from '@/lib/query-cache';
 import { agentRunFeedRead } from '@/lib/reads';
 import {
-  AGENT_RUN_STATUSES, type AgentRunStatus, type AgentRunSummary,
+  RUN_FILTER_STATUSES, type AgentRunSummary, type RunDisplayStatus,
 } from '@/lib/agent-runs';
-import { RUNS_PAGE_SIZE, RUN_STATUS_LABELS, runTitle, type RunFeedFilters } from '@/lib/agents-tab';
+import { RUNS_PAGE_SIZE, RUN_STATUS_LABELS, runTitle, triggerLabel, type RunFeedFilters } from '@/lib/agents-tab';
+import { appLocale } from '@/lib/region';
 import { formatNumber } from '@/lib/format';
 import { Avatar } from '@/components/ui/Avatar';
 import { Button } from '@/components/ui/Button';
@@ -20,6 +22,32 @@ import {
 } from '@/components/agent/runs/RunParts';
 
 const ALL = '__all__';
+const CUSTOM = '__custom__';
+
+/** The When filter's presets: days back from today, today included. */
+const WHEN_PRESETS = [
+  { value: 'today', label: 'Today', days: 1 },
+  { value: '7d', label: 'Last 7 days', days: 7 },
+  { value: '30d', label: 'Last 30 days', days: 30 },
+  { value: '90d', label: 'Last 90 days', days: 90 },
+] as const;
+
+/** A local day as YYYY-MM-DD (the days the run feed filters by are the viewer's own). */
+const dayKey = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+function daysBack(days: number): { from: string; to: string } {
+  const today = new Date();
+  const start = new Date(today.getFullYear(), today.getMonth(), today.getDate() - (days - 1));
+  return { from: dayKey(start), to: dayKey(today) };
+}
+
+/** "Nov 1 to Nov 26": a range from a link (Analytics), in words. */
+function rangeWords(from: string | null | undefined, to: string | null | undefined): string {
+  const day = (key: string) => new Date(`${key}T12:00:00`).toLocaleDateString(appLocale(), { month: 'short', day: 'numeric' });
+  if (from && to) return from === to ? day(from) : `${day(from)} to ${day(to)}`;
+  if (from) return `Since ${day(from)}`;
+  return to ? `Until ${day(to)}` : 'Any time';
+}
 
 /**
  * The Runs tab: every agent run, newest first (stored runs, plus turns that
@@ -59,7 +87,9 @@ export function RunFeed({ filters, page, onChange, onOpenTask, lockAgent = false
   );
   const total = feed.data?.total ?? 0;
   const openRun = openRunId ? runs.find((run) => run.id === openRunId) ?? null : null;
-  const filtered = !!((filters.agentId && !lockAgent) || filters.status || filters.projectId);
+  const filtered = !!((filters.agentId && !lockAgent) || filters.status || filters.projectId || filters.from || filters.to);
+  const when = !filters.from && !filters.to ? ALL
+    : WHEN_PRESETS.find((p) => { const r = daysBack(p.days); return r.from === filters.from && r.to === filters.to; })?.value ?? CUSTOM;
   const lastPage = Math.max(0, Math.ceil(total / RUNS_PAGE_SIZE) - 1);
 
   // A page past the end (an old link, or runs that left the filter) goes to the last one.
@@ -133,7 +163,7 @@ export function RunFeed({ filters, page, onChange, onOpenTask, lockAgent = false
       },
     } as Column<AgentRunSummary>]),
     { key: 'title', header: 'Run', render: titleCell },
-    { key: 'trigger', header: 'Trigger', className: 'hidden lg:table-cell', render: (run) => (run.trigger ? <span className="capitalize">{run.trigger.replace(/[_.-]+/g, ' ')}</span> : muted('Unknown')) },
+    { key: 'trigger', header: 'Started by', className: 'hidden lg:table-cell', render: (run) => (run.trigger ? <span>{triggerLabel(run.trigger)}</span> : muted('Unknown')) },
     { key: 'started', header: 'Started', render: (run) => <RunStarted iso={run.started_at} /> },
     { key: 'length', header: 'Length', align: 'right', render: (run) => <span className="tabular-nums whitespace-nowrap">{runLengthLabel(run, now) || muted('Unknown')}</span> },
     { key: 'tokens', header: 'Tokens', align: 'right', render: (run) => <span className="tabular-nums">{runTokensLabel(run) || muted('Not reported')}</span> },
@@ -154,7 +184,7 @@ export function RunFeed({ filters, page, onChange, onOpenTask, lockAgent = false
         <div className="mt-2">{titleCell(run)}</div>
         <div className="mt-2 flex items-center gap-2 text-xs text-zinc-500">
           {[
-            run.trigger && <span key="trigger" className="capitalize">{run.trigger.replace(/[_.-]+/g, ' ')}</span>,
+            run.trigger && <span key="trigger">{triggerLabel(run.trigger)}</span>,
             length && <span key="length" className="tabular-nums">{length}</span>,
             tokens && <span key="tokens" className="tabular-nums">{tokens} tokens</span>,
           ].filter(Boolean).flatMap((part, index) => (index === 0 ? [part] : [<span key={`dot-${index}`} aria-hidden="true">·</span>, part]))}
@@ -164,15 +194,21 @@ export function RunFeed({ filters, page, onChange, onOpenTask, lockAgent = false
     );
   };
 
+  // The statuses the pills say, so a filter lists exactly the rows wearing that pill.
   const statusOptions = [
     { value: ALL, label: 'Any status' },
-    ...AGENT_RUN_STATUSES.map((status) => ({ value: status, label: RUN_STATUS_LABELS[status] })),
+    ...RUN_FILTER_STATUSES.map((status) => ({ value: status, label: RUN_STATUS_LABELS[status] })),
+  ];
+  const whenOptions = [
+    { value: ALL, label: 'Any time' },
+    ...WHEN_PRESETS.map((p) => ({ value: p.value, label: p.label })),
+    ...(when === CUSTOM ? [{ value: CUSTOM, label: rangeWords(filters.from, filters.to) }] : []),
   ];
 
   return (
     <div className="space-y-4">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
-        <div className={`grid min-w-0 flex-1 grid-cols-1 gap-2 ${lockAgent ? 'sm:grid-cols-2 lg:max-w-xl' : 'sm:grid-cols-3 lg:max-w-3xl'}`}>
+        <div className={`grid min-w-0 flex-1 grid-cols-1 gap-2 ${lockAgent ? 'sm:grid-cols-3 lg:max-w-3xl' : 'sm:grid-cols-2 lg:grid-cols-4 lg:max-w-4xl'}`}>
           {!lockAgent && <Select
             ariaLabel="Agent"
             size="sm"
@@ -185,8 +221,19 @@ export function RunFeed({ filters, page, onChange, onOpenTask, lockAgent = false
             ariaLabel="Status"
             size="sm"
             value={filters.status ?? ALL}
-            onChange={(value) => setFilter({ status: value === ALL ? null : value as AgentRunStatus })}
+            onChange={(value) => setFilter({ status: value === ALL ? null : value as RunDisplayStatus })}
             options={statusOptions}
+          />
+          <Select
+            ariaLabel="When"
+            size="sm"
+            value={when}
+            onChange={(value) => {
+              if (value === CUSTOM) return;
+              const preset = WHEN_PRESETS.find((p) => p.value === value);
+              setFilter(preset ? daysBack(preset.days) : { from: null, to: null });
+            }}
+            options={whenOptions}
           />
           <Select
             ariaLabel="Project"
@@ -205,7 +252,7 @@ export function RunFeed({ filters, page, onChange, onOpenTask, lockAgent = false
             {feed.data ? `${formatNumber(total, { maximumFractionDigits: 0 })} ${total === 1 ? 'run' : 'runs'}` : ''}
           </span>
           {filtered && (
-            <Button variant="ghost" size="sm" onClick={() => onChange({ agentId: lockAgent ? filters.agentId : null, status: null, projectId: null }, 0)}>
+            <Button variant="ghost" size="sm" onClick={() => onChange({ agentId: lockAgent ? filters.agentId : null, status: null, projectId: null, from: null, to: null }, 0)}>
               Clear filters
             </Button>
           )}
@@ -245,7 +292,12 @@ export function RunFeed({ filters, page, onChange, onOpenTask, lockAgent = false
             <span className="flex flex-col items-center gap-2">
               <PlayCircle size={22} className="text-zinc-500" aria-hidden="true" />
               <span className="text-sm text-zinc-300">{filtered ? 'No runs match these filters.' : 'No runs yet.'}</span>
-              {!filtered && <span className="text-xs text-zinc-500">Runs show here as agents start work.</span>}
+              {!filtered && (
+                <span className="max-w-sm text-xs text-zinc-500">
+                  An agent records a run each time it works. If none show, check that your agent is connected:{' '}
+                  <Link href="/agent?tab=agents" className="font-medium text-brand-300 hover:text-brand-200">open your agents</Link> and pick one to see its Connect step.
+                </span>
+              )}
             </span>
           }
         />

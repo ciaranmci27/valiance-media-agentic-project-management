@@ -426,15 +426,15 @@ async function main() {
       name: 'Long', project_ids: [s.apex], project_settings: { [s.apex]: { instructions: 'x'.repeat(8001) } },
     });
     check('hire: instructions over 8000 characters are refused', tooLong.status === 422, tooLong.body);
-    const beyond = await session(hireRoute.POST, 'POST', '/api/workspace/agents', {}, { name: 'Wide', create_key: true, scopes: ['team.manage'] });
-    check('hire: a key with scopes a new agent would not hold is refused', beyond.status === 422 && reason(beyond) === 'scope_not_held', beyond.body);
+    const never = await session(hireRoute.POST, 'POST', '/api/workspace/agents', {}, { name: 'Wide', create_key: true, scopes: ['tasks.read', 'audit.export'] });
+    check('hire: a scope an agent key never carries is refused, even for an Owner', never.status === 422 && reason(never) === 'scope_never_for_agents', never.body);
     const agentOwner = await session(hireRoute.POST, 'POST', '/api/workspace/agents', {}, { name: 'Owned', owner_ids: [s.legacy] });
     check('hire: an agent cannot be an owner', agentOwner.status === 422 && reason(agentOwner) === 'owner_is_agent', agentOwner.body);
     check('hire: refusals wrote nothing', (await members()) === before);
 
     // --- Hiring end to end ----------------------------------------------------
     const hired = await session(hireRoute.POST, 'POST', '/api/workspace/agents', {}, {
-      name: 'Jeff', title: 'Builder', description: 'Builds the site.', template_key: 'builder', owner_ids: [s.morgan],
+      name: 'Jeff', title: 'Builder', description: 'Builds the site.', template_key: 'builder', owner_ids: [s.owner, s.morgan],
       project_ids: [s.apex, s.queue],
       project_settings: { [s.apex]: { settings: { repository_url: 'https://github.com/acme/site' }, instructions: 'Ship small changes. Never touch billing.' } },
       create_key: true,
@@ -445,7 +445,33 @@ async function main() {
     check('hire: 201 with the agent, never cached', hired.status === 201 && hired.headers.get('cache-control') === 'no-store' && !!jeffId, hired.body);
     check('hire: the template sets role, profile and rules', jeff?.agent?.agent_role === 'builder' && jeff?.agent?.agent_profile === 'generic'
       && jeff?.rules?.agent_close_policy === 'review' && jeff?.rules?.agent_self_assign === false && jeff?.template_key === 'builder', jeff);
-    check('hire: the hirer and those named are its owners', JSON.stringify(jeff?.agent?.owners?.map((o: Loose) => o.id)) === JSON.stringify([s.owner, s.morgan]), jeff?.agent?.owners);
+    check('hire: its owners are those named', JSON.stringify(jeff?.agent?.owners?.map((o: Loose) => o.id)) === JSON.stringify([s.owner, s.morgan]), jeff?.agent?.owners);
+    // Owners as sent: the hirer only when none are named.
+    const handedOff = await session(hireRoute.POST, 'POST', '/api/workspace/agents', {}, { name: 'Handed Off', owner_ids: [s.mia] });
+    check('hire: owners are honoured as sent, without the hirer', handedOff.status === 201
+      && JSON.stringify(handedOff.body?.data?.agent?.owners?.map((o: Loose) => o.id)) === JSON.stringify([s.mia]), handedOff.body);
+    const unnamed = await session(hireRoute.POST, 'POST', '/api/workspace/agents', {}, { name: 'Unnamed Owners', owner_ids: [] });
+    check('hire: with no owners named, the hirer owns it', unnamed.status === 201
+      && JSON.stringify(unnamed.body?.data?.agent?.owners?.map((o: Loose) => o.id)) === JSON.stringify([s.owner]), unnamed.body);
+    // A power the agent role lacks: an Owner gives it to this agent, so the key carries it and it works.
+    const ownerActForBefore = await count("SELECT count(*)::int AS n FROM pm.role_permissions WHERE role = 'agent' AND permission_key = 'agents.act_for'");
+    const delegate = await session(hireRoute.POST, 'POST', '/api/workspace/agents', {}, { name: 'Delegate', create_key: true, scopes: ['tasks.read', 'agents.act_for'] });
+    const delegateId = delegate.body?.data?.agent?.id as string;
+    check('hire: an Owner gives a power beyond the agent role; the key carries it', ownerActForBefore === 0 && delegate.status === 201
+      && delegate.body?.data?.key?.scopes?.includes('agents.act_for') && JSON.stringify(delegate.body?.data?.scopes_beyond_role) === JSON.stringify(['agents.act_for'])
+      && await count("SELECT count(*)::int AS n FROM pm.team_member_permissions WHERE member_id = $1 AND permission_key = 'agents.act_for' AND access_channel = 'api' AND effect = 'allow'", [delegateId]) === 1, delegate.body);
+    {
+      const { mintForSession } = await import('../src/lib/api/delegation');
+      const { resolveMemberAccess } = await import('../src/lib/api/access');
+      const ownerAccess = await resolveMemberAccess(service, s.owner);
+      const grant = await mintForSession(service, { memberId: s.owner, access: ownerAccess! }, delegateId).catch((e: Error) => e);
+      check('hire: the agent given Act for a person can act for someone', !(grant instanceof Error) && grant.agent_id === delegateId, grant);
+      const { assertMayGiveAgentScopes } = await import('../src/lib/api/agent-scope-grants');
+      const morganAccess = await resolveMemberAccess(service, s.morgan);
+      let refused: Loose = null;
+      try { assertMayGiveAgentScopes({ ...morganAccess!, api_permissions: ['*'] }, ['agents.act_for']); } catch (e) { refused = e; }
+      check('scope grants: someone who is not an Owner is refused a power beyond the agent role', refused?.statusCode === 403 && refused?.details?.reason === 'scope_needs_owner', refused);
+    }
     const apexAssignment = jeff?.assignments?.find((a: Loose) => a.project_id === s.apex);
     check('hire: assignments carry checked settings with the template\'s defaults', jeff?.assignments?.length === 2
       && apexAssignment?.settings?.repository_url === 'https://github.com/acme/site' && apexAssignment?.settings?.working_branch === 'dev'
@@ -469,6 +495,7 @@ async function main() {
       CREATE TRIGGER test_fail_assignment BEFORE INSERT ON pm.project_agents FOR EACH ROW EXECUTE FUNCTION pm.test_fail_assignment();`);
     const failed = await session(hireRoute.POST, 'POST', '/api/workspace/agents', {}, {
       name: 'Broken', template_key: 'builder', owner_ids: [s.morgan], project_ids: [s.queue], project_settings: { [s.queue]: { instructions: 'FAIL' } }, create_key: true,
+      scopes: [...CORE_AGENT_TEMPLATES.find((t) => t.key === 'builder')!.scopes, 'agents.act_for'],
     });
     const brokenId = failed.body?.error?.details?.agent_id;
     check('rollback: the hire answers what happened', failed.status >= 500 && reason(failed) === 'hire_incomplete' && !!brokenId, failed.body);
@@ -478,6 +505,9 @@ async function main() {
       && await count('SELECT count(*)::int AS n FROM pm.agent_owners WHERE agent_id = $1', [brokenId]) === 0
       && await count('SELECT count(*)::int AS n FROM pm.project_agents WHERE agent_id = $1', [brokenId]) === 0
       && await count('SELECT count(*)::int AS n FROM pm.api_keys WHERE team_member_id = $1 AND revoked_at IS NULL', [brokenId]) === 0, broken);
+    check('rollback: the powers it was given beyond the agent role are taken back',
+      await count('SELECT count(*)::int AS n FROM pm.team_member_permissions WHERE member_id = $1', [brokenId]) === 0
+      && (failed.body?.error?.details?.rolled_back ?? []).includes('powers beyond its role removed'), failed.body?.error?.details);
 
     // --- Lists, roles, detail -------------------------------------------------
     const list = await session(hireRoute.GET, 'GET', '/api/workspace/agents');
@@ -659,8 +689,20 @@ async function main() {
     const contextSecret = contextKey.body?.data?.key?.secret as string;
     check('keys: the Owner mints a key from the screens, its secret once, never cached', contextKey.status === 201 && /^pk_live_/.test(contextSecret ?? '')
       && contextKey.headers.get('cache-control') === 'no-store' && contextKey.body.data.key.prefix === contextSecret.slice(0, 15), contextKey.body);
-    const beyondKey = await session(agentKeysRoute.POST, 'POST', `/api/workspace/agents/${jeffId}/keys`, { id: jeffId }, { scopes: ['team.manage'] });
-    check('keys: scopes the agent does not hold are refused', beyondKey.status === 422 && reason(beyondKey) === 'scope_not_held', beyondKey.body);
+    // A power its role lacks: the Owner's key gives it to Jeff alone (a per-member allow), as the hire does.
+    const heldBefore = ((await session(agentRoute.GET, 'GET', `/api/workspace/agents/${jeffId}`, { id: jeffId })).body?.data?.key_scopes_available ?? []) as string[];
+    const extra = ['files.upload', 'goals.manage', 'contacts.read', 'team.read'].find((scope) => !heldBefore.includes(scope)) as string;
+    const grantRows = () => count("SELECT count(*)::int AS n FROM pm.team_member_permissions WHERE member_id = $1 AND permission_key = $2 AND access_channel = 'api' AND effect = 'allow'", [jeffId, extra]);
+    const beyondKey = await session(agentKeysRoute.POST, 'POST', `/api/workspace/agents/${jeffId}/keys`, { id: jeffId }, { name: 'Beyond', scopes: [extra] });
+    const heldAfter = ((await session(agentRoute.GET, 'GET', `/api/workspace/agents/${jeffId}`, { id: jeffId })).body?.data?.key_scopes_available ?? []) as string[];
+    check('keys: the Owner gives a power its role lacks while making the key, to this agent alone', !!extra && beyondKey.status === 201
+      && beyondKey.body.data.key.scopes.join() === extra && beyondKey.body.data.key.scopes_given.join() === extra && await grantRows() === 1 && heldAfter.includes(extra),
+    { extra, body: beyondKey.body, heldAfter });
+    const neverKey = await session(agentKeysRoute.POST, 'POST', `/api/workspace/agents/${jeffId}/keys`, { id: jeffId }, { scopes: ['tasks.read', 'audit.export'] });
+    check('keys: a scope no agent key carries is refused, and nothing is given', neverKey.status === 422 && reason(neverKey) === 'scope_never_for_agents'
+      && await count("SELECT count(*)::int AS n FROM pm.team_member_permissions WHERE member_id = $1 AND permission_key = 'audit.export'", [jeffId]) === 0, neverKey.body);
+    await session(agentRevokeRoute.POST, 'POST', `/api/workspace/agents/${jeffId}/keys/${beyondKey.body?.data?.key?.id}/revoke`, { id: jeffId, keyId: beyondKey.body?.data?.key?.id });
+    await s.q("DELETE FROM pm.team_member_permissions WHERE member_id = $1 AND permission_key = $2 AND access_channel = 'api'", [jeffId, extra]);
     const mcpAdd = await runTool(contextSecret, jeffId, 'add_project_context', { project_id: s.apex, category: 'lesson_learned', content: 'Deploys broke the checkout twice; deploy behind a flag.' });
     check('compat: add_project_context over MCP records an agent\'s entry with the same columns', mcpAdd?.ok === true && mcpAdd.data.source === 'agent'
       && JSON.stringify(Object.keys(mcpAdd.data)) === JSON.stringify(LEGACY_CONTEXT_KEYS), mcpAdd);

@@ -11,6 +11,8 @@ import { workspaceApi } from '@/lib/agent-workspace';
 import { invalidateTables, setReadData, useRead } from '@/lib/query-cache';
 import { auditSettingsRead } from '@/lib/reads';
 import { AUDIT_RETENTION_CHOICES, type AuditSettings } from '@/lib/audit-log';
+import { AUDIT_RETENTION_RUN_UTC, shortenedRetention } from '@/lib/data-retention';
+import { useRetentionConfirm } from '@/components/settings/security/RetentionConfirm';
 
 const FOREVER = 'forever';
 
@@ -18,7 +20,8 @@ const FOREVER = 'forever';
  * Settings > Security: how long the audit log keeps rows (a daily job
  * removes older ones; rows the app still needs are kept) and more field
  * names whose values it never stores, beside the built-in secrets, tokens,
- * passwords, keys and authorization.
+ * passwords, keys and authorization. Shortening the period asks first, with
+ * about how many rows go and when.
  */
 export function AuditSettingsSection() {
   const read = useRead(auditSettingsRead);
@@ -39,7 +42,15 @@ export function AuditSettingsSection() {
     ? AUDIT_RETENTION_CHOICES
     : [...AUDIT_RETENTION_CHOICES, { value: Number(retention), label: `${retention} days` }];
 
-  const save = async () => {
+  const confirm = useRetentionConfirm(AUDIT_RETENTION_RUN_UTC);
+  const save = () => {
+    if (!settings) return;
+    const days = retention === FOREVER ? null : Number(retention);
+    const shorter = shortenedRetention({ audit_retention_days: settings.retention_days }, { audit_retention_days: days }, ['audit_retention_days']);
+    void confirm.ask(shorter.map((key) => ({ key, label: 'Audit log', days: days as number })), () => { void write(); });
+  };
+
+  const write = async () => {
     setBusy(true);
     try {
       const next = await workspaceApi<AuditSettings>('/api/workspace/audit-settings', {
@@ -88,10 +99,11 @@ export function AuditSettingsSection() {
                 Discard
               </Button>
             )}
-            <Button onClick={save} disabled={!dirty || busy}>{busy ? 'Saving' : 'Save'}</Button>
+            <Button onClick={save} disabled={!dirty || busy || confirm.counting}>{busy ? 'Saving' : confirm.counting ? 'Checking' : 'Save'}</Button>
           </div>
         </div>
       )}
+      {confirm.dialog}
     </section>
   );
 }

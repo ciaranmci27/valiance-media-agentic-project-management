@@ -4,16 +4,20 @@ import { paginated } from '@/lib/api/response';
 import { badRequest } from '@/lib/api/errors';
 import { parsePagination } from '@/lib/api/pagination';
 import { logAudit } from '@/lib/api/audit';
+import { currentAiSetup } from '@/lib/api/request-context';
 import { checkKeyGrant, insertApiKey } from '@/lib/api/agent-setup';
 import { newKeyExpiry } from '@/lib/api/key-lifetime';
 import { createMemberApiKeySchema, type CreateMemberApiKey } from '@/lib/schemas';
-import { API_KEY_COLUMNS } from '@/lib/supabase/queries';
+import { listKeysPage } from '@/lib/api/key-manage';
+import { API_KEY_STATE_FILTERS, parseKeyStateFilter } from '@/lib/api-key-state';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
- * API keys, as Settings > Developers lists them: never a hash or a secret.
- * Live keys by default; include_revoked=true adds revoked ones.
+ * API keys, as Settings > Developers lists them: never a hash or a secret,
+ * each with its state (active, paused, expired, revoked). state narrows the
+ * list to one of them, or to ended (expired and revoked); without it, live
+ * keys by default and include_revoked=true adds revoked ones.
  *
  * Permission: api_keys.manage_all.
  */
@@ -21,13 +25,11 @@ export const GET = withApi(async ({ supabase, searchParams }) => {
   const { page, limit, offset } = parsePagination(searchParams);
   const memberId = searchParams.get('member_id');
   if (memberId && !UUID.test(memberId)) throw badRequest('member_id must be a team member id');
+  const state = parseKeyStateFilter(searchParams.get('state'));
+  if (state === undefined) throw badRequest(`state must be one of ${API_KEY_STATE_FILTERS.join(', ')}`);
   // Connected AI tools' keys (permissions connection) are connections, not keys: never listed.
-  let query = supabase.from('api_keys').select(API_KEY_COLUMNS, { count: 'exact' }).neq('permissions', 'connection');
-  if (memberId) query = query.eq('team_member_id', memberId);
-  if (searchParams.get('include_revoked') !== 'true') query = query.is('revoked_at', null);
-  const { data, count, error } = await query.order('created_at', { ascending: false }).range(offset, offset + limit - 1);
-  if (error) throw error;
-  return paginated(data || [], { page, limit, total: count || 0 });
+  const { keys, total } = await listKeysPage(supabase, { memberId, state, includeRevoked: searchParams.get('include_revoked') === 'true', offset, limit });
+  return paginated(keys, { page, limit, total });
 }, { permission: 'api_keys.manage_all' });
 
 /**
@@ -37,8 +39,9 @@ export const GET = withApi(async ({ supabase, searchParams }) => {
  * key's member and carried by the calling key; a key for anyone but your
  * own member only from an Owner's key, and only for an agent. The new key
  * records the key that made it (created_by_key_id), so revoking that key
- * revokes this one too. expires_in_days (1 to 3650, or null for no expiry)
- * sets when it ends; left out, the workspace's lifetime for the member's
+ * revokes this one too; a key an AI setup session makes records none, so
+ * the setup key's end never takes it down. expires_in_days (1 to 3650, or
+ * null for no expiry) sets when it ends; left out, the workspace's lifetime for the member's
  * keys (an agent's, or a person's) decides. Unless the calling key is an
  * Owner's, that lifetime is also the longest it may choose (no expiry, or
  * longer, ends at the lifetime). The full key is in this answer
@@ -53,7 +56,10 @@ export const POST = withApi<CreateMemberApiKey>(async ({ supabase, body, access,
     name: body.name,
     memberId: granted.target.id,
     createdBy: teamMemberId,
-    createdByKeyId: apiKeyId,
+    // A key an AI setup session makes for an agent never hangs off the setup
+    // key, or revoking that key later (or once it ends) would take the
+    // agent's key down with it (hire_agent's keys have no parent either).
+    createdByKeyId: currentAiSetup() ? null : apiKeyId,
     scopes: granted.scopes,
     permissions: body.permissions,
     expiresAt: await newKeyExpiry(supabase, granted.target.id, body.expires_in_days, access),

@@ -141,6 +141,7 @@ export async function readLinkRequest(service: SupabaseClient, token: string, me
     handle: row.handle ?? null,
     expires_at: row.expires_at,
     requested_by_name: requester,
+    from_chat: !row.requested_by && !row.requested_by_key_id,
     state: linkState(row, memberId),
     already_yours: !!existing && existing.member_id === memberId && !!existing.verified_at,
   };

@@ -11,7 +11,8 @@ import { z } from 'zod';
  *   moves it to in_review instead, with a comment saying why.
  * - agent_create_policy: 'live' makes its new tasks live; 'approval' turns
  *   each into a task suggestion someone approves.
- * - agent_escalate_to: who it escalates to; unset falls back to the Owner.
+ * - agent_escalate_to: who it escalates to; unset goes to its owners (the
+ *   first active one, then its owner groups), else a workspace Owner.
  *
  * Which projects it works in and whether it may create tasks at all stay on
  * the shared permissions (tasks.create, project access).
@@ -73,8 +74,8 @@ export const CREATE_POLICY_OPTIONS: { value: AgentCreatePolicy; label: string; d
  */
 export type AgentRulesDraft = AgentRules & { agent_escalate_to_group: string | null };
 
-/** The escalation picker's empty choice. */
-export const ESCALATE_DEFAULT_LABEL = 'The Owner';
+/** The escalation picker's empty choice: its first active owner, then its owner groups, else a workspace Owner. */
+export const ESCALATE_DEFAULT_LABEL = 'Its owners';
 
 /** Reads the rules off a member row, filling what an older database lacks with the defaults. */
 export function agentRulesOf(row: Partial<Record<keyof AgentRules, unknown>> | null | undefined): AgentRules {

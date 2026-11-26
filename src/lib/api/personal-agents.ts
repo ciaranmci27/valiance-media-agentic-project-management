@@ -68,6 +68,8 @@ export interface AssistantSetup {
   match_group_name: string | null;
   template_key: string;
   template_label: string | null;
+  /** Why it cannot give anyone an assistant (unknown_template, module_off), or null when it can. */
+  skipped_reason: string | null;
   settings: AssistantSetupSettings;
   enabled: boolean;
   created_by: string | null;
@@ -78,7 +80,7 @@ export interface AssistantSetup {
 const SETUP_COLUMNS = 'id, match_role, match_group_id, template_key, settings, enabled, created_by, created_at, updated_at';
 
 async function presentSetups(service: SupabaseClient, rows: Row[]): Promise<AssistantSetup[]> {
-  const templates = await agentTemplateRegistry(service);
+  const [templates, modules] = await Promise.all([agentTemplateRegistry(service), enabledModuleSet(service)]);
   const groupIds = [...new Set(rows.map((row) => row.match_group_id).filter(Boolean))] as string[];
   const names = new Map<string, string>();
   if (groupIds.length) {
@@ -87,13 +89,15 @@ async function presentSetups(service: SupabaseClient, rows: Row[]): Promise<Assi
   }
   return rows.map((row) => {
     const parsed = assistantSetupSettingsSchema.safeParse(row.settings ?? {});
+    const template = findAgentTemplate(row.template_key, templates);
     return {
       id: row.id,
       match_role: row.match_role ?? null,
       match_group_id: row.match_group_id ?? null,
       match_group_name: row.match_group_id ? names.get(row.match_group_id) ?? null : null,
       template_key: row.template_key,
-      template_label: findAgentTemplate(row.template_key, templates)?.label ?? null,
+      template_label: template?.label ?? null,
+      skipped_reason: setupSkipReason(template, modules),
       settings: parsed.success ? parsed.data : {},
       enabled: row.enabled !== false,
       created_by: row.created_by ?? null,
@@ -199,11 +203,17 @@ interface PlannedAgent {
   template_key: string;
 }
 
+/** Why a setup's template cannot be used: gone (unknown_template), or its module is off (module_off). Null when it can. */
+function setupSkipReason(template: AgentTemplate | null, modules: ReadonlySet<string>): string | null {
+  if (!template) return 'unknown_template';
+  if (template.module && !modules.has(template.module)) return 'module_off';
+  return null;
+}
+
 /** The setups that apply, with their templates (a template this workspace no longer has, or whose module is off, is skipped). */
-async function usableSetups(service: SupabaseClient, modules: ReadonlySet<string>, filter: { setupId?: string; role?: string }) {
+async function usableSetups(service: SupabaseClient, modules: ReadonlySet<string>, filter: { setupId?: string }) {
   let query = service.from('assistant_setups').select(SETUP_COLUMNS).eq('enabled', true);
   if (filter.setupId) query = query.eq('id', filter.setupId);
-  if (filter.role) query = query.eq('match_role', filter.role);
   const { data, error } = await query.order('created_at').order('id');
   if (error) fail(error);
   const usable: { row: Row; template: AgentTemplate; settings: AssistantSetupSettings }[] = [];
@@ -211,12 +221,66 @@ async function usableSetups(service: SupabaseClient, modules: ReadonlySet<string
   const templates = await agentTemplateRegistry(service);
   for (const row of (data ?? []) as Row[]) {
     const template = findAgentTemplate(row.template_key, templates);
-    if (!template) { skipped.push({ setup_id: row.id, template_key: row.template_key, reason: 'unknown_template' }); continue; }
-    if (template.module && !modules.has(template.module)) { skipped.push({ setup_id: row.id, template_key: row.template_key, reason: 'module_off' }); continue; }
+    const reason = setupSkipReason(template, modules);
+    if (reason || !template) { skipped.push({ setup_id: row.id, template_key: row.template_key, reason: reason ?? 'unknown_template' }); continue; }
     const parsed = assistantSetupSettingsSchema.safeParse(row.settings ?? {});
     usable.push({ row, template, settings: parsed.success ? parsed.data : {} });
   }
   return { usable, skipped };
+}
+
+type UsableSetup = Awaited<ReturnType<typeof usableSetups>>['usable'][number];
+
+/**
+ * Every missing (person, template) pair the setups call for, by person id,
+ * one per template: active people a setup matches by role, or by being in
+ * its live group, who have no personal agent from its template yet. people
+ * narrows it to those ids.
+ */
+async function missingAgents(service: SupabaseClient, usable: UsableSetup[], people?: string[]): Promise<PlannedAgent[]> {
+  if (people && people.length === 0) return [];
+  const groupIds = [...new Set(usable.map(({ row }) => row.match_group_id).filter(Boolean))] as string[];
+  const [persons, groupRows, liveGroups, existing] = await Promise.all([
+    readAll<Person>((from, to) => {
+      let query = service.from('team_members').select('id, name, role').neq('role', 'agent').eq('status', 'active');
+      if (people) query = query.in('id', people);
+      return query.order('id').range(from, to);
+    }),
+    groupIds.length
+      ? readAll<{ group_id: string; member_id: string }>((from, to) => {
+        let query = service.from('group_members').select('group_id, member_id').in('group_id', groupIds);
+        if (people) query = query.in('member_id', people);
+        return query.order('group_id').order('member_id').range(from, to);
+      })
+      : Promise.resolve([]),
+    groupIds.length
+      ? service.from('groups').select('id').in('id', groupIds).is('deleted_at', null).then(({ data }) => new Set(((data ?? []) as Row[]).map((g) => g.id as string)))
+      : Promise.resolve(new Set<string>()),
+    readAll<{ delegate_of: string; assistant_template: string | null }>((from, to) => {
+      let query = service.from('team_members').select('id, delegate_of, assistant_template').not('delegate_of', 'is', null);
+      if (people) query = query.in('delegate_of', people);
+      return query.order('id').range(from, to);
+    }).catch((error) => fail(error)),
+  ]);
+  const inGroup = new Map<string, Set<string>>();
+  for (const row of groupRows) {
+    if (!liveGroups.has(row.group_id)) continue;
+    if (!inGroup.has(row.group_id)) inGroup.set(row.group_id, new Set());
+    inGroup.get(row.group_id)!.add(row.member_id);
+  }
+  const have = new Set(existing.map((row) => `${row.delegate_of}:${row.assistant_template ?? ''}`));
+  const missing: PlannedAgent[] = [];
+  for (const person of persons) {
+    const wanted = new Map<string, string>();
+    for (const { row, template } of usable) {
+      const matches = row.match_role ? row.match_role === person.role : inGroup.get(row.match_group_id)?.has(person.id);
+      if (matches && !wanted.has(template.key)) wanted.set(template.key, row.id);
+    }
+    for (const [templateKey, setupId] of wanted) {
+      if (!have.has(`${person.id}:${templateKey}`)) missing.push({ person: { id: person.id, name: person.name }, setup_id: setupId, template_key: templateKey });
+    }
+  }
+  return missing;
 }
 
 /** The rows pm.provision_personal_agents makes, one per planned agent. */
@@ -284,40 +348,7 @@ export async function provisionAssistants(service: SupabaseClient, caller: Agent
   }
   const { usable, skipped } = await usableSetups(service, modules, { setupId: input.setup_id });
 
-  const groupIds = [...new Set(usable.map(({ row }) => row.match_group_id).filter(Boolean))] as string[];
-  const [people, groupRows, liveGroups, existing] = await Promise.all([
-    readAll<Person>((from, to) => service.from('team_members').select('id, name, role').neq('role', 'agent').eq('status', 'active')
-      .order('id').range(from, to)),
-    groupIds.length
-      ? readAll<{ group_id: string; member_id: string }>((from, to) => service.from('group_members').select('group_id, member_id').in('group_id', groupIds)
-        .order('group_id').order('member_id').range(from, to))
-      : Promise.resolve([]),
-    groupIds.length
-      ? service.from('groups').select('id').in('id', groupIds).is('deleted_at', null).then(({ data }) => new Set(((data ?? []) as Row[]).map((g) => g.id as string)))
-      : Promise.resolve(new Set<string>()),
-    readAll<{ delegate_of: string; assistant_template: string | null }>((from, to) => service.from('team_members').select('id, delegate_of, assistant_template')
-      .not('delegate_of', 'is', null).order('id').range(from, to)).catch((error) => fail(error)),
-  ]);
-  const inGroup = new Map<string, Set<string>>();
-  for (const row of groupRows) {
-    if (!liveGroups.has(row.group_id)) continue;
-    if (!inGroup.has(row.group_id)) inGroup.set(row.group_id, new Set());
-    inGroup.get(row.group_id)!.add(row.member_id);
-  }
-  const have = new Set(existing.map((row) => `${row.delegate_of}:${row.assistant_template ?? ''}`));
-
-  // Every missing (person, template) pair, by person id, one per template.
-  const missing: PlannedAgent[] = [];
-  for (const person of people) {
-    const wanted = new Map<string, string>();
-    for (const { row, template } of usable) {
-      const matches = row.match_role ? row.match_role === person.role : inGroup.get(row.match_group_id)?.has(person.id);
-      if (matches && !wanted.has(template.key)) wanted.set(template.key, row.id);
-    }
-    for (const [templateKey, setupId] of wanted) {
-      if (!have.has(`${person.id}:${templateKey}`)) missing.push({ person: { id: person.id, name: person.name }, setup_id: setupId, template_key: templateKey });
-    }
-  }
+  const missing = await missingAgents(service, usable);
 
   const start = input.after ? missing.findIndex((plan) => plan.person.id > input.after!) : 0;
   const from = start === -1 ? missing.length : start;
@@ -350,35 +381,38 @@ export async function provisionAssistants(service: SupabaseClient, caller: Agent
 }
 
 /**
- * A person who just joined gets a personal agent from every enabled setup
- * for their role, when the AI agents module is on. Never fails the join:
- * a problem is logged and the Owner can provision later. Answers what it made.
+ * People who just joined, were added to a group, or changed role get the
+ * personal agents the enabled setups call for (by role or by group), the
+ * same as Give everyone would make them, while the AI agents module and
+ * assistants are both on. Never fails the change that called it: a problem
+ * is logged and the Owner can give everyone theirs later. Answers what it made.
  */
-export async function autoProvisionOnJoin(service: SupabaseClient, memberId: string, actorId: string | null): Promise<{ id: string; template_key: string }[]> {
+export async function provisionForPeople(service: SupabaseClient, memberIds: string[], actorId: string | null): Promise<{ id: string; delegate_of: string; template_key: string }[]> {
+  const ids = [...new Set(memberIds)].filter((id) => UUID.test(id));
+  if (ids.length === 0) return [];
   try {
-    const { data: member, error } = await service.from('team_members').select('id, name, role, status').eq('id', memberId).maybeSingle();
-    if (error || !member) return [];
-    const person = member as Row;
-    if (person.role === 'agent' || (person.status ?? 'active') !== 'active') return [];
     const modules = await enabledModuleSet(service);
     if (!modules.has('agents')) return [];
-    const { usable } = await usableSetups(service, modules, { role: person.role });
+    // Off means every assistant stops: nobody new gets one meanwhile.
+    const { data: settings, error: settingsError } = await service.from('business_settings').select('assistants_enabled').limit(1).maybeSingle();
+    if (settingsError || (settings as Row | null)?.assistants_enabled !== true) return [];
+    const { usable } = await usableSetups(service, modules, {});
     if (usable.length === 0) return [];
-    const planned: PlannedAgent[] = [];
-    const seen = new Set<string>();
-    for (const { row, template } of usable) {
-      if (seen.has(template.key)) continue;
-      seen.add(template.key);
-      planned.push({ person: { id: person.id, name: person.name }, setup_id: row.id, template_key: template.key });
-    }
-    const bySetup = new Map(usable.map(({ row, template, settings }) => [row.id as string, { template, settings }]));
+    const planned = await missingAgents(service, usable, ids);
+    if (planned.length === 0) return [];
+    const bySetup = new Map(usable.map(({ row, template, settings: setupSettings }) => [row.id as string, { template, settings: setupSettings }]));
     const made = await makeAgents(service, agentRows(planned, bySetup), actorId);
-    return made.map((row) => ({ id: row.id, template_key: row.assistant_template }));
+    return made.map((row) => ({ id: row.id, delegate_of: row.delegate_of, template_key: row.assistant_template }));
   } catch (failure) {
-    // An older database (no setups yet) or a passing failure: the join stands either way.
-    if (!(failure instanceof ApiError && failure.statusCode === 503)) console.error('[assistants] auto-provision on join failed', failure);
+    // An older database (no setups yet) or a passing failure: the change stands either way.
+    if (!(failure instanceof ApiError && failure.statusCode === 503)) console.error('[assistants] provisioning for people failed', failure);
     return [];
   }
+}
+
+/** A person who just joined: provisionForPeople for them. Answers what it made. */
+export async function autoProvisionOnJoin(service: SupabaseClient, memberId: string, actorId: string | null): Promise<{ id: string; template_key: string }[]> {
+  return (await provisionForPeople(service, [memberId], actorId)).map((row) => ({ id: row.id, template_key: row.template_key }));
 }
 
 // ── Personal agents ─────────────────────────────────────────────────────

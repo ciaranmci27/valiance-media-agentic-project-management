@@ -139,12 +139,16 @@ export interface ChatAdapter {
    * ChatProviderError that says to paste the id.
    */
   resolveChannel(credentials: ChatCredentials, input: string): Promise<{ id: string; name: string | null }>;
-  /** Checks the pasted credentials with the provider and does its one-time setup (Telegram's webhook). */
-  connect(input: { credentials: ChatCredentials; inboundUrl: string; displayName?: string; kind?: ChatConnectionKind }): Promise<ConnectResult>;
+  /**
+   * Checks the pasted credentials with the provider and does its one-time setup (Telegram's webhook).
+   * With expectedBotId (a token being replaced), a token for another bot does no setup at all and
+   * comes back with that bot's id, so the caller refuses it before anything changes at the provider.
+   */
+  connect(input: { credentials: ChatCredentials; inboundUrl: string; displayName?: string; kind?: ChatConnectionKind; expectedBotId?: string | null }): Promise<ConnectResult>;
   /** Undoes connect's setup when the connection is removed. Never throws. */
   disconnect(credentials: ChatCredentials): Promise<void>;
   /** A link that opens a chat with the bot, when there is one. */
-  openUrl(input: { botHandle: string | null; workspaceId: string | null }): string | null;
+  openUrl(input: { botHandle: string | null; workspaceId: string | null; botId?: string | null }): string | null;
   /**
    * Fetches a stored inbound file through the provider with the bot's
    * credentials, never past maxBytes (ChatProviderError too_large). The

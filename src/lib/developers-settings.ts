@@ -42,9 +42,17 @@ export function webhooksSectionState(input: {
 
 // ── Keys ────────────────────────────────────────────────────────────────
 
-/** A key that no longer works: revoked, or past its end (a rotated key's overlap, say). */
-export function keyEnded(key: Pick<ApiKey, 'revoked_at' | 'expires_at'>, now: Date = new Date()): boolean {
-  return !!key.revoked_at || (!!key.expires_at && new Date(key.expires_at).getTime() <= now.getTime());
+/** A key that no longer works: revoked, disabled, or past its end (a rotated key's overlap, say). */
+export function keyEnded(key: Pick<ApiKey, 'revoked_at' | 'expires_at'> & { disabled_at?: string | null }, now: Date = new Date()): boolean {
+  return !!key.revoked_at || !!key.disabled_at || (!!key.expires_at && new Date(key.expires_at).getTime() <= now.getTime());
+}
+
+/**
+ * The keys a newer key replaced (its rotated_from), while that newer key is
+ * not revoked: they work out their overlap and are rotated no further.
+ */
+export function replacedKeyIds(keys: readonly Pick<ApiKey, 'rotated_from' | 'revoked_at'>[]): Set<string> {
+  return new Set(keys.filter((key) => key.rotated_from && !key.revoked_at).map((key) => key.rotated_from as string));
 }
 
 export interface KeyGroups {
@@ -67,7 +75,7 @@ export function groupApiKeys(keys: readonly ApiKey[], me: string | null, agentId
     else if (key.team_member_id === me) groups.mine.push(key);
     else groups.people.push(key);
   }
-  const endedAt = (key: ApiKey) => new Date(key.revoked_at ?? key.expires_at ?? key.updated_at).getTime();
+  const endedAt = (key: ApiKey) => new Date(key.revoked_at ?? key.disabled_at ?? key.expires_at ?? key.updated_at).getTime();
   groups.ended.sort((a, b) => endedAt(b) - endedAt(a));
   return groups;
 }
@@ -106,6 +114,23 @@ export function keyExpiry(expiresAt: string | null | undefined, now: Date = new 
     return { label: `Ends in ${hours} ${hours === 1 ? 'hour' : 'hours'}`, tone: 'warning' };
   }
   return { label: `Expires ${formatDate(expiresAt)}`, tone: 'muted' };
+}
+
+/** After a rotation: when the new key ends, in one line. */
+export function rotatedKeyExpiryLine(expiresAt: string | null, formatEnd: (iso: string) => string = (iso) => iso.slice(0, 10)): string {
+  return expiresAt ? `The new key expires ${formatEnd(expiresAt)}.` : 'The new key has no expiry.';
+}
+
+/**
+ * Before a rotation: how long the new key will last. A person's lasts as
+ * long as this one was made to last, within the workspace's key lifetime (the
+ * server's rule, rotatedKeyLifetimeDays); an agent's gets the agent key lifetime.
+ */
+export function rotationLifetimeNote(key: Pick<ApiKey, 'created_at' | 'expires_at'>, agent = false): string {
+  if (agent) return "The new key lasts as long as your workspace's agent key lifetime. You see its end date before you copy it.";
+  if (!key.expires_at) return "This key has no expiry. The new one has none either, unless your workspace limits how long keys last. You see its end date before you copy it.";
+  const days = Math.max(1, Math.round((Date.parse(key.expires_at) - Date.parse(key.created_at)) / 86_400_000));
+  return `The new key lasts ${lifetimeLabel(days)}, as long as this one was made to, within your workspace's key lifetime. You see its end date before you copy it.`;
 }
 
 /** How long the old key keeps working after a rotation (the API takes 0 to 168 hours). */
@@ -255,6 +280,8 @@ export interface WebhookEventGroup {
   label: string;
   description: string;
   events: readonly string[];
+  /** Older names still sent to endpoints that have them: shown only while ticked, never added by the group box. */
+  legacyEvents?: readonly string[];
   /** Offered only while Client invoicing is on. */
   invoices?: boolean;
 }
@@ -288,10 +315,19 @@ export const WEBHOOK_EVENT_GROUPS: readonly WebhookEventGroup[] = [
   {
     id: 'assistant',
     label: 'Chat',
-    description: 'A chat message for an agent: a person writing to their own assistant, or company chat for a company agent. For the host that answers it. Pick the agent under Member.',
-    events: ['chat.message', 'assistant.message'],
+    description: 'A chat message for an agent: a person writing to their own assistant, or company chat for a company agent. For the host that answers it. Pick the agent under Member on the next step.',
+    events: ['chat.message'],
+    legacyEvents: ['assistant.message'],
   },
 ];
+
+/** A group's events as this endpoint sees them: its own, plus any older name it already has. */
+export function groupEventsFor(group: WebhookEventGroup, current: readonly string[]): string[] {
+  return [...group.events, ...(group.legacyEvents ?? []).filter((event) => current.includes(event))];
+}
+
+/** Events that carry chat: private, so only to one agent or an assistant setup, never filtered by project. */
+export const CHAT_WEBHOOK_EVENTS: readonly string[] = ['chat.message', 'assistant.message'];
 
 const INVOICE_EVENTS: readonly string[] = INVOICE_WEBHOOK_EVENT_TYPES;
 
@@ -325,8 +361,26 @@ export function parseAgentEventTypes(text: string): string[] {
 
 const AGENT_EVENT_TYPE = /^[a-z][a-z0-9_.]{0,99}$/;
 
-/** The first problem on a step, or null. Invoice events kept from when invoicing was on still count, though hidden. */
-export function webhookStepProblem(draft: WebhookDraft, step: WebhookStep): string | null {
+/**
+ * What the form knows beyond the draft: what kind of member each id is (an
+ * agent, and whether it is a person's own assistant), and whether the
+ * endpoint is scoped to an assistant setup (every assistant it made), which
+ * then takes the place of a member.
+ */
+export interface WebhookFormContext {
+  memberKind?: (id: string) => 'person' | 'agent' | 'personal_agent' | null;
+  setupScoped?: boolean;
+}
+
+/**
+ * The first problem on a step, or null. Invoice events kept from when
+ * invoicing was on still count, though hidden. The filters step also holds
+ * the database's chat rules, so they are met before a save, never after:
+ * chat goes to one agent (an old assistant.message, to one person's own
+ * assistant) or an assistant setup, is never filtered by project, and a
+ * setup-scoped endpoint has no member.
+ */
+export function webhookStepProblem(draft: WebhookDraft, step: WebhookStep, context: WebhookFormContext = {}): string | null {
   if (step === 'endpoint') {
     if (!draft.name.trim()) return 'Give the endpoint a name.';
     // HTTPS to a public address; local development also allows http on localhost (the API's rule too).
@@ -334,18 +388,48 @@ export function webhookStepProblem(draft: WebhookDraft, step: WebhookStep): stri
     return urlError ? `${urlError}.` : null;
   }
   if (step === 'events') return draft.events.length === 0 ? 'Choose at least one event.' : null;
+  if (context.setupScoped && draft.memberId) return 'This endpoint sends for every assistant from a setup, so it cannot also be limited to one member. Set Member to Everyone.';
+  const chat = draft.events.some((event) => CHAT_WEBHOOK_EVENTS.includes(event));
+  if (chat && draft.projectIds.length > 0) return 'Chat is never tied to a project, so a project filter would stop every chat message. Clear Projects, or untick Chat.';
+  if (chat && !context.setupScoped) {
+    const kind = draft.memberId ? context.memberKind?.(draft.memberId) ?? null : null;
+    if (draft.events.includes('chat.message') && kind !== 'agent' && kind !== 'personal_agent') {
+      return 'Chat needs one agent under Member: chat is private, so it only goes to the agent it is for.';
+    }
+    if (draft.events.includes('assistant.message') && kind !== 'personal_agent') {
+      return 'Chat for an assistant (old name) needs one person\'s own assistant under Member. Untick it to send Chat to a company agent.';
+    }
+  }
   if (!draft.events.includes('agent_event.created')) return null;
   const bad = parseAgentEventTypes(draft.agentEventTypes).find((type) => !AGENT_EVENT_TYPE.test(type));
   return bad ? `${bad} is not an agent event type.` : null;
 }
 
 /** The first step with a problem, so Save lands where the fix is. */
-export function firstWebhookProblem(draft: WebhookDraft): { step: WebhookStep; message: string } | null {
+export function firstWebhookProblem(draft: WebhookDraft, context: WebhookFormContext = {}): { step: WebhookStep; message: string } | null {
   for (const step of ['endpoint', 'events', 'filters'] as const) {
-    const message = webhookStepProblem(draft, step);
+    const message = webhookStepProblem(draft, step, context);
     if (message) return { step, message };
   }
   return null;
+}
+
+/**
+ * A failed endpoint save in words the person can act on: the database's
+ * chat and scope rules and a refused permission each say what to change;
+ * another check names its own reason; anything else asks to try again.
+ */
+export function webhookSaveError(error: unknown, editing: boolean): string {
+  const fallback = editing ? 'Could not save the endpoint. Try again.' : 'Could not create the endpoint. Try again.';
+  const { code, message } = (error ?? {}) as { code?: string; message?: string };
+  const text = message ?? '';
+  if (/assistant\.message goes only/.test(text)) return 'Chat for an assistant (old name) needs one person\'s own assistant under Member.';
+  if (/chat\.message goes only/.test(text)) return 'Chat needs one agent under Member: chat is private, so it only goes to the agent it is for.';
+  if (/one_scope|one member or scoped to one assistant setup/.test(text)) return 'This endpoint sends for every assistant from a setup, so it cannot also be limited to one member. Set Member to Everyone.';
+  if (/Only an Owner scopes an endpoint/.test(text)) return 'Only an Owner can send events for a whole assistant setup.';
+  if (code === '42501') return 'You no longer have permission to manage webhooks. Ask an Owner.';
+  if (code === '23514' && text) return `The endpoint was refused: ${text}`;
+  return fallback;
 }
 
 /**
@@ -370,22 +454,55 @@ export function webhookFields(draft: WebhookDraft, editingHadTypes: boolean) {
 
 export interface EndpointHealth {
   state: 'paused' | 'failing' | 'retrying' | 'ok' | 'idle';
-  /** Failed for good, among the recent deliveries loaded. */
+  /** Failed for good, among this endpoint's latest deliveries loaded. */
   failed: number;
   /** Waiting out a backoff after a failed try. */
   retrying: number;
 }
 
-/** An endpoint's state from its recent deliveries: paused wins, then failures, then retries. */
+/** How many of each endpoint's newest deliveries the panel reads for its health. */
+export const ENDPOINT_HEALTH_DELIVERIES = 20;
+
+/**
+ * An endpoint's state from its own latest deliveries (each endpoint's, not
+ * the newest across all of them): paused wins; failing only when its newest
+ * finished delivery failed, so one that failed and then recovered is healthy
+ * (its older failures stay as a count); then retries waiting out a backoff.
+ */
 export function endpointHealth(endpoint: Pick<WebhookEndpoint, 'id' | 'is_active' | 'last_delivery_at'>, deliveries: readonly WebhookDelivery[]): EndpointHealth {
   const own = deliveries.filter((delivery) => delivery.endpoint_id === endpoint.id);
   const failed = own.filter((delivery) => delivery.status === 'failed').length;
   const retrying = own.filter((delivery) => delivery.status === 'pending' && delivery.attempts > 0).length;
+  const finishedAt = (delivery: WebhookDelivery) => Date.parse(delivery.last_attempt_at ?? delivery.delivered_at ?? delivery.updated_at ?? delivery.created_at);
+  const newestFinished = own
+    .filter((delivery) => delivery.status === 'failed' || delivery.status === 'succeeded')
+    .sort((a, b) => finishedAt(b) - finishedAt(a))[0];
   const state = !endpoint.is_active ? 'paused'
-    : failed > 0 ? 'failing'
+    : newestFinished?.status === 'failed' ? 'failing'
       : retrying > 0 ? 'retrying'
         : endpoint.last_delivery_at || own.length > 0 ? 'ok' : 'idle';
   return { state, failed, retrying };
+}
+
+/**
+ * A delivery's detail line. A retry waiting out its backoff says when it
+ * goes, unless scheduled retries are off: then nothing sends it on its own,
+ * so it says how to send it now.
+ */
+export function deliveryDetailLine(
+  delivery: Pick<WebhookDelivery, 'status' | 'attempts' | 'last_error' | 'delivered_at' | 'next_attempt_at'>,
+  retriesOn: boolean,
+  formatWhen: (iso: string | null) => string,
+): string {
+  if (delivery.status === 'succeeded') return `Delivered ${formatWhen(delivery.delivered_at)}`;
+  if (delivery.status === 'delivering') return 'Sending now';
+  if (delivery.status === 'failed') return delivery.last_error || 'Failed';
+  if (delivery.attempts > 0) {
+    return retriesOn
+      ? `${delivery.last_error || 'Failed'}, next try ${formatWhen(delivery.next_attempt_at)}`
+      : `${delivery.last_error || 'Failed'}. Waiting: retries are off, so use Send pending now.`;
+  }
+  return 'Queued';
 }
 
 /**
@@ -395,10 +512,11 @@ export function endpointHealth(endpoint: Pick<WebhookEndpoint, 'id' | 'is_active
  */
 export function eventSummary(events: readonly string[]): string[] {
   const on = new Set(events);
-  const known = new Set(WEBHOOK_EVENT_GROUPS.flatMap((group) => group.events));
+  const known = new Set(WEBHOOK_EVENT_GROUPS.flatMap((group) => [...group.events, ...(group.legacyEvents ?? [])]));
   const labels = WEBHOOK_EVENT_GROUPS.flatMap((group) => {
     const count = group.events.filter((event) => on.has(event)).length;
-    if (count === 0) return [];
+    const legacy = (group.legacyEvents ?? []).some((event) => on.has(event));
+    if (count === 0) return legacy ? [`${group.label} (old name)`] : [];
     return [count === group.events.length ? group.label : `${group.label}: ${count} of ${group.events.length}`];
   });
   // An event this screen does not know yet (a newer server) still shows by name.

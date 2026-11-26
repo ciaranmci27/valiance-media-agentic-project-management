@@ -6,7 +6,7 @@ import { z } from 'zod';
  * routing. Behind it is the person's personal agent (lib/personal-agents.ts);
  * nothing here names keys, scopes, templates or rules.
  *
- * The four switches and what each one does (the server enforces each, and
+ * The five switches and what each one does (the server enforces each, and
  * the agent's context pack says it in words):
  * - sort_inbox (default off): the assistant handles the person's own inbox.
  *   On, it becomes a handler of each of their personal inboxes and is given
@@ -20,6 +20,8 @@ import { z } from 'zod';
  *   reply drafts.
  * - remind_me (default on): off, the server refuses reminders the assistant
  *   writes.
+ * - remember (default off): on, the assistant keeps notes about the person
+ *   in their own memory; off, the server refuses them and it reads none.
  *
  * Client-safe: no server code here.
  */
@@ -130,7 +132,8 @@ export const assistantSettingsSchema = z.object({
 
 /** POST /api/workspace/assistant/undo: one thing the assistant did, taken back. */
 export const assistantUndoSchema = z.object({
-  kind: z.enum(['task_created', 'task_completed', 'inbox_sorted']),
+  /** task_restore: a task it made, back out of Trash. */
+  kind: z.enum(['task_created', 'task_completed', 'inbox_sorted', 'task_restore']),
   id: z.uuid('id must be an id'),
 }).strict();
 export type AssistantUndo = z.infer<typeof assistantUndoSchema>;
@@ -141,20 +144,22 @@ export type AssistantUndo = z.infer<typeof assistantUndoSchema>;
  * How the assistant is, in one word for the page:
  * - working: running.
  * - paused: its person paused it (they can resume it).
- * - on_hold: every agent in the workspace is paused (the kill switch), or
- *   someone paused this agent on its agent page. Deliberate, so nobody is
- *   told it is broken; it picks up again once resumed there. When its host
- *   has also stopped reporting (the same rule as broken offline), it says
- *   so (hostDown) and the admins are told, since resuming alone will not
- *   bring it back.
+ * - on_hold: deliberate, so nobody is told it is broken; it picks up again
+ *   once lifted: assistants are off for the workspace, an admin paused it
+ *   (suspended it), every agent is paused (the kill switch), or someone
+ *   paused this agent on its agent page. When its host has also stopped
+ *   reporting (the same rule as broken offline), it says so (hostDown) and
+ *   the admins are told, since resuming alone will not bring it back. A
+ *   pause by an admin never reads host down: its keys stop with it, so its
+ *   host cannot report.
  * - getting_ready: just made, its harness has not collected its key yet.
- * - broken: paused by an admin, no key after the grace period, or its host
- *   stopped reporting well past its interval. The page says it is paused and
- *   that the admin was told; the admin is.
+ * - broken: no key after the grace period (never connected, or its key
+ *   expired or was revoked), or its host stopped reporting well past its
+ *   interval. The page says it is not working and why, and who fixes it.
  */
 export type AssistantState = 'working' | 'paused' | 'on_hold' | 'getting_ready' | 'broken';
-export type BrokenReason = 'paused_by_admin' | 'no_key' | 'offline';
-export type HoldReason = 'agents_paused' | 'agent_paused';
+export type BrokenReason = 'no_key' | 'key_lapsed' | 'offline';
+export type HoldReason = 'assistants_off' | 'paused_by_admin' | 'agents_paused' | 'agent_paused';
 export type AssistantReason = BrokenReason | HoldReason;
 
 /** A state with its reason: broken and on_hold always say why, the rest never do. */
@@ -179,6 +184,8 @@ export interface AssistantStateInput {
   lastKeyAt?: string | null;
   createdAt: string;
   health: { reportedAt: string; intervalSeconds: number } | null;
+  /** Assistants are switched off for the workspace (business_settings.assistants_enabled); personal agents only. */
+  assistantsOff?: boolean;
   /** The workspace kill switch (business_settings.agents_paused_at). */
   workspacePausedAt?: string | null;
   /** This agent paused on its agent page (team_members.agent_paused_at). */
@@ -194,13 +201,18 @@ function hostSilent(health: AssistantStateInput['health'], now: number): boolean
 export function assistantState(input: AssistantStateInput): AssistantStatus {
   const now = input.now ?? Date.now();
   if (input.status === 'suspended') {
-    return input.suspendedBy === input.personId ? { state: 'paused', reason: null } : { state: 'broken', reason: 'paused_by_admin' };
+    // Its person's pause is theirs to lift; anyone else's is a hold. A
+    // suspended agent's keys stop, so its host cannot report: never host down.
+    return input.suspendedBy === input.personId ? { state: 'paused', reason: null } : { state: 'on_hold', reason: 'paused_by_admin' };
   }
   const hold = (reason: HoldReason): AssistantStatus =>
     hostSilent(input.health, now) ? { state: 'on_hold', reason, hostDown: true } : { state: 'on_hold', reason };
+  if (input.assistantsOff) return hold('assistants_off');
   if (input.workspacePausedAt) return hold('agents_paused');
   if (input.agentPausedAt) return hold('agent_paused');
   if (input.liveKeys === 0) {
+    // It had a key once: that key ran out or was revoked, no grace.
+    if (input.lastKeyAt) return { state: 'broken', reason: 'key_lapsed' };
     return now - new Date(input.createdAt).getTime() < KEY_GRACE_MS ? { state: 'getting_ready', reason: null } : { state: 'broken', reason: 'no_key' };
   }
   if (hostSilent(input.health, now)) return { state: 'broken', reason: 'offline' };
@@ -210,32 +222,46 @@ export function assistantState(input: AssistantStateInput): AssistantStatus {
 /**
  * When the spell behind a state began, so "once per hold" can tell one spell
  * from the next: the pause's own stamp, the newest key for no_key, the last
- * report for offline. Null for working and getting ready. It only names the
- * start of what assistantState decided; it never decides a state itself.
+ * report for offline. Null for working and getting ready, and for
+ * assistants off (the switch keeps no time). It only names the start of what
+ * assistantState decided; it never decides a state itself.
  */
 export function assistantStateSince(input: AssistantStateInput, status: AssistantStatus): string | null {
   if (status.state === 'paused') return input.suspendedAt ?? null;
-  if (status.state === 'on_hold') return (status.reason === 'agents_paused' ? input.workspacePausedAt : input.agentPausedAt) ?? null;
+  if (status.state === 'on_hold') {
+    if (status.reason === 'paused_by_admin') return input.suspendedAt ?? null;
+    if (status.reason === 'assistants_off') return null;
+    return (status.reason === 'agents_paused' ? input.workspacePausedAt : input.agentPausedAt) ?? null;
+  }
   if (status.state !== 'broken') return null;
-  if (status.reason === 'paused_by_admin') return input.suspendedAt ?? null;
-  if (status.reason === 'no_key') return input.lastKeyAt ?? input.createdAt;
+  if (status.reason === 'no_key' || status.reason === 'key_lapsed') return input.lastKeyAt ?? input.createdAt;
   return input.health?.reportedAt ?? null;
 }
 
 export const BROKEN_WORDS: Record<BrokenReason, string> = {
-  paused_by_admin: 'An admin paused it.',
   no_key: 'It was never connected to the service that runs it.',
+  key_lapsed: 'Its key expired or was revoked.',
   offline: 'The service that runs it stopped reporting.',
 };
 
+const ADMIN_PAUSED_PERSON = 'An admin paused your assistant. It picks up again when they resume it.';
+
 /** Why it is on hold, for the person (My Assistant) and the Owner (Settings > Assistants). */
 export const HOLD_WORDS: Record<HoldReason, { person: string; owner: string }> = {
+  assistants_off: {
+    person: 'Assistants are off for your workspace, so yours does nothing for now. It picks up again when an Owner turns them back on.',
+    owner: 'Assistants are off.',
+  },
+  paused_by_admin: {
+    person: ADMIN_PAUSED_PERSON,
+    owner: 'Paused by an admin.',
+  },
   agents_paused: {
     person: 'Every agent in this workspace is paused right now, yours too. It picks up again when an Owner resumes agents.',
     owner: 'Every agent is paused.',
   },
   agent_paused: {
-    person: 'An admin paused your assistant. It picks up again when they resume it.',
+    person: ADMIN_PAUSED_PERSON,
     owner: 'Paused on its agent page.',
   },
 };
@@ -243,9 +269,55 @@ export const HOLD_WORDS: Record<HoldReason, { person: string; owner: string }> =
 /** On hold, and its host stopped reporting too: the person's page and Settings > Assistants > Status say this. */
 export const HOST_DOWN_WORDS = 'On hold. Its host is not responding.';
 
+/** The state in a word or two, for the person's own page. */
+export const PERSON_STATE_WORDS: Record<AssistantState, string> = {
+  working: 'Working for you',
+  paused: 'Paused by you',
+  on_hold: 'On hold',
+  getting_ready: 'Getting ready',
+  broken: 'Not working',
+};
+
+/**
+ * Who fixes an assistant that is not working, as the person reads it:
+ * admin, when someone else was told; settings, when nobody else could be
+ * (the person is an Owner, or no other admin is there to tell).
+ */
+export type AssistantFixer = 'admin' | 'settings';
+
+/** The line after why: an admin was told, or where the person fixes it themselves. */
+export const fixerWords = (fixer: AssistantFixer): string =>
+  fixer === 'admin' ? 'Your admin has been told.' : 'Fix it in Settings > Assistants.';
+
 /** One plain line on why, for a row that has a reason. */
 export const reasonWords = (reason: AssistantReason): string =>
   reason in HOLD_WORDS ? HOLD_WORDS[reason as HoldReason].owner : BROKEN_WORDS[reason as BrokenReason];
+
+/** Where an admin fixes a broken assistant: its agent service, on Settings > Assistants. */
+export const ASSISTANT_SERVICE_ANCHOR = 'assistant-service';
+export const ASSISTANT_SERVICE_HREF = `/settings/assistants#${ASSISTANT_SERVICE_ANCHOR}`;
+
+/** The published guide to assistants and their agent service. */
+export const ASSISTANTS_DOCS_URL = 'https://github.com/ciaranmci27/valiance-media-agentic-project-management/blob/main/docs/agents/assistants.md';
+
+/** The key scopes the agent service always needs besides its templates' own: collecting keys, and one webhook per setup. */
+export const ASSISTANT_SERVICE_SCOPES = ['assistants.provision', 'webhooks.manage'] as const;
+
+/**
+ * The agent service, as Settings > Assistants shows it:
+ * - none: no live key carries assistants.provision.
+ * - waiting: a key exists, but no assistant's key was collected with it yet.
+ * - connected: it collected at least one assistant's key.
+ */
+export interface AssistantServiceView {
+  state: 'none' | 'waiting' | 'connected';
+  /** Live keys that carry assistants.provision: never a secret. */
+  keys: { id: string; name: string; prefix: string; created_at: string; last_used_at: string | null }[];
+  /** When it first collected an assistant's key, if it has. */
+  first_collected_at: string | null;
+  /** How many assistants hold a live key it collected. */
+  collected: number;
+}
 
 // ── What the page reads ───────────────────────────────────────────────────
 
@@ -255,8 +327,12 @@ export interface ChatConnectionCard {
   provider_label: string;
   display_name: string;
   bot_handle: string | null;
+  /** The provider workspace (a Slack team) the bot lives in: a linked account matches it. */
+  workspace_id: string | null;
   /** A link that opens a chat with the bot, when the provider has one. */
   open_url: string | null;
+  /** Switched off by an Owner: listed with an Off tag, and the bot answers that it is off. */
+  enabled: boolean;
 }
 
 export interface MyAssistantView {
@@ -272,6 +348,8 @@ export interface MyAssistantView {
     reason: AssistantReason | null;
     /** On hold, and its host stopped reporting (HOST_DOWN_WORDS). */
     host_down?: boolean;
+    /** Not working (or host down): who fixes it, as the person reads it. */
+    fixer: AssistantFixer;
     preferences: AssistantPreferences;
     /** Whether the person has a personal inbox for "Sort my inbox" to handle. */
     has_personal_inbox: boolean;
@@ -291,6 +369,8 @@ export interface AssistantActivityItem {
   href: string | null;
   /** The undo for it, or null when nothing can be taken back. */
   undo: AssistantUndo | null;
+  /** A task it made that is now in Trash: the way back. */
+  restore?: AssistantUndo | null;
   /** Already undone (a task back out of Trash, a sort undone). */
   undone?: boolean;
 }
@@ -329,14 +409,23 @@ export interface AssistantSetupView {
   template_label: string | null;
   enabled: boolean;
   created_at: string;
+  /** Set when the setup cannot be used (its template is gone, or its feature is off). */
+  skipped_reason?: string | null;
 }
 
 /** POST /api/workspace/assistants/provision's answer, as the preview reads it. */
 export interface ProvisionPreview {
   dry_run: boolean;
-  agents: { person: { id: string; name: string }; agent_id: string | null }[];
+  agents: { person: { id: string; name: string }; agent_id: string | null; setup_id?: string }[];
   total_missing: number;
   remaining: number;
   next_after: string | null;
   skipped_setups: { setup_id: string; template_key: string; reason: string }[];
 }
+
+/** Why a setup cannot give anyone an assistant, in plain words. */
+export const SKIPPED_SETUP_WORDS: Record<string, string> = {
+  unknown_template: 'Its template is gone, so nobody gets an assistant from it.',
+  module_off: "Its template needs a feature that is off, so it can't be used.",
+};
+export const skippedSetupWords = (reason: string): string => SKIPPED_SETUP_WORDS[reason] ?? "It can't be used right now.";

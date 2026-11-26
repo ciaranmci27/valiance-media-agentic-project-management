@@ -131,7 +131,7 @@ export async function assertConnectAiOn(service: SupabaseClient): Promise<void> 
   const state = await connectAiState(service);
   if (!state.ready) throw new OAuthError(503, 'temporarily_unavailable', 'This workspace needs its latest database update before AI tools can connect.');
   if (!state.enabled) throw new OAuthError(403, 'access_denied', 'Connecting AI tools is turned off for this workspace. An Owner can turn it on in Settings > Security.');
-  if (!state.apiEnabled) throw new OAuthError(403, 'access_denied', 'API access is turned off for this workspace, so AI tools cannot connect.');
+  if (!state.apiEnabled) throw new OAuthError(403, 'access_denied', 'API access is turned off for this workspace, so AI tools cannot connect. An Owner can turn it on in Settings > Security, under API access.');
 }
 
 /** Owner only: turn Connect AI on or off. Written as the Owner, so the audit log says who. */
@@ -144,6 +144,20 @@ export async function setConnectAiEnabled(service: SupabaseClient, enabled: bool
     if (missingColumn(error)) throw new ApiError(409, 'MIGRATION_REQUIRED', 'Run the latest database migration first.', { reason: 'migration_required' });
     throw error;
   }
+  return connectAiState(service);
+}
+
+/**
+ * Owner only: workspace API access (business_settings.api_enabled, on by
+ * default). Off, every API key and every connected AI tool is refused (403
+ * api_disabled) until it is on again; nothing is revoked.
+ */
+export async function setApiEnabled(service: SupabaseClient, enabled: boolean): Promise<ConnectAiState> {
+  const { data: row, error: readError } = await service.from('business_settings').select('id').limit(1).maybeSingle();
+  if (readError) throw readError;
+  if (!row) throw new ApiError(409, 'CONFLICT', 'The workspace settings row is missing. Finish setup first.');
+  const { error } = await service.from('business_settings').update({ api_enabled: enabled }).eq('id', row.id);
+  if (error) throw error;
   return connectAiState(service);
 }
 

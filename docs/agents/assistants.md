@@ -6,7 +6,7 @@ For admins. Give every person their own AI assistant: it keeps their tasks and r
 
 - Each assistant is a **personal agent** bound to one person. It sees and does only what that person may, and everything it does records them. Details: [Identity and access](identity-and-access.md#personal-agents).
 - The app holds the assistant's identity, settings, switches, chat and audit trail.
-- **Your agent service runs the AI.** This is the harness that runs personal agents: it collects each assistant's key, receives its chat messages and work events, calls your model and answers. The app does not run a model itself. Until a service connects an assistant, it reads "Getting ready".
+- **Your agent service runs the AI.** This is the harness that runs personal agents: it collects each assistant's key, receives its chat messages and work events, calls your model and answers. The app does not run a model itself. Until a service connects an assistant, it reads "Getting ready". Settings > Assistants opens with an **Agent service** step that makes the service's key and shows whether it is connected.
 
 ## Set up
 
@@ -16,17 +16,21 @@ For admins. Give every person their own AI assistant: it keeps their tasks and r
 2. Settings > Assistants: switch on **Turn on assistants**.
 3. Optional: **What you call them**, such as "Helper". The sidebar and each person's page use this name.
 
+Turning assistants off puts every assistant on hold: its writes answer `423 assistants_off` (reads, heartbeats and telemetry still work), nobody new gets one, and chat gets "Assistants are off in this workspace right now." People still see theirs on their page, on hold, with Pause, Undo and the switches.
+
 ### 2. Choose who gets one
 
 1. Under **Who gets one**, add a role or a group. Members is the common choice.
 2. Press **Give everyone their assistant**. You see who gets one first, then confirm.
-3. People who join later with that role or group get theirs when they join.
+3. People who join later with that role, are added to that group, or move into that role, get theirs then (while assistants are on).
 
-Removing a role or group later leaves the assistants it gave with their people.
+Removing a role or group later leaves the assistants it gave with their people. A setup whose template is gone, or whose feature is off, says so on its row and in the preview. **Give everyone** reports how many people got one and how many could not.
 
 ### 3. Connect your agent service
 
-The service needs an API key made by an Owner, carrying `assistants.provision`. With it, it:
+Settings > Assistants > **Agent service** > **Make the service key** makes it for you and shows it once: `assistants.provision`, `webhooks.manage` and the scopes your assistants' templates carry (each key the service collects is narrowed to what this key carries). The step reads **Waiting for your service** until the service collects its first assistant's key, then **Connected**. Status rows that need the service link here.
+
+The service needs that API key, made by an Owner, carrying `assistants.provision`. With it, it:
 
 1. Lists assistants without a key: `GET /api/v1/assistants?needs_key=true` (MCP `list_assistants`).
 2. Collects each key once: `POST /api/v1/assistants/{id}/key`. No person ever handles these keys.
@@ -48,10 +52,10 @@ For AI that answers in channels (a company agent such as "Ops AI"), add a second
 **Slack**
 
 1. At api.slack.com/apps, create an app for your workspace.
-2. Under OAuth & Permissions, add the bot scopes `chat:write`, `chat:write.customize` and `im:history`, then install it. `chat:write.customize` lets each reply show the assistant's own name and avatar.
+2. Under OAuth & Permissions, add the bot scopes `chat:write`, `chat:write.customize`, `im:history`, `im:write` and `files:read`, then install it. `chat:write.customize` lets each reply show the assistant's own name and avatar; `im:write` lets the assistant write first (a morning digest); `files:read` lets it read files people send. Changed the scopes later? Reinstall the app.
 3. Under App Home, turn on the Messages Tab, so people can message it.
 4. In the app, choose Slack, paste the Bot User OAuth Token (`xoxb-...`) and, from Basic Information, the Signing Secret. Press **Connect**.
-5. Copy the **Request URL** the app shows. In your Slack app, open Event Subscriptions, turn it on, paste the URL, and subscribe to the bot event `message.im`.
+5. Copy the **Request URL** the app shows. In your Slack app, open Event Subscriptions, turn it on, paste the URL, and subscribe to the bot event `message.im`. If Slack says the URL didn't respond, the signing secret is wrong: use **Replace token or secret** on the row.
 
 **Telegram**
 
@@ -68,11 +72,23 @@ Discord needs one extra piece: a small relay you run on any server you control (
 1. At discord.com/developers/applications, create an application. On its Bot page, turn on **Message Content Intent**, press **Reset Token** and copy the token.
 2. In the app, choose Discord, paste the token and press **Connect**.
 3. Copy the relay secret (shown once) and the relay address, and invite the bot with the link the app shows. It needs no permissions in the server: people message it directly, and only need to share a server with it.
-4. Run the relay. The row reads **Waiting for relay** until it says hello.
+4. Run the relay. The row reads **Waiting for relay** until it says hello. A new relay secret resets it to Waiting for relay until the relay says hello with the new one.
 
 Replies come from the bot with the assistant's name in bold on the first line (Discord bots cannot change their name per message, and DMs have no webhooks).
 
-Then each person links their own chat account from their Assistant page: they message the bot "hi" and open the link it sends while signed in.
+Then each person links their own chat account from their Assistant page: they message the bot "hi" and open the link it sends while signed in. The link page says they messaged the bot (nobody else asked), and once linked the bot says so in the chat: "Linked. Nova answers you here now."
+
+Each app has one personal and one company connection: a second of the same kind is refused (`409 slot_taken`). A connection's row says honestly how it is:
+
+| Status | Means |
+|---|---|
+| Waiting for Slack, Waiting for relay, Waiting for first message | Nothing verified has arrived yet. |
+| Connected | A verified request in the last 14 days. |
+| Quiet | Heard before, nothing in 14 days. |
+| Not receiving | The provider's last request failed the check (a wrong signing secret, an old relay secret). |
+| Off | Switched off. A person who writes to it gets "This chat is switched off here. Ask your admin.", once a day, and the row stays on their page, tagged Off. |
+
+A wrong or leaked bot token or Slack signing secret is replaced in place (**Replace token**): the connection keeps its Request URL, history and everyone's links. The new token must be for the same bot or Slack workspace.
 
 A connection made before company chat existed is a personal one and works as before, except that it no longer answers in channels.
 
@@ -93,19 +109,19 @@ Who gets a plain one-line answer instead:
 
 | Sender | Answer |
 |---|---|
-| Not linked yet | A one-time link to connect their account (at most once an hour) |
+| Not linked yet | A one-time link to connect their account. While that link is still open (unused, under 15 minutes), a reminder instead of a second one; once it is used or expired, a fresh one at once. |
 | Suspended | "This account is not active here. Ask your admin." |
 | No assistant | "You don't have an assistant yet. Ask your admin to set one up." |
-| Assistants are off | "Assistants are not turned on yet. Ask your admin." |
+| Assistants are off | "Assistants are off in this workspace right now. Ask your admin." |
 
 When the person's assistant will not answer right now, the app says so itself, using the assistant's name. It sends this once per chat until the assistant is back and then stops again.
 
 | Assistant | Answer | The message |
 |---|---|---|
 | On hold | "Nova is on hold right now and will answer when it's back." | Recorded and sent to it; it answers once resumed |
-| Paused by them | "Nova is paused. Resume it from your Assistant page to get answers." with a link | Recorded, not sent to it |
-| Paused by an admin | "Nova can't answer right now. Your admin has been told." | Recorded, not sent to it |
-| Not connected, or its service stopped | "Nova can't answer right now. Your admin has been told." | Recorded and sent to it |
+| Paused by them | "Nova is paused. Resume it from your Assistant page: it gets what you send meanwhile when you do." with a link | Held, then sent to it when resumed (the newest 20, oldest first; older ones are kept, not sent) |
+| Paused by an admin | "Nova is paused by an admin. It gets what you send meanwhile when they resume it." | Held, then sent when resumed, the same way |
+| Not connected, or its service stopped | "Nova can't answer right now: its key expired or was revoked. Your admin has been told." (the reason, then who fixes it: "Fix it in Settings > Assistants." for an Owner, or when nobody else could be told) | Recorded and sent to it |
 
 ## What employees see
 
@@ -128,7 +144,7 @@ The server enforces each one. The assistant is also told in words, so it does no
 | Draft replies | On | The app refuses its reply drafts. |
 | Remind me | On | The app refuses reminders it writes. |
 | Remember things for me | Off | It keeps nothing new about them. |
-| Pause | | It does nothing until they resume it. |
+| Pause | | It does nothing until they resume it. Chat messages they send meanwhile reach it when they resume (the newest 20). |
 
 ## Privacy
 
@@ -139,15 +155,17 @@ The server enforces each one. The assistant is also told in words, so it does no
 
 ## Troubleshooting "paused"
 
-Settings > Assistants > **Status** lists every assistant. Each one that needs you says why and links to its agent page. The person sees "Paused" and "Your admin has been told", and the admin gets a notification, at most once a day.
+Settings > Assistants > **Status** lists every assistant. Each one that needs you says why; **Fix** opens the Agent service step at the top of the page. The person sees "Not working" with the reason and who fixes it ("Your admin has been told" only when someone was; an Owner, or someone nobody else could be told about, reads "Fix it in Settings > Assistants"). The admin gets a notification, at most once a day: an Owner's opens the Agent service step, another admin's opens the agent's page.
 
 | Status | Why | Fix |
 |---|---|---|
 | Getting ready | Just made. The agent service has not collected its key yet (it has 15 minutes). | Check the service is running and polling `needs_key=true`. |
-| Needs you: "It was never connected to the service that runs it." | No live key after 15 minutes, or its key expired or was revoked. | Have the service collect a key (`POST /api/v1/assistants/{id}/key`). If one exists but is expiring, rotate it instead. |
+| Needs you: "It was never connected to the service that runs it." | No key after 15 minutes. | Connect the agent service (Settings > Assistants > Agent service). |
+| Needs you: "Its key expired or was revoked." | It had a key, and it ran out or was revoked (or its person was suspended and is back). | Have the service collect a new key (`POST /api/v1/assistants/{id}/key`). If one exists but is expiring, rotate it instead. |
 | Needs you: "The service that runs it stopped reporting." | Its last heartbeat is older than three of its promised intervals. | Restart the service. Check it beats for this assistant. |
-| Needs you: "An admin paused it." | Someone other than the person suspended the assistant's account. | Reactivate it from the Team page. |
 | Paused by them | The person pressed Pause. | Only they resume it, from their page. |
+| On hold: "Assistants are off." | An Owner switched assistants off. | Turn them on in Settings > Assistants. |
+| On hold: "Paused by an admin." | Someone other than the person suspended the assistant's account. Deliberate, so nobody is notified. | Reactivate it from the Team page or its agent page. |
 | On hold: "Every agent is paused." | An Owner paused every agent (Settings > Security). | Resume agents there. |
 | On hold: "Paused on its agent page." | Someone paused this agent from its profile or with `paused: true`. | Resume it on its agent page. |
 | On hold: "On hold. Its host is not responding." | On hold, and its service also stopped reporting (the same rule as above). Resuming alone will not bring it back. | Restart the service, then resume. |

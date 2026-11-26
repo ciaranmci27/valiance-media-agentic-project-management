@@ -1,17 +1,23 @@
 import { insertAuditRows } from './audit';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { isModuleEnabled, type AccessContext } from '@/lib/access-control';
+import { isModuleEnabled, API_ENDPOINT_PERMISSION_SET, type AccessContext, type PermissionKey } from '@/lib/access-control';
+import { findAgentTemplate } from '@/lib/agent-templates';
 import {
-  assistantLabel, assistantState, assistantStateSince, preferencesToContext, readSwitches, readTone, ASSISTANT_DEFAULT_LABEL, BROKEN_WORDS, DEFAULT_PREFERENCES, HOST_DOWN_WORDS, SWITCH_WORDS,
-  type AssistantActivity, type AssistantActivityItem, type AssistantPreferences, type AssistantState, type AssistantStatus, type AssistantStatusRow, type AssistantSwitch,
-  type AssistantUndo, type BrokenReason, type ChatConnectionCard, type MyAssistantView, type UpdateMyAssistant,
+  assistantLabel, assistantState, assistantStateSince, preferencesToContext, readSwitches, readTone, ASSISTANT_DEFAULT_LABEL, ASSISTANT_SERVICE_HREF, ASSISTANT_SERVICE_SCOPES,
+  BROKEN_WORDS, DEFAULT_PREFERENCES, HOST_DOWN_WORDS, SWITCH_WORDS,
+  type AssistantActivity, type AssistantActivityItem, type AssistantFixer, type AssistantPreferences, type AssistantServiceView, type AssistantState, type AssistantStatus,
+  type AssistantStatusRow, type AssistantSwitch, type AssistantUndo, type BrokenReason, type ChatConnectionCard, type MyAssistantView, type UpdateMyAssistant,
 } from '@/lib/assistant';
 import { chatProviderLabel } from '@/lib/chat/types';
 import { chatAdapter } from '@/lib/chat/providers';
 import { TELEMETRY_EVENT_TYPES } from '@/lib/agent-events';
 import { comms } from '@/lib/communications/db';
-import { moveToTrash } from '@/lib/supabase/trash';
+import { moveToTrash, restoreFromTrash } from '@/lib/supabase/trash';
+import { accessAllows } from './access';
+import { agentTemplateRegistry } from './agent-registries';
+import { insertApiKey } from './agent-setup';
 import { ApiError, forbidden, notFound } from './errors';
+import { newKeyExpiry } from './key-lifetime';
 import { missingLimitsSchema } from './agent-limits';
 import { readAll } from './read-all';
 import { trashApiError } from './trash';
@@ -167,7 +173,12 @@ async function pausesOf(service: SupabaseClient, agentIds: string[]): Promise<{ 
  */
 export async function statesOf(service: SupabaseClient, agents: Row[]): Promise<Map<string, AssistantStatus & { since: string | null }>> {
   const ids = agents.map((agent) => agent.id as string);
-  const [keys, health, pauses] = await Promise.all([keysOf(service, ids), healthOf(service, ids), pausesOf(service, ids)]);
+  // Assistants off holds personal agents only; a company agent never reads the switch.
+  const anyPersonal = agents.some((agent) => !!agent.delegate_of);
+  const [keys, health, pauses, assistantsOn] = await Promise.all([
+    keysOf(service, ids), healthOf(service, ids), pausesOf(service, ids),
+    anyPersonal ? readAssistantSettings(service).then((settings) => settings.enabled) : Promise.resolve(true),
+  ]);
   return new Map(agents.map((agent) => {
     const input = {
       status: agent.status ?? 'active',
@@ -178,6 +189,7 @@ export async function statesOf(service: SupabaseClient, agents: Row[]): Promise<
       lastKeyAt: keys.get(agent.id)?.lastAt ?? null,
       createdAt: agent.created_at,
       health: health.get(agent.id) ?? null,
+      assistantsOff: !!agent.delegate_of && !assistantsOn,
       workspacePausedAt: pauses.workspace,
       agentPausedAt: pauses.agents.get(agent.id) ?? null,
     };
@@ -196,8 +208,8 @@ export function alertOf(status: AssistantStatus): AssistantAlert | null {
   return null;
 }
 
-/** Who hears that an assistant is broken: its owners other than its person, else the workspace Owners. */
-export async function assistantAdmins(service: SupabaseClient, agentId: string, personId: string): Promise<string[]> {
+/** Who hears that an assistant is broken, with each one's role: its owners other than its person, else the workspace Owners. */
+async function assistantAdminRows(service: SupabaseClient, agentId: string, personId: string): Promise<{ id: string; role: string }[]> {
   const { data: owners } = await service.from('agent_owners').select('member_id').eq('agent_id', agentId);
   const ids = ((owners ?? []) as Row[]).map((row) => row.member_id as string).filter((id) => id !== personId);
   const query = ids.length
@@ -205,28 +217,46 @@ export async function assistantAdmins(service: SupabaseClient, agentId: string, 
     : service.from('team_members').select('id, role, status').eq('role', 'owner');
   const { data, error } = await query;
   if (error) throw error;
-  return ((data ?? []) as Row[]).filter((row) => row.role !== 'agent' && (row.status ?? 'active') === 'active' && row.id !== personId).map((row) => row.id as string);
+  return ((data ?? []) as Row[]).filter((row) => row.role !== 'agent' && (row.status ?? 'active') === 'active' && row.id !== personId)
+    .map((row) => ({ id: row.id as string, role: row.role as string }));
+}
+
+/** Who hears that an assistant is broken: its owners other than its person, else the workspace Owners. */
+export async function assistantAdmins(service: SupabaseClient, agentId: string, personId: string): Promise<string[]> {
+  return (await assistantAdminRows(service, agentId, personId)).map((row) => row.id);
 }
 
 /**
- * Once a day per admin per assistant: the bell says whose assistant is
- * paused and why, or that it is on hold with its host not responding. Never
- * fails the caller.
+ * Who fixes the person's assistant, as they read it: an admin was told, or,
+ * when the person is an Owner or nobody else is there to tell, they fix it
+ * themselves in Settings > Assistants.
+ */
+export async function assistantFixer(service: SupabaseClient, agentId: string, person: { id: string; role: string }): Promise<AssistantFixer> {
+  if (person.role === 'owner') return 'settings';
+  return (await assistantAdmins(service, agentId, person.id)).length > 0 ? 'admin' : 'settings';
+}
+
+/**
+ * Once a day per admin per assistant: the bell says whose assistant is not
+ * working and why, or that it is on hold with its host not responding. An
+ * Owner's bell opens the agent service step in Settings > Assistants; any
+ * other admin's opens the agent's own page (Settings > Assistants is the
+ * Owners'). Never fails the caller.
  */
 export async function notifyAssistantBroken(service: SupabaseClient, agent: { id: string; name: string }, person: { id: string; name: string }, reason: AssistantAlert): Promise<number> {
   try {
-    const admins = await assistantAdmins(service, agent.id, person.id);
+    const admins = await assistantAdminRows(service, agent.id, person.id);
     if (admins.length === 0) return 0;
     const since = new Date(Date.now() - 24 * 3600_000).toISOString();
-    const { data: recent } = await service.from('team_member_notifications').select('user_id').in('user_id', admins)
+    const { data: recent } = await service.from('team_member_notifications').select('user_id').in('user_id', admins.map((admin) => admin.id))
       .eq('entity_type', 'member').eq('entity_id', agent.id).gte('created_at', since);
     const told = new Set(((recent ?? []) as Row[]).map((row) => row.user_id as string));
-    const rows = admins.filter((id) => !told.has(id)).map((id) => ({
-      user_id: id,
+    const rows = admins.filter((admin) => !told.has(admin.id)).map((admin) => ({
+      user_id: admin.id,
       ...(reason === 'host_down'
         ? { title: `${person.name}'s assistant is on hold, its host is not responding`, message: `${HOST_DOWN_WORDS} ${person.name} sees that too.` }
-        : { title: `${person.name}'s assistant is paused`, message: `${BROKEN_WORDS[reason]} ${person.name} sees that it is paused and that you were told.` }),
-      link: '/settings/assistants',
+        : { title: `${person.name}'s assistant is not working`, message: `${BROKEN_WORDS[reason]} ${person.name} sees that it is not working and that you were told.` }),
+      link: admin.role === 'owner' ? ASSISTANT_SERVICE_HREF : `/agent/${agent.id}`,
       entity_type: 'member',
       entity_id: agent.id,
     }));
@@ -249,13 +279,17 @@ async function personalInboxIds(service: SupabaseClient, personId: string): Prom
   return ((data ?? []) as Row[]).map((row) => row.id as string);
 }
 
-/** The personal bots a person can link their chat account through (a company bot is not their assistant). */
-async function enabledConnections(service: SupabaseClient): Promise<ChatConnectionCard[]> {
-  const columns = 'id, provider, display_name, bot_handle, external_workspace_id';
-  let { data, error }: { data: unknown; error: { code?: string; message?: string } | null } = await service.from('chat_connections').select(`${columns}, kind`)
-    .eq('enabled', true).order('created_at');
+/**
+ * The personal bots a person can link their chat account through (a company
+ * bot is not their assistant), switched off ones too: they stay listed with
+ * an Off tag, so a linked account does not seem to vanish.
+ */
+async function personalConnections(service: SupabaseClient): Promise<ChatConnectionCard[]> {
+  const columns = 'id, provider, display_name, bot_handle, external_workspace_id, enabled';
+  let { data, error }: { data: unknown; error: { code?: string; message?: string } | null } = await service.from('chat_connections').select(`${columns}, kind, external_bot_id`)
+    .order('created_at');
   // Before 20261125001100 there is no kind: every connection is personal.
-  if (error?.code === '42703' || error?.code === 'PGRST204') ({ data, error } = await service.from('chat_connections').select(columns).eq('enabled', true).order('created_at'));
+  if (error?.code === '42703' || error?.code === 'PGRST204') ({ data, error } = await service.from('chat_connections').select(columns).order('created_at'));
   if (error) {
     if (missingAssistantSchema(error)) return [];
     throw error;
@@ -266,46 +300,68 @@ async function enabledConnections(service: SupabaseClient): Promise<ChatConnecti
     provider_label: chatProviderLabel(row.provider),
     display_name: row.display_name,
     bot_handle: row.bot_handle ?? null,
-    open_url: chatAdapter(row.provider)?.openUrl({ botHandle: row.bot_handle ?? null, workspaceId: row.external_workspace_id ?? null }) ?? null,
+    workspace_id: row.external_workspace_id ?? null,
+    open_url: chatAdapter(row.provider)?.openUrl({ botHandle: row.bot_handle ?? null, workspaceId: row.external_workspace_id ?? null, botId: row.external_bot_id ?? null }) ?? null,
+    enabled: row.enabled !== false,
   }));
 }
 
 /**
  * What My Assistant shows the signed-in person: the workspace switch and
  * name, their assistant (state, settings) and the chat connections they can
- * link. When it is broken, its admins are told (once a day).
+ * link. With assistants off, a person who has one still sees it, on hold,
+ * with every control, so Pause and Undo never go away. When it is not
+ * working, its admins are told (once a day), and the page says who fixes it.
+ * A working assistant gets any chat messages held for it while it was
+ * paused (deliverHeldChat).
  */
 export async function myAssistantView(service: SupabaseClient, memberId: string, access: AccessContext): Promise<MyAssistantView> {
   const settings = await readAssistantSettings(service);
   const agentsOn = isModuleEnabled(access, 'agents');
   const base: MyAssistantView = { enabled: settings.enabled, label: settings.label, agents_on: agentsOn, assistant: null, connections: [] };
-  if (!settings.enabled || !agentsOn || access.role === 'agent') return base;
+  if (!agentsOn || access.role === 'agent') return base;
   const agent = await findPersonalAgent(service, memberId);
   if (!agent) return base;
   const [states, preferences, inboxes, connections, person] = await Promise.all([
     statesOf(service, [agent]),
     readPreferences(service, agent.id),
     personalInboxIds(service, memberId),
-    enabledConnections(service),
-    service.from('team_members').select('id, name').eq('id', memberId).maybeSingle().then(({ data }) => data as Row | null),
+    personalConnections(service),
+    service.from('team_members').select('id, name, role').eq('id', memberId).maybeSingle().then(({ data }) => data as Row | null),
   ]);
   const status = states.get(agent.id)!;
   const { state, reason } = status;
   const alert = alertOf(status);
   if (alert) await notifyAssistantBroken(service, { id: agent.id, name: agent.name }, { id: memberId, name: person?.name ?? 'Someone' }, alert);
+  const fixer = alert ? await assistantFixer(service, agent.id, { id: memberId, role: person?.role ?? access.role }) : 'admin';
+  if (state === 'working') await deliverHeldChatSafely(service, agent.id);
   return {
     ...base,
     assistant: {
-      id: agent.id, name: agent.name, avatar_tone: preferences.avatar_tone, state, reason, host_down: alert === 'host_down', preferences, has_personal_inbox: inboxes.length > 0,
+      id: agent.id, name: agent.name, avatar_tone: preferences.avatar_tone, state, reason, host_down: alert === 'host_down', fixer, preferences, has_personal_inbox: inboxes.length > 0,
     },
     connections,
   };
 }
 
+/** Held chat reaches the assistant on the page's read; a failure never fails the page. */
+async function deliverHeldChatSafely(service: SupabaseClient, agentId: string): Promise<void> {
+  try {
+    const { deliverHeldChat } = await import('@/lib/chat/inbound');
+    await deliverHeldChat(service, agentId);
+  } catch (error) {
+    console.error('[assistant] could not deliver held chat', (error as { code?: string })?.code ?? error);
+  }
+}
+
+/**
+ * The signed-in person's own assistant, for their controls. Assistants off
+ * does not refuse them: Pause, Undo and the switches stay theirs. Only the
+ * AI agents module being off, or having none, does.
+ */
 async function requireMyAssistant(service: SupabaseClient, memberId: string, access: AccessContext): Promise<Row> {
   if (access.role === 'agent') throw forbidden('An agent has no assistant of its own', { reason: 'agent_has_no_assistant' });
-  const settings = await readAssistantSettings(service);
-  if (!settings.enabled || !isModuleEnabled(access, 'agents')) throw forbidden('Assistants are not turned on', { reason: 'assistants_off' });
+  if (!isModuleEnabled(access, 'agents')) throw forbidden('AI agents are off in this workspace', { reason: 'agents_off' });
   const agent = await findPersonalAgent(service, memberId);
   if (!agent) throw notFound('Assistant');
   return agent;
@@ -367,6 +423,8 @@ export async function updateMyAssistant(service: SupabaseClient, memberId: strin
     } else if (!input.paused && agent.status === 'suspended') {
       const { error } = await service.from('team_members').update({ status: 'active', suspended_at: null, suspended_by: null }).eq('id', agent.id);
       if (error) throw error;
+      // What they sent it while it was paused reaches it now (myAssistantView
+      // below delivers it once the assistant reads as working).
     }
   }
   const touchesPreferences = input.tone !== undefined || input.personality !== undefined || input.avatar_tone !== undefined || input.switches !== undefined;
@@ -430,6 +488,7 @@ export async function myAssistantActivity(service: SupabaseClient, memberId: str
       id: `created:${row.id}`, kind: 'task_created', at: row.created_at, text: `Created a task: ${row.title}`,
       href: row.deleted_at ? null : `/projects/${row.project_id}?task=${row.id}`,
       undo: row.deleted_at ? null : { kind: 'task_created', id: row.id }, undone: !!row.deleted_at,
+      restore: row.deleted_at ? { kind: 'task_restore', id: row.id } : null,
     });
   }
   const finishedIds = [...new Set(((finished.data ?? []) as Row[]).map((row) => row.task_id as string))];
@@ -483,7 +542,7 @@ export async function myAssistantActivity(service: SupabaseClient, memberId: str
  * a task it finished is reopened. Only the person's own assistant's work;
  * anything else reads as missing. Inbox sorts use the Inbox's own undo.
  */
-export async function undoAssistantAction(service: SupabaseClient, memberId: string, access: AccessContext, input: AssistantUndo): Promise<{ undone: true }> {
+export async function undoAssistantAction(service: SupabaseClient, memberId: string, access: AccessContext, input: AssistantUndo): Promise<{ undone: true; status?: string }> {
   const agent = await requireMyAssistant(service, memberId, access);
   if (!UUID.test(input.id)) throw notFound('Task');
   if (input.kind === 'inbox_sorted') {
@@ -492,6 +551,16 @@ export async function undoAssistantAction(service: SupabaseClient, memberId: str
   const { data: task, error } = await service.from('tasks').select('id, created_by, status, completed_at, deleted_at').eq('id', input.id).maybeSingle();
   if (error) throw error;
   const row = task as Row | null;
+  if (input.kind === 'task_restore') {
+    // A task it made, put in Trash (by an undo or anyone): back out again.
+    if (!row || row.created_by !== agent.id || !row.deleted_at) throw notFound('Task');
+    try {
+      await restoreFromTrash(service, 'tasks', row.id, memberId);
+    } catch (failure) {
+      throw trashApiError(failure, 'Task');
+    }
+    return { undone: true };
+  }
   if (!row || row.deleted_at) throw notFound('Task');
   if (input.kind === 'task_created') {
     if (row.created_by !== agent.id) throw notFound('Task');
@@ -506,9 +575,27 @@ export async function undoAssistantAction(service: SupabaseClient, memberId: str
   if (row.status !== 'done' || !row.completed_at) throw notFound('Task');
   const { data: finishedBy } = await service.from('task_events').select('id, at').eq('task_id', row.id).eq('member_id', agent.id).eq('kind', 'status');
   if (!((finishedBy ?? []) as Row[]).some((event) => sameInstant(event.at, row.completed_at))) throw notFound('Task');
-  const { error: reopenError } = await service.from('tasks').update({ status: 'todo' }).eq('id', row.id).is('deleted_at', null);
+  const status = await statusBeforeDone(service, row.id, agent.id);
+  const { error: reopenError } = await service.from('tasks').update({ status }).eq('id', row.id).is('deleted_at', null);
   if (reopenError) throw reopenError;
-  return { undone: true };
+  return { undone: true, status };
+}
+
+const OPEN_STATUSES = new Set(['backlog', 'todo', 'in_progress', 'in_review']);
+
+/**
+ * The status a task had before the assistant moved it to done: the before
+ * snapshot of the assistant's own change that finished it (the audit log),
+ * else To do. task_events records that a status changed, not from what.
+ */
+async function statusBeforeDone(service: SupabaseClient, taskId: string, agentId: string): Promise<string> {
+  const { data } = await service.from('api_audit_log').select('before_snapshot, after_snapshot, timestamp')
+    .eq('entity_type', 'task').eq('entity_id', taskId).eq('team_member_id', agentId).order('timestamp', { ascending: false }).limit(10);
+  for (const entry of (data ?? []) as Row[]) {
+    const before = entry.before_snapshot?.status;
+    if (entry.after_snapshot?.status === 'done' && typeof before === 'string' && before !== 'done' && OPEN_STATUSES.has(before)) return before;
+  }
+  return 'todo';
 }
 
 // ── Owner's status list ─────────────────────────────────────────────────
@@ -540,6 +627,58 @@ export async function assistantStatusList(service: SupabaseClient, access: Acces
       created_at: agent.created_at,
     };
   }).sort((a, b) => rank(a) - rank(b) || a.person.name.localeCompare(b.person.name));
+}
+
+// ── The agent service ───────────────────────────────────────────────────
+
+const liveKey = (key: Row) => !key.revoked_at && !(key.expires_at && new Date(key.expires_at).getTime() <= Date.now());
+
+/**
+ * The agent service that runs everyone's assistants, as Settings >
+ * Assistants shows it: none until a live key carries assistants.provision,
+ * waiting until that key collects its first assistant's key, then
+ * connected. Owner only. Never a secret.
+ */
+export async function assistantServiceView(service: SupabaseClient, access: AccessContext): Promise<AssistantServiceView> {
+  requireOwner(access, 'connects the agent service');
+  const live = (await readAll<Row>((from, to) => service.from('api_keys').select('id, name, key_prefix, scopes, created_at, last_used_at, expires_at, revoked_at')
+    .is('revoked_at', null).order('created_at').order('id').range(from, to))).filter(liveKey);
+  const keys = live.filter((key) => Array.isArray(key.scopes) && key.scopes.includes('assistants.provision'));
+  if (keys.length === 0) return { state: 'none', keys: [], first_collected_at: null, collected: 0 };
+  const collected = await readAll<Row>((from, to) => service.from('api_keys').select('id, team_member_id, created_at, expires_at, revoked_at')
+    .in('created_by_key_id', keys.map((key) => key.id)).order('created_at').order('id').range(from, to)).catch(() => [] as Row[]);
+  return {
+    state: collected.length > 0 ? 'connected' : 'waiting',
+    keys: keys.map((key) => ({ id: key.id, name: key.name, prefix: key.key_prefix, created_at: key.created_at, last_used_at: key.last_used_at ?? null })),
+    first_collected_at: collected[0]?.created_at ?? null,
+    collected: new Set(collected.filter(liveKey).map((key) => key.team_member_id as string)).size,
+  };
+}
+
+/**
+ * The key the agent service runs on, made by the signed-in Owner and shown
+ * once: assistants.provision and webhooks.manage, plus every scope the
+ * assistants' templates carry (each key it collects is narrowed to what this
+ * key carries), all within what the Owner holds. It lasts as long as the
+ * workspace's personal key lifetime says, as any key made in Settings.
+ */
+export async function makeAssistantServiceKey(service: SupabaseClient, access: AccessContext, memberId: string): Promise<{ key: Row; secret: string; scopes: string[] }> {
+  requireOwner(access, 'connects the agent service');
+  if (!isModuleEnabled(access, 'agents')) throw forbidden('Turn on AI agents first', { reason: 'agents_off' });
+  const templates = await agentTemplateRegistry(service);
+  const { data: setups } = await service.from('assistant_setups').select('template_key');
+  const templateKeys = new Set<string>(['personal-assistant', ...((setups ?? []) as Row[]).map((row) => row.template_key as string)]);
+  const wanted = new Set<string>(ASSISTANT_SERVICE_SCOPES);
+  for (const key of templateKeys) for (const scope of findAgentTemplate(key, templates)?.scopes ?? []) wanted.add(scope);
+  const scopes = [...wanted].filter((scope) => API_ENDPOINT_PERMISSION_SET.has(scope as PermissionKey) && accessAllows(access, scope as PermissionKey, 'api')).sort();
+  const expiresAt = await newKeyExpiry(service, memberId, undefined, access);
+  const made = await insertApiKey(service, { name: 'Agent service', memberId, createdBy: memberId, createdByKeyId: null, scopes, permissions: 'scoped', expiresAt });
+  const { error } = await insertAuditRows(service, {
+    method: 'POST', endpoint: '/api/workspace/assistants/service', entity_type: 'api_key', entity_id: made.key.id, team_member_id: memberId,
+    request_body: { scopes }, after_snapshot: made.key, status_code: 201, via: 'app',
+  });
+  if (error) console.error('[assistant] service key audit write failed', error);
+  return { key: made.key as unknown as Row, secret: made.secret, scopes };
 }
 
 // ── The guard ───────────────────────────────────────────────────────────

@@ -7,7 +7,7 @@ import { TextInput } from '@/components/ui/inputs/TextInput';
 import { toast } from '@/components/ui/Toast';
 import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
-import { isModuleEnabled } from '@/lib/access-control';
+import { isModuleEnabled, permissionLabel } from '@/lib/access-control';
 import { moduleOfPermission } from '@/lib/modules/registry';
 import type { ApiKey } from '@/lib/types';
 import { ScopePicker } from '@/components/agent/PowersFields';
@@ -147,7 +147,7 @@ export function EditApiKeyModal({ apiKey, memberName, onClose }: EditApiKeyModal
             {unheld.length > 0 && (
               <div role="status" className="flex flex-wrap items-center gap-3 rounded-lg bg-amber-500/[0.14] px-3.5 py-2.5">
                 <p className="min-w-0 flex-1 text-sm text-amber-200">
-                  No longer allowed: <span className="font-mono text-xs">{unheld.join(', ')}</span>
+                  No longer allowed for {memberName ?? 'you'}: {unheld.map(permissionLabel).join(', ')}
                 </p>
                 <Button type="button" size="sm" variant="secondary" disabled={saving} onClick={() => setScopes(scopes.filter((scope) => !unheld.includes(scope)))}>
                   Remove {unheld.length === 1 ? 'it' : 'them'}

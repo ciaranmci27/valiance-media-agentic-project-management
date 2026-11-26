@@ -6,27 +6,42 @@ import { Activity } from 'lucide-react';
 import { SettingsSectionHeader } from '@/components/settings/SettingsSectionHeader';
 import { Button } from '@/components/ui/Button';
 import { TextInput } from '@/components/ui/inputs/TextInput';
+import { useDemo } from '@/lib/demo-context';
 import { useRead } from '@/lib/query-cache';
-import { assistantStatusRead } from '@/lib/reads';
-import { HOST_DOWN_WORDS, reasonWords, type AssistantState } from '@/lib/assistant';
+import { assistantStatusReadFor } from '@/lib/reads';
+import { ASSISTANT_SERVICE_ANCHOR, HOST_DOWN_WORDS, reasonWords, type AssistantState, type AssistantStatusRow } from '@/lib/assistant';
 
 const STATE_PILL: Record<AssistantState, { label: string; className: string }> = {
-  working: { label: 'Working', className: 'bg-emerald-500/[0.14] text-emerald-200' },
+  working: { label: 'Working', className: 'bg-emerald-500/[0.14] text-emerald-300' },
   getting_ready: { label: 'Getting ready', className: 'bg-white/[0.06] text-zinc-300' },
   paused: { label: 'Paused by them', className: 'bg-white/[0.06] text-zinc-300' },
   on_hold: { label: 'On hold', className: 'bg-white/[0.06] text-zinc-300' },
-  broken: { label: 'Needs you', className: 'bg-amber-500/[0.14] text-amber-200' },
+  broken: { label: 'Needs you', className: 'bg-amber-500/[0.14] text-amber-300' },
 };
 
 const WINDOW = 24;
 
 /**
- * Who has an assistant and how each one is: broken ones first, with why in
- * plain words and a link to fix it on the agent's page. Searchable and
- * windowed, so a hundred people stay one calm list.
+ * Where a row's fix lives: the agent service step on this page for one that
+ * is not working or whose host is down (it has no key, its key lapsed, or
+ * its service stopped: the agent's own page cannot fix any of those), its
+ * agent page for one paused there or by an admin, nowhere for the rest.
+ */
+function fixFor(row: AssistantStatusRow): { label: string; href: string } | null {
+  if (row.state === 'broken' || row.host_down) return { label: 'Fix', href: `#${ASSISTANT_SERVICE_ANCHOR}` };
+  if (row.state === 'on_hold' && (row.reason === 'paused_by_admin' || row.reason === 'agent_paused')) return { label: 'Open', href: `/agent/${row.id}` };
+  return null;
+}
+
+/**
+ * Who has an assistant and how each one is: those that need you first, with
+ * why in plain words and where to fix it (the agent service step above, or
+ * the agent's page for one paused there). Searchable and windowed, so a
+ * hundred people stay one calm list.
  */
 export function AssistantStatusSection() {
-  const read = useRead(assistantStatusRead);
+  const { isDemoMode } = useDemo();
+  const read = useRead(assistantStatusReadFor(isDemoMode));
   const rows = useMemo(() => read.data ?? [], [read.data]);
   const [search, setSearch] = useState('');
   const [shown, setShown] = useState(WINDOW);
@@ -67,15 +82,20 @@ export function AssistantStatusSection() {
               <li key={row.id} className="flex items-center justify-between gap-3 bg-surface-raised px-3 py-2.5">
                 <div className="min-w-0">
                   <p className="truncate text-sm font-medium text-zinc-100">{row.person.name}</p>
-                  <p className="truncate text-xs text-zinc-500">
+                  <p className="text-xs text-zinc-500 sm:truncate">
                     {row.name}{row.host_down ? ` · ${HOST_DOWN_WORDS}` : row.reason ? ` · ${reasonWords(row.reason)}` : ''}
                   </p>
                 </div>
                 <div className="flex flex-shrink-0 items-center gap-2">
                   <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${STATE_PILL[row.state].className}`}>{STATE_PILL[row.state].label}</span>
-                  {(row.state === 'broken' || row.host_down) && (
-                    <Link href={`/agent/${row.id}`} className="rounded-md px-2 py-1 text-xs font-medium text-brand-300 hover:bg-white/[0.06] focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500">Fix</Link>
-                  )}
+                  {(() => {
+                    const fix = fixFor(row);
+                    if (!fix) return null;
+                    const className = `rounded-md px-2 py-1 text-xs font-medium hover:bg-white/[0.06] focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 ${fix.label === 'Fix' ? 'text-brand-300' : 'text-zinc-400 hover:text-zinc-200'}`;
+                    return fix.href.startsWith('#')
+                      ? <a href={fix.href} className={className} aria-label={`Fix ${row.person.name}'s assistant: connect the agent service`}>{fix.label}</a>
+                      : <Link href={fix.href} className={className} aria-label={`Open ${row.name}`}>{fix.label}</Link>;
+                  })()}
                 </div>
               </li>
             ))}

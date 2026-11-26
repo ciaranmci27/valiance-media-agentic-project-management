@@ -6,7 +6,7 @@ import { apiRequestContext } from '@/lib/api/request-context';
 import type { CallRoute, RouteEnvelope, ToolOutcome } from './core';
 import { toolDefinition } from './core';
 import { apiKeyAllows } from '@/lib/api/access';
-import { INBOX_TOOLS, PM_ACTING_FOR_GUIDE, PM_GUIDE, PM_INBOX_GUIDE, PM_SETUP_GUIDE, SETUP_TOOLS } from './guide';
+import { aiSetupGuide, INBOX_TOOLS, PM_ACTING_FOR_GUIDE, PM_GUIDE, PM_INBOX_GUIDE, PM_SETUP_GUIDE, SETUP_TOOLS } from './guide';
 import { routeHandler } from './handlers';
 import type { AgentProfile } from './profiles';
 import type { AgentProfileDefinition } from '@/lib/extensions/agent-profiles';
@@ -31,6 +31,8 @@ export interface McpCaller {
   principalId?: string;
   /** A Connect AI connection: key is its OAuth access token, which the in-process calls carry. */
   connection?: boolean;
+  /** A live AI setup session (lib/ai-setup.ts): the setup tools with its powers, and for a setup key nothing else. */
+  aiSetup?: { scopes: string[]; only: boolean; clientName: string; expiresAt: string | null } | null;
 }
 
 /** Hermes spills larger results to disk; reads over this are refused with a hint. */
@@ -141,6 +143,21 @@ async function guideContext(call: CallRoute): Promise<Record<string, unknown> | 
   }
 }
 
+/** The agent templates in short, for pm_guide in an AI setup session; null when they cannot be read. */
+async function guideTemplates(call: CallRoute): Promise<unknown[] | null> {
+  try {
+    const { status, envelope } = await call({ method: 'GET', path: '/api/v1/agent-templates' });
+    if (status !== 200 || !envelope?.success || !Array.isArray(envelope.data)) return null;
+    return (envelope.data as Record<string, unknown>[]).map((t) => ({
+      key: t.key, label: t.label, description: t.description, role: t.role ?? null, scopes: t.scopes ?? [],
+      settings: Array.isArray(t.settings) ? (t.settings as Record<string, unknown>[]).map((f) => f.key) : [],
+    }));
+  } catch (failure) {
+    console.error('[mcp] pm_guide templates', failure);
+    return null;
+  }
+}
+
 /**
  * One server per HTTP request (the endpoint is stateless). The tool list is
  * the caller's, tools/call accepts only tools on it, and arguments are
@@ -178,6 +195,7 @@ export function createPmServer(caller: McpCaller): Server {
           PM_GUIDE,
           ...(tools.some((t) => INBOX_TOOLS.includes(t.name)) ? [PM_INBOX_GUIDE] : []),
           ...(tools.some((t) => SETUP_TOOLS.includes(t.name)) ? [PM_SETUP_GUIDE] : []),
+          ...(caller.aiSetup ? [aiSetupGuide(caller.member.name, caller.aiSetup.expiresAt)] : []),
           ...(apiKeyAllows(caller.access, caller.scopes, 'agents.act_for') || caller.principalId ? [PM_ACTING_FOR_GUIDE] : []),
         ].join('\n\n'),
         you: {
@@ -186,6 +204,8 @@ export function createPmServer(caller: McpCaller): Server {
         },
         tools: tools.filter((t) => t.name !== GUIDE_TOOL).map((t) => t.name),
         context: await guideContext(call),
+        // In an AI setup session the templates come with the guide, so one call gives the AI all it needs to start.
+        ...(caller.aiSetup ? { agent_templates: await guideTemplates(call) } : {}),
       });
     } else {
       const parsed = tool.input.safeParse(raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {});

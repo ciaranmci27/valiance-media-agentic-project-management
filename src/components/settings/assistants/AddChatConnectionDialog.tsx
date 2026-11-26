@@ -31,10 +31,15 @@ export const SLACK_EVENTS: Record<ChatConnectionKind, string> = {
   company: 'message.im, message.channels and message.groups',
 };
 
-/** The Slack bot scopes each kind needs. chat:write.customize lets replies carry the agent's name and avatar. */
-const SLACK_SCOPES: Record<ChatConnectionKind, string> = {
-  personal: 'chat:write, chat:write.customize and im:history',
-  company: 'chat:write, chat:write.customize, im:history, im:write, channels:history, groups:history, channels:read and groups:read',
+/**
+ * The Slack bot scopes each kind needs. chat:write.customize lets replies
+ * carry the agent's name and avatar; im:write lets the app open a DM (a
+ * morning digest, a private reply); files:read lets an agent read a file
+ * someone sends.
+ */
+export const SLACK_SCOPES: Record<ChatConnectionKind, string> = {
+  personal: 'chat:write, chat:write.customize, im:history, im:write and files:read',
+  company: 'chat:write, chat:write.customize, im:history, im:write, channels:history, groups:history, channels:read, groups:read and files:read',
 };
 
 /**
@@ -201,11 +206,11 @@ function AddFlow({ initialProvider, free, onBusy, onAdded }: {
             {provider === 'slack' ? (
               <ol className="list-decimal space-y-1 pl-4 text-sm text-zinc-300 marker:text-zinc-500">
                 <li>At api.slack.com/apps, create an app for your workspace{kind === 'company' ? ', separate from your personal assistants app' : ''}.</li>
-                <li>Under OAuth &amp; Permissions, add the bot scopes {SLACK_SCOPES[kind]}, then install it.</li>
+                <li>Under OAuth &amp; Permissions, add the bot scopes {SLACK_SCOPES[kind]}, then install it. Changed the scopes later? Reinstall the app so they apply.</li>
                 <li>Under App Home, turn on the Messages Tab, so people can message it.</li>
                 {kind === 'company' && <li>Invite the bot to each channel it should hear: /invite @your-bot.</li>}
                 <li>Paste the Bot User OAuth Token and, from Basic Information, the Signing Secret below.</li>
-                <li>After you connect, paste the Request URL we show you into Event Subscriptions.</li>
+                <li>After you connect, paste the Request URL we show you into Event Subscriptions. If Slack says the URL didn&apos;t respond, the signing secret is wrong: replace it from the connection&apos;s row.</li>
               </ol>
             ) : provider === 'discord' ? (
               <>

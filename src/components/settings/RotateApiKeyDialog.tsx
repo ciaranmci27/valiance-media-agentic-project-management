@@ -9,17 +9,21 @@ import { toast } from '@/components/ui/Toast';
 import { SecretOnce } from '@/components/agent/ConnectPanel';
 import { useApp } from '@/lib/store';
 import { appLocale } from '@/lib/region';
-import { ROTATE_OVERLAP_DEFAULT_HOURS, rotateOverlapOptions } from '@/lib/developers-settings';
+import { ROTATE_OVERLAP_DEFAULT_HOURS, rotateOverlapOptions, rotatedKeyExpiryLine, rotationLifetimeNote } from '@/lib/developers-settings';
 import type { ApiKey } from '@/lib/types';
 
 const OPTIONS = rotateOverlapOptions();
 
+const formatEnd = (iso: string) => new Date(iso).toLocaleString(appLocale(), { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+
 /**
  * Rotate: a new secret with the same name and access, while the old key
  * keeps working for the overlap picked (24 hours by default), so nothing
- * breaks while it is swapped in. The new secret shows once.
+ * breaks while it is swapped in. The new secret shows once, with when the
+ * new key expires. agent: the key is an agent's (its lifetime is the
+ * workspace's agent key lifetime); left out, a person's.
  */
-export function RotateApiKeyDialog({ apiKey, onClose }: { apiKey: ApiKey | null; onClose: () => void }) {
+export function RotateApiKeyDialog({ apiKey, onClose, agent = false }: { apiKey: ApiKey | null; onClose: () => void; agent?: boolean }) {
   // While rotating, and while the new secret shows, a stray click, Escape or
   // the X leaves the dialog open: only Done closes it then.
   const [holdOpen, setHoldOpen] = useState(false);
@@ -29,17 +33,17 @@ export function RotateApiKeyDialog({ apiKey, onClose }: { apiKey: ApiKey | null;
   };
   return (
     <Modal isOpen={!!apiKey} onClose={() => { if (!holdOpen) close(); }} title={apiKey ? `Rotate ${apiKey.name}` : 'Rotate key'} size="md">
-      {apiKey && <RotateFlow key={apiKey.id} apiKey={apiKey} onClose={close} onHoldOpen={setHoldOpen} />}
+      {apiKey && <RotateFlow key={apiKey.id} apiKey={apiKey} agent={agent} onClose={close} onHoldOpen={setHoldOpen} />}
     </Modal>
   );
 }
 
-function RotateFlow({ apiKey, onClose, onHoldOpen }: { apiKey: ApiKey; onClose: () => void; onHoldOpen: (hold: boolean) => void }) {
+function RotateFlow({ apiKey, agent, onClose, onHoldOpen }: { apiKey: ApiKey; agent: boolean; onClose: () => void; onHoldOpen: (hold: boolean) => void }) {
   const { rotateApiKey } = useApp();
   const [overlap, setOverlap] = useState(String(ROTATE_OVERLAP_DEFAULT_HOURS));
   const [rotating, setRotating] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [done, setDone] = useState<{ secret: string; oldEnds: string } | null>(null);
+  const [done, setDone] = useState<{ secret: string; oldEnds: string; newEnds: string } | null>(null);
 
   const rotate = async () => {
     setRotating(true);
@@ -47,11 +51,11 @@ function RotateFlow({ apiKey, onClose, onHoldOpen }: { apiKey: ApiKey; onClose: 
     setError(null);
     try {
       const hours = Number(overlap);
-      const { secret } = await rotateApiKey(apiKey.id, hours);
+      const { secret, key } = await rotateApiKey(apiKey.id, hours);
       const oldEnds = hours === 0
         ? 'The old key has stopped working.'
         : `The old key keeps working until ${new Date(Date.now() + hours * 3_600_000).toLocaleString(appLocale(), { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}.`;
-      setDone({ secret, oldEnds });
+      setDone({ secret, oldEnds, newEnds: rotatedKeyExpiryLine(key.expires_at ?? null, formatEnd) });
       toast('success', 'Key rotated');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not rotate the key.');
@@ -68,7 +72,7 @@ function RotateFlow({ apiKey, onClose, onHoldOpen }: { apiKey: ApiKey; onClose: 
         <SecretOnce
           secret={{ secret: done.secret }}
           heading="Copy the new key now. You won't see this again."
-          hint={done.oldEnds}
+          hint={`${done.newEnds} ${done.oldEnds}`}
         />
         <div className="flex justify-end">
           <Button onClick={onClose}>Done</Button>
@@ -82,6 +86,7 @@ function RotateFlow({ apiKey, onClose, onHoldOpen }: { apiKey: ApiKey; onClose: 
       <p className="text-sm text-zinc-300">
         You get a new secret with the same name and access. The old one keeps working for the time you pick, so you can swap the new one in first.
       </p>
+      <p className="text-xs text-zinc-400">{rotationLifetimeNote(apiKey, agent)}</p>
       <Select
         label="Keep the old key working for"
         value={overlap}

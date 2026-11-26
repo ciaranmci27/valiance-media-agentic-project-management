@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { Plus } from 'lucide-react';
 import { useApp } from '@/lib/store';
@@ -13,9 +13,9 @@ import { useTaskUrlParam } from '@/lib/use-task-url';
 import { prefetchAgentAnalytics } from '@/lib/use-agent-analytics-events';
 import { prefetchAnalyticsReads } from '@/lib/agent-analytics-reads';
 import { defaultAgentAnalyticsRange } from '@/lib/agent-range';
-import { AGENT_RUN_STATUSES, type AgentRunStatus } from '@/lib/agent-runs';
 import {
-  AGENTS_TABS, AGENTS_TAB_ALIASES, AGENTS_TAB_LABELS, DEFAULT_AGENTS_TAB, NO_RUN_FILTERS, agentsTabFrom, needsYouCountLabel, type AgentsTab, type RunFeedFilters,
+  AGENTS_TABS, AGENTS_TAB_ALIASES, AGENTS_TAB_LABELS, DEFAULT_AGENTS_TAB, NO_RUN_FILTERS, agentsTabFrom, isDateKey, isRunFilterStatus, needsYouCountLabel,
+  type AgentsTab, type RunFeedFilters,
 } from '@/lib/agents-tab';
 import { Header } from '@/components/layout/Header';
 import { Button } from '@/components/ui/Button';
@@ -34,7 +34,8 @@ import { AgentAnalytics } from '@/components/agent/analytics/AgentAnalytics';
  *  - Needs you (the bare URL): what agents are waiting on you for.
  *  - Agents (?tab=agents): the roster, live; each agent opens its profile
  *    (/agent/<id>). An old ?agent=<id> link goes to that profile.
- *  - Runs (?tab=runs&agent=&status=&project=&page=): the run feed.
+ *  - Runs (?tab=runs&agent=&status=&project=&from=&to=&page=): the run feed.
+ *    Its filters come back when you return to the tab.
  *  - Analytics (?tab=analytics): runs, time, tokens, cost and delivery, and
  *    money only where agents bill. ?tab=usage and /agent/analytics land here.
  *
@@ -53,7 +54,7 @@ export default function AgentPage() {
 const SUBTITLES: Record<AgentsTab, string> = {
   'needs-you': 'Questions, approvals and agent work waiting on you.',
   agents: 'Who is working, what they are on, and what they need next.',
-  runs: 'Every agent run, newest first.',
+  runs: 'Every agent run and step, newest first.',
   analytics: 'Runs, time, tokens and cost per agent. Estimates are labelled.',
 };
 
@@ -61,18 +62,22 @@ const SUBTITLES: Record<AgentsTab, string> = {
 const TAB_PARAMS: Record<AgentsTab, string[]> = {
   'needs-you': [],
   agents: [],
-  runs: ['agent', 'status', 'project', 'page'],
+  runs: ['agent', 'status', 'project', 'from', 'to', 'page'],
   analytics: [],
 };
 
 function runFiltersFrom(params: URLSearchParams): { filters: RunFeedFilters; page: number } {
   const status = params.get('status');
+  const from = params.get('from');
+  const to = params.get('to');
   const page = Number(params.get('page') ?? '1');
   return {
     filters: {
       agentId: params.get('agent'),
-      status: status && (AGENT_RUN_STATUSES as readonly string[]).includes(status) ? status as AgentRunStatus : null,
+      status: isRunFilterStatus(status) ? status : null,
       projectId: params.get('project'),
+      from: isDateKey(from) ? from : null,
+      to: isDateKey(to) ? to : null,
     },
     // The URL counts pages from 1; the read from 0.
     page: Number.isInteger(page) && page > 1 ? page - 1 : 0,
@@ -117,12 +122,20 @@ function AgentsPage() {
     window.history.pushState(null, '', query ? `${pathname}?${query}` : pathname);
   }, [pathname]);
 
+  // Each tab's own params as they were when it was left, so switching back restores them (the Runs filters).
+  const lastParams = useRef<Partial<Record<AgentsTab, Record<string, string>>>>({});
   const goTo = useCallback((tab: AgentsTab, params: Record<string, string | null> = {}) => {
+    const current = agentsTabFrom(searchParams.get('tab'));
+    lastParams.current[current] = Object.fromEntries(TAB_PARAMS[current].flatMap((key) => {
+      const value = searchParams.get(key);
+      return value ? [[key, value]] : [];
+    }));
     const next = new URLSearchParams(searchParams.toString());
     for (const key of new Set(Object.values(TAB_PARAMS).flat())) next.delete(key);
     if (tab === DEFAULT_AGENTS_TAB) next.delete('tab');
     else next.set('tab', tab);
-    for (const [key, value] of Object.entries(params)) if (value) next.set(key, value);
+    const restored = Object.keys(params).length ? {} : lastParams.current[tab] ?? {};
+    for (const [key, value] of Object.entries({ ...restored, ...params })) if (value) next.set(key, value);
     pushParams(next);
   }, [searchParams, pushParams]);
 
@@ -136,7 +149,7 @@ function AgentsPage() {
   }, [searchParams, pushParams]);
 
   // The Runs filters live in the URL while Runs is open (agent is the
-  // Agents tab's selection otherwise); leaving the tab drops them.
+  // Agents tab's selection otherwise); leaving the tab keeps them for the return.
   const { filters: runFilters, page: runPage } = useMemo(
     () => (active === 'runs' ? runFiltersFrom(searchParams) : { filters: NO_RUN_FILTERS, page: 0 }),
     [active, searchParams],
@@ -145,6 +158,8 @@ function AgentsPage() {
     agent: filters.agentId,
     status: filters.status,
     project: filters.projectId,
+    from: filters.from ?? null,
+    to: filters.to ?? null,
     page: page > 0 ? String(page + 1) : null,
   }), [setParams]);
 

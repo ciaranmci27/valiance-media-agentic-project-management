@@ -20,7 +20,9 @@ const TONE_BG = ['', 'bg-avatar-1', 'bg-avatar-2', 'bg-avatar-3', 'bg-avatar-4',
 
 /**
  * My Assistant's settings: name, avatar tone, tone of voice, a note on how
- * the person likes to work, four plain switches, and pause or resume. Each
+ * the person likes to work, five plain switches, and pause or resume. While
+ * it is paused, what they send it in chat waits and reaches it when they
+ * resume (the newest 20, oldest first). Each
  * switch and the tone apply at once (rolled back with a message if the save
  * fails); the name and note save on their own button or Enter.
  */
@@ -32,7 +34,7 @@ export function AssistantSettingsCard({ assistant, isDemo }: { assistant: Assist
   useEffect(() => setNote(assistant.preferences.personality ?? ''), [assistant.preferences.personality]);
 
   const pausedByYou = assistant.state === 'paused';
-  const pausedByAdmin = assistant.state === 'broken' && assistant.reason === 'paused_by_admin';
+  const pausedByAdmin = assistant.state === 'on_hold' && assistant.reason === 'paused_by_admin';
 
   const save = async (key: string, patch: Parameters<typeof saveMyAssistant>[1], optimistic?: Parameters<typeof saveMyAssistant>[2], done?: string) => {
     setBusy(key);
@@ -124,7 +126,7 @@ export function AssistantSettingsCard({ assistant, isDemo }: { assistant: Assist
                   onClick={() => !selected && void setTone(tone)}
                   disabled={isDemo || busy === 'tone'}
                   className={`rounded-md px-2 py-1.5 text-xs font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 ${
-                    selected ? 'bg-white/[0.1] text-white' : 'text-zinc-400 hover:text-zinc-200'
+                    selected ? 'bg-white/[0.1] text-zinc-100' : 'text-zinc-400 hover:text-zinc-200'
                   }`}
                 >
                   {TONE_WORDS[tone].label}
@@ -172,7 +174,11 @@ export function AssistantSettingsCard({ assistant, isDemo }: { assistant: Assist
 
         <div className="flex flex-wrap items-center justify-between gap-3 border-t border-white/[0.06] pt-4">
           <p className="text-xs text-zinc-500">
-            {pausedByAdmin ? 'An admin paused it. They can resume it.' : pausedByYou ? 'Paused: it does nothing until you resume it.' : 'Pause it any time; nothing is lost.'}
+            {pausedByAdmin
+              ? 'An admin paused it. They can resume it. Chat messages wait for it until then.'
+              : pausedByYou
+                ? 'Paused: it does nothing until you resume it. Chat messages you send meanwhile reach it when you do.'
+                : 'Pause it any time. Chat messages you send while it is paused reach it when you resume (the newest 20).'}
           </p>
           {pausedByYou ? (
             <Button size="sm" icon={<Play size={13} aria-hidden="true" />} disabled={isDemo || busy === 'pause'}

@@ -134,7 +134,7 @@ export const MODULE_SURFACES: Record<ModuleId, ModuleSurface> = {
       // Personal agents by role or group.
       'assistant_setups',
       // The personal Assistant: a person's settings for theirs, and the chat switchboard.
-      'assistant_preferences', 'chat_connections', 'chat_messages', 'chat_rate_limits',
+      'assistant_preferences', 'ai_setup_sessions', 'chat_connections', 'chat_messages', 'chat_rate_limits',
       // The company bot: the agents a company connection reaches, and channel mappings.
       'chat_connection_agents', 'chat_channel_routes',
       // Per-agent limits and the per-agent request windows.
@@ -162,6 +162,8 @@ export const MODULE_SURFACES: Record<ModuleId, ModuleSurface> = {
       'api/workspace/assistant', 'api/workspace/chat-connections', 'api/v1/assistant', 'api/v1/chat', 'api/chat', '(protected)/assistant',
       // The kill switch for every agent.
       'api/workspace/agents-pause',
+      // An Owner's hour of AI-guided agent setup.
+      'api/workspace/ai-setup',
       // An Owner's own agent profiles and templates, and their export and import.
       'api/v1/agent-profiles', 'api/v1/agent-registries', 'api/workspace/agent-profiles',
     ],
@@ -187,7 +189,7 @@ export const CORE_ROUTES: string[] = [
   // Every key reads its own setup (pm_guide's context), a person's too, with AI agents on or off.
   'api/v1/agents/me',
   'api/workspace/access', 'api/workspace/api-keys', 'api/workspace/brand', 'api/workspace/me', 'api/workspace/region', 'api/workspace/modules', 'api/workspace/setup-checks', 'api/workspace/secrets', 'api/workspace/encryption', 'api/workspace/webhook-retries', 'api/welcome',
-  'api/workspace/projects', 'api/workspace/questions', 'api/workspace/tasks', 'api/workspace/team-directory', 'api/workspace/team-members',
+  'api/workspace/projects', 'api/workspace/questions', 'api/workspace/notifications', 'api/workspace/tasks', 'api/workspace/team-directory', 'api/workspace/team-members',
   'api/workspace/updates',
   // How long new agent keys last (Owner only), with AI agents on or off.
   'api/workspace/key-settings',
@@ -195,6 +197,8 @@ export const CORE_ROUTES: string[] = [
   'api/workspace/audit-log', 'api/workspace/audit-settings', 'api/v1/audit',
   // How long data that grows on its own is kept: Settings > Security (Owner only); each setting is ignored while its module is off.
   'api/workspace/data-retention',
+  // Before a shorter keep period is saved (Keeping data, Keeping the log): about how many rows go (Owner only).
+  'api/workspace/retention-preview',
   // Connect AI: people sign their own AI tools in (OAuth for the MCP server), its switch (Owner) and the tool catalog.
   'api/oauth', 'api/workspace/connect-ai', 'api/v1/mcp',
   // Signing in with Google: leaving for Google (sign-in, an invite, the first Owner, linking) and the sign-in methods switch (Owner).
@@ -221,7 +225,7 @@ export const CORE_TABLES: string[] = [
   'permission_modules', 'project_context', 'project_members', 'projects', 'questions', 'reminders', 'role_permissions',
   'smtp_accounts', 'task_acceptance_criteria', 'task_assignees', 'task_comments', 'task_dependencies',
   'task_events', 'task_files', 'task_reviews', 'task_subtasks', 'task_views', 'tasks',
-  'team_invites', 'team_member_notifications', 'team_member_permissions', 'team_members', 'trash_events', 'workspace_brand',
+  'team_invites', 'team_member_notifications', 'member_snoozes', 'team_member_permissions', 'team_members', 'trash_events', 'workspace_brand',
   'workspace_modules', 'workspace_region', 'app_secrets',
   'groups', 'group_members', 'member_identities', 'identity_link_requests',
   // Task templates, every use of one, which item each task a use made came from, and runs proposed for approval.

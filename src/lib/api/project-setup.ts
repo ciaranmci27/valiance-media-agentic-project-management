@@ -91,9 +91,16 @@ export async function setupProject(
         throw new ApiError(422, 'VALIDATION_ERROR', `${agent.name} is suspended. Reactivate them in Team first.`, { reason: 'member_suspended', agent_id: agent.id });
       }
       await requireAssignAgent(service, caller, agent.id);
-      agentRows.push(newAssignmentRow(caller, PLACEHOLDER_PROJECT, agent.id, entry, `${agent.name}: `, templates));
+      try {
+        agentRows.push(newAssignmentRow(caller, PLACEHOLDER_PROJECT, agent.id, entry, `${agent.name}: `, templates));
+      } catch (error) {
+        // Name the agent, so a form puts each problem on that agent's field.
+        if (error instanceof ApiError) throw new ApiError(error.statusCode, error.code, error.message, { ...(error.details as Row | undefined), agent_id: agent.id, part: 'agents' });
+        throw error;
+      }
     }
   }
+  refuseCreatorLockout(caller, input.project, members);
   const briefRows = (input.brief ?? []).map((entry) => briefInsertRow(PLACEHOLDER_PROJECT, entry, caller.access.role === 'agent' ? 'agent' : 'human'));
 
   const projectBody: Record<string, unknown> = { ...input.project };
@@ -164,10 +171,28 @@ export async function setupProject(
       cause,
     };
     if (failure instanceof ApiError) {
-      throw new ApiError(failure.statusCode, failure.code, `The project was not set up: ${failure.message}`, { ...(failure.details as Row | undefined), ...details });
+      throw new ApiError(failure.statusCode, failure.code, `The project was not set up: ${failure.message}${trashed ? '. What was made is in Trash.' : ''}`, { ...(failure.details as Row | undefined), ...details });
     }
     throw new ApiError(500, 'SETUP_INCOMPLETE', 'The project setup stopped partway. The project was moved to Trash.', details);
   }
+}
+
+/**
+ * A signed-in person who reaches only the projects they are on (no
+ * projects.read_all) and names the people would lose the project they just
+ * made by leaving themselves out: refused before anything is written.
+ * Keys and agents (the API channel) choose freely.
+ */
+export function refuseCreatorLockout(caller: AgentCaller, project: Record<string, unknown>, members: readonly string[]): void {
+  if (caller.scopes !== null || caller.access.role === 'agent') return;
+  if (!callerHolds(caller, 'project_members.manage') || callerHolds(caller, 'projects.read_all')) return;
+  const named = Array.isArray(project.member_ids) ? (project.member_ids as unknown[]).filter((id): id is string => typeof id === 'string') : null;
+  if (named === null && members.length === 0) return;
+  const all = new Set([...(named ?? []), ...members]);
+  if (all.has(caller.memberId)) return;
+  throw new ApiError(422, 'VALIDATION_ERROR', 'Keep yourself on the project: without you on it, you could not open it once it is made', {
+    reason: 'creator_not_member', part: 'members', fields: { members: 'Keep yourself on the project.' },
+  });
 }
 
 function missingAccess(project: Row, agentRows: Row[]): string[] {

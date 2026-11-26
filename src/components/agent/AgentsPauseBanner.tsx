@@ -6,29 +6,38 @@ import { useAuth } from '@/lib/auth-context';
 import { useDemo } from '@/lib/demo-context';
 import { workspaceApi } from '@/lib/agent-workspace';
 import { invalidateTables, setReadData, useRead } from '@/lib/query-cache';
-import { agentsPauseRead } from '@/lib/reads';
+import { agentsPauseDemoRead, agentsPauseRead } from '@/lib/reads';
 import { timeAgo } from '@/lib/task-times';
 import type { AgentsPauseState } from '@/lib/audit-log';
 import { Button } from '@/components/ui/Button';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { toast } from '@/components/ui/Toast';
 
+/** What the kill switch stops, in plain words: personal assistants and company chat agents too. */
+export const AGENTS_PAUSE_WHAT_STOPS = "Stops every agent at once, including people's personal assistants and company chat agents. They keep reading and reporting their heartbeat and usage, so you can still watch them; every other change they try is refused.";
+
 /** Pauses or resumes every agent (Owner only), with the confirm step for a pause. */
 export function useAgentsPause() {
   const { access } = useAuth();
   const { isDemoMode } = useDemo();
-  const read = useRead(isDemoMode ? null : agentsPauseRead);
+  // The demo has its own switch, flipped in the browser only, so the roster's paused state can be seen.
+  const read = useRead(isDemoMode ? agentsPauseDemoRead : agentsPauseRead);
   const [busy, setBusy] = useState(false);
   const [confirming, setConfirming] = useState(false);
-  const canSwitch = !isDemoMode && access?.role === 'owner';
+  const canSwitch = access?.role === 'owner';
 
   const setPaused = async (paused: boolean) => {
+    if (isDemoMode) {
+      setReadData(agentsPauseDemoRead, () => ({ paused_at: paused ? new Date().toISOString() : null, paused_by: null }));
+      setConfirming(false);
+      return;
+    }
     setBusy(true);
     try {
       const next = await workspaceApi<AgentsPauseState>('/api/workspace/agents-pause', { method: 'PUT', body: { paused } });
       setReadData(agentsPauseRead, () => next);
       invalidateTables(['business_settings']);
-      toast('success', paused ? 'Every agent is paused' : 'Agents are working again');
+      toast('success', paused ? 'Every agent is paused' : 'Agents are working again. Ones paused one by one stay paused.');
     } catch (error) {
       toast('error', error instanceof Error ? error.message : 'Could not change it. Try again.');
     } finally {
@@ -43,7 +52,7 @@ export function useAgentsPause() {
       onClose={() => setConfirming(false)}
       onConfirm={() => void setPaused(true)}
       title="Pause every agent?"
-      message="Agents keep reading and reporting their heartbeat and usage, but every other change they try is refused until you resume them. People are not affected."
+      message="Every agent stops changing anything until you resume them, including people's personal assistants and company chat agents: they cannot reply, make tasks or answer. They keep reading and reporting their heartbeat and usage. People's own sign-ins and API keys keep working."
       confirmLabel="Pause every agent"
       variant="danger"
     />
@@ -66,7 +75,7 @@ export function AgentsPauseBanner() {
   if (!pause.state?.paused_at) return pause.confirm;
   return (
     <div role="status" className="flex flex-col gap-3 rounded-xl bg-amber-500/[0.08] px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-      <p className="flex items-start gap-2 text-sm text-amber-100">
+      <p className="flex items-start gap-2 text-sm text-zinc-200">
         <PauseCircle size={17} className="mt-0.5 flex-shrink-0 text-amber-300" aria-hidden="true" />
         <span>{pausedLine(pause.state)} They read and report only; every other change they try is refused.</span>
       </p>

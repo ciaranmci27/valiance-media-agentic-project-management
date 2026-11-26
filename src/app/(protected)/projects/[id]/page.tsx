@@ -67,9 +67,9 @@ export default function ProjectDetailPage() {
   const canReadCredentials = hasPermission(access, 'credentials.reveal_shared') || hasPermission(access, 'credentials.manage');
   const canReadInvoices = hasPermission(access, 'invoices.read') || hasPermission(access, 'invoices.manage');
   const canReadTime = hasPermission(access, 'time.manage_own') || hasPermission(access, 'time.read_all') || hasPermission(access, 'time.manage_all');
-  // Agents and the brief belong to the AI agents module; the brief needs its own read grant.
+  // Agents and the brief belong to the AI agents module; the brief opens with read or manage (the server takes either).
   const agentsOn = isModuleEnabled(access, 'agents');
-  const canReadBrief = agentsOn && hasPermission(access, 'project_context.read');
+  const canReadBrief = agentsOn && (hasPermission(access, 'project_context.read') || hasPermission(access, 'project_context.manage'));
 
   const {
     getProject, getTasksByProject,
@@ -112,10 +112,10 @@ export default function ProjectDetailPage() {
     // Shown to anyone who can open the project; empty, it says what one is.
     { key: 'initiatives', label: INITIATIVE_LABEL.plural, visible: true,
       warm: () => void warmRead(projectInitiativesRead(projectId, isDemoMode)) },
-    { key: 'agents', label: 'Agents', visible: agentsOn && !isDemoMode,
-      warm: () => warmReads([projectAgentsRead(projectId), agentTemplatesRead(isDemoMode)]) },
-    { key: 'brief', label: 'Brief', visible: canReadBrief && !isDemoMode,
-      warm: () => void warmRead(projectBriefRead(projectId)) },
+    { key: 'agents', label: 'Agents', visible: agentsOn,
+      warm: isDemoMode ? undefined : () => warmReads([projectAgentsRead(projectId), agentTemplatesRead(isDemoMode)]) },
+    { key: 'brief', label: 'Brief', visible: canReadBrief,
+      warm: isDemoMode ? undefined : () => void warmRead(projectBriefRead(projectId)) },
     // Shown whenever the viewer may use time, on or off for this project.
     { key: 'time', label: 'Time tracking', visible: !!project && canReadTime, live: clockedIn },
     { key: 'communication', label: 'Communication', visible: canReadInbox || canReadCommunications,

@@ -24,6 +24,34 @@ import { z } from 'zod';
 export const AGENT_RUN_STATUSES = ['running', 'waiting', 'succeeded', 'failed', 'cancelled', 'timed_out'] as const;
 export type AgentRunStatus = (typeof AGENT_RUN_STATUSES)[number];
 
+/**
+ * What a run row shows and the Runs status filter matches: a stored run's
+ * status, and for a turn (always "succeeded" as a process) what it came to.
+ * pm.agent_run_rows.display_status computes the same in SQL (runDisplayStatus
+ * here is its mirror), so a filter lists exactly the rows wearing that pill.
+ * other: a turn outcome outside the known words; it shows the word and no
+ * filter picks it.
+ */
+export const RUN_DISPLAY_STATUSES = ['running', 'waiting', 'succeeded', 'failed', 'blocked', 'no_work', 'timed_out', 'cancelled', 'other'] as const;
+export type RunDisplayStatus = (typeof RUN_DISPLAY_STATUSES)[number];
+
+/** The display statuses the Runs filter offers (every one but other). */
+export const RUN_FILTER_STATUSES = RUN_DISPLAY_STATUSES.filter((s): s is Exclude<RunDisplayStatus, 'other'> => s !== 'other');
+
+const NO_WORK_OUTCOMES = new Set(['idle', 'skipped', 'waiting', 'no_work', 'nothing', 'nothing_to_do']);
+const DONE_OUTCOMES = new Set(['', 'work', 'worked', 'ok', 'done', 'shipped', 'succeeded']);
+
+/** A row's display status: its stored status for a run, its outcome for a turn (the view's rule). */
+export function runDisplayStatus(run: { source: 'run' | 'turn'; status: AgentRunStatus; outcome: string | null }): RunDisplayStatus {
+  if (run.source !== 'turn' || run.status === 'running') return run.status;
+  const outcome = (run.outcome ?? '').toLowerCase();
+  if (outcome === 'blocked') return 'blocked';
+  if (outcome === 'failed' || outcome === 'error') return 'failed';
+  if (NO_WORK_OUTCOMES.has(outcome)) return 'no_work';
+  if (DONE_OUTCOMES.has(outcome)) return 'succeeded';
+  return 'other';
+}
+
 /** The statuses a run finishes with. */
 export const AGENT_RUN_FINISHED = ['succeeded', 'failed', 'cancelled', 'timed_out'] as const;
 export type AgentRunFinish = (typeof AGENT_RUN_FINISHED)[number];
@@ -156,6 +184,8 @@ export interface AgentRunSummary {
   status: AgentRunStatus;
   /** A turn's outcome (work, idle, blocked, ...); null for a stored run. */
   outcome: string | null;
+  /** What the row shows (runDisplayStatus): the view's display_status, or computed when the view has none yet. */
+  display_status?: RunDisplayStatus;
   title: string | null;
   summary: string | null;
   model: string | null;

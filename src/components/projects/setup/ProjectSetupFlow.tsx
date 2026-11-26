@@ -1,7 +1,7 @@
 'use client';
 
 import { ProjectColorPicker } from '@/components/projects/ProjectColorPicker';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { ArrowRight, ChevronDown, FolderPlus, Lock, Plus, Trash2, X } from 'lucide-react';
 import { useApp } from '@/lib/store';
@@ -18,7 +18,12 @@ import {
 import {
   emptyProjectBasics, projectPayload, validateProjectBasics, PROJECT_DESCRIPTION_MAX, type ProjectBasics, type ProjectFormRights,
 } from '@/lib/project-form';
-import { fieldErrorsFrom, workspaceApi, type ProjectSetupRequest, type ProjectSetupResponse, type SettingsValues } from '@/lib/agent-workspace';
+import {
+  fieldErrorsFrom, workspaceApi, WorkspaceApiError, type ProjectSetupRequest, type ProjectSetupResponse, type SettingsValues,
+} from '@/lib/agent-workspace';
+import { PINNED_REACH, setupMembers } from '@/lib/project-agents-ui';
+import { demoAgentsListRead, demoProjectAgentsRead, demoProjectBriefRead, demoRecordSetup } from '@/lib/demo-project-agents';
+import type { BriefSectionKey } from '@/lib/project-brief';
 import { Button } from '@/components/ui/Button';
 import { StatStrip } from '@/components/ui/StatStrip';
 import { TextInput } from '@/components/ui/inputs/TextInput';
@@ -28,17 +33,23 @@ import { MultiSelect } from '@/components/ui/inputs/MultiSelect';
 import { DateInput } from '@/components/ui/inputs/DateInput';
 import { Toggle } from '@/components/ui/inputs/Toggle';
 import { ChatSetupAside, FlowShell, StepFooter, StepPanel, Stepper } from '@/components/ui/Stepper';
+import { ContactForm } from '@/components/contacts/ContactForm';
 import { AgentAvatar } from '@/components/agent/AgentAvatar';
 import { InstructionsField, SettingsForm } from '@/components/agent/SettingsForm';
 
 /**
  * Set up a project: the same guided family as hiring an agent. Basics (the
- * fields and rules of the Edit project form, through lib/project-form),
- * the brief (overview, goals, rules, links, written as brief entries),
- * agents (any number, each with its template's settings and instructions),
- * people, done. One call creates it all (POST /api/workspace/projects/setup)
- * and the server rolls back on any failure, so a half-made project is never
- * left behind. "Create now" on Basics is the quick path: a name is enough.
+ * fields and rules of the Edit project form, through lib/project-form, with
+ * the same New contact for a client not in Contacts yet), the brief
+ * (overview, goals, rules, links, written as brief entries), agents (any
+ * number, each with its template's settings and instructions), people,
+ * done. One call creates it all (POST /api/workspace/projects/setup) and the
+ * server rolls back on any failure, so a half-made project is never left
+ * live. "Create now" on Basics is the quick path: a name is enough.
+ * The creator stays on the project unless they see every project, and a
+ * refused agent setting opens on that agent's field. In the demo it runs on
+ * sample data: the project and what it holds show at once and last until a
+ * reload.
  */
 
 const OTHER_COLORS = ['#8B5CF6', '#EC4899', '#EF4444', '#F59E0B', '#10B981', '#06B6D4', '#3B82F6'];
@@ -58,17 +69,18 @@ interface BriefDraft {
   goals: { title: string; target: string }[];
 }
 
-/** Rules and links read one per line: each line is its own entry, so agents can find and pin them one by one. */
+/** Rules and links read one per line. Links are an entry each; rules become one pinned entry, so they take one of the few pinned places agents always see. */
 const lines = (text: string) => text.split('\n').map((l) => l.trim()).filter(Boolean);
+const rulesEntry = (text: string) => lines(text).map((l) => (l.startsWith('- ') ? l : `- ${l}`)).join('\n');
 
 export function ProjectSetupFlow() {
   const searchParams = useSearchParams();
-  const { team, contacts, addProjectContact } = useApp();
+  const { team, contacts, addProjectContact, addProject, addGoal } = useApp();
   const { access, teamMemberId } = useAuth();
   const { isDemoMode } = useDemo();
   const brand = useBrand();
   const agentsOn = isModuleEnabled(access, 'agents');
-  const agentsList = useRead(agentsOn ? agentsListRead(isDemoMode) : null);
+  const agentsList = useRead(agentsOn ? (isDemoMode ? demoAgentsListRead() : agentsListRead(false)) : null);
   const templates = useRead(agentsOn ? agentTemplatesRead(isDemoMode) : null);
 
   const rights: ProjectFormRights = {
@@ -77,10 +89,12 @@ export function ProjectSetupFlow() {
     manageContacts: hasPermission(access, 'contacts.manage'),
     timeOn: isModuleEnabled(access, 'time'),
   };
-  const canCreate = hasPermission(access, 'projects.manage') && !isDemoMode;
+  const canCreate = hasPermission(access, 'projects.manage');
+  const readsAll = hasPermission(access, 'projects.read_all');
+  const isOwner = access?.role === 'owner';
   const canBrief = agentsOn && hasPermission(access, 'project_context.manage');
   const canGoals = agentsOn && hasPermission(access, 'goals.manage');
-  const canAgents = agentsOn && (access?.role === 'owner' || rights.manageMembers);
+  const canAgents = agentsOn && (isOwner || rights.manageMembers);
 
   const [basics, setBasics] = useState<ProjectBasics>(() => ({ ...emptyProjectBasics(teamMemberId || null), clientId: searchParams.get('client') ?? '' }));
   const [brief, setBrief] = useState<BriefDraft>({ overview: '', rules: '', links: '', goals: [] });
@@ -91,6 +105,11 @@ export function ProjectSetupFlow() {
   const [busy, setBusy] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
   const [created, setCreated] = useState<ProjectSetupResponse | null>(null);
+  const [newContactOpen, setNewContactOpen] = useState(false);
+  const [contactsBefore, setContactsBefore] = useState(contacts.length);
+  // ContactForm closes from inside its own submit, so read the store's latest list, not this render's.
+  const contactsRef = useRef(contacts);
+  useEffect(() => { contactsRef.current = contacts; }, [contacts]);
 
   const step = PROJECT_SETUP_STEPS[stepIndex].key as ProjectSetupStep;
   const colors = [...new Set([...OTHER_COLORS, brand.colors.brand[500]])];
@@ -102,13 +121,14 @@ export function ProjectSetupFlow() {
       : team.filter((m) => m.role === 'agent' && m.status !== 'suspended').map((m) => ({ id: m.id, name: m.name, avatar: m.avatar || null, role: null as string | null, template: null as string | null }));
     return list.sort((a, b) => a.name.localeCompare(b.name));
   }, [agentsList.data, team]);
+  const members = setupMembers(basics.memberIds, teamMemberId || null, readsAll);
 
   if (!canCreate) {
     return (
       <div className="flex min-h-[70vh] flex-col items-center justify-center px-6 text-center">
         <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white/[0.06] text-zinc-300" aria-hidden="true"><Lock size={20} /></span>
         <h1 className="mt-4 text-lg font-semibold text-white">You cannot create projects</h1>
-        <p className="mt-1.5 max-w-sm text-sm text-zinc-400">{isDemoMode ? 'Creating projects is switched off in the demo.' : 'Creating a project needs the Manage projects permission. Ask an Owner or Admin.'}</p>
+        <p className="mt-1.5 max-w-sm text-sm text-zinc-400">Creating a project needs the Manage projects permission. Ask an Owner or Admin.</p>
         <Button variant="secondary" className="mt-5" href="/projects">Back to projects</Button>
       </div>
     );
@@ -141,20 +161,37 @@ export function ProjectSetupFlow() {
     return {};
   };
 
+  /** A refusal on its own fields: an agent's settings open on that agent, on the Agents step; the rest stay where they are. */
+  const showServerError = (error: unknown) => {
+    const details = error instanceof WorkspaceApiError ? error.details as { agent_id?: string; part?: string; reason?: string } | undefined : undefined;
+    const fields = fieldErrorsFrom(error);
+    const agentsStep = PROJECT_SETUP_STEPS.findIndex((s) => s.key === 'agents');
+    const peopleStep = PROJECT_SETUP_STEPS.findIndex((s) => s.key === 'people');
+    if (details?.agent_id && agentsStep >= 0) {
+      go(agentsStep);
+      setErrors(Object.fromEntries(Object.entries(fields).map(([key, message]) => [`agent:${details.agent_id}:${key}`, message])));
+    } else if (details?.part === 'members' && peopleStep >= 0) {
+      go(peopleStep);
+      setErrors(fields);
+    } else {
+      setErrors(fields);
+    }
+    setServerError(error instanceof Error ? error.message : 'Could not create the project');
+  };
+
   const submit = async (only: 'basics' | 'all') => {
     for (const [i, s] of PROJECT_SETUP_STEPS.entries()) {
       if (s.key === 'done' || (only === 'basics' && s.key !== 'basics')) continue;
       const found = validateStep(s.key);
       if (Object.keys(found).length) { go(i); setErrors(found); return; }
     }
-    const project = projectPayload(basics, rights, null, teamMemberId || null);
+    const project = projectPayload({ ...basics, memberIds: members.memberIds }, rights, null, teamMemberId || null);
     const body: ProjectSetupRequest = { project: project as unknown as Record<string, unknown> };
+    const entries: { section: BriefSectionKey; content: string; pinned: boolean }[] = [];
     if (only === 'all') {
-      const entries = [
-        ...(brief.overview.trim() ? [{ section: 'overview', content: brief.overview.trim(), pinned: true }] : []),
-        ...lines(brief.rules).map((content) => ({ section: 'rules', content, pinned: true })),
-        ...lines(brief.links).map((content) => ({ section: 'links', content, pinned: false })),
-      ];
+      if (brief.overview.trim()) entries.push({ section: 'overview', content: brief.overview.trim(), pinned: true });
+      if (lines(brief.rules).length) entries.push({ section: 'rules', content: rulesEntry(brief.rules), pinned: true });
+      entries.push(...lines(brief.links).map((content) => ({ section: 'links' as const, content, pinned: false })));
       if (canBrief && entries.length) body.brief = entries;
       const goals = brief.goals.filter((g) => g.title.trim()).map((g) => ({ title: g.title.trim(), target_date: g.target || null }));
       if (canGoals && goals.length) body.goals = goals;
@@ -166,23 +203,41 @@ export function ProjectSetupFlow() {
           instructions: a.instructions.trim(),
         }));
       }
-      if (rights.manageMembers) body.members = basics.memberIds;
+      if (rights.manageMembers) body.members = members.memberIds;
     }
     setBusy(true);
     setServerError(null);
     try {
-      const result = await workspaceApi<ProjectSetupResponse>('/api/workspace/projects/setup', { method: 'POST', body });
+      const result = isDemoMode ? await demoSetup(body) : await workspaceApi<ProjectSetupResponse>('/api/workspace/projects/setup', { method: 'POST', body });
       // The primary client, the same way the Edit project form sets it.
       if (rights.manageContacts && basics.clientId) addProjectContact(result.project.id, basics.clientId, 'Client', null, true);
       invalidateTables(['projects', 'project_agents', 'project_context', 'project_goals']);
       setCreated(result);
       go(PROJECT_SETUP_STEPS.length - 1);
     } catch (error) {
-      setErrors(fieldErrorsFrom(error));
-      setServerError(error instanceof Error ? error.message : 'Could not create the project');
+      showServerError(error);
     } finally {
       setBusy(false);
     }
+  };
+
+  /** The demo's setup: the project in the store, its brief and agents in the demo's copy, nothing sent. */
+  const demoSetup = async (body: ProjectSetupRequest): Promise<ProjectSetupResponse> => {
+    const made = await addProject(body.project as Parameters<typeof addProject>[0]);
+    if (!made) throw new Error('Could not create the project');
+    const schemaOf = (key: string | null) => templateList.find((t) => t.key === key)?.settings ?? [];
+    demoRecordSetup(made.id, made.name, {
+      brief: (body.brief ?? []).map((e) => ({ section: e.section as BriefSectionKey, content: e.content, pinned: e.pinned === true })),
+      agents: (body.agents ?? []).map((a) => ({ agent_id: a.agent_id, template_key: a.template_key ?? null, settings: a.settings ?? {}, instructions: a.instructions ?? '' })),
+    }, schemaOf);
+    for (const goal of body.goals ?? []) await addGoal({ project_id: made.id, title: goal.title, target_date: goal.target_date ?? null, status: 'active' });
+    const [assignments, brief] = await Promise.all([demoProjectAgentsRead(made.id).load(), demoProjectBriefRead(made.id).load()]);
+    return {
+      project: { id: made.id, name: made.name },
+      assignments,
+      brief: brief.sections.flatMap((s) => s.entries),
+      goals: (body.goals ?? []).map((g, i) => ({ id: `demo-goal-${i}`, title: g.title, description: null, target_date: g.target_date ?? null, status: 'active' })),
+    };
   };
 
   const next = () => {
@@ -210,22 +265,38 @@ export function ProjectSetupFlow() {
         />
       ) : undefined}
     >
+      {isDemoMode && !created && (
+        <p className="mb-4 rounded-xl bg-white/[0.03] px-4 py-2.5 text-xs text-zinc-400">Demo: the project you set up here shows at once and lasts until you reload. Nothing is saved.</p>
+      )}
       {step === 'basics' && (
         <StepPanel key="basics" stepKey="basics" title="The basics" description="What it is called, who it is for and when it runs. Only the name is needed to start.">
           <div className="space-y-5">
             <TextInput label="Project name *" value={basics.name} onChange={(name) => set({ name })} placeholder="Website refresh" error={errors.name} autoFocus />
             <Textarea label="Description" value={basics.description} onChange={(v) => set({ description: v.slice(0, PROJECT_DESCRIPTION_MAX) })} rows={2} maxLength={PROJECT_DESCRIPTION_MAX} showCharCount error={errors.description} placeholder="One line on what this project is." />
             {rights.manageContacts && (
-              <Select
-                label="Primary client *"
-                value={basics.clientId}
-                onChange={(clientId) => set({ clientId })}
-                searchable
-                placeholder="Find a contact"
-                options={[...contacts].sort((a, b) => a.name.localeCompare(b.name)).map((c) => ({ value: c.id, label: c.name, keywords: c.company ?? undefined, detail: c.company || undefined }))}
-                error={errors.clientId}
-                emptyText="No contacts match. Add the client under Contacts first."
-              />
+              <div>
+                <Select
+                  label="Primary client *"
+                  visibleLabel="Primary client *"
+                  value={basics.clientId}
+                  onChange={(clientId) => set({ clientId })}
+                  searchable
+                  placeholder="Find a contact"
+                  options={[...contacts].sort((a, b) => a.name.localeCompare(b.name)).map((c) => ({ value: c.id, label: c.name, keywords: c.company ?? undefined, detail: c.company || undefined }))}
+                  error={errors.clientId}
+                  emptyText="No contacts match. Use New contact below to add the client."
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="-ml-2.5 mt-1.5"
+                  icon={<Plus size={13} aria-hidden="true" />}
+                  onClick={() => { setContactsBefore(contacts.length); setNewContactOpen(true); }}
+                >
+                  New contact
+                </Button>
+              </div>
             )}
             <div className="grid gap-4 sm:grid-cols-2">
               <DateInput label="Start date" value={basics.startDate} onChange={(startDate) => set({ startDate })} />
@@ -268,13 +339,23 @@ export function ProjectSetupFlow() {
       )}
 
       {step === 'brief' && (
-        <StepPanel key="brief" stepKey="brief" title="The brief" description="What every agent and new teammate should know. Overview and rules are pinned, so every agent reads them; you can add more later.">
+        <StepPanel
+          key="brief"
+          stepKey="brief"
+          title="The brief"
+          description={`What every agent and new teammate should know. The overview and the rules are pinned: agents always see the newest ${PINNED_REACH.perScope} pinned entries, the first ${PINNED_REACH.entry} characters of each, and find the rest by search.`}
+        >
           {!canBrief && !canGoals ? (
             <p className="rounded-xl bg-white/[0.02] px-4 py-3 text-sm text-zinc-400">{agentsOn ? 'Writing a brief needs the Manage project context permission.' : 'The brief is part of the AI agents module, which is off.'}</p>
           ) : (
             <div className="space-y-6">
               {canBrief && (
-                <Textarea label="Overview" value={brief.overview} onChange={(overview) => setBrief({ ...brief, overview })} rows={4} placeholder="What this project is, who it is for, what good looks like." />
+                <div>
+                  <Textarea label="Overview" value={brief.overview} onChange={(overview) => setBrief({ ...brief, overview })} rows={4} placeholder="What this project is, who it is for, what good looks like." />
+                  {brief.overview.trim().length > PINNED_REACH.entry && (
+                    <p className="mt-1.5 text-xs text-amber-300">Agents see the first {PINNED_REACH.entry} characters of a pinned entry. Put what matters most first.</p>
+                  )}
+                </div>
               )}
               {canGoals && (
                 <div>
@@ -296,8 +377,8 @@ export function ProjectSetupFlow() {
               )}
               {canBrief && (
                 <>
-                  <Textarea label="Rules and constraints" description="One per line" value={brief.rules} onChange={(rules) => setBrief({ ...brief, rules })} rows={4} placeholder={'Never deploy on Fridays\nEvery change needs a test'} />
-                  <Textarea label="Links" description="One per line" value={brief.links} onChange={(links) => setBrief({ ...brief, links })} rows={3} placeholder={'Repository: https://github.com/acme/site\nDesigns: https://figma.com/...'} />
+                  <Textarea label="Rules and constraints" description="One per line. They are saved as one pinned list." value={brief.rules} onChange={(rules) => setBrief({ ...brief, rules })} rows={4} placeholder={'Never deploy on Fridays\nEvery change needs a test'} />
+                  <Textarea label="Links" description="One per line. Agents find them by search." value={brief.links} onChange={(links) => setBrief({ ...brief, links })} rows={3} placeholder={'Repository: https://github.com/acme/site\nDesigns: https://figma.com/...'} />
                 </>
               )}
             </div>
@@ -311,24 +392,36 @@ export function ProjectSetupFlow() {
           {!canAgents ? (
             <p className="rounded-xl bg-white/[0.02] px-4 py-3 text-sm text-zinc-400">{agentsOn ? 'Putting agents on a project needs the Assign project members permission.' : 'Agents are part of the AI agents module, which is off.'}</p>
           ) : (
-            <AgentsStep picks={agents} setPicks={setAgents} options={agentOptions} templates={templateList.map((t) => ({ key: t.key, label: t.label, schema: t.settings ?? [] }))} errors={errors} />
+            <AgentsStep
+              picks={agents}
+              setPicks={setAgents}
+              options={agentOptions}
+              templates={templateList.map((t) => ({ key: t.key, label: t.label, schema: t.settings ?? [] }))}
+              errors={errors}
+              canHire={isOwner && !isDemoMode}
+            />
           )}
-          <StepFooter onBack={() => go(stepIndex - 1)} onNext={next} nextLabel={agents.length ? 'Next' : 'Skip for now'} />
+          <StepFooter onBack={() => go(stepIndex - 1)} onNext={next} nextLabel={agents.length ? 'Next' : 'Skip for now'} error={serverError} />
         </StepPanel>
       )}
 
       {step === 'people' && (
         <StepPanel key="people" stepKey="people" title="People" description="Who on the team can open this project. Agents you added get access on their own.">
           {rights.manageMembers ? (
-            <MultiSelect
-              label="Team members"
-              value={basics.memberIds}
-              onChange={(memberIds) => set({ memberIds })}
-              options={people.map((p) => ({ value: p.id, label: p.id === teamMemberId ? `${p.name} (you)` : p.name }))}
-              searchable
-              selectAll
-              placeholder="Pick people"
-            />
+            <div>
+              <MultiSelect
+                label="Team members"
+                value={members.memberIds}
+                onChange={(memberIds) => set({ memberIds: setupMembers(memberIds, teamMemberId || null, readsAll).memberIds })}
+                options={people.map((p) => ({ value: p.id, label: p.id === teamMemberId ? `${p.name} (you)` : p.name }))}
+                searchable
+                selectAll
+                placeholder="Pick people"
+              />
+              {members.locked && <p className="mt-1.5 text-xs text-zinc-500">You stay on it, so you can open it once it is made.</p>}
+              {members.warning && <p role="status" className="mt-1.5 text-xs text-amber-300">{members.warning}</p>}
+              {errors.members && <p role="alert" className="mt-1.5 text-xs text-input-error">{errors.members}</p>}
+            </div>
           ) : (
             <p className="rounded-xl bg-white/[0.02] px-4 py-3 text-sm text-zinc-400">You will be on it. Someone who can assign project members can add others later.</p>
           )}
@@ -352,16 +445,30 @@ export function ProjectSetupFlow() {
           </div>
         </StepPanel>
       )}
+
+      {rights.manageContacts && (
+        <ContactForm
+          isOpen={newContactOpen}
+          onClose={() => {
+            setNewContactOpen(false);
+            // Pick the new contact if one was added: the store puts new contacts first.
+            const latest = contactsRef.current;
+            if (latest.length > contactsBefore && latest[0]) set({ clientId: latest[0].id });
+          }}
+        />
+      )}
     </FlowShell>
   );
 }
 
-function AgentsStep({ picks, setPicks, options, templates, errors }: {
+function AgentsStep({ picks, setPicks, options, templates, errors, canHire }: {
   picks: AgentPick[];
   setPicks: (p: AgentPick[]) => void;
   options: { id: string; name: string; avatar: string | null; role: string | null; template: string | null }[];
   templates: { key: string; label: string; schema: NonNullable<Parameters<typeof settingsDefaults>[0]> }[];
   errors: Record<string, string>;
+  /** Hiring is an Owner's: everyone else is told an Owner can. */
+  canHire: boolean;
 }) {
   const [open, setOpen] = useState<string | null>(null);
   const [pages, setPages] = useState(1);
@@ -379,13 +486,18 @@ function AgentsStep({ picks, setPicks, options, templates, errors }: {
   const update = (agentId: string, patch: Partial<AgentPick>) => setPicks(picks.map((p) => (p.agentId === agentId ? { ...p, ...patch } : p)));
 
   if (options.length === 0) {
-    return <p className="rounded-xl bg-white/[0.02] px-4 py-3 text-sm text-zinc-400">No agents on the team yet. You can hire one after the project exists, from its Agents tab.</p>;
+    return (
+      <p className="rounded-xl bg-white/[0.02] px-4 py-3 text-sm text-zinc-400">
+        {canHire ? 'No agents on the team yet. You can hire one after the project exists, from its Agents tab.' : 'No agents on the team yet. An Owner can hire one and put it on this project later.'}
+      </p>
+    );
   }
 
   return (
     <div className="space-y-4">
       <Select
         label="Add an agent"
+        visibleLabel="Add an agent"
         value=""
         onChange={add}
         searchable
@@ -419,7 +531,7 @@ function AgentsStep({ picks, setPicks, options, templates, errors }: {
               <li key={pick.agentId} className={`overflow-hidden rounded-2xl ring-1 ring-inset ${hasErrors ? 'bg-red-500/[0.05] ring-red-400/30' : 'bg-white/[0.025] ring-white/[0.06]'}`}>
                 <div className="flex items-center gap-3 px-4 py-3">
                   <AgentAvatar id={pick.agentId} name={agent?.name ?? 'Agent'} src={agent?.avatar} size="sm" />
-                  <button type="button" onClick={() => setOpen(isOpen ? null : pick.agentId)} aria-expanded={isOpen} className="flex min-w-0 flex-1 items-center gap-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 rounded">
+                  <button type="button" onClick={() => setOpen(isOpen ? null : pick.agentId)} aria-expanded={isOpen} className="flex min-w-0 flex-1 items-center gap-2 rounded text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500">
                     <span className="truncate text-sm font-medium text-white">{agent?.name ?? 'Agent'}</span>
                     {agent?.role && <span className="truncate text-xs text-zinc-500">{roleLabel(agent.role)}</span>}
                     <span className="ml-auto flex-shrink-0 text-xs text-zinc-500">{hasErrors ? 'Needs a look' : settingsSummary(schema, pick.settings)}</span>
@@ -433,6 +545,7 @@ function AgentsStep({ picks, setPicks, options, templates, errors }: {
                   <div className="animate-slideDown space-y-4 border-t border-white/[0.05] px-4 pb-4 pt-4">
                     <Select
                       label="Set up as"
+                      visibleLabel="Set up as"
                       value={pick.templateKey}
                       onChange={(templateKey) => update(pick.agentId, { templateKey, settings: settingsDefaults(templates.find((t) => t.key === templateKey)?.schema ?? []) })}
                       options={[{ value: '', label: 'No template' }, ...templates.map((t) => ({ value: t.key, label: t.label }))]}

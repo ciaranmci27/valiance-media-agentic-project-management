@@ -5,6 +5,7 @@ import { resolveAgentProfile } from '@/lib/api/agent-registries';
 import { AGENT_RULE_FIELDS, agentRulesUpdateSchema } from '@/lib/agent-rules';
 import { agentRulesColumns } from '@/lib/api/agent-rules';
 import { ApiError } from '@/lib/api/errors';
+import { provisionForPeople } from '@/lib/api/personal-agents';
 
 const PROFILE_FIELDS = ['name', 'title', 'avatar', 'timezone', 'notification_prefs', 'email_notifications_enabled', 'email_notification_prefs', 'theme_preference'] as const;
 const MANAGEMENT_FIELDS = [...PROFILE_FIELDS, 'status'] as const;
@@ -137,5 +138,7 @@ export async function PATCH(
     return NextResponse.json({ error: 'A workspace needs at least one active Owner. Make someone else an Owner first.' }, { status: 409 });
   }
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  // A new role (or a person back from suspension) may call for an assistant a setup gives.
+  if (('role' in updates || updates.status === 'active') && data.role !== 'agent') await provisionForPeople(service, [id], memberId);
   return NextResponse.json({ data });
 }
