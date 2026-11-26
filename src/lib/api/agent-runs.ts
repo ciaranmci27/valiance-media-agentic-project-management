@@ -273,12 +273,40 @@ export async function runDelegatedTo(db: SupabaseClient, runId: string, memberId
   return (assigned ?? []).length > 0;
 }
 
+/** How long after an answer (or decision) the one asked may still link a run under the asking run. */
+export const ASKED_RUN_LINK_HOURS = 24;
+
+/**
+ * Whether a run asked this member directly (asked_to, never a group): an
+ * open question or approval that names the run (not past expires_at, not in
+ * Trash), or one answered or decided in the last ASKED_RUN_LINK_HOURS. A
+ * reviewer asked for an approval links his own run under the builder's, also
+ * when he decides first and logs the run after.
+ */
+export async function runAskedOf(db: SupabaseClient, runId: string, memberId: string): Promise<boolean> {
+  const since = new Date(Date.now() - ASKED_RUN_LINK_HOURS * 3600_000).toISOString();
+  const { data, error } = await db.from('questions').select('status, expires_at')
+    .eq('run_id', runId).eq('asked_to', memberId).is('deleted_at', null)
+    .or(`status.eq.open,and(status.eq.answered,answered_at.gte.${since})`);
+  if (error) {
+    // A database before questions.run_id: nothing names a run.
+    if (error.code === '42703' || /run_id/.test(error.message ?? '')) return false;
+    throw error;
+  }
+  const now = Date.now();
+  return ((data ?? []) as { status: string; expires_at: string | null }[])
+    .some((q) => q.status === 'answered' || !q.expires_at || Date.parse(q.expires_at) > now);
+}
+
 /**
  * The parent a start names: a stored run the key sees (its own, every run
- * with agents.manage, or a run that delegated a subtask to it), in reach and
- * not in Trash; else 404 as a hidden run reads. A request acting for a
- * person may only continue a chain made for that same person (403
- * principal_mismatch): a child never switches to someone else.
+ * with agents.manage, or a run that delegated a subtask to it), or a run
+ * that asked the key's member a question or approval directly (runAskedOf),
+ * in reach and not in Trash; else 404 as a hidden run reads. Linking only
+ * records lineage: it reads nothing of the parent beyond the run tree's own
+ * rules. A request acting for a person may only continue a chain made for
+ * that same person (403 principal_mismatch): a child never switches to
+ * someone else.
  */
 async function loadParentRun(ctx: RunsContext, id: string): Promise<Row> {
   if (!UUID.test(id)) throw notFound('Parent run');
@@ -286,7 +314,8 @@ async function loadParentRun(ctx: RunsContext, id: string): Promise<Row> {
   if (missingRunsTable(error)) throw notFound('Parent run');
   if (error) throw error;
   const row = data as Row | null;
-  const sees = !!row && (row.agent_id === ctx.memberId || canManageRuns(ctx) || await runDelegatedTo(ctx.db, row.id, ctx.memberId));
+  const sees = !!row && (row.agent_id === ctx.memberId || canManageRuns(ctx)
+    || await runDelegatedTo(ctx.db, row.id, ctx.memberId) || await runAskedOf(ctx.db, row.id, ctx.memberId));
   if (!row || !sees || !runInReach(ctx, row) || !(await placeLive(ctx.db, row))) throw notFound('Parent run');
   const principal = ctx.access.principal_id ?? null;
   if (principal && principal !== (row.principal_id ?? null)) throw principalMismatch();

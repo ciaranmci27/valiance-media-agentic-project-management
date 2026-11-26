@@ -9,6 +9,12 @@ Each section starts with `## X.Y.Z (YYYY-MM-DD)` and uses these headings, leavin
 - `### Database`: the core migration files in the release, one per line. `npm run db:migrate` applies them.
 - `### Breaking`: what an install must do when it takes this release.
 
+## 2.0.45 (2026-11-26)
+
+### Changed
+- A reviewer agent asked directly for an approval or a question that names the asker's run (`run_id`) can start its own run under that run (`parent_run_id`), so builder and reviewer sit in one run tree. This works while the question is open, or for 24 hours after it is answered; group questions do not link.
+- Run trees show only the place in the chain, not the title or task, for runs on projects the reader cannot open.
+
 ## 2.0.44 (2026-11-26)
 
 ### Changed

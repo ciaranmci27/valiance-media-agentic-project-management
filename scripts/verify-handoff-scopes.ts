@@ -450,6 +450,77 @@ async function chainChecks({ s, service, start, tree, delegate, brief, reason, c
   check('chain: mode assign refuses subtask fields; a subtask needs a title', [400, 422].includes(mixed.status) && [400, 422].includes(untitled.status), [mixed.status, mixed.body, untitled.status]);
 }
 
+// ── Review flow: a run under the run that asked for the approval ─────────
+
+async function askedRunChecks({ s, start, tree, reason }: Pick<ChainKit, 's' | 'start' | 'tree' | 'reason'>) {
+  const AGENT = ['tasks.read', 'tasks.create', 'tasks.manage_assigned', 'projects.read', 'agent_activity.write', 'project_context.read'];
+  const agent = async (name: string) => (await s.q<{ id: string }>("INSERT INTO pm.team_members (name, email, role) VALUES ($1, $2, 'agent') RETURNING id", [name, `${name.toLowerCase()}@agents.example.com`]))[0].id;
+  const bea = await agent('Bea');
+  const rio = await agent('Rio');
+  const uno = await agent('Uno');
+  for (const m of [bea, rio, uno]) await s.q('INSERT INTO pm.project_members (project_id, member_id) VALUES ($1, $2)', [s.site, m]);
+  await s.q('INSERT INTO pm.group_members (group_id, member_id) VALUES ($1, $2)', [s.group, rio]);
+  const lab = (await s.q<{ id: string }>("INSERT INTO pm.projects (name) VALUES ('Lab') RETURNING id"))[0].id;
+  await s.q('INSERT INTO pm.project_members (project_id, member_id) VALUES ($1, $2)', [lab, bea]);
+  const labTask = (await s.q<{ id: string }>("INSERT INTO pm.tasks (project_id, title, status) VALUES ($1, 'Tune the model', 'todo') RETURNING id", [lab]))[0].id;
+  // Fresh keys for the personal agents: earlier checks revoked or re-bound theirs.
+  const keys = { bea: await s.key(bea, AGENT), rio: await s.key(rio, AGENT), uno: await s.key(uno, AGENT), pip: await s.key(s.pip, AGENT), rex: await s.key(s.rex, AGENT) };
+  // An approval (or a question to a group) naming the asker's run, as POST /approvals stores it.
+  const ask = async (by: string, runId: string, to: { member?: string; group?: string }, answeredHoursAgo?: number) => {
+    const answered = answeredHoursAgo !== undefined;
+    await s.q(`INSERT INTO pm.questions (asked_by, asked_to, asked_to_group, question, kind, choices, allow_other, action, run_id, status, answer_choice, answered_by, answered_at)
+      VALUES ($1, $2, $3, 'Approve the merge?', 'approval', '["approve", "reject"]', false, '{"type": "merge", "summary": "Merge the branch"}', $4, $5, $6, $7, $8)`,
+    [by, to.member ?? null, to.group ?? null, runId, answered ? 'answered' : 'open', answered ? 'approve' : null, answered ? to.member ?? s.ana : null,
+      answered ? new Date(Date.now() - answeredHoursAgo * 3600_000).toISOString() : null]);
+  };
+
+  // 1. Ana's personal agent builds and asks Rio to review: Rio's run goes under it, same root and person.
+  const built = await start(keys.pip, { title: 'Build the pricing table for Ana', summary: 'Private notes on the build' });
+  const builtRun: string = built.body?.data?.id;
+  await ask(s.pip, builtRun, { member: rio });
+  const review = await start(keys.rio, { parent_run_id: builtRun, title: 'Review the pricing table' });
+  check('review: an approval asked of the reviewer naming the builder\'s run lets him start a child (same root, same person)', review.status === 201
+    && review.body.data.parent_run_id === builtRun && review.body.data.root_run_id === builtRun && review.body.data.principal_id === s.ana && built.body?.data?.principal_id === s.ana, [built.body, review.status, review.body]);
+  const unrelated = await start(keys.uno, { parent_run_id: builtRun });
+  check('review: an agent the approval was not asked of gets 404', unrelated.status === 404, unrelated.body);
+
+  // Linking reads nothing new: the builder's run shows its place, never its summary, tokens or trace.
+  const t = await tree(keys.rio, review.body?.data?.id);
+  const parentNode = (t.body?.data?.runs ?? []).find((n: Loose) => n.id === builtRun);
+  check('review: the reviewer\'s tree shows the builder\'s run without its details', t.status === 200 && parentNode?.visible === false
+    && parentNode.summary === null && parentNode.external_url === null && parentNode.cost_usd === null, t.body);
+
+  // 2. Decided more than 24 hours ago: too late to link. Within it: links.
+  const old = (await start(keys.bea, { title: 'Old build' })).body?.data?.id as string;
+  await ask(bea, old, { member: rio }, 25);
+  const late = await start(keys.rio, { parent_run_id: old });
+  check('review: an approval answered more than 24 hours ago gets 404', late.status === 404, late.body);
+  const recent = (await start(keys.bea, { title: 'Recent build' })).body?.data?.id as string;
+  await ask(bea, recent, { member: rio }, 2);
+  const logged = await start(keys.rio, { parent_run_id: recent, title: 'Logged after deciding' });
+  check('review: decided first, logged within 24 hours, the run still links', logged.status === 201 && logged.body.data.root_run_id === recent, logged.body);
+
+  // 3. Asked of a group the reviewer is in: people decide those, so no link.
+  const grouped = (await start(keys.bea, { title: 'Group build' })).body?.data?.id as string;
+  await ask(bea, grouped, { group: s.group });
+  const viaGroup = await start(keys.rio, { parent_run_id: grouped });
+  check('review: a question asked of a group gets 404', viaGroup.status === 404, viaGroup.body);
+
+  // 4. The builder's run on a project the reviewer cannot open: linked, but its title and task stay hidden.
+  const labRun = (await start(keys.bea, { task_id: labTask, title: 'Tune the secret model' })).body?.data?.id as string;
+  await ask(bea, labRun, { member: rio });
+  const labReview = await start(keys.rio, { parent_run_id: labRun, title: 'Review the tuning' });
+  const labTree = await tree(keys.rio, labReview.body?.data?.id);
+  const labNode = (labTree.body?.data?.runs ?? []).find((n: Loose) => n.id === labRun);
+  check('review: a parent on a project the reviewer cannot open shows only its place', labReview.status === 201 && labTree.status === 200
+    && labNode?.title === null && labNode.task_id === null && labNode.visible === false, [labReview.body, labTree.body]);
+
+  // The person is never switched: another person's agent asked about Ana's chain still cannot join it.
+  await ask(s.pip, builtRun, { member: s.rex });
+  const switched = await start(keys.rex, { parent_run_id: builtRun });
+  check('review: asked or not, an agent acting for someone else never joins the chain', [403, 404].includes(switched.status), switched.body);
+}
+
 async function main() {
   pureChecks();
   await migrationChecks();
@@ -820,6 +891,7 @@ async function main() {
       && !specTools.includes('create_agent_profile'), ownerTools);
 
     await chainChecks({ s, service, start, tree, delegate, brief, reason, callTool });
+    await askedRunChecks({ s, start, tree, reason });
   } finally {
     await server.close();
     await db.close();

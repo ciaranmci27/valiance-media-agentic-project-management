@@ -345,8 +345,8 @@ const num = (value: unknown): number | null => (value === null || value === unde
  * delegated to them). Every run shows who ran it, on which task, its status
  * and title; a run the reader may not read in full (another agent's) leaves
  * out its summary, tokens, cost and trace link. A run on a task or project
- * in Trash, or out of reach while acting for someone, shows only its place
- * in the chain.
+ * in Trash, on a project the reader cannot open, or out of reach while
+ * acting for someone, shows only its place in the chain.
  */
 export async function runTree(ctx: RunsContext, runId: string): Promise<RunTree> {
   requireAgentsEnabled(ctx.access);
@@ -390,9 +390,13 @@ export async function runTree(ctx: RunsContext, runId: string): Promise<RunTree>
     for (let at = parentOf.get(id); at && depth < RUN_TREE_MAX; at = parentOf.get(at)) depth++;
     return depth;
   };
+  // A run on a project the reader cannot open shows only its place: a child
+  // linked under a run that asked it (an approval) reads no more of the
+  // asker's work than the project gives it.
+  const opens = (row: Row) => manage || !row.project_id || accessAllowsProject(ctx.access, row.project_id as string, 'api');
   const nodes: RunTreeNode[] = [];
   for (const row of rows) {
-    const live = runInReach(ctx, row) && await placeLive(ctx.db, row);
+    const live = runInReach(ctx, row) && opens(row) && await placeLive(ctx.db, row);
     nodes.push(await nodeOf(ctx, row, depthOf(row.id), live && (manage || row.agent_id === ctx.memberId), live ? byRun.get(row.id) ?? [] : [], live));
   }
   const root = rows.find((row) => row.id === rootId);
