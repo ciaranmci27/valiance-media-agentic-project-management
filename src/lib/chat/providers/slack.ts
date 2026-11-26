@@ -27,6 +27,10 @@ import {
  * gives no address for (Slack Connect's check_file_info) is left out.
  *
  * A link goes as Slack's <url|label> on its own line.
+ *
+ * Broadcast mentions in what is sent (<!channel>, <!here>, <!everyone>,
+ * <!subteam^...>) become plain text, so an agent never notifies a whole
+ * channel or group; a person's <@U...> stays, which replies use on purpose.
  */
 
 const SLACK_API = 'https://slack.com/api';
@@ -102,7 +106,9 @@ export const slackAdapter: ChatAdapter = {
     const threadTs = message.threadId ?? message.replyTo ?? null;
     const answer = await postJson('slack', `${SLACK_API}/chat.postMessage`, {
       channel: message.conversationId,
-      text: message.link ? `${message.text}\n<${message.link.url}|${slackEscape(message.link.label)}>` : message.text,
+      text: message.link ? `${quietBroadcasts(message.text)}\n<${message.link.url}|${slackEscape(message.link.label)}>` : quietBroadcasts(message.text),
+      // Plain @channel or @group text is never turned into a mention.
+      link_names: false,
       ...(threadTs ? { thread_ts: threadTs } : {}),
       ...(threadTs && message.broadcast ? { reply_broadcast: true } : {}),
       ...(message.as ? { username: message.as.username.slice(0, 80), ...(message.as.iconUrl ? { icon_url: message.as.iconUrl } : {}) } : {}),
@@ -198,6 +204,16 @@ const isSlackFileUrl = (value: unknown): value is string => {
     return false;
   }
 };
+
+/**
+ * Slack's broadcast mentions as plain text: <!here> reads "@here", a user
+ * group its handle, and none of them notify. People (<@U...>) are kept.
+ */
+const quietBroadcasts = (text: string) => text
+  .replace(/<!subteam\^[^>|]*(?:\|([^>]*))?>/gi, (_match, label?: string) => (label ? `@${label.replace(/^@/, '')}` : '@group'))
+  // Every other <!...> form (channel, here, everyone, the legacy group, and any Slack adds later) as plain text;
+  // only <!date^...> stays, since it formats a date and notifies nobody.
+  .replace(/<!(?!date\^)([^>|]*)(?:\|[^>]*)?>/gi, (_match, name: string) => `@${name.toLowerCase()}`);
 
 /** Slack's mrkdwn control characters, so a label never breaks the link. */
 const slackEscape = (text: string) => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\|/g, '/');

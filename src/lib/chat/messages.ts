@@ -385,7 +385,7 @@ export async function replyToMessage(
     });
     externalId = sent.externalMessageId;
     // Discord made or dropped a channel webhook: kept sealed for the next reply.
-    if (sent.credentials) await storeCredentials(service, connection.id, sent.credentials);
+    if (sent.credentials) await storeCredentials(service, connection.id, credentials, sent.credentials);
   } catch (error) {
     if (!(error instanceof ChatProviderError)) throw error;
     failure = error;

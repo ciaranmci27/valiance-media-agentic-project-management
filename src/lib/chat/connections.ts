@@ -215,11 +215,33 @@ export async function createChatConnection(
   return connected.relaySecret ? { ...view, relay_secret: connected.relaySecret } : view;
 }
 
-/** Stores credentials an adapter changed while sending (Discord's channel webhooks). Never fails the send. */
-export async function storeCredentials(service: SupabaseClient, connectionId: string, credentials: ChatCredentials): Promise<void> {
+/**
+ * Stores what an adapter changed while sending (Discord's channel webhooks).
+ * Only the keys that differ between `before` (what the send loaded) and
+ * `after` are written, merged into the credentials stored now, so a relay
+ * secret rotated during the send is kept. The write only lands if the stored
+ * value is still the one read (retried once on a conflict). Never fails the send.
+ */
+export async function storeCredentials(service: SupabaseClient, connectionId: string, before: ChatCredentials, after: ChatCredentials): Promise<void> {
+  const set = Object.entries(after).filter(([key, value]) => before[key] !== value);
+  const dropped = Object.keys(before).filter((key) => !(key in after));
+  if (set.length === 0 && dropped.length === 0) return;
   try {
-    const { error } = await service.from('chat_connections').update({ credentials: sealCredentials(connectionId, credentials) }).eq('id', connectionId);
-    if (error) console.error(`[chat] connection ${connectionId}: could not store credentials`, error.code);
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const { data: current, error: readError } = await service.from('chat_connections').select('id, credentials').eq('id', connectionId).maybeSingle();
+      if (readError) return console.error(`[chat] connection ${connectionId}: could not read credentials`, readError.code);
+      if (!current) return;
+      const stored = current as { id: string; credentials: string };
+      const merged = { ...openCredentials(stored) };
+      for (const [key, value] of set) merged[key] = value;
+      // Drop a key only while it still holds what this send saw, so a newer value saved meanwhile is kept.
+      for (const key of dropped) if (merged[key] === before[key]) delete merged[key];
+      const { data, error } = await service.from('chat_connections').update({ credentials: sealCredentials(connectionId, merged) })
+        .eq('id', connectionId).eq('credentials', stored.credentials).select('id');
+      if (error) return console.error(`[chat] connection ${connectionId}: could not store credentials`, error.code);
+      if ((data ?? []).length > 0) return;
+    }
+    console.error(`[chat] connection ${connectionId}: credentials changed twice during a send; the adapter's change was not stored`);
   } catch (error) {
     console.error(`[chat] connection ${connectionId}: could not seal credentials`, (error as Error)?.message);
   }

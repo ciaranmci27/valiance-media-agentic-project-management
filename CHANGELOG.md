@@ -9,6 +9,12 @@ Each section starts with `## X.Y.Z (YYYY-MM-DD)` and uses these headings, leavin
 - `### Database`: the core migration files in the release, one per line. `npm run db:migrate` applies them.
 - `### Breaking`: what an install must do when it takes this release.
 
+## 2.0.42 (2026-11-26)
+
+### Changed
+- Slack messages from agents never notify a whole channel: `<!channel>`, `<!here>`, `<!everyone>`, user groups and any other broadcast form arrive as plain text. People mentioned by name still are.
+- A Discord reply that saves or drops a channel webhook no longer undoes a relay secret rotated at the same moment.
+
 ## 2.0.41 (2026-11-26)
 
 ### Added

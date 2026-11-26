@@ -230,6 +230,16 @@ async function pureChecks() {
   check('link: Telegram url button under the message', telegramPost?.body?.text === 'Cash at close.'
     && JSON.stringify(telegramPost.body.reply_markup) === JSON.stringify({ inline_keyboard: [[{ text: link.label, url: link.url }]] }), telegramPost?.body);
   check('link: Discord masked link, no embed', discordPost?.body?.content === 'Cash at close.\n[Open the report](<https://pm.example.com/reports/cash>)', discordPost?.body);
+
+  // An agent cannot ping a whole Slack channel or group; a person it names still hears it.
+  providerCalls.length = 0;
+  await slackAdapter.send({ bot_token: COMPANY_TOKEN }, {
+    conversationId: 'C1', threadId: null, link,
+    text: '<!channel> <!here> <!everyone|everyone> <!group> <!subteam^S0123ABC|@oncall> <!subteam^S0456DEF> <!date^1700000000^{date}|Nov 14> heads up, <@U0ANA001> owns it',
+  });
+  const quiet = providerCalls[0]?.body;
+  check('mentions: Slack broadcasts go as plain text, a person\'s mention stays', quiet?.text === '@channel @here @everyone @group @oncall @group <!date^1700000000^{date}|Nov 14> heads up, <@U0ANA001> owns it\n<https://pm.example.com/reports/cash|Open &lt;the&gt; report>'
+    && quiet.link_names === false && !/<!(?!date\^)/.test(quiet.text), quiet);
 }
 
 // ── The migration ────────────────────────────────────────────────────────

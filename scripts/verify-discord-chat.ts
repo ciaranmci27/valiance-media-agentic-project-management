@@ -50,6 +50,7 @@ const OPS = '110000000000000002';
 const GEN = '110000000000000003';
 const NOHOOK = '110000000000000004';
 const THREAD = '110000000000000005';
+const ROTATE = '110000000000000006';
 const GUILD = '700000000000000001';
 const FINANCE_AVATAR = 'https://cdn.example.com/finance.png';
 
@@ -104,6 +105,8 @@ const slept: number[] = [];
 /** The next calls answer 429 with these retry_after seconds, in order. */
 const limits: number[] = [];
 let seq = 0;
+/** Runs once while Discord is making the next channel webhook (an Owner acting mid-send). */
+let duringWebhook: (() => Promise<void>) | null = null;
 
 function installDiscord() {
   discordTiming.sleep = async (ms) => { slept.push(ms); };
@@ -128,6 +131,11 @@ function installDiscord() {
     const hook = path.match(/^\/channels\/(\d+)\/webhooks$/);
     if (method === 'POST' && hook) {
       if (hook[1] === NOHOOK) return json({ message: 'Missing Permissions', code: 50013 }, 403);
+      if (duringWebhook) {
+        const run = duringWebhook;
+        duringWebhook = null;
+        await run();
+      }
       seq++;
       return json({ id: `55500000000000000${seq}`, token: `hooktoken${seq}`, channel_id: hook[1] });
     }
@@ -364,9 +372,9 @@ async function main() {
     const mappedFin = await session(channelsRoute.POST, 'POST', `/api/workspace/chat-connections/${companyId}/channels`, { id: companyId }, { channel: FIN, agent_id: s.finance, listen: 'all' });
     await session(channelsRoute.POST, 'POST', `/api/workspace/chat-connections/${companyId}/channels`, { id: companyId }, { channel: OPS, agent_id: s.ops });
     check('channels: a Discord channel id maps, named by Discord', mappedFin.status === 201 && mappedFin.body.data.channels.some((c: Loose) => c.channel_id === FIN && c.channel_name === '#finance'), mappedFin.body);
-    const toCompany = async (fields: Loose, channel: Loose = null) => {
+    const toCompany = async (fields: Loose, channel: Loose = null, secret = companySecret) => {
       const payload = message(fields, channel);
-      const answer = await post(companyId, payload, relay(companySecret));
+      const answer = await post(companyId, payload, relay(secret));
       return { answer, payload, record: answer.body?.id ? await row(answer.body.id) : null };
     };
     const named = await toCompany({ channel_id: GEN, content: '@Finance Bot what is our cash position?' });
@@ -437,10 +445,24 @@ async function main() {
     check('relay secret: a new one is answered once; the old one stops working, the webhooks stay', renewed.status === 200 && /^rsec_/.test(fresh ?? '') && fresh !== companySecret
       && oldNow.status === 401 && newNow.status === 200 && !!openCredentials(await connRow(companyId))[`webhook:${GEN}`], [renewed.body, oldNow.status, newNow.status]);
 
+    // A relay secret rotated while a send is making a webhook: the send stores only its webhook.
+    const midSend = await toCompany({ channel_id: ROTATE, content: `<@${COMPANY_BOT}> status?`, mentions: [{ id: COMPANY_BOT, bot: true }] }, null, fresh);
+    let rotated = '';
+    duringWebhook = async () => {
+      rotated = (await session(connectionRoute.PATCH, 'PATCH', `/api/workspace/chat-connections/${companyId}`, { id: companyId }, { new_relay_secret: true })).body?.data?.relay_secret ?? '';
+    };
+    const midReply = await v1(v1Reply.POST, `/api/v1/chat/messages/${midSend.answer.body?.id}/reply`, { id: midSend.answer.body?.id }, s.keys.ops, { text: 'All green.' }, opsPass);
+    const afterRotate = openCredentials(await connRow(companyId));
+    const rotatedNow = await post(companyId, hello, relay(rotated));
+    const freshNow = await post(companyId, hello, relay(fresh));
+    check('relay secret: one rotated during a send survives the send, and the send\'s webhook is saved', midReply.status === 201 && /^rsec_/.test(rotated) && rotated !== fresh
+      && afterRotate.relay_secret === rotated && /^\d+\/hooktoken\d+$/.test(afterRotate[`webhook:${ROTATE}`] ?? '') && !!afterRotate[`webhook:${GEN}`]
+      && rotatedNow.status === 200 && freshNow.status === 401, { midReply: midReply.body, rotated: !!rotated, keys: Object.keys(afterRotate), rotatedNow: rotatedNow.status, freshNow: freshNow.status });
+
     // ── Disconnect ─────────────────────────────────────────────────────
     calls.length = 0;
     const gone = await session(connectionRoute.DELETE, 'DELETE', `/api/workspace/chat-connections/${companyId}`, { id: companyId });
-    check('disconnect: the channel webhooks it made are deleted', gone.status === 200 && calls.filter((call) => call.method === 'DELETE' && call.path.startsWith('/webhooks/')).length === 2, calls);
+    check('disconnect: the channel webhooks it made are deleted', gone.status === 200 && calls.filter((call) => call.method === 'DELETE' && call.path.startsWith('/webhooks/')).length === 3, calls);
     check('logs: no token or relay secret reached the audit log', (await s.q("SELECT 1 FROM pm.api_audit_log WHERE request_body::text LIKE '%rsec_%' OR request_body::text LIKE '%MTAw%'")).length === 0);
   } finally {
     await new Promise((resolve) => setTimeout(resolve, 300));
