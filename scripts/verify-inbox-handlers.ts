@@ -27,6 +27,12 @@
  *   inbox.
  * - handled=me on queue, reply drafts and signal, directly and through a
  *   group; without it the answer is unchanged.
+ * - A message's inbox (GET /inbound-emails/:id and the context route) adds
+ *   handled_by_me (directly or through a group), primary_handler, the
+ *   defaults (default_assignee_ids as defaultAssigneeIds resolves them) and
+ *   decision_recipient, by name only; id, name and address are unchanged.
+ *   latest_triage carries its category there and on the list, and the list
+ *   (GET /inbound-emails, MCP list_inbox) takes handled=me.
  * - POST /notifications audience owner about one inbox goes to its decision
  *   recipient (a member, or a group's members); otherwise to the Owner. A
  *   value that is not a uuid, or an inbox the key cannot read, is ignored.
@@ -511,6 +517,14 @@ async function main() {
     await q('INSERT INTO pm.inbox_handlers (inbox_id, handler_group_id) VALUES ($1, $2)', [ids.inboxB, ids.bots]);
     const queueGroup = await call(queueRoute.GET, 'GET', '/api/v1/inbox/queue?limit=100&handled=me', keys.gale);
     check('handled: through a group, only that inbox', queueGroup.body.data.messages.length > 0 && queueGroup.body.data.messages.every((m: Loose) => m.inbox_id === ids.inboxB), queueGroup.body);
+    const listRoute = await import('../src/app/api/v1/inbound-emails/route');
+    const listAll = await call(listRoute.GET, 'GET', '/api/v1/inbound-emails?limit=100', keys.gale);
+    const listMine = await call(listRoute.GET, 'GET', '/api/v1/inbound-emails?limit=100&handled=me', keys.gale);
+    check('handled: without it, the email list covers every readable inbox', listAll.status === 200 && listAll.body.data.some((m: Loose) => m.inbox_id === ids.inboxA)
+      && listAll.body.data.some((m: Loose) => m.inbox_id === ids.inboxB), listAll.body);
+    check('handled: the email list keeps only handled inboxes, through a group', listMine.status === 200 && listMine.body.data.length > 0
+      && listMine.body.data.every((m: Loose) => m.inbox_id === ids.inboxB) && listMine.body.meta?.total === listMine.body.data.length, listMine.body);
+    check('handled: the email list refuses another value', (await call(listRoute.GET, 'GET', '/api/v1/inbound-emails?handled=all', keys.gale)).status === 400);
     const signalAll = await call(signalRoute.GET, 'GET', '/api/v1/inbox/signal', keys.gale);
     const signalMine = await call(signalRoute.GET, 'GET', '/api/v1/inbox/signal?handled=me', keys.gale);
     check('handled: the signal counts only handled inboxes', signalAll.status === 200 && signalMine.status === 200 && signalMine.body.data.plans_new_count < signalAll.body.data.plans_new_count
@@ -522,6 +536,53 @@ async function main() {
     const badHandled = await call(queueRoute.GET, 'GET', '/api/v1/inbox/queue?handled=everyone', keys.gale);
     check('handled: another value is refused', badHandled.status === 400, badHandled.body);
 
+    // ── A message's inbox: who handles it and its defaults ─────────────────
+    // Inbox A: Scout primary, Atlas a second handler. Inbox B: Atlas primary, the Bots group (Gale) a handler.
+    const { inboxDefaults, defaultAssigneeIds } = await import('../src/lib/communications/inbox-handlers');
+    const detailRoute = await import('../src/app/api/v1/inbound-emails/[id]/route');
+    const inboxOf = async (key: string, messageId: string) => (await call(detailRoute.GET, 'GET', `/api/v1/inbound-emails/${messageId}`, key, { id: messageId })).body?.data?.inbox;
+    const NEW_FIELDS = ['handled_by_me', 'primary_handler', 'default_assignee', 'default_assignee_ids', 'default_project_id', 'decision_recipient'];
+    const plainA = await inboxOf(keys.scout, toScout.message);
+    const rowA = (await q('SELECT id, name, address FROM pm.inboxes WHERE id = $1', [ids.inboxA]))[0];
+    check('inbox: the old fields first, unchanged, then the new ones', JSON.stringify(Object.keys(plainA ?? {})) === JSON.stringify(['id', 'name', 'address', ...NEW_FIELDS])
+      && JSON.stringify({ id: plainA.id, name: plainA.name, address: plainA.address }) === JSON.stringify(rowA), plainA);
+    check('inbox: no defaults set reads as nulls and []', plainA.default_assignee === null && JSON.stringify(plainA.default_assignee_ids) === '[]'
+      && plainA.default_project_id === null && plainA.decision_recipient === null, plainA);
+    await q('UPDATE pm.inboxes SET default_assignee_group_id = $1, default_project_id = $2, decision_member_id = $3 WHERE id = $4', [ids.support, ids.acme, ids.mia, ids.inboxA]);
+    const scoutView = await inboxOf(keys.scout, toScout.message);
+    check('inbox: the primary handler reads handled_by_me true', scoutView?.handled_by_me === true, scoutView);
+    check('inbox: primary_handler is the member, member_id its id', JSON.stringify(scoutView.primary_handler) === JSON.stringify({ kind: 'member', id: ids.scout, member_id: ids.scout, name: 'Scout' }), scoutView.primary_handler);
+    check('inbox: default_assignee is the group, by name', JSON.stringify(scoutView.default_assignee) === JSON.stringify({ kind: 'group', id: ids.support, name: 'Support' }), scoutView.default_assignee);
+    const serverIds = await defaultAssigneeIds(service, await inboxDefaults(service, ids.inboxA));
+    check('inbox: a group default resolves to the ids the server assigns (its leads)', JSON.stringify(scoutView.default_assignee_ids) === JSON.stringify(serverIds)
+      && JSON.stringify(scoutView.default_assignee_ids) === JSON.stringify([ids.nina]), [scoutView.default_assignee_ids, serverIds]);
+    check('inbox: default_project_id and decision_recipient', scoutView.default_project_id === ids.acme
+      && JSON.stringify(scoutView.decision_recipient) === JSON.stringify({ kind: 'member', id: ids.mia, name: 'Mia Chen' }), scoutView);
+    check('inbox: names only, no member emails', !/(owner|mia|nina|scout-bot|atlas-bot|gale-bot)@agency\.example/.test(JSON.stringify(scoutView)), scoutView);
+    check('inbox: a second member handler reads true too', (await inboxOf(keys.atlas, toScout.message))?.handled_by_me === true);
+    const galeA = await inboxOf(keys.gale, toScout.message);
+    check('inbox: a reader that does not handle it reads false, with the same defaults', galeA?.handled_by_me === false
+      && JSON.stringify({ ...galeA, handled_by_me: true }) === JSON.stringify(scoutView), [galeA, scoutView]);
+    const galeB = await inboxOf(keys.gale, fromMiaB.message);
+    check('inbox: a member of a handling group reads true', galeB?.handled_by_me === true
+      && JSON.stringify(galeB.primary_handler) === JSON.stringify({ kind: 'member', id: ids.atlas, member_id: ids.atlas, name: 'Atlas' }), galeB);
+    const contextInbox = (await context(keys.scout, toScout.message))?.message?.inbox;
+    check('inbox: the context route carries the same inbox', JSON.stringify(contextInbox) === JSON.stringify(scoutView), contextInbox);
+    // latest_triage carries its category, on the detail, its thread and the list.
+    await q("INSERT INTO pm.triage (message_id, member_id, outcome, summary, category) VALUES ($1, $2, 'no_action', 'A vendor pitch.', 'outreach')", [toScout.message, ids.scout]);
+    const triaged = (await call(detailRoute.GET, 'GET', `/api/v1/inbound-emails/${toScout.message}`, keys.scout, { id: toScout.message })).body?.data;
+    const listed2 = (await call(listRoute.GET, 'GET', `/api/v1/inbound-emails?limit=100&inbox_id=${ids.inboxA}`, keys.scout)).body?.data ?? [];
+    const listedRow = listed2.find((m: Loose) => m.id === toScout.message);
+    check('triage: latest_triage.category on the detail and its thread', triaged?.latest_triage?.category === 'outreach'
+      && triaged.thread?.messages?.find((m: Loose) => m.id === toScout.message)?.latest_triage?.category === 'outreach', triaged?.latest_triage);
+    check('triage: and on the list row, beside the fields it had', JSON.stringify(Object.keys(listedRow?.latest_triage ?? {})) === JSON.stringify(['id', 'outcome', 'urgent', 'category', 'created_at'])
+      && listedRow.latest_triage.category === 'outreach' && listedRow.latest_triage.outcome === 'no_action', listedRow?.latest_triage);
+    await q('UPDATE pm.inboxes SET default_assignee_group_id = NULL, default_assignee_member_id = $1 WHERE id = $2', [ids.mia, ids.inboxA]);
+    const memberDefault = await inboxOf(keys.scout, toScout.message);
+    check('inbox: a member default resolves to that member', JSON.stringify(memberDefault?.default_assignee) === JSON.stringify({ kind: 'member', id: ids.mia, name: 'Mia Chen' })
+      && JSON.stringify(memberDefault.default_assignee_ids) === JSON.stringify([ids.mia]), memberDefault);
+    await q('UPDATE pm.inboxes SET default_assignee_member_id = NULL, default_project_id = NULL, decision_member_id = NULL WHERE id = $1', [ids.inboxA]);
+
     // ── MCP: the optional params reach the routes ──────────────────────────
     const tool = async (key: string, memberId: string, name: string, args: Record<string, unknown>) => {
       const t = PM_TOOLS.find((candidate) => candidate.name === name)!;
@@ -529,6 +590,8 @@ async function main() {
     };
     const mcpQueue = await tool(keys.gale, ids.gale, 'get_triage_queue', { handled: 'me', limit: 100 });
     check('mcp: get_triage_queue takes handled', mcpQueue.ok === true && mcpQueue.data.messages.every((m: Loose) => m.inbox_id === ids.inboxB), mcpQueue);
+    const mcpList = await tool(keys.gale, ids.gale, 'list_inbox', { handled: 'me', limit: 100 });
+    check('mcp: list_inbox takes handled', mcpList.ok === true && mcpList.data.length > 0 && mcpList.data.every((m: Loose) => m.inbox_id === ids.inboxB), mcpList);
     const mcpRules = await tool(keys.atlas, ids.atlas, 'list_sender_rules', { inbox_id: ids.inboxB });
     const restRulesB = await call(rulesRoute.GET, 'GET', `/api/v1/inbox/sender-rules?inbox_id=${ids.inboxB}`, keys.atlas);
     check('mcp: list_sender_rules takes inbox_id', mcpRules.ok === true && normalized(mcpRules.data) === normalized(restRulesB.body.data), mcpRules);
@@ -615,6 +678,10 @@ async function main() {
     check('baseline: setting a default before the migration is refused, never silently dropped', strippedDefault === 'refused', strippedDefault);
     const unmigratedQueue = await call(queueRoute.GET, 'GET', '/api/v1/inbox/queue?limit=100&handled=me', keys.atlas);
     check('baseline: without the migration handled=me falls back to the inbox\'s handler', unmigratedQueue.status === 200 && unmigratedQueue.body.data.messages.every((m: Loose) => m.inbox_id === ids.inboxB), unmigratedQueue.body);
+    const unmigratedInbox = await inboxOf(keys.atlas, fromMiaB.message);
+    check('baseline: without the migration a message\'s inbox reads its handler and no defaults', unmigratedInbox?.handled_by_me === true
+      && unmigratedInbox.primary_handler?.id === ids.atlas && unmigratedInbox.default_assignee === null && JSON.stringify(unmigratedInbox.default_assignee_ids) === '[]'
+      && unmigratedInbox.default_project_id === null && unmigratedInbox.decision_recipient === null, unmigratedInbox);
   } finally {
     await server.close();
     await db.close();

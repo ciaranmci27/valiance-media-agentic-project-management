@@ -246,9 +246,10 @@ async function migrationChecks() {
   const purged = (await q<Loose>('SELECT pm.purge_audit_log() AS n'))[0].n;
   await old.exec('RESET ROLE');
   const left = (await q<Loose>("SELECT endpoint FROM pm.api_audit_log WHERE timestamp < now() - interval '365 days' ORDER BY endpoint")).map((r: Loose) => r.endpoint);
-  check('retention: the job removes old rows, keeping what the app reads as state', purged === 1 && left.length === 2 && left.includes('/api/workspace/agents') && left.some((e: string) => e.endsWith('/deprovision')), { purged, left });
+  // Template rows go too since 20261125000600: the template lives on the agent.
+  check('retention: the job removes old rows, keeping what the app reads as state', purged === 2 && left.length === 1 && left[0].endsWith('/deprovision'), { purged, left });
   const record = (await q<Loose>("SELECT request_body FROM pm.api_audit_log WHERE endpoint = '/app/audit/retention'"))[0];
-  check('retention: the job records what it removed', record?.request_body?.deleted === 1 && record.request_body.retention_days === 365, record);
+  check('retention: the job records what it removed', record?.request_body?.deleted === 2 && record.request_body.retention_days === 365, record);
   check('retention: the flag does not outlive the job', /append-only/.test(await fail("DELETE FROM pm.api_audit_log WHERE endpoint = '/app/audit/retention'") ?? ''));
 
   // SQL redaction matches the server's rule.

@@ -261,6 +261,31 @@ export function canAddAgentToProject(
   return viewer.isOwner || viewer.manageMembers || !!project.member_ids?.includes(agentId);
 }
 
+// ── Who opens an agent's profile ────────────────────────────────────────
+
+/** Pages under /agent that are not an agent's profile. */
+const AGENT_SEGMENT_PAGES = new Set(['new', 'analytics', 'projects']);
+
+/** The agent whose profile a path opens (/agent/<id>), or null for every other page under /agent. */
+export function agentProfileIdFrom(pathname: string | null | undefined): string | null {
+  const match = /^\/agent\/([^/?#]+)\/?$/.exec(pathname ?? '');
+  if (!match || AGENT_SEGMENT_PAGES.has(match[1])) return null;
+  return decodeURIComponent(match[1]);
+}
+
+/**
+ * How someone may open an agent's profile: `manage` with agents.manage (the
+ * whole profile); `owner` for one of its owners without it, in person or
+ * through a group (the server's is_owner): the profile minus what row
+ * security keeps to agents.manage (its runs and activity), edits as the
+ * server allows; null for anyone else. The rest of /agent stays on
+ * agents.manage.
+ */
+export function agentProfileAccess(input: { manageAgents: boolean; isOwner: boolean | null | undefined }): 'manage' | 'owner' | null {
+  if (input.manageAgents) return 'manage';
+  return input.isOwner === true ? 'owner' : null;
+}
+
 // ── Template settings form ──────────────────────────────────────────────
 
 export type SettingsControl = 'text' | 'textarea' | 'number' | 'toggle' | 'select' | 'search-select' | 'url' | 'regex';

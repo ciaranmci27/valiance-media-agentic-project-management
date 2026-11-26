@@ -169,11 +169,11 @@ async function migrationChecks() {
   await q("UPDATE pm.agent_runs SET parent_run_id = NULL, root_run_id = NULL WHERE parent_run_id = $1", [parent]);
   check('lineage: fixed once written', (await q<Loose>('SELECT count(*)::int AS n FROM pm.agent_runs WHERE parent_run_id = $1', [parent]))[0].n === 1);
 
-  // Retention no longer keeps template rows; the agent keeps its key.
+  // Retention no longer keeps template rows (20261125000600); the agent keeps its key.
   await q('UPDATE pm.business_settings SET audit_retention_days = 30');
   await q('SELECT pm.purge_audit_log()');
   const left = await q<Loose>("SELECT count(*)::int AS n FROM pm.api_audit_log WHERE entity_id = $1 AND timestamp < now() - interval '100 days'", [hired]);
-  check('retention: template rows stay one more release (2.0.29 reads them); the template is on the agent too', left[0].n === 1 && keyOf(hired) === 'weekly-reporter', left);
+  check('retention: old template rows go; the template stays on the agent', left[0].n === 0 && keyOf(hired) === 'weekly-reporter', left);
   check('roles: people hold context.memory on the API by default; agents do not', (await q<Loose>("SELECT role FROM pm.role_permissions WHERE permission_key = 'context.memory' AND access_channel = 'api' ORDER BY role")).map((r: Loose) => r.role).join(',') === 'admin,member');
   await old.exec('RESET ROLE');
 

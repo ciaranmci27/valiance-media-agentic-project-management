@@ -30,6 +30,13 @@ export type ParsedInbound =
     text: string;
     /** A one-to-one chat with the bot (a Slack DM, a private Telegram chat): the only place a link is sent. */
     direct: boolean;
+    /**
+     * Spoken to the bot: always in a direct chat; in a shared one, a Slack
+     * mention, or a Telegram reply to a bot or command. Inbound also counts a
+     * mention of the connection's bot handle. Only then does the app send
+     * its own "can't answer right now" line there.
+     */
+    addressed?: boolean;
   };
 
 export interface OutboundMessage {

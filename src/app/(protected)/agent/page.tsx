@@ -15,7 +15,7 @@ import { prefetchAnalyticsReads } from '@/lib/agent-analytics-reads';
 import { defaultAgentAnalyticsRange } from '@/lib/agent-range';
 import { AGENT_RUN_STATUSES, type AgentRunStatus } from '@/lib/agent-runs';
 import {
-  AGENTS_TABS, AGENTS_TAB_ALIASES, AGENTS_TAB_LABELS, DEFAULT_AGENTS_TAB, NO_RUN_FILTERS, agentsTabFrom, type AgentsTab, type RunFeedFilters,
+  AGENTS_TABS, AGENTS_TAB_ALIASES, AGENTS_TAB_LABELS, DEFAULT_AGENTS_TAB, NO_RUN_FILTERS, agentsTabFrom, needsYouCountLabel, type AgentsTab, type RunFeedFilters,
 } from '@/lib/agents-tab';
 import { Header } from '@/components/layout/Header';
 import { Button } from '@/components/ui/Button';
@@ -54,7 +54,7 @@ const SUBTITLES: Record<AgentsTab, string> = {
   'needs-you': 'Questions, approvals and agent work waiting on you.',
   agents: 'Who is working, what they are on, and what they need next.',
   runs: 'Every agent run, newest first.',
-  analytics: 'Runs, time, tokens, cost and delivery per agent. Only measured data; nothing is estimated.',
+  analytics: 'Runs, time, tokens and cost per agent. Estimates are labelled.',
 };
 
 /** The query params each tab owns; switching tabs drops the others' (the open task stays). */
@@ -155,7 +155,7 @@ function AgentsPage() {
   const tabs: ProjectTab<AgentsTab>[] = AGENTS_TABS.map((key) => ({
     key,
     label: AGENTS_TAB_LABELS[key],
-    ...(key === 'needs-you' ? { badge: { count: needs.total, label: `${needs.total} ${needs.total === 1 ? 'thing needs' : 'things need'} you` } } : {}),
+    ...(key === 'needs-you' ? { badge: { count: needs.total, label: needsYouCountLabel(needs.total) } } : {}),
     ...(key === 'agents' ? { count: agentCount, warm: () => warmReads([agentsListRead(isDemoMode), agentRolesRead(isDemoMode), agentTemplatesRead(isDemoMode)]) } : {}),
     ...(key === 'runs' ? { warm: () => void warmRead(agentRunFeedRead(NO_RUN_FILTERS, 0, isDemoMode)) } : {}),
     // The report is cached by range, so pointing at the tab measures it ahead of the click.

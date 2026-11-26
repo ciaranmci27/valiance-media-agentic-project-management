@@ -97,7 +97,16 @@ export const CHAT_WORDS = {
   linkDirectly: 'Message me directly to connect your account.',
   inactive: 'This account is not active here. Ask your admin.',
   noAssistant: "You don't have an assistant yet. Ask your admin to set one up.",
-  paused: 'Your assistant is paused. Your admin has been told.',
-  pausedByYou: (url: string) => `Your assistant is paused. Resume it here: ${url}`,
   assistantsOff: 'Assistants are not turned on yet. Ask your admin.',
+} as const;
+
+/**
+ * The one line the app sends, once per chat per spell, when the person's
+ * assistant will not answer right now. {name} is the assistant's own name;
+ * {page} is what the workspace calls assistants (the page's name).
+ */
+export const QUIET_WORDS = {
+  onHold: (name: string) => `${name} is on hold right now and will answer when it's back.`,
+  paused: (name: string, page: string, url: string) => `${name} is paused. Resume it from your ${page} page to get answers.\n${url}`,
+  broken: (name: string) => `${name} can't answer right now. Your admin has been told.`,
 } as const;

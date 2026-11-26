@@ -26,7 +26,7 @@ import {
 } from 'lucide-react';
 import { useApp } from '@/lib/store';
 import { computeNeedsYou } from '@/lib/autonomy';
-import { pendingSuggestionsInReach } from '@/lib/suggestion-reach';
+import { buildAgentNeedsYou, needsYouCountLabel } from '@/lib/agents-tab';
 import { useAuth } from '@/lib/auth-context';
 import { useDemo } from '@/lib/demo-context';
 import { Avatar } from '@/components/ui/Avatar';
@@ -129,17 +129,13 @@ export function Sidebar() {
   const assistantEntry: NavEntry | null = myAssistant?.enabled && myAssistant.assistant
     ? { href: '/assistant', icon: Sparkles, label: myAssistant.label }
     : null;
-  // Every pending suggestion in a project this person reaches, from any agent:
-  // the same count as the Agents page's Needs you (suggestion-reach).
-  const pendingSuggestionCount = isAgentsEnabled && canManageAgents ? pendingSuggestionsInReach(taskSuggestions, projects).length : 0;
-
   // Radar's badge answers "does anything need me?" before the click. Same
   // computation as the page's top band, imported so they cannot disagree.
   // Suggestions are excluded here on purpose: the Agent tab's own badge
   // already counts them, and one signal per fact is the rule.
   // Questions asked to you are rows in My Tasks' Needs you now too.
   const openQuestions = useOpenQuestions();
-  const radarCount = computeNeedsYou({
+  const radarNeeds = useMemo(() => computeNeedsYou({
     tasks,
     suggestions: taskSuggestions,
     projects,
@@ -148,7 +144,17 @@ export function Sidebar() {
     oversight: canManageAgents,
     agentActivity,
     questions: openQuestions,
-  }).length;
+  }), [tasks, taskSuggestions, projects, teamMemberId, canManageAgents, agentActivity, openQuestions]);
+  const radarCount = radarNeeds.length;
+  // The Agents badge is the Agents page's Needs you count: the same
+  // buildAgentNeedsYou over the same computeNeedsYou answer useAgentNeedsYou
+  // reads (questions, approvals, blocked work, reviews and suggestions).
+  const agentsNeedsYouCount = useMemo(
+    () => (isAgentsEnabled && canManageAgents
+      ? buildAgentNeedsYou({ needsYou: radarNeeds, tasks, team, suggestions: taskSuggestions, projects }).total
+      : 0),
+    [isAgentsEnabled, canManageAgents, radarNeeds, tasks, team, taskSuggestions, projects],
+  );
 
   // Your reminders that want you now (overdue or due today): rows in My
   // Tasks' Needs you now, so they count toward its badge.
@@ -185,7 +191,7 @@ export function Sidebar() {
     // timesheet alone (its own page at /time when no money module is on).
     ...(financeEntry ? [{ href: financeEntry.href, icon: FINANCE_ENTRY_ICONS[financeEntry.kind], label: financeEntry.label }] : []),
     ...(isAgentsEnabled && canManageAgents ? [{ href: '/agent', icon: Bot, label: 'Agents',
-      count: { value: pendingSuggestionCount, label: `${plural(pendingSuggestionCount, 'agent suggestion')} to review`, tone: 'brand' as const } }] : []),
+      count: { value: agentsNeedsYouCount, label: needsYouCountLabel(agentsNeedsYouCount), tone: 'brand' as const } }] : []),
     { href: '/notifications', icon: Bell, label: 'Notifications',
       count: { value: unreadNotifications, label: plural(unreadNotifications, 'unread notification'), tone: 'danger' } },
   ];

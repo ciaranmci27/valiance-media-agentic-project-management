@@ -9,6 +9,26 @@ Each section starts with `## X.Y.Z (YYYY-MM-DD)` and uses these headings, leavin
 - `### Database`: the core migration files in the release, one per line. `npm run db:migrate` applies them.
 - `### Breaking`: what an install must do when it takes this release.
 
+## 2.0.40 (2026-11-25)
+
+### Added
+- **Inbox handling for agents**: `GET /api/v1/inbound-emails/{id}` (also `/api/v1/inbox/messages/{id}`) and `GET /api/v1/inbox/messages/{id}/context` add `handled_by_me`, `primary_handler`, `default_assignee`, `default_assignee_ids` (a group default resolves to its leads), `default_project_id` and `decision_recipient` to `inbox`. `latest_triage` carries `category`. The email list (`GET /api/v1/inbound-emails`, MCP `list_inbox`) accepts `handled=me`.
+- **An assistant that cannot answer says so in chat**, once per hold: on hold, paused by its person (with a link to resume) or unable to answer (its admin is told). Strangers and group chatter not addressed to it get nothing new.
+- An assistant on hold whose host stopped reporting shows "On hold. Its host is not responding." on its person's page and in Settings > Assistants > Status, and admins are told once a day.
+- Agent owners without `agents.manage` can open their own agent's page, with what they may change. `GET /api/v1/agents/{id}` adds `is_owner`.
+
+### Changed
+- The sidebar Agents badge counts everything in Needs you (questions, approvals, blocked work, reviews and suggestions), the same number as the tab.
+- Agents > Analytics opens on Runs; Revenue and Profit come after Runs, Busy time and Tokens.
+- Agent keys are made in the same step dialog as personal keys.
+- Linked chat accounts are called "Chat accounts" in Settings > Account and on the Assistant page, with Unlink in both.
+- Pause or resume one agent from its profile header in one click.
+- Webhook signing secrets stored before encryption are sealed the next time they are delivered with or revealed, when `APP_ENCRYPTION_KEY` is set. Signatures do not change.
+- Audit retention no longer keeps rows only because they name an agent template.
+
+### Database
+- `20261125000600_table_grants.sql`: the browser database roles hold only the table rights the app uses (anon reads only the workspace brand; signed-in members keep exactly what their row policies allow, never TRUNCATE, REFERENCES or TRIGGER), the same for future tables, and the audit retention change.
+
 ## 2.0.39 (2026-11-25)
 
 ### Changed

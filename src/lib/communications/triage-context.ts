@@ -46,8 +46,8 @@ async function rows<T = Row>(query: PromiseLike<{ data: unknown; error: unknown 
  * what is owed, reminders and every project in scope with its tasks are
  * narrowed to them.
  */
-export async function triageContext(supabase: SupabaseClient, message: AccessibleMessage, mode: 'live' | 'shadow', access?: AccessContext | null): Promise<Row> {
-  const [detail, facts] = await Promise.all([messageDetail(supabase, message, access), messageFacts(supabase, message.id)]);
+export async function triageContext(supabase: SupabaseClient, message: AccessibleMessage, mode: 'live' | 'shadow', access?: AccessContext | null, memberId?: string | null): Promise<Row> {
+  const [detail, facts] = await Promise.all([messageDetail(supabase, message, access, memberId), messageFacts(supabase, message.id)]);
   const narrow = !!access && !!actingForOf(access);
   // A row with no project stays; one in a project out of reach goes, when narrowing.
   const inReach = (row: Row) => !narrow || !row.project_id || accessAllowsProject(access!, row.project_id as string, 'api');

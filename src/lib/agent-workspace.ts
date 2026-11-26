@@ -105,6 +105,8 @@ export interface AgentDetail {
   owner_groups?: { id: string; name: string }[];
   /** Whether the viewer may edit this agent (an owner of it, or team.manage). */
   can_manage?: boolean;
+  /** Whether the viewer is one of its owners, in person or through a group: opens its profile without agents.manage. */
+  is_owner?: boolean;
   omitted: string[];
 }
 

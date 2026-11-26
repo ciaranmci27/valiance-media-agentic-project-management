@@ -3,11 +3,11 @@
 import { useCallback, useMemo, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { usePathname, useSearchParams } from 'next/navigation';
-import { AlertTriangle, ArrowLeft, ChevronRight, KeyRound, Plus, RefreshCw, Users } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, ChevronRight, KeyRound, PauseCircle, PlayCircle, Plus, RefreshCw, Users } from 'lucide-react';
 import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
 import { useDemo } from '@/lib/demo-context';
-import { apiScopesFor, hasPermission } from '@/lib/access-control';
+import { hasPermission } from '@/lib/access-control';
 import { invalidateTables, loadRead, useRead } from '@/lib/query-cache';
 import {
   agentActivityRead, agentContextRead, agentDetailRead, agentRolesRead, agentRunFeedRead, agentTemplatesRead, allGroupsRead,
@@ -19,7 +19,7 @@ import {
   canAddAgentToProject, normalizeRole, ownerPickerValue, projectsLine, roleError, roleLabel, roleSuggestions, rulesRequestFrom, settingsDefaults,
   splitOwnerPicker, windowOf, showMoreLabel,
 } from '@/lib/agents-ui';
-import { newKeyFrom, workspaceApi, type AgentDetail, type AgentKeyView, type NewKey } from '@/lib/agent-workspace';
+import { workspaceApi, type AgentDetail, type AgentKeyView } from '@/lib/agent-workspace';
 import { useTaskUrlParam } from '@/lib/use-task-url';
 import { timeAgo } from '@/lib/task-times';
 import { Button } from '@/components/ui/Button';
@@ -36,9 +36,10 @@ import { AgentAvatar, OwnerStack, PresencePill } from '@/components/agent/AgentA
 import { useAgentRoster } from '@/components/agent/AgentRoster';
 import { useAgentNeedsYou, NeedsYouView } from '@/components/agent/NeedsYouView';
 import { AssignmentList, saveAssignment } from '@/components/agent/AssignmentList';
-import { RulesFields, ScopePicker } from '@/components/agent/PowersFields';
-import { LimitsPanel } from '@/components/agent/profile/LimitsPanel';
-import { ConnectSnippets, downloadText, SecretOnce } from '@/components/agent/ConnectPanel';
+import { RulesFields } from '@/components/agent/PowersFields';
+import { LimitsPanel, useAgentPause } from '@/components/agent/profile/LimitsPanel';
+import { ConnectSnippets, downloadText } from '@/components/agent/ConnectPanel';
+import { NewApiKeyDialog } from '@/components/settings/NewApiKeyDialog';
 import { ActivityTimeline } from '@/components/agent/ActivityTimeline';
 import { RunFeed } from '@/components/agent/runs/RunFeed';
 import { RunDetailModal, RunStarted, RunStatusPill, runLengthLabel } from '@/components/agent/runs/RunParts';
@@ -52,7 +53,10 @@ import { ContextBrief } from '@/components/projects/BriefTab';
  * keep in mind, for whoever manages it), Rules and powers, Connect (keys
  * without secrets, a new key, snippets, its AGENTS.md), Activity.
  * Edit controls show only to who may manage this agent: its owners, or
- * whoever manages the team; keys stay with workspace Owners.
+ * whoever manages the team; keys stay with workspace Owners. An owner
+ * without agents.manage opens it too (the /agent layout lets them in): row
+ * security keeps runs and activity to agents.manage, so those tabs, recent
+ * runs and the way back to all agents are left out for them.
  */
 
 const TABS = ['overview', 'runs', 'projects', 'notes', 'rules', 'connect', 'activity'] as const;
@@ -75,18 +79,7 @@ export function AgentProfile({ agentId }: { agentId: string }) {
   const [deletingTaskId, setDeletingTaskId] = useState<string | null>(null);
   const [openRunId, setOpenRunId] = useState<string | null>(null);
 
-  const requested = searchParams.get('tab');
-  const active: Tab = (TABS as readonly string[]).includes(requested ?? '') ? requested as Tab : 'overview';
-  const [visited, setVisited] = useState<Set<Tab>>(() => new Set([active]));
-  if (!visited.has(active)) setVisited(new Set(visited).add(active));
-  const setTab = useCallback((tab: Tab) => {
-    const next = new URLSearchParams(searchParams.toString());
-    if (tab === 'overview') next.delete('tab');
-    else next.set('tab', tab);
-    const q = next.toString();
-    window.history.pushState(null, '', q ? `${pathname}?${q}` : pathname);
-  }, [pathname, searchParams]);
-
+  const manageAgents = hasPermission(access, 'agents.manage');
   const member = team.find((m) => m.id === agentId && m.role === 'agent');
   const live = entries.find((e) => e.id === agentId) ?? null;
   const agentNeeds = useMemo(() => needsForAgent(needs, agentId), [needs, agentId]);
@@ -97,6 +90,22 @@ export function AgentProfile({ agentId }: { agentId: string }) {
   const myGroups = new Set((allGroups ?? []).filter((g) => g.is_member).map((g) => g.id));
   const isOwnerOfIt = !!teamMemberId && (owners.some((o) => o.id === teamMemberId) || ownerGroups.some((g) => myGroups.has(g.id)));
   const canManage = !isDemoMode && (data?.can_manage ?? (isOwnerOfIt || hasPermission(access, 'team.manage')));
+  // Agent notes are for who manages it (the server's rule); runs and activity
+  // are row-secured to agents.manage. Tabs a viewer cannot use are left out.
+  const shownTabs = TABS.filter((key) => (key !== 'notes' || canManage) && ((key !== 'runs' && key !== 'activity') || manageAgents));
+
+  const requested = searchParams.get('tab');
+  const active: Tab = (shownTabs as readonly string[]).includes(requested ?? '') ? requested as Tab : 'overview';
+  const [visited, setVisited] = useState<Set<Tab>>(() => new Set([active]));
+  if (!visited.has(active)) setVisited(new Set(visited).add(active));
+  const setTab = useCallback((tab: Tab) => {
+    const next = new URLSearchParams(searchParams.toString());
+    if (tab === 'overview') next.delete('tab');
+    else next.set('tab', tab);
+    const q = next.toString();
+    window.history.pushState(null, '', q ? `${pathname}?${q}` : pathname);
+  }, [pathname, searchParams]);
+
   const canKeys = !isDemoMode && access?.role === 'owner';
   // Owners change only for a workspace Owner or an existing owner of this agent (the server's rule).
   const canEditOwners = !isDemoMode && (access?.role === 'owner' || isOwnerOfIt);
@@ -111,14 +120,13 @@ export function AgentProfile({ agentId }: { agentId: string }) {
         <p className="mt-1 text-sm text-zinc-400">{detail.failed ? 'Try again in a moment.' : 'It may have been removed, or you cannot see it.'}</p>
         <div className="mt-5 flex gap-2">
           {detail.failed && <Button variant="secondary" icon={<RefreshCw size={14} aria-hidden="true" />} onClick={detail.reload}>Try again</Button>}
-          <Button variant="ghost" href="/agent?tab=agents">All agents</Button>
+          {manageAgents && <Button variant="ghost" href="/agent?tab=agents">All agents</Button>}
         </div>
       </div>
     );
   }
 
-  // Agent notes are for who manages it (the server's rule); everyone else does not see the tab.
-  const tabs: ProjectTab<Tab>[] = TABS.filter((key) => key !== 'notes' || canManage).map((key) => ({
+  const tabs: ProjectTab<Tab>[] = shownTabs.map((key) => ({
     key,
     label: TAB_LABELS[key],
     ...(key === 'overview' && agentNeeds.total ? { badge: { count: agentNeeds.total, label: `${agentNeeds.total} waiting on you` } } : {}),
@@ -138,12 +146,15 @@ export function AgentProfile({ agentId }: { agentId: string }) {
   return (
     <div className="animate-fadeIn min-h-screen">
       <div className="px-4 pt-5 lg:px-8 lg:pt-7">
-        <Link href="/agent?tab=agents" className="inline-flex items-center gap-1.5 rounded-lg py-1 text-sm text-zinc-400 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500">
-          <ArrowLeft size={14} aria-hidden="true" />All agents
-        </Link>
+        {/* The agents home is for agents.manage; an owner without it came from elsewhere. */}
+        {manageAgents && (
+          <Link href="/agent?tab=agents" className="mb-5 inline-flex items-center gap-1.5 rounded-lg py-1 text-sm text-zinc-400 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500">
+            <ArrowLeft size={14} aria-hidden="true" />All agents
+          </Link>
+        )}
 
         {/* Header: the agent, live. */}
-        <header className="mt-5 flex flex-col gap-5 sm:flex-row sm:items-start">
+        <header className="flex flex-col gap-5 sm:flex-row sm:items-start">
           <AgentAvatar id={agentId} name={name} src={data?.agent.avatar_url ?? member?.avatar ?? null} presence={live?.presence ?? null} label={live?.sentence} size="xl" />
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
@@ -173,7 +184,8 @@ export function AgentProfile({ agentId }: { agentId: string }) {
             )}
             {live?.backlog && <p className="mt-2 text-sm text-amber-200">{backlogLine(live.backlog)}: ready work assigned to {name} is not picked up.</p>}
           </div>
-          <div className="flex flex-shrink-0 flex-col gap-2 sm:items-end">
+          <div className="flex flex-shrink-0 flex-col gap-3 sm:items-end">
+            {canManage && data && <PauseButton agentId={agentId} agentName={name} pausedAt={data.agent.paused_at ?? null} />}
             <OwnersRow agentId={agentId} owners={owners} ownerGroups={ownerGroups} canManage={canEditOwners} />
           </div>
         </header>
@@ -185,12 +197,12 @@ export function AgentProfile({ agentId }: { agentId: string }) {
 
       <div className="px-4 pb-16 lg:px-8">
         {panel('overview', (
-          <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+          <div className={`grid gap-10 ${manageAgents ? 'lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]' : 'max-w-3xl'}`}>
             <section aria-labelledby="ov-needs">
               <h2 id="ov-needs" className="mb-3 text-[15px] font-semibold text-white">Needs you</h2>
               <NeedsYouView needs={agentNeeds} onOpenTask={openTask} compact />
             </section>
-            <section aria-labelledby="ov-runs">
+            {manageAgents && <section aria-labelledby="ov-runs">
               <div className="mb-3 flex items-center justify-between">
                 <h2 id="ov-runs" className="text-[15px] font-semibold text-white">Recent runs</h2>
                 <button type="button" onClick={() => setTab('runs')} className="inline-flex items-center gap-0.5 rounded text-xs font-medium text-brand-300 hover:text-brand-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500">
@@ -198,11 +210,11 @@ export function AgentProfile({ agentId }: { agentId: string }) {
                 </button>
               </div>
               <RecentRuns agentId={agentId} agentName={name} onOpenTask={openTask} />
-            </section>
+            </section>}
           </div>
         ))}
 
-        {panel('runs', <AgentRuns agentId={agentId} onOpenTask={openTask} />)}
+        {manageAgents && panel('runs', <AgentRuns agentId={agentId} onOpenTask={openTask} />)}
 
         {panel('projects', detail.loading ? <LoadingRows /> : detail.failed ? <Failed onRetry={detail.reload} what="its projects" /> : data && (
           <AgentProjects detail={data} canEdit={canManage} templateLabels={new Map((templates.data ?? []).map((t) => [t.key, t.label]))} schemaFor={(key) => (templates.data ?? []).find((t) => t.key === key)?.settings ?? []} />
@@ -223,7 +235,7 @@ export function AgentProfile({ agentId }: { agentId: string }) {
           <ConnectTab detail={data} canKeys={canKeys} />
         ))}
 
-        {panel('activity', <AgentActivityTab agentId={agentId} />)}
+        {manageAgents && panel('activity', <AgentActivityTab agentId={agentId} />)}
       </div>
 
       <RunDetailModal
@@ -268,6 +280,28 @@ function Failed({ onRetry, what }: { onRetry: () => void; what: string }) {
 async function patchAgent(agentId: string, body: Record<string, unknown>) {
   await workspaceApi(`/api/workspace/agents/${encodeURIComponent(agentId)}`, { method: 'PATCH', body });
   invalidateTables(['team_members', 'agent_owners']);
+}
+
+/**
+ * Pause or Resume one agent, in the header: one click, no confirmation, since
+ * the same button undoes it. It flips at once and holds that until the
+ * profile read catches up.
+ */
+function PauseButton({ agentId, agentName, pausedAt }: { agentId: string; agentName: string; pausedAt: string | null }) {
+  const { busy, setPaused } = useAgentPause(agentId, agentName);
+  // What was set here, and the saved state it was set over: once the read changes, the read wins.
+  const [flipped, setFlipped] = useState<{ paused: boolean; over: string | null } | null>(null);
+  const paused = flipped && flipped.over === pausedAt ? flipped.paused : !!pausedAt;
+  const toggle = async () => {
+    const next = !paused;
+    setFlipped({ paused: next, over: pausedAt });
+    if (!(await setPaused(next))) setFlipped(null);
+  };
+  return paused ? (
+    <Button variant="secondary" size="sm" className="self-start sm:self-end" icon={<PlayCircle size={14} aria-hidden="true" />} onClick={() => void toggle()} disabled={busy}>Resume</Button>
+  ) : (
+    <Button variant="secondary" size="sm" className="self-start sm:self-end" icon={<PauseCircle size={14} aria-hidden="true" />} onClick={() => void toggle()} disabled={busy}>Pause</Button>
+  );
 }
 
 function OwnersRow({ agentId, owners, ownerGroups, canManage }: {
@@ -580,7 +614,6 @@ function RulesAndPowers({ detail, canManage, canEditLimits }: { detail: AgentDet
           usage={detail.usage}
           pausedAt={agent.paused_at ?? null}
           canEditLimits={canEditLimits}
-          canPause={canManage}
         />
       )}
     </div>
@@ -588,30 +621,12 @@ function RulesAndPowers({ detail, canManage, canEditLimits }: { detail: AgentDet
 }
 
 function ConnectTab({ detail, canKeys }: { detail: AgentDetail; canKeys: boolean }) {
-  const { access } = useAuth();
   const context = useRead(agentContextRead(detail.agent.id));
-  const grantable = useMemo(() => apiScopesFor(access), [access]);
   const [making, setMaking] = useState(false);
-  const [scopes, setScopes] = useState<string[]>([]);
-  const [keyName, setKeyName] = useState(`${detail.agent.name} key`);
-  const [secret, setSecret] = useState<NewKey | null>(null);
   const [revoking, setRevoking] = useState<AgentKeyView | null>(null);
-  const [busy, setBusy] = useState(false);
   const keys = (detail.keys ?? []).filter((k) => !k.revoked_at);
-
-  const makeKey = async () => {
-    setBusy(true);
-    try {
-      const key = newKeyFrom(await workspaceApi<{ key: NewKey }>(`/api/workspace/agents/${detail.agent.id}/keys`, { method: 'POST', body: { name: keyName.trim() || undefined, scopes } }));
-      setSecret(key);
-      setMaking(false);
-      invalidateTables(['api_keys']);
-    } catch (error) {
-      toast('error', error instanceof Error ? error.message : 'Could not make a key');
-    } finally {
-      setBusy(false);
-    }
-  };
+  // A new key starts on what its active keys may do; the step dialog (as in Settings > Developers) makes it.
+  const preset = { name: `${detail.agent.name} key`, scopes: [...new Set(keys.flatMap((k) => k.scopes))] };
   const revoke = async (key: AgentKeyView) => {
     try {
       await workspaceApi(`/api/workspace/agents/${detail.agent.id}/keys/${key.id}/revoke`, { method: 'POST' });
@@ -627,19 +642,8 @@ function ConnectTab({ detail, canKeys }: { detail: AgentDetail; canKeys: boolean
       <section aria-labelledby="cn-keys" className="space-y-4">
         <div className="flex items-center justify-between gap-3">
           <h2 id="cn-keys" className="text-[15px] font-semibold text-white">Keys</h2>
-          {canKeys && !making && <Button size="sm" variant="secondary" icon={<KeyRound size={13} aria-hidden="true" />} onClick={() => { setScopes([...new Set(keys.flatMap((k) => k.scopes))]); setMaking(true); }}>New key</Button>}
+          {canKeys && <Button size="sm" variant="secondary" icon={<KeyRound size={13} aria-hidden="true" />} onClick={() => setMaking(true)}>New key</Button>}
         </div>
-        {secret && <SecretOnce secret={secret} />}
-        {making && (
-          <div className="animate-slideDown space-y-4 rounded-2xl bg-white/[0.03] p-4 ring-1 ring-inset ring-white/[0.08]">
-            <TextInput label="Key name" value={keyName} onChange={setKeyName} maxLength={80} />
-            <ScopePicker grantable={grantable} value={scopes} onChange={setScopes} />
-            <div className="flex justify-end gap-2">
-              <Button variant="ghost" size="sm" onClick={() => setMaking(false)} disabled={busy}>Cancel</Button>
-              <Button size="sm" onClick={makeKey} disabled={busy || scopes.length === 0}>{busy ? 'Making' : 'Make key'}</Button>
-            </div>
-          </div>
-        )}
         {detail.keys === undefined ? (
           <p className="text-sm text-zinc-400">Only workspace Owners see an agent&apos;s keys.</p>
         ) : keys.length === 0 ? (
@@ -672,6 +676,9 @@ function ConnectTab({ detail, canKeys }: { detail: AgentDetail; canKeys: boolean
           <pre className="mt-3 max-h-[560px] overflow-auto whitespace-pre-wrap break-words rounded-2xl bg-black/25 p-4 font-mono text-xs leading-relaxed text-zinc-200 ring-1 ring-inset ring-white/[0.06]">{context.data || 'Empty.'}</pre>
         )}
       </section>
+      {canKeys && (
+        <NewApiKeyDialog isOpen={making} onClose={() => setMaking(false)} agent={{ id: detail.agent.id, name: detail.agent.name }} preset={preset} />
+      )}
       <ConfirmDialog
         isOpen={!!revoking}
         onClose={() => setRevoking(null)}

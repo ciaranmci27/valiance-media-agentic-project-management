@@ -72,9 +72,16 @@ Who gets a plain one-line answer instead:
 | Not linked yet, in a shared channel | "Message me directly to connect your account." |
 | Suspended | "This account is not active here. Ask your admin." |
 | No assistant | "You don't have an assistant yet. Ask your admin to set one up." |
-| Assistant paused by them | A link to resume it |
-| Assistant paused by an admin | "Your assistant is paused. Your admin has been told." |
 | Assistants are off | "Assistants are not turned on yet. Ask your admin." |
+
+When the person's assistant will not answer right now, the app says so itself, using the assistant's name. It sends this once per chat until the assistant is back and then stops again. In a shared channel it answers only a message that speaks to the bot (a Slack mention, a Telegram reply to the bot, a command or a mention of its handle).
+
+| Assistant | Answer | The message |
+|---|---|---|
+| On hold | "Nova is on hold right now and will answer when it's back." | Recorded and sent to it; it answers once resumed |
+| Paused by them | "Nova is paused. Resume it from your Assistant page to get answers." with a link | Recorded, not sent to it |
+| Paused by an admin | "Nova can't answer right now. Your admin has been told." | Recorded, not sent to it |
+| Not connected, or its service stopped | "Nova can't answer right now. Your admin has been told." | Recorded and sent to it |
 
 ## What employees see
 
@@ -102,7 +109,7 @@ The server enforces each one. The assistant is also told in words, so it does no
 ## Privacy
 
 - **Chat text stays with the person's assistant.** The webhook carries ids only. Only that assistant's key can read the text (`403 not_a_personal_agent` for any other key, 404 for another assistant's message). Message text never reaches the app's logs.
-- **Disconnecting a chat** deletes its chat history in the app. Linked accounts stay, so connecting again picks up where it left off.
+- **Disconnecting a chat** deletes its chat history in the app. People's chat accounts stay, so connecting again picks up where it left off.
 - **Personal memory belongs to the person.** Only they and their own assistant (while "Remember things for me" is on) see it. Never an Owner. Deleting an entry deletes it for good.
 - **Leaving cleans up.** Suspending a person pauses their assistant and revokes its keys and pending links. Reactivating them un-pauses it; the agent service then collects a new key.
 
@@ -119,5 +126,6 @@ Settings > Assistants > **Status** lists every assistant. Each one that needs yo
 | Paused by them | The person pressed Pause. | Only they resume it, from their page. |
 | On hold: "Every agent is paused." | An Owner paused every agent (Settings > Security). | Resume agents there. |
 | On hold: "Paused on its agent page." | Someone paused this agent from its profile or with `paused: true`. | Resume it on its agent page. |
+| On hold: "On hold. Its host is not responding." | On hold, and its service also stopped reporting (the same rule as above). Resuming alone will not bring it back. | Restart the service, then resume. |
 
-On hold is deliberate, so nobody is notified. The person sees "On hold" on their page, with why. While on hold the assistant can still read and report, but its other writes answer `423`, replies in chat included: chat messages are still recorded and sent to it, and it answers once resumed. See [Limits and pause](work-loop.md#limits-and-pause).
+On hold is deliberate, so nobody is notified, unless its service also stopped reporting: then the admins get the same notification as above, at most once a day. The person sees "On hold" on their page, with why. While on hold the assistant can still read and report, but its other writes answer `423`, replies in chat included: chat messages are still recorded and sent to it, and it answers once resumed. See [Limits and pause](work-loop.md#limits-and-pause).

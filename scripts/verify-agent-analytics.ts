@@ -102,7 +102,10 @@ check('no permission says why', moneyVisibility({ billingModuleOn: true, canRead
   }));
   check('an agent billing at the project rate shows money', billing.money.show === true);
   check('revenue is approved hours times the rate', billing.totals.sums.revenue === 200, billing.totals.sums.revenue);
-  check('money tiles lead when shown', billing.tiles[0].key === 'revenue' && billing.tiles[1].key === 'profit');
+  check('runs lead, so the chart opens on runs', billing.tiles[0].key === 'runs' && resolveSelectedMetric(arrangeTiles(billing.tiles, { expanded: true }).shown, null) === 'runs');
+  check('money tiles follow runs, busy time and tokens', ['runs', 'busy', 'tokens'].every((k) =>
+    billing.tiles.findIndex((t) => t.key === k) < billing.tiles.findIndex((t) => t.key === 'revenue'))
+    && billing.tiles.findIndex((t) => t.key === 'profit') === billing.tiles.findIndex((t) => t.key === 'revenue') + 1);
 
   const off = buildAgentAnalytics(base({
     billingModuleOn: false,

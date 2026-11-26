@@ -22,6 +22,9 @@
  *   then the workspace Owner; an owner without team.manage edits their own
  *   agent and no other, cannot mint a key, assigns only on projects they
  *   reach; owner=me; an agent never owns.
+ * - The profile page: an owner without agents.manage (in person or through
+ *   a group) opens their agent's /agent/<id>; a member who does not own it
+ *   does not; the rest of /agent stays on agents.manage.
  * - Role labels: set at hire, edited, filtered, distinct roles, in the pack
  *   and the export.
  * - The brief: sections from categories, pins, search ranking, and
@@ -50,6 +53,8 @@ import { CORE_AGENT_TEMPLATES } from '../src/lib/agent-templates';
 import { AGENT_ROLE_PATTERN, defaultSettings, normalizeAgentRole, validateTemplateSettings, type SettingsField } from '../src/lib/project-agents';
 import { CATEGORY_SECTION, SECTION_CATEGORY } from '../src/lib/project-brief';
 import { buildConnectInfo, CONNECT_KEY_ENV } from '../src/lib/agent-connect';
+import { agentProfileAccess, agentProfileIdFrom } from '../src/lib/agents-ui';
+import { hasPermission } from '../src/lib/access-control';
 
 const MIGRATION = '20261124000800_agent_workspaces.sql';
 const MIGRATION_SQL = readFileSync(join(__dirname, '..', 'supabase', 'migrations', MIGRATION), 'utf8').replace(/\r\n/g, '\n');
@@ -333,6 +338,7 @@ async function main() {
     const hireRoute = await import('../src/app/api/workspace/agents/route');
     const rolesRoute = await import('../src/app/api/workspace/agents/roles/route');
     const agentRoute = await import('../src/app/api/workspace/agents/[id]/route');
+    const meRoute = await import('../src/app/api/workspace/me/route');
     const agentContextRoute = await import('../src/app/api/workspace/agents/[id]/context/route');
     const agentKeysRoute = await import('../src/app/api/workspace/agents/[id]/keys/route');
     const agentRevokeRoute = await import('../src/app/api/workspace/agents/[id]/keys/[keyId]/revoke/route');
@@ -508,6 +514,38 @@ async function main() {
       && morganDetail.body.data.keys === undefined && morganDetail.body.data.omitted.includes('keys') && morganDetail.body.data.owners.length === 2, morganDetail.body);
     check('detail: assignments on projects the viewer reaches only', morganDetail.body?.data?.projects?.length === 1 && morganDetail.body.data.projects[0].project_id === s.apex
       && morganDetail.body.data.projects_hidden === 1, morganDetail.body?.data?.projects);
+
+    // --- The profile page: who opens /agent/<id> ---------------------------
+    // The /agent layout's rule (agentProfileAccess) over what the screen reads:
+    // the signed-in person's access (/api/workspace/me) and the profile read.
+    const profileAccess = async (agentId: string) => {
+      const me = await session(meRoute.GET, 'GET', '/api/workspace/me');
+      const detail = await session(agentRoute.GET, 'GET', `/api/workspace/agents/${agentId}`, { id: agentId });
+      const manageAgents = hasPermission(me.body?.data?.access, 'agents.manage');
+      return { manageAgents, isOwner: detail.body?.data?.is_owner, open: agentProfileAccess({ manageAgents, isOwner: detail.body?.data?.is_owner }) };
+    };
+    check('profile: only /agent/<id> is a profile; the home, hire flow, analytics and project views are not',
+      agentProfileIdFrom(`/agent/${jeffId}`) === jeffId && agentProfileIdFrom('/agent') === null && agentProfileIdFrom('/agent/new') === null
+      && agentProfileIdFrom('/agent/analytics') === null && agentProfileIdFrom(`/agent/projects/${s.apex}`) === null);
+    const morganOpens = await profileAccess(jeffId);
+    check('profile: an owner without agents.manage opens their agent', !morganOpens.manageAgents && morganOpens.isOwner === true && morganOpens.open === 'owner', morganOpens);
+    const morganLegacy = await profileAccess(s.legacy);
+    check('profile: and not an agent they do not own', morganLegacy.isOwner === false && morganLegacy.open === null, morganLegacy);
+    as(LOGINS.mia);
+    const miaOpens = await profileAccess(jeffId);
+    check('profile: a member who does not own it does not open it', !miaOpens.manageAgents && miaOpens.isOwner === false && miaOpens.open === null, miaOpens);
+    const crew = (await s.q<{ id: string }>("INSERT INTO pm.groups (name, slug) VALUES ('Site crew', 'site-crew-profile') RETURNING id"))[0].id;
+    await s.q('INSERT INTO pm.group_members (group_id, member_id) VALUES ($1, $2)', [crew, s.mia]);
+    await s.q('INSERT INTO pm.agent_owner_groups (agent_id, group_id) VALUES ($1, $2)', [jeffId, crew]);
+    const miaThroughGroup = await profileAccess(jeffId);
+    check('profile: a member of a group that owns it opens it', miaThroughGroup.isOwner === true && miaThroughGroup.open === 'owner', miaThroughGroup);
+    // The group goes to Trash: its ownership ends with it, and so does the way in.
+    await s.q('UPDATE pm.groups SET deleted_at = now() WHERE id = $1', [crew]);
+    const miaAfterTrash = await profileAccess(jeffId);
+    check('profile: a group in Trash owns nothing', miaAfterTrash.isOwner === false && miaAfterTrash.open === null, miaAfterTrash);
+    as(LOGINS.owner);
+    const ownerOpens = await profileAccess(s.legacy);
+    check('profile: agents.manage opens any agent', ownerOpens.manageAgents && ownerOpens.open === 'manage', ownerOpens);
     as(LOGINS.owner);
     const ownerDetail = await session(agentRoute.GET, 'GET', `/api/workspace/agents/${jeffId}`, { id: jeffId });
     check('detail: the Owner sees keys (never a secret) and the template', ownerDetail.body?.data?.keys?.length === 1 && ownerDetail.body.data.template_key === 'builder'

@@ -61,6 +61,8 @@ export const slackAdapter: ChatAdapter = {
       messageId: typeof event.ts === 'string' ? event.ts : null,
       text,
       direct,
+      // Only direct messages and mentions reach here: both speak to the bot.
+      addressed: direct || mention,
     };
   },
 

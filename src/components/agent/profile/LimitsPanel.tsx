@@ -1,7 +1,6 @@
 'use client';
 
 import { useState } from 'react';
-import { PauseCircle, PlayCircle } from 'lucide-react';
 import {
   BUDGET_PERIODS,
   LIMIT_LABELS,
@@ -19,15 +18,15 @@ import { timeAgo } from '@/lib/task-times';
 import { Button } from '@/components/ui/Button';
 import { NumberInput } from '@/components/ui/inputs/NumberInput';
 import { Select } from '@/components/ui/inputs/Select';
-import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { toast } from '@/components/ui/Toast';
 
 /**
- * Rules and powers > Limits and pause: how hard the agent may run (runs at
- * once, requests a minute, a budget per period) and a switch that pauses it.
- * An empty field is no limit. Limits are a workspace Owner's to change;
- * pausing is for whoever may manage the agent. Paused, it still reads,
- * reports its heartbeat and its usage; every other write is refused.
+ * Rules and powers > Limits: how hard the agent may run (runs at once,
+ * requests a minute, a budget per period), and a status line while it is
+ * paused. An empty field is no limit. Limits are a workspace Owner's to
+ * change. Pausing is for whoever may manage the agent, from the profile
+ * header (useAgentPause). Paused, it still reads, reports its heartbeat and
+ * its usage; every other write is refused.
  */
 
 type Draft = Record<'max_concurrent_runs' | 'rate_per_minute' | 'budget_usd' | 'budget_tokens', number | ''> & { budget_period: BudgetPeriod };
@@ -45,18 +44,39 @@ const draftOf = (limits: AgentLimits | null | undefined): Draft => {
 
 const valueOf = (value: number | '') => (value === '' ? null : value);
 
-export function LimitsPanel({ agentId, agentName, limits, usage, pausedAt, canEditLimits, canPause }: {
+/**
+ * Pauses or resumes one agent: one call, no confirmation (it is undone by
+ * the same button). Answers whether it took.
+ */
+export function useAgentPause(agentId: string, agentName: string) {
+  const [busy, setBusy] = useState(false);
+  const setPaused = async (paused: boolean): Promise<boolean> => {
+    setBusy(true);
+    try {
+      await workspaceApi(`/api/workspace/agents/${encodeURIComponent(agentId)}`, { method: 'PATCH', body: { paused } });
+      invalidateTables(['team_members']);
+      toast('success', paused ? `${agentName} is paused` : `${agentName} is working again`);
+      return true;
+    } catch (error) {
+      toast('error', error instanceof Error ? error.message : 'Could not change it');
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  };
+  return { busy, setPaused };
+}
+
+export function LimitsPanel({ agentId, agentName, limits, usage, pausedAt, canEditLimits }: {
   agentId: string;
   agentName: string;
   limits: AgentLimits | null | undefined;
   usage: AgentUsage | null | undefined;
   pausedAt: string | null;
   canEditLimits: boolean;
-  canPause: boolean;
 }) {
   const [draft, setDraft] = useState<Draft>(() => draftOf(limits));
   const [busy, setBusy] = useState(false);
-  const [confirmPause, setConfirmPause] = useState(false);
   const saved = draftOf(limits);
   const dirty = JSON.stringify(draft) !== JSON.stringify(saved);
   const spent = usage && budgetSpent(agentLimitsOf(limits ?? null), usage);
@@ -86,38 +106,15 @@ export function LimitsPanel({ agentId, agentName, limits, usage, pausedAt, canEd
     }
   };
 
-  const setPaused = async (paused: boolean) => {
-    setBusy(true);
-    try {
-      await workspaceApi(`/api/workspace/agents/${encodeURIComponent(agentId)}`, { method: 'PATCH', body: { paused } });
-      invalidateTables(['team_members']);
-      toast('success', paused ? `${agentName} is paused` : `${agentName} is working again`);
-    } catch (error) {
-      toast('error', error instanceof Error ? error.message : 'Could not change it');
-    } finally {
-      setBusy(false);
-      setConfirmPause(false);
-    }
-  };
-
   const hint = (text: string) => (canEditLimits ? `${text} Empty: no limit.` : text);
 
   return (
     <section aria-labelledby="rp-limits" className="space-y-5 lg:col-span-2">
-      <div className="flex flex-col gap-3 border-t border-white/[0.06] pt-6 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <h2 id="rp-limits" className="text-[15px] font-semibold text-white">Limits and pause</h2>
-          <p className="mt-1 max-w-xl text-xs text-zinc-500">
-            How hard {agentName} may run. Paused, it still reads, reports its heartbeat and its usage; everything else it tries is refused until it is resumed.
-          </p>
-        </div>
-        {canPause && (
-          pausedAt ? (
-            <Button variant="secondary" icon={<PlayCircle size={15} aria-hidden="true" />} onClick={() => setPaused(false)} disabled={busy}>Resume</Button>
-          ) : (
-            <Button variant="secondary" icon={<PauseCircle size={15} aria-hidden="true" />} onClick={() => setConfirmPause(true)} disabled={busy}>Pause</Button>
-          )
-        )}
+      <div className="border-t border-white/[0.06] pt-6">
+        <h2 id="rp-limits" className="text-[15px] font-semibold text-white">Limits</h2>
+        <p className="mt-1 max-w-xl text-xs text-zinc-500">
+          How hard {agentName} may run. Pause it from the top of this page: it still reads, reports its heartbeat and its usage; everything else it tries is refused until it is resumed.
+        </p>
       </div>
 
       {pausedAt && (
@@ -158,15 +155,6 @@ export function LimitsPanel({ agentId, agentName, limits, usage, pausedAt, canEd
           <Button onClick={save} disabled={!dirty || busy}>{busy ? 'Saving' : 'Save limits'}</Button>
         </div>
       )}
-
-      <ConfirmDialog
-        isOpen={confirmPause}
-        onClose={() => setConfirmPause(false)}
-        onConfirm={() => setPaused(true)}
-        title={`Pause ${agentName}?`}
-        message="It keeps reading and reporting, but every other write it tries is refused until someone resumes it."
-        confirmLabel="Pause"
-      />
     </section>
   );
 }

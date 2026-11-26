@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/Button';
 import { TextInput } from '@/components/ui/inputs/TextInput';
 import { useRead } from '@/lib/query-cache';
 import { assistantStatusRead } from '@/lib/reads';
-import { reasonWords, type AssistantState } from '@/lib/assistant';
+import { HOST_DOWN_WORDS, reasonWords, type AssistantState } from '@/lib/assistant';
 
 const STATE_PILL: Record<AssistantState, { label: string; className: string }> = {
   working: { label: 'Working', className: 'bg-emerald-500/[0.14] text-emerald-200' },
@@ -34,7 +34,7 @@ export function AssistantStatusSection() {
     const term = search.trim().toLowerCase();
     return term ? rows.filter((row) => row.person.name.toLowerCase().includes(term) || row.name.toLowerCase().includes(term)) : rows;
   }, [rows, search]);
-  const broken = rows.filter((row) => row.state === 'broken').length;
+  const broken = rows.filter((row) => row.state === 'broken' || row.host_down).length;
 
   return (
     <section className="glass-card rounded-xl p-4 lg:p-6" aria-labelledby="assistant-status-heading">
@@ -68,12 +68,12 @@ export function AssistantStatusSection() {
                 <div className="min-w-0">
                   <p className="truncate text-sm font-medium text-zinc-100">{row.person.name}</p>
                   <p className="truncate text-xs text-zinc-500">
-                    {row.name}{row.reason ? ` · ${reasonWords(row.reason)}` : ''}
+                    {row.name}{row.host_down ? ` · ${HOST_DOWN_WORDS}` : row.reason ? ` · ${reasonWords(row.reason)}` : ''}
                   </p>
                 </div>
                 <div className="flex flex-shrink-0 items-center gap-2">
                   <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${STATE_PILL[row.state].className}`}>{STATE_PILL[row.state].label}</span>
-                  {row.state === 'broken' && (
+                  {(row.state === 'broken' || row.host_down) && (
                     <Link href={`/agent/${row.id}`} className="rounded-md px-2 py-1 text-xs font-medium text-brand-300 hover:bg-white/[0.06] focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500">Fix</Link>
                   )}
                 </div>

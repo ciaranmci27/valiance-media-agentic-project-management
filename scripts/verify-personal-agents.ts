@@ -45,8 +45,8 @@ import type { AccessContext } from '../src/lib/access-control';
 import { assistantNameFor, personalAgentBrief } from '../src/lib/personal-agents';
 import { canHaveSignIn } from '../src/lib/team/invite-rules';
 import { personalAgentAccess } from '../src/lib/api/access';
-import { openWebhookSecret, sealWebhookSecret } from '../src/lib/webhooks/secret';
-import { verifySignatureHeader } from '../src/lib/webhooks/sign';
+import { openWebhookSecret, sealStoredWebhookSecret, sealWebhookSecret } from '../src/lib/webhooks/secret';
+import { buildSignatureHeader, verifySignatureHeader } from '../src/lib/webhooks/sign';
 import { runDispatch, SEALED_SECRET_UNREADABLE, type ClaimedDelivery, type DispatchStore } from '../src/lib/webhooks/dispatch';
 
 const MIGRATION = '20261124001300_personal_agents_secrets.sql';
@@ -707,6 +707,7 @@ async function main() {
             event_public_id: 'evt_1', event_type: 'task.created', event_sequence: 1, resource_id: null, payload: { hello: 'world' } } satisfies ClaimedDelivery];
         },
         async complete(d, result) { deliveries.push({ endpoint: d.endpoint_id, error: result.error }); return result.error ? 'retrying' : 'succeeded'; },
+        sealSecret: (id, value) => sealStoredWebhookSecret(service, id, value),
       };
     };
     const signedWith = async (secret: string) => {
@@ -741,13 +742,39 @@ async function main() {
     const anaReveal = await session(secretRoute.GET, 'GET', `/api/workspace/webhook-endpoints/${sealedId}/secret`, { id: sealedId });
     check('webhooks: never to someone without Manage webhooks', anaReveal.status === 403, anaReveal.body);
     as(LOGINS.owner);
-    // A plaintext secret signs with the key set and stays plaintext (rollback safety): only the re-encrypt moves it.
+    // A plaintext secret signs with the key set, then is sealed in place; the
+    // signature is byte-identical before and after (the same plaintext HMAC key).
+    const sameHeader = async (secret: string) => {
+      const last = receiver[receiver.length - 1];
+      const t = Number(/t=(\d+)/.exec(last?.signature ?? '')?.[1]);
+      return !!last && last.signature === await buildSignatureHeader(secret, last.body, t);
+    };
     await runDispatch(5, storeFor(plainId, plainStored));
-    const kept = (await s.q<Loose>('SELECT secret FROM pm.webhook_endpoints WHERE id = $1', [plainId]))[0].secret as string;
-    check('webhooks: a plaintext secret stays plaintext after a delivery with the key set, and still signs', kept === plainSecret
-      && await signedWith(plainSecret) && deliveries[deliveries.length - 1]?.error === null, kept);
+    const lazySealed = (await s.q<Loose>('SELECT secret FROM pm.webhook_endpoints WHERE id = $1', [plainId]))[0].secret as string;
+    check('webhooks: a plaintext secret signs as before with the key set (byte-identical header)', await sameHeader(plainSecret)
+      && await signedWith(plainSecret) && deliveries[deliveries.length - 1]?.error === null, deliveries.slice(-1));
+    check('webhooks: and the delivery sealed it in place, to the same secret', lazySealed.startsWith('pm1:') && !lazySealed.includes(plainSecret)
+      && openWebhookSecret(plainId, lazySealed) === plainSecret, lazySealed);
+    await runDispatch(5, storeFor(plainId, lazySealed));
+    check('webhooks: the next delivery signs from the sealed copy, byte-identical', await sameHeader(plainSecret) && deliveries[deliveries.length - 1]?.error === null, deliveries.slice(-1));
     const dispatchSource = readFileSync(join(__dirname, '..', 'src', 'lib', 'webhooks', 'dispatch.ts'), 'utf8');
-    check('webhooks: the dispatcher never writes a secret (this release rolls back cleanly)', !/from\('webhook_endpoints'\)\s*\.update/.test(dispatchSource) && !/reseal/.test(dispatchSource));
+    check('webhooks: the dispatcher writes a secret only through the compare-and-swap seal', !/from\('webhook_endpoints'\)/.test(dispatchSource) && /sealStoredWebhookSecret/.test(dispatchSource));
+    // Compare-and-swap: two deliveries loading the same plaintext seal it once;
+    // a secret rotated after the load is left alone.
+    const raceId = (await s.q<Loose>("INSERT INTO pm.webhook_endpoints (name, url, secret, events) VALUES ('Race', 'https://hooks.example.test/r', 'whsec_race', '{task.created}') RETURNING id"))[0].id as string;
+    const raced = await Promise.all([sealStoredWebhookSecret(service, raceId, 'whsec_race'), sealStoredWebhookSecret(service, raceId, 'whsec_race')]);
+    const raceStored = (await s.q<Loose>('SELECT secret FROM pm.webhook_endpoints WHERE id = $1', [raceId]))[0].secret as string;
+    check('webhooks: concurrent seals write once, and the result opens to the same secret', raced.filter(Boolean).length === 1
+      && raceStored.startsWith('pm1:') && openWebhookSecret(raceId, raceStored) === 'whsec_race', { raced, raceStored });
+    const rotatedId = (await s.q<Loose>("INSERT INTO pm.webhook_endpoints (name, url, secret, events) VALUES ('Rotated', 'https://hooks.example.test/o', 'whsec_new', '{task.created}') RETURNING id"))[0].id as string;
+    const stale = await sealStoredWebhookSecret(service, rotatedId, 'whsec_old');
+    const rotatedStored = (await s.q<Loose>('SELECT secret FROM pm.webhook_endpoints WHERE id = $1', [rotatedId]))[0].secret;
+    check('webhooks: a seal from a stale read leaves a rotated secret alone', stale === false && rotatedStored === 'whsec_new', { stale, rotatedStored });
+    // Settings revealing a plaintext secret seals it too.
+    const rotatedReveal = await session(secretRoute.GET, 'GET', `/api/workspace/webhook-endpoints/${rotatedId}/secret`, { id: rotatedId });
+    const revealedStored = (await s.q<Loose>('SELECT secret FROM pm.webhook_endpoints WHERE id = $1', [rotatedId]))[0].secret as string;
+    check('webhooks: revealing a plaintext secret answers it and seals it in place', rotatedReveal.status === 200 && rotatedReveal.body.data.secret === 'whsec_new'
+      && revealedStored.startsWith('pm1:') && openWebhookSecret(rotatedId, revealedStored) === 'whsec_new', { body: rotatedReveal.body, revealedStored });
     // The key changed: the delivery waits, saying why.
     process.env.APP_ENCRYPTION_KEY = OTHER_KEY;
     await runDispatch(5, storeFor(sealedId, sealedStored));
@@ -756,7 +783,7 @@ async function main() {
     await s.q("INSERT INTO pm.webhook_endpoints (name, url, secret, events) VALUES ('Browser made', 'https://hooks.example.test/b', 'whsec_browser', '{task.created}')");
     const before = await encryptionStatus(service);
     const reencrypted = await reencryptAll(service);
-    check('webhooks: Settings > Encryption moves plaintext secrets and counts none left', before.remaining.webhooks === 2 && reencrypted.moved.webhooks === 2
+    check('webhooks: Settings > Encryption moves plaintext secrets and counts none left', before.remaining.webhooks === 1 && reencrypted.moved.webhooks === 1
       && reencrypted.status.remaining.webhooks === 0 && await count("SELECT count(*)::int AS n FROM pm.webhook_endpoints WHERE secret NOT LIKE 'pm1:%'") === 0, { before: before.remaining, reencrypted });
     hookServer.close();
     delete process.env.APP_ENCRYPTION_KEY;

@@ -1,7 +1,7 @@
 import { getServiceClient } from '@/lib/api/supabase-service';
 import { enabledModuleSet } from '@/lib/modules/server';
 import { buildSignatureHeader, WEBHOOK_SIGNATURE_HEADER } from './sign';
-import { openWebhookSecret } from './secret';
+import { isSealedWebhookSecret, openWebhookSecret, sealStoredWebhookSecret } from './secret';
 
 // Claims due deliveries (claim_webhook_deliveries: a 2-minute lease per
 // delivery, head of the line per subject and endpoint) and POSTs each to its
@@ -58,6 +58,11 @@ export interface DispatchStore {
     d: ClaimedDelivery,
     result: { statusCode: number | null; error: string | null; response: string | null },
   ): Promise<DeliveryOutcome>;
+  /**
+   * Seals a plaintext signing secret in place (compare-and-swap on the value
+   * loaded). Optional: a store without it leaves secrets as they are.
+   */
+  sealSecret?(endpointId: string, stored: string): Promise<boolean>;
 }
 
 /** Said when a sealed secret cannot be opened: the delivery waits for the key, retrying as any failure. */
@@ -84,10 +89,25 @@ function serviceStore(): DispatchStore {
       if (error) throw error;
       return data as DeliveryOutcome;
     },
+    sealSecret: (endpointId, stored) => sealStoredWebhookSecret(service, endpointId, stored),
   };
 }
 
-async function deliverOne(store: DispatchStore, d: ClaimedDelivery, summary: DispatchSummary): Promise<void> {
+/**
+ * Seals a plaintext secret once per endpoint per run, after it signed. Never
+ * fails a delivery: a secret that cannot be sealed now is sealed next time.
+ */
+async function sealIfPlain(store: DispatchStore, d: ClaimedDelivery, sealed: Set<string>): Promise<void> {
+  if (!store.sealSecret || isSealedWebhookSecret(d.endpoint_secret) || sealed.has(d.endpoint_id)) return;
+  sealed.add(d.endpoint_id);
+  try {
+    await store.sealSecret(d.endpoint_id, d.endpoint_secret);
+  } catch (e) {
+    console.error('[webhooks] could not seal a signing secret', d.endpoint_id, e);
+  }
+}
+
+async function deliverOne(store: DispatchStore, d: ClaimedDelivery, summary: DispatchSummary, sealed: Set<string>): Promise<void> {
   const body = JSON.stringify(d.payload);
   let statusCode: number | null = null;
   let responseText = '';
@@ -95,8 +115,8 @@ async function deliverOne(store: DispatchStore, d: ClaimedDelivery, summary: Dis
 
   try {
     // A sealed secret is opened to sign; a plaintext one (from before, or made
-    // without the key) is used as it is and left as it is: only Settings >
-    // Workspace > Encryption moves it, so this release rolls back cleanly.
+    // without the key) signs as it is, then is sealed in place when the host
+    // has the key. Either way the HMAC key is the same plaintext.
     let secret: string;
     try {
       secret = openWebhookSecret(d.endpoint_id, d.endpoint_secret);
@@ -104,6 +124,7 @@ async function deliverOne(store: DispatchStore, d: ClaimedDelivery, summary: Dis
       throw new Error(SEALED_SECRET_UNREADABLE);
     }
     const header = await buildSignatureHeader(secret, body);
+    await sealIfPlain(store, d, sealed);
     const res = await fetch(d.endpoint_url, {
       method: 'POST',
       headers: {
@@ -139,6 +160,7 @@ async function deliverOne(store: DispatchStore, d: ClaimedDelivery, summary: Dis
 export async function runDispatch(limit = 20, store: DispatchStore = serviceStore()): Promise<DispatchSummary> {
   const summary: DispatchSummary = { claimed: 0, delivered: 0, retrying: 0, failed: 0 };
   const deadline = Date.now() + RUN_BUDGET_MS;
+  const sealed = new Set<string>();
 
   for (let round = 0; round < MAX_ROUNDS && Date.now() < deadline; round++) {
     const claimed = await store.claim(limit);
@@ -160,7 +182,7 @@ export async function runDispatch(limit = 20, store: DispatchStore = serviceStor
     await Promise.all(
       Array.from(groups.values()).map(async (group) => {
         group.sort((a, b) => a.event_sequence - b.event_sequence);
-        for (const d of group) await deliverOne(store, d, summary);
+        for (const d of group) await deliverOne(store, d, summary, sealed);
       }),
     );
   }

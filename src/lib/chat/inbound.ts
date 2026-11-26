@@ -1,5 +1,7 @@
+import { createHash } from 'node:crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { readAssistantSettings, findPersonalAgent, missingAssistantSchema, notifyAssistantBroken, statesOf } from '@/lib/api/assistant';
+import { alertOf, readAssistantSettings, findPersonalAgent, missingAssistantSchema, notifyAssistantBroken, statesOf } from '@/lib/api/assistant';
+import type { AssistantStatus } from '@/lib/assistant';
 import { createLinkRequest, findIdentity } from '@/lib/api/identities';
 import { afterResponse } from '@/lib/api/after-response';
 import { readStoredBrand } from '@/lib/brand/server';
@@ -7,7 +9,7 @@ import { enabledModuleSet } from '@/lib/modules/server';
 import { runDispatch } from '@/lib/webhooks/dispatch';
 import { openCredentials, loadConnection } from './connections';
 import { chatAdapter, type ChatAdapter, type ChatCredentials, type ParsedInbound } from './providers';
-import { CHAT_WORDS } from './types';
+import { CHAT_WORDS, QUIET_WORDS } from './types';
 import { assistantMessagePayload } from './messages';
 
 /**
@@ -26,14 +28,19 @@ import { assistantMessagePayload } from './messages';
  *    none). Someone unknown gets a one-time link to connect their account
  *    (the existing link handshake), only in a one-to-one chat and at most
  *    once an hour; in a shared conversation they are asked to message the
- *    bot directly. Someone suspended, with no assistant, or whose assistant
- *    is paused gets one plain line, and a paused-by-admin assistant's admins
- *    are told.
- * 4. Otherwise the message is recorded for the person's assistant and sent
- *    to its webhook (assistant.message, ids only: chat is private, so the
- *    assistant fetches the text with its own key); with no endpoint it waits
- *    for the assistant to fetch it. No act-for token: a personal agent is
- *    already narrowed to its person.
+ *    bot directly. Someone suspended or with no assistant gets one plain
+ *    line.
+ * 4. A paused assistant (by its person, or by an admin) is never sent the
+ *    message: it is recorded as unrouted. Otherwise the message is recorded for
+ *    the person's assistant and sent to its webhook (assistant.message, ids
+ *    only: chat is private, so the assistant fetches the text with its own
+ *    key); with no endpoint it waits for the assistant to fetch it. No
+ *    act-for token: a personal agent is already narrowed to its person.
+ * 5. When the assistant will not answer right now (on hold, paused, broken:
+ *    the states the person's page shows), the app says so itself, once per
+ *    chat per spell, only where the message spoke to the bot. A broken one,
+ *    or one on hold whose host stopped reporting, tells its admins (once a
+ *    day).
  *
  * Nothing logs a token, and message text never reaches a log.
  */
@@ -182,19 +189,44 @@ export async function handleChatInbound(
 
   const agent = await findPersonalAgent(service, member.id);
   if (!agent) return unrouted(known, CHAT_WORDS.noAssistant);
-  const { state, reason } = (await statesOf(service, [agent])).get(agent.id)!;
-  if (state === 'paused') return unrouted({ ...known, agent_id: agent.id }, CHAT_WORDS.pausedByYou(`${appUrl.replace(/\/+$/, '')}/assistant`));
-  if (state === 'broken' && reason === 'paused_by_admin') {
-    await notifyAssistantBroken(service, { id: agent.id, name: agent.name }, { id: member.id, name: member.name }, reason);
-    return unrouted({ ...known, agent_id: agent.id }, CHAT_WORDS.paused);
+  const status = (await statesOf(service, [agent])).get(agent.id)!;
+  const alert = alertOf(status);
+  const quiet = {
+    ctx, agentId: agent.id, conversationId: parsed.conversationId, threadId: parsed.threadId,
+    // The same state the person's page shows, and when that spell began: one line per chat per spell.
+    spell: `${status.state}:${status.reason ?? ''}:${status.since ?? ''}`,
+    text: quietWords(status, agent.name, settings.label, `${appUrl.replace(/\/+$/, '')}/assistant`),
+    addressed: parsed.direct || parsed.addressed === true || mentionsBot(parsed.text, connection.bot_handle),
+  };
+  const tellAdmins = () => alert
+    ? notifyAssistantBroken(service, { id: agent.id, name: agent.name }, { id: member.id, name: member.name }, alert)
+    : Promise.resolve(0);
+
+  // Paused by its person or by an admin: recorded, never sent to it, as before.
+  if (status.state === 'paused' || (status.state === 'broken' && status.reason === 'paused_by_admin')) {
+    const id = await record({ ...known, agent_id: agent.id, status: 'unrouted', handled_at: new Date().toISOString() });
+    if (!id) return done({ status: 'duplicate' });
+    await tellAdmins();
+    await noticeOnce(service, { ...quiet, replyToId: id });
+    return done({ status: 'unrouted', id });
   }
 
-  // For the assistant: recorded, then sent to its webhook or left for it to fetch.
+  // For the assistant: recorded, then sent to its webhook or left for it to
+  // fetch. On hold or broken it answers once it is back; the person hears
+  // why once.
   const id = await record({ ...known, agent_id: agent.id, status: 'pending' });
   if (!id) return done({ status: 'duplicate' });
-  if (!modules.has('webhooks')) return done({ status: 'pending', id });
+  const result = await deliver(service, id, agent.id, modules.has('webhooks'));
+  await tellAdmins();
+  await noticeOnce(service, { ...quiet, replyToId: id });
+  return result;
+}
+
+/** Sends a recorded message to the assistant's webhook (assistant.message), or leaves it pending for the poll. */
+async function deliver(service: SupabaseClient, id: string, agentId: string, webhooksOn: boolean): Promise<InboundResult> {
+  if (!webhooksOn) return done({ status: 'pending', id });
   const payload = await assistantMessagePayload(service, id);
-  const { data: emitted, error: emitError } = await service.rpc('emit_assistant_message', { p_message_id: id, p_agent_id: agent.id, p_data: payload });
+  const { data: emitted, error: emitError } = await service.rpc('emit_assistant_message', { p_message_id: id, p_agent_id: agentId, p_data: payload });
   if (emitError) {
     console.error(`[chat] could not queue assistant.message for ${id}`, emitError.code);
     return done({ status: 'pending', id });
@@ -203,4 +235,57 @@ export async function handleChatInbound(
   await service.from('chat_messages').update({ status: 'notified' }).eq('id', id).eq('status', 'pending');
   afterResponse('webhook dispatch', () => runDispatch());
   return done({ status: 'notified', id });
+}
+
+/** The line for an assistant that will not answer right now, or null when it will (working, getting ready). */
+export function quietWords(status: AssistantStatus, name: string, page: string, resumeUrl: string): string | null {
+  if (status.state === 'on_hold') return QUIET_WORDS.onHold(name);
+  if (status.state === 'paused') return QUIET_WORDS.paused(name, page, resumeUrl);
+  if (status.state === 'broken') return QUIET_WORDS.broken(name);
+  return null;
+}
+
+/** The bot's own handle (@name) in the text: a mention in a shared chat. */
+function mentionsBot(text: string, handle: string | null | undefined): boolean {
+  const bare = (handle ?? '').replace(/^@/, '').trim().toLowerCase();
+  return bare.length > 0 && text.toLowerCase().includes(`@${bare}`);
+}
+
+/**
+ * Sends the "can't answer right now" line at most once per chat per spell.
+ * The marker is the notice's own outbound row: its dedupe_key hashes the
+ * assistant, the conversation and the spell (state, reason, when it began),
+ * so the unique (connection_id, dedupe_key) index lets one notice through
+ * even when two messages race. A new spell (resumed, then held again) has a
+ * new start, so a new key. Only where the message spoke to the bot. A send
+ * that fails is recorded as failed and frees the marker, so the next message
+ * tries again; nothing here ever fails the inbound request.
+ */
+async function noticeOnce(service: SupabaseClient, notice: {
+  ctx: { connection: Row; adapter: ChatAdapter; credentials: ChatCredentials };
+  agentId: string; conversationId: string; threadId: string | null; replyToId: string;
+  spell: string; text: string | null; addressed: boolean;
+}): Promise<void> {
+  if (!notice.text || !notice.addressed) return;
+  const { connection, adapter, credentials } = notice.ctx;
+  try {
+    const marker = `notice:${createHash('sha256').update([notice.agentId, notice.conversationId, notice.spell].join('\n')).digest('hex')}`;
+    const { data, error } = await service.from('chat_messages').insert({
+      connection_id: connection.id, direction: 'outbound', status: 'sent', conversation_id: notice.conversationId, thread_id: notice.threadId,
+      reply_to_id: notice.replyToId, text: notice.text, dedupe_key: marker,
+    }).select('id').single();
+    if (error?.code === '23505') return;
+    if (error) throw error;
+    const rowId = (data as Row).id as string;
+    try {
+      const sent = await adapter.send(credentials, { conversationId: notice.conversationId, threadId: notice.threadId, text: notice.text });
+      await service.from('chat_messages').update({ external_message_id: sent.externalMessageId }).eq('id', rowId);
+    } catch (failure) {
+      const reason = failure instanceof Error ? failure.message.slice(0, 500) : 'Send failed';
+      console.error(`[chat] notice on connection ${connection.id} failed: ${reason}`);
+      await service.from('chat_messages').update({ status: 'failed', error: reason, dedupe_key: null }).eq('id', rowId);
+    }
+  } catch (error) {
+    console.error(`[chat] notice on connection ${connection.id} could not be recorded`, (error as { code?: string })?.code ?? error);
+  }
 }

@@ -135,6 +135,7 @@
      "id": "<triage:BN8PR11MB1234outlook@BN8PR11MB1234.namprd11.prod.outlook.example/Send corrected invoice>",
      "outcome": "task",
      "urgent": false,
+     "category": null,
      "created_at": "<time>"
     }
    },
@@ -235,6 +236,7 @@
      "id": "<triage:CAF2xGmail-reply-1@mail.gmail.com/Dana thanked us for the finished footer.>",
      "outcome": "no_action",
      "urgent": false,
+     "category": null,
      "created_at": "<time>"
     }
    },
@@ -541,6 +543,7 @@
      "id": "<triage:followup-2@acme-roofing.example/Race>",
      "outcome": "no_action",
      "urgent": false,
+     "category": null,
      "created_at": "<time>"
     }
    },
@@ -979,6 +982,7 @@
      "id": "<triage:fw-gmail@agency.example/Homepage copy from Vera>",
      "outcome": "task",
      "urgent": false,
+     "category": null,
      "created_at": "<time>"
     }
    },
@@ -1141,6 +1145,7 @@
      "id": "<triage:fw-prospect@agency.example/Read>",
      "outcome": "no_action",
      "urgent": false,
+     "category": "fyi",
      "created_at": "<time>"
     }
    },
@@ -1312,6 +1317,7 @@
      "id": "<triage:fwd-3@agency.example/Site down for Acme>",
      "outcome": "needs_human",
      "urgent": true,
+     "category": null,
      "created_at": "<time>"
     }
    },
@@ -1369,6 +1375,7 @@
      "id": "<triage:guess@agency.example/Probably Vera Studio#2>",
      "outcome": "task",
      "urgent": false,
+     "category": null,
      "created_at": "<time>"
     }
    },
@@ -1418,6 +1425,7 @@
      "id": "<triage:html-only-4@mail.gmail.com/Update header and footer#3>",
      "outcome": "needs_reply",
      "urgent": false,
+     "category": null,
      "created_at": "<time>"
     }
    },
@@ -1672,6 +1680,7 @@
      "id": "<triage:orig-1@agency.example/Thanks for the update>",
      "outcome": "no_action",
      "urgent": false,
+     "category": null,
      "created_at": "<time>"
     }
    },
@@ -1944,6 +1953,7 @@
      "id": "<triage:pa-new@acme-roofing.example/Kickoff notes#2>",
      "outcome": "no_action",
      "urgent": false,
+     "category": null,
      "created_at": "<time>"
     }
    },
@@ -2264,6 +2274,7 @@
      "id": "<triage:prospect-colleague@prospect.example/Read>",
      "outcome": "no_action",
      "urgent": false,
+     "category": "fyi",
      "created_at": "<time>"
     }
    },
@@ -2306,6 +2317,7 @@
      "id": "<triage:prospect-reply@prospect.example/Read#2>",
      "outcome": "no_action",
      "urgent": false,
+     "category": "fyi",
      "created_at": "<time>"
     }
    },
@@ -2391,6 +2403,7 @@
      "id": "<triage:quiet@agency.example/Decks shared, nothing needed>",
      "outcome": "no_action",
      "urgent": false,
+     "category": null,
      "created_at": "<time>"
     }
    },
@@ -2448,6 +2461,7 @@
      "id": "<triage:related@agency.example/Thanks, nothing new>",
      "outcome": "no_action",
      "urgent": false,
+     "category": null,
      "created_at": "<time>"
     }
    },
@@ -2493,6 +2507,7 @@
      "id": "<triage:settle-1@agency.example/A reply is owed>",
      "outcome": "needs_reply",
      "urgent": false,
+     "category": null,
      "created_at": "<time>"
     }
    },
@@ -2538,6 +2553,7 @@
      "id": "<triage:settle-2@agency.example/He replied himself>",
      "outcome": "needs_human",
      "urgent": false,
+     "category": null,
      "created_at": "<time>"
     }
    },
@@ -2635,6 +2651,7 @@
      "id": "<triage:team-cc-two@agency.example/The joint call is Cliff's project#2>",
      "outcome": "task",
      "urgent": false,
+     "category": null,
      "created_at": "<time>"
     }
    },
@@ -3114,6 +3131,7 @@
      "id": "<triage:usage-90@tool.example/Usage alert at 90%>",
      "outcome": "no_action",
      "urgent": false,
+     "category": null,
      "created_at": "<time>"
     }
    },
@@ -3329,7 +3347,18 @@
     "inbox": {
      "id": "<ids.inboxA>",
      "name": "Planner",
-     "address": "planner@agency.example"
+     "address": "planner@agency.example",
+     "handled_by_me": true,
+     "primary_handler": {
+      "kind": "member",
+      "id": "<ids.planner>",
+      "member_id": "<ids.planner>",
+      "name": "Planner P."
+     },
+     "default_assignee": null,
+     "default_assignee_ids": [],
+     "default_project_id": null,
+     "decision_recipient": null
     },
     "thread_id": "<thread:Planner/attach-8-again@acme-roofing.example>",
     "conversation_id": "<thread:Planner/attach-8-again@acme-roofing.example>",
@@ -4092,7 +4121,18 @@
     "inbox": {
      "id": "<ids.inboxA>",
      "name": "Planner",
-     "address": "planner@agency.example"
+     "address": "planner@agency.example",
+     "handled_by_me": true,
+     "primary_handler": {
+      "kind": "member",
+      "id": "<ids.planner>",
+      "member_id": "<ids.planner>",
+      "name": "Planner P."
+     },
+     "default_assignee": null,
+     "default_assignee_ids": [],
+     "default_project_id": null,
+     "decision_recipient": null
     },
     "thread_id": "<thread:Planner/attach-8-again@acme-roofing.example>",
     "conversation_id": "<thread:Planner/attach-8-again@acme-roofing.example>",
@@ -4788,6 +4828,7 @@
      "member_id": "<ids.planner>",
      "outcome": "task",
      "urgent": false,
+     "category": null,
      "summary": "Send corrected invoice",
      "question_for_human": null,
      "suggested_reply": null,
@@ -4802,7 +4843,18 @@
     "inbox": {
      "id": "<ids.inboxA>",
      "name": "Planner",
-     "address": "planner@agency.example"
+     "address": "planner@agency.example",
+     "handled_by_me": true,
+     "primary_handler": {
+      "kind": "member",
+      "id": "<ids.planner>",
+      "member_id": "<ids.planner>",
+      "name": "Planner P."
+     },
+     "default_assignee": null,
+     "default_assignee_ids": [],
+     "default_project_id": null,
+     "decision_recipient": null
     },
     "thread_id": "<thread:Planner/BN8PR11MB1234outlook@BN8PR11MB1234.namprd11.prod.outlook.example>",
     "conversation_id": "<thread:Planner/BN8PR11MB1234outlook@BN8PR11MB1234.namprd11.prod.outlook.example>",
@@ -4909,6 +4961,7 @@
         "member_id": "<ids.planner>",
         "outcome": "task",
         "urgent": false,
+        "category": null,
         "summary": "Send corrected invoice",
         "question_for_human": null,
         "suggested_reply": null,
@@ -5000,7 +5053,18 @@
     "inbox": {
      "id": "<ids.inboxA>",
      "name": "Planner",
-     "address": "planner@agency.example"
+     "address": "planner@agency.example",
+     "handled_by_me": true,
+     "primary_handler": {
+      "kind": "member",
+      "id": "<ids.planner>",
+      "member_id": "<ids.planner>",
+      "name": "Planner P."
+     },
+     "default_assignee": null,
+     "default_assignee_ids": [],
+     "default_project_id": null,
+     "decision_recipient": null
     },
     "thread_id": "<thread:Planner/bounce-7@mx.google.example>",
     "conversation_id": "<thread:Planner/bounce-7@mx.google.example>",
@@ -5160,6 +5224,7 @@
      "member_id": "<ids.planner>",
      "outcome": "no_action",
      "urgent": false,
+     "category": null,
      "summary": "Dana thanked us for the finished footer.",
      "question_for_human": null,
      "suggested_reply": null,
@@ -5227,7 +5292,18 @@
     "inbox": {
      "id": "<ids.inboxA>",
      "name": "Planner",
-     "address": "planner@agency.example"
+     "address": "planner@agency.example",
+     "handled_by_me": true,
+     "primary_handler": {
+      "kind": "member",
+      "id": "<ids.planner>",
+      "member_id": "<ids.planner>",
+      "name": "Planner P."
+     },
+     "default_assignee": null,
+     "default_assignee_ids": [],
+     "default_project_id": null,
+     "decision_recipient": null
     },
     "thread_id": "<thread:Planner/CAF2xGmail-reply-1@mail.gmail.com>",
     "conversation_id": "<thread:Planner/CAF2xGmail-reply-1@mail.gmail.com>",
@@ -5357,6 +5433,7 @@
         "member_id": "<ids.planner>",
         "outcome": "no_action",
         "urgent": false,
+        "category": null,
         "summary": "Dana thanked us for the finished footer.",
         "question_for_human": null,
         "suggested_reply": null,
@@ -5479,6 +5556,7 @@
         "member_id": "<ids.planner>",
         "outcome": "no_action",
         "urgent": false,
+        "category": null,
         "summary": "Race",
         "question_for_human": null,
         "suggested_reply": null,
@@ -5616,6 +5694,7 @@
         "member_id": "<ids.planner>",
         "outcome": "no_action",
         "urgent": false,
+        "category": null,
         "summary": "Thanks for the update",
         "question_for_human": null,
         "suggested_reply": null,
@@ -5882,7 +5961,18 @@
     "inbox": {
      "id": "<ids.inboxA>",
      "name": "Planner",
-     "address": "planner@agency.example"
+     "address": "planner@agency.example",
+     "handled_by_me": true,
+     "primary_handler": {
+      "kind": "member",
+      "id": "<ids.planner>",
+      "member_id": "<ids.planner>",
+      "name": "Planner P."
+     },
+     "default_assignee": null,
+     "default_assignee_ids": [],
+     "default_project_id": null,
+     "decision_recipient": null
     },
     "thread_id": "<thread:Planner/cs-desk@gmail.example>",
     "conversation_id": "<thread:Planner/cs-desk@gmail.example>",
@@ -6078,7 +6168,18 @@
     "inbox": {
      "id": "<ids.inboxA>",
      "name": "Planner",
-     "address": "planner@agency.example"
+     "address": "planner@agency.example",
+     "handled_by_me": true,
+     "primary_handler": {
+      "kind": "member",
+      "id": "<ids.planner>",
+      "member_id": "<ids.planner>",
+      "name": "Planner P."
+     },
+     "default_assignee": null,
+     "default_assignee_ids": [],
+     "default_project_id": null,
+     "decision_recipient": null
     },
     "thread_id": "<thread:Planner/cs-one@gmail.example>",
     "conversation_id": "<thread:Planner/cs-one@gmail.example>",
@@ -6248,7 +6349,18 @@
     "inbox": {
      "id": "<ids.inboxA>",
      "name": "Planner",
-     "address": "planner@agency.example"
+     "address": "planner@agency.example",
+     "handled_by_me": true,
+     "primary_handler": {
+      "kind": "member",
+      "id": "<ids.planner>",
+      "member_id": "<ids.planner>",
+      "name": "Planner P."
+     },
+     "default_assignee": null,
+     "default_assignee_ids": [],
+     "default_project_id": null,
+     "decision_recipient": null
     },
     "thread_id": "<thread:Planner/cs-two@gmail.example>",
     "conversation_id": "<thread:Planner/cs-two@gmail.example>",
@@ -6496,7 +6608,18 @@
     "inbox": {
      "id": "<ids.inboxA>",
      "name": "Planner",
-     "address": "planner@agency.example"
+     "address": "planner@agency.example",
+     "handled_by_me": true,
+     "primary_handler": {
+      "kind": "member",
+      "id": "<ids.planner>",
+      "member_id": "<ids.planner>",
+      "name": "Planner P."
+     },
+     "default_assignee": null,
+     "default_assignee_ids": [],
+     "default_project_id": null,
+     "decision_recipient": null
     },
     "thread_id": "<thread:Planner/attach-8-again@acme-roofing.example>",
     "conversation_id": "<thread:Planner/attach-8-again@acme-roofing.example>",
@@ -7233,7 +7356,18 @@
     "inbox": {
      "id": "<ids.inboxA>",
      "name": "Planner",
-     "address": "planner@agency.example"
+     "address": "planner@agency.example",
+     "handled_by_me": true,
+     "primary_handler": {
+      "kind": "member",
+      "id": "<ids.planner>",
+      "member_id": "<ids.planner>",
+      "name": "Planner P."
+     },
+     "default_assignee": null,
+     "default_assignee_ids": [],
+     "default_project_id": null,
+     "decision_recipient": null
     },
     "thread_id": "<thread:Planner/attach-8-again@acme-roofing.example>",
     "conversation_id": "<thread:Planner/attach-8-again@acme-roofing.example>",
@@ -7929,6 +8063,7 @@
      "member_id": "<ids.planner>",
      "outcome": "no_action",
      "urgent": false,
+     "category": null,
      "summary": "Race",
      "question_for_human": null,
      "suggested_reply": null,
@@ -7943,7 +8078,18 @@
     "inbox": {
      "id": "<ids.inboxA>",
      "name": "Planner",
-     "address": "planner@agency.example"
+     "address": "planner@agency.example",
+     "handled_by_me": true,
+     "primary_handler": {
+      "kind": "member",
+      "id": "<ids.planner>",
+      "member_id": "<ids.planner>",
+      "name": "Planner P."
+     },
+     "default_assignee": null,
+     "default_assignee_ids": [],
+     "default_project_id": null,
+     "decision_recipient": null
     },
     "thread_id": "<thread:Planner/CAF2xGmail-reply-1@mail.gmail.com>",
     "conversation_id": "<thread:Planner/CAF2xGmail-reply-1@mail.gmail.com>",
@@ -8073,6 +8219,7 @@
         "member_id": "<ids.planner>",
         "outcome": "no_action",
         "urgent": false,
+        "category": null,
         "summary": "Dana thanked us for the finished footer.",
         "question_for_human": null,
         "suggested_reply": null,
@@ -8195,6 +8342,7 @@
         "member_id": "<ids.planner>",
         "outcome": "no_action",
         "urgent": false,
+        "category": null,
         "summary": "Race",
         "question_for_human": null,
         "suggested_reply": null,
@@ -8332,6 +8480,7 @@
         "member_id": "<ids.planner>",
         "outcome": "no_action",
         "urgent": false,
+        "category": null,
         "summary": "Thanks for the update",
         "question_for_human": null,
         "suggested_reply": null,
@@ -8604,7 +8753,18 @@
     "inbox": {
      "id": "<ids.inboxA>",
      "name": "Planner",
-     "address": "planner@agency.example"
+     "address": "planner@agency.example",
+     "handled_by_me": true,
+     "primary_handler": {
+      "kind": "member",
+      "id": "<ids.planner>",
+      "member_id": "<ids.planner>",
+      "name": "Planner P."
+     },
+     "default_assignee": null,
+     "default_assignee_ids": [],
+     "default_project_id": null,
+     "decision_recipient": null
     },
     "thread_id": "<thread:Planner/CAF2xGmail-reply-1@mail.gmail.com>",
     "conversation_id": "<thread:Planner/CAF2xGmail-reply-1@mail.gmail.com>",
@@ -8718,6 +8878,7 @@
         "member_id": "<ids.planner>",
         "outcome": "no_action",
         "urgent": false,
+        "category": null,
         "summary": "Dana thanked us for the finished footer.",
         "question_for_human": null,
         "suggested_reply": null,
@@ -8840,6 +9001,7 @@
         "member_id": "<ids.planner>",
         "outcome": "no_action",
         "urgent": false,
+        "category": null,
         "summary": "Race",
         "question_for_human": null,
         "suggested_reply": null,
@@ -8977,6 +9139,7 @@
         "member_id": "<ids.planner>",
         "outcome": "no_action",
         "urgent": false,
+        "category": null,
         "summary": "Thanks for the update",
         "question_for_human": null,
         "suggested_reply": null,
@@ -9243,7 +9406,18 @@
     "inbox": {
      "id": "<ids.inboxA>",
      "name": "Planner",
-     "address": "planner@agency.example"
+     "address": "planner@agency.example",
+     "handled_by_me": true,
+     "primary_handler": {
+      "kind": "member",
+      "id": "<ids.planner>",
+      "member_id": "<ids.planner>",
+      "name": "Planner P."
+     },
+     "default_assignee": null,
+     "default_assignee_ids": [],
+     "default_project_id": null,
+     "decision_recipient": null
     },
     "thread_id": "<thread:Planner/fw-agent@agency.example>",
     "conversation_id": "<thread:Planner/fw-agent@agency.example>",
@@ -9390,7 +9564,18 @@
     "inbox": {
      "id": "<ids.inboxA>",
      "name": "Planner",
-     "address": "planner@agency.example"
+     "address": "planner@agency.example",
+     "handled_by_me": true,
+     "primary_handler": {
+      "kind": "member",
+      "id": "<ids.planner>",
+      "member_id": "<ids.planner>",
+      "name": "Planner P."
+     },
+     "default_assignee": null,
+     "default_assignee_ids": [],
+     "default_project_id": null,
+     "decision_recipient": null
     },
     "thread_id": "<thread:Planner/fw-apple@agency.example>",
     "conversation_id": "<thread:Planner/fw-apple@agency.example>",
@@ -9567,7 +9752,18 @@
     "inbox": {
      "id": "<ids.inboxA>",
      "name": "Planner",
-     "address": "planner@agency.example"
+     "address": "planner@agency.example",
+     "handled_by_me": true,
+     "primary_handler": {
+      "kind": "member",
+      "id": "<ids.planner>",
+      "member_id": "<ids.planner>",
+      "name": "Planner P."
+     },
+     "default_assignee": null,
+     "default_assignee_ids": [],
+     "default_project_id": null,
+     "decision_recipient": null
     },
     "thread_id": "<thread:Planner/fw-client@cliffbuilders.example>",
     "conversation_id": "<thread:Planner/fw-client@cliffbuilders.example>",
@@ -9743,7 +9939,18 @@
     "inbox": {
      "id": "<ids.inboxA>",
      "name": "Planner",
-     "address": "planner@agency.example"
+     "address": "planner@agency.example",
+     "handled_by_me": true,
+     "primary_handler": {
+      "kind": "member",
+      "id": "<ids.planner>",
+      "member_id": "<ids.planner>",
+      "name": "Planner P."
+     },
+     "default_assignee": null,
+     "default_assignee_ids": [],
+     "default_project_id": null,
+     "decision_recipient": null
     },
     "thread_id": "<thread:Planner/fw-desk@agency.example>",
     "conversation_id": "<thread:Planner/fw-desk@agency.example>",
@@ -9954,7 +10161,18 @@
     "inbox": {
      "id": "<ids.inboxA>",
      "name": "Planner",
-     "address": "planner@agency.example"
+     "address": "planner@agency.example",
+     "handled_by_me": true,
+     "primary_handler": {
+      "kind": "member",
+      "id": "<ids.planner>",
+      "member_id": "<ids.planner>",
+      "name": "Planner P."
+     },
+     "default_assignee": null,
+     "default_assignee_ids": [],
+     "default_project_id": null,
+     "decision_recipient": null
     },
     "thread_id": "<thread:Planner/fw-eml@agency.example>",
     "conversation_id": "<thread:Planner/fw-eml@agency.example>",
@@ -10154,7 +10372,18 @@
     "inbox": {
      "id": "<ids.inboxA>",
      "name": "Planner",
-     "address": "planner@agency.example"
+     "address": "planner@agency.example",
+     "handled_by_me": true,
+     "primary_handler": {
+      "kind": "member",
+      "id": "<ids.planner>",
+      "member_id": "<ids.planner>",
+      "name": "Planner P."
+     },
+     "default_assignee": null,
+     "default_assignee_ids": [],
+     "default_project_id": null,
+     "decision_recipient": null
     },
     "thread_id": "<thread:Planner/fw-far@agency.example>",
     "conversation_id": "<thread:Planner/fw-far@agency.example>",
@@ -10339,6 +10568,7 @@
      "member_id": "<ids.planner>",
      "outcome": "task",
      "urgent": false,
+     "category": null,
      "summary": "Homepage copy from Vera",
      "question_for_human": null,
      "suggested_reply": null,
@@ -10353,7 +10583,18 @@
     "inbox": {
      "id": "<ids.inboxA>",
      "name": "Planner",
-     "address": "planner@agency.example"
+     "address": "planner@agency.example",
+     "handled_by_me": true,
+     "primary_handler": {
+      "kind": "member",
+      "id": "<ids.planner>",
+      "member_id": "<ids.planner>",
+      "name": "Planner P."
+     },
+     "default_assignee": null,
+     "default_assignee_ids": [],
+     "default_project_id": null,
+     "decision_recipient": null
     },
     "thread_id": "<thread:Planner/fw-gmail@agency.example>",
     "conversation_id": "<thread:Planner/fw-gmail@agency.example>",
@@ -10466,6 +10707,7 @@
         "member_id": "<ids.planner>",
         "outcome": "task",
         "urgent": false,
+        "category": null,
         "summary": "Homepage copy from Vera",
         "question_for_human": null,
         "suggested_reply": null,
@@ -10549,7 +10791,18 @@
     "inbox": {
      "id": "<ids.inboxA>",
      "name": "Planner",
-     "address": "planner@agency.example"
+     "address": "planner@agency.example",
+     "handled_by_me": true,
+     "primary_handler": {
+      "kind": "member",
+      "id": "<ids.planner>",
+      "member_id": "<ids.planner>",
+      "name": "Planner P."
+     },
+     "default_assignee": null,
+     "default_assignee_ids": [],
+     "default_project_id": null,
+     "decision_recipient": null
     },
     "thread_id": "<thread:Planner/fw-html@agency.example>",
     "conversation_id": "<thread:Planner/fw-html@agency.example>",
@@ -10732,7 +10985,18 @@
     "inbox": {
      "id": "<ids.inboxA>",
      "name": "Planner",
-     "address": "planner@agency.example"
+     "address": "planner@agency.example",
+     "handled_by_me": true,
+     "primary_handler": {
+      "kind": "member",
+      "id": "<ids.planner>",
+      "member_id": "<ids.planner>",
+      "name": "Planner P."
+     },
+     "default_assignee": null,
+     "default_assignee_ids": [],
+     "default_project_id": null,
+     "decision_recipient": null
     },
     "thread_id": "<thread:Planner/fw-outlook@agency.example>",
     "conversation_id": "<thread:Planner/fw-outlook@agency.example>",
@@ -10914,6 +11178,7 @@
      "member_id": null,
      "outcome": "no_action",
      "urgent": false,
+     "category": "fyi",
      "summary": "Read",
      "question_for_human": null,
      "suggested_reply": null,
@@ -10928,7 +11193,18 @@
     "inbox": {
      "id": "<ids.inboxA>",
      "name": "Planner",
-     "address": "planner@agency.example"
+     "address": "planner@agency.example",
+     "handled_by_me": true,
+     "primary_handler": {
+      "kind": "member",
+      "id": "<ids.planner>",
+      "member_id": "<ids.planner>",
+      "name": "Planner P."
+     },
+     "default_assignee": null,
+     "default_assignee_ids": [],
+     "default_project_id": null,
+     "decision_recipient": null
     },
     "thread_id": "<thread:Planner/fw-prospect@agency.example>",
     "conversation_id": "<thread:Planner/fw-prospect@agency.example>",
@@ -11013,6 +11289,7 @@
         "member_id": null,
         "outcome": "no_action",
         "urgent": false,
+        "category": "fyi",
         "summary": "Read",
         "question_for_human": null,
         "suggested_reply": null,
@@ -11082,6 +11359,7 @@
         "member_id": null,
         "outcome": "no_action",
         "urgent": false,
+        "category": "fyi",
         "summary": "Read",
         "question_for_human": null,
         "suggested_reply": null,
@@ -11159,7 +11437,18 @@
     "inbox": {
      "id": "<ids.inboxA>",
      "name": "Planner",
-     "address": "planner@agency.example"
+     "address": "planner@agency.example",
+     "handled_by_me": true,
+     "primary_handler": {
+      "kind": "member",
+      "id": "<ids.planner>",
+      "member_id": "<ids.planner>",
+      "name": "Planner P."
+     },
+     "default_assignee": null,
+     "default_assignee_ids": [],
+     "default_project_id": null,
+     "decision_recipient": null
     },
     "thread_id": "<thread:Planner/fw-suspended@agency.example>",
     "conversation_id": "<thread:Planner/fw-suspended@agency.example>",
@@ -11306,7 +11595,18 @@
     "inbox": {
      "id": "<ids.inboxA>",
      "name": "Planner",
-     "address": "planner@agency.example"
+     "address": "planner@agency.example",
+     "handled_by_me": true,
+     "primary_handler": {
+      "kind": "member",
+      "id": "<ids.planner>",
+      "member_id": "<ids.planner>",
+      "name": "Planner P."
+     },
+     "default_assignee": null,
+     "default_assignee_ids": [],
+     "default_project_id": null,
+     "decision_recipient": null
     },
     "thread_id": "<thread:Planner/fw-unknown@agency.example>",
     "conversation_id": "<thread:Planner/fw-unknown@agency.example>",
@@ -11474,7 +11774,18 @@
     "inbox": {
      "id": "<ids.inboxA>",
      "name": "Planner",
-     "address": "planner@agency.example"
+     "address": "planner@agency.example",
+     "handled_by_me": true,
+     "primary_handler": {
+      "kind": "member",
+      "id": "<ids.planner>",
+      "member_id": "<ids.planner>",
+      "name": "Planner P."
+     },
+     "default_assignee": null,
+     "default_assignee_ids": [],
+     "default_project_id": null,
+     "decision_recipient": null
     },
     "thread_id": "<thread:Planner/fw-unverified@agency.example>",
     "conversation_id": "<thread:Planner/fw-unverified@agency.example>",
@@ -11614,6 +11925,7 @@
      "member_id": "<ids.planner>",
      "outcome": "needs_human",
      "urgent": true,
+     "category": null,
      "summary": "Site down for Acme",
      "question_for_human": "Restart the server?",
      "suggested_reply": null,
@@ -11628,7 +11940,18 @@
     "inbox": {
      "id": "<ids.inboxA>",
      "name": "Planner",
-     "address": "planner@agency.example"
+     "address": "planner@agency.example",
+     "handled_by_me": true,
+     "primary_handler": {
+      "kind": "member",
+      "id": "<ids.planner>",
+      "member_id": "<ids.planner>",
+      "name": "Planner P."
+     },
+     "default_assignee": null,
+     "default_assignee_ids": [],
+     "default_project_id": null,
+     "decision_recipient": null
     },
     "thread_id": "<thread:Planner/fwd-3@agency.example>",
     "conversation_id": "<thread:Planner/fwd-3@agency.example>",
@@ -11705,6 +12028,7 @@
         "member_id": "<ids.planner>",
         "outcome": "needs_human",
         "urgent": true,
+        "category": null,
         "summary": "Site down for Acme",
         "question_for_human": "Restart the server?",
         "suggested_reply": null,
@@ -11784,6 +12108,7 @@
      "member_id": "<ids.planner>",
      "outcome": "task",
      "urgent": false,
+     "category": null,
      "summary": "Probably Vera Studio",
      "question_for_human": null,
      "suggested_reply": null,
@@ -11800,7 +12125,18 @@
     "inbox": {
      "id": "<ids.inboxA>",
      "name": "Planner",
-     "address": "planner@agency.example"
+     "address": "planner@agency.example",
+     "handled_by_me": true,
+     "primary_handler": {
+      "kind": "member",
+      "id": "<ids.planner>",
+      "member_id": "<ids.planner>",
+      "name": "Planner P."
+     },
+     "default_assignee": null,
+     "default_assignee_ids": [],
+     "default_project_id": null,
+     "decision_recipient": null
     },
     "thread_id": "<thread:Planner/guess@agency.example>",
     "conversation_id": "<thread:Planner/guess@agency.example>",
@@ -11901,6 +12237,7 @@
         "member_id": "<ids.planner>",
         "outcome": "task",
         "urgent": false,
+        "category": null,
         "summary": "Probably Vera Studio",
         "question_for_human": null,
         "suggested_reply": null,
@@ -11979,6 +12316,7 @@
      "member_id": "<ids.planner>",
      "outcome": "needs_reply",
      "urgent": false,
+     "category": null,
      "summary": "Update header and footer",
      "question_for_human": null,
      "suggested_reply": "Thanks Carla, on it.",
@@ -11993,7 +12331,18 @@
     "inbox": {
      "id": "<ids.inboxA>",
      "name": "Planner",
-     "address": "planner@agency.example"
+     "address": "planner@agency.example",
+     "handled_by_me": true,
+     "primary_handler": {
+      "kind": "member",
+      "id": "<ids.planner>",
+      "member_id": "<ids.planner>",
+      "name": "Planner P."
+     },
+     "default_assignee": null,
+     "default_assignee_ids": [],
+     "default_project_id": null,
+     "decision_recipient": null
     },
     "thread_id": "<thread:Planner/html-only-4@mail.gmail.com>",
     "conversation_id": "<thread:Planner/html-only-4@mail.gmail.com>",
@@ -12085,6 +12434,7 @@
         "member_id": "<ids.planner>",
         "outcome": "needs_reply",
         "urgent": false,
+        "category": null,
         "summary": "Update header and footer",
         "question_for_human": null,
         "suggested_reply": "Thanks Carla, on it.",
@@ -12162,7 +12512,18 @@
     "inbox": {
      "id": "<ids.inboxA>",
      "name": "Planner",
-     "address": "planner@agency.example"
+     "address": "planner@agency.example",
+     "handled_by_me": true,
+     "primary_handler": {
+      "kind": "member",
+      "id": "<ids.planner>",
+      "member_id": "<ids.planner>",
+      "name": "Planner P."
+     },
+     "default_assignee": null,
+     "default_assignee_ids": [],
+     "default_project_id": null,
+     "decision_recipient": null
     },
     "thread_id": "<thread:Planner/newsletter-6@acme-supplies.example>",
     "conversation_id": "<thread:Planner/newsletter-6@acme-supplies.example>",
@@ -12443,7 +12804,18 @@
     "inbox": {
      "id": "<ids.inboxA>",
      "name": "Planner",
-     "address": "planner@agency.example"
+     "address": "planner@agency.example",
+     "handled_by_me": true,
+     "primary_handler": {
+      "kind": "member",
+      "id": "<ids.planner>",
+      "member_id": "<ids.planner>",
+      "name": "Planner P."
+     },
+     "default_assignee": null,
+     "default_assignee_ids": [],
+     "default_project_id": null,
+     "decision_recipient": null
     },
     "thread_id": "<thread:Planner/newsletter-6@acme-supplies.example>",
     "conversation_id": "<thread:Planner/newsletter-6@acme-supplies.example>",
@@ -12790,7 +13162,18 @@
     "inbox": {
      "id": "<ids.inboxA>",
      "name": "Planner",
-     "address": "planner@agency.example"
+     "address": "planner@agency.example",
+     "handled_by_me": true,
+     "primary_handler": {
+      "kind": "member",
+      "id": "<ids.planner>",
+      "member_id": "<ids.planner>",
+      "name": "Planner P."
+     },
+     "default_assignee": null,
+     "default_assignee_ids": [],
+     "default_project_id": null,
+     "decision_recipient": null
     },
     "thread_id": "<thread:Planner/attach-8-again@acme-roofing.example>",
     "conversation_id": "<thread:Planner/attach-8-again@acme-roofing.example>",
@@ -13487,7 +13870,18 @@
     "inbox": {
      "id": "<ids.inboxA>",
      "name": "Planner",
-     "address": "planner@agency.example"
+     "address": "planner@agency.example",
+     "handled_by_me": true,
+     "primary_handler": {
+      "kind": "member",
+      "id": "<ids.planner>",
+      "member_id": "<ids.planner>",
+      "name": "Planner P."
+     },
+     "default_assignee": null,
+     "default_assignee_ids": [],
+     "default_project_id": null,
+     "decision_recipient": null
     },
     "thread_id": "<thread:Planner/ooo-5@acme-roofing.example>",
     "conversation_id": "<thread:Planner/ooo-5@acme-roofing.example>",
@@ -13661,6 +14055,7 @@
      "member_id": "<ids.planner>",
      "outcome": "no_action",
      "urgent": false,
+     "category": null,
      "summary": "Thanks for the update",
      "question_for_human": null,
      "suggested_reply": null,
@@ -13675,7 +14070,18 @@
     "inbox": {
      "id": "<ids.inboxA>",
      "name": "Planner",
-     "address": "planner@agency.example"
+     "address": "planner@agency.example",
+     "handled_by_me": true,
+     "primary_handler": {
+      "kind": "member",
+      "id": "<ids.planner>",
+      "member_id": "<ids.planner>",
+      "name": "Planner P."
+     },
+     "default_assignee": null,
+     "default_assignee_ids": [],
+     "default_project_id": null,
+     "decision_recipient": null
     },
     "thread_id": "<thread:Planner/CAF2xGmail-reply-1@mail.gmail.com>",
     "conversation_id": "<thread:Planner/CAF2xGmail-reply-1@mail.gmail.com>",
@@ -13789,6 +14195,7 @@
         "member_id": "<ids.planner>",
         "outcome": "no_action",
         "urgent": false,
+        "category": null,
         "summary": "Dana thanked us for the finished footer.",
         "question_for_human": null,
         "suggested_reply": null,
@@ -13911,6 +14318,7 @@
         "member_id": "<ids.planner>",
         "outcome": "no_action",
         "urgent": false,
+        "category": null,
         "summary": "Race",
         "question_for_human": null,
         "suggested_reply": null,
@@ -14048,6 +14456,7 @@
         "member_id": "<ids.planner>",
         "outcome": "no_action",
         "urgent": false,
+        "category": null,
         "summary": "Thanks for the update",
         "question_for_human": null,
         "suggested_reply": null,
@@ -14341,7 +14750,18 @@
     "inbox": {
      "id": "<ids.inboxA>",
      "name": "Planner",
-     "address": "planner@agency.example"
+     "address": "planner@agency.example",
+     "handled_by_me": true,
+     "primary_handler": {
+      "kind": "member",
+      "id": "<ids.planner>",
+      "member_id": "<ids.planner>",
+      "name": "Planner P."
+     },
+     "default_assignee": null,
+     "default_assignee_ids": [],
+     "default_project_id": null,
+     "decision_recipient": null
     },
     "thread_id": "<thread:Planner/oversized-10@birchpartners.example>",
     "conversation_id": "<thread:Planner/oversized-10@birchpartners.example>",
@@ -14649,7 +15069,18 @@
     "inbox": {
      "id": "<ids.inboxA>",
      "name": "Planner",
-     "address": "planner@agency.example"
+     "address": "planner@agency.example",
+     "handled_by_me": true,
+     "primary_handler": {
+      "kind": "member",
+      "id": "<ids.planner>",
+      "member_id": "<ids.planner>",
+      "name": "Planner P."
+     },
+     "default_assignee": null,
+     "default_assignee_ids": [],
+     "default_project_id": null,
+     "decision_recipient": null
     },
     "thread_id": "<thread:Planner/oversized-10@birchpartners.example>",
     "conversation_id": "<thread:Planner/oversized-10@birchpartners.example>",
@@ -14930,7 +15361,18 @@
     "inbox": {
      "id": "<ids.inboxA>",
      "name": "Planner",
-     "address": "planner@agency.example"
+     "address": "planner@agency.example",
+     "handled_by_me": true,
+     "primary_handler": {
+      "kind": "member",
+      "id": "<ids.planner>",
+      "member_id": "<ids.planner>",
+      "name": "Planner P."
+     },
+     "default_assignee": null,
+     "default_assignee_ids": [],
+     "default_project_id": null,
+     "decision_recipient": null
     },
     "thread_id": "<thread:Planner/own-domain@acme-roofing.example>",
     "conversation_id": "<thread:Planner/own-domain@acme-roofing.example>",
@@ -15099,7 +15541,18 @@
     "inbox": {
      "id": "<ids.inboxA>",
      "name": "Planner",
-     "address": "planner@agency.example"
+     "address": "planner@agency.example",
+     "handled_by_me": true,
+     "primary_handler": {
+      "kind": "member",
+      "id": "<ids.planner>",
+      "member_id": "<ids.planner>",
+      "name": "Planner P."
+     },
+     "default_assignee": null,
+     "default_assignee_ids": [],
+     "default_project_id": null,
+     "decision_recipient": null
     },
     "thread_id": "<thread:Planner/pa-cross@oldco.example>",
     "conversation_id": "<thread:Planner/pa-cross@oldco.example>",
@@ -15268,6 +15721,7 @@
      "member_id": "<ids.planner>",
      "outcome": "no_action",
      "urgent": false,
+     "category": null,
      "summary": "Kickoff notes",
      "question_for_human": null,
      "suggested_reply": null,
@@ -15284,7 +15738,18 @@
     "inbox": {
      "id": "<ids.inboxA>",
      "name": "Planner",
-     "address": "planner@agency.example"
+     "address": "planner@agency.example",
+     "handled_by_me": true,
+     "primary_handler": {
+      "kind": "member",
+      "id": "<ids.planner>",
+      "member_id": "<ids.planner>",
+      "name": "Planner P."
+     },
+     "default_assignee": null,
+     "default_assignee_ids": [],
+     "default_project_id": null,
+     "decision_recipient": null
     },
     "thread_id": "<thread:Planner/pa-new@acme-roofing.example>",
     "conversation_id": "<thread:Planner/pa-new@acme-roofing.example>",
@@ -15429,6 +15894,7 @@
         "member_id": "<ids.planner>",
         "outcome": "no_action",
         "urgent": false,
+        "category": null,
         "summary": "Kickoff notes",
         "question_for_human": null,
         "suggested_reply": null,
@@ -15508,7 +15974,18 @@
     "inbox": {
      "id": "<ids.inboxA>",
      "name": "Planner",
-     "address": "planner@agency.example"
+     "address": "planner@agency.example",
+     "handled_by_me": true,
+     "primary_handler": {
+      "kind": "member",
+      "id": "<ids.planner>",
+      "member_id": "<ids.planner>",
+      "name": "Planner P."
+     },
+     "default_assignee": null,
+     "default_assignee_ids": [],
+     "default_project_id": null,
+     "decision_recipient": null
     },
     "thread_id": "<thread:Planner/newsletter-6@acme-supplies.example>",
     "conversation_id": "<thread:Planner/newsletter-6@acme-supplies.example>",
@@ -15790,7 +16267,18 @@
     "inbox": {
      "id": "<ids.inboxA>",
      "name": "Planner",
-     "address": "planner@agency.example"
+     "address": "planner@agency.example",
+     "handled_by_me": true,
+     "primary_handler": {
+      "kind": "member",
+      "id": "<ids.planner>",
+      "member_id": "<ids.planner>",
+      "name": "Planner P."
+     },
+     "default_assignee": null,
+     "default_assignee_ids": [],
+     "default_project_id": null,
+     "decision_recipient": null
     },
     "thread_id": "<thread:Planner/CAF2xGmail-reply-1@mail.gmail.com>",
     "conversation_id": "<thread:Planner/CAF2xGmail-reply-1@mail.gmail.com>",
@@ -15926,6 +16414,7 @@
         "member_id": "<ids.planner>",
         "outcome": "no_action",
         "urgent": false,
+        "category": null,
         "summary": "Dana thanked us for the finished footer.",
         "question_for_human": null,
         "suggested_reply": null,
@@ -16048,6 +16537,7 @@
         "member_id": "<ids.planner>",
         "outcome": "no_action",
         "urgent": false,
+        "category": null,
         "summary": "Race",
         "question_for_human": null,
         "suggested_reply": null,
@@ -16185,6 +16675,7 @@
         "member_id": "<ids.planner>",
         "outcome": "no_action",
         "urgent": false,
+        "category": null,
         "summary": "Thanks for the update",
         "question_for_human": null,
         "suggested_reply": null,
@@ -16451,7 +16942,18 @@
     "inbox": {
      "id": "<ids.inboxA>",
      "name": "Planner",
-     "address": "planner@agency.example"
+     "address": "planner@agency.example",
+     "handled_by_me": true,
+     "primary_handler": {
+      "kind": "member",
+      "id": "<ids.planner>",
+      "member_id": "<ids.planner>",
+      "name": "Planner P."
+     },
+     "default_assignee": null,
+     "default_assignee_ids": [],
+     "default_project_id": null,
+     "decision_recipient": null
     },
     "thread_id": "<thread:Planner/pa-shelved@oldco.example>",
     "conversation_id": "<thread:Planner/pa-shelved@oldco.example>",
@@ -16612,7 +17114,18 @@
     "inbox": {
      "id": "<ids.inboxA>",
      "name": "Planner",
-     "address": "planner@agency.example"
+     "address": "planner@agency.example",
+     "handled_by_me": true,
+     "primary_handler": {
+      "kind": "member",
+      "id": "<ids.planner>",
+      "member_id": "<ids.planner>",
+      "name": "Planner P."
+     },
+     "default_assignee": null,
+     "default_assignee_ids": [],
+     "default_project_id": null,
+     "decision_recipient": null
     },
     "thread_id": "<thread:Planner/pa-two-a@oldco.example>",
     "conversation_id": "<thread:Planner/pa-two-a@oldco.example>",
@@ -16787,7 +17300,18 @@
     "inbox": {
      "id": "<ids.inboxA>",
      "name": "Planner",
-     "address": "planner@agency.example"
+     "address": "planner@agency.example",
+     "handled_by_me": true,
+     "primary_handler": {
+      "kind": "member",
+      "id": "<ids.planner>",
+      "member_id": "<ids.planner>",
+      "name": "Planner P."
+     },
+     "default_assignee": null,
+     "default_assignee_ids": [],
+     "default_project_id": null,
+     "decision_recipient": null
     },
     "thread_id": "<thread:Planner/pa-two-b@oldco.example>",
     "conversation_id": "<thread:Planner/pa-two-b@oldco.example>",
@@ -16961,6 +17485,7 @@
      "member_id": null,
      "outcome": "no_action",
      "urgent": false,
+     "category": "fyi",
      "summary": "Read",
      "question_for_human": null,
      "suggested_reply": null,
@@ -16975,7 +17500,18 @@
     "inbox": {
      "id": "<ids.inboxA>",
      "name": "Planner",
-     "address": "planner@agency.example"
+     "address": "planner@agency.example",
+     "handled_by_me": true,
+     "primary_handler": {
+      "kind": "member",
+      "id": "<ids.planner>",
+      "member_id": "<ids.planner>",
+      "name": "Planner P."
+     },
+     "default_assignee": null,
+     "default_assignee_ids": [],
+     "default_project_id": null,
+     "decision_recipient": null
     },
     "thread_id": "<thread:Planner/prospect-colleague@prospect.example>",
     "conversation_id": "<thread:Planner/prospect-colleague@prospect.example>",
@@ -17052,6 +17588,7 @@
         "member_id": null,
         "outcome": "no_action",
         "urgent": false,
+        "category": "fyi",
         "summary": "Read",
         "question_for_human": null,
         "suggested_reply": null,
@@ -17128,6 +17665,7 @@
      "member_id": null,
      "outcome": "no_action",
      "urgent": false,
+     "category": "fyi",
      "summary": "Read",
      "question_for_human": null,
      "suggested_reply": null,
@@ -17142,7 +17680,18 @@
     "inbox": {
      "id": "<ids.inboxA>",
      "name": "Planner",
-     "address": "planner@agency.example"
+     "address": "planner@agency.example",
+     "handled_by_me": true,
+     "primary_handler": {
+      "kind": "member",
+      "id": "<ids.planner>",
+      "member_id": "<ids.planner>",
+      "name": "Planner P."
+     },
+     "default_assignee": null,
+     "default_assignee_ids": [],
+     "default_project_id": null,
+     "decision_recipient": null
     },
     "thread_id": "<thread:Planner/fw-prospect@agency.example>",
     "conversation_id": "<thread:Planner/fw-prospect@agency.example>",
@@ -17225,6 +17774,7 @@
         "member_id": null,
         "outcome": "no_action",
         "urgent": false,
+        "category": "fyi",
         "summary": "Read",
         "question_for_human": null,
         "suggested_reply": null,
@@ -17294,6 +17844,7 @@
         "member_id": null,
         "outcome": "no_action",
         "urgent": false,
+        "category": "fyi",
         "summary": "Read",
         "question_for_human": null,
         "suggested_reply": null,
@@ -17376,7 +17927,18 @@
     "inbox": {
      "id": "<ids.inboxA>",
      "name": "Planner",
-     "address": "planner@agency.example"
+     "address": "planner@agency.example",
+     "handled_by_me": true,
+     "primary_handler": {
+      "kind": "member",
+      "id": "<ids.planner>",
+      "member_id": "<ids.planner>",
+      "name": "Planner P."
+     },
+     "default_assignee": null,
+     "default_assignee_ids": [],
+     "default_project_id": null,
+     "decision_recipient": null
     },
     "thread_id": "<thread:Planner/public-domain@acme-roofing.example>",
     "conversation_id": "<thread:Planner/public-domain@acme-roofing.example>",
@@ -17552,6 +18114,7 @@
      "member_id": "<ids.planner>",
      "outcome": "no_action",
      "urgent": false,
+     "category": null,
      "summary": "Decks shared, nothing needed",
      "question_for_human": null,
      "suggested_reply": null,
@@ -17566,7 +18129,18 @@
     "inbox": {
      "id": "<ids.inboxA>",
      "name": "Planner",
-     "address": "planner@agency.example"
+     "address": "planner@agency.example",
+     "handled_by_me": true,
+     "primary_handler": {
+      "kind": "member",
+      "id": "<ids.planner>",
+      "member_id": "<ids.planner>",
+      "name": "Planner P."
+     },
+     "default_assignee": null,
+     "default_assignee_ids": [],
+     "default_project_id": null,
+     "decision_recipient": null
     },
     "thread_id": "<thread:Planner/quiet@agency.example>",
     "conversation_id": "<thread:Planner/quiet@agency.example>",
@@ -17648,6 +18222,7 @@
         "member_id": "<ids.planner>",
         "outcome": "no_action",
         "urgent": false,
+        "category": null,
         "summary": "Decks shared, nothing needed",
         "question_for_human": null,
         "suggested_reply": null,
@@ -17727,6 +18302,7 @@
      "member_id": "<ids.planner>",
      "outcome": "no_action",
      "urgent": false,
+     "category": null,
      "summary": "Thanks, nothing new",
      "question_for_human": null,
      "suggested_reply": null,
@@ -17754,7 +18330,18 @@
     "inbox": {
      "id": "<ids.inboxA>",
      "name": "Planner",
-     "address": "planner@agency.example"
+     "address": "planner@agency.example",
+     "handled_by_me": true,
+     "primary_handler": {
+      "kind": "member",
+      "id": "<ids.planner>",
+      "member_id": "<ids.planner>",
+      "name": "Planner P."
+     },
+     "default_assignee": null,
+     "default_assignee_ids": [],
+     "default_project_id": null,
+     "decision_recipient": null
     },
     "thread_id": "<thread:Planner/related@agency.example>",
     "conversation_id": "<thread:Planner/related@agency.example>",
@@ -17855,6 +18442,7 @@
         "member_id": "<ids.planner>",
         "outcome": "no_action",
         "urgent": false,
+        "category": null,
         "summary": "Thanks, nothing new",
         "question_for_human": null,
         "suggested_reply": null,
@@ -17947,6 +18535,7 @@
      "member_id": "<ids.planner>",
      "outcome": "needs_reply",
      "urgent": false,
+     "category": null,
      "summary": "A reply is owed",
      "question_for_human": null,
      "suggested_reply": "Thanks.",
@@ -17961,7 +18550,18 @@
     "inbox": {
      "id": "<ids.inboxA>",
      "name": "Planner",
-     "address": "planner@agency.example"
+     "address": "planner@agency.example",
+     "handled_by_me": true,
+     "primary_handler": {
+      "kind": "member",
+      "id": "<ids.planner>",
+      "member_id": "<ids.planner>",
+      "name": "Planner P."
+     },
+     "default_assignee": null,
+     "default_assignee_ids": [],
+     "default_project_id": null,
+     "decision_recipient": null
     },
     "thread_id": "<thread:Planner/settle-1@agency.example>",
     "conversation_id": "<thread:Planner/settle-1@agency.example>",
@@ -18043,6 +18643,7 @@
         "member_id": "<ids.planner>",
         "outcome": "needs_reply",
         "urgent": false,
+        "category": null,
         "summary": "A reply is owed",
         "question_for_human": null,
         "suggested_reply": "Thanks.",
@@ -18115,6 +18716,7 @@
         "member_id": "<ids.planner>",
         "outcome": "needs_human",
         "urgent": false,
+        "category": null,
         "summary": "He replied himself",
         "question_for_human": "Which project is this for? Default: Acme Roofing.",
         "suggested_reply": null,
@@ -18201,6 +18803,7 @@
      "member_id": "<ids.planner>",
      "outcome": "needs_human",
      "urgent": false,
+     "category": null,
      "summary": "He replied himself",
      "question_for_human": "Which project is this for? Default: Acme Roofing.",
      "suggested_reply": null,
@@ -18222,7 +18825,18 @@
     "inbox": {
      "id": "<ids.inboxA>",
      "name": "Planner",
-     "address": "planner@agency.example"
+     "address": "planner@agency.example",
+     "handled_by_me": true,
+     "primary_handler": {
+      "kind": "member",
+      "id": "<ids.planner>",
+      "member_id": "<ids.planner>",
+      "name": "Planner P."
+     },
+     "default_assignee": null,
+     "default_assignee_ids": [],
+     "default_project_id": null,
+     "decision_recipient": null
     },
     "thread_id": "<thread:Planner/settle-1@agency.example>",
     "conversation_id": "<thread:Planner/settle-1@agency.example>",
@@ -18305,6 +18919,7 @@
         "member_id": "<ids.planner>",
         "outcome": "needs_reply",
         "urgent": false,
+        "category": null,
         "summary": "A reply is owed",
         "question_for_human": null,
         "suggested_reply": "Thanks.",
@@ -18377,6 +18992,7 @@
         "member_id": "<ids.planner>",
         "outcome": "needs_human",
         "urgent": false,
+        "category": null,
         "summary": "He replied himself",
         "question_for_human": "Which project is this for? Default: Acme Roofing.",
         "suggested_reply": null,
@@ -18461,7 +19077,18 @@
     "inbox": {
      "id": "<ids.inboxA>",
      "name": "Planner",
-     "address": "planner@agency.example"
+     "address": "planner@agency.example",
+     "handled_by_me": true,
+     "primary_handler": {
+      "kind": "member",
+      "id": "<ids.planner>",
+      "member_id": "<ids.planner>",
+      "name": "Planner P."
+     },
+     "default_assignee": null,
+     "default_assignee_ids": [],
+     "default_project_id": null,
+     "decision_recipient": null
     },
     "thread_id": "<thread:Planner/stranger@unknown-co.example>",
     "conversation_id": "<thread:Planner/stranger@unknown-co.example>",
@@ -18615,6 +19242,7 @@
      "member_id": "<ids.planner>",
      "outcome": "task",
      "urgent": false,
+     "category": null,
      "summary": "The joint call is Cliff's project",
      "question_for_human": null,
      "suggested_reply": null,
@@ -18631,7 +19259,18 @@
     "inbox": {
      "id": "<ids.inboxA>",
      "name": "Planner",
-     "address": "planner@agency.example"
+     "address": "planner@agency.example",
+     "handled_by_me": true,
+     "primary_handler": {
+      "kind": "member",
+      "id": "<ids.planner>",
+      "member_id": "<ids.planner>",
+      "name": "Planner P."
+     },
+     "default_assignee": null,
+     "default_assignee_ids": [],
+     "default_project_id": null,
+     "decision_recipient": null
     },
     "thread_id": "<thread:Planner/team-cc-two@agency.example>",
     "conversation_id": "<thread:Planner/team-cc-two@agency.example>",
@@ -18764,6 +19403,7 @@
         "member_id": "<ids.planner>",
         "outcome": "task",
         "urgent": false,
+        "category": null,
         "summary": "The joint call is Cliff's project",
         "question_for_human": null,
         "suggested_reply": null,
@@ -18857,7 +19497,18 @@
     "inbox": {
      "id": "<ids.inboxA>",
      "name": "Planner",
-     "address": "planner@agency.example"
+     "address": "planner@agency.example",
+     "handled_by_me": true,
+     "primary_handler": {
+      "kind": "member",
+      "id": "<ids.planner>",
+      "member_id": "<ids.planner>",
+      "name": "Planner P."
+     },
+     "default_assignee": null,
+     "default_assignee_ids": [],
+     "default_project_id": null,
+     "decision_recipient": null
     },
     "thread_id": "<thread:Planner/team-cc@agency.example>",
     "conversation_id": "<thread:Planner/team-cc@agency.example>",
@@ -19051,7 +19702,18 @@
     "inbox": {
      "id": "<ids.inboxA>",
      "name": "Planner",
-     "address": "planner@agency.example"
+     "address": "planner@agency.example",
+     "handled_by_me": true,
+     "primary_handler": {
+      "kind": "member",
+      "id": "<ids.planner>",
+      "member_id": "<ids.planner>",
+      "name": "Planner P."
+     },
+     "default_assignee": null,
+     "default_assignee_ids": [],
+     "default_project_id": null,
+     "decision_recipient": null
     },
     "thread_id": "<thread:Planner/tt-1@agency.example>",
     "conversation_id": "<thread:Planner/tt-1@agency.example>",
@@ -19302,7 +19964,18 @@
     "inbox": {
      "id": "<ids.inboxA>",
      "name": "Planner",
-     "address": "planner@agency.example"
+     "address": "planner@agency.example",
+     "handled_by_me": true,
+     "primary_handler": {
+      "kind": "member",
+      "id": "<ids.planner>",
+      "member_id": "<ids.planner>",
+      "name": "Planner P."
+     },
+     "default_assignee": null,
+     "default_assignee_ids": [],
+     "default_project_id": null,
+     "decision_recipient": null
     },
     "thread_id": "<thread:Planner/tt-2@agency.example>",
     "conversation_id": "<thread:Planner/tt-2@agency.example>",
@@ -19488,7 +20161,18 @@
     "inbox": {
      "id": "<ids.inboxA>",
      "name": "Planner",
-     "address": "planner@agency.example"
+     "address": "planner@agency.example",
+     "handled_by_me": true,
+     "primary_handler": {
+      "kind": "member",
+      "id": "<ids.planner>",
+      "member_id": "<ids.planner>",
+      "name": "Planner P."
+     },
+     "default_assignee": null,
+     "default_assignee_ids": [],
+     "default_project_id": null,
+     "decision_recipient": null
     },
     "thread_id": "<thread:Planner/tt-1@agency.example>",
     "conversation_id": "<thread:Planner/tt-1@agency.example>",
@@ -19735,7 +20419,18 @@
     "inbox": {
      "id": "<ids.inboxA>",
      "name": "Planner",
-     "address": "planner@agency.example"
+     "address": "planner@agency.example",
+     "handled_by_me": true,
+     "primary_handler": {
+      "kind": "member",
+      "id": "<ids.planner>",
+      "member_id": "<ids.planner>",
+      "name": "Planner P."
+     },
+     "default_assignee": null,
+     "default_assignee_ids": [],
+     "default_project_id": null,
+     "decision_recipient": null
     },
     "thread_id": "<thread:Planner/CAF2xGmail-reply-1@mail.gmail.com>",
     "conversation_id": "<thread:Planner/CAF2xGmail-reply-1@mail.gmail.com>",
@@ -19849,6 +20544,7 @@
         "member_id": "<ids.planner>",
         "outcome": "no_action",
         "urgent": false,
+        "category": null,
         "summary": "Dana thanked us for the finished footer.",
         "question_for_human": null,
         "suggested_reply": null,
@@ -19971,6 +20667,7 @@
         "member_id": "<ids.planner>",
         "outcome": "no_action",
         "urgent": false,
+        "category": null,
         "summary": "Race",
         "question_for_human": null,
         "suggested_reply": null,
@@ -20108,6 +20805,7 @@
         "member_id": "<ids.planner>",
         "outcome": "no_action",
         "urgent": false,
+        "category": null,
         "summary": "Thanks for the update",
         "question_for_human": null,
         "suggested_reply": null,
@@ -20379,7 +21077,18 @@
     "inbox": {
      "id": "<ids.inboxA>",
      "name": "Planner",
-     "address": "planner@agency.example"
+     "address": "planner@agency.example",
+     "handled_by_me": true,
+     "primary_handler": {
+      "kind": "member",
+      "id": "<ids.planner>",
+      "member_id": "<ids.planner>",
+      "name": "Planner P."
+     },
+     "default_assignee": null,
+     "default_assignee_ids": [],
+     "default_project_id": null,
+     "decision_recipient": null
     },
     "thread_id": "<thread:Planner/unlisted@acme-roofing.example>",
     "conversation_id": "<thread:Planner/unlisted@acme-roofing.example>",
@@ -20559,7 +21268,18 @@
     "inbox": {
      "id": "<ids.inboxA>",
      "name": "Planner",
-     "address": "planner@agency.example"
+     "address": "planner@agency.example",
+     "handled_by_me": true,
+     "primary_handler": {
+      "kind": "member",
+      "id": "<ids.planner>",
+      "member_id": "<ids.planner>",
+      "name": "Planner P."
+     },
+     "default_assignee": null,
+     "default_assignee_ids": [],
+     "default_project_id": null,
+     "decision_recipient": null
     },
     "thread_id": "<thread:Planner/CAF2xGmail-reply-1@mail.gmail.com>",
     "conversation_id": "<thread:Planner/CAF2xGmail-reply-1@mail.gmail.com>",
@@ -20673,6 +21393,7 @@
         "member_id": "<ids.planner>",
         "outcome": "no_action",
         "urgent": false,
+        "category": null,
         "summary": "Dana thanked us for the finished footer.",
         "question_for_human": null,
         "suggested_reply": null,
@@ -20795,6 +21516,7 @@
         "member_id": "<ids.planner>",
         "outcome": "no_action",
         "urgent": false,
+        "category": null,
         "summary": "Race",
         "question_for_human": null,
         "suggested_reply": null,
@@ -20932,6 +21654,7 @@
         "member_id": "<ids.planner>",
         "outcome": "no_action",
         "urgent": false,
+        "category": null,
         "summary": "Thanks for the update",
         "question_for_human": null,
         "suggested_reply": null,
@@ -21198,7 +21921,18 @@
     "inbox": {
      "id": "<ids.inboxA>",
      "name": "Planner",
-     "address": "planner@agency.example"
+     "address": "planner@agency.example",
+     "handled_by_me": true,
+     "primary_handler": {
+      "kind": "member",
+      "id": "<ids.planner>",
+      "member_id": "<ids.planner>",
+      "name": "Planner P."
+     },
+     "default_assignee": null,
+     "default_assignee_ids": [],
+     "default_project_id": null,
+     "decision_recipient": null
     },
     "thread_id": "<thread:Planner/usage-50@tool.example>",
     "conversation_id": "<thread:Planner/usage-50@tool.example>",
@@ -21339,7 +22073,18 @@
     "inbox": {
      "id": "<ids.inboxA>",
      "name": "Planner",
-     "address": "planner@agency.example"
+     "address": "planner@agency.example",
+     "handled_by_me": true,
+     "primary_handler": {
+      "kind": "member",
+      "id": "<ids.planner>",
+      "member_id": "<ids.planner>",
+      "name": "Planner P."
+     },
+     "default_assignee": null,
+     "default_assignee_ids": [],
+     "default_project_id": null,
+     "decision_recipient": null
     },
     "thread_id": "<thread:Planner/usage-75@tool.example>",
     "conversation_id": "<thread:Planner/usage-75@tool.example>",
@@ -21479,6 +22224,7 @@
      "member_id": "<ids.planner>",
      "outcome": "no_action",
      "urgent": false,
+     "category": null,
      "summary": "Usage alert at 90%",
      "question_for_human": null,
      "suggested_reply": null,
@@ -21493,7 +22239,18 @@
     "inbox": {
      "id": "<ids.inboxA>",
      "name": "Planner",
-     "address": "planner@agency.example"
+     "address": "planner@agency.example",
+     "handled_by_me": true,
+     "primary_handler": {
+      "kind": "member",
+      "id": "<ids.planner>",
+      "member_id": "<ids.planner>",
+      "name": "Planner P."
+     },
+     "default_assignee": null,
+     "default_assignee_ids": [],
+     "default_project_id": null,
+     "decision_recipient": null
     },
     "thread_id": "<thread:Planner/usage-90@tool.example>",
     "conversation_id": "<thread:Planner/usage-90@tool.example>",
@@ -21570,6 +22327,7 @@
         "member_id": "<ids.planner>",
         "outcome": "no_action",
         "urgent": false,
+        "category": null,
         "summary": "Usage alert at 90%",
         "question_for_human": null,
         "suggested_reply": null,
@@ -21647,7 +22405,18 @@
     "inbox": {
      "id": "<ids.inboxA>",
      "name": "Planner",
-     "address": "planner@agency.example"
+     "address": "planner@agency.example",
+     "handled_by_me": true,
+     "primary_handler": {
+      "kind": "member",
+      "id": "<ids.planner>",
+      "member_id": "<ids.planner>",
+      "name": "Planner P."
+     },
+     "default_assignee": null,
+     "default_assignee_ids": [],
+     "default_project_id": null,
+     "decision_recipient": null
     },
     "thread_id": "<thread:Planner/verify-10@agency.example>",
     "conversation_id": "<thread:Planner/verify-10@agency.example>",
@@ -21788,7 +22557,18 @@
     "inbox": {
      "id": "<ids.inboxA>",
      "name": "Planner",
-     "address": "planner@agency.example"
+     "address": "planner@agency.example",
+     "handled_by_me": true,
+     "primary_handler": {
+      "kind": "member",
+      "id": "<ids.planner>",
+      "member_id": "<ids.planner>",
+      "name": "Planner P."
+     },
+     "default_assignee": null,
+     "default_assignee_ids": [],
+     "default_project_id": null,
+     "decision_recipient": null
     },
     "thread_id": "<thread:Planner/your-address@acme-roofing.example>",
     "conversation_id": "<thread:Planner/your-address@acme-roofing.example>",

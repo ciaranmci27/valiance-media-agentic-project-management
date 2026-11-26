@@ -2,7 +2,7 @@ import { insertAuditRows } from './audit';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { isModuleEnabled, type AccessContext } from '@/lib/access-control';
 import {
-  assistantLabel, assistantState, preferencesToContext, readSwitches, readTone, ASSISTANT_DEFAULT_LABEL, BROKEN_WORDS, DEFAULT_PREFERENCES, SWITCH_WORDS,
+  assistantLabel, assistantState, assistantStateSince, preferencesToContext, readSwitches, readTone, ASSISTANT_DEFAULT_LABEL, BROKEN_WORDS, DEFAULT_PREFERENCES, HOST_DOWN_WORDS, SWITCH_WORDS,
   type AssistantActivity, type AssistantActivityItem, type AssistantPreferences, type AssistantState, type AssistantStatus, type AssistantStatusRow, type AssistantSwitch,
   type AssistantUndo, type BrokenReason, type ChatConnectionCard, type MyAssistantView, type UpdateMyAssistant,
 } from '@/lib/assistant';
@@ -90,7 +90,7 @@ export async function updateAssistantSettings(service: SupabaseClient, access: A
 
 // ── A person's assistant ────────────────────────────────────────────────
 
-const AGENT_COLUMNS = 'id, name, status, suspended_by, delegate_of, delegate_paused_at, assistant_template, created_at';
+const AGENT_COLUMNS = 'id, name, status, suspended_by, suspended_at, delegate_of, delegate_paused_at, assistant_template, created_at';
 
 /** The person's assistant: their personal agent (the personal-assistant one first, then the oldest), or null. */
 export async function findPersonalAgent(service: SupabaseClient, personId: string): Promise<Row | null> {
@@ -115,17 +115,19 @@ export async function readPreferences(service: SupabaseClient, agentId: string):
   return { tone: readTone(row.tone), personality: row.personality ?? null, avatar_tone: row.avatar_tone ?? null, switches: readSwitches(row.switches) };
 }
 
-/** How many live, unexpired keys each agent holds. */
-async function liveKeyCounts(service: SupabaseClient, agentIds: string[]): Promise<Map<string, number>> {
-  const counts = new Map<string, number>();
-  if (agentIds.length === 0) return counts;
-  const keys = await readAll<Row>((from, to) => service.from('api_keys').select('id, team_member_id, expires_at').in('team_member_id', agentIds)
-    .is('revoked_at', null).order('id').range(from, to));
+/** How many live, unexpired keys each agent holds, and when its newest key (revoked or not) was made. */
+async function keysOf(service: SupabaseClient, agentIds: string[]): Promise<Map<string, { live: number; lastAt: string | null }>> {
+  const out = new Map<string, { live: number; lastAt: string | null }>();
+  if (agentIds.length === 0) return out;
+  const keys = await readAll<Row>((from, to) => service.from('api_keys').select('id, team_member_id, expires_at, revoked_at, created_at').in('team_member_id', agentIds)
+    .order('id').range(from, to));
   for (const key of keys) {
-    if (key.expires_at && new Date(key.expires_at).getTime() <= Date.now()) continue;
-    counts.set(key.team_member_id, (counts.get(key.team_member_id) ?? 0) + 1);
+    const entry = out.get(key.team_member_id) ?? { live: 0, lastAt: null };
+    if (key.created_at && (!entry.lastAt || key.created_at > entry.lastAt)) entry.lastAt = key.created_at;
+    if (!key.revoked_at && !(key.expires_at && new Date(key.expires_at).getTime() <= Date.now())) entry.live++;
+    out.set(key.team_member_id, entry);
   }
-  return counts;
+  return out;
 }
 
 async function healthOf(service: SupabaseClient, agentIds: string[]): Promise<Map<string, { reportedAt: string; intervalSeconds: number }>> {
@@ -159,19 +161,39 @@ async function pausesOf(service: SupabaseClient, agentIds: string[]): Promise<{ 
   return { workspace, agents };
 }
 
-export async function statesOf(service: SupabaseClient, agents: Row[]): Promise<Map<string, AssistantStatus>> {
+/**
+ * Each agent's state (lib/assistant.ts decides it), with when that spell
+ * began: the one read every caller uses (My Assistant, Status, chat).
+ */
+export async function statesOf(service: SupabaseClient, agents: Row[]): Promise<Map<string, AssistantStatus & { since: string | null }>> {
   const ids = agents.map((agent) => agent.id as string);
-  const [keys, health, pauses] = await Promise.all([liveKeyCounts(service, ids), healthOf(service, ids), pausesOf(service, ids)]);
-  return new Map(agents.map((agent) => [agent.id as string, assistantState({
-    status: agent.status ?? 'active',
-    suspendedBy: agent.suspended_by ?? null,
-    personId: agent.delegate_of,
-    liveKeys: keys.get(agent.id) ?? 0,
-    createdAt: agent.created_at,
-    health: health.get(agent.id) ?? null,
-    workspacePausedAt: pauses.workspace,
-    agentPausedAt: pauses.agents.get(agent.id) ?? null,
-  })]));
+  const [keys, health, pauses] = await Promise.all([keysOf(service, ids), healthOf(service, ids), pausesOf(service, ids)]);
+  return new Map(agents.map((agent) => {
+    const input = {
+      status: agent.status ?? 'active',
+      suspendedBy: agent.suspended_by ?? null,
+      suspendedAt: agent.suspended_at ?? null,
+      personId: agent.delegate_of,
+      liveKeys: keys.get(agent.id)?.live ?? 0,
+      lastKeyAt: keys.get(agent.id)?.lastAt ?? null,
+      createdAt: agent.created_at,
+      health: health.get(agent.id) ?? null,
+      workspacePausedAt: pauses.workspace,
+      agentPausedAt: pauses.agents.get(agent.id) ?? null,
+    };
+    const status = assistantState(input);
+    return [agent.id as string, { ...status, since: assistantStateSince(input, status) }];
+  }));
+}
+
+/** What the admins hear about: a broken assistant, or one on hold whose host stopped reporting. */
+export type AssistantAlert = BrokenReason | 'host_down';
+
+/** The alert a state raises, or null when it needs nobody (working, paused by its person, on hold with a live host). */
+export function alertOf(status: AssistantStatus): AssistantAlert | null {
+  if (status.state === 'broken') return status.reason;
+  if (status.state === 'on_hold' && status.hostDown) return 'host_down';
+  return null;
 }
 
 /** Who hears that an assistant is broken: its owners other than its person, else the workspace Owners. */
@@ -186,8 +208,12 @@ export async function assistantAdmins(service: SupabaseClient, agentId: string, 
   return ((data ?? []) as Row[]).filter((row) => row.role !== 'agent' && (row.status ?? 'active') === 'active' && row.id !== personId).map((row) => row.id as string);
 }
 
-/** Once a day per admin per assistant: the bell says whose assistant is paused and why. Never fails the caller. */
-export async function notifyAssistantBroken(service: SupabaseClient, agent: { id: string; name: string }, person: { id: string; name: string }, reason: BrokenReason): Promise<number> {
+/**
+ * Once a day per admin per assistant: the bell says whose assistant is
+ * paused and why, or that it is on hold with its host not responding. Never
+ * fails the caller.
+ */
+export async function notifyAssistantBroken(service: SupabaseClient, agent: { id: string; name: string }, person: { id: string; name: string }, reason: AssistantAlert): Promise<number> {
   try {
     const admins = await assistantAdmins(service, agent.id, person.id);
     if (admins.length === 0) return 0;
@@ -197,8 +223,9 @@ export async function notifyAssistantBroken(service: SupabaseClient, agent: { id
     const told = new Set(((recent ?? []) as Row[]).map((row) => row.user_id as string));
     const rows = admins.filter((id) => !told.has(id)).map((id) => ({
       user_id: id,
-      title: `${person.name}'s assistant is paused`,
-      message: `${BROKEN_WORDS[reason]} ${person.name} sees that it is paused and that you were told.`,
+      ...(reason === 'host_down'
+        ? { title: `${person.name}'s assistant is on hold, its host is not responding`, message: `${HOST_DOWN_WORDS} ${person.name} sees that too.` }
+        : { title: `${person.name}'s assistant is paused`, message: `${BROKEN_WORDS[reason]} ${person.name} sees that it is paused and that you were told.` }),
       link: '/settings/assistants',
       entity_type: 'member',
       entity_id: agent.id,
@@ -258,11 +285,15 @@ export async function myAssistantView(service: SupabaseClient, memberId: string,
     enabledConnections(service),
     service.from('team_members').select('id, name').eq('id', memberId).maybeSingle().then(({ data }) => data as Row | null),
   ]);
-  const { state, reason } = states.get(agent.id)!;
-  if (state === 'broken' && reason) await notifyAssistantBroken(service, { id: agent.id, name: agent.name }, { id: memberId, name: person?.name ?? 'Someone' }, reason);
+  const status = states.get(agent.id)!;
+  const { state, reason } = status;
+  const alert = alertOf(status);
+  if (alert) await notifyAssistantBroken(service, { id: agent.id, name: agent.name }, { id: memberId, name: person?.name ?? 'Someone' }, alert);
   return {
     ...base,
-    assistant: { id: agent.id, name: agent.name, avatar_tone: preferences.avatar_tone, state, reason, preferences, has_personal_inbox: inboxes.length > 0 },
+    assistant: {
+      id: agent.id, name: agent.name, avatar_tone: preferences.avatar_tone, state, reason, host_down: alert === 'host_down', preferences, has_personal_inbox: inboxes.length > 0,
+    },
     connections,
   };
 }
@@ -490,15 +521,21 @@ export async function assistantStatusList(service: SupabaseClient, access: Acces
     readAll<Row>((from, to) => service.from('team_members').select('id, name').in('id', personIds).order('id').range(from, to)),
   ]);
   const names = new Map(people.map((person) => [person.id as string, person.name as string]));
+  // On hold with its host down needs someone too: right after the broken ones.
   const order: Record<AssistantState, number> = { broken: 0, getting_ready: 1, on_hold: 2, paused: 3, working: 4 };
-  return agents.map((agent) => ({
-    id: agent.id,
-    name: agent.name,
-    person: { id: agent.delegate_of, name: names.get(agent.delegate_of) ?? '' },
-    state: states.get(agent.id)!.state,
-    reason: states.get(agent.id)!.reason,
-    created_at: agent.created_at,
-  })).sort((a, b) => order[a.state] - order[b.state] || a.person.name.localeCompare(b.person.name));
+  const rank = (row: AssistantStatusRow) => (row.host_down ? 0.5 : order[row.state]);
+  return agents.map((agent): AssistantStatusRow => {
+    const status = states.get(agent.id)!;
+    return {
+      id: agent.id,
+      name: agent.name,
+      person: { id: agent.delegate_of, name: names.get(agent.delegate_of) ?? '' },
+      state: status.state,
+      reason: status.reason,
+      host_down: alertOf(status) === 'host_down',
+      created_at: agent.created_at,
+    };
+  }).sort((a, b) => rank(a) - rank(b) || a.person.name.localeCompare(b.person.name));
 }
 
 // ── The guard ───────────────────────────────────────────────────────────

@@ -1,7 +1,7 @@
 'use client';
 
-import { useState } from 'react';
-import { Link2, Loader2, Trash2 } from 'lucide-react';
+import { useState, type ReactNode } from 'react';
+import { Check, Link2, Loader2 } from 'lucide-react';
 import { SettingsSectionHeader } from '@/components/settings/SettingsSectionHeader';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Button } from '@/components/ui/Button';
@@ -19,18 +19,48 @@ const METHOD_WORDS: Record<string, string> = {
 };
 
 /**
- * Settings > Account: the chat accounts (Slack, Teams, Telegram, ...) linked
- * to this person, so a company's chat assistant knows who is asking and can
- * act for them. An account is added only by the person confirming a link the
- * assistant sends (or by an admin); here they see each one and unlink it.
- * Unlinking stops any assistant acting for them through that account.
+ * One chat account, the same row in Settings > Account and on My Assistant:
+ * the chat, the handle, Connected (or Not verified), and Unlink. `detail`
+ * adds a second line where the page shows more.
  */
-export function LinkedAccountsSection() {
-  const { isDemoMode } = useDemo();
-  const read = useRead(myIdentitiesRead(isDemoMode));
+export function ChatAccountRow({ identity, onUnlink, disabled, detail }: {
+  identity: IdentityView;
+  onUnlink: () => void;
+  disabled?: boolean;
+  detail?: ReactNode;
+}) {
+  const handle = identity.handle ?? identity.external_id;
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <div className="min-w-0 flex-1">
+        <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+          <span className="text-sm font-medium text-zinc-100">{providerLabel(identity.provider)}</span>
+          <span className="truncate text-sm text-zinc-300">{handle}</span>
+          {identity.verified ? (
+            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/[0.14] px-2 py-0.5 text-[11px] font-medium text-emerald-300">
+              <Check size={11} aria-hidden="true" />Connected
+            </span>
+          ) : (
+            <span className="rounded-full bg-amber-500/[0.14] px-2 py-0.5 text-[11px] font-medium text-amber-300">Not verified</span>
+          )}
+        </div>
+        {detail && <p className="mt-0.5 truncate text-xs text-zinc-500">{detail}</p>}
+      </div>
+      <Button variant="ghost" size="sm" onClick={onUnlink} disabled={disabled} aria-label={`Unlink ${providerLabel(identity.provider)} account ${handle}`}>
+        Unlink
+      </Button>
+    </div>
+  );
+}
+
+/**
+ * Unlinking a chat account, with its confirmation: `ask(identity)` opens it,
+ * `dialog` renders it. Unlinking stops the assistant acting for the person
+ * through that account; linking again takes the assistant's one-time link.
+ */
+export function useUnlinkChatAccount() {
   const [removing, setRemoving] = useState<IdentityView | null>(null);
   const [busy, setBusy] = useState(false);
-  const identities = read.data ?? [];
 
   const unlink = async () => {
     if (!removing) return;
@@ -47,13 +77,44 @@ export function LinkedAccountsSection() {
     }
   };
 
+  const dialog = (
+    <ConfirmDialog
+      isOpen={!!removing}
+      onClose={() => setRemoving(null)}
+      onConfirm={unlink}
+      title="Unlink this account?"
+      message={removing
+        ? `Your assistant will no longer know ${removing.handle ?? removing.external_id} on ${providerLabel(removing.provider)} is you, and cannot act for you through it. You can link it again from the assistant.`
+        : ''}
+      confirmLabel="Unlink"
+      doubleConfirm={false}
+    />
+  );
+  return { ask: setRemoving, busy, dialog };
+}
+
+/**
+ * Settings > Account: the chat accounts (Slack, Teams, Telegram, ...) linked
+ * to this person, so their assistant knows who is asking and can act for
+ * them. An account is added only by the person confirming a link the
+ * assistant sends (or by an admin); here they see each one and unlink it.
+ * Anchored at #chat-accounts (and the older #linked-accounts).
+ */
+export function LinkedAccountsSection() {
+  const { isDemoMode } = useDemo();
+  const read = useRead(myIdentitiesRead(isDemoMode));
+  const { ask, busy, dialog } = useUnlinkChatAccount();
+  const identities = read.data ?? [];
+
   return (
-    <section className="glass-card rounded-xl p-4 lg:p-6" aria-labelledby="linked-accounts-heading">
+    <section id="chat-accounts" className="glass-card scroll-mt-6 rounded-xl p-4 lg:p-6" aria-labelledby="linked-accounts-heading">
+      {/* The section's name before it was Chat accounts: old links still land here. */}
+      <span id="linked-accounts" className="block scroll-mt-6" aria-hidden="true" />
       <SettingsSectionHeader
         icon={Link2}
         headingId="linked-accounts-heading"
-        title="Linked accounts"
-        description="Chat accounts that are yours, so the company's assistants know who is asking and can act for you, within your access."
+        title="Chat accounts"
+        description="Chat accounts that are yours, so your assistant knows who is asking and can act for you, within your access."
       />
 
       {read.loading && !read.data ? (
@@ -62,60 +123,33 @@ export function LinkedAccountsSection() {
         </div>
       ) : read.failed && !read.data ? (
         <div role="alert" className="flex flex-wrap items-center gap-3 text-sm text-zinc-300">
-          Could not load your linked accounts.
+          Could not load your chat accounts.
           <Button variant="secondary" size="sm" onClick={read.reload}>Try again</Button>
         </div>
       ) : identities.length === 0 ? (
         <p className="rounded-lg bg-white/[0.03] px-4 py-3 text-sm text-zinc-400">
-          No accounts linked yet. When you message a company assistant from Slack, Teams or another chat, it sends you a one-time link: open it while signed in here to link that account.
+          No chat accounts yet. When you message your assistant from Slack, Teams or another chat, it sends you a one-time link: open it while signed in here to link that account.
         </p>
       ) : (
         <ul className="divide-y divide-white/[0.06] overflow-hidden rounded-lg border border-white/[0.08]">
           {identities.map((identity) => (
-            <li key={identity.id} className="flex items-center justify-between gap-3 bg-surface-raised px-3 py-2.5">
-              <div className="min-w-0 flex-1">
-                <div className="flex min-w-0 flex-wrap items-center gap-2">
-                  <span className="text-sm font-medium text-zinc-100">{providerLabel(identity.provider)}</span>
-                  <span className="truncate text-sm text-zinc-300">{identity.handle ?? identity.external_id}</span>
-                  {identity.verified ? (
-                    <span className="rounded-full bg-emerald-500/[0.14] px-2 py-0.5 text-[11px] font-medium text-emerald-200">Verified</span>
-                  ) : (
-                    <span className="rounded-full bg-amber-500/[0.14] px-2 py-0.5 text-[11px] font-medium text-amber-200">Not verified</span>
-                  )}
-                </div>
-                <p className="mt-0.5 truncate text-xs text-zinc-500">
-                  {[
-                    identity.handle ? <span key="id" className="font-mono">{identity.external_id}</span> : null,
-                    identity.workspace_id ? <span key="ws">Workspace <span className="font-mono">{identity.workspace_id}</span></span> : null,
-                    identity.verified_method ? <span key="how">{METHOD_WORDS[identity.verified_method] ?? identity.verified_method}</span> : <span key="how">Not usable until verified</span>,
-                  ].filter(Boolean).flatMap((part, index) => (index ? [<span key={`dot-${index}`} aria-hidden="true"> · </span>, part] : [part]))}
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setRemoving(identity)}
+            <li key={identity.id} className="bg-surface-raised px-3 py-2.5">
+              <ChatAccountRow
+                identity={identity}
+                onUnlink={() => ask(identity)}
                 disabled={isDemoMode || busy}
-                className="rounded-md p-1.5 text-zinc-500 transition-colors hover:bg-rose-500/15 hover:text-rose-400 disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-500"
-                aria-label={`Unlink ${providerLabel(identity.provider)} account ${identity.handle ?? identity.external_id}`}
-              >
-                <Trash2 size={14} aria-hidden="true" />
-              </button>
+                detail={[
+                  identity.handle ? <span key="id" className="font-mono">{identity.external_id}</span> : null,
+                  identity.workspace_id ? <span key="ws">Workspace <span className="font-mono">{identity.workspace_id}</span></span> : null,
+                  identity.verified_method ? <span key="how">{METHOD_WORDS[identity.verified_method] ?? identity.verified_method}</span> : <span key="how">Not usable until verified</span>,
+                ].filter(Boolean).flatMap((part, index) => (index ? [<span key={`dot-${index}`} aria-hidden="true"> · </span>, part] : [part]))}
+              />
             </li>
           ))}
         </ul>
       )}
 
-      <ConfirmDialog
-        isOpen={!!removing}
-        onClose={() => setRemoving(null)}
-        onConfirm={unlink}
-        title="Unlink this account?"
-        message={removing
-          ? `Assistants will no longer know ${removing.handle ?? removing.external_id} on ${providerLabel(removing.provider)} is you, and cannot act for you through it. You can link it again from the assistant.`
-          : ''}
-        confirmLabel="Unlink"
-        doubleConfirm={false}
-      />
+      {dialog}
     </section>
   );
 }

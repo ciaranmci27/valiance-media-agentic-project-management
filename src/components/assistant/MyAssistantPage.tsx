@@ -12,7 +12,7 @@ import { useDemo } from '@/lib/demo-context';
 import { useRead } from '@/lib/query-cache';
 import { myAssistantActivityRead, myAssistantRead, useOpenQuestions } from '@/lib/reads';
 import { timeAgo } from '@/lib/task-times';
-import { HOLD_WORDS, type HoldReason, type MyAssistantView } from '@/lib/assistant';
+import { HOLD_WORDS, HOST_DOWN_WORDS, type HoldReason, type MyAssistantView } from '@/lib/assistant';
 import { AssistantActivityBand } from './AssistantActivityBand';
 import { AssistantChatCard } from './AssistantChatCard';
 import { AssistantSettingsCard } from './AssistantSettingsCard';
@@ -121,7 +121,10 @@ function AssistantHome({ view, assistant, isDemo }: { view: MyAssistantView; ass
           {assistant.state === 'on_hold' && assistant.reason && (
             <div role="status" className="flex items-start gap-3 rounded-xl bg-white/[0.04] px-4 py-3">
               <PauseCircle size={16} className="mt-0.5 flex-shrink-0 text-zinc-400" aria-hidden="true" />
-              <p className="text-sm text-zinc-300">{HOLD_WORDS[assistant.reason as HoldReason].person}</p>
+              <div className="space-y-1">
+                {assistant.host_down && <p className="text-sm font-medium text-zinc-100">{HOST_DOWN_WORDS} Your admin has been told.</p>}
+                <p className="text-sm text-zinc-300">{HOLD_WORDS[assistant.reason as HoldReason].person}</p>
+              </div>
             </div>
           )}
           {assistant.state === 'getting_ready' && (

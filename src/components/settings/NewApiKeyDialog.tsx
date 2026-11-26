@@ -11,9 +11,10 @@ import { SecretOnce } from '@/components/agent/ConnectPanel';
 import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
 import { appLocale } from '@/lib/region';
-import { useRead } from '@/lib/query-cache';
-import { personalKeyLifetimeRead } from '@/lib/reads';
+import { invalidateTables, useRead } from '@/lib/query-cache';
+import { agentKeyLifetimeRead, personalKeyLifetimeRead } from '@/lib/reads';
 import { apiScopesFor } from '@/lib/access-control';
+import { newKeyFrom, workspaceApi, type NewKey } from '@/lib/agent-workspace';
 import { keyLifetimeChoices, keyLifetimeDays, keyScopeGroups } from '@/lib/developers-settings';
 
 const STEPS: readonly FlowStep[] = [
@@ -31,14 +32,25 @@ export interface NewKeyPreset {
   pasteHint?: string;
 }
 
+/** The agent a key is for (an agent profile's Connect tab). */
+export interface NewKeyAgent {
+  id: string;
+  name: string;
+}
+
 /**
  * New key, one step at a time: a name, what it can do (in plain words,
  * grouped as the Access page groups them), how long it lasts (starting on
  * the workspace's personal key lifetime), then the secret, once. Only
  * Done closes the secret step; closing forgets the secret. A preset fills
  * the name and ticks its scopes (those the person holds); both stay editable.
+ *
+ * With `agent`, the same steps make a key for that agent (POST
+ * /api/workspace/agents/{id}/keys): the agent picker's scopes, and the
+ * workspace's agent key lifetime, which the server sets and the expiry step
+ * states rather than offers.
  */
-export function NewApiKeyDialog({ isOpen, onClose, preset }: { isOpen: boolean; onClose: () => void; preset?: NewKeyPreset }) {
+export function NewApiKeyDialog({ isOpen, onClose, preset, agent }: { isOpen: boolean; onClose: () => void; preset?: NewKeyPreset; agent?: NewKeyAgent }) {
   // While a key is being made, and while its secret shows, a stray click,
   // Escape or the X leaves the dialog open: only Done closes it then.
   const [holdOpen, setHoldOpen] = useState(false);
@@ -47,17 +59,18 @@ export function NewApiKeyDialog({ isOpen, onClose, preset }: { isOpen: boolean; 
     onClose();
   };
   return (
-    <Modal isOpen={isOpen} onClose={() => { if (!holdOpen) close(); }} title="New API key" size="lg">
-      {isOpen && <NewKeyFlow onClose={close} onHoldOpen={setHoldOpen} preset={preset} />}
+    <Modal isOpen={isOpen} onClose={() => { if (!holdOpen) close(); }} title={agent ? `New key for ${agent.name}` : 'New API key'} size="lg">
+      {isOpen && <NewKeyFlow onClose={close} onHoldOpen={setHoldOpen} preset={preset} agent={agent} />}
     </Modal>
   );
 }
 
-function NewKeyFlow({ onClose, onHoldOpen, preset }: { onClose: () => void; onHoldOpen: (hold: boolean) => void; preset?: NewKeyPreset }) {
+function NewKeyFlow({ onClose, onHoldOpen, preset, agent }: { onClose: () => void; onHoldOpen: (hold: boolean) => void; preset?: NewKeyPreset; agent?: NewKeyAgent }) {
   const { addApiKey } = useApp();
   const { access } = useAuth();
   const available = useMemo(() => apiScopesFor(access), [access]);
-  const groups = useMemo(() => keyScopeGroups(available), [available]);
+  // An agent's key takes the agent picker's groups (never the scopes no agent holds).
+  const groups = useMemo(() => (agent ? undefined : keyScopeGroups(available)), [available, agent]);
   const [step, setStep] = useState(0);
   const [name, setName] = useState(preset?.name ?? '');
   const [scopes, setScopes] = useState<string[]>(() => (preset?.scopes ?? []).filter((scope) => (available as string[]).includes(scope)));
@@ -66,14 +79,21 @@ function NewKeyFlow({ onClose, onHoldOpen, preset }: { onClose: () => void; onHo
   const [secret, setSecret] = useState<string | null>(null);
   // The workspace's personal key lifetime: undefined while it loads, null for
   // no expiry (and when it cannot be read, so the choice starts on No expiry).
-  const lifetimeRead = useRead(personalKeyLifetimeRead);
-  const workspaceDays = lifetimeRead.failed ? null : lifetimeRead.data?.personal_key_lifetime_days;
+  const lifetimeRead = useRead(agent ? null : personalKeyLifetimeRead);
+  const workspaceDays = agent ? null : lifetimeRead.failed ? null : lifetimeRead.data?.personal_key_lifetime_days;
+  // An agent key lasts the workspace's agent key lifetime, which the server
+  // sets: undefined while it loads (or when it cannot be read), null for
+  // until revoked.
+  const agentLifetimeRead = useRead(agent ? agentKeyLifetimeRead : null);
+  const agentDays = agentLifetimeRead.data?.agent_key_lifetime_days;
   const [lifetime, setLifetime] = useState<string | null>(null);
   // For anyone but an Owner the workspace's lifetime is also the longest a key may last.
   const owner = access?.role === 'owner';
   const lifetimes = useMemo(() => keyLifetimeChoices(workspaceDays ?? null, (days) =>
     `on ${new Date(Date.now() + days * 86_400_000).toLocaleDateString(appLocale(), { month: 'short', day: 'numeric', year: 'numeric' })}`, { owner }), [workspaceDays, owner]);
   const chosen = lifetime ?? lifetimes.initial;
+  const lifetimeLoading = agent ? agentDays === undefined && !agentLifetimeRead.failed : workspaceDays === undefined;
+  const agentEndsOn = (days: number) => new Date(Date.now() + days * 86_400_000).toLocaleDateString(appLocale(), { month: 'short', day: 'numeric', year: 'numeric' });
 
   const next = () => {
     if (!name.trim()) return setError('Give the key a name.');
@@ -94,8 +114,21 @@ function NewKeyFlow({ onClose, onHoldOpen, preset }: { onClose: () => void; onHo
     onHoldOpen(true);
     let made: string | undefined;
     try {
-      // The store says what went wrong in a toast; the step stays for another try.
-      made = await addApiKey(name.trim(), scopes, keyLifetimeDays(chosen));
+      if (agent) {
+        // The server sets its lifetime; a refusal shows on the step for another try.
+        try {
+          const key: NewKey = newKeyFrom(await workspaceApi<{ key: NewKey }>(`/api/workspace/agents/${encodeURIComponent(agent.id)}/keys`, {
+            method: 'POST', body: { name: name.trim(), scopes },
+          }));
+          made = key.secret;
+          invalidateTables(['api_keys']);
+        } catch (failure) {
+          setError(failure instanceof Error ? failure.message : 'Could not make the key');
+        }
+      } else {
+        // The store says what went wrong in a toast; the step stays for another try.
+        made = await addApiKey(name.trim(), scopes, keyLifetimeDays(chosen));
+      }
       if (made) {
         setSecret(made);
         setStep(3);
@@ -112,13 +145,13 @@ function NewKeyFlow({ onClose, onHoldOpen, preset }: { onClose: () => void; onHo
       <Stepper steps={STEPS} current={step} reached={secret ? 3 : Math.max(step, name.trim() ? 1 : 0)} onJump={secret ? undefined : (index) => { setError(null); setStep(index); }} label="New key progress" />
 
       {step === 0 && (
-        <StepPanel stepKey="key-name" title="Name the key" description="So you know where it is used later, like Zapier or a reporting script.">
+        <StepPanel stepKey="key-name" title="Name the key" description={agent ? `So you can tell ${agent.name}'s keys apart later, like the server it runs on.` : 'So you know where it is used later, like Zapier or a reporting script.'}>
           <TextInput
             label="Name"
             value={name}
             onChange={(value) => { setName(value); if (error) setError(null); }}
             onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); next(); } }}
-            placeholder="Zapier"
+            placeholder={agent ? `${agent.name} on the server` : 'Zapier'}
             maxLength={100}
             required
             autoFocus
@@ -132,7 +165,9 @@ function NewKeyFlow({ onClose, onHoldOpen, preset }: { onClose: () => void; onHo
         <StepPanel
           stepKey="key-access"
           title="What can it do?"
-          description="Tick only what this tool needs. It acts as you, within what your Owner lets you give."
+          description={agent
+            ? `Tick only what ${agent.name} needs. A key never does more than you can.`
+            : 'Tick only what this tool needs. It acts as you, within what your Owner lets you give.'}
         >
           {available.length === 0 ? (
             <p className="rounded-lg bg-white/[0.03] px-3.5 py-3 text-sm text-zinc-300">
@@ -154,35 +189,47 @@ function NewKeyFlow({ onClose, onHoldOpen, preset }: { onClose: () => void; onHo
         <StepPanel
           stepKey="key-expiry"
           title="How long should it work?"
-          description={!owner && typeof workspaceDays === 'number'
-            ? `A key that ends on its own is safer if it leaks. Your workspace lets keys last up to ${workspaceDays === 365 ? '1 year' : `${workspaceDays} days`}; rotate one before then to keep going.`
-            : 'A key that ends on its own is safer if it leaks. You can rotate it before then to keep going.'}
+          description={agent
+            ? 'The workspace sets how long agent keys last, in Settings > Developers.'
+            : !owner && typeof workspaceDays === 'number'
+              ? `A key that ends on its own is safer if it leaks. Your workspace lets keys last up to ${workspaceDays === 365 ? '1 year' : `${workspaceDays} days`}; rotate one before then to keep going.`
+              : 'A key that ends on its own is safer if it leaks. You can rotate it before then to keep going.'}
         >
-          <RadioGroup
-            ariaLabel="Key expiry"
-            value={chosen}
-            onChange={setLifetime}
-            options={lifetimes.options}
-            disabled={creating || workspaceDays === undefined}
-          />
+          {agent ? (
+            <p className="rounded-lg bg-white/[0.03] px-3.5 py-3 text-sm text-zinc-300">
+              {agentDays === undefined
+                ? (agentLifetimeRead.failed ? 'It lasts as long as that setting says.' : 'Reading the agent key lifetime.')
+                : agentDays === null
+                  ? 'It works until it is revoked.'
+                  : `It works for ${agentDays === 365 ? '1 year' : `${agentDays} days`}, until ${agentEndsOn(agentDays)}. Make a new one before then to keep ${agent.name} connected.`}
+            </p>
+          ) : (
+            <RadioGroup
+              ariaLabel="Key expiry"
+              value={chosen}
+              onChange={setLifetime}
+              options={lifetimes.options}
+              disabled={creating || workspaceDays === undefined}
+            />
+          )}
           <StepFooter
             onBack={() => { setError(null); setStep(1); }}
             onNext={() => { void create(); }}
             nextLabel="Create key"
             busy={creating}
             busyLabel="Creating"
-            nextDisabled={scopes.length === 0 || workspaceDays === undefined}
+            nextDisabled={scopes.length === 0 || lifetimeLoading}
             error={error}
           />
         </StepPanel>
       )}
 
       {step === 3 && secret && (
-        <StepPanel stepKey="key-secret" title={`${name.trim()} is ready`} description={preset?.pasteHint ?? 'Paste the key where it is used. Tools send it in the x-api-key header.'}>
+        <StepPanel stepKey="key-secret" title={`${name.trim()} is ready`} description={preset?.pasteHint ?? (agent ? `Put it where ${agent.name} runs, then connect its host on this tab.` : 'Paste the key where it is used. Tools send it in the x-api-key header.')}>
           <SecretOnce
             secret={{ secret }}
             heading="Copy the key now. You won't see this again."
-            hint="Only its first few characters are kept. Lost it? Rotate the key from the list to get a new one."
+            hint={agent ? undefined : 'Only its first few characters are kept. Lost it? Rotate the key from the list to get a new one.'}
           />
           <div className="mt-6 flex justify-end">
             <Button onClick={onClose}>Done</Button>

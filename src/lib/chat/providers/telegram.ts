@@ -62,6 +62,9 @@ export const telegramAdapter: ChatAdapter = {
       messageId: message.message_id !== undefined ? String(message.message_id) : null,
       text,
       direct: message.chat?.type === 'private',
+      // In a group: a reply to a bot's message, or a /command. A mention of
+      // this bot's handle is checked in inbound, which knows the handle.
+      addressed: message.chat?.type === 'private' || message.reply_to_message?.from?.is_bot === true || raw.startsWith('/'),
     };
   },
 

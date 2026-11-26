@@ -16,6 +16,7 @@ import {
   callerHolds,
   canManageAgent,
   checkOwnerIds,
+  isAgentOwner,
   ownersOf,
   ownerGroupsOf,
   addOwnerGroups,
@@ -341,7 +342,8 @@ function rulesWithGroup(row: Row): AgentRules & { agent_escalate_to_group: strin
  * One agent as the viewer may see it: who it is, its rules, live health and
  * current run, its assignments on projects the viewer reaches, its owners,
  * its keys (never a secret; with api_keys.manage_all) and webhooks (with
- * webhooks.manage), and whether the viewer may manage it. Parts left out are
+ * webhooks.manage), whether the viewer may manage it and whether they own it
+ * (is_owner, in person or through a group). Parts left out are
  * named in omitted.
  */
 export async function agentDetail(service: SupabaseClient, viewer: AgentCaller, agentId: string) {
@@ -352,7 +354,7 @@ export async function agentDetail(service: SupabaseClient, viewer: AgentCaller, 
   const omitted: string[] = [];
   if (!canKeys) omitted.push('keys');
   if (!canHooks) omitted.push('webhooks');
-  const [health, run, assignments, owners, keys, webhooks, templateKey, access, canManage, ownerGroups, limitState] = await Promise.all([
+  const [health, run, assignments, owners, keys, webhooks, templateKey, access, canManage, ownerGroups, limitState, isOwner] = await Promise.all([
     service.from('agent_health').select('*').eq('member_id', agentId).maybeSingle().then(({ data }) => (data as Row | null) ?? null),
     service.from('agent_runs').select('*').eq('agent_id', agentId).eq('status', 'running').order('started_at', { ascending: false }).limit(1)
       .then(async ({ data, error }) => {
@@ -372,6 +374,8 @@ export async function agentDetail(service: SupabaseClient, viewer: AgentCaller, 
     canManageAgent(service, viewer, agentId),
     ownerGroupsOf(service, [agentId]).then((map) => map.get(agentId) ?? []),
     loadLimitState(service, agentId, true),
+    // One of its owners, in person or through a group: who may open its profile without agents.manage.
+    isAgentOwner(service, agentId, viewer.memberId),
   ]);
   return {
     agent: agentView(row),
@@ -397,6 +401,7 @@ export async function agentDetail(service: SupabaseClient, viewer: AgentCaller, 
     webhooks: (webhooks as PublicWebhookEndpoint[] | null) ?? undefined,
     template_key: templateKey,
     can_manage: canManage,
+    is_owner: isOwner,
     omitted,
   };
 }

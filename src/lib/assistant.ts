@@ -143,7 +143,10 @@ export type AssistantUndo = z.infer<typeof assistantUndoSchema>;
  * - paused: its person paused it (they can resume it).
  * - on_hold: every agent in the workspace is paused (the kill switch), or
  *   someone paused this agent on its agent page. Deliberate, so nobody is
- *   told it is broken; it picks up again once resumed there.
+ *   told it is broken; it picks up again once resumed there. When its host
+ *   has also stopped reporting (the same rule as broken offline), it says
+ *   so (hostDown) and the admins are told, since resuming alone will not
+ *   bring it back.
  * - getting_ready: just made, its harness has not collected its key yet.
  * - broken: paused by an admin, no key after the grace period, or its host
  *   stopped reporting well past its interval. The page says it is paused and
@@ -157,7 +160,7 @@ export type AssistantReason = BrokenReason | HoldReason;
 /** A state with its reason: broken and on_hold always say why, the rest never do. */
 export type AssistantStatus =
   | { state: 'broken'; reason: BrokenReason }
-  | { state: 'on_hold'; reason: HoldReason }
+  | { state: 'on_hold'; reason: HoldReason; hostDown?: true }
   | { state: 'working' | 'paused' | 'getting_ready'; reason: null };
 
 /** A new assistant has this long to get its key before it reads as broken. */
@@ -165,11 +168,15 @@ export const KEY_GRACE_MS = 15 * 60_000;
 /** Offline: the host's last report is older than this many expected intervals. */
 export const OFFLINE_INTERVALS = 3;
 
-export function assistantState(input: {
+export interface AssistantStateInput {
   status: string | null;
   suspendedBy: string | null;
+  /** When it was suspended (team_members.suspended_at): when a pause began. */
+  suspendedAt?: string | null;
   personId: string;
   liveKeys: number;
+  /** When its newest key was made, revoked or not: a no_key spell begins after it. */
+  lastKeyAt?: string | null;
   createdAt: string;
   health: { reportedAt: string; intervalSeconds: number } | null;
   /** The workspace kill switch (business_settings.agents_paused_at). */
@@ -177,20 +184,42 @@ export function assistantState(input: {
   /** This agent paused on its agent page (team_members.agent_paused_at). */
   agentPausedAt?: string | null;
   now?: number;
-}): AssistantStatus {
+}
+
+/** Its host stopped reporting: the last report is older than OFFLINE_INTERVALS of its promised intervals. No report yet is not silence. */
+function hostSilent(health: AssistantStateInput['health'], now: number): boolean {
+  return !!health && now - new Date(health.reportedAt).getTime() > OFFLINE_INTERVALS * health.intervalSeconds * 1000;
+}
+
+export function assistantState(input: AssistantStateInput): AssistantStatus {
   const now = input.now ?? Date.now();
   if (input.status === 'suspended') {
     return input.suspendedBy === input.personId ? { state: 'paused', reason: null } : { state: 'broken', reason: 'paused_by_admin' };
   }
-  if (input.workspacePausedAt) return { state: 'on_hold', reason: 'agents_paused' };
-  if (input.agentPausedAt) return { state: 'on_hold', reason: 'agent_paused' };
+  const hold = (reason: HoldReason): AssistantStatus =>
+    hostSilent(input.health, now) ? { state: 'on_hold', reason, hostDown: true } : { state: 'on_hold', reason };
+  if (input.workspacePausedAt) return hold('agents_paused');
+  if (input.agentPausedAt) return hold('agent_paused');
   if (input.liveKeys === 0) {
     return now - new Date(input.createdAt).getTime() < KEY_GRACE_MS ? { state: 'getting_ready', reason: null } : { state: 'broken', reason: 'no_key' };
   }
-  if (input.health && now - new Date(input.health.reportedAt).getTime() > OFFLINE_INTERVALS * input.health.intervalSeconds * 1000) {
-    return { state: 'broken', reason: 'offline' };
-  }
+  if (hostSilent(input.health, now)) return { state: 'broken', reason: 'offline' };
   return { state: 'working', reason: null };
+}
+
+/**
+ * When the spell behind a state began, so "once per hold" can tell one spell
+ * from the next: the pause's own stamp, the newest key for no_key, the last
+ * report for offline. Null for working and getting ready. It only names the
+ * start of what assistantState decided; it never decides a state itself.
+ */
+export function assistantStateSince(input: AssistantStateInput, status: AssistantStatus): string | null {
+  if (status.state === 'paused') return input.suspendedAt ?? null;
+  if (status.state === 'on_hold') return (status.reason === 'agents_paused' ? input.workspacePausedAt : input.agentPausedAt) ?? null;
+  if (status.state !== 'broken') return null;
+  if (status.reason === 'paused_by_admin') return input.suspendedAt ?? null;
+  if (status.reason === 'no_key') return input.lastKeyAt ?? input.createdAt;
+  return input.health?.reportedAt ?? null;
 }
 
 export const BROKEN_WORDS: Record<BrokenReason, string> = {
@@ -210,6 +239,9 @@ export const HOLD_WORDS: Record<HoldReason, { person: string; owner: string }> =
     owner: 'Paused on its agent page.',
   },
 };
+
+/** On hold, and its host stopped reporting too: the person's page and Settings > Assistants > Status say this. */
+export const HOST_DOWN_WORDS = 'On hold. Its host is not responding.';
 
 /** One plain line on why, for a row that has a reason. */
 export const reasonWords = (reason: AssistantReason): string =>
@@ -238,6 +270,8 @@ export interface MyAssistantView {
     avatar_tone: number | null;
     state: AssistantState;
     reason: AssistantReason | null;
+    /** On hold, and its host stopped reporting (HOST_DOWN_WORDS). */
+    host_down?: boolean;
     preferences: AssistantPreferences;
     /** Whether the person has a personal inbox for "Sort my inbox" to handle. */
     has_personal_inbox: boolean;
@@ -280,6 +314,8 @@ export interface AssistantStatusRow {
   person: { id: string; name: string };
   state: AssistantState;
   reason: AssistantReason | null;
+  /** On hold, and its host stopped reporting (HOST_DOWN_WORDS). */
+  host_down?: boolean;
   created_at: string;
 }
 

@@ -223,6 +223,6 @@ Every other write answers 423. People are never paused.
 
 Who pauses:
 
-- One agent: its profile, or `PATCH /api/v1/agents/{id}` (MCP `update_agent`) with `paused: true` (whoever may manage it). `paused: false` resumes it.
+- One agent: Pause in its profile's header (one click, no confirmation), or `PATCH /api/v1/agents/{id}` (MCP `update_agent`) with `paused: true` (whoever may manage it). `paused: false` resumes it.
 - Every agent: an Owner, from Settings > Security or the Agents home.
 - One agent on one project: the project's Agents tab, `set_project_agent` or `PUT /api/v1/projects/{id}/agents/{agentId}` with `status: "paused"`.

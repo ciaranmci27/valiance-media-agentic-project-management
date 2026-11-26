@@ -9,6 +9,7 @@ import { liveTaskIds } from '@/lib/api/task-guards';
 import { accessAllowsProject } from '@/lib/api/access';
 import type { AccessContext } from '@/lib/access-control';
 import { actingForOf } from './inbox-visibility';
+import { inboxHandling } from './inbox-handlers';
 
 /**
  * What the agent API returns. Reads are plain queries joined here (no
@@ -177,7 +178,7 @@ async function latestTriageByMessage(supabase: SupabaseClient, messageIds: strin
   const latest = new Map<string, Row>();
   if (messageIds.length === 0) return latest;
   const triage = await rows<Row>(comms(supabase).from('triage')
-    .select('id, message_id, member_id, outcome, urgent, summary, question_for_human, suggested_reply, project_id, project_ids, summarized_at, created_at')
+    .select('id, message_id, member_id, outcome, urgent, category, summary, question_for_human, suggested_reply, project_id, project_ids, summarized_at, created_at')
     .in('message_id', messageIds)
     .order('created_at', { ascending: false }));
   for (const row of triage) if (!latest.has(row.message_id as string)) latest.set(row.message_id as string, row);
@@ -251,7 +252,7 @@ export async function listMessages(
         projects: filed.get(message.thread_id as string) ?? [],
         candidate_project_ids: [...new Set(candidates.filter((row) => row.message_id === message.id).map((row) => row.project_id))],
         attachment_count: attachments.filter((row) => row.message_id === message.id).length,
-        latest_triage: latest ? { id: latest.id, outcome: latest.outcome, urgent: latest.urgent, created_at: latest.created_at } : null,
+        latest_triage: latest ? { id: latest.id, outcome: latest.outcome, urgent: latest.urgent, category: latest.category ?? null, created_at: latest.created_at } : null,
       };
     }),
   };
@@ -347,7 +348,8 @@ export async function waitingQuestions(supabase: SupabaseClient, inboxIds: strin
 /**
  * A message's detail as an agent acting for a person (a personal agent) may
  * see it: every project the person cannot open is dropped (the thread's
- * project, the projects it is filed on, its scope and candidates), and so is
+ * project, the projects it is filed on, its scope and candidates, the inbox's
+ * default project), and so is
  * every linked task in one. Anyone else reads it whole.
  */
 export function narrowDetailToReach(detail: Row, access: AccessContext | null | undefined): Row {
@@ -360,8 +362,11 @@ export function narrowDetailToReach(detail: Row, access: AccessContext | null | 
   const scope = (detail.project_scope ?? {}) as Row;
   const thread = (detail.thread ?? {}) as Row;
   const project = detail.project as Row | null | undefined;
+  const inbox = detail.inbox as Row | null | undefined;
   return {
     ...narrowMessage(detail),
+    // The inbox's default project only when the person can open it.
+    ...(inbox ? { inbox: { ...inbox, default_project_id: inbox.default_project_id && !allowed(inbox.default_project_id) ? null : inbox.default_project_id ?? null } } : {}),
     project: project && project.id && !allowed(project.id) ? null : project ?? null,
     projects: ((detail.projects ?? []) as Row[]).filter((row) => allowed(row.id)),
     project_scope: { ...scope, projects: ((scope.projects ?? []) as Row[]).filter((row) => allowed(row.project_id)) },
@@ -370,12 +375,16 @@ export function narrowDetailToReach(detail: Row, access: AccessContext | null | 
   };
 }
 
-export async function messageDetail(supabase: SupabaseClient, message: AccessibleMessage, access?: AccessContext | null): Promise<Row> {
-  return narrowDetailToReach(await fullMessageDetail(supabase, message), access);
+/**
+ * memberId: the caller's member (the key's), for inbox.handled_by_me: it
+ * handles the inbox directly or through a group, as handled=me reads it.
+ */
+export async function messageDetail(supabase: SupabaseClient, message: AccessibleMessage, access?: AccessContext | null, memberId?: string | null): Promise<Row> {
+  return narrowDetailToReach(await fullMessageDetail(supabase, message, memberId ?? null), access);
 }
 
-async function fullMessageDetail(supabase: SupabaseClient, message: AccessibleMessage): Promise<Row> {
-  const [inbox, thread, threadMessages, meeting] = await Promise.all([
+async function fullMessageDetail(supabase: SupabaseClient, message: AccessibleMessage, memberId: string | null): Promise<Row> {
+  const [inbox, thread, threadMessages, meeting, handling] = await Promise.all([
     comms(supabase).from('inboxes').select('id, name, address, agent_readable_types').eq('id', message.inbox_id).single(),
     comms(supabase).from('conversations').select('id, subject_normalized, project_id, project_source, project_address_id, summary, last_message_at').eq('id', message.thread_id).single(),
     rows<Row>(comms(supabase).from('messages')
@@ -386,6 +395,8 @@ async function fullMessageDetail(supabase: SupabaseClient, message: AccessibleMe
     message.channel === 'meeting'
       ? comms(supabase).from('meetings').select('title, starts_at, ends_at, organizer_address, doc_url').eq('conversation_id', message.thread_id).maybeSingle()
       : Promise.resolve({ data: null, error: null }),
+    // Who handles the inbox and its defaults (inbox-handlers.ts), beside the rest.
+    inboxHandling(supabase, message.inbox_id, memberId),
   ]);
   if (meeting.error) throw meeting.error;
   // Deleted while this request ran: the same 404 as an id that never existed.
@@ -516,7 +527,8 @@ async function fullMessageDetail(supabase: SupabaseClient, message: AccessibleMe
   const lastReviewed = (reviews[0]?.reviewed_at as string | undefined) ?? null;
   return {
     ...present(currentRow, CURRENT_TEXT_CAP),
-    inbox: { id: inbox.data.id, name: inbox.data.name, address: inbox.data.address },
+    // handled_by_me, primary_handler, the defaults and decision_recipient: names only, never member data.
+    inbox: { id: inbox.data.id, name: inbox.data.name, address: inbox.data.address, ...handling },
     thread_id: message.thread_id,
     conversation_id: message.thread_id,
     channel: currentRow.channel,

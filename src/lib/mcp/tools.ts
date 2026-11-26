@@ -2293,9 +2293,10 @@ export const PM_TOOLS: PmTool[] = [
     name: 'list_inbox',
     lead: 'List inbox email you can read, newest first.',
     detail:
-      "Summaries without bodies, from every inbox your key's member may read (or inbox_id). status new (waiting for triage), needs_human (waiting on a person), handled, or ignored (Filtered). project_id: conversations filed on that project. Read one in full with get_email.",
+      "Summaries without bodies, from every inbox your key's member may read (or inbox_id; handled me: only the ones you handle). status new (waiting for triage), needs_human (waiting on a person), handled, or ignored (Filtered). project_id: conversations filed on that project. Read one in full with get_email.",
     input: z.object({
       inbox_id: id('inbox_id').optional(),
+      handled: z.enum(['me']).optional().describe('me: only the inboxes you handle, as yourself or through a group'),
       status: z.enum(AGENT_MESSAGE_STATUSES).optional(),
       project_id: id('project_id').optional(),
       page, limit: limit(25),

@@ -136,6 +136,14 @@ export function buildAgentNeedsYou(input: {
   };
 }
 
+/**
+ * The Needs you count in words, with what it counts: the Agents badge in the
+ * sidebar and the Needs you tab's badge both say it, so they read the same.
+ */
+export function needsYouCountLabel(total: number): string {
+  return `${total} ${total === 1 ? 'thing needs' : 'things need'} you: questions, approvals, blocked work, reviews and suggestions`;
+}
+
 /** What one agent is waiting on the person for: its slice of Needs you, for its profile. */
 export function needsForAgent(needs: AgentNeedsYou, agentId: string): AgentNeedsYou {
   const questions = needs.questions.filter((q) => q.asked_by === agentId);

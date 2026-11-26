@@ -201,7 +201,7 @@ export function ChatConnectionsSection() {
         onClose={() => setRemoving(null)}
         onConfirm={remove}
         title="Disconnect this chat?"
-        message={removing ? `People stop reaching their assistants through ${removing.provider_label}, and its chat history here is deleted. Linked accounts stay, so connecting it again picks up where it left off.` : ''}
+        message={removing ? `People stop reaching their assistants through ${removing.provider_label}, and its chat history here is deleted. Their chat accounts stay, so connecting it again picks up where it left off.` : ''}
         confirmLabel="Disconnect"
         doubleConfirm={false}
       />

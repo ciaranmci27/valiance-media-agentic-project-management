@@ -17,5 +17,5 @@ export const GET = withApi<unknown, { id: string }>(async ({ supabase, params, s
   const mode = searchParams.get('mode') ?? 'live';
   if (mode !== 'live' && mode !== 'shadow') throw badRequest('mode must be live or shadow');
   const message = await loadAccessibleMessage(supabase, teamMemberId, access, params.id);
-  return success(await triageContext(supabase, message, mode, access));
+  return success(await triageContext(supabase, message, mode, access, teamMemberId));
 }, { permission: 'inbound_email.read' });

@@ -34,7 +34,7 @@ import { applyMigrationsFrom, createFullSchemaDatabase, SCHEMA_PATH } from './fu
 import { startFakePostgrest } from './fake-postgrest';
 import { diffSnapshots, pmSnapshot } from './lib/pm-catalog';
 import {
-  assistantState, preferencesToContext, readSwitches, DEFAULT_PREFERENCES, DEFAULT_SWITCHES, KEY_GRACE_MS,
+  assistantState, assistantStateSince, preferencesToContext, readSwitches, DEFAULT_PREFERENCES, DEFAULT_SWITCHES, KEY_GRACE_MS,
 } from '../src/lib/assistant';
 import { slackAdapter, slackSignature } from '../src/lib/chat/providers/slack';
 import { telegramAdapter } from '../src/lib/chat/providers/telegram';
@@ -127,6 +127,20 @@ function pureChecks() {
     JSON.stringify(assistantState({ ...base, status: 'active', suspendedBy: null, liveKeys: 1, agentPausedAt: pausedAt })) === JSON.stringify({ state: 'on_hold', reason: 'agent_paused' }));
   check('state: paused by its person stays theirs to resume, even with every agent paused',
     assistantState({ ...base, status: 'suspended', suspendedBy: 'p', liveKeys: 1, workspacePausedAt: pausedAt }).state === 'paused');
+  const silent = { reportedAt: new Date(Date.now() - 4 * 60_000).toISOString(), intervalSeconds: 60 };
+  const beating = { reportedAt: new Date(Date.now() - 60_000).toISOString(), intervalSeconds: 60 };
+  const deadHold = assistantState({ ...base, status: 'active', suspendedBy: null, liveKeys: 1, health: silent, workspacePausedAt: pausedAt });
+  check('state: on hold with a host silent past the offline rule says its host is down',
+    JSON.stringify(deadHold) === JSON.stringify({ state: 'on_hold', reason: 'agents_paused', hostDown: true }), deadHold);
+  check('state: on hold with a beating host does not',
+    JSON.stringify(assistantState({ ...base, status: 'active', suspendedBy: null, liveKeys: 1, health: beating, agentPausedAt: pausedAt })) === JSON.stringify({ state: 'on_hold', reason: 'agent_paused' }));
+  const sinceInput = { ...base, status: 'active', suspendedBy: null, liveKeys: 1, workspacePausedAt: pausedAt };
+  const offlineInput = { ...base, status: 'active', suspendedBy: null, liveKeys: 1, health: silent };
+  const noKeyInput = { ...base, status: 'active', suspendedBy: null, liveKeys: 0, lastKeyAt: '2026-11-01T00:00:00Z' };
+  check('since: a hold begins when it was paused, offline at the last report, no key after the newest key',
+    assistantStateSince(sinceInput, assistantState(sinceInput)) === pausedAt
+    && assistantStateSince(offlineInput, assistantState(offlineInput)) === silent.reportedAt
+    && assistantStateSince(noKeyInput, assistantState(noKeyInput)) === '2026-11-01T00:00:00Z');
 
   // Slack's documented example: v0=HMAC-SHA256("v0:<ts>:<body>").
   const known = slackSignature('8f742231b10e8888abcd99yyyzzz85a5', '1531420618', 'token=xyzz0WbapA4vBCDEFasx0q6G&team_id=T1DC2JH3J&team_domain=testteamnow&channel_id=G8PSS9T3V&channel_name=foobar&user_id=U2CERLKJA&user_name=roadrunner&command=%2Fwebhook-collect&text=&response_url=https%3A%2F%2Fhooks.slack.com%2Fcommands%2FT1DC2JH3J%2F397700885554%2F96rGlfmibIGlgcZRskXaIFfN&trigger_id=398738663015.47445629121.803a0bc887a14d10d2c447fce8b6703c');
@@ -789,8 +803,20 @@ async function main() {
     check('admin pause: Ben cannot resume what an admin paused', benResume.status === 403 && reason(benResume) === 'paused_by_admin', benResume.body);
     providerCalls.length = 0;
     const toPaused = await inbound(telegramId, update(103, 'hello?'), { 'x-telegram-bot-api-secret-token': telegramSecret });
-    check('admin pause: chat gets the plain line, nothing reaches the assistant', toPaused.body?.status === 'unrouted'
-      && providerCalls.some((call) => call.body?.text === 'Your assistant is paused. Your admin has been told.'), [toPaused.body, providerCalls]);
+    check('admin pause: chat gets the broken line with its name, nothing reaches the assistant', toPaused.body?.status === 'unrouted'
+      && providerCalls.some((call) => call.body?.text === "Ben's Assistant can't answer right now. Your admin has been told."), [toPaused.body, providerCalls]);
+    providerCalls.length = 0;
+    const toPausedAgain = await inbound(telegramId, update(104, 'anyone?'), { 'x-telegram-bot-api-secret-token': telegramSecret });
+    check('admin pause: a second message in the same chat gets no second line', toPausedAgain.body?.status === 'unrouted'
+      && !providerCalls.some((call) => call.url.endsWith('/sendMessage')), providerCalls);
+    // In a group: only a message that speaks to the bot gets the line.
+    const inGroup = (id: number, text: string) => ({ update_id: id, message: { message_id: id, from: { id: 5550001, username: 'benode' }, chat: { id: -200, type: 'group' }, text } });
+    providerCalls.length = 0;
+    const groupChatter = await inbound(telegramId, inGroup(105, 'lunch at noon?'), { 'x-telegram-bot-api-secret-token': telegramSecret });
+    check('group: chatter not addressed to the bot gets no line', groupChatter.body?.status === 'unrouted' && providerCalls.length === 0, providerCalls);
+    const groupMention = await inbound(telegramId, inGroup(106, '@acme_assistant_bot what is next?'), { 'x-telegram-bot-api-secret-token': telegramSecret });
+    check('group: a mention of the bot gets the line, in the group', groupMention.body?.status === 'unrouted'
+      && providerCalls.some((call) => call.body?.chat_id === '-200' && /can't answer right now/.test(call.body?.text ?? '')), providerCalls);
 
     // ── Status list ────────────────────────────────────────────────────
     const memberStatus = await session(statusRoute.GET, 'GET', '/api/workspace/assistants/status');
@@ -800,6 +826,76 @@ async function main() {
     const rows = status.body?.data?.assistants ?? [];
     check('status: the Owner sees each with its state, broken first', status.status === 200 && rows[0]?.id === s.benAgent && rows[0].state === 'broken' && rows[0].reason === 'paused_by_admin'
       && rows.some((r: Loose) => r.id === s.anaAgent && r.state === 'working'), rows);
+
+    // ── Can't answer right now: one line per chat per spell ────────────
+    const slackLines = () => providerCalls.filter((call) => call.url.endsWith('/chat.postMessage')).map((call) => call.body?.text as string);
+    const fromAnaNow = async (id: string, text: string) => {
+      const body = event(id, 'U_ANA', text);
+      return inbound(slackId, body, slackSigned(body));
+    };
+    const ON_HOLD_LINE = "Nova is on hold right now and will answer when it's back.";
+    await s.q('UPDATE pm.business_settings SET agents_paused_at = now(), agents_paused_by = $1', [s.owner]);
+    providerCalls.length = 0;
+    const held1 = await fromAnaNow('EvHold1', 'Book the venue for Friday');
+    check('on hold: the message is still recorded and sent to the assistant', held1.body?.status === 'notified'
+      && (await s.q<Loose>('SELECT agent_id FROM pm.chat_messages WHERE id = $1', [held1.body?.id]))[0]?.agent_id === s.anaAgent, held1.body);
+    check('on hold: the person hears why, once, in the chat, with its name', JSON.stringify(slackLines()) === JSON.stringify([ON_HOLD_LINE])
+      && providerCalls[0]?.body?.channel === 'D_ANA', providerCalls);
+    providerCalls.length = 0;
+    const held2 = await fromAnaNow('EvHold2', 'And order lunch');
+    check('on hold: a second message gets no second line', held2.body?.status === 'notified' && slackLines().length === 0, providerCalls);
+    const heldReply = await v1(v1Reply.POST, 'POST', `/api/v1/assistant/messages/${held1.body?.id}/reply`, { id: held1.body?.id }, s.keys.anaAgent.secret, { text: 'On it.' });
+    check('on hold: the assistant cannot answer yet (423)', heldReply.status === 423, heldReply.body);
+    await s.q('UPDATE pm.business_settings SET agents_paused_at = NULL, agents_paused_by = NULL');
+    const waiting = await v1(v1Messages.GET, 'GET', '/api/v1/assistant/messages?status=notified', {}, s.keys.anaAgent.secret);
+    const resumedReply = await v1(v1Reply.POST, 'POST', `/api/v1/assistant/messages/${held1.body?.id}/reply`, { id: held1.body?.id }, s.keys.anaAgent.secret, { text: 'Booked for Friday.' });
+    check('on hold: resumed, the held messages reach the assistant and it answers', [held1.body?.id, held2.body?.id].every((id) => (waiting.body?.data?.messages ?? []).some((m: Loose) => m.id === id))
+      && resumedReply.status === 201, { waiting: waiting.body?.data?.messages?.length, reply: resumedReply.body });
+    providerCalls.length = 0;
+    const working = await fromAnaNow('EvWork1', 'Thanks');
+    check('working: no line', working.body?.status === 'notified' && slackLines().length === 0, providerCalls);
+    await s.q("UPDATE pm.business_settings SET agents_paused_at = now() + interval '1 second', agents_paused_by = $1", [s.owner]);
+    providerCalls.length = 0;
+    await fromAnaNow('EvHold3', 'One more thing');
+    check('on hold: a new hold after a resume gets the line again', JSON.stringify(slackLines()) === JSON.stringify([ON_HOLD_LINE]), providerCalls);
+    check('on hold: each line is recorded as the app\'s own outbound message',
+      await count("SELECT count(*)::int AS n FROM pm.chat_messages WHERE connection_id = $1 AND direction = 'outbound' AND dedupe_key LIKE 'notice:%' AND text = $2", [slackId, ON_HOLD_LINE]) === 2);
+    providerCalls.length = 0;
+    const newStranger = event('EvStrangerHold', 'U_NEWCOMER', 'hi', 'D_NEWCOMER');
+    await inbound(slackId, newStranger, slackSigned(newStranger));
+    check('strangers: still today\'s link prompt, never the on-hold line', slackLines().length === 1 && /\/link\/pl_/.test(slackLines()[0]) && !/on hold/.test(slackLines()[0]), providerCalls);
+
+    // A dead host while on hold: Status and her page say so; the admins hear once a day.
+    await s.q("INSERT INTO pm.agent_health (member_id, container_running, turn_running, reported_at, expected_interval_seconds) VALUES ($1, true, false, now() - interval '10 minutes', 60)", [s.anaAgent]);
+    as(LOGINS.ana);
+    const deadView = (await session(assistantRoute.GET, 'GET', '/api/workspace/assistant')).body?.data?.assistant;
+    check('dead host: on hold, her page says its host is not responding', deadView?.state === 'on_hold' && deadView.host_down === true, deadView);
+    as(LOGINS.owner);
+    const deadRows = (await session(statusRoute.GET, 'GET', '/api/workspace/assistants/status')).body?.data?.assistants ?? [];
+    const deadRow = deadRows.find((r: Loose) => r.id === s.anaAgent);
+    check('dead host: Status shows it on hold with its host down, right after the broken ones', deadRow?.state === 'on_hold' && deadRow.host_down === true && deadRows[1]?.id === s.anaAgent, deadRows);
+    const hostTold = await s.q<Loose>("SELECT title FROM pm.team_member_notifications WHERE user_id = $1 AND entity_type = 'member' AND entity_id = $2", [s.owner, s.anaAgent]);
+    check('dead host: the admin is told, once', hostTold.length === 1 && /host is not responding/.test(hostTold[0].title), hostTold);
+    as(LOGINS.ana);
+    await session(assistantRoute.GET, 'GET', '/api/workspace/assistant');
+    check('dead host: not again on the next visit', await count("SELECT count(*)::int AS n FROM pm.team_member_notifications WHERE entity_id = $1", [s.anaAgent]) === 1);
+    await s.q("UPDATE pm.agent_health SET reported_at = now() WHERE member_id = $1", [s.anaAgent]);
+    const aliveView = (await session(assistantRoute.GET, 'GET', '/api/workspace/assistant')).body?.data?.assistant;
+    check('dead host: a beating host on hold is plain on hold', aliveView?.state === 'on_hold' && aliveView.host_down === false, aliveView);
+    await s.q('UPDATE pm.business_settings SET agents_paused_at = NULL, agents_paused_by = NULL');
+
+    // Paused by her: recorded, never sent; the line links to her page.
+    await session(assistantRoute.PATCH, 'PATCH', '/api/workspace/assistant', {}, { paused: true });
+    providerCalls.length = 0;
+    const toHerPaused = await fromAnaNow('EvPaused1', 'Are you there?');
+    check('paused by her: the line with its name and a link to her page, nothing reaches it', toHerPaused.body?.status === 'unrouted'
+      && JSON.stringify(slackLines()) === JSON.stringify(['Nova is paused. Resume it from your Helper page to get answers.\nhttps://pm.example.com/assistant']), [toHerPaused.body, providerCalls]);
+    providerCalls.length = 0;
+    await fromAnaNow('EvPaused2', 'Hello?');
+    check('paused by her: once, not on every message', slackLines().length === 0, providerCalls);
+    await session(assistantRoute.PATCH, 'PATCH', '/api/workspace/assistant', {}, { paused: false });
+    await s.q('DELETE FROM pm.agent_health WHERE member_id = $1', [s.anaAgent]);
+    as(LOGINS.owner);
 
     // ── Removing a connection ──────────────────────────────────────────
     providerCalls.length = 0;

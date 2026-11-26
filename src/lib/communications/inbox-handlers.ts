@@ -209,6 +209,74 @@ export async function decisionRecipientIds(db: SupabaseClient, defaults: InboxDe
   return null;
 }
 
+/** A member or a group an inbox names, by name only (never an email or other member data). */
+export interface InboxParty {
+  kind: 'member' | 'group';
+  id: string;
+  name: string | null;
+}
+
+/**
+ * How one inbox is handled, as an agent reading one of its messages sees it.
+ * handled_by_me follows handled=me (handledInboxIds); default_assignee_ids is
+ * the server's own resolution (defaultAssigneeIds), [] when there is none.
+ */
+export interface InboxHandling {
+  handled_by_me: boolean;
+  primary_handler: (InboxParty & { member_id: string | null }) | null;
+  default_assignee: InboxParty | null;
+  default_assignee_ids: string[];
+  default_project_id: string | null;
+  decision_recipient: InboxParty | null;
+}
+
+/**
+ * One inbox's handling for this caller in two rounds: its defaults, handler
+ * rows and what the caller handles together; then the default's resolution
+ * and every name at once. memberId null (no caller) reads as not handled.
+ */
+export async function inboxHandling(db: SupabaseClient, inboxId: string, memberId: string | null): Promise<InboxHandling> {
+  const [defaults, handlers, mine] = await Promise.all([
+    inboxDefaults(db, inboxId),
+    inboxHandlerRows(db, [inboxId]),
+    memberId ? handledInboxIds(db, memberId) : Promise.resolve(new Set<string>()),
+  ]);
+  const primary = handlers.find((row) => row.is_primary) ?? null;
+  const pick = (member: string | null | undefined, group: string | null | undefined) =>
+    member ? { kind: 'member' as const, id: member } : group ? { kind: 'group' as const, id: group } : null;
+  const parties = [
+    pick(primary?.handler_member_id, primary?.handler_group_id),
+    pick(defaults.default_assignee_member_id, defaults.default_assignee_group_id),
+    pick(defaults.decision_member_id, defaults.decision_group_id),
+  ];
+  const idsOf = (kind: 'member' | 'group') => [...new Set(parties.filter((p) => p?.kind === kind).map((p) => p!.id))];
+  const names = async (ids: string[], query: (ids: string[]) => PromiseLike<{ data: unknown; error: unknown }>) => {
+    if (ids.length === 0) return new Map<string, string>();
+    const { data, error } = await query(ids);
+    if (error) throw error;
+    return new Map(((data ?? []) as { id: string; name: string }[]).map((row) => [row.id, row.name]));
+  };
+  // Names only: never an email or other member data.
+  const [assigneeIds, memberNames, groupNames] = await Promise.all([
+    defaultAssigneeIds(db, defaults),
+    names(idsOf('member'), (memberIds) => db.from('team_members').select('id, name').in('id', memberIds)),
+    names(idsOf('group'), (groupIds) => db.from('groups').select('id, name').in('id', groupIds)),
+  ]);
+  const named = (party: { kind: 'member' | 'group'; id: string } | null): InboxParty | null =>
+    party ? { kind: party.kind, id: party.id, name: (party.kind === 'member' ? memberNames : groupNames).get(party.id) ?? null } : null;
+  const primaryParty = named(parties[0]);
+  return {
+    handled_by_me: mine.has(inboxId),
+    primary_handler: primaryParty
+      ? { kind: primaryParty.kind, id: primaryParty.id, member_id: primaryParty.kind === 'member' ? primaryParty.id : null, name: primaryParty.name }
+      : null,
+    default_assignee: named(parties[1]),
+    default_assignee_ids: assigneeIds ?? [],
+    default_project_id: defaults.default_project_id,
+    decision_recipient: named(parties[2]),
+  };
+}
+
 /** The default project when it is live, else null. */
 export async function liveDefaultProject(db: SupabaseClient, defaults: InboxDefaults): Promise<string | null> {
   if (!defaults.default_project_id) return null;

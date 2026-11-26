@@ -81,14 +81,14 @@ export default function LinkAccountPage() {
         {state.kind === 'linked' && (
           <Outcome icon={CheckCircle2} tone="success" title={`${state.link.provider_label} account linked`}
             body={`Assistants now know ${state.identity.handle ?? state.identity.external_id} is you, and can act for you within your access. You can unlink it any time.`}
-            action={<Button href="/settings/account">See linked accounts</Button>} />
+            action={<Button href="/settings/account#chat-accounts">See chat accounts</Button>} />
         )}
         {state.kind === 'ready' && (() => {
           const { link } = state;
           if (link.already_yours) {
             return <Outcome icon={CheckCircle2} tone="success" title="Already linked"
               body={`${link.handle ?? link.external_id} on ${link.provider_label} is already linked to you. Nothing else to do.`}
-              action={<Button variant="secondary" href="/settings/account">See linked accounts</Button>} />;
+              action={<Button variant="secondary" href="/settings/account#chat-accounts">See chat accounts</Button>} />;
           }
           if (link.state === 'used') {
             return <Outcome icon={Clock} tone="muted" title="This link was already used"

@@ -219,8 +219,10 @@ export function moneyVisibility(input: { billingModuleOn: boolean; canReadRevenu
 
 // ── Metrics and tiles ───────────────────────────────────────────────────────
 
+// Runs lead (the default chart), money after the work it pays for: an
+// install whose agents do not bill never opens on an empty revenue chart.
 export const METRIC_KEYS = [
-  'revenue', 'profit', 'runs', 'busy', 'tasks', 'prs', 'tokens', 'cost', 'questions', 'incidents', 'reopened', 'blocked',
+  'runs', 'busy', 'tasks', 'prs', 'tokens', 'revenue', 'profit', 'cost', 'questions', 'incidents', 'reopened', 'blocked',
 ] as const;
 export type MetricKey = (typeof METRIC_KEYS)[number];
 
