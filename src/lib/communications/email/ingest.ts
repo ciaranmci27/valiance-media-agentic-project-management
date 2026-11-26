@@ -607,10 +607,16 @@ async function finalize(
       .limit(20);
     if (threadError) throw threadError;
     const threadIds = ((threads ?? []) as { id: string }[]).map((thread) => thread.id);
-    const { data: participants, error: participantError } = threadIds.length
-      ? await comms(supabase).from('conversation_participants').select('thread_id, address').in('thread_id', threadIds)
-      : { data: [], error: null };
+    // A teammate's forward has the client only as its original sender, never as a participant.
+    const [{ data: participants, error: participantError }, { data: forwards, error: forwardError }] = threadIds.length
+      ? await Promise.all([
+          comms(supabase).from('conversation_participants').select('thread_id, address').in('thread_id', threadIds),
+          comms(supabase).from('messages').select('thread_id, original_from_address')
+            .in('thread_id', threadIds).eq('routing_basis', 'forwarded_original').not('original_from_address', 'is', null),
+        ])
+      : [{ data: [], error: null }, { data: [], error: null }];
     if (participantError) throw participantError;
+    if (forwardError) throw forwardError;
     subjectThreads = ((threads ?? []) as { id: string; subject_normalized: string; last_message_at: string }[]).map((thread) => ({
       thread_id: thread.id,
       subject_normalized: thread.subject_normalized,
@@ -618,14 +624,20 @@ async function finalize(
       participants: ((participants ?? []) as { thread_id: string; address: string }[])
         .filter((row) => row.thread_id === thread.id && isClient(row.address))
         .map((row) => row.address),
+      forwarded_from: ((forwards ?? []) as { thread_id: string; original_from_address: string }[])
+        .filter((row) => row.thread_id === thread.id && isClient(row.original_from_address.toLowerCase()))
+        .map((row) => row.original_from_address),
     }));
   }
+  // Who this email is from, as people read it: a teammate's forward by its original sender.
+  const shownFrom = basis === 'forwarded_original' ? original?.address ?? null : fromAddress;
   // Inbox and team addresses are on nearly every thread, so they never count as shared.
   const choice = chooseThread({
     referenced: (referenced ?? []) as { thread_id: string; received_at: string }[],
     subjectNormalized: message.subject_normalized,
     subjectThreads,
     participants: people.filter(isClient),
+    sender: shownFrom && isClient(shownFrom) ? shownFrom : null,
     receivedAt: message.received_at,
   });
 
@@ -638,7 +650,7 @@ async function finalize(
 
   // Sorting: what this is and whether anyone needs to read it. A teammate's
   // forward is sorted by the person it came from.
-  const sortedAddress = basis === 'forwarded_original' ? original?.address ?? null : fromAddress;
+  const sortedAddress = shownFrom;
   const sorted = sortEmail({
     fromAddress: sortedAddress,
     subject: prepared.message.subject,

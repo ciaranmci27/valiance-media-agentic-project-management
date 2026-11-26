@@ -5,7 +5,10 @@
  *    In-Reply-To or References;
  * 2. else a thread with the same normalized subject, active within the
  *    window, that shares a participant (inbox addresses excluded by the
- *    caller, or every message would share one);
+ *    caller, or every message would share one), or that holds a teammate's
+ *    forward whose original sender is exactly this message's sender: the
+ *    forward of a client's email and the client's own reply to it are one
+ *    conversation. Only an exact outside address counts, never a domain;
  * 3. else a new thread.
  */
 
@@ -21,6 +24,8 @@ export interface SubjectThread {
   subject_normalized: string;
   last_message_at: string;
   participants: readonly string[];
+  /** The original senders of the teammates' forwards in it (outside addresses only). */
+  forwarded_from?: readonly string[];
 }
 
 export type ThreadChoice =
@@ -43,6 +48,8 @@ export function chooseThread(input: {
   subjectNormalized: string;
   subjectThreads: readonly SubjectThread[];
   participants: readonly string[];
+  /** Who this message is from, as people read it (a forward's original sender); outside addresses only. */
+  sender?: string | null;
   receivedAt: string;
   windowDays?: number;
 }): ThreadChoice {
@@ -54,10 +61,12 @@ export function chooseThread(input: {
   const windowMs = (input.windowDays ?? THREAD_SUBJECT_WINDOW_DAYS) * 86_400_000;
   const received = Date.parse(input.receivedAt);
   const mine = new Set(input.participants.map((address) => address.toLowerCase()));
+  const sender = input.sender?.trim().toLowerCase() || null;
   const match = input.subjectThreads
     .filter((thread) => thread.subject_normalized === input.subjectNormalized)
     .filter((thread) => Math.abs(received - Date.parse(thread.last_message_at)) <= windowMs)
-    .filter((thread) => thread.participants.some((address) => mine.has(address.toLowerCase())))
+    .filter((thread) => thread.participants.some((address) => mine.has(address.toLowerCase()))
+      || (!!sender && (thread.forwarded_from ?? []).some((address) => address.toLowerCase() === sender)))
     .sort((a, b) => Date.parse(b.last_message_at) - Date.parse(a.last_message_at))[0];
   return match ? { kind: 'existing', thread_id: match.thread_id, reason: 'subject' } : { kind: 'new' };
 }

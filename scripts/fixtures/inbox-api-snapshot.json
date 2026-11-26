@@ -1097,6 +1097,54 @@
     "latest_triage": null
    },
    {
+    "id": "<message:Planner/fw-prospect@agency.example>",
+    "inbox_id": "<ids.inboxA>",
+    "thread_id": "<thread:Planner/fw-prospect@agency.example>",
+    "conversation_id": "<thread:Planner/fw-prospect@agency.example>",
+    "channel": "email",
+    "status": "handled",
+    "subject": "Fwd: Marketing and DTC help",
+    "from": {
+     "address": "owner@agency.example",
+     "name": ""
+    },
+    "received_at": "<time>",
+    "sent_at": "<time>",
+    "is_forward": true,
+    "routing_basis": "forwarded_original",
+    "forwarded_by": {
+     "member_id": "<ids.owner>",
+     "name": "Sam"
+    },
+    "original_sender": {
+     "address": "alycia@prospect.example",
+     "name": "Alycia Shore"
+    },
+    "delivery": "forwarded",
+    "audience_size": 1,
+    "sender_member_id": "<ids.owner>",
+    "sender_verified": true,
+    "trust": "trusted",
+    "auto_mail_reason": null,
+    "sorting": {
+     "kind": "person",
+     "topic": null,
+     "action": "triage",
+     "reason": "From a person.",
+     "superseded_by": null
+    },
+    "project": null,
+    "projects": [],
+    "candidate_project_ids": [],
+    "attachment_count": 0,
+    "latest_triage": {
+     "id": "<triage:fw-prospect@agency.example/Read>",
+     "outcome": "no_action",
+     "urgent": false,
+     "created_at": "<time>"
+    }
+   },
+   {
     "id": "<message:Planner/fw-suspended@agency.example>",
     "inbox_id": "<ids.inboxA>",
     "thread_id": "<thread:Planner/fw-suspended@agency.example>",
@@ -2178,6 +2226,90 @@
     "latest_triage": null
    },
    {
+    "id": "<message:Planner/prospect-colleague@prospect.example>",
+    "inbox_id": "<ids.inboxA>",
+    "thread_id": "<thread:Planner/prospect-colleague@prospect.example>",
+    "conversation_id": "<thread:Planner/prospect-colleague@prospect.example>",
+    "channel": "email",
+    "status": "handled",
+    "subject": "Re: Marketing and DTC help",
+    "from": {
+     "address": "ben@prospect.example",
+     "name": "Ben Shore"
+    },
+    "received_at": "<time>",
+    "sent_at": "<time>",
+    "is_forward": false,
+    "routing_basis": "sender",
+    "forwarded_by": null,
+    "original_sender": null,
+    "delivery": "direct",
+    "audience_size": 1,
+    "sender_member_id": null,
+    "sender_verified": true,
+    "trust": "trusted",
+    "auto_mail_reason": null,
+    "sorting": {
+     "kind": "person",
+     "topic": null,
+     "action": "triage",
+     "reason": "From a person.",
+     "superseded_by": null
+    },
+    "project": null,
+    "projects": [],
+    "candidate_project_ids": [],
+    "attachment_count": 0,
+    "latest_triage": {
+     "id": "<triage:prospect-colleague@prospect.example/Read>",
+     "outcome": "no_action",
+     "urgent": false,
+     "created_at": "<time>"
+    }
+   },
+   {
+    "id": "<message:Planner/prospect-reply@prospect.example>",
+    "inbox_id": "<ids.inboxA>",
+    "thread_id": "<thread:Planner/fw-prospect@agency.example>",
+    "conversation_id": "<thread:Planner/fw-prospect@agency.example>",
+    "channel": "email",
+    "status": "handled",
+    "subject": "Re: Marketing and DTC help",
+    "from": {
+     "address": "alycia@prospect.example",
+     "name": "Alycia Shore"
+    },
+    "received_at": "<time>",
+    "sent_at": "<time>",
+    "is_forward": false,
+    "routing_basis": "sender",
+    "forwarded_by": null,
+    "original_sender": null,
+    "delivery": "direct",
+    "audience_size": 1,
+    "sender_member_id": null,
+    "sender_verified": true,
+    "trust": "trusted",
+    "auto_mail_reason": null,
+    "sorting": {
+     "kind": "person",
+     "topic": null,
+     "action": "triage",
+     "reason": "From a person.",
+     "superseded_by": null
+    },
+    "project": null,
+    "projects": [],
+    "candidate_project_ids": [],
+    "attachment_count": 0,
+    "latest_triage": {
+     "id": "<triage:prospect-reply@prospect.example/Read#2>",
+     "outcome": "no_action",
+     "urgent": false,
+     "created_at": "<time>"
+    }
+   },
+   {
     "id": "<message:Planner/public-domain@acme-roofing.example>",
     "inbox_id": "<ids.inboxA>",
     "thread_id": "<thread:Planner/public-domain@acme-roofing.example>",
@@ -3066,7 +3198,7 @@
   "meta": {
    "page": 1,
    "limit": 100,
-   "total": 61,
+   "total": 64,
    "total_pages": 1
   }
  },
@@ -10720,6 +10852,256 @@
   {
    "success": true,
    "data": {
+    "id": "<message:Planner/fw-prospect@agency.example>",
+    "status": "handled",
+    "subject": "Fwd: Marketing and DTC help",
+    "internet_message_id": "fw-prospect@agency.example",
+    "received_at": "<time>",
+    "sent_at": "<time>",
+    "from": {
+     "address": "owner@agency.example",
+     "name": "",
+     "contact_id": null
+    },
+    "to": [
+     {
+      "address": "planner@agency.example",
+      "name": "",
+      "contact_id": null
+     }
+    ],
+    "cc": [],
+    "reply_to": [],
+    "is_forward": true,
+    "routing_basis": "forwarded_original",
+    "forwarded_by": {
+     "member_id": "<ids.owner>",
+     "name": "Sam"
+    },
+    "original_sender": {
+     "address": "alycia@prospect.example",
+     "name": "Alycia Shore"
+    },
+    "delivery": "forwarded",
+    "audience_size": 1,
+    "sender_member_id": "<ids.owner>",
+    "sender_verified": true,
+    "auth": {
+     "trust": "trusted",
+     "trusted": true,
+     "source": "provider",
+     "spf": "pass",
+     "dkim": "pass",
+     "dmarc": "pass",
+     "reason": "provider: DKIM pass aligned with From"
+    },
+    "auto_mail_reason": null,
+    "sorting": {
+     "kind": "person",
+     "topic": null,
+     "action": "triage",
+     "reason": "From a person.",
+     "superseded_by": null
+    },
+    "new_text": "New lead.",
+    "text": "New lead.\n\n---------- Forwarded message ---------\nFrom: Alycia Shore <alycia@prospect.example>\nDate: Mon, Oct 5, 2026\nSubject: Marketing and DTC help\nTo: Sam Owner <owner@agency.example>\n\nCan you help us grow direct sales?\n",
+    "text_truncated": false,
+    "html_text": null,
+    "html_text_truncated": false,
+    "latest_triage": {
+     "id": "<triage:fw-prospect@agency.example/Read>",
+     "message_id": "<message:Planner/fw-prospect@agency.example>",
+     "member_id": null,
+     "outcome": "no_action",
+     "urgent": false,
+     "summary": "Read",
+     "question_for_human": null,
+     "suggested_reply": null,
+     "project_id": null,
+     "project_ids": [],
+     "summarized_at": null,
+     "created_at": "<time>"
+    },
+    "answers": [],
+    "linked_tasks": [],
+    "attachments": [],
+    "inbox": {
+     "id": "<ids.inboxA>",
+     "name": "Planner",
+     "address": "planner@agency.example"
+    },
+    "thread_id": "<thread:Planner/fw-prospect@agency.example>",
+    "conversation_id": "<thread:Planner/fw-prospect@agency.example>",
+    "channel": "email",
+    "project": null,
+    "projects": [],
+    "project_scope": {
+     "bases": [
+      "team"
+     ],
+     "projects": [],
+     "any_project": true,
+     "any_source": "guessed"
+    },
+    "candidates": [],
+    "thread": {
+     "id": "<thread:Planner/fw-prospect@agency.example>",
+     "subject_normalized": "marketing and dtc help",
+     "summary": null,
+     "last_message_at": "<time>",
+     "messages": [
+      {
+       "id": "<message:Planner/fw-prospect@agency.example>",
+       "status": "handled",
+       "subject": "Fwd: Marketing and DTC help",
+       "internet_message_id": "fw-prospect@agency.example",
+       "received_at": "<time>",
+       "sent_at": "<time>",
+       "from": {
+        "address": "owner@agency.example",
+        "name": "",
+        "contact_id": null
+       },
+       "to": [
+        {
+         "address": "planner@agency.example",
+         "name": "",
+         "contact_id": null
+        }
+       ],
+       "cc": [],
+       "reply_to": [],
+       "is_forward": true,
+       "routing_basis": "forwarded_original",
+       "forwarded_by": {
+        "member_id": "<ids.owner>",
+        "name": "Sam"
+       },
+       "original_sender": {
+        "address": "alycia@prospect.example",
+        "name": "Alycia Shore"
+       },
+       "delivery": "forwarded",
+       "audience_size": 1,
+       "sender_member_id": "<ids.owner>",
+       "sender_verified": true,
+       "auth": {
+        "trust": "trusted",
+        "trusted": true,
+        "source": "provider",
+        "spf": "pass",
+        "dkim": "pass",
+        "dmarc": "pass",
+        "reason": "provider: DKIM pass aligned with From"
+       },
+       "auto_mail_reason": null,
+       "sorting": {
+        "kind": "person",
+        "topic": null,
+        "action": "triage",
+        "reason": "From a person.",
+        "superseded_by": null
+       },
+       "new_text": "New lead.",
+       "text": "New lead.\n\n---------- Forwarded message ---------\nFrom: Alycia Shore <alycia@prospect.example>\nDate: Mon, Oct 5, 2026\nSubject: Marketing and DTC help\nTo: Sam Owner <owner@agency.example>\n\nCan you help us grow direct sales?\n",
+       "text_truncated": false,
+       "html_text": null,
+       "html_text_truncated": false,
+       "latest_triage": {
+        "id": "<triage:fw-prospect@agency.example/Read>",
+        "message_id": "<message:Planner/fw-prospect@agency.example>",
+        "member_id": null,
+        "outcome": "no_action",
+        "urgent": false,
+        "summary": "Read",
+        "question_for_human": null,
+        "suggested_reply": null,
+        "project_id": null,
+        "project_ids": [],
+        "summarized_at": null,
+        "created_at": "<time>"
+       },
+       "answers": [],
+       "linked_tasks": [],
+       "attachments": []
+      },
+      {
+       "id": "<message:Planner/prospect-reply@prospect.example>",
+       "status": "handled",
+       "subject": "Re: Marketing and DTC help",
+       "internet_message_id": "prospect-reply@prospect.example",
+       "received_at": "<time>",
+       "sent_at": "<time>",
+       "from": {
+        "address": "alycia@prospect.example",
+        "name": "Alycia Shore",
+        "contact_id": null
+       },
+       "to": [
+        {
+         "address": "planner@agency.example",
+         "name": "",
+         "contact_id": null
+        }
+       ],
+       "cc": [],
+       "reply_to": [],
+       "is_forward": false,
+       "routing_basis": "sender",
+       "forwarded_by": null,
+       "original_sender": null,
+       "delivery": "direct",
+       "audience_size": 1,
+       "sender_member_id": null,
+       "sender_verified": true,
+       "auth": {
+        "trust": "trusted",
+        "trusted": true,
+        "source": "provider",
+        "spf": "pass",
+        "dkim": "pass",
+        "dmarc": "pass",
+        "reason": "provider: DKIM pass aligned with From"
+       },
+       "auto_mail_reason": null,
+       "sorting": {
+        "kind": "person",
+        "topic": null,
+        "action": "triage",
+        "reason": "From a person.",
+        "superseded_by": null
+       },
+       "new_text": "Following up on my note.",
+       "text": "Following up on my note.\n",
+       "text_truncated": false,
+       "html_text": null,
+       "html_text_truncated": false,
+       "latest_triage": {
+        "id": "<triage:prospect-reply@prospect.example/Read#2>",
+        "message_id": "<message:Planner/prospect-reply@prospect.example>",
+        "member_id": null,
+        "outcome": "no_action",
+        "urgent": false,
+        "summary": "Read",
+        "question_for_human": null,
+        "suggested_reply": null,
+        "project_id": null,
+        "project_ids": [],
+        "summarized_at": null,
+        "created_at": "<time>"
+       },
+       "answers": [],
+       "linked_tasks": [],
+       "attachments": []
+      }
+     ],
+     "reply_drafts": []
+    }
+   }
+  },
+  {
+   "success": true,
+   "data": {
     "id": "<message:Planner/fw-suspended@agency.example>",
     "status": "new",
     "subject": "Fwd: New homepage copy",
@@ -16523,6 +16905,415 @@
   {
    "success": true,
    "data": {
+    "id": "<message:Planner/prospect-colleague@prospect.example>",
+    "status": "handled",
+    "subject": "Re: Marketing and DTC help",
+    "internet_message_id": "prospect-colleague@prospect.example",
+    "received_at": "<time>",
+    "sent_at": "<time>",
+    "from": {
+     "address": "ben@prospect.example",
+     "name": "Ben Shore",
+     "contact_id": null
+    },
+    "to": [
+     {
+      "address": "planner@agency.example",
+      "name": "",
+      "contact_id": null
+     }
+    ],
+    "cc": [],
+    "reply_to": [],
+    "is_forward": false,
+    "routing_basis": "sender",
+    "forwarded_by": null,
+    "original_sender": null,
+    "delivery": "direct",
+    "audience_size": 1,
+    "sender_member_id": null,
+    "sender_verified": true,
+    "auth": {
+     "trust": "trusted",
+     "trusted": true,
+     "source": "provider",
+     "spf": "pass",
+     "dkim": "pass",
+     "dmarc": "pass",
+     "reason": "provider: DKIM pass aligned with From"
+    },
+    "auto_mail_reason": null,
+    "sorting": {
+     "kind": "person",
+     "topic": null,
+     "action": "triage",
+     "reason": "From a person.",
+     "superseded_by": null
+    },
+    "new_text": "Adding myself.",
+    "text": "Adding myself.\n",
+    "text_truncated": false,
+    "html_text": null,
+    "html_text_truncated": false,
+    "latest_triage": {
+     "id": "<triage:prospect-colleague@prospect.example/Read>",
+     "message_id": "<message:Planner/prospect-colleague@prospect.example>",
+     "member_id": null,
+     "outcome": "no_action",
+     "urgent": false,
+     "summary": "Read",
+     "question_for_human": null,
+     "suggested_reply": null,
+     "project_id": null,
+     "project_ids": [],
+     "summarized_at": null,
+     "created_at": "<time>"
+    },
+    "answers": [],
+    "linked_tasks": [],
+    "attachments": [],
+    "inbox": {
+     "id": "<ids.inboxA>",
+     "name": "Planner",
+     "address": "planner@agency.example"
+    },
+    "thread_id": "<thread:Planner/prospect-colleague@prospect.example>",
+    "conversation_id": "<thread:Planner/prospect-colleague@prospect.example>",
+    "channel": "email",
+    "project": null,
+    "projects": [],
+    "project_scope": {
+     "bases": [],
+     "projects": [],
+     "any_project": false,
+     "any_source": null
+    },
+    "candidates": [],
+    "thread": {
+     "id": "<thread:Planner/prospect-colleague@prospect.example>",
+     "subject_normalized": "marketing and dtc help",
+     "summary": null,
+     "last_message_at": "<time>",
+     "messages": [
+      {
+       "id": "<message:Planner/prospect-colleague@prospect.example>",
+       "status": "handled",
+       "subject": "Re: Marketing and DTC help",
+       "internet_message_id": "prospect-colleague@prospect.example",
+       "received_at": "<time>",
+       "sent_at": "<time>",
+       "from": {
+        "address": "ben@prospect.example",
+        "name": "Ben Shore",
+        "contact_id": null
+       },
+       "to": [
+        {
+         "address": "planner@agency.example",
+         "name": "",
+         "contact_id": null
+        }
+       ],
+       "cc": [],
+       "reply_to": [],
+       "is_forward": false,
+       "routing_basis": "sender",
+       "forwarded_by": null,
+       "original_sender": null,
+       "delivery": "direct",
+       "audience_size": 1,
+       "sender_member_id": null,
+       "sender_verified": true,
+       "auth": {
+        "trust": "trusted",
+        "trusted": true,
+        "source": "provider",
+        "spf": "pass",
+        "dkim": "pass",
+        "dmarc": "pass",
+        "reason": "provider: DKIM pass aligned with From"
+       },
+       "auto_mail_reason": null,
+       "sorting": {
+        "kind": "person",
+        "topic": null,
+        "action": "triage",
+        "reason": "From a person.",
+        "superseded_by": null
+       },
+       "new_text": "Adding myself.",
+       "text": "Adding myself.\n",
+       "text_truncated": false,
+       "html_text": null,
+       "html_text_truncated": false,
+       "latest_triage": {
+        "id": "<triage:prospect-colleague@prospect.example/Read>",
+        "message_id": "<message:Planner/prospect-colleague@prospect.example>",
+        "member_id": null,
+        "outcome": "no_action",
+        "urgent": false,
+        "summary": "Read",
+        "question_for_human": null,
+        "suggested_reply": null,
+        "project_id": null,
+        "project_ids": [],
+        "summarized_at": null,
+        "created_at": "<time>"
+       },
+       "answers": [],
+       "linked_tasks": [],
+       "attachments": []
+      }
+     ],
+     "reply_drafts": []
+    }
+   }
+  },
+  {
+   "success": true,
+   "data": {
+    "id": "<message:Planner/prospect-reply@prospect.example>",
+    "status": "handled",
+    "subject": "Re: Marketing and DTC help",
+    "internet_message_id": "prospect-reply@prospect.example",
+    "received_at": "<time>",
+    "sent_at": "<time>",
+    "from": {
+     "address": "alycia@prospect.example",
+     "name": "Alycia Shore",
+     "contact_id": null
+    },
+    "to": [
+     {
+      "address": "planner@agency.example",
+      "name": "",
+      "contact_id": null
+     }
+    ],
+    "cc": [],
+    "reply_to": [],
+    "is_forward": false,
+    "routing_basis": "sender",
+    "forwarded_by": null,
+    "original_sender": null,
+    "delivery": "direct",
+    "audience_size": 1,
+    "sender_member_id": null,
+    "sender_verified": true,
+    "auth": {
+     "trust": "trusted",
+     "trusted": true,
+     "source": "provider",
+     "spf": "pass",
+     "dkim": "pass",
+     "dmarc": "pass",
+     "reason": "provider: DKIM pass aligned with From"
+    },
+    "auto_mail_reason": null,
+    "sorting": {
+     "kind": "person",
+     "topic": null,
+     "action": "triage",
+     "reason": "From a person.",
+     "superseded_by": null
+    },
+    "new_text": "Following up on my note.",
+    "text": "Following up on my note.\n",
+    "text_truncated": false,
+    "html_text": null,
+    "html_text_truncated": false,
+    "latest_triage": {
+     "id": "<triage:prospect-reply@prospect.example/Read#2>",
+     "message_id": "<message:Planner/prospect-reply@prospect.example>",
+     "member_id": null,
+     "outcome": "no_action",
+     "urgent": false,
+     "summary": "Read",
+     "question_for_human": null,
+     "suggested_reply": null,
+     "project_id": null,
+     "project_ids": [],
+     "summarized_at": null,
+     "created_at": "<time>"
+    },
+    "answers": [],
+    "linked_tasks": [],
+    "attachments": [],
+    "inbox": {
+     "id": "<ids.inboxA>",
+     "name": "Planner",
+     "address": "planner@agency.example"
+    },
+    "thread_id": "<thread:Planner/fw-prospect@agency.example>",
+    "conversation_id": "<thread:Planner/fw-prospect@agency.example>",
+    "channel": "email",
+    "project": null,
+    "projects": [],
+    "project_scope": {
+     "bases": [],
+     "projects": [],
+     "any_project": false,
+     "any_source": null
+    },
+    "candidates": [],
+    "thread": {
+     "id": "<thread:Planner/fw-prospect@agency.example>",
+     "subject_normalized": "marketing and dtc help",
+     "summary": null,
+     "last_message_at": "<time>",
+     "messages": [
+      {
+       "id": "<message:Planner/fw-prospect@agency.example>",
+       "status": "handled",
+       "subject": "Fwd: Marketing and DTC help",
+       "internet_message_id": "fw-prospect@agency.example",
+       "received_at": "<time>",
+       "sent_at": "<time>",
+       "from": {
+        "address": "owner@agency.example",
+        "name": "",
+        "contact_id": null
+       },
+       "to": [
+        {
+         "address": "planner@agency.example",
+         "name": "",
+         "contact_id": null
+        }
+       ],
+       "cc": [],
+       "reply_to": [],
+       "is_forward": true,
+       "routing_basis": "forwarded_original",
+       "forwarded_by": {
+        "member_id": "<ids.owner>",
+        "name": "Sam"
+       },
+       "original_sender": {
+        "address": "alycia@prospect.example",
+        "name": "Alycia Shore"
+       },
+       "delivery": "forwarded",
+       "audience_size": 1,
+       "sender_member_id": "<ids.owner>",
+       "sender_verified": true,
+       "auth": {
+        "trust": "trusted",
+        "trusted": true,
+        "source": "provider",
+        "spf": "pass",
+        "dkim": "pass",
+        "dmarc": "pass",
+        "reason": "provider: DKIM pass aligned with From"
+       },
+       "auto_mail_reason": null,
+       "sorting": {
+        "kind": "person",
+        "topic": null,
+        "action": "triage",
+        "reason": "From a person.",
+        "superseded_by": null
+       },
+       "new_text": "New lead.",
+       "text": "New lead.\n\n---------- Forwarded message ---------\nFrom: Alycia Shore <alycia@prospect.example>\nDate: Mon, Oct 5, 2026\nSubject: Marketing and DTC help\nTo: Sam Owner <owner@agency.example>\n\nCan you help us grow direct sales?\n",
+       "text_truncated": false,
+       "html_text": null,
+       "html_text_truncated": false,
+       "latest_triage": {
+        "id": "<triage:fw-prospect@agency.example/Read>",
+        "message_id": "<message:Planner/fw-prospect@agency.example>",
+        "member_id": null,
+        "outcome": "no_action",
+        "urgent": false,
+        "summary": "Read",
+        "question_for_human": null,
+        "suggested_reply": null,
+        "project_id": null,
+        "project_ids": [],
+        "summarized_at": null,
+        "created_at": "<time>"
+       },
+       "answers": [],
+       "linked_tasks": [],
+       "attachments": []
+      },
+      {
+       "id": "<message:Planner/prospect-reply@prospect.example>",
+       "status": "handled",
+       "subject": "Re: Marketing and DTC help",
+       "internet_message_id": "prospect-reply@prospect.example",
+       "received_at": "<time>",
+       "sent_at": "<time>",
+       "from": {
+        "address": "alycia@prospect.example",
+        "name": "Alycia Shore",
+        "contact_id": null
+       },
+       "to": [
+        {
+         "address": "planner@agency.example",
+         "name": "",
+         "contact_id": null
+        }
+       ],
+       "cc": [],
+       "reply_to": [],
+       "is_forward": false,
+       "routing_basis": "sender",
+       "forwarded_by": null,
+       "original_sender": null,
+       "delivery": "direct",
+       "audience_size": 1,
+       "sender_member_id": null,
+       "sender_verified": true,
+       "auth": {
+        "trust": "trusted",
+        "trusted": true,
+        "source": "provider",
+        "spf": "pass",
+        "dkim": "pass",
+        "dmarc": "pass",
+        "reason": "provider: DKIM pass aligned with From"
+       },
+       "auto_mail_reason": null,
+       "sorting": {
+        "kind": "person",
+        "topic": null,
+        "action": "triage",
+        "reason": "From a person.",
+        "superseded_by": null
+       },
+       "new_text": "Following up on my note.",
+       "text": "Following up on my note.\n",
+       "text_truncated": false,
+       "html_text": null,
+       "html_text_truncated": false,
+       "latest_triage": {
+        "id": "<triage:prospect-reply@prospect.example/Read#2>",
+        "message_id": "<message:Planner/prospect-reply@prospect.example>",
+        "member_id": null,
+        "outcome": "no_action",
+        "urgent": false,
+        "summary": "Read",
+        "question_for_human": null,
+        "suggested_reply": null,
+        "project_id": null,
+        "project_ids": [],
+        "summarized_at": null,
+        "created_at": "<time>"
+       },
+       "answers": [],
+       "linked_tasks": [],
+       "attachments": []
+      }
+     ],
+     "reply_drafts": []
+    }
+   }
+  },
+  {
+   "success": true,
+   "data": {
     "id": "<message:Planner/public-domain@acme-roofing.example>",
     "status": "new",
     "subject": "Personal",
@@ -21413,6 +22204,7 @@
     "has_new": true,
     "urgent": false,
     "untrusted": false,
+    "draft_ready": false,
     "attachment_count": 0,
     "summary": null,
     "task_count": 0,
@@ -21441,6 +22233,7 @@
     "has_new": true,
     "urgent": false,
     "untrusted": false,
+    "draft_ready": false,
     "attachment_count": 0,
     "summary": null,
     "task_count": 0,
@@ -21469,6 +22262,7 @@
     "has_new": true,
     "urgent": false,
     "untrusted": false,
+    "draft_ready": false,
     "attachment_count": 7,
     "summary": null,
     "task_count": 0,
@@ -21507,6 +22301,7 @@
     "has_new": false,
     "urgent": false,
     "untrusted": true,
+    "draft_ready": false,
     "attachment_count": 0,
     "summary": null,
     "task_count": 0,
@@ -21550,6 +22345,7 @@
     "has_new": false,
     "urgent": false,
     "untrusted": false,
+    "draft_ready": false,
     "attachment_count": 0,
     "summary": "Footer done; Dana is happy with it.",
     "task_count": 5,
@@ -21588,6 +22384,7 @@
     "has_new": true,
     "urgent": false,
     "untrusted": false,
+    "draft_ready": false,
     "attachment_count": 0,
     "summary": null,
     "task_count": 0,
@@ -21626,6 +22423,7 @@
     "has_new": true,
     "urgent": false,
     "untrusted": false,
+    "draft_ready": false,
     "attachment_count": 0,
     "summary": null,
     "task_count": 0,
@@ -21664,6 +22462,7 @@
     "has_new": true,
     "urgent": false,
     "untrusted": false,
+    "draft_ready": false,
     "attachment_count": 0,
     "summary": null,
     "task_count": 0,
@@ -21692,6 +22491,7 @@
     "has_new": true,
     "urgent": false,
     "untrusted": false,
+    "draft_ready": false,
     "attachment_count": 0,
     "summary": null,
     "task_count": 0,
@@ -21730,6 +22530,7 @@
     "has_new": true,
     "urgent": false,
     "untrusted": false,
+    "draft_ready": false,
     "attachment_count": 0,
     "summary": null,
     "task_count": 0,
@@ -21768,6 +22569,7 @@
     "has_new": true,
     "urgent": false,
     "untrusted": false,
+    "draft_ready": false,
     "attachment_count": 0,
     "summary": null,
     "task_count": 0,
@@ -21806,6 +22608,7 @@
     "has_new": true,
     "urgent": false,
     "untrusted": false,
+    "draft_ready": false,
     "attachment_count": 0,
     "summary": null,
     "task_count": 0,
@@ -21844,6 +22647,7 @@
     "has_new": true,
     "urgent": false,
     "untrusted": false,
+    "draft_ready": false,
     "attachment_count": 1,
     "summary": null,
     "task_count": 0,
@@ -21882,6 +22686,7 @@
     "has_new": true,
     "urgent": false,
     "untrusted": false,
+    "draft_ready": false,
     "attachment_count": 0,
     "summary": null,
     "task_count": 0,
@@ -21920,6 +22725,7 @@
     "has_new": false,
     "urgent": false,
     "untrusted": false,
+    "draft_ready": false,
     "attachment_count": 0,
     "summary": null,
     "task_count": 0,
@@ -21958,6 +22764,7 @@
     "has_new": true,
     "urgent": false,
     "untrusted": false,
+    "draft_ready": false,
     "attachment_count": 0,
     "summary": null,
     "task_count": 0,
@@ -21996,6 +22803,36 @@
     "has_new": true,
     "urgent": false,
     "untrusted": false,
+    "draft_ready": false,
+    "attachment_count": 0,
+    "summary": null,
+    "task_count": 0,
+    "reminder_count": 0,
+    "suggestion_count": 0
+   },
+   {
+    "id": "<thread:Planner/fw-prospect@agency.example>",
+    "inbox_id": "<ids.inboxA>",
+    "inbox_name": "Planner",
+    "channel": "email",
+    "meeting": null,
+    "subject": "Re: Marketing and DTC help",
+    "project": null,
+    "projects": [],
+    "last_message_at": "<time>",
+    "message_count": 2,
+    "sender": {
+     "name": "Alycia Shore",
+     "address": "alycia@prospect.example"
+    },
+    "snippet": "Following up on my note.",
+    "state": "handled",
+    "needs_you": false,
+    "needs_reply": false,
+    "has_new": false,
+    "urgent": false,
+    "untrusted": false,
+    "draft_ready": false,
     "attachment_count": 0,
     "summary": null,
     "task_count": 0,
@@ -22024,6 +22861,7 @@
     "has_new": true,
     "urgent": false,
     "untrusted": false,
+    "draft_ready": false,
     "attachment_count": 0,
     "summary": null,
     "task_count": 0,
@@ -22062,6 +22900,7 @@
     "has_new": true,
     "urgent": false,
     "untrusted": false,
+    "draft_ready": false,
     "attachment_count": 0,
     "summary": null,
     "task_count": 0,
@@ -22090,6 +22929,7 @@
     "has_new": true,
     "urgent": false,
     "untrusted": true,
+    "draft_ready": false,
     "attachment_count": 0,
     "summary": null,
     "task_count": 0,
@@ -22118,6 +22958,7 @@
     "has_new": false,
     "urgent": false,
     "untrusted": false,
+    "draft_ready": false,
     "attachment_count": 0,
     "summary": null,
     "task_count": 0,
@@ -22156,6 +22997,7 @@
     "has_new": false,
     "urgent": false,
     "untrusted": false,
+    "draft_ready": false,
     "attachment_count": 0,
     "summary": null,
     "task_count": 0,
@@ -22190,6 +23032,7 @@
     "has_new": true,
     "urgent": false,
     "untrusted": false,
+    "draft_ready": false,
     "attachment_count": 0,
     "summary": null,
     "task_count": 0,
@@ -22228,6 +23071,7 @@
     "has_new": true,
     "urgent": false,
     "untrusted": false,
+    "draft_ready": false,
     "attachment_count": 3,
     "summary": null,
     "task_count": 0,
@@ -22256,6 +23100,7 @@
     "has_new": true,
     "urgent": false,
     "untrusted": false,
+    "draft_ready": false,
     "attachment_count": 0,
     "summary": null,
     "task_count": 0,
@@ -22294,6 +23139,7 @@
     "has_new": true,
     "urgent": false,
     "untrusted": false,
+    "draft_ready": false,
     "attachment_count": 0,
     "summary": null,
     "task_count": 0,
@@ -22342,6 +23188,7 @@
     "has_new": false,
     "urgent": false,
     "untrusted": false,
+    "draft_ready": false,
     "attachment_count": 0,
     "summary": null,
     "task_count": 0,
@@ -22380,6 +23227,7 @@
     "has_new": true,
     "urgent": false,
     "untrusted": false,
+    "draft_ready": false,
     "attachment_count": 0,
     "summary": null,
     "task_count": 0,
@@ -22418,6 +23266,7 @@
     "has_new": true,
     "urgent": false,
     "untrusted": false,
+    "draft_ready": false,
     "attachment_count": 0,
     "summary": null,
     "task_count": 0,
@@ -22456,6 +23305,7 @@
     "has_new": true,
     "urgent": false,
     "untrusted": false,
+    "draft_ready": false,
     "attachment_count": 0,
     "summary": null,
     "task_count": 0,
@@ -22484,6 +23334,7 @@
     "has_new": true,
     "urgent": false,
     "untrusted": false,
+    "draft_ready": false,
     "attachment_count": 0,
     "summary": null,
     "task_count": 0,
@@ -22512,6 +23363,7 @@
     "has_new": false,
     "urgent": false,
     "untrusted": false,
+    "draft_ready": false,
     "attachment_count": 0,
     "summary": null,
     "task_count": 0,
@@ -22550,6 +23402,7 @@
     "has_new": false,
     "urgent": false,
     "untrusted": false,
+    "draft_ready": false,
     "attachment_count": 0,
     "summary": null,
     "task_count": 1,
@@ -22578,6 +23431,7 @@
     "has_new": true,
     "urgent": false,
     "untrusted": false,
+    "draft_ready": false,
     "attachment_count": 0,
     "summary": null,
     "task_count": 0,
@@ -22606,6 +23460,7 @@
     "has_new": true,
     "urgent": false,
     "untrusted": false,
+    "draft_ready": false,
     "attachment_count": 0,
     "summary": null,
     "task_count": 0,
@@ -22644,6 +23499,7 @@
     "has_new": false,
     "urgent": false,
     "untrusted": false,
+    "draft_ready": false,
     "attachment_count": 0,
     "summary": null,
     "task_count": 0,
@@ -22682,6 +23538,7 @@
     "has_new": true,
     "urgent": false,
     "untrusted": false,
+    "draft_ready": false,
     "attachment_count": 0,
     "summary": null,
     "task_count": 0,
@@ -22720,6 +23577,7 @@
     "has_new": true,
     "urgent": false,
     "untrusted": false,
+    "draft_ready": false,
     "attachment_count": 0,
     "summary": null,
     "task_count": 0,
@@ -22758,6 +23616,7 @@
     "has_new": true,
     "urgent": false,
     "untrusted": false,
+    "draft_ready": false,
     "attachment_count": 0,
     "summary": null,
     "task_count": 0,
@@ -22786,6 +23645,7 @@
     "has_new": true,
     "urgent": false,
     "untrusted": false,
+    "draft_ready": false,
     "attachment_count": 0,
     "summary": null,
     "task_count": 0,
@@ -22814,6 +23674,7 @@
     "has_new": true,
     "urgent": false,
     "untrusted": false,
+    "draft_ready": false,
     "attachment_count": 0,
     "summary": null,
     "task_count": 0,
@@ -22842,6 +23703,7 @@
     "has_new": true,
     "urgent": false,
     "untrusted": false,
+    "draft_ready": false,
     "attachment_count": 0,
     "summary": null,
     "task_count": 0,
@@ -22849,19 +23711,19 @@
     "suggestion_count": 0
    }
   ],
-  "total": 42,
+  "total": 43,
   "counts": {
-   "all": 42,
-   "fyi": 0,
+   "all": 43,
+   "fyi": 1,
    "updates": 2,
    "codes": 0,
    "ignored": 4,
-   "everything": 48,
+   "everything": 50,
    "needs_you": 1,
    "needs_reply": 0,
    "new": 34,
-   "handled": 8,
-   "unassigned": 15
+   "handled": 9,
+   "unassigned": 16
   },
   "latest_code": null,
   "owners_read_personal": false
@@ -25885,6 +26747,182 @@
      "mapped_project_ids": [
       "<project:Vera Studio>"
      ],
+     "domain_project_ids": []
+    }
+   ]
+  },
+  {
+   "can_triage": true,
+   "id": "<thread:Planner/fw-prospect@agency.example>",
+   "inbox": {
+    "id": "<ids.inboxA>",
+    "name": "Planner",
+    "address": "planner@agency.example",
+    "enabled": true,
+    "handler": {
+     "id": "<ids.planner>",
+     "name": "Planner P."
+    },
+    "owner": null
+   },
+   "channel": "email",
+   "meeting": null,
+   "subject": "Re: Marketing and DTC help",
+   "project": null,
+   "projects": [],
+   "state": "handled",
+   "urgent": false,
+   "untrusted": false,
+   "candidates": [],
+   "messages": [
+    {
+     "id": "<message:Planner/fw-prospect@agency.example>",
+     "channel": "email",
+     "meeting_package": null,
+     "status": "handled",
+     "subject": "Fwd: Marketing and DTC help",
+     "received_at": "<time>",
+     "sent_at": "<time>",
+     "from": {
+      "address": "owner@agency.example",
+      "name": "",
+      "contact_id": null
+     },
+     "to": [
+      {
+       "address": "planner@agency.example",
+       "name": "",
+       "contact_id": null
+      }
+     ],
+     "cc": [],
+     "is_forward": true,
+     "routing_basis": "forwarded_original",
+     "forwarded_by": {
+      "member_id": "<ids.owner>",
+      "name": "Sam"
+     },
+     "original_sender": {
+      "name": "Alycia Shore",
+      "address": "alycia@prospect.example"
+     },
+     "trust": {
+      "level": "trusted",
+      "reason": "provider: DKIM pass aligned with From",
+      "spf": "pass",
+      "dkim": "pass",
+      "dmarc": "pass"
+     },
+     "auto_mail_reason": null,
+     "sorting": {
+      "kind": "person",
+      "topic": null,
+      "action": "triage",
+      "reason": "From a person.",
+      "rule_id": null,
+      "superseded_by": null
+     },
+     "new_text": "New lead.",
+     "text_body": "New lead.\n\n---------- Forwarded message ---------\nFrom: Alycia Shore <alycia@prospect.example>\nDate: Mon, Oct 5, 2026\nSubject: Marketing and DTC help\nTo: Sam Owner <owner@agency.example>\n\nCan you help us grow direct sales?\n",
+     "html_body": null,
+     "attachments": [],
+     "triage": {
+      "id": "<triage:fw-prospect@agency.example/Read>",
+      "outcome": "no_action",
+      "urgent": false,
+      "summary": "Read",
+      "question_for_human": null,
+      "questions": null,
+      "suggested_reply": null,
+      "category": "fyi",
+      "member": null,
+      "created_at": "<time>"
+     },
+     "answer": null,
+     "linked_tasks": [],
+     "reminders": [],
+     "plan": null,
+     "reply_points": [],
+     "reviewed_at": null,
+     "reviewed_by": null,
+     "repeat_pitch": false
+    },
+    {
+     "id": "<message:Planner/prospect-reply@prospect.example>",
+     "channel": "email",
+     "meeting_package": null,
+     "status": "handled",
+     "subject": "Re: Marketing and DTC help",
+     "received_at": "<time>",
+     "sent_at": "<time>",
+     "from": {
+      "address": "alycia@prospect.example",
+      "name": "Alycia Shore",
+      "contact_id": null
+     },
+     "to": [
+      {
+       "address": "planner@agency.example",
+       "name": "",
+       "contact_id": null
+      }
+     ],
+     "cc": [],
+     "is_forward": false,
+     "routing_basis": "sender",
+     "forwarded_by": null,
+     "original_sender": null,
+     "trust": {
+      "level": "trusted",
+      "reason": "provider: DKIM pass aligned with From",
+      "spf": "pass",
+      "dkim": "pass",
+      "dmarc": "pass"
+     },
+     "auto_mail_reason": null,
+     "sorting": {
+      "kind": "person",
+      "topic": null,
+      "action": "triage",
+      "reason": "From a person.",
+      "rule_id": null,
+      "superseded_by": null
+     },
+     "new_text": "Following up on my note.",
+     "text_body": "Following up on my note.\n",
+     "html_body": null,
+     "attachments": [],
+     "triage": {
+      "id": "<triage:prospect-reply@prospect.example/Read#2>",
+      "outcome": "no_action",
+      "urgent": false,
+      "summary": "Read",
+      "question_for_human": null,
+      "questions": null,
+      "suggested_reply": null,
+      "category": "fyi",
+      "member": null,
+      "created_at": "<time>"
+     },
+     "answer": null,
+     "linked_tasks": [],
+     "reminders": [],
+     "plan": null,
+     "reply_points": [],
+     "reviewed_at": null,
+     "reviewed_by": null,
+     "repeat_pitch": false
+    }
+   ],
+   "summary": null,
+   "senders": [
+    {
+     "address": "alycia@prospect.example",
+     "name": "Alycia Shore",
+     "domain": "prospect.example",
+     "domain_is_public": false,
+     "contact_ids": [],
+     "mapped_project_ids": [],
      "domain_project_ids": []
     }
    ]

@@ -15526,7 +15526,8 @@ begin
   foreach t in array array[
     'inboxes', 'inbox_access', 'client_domains', 'client_addresses', 'endpoints',
     'conversations', 'conversation_projects', 'messages', 'participants', 'message_candidates',
-    'attachments', 'triage', 'task_links', 'plans', 'plan_items', 'reply_points', 'meetings'
+    'attachments', 'triage', 'task_links', 'plans', 'plan_items', 'reply_points', 'meetings',
+    'reply_drafts'
   ] loop
     if not exists (
       select 1 from pg_publication_tables

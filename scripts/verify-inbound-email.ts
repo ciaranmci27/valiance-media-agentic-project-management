@@ -1594,6 +1594,35 @@ async function main() {
       const [t1, t2, t3] = [await routed('tt-1@agency.example'), await routed('tt-2@agency.example'), await routed('tt-3@verastudio.example')];
       check('threading: the same subject to two clients from one teammate stays two threads; the client\'s answer joins its own',
         t1.thread.id !== t2.thread.id && t3.thread.id === t1.thread.id && t2.thread.project_id === fwdB, [t1.thread.id, t2.thread.id, t3.thread.id]);
+      // A teammate forwards a prospect's email, then she replies directly. Her reply names her original
+      // (never received here), and the forward has her only as its original sender: still one conversation.
+      await sendMail('re_fw_prospect', { from: 'owner@agency.example', to: 'planner@agency.example', subject: 'Fwd: Marketing and DTC help', id: 'fw-prospect@agency.example',
+        body: ['New lead.', '', '---------- Forwarded message ---------', 'From: Alycia Shore <alycia@prospect.example>', 'Date: Mon, Oct 5, 2026',
+          'Subject: Marketing and DTC help', 'To: Sam Owner <owner@agency.example>', '', 'Can you help us grow direct sales?'].join('\r\n') });
+      await sendMail('re_prospect_reply', { from: 'Alycia Shore <alycia@prospect.example>', to: 'planner@agency.example', subject: 'Re: Marketing and DTC help',
+        id: 'prospect-reply@prospect.example', inReplyTo: 'prospect-original@prospect.example', body: 'Following up on my note.' });
+      await sendMail('re_prospect_colleague', { from: 'Ben Shore <ben@prospect.example>', to: 'planner@agency.example', subject: 'Re: Marketing and DTC help',
+        id: 'prospect-colleague@prospect.example', body: 'Adding myself.' });
+      const [prospectFwd, prospectReply, colleague] = [await routed('fw-prospect@agency.example'), await routed('prospect-reply@prospect.example'), await routed('prospect-colleague@prospect.example')];
+      check('threading: a prospect\'s direct reply joins the forward of her email; a colleague on her domain does not',
+        prospectFwd.message.routing_basis === 'forwarded_original' && prospectFwd.message.original_from_address === 'alycia@prospect.example'
+        && prospectReply.thread.id === prospectFwd.thread.id && colleague.thread.id !== prospectFwd.thread.id,
+        [prospectFwd.thread.id, prospectReply.thread.id, colleague.thread.id, prospectFwd.message.original_from_address]);
+      // Read as work once, then re-read as settled (fyi): the conversation stays in the Inbox, as handled.
+      // The colleague's thread, only ever fyi, goes to FYI.
+      const triageAs = (messageId: string, category: string, outcome: string, ago: string) => db.query(
+        `INSERT INTO pm.triage (message_id, outcome, urgent, summary, category, created_at) VALUES ($1, $2, false, 'Read', $3, now() - $4::interval)`, [messageId, outcome, category, ago]);
+      await triageAs(prospectFwd.message.id, 'fyi', 'no_action', '3 hours');
+      await triageAs(prospectReply.message.id, 'work', 'task', '2 hours');
+      await triageAs(prospectReply.message.id, 'fyi', 'no_action', '1 hour');
+      await triageAs(colleague.message.id, 'fyi', 'no_action', '1 hour');
+      await db.query("UPDATE pm.messages SET status = 'handled' WHERE id = ANY($1::uuid[])", [[prospectFwd.message.id, prospectReply.message.id, colleague.message.id]]);
+      const tabOf = async (tab: 'all' | 'fyi' | 'handled') => new Set((await inbox.listThreads(owner, { ...allThreads, tab })).threads.map((thread) => thread.id));
+      const [allTab, fyiTab, handledTab] = [await tabOf('all'), await tabOf('fyi'), await tabOf('handled')];
+      check('fyi: a conversation any triage read as work stays in the Inbox as handled; one only ever fyi moves to FYI',
+        allTab.has(prospectFwd.thread.id) && handledTab.has(prospectFwd.thread.id) && !fyiTab.has(prospectFwd.thread.id)
+        && fyiTab.has(colleague.thread.id) && !allTab.has(colleague.thread.id),
+        { prospect: [allTab.has(prospectFwd.thread.id), handledTab.has(prospectFwd.thread.id), fyiTab.has(prospectFwd.thread.id)], colleague: [fyiTab.has(colleague.thread.id), allTab.has(colleague.thread.id)] });
 
       // The agent API.
       const apiList = await api(list.GET, 'GET', '/api/v1/inbound-emails?limit=100', keys.planner);
@@ -1922,9 +1951,31 @@ async function main() {
       const shown = await drafts.latestDraft(owner, reply.thread_id);
       check('drafts: the thread shows the ready draft and who wrote it', shown?.status === 'ready' && !!shown.body?.includes('Friday works') && shown.drafted_by?.id === ids.planner, shown);
 
+      // A written draft nobody copied keeps the thread in the Inbox, marked on its row, until it is copied.
+      const draftRow = async () => (await inbox.listThreads(owner, { ...allThreads, tab: 'everything' })).threads.find((thread) => thread.id === reply.thread_id);
+      const readyRow = await draftRow();
+      // A newer email than the draft overtakes it. A person marking the thread handled after it was written
+      // clears it (they may have replied themselves); an agent settling earlier mail does not.
+      const writtenAt = (await rows<{ completed_at: string }>(db, 'SELECT completed_at FROM pm.reply_drafts WHERE id=$1', [asked.id]))[0].completed_at;
+      const reviewSaved = await rows<{ id: string; reviewed_at: string | null; reviewed_by: string | null }>(db, 'SELECT id, reviewed_at, reviewed_by FROM pm.messages WHERE thread_id=$1', [reply.thread_id]);
+      await db.query("UPDATE pm.reply_drafts SET completed_at = (SELECT max(received_at) FROM pm.messages WHERE thread_id=$2) - interval '1 minute' WHERE id=$1", [asked.id, reply.thread_id]);
+      const overtakenRow = await draftRow();
+      await db.query('UPDATE pm.reply_drafts SET completed_at=$2 WHERE id=$1', [asked.id, writtenAt]);
+      await db.query("UPDATE pm.messages SET reviewed_at = now() + interval '1 minute', reviewed_by = $2 WHERE id=$1", [reply.id, ids.planner]);
+      const agentSettledRow = await draftRow();
+      await db.query('UPDATE pm.messages SET reviewed_by = $2 WHERE id=$1', [reply.id, ids.owner]);
+      const personHandledRow = await draftRow();
+      for (const row of reviewSaved) await db.query('UPDATE pm.messages SET reviewed_at=$2, reviewed_by=$3 WHERE id=$1', [row.id, row.reviewed_at, row.reviewed_by]);
+      check('drafts: the row stops saying a draft is ready once a newer email overtakes it or a person marks the thread handled after it; an agent settling mail does not clear it',
+        overtakenRow?.draft_ready === false && agentSettledRow?.draft_ready === true && personHandledRow?.draft_ready === false && (await draftRow())?.draft_ready === true,
+        [overtakenRow?.draft_ready, agentSettledRow?.draft_ready, personHandledRow?.draft_ready]);
+
       // Copying it is recorded once; with the thread handled after, the agent reads it as the reply that went out.
       check('drafts: a reader cannot record a copy (403)', (await failsWith(() => drafts.markDraftCopied(reader, reply.thread_id, asked.id))) === 403);
       const copiedOnce = await drafts.markDraftCopied(owner, reply.thread_id, asked.id);
+      const copiedRow = await draftRow();
+      check('drafts: the Inbox row says a draft is ready until someone copies it', readyRow?.draft_ready === true && copiedRow?.draft_ready === false,
+        [readyRow?.draft_ready, copiedRow?.draft_ready]);
       await db.query("UPDATE pm.reply_drafts SET copied_at = copied_at - interval '1 hour' WHERE id=$1", [asked.id]);
       const copiedTwice = await drafts.markDraftCopied(owner, reply.thread_id, asked.id);
       check('drafts: the first copy is the one kept', !!copiedOnce.copied_at && !!copiedTwice.copied_at && Date.parse(copiedTwice.copied_at) < Date.parse(copiedOnce.copied_at), [copiedOnce.copied_at, copiedTwice.copied_at]);
@@ -2174,6 +2225,28 @@ async function main() {
   }
 
   // The schema.sql snapshot stands on its own.
+  // Live sync: every table the Inbox's reads list sends Realtime changes, reply drafts included, on a fresh
+  // install (schema.sql) and through the migration on an existing one.
+  {
+    const { INBOX_TABLES } = await import('../src/lib/communications/inbox-types');
+    const { createFullSchemaDatabase } = await import('./full-schema-db');
+    const fresh = await createFullSchemaDatabase();
+    const published = new Set((await rows<{ tablename: string }>(fresh,
+      "SELECT tablename FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND schemaname = 'pm'")).map((row) => row.tablename));
+    await fresh.close();
+    const missing = INBOX_TABLES.map((table) => table.replace(/^communications\./, '')).filter((table) => !published.has(table));
+    const { PGlite: Pg } = await import('@electric-sql/pglite');
+    const existing = new Pg();
+    await existing.exec('CREATE SCHEMA pm; CREATE TABLE pm.reply_drafts (id int PRIMARY KEY); CREATE PUBLICATION supabase_realtime;');
+    const threadsMigration = await readMigration('../supabase/migrations/20261125000500_inbox_threads.sql').catch(() => '');
+    await existing.exec(threadsMigration);
+    await existing.exec(threadsMigration); // safe to run twice
+    const migrated = (await rows(existing, "SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND schemaname = 'pm' AND tablename = 'reply_drafts'")).length;
+    await existing.close();
+    check('live sync: every Inbox read table, reply drafts included, is in the Realtime publication (schema.sql and the migration)',
+      (INBOX_TABLES as readonly string[]).includes('communications.reply_drafts') && missing.length === 0 && migrated === 1, { missing, migrated });
+  }
+
   const snapshot = await createEmailDatabase('schema');
   // 2.0 keeps the Inbox tables in pm: the 25 tables of the communications
   // schema, as the 2.0 move lists them (with its one view).

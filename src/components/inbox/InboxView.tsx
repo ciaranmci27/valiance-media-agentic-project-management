@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { AlertTriangle, Bell, CircleSlash, Flame, Inbox as InboxIcon, KeyRound, ListChecks, Mail, MessageSquare, Paperclip, RefreshCw, Search, Sparkles, SquareCheck, Video, X } from 'lucide-react';
+import { AlertTriangle, Bell, CircleSlash, Flame, Inbox as InboxIcon, KeyRound, ListChecks, Mail, MessageSquare, Paperclip, PenLine, RefreshCw, Search, Sparkles, SquareCheck, Video, X } from 'lucide-react';
 import { useApp } from '@/lib/store';
 import { useDemo } from '@/lib/demo-context';
 import { useAuth } from '@/lib/auth-context';
@@ -450,7 +450,8 @@ export function InboxView({ projectId, embedded = false, emptyState, searchQuery
             <ul className="space-y-0.5 p-1.5">
               {threads.map((thread) => {
                 const active = thread.id === selectedId;
-                const attention = thread.needs_you || thread.needs_reply;
+                // A draft waiting to be copied is the person's next step too.
+                const attention = thread.needs_you || thread.needs_reply || thread.draft_ready;
                 return (
                   <li key={thread.id}>
                     <button
@@ -479,7 +480,7 @@ export function InboxView({ projectId, embedded = false, emptyState, searchQuery
                         <span className="mt-0.5 line-clamp-1 text-xs text-zinc-300"><span className="sr-only">Where it stands: </span>{thread.summary}</span>
                       ) : thread.snippet && <span className="mt-0.5 line-clamp-1 text-xs text-zinc-400">{thread.snippet}</span>}
                       {/* The project leads the details: which client, then what the thread led to. */}
-                      {(!lockedProject || thread.state === 'needs_you' || thread.state === 'needs_reply' || thread.urgent || thread.untrusted || thread.task_count > 0 || thread.reminder_count > 0 || thread.attachment_count > 0 || thread.suggestion_count > 0) && (
+                      {(!lockedProject || thread.state === 'needs_you' || thread.state === 'needs_reply' || thread.draft_ready || thread.urgent || thread.untrusted || thread.task_count > 0 || thread.reminder_count > 0 || thread.attachment_count > 0 || thread.suggestion_count > 0) && (
                         <span className="mt-2 flex flex-wrap items-center gap-x-2.5 gap-y-1.5">
                           {/* Up to two projects, strongest first; the rest are counted. */}
                           {!lockedProject && (thread.projects.length > 0 ? (
@@ -519,6 +520,14 @@ export function InboxView({ projectId, embedded = false, emptyState, searchQuery
                               <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/[0.14] px-2 py-0.5 text-[11px] font-medium text-amber-200">
                                 <ListChecks size={11} aria-hidden="true" />
                                 {thread.suggestion_count} to review
+                              </span>
+                            </Tooltip>
+                          )}
+                          {thread.draft_ready && (
+                            <Tooltip content="The agent wrote the reply you asked for. Open the thread to copy it into your own mail.">
+                              <span className="inline-flex items-center gap-1 rounded-full bg-brand-500/[0.14] px-2 py-0.5 text-[11px] font-medium text-brand-200">
+                                <PenLine size={11} aria-hidden="true" />
+                                Draft ready
                               </span>
                             </Tooltip>
                           )}

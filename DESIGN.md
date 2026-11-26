@@ -38,7 +38,7 @@ Agent pieces, in `src/components/agent/`: `AgentAvatar` (initials on one of the 
 
 Assistant pieces, in `src/components/assistant/` (My Assistant, `/assistant`, for every person; plain words only, never keys, scopes or templates): `AssistantSettingsCard` (name, color, how it writes, a note, four switches, pause), `AssistantActivityBand` (what it did, each line with Undo in place), `AssistantChatCard` (connect a chat in two steps). Settings > Assistants is in `src/components/settings/assistants/`. Rules behind them are in `src/lib/assistant.ts`.
 
-Inbox pieces, in `src/components/inbox/`: `inbox-badges.tsx` (state dots, trust, project chips, time formats), `NotePill` (pill that opens a card, in `ThreadView.tsx`), `MeetingParts.tsx` (meeting details, the transcript reader, the suggestions checklist with Add all and Nothing to do).
+Inbox pieces, in `src/components/inbox/`: `inbox-badges.tsx` (state dots, trust, project chips, time formats), `agent-card.tsx` (every agent card in a conversation: `cardChrome`, `quietCardChrome`, `AgentCardHeader` with the Agent pill and a one-line "what it did", `CardSummary`, `NotePill` (pill that opens a card), `NoteCardHeader`; the triage card and the reply draft card are both built from it), `MeetingParts.tsx` (meeting details, the transcript reader, the suggestions checklist with Add all and Nothing to do).
 
 ## Signature
 

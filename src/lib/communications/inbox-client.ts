@@ -167,7 +167,7 @@ export function inboxClient(isDemo: boolean) {
       return post(`/api/workspace/inbox/threads/${threadId}/draft`, { instructions });
     },
     async markDraftCopied(threadId: string, draftId: string): Promise<InboxReplyDraft | null> {
-      if (isDemo) return null;
+      if (isDemo) return demoInbox.markDraftCopied(threadId, draftId);
       return post(`/api/workspace/inbox/threads/${threadId}/draft/copied`, { draft_id: draftId });
     },
     async senderRules(): Promise<{ rules: InboxSenderRule[] }> {

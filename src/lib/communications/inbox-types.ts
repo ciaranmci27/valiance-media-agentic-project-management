@@ -153,6 +153,8 @@ export interface InboxThreadSummary {
   has_new: boolean;
   urgent: boolean;
   untrusted: boolean;
+  /** The agent wrote a reply draft that nobody has copied yet: it keeps the thread in the Inbox. */
+  draft_ready: boolean;
   attachment_count: number;
   /** One line on where the conversation stands, kept by the agent. */
   summary: string | null;
@@ -815,4 +817,6 @@ export const INBOX_TABLES = [
   'communications.triage', 'communications.task_links', 'communications.meetings',
   // Suggestions and replies owed: an Add, Skip or undo anywhere updates an open thread.
   'communications.plans', 'communications.plan_items', 'communications.reply_points',
+  // A draft written or copied changes the thread's list row ("Draft ready") and the open thread.
+  'communications.reply_drafts',
 ] as const;

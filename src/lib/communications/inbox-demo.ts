@@ -1,9 +1,9 @@
 import { normalizeAddress, validateClientSenderAddress } from './email/addresses';
 import { mergeClientSenders, type ProjectContactAddress } from './mapping';
 import { isPublicEmailDomain, validateClientDomain } from './email/public-domains';
-import { attentionCounts, matchesSearch, snippetOf, tabCounts, threadFlags, threadInTab, type InboxAttention, type MessageState } from './inbox-view';
+import { attentionCounts, draftWaiting, matchesSearch, snippetOf, tabCounts, threadFlags, threadInTab, type InboxAttention, type MessageState, type ThreadExtras } from './inbox-view';
 import type {
-  ClientEmailDomain, ClientSenderAddress, ClientSenderAddressList, InboxMessage, InboxSettings, InboxSettingsInput, InboxSettingsList, InboxSummary, InboxTab,
+  ClientEmailDomain, ClientSenderAddress, ClientSenderAddressList, InboxMessage, InboxReplyDraft, InboxSettings, InboxSettingsInput, InboxSettingsList, InboxSummary, InboxTab,
   MyInboxInput, MyInboxList, PersonalInboxHealth,
   InboxLinkedTask, InboxThreadDetail, InboxThreadList, InboxThreadSummary, MxStatus, ProjectEmailAddress, ProjectEmailAddressInput,
   ProjectEmailAddressList, SetThreadProjectRequest, SetThreadProjectResult, TaskSourceEmails, ThreadProject,
@@ -270,6 +270,49 @@ function buildThreads(): InboxThreadDetail[] {
         }),
       ],
     }),
+    // A prospect: a teammate forwarded her first email, then she replied directly. One
+    // conversation, first read as work, and a reply draft written and not yet copied.
+    thread({
+      inbox: INBOX_SCOUT,
+      subject: 'Re: Marketing and DTC help',
+      project: null,
+      candidates: [],
+      senders: [],
+      messages: [
+        message({
+          subject: 'Fwd: Marketing and DTC help',
+          received_at: hoursAgo(30),
+          from: person('Sarah Chen', 'sarah@example.com'),
+          is_forward: true,
+          routing_basis: 'forwarded_original',
+          forwarded_by: { member_id: SARAH.id, name: SARAH.name },
+          original_sender: { name: 'Maya Torres', address: 'maya@harborbrew.example' },
+          new_text: 'New lead, see below.\n\n---------- Forwarded message ---------\nFrom: Maya Torres <maya@harborbrew.example>\nSubject: Marketing and DTC help\n\nHi Sarah,\n\nWe sell cold brew in 40 stores and want to grow our direct to consumer sales online. Do you take on brands our size? Happy to share numbers on a call.\n\nMaya Torres\nHarbor Brew',
+          triage: triage({ outcome: 'needs_human', urgent: false, category: 'work', summary: 'Maya Torres (Harbor Brew, cold brew in 40 stores) asks whether we help brands her size grow direct to consumer sales, and offers a call.', question_for_human: 'Maya is a new prospect with no project yet. Do you want to take the call?', suggested_reply: null, created_at: hoursAgo(29.5) }),
+          reviewed_at: hoursAgo(1),
+          reviewed_by: SARAH,
+        }),
+        message({
+          subject: 'Re: Marketing and DTC help',
+          received_at: hoursAgo(6),
+          from: person('Maya Torres', 'maya@harborbrew.example'),
+          new_text: 'Hi Sarah,\n\nFollowing up on my note. Any morning next week works for a call, Tuesday is best.\n\nThanks,\nMaya',
+          triage: triage({ outcome: 'no_action', urgent: false, category: 'fyi', summary: 'Maya follows up with times for a call. You already booked it for Tuesday at 11am, so the earlier question is settled.', question_for_human: null, suggested_reply: null, created_at: hoursAgo(0.9) }),
+        }),
+      ],
+      reply_draft: {
+        id: '9a9a9a9a-0301-4000-8000-000000000001',
+        status: 'ready',
+        instructions: 'I booked a call with her and sent her an invite for 11am PST on Tuesday',
+        body: 'Hi Maya,\n\nThanks for following up. I booked us a call for Tuesday at 11am PST and sent you a calendar invite. Bring whatever numbers you are happy to share and we will walk through where direct sales could grow.\n\nTalk soon,\nSarah',
+        failure: null,
+        requested_by: SARAH,
+        drafted_by: SCOUT,
+        created_at: hoursAgo(0.92),
+        completed_at: hoursAgo(0.9),
+        copied_at: null,
+      },
+    }),
     thread({
       inbox: INBOX_SCOUT,
       subject: 'Your weekly design digest',
@@ -319,7 +362,7 @@ function withSenders(detail: InboxThreadDetail): InboxThreadDetail {
     };
   });
   const states = detail.messages.map(stateOf);
-  const flags = threadFlags(states);
+  const flags = threadFlags(states, extrasOf(detail));
   return { ...detail, senders, state: flags.state, urgent: flags.urgent, untrusted: flags.untrusted };
 }
 
@@ -327,6 +370,20 @@ function stateOf(m: InboxMessage): MessageState {
   return {
     status: m.status, reviewed_at: m.reviewed_at, outcome: m.triage?.outcome ?? null, urgent: m.triage?.urgent ?? false, trust: m.trust.level,
     kind: m.sorting?.kind ?? null, topic: m.sorting?.topic ?? null, category: m.triage?.category ?? null,
+    ever_work: m.triage?.category === 'work',
+  };
+}
+
+const DEMO_AGENTS = new Set([ATLAS.id, SCOUT.id]);
+
+/** What a demo thread holds beyond its messages: a written draft still waiting on a person, by the server's rule. */
+function extrasOf(detail: InboxThreadDetail): ThreadExtras {
+  return {
+    draft_ready: draftWaiting(detail.reply_draft ? [detail.reply_draft] : [], detail.messages.map((m) => ({
+      received_at: m.received_at,
+      reviewed_at: m.reviewed_at,
+      reviewed_by_person: !!m.reviewed_by && !DEMO_AGENTS.has(m.reviewed_by.id),
+    }))),
   };
 }
 
@@ -382,7 +439,7 @@ function demoAddressRow(base: ProjectEmailAddress, input: Partial<ProjectEmailAd
 }
 
 function summary(detail: InboxThreadDetail): InboxThreadSummary {
-  const flags = threadFlags(detail.messages.map(stateOf));
+  const flags = threadFlags(detail.messages.map(stateOf), extrasOf(detail));
   const latest = detail.messages[detail.messages.length - 1];
   return {
     id: detail.id,
@@ -406,6 +463,7 @@ function summary(detail: InboxThreadDetail): InboxThreadSummary {
     has_new: flags.has_new,
     urgent: flags.urgent,
     untrusted: flags.untrusted,
+    draft_ready: flags.draft_ready,
     attachment_count: detail.messages.reduce((total, m) => total + m.attachments.length, 0),
     task_count: new Set(detail.messages.flatMap((m) => m.linked_tasks.map((task) => task.task_id))).size,
     reminder_count: 0,
@@ -428,7 +486,7 @@ export const demoInbox = {
         t.project?.name,
         t.inbox.name,
       ]))
-      .map((t) => ({ detail: t, flags: threadFlags(t.messages.map(stateOf)) }))
+      .map((t) => ({ detail: t, flags: threadFlags(t.messages.map(stateOf), extrasOf(t)) }))
       .sort((a, b) => (summary(a.detail).last_message_at < summary(b.detail).last_message_at ? 1 : -1));
     const counts = tabCounts(scoped.map((t) => ({ flags: t.flags, project_id: t.detail.project?.id ?? null })));
     const inTab = scoped.filter((t) => threadInTab(t.flags, t.detail.project?.id ?? null, filters.tab));
@@ -521,6 +579,16 @@ export const demoInbox = {
     return { removed: detail.projects.length < before };
   },
 
+  /** The first copy of a written draft is kept, as on the server. */
+  async markDraftCopied(threadId: string, draftId: string): Promise<InboxReplyDraft> {
+    await pause();
+    const draft = store().find((t) => t.id === threadId)?.reply_draft;
+    if (!draft || draft.id !== draftId) throw new Error('Draft not found');
+    if (draft.status !== 'ready') throw new Error('Only a written draft can be copied');
+    draft.copied_at ??= new Date().toISOString();
+    return structuredClone(draft);
+  },
+
   async markHandled(threadId: string): Promise<{ handled: number; reviewed: number }> {
     await pause();
     const detail = store().find((t) => t.id === threadId);
@@ -558,7 +626,7 @@ export const demoInbox = {
   },
 
   async attentionCount(): Promise<InboxAttention> {
-    return attentionCounts(store().map((t) => threadFlags(t.messages.map(stateOf))));
+    return attentionCounts(store().map((t) => threadFlags(t.messages.map(stateOf), extrasOf(t))));
   },
 
   async taskSources(taskId: string): Promise<TaskSourceEmails> {

@@ -16,7 +16,6 @@ import { hasPermission } from '@/lib/access-control';
 import { Avatar } from '@/components/ui/Avatar';
 import { Button } from '@/components/ui/Button';
 import { Tooltip } from '@/components/ui/Tooltip';
-import { Popover } from '@/components/ui/Popover';
 import { RowActionsMenu, type RowAction } from '@/components/ui/RowActionsMenu';
 import { copyText } from '@/lib/task-copy';
 import { toast } from '@/components/ui/Toast';
@@ -32,6 +31,7 @@ import { ThreadProjectDialog } from './ThreadProjectDialog';
 import { LinkTaskDialog } from './LinkTaskDialog';
 import { SenderRuleDialog } from './SenderRuleDialog';
 import { DraftRequestDialog, ReplyDraftCard } from './ReplyDraft';
+import { AgentCardHeader, CARD_INSET, CardSummary, NoteCardHeader, NotePill, cardChrome, quietCardChrome, useAgentFace } from './agent-card';
 import { MeetingDetails, meetingNoteLines, SuggestionRow, TranscriptReader, type MeetingSuggestion, type SuggestionEdits, type SuggestionsOutcome } from './MeetingParts';
 import { DecisionCard } from './DecisionCard';
 import { ThreadAttachmentsDialog, threadAttachments } from './ThreadAttachmentsDialog';
@@ -675,6 +675,14 @@ export function ThreadView({ threadId, focusMessageId, onMissing, onBack }: Thre
     }, 8000);
     return () => window.clearInterval(timer);
   }, [draftAskedAt, load]);
+  // A draft that comes back (or is copied) changes the thread's list row ("Draft ready"): the list reads again.
+  const draftState = detail?.reply_draft ? `${detail.reply_draft.id}:${detail.reply_draft.status}:${detail.reply_draft.copied_at ?? ''}` : null;
+  const seenDraftState = useRef<string | null>(null);
+  useEffect(() => {
+    const before = seenDraftState.current;
+    seenDraftState.current = draftState;
+    if (before && draftState && before !== draftState && before.split(':')[0] === draftState.split(':')[0]) announceInboxChange({ threadId });
+  }, [draftState, threadId]);
 
   // Land on the newest message (or the linked one) once per thread. A
   // meeting opens at the top, its details and words first, with its
@@ -847,6 +855,27 @@ export function ThreadView({ threadId, focusMessageId, onMissing, onBack }: Thre
   // A meeting: no sender to filter or trust, no mail to reply to; a recap email to the attendees instead.
   const meeting = detail.channel === 'meeting' ? detail.meeting : null;
   const isMeeting = detail.channel === 'meeting';
+  // An email thread's draft answers its newest email: it sits right under that email, as the agent's next card.
+  // A meeting's, or one a newer email overtook, closes the thread.
+  const newestId = detail.messages[detail.messages.length - 1]?.id ?? null;
+  const draftUnderNewest = !!draft && !isMeeting && draftFolded !== 'outdated';
+  const draftCard = (quiet: InboxTriage | null) => draft && (
+    <ReplyDraftCard
+      key={draft.id}
+      draft={draft}
+      agentName={agentName}
+      viewerId={teamMemberId}
+      triage={quiet}
+      standalone={isMeeting}
+      folded={draftFolded}
+      onAskAgain={canTriage ? () => setDraftDialog(true) : undefined}
+      onCopied={canTriage && !draft.copied_at ? () => void client.markDraftCopied(detail.id, draft.id).then(() => load(true)).catch(() => undefined) : undefined}
+      onMarkHandled={canTriage && canHandle ? () => { if (busy === null) void markHandled(); } : undefined}
+      closesReminder={ownReplyReminder}
+      busy={busy !== null}
+      purpose={isMeeting ? 'follow_up' : 'reply'}
+    />
+  );
   // A meeting's card: every package's plan items in one place, said by its newest triage.
   const meetingItems = isMeeting ? detail.messages.flatMap((m) => m.plan?.items ?? []) : [];
   const meetingTriaged = isMeeting ? [...detail.messages].reverse().find((m) => !!m.triage) ?? null : null;
@@ -1074,6 +1103,7 @@ export function ThreadView({ threadId, focusMessageId, onMissing, onBack }: Thre
                   inMeetingCard={isMeeting}
                   busy={busy !== null}
                   onDownload={(attachment) => void downloadAttachment(attachment)}
+                  draftSlot={draftUnderNewest && message.id === newestId ? draftCard : undefined}
                 />
               </li>
             );
@@ -1111,23 +1141,8 @@ export function ThreadView({ threadId, focusMessageId, onMissing, onBack }: Thre
         </PlanActionsContext.Provider>
         </MoveTaskContext.Provider>
         </TaskUndoContext.Provider>
-        {/* The end of the thread reads, then acts: the draft to use, and last the decision that waits. */}
-        {draft && (
-          <div className="mt-4">
-            <ReplyDraftCard
-              key={draft.id}
-              draft={draft}
-              agentName={agentName}
-              folded={draftFolded}
-              onAskAgain={canTriage ? () => setDraftDialog(true) : undefined}
-              onCopied={canTriage && !draft.copied_at ? () => void client.markDraftCopied(detail.id, draft.id).then(() => load(true)).catch(() => undefined) : undefined}
-              onMarkHandled={canTriage && canHandle ? () => { if (busy === null) void markHandled(); } : undefined}
-              closesReminder={ownReplyReminder}
-              busy={busy !== null}
-              purpose={isMeeting ? 'follow_up' : 'reply'}
-            />
-          </div>
-        )}
+        {/* The end of the thread reads, then acts: a draft not under its email, and last the decision that waits. */}
+        {draft && !draftUnderNewest && draftCard(null)}
         {/* A meeting whose question came from an older note than the one its card speaks for: asked on its own here. */}
         {asking?.triage && isMeeting && !decisionInMeetingCard && <div className="mt-4">{decisionCard}</div>}
         {answered?.answer && (
@@ -1390,7 +1405,7 @@ function EmailText({ text }: { text: string }) {
   );
 }
 
-function MessageCard({ message, agentName, focused, busy, viewUrl, onSendToAgent, onMoveToInbox, onAlwaysFilter, onRule, onAnswer, questionInPanel, decision, inMeetingCard, onDownload, onPreview }: {
+function MessageCard({ message, agentName, focused, busy, viewUrl, onSendToAgent, onMoveToInbox, onAlwaysFilter, onRule, onAnswer, questionInPanel, decision, inMeetingCard, onDownload, onPreview, draftSlot }: {
   message: InboxMessage;
   agentName: string;
   focused: boolean;
@@ -1413,6 +1428,8 @@ function MessageCard({ message, agentName, focused, busy, viewUrl, onSendToAgent
   decision?: React.ReactNode;
   /** A meeting's package: the meeting's one card, after its words, holds what the agent made of it. */
   inMeetingCard?: boolean;
+  /** The reply draft that answers this email: the agent's card after its read of it. */
+  draftSlot?: (quiet: InboxTriage | null) => ReactNode;
   onDownload: (attachment: InboxAttachment) => void;
   onPreview?: (attachment: InboxAttachment) => void;
 }) {
@@ -1623,8 +1640,10 @@ function MessageCard({ message, agentName, focused, busy, viewUrl, onSendToAgent
         onAnswer={onAnswer}
         questionInPanel={!!questionInPanel}
         decision={decision}
+        draftSlot={draftSlot}
       />
     )}
+    {(!message.triage || inMeetingCard || replanning) && draftSlot?.(null)}
     </>
   );
 }
@@ -1701,71 +1720,13 @@ function AttachmentList({ attachments, agentName, viewUrl, onDownload, onPreview
 
 /** The agent who triaged: its name and its photo from the team directory. */
 function useTriager(triage: InboxTriage | null, agentName: string): { name: string; avatar?: string } {
-  const { team } = useApp();
-  const name = triage?.member?.name ?? agentName;
-  const member = triage?.member ? team.find((m) => m.id === triage.member!.id) : team.find((m) => m.name === agentName);
-  return { name, avatar: member?.avatar || undefined };
-}
-
-/**
- * A small pill that opens a card anchored to it: the summary or the
- * suggested reply reads at paragraph width, over the thread, without
- * pushing the emails around.
- */
-function NotePill({ label, icon, align = 'start', width = 360, className = '', children }: {
-  label: ReactNode;
-  icon?: ReactNode;
-  align?: 'start' | 'end';
-  width?: number;
-  className?: string;
-  children: ReactNode;
-}) {
-  const [open, setOpen] = useState(false);
-  const anchorRef = useRef<HTMLButtonElement>(null);
-  return (
-    <>
-      <button
-        ref={anchorRef}
-        type="button"
-        onClick={() => setOpen((value) => !value)}
-        aria-expanded={open}
-        aria-haspopup="dialog"
-        className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 ${
-          open ? 'bg-white/[0.10] text-white' : 'bg-white/[0.04] text-zinc-300 hover:bg-white/[0.08] hover:text-white'
-        } ${className}`}
-      >
-        {icon}
-        {label}
-      </button>
-      <Popover
-        anchorRef={anchorRef}
-        open={open}
-        onClose={() => setOpen(false)}
-        align={align}
-        width={width}
-        className="rounded-xl border border-white/[0.08] bg-surface-raised p-3.5 shadow-2xl"
-      >
-        <div role="dialog" aria-label={typeof label === 'string' ? label : undefined}>{children}</div>
-      </Popover>
-    </>
-  );
+  return useAgentFace(triage?.member, agentName);
 }
 
 /** Which project a linked task sits in, beside it, for a thread filed on several. */
 function TaskProjectLabel({ task }: { task: InboxLinkedTask }) {
   if (!task.project_name) return null;
   return <span className="max-w-[8rem] flex-shrink-0 truncate text-[11px] text-zinc-400" title={task.project_name}>{task.project_name}</span>;
-}
-
-/** Who triaged and when, at the top of a note card. */
-function NoteCardHeader({ name, avatar, at }: { name: string; avatar?: string; at: string }) {
-  return (
-    <div className="mb-2 flex items-center gap-2">
-      <Avatar name={name} src={avatar} size="xs" />
-      <span className="text-xs font-semibold text-zinc-100">{name}</span>
-      <time dateTime={at} className="ml-auto text-[11px] text-zinc-400">{formatFullTime(at)}</time>
-    </div>
-  );
 }
 
 /**
@@ -1891,44 +1852,6 @@ type CardRow =
   | { kind: 'task'; key: string; group: CardGroup; messageId: string; task: InboxLinkedTask }
   | { kind: 'reminder'; key: string; group: CardGroup; messageId: string; reminder: InboxReminder };
 
-/** The card's body and footer line up with the name, as an email's text lines up with its sender. */
-const CARD_INSET = 'px-3 sm:pl-[3.25rem] sm:pr-4';
-
-/** A summary longer than this folds to three lines with "Show more". */
-const SUMMARY_FOLD = 240;
-
-function CardSummary({ text }: { text: string }) {
-  const [open, setOpen] = useState(false);
-  const long = text.length > SUMMARY_FOLD;
-  return (
-    <div>
-      <p className={`whitespace-pre-wrap break-words text-sm leading-relaxed text-zinc-200 [overflow-wrap:anywhere] ${long && !open ? 'line-clamp-3' : ''}`}>{text}</p>
-      {long && (
-        <button type="button" onClick={() => setOpen((value) => !value)} aria-expanded={open}
-          className="mt-1 inline-flex items-center gap-1 rounded text-xs font-medium text-brand-300 hover:text-brand-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500">
-          <ChevronDown size={13} className={`transition-transform motion-reduce:transition-none ${open ? 'rotate-180' : ''}`} aria-hidden="true" />
-          {open ? 'Show less' : 'Show more'}
-        </button>
-      )}
-    </div>
-  );
-}
-
-/** The agent's mark beside its name, so its reply never reads as a person's. */
-function AgentTag() {
-  return (
-    <span className="inline-flex items-center gap-1 rounded-full bg-brand-500/[0.14] px-2 py-0.5 text-[11px] font-medium text-brand-200">
-      <Sparkles size={11} aria-hidden="true" />
-      Agent
-    </span>
-  );
-}
-
-/** The card's chrome: the agent's reply to the message above it, a step in. A meeting's stands on its own. */
-function cardChrome(meeting: boolean): string {
-  return `${meeting ? 'mt-4' : 'ml-3 mt-2 sm:ml-8'} min-w-0 rounded-xl border border-brand-400/[0.14] bg-brand-500/[0.025]`;
-}
-
 /**
  * The agent's reply to an email (under it) or a meeting (after its words):
  * who, what it suggests or did ("Created 3 tasks and set 3 reminders"), its
@@ -1938,7 +1861,7 @@ function cardChrome(meeting: boolean): string {
  * replies owed, and the actions for the lot: Undo all, Add all. An email it
  * left alone gets one quiet line.
  */
-function AgentCard({ cardKey, scope, triage, agentName, items, tasks, reminders, points, handled, answer, waiting, onAnswer, questionInPanel, meeting, decision }: {
+function AgentCard({ cardKey, scope, triage, agentName, items, tasks, reminders, points, handled, answer, waiting, onAnswer, questionInPanel, meeting, decision, draftSlot }: {
   /** The email's id, or "meeting": what Undo all and Add all are kept under. */
   cardKey: string;
   /** The emails Undo all covers; the whole thread when null. */
@@ -1960,6 +1883,8 @@ function AgentCard({ cardKey, scope, triage, agentName, items, tasks, reminders,
   meeting?: { onNothingToDo?: () => void; outcome: SuggestionsOutcome | null };
   /** The decision the agent waits on, answered right here as part of its reply. */
   decision?: React.ReactNode;
+  /** The reply draft that answers this email, as the agent's next card; given the quiet read it replaces. */
+  draftSlot?: (quiet: InboxTriage | null) => ReactNode;
 }) {
   const { trashed, trashedReminders, unlinked, notNeeded } = useContext(TaskUndoContext);
   const { pending, add, skip, addAll, undoAll, restoreAll, undone, bulk } = useContext(PlanActionsContext);
@@ -2035,9 +1960,11 @@ function AgentCard({ cardKey, scope, triage, agentName, items, tasks, reminders,
   const quiet = !meeting && !decision && !!triage && triage.outcome === 'no_action' && !triage.urgent && !triage.question_for_human
     && !waitingItems.length && !rows.length && !settled.length && !owed.length && !tookBack;
   if (quiet && triage) {
+    // A draft that answers this email says more than "No action needed": it takes this line's place, its summary in tow.
+    if (draftSlot && !triage.suggested_reply) return <>{draftSlot(triage)}</>;
     return (
-      <section aria-label={`${who}: no action needed`}
-        className="ml-3 mt-2 flex min-w-0 flex-nowrap items-center gap-x-2.5 rounded-xl border border-white/[0.06] bg-white/[0.015] px-3 py-2 sm:ml-8 sm:px-4">
+      <>
+      <section aria-label={`${who}: no action needed`} className={quietCardChrome(false)}>
         <Avatar name={who} src={avatar} size="xs" />
         <span className="hidden text-xs font-semibold text-zinc-200 sm:inline">{who}</span>
         <span className="inline-flex min-w-0 items-center gap-1 truncate text-xs text-zinc-400">
@@ -2052,6 +1979,8 @@ function AgentCard({ cardKey, scope, triage, agentName, items, tasks, reminders,
           {replyPill}
         </span>
       </section>
+      {draftSlot?.(null)}
+      </>
     );
   }
   if (meeting && !triage && !shown.length && !meeting.outcome && !meeting.onNothingToDo) return null;
@@ -2086,32 +2015,21 @@ function AgentCard({ cardKey, scope, triage, agentName, items, tasks, reminders,
   const listClass = 'divide-y divide-white/[0.05] overflow-hidden rounded-lg border border-white/[0.06] bg-white/[0.02]';
 
   return (
+    <>
     <section aria-label={heading} className={cardChrome(!!meeting)}>
-      <header className="flex items-start gap-3 px-3 pt-3 sm:px-4 sm:pt-3.5">
-        <Avatar name={who} src={avatar} size="sm" />
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-            <span className="text-sm font-semibold text-white">{who}</span>
-            <AgentTag />
-            {triage?.urgent && (
-              <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-red-300">
-                <Flame size={11} aria-hidden="true" />
-                Urgent
-              </span>
-            )}
-            {at && (
-              <time dateTime={at} className="ml-auto text-xs tabular-nums text-zinc-400">
-                <span className="sm:hidden">{formatListTime(at)}</span>
-                <span className="hidden sm:inline">{formatFullTime(at)}</span>
-              </time>
-            )}
-          </div>
-          <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1">
-            <p className="min-w-0 flex-1 text-xs text-zinc-300">{status}</p>
-            {undoInHeader && undoAllButton}
-          </div>
-        </div>
-      </header>
+      <AgentCardHeader
+        who={who}
+        avatar={avatar}
+        at={at}
+        status={status}
+        marks={triage?.urgent && (
+          <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-red-300">
+            <Flame size={11} aria-hidden="true" />
+            Urgent
+          </span>
+        )}
+        aside={undoInHeader && undoAllButton}
+      />
 
       <div className={`${CARD_INSET} ${hasFooter ? '' : 'pb-3'} mt-2.5 space-y-3`}>
         {triage?.summary && <CardSummary text={triage.summary} />}
@@ -2236,6 +2154,8 @@ function AgentCard({ cardKey, scope, triage, agentName, items, tasks, reminders,
         </div>
       )}
     </section>
+    {draftSlot?.(null)}
+    </>
   );
 }
 

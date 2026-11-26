@@ -30,7 +30,7 @@ import { fromRfc822Head, inlineForwardedSender, isAttachedMessage, parseForwarde
 import { readCapped } from '../src/lib/communications/email/ingest';
 import { skippedReasonLabel } from '../src/lib/communications/inbox-types';
 import { verifySignatureHeader } from '../src/lib/webhooks/sign';
-import { attentionCounts, codeIn, matchesSearch, needsAttention, snippetOf, tabCounts, threadFlags, threadInTab, type MessageState } from '../src/lib/communications/inbox-view';
+import { attentionCounts, codeIn, draftWaiting, matchesSearch, needsAttention, snippetOf, tabCounts, threadFlags, threadInTab, type MessageState } from '../src/lib/communications/inbox-view';
 import { FakeResend, readEml, resendFixture } from './inbound-email-fixtures';
 
 let checks = 0;
@@ -80,6 +80,23 @@ async function main() {
     { kind: 'new' }, 'older than 30 days is new');
   check(chooseThread({ referenced: [], subjectNormalized: '', subjectThreads, participants: ['dana@acme-roofing.example'], receivedAt: now }),
     { kind: 'new' }, 'an empty subject never threads by subject');
+  // A teammate forwarded a prospect's email (she is only its original sender), then she replied directly.
+  const forwarded = [
+    { thread_id: 'fwd', subject_normalized: 'marketing / dtc help', last_message_at: '2026-10-05T00:00:00Z', participants: [], forwarded_from: ['alycia@drbo.example'] },
+  ];
+  const replyTo = (sender: string | null, threads = forwarded, receivedAt = now) => chooseThread({
+    referenced: [], subjectNormalized: 'marketing / dtc help', subjectThreads: threads, participants: sender ? [sender] : [], sender, receivedAt,
+  });
+  check([
+    replyTo('Alycia@drbo.example'),
+    replyTo('ben@drbo.example'),
+    replyTo(null),
+    replyTo('alycia@drbo.example', [{ ...forwarded[0], subject_normalized: 'something else' }]),
+    replyTo('alycia@drbo.example', forwarded, '2026-11-20T00:00:00Z'),
+  ], [
+    { kind: 'existing', thread_id: 'fwd', reason: 'subject' },
+    { kind: 'new' }, { kind: 'new' }, { kind: 'new' }, { kind: 'new' },
+  ], 'threading: the sender of a forwarded original joins the forward; never a colleague on her domain, no sender, another subject, or past 30 days');
 
   // Mapping.
   check(resolveMapping({ contactProjectIds: [], domainProjectIds: [] }).project_id, null, 'no candidates');
@@ -370,9 +387,38 @@ async function main() {
   check([threadInTab(fyi, 'p', 'all'), threadInTab(fyi, 'p', 'updates'), threadInTab(fyi, null, 'unassigned')], [false, true, false], 'updates leave the Inbox and Unassigned');
   // FYI: the latest email was read as needing nothing, and nothing waits.
   const done = (extra: Partial<MessageState> = {}) => msg({ status: 'handled', outcome: 'no_action', kind: 'person', ...extra });
+  const thanks = threadFlags([done({ category: 'fyi' }), done({ category: 'fyi' })]);
+  check([thanks.fyi, threadInTab(thanks, 'p', 'fyi'), threadInTab(thanks, 'p', 'all'), threadInTab(thanks, 'p', 'handled'), threadInTab(thanks, null, 'unassigned')],
+    [true, true, false, false, false], 'fyi: a conversation that never asked for anything moves to FYI, out of the Inbox and its filters');
+  // Once work, never FYI: a real conversation stays in the Inbox as handled.
   const chat = threadFlags([done({ category: 'work', outcome: 'task' }), done({ category: 'fyi' })]);
   check([chat.fyi, threadInTab(chat, 'p', 'fyi'), threadInTab(chat, 'p', 'all'), threadInTab(chat, 'p', 'handled'), threadInTab(chat, null, 'unassigned')],
-    [true, true, false, false, false], 'fyi: a thank-you after finished work moves the thread to FYI, out of the Inbox and its filters');
+    [false, false, true, true, true], 'fyi: a thank-you after work keeps the thread in the Inbox as handled');
+  // A prospect's email the agent first asked about (work), then re-read as settled (fyi) after a draft was asked for.
+  const reread = threadFlags([done({ category: 'fyi', ever_work: true })]);
+  check([reread.fyi, threadInTab(reread, null, 'fyi'), threadInTab(reread, null, 'all'), threadInTab(reread, null, 'handled')],
+    [false, false, true, true], 'fyi: an email any earlier triage read as work stays in the Inbox when its latest triage says fyi');
+  // A written draft nobody has copied keeps its thread in the Inbox.
+  const drafted = threadFlags([done({ category: 'fyi' })], { draft_ready: true });
+  check([drafted.fyi, drafted.draft_ready, threadInTab(drafted, 'p', 'all'), threadInTab(drafted, 'p', 'fyi'), threadFlags([done({ category: 'fyi' })]).draft_ready],
+    [false, true, true, false, false], 'draft: a ready, uncopied draft keeps an FYI thread in the Inbox, marked draft_ready');
+  const draftedUpdate = threadFlags([machine({ status: 'handled', outcome: 'no_action' })], { draft_ready: true });
+  const draftedFiltered = threadFlags([msg({ status: 'ignored', outcome: null })], { draft_ready: true });
+  check([draftedUpdate.update, threadInTab(draftedUpdate, 'p', 'all'), threadInTab(draftedFiltered, 'p', 'all'), threadInTab(draftedFiltered, 'p', 'ignored')],
+    [false, true, true, false], 'draft: a ready draft keeps machine mail and filtered mail in the Inbox too');
+  // Which draft still waits: the newest, written, not copied, not overtaken by a newer email, not handled by a person since.
+  const written = { status: 'ready', copied_at: null, created_at: '2026-11-25T10:00:00Z', completed_at: '2026-11-25T10:01:00Z' };
+  const email = (received_at: string, reviewed_at: string | null = null, reviewed_by_person = false) => ({ received_at, reviewed_at, reviewed_by_person });
+  check([
+    draftWaiting([written], [email('2026-11-25T09:00:00Z')]),
+    draftWaiting([written], [email('2026-11-25T09:00:00Z'), email('2026-11-25T11:00:00Z')]),
+    draftWaiting([written], [email('2026-11-25T09:00:00Z', '2026-11-25T12:00:00Z', true)]),
+    draftWaiting([written], [email('2026-11-25T09:00:00Z', '2026-11-25T12:00:00Z', false)]),
+    draftWaiting([written], [email('2026-11-25T09:00:00Z', '2026-11-25T09:30:00Z', true)]),
+    draftWaiting([{ ...written, copied_at: '2026-11-25T10:05:00Z' }], [email('2026-11-25T09:00:00Z')]),
+    draftWaiting([written, { ...written, status: 'requested', created_at: '2026-11-25T10:30:00Z', completed_at: null }], [email('2026-11-25T09:00:00Z')]),
+  ], [true, false, false, true, true, false, false],
+  'draft: waits until copied, overtaken by a newer email, or marked handled by a person after it was written (not an agent, not before)');
   check([
     threadFlags([done({ category: 'fyi' }), done({ category: 'work' })]).fyi,
     threadFlags([done({ category: 'fyi' }), done({ category: 'fyi', status: 'needs_human', outcome: 'needs_human' })]).fyi,

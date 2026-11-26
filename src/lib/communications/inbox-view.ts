@@ -20,8 +20,13 @@ import { INBOX_TABS } from './inbox-types';
  * Mail from before sorting (no kind) always counts as the Inbox.
  *
  * A thread is FYI when the agent read its latest email as needing nothing
- * (category fyi) and nothing waits on anyone; it is Codes when every email
- * in it is a one-time code. Filtered holds the rest of the filtered mail.
+ * (category fyi), nothing waits on anyone, and no triage of any email in it
+ * ever read it as work: a real conversation that was work stays in the
+ * Inbox as handled, whatever its latest email says. It is Codes when every
+ * email in it is a one-time code. Filtered holds the rest of the filtered mail.
+ *
+ * A reply draft that is written and not yet copied keeps its thread in the
+ * Inbox (never FYI, Updates or Filtered) until someone copies it.
  */
 
 export interface MessageState {
@@ -35,6 +40,14 @@ export interface MessageState {
   topic?: MailTopic | null;
   /** What the agent's latest triage read it as. */
   category?: TriageCategory | null;
+  /** Any triage of it, not only the latest, read it as work. */
+  ever_work?: boolean;
+}
+
+/** What a thread holds beyond its messages. */
+export interface ThreadExtras {
+  /** Its newest reply draft is written and nobody has copied it yet. */
+  draft_ready?: boolean;
 }
 
 export interface ThreadFlags {
@@ -50,6 +63,8 @@ export interface ThreadFlags {
   fyi: boolean;
   /** Only one-time codes: the Codes view. */
   code: boolean;
+  /** A written reply draft waits to be copied: it keeps the thread in the Inbox. */
+  draft_ready: boolean;
 }
 
 const ALWAYS_INBOX_TOPICS: readonly (MailTopic | null | undefined)[] = ['money', 'account_risk', 'security'];
@@ -62,7 +77,8 @@ export function messageNeedsReply(message: MessageState): boolean {
 }
 
 /** Messages oldest first: FYI reads the latest one. */
-export function threadFlags(messages: readonly MessageState[]): ThreadFlags {
+export function threadFlags(messages: readonly MessageState[], extras: ThreadExtras = {}): ThreadFlags {
+  const draftReady = !!extras.draft_ready;
   const needsYou = messages.some((message) => message.status === 'needs_human');
   const needsReply = messages.some(messageNeedsReply);
   const hasNew = messages.some((message) => message.status === 'new');
@@ -70,9 +86,12 @@ export function threadFlags(messages: readonly MessageState[]): ThreadFlags {
   const state: ThreadState = needsYou ? 'needs_you' : hasNew ? 'new' : needsReply ? 'needs_reply' : allIgnored ? 'ignored' : 'handled';
   const urgent = messages.some((message) => message.urgent && (message.status === 'needs_human' || messageNeedsReply(message)));
   const shown = messages.filter((message) => message.status !== 'ignored');
-  const update = !needsYou && !needsReply && !urgent && shown.length > 0
+  const update = !draftReady && !needsYou && !needsReply && !urgent && shown.length > 0
     && shown.every((message) => (message.kind === 'notification' || message.kind === 'marketing') && !ALWAYS_INBOX_TOPICS.includes(message.topic));
-  const fyi = !needsYou && !needsReply && !hasNew && !urgent && !update && shown.length > 0 && shown[shown.length - 1].category === 'fyi';
+  // Once work, never FYI: a closing "thanks" or a re-read as settled leaves it in the Inbox as handled.
+  const wasWork = shown.some((message) => message.ever_work || message.category === 'work');
+  const fyi = !draftReady && !needsYou && !needsReply && !hasNew && !urgent && !update && !wasWork
+    && shown.length > 0 && shown[shown.length - 1].category === 'fyi';
   return {
     state,
     needs_you: needsYou,
@@ -84,10 +103,13 @@ export function threadFlags(messages: readonly MessageState[]): ThreadFlags {
     update,
     fyi,
     code: messages.length > 0 && messages.every((message) => message.topic === 'code'),
+    draft_ready: draftReady,
   };
 }
 
 function inInbox(flags: ThreadFlags): boolean {
+  // A draft waiting to be copied is the person's next step, wherever the mail was sorted.
+  if (flags.draft_ready) return true;
   return flags.state !== 'ignored' && !flags.update && !flags.fyi;
 }
 
@@ -98,7 +120,7 @@ export function threadInTab(flags: ThreadFlags, projectId: string | null, tab: I
     case 'fyi': return flags.state !== 'ignored' && flags.fyi;
     case 'updates': return flags.state !== 'ignored' && flags.update;
     case 'codes': return flags.code;
-    case 'ignored': return flags.state === 'ignored' && !flags.code;
+    case 'ignored': return flags.state === 'ignored' && !flags.code && !flags.draft_ready;
     // Every thread, wherever it was sorted: for finding an email.
     case 'everything': return true;
     // What waits on someone shows wherever it lives.
@@ -192,6 +214,37 @@ export function snippetOf(text: string | null | undefined, limit = 160): string 
     .replace(/\s+/g, ' ')
     .trim();
   return flat.length > limit ? `${flat.slice(0, limit - 1).trimEnd()}…` : flat;
+}
+
+/** A reply draft as the Inbox list reads it. */
+export interface DraftState {
+  status: string;
+  copied_at: string | null;
+  created_at: string;
+  completed_at: string | null;
+}
+
+/** An email of the thread, as far as its draft is concerned. */
+export interface DraftThreadMessage {
+  received_at: string;
+  reviewed_at: string | null;
+  /** A person, not an agent, marked it handled (an agent settling earlier mail is not someone replying). */
+  reviewed_by_person: boolean;
+}
+
+/**
+ * The thread's newest draft still waits on a person: it is written, nobody
+ * has copied it, no email came in after it was written (the thread view folds
+ * it then, as written before the newest email), and nobody marked the thread
+ * handled after it was written (they may have written their own reply).
+ */
+export function draftWaiting(drafts: readonly DraftState[] | null | undefined, messages: readonly DraftThreadMessage[]): boolean {
+  const newest = [...(drafts ?? [])].sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))[0];
+  if (!newest || newest.status !== 'ready' || newest.copied_at || !newest.completed_at) return false;
+  const written = Date.parse(newest.completed_at);
+  const overtaken = messages.some((message) => Date.parse(message.received_at) > written);
+  const handledSince = messages.some((message) => message.reviewed_by_person && !!message.reviewed_at && Date.parse(message.reviewed_at) >= written);
+  return !overtaken && !handledSince;
 }
 
 export function isInboxTab(value: string | null | undefined): value is InboxTab {

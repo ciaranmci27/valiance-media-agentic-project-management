@@ -9,6 +9,17 @@ Each section starts with `## X.Y.Z (YYYY-MM-DD)` and uses these headings, leavin
 - `### Database`: the core migration files in the release, one per line. `npm run db:migrate` applies them.
 - `### Breaking`: what an install must do when it takes this release.
 
+## 2.0.39 (2026-11-25)
+
+### Changed
+- **A real conversation stays in the Inbox.** A conversation the agent ever read as work no longer moves to FYI when a later read finds nothing left to do; it stays in the Inbox as handled. Only mail that never needed anyone goes to FYI.
+- **A reply draft waiting to be copied keeps its conversation in the Inbox**, with a "Draft ready" pill, until it is copied, a newer email arrives, or a person marks it handled. The list updates as soon as a draft is written or copied.
+- **A forward and the sender's later reply are one conversation.** When someone forwards a client's email in and the client then replies directly, the reply joins the same conversation (same inbox, same subject, within 30 days, exact address match). New mail only; existing conversations are not merged.
+- The reply draft shows as the agent's card ("Drafted a reply", your request, the draft, Copy and Ask again) and takes the place of a quiet "No action needed" line.
+
+### Database
+- `20261125000500_inbox_threads.sql`: reply drafts join live updates.
+
 ## 2.0.38 (2026-11-25)
 
 ### Changed

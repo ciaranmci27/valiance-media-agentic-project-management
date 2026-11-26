@@ -10,7 +10,7 @@ import { attachmentKind } from './attachments';
 import { normalizeContentId } from './email/display';
 import { isPublicEmailDomain, validateClientDomain } from './email/public-domains';
 import type { CandidateReason } from './mapping';
-import { attentionCounts, CODE_PIN_MINUTES, codeIn, matchesSearch, snippetOf, tabCounts, threadFlags, threadInTab, type InboxAttention, type MessageState, type ThreadFlags } from './inbox-view';
+import { attentionCounts, CODE_PIN_MINUTES, codeIn, draftWaiting, matchesSearch, snippetOf, tabCounts, threadFlags, threadInTab, type DraftState, type InboxAttention, type MessageState, type ThreadFlags } from './inbox-view';
 import type { MailKind, MailTopic } from './sorting';
 import { inboxDisplayName, meetingPackageOf, MEETING_PACKAGE_LABELS } from './inbox-types';
 import type {
@@ -239,6 +239,7 @@ interface StateMessageRow {
   received_at: string;
   auth: unknown;
   reviewed_at: string | null;
+  reviewed_by?: string | null;
   routing_basis: RoutingBasis | null;
   original_from_address: string | null;
   original_from_name: string | null;
@@ -316,20 +317,22 @@ async function loadThreadEntries(service: SupabaseClient, inboxIds: string[], pr
   if (inboxIds.length === 0) return [];
   // One round: threads and their emails both read by inbox, each email with
   // its triage and its From in the same request.
-  const [onProject, threadRows, messageRows] = await Promise.all([
+  const [onProject, threadRows, messageRows, agentIds] = await Promise.all([
     // A project's threads: every thread filed on it, whatever else it is filed on.
     projectId
       ? many<{ conversation_id: string }>(comms(service).from('conversation_projects').select('conversation_id').eq('project_id', projectId))
         .then((rows) => new Set(rows.map((row) => row.conversation_id)))
       : Promise.resolve(null),
-    // A meeting's own row rides along (one to one), so the list stays four rounds.
-    readIn<ThreadRow & Row & { meeting?: unknown }>(inboxIds, (chunk, from, to, count) =>
-      ctxSelect(comms(service), 'conversations', `id, inbox_id, channel, subject_normalized, project_id, project_source, summary, last_message_at, meeting:meetings(${MEETING_COLUMNS})`, count)
+    // A meeting's own row and the thread's reply drafts ride along, so the list stays four rounds.
+    readIn<ThreadRow & Row & { meeting?: unknown; reply_drafts?: DraftState[] }>(inboxIds, (chunk, from, to, count) =>
+      ctxSelect(comms(service), 'conversations', `id, inbox_id, channel, subject_normalized, project_id, project_source, summary, last_message_at, meeting:meetings(${MEETING_COLUMNS}), reply_drafts(status, copied_at, created_at, completed_at)`, count)
         .in('inbox_id', chunk).order('id').range(from, to)),
     readIn<StateMessageRow & Row & { triage: TriageStateRow[]; from_participant: { address: string; name: string }[] }>(inboxIds, (chunk, from, to, count) =>
-      ctxSelect(comms(service), 'messages', `id, thread_id, status, subject, received_at, auth, reviewed_at, kind, topic, ${ROUTING_COLUMNS}, `
+      ctxSelect(comms(service), 'messages', `id, thread_id, status, subject, received_at, auth, reviewed_at, reviewed_by, kind, topic, ${ROUTING_COLUMNS}, `
         + 'triage(id, message_id, outcome, urgent, category, created_at), from_participant:participants(address, name)', count)
         .in('inbox_id', chunk).neq('status', 'receiving').eq('from_participant.kind', 'from').order('id').range(from, to)),
+    // Agents: an agent settling earlier mail is not a person marking the thread handled (a ready draft stays).
+    many<{ id: string }>(service.from('team_members').select('id').eq('role', 'agent')).then((rows) => new Set(rows.map((row) => row.id))),
   ]);
   const threads = threadRows.filter((thread) => !onProject || onProject.has(thread.id));
   if (threads.length === 0) return [];
@@ -338,6 +341,8 @@ async function loadThreadEntries(service: SupabaseClient, inboxIds: string[], pr
   const triage = messages.flatMap((message) => message.triage ?? []);
   const senders = messages.flatMap((message) => (message.from_participant ?? []).slice(0, 1).map((from) => ({ message_id: message.id, ...from })));
   const latest = latestTriage(triage);
+  // Every triage counts here, not only the latest: once read as work, a thread is never FYI.
+  const everWork = new Set(triage.filter((row) => row.category === 'work').map((row) => row.message_id));
   const fromByMessage = new Map(senders.map((row) => [row.message_id, { name: row.name, address: row.address }]));
   const senderByMessage = new Map(messages.map((message) => [message.id, shownSender(message, fromByMessage.get(message.id))]));
   // Search also finds a forward by the teammate who sent it on.
@@ -365,6 +370,7 @@ async function loadThreadEntries(service: SupabaseClient, inboxIds: string[], pr
         kind: message.kind,
         topic: message.topic,
         category: triageRow?.category ?? null,
+        ever_work: everWork.has(message.id),
       };
     });
     const threadSenders = list.flatMap((message) => [senderByMessage.get(message.id), forwarderByMessage.get(message.id)])
@@ -373,7 +379,13 @@ async function loadThreadEntries(service: SupabaseClient, inboxIds: string[], pr
       thread,
       meeting: thread.channel === 'meeting' ? embeddedMeeting((thread as { meeting?: unknown }).meeting) : null,
       messages: list,
-      flags: threadFlags(states),
+      flags: threadFlags(states, {
+        draft_ready: draftWaiting((thread as { reply_drafts?: DraftState[] }).reply_drafts, list.map((message) => ({
+          received_at: message.received_at,
+          reviewed_at: message.reviewed_at,
+          reviewed_by_person: !!message.reviewed_by && !agentIds.has(message.reviewed_by),
+        }))),
+      }),
       sender: senderByMessage.get(list[list.length - 1].id) ?? null,
       senders: threadSenders,
     });
@@ -550,6 +562,7 @@ export async function listThreads(ctx: InboxContext, filters: ThreadListFilters)
       has_new: entry.flags.has_new,
       urgent: entry.flags.urgent,
       untrusted: entry.flags.untrusted,
+      draft_ready: entry.flags.draft_ready,
       // A file a reply sent again (the same bytes) counts once.
       attachment_count: new Set(attachments.filter((row) => ids.has(row.message_id)).map((row) => row.sha256 ?? row.id)).size,
       summary: entry.thread.summary ?? null,
@@ -724,6 +737,7 @@ export async function threadDetail(ctx: InboxContext, threadId: string): Promise
       : Promise.resolve(null),
   ]);
   const latest = latestTriage(triageRows);
+  const everWork = new Set(triageRows.filter((row) => row.category === 'work').map((row) => row.message_id));
   // Who sent each email, as sorting saw it: a teammate's forward by its original sender.
   const senderAddress = (row: Row): string => ((row.routing_basis === 'forwarded_original' && row.original_from_address)
     || recipients.find((r) => r.message_id === row.id && r.kind === 'from')?.address || '') as string;
@@ -772,6 +786,7 @@ export async function threadDetail(ctx: InboxContext, threadId: string): Promise
       kind: (row.kind as MailKind | null) ?? null,
       topic: (row.topic as MailTopic | null) ?? null,
       category: (triageRow?.category as TriageCategory | null | undefined) ?? null,
+      ever_work: everWork.has(id),
     });
     const memberId = (triageRow?.member_id as string | null) ?? null;
     const reviewedBy = (row.reviewed_by as string | null) ?? null;
