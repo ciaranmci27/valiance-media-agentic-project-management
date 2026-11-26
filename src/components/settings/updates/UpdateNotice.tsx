@@ -7,7 +7,8 @@ import { CircleArrowUp, X } from 'lucide-react';
 import { useAuth } from '@/lib/auth-context';
 import { useDemo } from '@/lib/demo-context';
 import { useRead } from '@/lib/query-cache';
-import { newestPending, updatesRead } from './updates-data';
+import { updatesRead } from './updates-data';
+import { activeRun, newestPending } from './update-phase';
 
 const DISMISSED_KEY = 'pm-update-notice-dismissed';
 
@@ -44,9 +45,9 @@ export function UpdateNotice() {
   if (!isOwner || isDemoMode || !data || data.role !== 'install') return null;
   const newest = newestPending(data);
   if (!newest || dismissed === newest.version) return null;
-  // The page itself says it all; an update already applied is on its way.
+  // The page itself says it all; an update under way (or stopped) shows beside Settings in the sidebar instead.
   if (pathname.startsWith('/settings/updates')) return null;
-  if (data.run?.stage === 'applied' && data.run.version === newest.version) return null;
+  if (activeRun(data)) return null;
 
   const dismiss = () => {
     writeDismissed(newest.version);

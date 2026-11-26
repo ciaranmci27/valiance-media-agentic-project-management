@@ -9,6 +9,15 @@ Each section starts with `## X.Y.Z (YYYY-MM-DD)` and uses these headings, leavin
 - `### Database`: the core migration files in the release, one per line. `npm run db:migrate` applies them.
 - `### Breaking`: what an install must do when it takes this release.
 
+## 2.0.44 (2026-11-26)
+
+### Changed
+- **Settings > Updates shows where you are.** Up to date is a calm confirmation with when it last checked. An available update is one clear "X is ready" with how far behind you are, any breaking or database notes called out, and Update now. While updating, the page is a single progress view (step N of 4, how long it has run, what is happening now) with nothing asking you to act until Apply; a stopped update says what failed and the one thing to do; a deploy that takes over 30 minutes says so and points at your host's deploys; afterwards it says "You're on X" with what changed.
+- Owners see a small update mark beside their profile in the sidebar and beside Updates in Settings: a dot when an update is available, a progress ring while one runs, amber when it needs you or the deploy is slow, red when it stopped.
+- Update now, Try again and Apply update show only when the GitHub connection can update; otherwise the page shows what to fix.
+- Connect AI is no longer linked under the profile in the sidebar; it stays in Settings > Account.
+- Core checks pass on Windows checkouts that convert line endings.
+
 ## 2.0.43 (2026-11-26)
 
 ### Changed

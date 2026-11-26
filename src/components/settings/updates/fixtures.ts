@@ -86,6 +86,7 @@ const run = (patch: Partial<UpdateRun>): UpdateRun => ({
   checks: [],
   conflictFiles: [],
   hasMigrations: true,
+  startedAt: iso(4),
   updatedAt: iso(1),
   ...patch,
 });
@@ -136,6 +137,15 @@ export const UPDATE_FIXTURES: Record<string, UpdatesState> = {
   waiting_approval: { ...base, run: run({ stage: 'waiting_approval', checks: passed }) },
   applying: { ...base, run: run({ stage: 'applying', checks: passed }) },
   applied: { ...base, run: run({ stage: 'applied', checks: passed }) },
+  // Merged 45 minutes ago and still not live: step 4 reads as taking long.
+  deploy_stalled: { ...base, run: run({ stage: 'applied', checks: passed, updatedAt: iso(45) }) },
+  // A broken connection mid-update: Apply and Try again give way to its reason.
+  ready_blocked: { ...notConnected('token_invalid', 'GitHub refused the token.'), run: run({ stage: 'ready', checks: passed }) },
+  failed_blocked: { ...notConnected('missing_permissions', 'The token is missing these permissions: Actions (Read and write).', { missing: ['Actions'] }), run: run({ stage: 'failed', pullRequestNumber: null, pullRequestUrl: null }) },
+  waiting_approval_manual_db: { ...base, run: run({ stage: 'waiting_approval', checks: passed }), database: db({ mode: 'manual', switchOn: false }) },
+  // Live: the page greets the new version once (UpdatesSection forces it for this name), with its database follow-up.
+  updated: { ...base, current: '1.5.0', pending: [], database: db({ pending: PENDING.slice(0, 2) }) },
+  updated_clean: { ...base, current: '1.5.0', pending: [] },
   // Database updates: the switch, its setup, and changes that have not landed.
   db_manual: { ...base, current: '1.5.0', pending: [], database: db({ mode: 'manual', switchOn: false }) },
   db_host_off: { ...base, current: '1.5.0', pending: [], database: db({ mode: 'manual', hostOff: true }) },

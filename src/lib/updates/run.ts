@@ -87,6 +87,9 @@ const time = (iso: string | null | undefined) => {
   return Number.isNaN(value) ? 0 : value;
 };
 
+/** A GitHub time as ISO, or null when missing or unreadable. */
+const isoOf = (iso: string | null | undefined) => (time(iso) ? new Date(time(iso)).toISOString() : null);
+
 const firstLine = (text: string | null | undefined): string | null => {
   const line = (text ?? '').split('\n').map((part) => part.trim()).find(Boolean);
   return line ? line.slice(0, 300) : null;
@@ -332,6 +335,7 @@ export async function deriveRun(gh: GitHubClient, repo: string, version: string,
     checks: [],
     conflictFiles: [],
     hasMigrations: options.release?.hasMigrations ?? false,
+    startedAt: isoOf(run?.created_at) ?? isoOf(pull?.created_at),
     updatedAt: new Date(Math.max(time(run?.updated_at), time(pull?.updated_at)) || now.getTime()).toISOString(),
   };
   const summary = parseHiddenSummary(pull?.body);

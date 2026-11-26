@@ -1,75 +1,53 @@
 'use client';
 
-import { useEffect, useState, useSyncExternalStore } from 'react';
+import { useEffect, useState } from 'react';
 import { CircleArrowUp, RotateCw } from 'lucide-react';
 import { canUpdate, type UpdatesState } from '@/lib/updates/types';
 import { useDemo } from '@/lib/demo-context';
-import { useRead, warmRead } from '@/lib/query-cache';
+import { useRead } from '@/lib/query-cache';
 import { Button } from '@/components/ui/Button';
 import { toast } from '@/components/ui/Toast';
 import { SettingsSectionHeader } from '@/components/settings/SettingsSectionHeader';
 import type { Outcome } from '@/components/settings/workspace/OutcomeLine';
-import { activeRun, finishSetup, isRunMoving, newestPending, refreshUpdates, saveDatabaseUpdates, startRun, updatesRead } from './updates-data';
+import { finishSetup, refreshUpdates, saveDatabaseUpdates, startRun, updatesRead, useDeployNow, useFixtureName, useUpdatesPoll } from './updates-data';
+import { shouldPoll, updatePhase } from './update-phase';
 import { UPDATE_FIXTURES } from './fixtures';
-import { VersionCard } from './VersionCard';
+import { CurrentCard } from './CurrentCard';
+import { AvailableCard } from './AvailableCard';
+import { UpdateProgress } from './UpdateProgress';
 import { WhatsNew } from './WhatsNew';
-import { UpdateSteps } from './UpdateSteps';
 import { ConnectionCard } from './ConnectionCard';
 import { DatabaseCard } from './DatabaseCard';
 
-/** While an update moves on GitHub, how often the screen asks again. */
-const POLL_MS = 10_000;
-
 const errorMessage = (error: unknown) => (error instanceof Error ? error.message : 'Something went wrong. Try again.');
 
-/** Asks again every 10 s while `active` and the tab is visible; stops the moment it is hidden. */
-function usePoll(active: boolean) {
-  useEffect(() => {
-    if (!active) return;
-    let timer: number | null = null;
-    const tick = () => { void warmRead(updatesRead, { force: true }); };
-    const start = () => { if (timer === null) timer = window.setInterval(tick, POLL_MS); };
-    const stop = () => {
-      if (timer !== null) window.clearInterval(timer);
-      timer = null;
-    };
-    const onVisibility = () => {
-      if (document.hidden) {
-        stop();
-        return;
-      }
-      // Back on the tab: catch up at once, then keep going.
-      tick();
-      start();
-    };
-    if (!document.hidden) start();
-    document.addEventListener('visibilitychange', onVisibility);
-    return () => {
-      stop();
-      document.removeEventListener('visibilitychange', onVisibility);
-    };
-  }, [active]);
+/** The version an update from this page merged, kept so the page can say "You're on 2.0.43" once it is live. */
+const APPLIED_KEY = 'pm-update-applied';
+
+function readApplied(): string | null {
+  try {
+    return window.localStorage.getItem(APPLIED_KEY);
+  } catch {
+    return null;
+  }
 }
 
-const noSubscribe = () => () => {};
-
-/**
- * Development builds only: ?state=<name> shows a sample state (fixtures.ts),
- * read straight from the address so no Suspense boundary is needed for it.
- */
-function useFixtureName(): string | null {
-  return useSyncExternalStore(
-    noSubscribe,
-    () => (process.env.NODE_ENV === 'development' ? new URLSearchParams(window.location.search).get('state') : null),
-    () => null,
-  );
+function writeApplied(version: string | null) {
+  try {
+    if (version) window.localStorage.setItem(APPLIED_KEY, version);
+    else window.localStorage.removeItem(APPLIED_KEY);
+  } catch {
+    // Private windows and blocked storage: the page just skips the "You're on" moment.
+  }
 }
 
 /**
- * Settings > Updates: the version this app runs and the newest release, what
- * changed, the four update steps, the GitHub connection they need, and
- * whether deploys update the database. GitHub
- * holds the truth; this screen reads it through /api/workspace/updates.
+ * Settings > Updates, as one of three clearly different screens
+ * (update-phase.ts): up to date, a new version to install, or an update under
+ * way (with its stopped and going-live moments). The GitHub connection and
+ * database updates sit quietly below, the connection first while it is what
+ * stands in the way. GitHub holds the truth; this screen reads it through
+ * /api/workspace/updates.
  */
 export function UpdatesSection() {
   const { isDemoMode } = useDemo();
@@ -83,10 +61,22 @@ export function UpdatesSection() {
   const [connectionOutcome, setConnectionOutcome] = useState<Outcome | null>(null);
   const [savingDatabase, setSavingDatabase] = useState(false);
   const [databaseOutcome, setDatabaseOutcome] = useState<Outcome | null>(null);
+  const [appliedVersion, setAppliedVersion] = useState<string | null>(() => (typeof window === 'undefined' ? null : readApplied()));
 
   const fixture = fixtureName ? UPDATE_FIXTURES[fixtureName] ?? null : null;
   const state: UpdatesState | undefined = fixture ?? read.data;
-  usePoll(!fixtureName && isRunMoving(state?.run ?? null));
+  // The app's one poll (shared with the sidebar), while the update moves or deploys.
+  // Ticks once when a merged run's deploy crosses its deadline, so step 4 turns to "taking long".
+  const now = useDeployNow(state?.run);
+  useUpdatesPoll(!fixtureName && shouldPoll(state, now));
+  const phase = state ? updatePhase(state, now) : null;
+
+  // An update merged from here: remember it, so the page can greet the new version once it is live.
+  const merged = !fixtureName && phase?.kind === 'running' && phase.run.stage === 'applied' ? phase.run.version : null;
+  if (merged && merged !== appliedVersion) setAppliedVersion(merged);
+  useEffect(() => {
+    if (merged) writeApplied(merged);
+  }, [merged]);
 
   const sample = () => toast('info', 'Sample state: nothing was sent.');
 
@@ -153,60 +143,98 @@ export function UpdatesSection() {
   // A sample state (development only) wins over demo mode, so the demo server can show every state.
   if ((isDemoMode && !fixtureName) || fixtureName === 'demo') return <DemoPanel />;
   if (fixtureName === 'loading' || (!fixtureName && read.loading)) return <UpdatesSkeleton />;
-  if (fixtureName === 'error' || !state) return <LoadError onRetry={read.reload} />;
+  if (fixtureName === 'error' || !state || !phase) return <LoadError onRetry={read.reload} />;
 
-  const install = state.role === 'install';
-  const connection = install ? state.connection : null;
-  const current = activeRun(state);
-  const newest = newestPending(state);
-  const version = current?.version ?? newest?.version ?? null;
-  const target = state.pending.find((release) => release.version === version) ?? newest;
-  const showSteps = canUpdate(connection?.status) && !!version;
+  const connection = state.role === 'install' ? state.connection : null;
+  const justUpdated = phase.kind === 'current' && (fixtureName === 'updated' || (!!appliedVersion && appliedVersion === state.current));
+  const dismissUpdated = () => {
+    writeApplied(null);
+    setAppliedVersion(null);
+  };
+  // While GitHub isn't connected, the setup is the way forward: it comes straight after the call to action.
+  const connectionFirst = phase.kind !== 'current' && !!connection && !canUpdate(connection.status);
+
+  const hero = (() => {
+    switch (phase.kind) {
+      case 'current':
+        return <CurrentCard state={state} checking={checking} onCheck={() => void check()} justUpdated={justUpdated} onDismissUpdated={dismissUpdated} />;
+      case 'available':
+        return (
+          <AvailableCard
+            state={state}
+            target={phase.target}
+            releases={phase.releases}
+            checking={checking}
+            onCheck={() => void check()}
+            busy={busy === 'prepare'}
+            error={stepError?.action === 'prepare' ? stepError.message : null}
+            onUpdate={() => void run('prepare', phase.target.version)}
+            onDismissError={() => setStepError(null)}
+            finishing={finishing}
+            onFinish={() => void finish()}
+          />
+        );
+      case 'running':
+      case 'failed':
+        return (
+          <UpdateProgress
+            run={phase.run}
+            progress={phase.progress}
+            breaking={phase.releases.some((release) => release.breaking)}
+            database={state.database}
+            connection={connection}
+            current={state.current}
+            finishing={finishing}
+            onFinish={() => void finish()}
+            busy={busy}
+            error={stepError}
+            checking={checking}
+            onPrepare={() => void run('prepare', phase.run.version)}
+            onApply={() => void run('apply', phase.run.version)}
+            onCheck={() => void check()}
+            onDismissError={() => setStepError(null)}
+          />
+        );
+    }
+  })();
+
+  const whatsNew = phase.kind === 'available'
+    ? <WhatsNew releases={phase.releases} current={state.current} />
+    : (phase.kind === 'running' || phase.kind === 'failed') && phase.releases.length > 0
+      ? <WhatsNew releases={phase.releases} current={state.current} title="What you're getting" openNewest={false} />
+      : null;
+
+  const connectionCard = connection && (
+    <div id="updates-connection" className="scroll-mt-6">
+      <ConnectionCard
+        connection={connection}
+        checking={checking}
+        onCheck={() => void check()}
+        finishing={finishing}
+        outcome={connectionOutcome}
+        onFinish={() => void finish()}
+        sample={!!fixtureName}
+        onSample={sample}
+      />
+    </div>
+  );
 
   return (
     <div id="updates" className="scroll-mt-6 space-y-6">
-      <VersionCard state={state} checking={checking} onCheck={() => void check()} />
-
-      {install && state.pending.length > 0 && <WhatsNew pending={state.pending} current={state.current} />}
-
-      {showSteps && version && (
-        <UpdateSteps
-          run={current}
-          version={version}
-          hasMigrations={target?.hasMigrations ?? false}
-          breaking={state.pending.some((release) => release.breaking)}
+      {hero}
+      {connectionFirst && connectionCard}
+      {whatsNew}
+      {!connectionFirst && connectionCard}
+      <div id="updates-database" className="scroll-mt-6">
+        <DatabaseCard
           database={state.database}
-          busy={busy}
-          error={stepError}
+          saving={savingDatabase}
+          outcome={databaseOutcome}
+          onSave={(automatic) => void saveDatabase(automatic)}
           checking={checking}
-          onPrepare={() => void run('prepare', version)}
-          onApply={() => void run('apply', version)}
-          onCheck={() => void check()}
-          onDismissError={() => setStepError(null)}
+          onRetry={() => void check()}
         />
-      )}
-
-      {connection && (
-        <ConnectionCard
-          connection={connection}
-          checking={checking}
-          onCheck={() => void check()}
-          finishing={finishing}
-          outcome={connectionOutcome}
-          onFinish={() => void finish()}
-          sample={!!fixtureName}
-          onSample={sample}
-        />
-      )}
-
-      <DatabaseCard
-        database={state.database}
-        saving={savingDatabase}
-        outcome={databaseOutcome}
-        onSave={(automatic) => void saveDatabase(automatic)}
-        checking={checking}
-        onRetry={() => void check()}
-      />
+      </div>
     </div>
   );
 }

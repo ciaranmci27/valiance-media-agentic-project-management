@@ -269,6 +269,7 @@ function placeholderRun(version: string, release: ReleaseInfo | null, now: Date)
     checks: [],
     conflictFiles: [],
     hasMigrations: release?.hasMigrations ?? false,
+    startedAt: now.toISOString(),
     updatedAt: now.toISOString(),
   };
 }

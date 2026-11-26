@@ -28,6 +28,7 @@ import { getUpdates, isSameOrigin, postApply, postPrepare, postSetup, type Audit
 import { clearReleaseCache, parseReleaseNotes, pendingReleases, readReleases, toReleaseInfo } from '../src/lib/updates/releases';
 import { canApply, deriveRun, parseHiddenSummary, parseResultMarker } from '../src/lib/updates/run';
 import { canUpdate, compareVersions, parseVersion, REQUIRED_TOKEN_PERMISSIONS, type ReleaseInfo, type UpdateRun, type UpdatesState } from '../src/lib/updates/types';
+import { DEPLOY_WATCH_MS, deployDeadline, isDeployStalled, runProgress, runSteps, shouldPoll, updatePhase, updateSignal, type RunProgress } from '../src/components/settings/updates/update-phase';
 
 const APP = join(__dirname, '..');
 const TOKEN = 'github_pat_TEST_ONLY_never_real_0123456789';
@@ -929,6 +930,100 @@ function workflowCases() {
   check('core-checks.yml: concurrency per ref', /group: core-checks-\$\{\{ github\.ref \}\}/.test(checks));
 }
 
+// ---------------------------------------------------------------------------
+// The Updates screen's state model (update-phase.ts): which screen, which step,
+// what the sidebar says, and when the app keeps asking GitHub.
+
+function phaseCases() {
+  const now = NOW.getTime();
+  const minutesAgo = (minutes: number) => new Date(now - minutes * 60_000).toISOString();
+  const release = (version: string): ReleaseInfo => ({
+    version, publishedAt: minutesAgo(60 * 24), url: `https://github.com/${REPO}/releases/tag/v${version}`, notes: '', breaking: false, hasMigrations: false,
+  });
+  const run = (patch: Partial<UpdateRun>): UpdateRun => ({
+    version: '1.5.0', stage: 'preparing', workflowRunUrl: null, pullRequestUrl: null, pullRequestNumber: null, headSha: null,
+    previewUrl: null, checks: [], conflictFiles: [], hasMigrations: false, updatedAt: minutesAgo(1), ...patch,
+  });
+  const pass = { name: 'Tests', state: 'pass' as const, detail: null };
+  const running = { name: 'Tests', state: 'running' as const, detail: null };
+  const state = (patch: Partial<UpdatesState>): UpdatesState => ({
+    role: 'install', current: '1.4.0', latest: release('1.5.0'), pending: [release('1.4.1'), release('1.5.0')], checkedAt: null, releasesError: null,
+    connection: { status: 'connected', repo: REPO, defaultBranch: 'main', missing: [], unconfirmed: [], message: null }, run: null, database: null, ...patch,
+  });
+  const steps = (r: UpdateRun, at = now) => Object.values(runSteps(r, at)).join(',');
+
+  // Each stage: the four steps (merge, checks, apply, live), the step shown, and the mood.
+  const table: Array<[string, UpdateRun, string, number, RunProgress['mood']]> = [
+    ['preparing, merging', run({ stage: 'preparing' }), 'active,next,next,next', 1, 'working'],
+    ['preparing, checks running', run({ stage: 'preparing', checks: [running] }), 'done,active,next,next', 2, 'working'],
+    ['ready, a check still running', run({ stage: 'ready', checks: [pass, { ...running, name: 'Lint' }] }), 'done,active,next,next', 2, 'working'],
+    ['ready', run({ stage: 'ready', checks: [pass] }), 'done,done,turn,next', 3, 'turn'],
+    ['waiting for approval', run({ stage: 'waiting_approval', checks: [pass] }), 'done,done,turn,next', 3, 'turn'],
+    ['applying', run({ stage: 'applying', checks: [pass] }), 'done,done,active,next', 3, 'working'],
+    ['applied, deploying', run({ stage: 'applied', checks: [pass] }), 'done,done,done,active', 4, 'working'],
+    ['conflict', run({ stage: 'conflict' }), 'failed,next,next,next', 1, 'failed'],
+    ['no shared history', run({ stage: 'no_shared_history' }), 'failed,next,next,next', 1, 'failed'],
+    ['checks failed', run({ stage: 'checks_failed', pullRequestNumber: 42 }), 'done,failed,next,next', 2, 'failed'],
+    ['failed without a pull request: at the merge', run({ stage: 'failed' }), 'failed,next,next,next', 1, 'failed'],
+    ['failed with a pull request: at the checks', run({ stage: 'failed', pullRequestNumber: 42 }), 'done,failed,next,next', 2, 'failed'],
+  ];
+  for (const [label, r, expected, number, mood] of table) {
+    const progress = runProgress(r, now);
+    check(`phase steps: ${label}`, steps(r) === expected, steps(r));
+    check(`phase progress: ${label} is step ${number}, ${mood}`, progress.number === number && progress.mood === mood && progress.total === 4, progress);
+  }
+
+  // The deploy: active until 30 minutes after the merge, then stalled (not active, no poll).
+  const merged = run({ stage: 'applied', checks: [pass], updatedAt: minutesAgo(29) });
+  const late = run({ stage: 'applied', checks: [pass], updatedAt: minutesAgo(31) });
+  check('stalled: 29 minutes after the merge the deploy is still active', steps(merged) === 'done,done,done,active' && !isDeployStalled(merged, now));
+  check('stalled: 31 minutes after the merge step 4 is stalled', steps(late) === 'done,done,done,stalled' && isDeployStalled(late, now), steps(late));
+  check('stalled: exactly at the deadline it counts as stalled', isDeployStalled(late, Date.parse(late.updatedAt) + DEPLOY_WATCH_MS));
+  check('stalled: its mood and place', runProgress(late, now).mood === 'stalled' && runProgress(late, now).number === 4, runProgress(late, now));
+  check('stalled: only a merged run stalls', !isDeployStalled(run({ stage: 'applying', updatedAt: minutesAgo(90) }), now) && deployDeadline(run({ stage: 'ready' })) === null);
+
+  // Which screen.
+  check('screen: nothing newer is up to date', updatePhase(state({ current: '1.5.0', pending: [] }), now).kind === 'current');
+  check('screen: the source install is never asked to update', updatePhase(state({ role: 'source' }), now).kind === 'current');
+  const available = updatePhase(state({}), now);
+  check('screen: newer releases are available, newest targeted, newest first',
+    available.kind === 'available' && available.target.version === '1.5.0' && available.releases.map((r) => r.version).join(',') === '1.5.0,1.4.1', available);
+  const updating = updatePhase(state({ run: run({ stage: 'preparing' }) }), now);
+  check('screen: a moving run is updating', updating.kind === 'running' && updating.progress.current === 'merge', updating.kind);
+  check('screen: a stopped run is failed', updatePhase(state({ run: run({ stage: 'checks_failed', pullRequestNumber: 42 }) }), now).kind === 'failed');
+  check('screen: a stopped run for an older release gives way to the newer one', updatePhase(state({ run: run({ stage: 'conflict', version: '1.4.1' }) }), now).kind === 'available');
+  check('screen: a merged run still deploying keeps the progress view', updatePhase(state({ run: merged }), now).kind === 'running');
+  check('screen: a stalled deploy keeps the progress view', updatePhase(state({ run: late }), now).kind === 'running');
+  check('screen: once this app runs the merged version it is up to date', updatePhase(state({ current: '1.5.0', pending: [], run: run({ stage: 'applied' }) }), now).kind === 'current');
+  const getting = updatePhase(state({ run: run({ stage: 'preparing', version: '1.4.1' }) }), now);
+  check('screen: what you are getting is up to the run\'s version', getting.kind === 'running' && getting.releases.map((r) => r.version).join(',') === '1.4.1', getting);
+
+  // The sidebar's mark.
+  check('signal: up to date shows nothing', updateSignal(state({ current: '1.5.0', pending: [] }), now) === null && updateSignal(undefined, now) === null);
+  const ready = updateSignal(state({}), now);
+  check('signal: a new version is a plain dot', ready?.tone === 'available' && ready.fraction === null && ready.label === '1.5.0 is ready to install', ready);
+  const working = updateSignal(state({ run: run({ stage: 'preparing', checks: [running] }) }), now);
+  check('signal: updating names the step', working?.tone === 'working' && working.label === 'Updating to 1.5.0, step 2 of 4' && working.fraction === 0.375, working);
+  check('signal: ready to apply is the Owner\'s turn', updateSignal(state({ run: run({ stage: 'ready', checks: [pass] }) }), now)?.tone === 'turn');
+  check('signal: an approval is the Owner\'s turn', /approval/.test(updateSignal(state({ run: run({ stage: 'waiting_approval', checks: [pass] }) }), now)?.label ?? ''));
+  const stopped = updateSignal(state({ run: run({ stage: 'failed', pullRequestNumber: 42 }) }), now);
+  check('signal: a stop says where', stopped?.tone === 'failed' && stopped.label === 'Update to 1.5.0 stopped at step 2 of 4', stopped);
+  check('signal: deploying is still working', updateSignal(state({ run: merged }), now)?.tone === 'working');
+  const stalled = updateSignal(state({ run: late }), now);
+  check('signal: a stalled deploy has its own tone and words', stalled?.tone === 'stalled' && /^Deploy taking long/.test(stalled.label), stalled);
+
+  // When the app keeps asking GitHub.
+  const polls = (r: UpdateRun | null, patch: Partial<UpdatesState> = {}) => shouldPoll(state({ ...patch, run: r }), now);
+  check('poll: nothing to follow, no poll', !polls(null) && !shouldPoll(undefined, now));
+  check('poll: preparing and applying poll', polls(run({ stage: 'preparing' })) && polls(run({ stage: 'applying' })));
+  check('poll: ready with a check running polls; ready and settled waits for the Owner', polls(run({ stage: 'ready', checks: [running] })) && !polls(run({ stage: 'ready', checks: [pass] })));
+  check('poll: waiting for an approval does not poll', !polls(run({ stage: 'waiting_approval', checks: [pass] })));
+  check('poll: a stopped run does not poll', !polls(run({ stage: 'checks_failed' })) && !polls(run({ stage: 'conflict' })) && !polls(run({ stage: 'failed' })));
+  check('poll: merged, deploying, under 30 minutes polls', polls(merged));
+  check('poll: merged 30 minutes ago or more stops (stalled)', !polls(late));
+  check('poll: merged and this app already runs that version stops', !polls(run({ stage: 'applied' }), { current: '1.5.0', pending: [] }));
+}
+
 async function main() {
   notesCases();
   versionCases();
@@ -941,6 +1036,7 @@ async function main() {
   await routeCases();
   await secretCases();
   workflowCases();
+  phaseCases();
 }
 
 main()

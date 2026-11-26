@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { Check, Copy, ExternalLink } from 'lucide-react';
+import { Check, ChevronDown, Copy, ExternalLink, RotateCw } from 'lucide-react';
+import { timeAgo } from '@/lib/task-times';
 import { Button } from '@/components/ui/Button';
 import { toast } from '@/components/ui/Toast';
 
@@ -78,4 +79,67 @@ export function Label({ children, id }: { children: ReactNode; id?: string }) {
 /** Inline mono for versions, repos and file paths. */
 export function Mono({ children }: { children: ReactNode }) {
   return <span className="font-mono text-[0.92em] text-zinc-100">{children}</span>;
+}
+
+/** "5 min ago", "yesterday", "Oct 24": a time read mid-sentence (dates stay capitalised). */
+export function agoWords(iso: string): string {
+  const ago = timeAgo(iso);
+  return ago === 'Just now' || ago === 'Yesterday' ? ago.toLowerCase() : ago;
+}
+
+/** "Checked 5 min ago", "Not checked yet". */
+export function checkedLabel(iso: string | null): string {
+  return iso ? `Checked ${agoWords(iso)}` : 'Not checked yet';
+}
+
+/** Asks GitHub again: a quiet button, its icon turning while it asks. */
+export function CheckButton({
+  checking,
+  onCheck,
+  label = 'Check again',
+  variant = 'secondary',
+}: {
+  checking: boolean;
+  onCheck: () => void;
+  label?: string;
+  variant?: 'secondary' | 'ghost';
+}) {
+  return (
+    <Button size="sm" variant={variant} onClick={onCheck} disabled={checking}
+      icon={<RotateCw size={13} aria-hidden="true" className={checking ? 'animate-spin motion-reduce:animate-none' : undefined} />}>
+      {checking ? 'Checking' : label}
+    </Button>
+  );
+}
+
+/** A section that opens on request: a quiet row with a chevron, the content below it. */
+export function Disclosure({
+  id,
+  summary,
+  defaultOpen = false,
+  children,
+}: {
+  id: string;
+  summary: ReactNode;
+  defaultOpen?: boolean;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        aria-expanded={open}
+        aria-controls={id}
+        className="flex w-full items-center gap-2 rounded-lg py-1 text-left text-sm font-medium text-zinc-200 transition-colors hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+      >
+        <ChevronDown size={15} aria-hidden="true" className={`flex-shrink-0 text-zinc-400 motion-safe:transition-transform ${open ? '' : '-rotate-90'}`} />
+        <span className="min-w-0 flex-1">{summary}</span>
+      </button>
+      <div id={id} hidden={!open} className="mt-3 pl-[23px]">
+        {open && children}
+      </div>
+    </div>
+  );
 }

@@ -98,6 +98,8 @@ export interface UpdateRun {
   hasMigrations: boolean;
   /** For a stopped update: the workflow's one line on what went wrong, when it said. */
   message?: string | null;
+  /** When the update started: its workflow run, else its pull request. Optional so older answers still read. */
+  startedAt?: string | null;
   updatedAt: string;
 }
 

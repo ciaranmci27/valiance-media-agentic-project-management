@@ -12,7 +12,6 @@ import {
   LogOut,
   Target,
   UserCircle,
-  CheckSquare,
   ListTodo,
   Bot,
   Bell,
@@ -45,6 +44,8 @@ import { reminderGroup } from '@/lib/reminders';
 import { placeNavItems } from '@/lib/extensions/registry';
 import { useCustomNavItems } from '@/lib/extensions/hooks';
 import type { InboxAttention } from '@/lib/communications/inbox-view';
+import { useOwnerUpdateSignal } from '@/components/settings/updates/use-owner-updates';
+import { UpdateIndicator } from '@/components/settings/updates/UpdateIndicator';
 
 export function Sidebar() {
   const pathname = usePathname();
@@ -116,6 +117,9 @@ export function Sidebar() {
   const warmTab = (href: string) => (href === '/inbox' && canReadInbox
     ? intent(() => void warmRead(inboxLandingRead(null, isDemoMode)))
     : {});
+
+  // Owners only (no request for anyone else): an update's progress, or a new version, beside Settings.
+  const updateSignal = useOwnerUpdateSignal();
 
   const currentMember = team.find(m => m.id === teamMemberId);
   const displayName = currentMember?.name || user?.user_metadata?.display_name || user?.email?.split('@')[0] || 'User';
@@ -433,30 +437,35 @@ export function Sidebar() {
               </div>
             </div>
           ) : (
-            <Link
-              href="/settings/account"
-              onClick={closeSidebar}
-              className={`flex items-center gap-3 px-2 py-2 rounded-lg transition-colors ${
-                inSettings ? 'bg-brand-500/15 glow-brand-soft' : 'hover:bg-white/5'
-              }`}
-            >
-              <Avatar name={displayName} src={currentMember?.avatar || undefined} size="sm" />
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-zinc-200 truncate">{displayName}</p>
-                <p className={`text-xs truncate capitalize ${inSettings ? 'text-brand-300' : 'text-zinc-500'}`}>{displayRole}</p>
-              </div>
-            </Link>
-          )}
-          {/* Connect AI: every person's own AI tools, one click from anywhere. Agents never sign in. */}
-          {!loading && access?.role !== 'agent' && (
-            <Link
-              href="/settings/account#connect-ai"
-              onClick={closeSidebar}
-              className="w-full flex items-center gap-3 px-2 py-2 mt-1 rounded-lg text-zinc-400 hover:bg-white/5 hover:text-zinc-200 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
-            >
-              <Sparkles size={16} aria-hidden="true" />
-              <span className="text-sm">Connect AI</span>
-            </Link>
+            <div className="relative">
+              <Link
+                href="/settings/account"
+                onClick={closeSidebar}
+                className={`flex items-center gap-3 px-2 py-2 rounded-lg transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 ${
+                  updateSignal ? 'pr-11' : ''
+                } ${inSettings ? 'bg-brand-500/15 glow-brand-soft' : 'hover:bg-white/5'}`}
+              >
+                <Avatar name={displayName} src={currentMember?.avatar || undefined} size="sm" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-zinc-200 truncate">{displayName}</p>
+                  <p className={`text-xs truncate capitalize ${inSettings ? 'text-brand-300' : 'text-zinc-500'}`}>{displayRole}</p>
+                </div>
+              </Link>
+              {/* Owners: an update under way, waiting, stopped or out, one click from Settings > Updates. */}
+              {updateSignal && (
+                <div className="absolute right-1.5 top-1/2 -translate-y-1/2">
+                  <Tooltip content={updateSignal.label} position="right">
+                    <Link
+                      href="/settings/updates"
+                      onClick={closeSidebar}
+                      className="flex h-8 w-8 items-center justify-center rounded-md transition-colors hover:bg-white/[0.06] focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+                    >
+                      <UpdateIndicator signal={updateSignal} />
+                    </Link>
+                  </Tooltip>
+                </div>
+              )}
+            </div>
           )}
           {!isEnvForcedDemo && (
             <button

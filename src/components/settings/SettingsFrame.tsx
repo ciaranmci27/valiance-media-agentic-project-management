@@ -9,6 +9,9 @@ import {
   settingsGroupForPath,
   useSettingsAccess,
 } from '@/components/settings/settings-groups';
+import { Tooltip } from '@/components/ui/Tooltip';
+import { useOwnerUpdateSignal } from '@/components/settings/updates/use-owner-updates';
+import { UpdateIndicator } from '@/components/settings/updates/UpdateIndicator';
 
 /**
  * The Settings area around each group's page: the menu (a sticky list beside
@@ -23,6 +26,8 @@ export function SettingsFrame({ children }: { children: ReactNode }) {
   const groups = SETTINGS_GROUPS.filter((g) => visibleGroups[g.key]);
   const current = settingsGroupForPath(pathname);
   const hidden = !!current && !visibleGroups[current.key];
+  // Owners: the same update mark as the sidebar's, beside Updates.
+  const updateSignal = useOwnerUpdateSignal();
 
   // Phones: the strip scrolls sideways, so the open group is scrolled into
   // view (at once on first paint, smoothly after) and a fade marks each edge
@@ -108,6 +113,7 @@ export function SettingsFrame({ children }: { children: ReactNode }) {
                   }`}
                 >
                   {group.label}
+                  {group.key === 'updates' && updateSignal && <UpdateIndicator signal={updateSignal} size={14} />}
                   <span
                     aria-hidden="true"
                     className={`absolute inset-x-2 -bottom-px h-0.5 rounded-full transition-colors ${active ? 'bg-brand-400' : 'bg-transparent'}`}
@@ -137,6 +143,11 @@ export function SettingsFrame({ children }: { children: ReactNode }) {
                 >
                   <group.icon size={18} className="flex-shrink-0" aria-hidden="true" />
                   <span className="text-sm font-medium">{group.label}</span>
+                  {group.key === 'updates' && updateSignal && (
+                    <Tooltip content={updateSignal.label} position="right" className="ml-auto">
+                      <UpdateIndicator signal={updateSignal} />
+                    </Tooltip>
+                  )}
                 </Link>
               </li>
             );

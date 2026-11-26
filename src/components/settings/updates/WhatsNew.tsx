@@ -39,51 +39,62 @@ function ReleaseSection({ release, initiallyOpen }: { release: ReleaseInfo; init
   const date = releaseDate(release.publishedAt);
 
   return (
-    <li className="py-5 first:pt-0 last:pb-0">
+    <li className="py-3.5 first:pt-0 last:pb-0">
       <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5">
-        <h3 className="font-mono text-sm font-medium text-white">{release.version}</h3>
-        {date && <span className="text-xs text-zinc-400">{date}</span>}
+        <h3 className="min-w-0">
+          <button
+            type="button"
+            onClick={() => setOpen((value) => !value)}
+            aria-expanded={open}
+            aria-controls={bodyId}
+            className="inline-flex items-center gap-2 rounded py-0.5 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+          >
+            <ChevronDown size={15} aria-hidden="true" className={`flex-shrink-0 text-zinc-400 motion-safe:transition-transform ${open ? '' : '-rotate-90'}`} />
+            <span className="font-mono text-sm font-medium text-white">{release.version}</span>
+            {date && <span className="text-xs text-zinc-400">{date}</span>}
+          </button>
+        </h3>
         <ReleaseChips release={release} />
         <span className="ml-auto text-xs"><ExternalLinkText href={release.url}>On GitHub</ExternalLinkText></span>
       </div>
 
-      <div id={bodyId} hidden={!open} className="mt-3">
+      <div id={bodyId} hidden={!open} className="mt-3 pl-[23px]">
         {open && <ReleaseNotes notes={release.notes} version={release.version} />}
       </div>
-
-      {!initiallyOpen && (
-        <button
-          type="button"
-          onClick={() => setOpen((value) => !value)}
-          aria-expanded={open}
-          aria-controls={bodyId}
-          className="mt-2 inline-flex items-center gap-1 rounded text-xs font-medium text-zinc-400 hover:text-zinc-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
-        >
-          <ChevronDown size={13} aria-hidden="true" className={`transition-transform ${open ? 'rotate-180' : ''}`} />
-          {open ? 'Hide notes' : 'Show notes'}
-        </button>
-      )}
     </li>
   );
 }
 
 /**
- * What changed in each release this install has not got yet, newest first.
- * The newest release and any that need attention open with their notes; the
- * rest open on request, so the steps below stay close.
+ * What changed in each release, newest first, one per row that opens on
+ * request. Before an update the newest opens by itself; during one
+ * ("What you're getting") they all start folded, so the progress stays the
+ * one thing on the page.
  */
-export function WhatsNew({ pending, current }: { pending: ReleaseInfo[]; current: string }) {
-  const newestFirst = [...pending].reverse();
-  const description = newestFirst.length === 1
-    ? `What changes when you update to ${newestFirst[0].version}.`
-    : `Everything that changed since ${current}, newest first. Updating installs all of it at once.`;
+export function WhatsNew({
+  releases,
+  current,
+  title = 'What\'s new',
+  openNewest = true,
+}: {
+  /** Newest first. */
+  releases: ReleaseInfo[];
+  current: string;
+  title?: string;
+  openNewest?: boolean;
+}) {
+  const description = releases.length === 1
+    ? `What changes when you update to ${releases[0].version}.`
+    : openNewest
+      ? `Everything since ${current}, newest first. Updating installs all of it at once.`
+      : `Everything since ${current} that this update brings, newest first.`;
 
   return (
     <section className="glass-card rounded-xl p-4 lg:p-6" aria-labelledby="whats-new-heading">
-      <SettingsSectionHeader icon={Sparkles} title="What's new" headingId="whats-new-heading" description={description} />
+      <SettingsSectionHeader icon={Sparkles} title={title} headingId="whats-new-heading" description={description} />
       <ul className="divide-y divide-white/[0.06]">
-        {newestFirst.map((release, index) => (
-          <ReleaseSection key={release.version} release={release} initiallyOpen={index === 0 || release.breaking} />
+        {releases.map((release, index) => (
+          <ReleaseSection key={release.version} release={release} initiallyOpen={openNewest && index === 0} />
         ))}
       </ul>
     </section>

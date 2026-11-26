@@ -1156,10 +1156,27 @@ a.bg-brand-500 {
   animation: presence-breathe 2.6s cubic-bezier(0.22, 1, 0.36, 1) infinite;
 }
 
+/* Settings > Updates: the light that runs along the step in progress. */
+@keyframes update-sweep {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(200%);
+  }
+}
+.update-sweep {
+  animation: update-sweep 1.8s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+}
+
 /* Respect reduced motion */
 @media (prefers-reduced-motion: reduce) {
   .presence-breathe {
     animation: none !important;
+  }
+  .update-sweep {
+    animation: none !important;
+    transform: none !important;
   }
   .animate-fadeIn,
   .animate-scaleIn,

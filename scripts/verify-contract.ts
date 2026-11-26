@@ -168,7 +168,8 @@ async function shape(db: PGlite) {
   return {
     column: await read("SELECT column_default FROM information_schema.columns WHERE table_schema = 'pm' AND table_name = 'inboxes' AND column_name = 'triage_mode'"),
     trigger: await read("SELECT tgname, pg_get_triggerdef(t.oid) AS def FROM pg_trigger t WHERE tgrelid = 'pm.webhook_events'::regclass AND NOT tgisinternal ORDER BY tgname"),
-    fn: await read("SELECT prosrc, proconfig, proacl::text FROM pg_proc WHERE oid = 'pm.webhook_envelope_api_version()'::regprocedure"),
+    // Line endings follow the checkout (CRLF on Windows with core.autocrlf), not the function, so compare them as LF.
+    fn: (await read("SELECT prosrc, proconfig, proacl::text FROM pg_proc WHERE oid = 'pm.webhook_envelope_api_version()'::regprocedure")).replace(/\\r\\n/g, '\\n'),
   };
 }
 
