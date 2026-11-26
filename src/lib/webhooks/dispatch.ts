@@ -2,10 +2,13 @@ import { getServiceClient } from '@/lib/api/supabase-service';
 import { enabledModuleSet } from '@/lib/modules/server';
 import { buildSignatureHeader, WEBHOOK_SIGNATURE_HEADER } from './sign';
 import { isSealedWebhookSecret, openWebhookSecret, sealStoredWebhookSecret } from './secret';
+import { sendWebhook } from './target';
 
 // Claims due deliveries (claim_webhook_deliveries: a 2-minute lease per
 // delivery, head of the line per subject and endpoint) and POSTs each to its
-// endpoint with an HMAC signature. complete_webhook_delivery records the
+// endpoint with an HMAC signature, to a public address only and never
+// following a redirect (lib/webhooks/target.ts: a private or metadata
+// address, or a 3xx, is a failed attempt with the reason stored). complete_webhook_delivery records the
 // outcome: a failure goes back to pending with backoff (1m, 3m, 9m ... 12h)
 // until the 8th attempt, then stays failed until resent from the UI. A run
 // that dies leaves its leases to expire and the next run takes them back.
@@ -125,8 +128,7 @@ async function deliverOne(store: DispatchStore, d: ClaimedDelivery, summary: Dis
     }
     const header = await buildSignatureHeader(secret, body);
     await sealIfPlain(store, d, sealed);
-    const res = await fetch(d.endpoint_url, {
-      method: 'POST',
+    const res = await sendWebhook(d.endpoint_url, {
       headers: {
         'Content-Type': 'application/json',
         [WEBHOOK_SIGNATURE_HEADER]: header,
@@ -135,11 +137,14 @@ async function deliverOne(store: DispatchStore, d: ClaimedDelivery, summary: Dis
         'User-Agent': 'ProjectManagementWebhooks/1',
       },
       body,
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      timeoutMs: REQUEST_TIMEOUT_MS,
+      maxChars: MAX_RESPONSE_CHARS,
     });
     statusCode = res.status;
-    responseText = (await res.text().catch(() => '')).slice(0, MAX_RESPONSE_CHARS);
-    if (!res.ok) errorText = `HTTP ${res.status}`;
+    responseText = res.text;
+    // A redirect is never followed: the receiver must answer at the URL it gave.
+    if (res.status >= 300 && res.status < 400) errorText = `HTTP ${res.status}: redirects are not followed; set the endpoint to the final URL`;
+    else if (res.status < 200 || res.status >= 300) errorText = `HTTP ${res.status}`;
   } catch (e) {
     errorText = e instanceof Error ? e.message : String(e);
   }

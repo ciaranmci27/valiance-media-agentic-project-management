@@ -31,7 +31,7 @@ export const GET = withApi(async ({ supabase, params, searchParams }) => {
 
   if (error) throw error;
   return paginated(data || [], { page, limit, total: count || 0 });
-});
+}, { permission: 'portal.read' });
 
 export const POST = withApi(async ({ supabase, params, body, apiKeyId, teamMemberId }) => {
   const { id, updateId } = params as any;
@@ -71,4 +71,4 @@ export const POST = withApi(async ({ supabase, params, body, apiKeyId, teamMembe
   });
 
   return created(attachment);
-}, { schema: createPortalUpdateAttachmentSchema });
+}, { schema: createPortalUpdateAttachmentSchema, permission: 'portal.manage' });

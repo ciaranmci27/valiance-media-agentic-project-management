@@ -32,7 +32,7 @@ export const GET = withApi(async ({ supabase, params, access, scopes, teamMember
     if (!grant) throw forbidden('Credential has not been shared with this team member');
   }
   return success(data);
-});
+}, { permission: 'credentials.reveal_shared' });
 
 export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemberId }) => {
   const { id, credentialId } = params as any;
@@ -87,7 +87,7 @@ export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemb
   });
 
   return success(updated);
-}, { schema: updateCredentialSchema });
+}, { schema: updateCredentialSchema, permission: 'credentials.manage' });
 
 export const DELETE = withApi(async ({ supabase, params, apiKeyId, teamMemberId }) => {
   const { id, credentialId } = params as any;
@@ -115,4 +115,4 @@ export const DELETE = withApi(async ({ supabase, params, apiKeyId, teamMemberId 
   });
 
   return success({ deleted: true });
-});
+}, { permission: 'credentials.manage' });

@@ -28,7 +28,7 @@ export const GET = withApi(async ({ supabase, searchParams, access }) => {
 
   if (error) throw error;
   return paginated(data || [], { page, limit, total: count || 0 });
-});
+}, { permission: 'team.read' });
 
 export const POST = withApi(async ({ supabase, body, apiKeyId, teamMemberId, access }) => {
   const member = body as Record<string, unknown>;
@@ -59,4 +59,4 @@ export const POST = withApi(async ({ supabase, body, apiKeyId, teamMemberId, acc
   // A person whose role has an assistant setup gets their personal agent now (never fails the add).
   if (data.role !== 'agent') await autoProvisionOnJoin(supabase, data.id, teamMemberId);
   return created(data);
-}, { schema: createTeamMemberSchema });
+}, { schema: createTeamMemberSchema, permission: 'team.manage' });

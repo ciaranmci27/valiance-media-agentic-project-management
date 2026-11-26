@@ -11,4 +11,4 @@ export const GET = withApi(async ({ supabase, params, teamMemberId, access, scop
   const { id } = params as { id: string };
   await expireDueQuestions(supabase);
   return success(await getApproval({ db: supabase, access, memberId: teamMemberId, channel: 'api', scopes }, id));
-}, { permission: 'tasks.read' });
+}, { permission: ['tasks.read', 'questions.ask'] });

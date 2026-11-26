@@ -4,9 +4,10 @@ import { AgentsPauseSection } from '@/components/settings/security/AgentsPauseSe
 import { AuditLogSection } from '@/components/settings/security/AuditLogSection';
 import { AuditSettingsSection } from '@/components/settings/security/AuditSettingsSection';
 import { ConnectAiSettingSection } from '@/components/settings/security/ConnectAiSettingSection';
+import { DataRetentionSection } from '@/components/settings/security/DataRetentionSection';
 import { useSettingsAccess } from '@/components/settings/settings-groups';
 
-/** Security (Owners only): pause every agent at once, let people connect AI tools or not, read the audit log, and say how long it is kept. */
+/** Security (Owners only): pause every agent at once, let people connect AI tools or not, read the audit log, say how long it is kept, and how long other data is kept. */
 export default function SecuritySettingsPage() {
   const { show } = useSettingsAccess();
   return (
@@ -30,6 +31,11 @@ export default function SecuritySettingsPage() {
             <AuditSettingsSection />
           </div>
         </>
+      )}
+      {show.dataRetention && (
+        <div id="data-retention" className="scroll-mt-6">
+          <DataRetentionSection />
+        </div>
       )}
     </>
   );

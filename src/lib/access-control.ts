@@ -31,6 +31,8 @@ export const PERMISSIONS = [
   'tasks.create',
   'tasks.manage_assigned',
   'tasks.manage_all',
+  'approvals.decide',
+  'questions.ask',
   'templates.manage',
   'time.manage_own',
   'time.read_all',
@@ -66,6 +68,7 @@ export const PERMISSIONS = [
   'payouts.manage',
   'agents.manage',
   'agents.act_for',
+  'chat.notify',
   'project_context.read',
   'project_context.manage',
   'context.memory',
@@ -86,6 +89,17 @@ export const API_ENDPOINT_PERMISSIONS = [
   'team.read', 'team.manage', 'audit.read', 'notifications.manage_own', 'notifications.send', 'reminders.manage_own',
   'projects.read', 'projects.read_all', 'projects.manage', 'project_members.manage',
   'tasks.read', 'tasks.create', 'tasks.manage_assigned', 'tasks.manage_all',
+  // Deciding, over the API, an approval that names a person (or as the Owner's
+  // override): a person adds it to their own key on purpose. Admins and
+  // members hold it on the API, no key carries it by default, no agent holds
+  // it, and a connected AI tool never decides one.
+  'approvals.decide',
+  // Asking a person a question or for an approval that names no task or
+  // project, without tasks.read (an agent that works in another system).
+  // Admins, members and agents hold it on the API, so whoever hires an agent
+  // can hand it on; no key carries it by default. tasks.read still allows
+  // asking too.
+  'questions.ask',
   // Task templates: the library and its playbooks (using one needs tasks.create). Owners and Admins by default.
   'templates.manage',
   'time.manage_own', 'time.read_all', 'time.manage_all', 'time.approve',
@@ -106,6 +120,8 @@ export const API_ENDPOINT_PERMISSIONS = [
   'api_keys.manage_all', 'webhooks.manage',
   // Groups, linked identities and acting for a person (a chat harness). Owners only by default.
   'groups.manage', 'identities.link', 'identities.read', 'agents.act_for',
+  // A company agent DMs a member who did not ask (an unprompted alert). No role holds it by default.
+  'chat.notify',
   // Every agent event and run, in order, for a data system (GET /api/v1/agent-events/export). No role holds it by default.
   'agent_events.export',
   // A harness that runs people's personal agents: lists them and collects each one's key once. No role holds it by default.
@@ -328,6 +344,8 @@ export const PERMISSION_GROUPS: Array<{
       { key: 'tasks.create', label: 'Create tasks', description: 'Create tasks inside accessible projects.' },
       { key: 'tasks.manage_assigned', label: 'Manage assigned tasks', description: 'Edit tasks assigned to the member.' },
       { key: 'tasks.manage_all', label: 'Manage all tasks', description: 'Edit any task in accessible projects.' },
+      { key: 'approvals.decide', label: 'Decide approvals over the API', description: 'Let a key decide an approval that names this person (or, for the Owner, any approval), as if they clicked Approve or Reject. Without it, approvals for a person are decided in the app. An agent asked by name decides its own without it. Admins and members hold it on the API, no key carries it until its person adds it, no agent holds it by default, and a connected AI tool never decides an approval.' },
+      { key: 'questions.ask', label: 'Ask people', description: 'Let a key ask a question or request an approval that names no task or project, and read and withdraw its own, without View tasks. Naming a task or project still needs View tasks there. Meant for an agent that works in another system. Admins, members and agents hold it on the API, so whoever sets up an agent can give its key this scope; no key carries it until someone adds it.' },
       { key: 'templates.manage', label: 'Manage templates', description: 'Create, edit, and remove task templates and playbooks for everyone. Using a template only needs Create tasks in its project.' },
       { key: 'time.manage_own', label: 'Manage own time', description: 'Track and edit personal unapproved time.' },
       { key: 'time.read_all', label: 'View all time', description: 'View other members time entries.' },
@@ -381,6 +399,7 @@ export const PERMISSION_GROUPS: Array<{
     permissions: [
       { key: 'agents.manage', label: 'Manage agents', description: 'Configure AI agent behavior and assignments.' },
       { key: 'agents.act_for', label: 'Act for a person', description: 'Allow an AI agent to act for the person who asked it (X-Act-For), within that person\'s access and its own.' },
+      { key: 'chat.notify', label: 'Message people unasked', description: 'Allow a company AI agent to send a direct message in chat to a member who did not ask it (an alert, a report). Without it, it messages a person only while acting for them. No role holds it by default.' },
       { key: 'project_context.read', label: 'View project context', description: 'Read saved context for accessible projects.' },
       { key: 'project_context.manage', label: 'Manage project context', description: 'Create and edit project context.' },
       { key: 'context.memory', label: 'Read and write my personal memory', description: 'Allow a person\'s own key or connected AI tool to read and add to what their assistant remembers about them. Admins and members hold it on the API; no agent does (a personal agent reaches it only while its person allows it).' },

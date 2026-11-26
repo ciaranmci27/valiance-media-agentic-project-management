@@ -7,46 +7,68 @@ import { afterResponse } from '@/lib/api/after-response';
 import { readStoredBrand } from '@/lib/brand/server';
 import { enabledModuleSet } from '@/lib/modules/server';
 import { runDispatch } from '@/lib/webhooks/dispatch';
-import { openCredentials, loadConnection } from './connections';
+import { connectionKind, openCredentials, loadConnection } from './connections';
 import { chatAdapter, type ChatAdapter, type ChatCredentials, type ParsedInbound } from './providers';
 import { CHAT_WORDS, QUIET_WORDS } from './types';
-import { assistantMessagePayload } from './messages';
+import { assistantMessagePayload, chatMessagePayload } from './messages';
 
 /**
  * A chat provider's request to /api/chat/inbound/{connection_id}, end to end:
  *
  * 1. The connection must exist, have an adapter and readable credentials,
  *    and the adapter must verify the request (Slack's signature, Telegram's
- *    secret token) before anything is read. Each of those failing answers
+ *    secret token, the Discord relay's signature) before anything is read. Each of those failing answers
  *    the same 401, so nobody can tell whether a connection exists. Slack's
  *    URL challenge is answered once verified. An event from another Slack
  *    workspace than the connection's is ignored.
  * 2. A retry of a delivery already recorded (the provider's event id) is a
  *    no-op; inbound messages are rate limited per connection and per sender.
- * 3. The sender is resolved through a verified linked account in this
+ * 3. The connection's kind decides the rest.
+ *
+ * The personal bot (kind personal, every connection made before company
+ * chat): DMs only; anything said in a channel or group is ignored and never
+ * recorded.
+ *  - The sender is resolved through a verified linked account in this
  *    connection's workspace (or, for providers with no workspaces, one with
  *    none). Someone unknown gets a one-time link to connect their account
- *    (the existing link handshake), only in a one-to-one chat and at most
- *    once an hour; in a shared conversation they are asked to message the
- *    bot directly. Someone suspended or with no assistant gets one plain
- *    line.
- * 4. A paused assistant (by its person, or by an admin) is never sent the
- *    message: it is recorded as unrouted. Otherwise the message is recorded for
- *    the person's assistant and sent to its webhook (assistant.message, ids
- *    only: chat is private, so the assistant fetches the text with its own
- *    key); with no endpoint it waits for the assistant to fetch it. No
- *    act-for token: a personal agent is already narrowed to its person.
- * 5. When the assistant will not answer right now (on hold, paused, broken:
+ *    (the existing link handshake), at most once an hour. Someone suspended
+ *    or with no assistant gets one plain line.
+ *  - A paused assistant (by its person, or by an admin) is never sent the
+ *    message: it is recorded as unrouted. Otherwise the message is recorded
+ *    for the person's assistant and sent to its webhook: assistant.message
+ *    (exactly as before) and chat.message, both ids only; with no endpoint
+ *    it waits for the assistant to fetch it. No act-for token: a personal
+ *    agent is already narrowed to its person.
+ *  - When the assistant will not answer right now (on hold, paused, broken:
  *    the states the person's page shows), the app says so itself, once per
- *    chat per spell, only where the message spoke to the bot. A broken one,
- *    or one on hold whose host stopped reporting, tells its admins (once a
- *    day).
+ *    chat per spell. A broken one, or one on hold whose host stopped
+ *    reporting, tells its admins (once a day).
+ *
+ * The company bot (kind company): channels and DMs, to the company agents
+ * the Owner chose (routeCompany has the rules). A request (a DM, a mention
+ * of the bot or of an agent by name) from a linked person is recorded for
+ * its agent with that person as the sender, the principal its agent acts
+ * for. A channel with listen all records every other message as context
+ * (is_request false, status context), strangers' too, with their provider
+ * id and no member; context is never answered and never acted on. A
+ * stranger's request gets the link handshake in a DM, and "message me
+ * directly" in a channel. An agent that is on hold, paused or whose host is
+ * down gets the same once-per-spell line, with its name.
+ *
+ * Replies to a message an agent started (POST /api/v1/chat/messages): in
+ * its thread, quoting it, or in a DM the next messages after it, go back to
+ * that agent (route reply on the company bot; reply_to_id names the started
+ * message on both). Files sent with a message are recorded as references
+ * (attachments) and fetched only when the agent asks; a message with only a
+ * file is a message like any other.
  *
  * Nothing logs a token, and message text never reaches a log.
  */
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- rows are read field by field
 type Row = Record<string, any>;
+type Message = Extract<ParsedInbound, { kind: 'message' }>;
+type Ctx = { connection: Row; adapter: ChatAdapter; credentials: ChatCredentials };
 
 export interface InboundResult {
   status: number;
@@ -65,17 +87,21 @@ const done = (body: Record<string, unknown>, status = 200): InboundResult => ({ 
 /** The one answer for an unknown connection, a bad signature, no adapter or unreadable credentials. */
 const refused = (): InboundResult => done({ error: 'Unauthorized' }, 401);
 
-/** Answers in the conversation the message came from, recorded as outbound; a send failure is recorded, never thrown. */
+/**
+ * Answers in the conversation the message came from (in a company channel,
+ * threaded under it), recorded as outbound; a send failure is recorded,
+ * never thrown.
+ */
 async function answer(
   service: SupabaseClient,
-  ctx: { connection: Row; adapter: ChatAdapter; credentials: ChatCredentials },
-  inbound: { id: string; conversationId: string; threadId: string | null },
+  ctx: Ctx,
+  inbound: { id: string; conversationId: string; threadId: string | null; replyTo?: string | null },
   text: string,
 ): Promise<void> {
   let externalId: string | null = null;
   let error: string | null = null;
   try {
-    externalId = (await ctx.adapter.send(ctx.credentials, { conversationId: inbound.conversationId, threadId: inbound.threadId, text })).externalMessageId;
+    externalId = (await ctx.adapter.send(ctx.credentials, { conversationId: inbound.conversationId, threadId: inbound.threadId, replyTo: inbound.replyTo ?? null, text })).externalMessageId;
   } catch (failure) {
     error = failure instanceof Error ? failure.message.slice(0, 500) : 'Send failed';
     console.error(`[chat] reply on connection ${ctx.connection.id} failed: ${error}`);
@@ -124,6 +150,11 @@ export async function handleChatInbound(
 
   const parsed: ParsedInbound = adapter.parse(request.body, request.headers);
   if (parsed.kind === 'challenge') return done({ challenge: parsed.challenge });
+  // A relay's hello (Discord): verified, so the connection is heard. Nothing is recorded.
+  if (parsed.kind === 'ping') {
+    await service.from('chat_connections').update({ last_inbound_at: new Date().toISOString() }).eq('id', connection.id);
+    return done({ status: 'ok' });
+  }
   if (parsed.kind === 'ignore') return done({ status: 'ignored', reason: parsed.reason });
   if (connection.enabled === false) return done({ status: 'ignored', reason: 'connection_off' });
   // Another workspace's event (a Slack app installed twice): not this connection's.
@@ -138,20 +169,115 @@ export async function handleChatInbound(
   if (!(await allowed(service, connection.id, '', CHAT_RATE_LIMIT))) return done({ error: 'Too many messages. Try again in a minute.' }, 429);
   if (!(await allowed(service, connection.id, `user:${parsed.userId}`, CHAT_SENDER_RATE_LIMIT))) return done({ error: 'Too many messages. Try again in a minute.' }, 429);
 
-  console.info(`[chat] inbound on ${connection.provider} connection ${connection.id}, ${parsed.text.length} characters`);
-  await service.from('chat_connections').update({ last_inbound_at: new Date().toISOString() }).eq('id', connection.id);
-  const ctx = { connection, adapter, credentials };
+  const kind = connectionKind(connection);
+  // The personal bot answers DMs only: a channel or group is never its business.
+  if (kind === 'personal' && !parsed.direct) return done({ status: 'ignored', reason: 'personal_dm_only' });
 
-  /** Records the message; a race with a retry (the same dedupe key) is a duplicate. */
-  const record = async (fields: Row): Promise<string | null> => {
-    const { data, error } = await service.from('chat_messages').insert({
-      connection_id: connection!.id, direction: 'inbound', conversation_id: parsed.conversationId, thread_id: parsed.threadId,
-      external_message_id: parsed.messageId, external_user_id: parsed.userId, dedupe_key: parsed.dedupeKey, text: parsed.text.slice(0, 40000), ...fields,
-    }).select('id').single();
+  console.info(`[chat] inbound on ${connection.provider} ${kind} connection ${connection.id}, ${parsed.text.length} characters`);
+  await service.from('chat_connections').update({ last_inbound_at: new Date().toISOString() }).eq('id', connection.id);
+  const ctx: Ctx = { connection, adapter, credentials };
+  if (kind === 'company') return handleCompany(service, ctx, parsed, appUrl);
+  return handlePersonal(service, ctx, parsed, appUrl);
+}
+
+const missingColumn = (error: { code?: string } | null | undefined) => !!error && (error.code === '42703' || error.code === 'PGRST204');
+
+/**
+ * Records an inbound message; a race with a retry (the same dedupe key) is a
+ * duplicate (null). Its files go with it; on a database before
+ * 20261125001500 (no attachments column) it is recorded without them.
+ */
+function recorder(service: SupabaseClient, connection: Row, parsed: Message) {
+  return async (fields: Row): Promise<string | null> => {
+    const row: Row = {
+      connection_id: connection.id, direction: 'inbound', conversation_id: parsed.conversationId, thread_id: parsed.threadId,
+      external_message_id: parsed.messageId, external_user_id: parsed.userId, dedupe_key: parsed.dedupeKey, text: parsed.text.slice(0, 40000),
+      ...(parsed.attachments?.length ? { attachments: parsed.attachments.slice(0, 20) } : {}), ...fields,
+    };
+    let { data, error } = await service.from('chat_messages').insert(row).select('id').single();
+    if (missingColumn(error) && 'attachments' in row) {
+      delete row.attachments;
+      ({ data, error } = await service.from('chat_messages').insert(row).select('id').single());
+    }
     if (error?.code === '23505') return null;
     if (error) throw error;
     return (data as Row).id as string;
   };
+}
+
+/** How long a DM stays with the agent that started it, after the last word there. */
+export const STARTED_DM_STICKS_MS = 24 * 60 * 60_000;
+
+/**
+ * The message an agent started that this one answers, and that agent: a
+ * thread under it or a quote of it (by the provider's message id), or, in a
+ * DM, the latest word there within a day being that started message or a
+ * reply already routed back to it. Null otherwise, and on a database before
+ * 20261125001500.
+ */
+async function startedMessageAnswered(service: SupabaseClient, connectionId: string, parsed: Message): Promise<{ id: string; agentId: string } | null> {
+  const refs = [...new Set([parsed.threadId, parsed.replyToMessageId].filter((ref): ref is string => !!ref))];
+  if (refs.length) {
+    const { data, error } = await service.from('chat_messages').select('id, agent_id')
+      .eq('connection_id', connectionId).eq('conversation_id', parsed.conversationId).eq('direction', 'outbound').eq('initiated', true)
+      .in('external_message_id', refs).not('agent_id', 'is', null).order('created_at', { ascending: false }).limit(1);
+    if (missingColumn(error)) return null;
+    if (error) throw error;
+    const found = ((data ?? []) as Row[])[0];
+    if (found) return { id: found.id, agentId: found.agent_id };
+  }
+  if (!parsed.direct) return null;
+  const since = new Date(Date.now() - STARTED_DM_STICKS_MS).toISOString();
+  const { data, error } = await service.from('chat_messages').select('id, direction, initiated, agent_id, route, reply_to_id')
+    .eq('connection_id', connectionId).eq('conversation_id', parsed.conversationId).gte('created_at', since)
+    .or('and(direction.eq.outbound,initiated.is.true),and(direction.eq.inbound,is_request.is.true,agent_id.not.is.null)')
+    .order('created_at', { ascending: false }).limit(1);
+  if (missingColumn(error)) return null;
+  if (error) throw error;
+  const latest = ((data ?? []) as Row[])[0];
+  if (!latest?.agent_id) return null;
+  if (latest.direction === 'outbound') return { id: latest.id, agentId: latest.agent_id };
+  if (latest.route === 'reply' && latest.reply_to_id) return { id: latest.reply_to_id, agentId: latest.agent_id };
+  return null;
+}
+
+/** Someone not linked yet: a one-time link in a one-to-one chat (once an hour), never where others read it. */
+async function strangerWords(service: SupabaseClient, ctx: Ctx, parsed: Message, workspaceId: string | null, appUrl: string): Promise<string> {
+  if (!parsed.direct) return CHAT_WORDS.linkDirectly;
+  const { adapter, connection } = ctx;
+  const since = new Date(Date.now() - LINK_THROTTLE_MS).toISOString();
+  let recentQuery = service.from('identity_link_requests').select('id').eq('provider', adapter.identityProvider).eq('external_id', parsed.userId)
+    .gte('created_at', since);
+  recentQuery = workspaceId === null ? recentQuery.is('workspace_id', null) : recentQuery.eq('workspace_id', workspaceId);
+  const { data: recent } = await recentQuery.limit(1);
+  if ((recent ?? []).length) return CHAT_WORDS.linkAgain;
+  const link = await createLinkRequest(service, { memberId: connection.created_by ?? null, keyId: null } as { memberId: string; keyId: string | null }, {
+    provider: adapter.identityProvider, external_id: parsed.userId, workspace_id: workspaceId, handle: parsed.userHandle,
+  }, appUrl);
+  let workspace = 'this workspace';
+  try { workspace = (await readStoredBrand(service)).settings.name?.trim() || workspace; } catch { /* the default name */ }
+  return CHAT_WORDS.linkPrompt(workspace, link.url);
+}
+
+/** The sender: a verified identity in this connection's workspace, and its member when that is an active person. */
+async function senderOf(service: SupabaseClient, ctx: Ctx, parsed: Message) {
+  const workspaceId = ctx.adapter.hasWorkspaces ? (ctx.connection.external_workspace_id ?? parsed.workspaceId) : null;
+  const identity = await findIdentity(service, { provider: ctx.adapter.identityProvider, external_id: parsed.userId, workspace_id: workspaceId });
+  const verified = identity && identity.verified_at ? identity : null;
+  let member: Row | null = null;
+  if (verified) {
+    const { data } = await service.from('team_members').select('id, name, role, status').eq('id', verified.member_id).maybeSingle();
+    member = data as Row | null;
+  }
+  const person = member && member.role !== 'agent' && member.status !== 'suspended' ? member : null;
+  return { workspaceId, identity: verified, member, person };
+}
+
+// ── The personal bot ──────────────────────────────────────────────────────
+
+async function handlePersonal(service: SupabaseClient, ctx: Ctx, parsed: Message, appUrl: string): Promise<InboundResult> {
+  const { connection } = ctx;
+  const record = recorder(service, connection, parsed);
   const unrouted = async (fields: Row, words: string | null): Promise<InboundResult> => {
     const id = await record({ status: 'unrouted', handled_at: new Date().toISOString(), ...fields });
     if (!id) return done({ status: 'duplicate' });
@@ -163,40 +289,22 @@ export async function handleChatInbound(
   if (!modules.has('agents') || !settings.enabled) return unrouted({}, CHAT_WORDS.assistantsOff);
 
   // Who is it? Only a verified linked account in this connection's workspace says.
-  const workspaceId = adapter.hasWorkspaces ? (connection.external_workspace_id ?? parsed.workspaceId) : null;
-  const identity = await findIdentity(service, { provider: adapter.identityProvider, external_id: parsed.userId, workspace_id: workspaceId });
-  if (!identity || !identity.verified_at) {
-    // A one-time link only in a one-to-one chat: never where others read it.
-    if (!parsed.direct) return unrouted({}, CHAT_WORDS.linkDirectly);
-    const since = new Date(Date.now() - LINK_THROTTLE_MS).toISOString();
-    let recentQuery = service.from('identity_link_requests').select('id').eq('provider', adapter.identityProvider).eq('external_id', parsed.userId)
-      .gte('created_at', since);
-    recentQuery = workspaceId === null ? recentQuery.is('workspace_id', null) : recentQuery.eq('workspace_id', workspaceId);
-    const { data: recent } = await recentQuery.limit(1);
-    if ((recent ?? []).length) return unrouted({}, CHAT_WORDS.linkAgain);
-    const link = await createLinkRequest(service, { memberId: connection.created_by ?? null, keyId: null } as { memberId: string; keyId: string | null }, {
-      provider: adapter.identityProvider, external_id: parsed.userId, workspace_id: workspaceId, handle: parsed.userHandle,
-    }, appUrl);
-    let workspace = 'this workspace';
-    try { workspace = (await readStoredBrand(service)).settings.name?.trim() || workspace; } catch { /* the default name */ }
-    return unrouted({}, CHAT_WORDS.linkPrompt(workspace, link.url));
-  }
-
-  const { data: person } = await service.from('team_members').select('id, name, role, status').eq('id', identity.member_id).maybeSingle();
-  const member = person as Row | null;
-  if (!member || member.role === 'agent' || member.status === 'suspended') return unrouted({ identity_id: identity.id }, CHAT_WORDS.inactive);
-  const known = { member_id: member.id, identity_id: identity.id };
+  const sender = await senderOf(service, ctx, parsed);
+  if (!sender.identity) return unrouted({}, await strangerWords(service, ctx, parsed, sender.workspaceId, appUrl));
+  if (!sender.person) return unrouted({ identity_id: sender.identity.id }, CHAT_WORDS.inactive);
+  const member = sender.person;
+  const known = { member_id: member.id, identity_id: sender.identity.id };
 
   const agent = await findPersonalAgent(service, member.id);
   if (!agent) return unrouted(known, CHAT_WORDS.noAssistant);
   const status = (await statesOf(service, [agent])).get(agent.id)!;
   const alert = alertOf(status);
   const quiet = {
-    ctx, agentId: agent.id, conversationId: parsed.conversationId, threadId: parsed.threadId,
+    ctx, agentId: agent.id, conversationId: parsed.conversationId, threadId: parsed.threadId, replyTo: null,
     // The same state the person's page shows, and when that spell began: one line per chat per spell.
     spell: `${status.state}:${status.reason ?? ''}:${status.since ?? ''}`,
     text: quietWords(status, agent.name, settings.label, `${appUrl.replace(/\/+$/, '')}/assistant`),
-    addressed: parsed.direct || parsed.addressed === true || mentionsBot(parsed.text, connection.bot_handle),
+    addressed: true,
   };
   const tellAdmins = () => alert
     ? notifyAssistantBroken(service, { id: agent.id, name: agent.name }, { id: member.id, name: member.name }, alert)
@@ -213,28 +321,219 @@ export async function handleChatInbound(
 
   // For the assistant: recorded, then sent to its webhook or left for it to
   // fetch. On hold or broken it answers once it is back; the person hears
-  // why once.
-  const id = await record({ ...known, agent_id: agent.id, status: 'pending' });
+  // why once. An answer to a message it started names that message.
+  const started = await startedMessageAnswered(service, connection.id, parsed);
+  const answering = started && started.agentId === agent.id ? { reply_to_id: started.id } : {};
+  const id = await record({ ...known, agent_id: agent.id, status: 'pending', ...answering });
   if (!id) return done({ status: 'duplicate' });
-  const result = await deliver(service, id, agent.id, modules.has('webhooks'));
+  const result = await deliver(service, id, agent.id, modules.has('webhooks'), { legacy: true, request: true });
   await tellAdmins();
   await noticeOnce(service, { ...quiet, replyToId: id });
   return result;
 }
 
-/** Sends a recorded message to the assistant's webhook (assistant.message), or leaves it pending for the poll. */
-async function deliver(service: SupabaseClient, id: string, agentId: string, webhooksOn: boolean): Promise<InboundResult> {
-  if (!webhooksOn) return done({ status: 'pending', id });
-  const payload = await assistantMessagePayload(service, id);
-  const { data: emitted, error: emitError } = await service.rpc('emit_assistant_message', { p_message_id: id, p_agent_id: agentId, p_data: payload });
-  if (emitError) {
-    console.error(`[chat] could not queue assistant.message for ${id}`, emitError.code);
-    return done({ status: 'pending', id });
+// ── The company bot ───────────────────────────────────────────────────────
+
+/** A company agent a connection reaches, with what its state needs. */
+export interface CompanyAgent {
+  id: string;
+  name: string;
+  is_default: boolean;
+  row: Row;
+}
+
+/** What routeCompany decides for one message. */
+export type CompanyRoute =
+  | { kind: 'ignore'; reason: string }
+  | { kind: 'request' | 'context'; agent: CompanyAgent | null; route: 'direct' | 'mention' | 'channel' | 'default' | 'reply' };
+
+/**
+ * The agent a message names: "@" and its name, case-insensitive, with no
+ * letter or digit right before the @ or right after the name. The longest
+ * name wins, so "@Ops AI Lead" is not read as "@Ops AI".
+ */
+export function agentNamed<T extends { name: string }>(text: string, agents: T[]): T | null {
+  const lower = text.toLowerCase();
+  const word = /[\p{L}\p{N}_]/u;
+  for (const agent of [...agents].sort((a, b) => b.name.length - a.name.length)) {
+    const name = agent.name.trim().toLowerCase();
+    if (!name) continue;
+    for (let at = lower.indexOf(`@${name}`); at !== -1; at = lower.indexOf(`@${name}`, at + 1)) {
+      const before = at === 0 ? '' : lower.charAt(at - 1);
+      const after = lower.charAt(at + 1 + name.length);
+      if ((!before || !word.test(before)) && (!after || !word.test(after))) return agent;
+    }
   }
-  if (emitted !== true) return done({ status: 'pending', id });
-  await service.from('chat_messages').update({ status: 'notified' }).eq('id', id).eq('status', 'pending');
+  return null;
+}
+
+/**
+ * The company bot's routing, in order:
+ * 1. An agent named with "@" (one this connection reaches): a request to it (route mention).
+ * 1a. An answer to a message an agent started (answering: that agent), while
+ *    the connection still reaches it: a request to it (route reply).
+ * 2. A DM to the bot: a request to the default agent (route direct).
+ * 3. A mapped channel: a mention of the bot is a request to the mapped
+ *    agent; with listen all, any other message is context for it (route channel).
+ * 4. A mention of the bot in an unmapped channel: a request to the default agent (route default).
+ * 5. Anything else is ignored and not recorded.
+ * A request with no agent to take it (no default) is answered "No AI is set up to answer here yet."
+ */
+export function routeCompany(input: {
+  direct: boolean;
+  botMentioned: boolean;
+  text: string;
+  agents: CompanyAgent[];
+  channel: { agent_id: string; listen: string } | null;
+  /** The agent whose started message this answers, if any. */
+  answering?: string | null;
+}): CompanyRoute {
+  const named = agentNamed(input.text, input.agents);
+  const fallback = input.agents.find((agent) => agent.is_default) ?? null;
+  if (named) return { kind: 'request', agent: named, route: 'mention' };
+  const starter = input.answering ? input.agents.find((agent) => agent.id === input.answering) ?? null : null;
+  if (starter) return { kind: 'request', agent: starter, route: 'reply' };
+  if (input.direct) return { kind: 'request', agent: fallback, route: 'direct' };
+  const mapped = input.channel ? input.agents.find((agent) => agent.id === input.channel!.agent_id) ?? null : null;
+  if (input.channel && mapped) {
+    if (input.botMentioned) return { kind: 'request', agent: mapped, route: 'channel' };
+    if (input.channel.listen === 'all') return { kind: 'context', agent: mapped, route: 'channel' };
+    return { kind: 'ignore', reason: 'not_addressed' };
+  }
+  if (input.botMentioned) return { kind: 'request', agent: fallback, route: 'default' };
+  return { kind: 'ignore', reason: 'not_addressed' };
+}
+
+const COMPANY_AGENT_COLUMNS = 'id, name, status, suspended_by, suspended_at, delegate_of, created_at';
+
+async function companyAgents(service: SupabaseClient, connectionId: string): Promise<CompanyAgent[]> {
+  const { data, error } = await service.from('chat_connection_agents').select('agent_id, is_default').eq('connection_id', connectionId);
+  if (error) throw error;
+  const links = (data ?? []) as Row[];
+  if (links.length === 0) return [];
+  const { data: members, error: memberError } = await service.from('team_members').select(COMPANY_AGENT_COLUMNS)
+    .in('id', links.map((link) => link.agent_id as string)).eq('role', 'agent').is('delegate_of', null);
+  if (memberError) throw memberError;
+  const byId = new Map(((members ?? []) as Row[]).map((member) => [member.id as string, member]));
+  return links.filter((link) => byId.has(link.agent_id)).map((link) => {
+    const row = byId.get(link.agent_id)!;
+    return { id: row.id, name: row.name, is_default: link.is_default === true, row };
+  });
+}
+
+async function handleCompany(service: SupabaseClient, ctx: Ctx, parsed: Message, appUrl: string): Promise<InboundResult> {
+  const { connection } = ctx;
+  // Slack sends a channel mention twice (app_mention and message, each with
+  // its own event id): the message itself is recorded once. This check saves
+  // the work; when both arrive at once, the unique index on the provider
+  // message (20261125001100) refuses the second insert, which the recorder
+  // reads as a duplicate (23505).
+  if (parsed.messageId) {
+    const { data: twin } = await service.from('chat_messages').select('id').eq('connection_id', connection.id).eq('direction', 'inbound')
+      .eq('conversation_id', parsed.conversationId).eq('external_message_id', parsed.messageId).limit(1);
+    if ((twin ?? []).length) return done({ status: 'duplicate', id: (twin as Row[])[0].id });
+  }
+  const botMentioned = parsed.direct || parsed.addressed === true
+    || (!!connection.external_bot_id && (parsed.mentions ?? []).includes(connection.external_bot_id))
+    || mentionsBot(parsed.text, connection.bot_handle);
+  const [modules, agents, channelRow] = await Promise.all([
+    enabledModuleSet(service),
+    companyAgents(service, connection.id),
+    service.from('chat_channel_routes').select('agent_id, listen').eq('connection_id', connection.id).eq('channel_id', parsed.conversationId).maybeSingle()
+      .then(({ data, error }) => { if (error) throw error; return data as Row | null; }),
+  ]);
+  const started = await startedMessageAnswered(service, connection.id, parsed);
+  const decision = routeCompany({
+    direct: parsed.direct, botMentioned, text: parsed.text, agents, channel: channelRow as { agent_id: string; listen: string } | null, answering: started?.agentId ?? null,
+  });
+  if (decision.kind === 'ignore') return done({ status: 'ignored', reason: decision.reason });
+
+  const record = recorder(service, connection, parsed);
+  // A channel answer starts a thread on the message; a DM answers in place.
+  const replyTo = parsed.direct ? null : parsed.messageId;
+  const unrouted = async (fields: Row, words: string | null): Promise<InboundResult> => {
+    const id = await record({ status: 'unrouted', handled_at: new Date().toISOString(), is_direct: parsed.direct, route: decision.route, ...fields });
+    if (!id) return done({ status: 'duplicate' });
+    if (words) await answer(service, ctx, { id, conversationId: parsed.conversationId, threadId: parsed.threadId, replyTo }, words);
+    return done({ status: 'unrouted', id });
+  };
+  if (!modules.has('agents')) return unrouted({}, decision.kind === 'request' ? CHAT_WORDS.agentsOff : null);
+
+  const sender = await senderOf(service, ctx, parsed);
+
+  // Context: recorded for the mapped agent so it knows what was said, never
+  // a request. A stranger's keeps the provider id and no member.
+  if (decision.kind === 'context') {
+    const agent = decision.agent!;
+    const id = await record({
+      agent_id: agent.id, status: 'context', is_request: false, is_direct: false, route: decision.route,
+      member_id: sender.person?.id ?? null, identity_id: sender.person ? sender.identity!.id : null,
+    });
+    if (!id) return done({ status: 'duplicate' });
+    await deliver(service, id, agent.id, modules.has('webhooks'), { legacy: false, request: false });
+    return done({ status: 'context', id });
+  }
+
+  // A request: only from a linked, active person.
+  if (!sender.identity) return unrouted({}, await strangerWords(service, ctx, parsed, sender.workspaceId, appUrl));
+  if (!sender.person) return unrouted({ identity_id: sender.identity.id }, CHAT_WORDS.inactive);
+  const known = { member_id: sender.person.id, identity_id: sender.identity.id };
+  const agent = decision.agent;
+  if (!agent) return unrouted(known, CHAT_WORDS.noAgentHere);
+
+  const status = (await statesOf(service, [agent.row])).get(agent.id)!;
+  const quiet = {
+    ctx, agentId: agent.id, conversationId: parsed.conversationId, threadId: parsed.threadId, replyTo,
+    spell: `${status.state}:${status.reason ?? ''}:${status.since ?? ''}`,
+    text: companyQuietWords(status, agent.name),
+    addressed: true,
+  };
+  const fields = { ...known, agent_id: agent.id, is_direct: parsed.direct, route: decision.route, ...(decision.route === 'reply' && started ? { reply_to_id: started.id } : {}) };
+
+  // Suspended: recorded, never sent to it (its keys stop working anyway).
+  if (agent.row.status === 'suspended') {
+    const id = await record({ ...fields, status: 'unrouted', handled_at: new Date().toISOString() });
+    if (!id) return done({ status: 'duplicate' });
+    await noticeOnce(service, { ...quiet, replyToId: id });
+    return done({ status: 'unrouted', id });
+  }
+  const id = await record({ ...fields, status: 'pending' });
+  if (!id) return done({ status: 'duplicate' });
+  const result = await deliver(service, id, agent.id, modules.has('webhooks'), { legacy: false, request: true });
+  await noticeOnce(service, { ...quiet, replyToId: id });
+  return result;
+}
+
+/**
+ * Sends a recorded message to the agent's webhook: chat.message, and for a
+ * personal one assistant.message too (exactly as before), or leaves it
+ * pending for the poll. A request sent to any endpoint reads notified;
+ * context stays context either way.
+ */
+async function deliver(service: SupabaseClient, id: string, agentId: string, webhooksOn: boolean, options: { legacy: boolean; request: boolean }): Promise<InboundResult> {
+  const waiting = done({ status: options.request ? 'pending' : 'context', id });
+  if (!webhooksOn) return waiting;
+  let emitted = false;
+  if (options.legacy) {
+    const payload = await assistantMessagePayload(service, id);
+    const { data, error } = await service.rpc('emit_assistant_message', { p_message_id: id, p_agent_id: agentId, p_data: payload });
+    if (error) console.error(`[chat] could not queue assistant.message for ${id}`, error.code);
+    else emitted = data === true;
+  }
+  try {
+    const payload = await chatMessagePayload(service, id);
+    const { data, error } = await service.rpc('emit_chat_message', { p_message_id: id, p_agent_id: agentId, p_data: payload });
+    // Before 20261125001100 there is no chat.message: assistant.message alone.
+    if (error) {
+      if (!missingAssistantSchema(error)) console.error(`[chat] could not queue chat.message for ${id}`, error.code);
+    } else if (data === true) emitted = true;
+  } catch (error) {
+    if (!missingAssistantSchema(error as { code?: string })) console.error(`[chat] could not build chat.message for ${id}`, (error as { code?: string })?.code ?? error);
+  }
+  if (!emitted) return waiting;
+  if (options.request) await service.from('chat_messages').update({ status: 'notified' }).eq('id', id).eq('status', 'pending');
   afterResponse('webhook dispatch', () => runDispatch());
-  return done({ status: 'notified', id });
+  return done({ status: options.request ? 'notified' : 'context', id });
 }
 
 /** The line for an assistant that will not answer right now, or null when it will (working, getting ready). */
@@ -242,6 +541,13 @@ export function quietWords(status: AssistantStatus, name: string, page: string, 
   if (status.state === 'on_hold') return QUIET_WORDS.onHold(name);
   if (status.state === 'paused') return QUIET_WORDS.paused(name, page, resumeUrl);
   if (status.state === 'broken') return QUIET_WORDS.broken(name);
+  return null;
+}
+
+/** A company agent: on hold (a pause meant to end) says it will answer; paused, suspended, unconnected or a dead host says it can't. */
+export function companyQuietWords(status: AssistantStatus, name: string): string | null {
+  if (status.state === 'on_hold' && !status.hostDown) return QUIET_WORDS.onHold(name);
+  if (status.state === 'on_hold' || status.state === 'paused' || status.state === 'broken') return QUIET_WORDS.companyDown(name);
   return null;
 }
 
@@ -254,7 +560,7 @@ function mentionsBot(text: string, handle: string | null | undefined): boolean {
 /**
  * Sends the "can't answer right now" line at most once per chat per spell.
  * The marker is the notice's own outbound row: its dedupe_key hashes the
- * assistant, the conversation and the spell (state, reason, when it began),
+ * agent, the conversation and the spell (state, reason, when it began),
  * so the unique (connection_id, dedupe_key) index lets one notice through
  * even when two messages race. A new spell (resumed, then held again) has a
  * new start, so a new key. Only where the message spoke to the bot. A send
@@ -262,8 +568,8 @@ function mentionsBot(text: string, handle: string | null | undefined): boolean {
  * tries again; nothing here ever fails the inbound request.
  */
 async function noticeOnce(service: SupabaseClient, notice: {
-  ctx: { connection: Row; adapter: ChatAdapter; credentials: ChatCredentials };
-  agentId: string; conversationId: string; threadId: string | null; replyToId: string;
+  ctx: Ctx;
+  agentId: string; conversationId: string; threadId: string | null; replyTo: string | null; replyToId: string;
   spell: string; text: string | null; addressed: boolean;
 }): Promise<void> {
   if (!notice.text || !notice.addressed) return;
@@ -278,7 +584,7 @@ async function noticeOnce(service: SupabaseClient, notice: {
     if (error) throw error;
     const rowId = (data as Row).id as string;
     try {
-      const sent = await adapter.send(credentials, { conversationId: notice.conversationId, threadId: notice.threadId, text: notice.text });
+      const sent = await adapter.send(credentials, { conversationId: notice.conversationId, threadId: notice.threadId, replyTo: notice.replyTo, text: notice.text });
       await service.from('chat_messages').update({ external_message_id: sent.externalMessageId }).eq('id', rowId);
     } catch (failure) {
       const reason = failure instanceof Error ? failure.message.slice(0, 500) : 'Send failed';

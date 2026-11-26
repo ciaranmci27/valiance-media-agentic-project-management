@@ -17,7 +17,7 @@ export const GET = withApi(async ({ supabase, params, searchParams }) => {
   const { page, limit, offset } = parsePagination(searchParams);
   const all = (await subtaskSummaries(supabase, [id])).get(id) ?? [];
   return paginated(all.slice(offset, offset + limit), { page, limit, total: all.length });
-});
+}, { permission: 'tasks.read' });
 
 export const POST = withApi(async ({ supabase, params, body, apiKeyId, teamMemberId }) => {
   const { id } = params as { id: string };
@@ -50,4 +50,4 @@ export const POST = withApi(async ({ supabase, params, body, apiKeyId, teamMembe
   const subtask = { id: task.id, task_id: parent.id, title: task.title, status: task.status, completed: false, assignee_ids: [], due_date: null, sort_order: task.sort_order ?? 0 };
   logAudit(supabase, { method: 'POST', endpoint: `/api/v1/tasks/${id}/subtasks`, entityType: 'task', entityId: task.id, apiKeyId, teamMemberId, requestBody: body, afterSnapshot: subtask, statusCode: 201 });
   return created(subtask);
-}, { schema: createSubtaskSchema });
+}, { schema: createSubtaskSchema, permission: 'tasks.manage_assigned' });

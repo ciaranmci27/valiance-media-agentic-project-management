@@ -219,6 +219,8 @@ async function main() {
 
   const server = await startFakePostgrest(db);
   Object.assign(process.env, { NEXT_PUBLIC_SUPABASE_URL: server.url, SUPABASE_SERVICE_ROLE_KEY: 'fake-service-key' });
+  // The receiver here listens on 127.0.0.1, a private address: allowed as for a receiver on your own network.
+  process.env.WEBHOOKS_ALLOW_PRIVATE_TARGETS = 'true';
   const { runDispatch } = await import('../src/lib/webhooks/dispatch');
 
   try {
@@ -389,6 +391,8 @@ async function main() {
     await server.close();
   }
 
+  await targetGuardChecks();
+
   // Hobby allows only daily Vercel crons; the retry run must not be one.
   const vercel = JSON.parse(await read('../vercel.json')) as { crons: Array<{ path: string; schedule: string }> };
   check('vercel.json has no webhook cron', !vercel.crons.some((c) => c.path.includes('/webhooks/')), vercel.crons);
@@ -399,6 +403,136 @@ async function main() {
     process.exit(1);
   }
   process.exit(0);
+}
+
+/**
+ * The target guard: a webhook goes to a public address only, checked when the
+ * endpoint is saved (literal addresses, localhost) and when each delivery is
+ * sent (what the host resolves to, with the connection pinned to the checked
+ * address), and a redirect is never followed.
+ */
+async function targetGuardChecks() {
+  const { blockedAddressReason } = await import('../src/lib/webhooks/address');
+  const { webhookUrlError } = await import('../src/lib/webhooks/endpoint-input');
+  const { resolveWebhookTarget, sendWebhook, webhookTransport, WebhookTargetRefused } = await import('../src/lib/webhooks/target');
+  const { runDispatch } = await import('../src/lib/webhooks/dispatch');
+  const strict = { NODE_ENV: 'production' };
+  const allow = { NODE_ENV: 'production', WEBHOOKS_ALLOW_PRIVATE_TARGETS: 'true' };
+
+  const blocked = ['10.0.0.1', '127.0.0.1', '169.254.169.254', '::1', 'fc00::1', '192.168.1.5', '172.16.0.1', '100.64.0.1', '0.0.0.0', '::',
+    'fe80::1', 'fd00:ec2::254', '224.0.0.1', '255.255.255.255', '::ffff:127.0.0.1', '::ffff:7f00:1', '64:ff9b::a9fe:a9fe'];
+  const refusedAddresses = blocked.filter((address) => !blockedAddressReason(address));
+  check('target guard: private, loopback, link-local, CGNAT, multicast, unspecified and IPv6 local addresses are refused', refusedAddresses.length === 0, refusedAddresses);
+  const open = ['93.184.215.14', '8.8.8.8', '2606:4700:4700::1111', '172.32.0.1', '100.128.0.1', '::ffff:93.184.215.14'];
+  const wronglyRefused = open.filter((address) => blockedAddressReason(address));
+  check('target guard: public addresses pass', wronglyRefused.length === 0, wronglyRefused);
+
+  const createRefused = ['https://10.0.0.1/hook', 'https://127.0.0.1/hook', 'https://169.254.169.254/latest/meta-data', 'https://[::1]/hook', 'https://[fc00::1]/hook',
+    'https://localhost/hook', 'http://localhost:3000/hook', 'https://app.localhost/hook', 'https://metadata.google.internal/', 'https://2130706433/hook'];
+  const letThrough = createRefused.filter((url) => !webhookUrlError(url, strict));
+  check('target guard: saving an endpoint refuses literal private addresses and localhost', letThrough.length === 0, letThrough);
+  check('target guard: saving a public HTTPS endpoint works', webhookUrlError('https://hooks.example.com/pm', strict) === null);
+  check('target guard: plain http is still refused', webhookUrlError('http://hooks.example.com/pm', strict) === 'Endpoint URL must use HTTPS');
+  check('target guard: a host that allows private targets keeps http on localhost', webhookUrlError('http://localhost:3000/hook', allow) === null
+    && webhookUrlError('https://10.0.0.1/hook', allow) === null);
+
+  const refusedAtSend = async (url: string) => resolveWebhookTarget(url, { env: strict }).then(() => null, (e: Error) => e);
+  for (const host of ['10.0.0.1', '127.0.0.1', '169.254.169.254', '[::1]', '[fc00::1]']) {
+    const error = await refusedAtSend(`https://${host}/hook`);
+    check(`target guard: sending to ${host} is refused before connecting`, error instanceof WebhookTargetRefused && /Refused/.test(error.message), error?.message);
+  }
+
+  const realLookup = webhookTransport.lookup;
+  const realPost = webhookTransport.post;
+  const answers: Record<string, { address: string; family: number }[]> = {
+    'internal.example.test': [{ address: '10.1.2.3', family: 4 }],
+    'mixed.example.test': [{ address: '93.184.215.14', family: 4 }, { address: '169.254.169.254', family: 4 }],
+    'public.example.test': [{ address: '93.184.215.14', family: 4 }],
+  };
+  webhookTransport.lookup = async (host) => {
+    if (answers[host]) return answers[host];
+    throw new Error(`ENOTFOUND ${host}`);
+  };
+  let posted = 0;
+  webhookTransport.post = async () => { posted++; return { status: 200, text: 'ok' }; };
+  try {
+    const internal = await refusedAtSend('https://internal.example.test/hook');
+    check('target guard: a name that resolves to a private address is refused, naming it', internal instanceof WebhookTargetRefused
+      && /internal\.example\.test resolves to 10\.1\.2\.3/.test(internal.message), internal?.message);
+    const mixed = await refusedAtSend('https://mixed.example.test/hook');
+    check('target guard: one private address among public ones is enough to refuse', mixed instanceof WebhookTargetRefused, mixed?.message);
+    const resolved = await resolveWebhookTarget('https://public.example.test/hook', { env: strict });
+    check('target guard: a name that resolves to a public address is allowed, pinned to that address', resolved.address === '93.184.215.14' && resolved.family === 4, resolved);
+    const sent = await sendWebhook('https://internal.example.test/hook', { headers: {}, body: '{}', timeoutMs: 2_000, maxChars: 2_000 }, strict).then(() => null, (e: Error) => e);
+    check('target guard: nothing is sent to a refused target', sent instanceof WebhookTargetRefused && posted === 0, { posted, sent: sent?.message });
+  } finally {
+    webhookTransport.lookup = realLookup;
+    webhookTransport.post = realPost;
+  }
+
+  // A real receiver on 127.0.0.1 (private targets allowed for this part only).
+  let landed = 0;
+  let hooked = 0;
+  const receiver = createServer((request, response) => {
+    if (request.url === '/redirect') return void response.writeHead(302, { Location: '/landed' }).end('moved');
+    if (request.url === '/landed') { landed++; return void response.writeHead(200).end('ok'); }
+    hooked++;
+    response.writeHead(200).end('x'.repeat(5_000));
+  });
+  await new Promise<void>((resolve) => receiver.listen(0, '127.0.0.1', resolve));
+  const port = (receiver.address() as AddressInfo).port;
+  try {
+    const redirect = await sendWebhook(`http://127.0.0.1:${port}/redirect`, { headers: {}, body: '{}', timeoutMs: 5_000, maxChars: 2_000 }, allow);
+    check('target guard: a 302 comes back as it is, never followed', redirect.status === 302 && landed === 0, { redirect, landed });
+    const long = await sendWebhook(`http://127.0.0.1:${port}/hook`, { headers: {}, body: '{}', timeoutMs: 5_000, maxChars: 2_000 }, allow);
+    check('target guard: the response kept is the first 2,000 characters', long.status === 200 && long.text.length === 2_000, long.text.length);
+
+    // The connection goes to the address that was checked: this name resolves nowhere but here.
+    webhookTransport.lookup = async (host) => (host === 'pinned.example.test' ? [{ address: '127.0.0.1', family: 4 }] : realLookup(host));
+    const before = hooked;
+    const pinned = await sendWebhook(`http://pinned.example.test:${port}/hook`, { headers: {}, body: '{}', timeoutMs: 5_000, maxChars: 2_000 }, allow).then((r) => r.status, (e: Error) => e.message);
+    check('target guard: the request connects to the resolved, checked address', pinned === 200 && hooked === before + 1, pinned);
+    webhookTransport.lookup = realLookup;
+
+    // Through the dispatcher: a 302 is a failed attempt, retried with backoff as any failure, its status stored.
+    const completed: { statusCode: number | null; error: string | null }[] = [];
+    let given = false;
+    const saved = process.env.WEBHOOKS_ALLOW_PRIVATE_TARGETS;
+    process.env.WEBHOOKS_ALLOW_PRIVATE_TARGETS = 'true';
+    await runDispatch(5, {
+      async claim() {
+        if (given) return [];
+        given = true;
+        return [{ delivery_id: randomUUID(), attempt_token: randomUUID(), attempts: 1, endpoint_id: randomUUID(), endpoint_url: `http://127.0.0.1:${port}/redirect`,
+          endpoint_secret: 'whsec_redirect', event_public_id: 'evt_r', event_type: 'task.updated', event_sequence: 1, resource_id: null, payload: {} }];
+      },
+      async complete(_d, result) { completed.push(result); return 'retrying'; },
+    });
+    process.env.WEBHOOKS_ALLOW_PRIVATE_TARGETS = saved;
+    check('target guard: the dispatcher records a 302 as a failure with its status, and never follows it', completed.length === 1 && completed[0].statusCode === 302
+      && /redirects are not followed/.test(completed[0].error ?? '') && landed === 0, completed);
+
+    // Through the dispatcher with private targets off: refused, the reason stored, nothing sent.
+    given = false;
+    completed.length = 0;
+    delete process.env.WEBHOOKS_ALLOW_PRIVATE_TARGETS;
+    const hits = hooked;
+    await runDispatch(5, {
+      async claim() {
+        if (given) return [];
+        given = true;
+        return [{ delivery_id: randomUUID(), attempt_token: randomUUID(), attempts: 1, endpoint_id: randomUUID(), endpoint_url: `http://127.0.0.1:${port}/hook`,
+          endpoint_secret: 'whsec_private', event_public_id: 'evt_p', event_type: 'task.updated', event_sequence: 1, resource_id: null, payload: {} }];
+      },
+      async complete(_d, result) { completed.push(result); return 'retrying'; },
+    });
+    process.env.WEBHOOKS_ALLOW_PRIVATE_TARGETS = saved;
+    check('target guard: the dispatcher refuses a private target, stores why, and sends nothing', completed.length === 1 && completed[0].statusCode === null
+      && /Refused: 127\.0\.0\.1 is a loopback address/.test(completed[0].error ?? '') && hooked === hits, completed);
+  } finally {
+    webhookTransport.lookup = realLookup;
+    receiver.close();
+  }
 }
 
 main().catch((error) => {

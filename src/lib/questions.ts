@@ -14,10 +14,19 @@ import { z } from 'zod';
  * An approval is a question of kind 'approval': an agent asks a person to
  * approve an action (a deploy, an email, a spend, a delete, a merge) before
  * it does it. Its choices are always approve and reject, text is an optional
- * note, and it carries the action ({ type, summary, details? }). Only the
- * member asked, or the Owner, decides one. The fields only approvals have
- * (kind, action, decision, decided_by) appear only on approvals, so a plain
- * question reads exactly as it always has.
+ * note, and it carries the action ({ type, summary, details? }). Whoever it
+ * names decides it (the member asked, a person in the group asked), or the
+ * Owner. The fields only approvals have (kind, action, decision, decided_by,
+ * decided_via) appear only on approvals, so a plain question reads exactly
+ * as it always has.
+ *
+ * How an approval was decided (decided_via), by the door it came through:
+ * - app: signed in to the app;
+ * - api_key: a person's own API key that carries approvals.decide;
+ * - agent: an agent asked by name, with its own key;
+ * - act_for: an agent acting for the person (X-Act-For, or a personal agent),
+ *   with approvals.decide on its key and held by the person too.
+ * A connected AI tool (Connect AI) never decides one.
  */
 
 export const QUESTION_STATUSES = ['open', 'answered', 'cancelled', 'expired'] as const;
@@ -42,6 +51,8 @@ export const askQuestionSchema = z.object({
     .optional(),
   allow_other: z.boolean().optional(),
   expires_at: z.iso.datetime({ offset: true, message: 'expires_at must be an ISO 8601 time' }).optional(),
+  /** The asking agent's own unfinished run this question holds: while it is open, the run waits on a person. */
+  run_id: z.uuid('run_id must be a run id').optional(),
 }).strict();
 export type AskQuestionInput = z.infer<typeof askQuestionSchema>;
 
@@ -53,6 +64,13 @@ export const APPROVAL_CHOICES = ['approve', 'reject'] as const;
 export type ApprovalChoice = (typeof APPROVAL_CHOICES)[number];
 export type ApprovalDecision = 'approved' | 'rejected';
 
+/** How an approval was decided: the door the decision came through. */
+export const DECIDED_VIA = ['app', 'api_key', 'agent', 'act_for'] as const;
+export type DecidedVia = (typeof DECIDED_VIA)[number];
+
+/** The permission a key needs to decide, over the API, an approval that names a person. */
+export const APPROVALS_DECIDE = 'approvals.decide';
+
 export const APPROVAL_SUMMARY_MAX = 300;
 /** The action's details, as compact JSON. */
 export const APPROVAL_DETAILS_MAX = 4000;
@@ -63,14 +81,53 @@ export const APPROVAL_DETAILS_MAX = 4000;
  * what will happen, in one line a person can approve; details carries
  * anything else (an amount, a recipient, a PR link) as JSON.
  */
+export const APPROVAL_EXTERNAL_URL_MAX = 2000;
+export const APPROVAL_EXTERNAL_ID_MAX = 200;
+
+/** An https link with a host, no credentials in it. */
+export function isSafeExternalUrl(value: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return false;
+  }
+  return url.protocol === 'https:' && !!url.hostname && !url.username && !url.password;
+}
+
+/**
+ * The object an approval is about in another system (a bill in an
+ * accounting app): external_url opens it, external_id is its id there.
+ */
+const externalUrl = z.string().trim()
+  .max(APPROVAL_EXTERNAL_URL_MAX, `action.external_url is at most ${APPROVAL_EXTERNAL_URL_MAX} characters`)
+  .refine(isSafeExternalUrl, 'action.external_url must be an https link');
+const externalId = z.string().trim().min(1, 'action.external_id cannot be empty')
+  .max(APPROVAL_EXTERNAL_ID_MAX, `action.external_id is at most ${APPROVAL_EXTERNAL_ID_MAX} characters`);
+
 export const approvalActionSchema = z.object({
   type: z.string().trim().regex(/^[a-z][a-z0-9_.-]{0,62}$/, 'action.type is lowercase letters, numbers, dots, dashes and underscores (for example deploy or send_email), at most 63 characters'),
   summary: z.string().trim().min(1, 'action.summary cannot be empty').max(APPROVAL_SUMMARY_MAX, `action.summary is at most ${APPROVAL_SUMMARY_MAX} characters`),
   details: z.record(z.string(), z.unknown())
     .refine((details) => JSON.stringify(details).length <= APPROVAL_DETAILS_MAX, `action.details is at most ${APPROVAL_DETAILS_MAX} characters of JSON`)
     .optional(),
+  /** Where a person opens the object in the other system: https only. */
+  external_url: externalUrl.optional(),
+  /** The object's id in the other system. */
+  external_id: externalId.optional(),
 }).strict();
 export type ApprovalAction = z.infer<typeof approvalActionSchema>;
+
+/**
+ * The host an approval's external link opens ("app.example.com"), or null
+ * when it has none or the stored link is not a safe https link. The screens
+ * show "Open in {host}" only for a link this answers.
+ */
+export function externalLinkHost(action: Pick<ApprovalAction, 'external_url'> | null | undefined): string | null {
+  const url = action?.external_url;
+  if (typeof url !== 'string' || !isSafeExternalUrl(url)) return null;
+  return new URL(url).hostname.replace(/^www\./, '');
+}
 
 export const requestApprovalSchema = z.object({
   action: approvalActionSchema,
@@ -82,6 +139,8 @@ export const requestApprovalSchema = z.object({
   /** Ask a group instead: any person in it decides. */
   asked_to_group: z.uuid('asked_to_group must be a group id').optional(),
   expires_at: z.iso.datetime({ offset: true, message: 'expires_at must be an ISO 8601 time' }).optional(),
+  /** The asking agent's own unfinished run this approval holds: while it is open, the run waits on a person. */
+  run_id: z.uuid('run_id must be a run id').optional(),
 }).strict();
 export type RequestApprovalInput = z.infer<typeof requestApprovalSchema>;
 
@@ -177,6 +236,8 @@ export interface QuestionView {
   /** Who decided (answered_by), once decided. */
   decided_by?: string | null;
   decided_by_name?: string | null;
+  /** How it was decided, once decided; null for one decided before this was recorded. */
+  decided_via?: DecidedVia | null;
   /** A group's question only: the group, its name, and whether the reader is in it. */
   asked_to_group?: string;
   asked_to_group_name?: string | null;
@@ -184,6 +245,8 @@ export interface QuestionView {
   /** Set when an agent asked it for someone (X-Act-For): that person. */
   principal_id?: string;
   principal_name?: string | null;
+  /** Set when it holds one of the asker's runs: that run waits on a person while it is open. */
+  run_id?: string;
 }
 
 /** The status a reader sees: an open question past its expiry is expired. */
@@ -195,6 +258,32 @@ export function effectiveQuestionStatus(row: { status: string; expires_at?: stri
 /** Whether free text is accepted as the answer on its own. */
 export function textAnswers(question: Pick<QuestionView, 'choices' | 'allow_other'>): boolean {
   return !question.choices?.length || question.allow_other;
+}
+
+/** How an approval was decided, in a few words after the name ("in the app"); empty for an agent's own decision. */
+const DECIDED_VIA_WORDS: Record<DecidedVia, string> = {
+  app: 'in the app',
+  api_key: 'with an API key',
+  agent: '',
+  act_for: 'through an agent',
+};
+
+/**
+ * A decided approval in one plain line: "Approved by Mia in the app",
+ * "Rejected by Reviewer AI", "You approved through an agent: note". Yours
+ * reads "You approved", with how only when it was not the app.
+ */
+export function decisionLine(
+  approval: Pick<QuestionView, 'decision' | 'decided_by_name' | 'decided_via' | 'answer_text'>,
+  yours: boolean,
+): string {
+  const decided = approval.decision === 'approved' ? 'approved' : 'rejected';
+  const via = approval.decided_via ? DECIDED_VIA_WORDS[approval.decided_via] ?? '' : '';
+  const how = via && !(yours && approval.decided_via === 'app') ? ` ${via}` : '';
+  const who = yours
+    ? `You ${decided}`
+    : `${decided.charAt(0).toUpperCase()}${decided.slice(1)}${approval.decided_by_name ? ` by ${approval.decided_by_name}` : ''}`;
+  return `${who}${how}${approval.answer_text ? `: ${approval.answer_text}` : ''}`;
 }
 
 /** The answer in one plain line: "Yes", "Yes: ship Friday", or the text. */

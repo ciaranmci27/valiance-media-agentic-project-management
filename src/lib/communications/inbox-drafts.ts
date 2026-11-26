@@ -3,6 +3,8 @@ import { z } from 'zod';
 import type { InboxReplyDraft } from './inbox-types';
 import { InboxError, loadTriageableThread, many, one, type InboxContext } from './inbox-service';
 import { comms } from '@/lib/communications/db';
+import { inboxDecisionRecipients, primaryPersonHandler } from './inbox-handlers';
+import { inboxOwnerOf } from './inbox-visibility';
 
 /**
  * Reply drafts on request. A person asks for one on a thread (optionally
@@ -101,4 +103,51 @@ export async function requestReplyDraft(ctx: InboxContext, threadId: string, req
   }).select(DRAFT_COLUMNS).single());
   if (!row) throw new InboxError(500, 'Could not ask for a draft');
   return (await presentDrafts(ctx.service, [row]))[0];
+}
+
+/**
+ * Who a ready draft is for, to copy and send: the inbox's primary handler
+ * when that is a person; when an agent handles the inbox, its decision
+ * recipient (a member, or a group's active members); else the workspace
+ * Owners (a personal inbox: its owner). The person who asked for the draft
+ * is told too (once, when they are among those already). Never the agent
+ * that wrote it.
+ */
+export async function draftRecipientIds(service: SupabaseClient, inboxId: string, drafterId: string | null, requesterId: string | null = null): Promise<string[]> {
+  const person = await primaryPersonHandler(service, inboxId);
+  let ids = person ? [person] : await inboxDecisionRecipients(service, inboxId);
+  if (!ids) {
+    const owner = await inboxOwnerOf(service, inboxId);
+    ids = owner
+      ? [owner]
+      : (await many<{ id: string }>(service.from('team_members').select('id').eq('role', 'owner').eq('status', 'active'))).map((row) => row.id);
+  }
+  if (requesterId && !ids.includes(requesterId)) {
+    const requester = await one<{ role: string; status: string }>(service.from('team_members').select('role, status').eq('id', requesterId).maybeSingle());
+    if (requester && requester.role !== 'agent' && requester.status === 'active') ids = [...ids, requesterId];
+  }
+  return [...new Set(ids)].filter((id) => id !== drafterId);
+}
+
+/** The bell for a ready draft, one per draft, on the email it answers. Returns how many were told. */
+export async function notifyDraftReady(service: SupabaseClient, draft: { id: string; thread_id: string; message_id: string; requested_by?: string | null }, inboxId: string, drafterId: string | null): Promise<number> {
+  const recipients = await draftRecipientIds(service, inboxId, drafterId, draft.requested_by ?? null);
+  if (!recipients.length) return 0;
+  const [message, drafter] = await Promise.all([
+    one<{ subject: string | null }>(comms(service).from('messages').select('subject').eq('id', draft.message_id).maybeSingle()),
+    drafterId ? one<{ name: string | null }>(service.from('team_members').select('name').eq('id', drafterId).maybeSingle()) : Promise.resolve(null),
+  ]);
+  const name = (drafter?.name ?? '').split(/\s+/)[0];
+  for (const person of recipients) {
+    const { error } = await service.rpc('upsert_notification', {
+      p_user_id: person,
+      p_title: `Reply draft ready: "${(message?.subject || 'an email').slice(0, 80)}"`,
+      p_message: `${name || 'Your agent'} wrote a reply for you to copy and send.`,
+      p_link: `/inbox?thread=${draft.thread_id}&message=${draft.message_id}`,
+      p_entity_type: 'question',
+      p_entity_id: draft.id,
+    });
+    if (error) throw error;
+  }
+  return recipients.length;
 }

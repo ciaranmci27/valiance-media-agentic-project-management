@@ -19,9 +19,9 @@ export const GET = withApi(async ({ supabase, params, searchParams }) => {
 
   if (error) throw error;
   return paginated(data || [], { page, limit, total: count || 0 });
-});
+}, { permission: 'tasks.read' });
 
-// Writing a review requires tasks.manage_all (enforced in inferredPermission):
+// Writing a review requires tasks.manage_all (its permission below):
 // the reviewer is deliberately never an assignee, and an assignee-scoped agent
 // must never be able to approve its own work.
 export const POST = withApi(async ({ supabase, params, body, apiKeyId, teamMemberId }) => {
@@ -150,4 +150,4 @@ export const POST = withApi(async ({ supabase, params, body, apiKeyId, teamMembe
 
   logAudit(supabase, { method: 'POST', endpoint: `/api/v1/tasks/${id}/reviews`, entityType: 'task_review', entityId: review.id, apiKeyId, teamMemberId, requestBody: body, afterSnapshot: review, statusCode: 201 });
   return created(review);
-}, { schema: createTaskReviewSchema });
+}, { schema: createTaskReviewSchema, permission: 'tasks.manage_all' });

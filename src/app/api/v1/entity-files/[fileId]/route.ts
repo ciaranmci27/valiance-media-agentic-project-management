@@ -23,7 +23,7 @@ export const GET = withApi(async ({ supabase, params, access, teamMemberId }) =>
   const { fileId } = params as { fileId: string };
   const data = await requireFileScope(supabase, fileId, access, teamMemberId);
   return success(data);
-});
+}, { permission: 'files.read' });
 
 export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemberId, access }) => {
   const { fileId } = params as { fileId: string };
@@ -54,7 +54,7 @@ export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemb
   });
 
   return success(data);
-}, { schema: updateEntityFileSchema });
+}, { schema: updateEntityFileSchema, permission: 'files.manage' });
 
 export const DELETE = withApi(async ({ supabase, params, apiKeyId, teamMemberId, access }) => {
   const { fileId } = params as { fileId: string };
@@ -76,4 +76,4 @@ export const DELETE = withApi(async ({ supabase, params, apiKeyId, teamMemberId,
   });
 
   return success({ deleted: true });
-});
+}, { permission: 'files.manage' });

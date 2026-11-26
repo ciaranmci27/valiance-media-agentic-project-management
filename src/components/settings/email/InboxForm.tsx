@@ -116,7 +116,7 @@ export type InboxFormErrors = Partial<
   Record<'handler_member_id' | 'name' | 'address' | 'routing_local_part' | 'routing_domain' | LimitField, string>
 >;
 
-/** A new inbox: an agent handles it when the team has one. */
+/** A new inbox: an agent handles it when the team has one, with triage plans (the older triage is deprecated). */
 export function emptyInboxForm(team: TeamMember[]): InboxFormState {
   const agents = team.filter((m) => m.role === 'agent' && m.status !== 'suspended');
   return {
@@ -131,7 +131,7 @@ export function emptyInboxForm(team: TeamMember[]): InboxFormState {
     summary_interval_minutes: 30,
     agent_readable_types: [...AGENT_READABLE_TYPES],
     filter_auto_mail: true,
-    triage_mode: 'legacy',
+    triage_mode: 'plans',
     access_member_ids: [],
     extra_handlers: [],
     default_assignee: '',

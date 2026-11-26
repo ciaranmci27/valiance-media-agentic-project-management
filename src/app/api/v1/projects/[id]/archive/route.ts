@@ -22,7 +22,7 @@ export const POST = withApi(async ({ supabase, params, apiKeyId, teamMemberId })
   if (!data) throw notFound('Project');
   logAudit(supabase, { method: 'POST', endpoint: `/api/v1/projects/${id}/archive`, entityType: 'project', entityId: id, apiKeyId, teamMemberId, beforeSnapshot: before, afterSnapshot: data, statusCode: 200 });
   return success({ archived: true, archived_at: data.archived_at });
-});
+}, { permission: 'projects.manage' });
 
 export const DELETE = withApi(async ({ supabase, params, apiKeyId, teamMemberId }) => {
   const id = params.id;
@@ -40,4 +40,4 @@ export const DELETE = withApi(async ({ supabase, params, apiKeyId, teamMemberId 
   if (!data) throw notFound('Project');
   logAudit(supabase, { method: 'DELETE', endpoint: `/api/v1/projects/${id}/archive`, entityType: 'project', entityId: id, apiKeyId, teamMemberId, beforeSnapshot: before, afterSnapshot: data, statusCode: 200 });
   return success({ archived: false });
-});
+}, { permission: 'projects.manage' });

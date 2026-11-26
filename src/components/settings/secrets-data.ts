@@ -23,6 +23,8 @@ export interface SecretsState {
 export interface WebhookRetriesState {
   on: boolean;
   source: 'app' | 'env' | null;
+  /** An Owner turned them off: they stay off until an Owner turns them on. */
+  turnedOff?: boolean;
   appKey: boolean;
   appUrl: boolean;
   vault: boolean;
@@ -90,6 +92,13 @@ export async function turnOnWebhookRetries(): Promise<WebhookRetriesState> {
   setReadData(webhookRetriesRead, () => data);
   // The scheduler secret is one of the saved secrets: keep that read in step when it is cached.
   if (peekRead(secretsRead)) void warmRead(secretsRead, { force: true });
+  return data;
+}
+
+/** Turns webhook retries off; the app stops turning them on by itself. */
+export async function turnOffWebhookRetries(): Promise<WebhookRetriesState> {
+  const data = await parse<WebhookRetriesState>(await send('/api/workspace/webhook-retries', 'DELETE'));
+  setReadData(webhookRetriesRead, () => data);
   return data;
 }
 

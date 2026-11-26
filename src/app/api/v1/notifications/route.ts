@@ -7,7 +7,7 @@ import type { AccessContext } from '@/lib/access-control';
 import { badRequest } from '@/lib/api/errors';
 import { memberInboxIds } from '@/lib/communications/agent-access';
 import { comms } from '@/lib/communications/db';
-import { decisionRecipientIds, inboxDefaults } from '@/lib/communications/inbox-handlers';
+import { inboxDecisionRecipients } from '@/lib/communications/inbox-handlers';
 import { createNotificationSchema } from '@/lib/schemas';
 import { requireAgentsEnabled } from '@/lib/api/agents';
 import { logAudit } from '@/lib/api/audit';
@@ -37,7 +37,7 @@ export const GET = withApi(async ({ supabase, searchParams, teamMemberId }) => {
 
   if (error) throw error;
   return paginated(data || [], { page, limit, total: count || 0 });
-});
+}, { permission: 'notifications.manage_own' });
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -82,9 +82,7 @@ export const POST = withApi(async ({ supabase, body, apiKeyId, teamMemberId, acc
   const roles = notification.audience === 'owner_and_admins' ? ['owner', 'admin'] : ['owner'];
 
   const inboxId = notification.audience === 'owner' ? await namedInbox(supabase, teamMemberId, access, notification) : null;
-  const deciders = inboxId
-    ? await decisionRecipientIds(supabase, await inboxDefaults(supabase, inboxId))
-    : null;
+  const deciders = inboxId ? await inboxDecisionRecipients(supabase, inboxId) : null;
   const { data: recipients, error: recipientsError } = deciders
     ? { data: deciders.map((id) => ({ id })), error: null }
     : await supabase

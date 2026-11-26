@@ -44,7 +44,7 @@ export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemb
   };
   logAudit(supabase, { method: 'PATCH', endpoint: `/api/v1/tasks/${id}/subtasks/${subtaskId}`, entityType: 'task', entityId: subtaskId, apiKeyId, teamMemberId, requestBody: body, beforeSnapshot: before, afterSnapshot: data, statusCode: 200 });
   return success(data);
-}, { schema: updateSubtaskSchema });
+}, { schema: updateSubtaskSchema, permission: 'tasks.manage_assigned' });
 
 export const DELETE = withApi(async ({ supabase, params, apiKeyId, teamMemberId }) => {
   const { id, subtaskId } = params as { id: string; subtaskId: string };
@@ -52,4 +52,4 @@ export const DELETE = withApi(async ({ supabase, params, apiKeyId, teamMemberId 
   await trashForApi(supabase, 'tasks', subtaskId, teamMemberId, 'Subtask');
   logAudit(supabase, { method: 'DELETE', endpoint: `/api/v1/tasks/${id}/subtasks/${subtaskId}`, entityType: 'task', entityId: subtaskId, apiKeyId, teamMemberId, beforeSnapshot: before, statusCode: 200 });
   return success({ deleted: true });
-});
+}, { permission: 'tasks.manage_assigned' });

@@ -23,9 +23,13 @@ import type { AgentRunStatus } from '@/lib/agent-runs';
  * - Busy time is the union of an agent's run spans: overlapping runs count
  *   once. Each run keeps the part no earlier run already covered, so the
  *   split by project or model adds up to the union.
- * - Tokens and cost: an agent that reports a usage ledger (usage.recorded) is
- *   measured from it; any other agent from its runs. Never both, so nothing
- *   is counted twice.
+ * - Tokens and cost come from the server's spend (pm.agent_run_stats's
+ *   spend, read from pm.agent_spend_facts, the same count the budget
+ *   uses): a run's own totals for work under a run, plus usage and turns
+ *   that name no run; usage and turns that name a run never add again. So
+ *   no row cap on the event window can make them short. Only on a database
+ *   before 20261125000800: an agent that reports a usage ledger
+ *   (usage.recorded) is measured from it, any other agent from its runs.
  * - Cost of 0 or missing beside real tokens is "subscription or unpriced",
  *   never a real zero spend.
  * - Money (revenue, profit, margin) shows only when the billing module is on
@@ -357,9 +361,33 @@ export interface RunFailure {
   status: string;
 }
 
+/**
+ * pm.agent_run_stats's spend: pm.agent_spend_facts (the budget's own count)
+ * summed per agent, project, model, provider, day, labels and person. Cost
+ * is the priced part (above 0); unpricedTokens are the tokens that came with
+ * none. principalId is who the work was for (null: the agent as itself).
+ */
+export interface SpendGroup {
+  agentId: string;
+  projectId: string | null;
+  model: string | null;
+  provider: string | null;
+  dateKey: string;
+  labels: string[];
+  tokensIn: number;
+  tokensOut: number;
+  tokensCached: number;
+  costUsd: number;
+  unpricedTokens: number;
+  /** Who the work was for (X-Act-For or a personal agent's person); null when the agent worked as itself or the database predates it. */
+  principalId?: string | null;
+}
+
 export interface RunStats {
   groups: RunStatGroup[];
   failures: RunFailure[];
+  /** Absent on a database before 20261125000800: tokens and cost then come from usage and runs as before. */
+  spend?: SpendGroup[];
 }
 
 /** pm.agent_question_stats: questions per asker, project and day, with every answer time. */
@@ -676,8 +704,12 @@ export function buildAgentAnalytics(input: AgentAnalyticsInput): AgentAnalyticsM
     });
   }
   const ledgerAgents = new Set(usage.map((u) => u.agentId));
+  // The server's spend (pm.agent_spend_facts, the budget's own count): when
+  // it came, it is the only source of tokens and cost, whatever the event
+  // window holds or a row cap cut.
+  const spend = input.runStats?.spend ?? null;
 
-  for (const u of usage) {
+  for (const u of spend ? [] : usage) {
     const at = (kind: FactKind, value: number) => push(kind, u.agentId, u.projectId, u.dateKey, value, u.model, u.provider, u.unsplit, u.labels);
     at('tokensIn', u.input);
     at('tokensOut', u.output);
@@ -763,11 +795,24 @@ export function buildAgentAnalytics(input: AgentAnalyticsInput): AgentAnalyticsM
       at('busyMs', g.busyMs);
       if (!ledgerAgents.has(g.agentId)) {
         at('runsNoTokens', g.runsNoTokens);
-        at('tokensIn', g.tokensIn);
-        at('tokensOut', g.tokensOut);
-        at('costUsd', g.costUsd);
-        at('unpricedTokens', g.unpricedTokens);
+        if (!spend) {
+          at('tokensIn', g.tokensIn);
+          at('tokensOut', g.tokensOut);
+          at('costUsd', g.costUsd);
+          at('unpricedTokens', g.unpricedTokens);
+        }
       }
+    }
+    for (const g of spend ?? []) {
+      const model = cleanModel(g.model);
+      const provider = providerOf(model, g.provider);
+      const labels = g.labels.length > 0 ? g.labels : null;
+      const at = (kind: FactKind, value: number) => push(kind, g.agentId, g.projectId, g.dateKey, value, model, provider, false, labels);
+      at('tokensIn', g.tokensIn);
+      at('tokensOut', g.tokensOut);
+      at('tokensCached', g.tokensCached);
+      at('costUsd', g.costUsd);
+      at('unpricedTokens', g.unpricedTokens);
     }
     for (const f of input.runStats.failures) {
       if (!agentIds.has(f.agentId)) continue;

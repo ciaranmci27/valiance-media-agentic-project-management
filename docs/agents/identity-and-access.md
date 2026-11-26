@@ -36,6 +36,7 @@ Scopes an agent setup usually meets:
 | Scope | Allows |
 |---|---|
 | `agent_activity.write` | Log the agent's own events, runs and heartbeat |
+| `questions.ask` | Ask a question or request an approval that names no task or project, and read and withdraw its own, without `tasks.read` ([External agents](external-agents.md)). Admins, members and agents hold it on the API, so whoever sets up an agent can give its key this scope; no key carries it by default. |
 | `agents.manage` | Configure agents, read every agent's runs, report fleet health |
 | `agents.act_for` | Act for the person who asked (X-Act-For) |
 | `team.manage` | Add agents and edit non-Owner members |
@@ -46,6 +47,7 @@ Scopes an agent setup usually meets:
 | `identities.read` | Look up who a verified chat account belongs to |
 | `assistants.provision` | List personal agents and collect each one's key once |
 | `context.memory` | A person's own key or AI tool reads and adds to their personal memory |
+| `approvals.decide` | A key decides an approval that names its person (or any, for the Owner). Admins and members hold it on the API; no key carries it by default, no agent holds it, and a connected AI tool never decides one. |
 | `agent_events.export` | Read every agent event and run from a cursor |
 | `audit.read`, `audit.export` | Read the audit log; export it from a cursor |
 | `fleet_alerts.write` | Post fleet-wide alerts that name no agent, and nothing else |
@@ -132,9 +134,10 @@ While the header is present:
 - the call may do only what the key's scopes, the agent and the person all allow;
 - a project the person cannot open is out of reach, even if the agent can open it;
 - runs, questions, tasks, comments, events and audit rows record the person as `principal_id`;
-- the agent's own bell, inboxes and shared credentials answer `403 act_for_not_allowed`.
+- the agent's own bell, inboxes and shared credentials answer `403 act_for_not_allowed`;
+- an approval that names the person is decided only with `approvals.decide` on the key, held by the agent and the person (else `403 approval_needs_person`). It is recorded as the person's decision, `decided_via: "act_for"`.
 
-Passes last 15 minutes. Mint one per request you handle. `DELETE /api/v1/delegations/{id}` revokes one early.
+Passes last 15 minutes. Mint one per request you handle. On the company chat bot, each request's `chat.message` carries the body to mint it with (`act_for`), and the reply needs the pass ([Company chat](company-chat.md)). `DELETE /api/v1/delegations/{id}` revokes one early.
 
 Refusals: `401 act_for_invalid` (expired, revoked or another agent's), `403 identity_not_verified`, `403 principal_suspended`, `403 principal_is_agent`, `403 not_an_agent`.
 
@@ -148,6 +151,7 @@ A personal agent is bound to one person (`delegate_of`). It is what powers each 
 - Everything it makes records its person as `principal_id`.
 - It reads only its person's own inboxes, never shared ones, and sees only projects its person can open.
 - It escalates to its person first.
+- It hands work on (`delegate_task`) only to company agents, and the chain stays its person's: every agent after it works within that person's access too ([Chains of agents](work-loop.md#chains-of-agents)).
 - One per person per template. It never gets a sign-in.
 
 ### Provisioning by role or group
@@ -180,7 +184,7 @@ Who sees it:
 - the person's own key or connected AI tool, only with `context.memory` (ticked on the Connect AI consent screen);
 - their own personal agent, only while they turn on **Remember things for me**.
 
-Never an Owner, and never another agent. Admins and members hold `context.memory` on the API by default; no agent does.
+Never an Owner in the app, and never another agent. Whoever runs a personal agent's host holds its key and so could read that memory through it; every such read is recorded in the audit log. Admins and members hold `context.memory` on the API by default; no agent does.
 
 Routes: `GET`, `POST /api/v1/context` with `scope_type: "member"`, `search_context`, `add_context`. Deleting a memory entry deletes it for good; other scopes are archived.
 

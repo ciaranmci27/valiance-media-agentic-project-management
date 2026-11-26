@@ -12,7 +12,7 @@ import customTemplates from '@/custom/agent-templates';
  * one goes through the agent setup API (POST /api/v1/agents/{id}/template),
  * so every scope still passes its escalation rules.
  *
- * Core's five, kept generic so they fit any install:
+ * Core's six, kept generic so they fit any install:
  * - data-health-watcher: self-directed; opens one task per problem with a
  *   dedupe_key and closes its own work once the check passes.
  * - inbox-triage: sorts what arrives in the Inbox (only while it is on);
@@ -23,6 +23,9 @@ import customTemplates from '@/custom/agent-templates';
  *   a week; changes nothing else.
  * - personal-assistant: one person's own agent (a personal agent, made by an
  *   assistant setup), within what that person can see.
+ * - external-agent: works in another system (a bookkeeper in an accounting
+ *   app); this app oversees it: no projects, no task queue, reports its runs,
+ *   usage and health, asks people, and checks its status before each turn.
  *
  * Each declares the role label an agent hired from it starts with and the
  * settings it asks for on each project (generic ones: a repository, a
@@ -123,6 +126,23 @@ export const CORE_AGENT_TEMPLATES: AgentTemplate[] = defineAgentTemplates([
       'When they message you in chat (Slack, Telegram), the app sends you assistant.message (ids only: read it with get_chat_message) or lists it with list_chat_messages: answer with reply_in_chat, in their words and their tone.',
     ].join('\n'),
     webhook_events: ['assistant.message'],
+  },
+  {
+    key: 'external-agent',
+    label: 'External agent',
+    description: 'Works in another system, like a bookkeeper in your accounting app. This app oversees it: health, spend, pause and approvals.',
+    role: 'external',
+    rules: { agent_self_assign: false, agent_close_policy: 'close', agent_create_policy: 'approval' },
+    // Reporting, asking people and reading its own status and context: no task or project scopes.
+    scopes: ['agent_activity.write', 'questions.ask'],
+    context: [
+      'You work in another system. This app oversees you: who you are, your health, your spend, your pause and the approvals people give you. You have no projects and no task queue here.',
+      'Before each turn, call get_my_status (GET /api/v1/agents/me/status). When can_start_work is false (paused, or over budget), skip the turn and check again next time. If the call fails on the network, go ahead.',
+      'Record each piece of work: start_run with external_id (your own id for it) and external_url (where a person sees it), update_run with tokens and cost so far, finish_run at the end. Usage with no run still counts toward your budget: report it with log_activity usage.recorded.',
+      'Send heartbeat when a turn starts and ends, with expected_interval_seconds set to how often you run.',
+      'Before an action a person must allow (a payment, an email to a client, deleting records), request_approval with action.external_url and action.external_id naming the object in your system, and act only when decision is approved. ask_human for a decision only a person can make. Leave task_id and project_id out.',
+    ].join('\n'),
+    webhook_events: ['agent.paused', 'agent.resumed', 'budget.exceeded', 'question.answered', 'question.cancelled'],
   },
 ]);
 

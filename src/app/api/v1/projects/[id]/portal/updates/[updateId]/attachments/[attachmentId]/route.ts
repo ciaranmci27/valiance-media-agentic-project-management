@@ -41,4 +41,4 @@ export const DELETE = withApi(async ({ supabase, params, apiKeyId, teamMemberId 
   });
 
   return success({ deleted: true });
-});
+}, { permission: 'portal.manage' });

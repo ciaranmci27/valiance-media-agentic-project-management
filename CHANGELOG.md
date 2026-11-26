@@ -9,6 +9,44 @@ Each section starts with `## X.Y.Z (YYYY-MM-DD)` and uses these headings, leavin
 - `### Database`: the core migration files in the release, one per line. `npm run db:migrate` applies them.
 - `### Breaking`: what an install must do when it takes this release.
 
+## 2.0.41 (2026-11-26)
+
+### Added
+- **Company chat**: a chat connection is now either for personal assistants (direct messages only, as before) or for company AI. A company bot reaches the agents an Owner picks: mention one by name, map a channel to one, or message the bot directly for the default. Each channel listens to mentions only or to every message (kept as context, never answered). Replies go in a thread, can also go to the channel or privately to the sender, and on Slack carry the agent's name and picture. The sender is who the work is for, so the agent never does more than both may. New webhook `chat.message` and routes `/api/v1/chat/messages`; see `docs/agents/company-chat.md`.
+- **Approvals name who decides**: an approval goes to a person, a group, or an agent named on purpose (a reviewer agent decides with its own key; nobody approves their own request). A person's approval is decided in the app, or over the API only with a key that carries the new `approvals.decide`; a connected AI tool can never decide one. Every decision records how it was made (`decided_via`: app, api_key, agent, act_for).
+- **Agent watchdog**: every 5 minutes the app notices what time changed. An agent that stops responding tells its owners ("Nova stopped responding 12 minutes ago") and again when it is back; webhooks `agent.offline` and `agent.online`. Runs idle for 2 hours are stored as timed out (`run.finished`). Questions past their expiry close and tell whoever asked (`question.expired`). A webhook that keeps failing tells the Owners.
+- **Keeping data** (Settings > Security, Owner): how long to keep webhook deliveries (30 days by default), uptime history (90 days), agent events, finished runs and chat text (forever by default). A daily job applies it.
+- **One webhook for every assistant**: an endpoint can serve every assistant an assistant setup made (`assistant_setup_id`), instead of one endpoint and secret per person.
+- **API version**: every `/api/v1` answer carries `X-PM-API-Version`, every webhook envelope carries `api_version`, and the tool catalog returns it. `docs/agents/README.md` states the compatibility promise: the contract only gains fields, and removals are announced first.
+- **Discord** is a third chat app beside Slack and Telegram, for personal and company connections. Discord sends messages only over a live connection, so each install runs the small relay in `relay/discord` (one command or Docker) on a server it controls; the app signs and checks every relayed message. Company replies carry each agent's name and picture through a channel webhook.
+- **Chat apps in Settings** start from Slack, Telegram and Discord cards, then one Add chat app action that offers only the connections still free.
+- **Agents can start a conversation**: `POST /api/v1/chat/messages` (MCP `send_chat_message`). A personal assistant messages only its own person; a company agent posts only in channels mapped to it, and messages a person directly only while acting for them or with the new `chat.notify`. Replies come back to the same agent. Rate limited per agent and per recipient.
+- **Files in chat**: photos, voice notes, audio, documents and video from Telegram, Slack and Discord arrive as attachments, and the agent a message went to downloads them through `GET /api/v1/chat/messages/{id}/attachments/{n}` (never exposing a provider address or token; 20 MB cap).
+- **Waiting on a person**: a run can be `waiting` while its agent waits for an answer. A question or approval may name its `run_id`; the run waits while the question is open, and goes back to running when it is answered, so human-gated work never times out. A run set to waiting by hand times out after 7 days. Webhook `run.updated`.
+- **Chains of agents**: `delegate_task` with `mode: assign` hands a whole task to another agent, so a person, their assistant, a company agent and its specialists form one run tree at any depth (up to 8), with the person recorded as who it is for throughout. Cycles and deeper chains are refused, and a hand-off never widens access.
+- **Agents that work in other systems**: `GET /api/v1/agents/me/status` (MCP `get_my_status`) tells any agent key whether it may start work (paused or over budget), with webhooks `agent.paused`, `agent.resumed` and `budget.exceeded`. The new `questions.ask` lets an agent ask people or request approvals without project access, approvals can link to the thing they are about (`action.external_url`, shown as "Open in ..."), and a new External agent template sets this up. See `docs/agents/external-agents.md`.
+
+### Changed
+- Email-made tasks, reminders, reply-draft notices and "needs you" notices follow each inbox's own defaults (default assignee and project, primary handler, decision recipient) whenever a request leaves them out. A triage plan's new task follows the agent's create rules, so an agent that needs sign-off makes a suggestion. The person who asked for a draft hears when it is ready.
+- Agent spend is counted once: a run's own totals, plus usage and turns that name no run. Budgets and Analytics use the same rule, so a budget can no longer be passed by spend reported two ways. Usage may name its run (`run_id`).
+- Webhook retries are on by default when webhooks are set up; an Owner can turn them off.
+- Webhooks are only sent to public addresses (private, loopback and cloud metadata addresses are refused, and redirects are not followed). Set `WEBHOOKS_ALLOW_PRIVATE_TARGETS=true` for receivers on your own private network.
+- New inboxes use plan-based triage. Older email triage routes, tools and fields are marked deprecated in the API docs with their replacements, and the deprecated tools are left out of the tool list; all of them keep working.
+- `/api/v1/assistant/messages` and `assistant.message` are deprecated aliases of the chat routes and `chat.message` for personal assistants.
+- Every API route states its permission explicitly. The audit history route always needs `audit.read`.
+- Agent spend records who the work was for, so it can be split by person.
+
+### Database
+- `20261125000700_approval_decisions.sql`: how approvals were decided, and `approvals.decide` for admins and members on the API.
+- `20261125000800_agent_spend.sql`: one rule for agent spend, used by budgets and Analytics.
+- `20261125000900_webhook_setup_scope.sql`: webhook endpoints for an assistant setup, and single-pass webhook fan-out.
+- `20261125001100_chat_targets.sql`: personal and company chat connections, the agents and channels a company bot reaches, and chat context.
+- `20261125001200_contract_cleanup.sql`: plans as the default triage mode for new inboxes, and `api_version` on webhook envelopes.
+- `20261125001300_watchdog_retention.sql`: the agent watchdog, retries on by default, and data retention.
+- `20261125001400_external_agents.sql`: agent status, pause and budget events, and `questions.ask`.
+- `20261125001500_chat_outbound_media.sql`: messages agents start, chat attachments and their retention, and `chat.notify`.
+- `20261125001600_delegation_chain.sql`: how a task was handed on, and depth and cycle guards for chains of runs.
+
 ## 2.0.40 (2026-11-25)
 
 ### Added

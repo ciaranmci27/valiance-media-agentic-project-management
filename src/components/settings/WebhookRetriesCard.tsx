@@ -7,28 +7,41 @@ import { SettingsSectionHeader } from '@/components/settings/SettingsSectionHead
 import { OutcomeLine, type Outcome } from '@/components/settings/workspace/OutcomeLine';
 import { Button } from '@/components/ui/Button';
 import { useRead } from '@/lib/query-cache';
-import { ENCRYPTION_HREF, turnOnWebhookRetries, webhookRetriesRead } from './secrets-data';
+import { ENCRYPTION_HREF, turnOffWebhookRetries, turnOnWebhookRetries, webhookRetriesRead } from './secrets-data';
 
 const DESCRIPTION = 'Failed webhook deliveries are tried again on a schedule by your database.';
 
 const LINK = 'rounded font-medium text-brand-300 underline underline-offset-2 hover:decoration-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500';
 
 /**
- * Settings > Developers > Webhook retries (Owners only, with webhooks on),
- * shown only while retries are off: a one-time setup with nothing to manage
- * once it is done. One button turns them on: the server makes the scheduler
- * secret, saves it in the app and hands it to Supabase Vault, so nobody
- * copies a secret by hand. Until the app key, NEXT_PUBLIC_APP_URL and Vault
- * are all there, it says which is missing. Turned on during this visit, it
- * stays as the result; on the next visit it is gone.
+ * Settings > Developers > Webhook retries (Owners only, with webhooks on).
+ * Retries are on by default: the server turns them on by itself once the app
+ * key, NEXT_PUBLIC_APP_URL and Vault are all there, so on, the card is one
+ * line with Turn off. Off, one button turns them on (the server makes the
+ * scheduler secret, saves it in the app and hands it to Supabase Vault, so
+ * nobody copies a secret by hand), or it says which of the three is missing.
  */
 export function WebhookRetriesCard() {
   const read = useRead(webhookRetriesRead);
   const [turningOn, setTurningOn] = useState(false);
+  const [turningOff, setTurningOff] = useState(false);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const state = read.data;
-  // Retries on with nothing turned on during this visit: nothing to do, no card.
-  const done = !!state?.on && outcome === null;
+
+  const turnOff = async () => {
+    setTurningOff(true);
+    setOutcome(null);
+    try {
+      const next = await turnOffWebhookRetries();
+      setOutcome(next.on
+        ? { tone: 'error', text: 'Not turned off. Check again in a moment.', onRetry: read.reload }
+        : { tone: 'done', text: 'Retries are off. Failed deliveries wait until you send them again.' });
+    } catch (error) {
+      setOutcome({ tone: 'error', text: `Not turned off. ${error instanceof Error ? error.message : 'Try again.'}`, onRetry: () => { void turnOff(); } });
+    } finally {
+      setTurningOff(false);
+    }
+  };
 
   const turnOn = async () => {
     setTurningOn(true);
@@ -47,9 +60,8 @@ export function WebhookRetriesCard() {
 
   const ready = !!state && state.appKey && state.appUrl && state.vault;
 
-  // While the check loads, nothing either, so a card that turns out not to be
-  // needed never flashes in and out.
-  if (read.loading || done) return null;
+  // While the check loads, nothing, so the card never flashes in a wrong state.
+  if (read.loading) return null;
 
   return (
     <section id="webhook-retries" className="glass-card scroll-mt-6 rounded-xl p-4 lg:p-6" aria-labelledby="webhook-retries-heading">
@@ -61,21 +73,29 @@ export function WebhookRetriesCard() {
           <Button size="sm" variant="secondary" onClick={read.reload} icon={<RotateCw size={13} aria-hidden="true" />}>Try again</Button>
         </div>
       ) : state.on ? (
-        // Only right after turning them on here; gone on the next visit.
-        <div role="status" className="flex items-start gap-3 rounded-lg bg-white/[0.03] px-3.5 py-3">
-          <Check size={16} className="mt-0.5 flex-shrink-0 text-emerald-300" aria-hidden="true" />
+        <div role="status" className="flex flex-wrap items-center gap-3 rounded-lg bg-white/[0.03] px-3.5 py-3">
+          <Check size={16} className="flex-shrink-0 text-emerald-300" aria-hidden="true" />
           <div className="min-w-0 flex-1">
             <p className="text-sm font-medium text-zinc-100">Retries are on</p>
-            <div className="mt-0.5 space-y-1 text-sm text-zinc-400">
-              <p>A failed delivery is tried again a few times, waiting longer each time.</p>
-              <p>This section hides once you leave the page.</p>
-            </div>
+            <p className="mt-0.5 text-sm text-zinc-400">
+              {state.source === 'env'
+                ? 'Set up by your host. A failed delivery is tried again a few times, waiting longer each time.'
+                : 'A failed delivery is tried again a few times, waiting longer each time.'}
+            </p>
           </div>
+          {state.source !== 'env' && (
+            <Button size="sm" variant="secondary" onClick={() => { void turnOff(); }} disabled={turningOff}
+              icon={turningOff ? <Loader2 size={13} aria-hidden="true" className="animate-spin motion-reduce:animate-none" /> : undefined}>
+              {turningOff ? 'Turning off' : 'Turn off'}
+            </Button>
+          )}
         </div>
       ) : ready ? (
         <div className="space-y-3">
           <p className="text-sm text-zinc-300">
-            Retries are off. Turn them on and a failed delivery is tried again a few times, waiting longer each time.
+            {state.turnedOff
+              ? 'Retries are off: an Owner turned them off. Failed deliveries wait until someone sends them again.'
+              : 'Retries are off. Turn them on and a failed delivery is tried again a few times, waiting longer each time.'}
           </p>
           <div>
             <Button size="sm" onClick={() => { void turnOn(); }} disabled={turningOn}
@@ -109,8 +129,8 @@ export function WebhookRetriesCard() {
         </div>
       )}
 
-      {/* Turned on: the notice above is the result. */}
-      {outcome && !(outcome.tone === 'done' && state?.on) && <OutcomeLine outcome={outcome} busy={turningOn} className="mt-3" />}
+      {/* Turned on or off: the state above is the result. */}
+      {outcome && outcome.tone !== 'done' && <OutcomeLine outcome={outcome} busy={turningOn || turningOff} className="mt-3" />}
     </section>
   );
 }

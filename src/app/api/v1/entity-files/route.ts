@@ -53,7 +53,7 @@ export const GET = withApi(async ({ supabase, searchParams, access, teamMemberId
 
   if (error) throw error;
   return paginated(data || [], { page, limit, total: count || 0 });
-});
+}, { permission: 'files.read' });
 
 export const POST = withApi(async ({ supabase, body, apiKeyId, teamMemberId, access }) => {
   const entry = body as z.infer<typeof postSchema>;
@@ -91,4 +91,4 @@ export const POST = withApi(async ({ supabase, body, apiKeyId, teamMemberId, acc
   });
 
   return created(data);
-}, { schema: postSchema });
+}, { schema: postSchema, permission: 'files.upload' });

@@ -24,7 +24,11 @@ import { isMissingRpc } from '@/lib/supabase/queries';
 
 const REPORT_TTL_MS = 60_000;
 const PAGE = 1000;
-/** A range with more rows than this is cut short; the screen says so. */
+/**
+ * Only the rows read on a database before the server sums: a range with more
+ * than this is cut short, and the screen says so. Tokens and cost come from
+ * pm.agent_run_stats's spend, which no cap touches.
+ */
 export const ANALYTICS_ROW_CAP = 10_000;
 
 const DAY = 86_400_000;

@@ -5,7 +5,7 @@ import { success } from '@/lib/api/response';
 import { ApiError, notFound } from '@/lib/api/errors';
 import { logInboxAudit } from '@/lib/communications/inbox-audit';
 import { assertUuid, inboxTriageDenied, memberInboxIds, memberTriageInboxIds } from '@/lib/communications/agent-access';
-import { DRAFT_COLUMNS } from '@/lib/communications/inbox-drafts';
+import { DRAFT_COLUMNS, notifyDraftReady } from '@/lib/communications/inbox-drafts';
 import { comms } from '@/lib/communications/db';
 
 export const dynamic = 'force-dynamic';
@@ -20,7 +20,8 @@ type DraftResult = z.infer<typeof draftResultSchema>;
  * The agent answers a draft request: the reply text (body), or why it could
  * not write one (failure). Only a waiting request takes an answer (409
  * otherwise). The person copies the draft into their own mail; nothing is
- * sent.
+ * sent. A written draft notifies the inbox's primary handler when a person,
+ * else its decision recipient, else the Owners.
  */
 export const PUT = withApi<DraftResult, { id: string }>(async ({ supabase, params, body, teamMemberId, apiKeyId, access }) => {
   const id = assertUuid(params.id, 'id');
@@ -49,6 +50,12 @@ export const PUT = withApi<DraftResult, { id: string }>(async ({ supabase, param
   }).eq('id', id).eq('status', 'requested').select(DRAFT_COLUMNS).maybeSingle();
   if (updateError) throw updateError;
   if (!updated) throw new ApiError(409, 'CONFLICT', 'This draft request is already answered', { reason: 'draft_answered' });
+  // A written draft rings whoever copies and sends it (inbox-drafts.ts); a failed bell never undoes the draft.
+  if (body.body !== undefined) {
+    await notifyDraftReady(supabase, draft, message.inbox_id, teamMemberId).catch((notifyError) => {
+      console.error(`[inbox] reply draft ${id}: the ready notice failed:`, notifyError);
+    });
+  }
   // A personal inbox's audit line keeps ids and the outcome, never the draft.
   await logInboxAudit(supabase, message.inbox_id, {
     method: 'PUT',

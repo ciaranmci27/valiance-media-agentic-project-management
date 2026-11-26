@@ -414,8 +414,21 @@ async function analyticsChecks(s: Seed, db: PGlite) {
       const selectedProjectIds = projectIds.length ? new Set(projectIds) : undefined;
       const client = buildAgentAnalytics(base({ timezone: tz, activities: v2.rows, runs: feed, questions: questionRows, selectedProjectIds }));
       const qAnswer = (await (async () => { await actAs(db, s.owner.user); const r = (await s.q<{ r: Loose }>('SELECT pm.agent_question_stats($1, $2, $3) AS r', [range.startKey, range.endKey, tz]))[0].r; await actAs(db, null); await db.exec('RESET ROLE'); return r; })());
-      const server = buildAgentAnalytics(base({ timezone: tz, activities: v2.rows, runStats: runStatsFromAnswer(answer), questionStats: questionStatsFromAnswer(qAnswer), selectedProjectIds }));
+      // The run sums against the client's rows: without spend, which counts
+      // tokens and cost by the newer rule (checked against pm.agent_spend below
+      // and in test:agent-spend).
+      const stats = runStatsFromAnswer(answer);
+      const server = buildAgentAnalytics(base({ timezone: tz, activities: v2.rows, runStats: { ...stats, spend: undefined }, questionStats: questionStatsFromAnswer(qAnswer), selectedProjectIds }));
       const where = `${tz}${projectIds.length ? ', one project' : ''}`;
+      if (projectIds.length === 0) {
+        const withSpend = buildAgentAnalytics(base({ timezone: tz, activities: v2.rows, runStats: stats, questionStats: questionStatsFromAnswer(qAnswer) }));
+        const sql = (await s.q<Loose>(`SELECT coalesce(sum(spent_usd), 0)::float8 AS usd, coalesce(sum(tokens_in), 0)::float8 AS tin, coalesce(sum(tokens_out), 0)::float8 AS tout
+          FROM pm.agent_spend(($1::date)::timestamp AT TIME ZONE $3, ($2::date + 1)::timestamp AT TIME ZONE $3)`, [range.startKey, range.endKey, tz]))[0];
+        const t = withSpend.totals.sums;
+        check(`aggregates (${where}): with spend, tokens and cost are pm.agent_spend's`, Array.isArray(stats.spend) && close(t.costUsd, sql.usd) && t.tokensIn === sql.tin && t.tokensOut === sql.tout
+          && SUM_KINDS.filter((k) => !['tokensIn', 'tokensOut', 'tokensCached', 'costUsd', 'unpricedTokens'].includes(k)).every((k) => close(t[k], server.totals.sums[k])),
+        { model: [t.costUsd, t.tokensIn, t.tokensOut], sql });
+      }
       const differs = SUM_KINDS.filter((kind) => !close(client.totals.sums[kind], server.totals.sums[kind]));
       check(`aggregates (${where}): server totals equal the client model's`, differs.length === 0,
         differs.map((k) => [k, client.totals.sums[k], server.totals.sums[k]]));

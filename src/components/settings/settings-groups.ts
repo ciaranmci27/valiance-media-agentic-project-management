@@ -72,7 +72,7 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
   { key: 'assistants', href: '/settings/assistants', label: 'Assistants', icon: Sparkles, sectionIds: ['assistants', 'assistant-setups', 'assistant-status', 'chat-connections'] },
   { key: 'developers', href: '/settings/developers', label: 'Developers', icon: Code2, sectionIds: ['api-keys', 'key-lifetimes', 'webhooks', 'webhook-retries', 'developer-docs'] },
   // The kill switch for every agent, whether people may connect AI tools, the audit log and how long it is kept (Owners only).
-  { key: 'security', href: '/settings/security', label: 'Security', icon: ShieldCheck, sectionIds: ['agents-pause', 'connect-ai-setting', 'audit-log', 'audit-settings'] },
+  { key: 'security', href: '/settings/security', label: 'Security', icon: ShieldCheck, sectionIds: ['agents-pause', 'connect-ai-setting', 'audit-log', 'audit-settings', 'data-retention'] },
   { key: 'data', href: '/settings/data', label: 'Data', icon: Database, sectionIds: ['trash', 'demo-mode'] },
   // The install's own sections, after core's.
   ...customSettingsGroups(),
@@ -164,6 +164,8 @@ export function useSettingsAccess() {
     agentsPause: isOwner && !isDemoMode && isModuleEnabled(access, 'agents'),
     // Who changed what, and how long that is kept: Owners only. The demo workspace has no log.
     auditLog: isOwner && !isDemoMode,
+    // How long data that grows on its own is kept: Owners only. The demo workspace shows the defaults, with nothing to change.
+    dataRetention: isOwner,
     // Your own AI tools (Connect AI): every person; agents never sign in.
     connectAi: access?.role !== 'agent',
     // Email and password, Google or both: Owners only. The demo workspace shows it, with nothing to change.
@@ -183,7 +185,7 @@ export function useSettingsAccess() {
     email: show.smtp || show.emailInboxes || show.myInbox || show.receiving,
     assistants: show.assistants,
     developers: show.apiKeys || show.keyLifetimes || show.webhooks || show.webhookRetries || show.developerDocs,
-    security: show.agentsPause || show.connectAiSetting || show.auditLog,
+    security: show.agentsPause || show.connectAiSetting || show.auditLog || show.dataRetention,
     data: !isGuest,
   };
 

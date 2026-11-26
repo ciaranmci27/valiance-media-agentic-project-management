@@ -24,4 +24,4 @@ export const GET = withApi(async ({ supabase, searchParams }) => {
 
   if (error) throw error;
   return paginated(data || [], { page, limit, total: count || 0 });
-});
+}, { permission: 'audit.read' });

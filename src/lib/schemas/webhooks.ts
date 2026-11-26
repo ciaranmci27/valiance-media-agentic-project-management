@@ -4,9 +4,10 @@ import { webhookUrlError } from '@/lib/webhooks/endpoint-input';
 
 /**
  * Bodies of /api/v1/webhook-endpoints, with the same rules as Settings >
- * Developers: HTTPS (or http on localhost), at least one known event, and
+ * Developers: HTTPS to a public address, at least one known event, and
  * filters that are a list of projects (null or empty: every project) and
- * one member (null: everyone). agent_event_types narrows agent_event.created
+ * one member (null: everyone), or every personal agent an assistant setup
+ * made (assistant_setup_id; never with member_id). agent_event_types narrows agent_event.created
  * to some agent event types (null or empty: every type).
  */
 const url = z.string().trim().min(1, 'url is required').max(2000).superRefine((value, ctx) => {
@@ -16,11 +17,13 @@ const url = z.string().trim().min(1, 'url is required').max(2000).superRefine((v
 const events = z.array(z.enum(WEBHOOK_EVENT_TYPES)).min(1, 'Select at least one event').max(WEBHOOK_EVENT_TYPES.length);
 const projectIds = z.array(z.string().uuid('project_ids must be project ids')).max(200).nullable();
 const memberId = z.string().uuid('member_id must be a team member id').nullable();
+// Every personal agent an assistant setup made (null: no setup scope). Never with member_id.
+const assistantSetupId = z.string().uuid('assistant_setup_id must be an assistant setup id').nullable();
 // Agent event types for agent_event.created (null or empty: every type).
 const agentEventTypes = z.array(z.string().regex(/^[a-z][a-z0-9_.]{0,99}$/, 'agent_event_types holds agent event types (work.done, usage.recorded, custom.acme.deploy)'))
   .max(100).nullable().transform((types) => (types && types.length > 0 ? [...new Set(types)] : null));
 
-export const createWebhookEndpointSchema = z.object({
+const endpointFields = z.object({
   name: z.string().trim().min(1, 'name is required').max(100),
   url,
   events,
@@ -28,11 +31,18 @@ export const createWebhookEndpointSchema = z.object({
   amount_basis: z.enum(['gross', 'net']).optional(),
   project_ids: projectIds.optional(),
   member_id: memberId.optional(),
+  assistant_setup_id: assistantSetupId.optional(),
   agent_event_types: agentEventTypes.optional(),
   is_active: z.boolean().optional(),
 }).strict();
+
+const oneScope = (body: { member_id?: string | null; assistant_setup_id?: string | null }) => !(body.member_id && body.assistant_setup_id);
+const ONE_SCOPE = { message: 'Send member_id or assistant_setup_id, not both', path: ['assistant_setup_id'] };
+
+export const createWebhookEndpointSchema = endpointFields.refine(oneScope, ONE_SCOPE);
 export type CreateWebhookEndpoint = z.infer<typeof createWebhookEndpointSchema>;
 
-export const updateWebhookEndpointSchema = createWebhookEndpointSchema.partial().strict()
-  .refine((body) => Object.keys(body).length > 0, 'Send at least one field to change');
+export const updateWebhookEndpointSchema = endpointFields.partial().strict()
+  .refine((body) => Object.keys(body).length > 0, 'Send at least one field to change')
+  .refine(oneScope, ONE_SCOPE);
 export type UpdateWebhookEndpoint = z.infer<typeof updateWebhookEndpointSchema>;

@@ -28,4 +28,4 @@ export const POST = withApi(async ({ supabase, apiKeyId, teamMemberId }) => {
   });
 
   return success({ marked_read: count });
-});
+}, { permission: 'notifications.manage_own' });

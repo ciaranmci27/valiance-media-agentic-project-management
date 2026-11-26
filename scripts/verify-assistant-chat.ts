@@ -30,7 +30,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { PGlite } from '@electric-sql/pglite';
 import { NextRequest } from 'next/server';
-import { applyMigrationsFrom, createFullSchemaDatabase, SCHEMA_PATH } from './full-schema-db';
+import { actAs, applyMigrationsFrom, createFullSchemaDatabase, SCHEMA_PATH } from './full-schema-db';
 import { startFakePostgrest } from './fake-postgrest';
 import { diffSnapshots, pmSnapshot } from './lib/pm-catalog';
 import {
@@ -39,11 +39,15 @@ import {
 import { slackAdapter, slackSignature } from '../src/lib/chat/providers/slack';
 import { telegramAdapter } from '../src/lib/chat/providers/telegram';
 import { chatHttp } from '../src/lib/chat/providers/adapter';
+import { webhookTransport } from '../src/lib/webhooks/target';
 
 const MIGRATION = '20261124001400_assistant_chat.sql';
 const MIGRATION_SQL = readFileSync(join(__dirname, '..', 'supabase', 'migrations', MIGRATION), 'utf8').replace(/\r\n/g, '\n');
 const SCHEMA_SQL = readFileSync(SCHEMA_PATH, 'utf8').replace(/\r\n/g, '\n');
 const SECTION = '-- ASSISTANT AND CHAT SWITCHBOARD (20261124001400_assistant_chat.sql)';
+const SCOPE_MIGRATION = '20261125000900_webhook_setup_scope.sql';
+const SCOPE_SQL = readFileSync(join(__dirname, '..', 'supabase', 'migrations', SCOPE_MIGRATION), 'utf8').replace(/\r\n/g, '\n');
+const SCOPE_SECTION = '-- WEBHOOK SETUP SCOPE (20261125000900_webhook_setup_scope.sql)';
 const APP_KEY = 'c'.repeat(64);
 const SLACK_SECRET = 'f0e1d2c3b4a5968778695a4b3c2d1e0f';
 const SLACK_TOKEN = 'xoxb-1111-2222-abcdefghijklmnop';
@@ -159,7 +163,9 @@ function pureChecks() {
   const dm = slackAdapter.parse(JSON.stringify({ type: 'event_callback', event_id: 'Ev9', team_id: 'T1', event: { type: 'message', channel_type: 'im', user: 'U1', text: 'hello', channel: 'D1', ts: '1.1' } }), new Headers());
   check('slack: a direct message is read with its team and no thread', dm.kind === 'message' && dm.workspaceId === 'T1' && dm.threadId === null && dm.dedupeKey === 'Ev9' && dm.direct === true, dm);
   const mention = slackAdapter.parse(JSON.stringify({ type: 'event_callback', event_id: 'Ev10', team_id: 'T1', event: { type: 'app_mention', user: 'U1', text: '<@UBOT> hi there', channel: 'C1', ts: '2.2' } }), new Headers());
-  check('slack: a mention is answered in its thread, without the mention', mention.kind === 'message' && mention.threadId === '2.2' && mention.text === 'hi there' && mention.direct === false, mention);
+  // Top level, so no thread yet: an answer starts one on the message itself (its ts, replyTo).
+  check('slack: a mention is read without the mention, with who was mentioned and its own ts', mention.kind === 'message' && mention.threadId === null && mention.messageId === '2.2'
+    && mention.text === 'hi there' && mention.direct === false && JSON.stringify(mention.mentions) === '["UBOT"]', mention);
   check('slack: a bot\'s own message is ignored', slackAdapter.parse(JSON.stringify({ type: 'event_callback', event_id: 'Ev11', event: { type: 'message', channel_type: 'im', bot_id: 'B1', text: 'x', channel: 'D1' } }), new Headers()).kind === 'ignore');
 
   const tg = { bot_token: TELEGRAM_TOKEN, secret_token: 'a'.repeat(64) };
@@ -202,6 +208,39 @@ async function migrationChecks() {
   check('grants: the new tables are the server\'s only', tables.every((t: Loose) => !t.auth && !t.anon), tables);
   const plain = await old.query("INSERT INTO pm.chat_connections (provider, display_name, credentials) VALUES ('slack', 'x', 'xoxb-plain')").then(() => null, (e: Error) => e.message);
   check('database: credentials are stored sealed only', /chat_connections_credentials_sealed/.test(plain ?? ''), plain);
+  await old.close();
+  await setupScopeMigrationChecks();
+}
+
+/** 20261125000900: mirrored in schema.sql, safe twice, fills in the setup of agents made before, locked down. */
+async function setupScopeMigrationChecks() {
+  const at = SCHEMA_SQL.indexOf(SCOPE_SECTION);
+  const banner = SCHEMA_SQL.lastIndexOf('\n-- ====', at);
+  const body = SCOPE_SQL.slice(SCOPE_SQL.indexOf('-- ---------------------------------------------------------------------------\n-- Columns')).trim();
+  check('schema.sql: the setup scope section mirrors its migration', at > 0 && SCHEMA_SQL.slice(at).includes(body));
+  const old = await createFullSchemaDatabase({ schemaSql: SCHEMA_SQL.slice(0, banner) });
+  const q = async <T = Loose>(sql: string, params: unknown[] = []) => (await old.query<T>(sql, params)).rows;
+  await old.exec('RESET ROLE');
+  await old.exec('DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users');
+  const person = (await q<{ id: string }>("INSERT INTO pm.team_members (name, email, role) VALUES ('Pat', 'pat@example.com', 'member') RETURNING id"))[0].id;
+  const setup = (await q<{ id: string }>("INSERT INTO pm.assistant_setups (match_role, template_key) VALUES ('member', 'personal-assistant') RETURNING id"))[0].id;
+  const agent = (await q<{ id: string }>(`INSERT INTO pm.team_members (name, email, role, delegate_of, assistant_template)
+    VALUES ('Pat''s Assistant', 'pat.assistant@example.com', 'agent', $1, 'personal-assistant') RETURNING id`, [person]))[0].id;
+  const handMade = (await q<{ id: string }>(`INSERT INTO pm.team_members (name, email, role, delegate_of, assistant_template)
+    VALUES ('Pat''s Reporter', 'pat.reporter@example.com', 'agent', $1, 'weekly-reporter') RETURNING id`, [person]))[0].id;
+  await applyMigrationsFrom(old, SCOPE_MIGRATION);
+  const after = await q<Loose>('SELECT id, assistant_setup_id FROM pm.team_members WHERE id = ANY($1::uuid[])', [[agent, handMade]]);
+  check('upgrade: a personal agent made before records the setup that matches it; one from no setup stays without',
+    after.find((row) => row.id === agent)?.assistant_setup_id === setup && after.find((row) => row.id === handMade)?.assistant_setup_id === null, after);
+  const fresh = await createFullSchemaDatabase();
+  const diff = diffSnapshots(await pmSnapshot(fresh), await pmSnapshot(old));
+  check('upgrade: the setup scope migration, run twice, matches schema.sql', diff.length === 0, diff.slice(0, 10));
+  await fresh.close();
+  const grants = await q<Loose>(`SELECT p.proname AS name, has_function_privilege('anon', p.oid, 'EXECUTE') AS anon, has_function_privilege('authenticated', p.oid, 'EXECUTE') AS auth
+    FROM pg_proc p WHERE p.pronamespace = 'pm'::regnamespace AND p.proname IN ('assistant_setup_for', 'team_members_assistant_setup_guard')`);
+  check('grants: the setup scope functions are nobody\'s but the server\'s', grants.length === 2 && grants.every((g: Loose) => !g.anon && !g.auth), grants);
+  const indexes = (await q<{ indexname: string }>("SELECT indexname FROM pg_indexes WHERE schemaname = 'pm' AND tablename = 'webhook_endpoints'")).map((row) => row.indexname);
+  check('fan-out: active endpoints are looked up by event type through an index', indexes.includes('idx_webhook_endpoints_active_events'), indexes);
   await old.close();
 }
 
@@ -289,17 +328,16 @@ async function main() {
     if (url.endsWith('/sendMessage')) return json({ ok: true, result: { message_id: 42 } });
     return json({ ok: false, error: 'unknown_method' });
   };
-  // Webhook deliveries to agents: caught here; everything else (the fake PostgREST) passes through.
+  // Webhook deliveries to agents: hooks.example.test resolves to a public
+  // address here and every send is caught; nothing leaves the machine.
   const deliveries: { url: string; headers: Headers; body: Loose }[] = [];
   const realFetch = globalThis.fetch;
-  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
-    const url = String(input instanceof Request ? input.url : input);
-    if (url.startsWith('https://hooks.example.test')) {
-      deliveries.push({ url, headers: new Headers(init?.headers), body: JSON.parse(String(init?.body ?? '{}')) });
-      return new Response('ok', { status: 200 });
-    }
-    return realFetch(input, init);
-  }) as typeof fetch;
+  const realTransport = { ...webhookTransport };
+  webhookTransport.lookup = async (host) => (host === 'hooks.example.test' ? [{ address: '93.184.215.14', family: 4 }] : realTransport.lookup(host));
+  webhookTransport.post = async (target, init) => {
+    deliveries.push({ url: target.url.toString(), headers: new Headers(init.headers), body: JSON.parse(init.body) });
+    return { status: 200, text: 'ok' };
+  };
 
   try {
     const assistantRoute = await import('../src/app/api/workspace/assistant/route');
@@ -308,6 +346,8 @@ async function main() {
     const settingsRoute = await import('../src/app/api/workspace/assistants/settings/route');
     const statusRoute = await import('../src/app/api/workspace/assistants/status/route');
     const setupsRoute = await import('../src/app/api/workspace/assistants/setups/route');
+    const setupRoute = await import('../src/app/api/workspace/assistants/setups/[id]/route');
+    const { runDispatch } = await import('../src/lib/webhooks/dispatch');
     const provisionRoute = await import('../src/app/api/workspace/assistants/provision/route');
     const connectionsRoute = await import('../src/app/api/workspace/chat-connections/route');
     const connectionRoute = await import('../src/app/api/workspace/chat-connections/[id]/route');
@@ -658,9 +698,10 @@ async function main() {
     providerCalls.length = 0;
     const inChannel = { type: 'event_callback', team_id: 'T1', event_id: 'EvChannel1', event: { type: 'app_mention', user: 'U_OTHER', text: '<@UBOT> hi', channel: 'C_TEAM', ts: '5.5' } };
     const inChannelIn = await inbound(slackId, inChannel, slackSigned(inChannel));
-    check('unknown sender: in a shared channel, no link, just "message me directly"', inChannelIn.body?.status === 'unrouted'
-      && providerCalls[0]?.body?.text === 'Message me directly to connect your account.' && !/\/link\//.test(JSON.stringify(providerCalls))
-      && await count("SELECT count(*)::int AS n FROM pm.identity_link_requests WHERE external_id = 'U_OTHER'") === 0, providerCalls);
+    // The personal bot answers DMs only (company chat: verify-company-chat.ts).
+    check('personal bot: a channel mention is ignored, never recorded or answered', inChannelIn.body?.status === 'ignored' && inChannelIn.body?.reason === 'personal_dm_only'
+      && providerCalls.length === 0 && await count("SELECT count(*)::int AS n FROM pm.chat_messages WHERE dedupe_key = 'EvChannel1'") === 0
+      && await count("SELECT count(*)::int AS n FROM pm.identity_link_requests WHERE external_id = 'U_OTHER'") === 0, { body: inChannelIn.body, providerCalls });
     const otherTeam = { ...event('EvOtherTeam', 'U_STRANGER', 'hi', 'D_STRANGER'), team_id: 'T2' };
     const otherTeamIn = await inbound(slackId, otherTeam, slackSigned(otherTeam));
     check('slack: an event from another workspace is ignored', otherTeamIn.status === 200 && otherTeamIn.body.reason === 'other_workspace'
@@ -809,14 +850,14 @@ async function main() {
     const toPausedAgain = await inbound(telegramId, update(104, 'anyone?'), { 'x-telegram-bot-api-secret-token': telegramSecret });
     check('admin pause: a second message in the same chat gets no second line', toPausedAgain.body?.status === 'unrouted'
       && !providerCalls.some((call) => call.url.endsWith('/sendMessage')), providerCalls);
-    // In a group: only a message that speaks to the bot gets the line.
+    // In a group: the personal bot answers DMs only, so neither chatter nor a mention gets anything.
     const inGroup = (id: number, text: string) => ({ update_id: id, message: { message_id: id, from: { id: 5550001, username: 'benode' }, chat: { id: -200, type: 'group' }, text } });
     providerCalls.length = 0;
     const groupChatter = await inbound(telegramId, inGroup(105, 'lunch at noon?'), { 'x-telegram-bot-api-secret-token': telegramSecret });
-    check('group: chatter not addressed to the bot gets no line', groupChatter.body?.status === 'unrouted' && providerCalls.length === 0, providerCalls);
+    check('group: the personal bot ignores chatter', groupChatter.body?.status === 'ignored' && groupChatter.body?.reason === 'personal_dm_only' && providerCalls.length === 0, providerCalls);
     const groupMention = await inbound(telegramId, inGroup(106, '@acme_assistant_bot what is next?'), { 'x-telegram-bot-api-secret-token': telegramSecret });
-    check('group: a mention of the bot gets the line, in the group', groupMention.body?.status === 'unrouted'
-      && providerCalls.some((call) => call.body?.chat_id === '-200' && /can't answer right now/.test(call.body?.text ?? '')), providerCalls);
+    check('group: and a mention of it, recording nothing', groupMention.body?.status === 'ignored' && providerCalls.length === 0
+      && await count("SELECT count(*)::int AS n FROM pm.chat_messages WHERE dedupe_key IN ('update:105', 'update:106')") === 0, providerCalls);
 
     // ── Status list ────────────────────────────────────────────────────
     const memberStatus = await session(statusRoute.GET, 'GET', '/api/workspace/assistants/status');
@@ -902,10 +943,108 @@ async function main() {
     const removed = await session(connectionRoute.DELETE, 'DELETE', `/api/workspace/chat-connections/${telegramId}`, { id: telegramId });
     check('connections: removing Telegram deletes its webhook and its chat history', removed.status === 200 && providerCalls.some((call) => call.url.endsWith('/deleteWebhook'))
       && await count('SELECT count(*)::int AS n FROM pm.chat_messages WHERE connection_id = $1', [telegramId]) === 0, removed.body);
+    // ── One endpoint for every assistant of a setup ────────────────────
+    const setupA = setup.body?.data?.id as string;
+    const guestSetup = await session(setupsRoute.POST, 'POST', '/api/workspace/assistants/setups', {}, { match_role: 'guest' });
+    const setupB = guestSetup.body?.data?.id as string;
+    // Ana's and Ben's assistants came from the members' setup; Olivia's from the guests' (made by hand here).
+    await s.q('UPDATE pm.team_members SET assistant_setup_id = $1 WHERE id = ANY($2::uuid[])', [setupA, [s.anaAgent, s.benAgent]]);
+    const oliviaAgent = (await s.q<{ id: string }>(`INSERT INTO pm.team_members (name, email, role, delegate_of, assistant_template, assistant_setup_id)
+      VALUES ('Olivia''s Assistant', 'olivia.assistant@example.com', 'agent', $1, 'personal-assistant', $2) RETURNING id`, [s.owner, setupB]))[0].id;
+    // Provisioning records the setup that made an agent, also when the caller does not say (pm.assistant_setup_for).
+    const dee = (await s.q<{ id: string }>("INSERT INTO pm.team_members (name, email, role) VALUES ('Dee New', 'dee@example.com', 'member') RETURNING id"))[0].id;
+    const provisioned = await s.q<Loose>(`SELECT * FROM pm.provision_personal_agents(jsonb_build_array(jsonb_build_object('name', 'Dee''s Assistant', 'email', 'dee.assistant@example.com',
+      'delegate_of', $1::uuid, 'assistant_template', 'personal-assistant')), $2)`, [dee, s.owner]);
+    check('setup scope: a provisioned agent records the setup that made it', provisioned.length === 1
+      && (await s.q<Loose>('SELECT assistant_setup_id FROM pm.team_members WHERE id = $1', [provisioned[0]?.id]))[0]?.assistant_setup_id === setupA, provisioned);
+
+    const hostBody = { name: 'Assistant host', url: 'https://hooks.example.test/host', events: ['assistant.message', 'task.updated'], assistant_setup_id: setupA };
+    await s.q("INSERT INTO pm.team_member_permissions (member_id, permission_key, access_channel, effect) VALUES ($1, 'webhooks.manage', 'api', 'allow') ON CONFLICT DO NOTHING", [s.ben]);
+    const benHooksKey = await s.key(s.ben, ['webhooks.manage']);
+    const notOwner = await v1(v1Webhooks.POST, 'POST', '/api/v1/webhook-endpoints', {}, benHooksKey.secret, hostBody);
+    check('setup scope: a key without Owner or assistants.provision cannot scope to a setup, 403', notOwner.status === 403 && reason(notOwner) === 'setup_scope_not_allowed', notOwner.body);
+    const both = await v1(v1Webhooks.POST, 'POST', '/api/v1/webhook-endpoints', {}, s.keys.owner.secret, { ...hostBody, member_id: s.anaAgent });
+    check('setup scope: member_id and assistant_setup_id together are refused', both.status >= 400 && both.status < 500
+      && await count("SELECT count(*)::int AS n FROM pm.webhook_endpoints WHERE name = 'Assistant host'") === 0, both.body);
+    const badTarget = await v1(v1Webhooks.POST, 'POST', '/api/v1/webhook-endpoints', {}, s.keys.owner.secret, { ...hostBody, url: 'https://169.254.169.254/latest' });
+    check('target guard: the API refuses a metadata address', badTarget.status >= 400 && badTarget.status < 500 && /public address/.test(badTarget.text), badTarget.body);
+    const hostMade = await v1(v1Webhooks.POST, 'POST', '/api/v1/webhook-endpoints', {}, s.keys.owner.secret, hostBody);
+    const hostId = hostMade.body?.data?.endpoint?.id as string;
+    check('setup scope: an Owner\'s key makes one endpoint for the whole setup, assistant.message included', hostMade.status === 201
+      && hostMade.body.data.endpoint.assistant_setup_id === setupA && hostMade.body.data.endpoint.member_id === null, hostMade.body);
+    const listed = await v1(v1Webhooks.GET, 'GET', `/api/v1/webhook-endpoints?assistant_setup_id=${setupA}`, {}, s.keys.owner.secret);
+    check('setup scope: the list narrows to a setup\'s endpoints', listed.status === 200 && listed.body.data.length === 1 && listed.body.data[0].id === hostId, listed.body);
+    // The database keeps the rules on its own too.
+    const sqlBoth = await db.query('INSERT INTO pm.webhook_endpoints (name, url, secret, events, member_id, assistant_setup_id) VALUES ($1, $2, $3, $4, $5, $6)',
+      ['Both', 'https://hooks.example.test/both', 'whsec_b', '{task.updated}', s.anaAgent, setupA]).then(() => null, (e: Error) => e.message);
+    check('setup scope: the database refuses member_id with assistant_setup_id', /webhook_endpoints_one_scope/.test(sqlBoth ?? ''), sqlBoth);
+    // Ana may manage webhooks in Settings for this check, so only the setup guard stands in her way.
+    await s.q("INSERT INTO pm.team_member_permissions (member_id, permission_key, access_channel, effect) VALUES ($1, 'webhooks.manage', 'app', 'allow') ON CONFLICT DO NOTHING", [s.ana]);
+    await actAs(db, LOGINS.ana.id);
+    const seesIt = (await db.query<{ n: number }>("SELECT count(*)::int AS n FROM pm.webhook_endpoints WHERE name = 'Nova harness'")).rows[0].n;
+    const memberScopes = await db.query("UPDATE pm.webhook_endpoints SET member_id = NULL, assistant_setup_id = $1 WHERE name = 'Nova harness'", [setupB]).then(() => null, (e: Error) => e.message);
+    await actAs(db, null);
+    await s.q("DELETE FROM pm.team_member_permissions WHERE member_id = $1 AND permission_key = 'webhooks.manage' AND access_channel = 'app'", [s.ana]);
+    check('setup scope: a signed-in non-Owner who manages webhooks still cannot scope an endpoint to a setup', seesIt === 1 && /Only an Owner scopes/.test(memberScopes ?? ''), { seesIt, memberScopes });
+
+    // Fan-out: two assistants of the setup reach the one endpoint; another setup's assistant and a shared agent do not.
+    const messageFor = async (agentId: string) => {
+      const id = randomUUID();
+      const emitted = (await s.q<{ ok: boolean }>('SELECT pm.emit_assistant_message($1, $2, $3) AS ok', [id, agentId, { agent_id: agentId }]))[0].ok;
+      return { id, emitted };
+    };
+    const [toAna, toBen, toOlivia, toJeff] = [await messageFor(s.anaAgent), await messageFor(s.benAgent), await messageFor(oliviaAgent), await messageFor(s.jeff)];
+    const hostGot = async (messageId: string) => count(`SELECT count(*)::int AS n FROM pm.webhook_deliveries d JOIN pm.webhook_events ev ON ev.id = d.webhook_event_id
+      WHERE d.endpoint_id = $1 AND ev.resource_id = $2`, [hostId, messageId]);
+    check('setup scope: assistant.message for two assistants of the setup goes to its one endpoint', toAna.emitted && toBen.emitted
+      && await hostGot(toAna.id) === 1 && await hostGot(toBen.id) === 1, { toAna, toBen });
+    check('setup scope: never for another setup\'s assistant or a shared agent', !toOlivia.emitted && !toJeff.emitted
+      && await hostGot(toOlivia.id) === 0 && await hostGot(toJeff.id) === 0, { toOlivia, toJeff });
+    check('per-member endpoints still work: Ana\'s own endpoint hears her message too', await count(`SELECT count(*)::int AS n FROM pm.webhook_deliveries d
+      JOIN pm.webhook_events ev ON ev.id = d.webhook_event_id JOIN pm.webhook_endpoints e ON e.id = d.endpoint_id
+      WHERE e.name = 'Nova harness' AND ev.resource_id = $1`, [toAna.id]) === 1);
+    deliveries.length = 0;
+    await runDispatch();
+    const hostDeliveries = deliveries.filter((delivery) => delivery.url === 'https://hooks.example.test/host');
+    check('setup scope: the host gets each, signed, with the agent id to route on', hostDeliveries.length === 2
+      && hostDeliveries.every((delivery) => !!delivery.headers.get('x-vm-signature'))
+      && JSON.stringify(hostDeliveries.map((delivery) => delivery.body?.data?.agent_id).sort()) === JSON.stringify([s.anaAgent, s.benAgent].sort()), hostDeliveries.map((d) => d.body));
+
+    // Work events concerning an assistant of the setup reach it too; one concerning nobody of it does not.
+    const taskFor = async (memberIds: string[]) => {
+      const id = randomUUID();
+      await s.q("SELECT pm.emit_webhook_event('task.updated', 'task', $1, ARRAY[$2]::uuid[], $3::uuid[], '{}'::jsonb)", [id, s.project, memberIds]);
+      return count(`SELECT count(*)::int AS n FROM pm.webhook_deliveries d JOIN pm.webhook_events ev ON ev.id = d.webhook_event_id
+        WHERE d.endpoint_id = $1 AND ev.resource_id = $2`, [hostId, id]);
+    };
+    check('setup scope: a task event that concerns one of its assistants reaches the host', await taskFor([s.ana, s.benAgent]) === 1);
+    check('setup scope: one that concerns only people and other agents does not', await taskFor([s.ana, s.jeff, oliviaAgent]) === 0);
+
+    // One pass: the matcher runs once per active endpoint subscribed to the type, never twice.
+    await s.q("INSERT INTO pm.webhook_endpoints (name, url, secret, events) VALUES ('Tasks A', 'https://hooks.example.test/a', 'whsec_a', '{task.updated}'), ('Tasks B', 'https://hooks.example.test/b', 'whsec_b', '{task.updated}'), ('Other', 'https://hooks.example.test/o', 'whsec_o', '{task.created}')");
+    const subscribed = await count("SELECT count(*)::int AS n FROM pm.webhook_endpoints WHERE is_active AND 'task.updated' = ANY (events)");
+    await db.exec('RESET ROLE');
+    await db.exec('BEGIN');
+    let matcherCalls = -1;
+    try {
+      await db.exec("SET LOCAL track_functions = 'all'");
+      await db.query("SELECT pm.emit_webhook_event('task.updated', 'task', $1, ARRAY[$2]::uuid[], ARRAY[$3]::uuid[], '{}'::jsonb)", [randomUUID(), s.project, s.anaAgent]);
+      matcherCalls = (await db.query<{ n: number }>("SELECT coalesce(pg_stat_get_xact_function_calls('pm.webhook_endpoint_matches(pm.webhook_endpoints, text, uuid[], uuid[])'::regprocedure), 0)::int AS n")).rows[0].n;
+    } finally {
+      await db.exec('ROLLBACK');
+    }
+    check('fan-out: one pass over the endpoints per event (the matcher runs once per subscribed endpoint)', subscribed >= 3 && matcherCalls === subscribed, { matcherCalls, subscribed });
+
+    // A setup its endpoints serve is not deleted out from under them.
+    const keepSetup = await session(setupRoute.DELETE, 'DELETE', `/api/workspace/assistants/setups/${setupA}`, { id: setupA });
+    check('setup scope: deleting a setup an endpoint serves is refused, 409', keepSetup.status === 409 && reason(keepSetup) === 'setup_has_webhooks'
+      && await count('SELECT count(*)::int AS n FROM pm.assistant_setups WHERE id = $1', [setupA]) === 1, keepSetup.body);
+
     check('logs: no token was ever written to the audit log', await count("SELECT count(*)::int AS n FROM pm.api_audit_log WHERE request_body::text LIKE '%xoxb%' OR request_body::text LIKE '%AAHdq%'") === 0);
     await jeffWorks('at the end');
   } finally {
     globalThis.fetch = realFetch;
+    Object.assign(webhookTransport, realTransport);
     await server.close();
     await db.close();
   }

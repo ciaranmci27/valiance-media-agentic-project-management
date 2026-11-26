@@ -1,6 +1,7 @@
 'use client';
 
 import { auditQuery, type AgentsPauseState, type AuditEntry, type AuditFilters, type AuditSettings } from '@/lib/audit-log';
+import { DATA_RETENTION_DEFAULTS, type DataRetentionSettings } from '@/lib/data-retention';
 import { useCallback, useEffect, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/lib/auth-context';
@@ -1183,6 +1184,15 @@ export const auditSettingsRead: Read<AuditSettings> = {
   load: () => workspaceApi('/api/workspace/audit-settings'),
 };
 
+/** Settings > Security > Keeping data: how long data that grows on its own is kept (Owner). The demo shows the defaults. */
+export function dataRetentionRead(isDemo: boolean): Read<DataRetentionSettings> {
+  return {
+    key: `data-retention${isDemo ? ':demo' : ''}`,
+    tables: ['business_settings'],
+    load: async () => (isDemo ? { ...DATA_RETENTION_DEFAULTS } : workspaceApi<DataRetentionSettings>('/api/workspace/data-retention')),
+  };
+}
+
 /** Settings > Security: one page of the audit log with these filters (Owner). */
 export function auditLogRead(filters: AuditFilters, page: number): Read<{ entries: AuditEntry[]; total: number; page: number; page_size: number; names: Record<string, string> }> {
   const query = auditQuery(filters, page);
@@ -1254,15 +1264,54 @@ export const agentProfilesRead: Read<AgentProfileOption[]> = {
 
 // ── A run's place in its chain ──────────────────────────────────────────
 
+export interface AgentRunChainRun {
+  id: string;
+  agent_id: string;
+  parent_run_id: string | null;
+  task_id: string | null;
+  task_title: string | null;
+  title: string | null;
+  status: string;
+  started_at: string;
+  updated_at: string;
+  /** Hand-offs below the chain's first run (0 for the first). */
+  depth: number;
+}
+
 export interface AgentRunFamily {
   parent: { id: string; agent_id: string; title: string | null; status: string; started_at: string } | null;
   children: { id: string; agent_id: string; title: string | null; status: string; started_at: string; updated_at: string }[];
+  /** The whole chain the run belongs to, root first, each run under the one that handed it work; empty for a run on its own. */
+  chain: AgentRunChainRun[];
+}
+
+/** Root first, each run followed by the runs it handed work to (depth-first, in start order). */
+function orderChain(rows: Omit<AgentRunChainRun, 'depth'>[], rootId: string): AgentRunChainRun[] {
+  const ids = new Set(rows.map((row) => row.id));
+  const byParent = new Map<string | null, Omit<AgentRunChainRun, 'depth'>[]>();
+  const hiddenParent = ids.has(rootId) ? rootId : null;
+  for (const row of rows) {
+    // A run whose parent the reader cannot see hangs under the root (or starts the list).
+    const parent = row.id === rootId ? null : row.parent_run_id && ids.has(row.parent_run_id) ? row.parent_run_id : hiddenParent;
+    byParent.set(parent, [...(byParent.get(parent) ?? []), row]);
+  }
+  const out: AgentRunChainRun[] = [];
+  const walk = (parent: string | null, depth: number) => {
+    for (const row of byParent.get(parent) ?? []) {
+      if (out.some((seen) => seen.id === row.id)) continue;
+      out.push({ ...row, depth });
+      walk(row.id, depth + 1);
+    }
+  };
+  walk(null, 0);
+  return out;
 }
 
 /**
- * The run a stored run was handed its work by, and the runs it handed work
- * to, as far as the reader may see runs (their own, or every one with
- * agents.manage). Empty before the update.
+ * The run a stored run was handed its work by, the runs it handed work to,
+ * and the whole chain across tasks with each run's depth, as far as the
+ * reader may see runs (their own, or every one with agents.manage). Empty
+ * before the update.
  */
 export function agentRunFamilyRead(runId: string): Read<AgentRunFamily> {
   return {
@@ -1270,17 +1319,24 @@ export function agentRunFamilyRead(runId: string): Read<AgentRunFamily> {
     tables: ['agent_runs'],
     load: async () => {
       const client = createClient();
-      const { data: own, error } = await client.from('agent_runs').select('parent_run_id').eq('id', runId).maybeSingle();
-      if (error) return { parent: null, children: [] };
-      const parentId = (own as { parent_run_id?: string | null } | null)?.parent_run_id ?? null;
-      const [parent, children] = await Promise.all([
+      const { data: own, error } = await client.from('agent_runs').select('parent_run_id, root_run_id').eq('id', runId).maybeSingle();
+      if (error) return { parent: null, children: [], chain: [] };
+      const lineage = own as { parent_run_id?: string | null; root_run_id?: string | null } | null;
+      const parentId = lineage?.parent_run_id ?? null;
+      const rootId = lineage?.root_run_id ?? runId;
+      const [parent, children, chainRows] = await Promise.all([
         parentId
           ? client.from('agent_runs').select('id, agent_id, title, status, started_at').eq('id', parentId).maybeSingle().then(({ data }) => data as AgentRunFamily['parent'])
           : Promise.resolve(null),
         client.from('agent_runs').select('id, agent_id, title, status, started_at, updated_at').eq('parent_run_id', runId).order('started_at').limit(50)
           .then(({ data }) => (data ?? []) as AgentRunFamily['children']),
+        client.from('agent_runs').select('id, agent_id, parent_run_id, task_id, title, status, started_at, updated_at, task:tasks(title)')
+          .or(`id.eq.${rootId},root_run_id.eq.${rootId}`).order('started_at').limit(200)
+          .then(({ data }) => ((data ?? []) as (Omit<AgentRunChainRun, 'depth' | 'task_title'> & { task: { title: string } | { title: string }[] | null })[])
+            .map(({ task, ...row }) => ({ ...row, task_title: (Array.isArray(task) ? task[0]?.title : task?.title) ?? null }))),
       ]);
-      return { parent, children };
+      const chain = chainRows.length > 1 ? orderChain(chainRows, rootId) : [];
+      return { parent, children, chain };
     },
   };
 }

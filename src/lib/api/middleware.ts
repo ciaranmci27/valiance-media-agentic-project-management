@@ -16,6 +16,7 @@ import { ACT_FOR_HEADER } from '@/lib/delegation';
 import { liveTaskIds } from './task-guards';
 import { afterResponse } from './after-response';
 import { kickWebhooks } from '@/lib/webhooks/kick';
+import { API_VERSION, API_VERSION_HEADER } from './version';
 import {
   claimIdempotencyKey,
   finishIdempotencyKey,
@@ -28,10 +29,12 @@ import {
 /** Static routes under /api/v1/tasks/ that are not a task id. */
 export const TASK_COLLECTION_ACTIONS: ReadonlySet<string> = new Set(['reorder', 'next']);
 
+/** Every answer withApi gives: the contract version (lib/api/version.ts), and the rate limit once it is known. */
 function applyRateLimitHeaders(
   response: Response,
   rateInfo: { remaining: number; resetAt: number; limit: number } | null,
 ): Response {
+  response.headers.set(API_VERSION_HEADER, API_VERSION);
   if (rateInfo) {
     response.headers.set('X-RateLimit-Limit', String(rateInfo.limit));
     response.headers.set('X-RateLimit-Remaining', String(rateInfo.remaining));
@@ -60,7 +63,14 @@ interface WithApiOptions<TBody> {
   schema?: ZodSchema<TBody>;
   /** An empty request body is read as {} instead of refused (for optional fields). */
   optionalBody?: boolean;
-  permission?: PermissionKey | PermissionKey[];
+  /**
+   * What the API key and its member must hold (or a permission that implies
+   * it; any one of a list). Every route names it: nothing is inferred from the
+   * path. withApi has no opt-out: every call needs a key. A public or
+   * signed-in route is not a withApi route (custom routes: auth 'public' or
+   * 'session' in src/custom/api.ts).
+   */
+  permission: PermissionKey | PermissionKey[];
   /**
    * The answer holds a secret shown once (a new API key, a webhook signing
    * secret). Such a POST refuses an Idempotency-Key: a stored answer would
@@ -76,43 +86,6 @@ interface WithApiOptions<TBody> {
 }
 
 type HandlerFn<TBody, TParams> = (ctx: ApiContext<TBody, TParams>) => Promise<Response>;
-
-function inferredPermission(pathname: string, method: string): PermissionKey {
-  const write = method !== 'GET' && method !== 'HEAD';
-  if (pathname.includes('/credentials')) {
-    return pathname.endsWith('/reveal') ? 'credentials.reveal_shared' : write ? 'credentials.manage' : 'credentials.reveal_shared';
-  }
-  if (pathname.includes('/communications')) return write ? 'communications.manage' : 'communications.read';
-  if (pathname.includes('/notifications')) {
-    // POST to the collection root sends a notification (agent questions);
-    // mark-all-read and per-notification writes stay manage_own.
-    return method === 'POST' && /\/api\/v1\/notifications\/?$/.test(pathname)
-      ? 'notifications.send'
-      : 'notifications.manage_own';
-  }
-  if (pathname.includes('/time-entries')) return 'time.manage_own';
-  if (pathname.includes('/tasks')) {
-    if (!write) return 'tasks.read';
-    if (/\/api\/v1\/tasks\/?$/.test(pathname) && method === 'POST') return 'tasks.create';
-    if (/\/api\/v1\/tasks\/[^/]+\/?$/.test(pathname) && method === 'DELETE') return 'tasks.manage_all';
-    if (pathname.includes('/comments')) return 'tasks.read';
-    // Review verdicts gate merges. manage_assigned must never suffice for
-    // writes: an assignee-scoped agent could otherwise approve its own PR.
-    if (pathname.includes('/reviews')) return write ? 'tasks.manage_all' : 'tasks.read';
-    return 'tasks.manage_assigned';
-  }
-  if (pathname.includes('/leads')) return write ? 'leads.manage' : 'leads.read';
-  if (pathname.includes('/contacts')) return write ? 'contacts.manage' : 'contacts.read';
-  if (pathname.includes('/entity-files')) return method === 'POST' ? 'files.upload' : write ? 'files.manage' : 'files.read';
-  if (pathname.includes('/portal')) return write ? 'portal.manage' : 'portal.read';
-  if (pathname.includes('/context')) return write ? 'project_context.manage' : 'project_context.read';
-  if (pathname.includes('/goals')) return write ? 'goals.manage' : 'goals.read';
-  if (pathname.includes('/suggestions')) return 'suggestions.manage';
-  if (pathname.includes('/audit-log')) return 'audit.read';
-  if (pathname.includes('/team-members')) return write ? 'team.manage' : 'team.read';
-  if (pathname.includes('/activities')) return write ? 'agents.manage' : 'audit.read';
-  return write ? 'projects.manage' : 'projects.read';
-}
 
 /** A permission plus the broader ones that imply it, as withApi accepts them. */
 export function permissionAlternatives(permission: PermissionKey): PermissionKey[] {
@@ -241,7 +214,7 @@ export function actForFrom(request: NextRequest): string | null {
 
 export function withApi<TBody = unknown, TParams = Record<string, string>>(
   handler: HandlerFn<TBody, TParams>,
-  options?: WithApiOptions<TBody>,
+  options: WithApiOptions<TBody>,
 ) {
   return async (
     request: NextRequest,
@@ -292,8 +265,7 @@ export function withApi<TBody = unknown, TParams = Record<string, string>>(
           : routeContext.params;
       }
 
-      const requiredPermission = options?.permission
-        || inferredPermission(request.nextUrl.pathname, method);
+      const requiredPermission = options.permission;
       const configuredPermissions = Array.isArray(requiredPermission)
         ? requiredPermission
         : [requiredPermission];

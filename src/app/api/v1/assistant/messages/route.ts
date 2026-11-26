@@ -6,6 +6,9 @@ import { listAssistantMessages } from '@/lib/chat/messages';
 import { CHAT_MESSAGE_STATUSES } from '@/lib/chat/types';
 
 /**
+ * Deprecated: the same path under /api/v1/chat/messages also serves company
+ * agents. Kept, unchanged, for personal assistants.
+ *
  * The chat messages routed to the calling assistant (a person's own agent),
  * oldest first: status pending (the default: nothing was sent to a webhook,
  * so they wait here), notified, replied, handled, unrouted or all; limit 1
@@ -16,11 +19,11 @@ import { CHAT_MESSAGE_STATUSES } from '@/lib/chat/types';
  * Permission: notifications.manage_own (chat is the person's own channel,
  * like their bell), with the AI agents module on. Only a personal agent.
  */
-export const GET = withApi(async ({ supabase, access, teamMemberId, searchParams }) => {
+export const GET = withApi(async ({ supabase, access, teamMemberId, principalId, searchParams }) => {
   requireAgentsEnabled(access);
   const status = searchParams.get('status') ?? 'pending';
   if (!(CHAT_MESSAGE_STATUSES as readonly string[]).includes(status)) throw badRequest(`status is one of ${CHAT_MESSAGE_STATUSES.join(', ')}`);
   const limit = Math.min(Math.max(Number(searchParams.get('limit') ?? 20) || 20, 1), 100);
-  const data = await listAssistantMessages(supabase, { memberId: teamMemberId, access }, { status, limit });
+  const data = await listAssistantMessages(supabase, { memberId: teamMemberId, access, principalId, personalOnly: true }, { status, limit });
   return NextResponse.json({ success: true, data }, { headers: { 'Cache-Control': 'no-store' } });
 }, { permission: 'notifications.manage_own' });

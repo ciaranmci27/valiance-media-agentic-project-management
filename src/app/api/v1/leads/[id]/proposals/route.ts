@@ -25,7 +25,7 @@ export const GET = withApi(async ({ supabase, params, searchParams }) => {
 
   if (error) throw error;
   return paginated(data || [], { page, limit, total: count || 0 });
-});
+}, { permission: 'leads.read' });
 
 export const POST = withApi(async ({ supabase, params, body, apiKeyId, teamMemberId }) => {
   const { id } = params as any;
@@ -36,4 +36,4 @@ export const POST = withApi(async ({ supabase, params, body, apiKeyId, teamMembe
   const proposal = await insertLeadProposal(supabase, { ...body as any, lead_id: id, created_by: teamMemberId || null });
   logAudit(supabase, { method: 'POST', endpoint: `/api/v1/leads/${id}/proposals`, entityType: 'lead_proposal', entityId: proposal.id, apiKeyId, teamMemberId, requestBody: body, afterSnapshot: proposal, statusCode: 201 });
   return created(proposal);
-}, { schema: createLeadProposalSchema });
+}, { schema: createLeadProposalSchema, permission: 'leads.manage' });

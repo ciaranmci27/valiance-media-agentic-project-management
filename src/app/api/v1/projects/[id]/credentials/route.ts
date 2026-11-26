@@ -40,7 +40,7 @@ export const GET = withApi(async ({ supabase, params, searchParams, access, scop
 
   if (error) throw error;
   return paginated(data || [], { page, limit, total: count || 0 });
-});
+}, { permission: 'credentials.reveal_shared' });
 
 export const POST = withApi(async ({ supabase, params, body, apiKeyId, teamMemberId }) => {
   const { id } = params as any;
@@ -78,4 +78,4 @@ export const POST = withApi(async ({ supabase, params, body, apiKeyId, teamMembe
   });
 
   return created(credential);
-}, { schema: createCredentialSchema });
+}, { schema: createCredentialSchema, permission: 'credentials.manage' });

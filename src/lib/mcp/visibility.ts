@@ -40,11 +40,25 @@ export function toolVisible(tool: PmTool, caller: ToolViewer): boolean {
   if (tool.write && caller.readOnly) return false;
   if (tool.name === GUIDE_TOOL) return true;
   const held = (permission: PermissionKey) => caller.scopes.includes(permission) && accessAllows(caller.access, permission, 'api');
+  if (tool.chatAgentsOnly && !(caller.access.role === 'agent' && (caller.access.principal_id || held('agents.act_for')))) return false;
   const wanted = (Array.isArray(tool.permission) ? tool.permission : [tool.permission])
     .flatMap((permission: PermissionKey) => permissionAlternatives(permission));
   return wanted.some(held) && (tool.requires ?? []).every((permission) => permissionAlternatives(permission).some(held));
 }
 
+/**
+ * The tools a key is offered: tools/list, the catalog (GET /api/v1/mcp/tools),
+ * pm_guide and the context pack. A deprecated tool is never offered, so new
+ * callers do not build on it.
+ */
 export function toolsFor(caller: ToolViewer): PmTool[] {
+  return PM_TOOLS.filter((tool) => !tool.deprecated && toolVisible(tool, caller));
+}
+
+/**
+ * The tools a key may call by name: everything it is offered, plus the
+ * deprecated tools it could use, which keep working until they are removed.
+ */
+export function callableToolsFor(caller: ToolViewer): PmTool[] {
   return PM_TOOLS.filter((tool) => toolVisible(tool, caller));
 }

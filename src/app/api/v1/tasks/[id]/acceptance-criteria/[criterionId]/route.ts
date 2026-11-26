@@ -21,7 +21,7 @@ export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemb
   if (!data) throw notFound('Acceptance criterion');
   logAudit(supabase, { method: 'PATCH', endpoint: `/api/v1/tasks/${id}/acceptance-criteria/${criterionId}`, entityType: 'acceptance_criterion', entityId: criterionId, apiKeyId, teamMemberId, requestBody: body, beforeSnapshot: before, afterSnapshot: data, statusCode: 200 });
   return success(data);
-}, { schema: updateAcceptanceCriterionSchema });
+}, { schema: updateAcceptanceCriterionSchema, permission: 'tasks.manage_assigned' });
 
 export const DELETE = withApi(async ({ supabase, params, apiKeyId, teamMemberId }) => {
   const { id, criterionId } = params as any;
@@ -37,4 +37,4 @@ export const DELETE = withApi(async ({ supabase, params, apiKeyId, teamMemberId 
   if (error) throw error;
   logAudit(supabase, { method: 'DELETE', endpoint: `/api/v1/tasks/${id}/acceptance-criteria/${criterionId}`, entityType: 'acceptance_criterion', entityId: criterionId, apiKeyId, teamMemberId, beforeSnapshot: before, statusCode: 200 });
   return success({ deleted: true });
-});
+}, { permission: 'tasks.manage_assigned' });

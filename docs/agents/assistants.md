@@ -1,6 +1,6 @@
 # Assistants
 
-For admins. Give every person their own AI assistant: it keeps their tasks and reminders moving, sorts their inbox if they want, and answers them in Slack or Telegram. People never see keys, scopes or templates.
+For admins. Give every person their own AI assistant: it keeps their tasks and reminders moving, sorts their inbox if they want, and answers them in Slack, Telegram or Discord. People never see keys, scopes or templates.
 
 ## How it works
 
@@ -30,51 +30,75 @@ The service needs an API key made by an Owner, carrying `assistants.provision`. 
 
 1. Lists assistants without a key: `GET /api/v1/assistants?needs_key=true` (MCP `list_assistants`).
 2. Collects each key once: `POST /api/v1/assistants/{id}/key`. No person ever handles these keys.
-3. Gives each assistant a webhook endpoint filtered to it (`member_id`), subscribed to `assistant.message` and the work events it needs. This needs `webhooks.manage`.
+3. Makes one webhook endpoint for the whole setup: `POST /api/v1/webhook-endpoints` (MCP `create_webhook_endpoint`) with `assistant_setup_id` set to the setup's id (`GET /api/v1/assistant-setups`), subscribed to `chat.message` and the work events its assistants need. (`assistant.message`, the older name, still works unchanged for at least three releases; subscribe to one, not both.) It receives the events of every assistant that setup made, now and later, and each payload's `agent_id` and `member_ids` say which assistant it is for. One URL and one secret for any number of people. This needs `webhooks.manage`. Keys stay one per assistant.
 4. Sends a heartbeat for each assistant (`POST /api/v1/agents/heartbeat` with that assistant's key), so Status can tell when the service stops.
 
 Each assistant then works the normal [work loop](work-loop.md) with its own key, and answers chat as below.
+
+A setup with an endpoint cannot be deleted until the endpoint goes: turn the setup off instead, so its assistants keep hearing their chat. An endpoint filtered to one assistant (`member_id`) still works, for a host that runs only some of them.
 
 All of this can also be done from a chat: [Set up from a chat](setup-by-ai.md#assistant-setups).
 
 ### 4. Connect chat (optional)
 
-Settings > Assistants > **Chat**. Bot tokens are stored encrypted.
+Settings > Assistants > **Chat** > **Add chat**, then choose **Personal assistants (DMs)**. This is the personal bot: people message it directly and their own assistant answers. It stays out of channels: anything said in a channel or group is ignored. Bot tokens are stored encrypted.
+
+For AI that answers in channels (a company agent such as "Ops AI"), add a second bot of the other kind: [Company chat](company-chat.md). Each kind needs its own Slack app, Telegram bot or Discord application.
 
 **Slack**
 
 1. At api.slack.com/apps, create an app for your workspace.
-2. Under OAuth & Permissions, add the bot scopes `chat:write`, `im:history` and `app_mentions:read`, then install it.
+2. Under OAuth & Permissions, add the bot scopes `chat:write`, `chat:write.customize` and `im:history`, then install it. `chat:write.customize` lets each reply show the assistant's own name and avatar.
 3. Under App Home, turn on the Messages Tab, so people can message it.
-4. In the app, press **Add Slack**. Paste the Bot User OAuth Token (`xoxb-...`) and, from Basic Information, the Signing Secret. Press **Connect**.
-5. Copy the **Request URL** the app shows. In your Slack app, open Event Subscriptions, turn it on, paste the URL, and subscribe to the bot events `message.im` and `app_mention`.
+4. In the app, choose Slack, paste the Bot User OAuth Token (`xoxb-...`) and, from Basic Information, the Signing Secret. Press **Connect**.
+5. Copy the **Request URL** the app shows. In your Slack app, open Event Subscriptions, turn it on, paste the URL, and subscribe to the bot event `message.im`.
 
 **Telegram**
 
 1. In Telegram, message @BotFather and send `/newbot`.
 2. Pick a name. BotFather sends you a token.
-3. In the app, press **Add Telegram**, paste the token and press **Connect**. The app does the rest.
+3. In the app, choose Telegram, paste the token and press **Connect**. The app does the rest.
+
+Telegram has no per-message name, so replies there keep the bot's name.
+
+**Discord**
+
+Discord needs one extra piece: a small relay you run on any server you control (your own, a small VPS, Fly or Railway). Discord sends a bot ordinary messages only over a live connection the app's host cannot keep open; the relay keeps it and passes each message to the app, signed. Guide: [relay/discord/README.md](../../relay/discord/README.md).
+
+1. At discord.com/developers/applications, create an application. On its Bot page, turn on **Message Content Intent**, press **Reset Token** and copy the token.
+2. In the app, choose Discord, paste the token and press **Connect**.
+3. Copy the relay secret (shown once) and the relay address, and invite the bot with the link the app shows. It needs no permissions in the server: people message it directly, and only need to share a server with it.
+4. Run the relay. The row reads **Waiting for relay** until it says hello.
+
+Replies come from the bot with the assistant's name in bold on the first line (Discord bots cannot change their name per message, and DMs have no webhooks).
 
 Then each person links their own chat account from their Assistant page: they message the bot "hi" and open the link it sends while signed in.
 
+A connection made before company chat existed is a personal one and works as before, except that it no longer answers in channels.
+
 ### How a chat message travels
 
-1. Slack or Telegram sends the message to the app. The app checks the provider's signature first.
+1. Slack or Telegram sends the message to the app (Discord's through the relay). The app checks the provider's signature first (the relay's, for Discord).
 2. The app finds who sent it through their verified linked account.
-3. It records the message for that person's assistant and sends `assistant.message` (ids only) to the assistant's webhook. With no webhook, the message waits as pending.
-4. The assistant reads the text with its own key (`get_chat_message`, or `list_chat_messages` to poll) and answers with `reply_in_chat` (`POST /api/v1/assistant/messages/{id}/reply`). The app sends the reply in the same conversation, in the thread where the provider has threads. `mark_chat_handled` closes a message that needs no answer.
+3. It records the message for that person's assistant and sends `chat.message` (ids only) to the assistant's webhook: the endpoint for its setup, or one filtered to it. An endpoint subscribed to the older `assistant.message` gets exactly what it got before. With no webhook, the message waits as pending.
+4. The assistant reads the text with its own key (`get_chat_message`, or `list_chat_messages` to poll) and answers with `reply_in_chat` (`POST /api/v1/chat/messages/{id}/reply`). The app sends the reply in the same DM, under the assistant's name and avatar on Slack. `mark_chat_handled` closes a message that needs no answer.
+
+An assistant can also write first, for an urgent email or a morning digest: `POST /api/v1/chat/messages` (MCP `send_chat_message`) with `text` and, if useful, a `link`. It reaches only its own person, by DM, on a personal connection where they linked an account; anyone else, and any channel, is `403 recipient_not_allowed`. At most 60 an hour per assistant and 20 an hour per person. A paused or on-hold assistant cannot send (`423`). Their reply comes back to it like any message, with `in_reply_to` naming what it answers.
+
+People can send their assistant voice notes, photos and files. The message lists them as `attachments`; the assistant fetches each with `GET /api/v1/chat/messages/{id}/attachments/{n}` (up to 20 MB), through the app, so no bot token leaves it. Slack needs the `files:read` bot scope for this.
+
+The older routes `/api/v1/assistant/messages`, `/api/v1/assistant/messages/{id}`, `.../reply` and `.../handled` still work for personal assistants, unchanged, for at least three releases. They are deprecated: use `/api/v1/chat/messages`.
 
 Who gets a plain one-line answer instead:
 
 | Sender | Answer |
 |---|---|
-| Not linked yet, in a direct message | A one-time link to connect their account (at most once an hour) |
-| Not linked yet, in a shared channel | "Message me directly to connect your account." |
+| Not linked yet | A one-time link to connect their account (at most once an hour) |
 | Suspended | "This account is not active here. Ask your admin." |
 | No assistant | "You don't have an assistant yet. Ask your admin to set one up." |
 | Assistants are off | "Assistants are not turned on yet. Ask your admin." |
 
-When the person's assistant will not answer right now, the app says so itself, using the assistant's name. It sends this once per chat until the assistant is back and then stops again. In a shared channel it answers only a message that speaks to the bot (a Slack mention, a Telegram reply to the bot, a command or a mention of its handle).
+When the person's assistant will not answer right now, the app says so itself, using the assistant's name. It sends this once per chat until the assistant is back and then stops again.
 
 | Assistant | Answer | The message |
 |---|---|---|
@@ -89,7 +113,7 @@ Their own page, `/assistant`, under the name you chose. It shows:
 
 - **What needs them**: the assistant's questions, approvals and reply drafts.
 - **What it did**, with Undo for tasks it created or finished and inbox sorts.
-- **Chat**: connect Slack or Telegram to their account.
+- **Chat**: connect Slack, Telegram or Discord to their account.
 - **What it remembers**, when they turned that on. They see every entry and delete any of them.
 - **Settings**: its name, tone (warm, brief or formal), a note on how they like to work, and the switches.
 
@@ -108,9 +132,9 @@ The server enforces each one. The assistant is also told in words, so it does no
 
 ## Privacy
 
-- **Chat text stays with the person's assistant.** The webhook carries ids only. Only that assistant's key can read the text (`403 not_a_personal_agent` for any other key, 404 for another assistant's message). Message text never reaches the app's logs.
+- **Chat text stays with the person's assistant.** The webhook carries ids only. Only that assistant's key can read the text (404 for any other agent's key; on the older `/api/v1/assistant` routes, `403 not_a_personal_agent` for a key that is not a personal agent's). Message text never reaches the app's logs.
 - **Disconnecting a chat** deletes its chat history in the app. People's chat accounts stay, so connecting again picks up where it left off.
-- **Personal memory belongs to the person.** Only they and their own assistant (while "Remember things for me" is on) see it. Never an Owner. Deleting an entry deletes it for good.
+- **Personal memory belongs to the person.** Only they and their own assistant (while "Remember things for me" is on) see it. Owners are never shown it in the app. Whoever runs the assistant host holds its key and so could read it; that access is recorded in the audit log. Deleting an entry deletes it for good.
 - **Leaving cleans up.** Suspending a person pauses their assistant and revokes its keys and pending links. Reactivating them un-pauses it; the agent service then collects a new key.
 
 ## Troubleshooting "paused"

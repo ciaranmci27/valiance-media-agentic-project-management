@@ -18,7 +18,7 @@ export const GET = withApi(async ({ supabase, params }) => {
   if (error) throw error;
   if (!data) throw notFound('Proposal');
   return success(data);
-});
+}, { permission: 'leads.read' });
 
 export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemberId }) => {
   const { id, proposalId } = params as any;
@@ -38,7 +38,7 @@ export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemb
   if (!data) throw notFound('Proposal');
   logAudit(supabase, { method: 'PATCH', endpoint: `/api/v1/leads/${id}/proposals/${proposalId}`, entityType: 'lead_proposal', entityId: proposalId, apiKeyId, teamMemberId, requestBody: body, beforeSnapshot: before, afterSnapshot: data, statusCode: 200 });
   return success(data);
-}, { schema: updateLeadProposalSchema });
+}, { schema: updateLeadProposalSchema, permission: 'leads.manage' });
 
 export const DELETE = withApi(async ({ supabase, params, apiKeyId, teamMemberId }) => {
   const { id, proposalId } = params as any;
@@ -48,4 +48,4 @@ export const DELETE = withApi(async ({ supabase, params, apiKeyId, teamMemberId 
   await trashForApi(supabase, 'lead_proposals', proposalId, teamMemberId, 'Proposal');
   logAudit(supabase, { method: 'DELETE', endpoint: `/api/v1/leads/${id}/proposals/${proposalId}`, entityType: 'lead_proposal', entityId: proposalId, apiKeyId, teamMemberId, beforeSnapshot: before, statusCode: 200 });
   return success({ deleted: true });
-});
+}, { permission: 'leads.manage' });

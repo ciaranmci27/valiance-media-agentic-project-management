@@ -26,7 +26,7 @@ export const GET = withApi(async ({ supabase, params, searchParams }) => {
   });
 
   return paginated(mapped, { page, limit, total: count || 0 });
-});
+}, { permission: 'portal.read' });
 
 export const POST = withApi(async ({ supabase, params, body, apiKeyId, teamMemberId }) => {
   const { id } = params as any;
@@ -38,4 +38,4 @@ export const POST = withApi(async ({ supabase, params, body, apiKeyId, teamMembe
   });
   logAudit(supabase, { method: 'POST', endpoint: `/api/v1/projects/${id}/portal/updates`, entityType: 'portal_update', entityId: update.id, apiKeyId, teamMemberId, requestBody: body, afterSnapshot: update, statusCode: 201 });
   return created(update);
-}, { schema: createPortalUpdateSchema });
+}, { schema: createPortalUpdateSchema, permission: 'portal.manage' });

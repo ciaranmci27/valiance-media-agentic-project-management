@@ -209,6 +209,26 @@ export async function decisionRecipientIds(db: SupabaseClient, defaults: InboxDe
   return null;
 }
 
+/**
+ * Who gets one inbox's decisions and the notices about its email (POST
+ * /notifications audience owner about the inbox, "needs you", a ready reply
+ * draft when no person handles it). null when the inbox names nobody active:
+ * the caller does what it did before.
+ */
+export async function inboxDecisionRecipients(db: SupabaseClient, inboxId: string): Promise<string[] | null> {
+  return decisionRecipientIds(db, await inboxDefaults(db, inboxId));
+}
+
+/** The inbox's primary handler when it is an active person (not an agent); else null. */
+export async function primaryPersonHandler(db: SupabaseClient, inboxId: string): Promise<string | null> {
+  const primary = (await inboxHandlerRows(db, [inboxId])).find((row) => row.is_primary)?.handler_member_id ?? null;
+  if (!primary) return null;
+  const { data, error } = await db.from('team_members').select('id, role, status').eq('id', primary).maybeSingle();
+  if (error) throw error;
+  const row = data as { id: string; role: string | null; status: string | null } | null;
+  return row && row.role !== 'agent' && (row.status ?? 'active') === 'active' ? row.id : null;
+}
+
 /** A member or a group an inbox names, by name only (never an email or other member data). */
 export interface InboxParty {
   kind: 'member' | 'group';

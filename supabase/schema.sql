@@ -24618,3 +24618,3057 @@ $$;
 
 REVOKE ALL ON FUNCTION pm.purge_audit_log() FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION pm.purge_audit_log() TO service_role;
+
+-- ============================================================
+-- APPROVAL DECISIONS (20261125000700_approval_decisions.sql)
+-- Whoever an approval names decides it, and how it was decided
+-- (decided_via) is kept and carried by the question.* events.
+-- ============================================================
+ALTER TABLE pm.questions ADD COLUMN IF NOT EXISTS decided_via text;
+
+ALTER TABLE pm.questions DROP CONSTRAINT IF EXISTS questions_decided_via_check;
+ALTER TABLE pm.questions
+  ADD CONSTRAINT questions_decided_via_check CHECK (
+    decided_via IS NULL OR (decided_via IN ('app', 'api_key', 'agent', 'act_for') AND kind = 'approval')
+  );
+
+COMMENT ON COLUMN pm.questions.decided_via IS
+  'How an approval was decided: app (signed in), api_key (the person''s own key with approvals.decide), agent (the agent asked, with its own key) or act_for (an agent acting for the person, with approvals.decide on its key and held by the person). Null on a plain question, an open approval, or one decided before this was recorded.';
+
+-- approvals.decide: people hold it on the API (Owners hold every
+-- permission), so each can add it to their own key on purpose. No agent
+-- holds it by default, and no key carries it until its person adds it.
+INSERT INTO pm.role_permissions (role, permission_key, access_channel) VALUES
+  ('admin', 'approvals.decide', 'api'),
+  ('member', 'approvals.decide', 'api')
+ON CONFLICT DO NOTHING;
+
+-- The question.* events carry decided_via on an approval.
+CREATE OR REPLACE FUNCTION pm.emit_question_webhook()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pm
+AS $$
+DECLARE
+  v_type text;
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pm.webhook_endpoints e
+    WHERE e.is_active AND e.events && ARRAY['question.asked', 'question.answered', 'question.cancelled']
+  ) THEN
+    RETURN NULL;
+  END IF;
+
+  IF TG_OP = 'INSERT' THEN
+    IF NEW.status = 'open' AND NEW.deleted_at IS NULL THEN
+      v_type := 'question.asked';
+    END IF;
+  ELSIF NEW.deleted_at IS NOT NULL THEN
+    IF OLD.deleted_at IS NULL AND OLD.status = 'open' THEN
+      v_type := 'question.cancelled';
+    END IF;
+  ELSIF OLD.deleted_at IS NOT NULL THEN
+    IF NEW.status = 'open' THEN
+      v_type := 'question.asked';
+    END IF;
+  ELSIF NEW.status IS DISTINCT FROM OLD.status THEN
+    v_type := CASE NEW.status
+      WHEN 'open' THEN 'question.asked'
+      WHEN 'answered' THEN 'question.answered'
+      WHEN 'cancelled' THEN 'question.cancelled'
+    END;
+  END IF;
+  IF v_type IS NULL THEN
+    RETURN NULL;
+  END IF;
+
+  PERFORM pm.emit_webhook_event(
+    v_type,
+    'question',
+    NEW.id,
+    ARRAY[NEW.project_id],
+    pm.webhook_event_members('question', NEW.id),
+    jsonb_build_object(
+      'question', jsonb_build_object(
+        'id', NEW.id,
+        'project_id', NEW.project_id,
+        'task_id', NEW.task_id,
+        'asked_by', NEW.asked_by,
+        'asked_to', NEW.asked_to,
+        'question', NEW.question,
+        'choices', NEW.choices,
+        'allow_other', NEW.allow_other,
+        'status', NEW.status,
+        'answer_choice', NEW.answer_choice,
+        'answer_text', NEW.answer_text,
+        'answered_by', NEW.answered_by,
+        'answered_at', NEW.answered_at,
+        'cancelled_by', NEW.cancelled_by,
+        'cancelled_at', NEW.cancelled_at,
+        'expires_at', NEW.expires_at,
+        'created_at', NEW.created_at,
+        'updated_at', NEW.updated_at,
+        'deleted_at', NEW.deleted_at
+      ) || CASE WHEN NEW.kind = 'approval' THEN jsonb_build_object(
+        'kind', NEW.kind,
+        'action', NEW.action,
+        'decision', CASE NEW.answer_choice WHEN 'approve' THEN 'approved' WHEN 'reject' THEN 'rejected' END,
+        'decided_by', CASE WHEN NEW.status = 'answered' THEN NEW.answered_by END,
+        'decided_via', CASE WHEN NEW.status = 'answered' THEN NEW.decided_via END
+      ) ELSE '{}'::jsonb END
+        || CASE WHEN NEW.asked_to_group IS NOT NULL THEN jsonb_build_object('asked_to_group', NEW.asked_to_group) ELSE '{}'::jsonb END
+        || CASE WHEN NEW.principal_id IS NOT NULL THEN jsonb_build_object('principal_id', NEW.principal_id) ELSE '{}'::jsonb END,
+      'project', CASE WHEN NEW.project_id IS NOT NULL THEN jsonb_build_object(
+        'id', NEW.project_id,
+        'name', coalesce((SELECT p.name FROM pm.projects p WHERE p.id = NEW.project_id), '')
+      ) END,
+      'project_id', NEW.project_id,
+      'task_id', NEW.task_id,
+      'actor_id', pm.webhook_actor_id()
+    )
+  );
+  RETURN NULL;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION pm.emit_question_webhook() FROM PUBLIC, anon, authenticated;
+
+-- ============================================================
+-- SPEND, COUNTED ONCE (20261125000800_agent_spend.sql)
+-- What an agent spent, counted once and the same way everywhere: the
+-- budget (pm.agent_limit_state) and Analytics (pm.agent_run_stats) both
+-- read pm.agent_spend_facts. Work under a run counts as the run's own
+-- totals; usage.recorded and turn.completed rows that name a run are
+-- never added again; usage and turns that name no run add on top.
+-- ============================================================
+
+-- ---------------------------------------------------------------------------
+-- Usage by run and by agent and time
+-- ---------------------------------------------------------------------------
+-- A run's usage: usage.recorded rows the server attached to it (run_id).
+CREATE INDEX IF NOT EXISTS idx_agent_activities_usage_run ON pm.agent_activities ((metadata->>'run_id'))
+  WHERE activity_type = 'usage.recorded' AND metadata->>'run_id' IS NOT NULL;
+-- The budget reads one agent's usage over its period.
+CREATE INDEX IF NOT EXISTS idx_agent_activities_usage_created ON pm.agent_activities (agent_id, created_at DESC)
+  WHERE activity_type = 'usage.recorded';
+
+-- ---------------------------------------------------------------------------
+-- Spend facts: one row per thing that counts, in a window [p_from, p_to)
+-- ---------------------------------------------------------------------------
+-- The only place the counting rule lives:
+-- - A stored run counts where it started (started_at). Its cost is its own
+--   cost_usd when above 0, else the cost of the usage rows attached to it.
+--   Its tokens are its own tokens_in and tokens_out when they add up to
+--   more than 0, else its attached usage's tokens, else (for an agent
+--   without a usage ledger in the window) its attached turns' own tokens.
+--   A run stored with 0 never hides what is attached to it.
+-- - usage.recorded that names a run (metadata.run_id, kept by the server
+--   only when it names one of the agent's runs) is part of that run and
+--   never adds again. Usage that names no run adds on its own, at
+--   recorded_at (else created_at). Rows written before usage could name a
+--   run carry none, so they add on their own.
+-- - turn.completed that names a run is part of that run. A turn that names
+--   no run adds its own tokens (tokens_scope turn), at its started_at, only
+--   for an agent with no usage.recorded in the window: the host publisher
+--   reports the same turns as usage, and the ledger is the measure.
+-- - Cost above 0 is priced; cost 0 or none is unpriced (cost_usd null),
+--   never a real zero spend.
+-- - principal_id is the person the work was for: a run's own, a usage or
+--   turn row's own (X-Act-For); null when the agent worked as itself.
+-- Security invoker: Analytics reads it as the caller (row policies apply);
+-- the budget reads it inside pm.agent_limit_state.
+CREATE OR REPLACE FUNCTION pm.agent_spend_facts(p_from timestamptz, p_to timestamptz, p_agent_ids uuid[] DEFAULT NULL)
+RETURNS TABLE (
+  source text,
+  source_id text,
+  agent_id uuid,
+  project_id uuid,
+  model text,
+  provider text,
+  labels text[],
+  at timestamptz,
+  tokens_in bigint,
+  tokens_out bigint,
+  tokens_cached bigint,
+  cost_usd numeric,
+  principal_id uuid
+)
+LANGUAGE sql
+STABLE
+SECURITY INVOKER
+SET search_path = pm
+AS $$
+  with usage_in as (
+    select a.id, a.agent_id, a.project_id, a.labels, a.metadata as m, a.principal_id,
+           coalesce(agent_analytics_ts(a.metadata->>'recorded_at'), a.created_at) as at
+    from agent_activities a
+    where a.activity_type = 'usage.recorded'
+      and a.agent_id is not null
+      and a.created_at >= p_from - interval '1 day'
+      and (p_agent_ids is null or a.agent_id = any (p_agent_ids))
+      and coalesce(agent_analytics_ts(a.metadata->>'recorded_at'), a.created_at) >= p_from
+      and coalesce(agent_analytics_ts(a.metadata->>'recorded_at'), a.created_at) < p_to
+  ),
+  ledger as (
+    select distinct u.agent_id from usage_in u
+  ),
+  runs as (
+    select r.id, r.agent_id, r.project_id, r.model, r.provider, r.started_at, r.tokens_in, r.tokens_out, r.cost_usd, r.principal_id
+    from agent_runs r
+    where r.started_at >= p_from and r.started_at < p_to
+      and (p_agent_ids is null or r.agent_id = any (p_agent_ids))
+  ),
+  run_usage as (
+    select r.id,
+           sum(agent_analytics_int(a.metadata->>'input_tokens')) as tin,
+           sum(agent_analytics_int(a.metadata->>'output_tokens')) as tout,
+           sum(agent_analytics_int(a.metadata->>'cached_tokens')) as tcached,
+           sum(agent_analytics_num(a.metadata->>'cost_usd')) filter (where agent_analytics_num(a.metadata->>'cost_usd') > 0) as cost
+    from runs r
+    join agent_activities a on a.metadata->>'run_id' = r.id::text and a.agent_id = r.agent_id
+    where a.activity_type = 'usage.recorded'
+    group by r.id
+  ),
+  run_turns as (
+    select r.id,
+           sum(agent_analytics_int(a.metadata->'tokens'->>'input')) filter (where a.metadata->'tokens' ? 'input') as tin,
+           sum(agent_analytics_int(a.metadata->'tokens'->>'output')) filter (where a.metadata->'tokens' ? 'output') as tout
+    from runs r
+    join agent_activities a on a.metadata->>'run_id' = r.id::text and a.agent_id = r.agent_id
+    where a.activity_type = 'turn.completed'
+      and a.metadata->>'tokens_scope' = 'turn'
+      and coalesce(r.tokens_in, 0) + coalesce(r.tokens_out, 0) = 0
+    group by r.id
+  )
+  select 'run'::text, r.id::text, r.agent_id, r.project_id, r.model, r.provider, '{}'::text[], r.started_at,
+    (case when coalesce(r.tokens_in, 0) + coalesce(r.tokens_out, 0) > 0 then coalesce(r.tokens_in, 0)
+          when u.id is not null then coalesce(u.tin, 0)
+          when l.agent_id is null then coalesce(t.tin, 0)
+          else 0 end)::bigint,
+    (case when coalesce(r.tokens_in, 0) + coalesce(r.tokens_out, 0) > 0 then coalesce(r.tokens_out, 0)
+          when u.id is not null then coalesce(u.tout, 0)
+          when l.agent_id is null then coalesce(t.tout, 0)
+          else 0 end)::bigint,
+    (case when coalesce(r.tokens_in, 0) + coalesce(r.tokens_out, 0) > 0 then 0
+          when u.id is not null then coalesce(u.tcached, 0)
+          else 0 end)::bigint,
+    case when r.cost_usd > 0 then r.cost_usd else u.cost end,
+    r.principal_id
+  from runs r
+  left join run_usage u on u.id = r.id
+  left join run_turns t on t.id = r.id
+  left join ledger l on l.agent_id = r.agent_id
+  union all
+  select 'usage'::text, u.id::text, u.agent_id, u.project_id, u.m->>'model', u.m->>'provider', coalesce(u.labels, '{}'::text[]), u.at,
+    agent_analytics_int(u.m->>'input_tokens')::bigint,
+    agent_analytics_int(u.m->>'output_tokens')::bigint,
+    agent_analytics_int(u.m->>'cached_tokens')::bigint,
+    case when agent_analytics_num(u.m->>'cost_usd') > 0 then agent_analytics_num(u.m->>'cost_usd') end,
+    u.principal_id
+  from usage_in u
+  where u.m->>'run_id' is null
+  union all
+  select 'turn'::text, a.id::text, a.agent_id, a.project_id, a.metadata->>'model', null::text, '{}'::text[],
+    coalesce(agent_analytics_ts(a.metadata->>'started_at'), a.created_at),
+    (case when a.metadata->'tokens' ? 'input' then agent_analytics_int(a.metadata->'tokens'->>'input') else 0 end)::bigint,
+    (case when a.metadata->'tokens' ? 'output' then agent_analytics_int(a.metadata->'tokens'->>'output') else 0 end)::bigint,
+    0::bigint,
+    null::numeric,
+    a.principal_id
+  from agent_activities a
+  where a.activity_type = 'turn.completed'
+    and a.agent_id is not null
+    and a.metadata->>'tokens_scope' = 'turn'
+    and (a.metadata->'tokens' ? 'input' or a.metadata->'tokens' ? 'output')
+    and a.metadata->>'run_id' is null
+    and a.created_at >= p_from - interval '1 day'
+    and (p_agent_ids is null or a.agent_id = any (p_agent_ids))
+    and coalesce(agent_analytics_ts(a.metadata->>'started_at'), a.created_at) >= p_from
+    and coalesce(agent_analytics_ts(a.metadata->>'started_at'), a.created_at) < p_to
+    and not exists (select 1 from ledger l where l.agent_id = a.agent_id)
+$$;
+
+REVOKE ALL ON FUNCTION pm.agent_spend_facts(timestamptz, timestamptz, uuid[]) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION pm.agent_spend_facts(timestamptz, timestamptz, uuid[]) TO authenticated, service_role;
+
+-- ---------------------------------------------------------------------------
+-- Spend per agent in a window: the facts summed. spent_tokens is input plus
+-- output (what budget_tokens caps); unpriced_tokens are the tokens of facts
+-- with no cost above 0. Server only.
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION pm.agent_spend(p_from timestamptz, p_to timestamptz, p_agent_ids uuid[] DEFAULT NULL)
+RETURNS TABLE (
+  agent_id uuid,
+  spent_usd numeric,
+  spent_tokens bigint,
+  tokens_in bigint,
+  tokens_out bigint,
+  tokens_cached bigint,
+  unpriced_tokens bigint
+)
+LANGUAGE sql
+STABLE
+SECURITY INVOKER
+SET search_path = pm
+AS $$
+  select f.agent_id,
+         coalesce(sum(f.cost_usd), 0),
+         coalesce(sum(f.tokens_in + f.tokens_out), 0)::bigint,
+         coalesce(sum(f.tokens_in), 0)::bigint,
+         coalesce(sum(f.tokens_out), 0)::bigint,
+         coalesce(sum(f.tokens_cached), 0)::bigint,
+         coalesce(sum(f.tokens_in + f.tokens_out + f.tokens_cached) filter (where f.cost_usd is null), 0)::bigint
+  from agent_spend_facts(p_from, p_to, p_agent_ids) f
+  group by f.agent_id
+$$;
+
+REVOKE ALL ON FUNCTION pm.agent_spend(timestamptz, timestamptz, uuid[]) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION pm.agent_spend(timestamptz, timestamptz, uuid[]) TO service_role;
+
+-- ---------------------------------------------------------------------------
+-- The budget: spend this period from pm.agent_spend (replaces the largest of
+-- usage, runs and turns, which missed work reported one way beside other
+-- work reported another).
+-- ---------------------------------------------------------------------------
+-- An agent's limits with what counts against them now: running runs and
+-- live claims, and spend this budget period (UTC), counted by
+-- pm.agent_spend. Without p_with_usage, only what the agent's limits need is
+-- counted (nothing for an agent without limits), so the run and claim
+-- checks stay cheap. Server only.
+CREATE OR REPLACE FUNCTION pm.agent_limit_state(p_agent_id uuid, p_with_usage boolean DEFAULT false)
+RETURNS jsonb
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = pm
+AS $$
+DECLARE
+  v_limits pm.agent_limits%ROWTYPE;
+  v_period text;
+  v_from timestamptz;
+  v_to timestamptz;
+  v_spent_usd numeric := 0;
+  v_spent_tokens bigint := 0;
+  v_running integer := 0;
+  v_claims integer := 0;
+BEGIN
+  SELECT * INTO v_limits FROM pm.agent_limits WHERE agent_id = p_agent_id;
+  v_period := coalesce(v_limits.budget_period, 'month');
+  v_from := date_trunc(v_period, now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC';
+  v_to := (date_trunc(v_period, now() AT TIME ZONE 'UTC') + ('1 ' || v_period)::interval) AT TIME ZONE 'UTC';
+  IF p_with_usage OR v_limits.budget_usd IS NOT NULL OR v_limits.budget_tokens IS NOT NULL THEN
+  SELECT coalesce(sum(s.spent_usd), 0), coalesce(sum(s.spent_tokens), 0)
+    INTO v_spent_usd, v_spent_tokens
+  FROM pm.agent_spend(v_from, v_to, ARRAY[p_agent_id]) s;
+  END IF;
+  IF p_with_usage OR v_limits.max_concurrent_runs IS NOT NULL THEN
+  SELECT count(*) INTO v_running FROM pm.agent_runs r
+  WHERE r.agent_id = p_agent_id AND r.status = 'running' AND r.updated_at > now() - interval '2 hours';
+  SELECT count(*) INTO v_claims FROM pm.tasks t
+  WHERE t.claimed_by = p_agent_id AND t.claim_expires_at > now() AND t.deleted_at IS NULL;
+  END IF;
+  RETURN jsonb_build_object(
+    'limits', CASE WHEN v_limits.agent_id IS NULL THEN NULL ELSE jsonb_build_object(
+      'max_concurrent_runs', v_limits.max_concurrent_runs,
+      'rate_per_minute', v_limits.rate_per_minute,
+      'budget_usd', v_limits.budget_usd,
+      'budget_tokens', v_limits.budget_tokens,
+      'budget_period', v_limits.budget_period,
+      'budget_alerted_period', v_limits.budget_alerted_period) END,
+    'period_start', v_from,
+    'spent_usd', round(v_spent_usd, 4),
+    'spent_tokens', v_spent_tokens,
+    'running_runs', v_running,
+    'live_claims', v_claims);
+END;
+$$;
+
+REVOKE ALL ON FUNCTION pm.agent_limit_state(uuid, boolean) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION pm.agent_limit_state(uuid, boolean) TO service_role;
+
+-- ---------------------------------------------------------------------------
+-- Run aggregates for Analytics, now with spend: the run feed summed per
+-- agent, project, model, provider and day (p_tz's calendar days from p_start
+-- to p_end), read as the caller. The same rules as the screen's read model
+-- (src/lib/agent-analytics-model.ts), so the two always agree:
+-- - Runs are read where sort_at falls within a day either side of the range,
+--   then placed on the day they started.
+-- - Success and failure as the run pill reads them; a running run, or one
+--   waiting on a person, is neither until it finishes.
+-- - Busy time: each run keeps the part of its span no earlier run of the
+--   same agent covers, so the parts add up to the union. With
+--   p_project_ids, only those projects' runs clip against each other.
+-- - A stored run that reports no tokens takes its attached turns' own
+--   tokens. runs_no_tokens counts the stored runs still without any.
+-- - Cost: a run's cost above 0, else its tokens are unpriced.
+-- failures lists every failed run read (for incidents, which collapse
+-- repeats across days).
+-- spend is pm.agent_spend_facts over the range's days, summed per agent,
+-- project, model, provider, day, labels and person: [agent, project, model,
+-- provider, day, labels, tokens_in, tokens_out, tokens_cached, cost_usd,
+-- unpriced_tokens, principal]. principal is who the work was for (null:
+-- the agent worked as itself), so spend reads by person too. Analytics
+-- takes tokens and cost from it alone, so its totals are the budget's
+-- numbers whatever the range holds. groups keep their run-only tokens and
+-- cost for the previous release's screens.
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION pm.agent_run_stats(
+  p_start date,
+  p_end date,
+  p_tz text,
+  p_project_ids uuid[] DEFAULT NULL,
+  p_now timestamptz DEFAULT now()
+)
+RETURNS jsonb
+LANGUAGE sql
+STABLE
+SECURITY INVOKER
+SET search_path = pm
+AS $$
+  with feed as (
+    select f.id, f.source, f.agent_id, f.project_id, f.status, f.outcome, f.title, f.model, r.provider,
+           f.started_at, f.finished_at, f.duration_ms, f.tokens_in, f.tokens_out, f.cost_usd
+    from agent_run_feed f
+    left join agent_runs r on f.source = 'run' and r.id = f.id
+    where f.sort_at >= (p_start::timestamp - interval '1 day') at time zone 'UTC'
+      and f.sort_at <= (p_end::timestamp + interval '2 days' - interval '1 millisecond') at time zone 'UTC'
+  ),
+  attached as (
+    select a.metadata->>'run_id' as run_id,
+           sum(agent_analytics_int(a.metadata->'tokens'->>'input')) filter (where a.metadata->'tokens' ? 'input') as tokens_in,
+           sum(agent_analytics_int(a.metadata->'tokens'->>'output')) filter (where a.metadata->'tokens' ? 'output') as tokens_out
+    from agent_activities a
+    where a.activity_type = 'turn.completed'
+      and a.metadata->>'run_id' in (select id::text from feed where source = 'run' and tokens_in is null and tokens_out is null)
+      and a.metadata->>'tokens_scope' = 'turn'
+    group by a.metadata->>'run_id'
+  ),
+  runs as (
+    select f.*,
+      (f.started_at at time zone p_tz)::date as day,
+      case
+        when f.status in ('running', 'waiting') then f.status
+        when f.source = 'run' then case f.status when 'succeeded' then 'success' when 'failed' then 'failure'
+          when 'timed_out' then 'failure' else 'neutral' end
+        when lower(coalesce(f.outcome, '')) = 'blocked' then 'neutral'
+        when lower(coalesce(f.outcome, '')) in ('failed', 'error') then 'failure'
+        when lower(coalesce(f.outcome, '')) in ('idle', 'skipped', 'waiting', 'no_work', 'nothing', 'nothing_to_do') then 'neutral'
+        when coalesce(f.outcome, '') = '' or lower(f.outcome) in ('work', 'worked', 'ok', 'done', 'shipped', 'succeeded') then 'success'
+        else 'neutral'
+      end as verdict,
+      case when f.source = 'run' and f.tokens_in is null and f.tokens_out is null then t.tokens_in else f.tokens_in end as tin,
+      case when f.source = 'run' and f.tokens_in is null and f.tokens_out is null then t.tokens_out else f.tokens_out end as tout,
+      case
+        when f.duration_ms is not null then greatest(f.duration_ms, 0)
+        when f.finished_at is not null then greatest(floor(extract(epoch from f.finished_at) * 1000) - floor(extract(epoch from f.started_at) * 1000), 0)::bigint
+        when f.status = 'running' then greatest(floor(extract(epoch from p_now) * 1000) - floor(extract(epoch from f.started_at) * 1000), 0)::bigint
+      end as span_ms
+    from feed f
+    left join attached t on t.run_id = f.id::text
+  ),
+  placed as (
+    select * from runs where day >= p_start and day <= p_end
+  ),
+  spans as (
+    select p.id, p.agent_id, p.project_id, p.model, p.provider, p.day,
+           floor(extract(epoch from p.started_at) * 1000)::bigint as s,
+           floor(extract(epoch from p.started_at) * 1000)::bigint + p.span_ms as e
+    from placed p
+    where p.span_ms > 0
+      and (p_project_ids is null or p.project_id = any (p_project_ids))
+  ),
+  clipped as (
+    select sp.*,
+      max(sp.e) over (partition by sp.agent_id order by sp.s, sp.e, sp.id rows between unbounded preceding and 1 preceding) as covered
+    from spans sp
+  ),
+  busy as (
+    select agent_id, project_id, model, provider, day,
+           sum(greatest(0, e - greatest(s, coalesce(covered, s)))) as busy_ms
+    from clipped
+    group by agent_id, project_id, model, provider, day
+  ),
+  counts as (
+    select agent_id, project_id, model, provider, day,
+      count(*) as runs,
+      count(*) filter (where verdict = 'success') as succeeded,
+      count(*) filter (where verdict = 'failure') as failed,
+      coalesce(sum(tin), 0) as tokens_in,
+      coalesce(sum(tout), 0) as tokens_out,
+      coalesce(sum(cost_usd) filter (where cost_usd > 0), 0) as cost_usd,
+      coalesce(sum(coalesce(tin, 0) + coalesce(tout, 0)) filter (where not (coalesce(cost_usd, 0) > 0)), 0) as unpriced_tokens,
+      count(*) filter (where source = 'run' and tin is null and tout is null) as runs_no_tokens
+    from placed
+    group by agent_id, project_id, model, provider, day
+  ),
+  grouped as (
+    select coalesce(c.agent_id, b.agent_id) as agent_id, coalesce(c.project_id, b.project_id) as project_id,
+           coalesce(c.model, b.model) as model, coalesce(c.provider, b.provider) as provider, coalesce(c.day, b.day) as day,
+           coalesce(c.runs, 0) as runs, coalesce(c.succeeded, 0) as succeeded, coalesce(c.failed, 0) as failed,
+           coalesce(b.busy_ms, 0) as busy_ms, coalesce(c.tokens_in, 0) as tokens_in, coalesce(c.tokens_out, 0) as tokens_out,
+           coalesce(c.cost_usd, 0) as cost_usd, coalesce(c.unpriced_tokens, 0) as unpriced_tokens,
+           coalesce(c.runs_no_tokens, 0) as runs_no_tokens
+    from counts c
+    full join busy b on b.agent_id = c.agent_id and b.project_id is not distinct from c.project_id
+      and b.model is not distinct from c.model and b.provider is not distinct from c.provider and b.day = c.day
+  ),
+  spend as (
+    select f.agent_id, f.project_id, f.model, f.provider, (f.at at time zone p_tz)::date as day, f.labels, f.principal_id,
+           sum(f.tokens_in) as tokens_in, sum(f.tokens_out) as tokens_out, sum(f.tokens_cached) as tokens_cached,
+           coalesce(sum(f.cost_usd), 0) as cost_usd,
+           coalesce(sum(f.tokens_in + f.tokens_out + f.tokens_cached) filter (where f.cost_usd is null), 0) as unpriced_tokens
+    from agent_spend_facts(p_start::timestamp at time zone p_tz, (p_end + 1)::timestamp at time zone p_tz, null) f
+    group by f.agent_id, f.project_id, f.model, f.provider, (f.at at time zone p_tz)::date, f.labels, f.principal_id
+  )
+  select jsonb_build_object(
+    'groups', coalesce((
+      select jsonb_agg(jsonb_build_array(g.agent_id, g.project_id, g.model, g.provider, to_char(g.day, 'YYYY-MM-DD'),
+        g.runs, g.succeeded, g.failed, g.busy_ms, g.tokens_in, g.tokens_out, g.cost_usd, g.unpriced_tokens, g.runs_no_tokens))
+      from grouped g
+    ), '[]'::jsonb),
+    'failures', coalesce((
+      select jsonb_agg(jsonb_build_array(r.agent_id, r.project_id, r.model, r.provider, r.started_at, r.title, r.status)
+        order by r.started_at)
+      from runs r
+      where r.verdict = 'failure'
+    ), '[]'::jsonb),
+    'spend', coalesce((
+      select jsonb_agg(jsonb_build_array(sp.agent_id, sp.project_id, sp.model, sp.provider, to_char(sp.day, 'YYYY-MM-DD'),
+        to_jsonb(sp.labels), sp.tokens_in, sp.tokens_out, sp.tokens_cached, sp.cost_usd, sp.unpriced_tokens, sp.principal_id))
+      from spend sp
+    ), '[]'::jsonb)
+  );
+$$;
+
+REVOKE ALL ON FUNCTION pm.agent_run_stats(date, date, text, uuid[], timestamptz) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION pm.agent_run_stats(date, date, text, uuid[], timestamptz) TO authenticated, service_role;
+
+-- ============================================================
+-- WEBHOOK SETUP SCOPE (20261125000900_webhook_setup_scope.sql)
+-- One webhook endpoint for every assistant a setup made; one pass
+-- over the endpoints per event.
+-- ============================================================
+-- One webhook endpoint for every assistant an assistant setup made, and one
+-- pass over the endpoints per event.
+--
+-- - team_members.assistant_setup_id: the setup that made a personal agent.
+--   pm.provision_personal_agents records it (the setup the server planned
+--   it from, else pm.assistant_setup_for works it out the same way), and the
+--   personal agents made before are filled in once here. Only the server or
+--   a signed-in Owner changes it (pm.team_members_assistant_setup_guard).
+--   Deleting a setup clears it.
+-- - webhook_endpoints.assistant_setup_id: an endpoint scoped to a setup
+--   receives the events that concern any personal agent that setup made,
+--   assistant.message included, so an assistant host serving 2,000 people
+--   keeps one endpoint and one secret instead of 2,000. Never together with
+--   member_id. Only the server (its own checks: an Owner, or a key with
+--   assistants.provision) or a signed-in Owner sets it
+--   (pm.webhook_endpoints_assistant_guard). A setup with such an endpoint
+--   cannot be deleted until the endpoint goes (turn the setup off instead),
+--   so its assistants never go quiet by surprise. Keys stay one per
+--   assistant: nothing about keys changes.
+-- - pm.webhook_endpoint_matches reads the setup scope. The event writers
+--   (pm.emit_webhook_event, pm.emit_invoice_webhook_event,
+--   pm.emit_assistant_message) find the endpoints that match once, through
+--   a GIN index on the active endpoints' events, and fan out from that list:
+--   no second scan. Same commit, same lines, same folding as before.
+--
+-- Additive and safe to run twice. 2.0.40 code never reads or writes the new
+-- columns: its endpoints and per-member assistant endpoints work unchanged.
+
+-- ---------------------------------------------------------------------------
+-- Columns
+-- ---------------------------------------------------------------------------
+ALTER TABLE pm.team_members
+  ADD COLUMN IF NOT EXISTS assistant_setup_id uuid REFERENCES pm.assistant_setups(id) ON DELETE SET NULL;
+
+COMMENT ON COLUMN pm.team_members.assistant_setup_id IS
+  'The assistant setup that made this personal agent (null: made another way, or its setup was deleted). Webhook endpoints scoped to the setup receive its events.';
+
+CREATE INDEX IF NOT EXISTS idx_team_members_assistant_setup ON pm.team_members (assistant_setup_id) WHERE assistant_setup_id IS NOT NULL;
+
+ALTER TABLE pm.webhook_endpoints
+  ADD COLUMN IF NOT EXISTS assistant_setup_id uuid REFERENCES pm.assistant_setups(id) ON DELETE RESTRICT;
+
+ALTER TABLE pm.webhook_endpoints DROP CONSTRAINT IF EXISTS webhook_endpoints_one_scope;
+ALTER TABLE pm.webhook_endpoints
+  ADD CONSTRAINT webhook_endpoints_one_scope CHECK (member_id IS NULL OR assistant_setup_id IS NULL);
+
+COMMENT ON COLUMN pm.webhook_endpoints.assistant_setup_id IS
+  'Only events that concern a personal agent this assistant setup made, assistant.message included (null: no setup scope). Never with member_id.';
+
+-- The event writers look up active endpoints by event type, then by scope.
+CREATE INDEX IF NOT EXISTS idx_webhook_endpoints_active_events ON pm.webhook_endpoints USING gin (events) WHERE is_active;
+CREATE INDEX IF NOT EXISTS idx_webhook_endpoints_assistant_setup ON pm.webhook_endpoints (assistant_setup_id) WHERE assistant_setup_id IS NOT NULL;
+
+-- ---------------------------------------------------------------------------
+-- Which setup made a personal agent
+-- ---------------------------------------------------------------------------
+-- The setup a person's agent from p_template comes from, as provisioning
+-- picks it: the oldest setup with that template whose role the person has
+-- or whose live group they are in, switched-on setups first.
+CREATE OR REPLACE FUNCTION pm.assistant_setup_for(p_person uuid, p_template text)
+RETURNS uuid
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+  SELECT s.id
+  FROM pm.assistant_setups s
+  JOIN pm.team_members p ON p.id = p_person
+  WHERE s.template_key = p_template
+    AND (s.match_role = p.role OR EXISTS (
+      SELECT 1 FROM pm.group_members g JOIN pm.groups gr ON gr.id = g.group_id AND gr.deleted_at IS NULL
+      WHERE g.group_id = s.match_group_id AND g.member_id = p.id
+    ))
+  ORDER BY s.enabled DESC, s.created_at, s.id
+  LIMIT 1
+$$;
+
+REVOKE ALL ON FUNCTION pm.assistant_setup_for(uuid, text) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION pm.assistant_setup_for(uuid, text) TO service_role;
+
+-- Personal agents made before: the setup that matches them now, else the
+-- one setup with their template when there is exactly one.
+UPDATE pm.team_members a
+SET assistant_setup_id = coalesce(
+  pm.assistant_setup_for(a.delegate_of, a.assistant_template),
+  (SELECT (array_agg(s.id))[1] FROM pm.assistant_setups s WHERE s.template_key = a.assistant_template HAVING count(*) = 1)
+)
+WHERE a.role = 'agent' AND a.delegate_of IS NOT NULL AND a.assistant_template IS NOT NULL AND a.assistant_setup_id IS NULL;
+
+-- Only the server or a signed-in Owner says which setup made an agent.
+CREATE OR REPLACE FUNCTION pm.team_members_assistant_setup_guard()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = ''
+AS $$
+BEGIN
+  IF auth.uid() IS NULL OR coalesce(auth.role(), '') = 'service_role' THEN
+    RETURN NEW;
+  END IF;
+  IF TG_OP = 'INSERT' THEN
+    IF NEW.assistant_setup_id IS NULL THEN
+      RETURN NEW;
+    END IF;
+  ELSIF NEW.assistant_setup_id IS NOT DISTINCT FROM OLD.assistant_setup_id THEN
+    RETURN NEW;
+  END IF;
+  IF coalesce(pm.current_team_member_role(), '') <> 'owner' THEN
+    RAISE EXCEPTION 'Which setup made an agent changes only by an Owner' USING ERRCODE = '42501';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION pm.team_members_assistant_setup_guard() FROM PUBLIC, anon, authenticated;
+
+DROP TRIGGER IF EXISTS team_members_assistant_setup_guard ON pm.team_members;
+CREATE TRIGGER team_members_assistant_setup_guard
+  BEFORE INSERT OR UPDATE OF assistant_setup_id ON pm.team_members
+  FOR EACH ROW EXECUTE FUNCTION pm.team_members_assistant_setup_guard();
+
+-- Makes personal agents in bulk: one row per element of p_agents (name,
+-- email, delegate_of, assistant_template, assistant_setup_id, title,
+-- agent_role, agent_profile, description, and the four rules). A person who
+-- already has a personal agent from that template, or who is not an active
+-- person, is skipped. Each one records the setup that made it (the one
+-- given, else pm.assistant_setup_for) and gets the audit row that records
+-- its template. Answers what was made.
+CREATE OR REPLACE FUNCTION pm.provision_personal_agents(p_agents jsonb, p_actor uuid)
+RETURNS TABLE (id uuid, delegate_of uuid, assistant_template text)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+#variable_conflict use_column
+BEGIN
+  RETURN QUERY
+  WITH made AS (
+    INSERT INTO pm.team_members AS m (
+      name, email, role, title, agent_role, agent_profile, description, delegate_of, assistant_template, assistant_setup_id,
+      agent_self_assign, agent_close_policy, agent_create_policy, agent_escalate_to
+    )
+    SELECT x.name, x.email, 'agent', x.title, x.agent_role, coalesce(x.agent_profile, 'generic'), x.description,
+      x.delegate_of, x.assistant_template,
+      coalesce(x.assistant_setup_id, pm.assistant_setup_for(x.delegate_of, x.assistant_template)),
+      coalesce(x.agent_self_assign, false), coalesce(x.agent_close_policy, 'close'), coalesce(x.agent_create_policy, 'live'),
+      coalesce(x.agent_escalate_to, x.delegate_of)
+    FROM jsonb_to_recordset(p_agents) AS x(
+      name text, email text, title text, agent_role text, agent_profile text, description text,
+      delegate_of uuid, assistant_template text, assistant_setup_id uuid,
+      agent_self_assign boolean, agent_close_policy text, agent_create_policy text, agent_escalate_to uuid
+    )
+    JOIN pm.team_members p ON p.id = x.delegate_of AND p.role <> 'agent' AND coalesce(p.status, 'active') = 'active'
+    ON CONFLICT (delegate_of, assistant_template) WHERE delegate_of IS NOT NULL AND assistant_template IS NOT NULL DO NOTHING
+    RETURNING m.id, m.delegate_of, m.assistant_template, m.name, m.agent_role
+  ), audited AS (
+    INSERT INTO pm.api_audit_log (method, endpoint, entity_type, entity_id, team_member_id, request_body, after_snapshot, status_code, via)
+    SELECT 'POST', '/api/workspace/agents', 'team_member', made.id, p_actor,
+      jsonb_build_object('template', made.assistant_template, 'personal_of', made.delegate_of, 'provisioned', true),
+      jsonb_build_object('agent', jsonb_build_object('id', made.id, 'name', made.name, 'agent_role', made.agent_role, 'delegate_of', made.delegate_of)),
+      201, 'app'
+    FROM made
+  )
+  SELECT made.id, made.delegate_of, made.assistant_template FROM made;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION pm.provision_personal_agents(jsonb, uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION pm.provision_personal_agents(jsonb, uuid) TO service_role;
+
+-- ---------------------------------------------------------------------------
+-- Matching
+-- ---------------------------------------------------------------------------
+-- Whether an endpoint receives an event: active, subscribed to its type, and
+-- inside its filters. p_project_ids holds every project the event touches (a
+-- task moved between projects touches both); p_member_ids is who it
+-- concerns. A setup scope matches when one of them is a personal agent that
+-- setup made.
+CREATE OR REPLACE FUNCTION pm.webhook_endpoint_matches(
+  p_endpoint pm.webhook_endpoints,
+  p_event_type text,
+  p_project_ids uuid[],
+  p_member_ids uuid[]
+)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SET search_path = pm
+AS $$
+  SELECT p_endpoint.is_active
+    AND p_event_type = ANY (p_endpoint.events)
+    AND (p_endpoint.project_ids IS NULL OR p_endpoint.project_ids && coalesce(p_project_ids, '{}'))
+    AND (p_endpoint.member_id IS NULL OR p_endpoint.member_id = ANY (coalesce(p_member_ids, '{}')))
+    AND (p_endpoint.assistant_setup_id IS NULL OR EXISTS (
+      SELECT 1 FROM pm.team_members a
+      WHERE a.id = ANY (coalesce(p_member_ids, '{}'))
+        AND a.assistant_setup_id = p_endpoint.assistant_setup_id
+        AND a.role = 'agent' AND a.delegate_of IS NOT NULL
+    ))
+$$;
+
+REVOKE ALL ON FUNCTION pm.webhook_endpoint_matches(pm.webhook_endpoints, text, uuid[], uuid[]) FROM PUBLIC, anon, authenticated;
+
+-- ---------------------------------------------------------------------------
+-- The event writer for everything but invoices
+-- ---------------------------------------------------------------------------
+-- Records one event and fans out one delivery per matching endpoint; writes
+-- nothing when no endpoint matches. The matching endpoints are found once
+-- (active ones subscribed to the type, through the events index, then the
+-- filters) and the deliveries are made from that list. p_data becomes the
+-- payload's data, with member_ids added.
+--
+-- p_folds_into: when the subject's latest event in this transaction is one of
+-- these types (and nothing has been tried yet), it is refreshed instead: its
+-- data becomes p_data, member_ids and changes become the union of both, and
+-- endpoints that match now get a delivery too. Nothing else sees an event
+-- before its transaction commits, so a refresh is never a change to
+-- something sent.
+CREATE OR REPLACE FUNCTION pm.emit_webhook_event(
+  p_event_type text,
+  p_subject_type text,
+  p_subject_id uuid,
+  p_project_ids uuid[],
+  p_member_ids uuid[],
+  p_data jsonb,
+  p_folds_into text[] DEFAULT NULL
+)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pm
+AS $$
+DECLARE
+  v_latest pm.webhook_events;
+  v_members uuid[] := coalesce(p_member_ids, '{}');
+  v_data jsonb := coalesce(p_data, '{}'::jsonb);
+  v_changes jsonb;
+  v_endpoints uuid[];
+  v_seq bigint;
+  v_public_id text;
+  v_event_uuid uuid;
+BEGIN
+  IF p_folds_into IS NOT NULL THEN
+    SELECT * INTO v_latest
+    FROM pm.webhook_events ev
+    WHERE ev.resource_type = p_subject_type AND ev.resource_id = p_subject_id AND ev.created_at = now()
+    ORDER BY ev.sequence DESC
+    LIMIT 1;
+    IF FOUND AND v_latest.event_type = ANY (p_folds_into) AND NOT EXISTS (
+      SELECT 1 FROM pm.webhook_deliveries d
+      WHERE d.webhook_event_id = v_latest.id AND (d.status <> 'pending' OR d.attempts > 0)
+    ) THEN
+      SELECT coalesce(array_agg(DISTINCT m ORDER BY m), '{}') INTO v_members
+      FROM (
+        SELECT unnest(v_members) AS m
+        UNION ALL
+        SELECT value::uuid FROM jsonb_array_elements_text(coalesce(v_latest.payload -> 'data' -> 'member_ids', '[]'::jsonb))
+      ) folded;
+      IF (v_latest.payload -> 'data') ? 'changes' THEN
+        SELECT coalesce(jsonb_agg(DISTINCT c ORDER BY c), '[]'::jsonb) INTO v_changes
+        FROM (
+          SELECT jsonb_array_elements_text(v_latest.payload -> 'data' -> 'changes') AS c
+          UNION ALL
+          SELECT jsonb_array_elements_text(coalesce(v_data -> 'changes', '[]'::jsonb))
+        ) folded;
+        v_data := v_data || jsonb_build_object('changes', v_changes);
+      ELSE
+        v_data := v_data - 'changes';
+      END IF;
+
+      UPDATE pm.webhook_events
+      SET payload = jsonb_set(payload, '{data}', v_data || jsonb_build_object('member_ids', to_jsonb(v_members)))
+      WHERE id = v_latest.id;
+
+      INSERT INTO pm.webhook_deliveries (webhook_event_id, endpoint_id)
+      SELECT v_latest.id, e.id
+      FROM pm.webhook_endpoints e
+      WHERE e.is_active AND e.events @> ARRAY[v_latest.event_type]
+        AND pm.webhook_endpoint_matches(e, v_latest.event_type, p_project_ids, v_members)
+        AND NOT EXISTS (
+          SELECT 1 FROM pm.webhook_deliveries d WHERE d.webhook_event_id = v_latest.id AND d.endpoint_id = e.id
+        );
+      RETURN;
+    END IF;
+  END IF;
+
+  SELECT array_agg(e.id ORDER BY e.id) INTO v_endpoints
+  FROM pm.webhook_endpoints e
+  WHERE e.is_active AND e.events @> ARRAY[p_event_type]
+    AND pm.webhook_endpoint_matches(e, p_event_type, p_project_ids, v_members);
+  IF v_endpoints IS NULL THEN
+    RETURN;
+  END IF;
+
+  v_seq := nextval('pm.webhook_event_seq');
+  v_public_id := 'evt_' || replace(gen_random_uuid()::text, '-', '');
+
+  INSERT INTO pm.webhook_events (event_id, sequence, event_type, resource_type, resource_id, payload)
+  VALUES (
+    v_public_id, v_seq, p_event_type, p_subject_type, p_subject_id,
+    jsonb_build_object(
+      'id', v_public_id,
+      'type', p_event_type,
+      'sequence', v_seq,
+      'created_at', now(),
+      'data', v_data || jsonb_build_object('member_ids', to_jsonb(v_members))
+    )
+  )
+  RETURNING id INTO v_event_uuid;
+
+  INSERT INTO pm.webhook_deliveries (webhook_event_id, endpoint_id)
+  SELECT v_event_uuid, unnest(v_endpoints);
+END;
+$$;
+
+REVOKE ALL ON FUNCTION pm.emit_webhook_event(text, text, uuid, uuid[], uuid[], jsonb, text[]) FROM PUBLIC, anon, authenticated;
+
+-- ---------------------------------------------------------------------------
+-- The invoice event writer
+-- ---------------------------------------------------------------------------
+-- Split out of the trigger so a split change on a paid invoice can announce
+-- itself too (see emit_invoice_webhook_for_shares). p_data is merged into
+-- the payload's data (the payment events use it). The matching endpoints
+-- are found once, as for every other event.
+CREATE OR REPLACE FUNCTION pm.emit_invoice_webhook_event(
+  p_row pm.project_invoices,
+  p_event_type text,
+  p_data jsonb DEFAULT NULL
+)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pm
+AS $$
+DECLARE
+  v_is_paid boolean := (p_event_type <> 'invoice.deleted' AND p_row.status = 'paid');
+  v_project_name text;
+  v_totals jsonb;
+  v_endpoints uuid[];
+  v_public_id text;
+  v_seq bigint;
+  v_event_uuid uuid;
+  v_payload jsonb;
+BEGIN
+  -- An invoice concerns no member: an endpoint with a member or setup filter never gets one.
+  SELECT array_agg(e.id ORDER BY e.id) INTO v_endpoints
+  FROM pm.webhook_endpoints e
+  WHERE e.is_active AND e.events @> ARRAY[p_event_type]
+    AND pm.webhook_endpoint_matches(e, p_event_type, ARRAY[p_row.project_id], '{}');
+  IF v_endpoints IS NULL THEN
+    RETURN;
+  END IF;
+
+  SELECT name INTO v_project_name
+  FROM pm.projects WHERE id = p_row.project_id;
+
+  SELECT coalesce(jsonb_object_agg(t.item_type, t.subtotal), '{}'::jsonb)
+    INTO v_totals
+  FROM (
+    SELECT li->>'item_type' AS item_type, sum((li->>'amount')::numeric) AS subtotal
+    FROM jsonb_array_elements(
+           coalesce(nullif(p_row.line_items, 'null'::jsonb), '[]'::jsonb)
+         ) li
+    WHERE li ? 'item_type'
+    GROUP BY li->>'item_type'
+  ) t;
+
+  IF v_totals = '{}'::jsonb THEN
+    v_totals := jsonb_build_object(p_row.invoice_type, p_row.amount);
+  END IF;
+
+  v_seq := nextval('pm.webhook_event_seq');
+  v_public_id := 'evt_' || replace(gen_random_uuid()::text, '-', '');
+
+  v_payload := jsonb_build_object(
+    'id', v_public_id,
+    'type', p_event_type,
+    'sequence', v_seq,
+    'created_at', now(),
+    'data', jsonb_build_object(
+      'invoice', jsonb_build_object(
+        'id', p_row.id,
+        'invoice_number', p_row.invoice_number,
+        'project_id', p_row.project_id,
+        'status', p_row.status,
+        'paid', v_is_paid,
+        'invoice_type', p_row.invoice_type,
+        'amount', p_row.amount,
+        'date', p_row.date,
+        'due_date', p_row.due_date,
+        'paid_date', p_row.paid_date,
+        'description', p_row.description,
+        'updated_at', p_row.updated_at
+      ),
+      'project', jsonb_build_object(
+        'id', p_row.project_id,
+        'name', coalesce(v_project_name, '')
+      ),
+      'line_items', coalesce(nullif(p_row.line_items, 'null'::jsonb), '[]'::jsonb),
+      'totals_by_type', v_totals
+    ) || coalesce(p_data, '{}'::jsonb)
+  );
+
+  INSERT INTO pm.webhook_events (
+    event_id, sequence, event_type, resource_type, resource_id, payload, net_amounts
+  )
+  VALUES (
+    v_public_id, v_seq, p_event_type, 'invoice', p_row.id, v_payload,
+    pm.invoice_net_amounts(p_row)
+  )
+  RETURNING id INTO v_event_uuid;
+
+  INSERT INTO pm.webhook_deliveries (webhook_event_id, endpoint_id)
+  SELECT v_event_uuid, unnest(v_endpoints);
+END;
+$$;
+
+REVOKE ALL ON FUNCTION pm.emit_invoice_webhook_event(pm.project_invoices, text, jsonb) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION pm.emit_invoice_webhook_event(pm.project_invoices, text, jsonb) TO service_role;
+
+-- ---------------------------------------------------------------------------
+-- assistant.message
+-- ---------------------------------------------------------------------------
+-- Only an endpoint filtered to a personal agent (member_id), or scoped to an
+-- assistant setup, takes assistant.message: chat is private, so no
+-- workspace-wide endpoint ever lists it. Only a signed-in Owner or the
+-- server (which checks for an Owner or a key with assistants.provision)
+-- scopes an endpoint to a setup.
+CREATE OR REPLACE FUNCTION pm.webhook_endpoints_assistant_guard()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = ''
+AS $$
+BEGIN
+  IF NEW.assistant_setup_id IS NOT NULL AND auth.uid() IS NOT NULL AND coalesce(auth.role(), '') <> 'service_role' THEN
+    IF TG_OP = 'INSERT' OR NEW.assistant_setup_id IS DISTINCT FROM OLD.assistant_setup_id THEN
+      IF coalesce(pm.current_team_member_role(), '') <> 'owner' THEN
+        RAISE EXCEPTION 'Only an Owner scopes an endpoint to an assistant setup' USING ERRCODE = '42501';
+      END IF;
+    END IF;
+  END IF;
+  IF 'assistant.message' = ANY (NEW.events) AND NEW.assistant_setup_id IS NULL AND NOT EXISTS (
+    SELECT 1 FROM pm.team_members a WHERE a.id = NEW.member_id AND a.role = 'agent' AND a.delegate_of IS NOT NULL
+  ) THEN
+    RAISE EXCEPTION 'assistant.message goes only to an endpoint filtered to a personal agent (member_id) or scoped to an assistant setup (assistant_setup_id)' USING ERRCODE = '23514';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION pm.webhook_endpoints_assistant_guard() FROM PUBLIC, anon, authenticated;
+
+DROP TRIGGER IF EXISTS webhook_endpoints_assistant_guard ON pm.webhook_endpoints;
+CREATE TRIGGER webhook_endpoints_assistant_guard
+  BEFORE INSERT OR UPDATE OF events, member_id, assistant_setup_id ON pm.webhook_endpoints
+  FOR EACH ROW EXECUTE FUNCTION pm.webhook_endpoints_assistant_guard();
+
+-- Queues one assistant.message event (its own line: resource chat_message)
+-- to every active endpoint subscribed to it whose member filter is exactly
+-- the agent, or whose setup made the agent. Never to an endpoint with
+-- neither, nor one filtered to projects (an event has no project). Answers
+-- whether any endpoint got it; nothing is written when none does.
+CREATE OR REPLACE FUNCTION pm.emit_assistant_message(p_message_id uuid, p_agent_id uuid, p_data jsonb)
+RETURNS boolean
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pm
+AS $$
+DECLARE
+  v_endpoints uuid[];
+  v_seq bigint;
+  v_public_id text;
+  v_event_uuid uuid;
+BEGIN
+  SELECT array_agg(e.id ORDER BY e.id) INTO v_endpoints
+  FROM pm.webhook_endpoints e
+  WHERE e.is_active AND e.events @> ARRAY['assistant.message']
+    AND (e.member_id = p_agent_id OR (e.member_id IS NULL AND e.assistant_setup_id IS NOT NULL))
+    AND pm.webhook_endpoint_matches(e, 'assistant.message', '{}'::uuid[], ARRAY[p_agent_id]);
+  IF v_endpoints IS NULL THEN
+    RETURN false;
+  END IF;
+
+  v_seq := nextval('pm.webhook_event_seq');
+  v_public_id := 'evt_' || replace(gen_random_uuid()::text, '-', '');
+
+  INSERT INTO pm.webhook_events (event_id, sequence, event_type, resource_type, resource_id, payload)
+  VALUES (
+    v_public_id, v_seq, 'assistant.message', 'chat_message', p_message_id,
+    jsonb_build_object(
+      'id', v_public_id,
+      'type', 'assistant.message',
+      'sequence', v_seq,
+      'created_at', now(),
+      'data', coalesce(p_data, '{}'::jsonb) || jsonb_build_object('member_ids', jsonb_build_array(p_agent_id))
+    )
+  )
+  RETURNING id INTO v_event_uuid;
+
+  INSERT INTO pm.webhook_deliveries (webhook_event_id, endpoint_id)
+  SELECT v_event_uuid, unnest(v_endpoints);
+  RETURN true;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION pm.emit_assistant_message(uuid, uuid, jsonb) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION pm.emit_assistant_message(uuid, uuid, jsonb) TO service_role;
+
+-- ============================================================
+-- CONTRACT CLEANUP (20261125001200_contract_cleanup.sql)
+-- New inboxes run triage plans; every webhook envelope carries
+-- api_version.
+-- ============================================================
+-- The public contract, cleaned up for outside harnesses.
+--
+-- - New inboxes run triage plans: pm.inboxes.triage_mode defaults to 'plans'
+--   (was 'legacy'). Only the column default changes: every existing inbox
+--   keeps the mode it has, and a write that names a mode still gets it.
+-- - Every webhook envelope carries api_version, the contract's version
+--   (src/lib/api/version.ts), beside id, type, sequence, created_at and data.
+--   It is stamped as the event is stored, by one BEFORE INSERT trigger on
+--   pm.webhook_events, so every event writer (pm.emit_webhook_event,
+--   pm.emit_invoice_webhook_event, pm.emit_agent_event_webhook,
+--   pm.emit_assistant_message, and any later one) gets it while their bodies
+--   stay exactly as they are. An envelope that already names api_version
+--   keeps its own. Events stored before this migration have none; nothing is
+--   rewritten. The value is written once, here.
+--
+-- Additive and safe to run twice. 2.0.40 code never reads the new key, and
+-- an inbox it creates without naming a mode takes plans.
+
+ALTER TABLE pm.inboxes ALTER COLUMN triage_mode SET DEFAULT 'plans';
+
+CREATE OR REPLACE FUNCTION pm.webhook_envelope_api_version()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = ''
+AS $$
+BEGIN
+  IF jsonb_typeof(NEW.payload) = 'object' AND NOT NEW.payload ? 'api_version' THEN
+    NEW.payload := NEW.payload || jsonb_build_object('api_version', '2026-11-25');
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION pm.webhook_envelope_api_version() FROM PUBLIC, anon, authenticated;
+
+DROP TRIGGER IF EXISTS webhook_events_api_version ON pm.webhook_events;
+CREATE TRIGGER webhook_events_api_version
+  BEFORE INSERT ON pm.webhook_events
+  FOR EACH ROW EXECUTE FUNCTION pm.webhook_envelope_api_version();
+
+-- ============================================================
+-- WATCHDOG AND RETENTION (20261125001300_watchdog_retention.sql)
+-- When time passes, something happens: agents offline, runs timed
+-- out, questions expired, failing webhooks told; old data goes.
+-- ============================================================
+-- When time passes, something happens: a watchdog, and data that does not
+-- pile up forever.
+--
+-- The watchdog (pm.run_watchdog, pg_cron pm-agent-watchdog, every 5 minutes)
+-- turns what readers used to work out on their own into one stored change,
+-- made once, with its webhook event and its bell:
+-- - An agent whose heartbeat is older than its staleness rule (two missed
+--   beats plus a minute, as status views read it) has stopped responding:
+--   its owners (or, with none, the Owners) are told once, agent.offline goes
+--   out, and agent.online with a short "is back" when it reports again (the
+--   bell only when the first one rang). Paused agents are skipped, and so
+--   are personal assistants, which tell their admins on their own path.
+-- - A run with no update for two hours is stored as timed_out, so
+--   run.finished goes out once (the rule readers already used). A run
+--   waiting on a person (status waiting) is skipped while a question or
+--   approval naming it is open; waiting with none, it gets seven days.
+-- - An open question past expires_at is stored as expired, and
+--   question.expired goes out (from the question trigger, so a read that
+--   stores it first sends it too). Whoever asked hears once; for an agent,
+--   its owners.
+-- - A webhook endpoint failing 5 attempts in a row, or for 24 hours, tells
+--   the Owners and whoever manages webhooks once. A success resets it and
+--   clears that bell. Nothing is sent to the endpoint itself.
+-- Markers live in pm.watchdog_marks (server only), so nothing repeats.
+--
+-- Webhook retries are on by default: the app turns them on once their
+-- prerequisites are there, unless an Owner turned them off
+-- (business_settings.webhook_retries_off, read by pm.webhook_retry_kick).
+--
+-- Retention (pm.apply_data_retention, pg_cron pm-retention, daily), from
+-- settings on the business row, each nullable (null keeps forever):
+-- webhook_retention_days (default 30: finished deliveries, then events no
+-- delivery needs), agent_health_history_days (default 90, the newest row
+-- per agent always stays), agent_activity_retention_days,
+-- agent_run_retention_days and chat_retention_days (chat text is blanked;
+-- the row, its dedupe key and thread stay). Nothing a pending delivery, an
+-- unfinished run or an open delegation needs is touched. In batches.
+--
+-- A run can wait on a person: status waiting, neither finished nor
+-- running. A question or approval naming the run (questions.run_id, the
+-- asking agent's own unfinished run) makes it wait while it is open; when
+-- the last one is answered, cancelled or expires, the run is running again
+-- and its two hours start over. An agent may also set waiting itself.
+-- run.updated goes out when an unfinished run changes status.
+--
+-- Additive and safe to run twice. 2.0.40 code reads and writes nothing new;
+-- a run or question it would have read as timed out or expired now reads
+-- the same from the stored row.
+
+-- ---------------------------------------------------------------------------
+-- Settings
+-- ---------------------------------------------------------------------------
+ALTER TABLE pm.business_settings
+  ADD COLUMN IF NOT EXISTS webhook_retention_days integer DEFAULT 30,
+  ADD COLUMN IF NOT EXISTS agent_health_history_days integer DEFAULT 90,
+  ADD COLUMN IF NOT EXISTS agent_activity_retention_days integer,
+  ADD COLUMN IF NOT EXISTS agent_run_retention_days integer,
+  ADD COLUMN IF NOT EXISTS chat_retention_days integer,
+  ADD COLUMN IF NOT EXISTS webhook_retries_off boolean NOT NULL DEFAULT false;
+
+ALTER TABLE pm.business_settings DROP CONSTRAINT IF EXISTS business_settings_retention_days_check;
+ALTER TABLE pm.business_settings
+  ADD CONSTRAINT business_settings_retention_days_check CHECK (
+    (webhook_retention_days IS NULL OR webhook_retention_days BETWEEN 7 AND 3650)
+    AND (agent_health_history_days IS NULL OR agent_health_history_days BETWEEN 7 AND 3650)
+    AND (agent_activity_retention_days IS NULL OR agent_activity_retention_days BETWEEN 30 AND 3650)
+    AND (agent_run_retention_days IS NULL OR agent_run_retention_days BETWEEN 30 AND 3650)
+    AND (chat_retention_days IS NULL OR chat_retention_days BETWEEN 7 AND 3650)
+  );
+
+COMMENT ON COLUMN pm.business_settings.webhook_retention_days IS
+  'How long delivered or failed webhook deliveries are kept (7 to 3650 days, default 30), and their events once no delivery needs them; null keeps them forever. pm.apply_data_retention, daily.';
+COMMENT ON COLUMN pm.business_settings.agent_health_history_days IS
+  'How long agent uptime history is kept (7 to 3650 days, default 90); the newest row per agent always stays. Null keeps it forever.';
+COMMENT ON COLUMN pm.business_settings.agent_activity_retention_days IS
+  'How long agent events are kept (30 to 3650 days); billing events always stay. Null (the default) keeps them forever.';
+COMMENT ON COLUMN pm.business_settings.agent_run_retention_days IS
+  'How long finished agent runs are kept (30 to 3650 days); a run a running run or an open delegation needs stays. Null (the default) keeps them forever.';
+COMMENT ON COLUMN pm.business_settings.chat_retention_days IS
+  'How long chat message text is kept (7 to 3650 days); after that the text is blanked and the row (dedupe key, thread) stays. Messages still waiting for their assistant keep it. Null (the default) keeps it forever.';
+COMMENT ON COLUMN pm.business_settings.webhook_retries_off IS
+  'An Owner turned webhook retries off: the app no longer turns them on by itself and pm.webhook_retry_kick sends nothing.';
+
+-- Owner-only settings on the business row, now with retention and retries.
+CREATE OR REPLACE FUNCTION pm.business_settings_owner_columns()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+BEGIN
+  IF auth.role() = 'service_role' OR auth.uid() IS NULL THEN
+    RETURN NEW;
+  END IF;
+  IF (TG_OP = 'INSERT' AND (NEW.auto_migrate IS DISTINCT FROM true OR NEW.owners_read_personal_inboxes IS DISTINCT FROM false
+       OR NEW.agents_paused_at IS NOT NULL OR NEW.audit_retention_days IS NOT NULL OR NEW.audit_redact_keys <> '{}'
+       OR NEW.connect_ai_enabled IS DISTINCT FROM true OR NEW.personal_key_lifetime_days IS NOT NULL
+       OR NEW.sign_in_methods IS DISTINCT FROM 'both'
+       OR NEW.webhook_retention_days IS DISTINCT FROM 30 OR NEW.agent_health_history_days IS DISTINCT FROM 90
+       OR NEW.agent_activity_retention_days IS NOT NULL OR NEW.agent_run_retention_days IS NOT NULL
+       OR NEW.chat_retention_days IS NOT NULL OR NEW.webhook_retries_off IS DISTINCT FROM false))
+     OR (TG_OP = 'UPDATE' AND (NEW.auto_migrate IS DISTINCT FROM OLD.auto_migrate
+       OR NEW.owners_read_personal_inboxes IS DISTINCT FROM OLD.owners_read_personal_inboxes
+       OR NEW.agents_paused_at IS DISTINCT FROM OLD.agents_paused_at
+       OR NEW.agents_paused_by IS DISTINCT FROM OLD.agents_paused_by
+       OR NEW.audit_retention_days IS DISTINCT FROM OLD.audit_retention_days
+       OR NEW.audit_redact_keys IS DISTINCT FROM OLD.audit_redact_keys
+       OR NEW.connect_ai_enabled IS DISTINCT FROM OLD.connect_ai_enabled
+       OR NEW.personal_key_lifetime_days IS DISTINCT FROM OLD.personal_key_lifetime_days
+       OR NEW.sign_in_methods IS DISTINCT FROM OLD.sign_in_methods
+       OR NEW.webhook_retention_days IS DISTINCT FROM OLD.webhook_retention_days
+       OR NEW.agent_health_history_days IS DISTINCT FROM OLD.agent_health_history_days
+       OR NEW.agent_activity_retention_days IS DISTINCT FROM OLD.agent_activity_retention_days
+       OR NEW.agent_run_retention_days IS DISTINCT FROM OLD.agent_run_retention_days
+       OR NEW.chat_retention_days IS DISTINCT FROM OLD.chat_retention_days
+       OR NEW.webhook_retries_off IS DISTINCT FROM OLD.webhook_retries_off)) THEN
+    IF COALESCE(pm.current_team_member_role(), '') <> 'owner' THEN
+      RAISE EXCEPTION 'Only an Owner can change this setting' USING ERRCODE = '42501';
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION pm.business_settings_owner_columns() FROM PUBLIC, anon, authenticated;
+
+-- ---------------------------------------------------------------------------
+-- Notifications about a webhook endpoint
+-- ---------------------------------------------------------------------------
+ALTER TABLE pm.team_member_notifications
+  DROP CONSTRAINT IF EXISTS team_member_notifications_entity_type_check;
+ALTER TABLE pm.team_member_notifications
+  ADD CONSTRAINT team_member_notifications_entity_type_check
+    CHECK (entity_type IN ('task', 'project', 'lead', 'comment', 'member', 'contact', 'suggestion', 'goal', 'question', 'invoice', 'reminder', 'webhook'));
+
+-- ---------------------------------------------------------------------------
+-- Markers: what the watchdog already did (server only)
+-- ---------------------------------------------------------------------------
+-- agent_offline: the agent is offline since `since` (its last report);
+--   notified_at says its people were told, so "is back" rings too.
+-- question_expired: whoever asked was told (kept two days, past the window).
+-- webhook_failing: failed attempts in a row (`failures`) since `since`, the
+--   last error in detail; notified_at once its people were told. A success
+--   removes it.
+CREATE TABLE IF NOT EXISTS pm.watchdog_marks (
+  kind text NOT NULL,
+  subject_id uuid NOT NULL,
+  since timestamptz NOT NULL DEFAULT now(),
+  failures integer NOT NULL DEFAULT 0,
+  detail jsonb NOT NULL DEFAULT '{}'::jsonb,
+  notified_at timestamptz,
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (kind, subject_id)
+);
+
+ALTER TABLE pm.watchdog_marks DROP CONSTRAINT IF EXISTS watchdog_marks_kind_check;
+ALTER TABLE pm.watchdog_marks
+  ADD CONSTRAINT watchdog_marks_kind_check CHECK (kind IN ('agent_offline', 'question_expired', 'webhook_failing'));
+
+COMMENT ON TABLE pm.watchdog_marks IS
+  'What pm.run_watchdog already did, so each change is made and told once: agents offline, expired questions told, failing webhook endpoints. Server only.';
+
+ALTER TABLE pm.watchdog_marks ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON pm.watchdog_marks FROM PUBLIC, anon, authenticated;
+GRANT ALL ON pm.watchdog_marks TO service_role;
+
+-- What the jobs scan.
+CREATE INDEX IF NOT EXISTS idx_questions_expired
+  ON pm.questions (expires_at) WHERE status = 'expired';
+CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_finished
+  ON pm.webhook_deliveries (created_at) WHERE status IN ('succeeded', 'failed');
+CREATE INDEX IF NOT EXISTS idx_webhook_events_created_at
+  ON pm.webhook_events (created_at);
+CREATE INDEX IF NOT EXISTS idx_agent_runs_finished
+  ON pm.agent_runs (finished_at) WHERE status <> 'running';
+CREATE INDEX IF NOT EXISTS idx_chat_messages_created_text
+  ON pm.chat_messages (created_at) WHERE text <> '';
+
+-- ---------------------------------------------------------------------------
+-- Small rules the watchdog shares
+-- ---------------------------------------------------------------------------
+-- Seconds without a report before an agent reads as offline: two missed
+-- beats plus a minute, a minute when it never said (heartbeatStaleAfterSeconds).
+CREATE OR REPLACE FUNCTION pm.heartbeat_stale_after_seconds(p_interval_seconds integer)
+RETURNS integer
+LANGUAGE sql
+IMMUTABLE
+SET search_path = ''
+AS $$
+  SELECT 2 * CASE WHEN p_interval_seconds > 0 THEN p_interval_seconds ELSE 60 END + 60
+$$;
+
+REVOKE ALL ON FUNCTION pm.heartbeat_stale_after_seconds(integer) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION pm.heartbeat_stale_after_seconds(integer) TO service_role;
+
+-- "12 minutes", "3 hours", "2 days": how long ago, for a bell.
+CREATE OR REPLACE FUNCTION pm.watchdog_ago(p_since timestamptz)
+RETURNS text
+LANGUAGE sql
+STABLE
+SET search_path = ''
+AS $$
+  SELECT CASE
+    WHEN m < 2 THEN '1 minute'
+    WHEN m < 120 THEN m || ' minutes'
+    WHEN m < 2880 THEN (m / 60) || ' hours'
+    ELSE (m / 1440) || ' days'
+  END
+  FROM (SELECT greatest(0, floor(extract(epoch FROM (now() - p_since)) / 60))::bigint AS m) elapsed
+$$;
+
+REVOKE ALL ON FUNCTION pm.watchdog_ago(timestamptz) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION pm.watchdog_ago(timestamptz) TO service_role;
+
+-- Who hears about an agent: its people owners and owner groups' people (and
+-- a personal agent's person), else the active Owners.
+CREATE OR REPLACE FUNCTION pm.agent_people_to_tell(p_agent_id uuid)
+RETURNS uuid[]
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = pm
+AS $$
+  WITH named AS (
+    SELECT o.member_id AS id FROM pm.agent_owners o WHERE o.agent_id = p_agent_id
+    UNION
+    SELECT gm.member_id FROM pm.agent_owner_groups g
+    JOIN pm.group_members gm ON gm.group_id = g.group_id
+    WHERE g.agent_id = p_agent_id
+    UNION
+    SELECT a.delegate_of FROM pm.team_members a WHERE a.id = p_agent_id AND a.delegate_of IS NOT NULL
+  ), people AS (
+    SELECT m.id FROM named JOIN pm.team_members m ON m.id = named.id
+    WHERE m.role <> 'agent' AND coalesce(m.status, 'active') = 'active'
+  )
+  SELECT coalesce(
+    (SELECT array_agg(id ORDER BY id) FROM people),
+    (SELECT array_agg(m.id ORDER BY m.id) FROM pm.team_members m WHERE m.role = 'owner' AND coalesce(m.status, 'active') = 'active'),
+    '{}'
+  )
+$$;
+
+REVOKE ALL ON FUNCTION pm.agent_people_to_tell(uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION pm.agent_people_to_tell(uuid) TO service_role;
+
+-- ---------------------------------------------------------------------------
+-- A run waiting on a person
+-- ---------------------------------------------------------------------------
+-- waiting: not finished (no finished_at), not running. Set by the agent
+-- (PATCH status waiting), or by a question or approval naming the run while
+-- it is open. Any later update from the agent brings it back to running (the
+-- API); a finish from waiting is a finish. The watchdog skips it while a
+-- question naming it is open; waiting with none, it times out after seven
+-- days without an update.
+ALTER TABLE pm.agent_runs DROP CONSTRAINT IF EXISTS agent_runs_status_check;
+ALTER TABLE pm.agent_runs
+  ADD CONSTRAINT agent_runs_status_check CHECK (status IN ('running', 'waiting', 'succeeded', 'failed', 'cancelled', 'timed_out'));
+ALTER TABLE pm.agent_runs DROP CONSTRAINT IF EXISTS agent_runs_finished_when_done;
+ALTER TABLE pm.agent_runs
+  ADD CONSTRAINT agent_runs_finished_when_done CHECK ((status IN ('running', 'waiting')) = (finished_at IS NULL));
+
+COMMENT ON COLUMN pm.agent_runs.status IS
+  'running, waiting (on a person), succeeded, failed, cancelled or timed_out. The watchdog stores timed_out for a run running two hours past updated_at, or waiting seven days with no open question naming it; readers read it so until then.';
+
+-- What the watchdog scans for waiting runs.
+CREATE INDEX IF NOT EXISTS idx_agent_runs_waiting ON pm.agent_runs (updated_at) WHERE status = 'waiting';
+
+-- The run a question or approval holds: the asking agent's own run. While it
+-- is open the run waits on a person. Cleared only when the run is gone.
+ALTER TABLE pm.questions ADD COLUMN IF NOT EXISTS run_id uuid REFERENCES pm.agent_runs(id) ON DELETE SET NULL;
+COMMENT ON COLUMN pm.questions.run_id IS
+  'The run this question or approval holds (the asking agent''s own): while it is open, the run waits on a person. Fixed once asked.';
+CREATE INDEX IF NOT EXISTS idx_questions_run_open ON pm.questions (run_id)
+  WHERE run_id IS NOT NULL AND status = 'open' AND deleted_at IS NULL;
+
+-- Whether an open question or approval (not past expires_at, not in Trash)
+-- names the run. The watchdog and the run feed read it the same way. Only
+-- while the AI agents module is on: with it off, no agent waits on anyone.
+CREATE OR REPLACE FUNCTION pm.agent_run_has_open_question(p_run_id uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = pm
+AS $$
+  SELECT pm.module_enabled('agents') AND EXISTS (
+    SELECT 1 FROM pm.questions q
+    WHERE q.run_id = p_run_id AND q.status = 'open' AND q.deleted_at IS NULL
+      AND (q.expires_at IS NULL OR q.expires_at > now())
+  );
+$$;
+
+REVOKE ALL ON FUNCTION pm.agent_run_has_open_question(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION pm.agent_run_has_open_question(uuid) TO authenticated, service_role;
+
+-- A question names only its asker's own run, and keeps it: a later write
+-- may clear it (the run is gone) but never point it elsewhere.
+CREATE OR REPLACE FUNCTION pm.guard_question_run()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = pm
+AS $$
+BEGIN
+  IF TG_OP = 'UPDATE' THEN
+    IF NEW.run_id IS NOT NULL AND NEW.run_id IS DISTINCT FROM OLD.run_id THEN
+      NEW.run_id := OLD.run_id;
+    END IF;
+    RETURN NEW;
+  END IF;
+  IF NEW.run_id IS NOT NULL
+     AND NOT EXISTS (SELECT 1 FROM pm.agent_runs r WHERE r.id = NEW.run_id AND r.agent_id = NEW.asked_by) THEN
+    RAISE EXCEPTION 'A question names only its asker''s own run'
+      USING ERRCODE = 'check_violation', CONSTRAINT = 'questions_run_is_askers';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION pm.guard_question_run() FROM PUBLIC, anon, authenticated;
+
+DROP TRIGGER IF EXISTS guard_question_run ON pm.questions;
+CREATE TRIGGER guard_question_run
+  BEFORE INSERT OR UPDATE OF run_id ON pm.questions
+  FOR EACH ROW EXECUTE FUNCTION pm.guard_question_run();
+
+-- Asked (or back from Trash) open, its run waits on a person. Answered,
+-- cancelled, expired or moved to Trash, its run is running again once no
+-- other open question names it; the write restarts its two hours.
+CREATE OR REPLACE FUNCTION pm.sync_question_run()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pm
+AS $$
+DECLARE
+  v_open_now boolean;
+  v_open_before boolean;
+BEGIN
+  IF NEW.run_id IS NULL THEN
+    RETURN NULL;
+  END IF;
+  v_open_now := NEW.status = 'open' AND NEW.deleted_at IS NULL;
+  v_open_before := TG_OP = 'UPDATE' AND OLD.status = 'open' AND OLD.deleted_at IS NULL;
+  IF v_open_now AND NOT v_open_before THEN
+    UPDATE pm.agent_runs SET status = 'waiting'
+    WHERE id = NEW.run_id AND status IN ('running', 'waiting');
+  ELSIF v_open_before AND NOT v_open_now THEN
+    UPDATE pm.agent_runs SET status = 'running'
+    WHERE id = NEW.run_id AND status = 'waiting' AND NOT pm.agent_run_has_open_question(NEW.run_id);
+  END IF;
+  RETURN NULL;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION pm.sync_question_run() FROM PUBLIC, anon, authenticated;
+
+DROP TRIGGER IF EXISTS sync_question_run ON pm.questions;
+CREATE TRIGGER sync_question_run
+  AFTER INSERT OR UPDATE OF status, deleted_at ON pm.questions
+  FOR EACH ROW EXECUTE FUNCTION pm.sync_question_run();
+
+-- Every run write, as before, with waiting as unfinished: a finished run
+-- stays as it finished; one that finishes gets its finish time.
+CREATE OR REPLACE FUNCTION pm.handle_agent_run_before_write()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = pm
+AS $$
+DECLARE
+  task_project uuid;
+BEGIN
+  IF NEW.task_id IS NOT NULL THEN
+    SELECT project_id INTO task_project FROM pm.tasks WHERE id = NEW.task_id;
+    IF task_project IS NOT NULL THEN
+      NEW.project_id := task_project;
+    END IF;
+  END IF;
+  IF TG_OP = 'UPDATE' THEN
+    NEW.agent_id := OLD.agent_id;
+    NEW.created_at := OLD.created_at;
+    NEW.external_id := coalesce(OLD.external_id, NEW.external_id);
+    -- A finished run stays as it finished, whoever writes: two finishes at
+    -- once cannot both land. Its other details may still change.
+    IF OLD.status NOT IN ('running', 'waiting') THEN
+      NEW.status := OLD.status;
+      NEW.finished_at := OLD.finished_at;
+    END IF;
+  END IF;
+  IF NEW.status NOT IN ('running', 'waiting') AND NEW.finished_at IS NULL THEN
+    NEW.finished_at := greatest(now(), NEW.started_at);
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION pm.handle_agent_run_before_write() FROM PUBLIC, anon, authenticated;
+
+-- Run webhooks: run.started, run.finished, and run.updated when an
+-- unfinished run changes status (running to waiting, or back). The chain
+-- rides along as before.
+CREATE OR REPLACE FUNCTION pm.emit_agent_run_webhook()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pm
+AS $$
+DECLARE
+  v_type text;
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pm.webhook_endpoints e
+    WHERE e.is_active AND e.events && ARRAY['run.started', 'run.updated', 'run.finished']
+  ) THEN
+    RETURN NULL;
+  END IF;
+
+  IF TG_OP = 'INSERT' THEN
+    v_type := CASE WHEN NEW.status IN ('running', 'waiting') THEN 'run.started' ELSE 'run.finished' END;
+  ELSIF OLD.status IN ('running', 'waiting') AND NEW.status NOT IN ('running', 'waiting') THEN
+    v_type := 'run.finished';
+  ELSIF OLD.status IN ('running', 'waiting') AND NEW.status IS DISTINCT FROM OLD.status THEN
+    v_type := 'run.updated';
+  END IF;
+  IF v_type IS NULL THEN
+    RETURN NULL;
+  END IF;
+
+  PERFORM pm.emit_webhook_event(
+    v_type,
+    'run',
+    NEW.id,
+    ARRAY[NEW.project_id],
+    ARRAY[NEW.agent_id],
+    jsonb_build_object(
+      'run', jsonb_build_object(
+        'id', NEW.id,
+        'agent_id', NEW.agent_id,
+        'task_id', NEW.task_id,
+        'project_id', NEW.project_id,
+        'status', NEW.status,
+        'title', NEW.title,
+        'summary', NEW.summary,
+        'model', NEW.model,
+        'trigger', NEW.trigger,
+        'tokens_in', NEW.tokens_in,
+        'tokens_out', NEW.tokens_out,
+        'cost_usd', NEW.cost_usd,
+        'external_id', NEW.external_id,
+        'external_url', NEW.external_url,
+        'started_at', NEW.started_at,
+        'finished_at', NEW.finished_at,
+        'updated_at', NEW.updated_at
+      ) || CASE WHEN NEW.parent_run_id IS NOT NULL
+        THEN jsonb_build_object('parent_run_id', NEW.parent_run_id, 'root_run_id', NEW.root_run_id)
+        ELSE '{}'::jsonb END,
+      'project', CASE WHEN NEW.project_id IS NOT NULL THEN jsonb_build_object(
+        'id', NEW.project_id,
+        'name', coalesce((SELECT p.name FROM pm.projects p WHERE p.id = NEW.project_id), '')
+      ) END,
+      'project_id', NEW.project_id,
+      'task_id', NEW.task_id,
+      'actor_id', pm.webhook_actor_id()
+    )
+  );
+  RETURN NULL;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION pm.emit_agent_run_webhook() FROM PUBLIC, anon, authenticated;
+
+-- The run feed, as before, reading timed_out by the watchdog's rule until
+-- it stores it: running two hours past its last update, or waiting seven
+-- days with no open question naming it.
+CREATE OR REPLACE VIEW pm.agent_run_feed
+WITH (security_invoker = true) AS
+SELECT
+  r.id,
+  'run'::text AS source,
+  r.agent_id,
+  r.task_id,
+  r.project_id,
+  CASE
+    WHEN r.status = 'running' AND r.updated_at < now() - interval '2 hours' THEN 'timed_out'
+    WHEN r.status = 'waiting' AND r.updated_at < now() - interval '7 days' AND NOT pm.agent_run_has_open_question(r.id) THEN 'timed_out'
+    ELSE r.status
+  END AS status,
+  NULL::text AS outcome,
+  r.title,
+  r.summary,
+  r.model,
+  r.trigger,
+  r.started_at,
+  r.finished_at,
+  CASE WHEN r.finished_at IS NOT NULL THEN (extract(epoch FROM r.finished_at - r.started_at) * 1000)::bigint END AS duration_ms,
+  r.tokens_in,
+  r.tokens_out,
+  r.cost_usd,
+  r.external_id,
+  r.external_url,
+  r.started_at AS sort_at,
+  r.updated_at
+FROM pm.agent_runs r
+UNION ALL
+SELECT
+  a.id,
+  'turn'::text AS source,
+  a.agent_id,
+  NULL::uuid AS task_id,
+  a.project_id,
+  'succeeded'::text AS status,
+  a.metadata->>'outcome' AS outcome,
+  a.title,
+  NULL::text AS summary,
+  a.metadata->>'model' AS model,
+  CASE WHEN a.metadata->>'origin' = 'directed' THEN 'chat' ELSE 'scheduled' END AS trigger,
+  coalesce(pm.agent_analytics_ts(a.metadata->>'started_at'), a.created_at) AS started_at,
+  coalesce(pm.agent_analytics_ts(a.metadata->>'finished_at'), a.created_at) AS finished_at,
+  pm.agent_analytics_int(a.metadata->>'duration_ms') AS duration_ms,
+  CASE WHEN a.metadata->>'tokens_scope' = 'turn' AND a.metadata->'tokens' ? 'input'
+    THEN pm.agent_analytics_int(a.metadata->'tokens'->>'input') END AS tokens_in,
+  CASE WHEN a.metadata->>'tokens_scope' = 'turn' AND a.metadata->'tokens' ? 'output'
+    THEN pm.agent_analytics_int(a.metadata->'tokens'->>'output') END AS tokens_out,
+  NULL::numeric AS cost_usd,
+  a.metadata->>'source_turn_id' AS external_id,
+  NULL::text AS external_url,
+  a.created_at AS sort_at,
+  a.created_at AS updated_at
+FROM pm.agent_activities a
+WHERE a.activity_type = 'turn.completed'
+  AND a.agent_id IS NOT NULL
+  AND a.metadata->>'run_id' IS NULL
+  AND NOT (a.metadata->>'origin' = 'scheduled' AND coalesce(a.metadata->>'outcome', '') IN ('idle', 'skipped', 'waiting'));
+
+-- ---------------------------------------------------------------------------
+-- Webhook endpoint health: every attempt's outcome, counted
+-- ---------------------------------------------------------------------------
+-- After pm.complete_webhook_delivery (or a lease that ran out on the last
+-- attempt) records an attempt: a success removes the endpoint's mark and
+-- clears its "keeps failing" bell; a failure counts one more in a row.
+CREATE OR REPLACE FUNCTION pm.track_webhook_endpoint_health()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pm
+AS $$
+BEGIN
+  IF NEW.status = 'succeeded' THEN
+    DELETE FROM pm.watchdog_marks WHERE kind = 'webhook_failing' AND subject_id = NEW.endpoint_id;
+    IF FOUND THEN
+      PERFORM pm.set_notifications_cleared('webhook', NEW.endpoint_id::text, true);
+    END IF;
+  ELSE
+    INSERT INTO pm.watchdog_marks AS w (kind, subject_id, since, failures, detail, updated_at)
+    VALUES ('webhook_failing', NEW.endpoint_id, now(), 1,
+      jsonb_build_object('last_error', left(coalesce(NEW.last_error, 'HTTP ' || NEW.last_status_code, 'No response'), 300),
+        'last_status_code', NEW.last_status_code), now())
+    ON CONFLICT (kind, subject_id) DO UPDATE
+      SET failures = w.failures + 1, detail = EXCLUDED.detail, updated_at = now();
+  END IF;
+  RETURN NULL;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION pm.track_webhook_endpoint_health() FROM PUBLIC, anon, authenticated;
+
+DROP TRIGGER IF EXISTS track_webhook_endpoint_health ON pm.webhook_deliveries;
+CREATE TRIGGER track_webhook_endpoint_health
+  AFTER UPDATE OF status ON pm.webhook_deliveries
+  FOR EACH ROW
+  WHEN (OLD.status = 'delivering' AND NEW.status IN ('pending', 'succeeded', 'failed'))
+  EXECUTE FUNCTION pm.track_webhook_endpoint_health();
+
+-- ---------------------------------------------------------------------------
+-- question.expired: from the question trigger, so whoever stores the expiry
+-- (the watchdog, or a read that gets there first) sends it once. A question
+-- that holds a run carries its run_id.
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION pm.emit_question_webhook()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pm
+AS $$
+DECLARE
+  v_type text;
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pm.webhook_endpoints e
+    WHERE e.is_active AND e.events && ARRAY['question.asked', 'question.answered', 'question.cancelled', 'question.expired']
+  ) THEN
+    RETURN NULL;
+  END IF;
+
+  IF TG_OP = 'INSERT' THEN
+    IF NEW.status = 'open' AND NEW.deleted_at IS NULL THEN
+      v_type := 'question.asked';
+    END IF;
+  ELSIF NEW.deleted_at IS NOT NULL THEN
+    IF OLD.deleted_at IS NULL AND OLD.status = 'open' THEN
+      v_type := 'question.cancelled';
+    END IF;
+  ELSIF OLD.deleted_at IS NOT NULL THEN
+    IF NEW.status = 'open' THEN
+      v_type := 'question.asked';
+    END IF;
+  ELSIF NEW.status IS DISTINCT FROM OLD.status THEN
+    v_type := CASE NEW.status
+      WHEN 'open' THEN 'question.asked'
+      WHEN 'answered' THEN 'question.answered'
+      WHEN 'cancelled' THEN 'question.cancelled'
+      WHEN 'expired' THEN 'question.expired'
+    END;
+  END IF;
+  IF v_type IS NULL THEN
+    RETURN NULL;
+  END IF;
+
+  PERFORM pm.emit_webhook_event(
+    v_type,
+    'question',
+    NEW.id,
+    ARRAY[NEW.project_id],
+    pm.webhook_event_members('question', NEW.id),
+    jsonb_build_object(
+      'question', jsonb_build_object(
+        'id', NEW.id,
+        'project_id', NEW.project_id,
+        'task_id', NEW.task_id,
+        'asked_by', NEW.asked_by,
+        'asked_to', NEW.asked_to,
+        'question', NEW.question,
+        'choices', NEW.choices,
+        'allow_other', NEW.allow_other,
+        'status', NEW.status,
+        'answer_choice', NEW.answer_choice,
+        'answer_text', NEW.answer_text,
+        'answered_by', NEW.answered_by,
+        'answered_at', NEW.answered_at,
+        'cancelled_by', NEW.cancelled_by,
+        'cancelled_at', NEW.cancelled_at,
+        'expires_at', NEW.expires_at,
+        'created_at', NEW.created_at,
+        'updated_at', NEW.updated_at,
+        'deleted_at', NEW.deleted_at
+      ) || CASE WHEN NEW.kind = 'approval' THEN jsonb_build_object(
+        'kind', NEW.kind,
+        'action', NEW.action,
+        'decision', CASE NEW.answer_choice WHEN 'approve' THEN 'approved' WHEN 'reject' THEN 'rejected' END,
+        'decided_by', CASE WHEN NEW.status = 'answered' THEN NEW.answered_by END,
+        'decided_via', CASE WHEN NEW.status = 'answered' THEN NEW.decided_via END
+      ) ELSE '{}'::jsonb END
+        || CASE WHEN NEW.asked_to_group IS NOT NULL THEN jsonb_build_object('asked_to_group', NEW.asked_to_group) ELSE '{}'::jsonb END
+        || CASE WHEN NEW.principal_id IS NOT NULL THEN jsonb_build_object('principal_id', NEW.principal_id) ELSE '{}'::jsonb END
+        || CASE WHEN NEW.run_id IS NOT NULL THEN jsonb_build_object('run_id', NEW.run_id) ELSE '{}'::jsonb END,
+      'project', CASE WHEN NEW.project_id IS NOT NULL THEN jsonb_build_object(
+        'id', NEW.project_id,
+        'name', coalesce((SELECT p.name FROM pm.projects p WHERE p.id = NEW.project_id), '')
+      ) END,
+      'project_id', NEW.project_id,
+      'task_id', NEW.task_id,
+      'actor_id', pm.webhook_actor_id()
+    )
+  );
+  RETURN NULL;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION pm.emit_question_webhook() FROM PUBLIC, anon, authenticated;
+
+-- ---------------------------------------------------------------------------
+-- The watchdog
+-- ---------------------------------------------------------------------------
+-- Every 5 minutes. Each change is made once (a stored status, or a marker),
+-- so a second run in a row does nothing. Answers what it did.
+CREATE OR REPLACE FUNCTION pm.run_watchdog()
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pm
+AS $$
+DECLARE
+  r record;
+  v_person uuid;
+  v_people uuid[];
+  v_claims uuid[];
+  v_stale integer;
+  v_tell boolean;
+  v_text text;
+  v_title text;
+  v_link text;
+  v_workspace_paused boolean;
+  v_offline integer := 0;
+  v_online integer := 0;
+  v_runs integer := 0;
+  v_questions integer := 0;
+  v_told integer := 0;
+  v_webhooks integer := 0;
+BEGIN
+  -- One watchdog at a time; a run that overlaps the last one waits for the next.
+  IF NOT pg_try_advisory_xact_lock(hashtext('pm.run_watchdog')) THEN
+    RETURN jsonb_build_object('skipped', true);
+  END IF;
+
+  -- Agents that stopped responding, and agents that came back.
+  IF pm.module_enabled('agents') THEN
+    SELECT coalesce(bool_or(s.agents_paused_at IS NOT NULL), false) INTO v_workspace_paused FROM pm.business_settings s;
+
+    FOR r IN
+      SELECT a.id, a.name, h.reported_at, h.expected_interval_seconds AS interval_seconds
+      FROM pm.agent_health h
+      JOIN pm.team_members a ON a.id = h.member_id
+      WHERE a.role = 'agent'
+        AND a.delegate_of IS NULL
+        AND coalesce(a.status, 'active') = 'active'
+        AND a.agent_paused_at IS NULL
+        AND NOT v_workspace_paused
+        AND h.reported_at < now() - make_interval(secs => pm.heartbeat_stale_after_seconds(h.expected_interval_seconds))
+        AND NOT EXISTS (SELECT 1 FROM pm.watchdog_marks w WHERE w.kind = 'agent_offline' AND w.subject_id = a.id)
+      ORDER BY h.reported_at
+    LOOP
+      v_stale := pm.heartbeat_stale_after_seconds(r.interval_seconds);
+      -- Claims that ran out while it was silent: those tasks are free again.
+      SELECT coalesce(array_agg(t.id ORDER BY t.id), '{}') INTO v_claims
+      FROM pm.tasks t
+      WHERE t.claimed_by = r.id AND t.claim_expires_at <= now() AND t.claim_expires_at > r.reported_at
+        AND t.status <> 'done' AND t.deleted_at IS NULL;
+      -- An agent silent long before the watchdog first saw it is marked
+      -- without a bell: nobody needs news that old.
+      v_tell := now() - r.reported_at <= make_interval(secs => v_stale) + interval '1 day';
+      v_people := CASE WHEN v_tell THEN pm.agent_people_to_tell(r.id) ELSE '{}'::uuid[] END;
+
+      INSERT INTO pm.watchdog_marks (kind, subject_id, since, detail, notified_at)
+      VALUES ('agent_offline', r.id, r.reported_at, jsonb_build_object('released_task_ids', to_jsonb(v_claims)),
+        CASE WHEN cardinality(v_people) > 0 THEN now() END);
+
+      PERFORM pm.emit_webhook_event('agent.offline', 'agent', r.id, '{}'::uuid[], ARRAY[r.id], jsonb_build_object(
+        'agent', jsonb_build_object('id', r.id, 'name', r.name, 'reported_at', r.reported_at,
+          'expected_interval_seconds', r.interval_seconds, 'stale_after_seconds', v_stale),
+        'offline_since', r.reported_at,
+        'released_task_ids', to_jsonb(v_claims),
+        'project', NULL, 'project_id', NULL, 'task_id', NULL, 'actor_id', NULL));
+
+      v_text := r.name || ' stopped responding ' || pm.watchdog_ago(r.reported_at) || ' ago'
+        || CASE cardinality(v_claims)
+             WHEN 0 THEN '.'
+             WHEN 1 THEN ', its claimed task went back to the queue.'
+             ELSE ', its ' || cardinality(v_claims) || ' claimed tasks went back to the queue.'
+           END;
+      FOREACH v_person IN ARRAY v_people LOOP
+        PERFORM pm.upsert_notification(v_person, r.name || ' stopped responding', v_text, '/agent/' || r.id, 'member', r.id::text);
+      END LOOP;
+      v_offline := v_offline + 1;
+    END LOOP;
+
+    FOR r IN
+      SELECT w.subject_id AS id, w.since, w.notified_at, a.name, h.reported_at, h.expected_interval_seconds AS interval_seconds
+      FROM pm.watchdog_marks w
+      JOIN pm.team_members a ON a.id = w.subject_id
+      JOIN pm.agent_health h ON h.member_id = w.subject_id
+      WHERE w.kind = 'agent_offline'
+        AND h.reported_at >= now() - make_interval(secs => pm.heartbeat_stale_after_seconds(h.expected_interval_seconds))
+    LOOP
+      DELETE FROM pm.watchdog_marks WHERE kind = 'agent_offline' AND subject_id = r.id;
+      PERFORM pm.emit_webhook_event('agent.online', 'agent', r.id, '{}'::uuid[], ARRAY[r.id], jsonb_build_object(
+        'agent', jsonb_build_object('id', r.id, 'name', r.name, 'reported_at', r.reported_at,
+          'expected_interval_seconds', r.interval_seconds, 'stale_after_seconds', pm.heartbeat_stale_after_seconds(r.interval_seconds)),
+        'offline_since', r.since,
+        'project', NULL, 'project_id', NULL, 'task_id', NULL, 'actor_id', NULL));
+      IF r.notified_at IS NOT NULL THEN
+        FOREACH v_person IN ARRAY pm.agent_people_to_tell(r.id) LOOP
+          PERFORM pm.upsert_notification(v_person, r.name || ' is back', r.name || ' is responding again.', '/agent/' || r.id, 'member', r.id::text);
+        END LOOP;
+      END IF;
+      v_online := v_online + 1;
+    END LOOP;
+
+    -- An agent removed, or no longer reporting at all, has nothing to come back from.
+    DELETE FROM pm.watchdog_marks w
+    WHERE w.kind = 'agent_offline'
+      AND NOT EXISTS (
+        SELECT 1 FROM pm.team_members a JOIN pm.agent_health h ON h.member_id = a.id
+        WHERE a.id = w.subject_id AND a.role = 'agent' AND coalesce(a.status, 'active') = 'active'
+      );
+  END IF;
+
+  -- Open questions past their time: stored as expired (the same update a
+  -- read makes), which sends question.expired and clears the asked bells.
+  -- A run one of them held is running again, its clock restarted.
+  UPDATE pm.questions SET status = 'expired'
+  WHERE status = 'open' AND expires_at <= now();
+  GET DIAGNOSTICS v_questions = ROW_COUNT;
+
+  -- Runs with no update for two hours: stored as timed_out, which sends
+  -- run.finished. The run ends at its last update. A run waiting on a
+  -- person is skipped while a question naming it is open; waiting with
+  -- none, it gets seven days.
+  UPDATE pm.agent_runs run
+  SET status = 'timed_out', finished_at = greatest(run.started_at, run.updated_at)
+  WHERE (run.status = 'running' AND run.updated_at < now() - interval '2 hours')
+     OR (run.status = 'waiting' AND run.updated_at < now() - interval '7 days'
+         AND NOT pm.agent_run_has_open_question(run.id));
+  GET DIAGNOSTICS v_runs = ROW_COUNT;
+
+  -- Whoever asked hears once, however the expiry was stored, within a day.
+  FOR r IN
+    SELECT q.id, q.kind, q.question, q.asked_by, q.asked_to, q.project_id, q.task_id,
+      asker.name AS asker_name, asker.role AS asker_role, coalesce(target.name, g.name) AS target_name
+    FROM pm.questions q
+    JOIN pm.team_members asker ON asker.id = q.asked_by
+    LEFT JOIN pm.team_members target ON target.id = q.asked_to
+    LEFT JOIN pm.groups g ON g.id = q.asked_to_group
+    WHERE q.status = 'expired' AND q.deleted_at IS NULL AND q.expires_at > now() - interval '1 day'
+      AND NOT EXISTS (SELECT 1 FROM pm.watchdog_marks w WHERE w.kind = 'question_expired' AND w.subject_id = q.id)
+    ORDER BY q.expires_at
+  LOOP
+    INSERT INTO pm.watchdog_marks (kind, subject_id, notified_at) VALUES ('question_expired', r.id, now());
+    IF r.asker_role = 'agent' THEN
+      v_people := pm.agent_people_to_tell(r.asked_by);
+      v_title := r.asker_name || '''s ';
+      v_link := '/agent/' || r.asked_by;
+    ELSE
+      SELECT coalesce(array_agg(m.id), '{}') INTO v_people FROM pm.team_members m
+      WHERE m.id = r.asked_by AND coalesce(m.status, 'active') = 'active';
+      v_title := 'Your ';
+      v_link := '/my-tasks';
+    END IF;
+    IF r.task_id IS NOT NULL AND r.project_id IS NOT NULL THEN
+      v_link := '/projects/' || r.project_id || '?task=' || r.task_id;
+    END IF;
+    v_title := v_title || CASE WHEN r.kind = 'approval' THEN 'approval request to ' ELSE 'question to ' END
+      || coalesce(nullif(btrim(r.target_name), ''), 'a teammate')
+      || CASE WHEN r.kind = 'approval' THEN ' expired without a decision' ELSE ' expired without an answer' END;
+    FOREACH v_person IN ARRAY v_people LOOP
+      -- Whoever was asked already knows.
+      CONTINUE WHEN v_person IS NOT DISTINCT FROM r.asked_to;
+      PERFORM pm.upsert_notification(v_person, v_title, left(r.question, 500), v_link, 'question', r.id::text);
+      v_told := v_told + 1;
+    END LOOP;
+  END LOOP;
+  DELETE FROM pm.watchdog_marks WHERE kind = 'question_expired' AND since < now() - interval '2 days';
+
+  -- Webhook endpoints that keep failing: 5 attempts in a row, or failing for
+  -- a day. Told once; a success resets it (track_webhook_endpoint_health).
+  IF pm.module_enabled('webhooks') THEN
+    FOR r IN
+      SELECT w.subject_id AS id, w.detail, e.name
+      FROM pm.watchdog_marks w
+      JOIN pm.webhook_endpoints e ON e.id = w.subject_id
+      WHERE w.kind = 'webhook_failing' AND w.notified_at IS NULL AND e.is_active
+        AND (w.failures >= 5 OR w.since <= now() - interval '24 hours')
+    LOOP
+      UPDATE pm.watchdog_marks SET notified_at = now(), updated_at = now()
+      WHERE kind = 'webhook_failing' AND subject_id = r.id;
+      FOR v_person IN
+        SELECT m.id FROM pm.team_members m
+        WHERE m.role <> 'agent' AND coalesce(m.status, 'active') = 'active'
+          AND (m.role = 'owner' OR pm.member_has_permission(m.id, 'webhooks.manage', 'app'))
+        ORDER BY m.id
+      LOOP
+        PERFORM pm.upsert_notification(v_person, 'Webhook ' || r.name || ' keeps failing',
+          'Last error: ' || coalesce(r.detail ->> 'last_error', 'unknown'), '/settings/developers#webhooks', 'webhook', r.id::text);
+      END LOOP;
+      v_webhooks := v_webhooks + 1;
+    END LOOP;
+  END IF;
+  DELETE FROM pm.watchdog_marks w
+  WHERE w.kind = 'webhook_failing'
+    AND NOT EXISTS (SELECT 1 FROM pm.webhook_endpoints e WHERE e.id = w.subject_id);
+
+  RETURN jsonb_build_object(
+    'agents_offline', v_offline,
+    'agents_online', v_online,
+    'runs_timed_out', v_runs,
+    'questions_expired', v_questions,
+    'askers_told', v_told,
+    'webhooks_failing', v_webhooks
+  );
+END;
+$$;
+
+REVOKE ALL ON FUNCTION pm.run_watchdog() FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION pm.run_watchdog() TO service_role;
+
+-- ---------------------------------------------------------------------------
+-- Webhook retries: an Owner may turn them off
+-- ---------------------------------------------------------------------------
+-- As before, plus: nothing is sent while an Owner has retries turned off.
+CREATE OR REPLACE FUNCTION pm.webhook_retry_kick()
+RETURNS bigint
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pm
+AS $$
+DECLARE
+  app_url text;
+  secret text;
+BEGIN
+  IF EXISTS (SELECT 1 FROM pm.business_settings s WHERE s.webhook_retries_off) THEN
+    RETURN NULL;
+  END IF;
+  -- An invoice delivery waits while Client invoicing is off; it is not due.
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pm.webhook_deliveries d
+    JOIN pm.webhook_endpoints e ON e.id = d.endpoint_id
+    JOIN pm.webhook_events ev ON ev.id = d.webhook_event_id
+    WHERE e.is_active
+      AND (ev.resource_type <> 'invoice' OR pm.module_enabled('billing'))
+      AND (
+        (d.status = 'pending' AND d.next_attempt_at <= now())
+        OR (d.status = 'delivering' AND coalesce(d.lease_expires_at, '-infinity') <= now())
+      )
+  ) THEN
+    RETURN NULL;
+  END IF;
+
+  SELECT decrypted_secret INTO app_url FROM vault.decrypted_secrets WHERE name = 'pm_webhook_scheduler_url';
+  SELECT decrypted_secret INTO secret FROM vault.decrypted_secrets WHERE name = 'pm_webhook_scheduler_secret';
+  IF app_url IS NULL OR secret IS NULL THEN
+    RAISE NOTICE 'webhook_scheduler_url or webhook_scheduler_secret is missing from Vault; webhook retries wait for the next in-app dispatch';
+    RETURN NULL;
+  END IF;
+
+  RETURN net.http_post(
+    url := rtrim(app_url, '/') || '/api/internal/webhooks/scheduled',
+    headers := jsonb_build_object('Content-Type', 'application/json', 'Authorization', 'Bearer ' || secret),
+    body := '{"source":"pg_cron"}'::jsonb,
+    timeout_milliseconds := 60000
+  );
+END;
+$$;
+
+REVOKE ALL ON FUNCTION pm.webhook_retry_kick() FROM PUBLIC, anon, authenticated, service_role;
+
+-- Turning retries on writes the scheduler secret twice: sealed in
+-- pm.app_secrets for the app, and in Vault for pm.webhook_retry_kick. Both
+-- writes happen here, in one transaction and one set-up at a time, so two
+-- app servers turning retries on at once never leave the app and Vault with
+-- different secrets (every kick would be refused). With p_replace false
+-- (the app turning them on by itself) a secret saved first stands: nothing
+-- changes and false comes back. pm.store_webhook_scheduler, made only where
+-- Supabase Vault is, checks the address and the secret. Server only.
+CREATE OR REPLACE FUNCTION pm.set_up_webhook_scheduler(p_url text, p_secret text, p_sealed text, p_member_id uuid DEFAULT NULL, p_replace boolean DEFAULT true)
+RETURNS boolean
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pm
+AS $$
+BEGIN
+  PERFORM pg_advisory_xact_lock(hashtext('pm.set_up_webhook_scheduler'));
+  IF NOT coalesce(p_replace, true) AND EXISTS (SELECT 1 FROM pm.app_secrets WHERE name = 'webhook_scheduler_secret') THEN
+    RETURN false;
+  END IF;
+  INSERT INTO pm.app_secrets (name, value, updated_at, updated_by)
+  VALUES ('webhook_scheduler_secret', p_sealed, now(), p_member_id)
+  ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at, updated_by = EXCLUDED.updated_by;
+  PERFORM pm.store_webhook_scheduler(p_url, p_secret);
+  RETURN true;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION pm.set_up_webhook_scheduler(text, text, text, uuid, boolean) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION pm.set_up_webhook_scheduler(text, text, text, uuid, boolean) TO service_role;
+
+-- ---------------------------------------------------------------------------
+-- Retention
+-- ---------------------------------------------------------------------------
+-- Runs are never deleted by hand; only the retention job removes old ones.
+CREATE OR REPLACE FUNCTION pm.agent_runs_forbid_delete()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = pm
+AS $$
+BEGIN
+  IF coalesce(current_setting('pm.data_retention', true), '') = 'on' AND current_user NOT IN ('anon', 'authenticated') THEN
+    RETURN OLD;
+  END IF;
+  RAISE EXCEPTION 'Rows in % are never permanently deleted. Move them to Trash instead.', TG_TABLE_NAME
+    USING ERRCODE = 'P0001', HINT = 'Old runs go only through the retention job (agent_run_retention_days).';
+END;
+$$;
+
+REVOKE ALL ON FUNCTION pm.agent_runs_forbid_delete() FROM PUBLIC, anon, authenticated;
+
+DROP TRIGGER IF EXISTS forbid_hard_delete ON pm.agent_runs;
+CREATE TRIGGER forbid_hard_delete BEFORE DELETE ON pm.agent_runs
+  FOR EACH ROW EXECUTE FUNCTION pm.agent_runs_forbid_delete();
+
+-- The lineage guard (pm.stamp_run_lineage, 20261125000100) keeps a run's
+-- parent and root as they were made, with one exception: a link cleared
+-- because the run it named is gone. Retention deleting an old parent or
+-- root clears the link on its newer children (ON DELETE SET NULL); before,
+-- the guard put the old id back, the foreign key failed and the whole
+-- retention run rolled back.
+CREATE OR REPLACE FUNCTION pm.stamp_run_lineage()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = pm
+AS $$
+DECLARE
+  v_parent record;
+BEGIN
+  IF TG_OP = 'UPDATE' THEN
+    IF NOT (NEW.parent_run_id IS NULL AND OLD.parent_run_id IS NOT NULL
+            AND NOT EXISTS (SELECT 1 FROM pm.agent_runs r WHERE r.id = OLD.parent_run_id)) THEN
+      NEW.parent_run_id := OLD.parent_run_id;
+    END IF;
+    IF NOT (NEW.root_run_id IS NULL AND OLD.root_run_id IS NOT NULL
+            AND NOT EXISTS (SELECT 1 FROM pm.agent_runs r WHERE r.id = OLD.root_run_id)) THEN
+      NEW.root_run_id := OLD.root_run_id;
+    END IF;
+    RETURN NEW;
+  END IF;
+  IF NEW.parent_run_id IS NULL THEN
+    NEW.root_run_id := NULL;
+    RETURN NEW;
+  END IF;
+  SELECT r.id, r.root_run_id, r.principal_id INTO v_parent FROM pm.agent_runs r WHERE r.id = NEW.parent_run_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'The parent run does not exist' USING ERRCODE = '23503';
+  END IF;
+  NEW.root_run_id := coalesce(v_parent.root_run_id, v_parent.id);
+  IF NEW.principal_id IS NULL THEN
+    NEW.principal_id := v_parent.principal_id;
+  ELSIF NEW.principal_id IS DISTINCT FROM v_parent.principal_id THEN
+    RAISE EXCEPTION 'new row for relation "agent_runs" violates check constraint "agent_runs_principal_carried"'
+      USING ERRCODE = '23514', DETAIL = 'A child run acts for the same person as its parent.';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION pm.stamp_run_lineage() FROM PUBLIC, anon, authenticated;
+
+-- Daily. Up to 20 batches of 5,000 rows per kind per run, so a large
+-- backlog is worked down over a few days without a long transaction. Answers
+-- how many rows went (chat: how many texts were blanked).
+CREATE OR REPLACE FUNCTION pm.apply_data_retention()
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pm
+AS $$
+DECLARE
+  batch constant integer := 5000;
+  max_rounds constant integer := 20;
+  s record;
+  v_cutoff timestamptz;
+  v_n integer;
+  v_round integer;
+  v_deliveries integer := 0;
+  v_events integer := 0;
+  v_health integer := 0;
+  v_activities integer := 0;
+  v_runs integer := 0;
+  v_chat integer := 0;
+BEGIN
+  IF NOT pg_try_advisory_xact_lock(hashtext('pm.apply_data_retention')) THEN
+    RETURN jsonb_build_object('skipped', true);
+  END IF;
+  SELECT webhook_retention_days, agent_health_history_days, agent_activity_retention_days,
+    agent_run_retention_days, chat_retention_days
+  INTO s FROM pm.business_settings LIMIT 1;
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('skipped', true);
+  END IF;
+
+  -- Webhooks: finished deliveries, then events no delivery needs any more.
+  IF s.webhook_retention_days IS NOT NULL THEN
+    v_cutoff := now() - make_interval(days => s.webhook_retention_days);
+    v_round := 0;
+    LOOP
+      DELETE FROM pm.webhook_deliveries WHERE id IN (
+        SELECT d.id FROM pm.webhook_deliveries d
+        WHERE d.status IN ('succeeded', 'failed') AND d.created_at < v_cutoff
+        LIMIT batch);
+      GET DIAGNOSTICS v_n = ROW_COUNT;
+      v_deliveries := v_deliveries + v_n;
+      v_round := v_round + 1;
+      EXIT WHEN v_n < batch OR v_round >= max_rounds;
+    END LOOP;
+    v_round := 0;
+    LOOP
+      DELETE FROM pm.webhook_events WHERE id IN (
+        SELECT ev.id FROM pm.webhook_events ev
+        WHERE ev.created_at < v_cutoff
+          AND NOT EXISTS (SELECT 1 FROM pm.webhook_deliveries d WHERE d.webhook_event_id = ev.id)
+        LIMIT batch);
+      GET DIAGNOSTICS v_n = ROW_COUNT;
+      v_events := v_events + v_n;
+      v_round := v_round + 1;
+      EXIT WHEN v_n < batch OR v_round >= max_rounds;
+    END LOOP;
+  END IF;
+
+  -- Uptime history: the newest row per agent stays, so its state is known.
+  IF s.agent_health_history_days IS NOT NULL THEN
+    v_cutoff := now() - make_interval(days => s.agent_health_history_days);
+    v_round := 0;
+    LOOP
+      DELETE FROM pm.agent_health_history WHERE id IN (
+        SELECT h.id FROM pm.agent_health_history h
+        WHERE h.changed_at < v_cutoff
+          AND EXISTS (SELECT 1 FROM pm.agent_health_history newer
+                      WHERE newer.member_id = h.member_id AND newer.changed_at > h.changed_at)
+        LIMIT batch);
+      GET DIAGNOSTICS v_n = ROW_COUNT;
+      v_health := v_health + v_n;
+      v_round := v_round + 1;
+      EXIT WHEN v_n < batch OR v_round >= max_rounds;
+    END LOOP;
+  END IF;
+
+  -- Agent events: billing events (what agent time was billed from) stay.
+  IF s.agent_activity_retention_days IS NOT NULL THEN
+    v_cutoff := now() - make_interval(days => s.agent_activity_retention_days);
+    v_round := 0;
+    LOOP
+      DELETE FROM pm.agent_activities WHERE id IN (
+        SELECT a.id FROM pm.agent_activities a
+        WHERE a.created_at < v_cutoff AND a.activity_type NOT LIKE 'billing.%'
+        LIMIT batch);
+      GET DIAGNOSTICS v_n = ROW_COUNT;
+      v_activities := v_activities + v_n;
+      v_round := v_round + 1;
+      EXIT WHEN v_n < batch OR v_round >= max_rounds;
+    END LOOP;
+  END IF;
+
+  -- Finished runs, unless an unfinished run, an open delegation or a pending
+  -- delivery still needs them.
+  IF s.agent_run_retention_days IS NOT NULL THEN
+    v_cutoff := now() - make_interval(days => s.agent_run_retention_days);
+    PERFORM set_config('pm.data_retention', 'on', true);
+    v_round := 0;
+    LOOP
+      DELETE FROM pm.agent_runs WHERE id IN (
+        SELECT r.id FROM pm.agent_runs r
+        WHERE r.status <> 'running' AND r.finished_at < v_cutoff
+          AND NOT EXISTS (SELECT 1 FROM pm.agent_runs c
+                          WHERE (c.parent_run_id = r.id OR c.root_run_id = r.id) AND c.status IN ('running', 'waiting'))
+          AND NOT EXISTS (SELECT 1 FROM pm.task_delegations dl JOIN pm.tasks t ON t.id = dl.task_id
+                          WHERE dl.run_id = r.id AND t.status <> 'done' AND t.deleted_at IS NULL)
+          AND NOT EXISTS (SELECT 1 FROM pm.webhook_events ev JOIN pm.webhook_deliveries d ON d.webhook_event_id = ev.id
+                          WHERE ev.resource_type = 'run' AND ev.resource_id = r.id AND d.status IN ('pending', 'delivering'))
+        LIMIT batch);
+      GET DIAGNOSTICS v_n = ROW_COUNT;
+      v_runs := v_runs + v_n;
+      v_round := v_round + 1;
+      EXIT WHEN v_n < batch OR v_round >= max_rounds;
+    END LOOP;
+    PERFORM set_config('pm.data_retention', 'off', true);
+  END IF;
+
+  -- Chat text is blanked, the row stays: its dedupe key (a provider retry,
+  -- the one on-hold notice) and its place in the thread still count. A
+  -- message still waiting for its assistant, or for a delivery, keeps it.
+  IF s.chat_retention_days IS NOT NULL THEN
+    v_cutoff := now() - make_interval(days => s.chat_retention_days);
+    v_round := 0;
+    LOOP
+      UPDATE pm.chat_messages SET text = '' WHERE id IN (
+        SELECT m.id FROM pm.chat_messages m
+        WHERE m.text <> '' AND m.created_at < v_cutoff
+          AND NOT (m.direction = 'inbound' AND m.status IN ('pending', 'notified'))
+          AND NOT EXISTS (SELECT 1 FROM pm.webhook_events ev JOIN pm.webhook_deliveries d ON d.webhook_event_id = ev.id
+                          WHERE ev.resource_type = 'chat_message' AND ev.resource_id = m.id AND d.status IN ('pending', 'delivering'))
+        LIMIT batch);
+      GET DIAGNOSTICS v_n = ROW_COUNT;
+      v_chat := v_chat + v_n;
+      v_round := v_round + 1;
+      EXIT WHEN v_n < batch OR v_round >= max_rounds;
+    END LOOP;
+  END IF;
+
+  IF v_deliveries + v_events + v_health + v_activities + v_runs + v_chat > 0 THEN
+    INSERT INTO pm.api_audit_log (method, endpoint, entity_type, request_body, status_code, via)
+    VALUES ('DELETE', '/app/data/retention', 'business_settings', jsonb_build_object(
+      'webhook_deliveries', v_deliveries, 'webhook_events', v_events, 'agent_health_history', v_health,
+      'agent_activities', v_activities, 'agent_runs', v_runs, 'chat_texts', v_chat), 200, 'app');
+  END IF;
+  RETURN jsonb_build_object(
+    'webhook_deliveries', v_deliveries,
+    'webhook_events', v_events,
+    'agent_health_history', v_health,
+    'agent_activities', v_activities,
+    'agent_runs', v_runs,
+    'chat_texts', v_chat
+  );
+END;
+$$;
+
+REVOKE ALL ON FUNCTION pm.apply_data_retention() FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION pm.apply_data_retention() TO service_role;
+
+-- ---------------------------------------------------------------------------
+-- Schedules. Skipped where pg_cron is unavailable (PGlite). Re-running
+-- cron.schedule updates a job in place.
+-- ---------------------------------------------------------------------------
+DO $do$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = 'pg_cron') THEN
+    RAISE NOTICE 'pg_cron is unavailable here; run SELECT pm.run_watchdog() every 5 minutes and SELECT pm.apply_data_retention() daily';
+    RETURN;
+  END IF;
+  CREATE EXTENSION IF NOT EXISTS pg_cron;
+  PERFORM cron.schedule('pm-agent-watchdog', '*/5 * * * *', $job$SELECT pm.run_watchdog();$job$);
+  PERFORM cron.schedule('pm-retention', '47 3 * * *', $job$SELECT pm.apply_data_retention();$job$);
+END;
+$do$;
+
+-- ============================================================
+-- CHAT TARGETS (20261125001100_chat_targets.sql)
+-- Two bots: the personal bot (DMs, each person's own assistant)
+-- and the company bot (channels and DMs, company agents).
+-- ============================================================
+-- Two bots: the personal bot and the company bot, and chat names that no
+-- longer say "assistant".
+--
+-- - chat_connections.kind: personal (DMs only, each person's message goes to
+--   their own personal assistant, as before) or company (channels and DMs,
+--   routed to company agents). Every connection made before is personal.
+--   chat_connections.external_bot_id: the bot's own id with the provider
+--   (Slack's bot user, Telegram's bot), so one bot is one connection and a
+--   Slack mention of the bot is recognised. One connection per provider
+--   workspace and kind (a personal app and a company app may share a Slack
+--   workspace). Telegram connections made before take their bot id from
+--   external_workspace_id, which already held it.
+-- - pm.chat_connection_agents: the company agents a company connection
+--   reaches, one of them the default (a DM to the bot, or a mention of the
+--   bot in a channel with no mapping). Server only.
+-- - pm.chat_channel_routes: a channel of a company connection mapped to one
+--   of its agents, with listen 'mentions' (the default: only a mention is
+--   recorded) or 'all' (every message is recorded as context for that
+--   agent, never a request to answer). An agent removed from the connection
+--   takes its channel mappings with it. Server only.
+-- - chat_messages.is_request (false: context, recorded only so the agent
+--   knows what was said; status context), is_direct (a one-to-one chat with
+--   the bot; null for messages before) and route (how it reached its agent:
+--   direct, mention, channel or default; null for personal ones).
+-- - The chat.message webhook event: ids only, like assistant.message, for
+--   personal and company messages alike. pm.emit_chat_message queues it to
+--   the active endpoints subscribed to it that are filtered to exactly the
+--   agent, or scoped to the assistant setup that made it. An endpoint lists
+--   chat.message only when filtered to an agent or scoped to a setup
+--   (pm.webhook_endpoints_assistant_guard); assistant.message keeps its own
+--   rule. Service role only.
+--
+-- Additive and safe to run twice. The previous release's code never reads
+-- the new columns or tables: its connections read as personal, its messages
+-- as requests, and nothing it writes trips a new check.
+
+-- ---------------------------------------------------------------------------
+-- Connections: kind and the bot's own id
+-- ---------------------------------------------------------------------------
+ALTER TABLE pm.chat_connections
+  ADD COLUMN IF NOT EXISTS kind text NOT NULL DEFAULT 'personal',
+  ADD COLUMN IF NOT EXISTS external_bot_id text;
+
+ALTER TABLE pm.chat_connections DROP CONSTRAINT IF EXISTS chat_connections_kind_check;
+ALTER TABLE pm.chat_connections
+  ADD CONSTRAINT chat_connections_kind_check CHECK (kind IN ('personal', 'company'));
+ALTER TABLE pm.chat_connections DROP CONSTRAINT IF EXISTS chat_connections_bot_id_length;
+ALTER TABLE pm.chat_connections
+  ADD CONSTRAINT chat_connections_bot_id_length CHECK (external_bot_id IS NULL OR length(external_bot_id) <= 255);
+
+COMMENT ON COLUMN pm.chat_connections.kind IS
+  'personal: DMs only, each person''s message goes to their own personal assistant. company: channels and DMs, routed to the company agents in chat_connection_agents.';
+COMMENT ON COLUMN pm.chat_connections.external_bot_id IS
+  'The bot''s own id with the provider (Slack bot user, Telegram bot): one connection per bot, and how a Slack mention of the bot is recognised.';
+
+-- Telegram's workspace id was always its bot's id.
+UPDATE pm.chat_connections SET external_bot_id = external_workspace_id
+WHERE provider = 'telegram' AND external_bot_id IS NULL AND external_workspace_id IS NOT NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS chat_connections_provider_bot
+  ON pm.chat_connections (provider, external_bot_id) WHERE external_bot_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS chat_connections_provider_workspace_kind
+  ON pm.chat_connections (provider, external_workspace_id, kind) WHERE external_workspace_id IS NOT NULL;
+DROP INDEX IF EXISTS pm.chat_connections_provider_workspace;
+
+-- Discord joins Slack and Telegram (its relay posts to the same inbound route).
+ALTER TABLE pm.chat_connections DROP CONSTRAINT IF EXISTS chat_connections_provider_check;
+ALTER TABLE pm.chat_connections
+  ADD CONSTRAINT chat_connections_provider_check CHECK (provider IN ('slack', 'telegram', 'discord', 'teams', 'custom'));
+
+-- ---------------------------------------------------------------------------
+-- The company agents a company connection reaches
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS pm.chat_connection_agents (
+  connection_id uuid NOT NULL REFERENCES pm.chat_connections(id) ON DELETE CASCADE,
+  agent_id uuid NOT NULL REFERENCES pm.team_members(id) ON DELETE CASCADE,
+  is_default boolean NOT NULL DEFAULT false,
+  created_by uuid REFERENCES pm.team_members(id) ON DELETE SET NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (connection_id, agent_id)
+);
+
+COMMENT ON TABLE pm.chat_connection_agents IS
+  'The company agents a company chat connection reaches; is_default marks the one a DM, or a mention of the bot in an unmapped channel, goes to. Server only.';
+
+CREATE UNIQUE INDEX IF NOT EXISTS chat_connection_agents_one_default
+  ON pm.chat_connection_agents (connection_id) WHERE is_default;
+CREATE INDEX IF NOT EXISTS idx_chat_connection_agents_agent
+  ON pm.chat_connection_agents (agent_id);
+
+ALTER TABLE pm.chat_connection_agents ENABLE ROW LEVEL SECURITY;
+
+REVOKE ALL ON pm.chat_connection_agents FROM PUBLIC, anon, authenticated;
+GRANT ALL ON pm.chat_connection_agents TO service_role;
+
+-- ---------------------------------------------------------------------------
+-- Channel mappings
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS pm.chat_channel_routes (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  connection_id uuid NOT NULL,
+  channel_id text NOT NULL,
+  channel_name text,
+  agent_id uuid NOT NULL,
+  listen text NOT NULL DEFAULT 'mentions',
+  created_by uuid REFERENCES pm.team_members(id) ON DELETE SET NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  -- Only an agent the connection reaches; removing it removes its channels.
+  CONSTRAINT chat_channel_routes_agent_fkey FOREIGN KEY (connection_id, agent_id)
+    REFERENCES pm.chat_connection_agents (connection_id, agent_id) ON DELETE CASCADE
+);
+
+ALTER TABLE pm.chat_channel_routes DROP CONSTRAINT IF EXISTS chat_channel_routes_listen_check;
+ALTER TABLE pm.chat_channel_routes
+  ADD CONSTRAINT chat_channel_routes_listen_check CHECK (listen IN ('all', 'mentions'));
+ALTER TABLE pm.chat_channel_routes DROP CONSTRAINT IF EXISTS chat_channel_routes_text_lengths;
+ALTER TABLE pm.chat_channel_routes
+  ADD CONSTRAINT chat_channel_routes_text_lengths CHECK (
+    length(channel_id) BETWEEN 1 AND 255
+    AND (channel_name IS NULL OR length(channel_name) <= 255)
+  );
+
+COMMENT ON TABLE pm.chat_channel_routes IS
+  'A channel of a company chat connection mapped to one of its agents. listen mentions: only a mention is recorded (as a request). listen all: every message is recorded as context for the agent, never a request. Server only.';
+
+CREATE UNIQUE INDEX IF NOT EXISTS chat_channel_routes_channel
+  ON pm.chat_channel_routes (connection_id, channel_id);
+
+DROP TRIGGER IF EXISTS set_chat_channel_routes_updated_at ON pm.chat_channel_routes;
+CREATE TRIGGER set_chat_channel_routes_updated_at
+  BEFORE UPDATE ON pm.chat_channel_routes
+  FOR EACH ROW EXECUTE FUNCTION pm.handle_updated_at();
+
+ALTER TABLE pm.chat_channel_routes ENABLE ROW LEVEL SECURITY;
+
+REVOKE ALL ON pm.chat_channel_routes FROM PUBLIC, anon, authenticated;
+GRANT ALL ON pm.chat_channel_routes TO service_role;
+
+-- ---------------------------------------------------------------------------
+-- Messages: requests and context
+-- ---------------------------------------------------------------------------
+ALTER TABLE pm.chat_messages
+  ADD COLUMN IF NOT EXISTS is_request boolean NOT NULL DEFAULT true,
+  ADD COLUMN IF NOT EXISTS is_direct boolean,
+  ADD COLUMN IF NOT EXISTS route text;
+
+ALTER TABLE pm.chat_messages DROP CONSTRAINT IF EXISTS chat_messages_direction_status;
+ALTER TABLE pm.chat_messages
+  ADD CONSTRAINT chat_messages_direction_status CHECK (
+    (direction = 'inbound' AND status IN ('pending', 'notified', 'replied', 'handled', 'unrouted', 'context'))
+    OR (direction = 'outbound' AND status IN ('sent', 'failed'))
+  );
+ALTER TABLE pm.chat_messages DROP CONSTRAINT IF EXISTS chat_messages_context_check;
+ALTER TABLE pm.chat_messages
+  ADD CONSTRAINT chat_messages_context_check CHECK ((status = 'context') = (direction = 'inbound' AND NOT is_request));
+ALTER TABLE pm.chat_messages DROP CONSTRAINT IF EXISTS chat_messages_route_check;
+ALTER TABLE pm.chat_messages
+  ADD CONSTRAINT chat_messages_route_check CHECK (route IS NULL OR route IN ('direct', 'mention', 'channel', 'default'));
+
+COMMENT ON COLUMN pm.chat_messages.is_request IS
+  'false: context (status context), a channel message recorded so its agent knows what was said; never a request to answer.';
+COMMENT ON COLUMN pm.chat_messages.is_direct IS
+  'Sent in a one-to-one chat with the bot (null: recorded before 20261125001100).';
+COMMENT ON COLUMN pm.chat_messages.route IS
+  'How a company message reached its agent: direct (a DM, to the default agent), mention (the agent named), channel (the channel mapping), default (the bot mentioned in an unmapped channel). Null for personal messages.';
+
+-- One provider message is recorded once. Slack sends a channel mention of
+-- the company bot twice (app_mention and message, each with its own event
+-- id, so the dedupe key differs), and two deliveries can arrive at once.
+-- Twins recorded before keep their rows and text: only the newer ones give
+-- up the provider message id, so the oldest stays that message.
+UPDATE pm.chat_messages m SET external_message_id = NULL
+WHERE m.direction = 'inbound' AND m.external_message_id IS NOT NULL
+  AND EXISTS (
+    SELECT 1 FROM pm.chat_messages o
+    WHERE o.direction = 'inbound' AND o.connection_id = m.connection_id
+      AND o.conversation_id = m.conversation_id AND o.external_message_id = m.external_message_id
+      AND (o.created_at, o.id) < (m.created_at, m.id)
+  );
+CREATE UNIQUE INDEX IF NOT EXISTS chat_messages_inbound_external
+  ON pm.chat_messages (connection_id, conversation_id, external_message_id)
+  WHERE direction = 'inbound' AND external_message_id IS NOT NULL;
+
+-- ---------------------------------------------------------------------------
+-- Webhook chat.message
+-- ---------------------------------------------------------------------------
+-- assistant.message: only an endpoint filtered to a personal agent, or
+-- scoped to an assistant setup, as before. chat.message: only an endpoint
+-- filtered to an agent (personal or company), or scoped to a setup. Chat is
+-- private: no workspace-wide endpoint ever lists either.
+CREATE OR REPLACE FUNCTION pm.webhook_endpoints_assistant_guard()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = ''
+AS $$
+BEGIN
+  IF NEW.assistant_setup_id IS NOT NULL AND auth.uid() IS NOT NULL AND coalesce(auth.role(), '') <> 'service_role' THEN
+    IF TG_OP = 'INSERT' OR NEW.assistant_setup_id IS DISTINCT FROM OLD.assistant_setup_id THEN
+      IF coalesce(pm.current_team_member_role(), '') <> 'owner' THEN
+        RAISE EXCEPTION 'Only an Owner scopes an endpoint to an assistant setup' USING ERRCODE = '42501';
+      END IF;
+    END IF;
+  END IF;
+  IF 'assistant.message' = ANY (NEW.events) AND NEW.assistant_setup_id IS NULL AND NOT EXISTS (
+    SELECT 1 FROM pm.team_members a WHERE a.id = NEW.member_id AND a.role = 'agent' AND a.delegate_of IS NOT NULL
+  ) THEN
+    RAISE EXCEPTION 'assistant.message goes only to an endpoint filtered to a personal agent (member_id) or scoped to an assistant setup (assistant_setup_id)' USING ERRCODE = '23514';
+  END IF;
+  IF 'chat.message' = ANY (NEW.events) AND NEW.assistant_setup_id IS NULL AND NOT EXISTS (
+    SELECT 1 FROM pm.team_members a WHERE a.id = NEW.member_id AND a.role = 'agent'
+  ) THEN
+    RAISE EXCEPTION 'chat.message goes only to an endpoint filtered to an agent (member_id) or scoped to an assistant setup (assistant_setup_id)' USING ERRCODE = '23514';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION pm.webhook_endpoints_assistant_guard() FROM PUBLIC, anon, authenticated;
+
+-- Queues one chat.message event (resource chat_message) to every active
+-- endpoint subscribed to it whose member filter is exactly the agent, or
+-- whose setup made the agent. Never to an endpoint with neither. Answers
+-- whether any endpoint got it; nothing is written when none does.
+CREATE OR REPLACE FUNCTION pm.emit_chat_message(p_message_id uuid, p_agent_id uuid, p_data jsonb)
+RETURNS boolean
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pm
+AS $$
+DECLARE
+  v_endpoints uuid[];
+  v_seq bigint;
+  v_public_id text;
+  v_event_uuid uuid;
+BEGIN
+  SELECT array_agg(e.id ORDER BY e.id) INTO v_endpoints
+  FROM pm.webhook_endpoints e
+  WHERE e.is_active AND e.events @> ARRAY['chat.message']
+    AND (e.member_id = p_agent_id OR (e.member_id IS NULL AND e.assistant_setup_id IS NOT NULL))
+    AND pm.webhook_endpoint_matches(e, 'chat.message', '{}'::uuid[], ARRAY[p_agent_id]);
+  IF v_endpoints IS NULL THEN
+    RETURN false;
+  END IF;
+
+  v_seq := nextval('pm.webhook_event_seq');
+  v_public_id := 'evt_' || replace(gen_random_uuid()::text, '-', '');
+
+  INSERT INTO pm.webhook_events (event_id, sequence, event_type, resource_type, resource_id, payload)
+  VALUES (
+    v_public_id, v_seq, 'chat.message', 'chat_message', p_message_id,
+    jsonb_build_object(
+      'id', v_public_id,
+      'type', 'chat.message',
+      'sequence', v_seq,
+      'created_at', now(),
+      'data', coalesce(p_data, '{}'::jsonb) || jsonb_build_object('member_ids', jsonb_build_array(p_agent_id))
+    )
+  )
+  RETURNING id INTO v_event_uuid;
+
+  INSERT INTO pm.webhook_deliveries (webhook_event_id, endpoint_id)
+  SELECT v_event_uuid, unnest(v_endpoints);
+  RETURN true;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION pm.emit_chat_message(uuid, uuid, jsonb) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION pm.emit_chat_message(uuid, uuid, jsonb) TO service_role;
+
+-- ============================================================
+-- EXTERNAL AGENTS (20261125001400_external_agents.sql)
+-- The app as the control plane for agents that work in other systems (a
+-- bookkeeper in an accounting app): pause and budget reach work done
+-- outside, a person can be asked without a project, and the harness hears
+-- about pauses and a spent budget.
+--
+-- - pm.agent_status(member): what an agent checks before each turn, in one
+--   call: the workspace pause, its own pause, its limits and its spend this
+--   budget period (pm.agent_limit_state, the shared spend rule). Server
+--   only: GET /api/v1/agents/me/status reads it for the calling key.
+-- - agent.paused and agent.resumed, once per change of whether an agent may
+--   start work: its own pause (team_members.agent_paused_at) or the
+--   workspace pause (business_settings.agents_paused_at). One event per
+--   agent, filtered to it. An agent's own pause while the workspace is
+--   paused changes nothing it can do, so it sends nothing; neither does the
+--   workspace pause for an agent already paused on its own.
+-- - budget.exceeded, once a budget period: when the period whose overrun
+--   the owners are told about moves on (agent_limits.budget_alerted_period,
+--   claimed once by the server), with the spend at that moment.
+-- - questions.ask: an agent may ask a question or request an approval that
+--   names no task or project, without tasks.read. Core (no module, so no
+--   permission_modules row). Agents hold it on the API, so a key for an
+--   agent can carry it. Admins and members hold it on the API too (Owners
+--   hold every permission), as with approvals.decide: a key hands on only
+--   scopes its own member holds, so whoever hires an agent can give its key
+--   this scope and apply the External agent template. No key carries it
+--   until someone adds it; people ask with tasks.read as before.
+--
+-- Additive and safe to run twice. The previous release's code never calls
+-- pm.agent_status, and the new events go only to endpoints subscribed to
+-- them, which that code cannot make.
+-- ============================================================
+
+INSERT INTO pm.role_permissions (role, permission_key, access_channel) VALUES
+  ('admin', 'questions.ask', 'api'),
+  ('member', 'questions.ask', 'api'),
+  ('agent', 'questions.ask', 'api')
+ON CONFLICT DO NOTHING;
+
+-- ---------------------------------------------------------------------------
+-- What an agent checks before each turn
+-- ---------------------------------------------------------------------------
+-- One call: the member's role, its own pause and the workspace pause (for
+-- an agent; people are never paused), its limits and spend this budget
+-- period (UTC), and when the period ends. Null for a member that does not
+-- exist. Server only.
+CREATE OR REPLACE FUNCTION pm.agent_status(p_member_id uuid)
+RETURNS jsonb
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = pm
+AS $$
+DECLARE
+  v_role text;
+  v_agent_paused timestamptz;
+  v_workspace_paused timestamptz;
+  v_state jsonb;
+  v_period text;
+BEGIN
+  SELECT role, agent_paused_at INTO v_role, v_agent_paused FROM pm.team_members WHERE id = p_member_id;
+  IF NOT FOUND THEN
+    RETURN NULL;
+  END IF;
+  IF v_role IS DISTINCT FROM 'agent' THEN
+    RETURN jsonb_build_object('agent', false, 'workspace_paused_at', NULL, 'agent_paused_at', NULL, 'state', NULL);
+  END IF;
+  SELECT s.agents_paused_at INTO v_workspace_paused FROM pm.business_settings s ORDER BY s.agents_paused_at NULLS LAST LIMIT 1;
+  v_state := pm.agent_limit_state(p_member_id, true);
+  v_period := coalesce(v_state->'limits'->>'budget_period', 'month');
+  RETURN jsonb_build_object(
+    'agent', true,
+    'workspace_paused_at', v_workspace_paused,
+    'agent_paused_at', v_agent_paused,
+    'budget_period', v_period,
+    'period_end', (date_trunc(v_period, now() AT TIME ZONE 'UTC') + ('1 ' || v_period)::interval) AT TIME ZONE 'UTC',
+    'state', v_state);
+END;
+$$;
+
+REVOKE ALL ON FUNCTION pm.agent_status(uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION pm.agent_status(uuid) TO service_role;
+
+-- ---------------------------------------------------------------------------
+-- agent.paused and agent.resumed
+-- ---------------------------------------------------------------------------
+-- One event for one agent. reason names the switch: agent_paused (its own)
+-- or agents_paused (the workspace); on agent.resumed, the one turned off.
+CREATE OR REPLACE FUNCTION pm.emit_agent_pause_event(
+  p_agent_id uuid,
+  p_paused boolean,
+  p_reason text,
+  p_agent_paused_at timestamptz,
+  p_workspace_paused_at timestamptz
+)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pm
+AS $$
+BEGIN
+  PERFORM pm.emit_webhook_event(
+    CASE WHEN p_paused THEN 'agent.paused' ELSE 'agent.resumed' END,
+    'agent',
+    p_agent_id,
+    '{}'::uuid[],
+    ARRAY[p_agent_id],
+    jsonb_build_object(
+      'agent', jsonb_build_object('id', p_agent_id, 'name', coalesce((SELECT a.name FROM pm.team_members a WHERE a.id = p_agent_id), '')),
+      'paused', p_paused,
+      'reason', p_reason,
+      'agent_paused_at', p_agent_paused_at,
+      'workspace_paused_at', p_workspace_paused_at,
+      'project', NULL,
+      'project_id', NULL,
+      'task_id', NULL,
+      'actor_id', pm.webhook_actor_id()
+    )
+  );
+END;
+$$;
+
+REVOKE ALL ON FUNCTION pm.emit_agent_pause_event(uuid, boolean, text, timestamptz, timestamptz) FROM PUBLIC, anon, authenticated;
+
+-- An agent's own pause: sent only while the workspace is not paused (paused
+-- there, the agent could not start work either way).
+CREATE OR REPLACE FUNCTION pm.emit_agent_pause_webhook()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pm
+AS $$
+BEGIN
+  IF NEW.role IS DISTINCT FROM 'agent' OR (OLD.agent_paused_at IS NULL) = (NEW.agent_paused_at IS NULL) THEN
+    RETURN NULL;
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pm.webhook_endpoints e
+    WHERE e.is_active AND e.events && ARRAY['agent.paused', 'agent.resumed']
+  ) THEN
+    RETURN NULL;
+  END IF;
+  IF EXISTS (SELECT 1 FROM pm.business_settings s WHERE s.agents_paused_at IS NOT NULL) THEN
+    RETURN NULL;
+  END IF;
+  PERFORM pm.emit_agent_pause_event(NEW.id, NEW.agent_paused_at IS NOT NULL, 'agent_paused', NEW.agent_paused_at, NULL);
+  RETURN NULL;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION pm.emit_agent_pause_webhook() FROM PUBLIC, anon, authenticated;
+
+DROP TRIGGER IF EXISTS emit_agent_pause_webhook ON pm.team_members;
+CREATE TRIGGER emit_agent_pause_webhook
+  AFTER UPDATE OF agent_paused_at ON pm.team_members
+  FOR EACH ROW
+  WHEN (OLD.agent_paused_at IS DISTINCT FROM NEW.agent_paused_at)
+  EXECUTE FUNCTION pm.emit_agent_pause_webhook();
+
+-- The workspace pause: one event for each active agent not paused on its own.
+CREATE OR REPLACE FUNCTION pm.emit_workspace_pause_webhook()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pm
+AS $$
+DECLARE
+  r record;
+BEGIN
+  IF (OLD.agents_paused_at IS NULL) = (NEW.agents_paused_at IS NULL) THEN
+    RETURN NULL;
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pm.webhook_endpoints e
+    WHERE e.is_active AND e.events && ARRAY['agent.paused', 'agent.resumed']
+  ) THEN
+    RETURN NULL;
+  END IF;
+  FOR r IN
+    SELECT a.id FROM pm.team_members a
+    WHERE a.role = 'agent' AND coalesce(a.status, 'active') = 'active' AND a.agent_paused_at IS NULL
+    ORDER BY a.id
+  LOOP
+    PERFORM pm.emit_agent_pause_event(r.id, NEW.agents_paused_at IS NOT NULL, 'agents_paused', NULL, NEW.agents_paused_at);
+  END LOOP;
+  RETURN NULL;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION pm.emit_workspace_pause_webhook() FROM PUBLIC, anon, authenticated;
+
+DROP TRIGGER IF EXISTS emit_workspace_pause_webhook ON pm.business_settings;
+CREATE TRIGGER emit_workspace_pause_webhook
+  AFTER UPDATE OF agents_paused_at ON pm.business_settings
+  FOR EACH ROW
+  WHEN (OLD.agents_paused_at IS DISTINCT FROM NEW.agents_paused_at)
+  EXECUTE FUNCTION pm.emit_workspace_pause_webhook();
+
+-- ---------------------------------------------------------------------------
+-- budget.exceeded
+-- ---------------------------------------------------------------------------
+-- The server claims a period once (compare and swap on
+-- budget_alerted_period) when it first sees the budget spent: after usage,
+-- at a refused run start, or when the agent reads its status. That claim
+-- sends the event, with the spend at that moment.
+CREATE OR REPLACE FUNCTION pm.emit_budget_exceeded_webhook()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pm
+AS $$
+DECLARE
+  v_state jsonb;
+BEGIN
+  IF NEW.budget_alerted_period IS NULL OR NEW.budget_alerted_period IS NOT DISTINCT FROM OLD.budget_alerted_period THEN
+    RETURN NULL;
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pm.webhook_endpoints e
+    WHERE e.is_active AND e.events && ARRAY['budget.exceeded']
+  ) THEN
+    RETURN NULL;
+  END IF;
+  v_state := pm.agent_limit_state(NEW.agent_id, true);
+  PERFORM pm.emit_webhook_event(
+    'budget.exceeded',
+    'agent',
+    NEW.agent_id,
+    '{}'::uuid[],
+    ARRAY[NEW.agent_id],
+    jsonb_build_object(
+      'agent', jsonb_build_object('id', NEW.agent_id, 'name', coalesce((SELECT a.name FROM pm.team_members a WHERE a.id = NEW.agent_id), '')),
+      'budget', jsonb_build_object(
+        'period', NEW.budget_period,
+        'period_start', NEW.budget_alerted_period,
+        'budget_usd', NEW.budget_usd,
+        'budget_tokens', NEW.budget_tokens,
+        'spent_usd', v_state->'spent_usd',
+        'spent_tokens', v_state->'spent_tokens'
+      ),
+      'project', NULL,
+      'project_id', NULL,
+      'task_id', NULL,
+      'actor_id', pm.webhook_actor_id()
+    )
+  );
+  RETURN NULL;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION pm.emit_budget_exceeded_webhook() FROM PUBLIC, anon, authenticated;
+
+DROP TRIGGER IF EXISTS emit_budget_exceeded_webhook ON pm.agent_limits;
+CREATE TRIGGER emit_budget_exceeded_webhook
+  AFTER UPDATE OF budget_alerted_period ON pm.agent_limits
+  FOR EACH ROW
+  WHEN (NEW.budget_alerted_period IS DISTINCT FROM OLD.budget_alerted_period)
+  EXECUTE FUNCTION pm.emit_budget_exceeded_webhook();
+
+-- ============================================================
+-- DELEGATION CHAIN (20261125001600_delegation_chain.sql)
+-- Delegation at any depth: a person asks their personal agent, it hands
+-- the work to a company agent, which hands pieces to specialists, all in
+-- one run tree for that person. Subtasks stay one level deep: a whole
+-- task can be handed over instead.
+--
+-- - pm.task_delegations.mode: how the task was handed over. subtask (as
+--   before: a new subtask made for the receiver) or assign (an existing
+--   task, top-level or not, handed to the receiver as it is). Existing
+--   rows are subtasks.
+-- - pm.task_delegations.from_task_id: the task the delegating run worked
+--   on (for a subtask, its parent), so a task records the run and the task
+--   it came from. Still one row per task: handing a task on again replaces
+--   its row, and the runs keep the whole chain.
+-- - pm.guard_run_chain, before a child run is stored: it sits at most 8
+--   hand-offs below its root (agent_runs_chain_depth), and never under a
+--   chain that loops (agent_runs_no_cycle). Runs already stored are
+--   untouched. pm.stamp_run_lineage (root and person) is unchanged.
+--
+-- Additive and safe to run twice. The previous release's code writes
+-- delegations without the new columns (they read as a subtask with no
+-- source task); a child run past the depth limit is refused, which that
+-- code reports as a failed run check (422).
+-- ============================================================
+
+-- ---------------------------------------------------------------------------
+-- How a task was handed over, and where from
+-- ---------------------------------------------------------------------------
+ALTER TABLE pm.task_delegations ADD COLUMN IF NOT EXISTS mode text NOT NULL DEFAULT 'subtask';
+ALTER TABLE pm.task_delegations ADD COLUMN IF NOT EXISTS from_task_id uuid REFERENCES pm.tasks(id) ON DELETE SET NULL;
+
+ALTER TABLE pm.task_delegations DROP CONSTRAINT IF EXISTS task_delegations_mode_check;
+ALTER TABLE pm.task_delegations
+  ADD CONSTRAINT task_delegations_mode_check CHECK (mode IN ('subtask', 'assign'));
+
+CREATE INDEX IF NOT EXISTS idx_task_delegations_from_task ON pm.task_delegations (from_task_id) WHERE from_task_id IS NOT NULL;
+
+-- A subtask delegated before came from its parent.
+UPDATE pm.task_delegations dl
+SET from_task_id = t.parent_task_id
+FROM pm.tasks t
+WHERE t.id = dl.task_id AND dl.mode = 'subtask' AND dl.from_task_id IS NULL AND t.parent_task_id IS NOT NULL;
+
+COMMENT ON TABLE pm.task_delegations IS
+  'A task an agent handed to another agent (delegate_task), and the run that handed it over: a new subtask (mode subtask) or the task itself (mode assign). One row per task, replaced when it is handed on again. Written by the server only.';
+COMMENT ON COLUMN pm.task_delegations.mode IS
+  'subtask: a subtask made for the receiver. assign: an existing task handed to the receiver as it is.';
+COMMENT ON COLUMN pm.task_delegations.from_task_id IS
+  'The task the delegating run worked on (a subtask''s parent); null when the run had none.';
+
+-- ---------------------------------------------------------------------------
+-- Run chains: at most 8 hand-offs deep, never a loop
+-- ---------------------------------------------------------------------------
+-- A child run's parent is fixed once written (pm.stamp_run_lineage), so
+-- only a new child can deepen a chain: walking up from its parent finds
+-- how far below the root it would sit, and any loop links written around
+-- the guards left behind.
+CREATE OR REPLACE FUNCTION pm.guard_run_chain()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = pm
+AS $$
+DECLARE
+  v_at uuid;
+  v_depth integer := 1;
+  v_seen uuid[];
+BEGIN
+  IF NEW.parent_run_id IS NULL THEN
+    RETURN NEW;
+  END IF;
+  v_seen := ARRAY[NEW.id, NEW.parent_run_id];
+  SELECT r.parent_run_id INTO v_at FROM pm.agent_runs r WHERE r.id = NEW.parent_run_id;
+  WHILE v_at IS NOT NULL LOOP
+    IF v_at = ANY (v_seen) THEN
+      RAISE EXCEPTION 'new row for relation "agent_runs" violates check constraint "agent_runs_no_cycle"'
+        USING ERRCODE = '23514', DETAIL = 'A run cannot be its own ancestor.';
+    END IF;
+    v_depth := v_depth + 1;
+    IF v_depth > 8 THEN
+      RAISE EXCEPTION 'new row for relation "agent_runs" violates check constraint "agent_runs_chain_depth"'
+        USING ERRCODE = '23514', DETAIL = 'A chain of runs goes at most 8 hand-offs below its root.';
+    END IF;
+    v_seen := v_seen || v_at;
+    SELECT r.parent_run_id INTO v_at FROM pm.agent_runs r WHERE r.id = v_at;
+  END LOOP;
+  RETURN NEW;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION pm.guard_run_chain() FROM PUBLIC, anon, authenticated;
+
+DROP TRIGGER IF EXISTS guard_run_chain ON pm.agent_runs;
+CREATE TRIGGER guard_run_chain BEFORE INSERT ON pm.agent_runs
+  FOR EACH ROW WHEN (NEW.parent_run_id IS NOT NULL) EXECUTE FUNCTION pm.guard_run_chain();
+
+-- ============================================================
+-- CHAT OUTBOUND AND MEDIA (20261125001500_chat_outbound_media.sql)
+-- ============================================================
+-- Agents start chat conversations, and people send them files.
+--
+-- - chat_messages.initiated: an outbound message an agent started
+--   (POST /api/v1/chat/messages: a digest, an alert, a daily report), not
+--   an answer to one. A reply to it (in its thread, quoting it, or the next
+--   message in that DM) goes back to the same agent, with route 'reply' on
+--   a company connection and reply_to_id naming the started message.
+-- - chat_messages.attachments: the files sent with an inbound message
+--   (photos, voice notes, audio, video, documents), as a JSON array of
+--   { kind, ref, name, mime_type, size, duration_seconds }. ref is the
+--   provider's own way back to the file (a Telegram file_id, a Slack
+--   files.slack.com address, a Discord CDN address); the app fetches the
+--   bytes only when the agent asks, and never shows ref.
+-- - pm.apply_chat_attachment_retention: chat retention
+--   (business_settings.chat_retention_days) also forgets these file
+--   references, daily, with the same exceptions as the text (a message
+--   still waiting for its agent or for a delivery keeps them). The text
+--   sweep only visits messages with text, and a file needs no text.
+-- - Permission chat.notify (AI agents module): a company agent may DM a
+--   member who did not ask (an unprompted alert). No role holds it by
+--   default; an Owner grants it to the agent and its key both.
+--
+-- Additive and safe to run twice. The previous release's code never reads
+-- the new columns, writes neither, and never writes route 'reply'.
+
+-- ---------------------------------------------------------------------------
+-- Messages: started by an agent, and files
+-- ---------------------------------------------------------------------------
+ALTER TABLE pm.chat_messages
+  ADD COLUMN IF NOT EXISTS initiated boolean NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS attachments jsonb;
+
+ALTER TABLE pm.chat_messages DROP CONSTRAINT IF EXISTS chat_messages_initiated_check;
+ALTER TABLE pm.chat_messages
+  ADD CONSTRAINT chat_messages_initiated_check CHECK (NOT initiated OR direction = 'outbound');
+ALTER TABLE pm.chat_messages DROP CONSTRAINT IF EXISTS chat_messages_attachments_check;
+ALTER TABLE pm.chat_messages
+  ADD CONSTRAINT chat_messages_attachments_check CHECK (
+    attachments IS NULL OR (jsonb_typeof(attachments) = 'array' AND jsonb_array_length(attachments) BETWEEN 1 AND 20)
+  );
+ALTER TABLE pm.chat_messages DROP CONSTRAINT IF EXISTS chat_messages_route_check;
+ALTER TABLE pm.chat_messages
+  ADD CONSTRAINT chat_messages_route_check CHECK (route IS NULL OR route IN ('direct', 'mention', 'channel', 'default', 'reply'));
+
+COMMENT ON COLUMN pm.chat_messages.initiated IS
+  'An outbound message an agent started (POST /api/v1/chat/messages), not an answer. A reply to it goes back to that agent.';
+COMMENT ON COLUMN pm.chat_messages.attachments IS
+  'Files sent with an inbound message: [{ kind, ref, name, mime_type, size, duration_seconds }]. ref is the provider''s file id or address, never shown to an agent; the bytes are fetched through the app on request. Null when none.';
+COMMENT ON COLUMN pm.chat_messages.route IS
+  'How a company message reached its agent: direct (a DM, to the default agent), mention (the agent named), channel (the channel mapping), default (the bot mentioned in an unmapped channel), reply (an answer to a message the agent started). Null for personal messages.';
+
+-- A reply finds the message it answers: the provider id of a started message.
+CREATE INDEX IF NOT EXISTS idx_chat_messages_initiated
+  ON pm.chat_messages (connection_id, conversation_id, external_message_id)
+  WHERE direction = 'outbound' AND initiated AND external_message_id IS NOT NULL;
+
+-- ---------------------------------------------------------------------------
+-- Permission
+-- ---------------------------------------------------------------------------
+INSERT INTO pm.permission_modules (permission_key, module_id) VALUES
+  ('chat.notify', 'agents')
+ON CONFLICT (permission_key) DO UPDATE SET module_id = EXCLUDED.module_id;
+
+-- ---------------------------------------------------------------------------
+-- Retention of file references
+-- ---------------------------------------------------------------------------
+-- Forgets the file references of chat messages older than the chat
+-- retention, in batches (the rest the next day), never one still waiting
+-- for its agent or for a webhook delivery. Answers how many were forgotten.
+CREATE OR REPLACE FUNCTION pm.apply_chat_attachment_retention()
+RETURNS integer
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pm
+AS $$
+DECLARE
+  batch constant integer := 5000;
+  max_rounds constant integer := 20;
+  v_days integer;
+  v_cutoff timestamptz;
+  v_n integer;
+  v_round integer := 0;
+  v_total integer := 0;
+BEGIN
+  SELECT chat_retention_days INTO v_days FROM pm.business_settings LIMIT 1;
+  IF v_days IS NULL THEN
+    RETURN 0;
+  END IF;
+  v_cutoff := now() - make_interval(days => v_days);
+  LOOP
+    UPDATE pm.chat_messages SET attachments = NULL WHERE id IN (
+      SELECT m.id FROM pm.chat_messages m
+      WHERE m.attachments IS NOT NULL AND m.created_at < v_cutoff
+        AND NOT (m.direction = 'inbound' AND m.status IN ('pending', 'notified'))
+        AND NOT EXISTS (SELECT 1 FROM pm.webhook_events ev JOIN pm.webhook_deliveries d ON d.webhook_event_id = ev.id
+                        WHERE ev.resource_type = 'chat_message' AND ev.resource_id = m.id AND d.status IN ('pending', 'delivering'))
+      LIMIT batch);
+    GET DIAGNOSTICS v_n = ROW_COUNT;
+    v_total := v_total + v_n;
+    v_round := v_round + 1;
+    EXIT WHEN v_n < batch OR v_round >= max_rounds;
+  END LOOP;
+  RETURN v_total;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION pm.apply_chat_attachment_retention() FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION pm.apply_chat_attachment_retention() TO service_role;
+
+-- Daily, beside pm-retention. Skipped where pg_cron is unavailable (PGlite).
+DO $do$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = 'pg_cron') THEN
+    RAISE NOTICE 'pg_cron is unavailable here; run SELECT pm.apply_chat_attachment_retention() daily';
+    RETURN;
+  END IF;
+  CREATE EXTENSION IF NOT EXISTS pg_cron;
+  PERFORM cron.schedule('pm-chat-attachment-retention', '52 3 * * *', $job$SELECT pm.apply_chat_attachment_retention();$job$);
+END;
+$do$;

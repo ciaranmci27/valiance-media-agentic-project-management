@@ -10,4 +10,4 @@ export const POST = withApi(async ({ supabase, params, teamMemberId, access, sco
   const question = await cancelQuestion({ db: supabase, access, memberId: teamMemberId, channel: 'api', scopes }, id);
   logAudit(supabase, { method: 'POST', endpoint: `/api/v1/questions/${id}/cancel`, entityType: 'question', entityId: id, apiKeyId, teamMemberId, afterSnapshot: question, statusCode: 200 });
   return success(question);
-}, { schema: cancelQuestionSchema, optionalBody: true, permission: 'tasks.read' });
+}, { schema: cancelQuestionSchema, optionalBody: true, permission: ['tasks.read', 'questions.ask'] });

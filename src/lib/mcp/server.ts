@@ -11,9 +11,9 @@ import { routeHandler } from './handlers';
 import type { AgentProfile } from './profiles';
 import type { AgentProfileDefinition } from '@/lib/extensions/agent-profiles';
 import { GUIDE_CONTEXT_PATH, GUIDE_TOOL } from './tools';
-import { toolsFor } from './visibility';
+import { callableToolsFor, toolsFor } from './visibility';
 
-export { toolsFor, toolVisible } from './visibility';
+export { callableToolsFor, toolsFor, toolVisible } from './visibility';
 
 /** Who the key acts as, resolved by resolveApiKey for this request. */
 export interface McpCaller {
@@ -148,7 +148,8 @@ async function guideContext(call: CallRoute): Promise<Record<string, unknown> | 
  */
 export function createPmServer(caller: McpCaller): Server {
   const tools = toolsFor(caller);
-  const byName = new Map(tools.map((tool) => [tool.name, tool]));
+  // Deprecated tools are not listed, but a caller that still names one gets it.
+  const byName = new Map(callableToolsFor(caller).map((tool) => [tool.name, tool]));
   const call = routeCaller(caller);
   const server = new Server(
     { name: 'project-management', version: '1.0.0' },

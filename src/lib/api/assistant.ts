@@ -249,14 +249,18 @@ async function personalInboxIds(service: SupabaseClient, personId: string): Prom
   return ((data ?? []) as Row[]).map((row) => row.id as string);
 }
 
+/** The personal bots a person can link their chat account through (a company bot is not their assistant). */
 async function enabledConnections(service: SupabaseClient): Promise<ChatConnectionCard[]> {
-  const { data, error } = await service.from('chat_connections').select('id, provider, display_name, bot_handle, external_workspace_id')
+  const columns = 'id, provider, display_name, bot_handle, external_workspace_id';
+  let { data, error }: { data: unknown; error: { code?: string; message?: string } | null } = await service.from('chat_connections').select(`${columns}, kind`)
     .eq('enabled', true).order('created_at');
+  // Before 20261125001100 there is no kind: every connection is personal.
+  if (error?.code === '42703' || error?.code === 'PGRST204') ({ data, error } = await service.from('chat_connections').select(columns).eq('enabled', true).order('created_at'));
   if (error) {
     if (missingAssistantSchema(error)) return [];
     throw error;
   }
-  return ((data ?? []) as Row[]).filter((row) => chatAdapter(row.provider)).map((row) => ({
+  return ((data ?? []) as Row[]).filter((row) => chatAdapter(row.provider) && row.kind !== 'company').map((row) => ({
     id: row.id,
     provider: row.provider,
     provider_label: chatProviderLabel(row.provider),
@@ -453,7 +457,7 @@ export async function myAssistantActivity(service: SupabaseClient, memberId: str
   for (const row of (runs.data ?? []) as Row[]) {
     const what = row.title || row.summary;
     if (!what) continue;
-    items.push({ id: `run:${row.id}`, kind: 'run', at: row.started_at, text: `${row.status === 'running' ? 'Working on' : 'Worked on'}: ${what}`, href: null, undo: null });
+    items.push({ id: `run:${row.id}`, kind: 'run', at: row.started_at, text: `${row.status === 'running' ? 'Working on' : row.status === 'waiting' ? 'Waiting on a person about' : 'Worked on'}: ${what}`, href: null, undo: null });
   }
   for (const row of (events.data ?? []) as Row[]) {
     if (!row.title) continue;

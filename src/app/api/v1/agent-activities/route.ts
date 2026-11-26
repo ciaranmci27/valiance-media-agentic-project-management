@@ -234,8 +234,9 @@ export const POST = withApi(async ({ supabase, body, apiKeyId, teamMemberId, acc
   // A turn that names one of this agent's runs belongs to it: run_id is kept
   // (resolved from run_external_id too) and the run lists it. Any other
   // run_id is dropped, so the turn reads as a run of its own. Nothing else
-  // in the turn changes, so analytics reads it exactly as before.
-  if (parsed.activity_type === 'turn.completed') {
+  // in the turn changes, so analytics reads it exactly as before. Usage
+  // follows the same rule: usage under a run is part of that run's spend.
+  if (parsed.activity_type === 'turn.completed' || parsed.activity_type === 'usage.recorded') {
     const meta = { ...(record.metadata as Record<string, unknown>) };
     const runId = await resolveTurnRun(supabase, agentId, meta);
     if (runId) meta.run_id = runId;

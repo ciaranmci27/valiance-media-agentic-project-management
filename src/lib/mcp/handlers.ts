@@ -62,6 +62,7 @@ import * as agentExport from '@/app/api/v1/agents/[id]/export/route';
 import * as agentTemplate from '@/app/api/v1/agents/[id]/template/route';
 import * as agentImport from '@/app/api/v1/agents/import/route';
 import * as myContext from '@/app/api/v1/agents/me/context/route';
+import * as myStatus from '@/app/api/v1/agents/me/status/route';
 import * as agentTemplates from '@/app/api/v1/agent-templates/route';
 import * as agentOne from '@/app/api/v1/agents/[id]/route';
 import * as myProjects from '@/app/api/v1/agents/me/projects/route';
@@ -78,6 +79,10 @@ import * as assistantMessages from '@/app/api/v1/assistant/messages/route';
 import * as assistantMessage from '@/app/api/v1/assistant/messages/[id]/route';
 import * as assistantMessageReply from '@/app/api/v1/assistant/messages/[id]/reply/route';
 import * as assistantMessageHandled from '@/app/api/v1/assistant/messages/[id]/handled/route';
+import * as chatMessages from '@/app/api/v1/chat/messages/route';
+import * as chatMessage from '@/app/api/v1/chat/messages/[id]/route';
+import * as chatMessageReply from '@/app/api/v1/chat/messages/[id]/reply/route';
+import * as chatMessageHandled from '@/app/api/v1/chat/messages/[id]/handled/route';
 import * as assistantSetups from '@/app/api/v1/assistant-setups/route';
 import * as webhookEndpoints from '@/app/api/v1/webhook-endpoints/route';
 import * as webhookEndpoint from '@/app/api/v1/webhook-endpoints/[id]/route';
@@ -185,6 +190,7 @@ export const ROUTE_MODULES: Record<string, RouteModule> = {
   '/api/v1/agents/{id}/template': agentTemplate,
   '/api/v1/agents/import': agentImport,
   '/api/v1/agents/me/context': myContext,
+  '/api/v1/agents/me/status': myStatus,
   '/api/v1/agents/me/projects': myProjects,
   '/api/v1/agents/{id}': agentOne,
   '/api/v1/agent-templates': agentTemplates,
@@ -202,6 +208,10 @@ export const ROUTE_MODULES: Record<string, RouteModule> = {
   '/api/v1/assistant/messages/{id}': assistantMessage,
   '/api/v1/assistant/messages/{id}/reply': assistantMessageReply,
   '/api/v1/assistant/messages/{id}/handled': assistantMessageHandled,
+  '/api/v1/chat/messages': chatMessages,
+  '/api/v1/chat/messages/{id}': chatMessage,
+  '/api/v1/chat/messages/{id}/reply': chatMessageReply,
+  '/api/v1/chat/messages/{id}/handled': chatMessageHandled,
   '/api/v1/assistant-setups': assistantSetups,
   '/api/v1/webhook-endpoints': webhookEndpoints,
   '/api/v1/webhook-endpoints/{id}': webhookEndpoint,

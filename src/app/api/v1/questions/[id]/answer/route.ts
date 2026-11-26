@@ -6,8 +6,11 @@ import { answerQuestionSchema, type AnswerQuestionInput } from '@/lib/questions'
 
 /**
  * Answers a question with a choice, text, or both. Only the member asked,
- * the Owner, or a key whose member may manage the team (team.manage). 409
- * when it is already answered, cancelled or expired.
+ * the Owner, or a key whose member may manage the team (team.manage). An
+ * approval is decided by whom it names (or the Owner): an agent named, with
+ * its own key; for a person, only a key carrying approvals.decide (403
+ * approval_needs_person otherwise), never a connected AI tool. 409 when it
+ * is already answered, cancelled or expired.
  */
 export const POST = withApi(async ({ supabase, params, body, teamMemberId, access, scopes, apiKeyId }) => {
   const { id } = params as { id: string };

@@ -4,7 +4,7 @@ import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import {
-  Activity, ArrowRight, Bot, ChevronDown, FileText, Hammer, Inbox, KeyRound, Lock, PartyPopper, Plus, Search, Sparkles,
+  Activity, ArrowRight, Bot, ChevronDown, FileText, Hammer, Inbox, KeyRound, Lock, PartyPopper, Plug, Plus, Search, Sparkles,
 } from 'lucide-react';
 import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
@@ -46,6 +46,7 @@ const TEMPLATE_ICONS: Record<string, typeof Bot> = {
   'data-health-watcher': Activity,
   'inbox-triage': Inbox,
   'weekly-reporter': FileText,
+  'external-agent': Plug,
 };
 
 const PROJECTS_PAGE = 10;
@@ -415,8 +416,13 @@ function ProjectsStep({ draft, setDraft, template, projects, errors }: {
   const [pages, setPages] = useState(1);
   const { shown, hidden } = windowOf(draft.projectIds, pages, PROJECTS_PAGE);
   const nameOf = new Map(projects.map((p) => [p.id, p]));
+  // A template whose powers touch no project or task (an agent that works in another system) needs none.
+  const outside = !!template && !template.scopes.some((s) => s.startsWith('projects.') || s.startsWith('tasks.'));
   return (
     <div className="space-y-4">
+      {outside && (
+        <p className="rounded-xl bg-white/[0.04] px-4 py-3 text-sm text-zinc-300">This agent works in another system, so it needs no projects. Leave this empty and go on.</p>
+      )}
       <MultiSelect
         label="Projects"
         value={draft.projectIds}
@@ -425,9 +431,9 @@ function ProjectsStep({ draft, setDraft, template, projects, errors }: {
         searchable
         placeholder="Pick projects"
       />
-      {draft.projectIds.length === 0 ? (
+      {draft.projectIds.length === 0 ? (outside ? null : (
         <p className="rounded-xl bg-white/[0.02] px-4 py-3 text-sm text-zinc-500">No projects yet. It can still answer questions and work tasks assigned to it in projects it can open.</p>
-      ) : (
+      )) : (
         <ul className="space-y-2">
           {shown.map((id) => {
             const project = nameOf.get(id);

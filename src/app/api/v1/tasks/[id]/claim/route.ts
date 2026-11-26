@@ -20,7 +20,7 @@ export const POST = withApi(async ({ supabase, params, body, apiKeyId, teamMembe
   const task = await claimTask({ supabase, memberId: teamMemberId, access, scopes }, id, lease_minutes);
   logAudit(supabase, { method: 'POST', endpoint: `/api/v1/tasks/${id}/claim`, entityType: 'task', entityId: id, apiKeyId, teamMemberId, requestBody: body, afterSnapshot: task, statusCode: 200 });
   return success(task);
-}, { schema: claimSchema, optionalBody: true });
+}, { schema: claimSchema, optionalBody: true, permission: 'tasks.manage_assigned' });
 
 /** Ends the claim: your own, or anyone's with tasks.manage_all. */
 export const DELETE = withApi(async ({ supabase, params, apiKeyId, teamMemberId, access, scopes }) => {
@@ -28,4 +28,4 @@ export const DELETE = withApi(async ({ supabase, params, apiKeyId, teamMemberId,
   const task = await releaseClaim({ supabase, memberId: teamMemberId, access, scopes }, id);
   logAudit(supabase, { method: 'DELETE', endpoint: `/api/v1/tasks/${id}/claim`, entityType: 'task', entityId: id, apiKeyId, teamMemberId, afterSnapshot: task, statusCode: 200 });
   return success(task);
-});
+}, { permission: 'tasks.manage_assigned' });

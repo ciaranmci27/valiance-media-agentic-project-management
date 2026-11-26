@@ -20,14 +20,15 @@ async function loadEndpoint(supabase: SupabaseClient, id: string): Promise<Webho
 
 /**
  * Changes an endpoint: name, url, events, description, amount_basis, the
- * project, member and agent event type filters, or is_active (false pauses deliveries). Send
+ * project, member, assistant setup and agent event type filters, or
+ * is_active (false pauses deliveries). Send
  * only what changes. The signing secret never changes and is never shown.
  *
  * Permission: webhooks.manage (the Webhooks module).
  */
-export const PATCH = withApi<UpdateWebhookEndpoint, { id: string }>(async ({ supabase, params, body, access, apiKeyId, teamMemberId }) => {
+export const PATCH = withApi<UpdateWebhookEndpoint, { id: string }>(async ({ supabase, params, body, access, scopes, apiKeyId, teamMemberId }) => {
   const before = await loadEndpoint(supabase, params.id);
-  await checkWebhookFields(supabase, access, body, before);
+  await checkWebhookFields(supabase, access, body, before, scopes);
   const patch = {
     ...body,
     ...(body.events ? { events: [...new Set(body.events)] } : {}),

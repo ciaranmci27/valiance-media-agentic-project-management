@@ -25,7 +25,7 @@ export const GET = withApi<unknown, { id: string }>(async ({ supabase, params, s
 
   if (error) throw error;
   return paginated(data || [], { page, limit, total: count || 0 });
-});
+}, { permission: 'goals.read' });
 
 export const POST = withApi<any, { id: string }>(async ({ supabase, params, body, apiKeyId, teamMemberId }) => {
   const projectId = params.id;
@@ -58,4 +58,4 @@ export const POST = withApi<any, { id: string }>(async ({ supabase, params, body
   });
 
   return created(goal);
-}, { schema: createGoalSchema });
+}, { schema: createGoalSchema, permission: 'goals.manage' });

@@ -5,16 +5,20 @@ import { delegateTask, delegateTaskSchema, type DelegateTaskInput } from '@/lib/
 export const dynamic = 'force-dynamic';
 
 /**
- * Hands part of a task to another agent: a subtask of {id}, assigned to
- * agent_id (an active agent), through the same create and assign as POST
- * /api/v1/tasks with parent_task_id. So the caller must be able to manage
- * the task and assign others (tasks.manage_all), the agent must reach the
- * project, the caller's own rules apply (approval gives a suggestion, 202),
- * and acting for someone records them as principal_id. run_id (the caller's
- * own run) links the subtask to the run that delegated it, so the
- * specialist's run can name it as parent_run_id and get_run_tree shows the
- * chain. ai_readiness defaults to ai_ready. Answers 201 with the task, and
- * task_id, delegated_to and run_id.
+ * Hands work to another agent. mode subtask (default): a subtask of {id},
+ * assigned to agent_id (an active agent), through the same create and
+ * assign as POST /api/v1/tasks with parent_task_id; 201, or 202 with a
+ * suggestion when the caller's rules need approval. mode assign: {id}
+ * itself, handed over as it is (agent_id joins its assignees; reassign
+ * takes the caller off); 200. Either way the caller needs tasks.manage_all
+ * and the agent must reach the project. run_id (the caller's own run)
+ * links the task to the run that delegated it, so the receiver's run can
+ * name it as parent_run_id and get_run_tree shows the chain, at any depth.
+ * The chain keeps its person (the hand-off is checked with the caller's
+ * access and theirs together), goes at most 8 hand-offs deep and never
+ * back to an agent above. A personal agent delegates only while acting for
+ * its person, and only to company agents. ai_readiness defaults to
+ * ai_ready. Answers the task, task_id, delegated_to, run_id and mode.
  *
  * Permission: tasks.create, with the AI agents module on.
  */

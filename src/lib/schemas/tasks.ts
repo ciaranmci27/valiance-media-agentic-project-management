@@ -23,6 +23,13 @@ export const createTaskSchema = z.object({
   source_note: z.string().trim().min(1).max(200).optional(),
 });
 
+// POST /api/v1/inbox/messages/:id/tasks: project_id and assignee_ids may be
+// left out, and the email's inbox defaults fill them (left out is not []).
+export const createEmailTaskSchema = createTaskSchema.extend({
+  project_id: z.string().uuid('project_id must be a UUID').optional(),
+  assignee_ids: z.array(z.string().uuid()).optional(),
+});
+
 // POST /api/v1/tasks: a subtask names its parent, and its project comes from
 // there (if both are sent they must agree).
 export const createApiTaskSchema = createTaskSchema.extend({

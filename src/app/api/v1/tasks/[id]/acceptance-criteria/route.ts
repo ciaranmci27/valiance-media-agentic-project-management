@@ -19,7 +19,7 @@ export const GET = withApi(async ({ supabase, params, searchParams }) => {
 
   if (error) throw error;
   return paginated(data || [], { page, limit, total: count || 0 });
-});
+}, { permission: 'tasks.read' });
 
 export const POST = withApi(async ({ supabase, params, body, apiKeyId, teamMemberId }) => {
   const { id } = params as any;
@@ -30,4 +30,4 @@ export const POST = withApi(async ({ supabase, params, body, apiKeyId, teamMembe
   const criterion = await insertAcceptanceCriterion(supabase, id, (body as any).criterion);
   logAudit(supabase, { method: 'POST', endpoint: `/api/v1/tasks/${id}/acceptance-criteria`, entityType: 'acceptance_criterion', entityId: criterion.id, apiKeyId, teamMemberId, requestBody: body, afterSnapshot: criterion, statusCode: 201 });
   return created(criterion);
-}, { schema: createAcceptanceCriterionSchema });
+}, { schema: createAcceptanceCriterionSchema, permission: 'tasks.manage_assigned' });

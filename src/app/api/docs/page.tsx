@@ -25,6 +25,7 @@ import { MODULES, moduleOfPermission } from '@/lib/modules/registry';
 import { DocsTocNav, type TocSection } from './DocsTocNav';
 import { AGENT_PROFILES } from '@/lib/mcp/profiles';
 import { PM_TOOLS } from '@/lib/mcp/tools';
+import { API_VERSION, API_VERSION_HEADER } from '@/lib/api/version';
 
 /* ── Helpers ───────────────────────────────────────────────── */
 
@@ -61,6 +62,15 @@ const GROUP_META: Record<string, { icon: typeof Users; bg: string; text: string 
   'Lead Proposals':     { icon: FileText,       bg: 'bg-orange-50',  text: 'text-orange-600'  },
   'Lead Fields':        { icon: ListFilter,     bg: 'bg-amber-50',   text: 'text-amber-600'   },
 };
+
+/** A route or tool on its way out (docs-data `deprecated`, a tool's `deprecated`). */
+function DeprecatedBadge() {
+  return (
+    <span className="px-2 py-0.5 text-xs font-medium bg-amber-50 text-amber-700 rounded-full">
+      Deprecated
+    </span>
+  );
+}
 
 /* ── Semantic parameter table ────────────────────────────── */
 
@@ -178,6 +188,9 @@ export default async function ApiDocsPage() {
                 </span>
                 <span className="px-2 py-0.5 text-xs font-medium bg-zinc-100 text-zinc-500 rounded-full">
                   {endpoints.length} endpoints
+                </span>
+                <span className="px-2 py-0.5 text-xs font-medium bg-zinc-100 text-zinc-500 rounded-full">
+                  {API_VERSION_HEADER}: {API_VERSION}
                 </span>
               </div>
               <p className="text-sm text-zinc-500 mt-1">
@@ -479,8 +492,18 @@ mcp_servers:
                     <tbody>
                       {PM_TOOLS.map((tool) => (
                         <tr key={tool.name} className="border-t border-zinc-100 align-top">
-                          <td className="py-2 px-3 font-mono text-xs text-zinc-800 whitespace-nowrap">{tool.name}</td>
-                          <td className="py-2 px-3 text-xs text-zinc-600">{tool.lead}</td>
+                          <td className="py-2 px-3 font-mono text-xs text-zinc-800 whitespace-nowrap">
+                            {tool.name}
+                            {tool.deprecated && <span className="ml-2 align-middle font-sans"><DeprecatedBadge /></span>}
+                          </td>
+                          <td className="py-2 px-3 text-xs text-zinc-600">
+                            {tool.lead}
+                            {tool.deprecated && (
+                              <span className="block text-amber-800">
+                                Not listed to agents; still callable by name. Use instead: {tool.deprecated.replacement}. Removed {tool.deprecated.removal}.
+                              </span>
+                            )}
+                          </td>
                           <td className="py-2 px-3 font-mono text-xs text-zinc-500">
                             {(Array.isArray(tool.permission) ? tool.permission : [tool.permission]).join(' or ') || 'any key'}
                             {tool.requires?.length ? ` and ${tool.requires.join(' and ')}` : ''}
@@ -578,10 +601,30 @@ mcp_servers:
                             {ep.method}
                           </span>
                           <div className="min-w-0 flex-1">
-                            <code className="text-sm text-zinc-800 font-mono break-all">
-                              {ep.path}
-                            </code>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <code className="text-sm text-zinc-800 font-mono break-all">
+                                {ep.path}
+                              </code>
+                              {ep.deprecated && <DeprecatedBadge />}
+                            </div>
                             <p className="text-sm text-zinc-500 mt-0.5">{ep.description}</p>
+                            {ep.deprecated && (
+                              <p className="text-xs text-amber-800 mt-1">
+                                Use instead: {ep.deprecated.replacement}. Keeps working until it is removed {ep.deprecated.removal}.
+                              </p>
+                            )}
+                            {ep.deprecatedFields && ep.deprecatedFields.length > 0 && (
+                              <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+                                <p className="font-medium">Deprecated here, each kept until it is removed {ep.deprecatedFields[0].removal}</p>
+                                <ul className="mt-1 space-y-1 list-disc pl-4">
+                                  {ep.deprecatedFields.map((field) => (
+                                    <li key={field.name}>
+                                      <code className="font-mono">{field.name}</code>: use {field.replacement}
+                                    </li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )}
                             <div className="mt-2 flex flex-wrap items-center gap-1.5">
                               <span className="text-[11px] font-medium uppercase tracking-wide text-zinc-400">Scope</span>
                               {getEndpointScopes(ep).map((scope, index, scopes) => (

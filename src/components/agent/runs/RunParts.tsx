@@ -105,6 +105,7 @@ export function RunDetailModal({ run, onClose, onOpenTask, taskTitle, projectNam
   const agentName = (id: string) => team.find((m) => m.id === id)?.name ?? 'An agent';
   const parent = family.data?.parent ?? null;
   const children = family.data?.children ?? [];
+  const chain = family.data?.chain ?? [];
 
   const tokensIn = run.tokens_in;
   const tokensOut = run.tokens_out;
@@ -151,7 +152,40 @@ export function RunDetailModal({ run, onClose, onOpenTask, taskTitle, projectNam
           ))}
         </dl>
 
-        {(parent || children.length > 0) && (
+        {chain.length > 1 && (
+          <section aria-labelledby="run-chain-heading" className="border-t border-white/[0.06] pt-4">
+            <h3 id="run-chain-heading" className="text-sm font-semibold text-white">Chain of agents</h3>
+            <p className="mb-2 mt-0.5 text-xs text-zinc-500">Each run sits under the run that handed it work.</p>
+            <ol className="space-y-1.5">
+              {chain.map((link) => {
+                const current = link.id === run.id;
+                const otherTask = link.task_id && link.task_id !== run.task_id ? link.task_title : null;
+                return (
+                  <li
+                    key={link.id}
+                    aria-current={current ? 'true' : undefined}
+                    style={{ paddingLeft: `${Math.min(link.depth, 8) * 0.875}rem` }}
+                    className="flex min-w-0 items-center justify-between gap-3 text-sm"
+                  >
+                    <span className={`min-w-0 truncate ${current ? 'font-medium text-white' : 'text-zinc-200'}`}>
+                      {link.depth > 0 && <span className="mr-1.5 text-zinc-500" aria-hidden="true">↳</span>}
+                      <span className="sr-only">{`Level ${link.depth + 1}: `}</span>
+                      {agentName(link.agent_id)}
+                      {link.title ? <span className="text-zinc-400">: {link.title}</span> : null}
+                      {otherTask ? <span className="text-zinc-500"> on {otherTask}</span> : null}
+                    </span>
+                    <span className="flex flex-shrink-0 items-center gap-2">
+                      {current && <Badge>This run</Badge>}
+                      <RunStatusPill status={effectiveRunStatus(link)} />
+                    </span>
+                  </li>
+                );
+              })}
+            </ol>
+          </section>
+        )}
+
+        {chain.length <= 1 && (parent || children.length > 0) && (
           <section aria-labelledby="run-chain-heading" className="border-t border-white/[0.06] pt-4">
             <h3 id="run-chain-heading" className="mb-2 text-sm font-semibold text-white">Handoff</h3>
             {parent && (

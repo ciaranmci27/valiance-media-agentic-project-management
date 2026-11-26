@@ -20,7 +20,7 @@ export const GET = withApi(async ({ supabase, params, searchParams }) => {
 
   if (error) throw error;
   return paginated(data || [], { page, limit, total: count || 0 });
-});
+}, { permission: 'leads.read' });
 
 export const PUT = withApi(async ({ supabase, params, body, apiKeyId, teamMemberId }) => {
   const { id } = params as any;
@@ -38,4 +38,4 @@ export const PUT = withApi(async ({ supabase, params, body, apiKeyId, teamMember
 
   logAudit(supabase, { method: 'PUT', endpoint: `/api/v1/leads/${id}/fields`, entityType: 'lead_field', entityId: id, apiKeyId, teamMemberId, requestBody: body, afterSnapshot: results, statusCode: 200 });
   return success(results);
-}, { schema: upsertLeadFieldsSchema });
+}, { schema: upsertLeadFieldsSchema, permission: 'leads.manage' });

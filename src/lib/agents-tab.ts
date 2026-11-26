@@ -259,6 +259,7 @@ export function canSeeRunTrace(run: Pick<AgentRunSummary, 'agent_id' | 'external
 
 export const RUN_STATUS_LABELS: Record<AgentRunStatus, string> = {
   running: 'Running',
+  waiting: 'Waiting on a person',
   succeeded: 'Succeeded',
   failed: 'Failed',
   cancelled: 'Cancelled',
@@ -326,7 +327,8 @@ export type RunPillTone = 'info' | 'success' | 'danger' | 'warning' | 'default';
 export function runPill(run: Pick<AgentRunSummary, 'source' | 'status' | 'outcome'>): { label: string; tone: RunPillTone; running: boolean } {
   if (run.status === 'running') return { label: RUN_STATUS_LABELS.running, tone: 'info', running: true };
   if (run.source !== 'turn') {
-    const tone: Record<AgentRunStatus, RunPillTone> = { running: 'info', succeeded: 'success', failed: 'danger', timed_out: 'warning', cancelled: 'default' };
+    // Waiting on a person reads like other work waiting on someone: amber, never a failure.
+    const tone: Record<AgentRunStatus, RunPillTone> = { running: 'info', waiting: 'warning', succeeded: 'success', failed: 'danger', timed_out: 'warning', cancelled: 'default' };
     return { label: RUN_STATUS_LABELS[run.status], tone: tone[run.status], running: false };
   }
   const outcome = (run.outcome ?? '').toLowerCase();

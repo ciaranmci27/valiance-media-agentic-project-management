@@ -46,4 +46,4 @@ export const GET = withApi(async ({ supabase, params, apiKeyId, teamMemberId, ac
   });
 
   return success(payload);
-});
+}, { permission: 'credentials.reveal_shared' });

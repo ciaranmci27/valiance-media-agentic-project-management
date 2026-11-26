@@ -222,14 +222,22 @@ export const WEBHOOK_EVENT_LABELS: Record<string, string> = {
   'question.asked': 'Question asked',
   'question.answered': 'Question answered',
   'question.cancelled': 'Question withdrawn',
+  'question.expired': 'Question expired',
   'suggestion.created': 'Suggestion made',
   'suggestion.decided': 'Suggestion decided',
   'review.submitted': 'Review submitted',
   'run.started': 'Agent run started',
+  'run.updated': 'Agent run waiting or back at work',
   'run.finished': 'Agent run finished',
+  'agent.offline': 'Agent stopped responding',
+  'agent.online': 'Agent back',
+  'agent.paused': 'Agent paused',
+  'agent.resumed': 'Agent resumed',
+  'budget.exceeded': 'Agent budget spent',
   'template.run': 'Template used',
   'agent_event.created': 'Every agent event',
-  'assistant.message': 'Chat message for an assistant',
+  'assistant.message': 'Chat message for an assistant (old name)',
+  'chat.message': 'Chat message for an agent',
   'invoice.paid': 'Invoice paid',
   'invoice.updated': 'Invoice updated',
   'invoice.deleted': 'Invoice deleted',
@@ -254,8 +262,8 @@ export const WEBHOOK_EVENT_GROUPS: readonly WebhookEventGroup[] = [
     description: 'Tasks made, changed or moved to Trash, comments, suggestions, reviews and templates used.',
     events: ['task.created', 'task.updated', 'task.deleted', 'comment.created', 'suggestion.created', 'suggestion.decided', 'review.submitted', 'template.run'],
   },
-  { id: 'questions', label: 'Questions', description: 'Questions asked, answered or withdrawn.', events: ['question.asked', 'question.answered', 'question.cancelled'] },
-  { id: 'runs', label: 'Agent runs', description: 'When an agent starts and finishes a run.', events: ['run.started', 'run.finished'] },
+  { id: 'questions', label: 'Questions', description: 'Questions asked, answered, withdrawn or expired.', events: ['question.asked', 'question.answered', 'question.cancelled', 'question.expired'] },
+  { id: 'runs', label: 'Agents', description: 'When an agent starts a run, waits on a person, finishes, stops responding or comes back, is paused or resumed, or spends its budget.', events: ['run.started', 'run.updated', 'run.finished', 'agent.offline', 'agent.online', 'agent.paused', 'agent.resumed', 'budget.exceeded'] },
   {
     id: 'invoices',
     label: 'Invoices',
@@ -271,9 +279,9 @@ export const WEBHOOK_EVENT_GROUPS: readonly WebhookEventGroup[] = [
   },
   {
     id: 'assistant',
-    label: 'Assistant chat',
-    description: 'A chat message a person sends their own assistant, for the host that answers it. Pick the assistant under Member.',
-    events: ['assistant.message'],
+    label: 'Chat',
+    description: 'A chat message for an agent: a person writing to their own assistant, or company chat for a company agent. For the host that answers it. Pick the agent under Member.',
+    events: ['chat.message', 'assistant.message'],
   },
 ];
 
@@ -313,7 +321,7 @@ const AGENT_EVENT_TYPE = /^[a-z][a-z0-9_.]{0,99}$/;
 export function webhookStepProblem(draft: WebhookDraft, step: WebhookStep): string | null {
   if (step === 'endpoint') {
     if (!draft.name.trim()) return 'Give the endpoint a name.';
-    // HTTPS, except plain http on localhost for local development (the API's rule too).
+    // HTTPS to a public address; local development also allows http on localhost (the API's rule too).
     const urlError = webhookUrlError(draft.url.trim());
     return urlError ? `${urlError}.` : null;
   }

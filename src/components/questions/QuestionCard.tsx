@@ -1,13 +1,13 @@
 'use client';
 
 import { useId, useState, type ReactNode } from 'react';
-import { Check, MessageCircleQuestion, ShieldCheck } from 'lucide-react';
+import { Check, ExternalLink, MessageCircleQuestion, ShieldCheck } from 'lucide-react';
 import { useAuth } from '@/lib/auth-context';
 import { Button } from '@/components/ui/Button';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Textarea } from '@/components/ui/inputs/Textarea';
 import { invalidateTables } from '@/lib/query-cache';
-import { ANSWER_MAX, answerLine, approvalDetailRows, approvalTypeLabel, textAnswers, type QuestionView } from '@/lib/questions';
+import { ANSWER_MAX, answerLine, approvalDetailRows, approvalTypeLabel, decisionLine, externalLinkHost, textAnswers, type QuestionView } from '@/lib/questions';
 import { timeAgo } from '@/lib/task-times';
 import { groupTargetLabel } from '@/lib/groups';
 import { appLocale } from '@/lib/region';
@@ -28,7 +28,8 @@ import { appLocale } from '@/lib/region';
  * An approval (kind approval) reads as the action to allow: its summary, any
  * context under it, its type and every detail (plain-text rows; folded on a
  * board card), an optional note, and Approve and Reject buttons that send at
- * once. Only the member asked or the Owner can decide it.
+ * once. Whoever it names, or the Owner, decides it; once decided it says by
+ * whom and how ("Approved by Mia in the app", "Approved by Reviewer AI").
  *
  * A question asked to a group reads "Asked to Finance (any member)", and is
  * yours to answer when you are in that group. One an agent asked for someone
@@ -140,11 +141,10 @@ export function QuestionCard({ question, variant = 'panel', place, onOpenTask }:
 
   if (result) {
     const yours = result.answered_by === teamMemberId;
-    const decided = result.decision === 'approved' ? 'approved' : 'rejected';
     const line = result.status !== 'answered'
       ? (approval ? 'Approval request cancelled' : 'Question cancelled')
       : approval
-        ? `${yours ? `You ${decided}` : decided.charAt(0).toUpperCase() + decided.slice(1)}${result.answer_text ? `: ${result.answer_text}` : ''}`
+        ? decisionLine(result, yours)
         : `${yours ? 'You answered' : 'Answered'}: ${answerLine(result)}`;
     return (
       <div className={wrapper} role="status" {...stop}>
@@ -222,11 +222,28 @@ export function QuestionCard({ question, variant = 'panel', place, onOpenTask }:
       )}
     </div>
   );
+  // The object in the other system it is about (a bill, a payment), opened
+  // in a new tab: only a safe https link is shown.
+  const externalHost = approval ? externalLinkHost(question.action) : null;
   const actionText = approval && question.action && (
     <div className={compact ? 'mt-2 space-y-2' : 'mt-3 space-y-2'}>
-      <span className={`inline-flex max-w-full items-center gap-1 rounded-lg border border-white/[0.08] bg-white/[0.04] px-2.5 py-1 text-zinc-300 ${compact ? 'text-[11px]' : 'text-xs'}`}>
-        <span className="truncate">{approvalTypeLabel(question.action.type)}</span>
-      </span>
+      <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+        <span className={`inline-flex max-w-full items-center gap-1 rounded-lg border border-white/[0.08] bg-white/[0.04] px-2.5 py-1 text-zinc-300 ${compact ? 'text-[11px]' : 'text-xs'}`}>
+          <span className="truncate">{approvalTypeLabel(question.action.type)}</span>
+        </span>
+        {externalHost && (
+          <a
+            href={question.action.external_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            title={question.action.external_id ? `${question.action.external_id} in ${externalHost}` : undefined}
+            className={`inline-flex max-w-full items-center gap-1 rounded-lg border border-white/[0.08] bg-white/[0.04] px-2.5 py-1 text-brand-300 hover:bg-white/[0.08] hover:text-brand-200 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 ${compact ? 'text-[11px]' : 'text-xs'}`}
+          >
+            <span className="truncate">Open in {externalHost}</span>
+            <ExternalLink size={12} aria-hidden="true" className="flex-shrink-0" />
+          </a>
+        )}
+      </div>
       {detailList && (compact ? (
         <details className="group">
           <summary className="cursor-pointer rounded text-zinc-400 hover:text-zinc-200 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 text-[11px]">

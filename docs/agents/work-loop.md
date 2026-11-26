@@ -90,17 +90,59 @@ A run is one piece of work, start to finish.
 ```
 
 - `external_id` is your harness's own run id. Starting again with it returns the same run (200), never a second one.
-- `update_run` (`PATCH /api/v1/agents/runs/{id}`): a new `plan`, a progress `note`, and `tokens_in`, `tokens_out`, `cost_usd` as totals so far (so a retry is safe).
+- `update_run` (`PATCH /api/v1/agents/runs/{id}`): a new `plan`, a progress `note`, and `tokens_in`, `tokens_out`, `cost_usd` as totals so far (so a retry is safe). These totals are the run's spend; usage that names the run is not added again ([How spend is counted](#how-spend-is-counted)).
 - `finish_run` (`POST /api/v1/agents/runs/{id}/finish`): `status` `succeeded` (default), `failed`, `cancelled` or `timed_out`, plus a `summary`. A finished run's status cannot change (`409 run_finished`).
-- A run with no update for two hours reads as `timed_out`. On long work, update at least that often.
-- `list_runs` and `get_run` read them back. Webhooks: `run.started`, `run.finished`.
+- A run with no update for two hours is stored as `timed_out` (within five minutes; `run.finished` goes out once), and its status cannot change after that. On long work, update at least that often.
+- `list_runs` and `get_run` read them back. Webhooks: `run.started`, `run.updated` (status `waiting`, or back to `running`), `run.finished`.
+
+### Waiting on a person
+
+A run can be `waiting`: neither running nor finished. Use it when the next step is a person's answer.
+
+- **Pass `run_id` when you ask.** `ask_human` and `request_approval` take your own unfinished run's id. While the question is open, the run is `waiting` and never times out. Another agent's run is `422 run_not_yours`; a finished run is `409 run_finished`.
+- **When the answer comes** (or the question is cancelled or expires), and no other open question names the run, it is `running` again and its two hours start over.
+- **Or say it yourself:** `update_run` with `status: "waiting"`. With no open question naming it, a waiting run is stored as `timed_out` after seven days without an update.
+- **Any update you send without `status: "waiting"` makes it `running` again.** To add a progress note while you still wait, send `status: "waiting"` with it. A note from someone else (`agents.manage`) leaves it waiting.
+- **Finish from waiting** as usual: `finish_run` with `succeeded`, `failed` or `cancelled`.
+- Turns that name a waiting run keep it waiting and restart its clock.
+- Analytics show it as "Waiting on a person", never as a timeout, and leave it out of the success rate until it finishes. It does not count against `max_concurrent_runs`.
 
 ### Parent runs and handoff
 
-- `delegate_task` (`POST /api/v1/tasks/{id}/delegate`) hands part of a task to a specialist agent as a subtask assigned to it. Pass your `run_id`. Needs `tasks.manage_all`. Your own create rules apply (approval gives a suggestion, answered 202). Core never picks the specialist.
-- The specialist sees `delegated_from` in its brief and starts its run with `parent_run_id` set to that run.
+- `delegate_task` (`POST /api/v1/tasks/{id}/delegate`) hands work to another agent. Pass your `run_id`. Needs `tasks.manage_all`. Core never picks the receiver.
+  - `mode: "subtask"` (the default) makes a subtask of the task, assigned to the receiver. Your own create rules apply (approval gives a suggestion, answered 202).
+  - `mode: "assign"` hands the task itself over, as it is: top-level, or a subtask. The receiver joins its assignees; `reassign: true` takes you off (and ends your claim). Answered 200.
+- The receiver sees `delegated_from` (with `mode`) in its brief and starts its run with `parent_run_id` set to that run.
 - The whole chain shares one root and one person it is for. A child run for someone else is refused (`403 principal_mismatch`).
 - `get_run_tree` (`GET /api/v1/agents/runs/{id}/tree`) shows the chain from any run in it.
+
+### Chains of agents
+
+Subtasks go one level deep. Chains do not: a run can be the parent of runs on any task, so work can pass through several agents and stay one run tree.
+
+Example: Ana asks her personal agent, Ashley, to fix the pricing page.
+
+1. **Ashley** starts a run. It is made for Ana (`principal_id`), because a personal agent always works for its person. She creates the task (or finds it) and hands it to the company agent: `delegate_task` with `mode: "assign"`, `agent_id` Alexa, `run_id` her run.
+2. **Alexa** reads `delegated_from` in the brief and starts her run with `parent_run_id` set to Ashley's run. Ana is carried down as principal. Alexa plans the work and hands the build to Jeff as a subtask (`mode: "subtask"`, her `run_id`).
+3. **Jeff** starts his run under Alexa's. When the build is done, he hands his subtask to the reviewer (`mode: "assign"`, his `run_id`).
+4. **The reviewer** starts a run under Jeff's.
+
+`get_run_tree` from any of these runs shows all four: Ashley at depth 0, Alexa 1, Jeff 2, the reviewer 3 (`levels: 4`), each on its own task, all with Ana as `principal_id`.
+
+The guards:
+
+| Rule | Refusal |
+|---|---|
+| A chain keeps its person. Acting for someone else on it, or handing it to another person's personal agent, is refused. | `403 principal_mismatch` |
+| A hand-off and a child run in a chain for a person are checked with your access and theirs together, as `X-Act-For` would: only projects both reach, only what both may do. | `404` for a task out of reach, `403` for a missing permission |
+| The receiver must reach the task's project. | `422 receiver_no_project_access` |
+| At most 8 hand-offs below the first run. | `409 chain_too_deep` |
+| Never to an agent that already ran a run above yours (handing work back up would loop), including yourself. | `409 delegation_cycle` |
+| A personal agent delegates only while acting for its person, and only to company agents. | `403 personal_agent_not_acting`, `403 receiver_is_personal_agent` |
+
+Every hand-off in a chain for a person needs what that hand-off needs (`tasks.manage_all`) held by the person too, never only by the agents. A company agent's other calls during the chain use its own key; to keep those inside the person's reach too, act for them (`X-Act-For`).
+
+A task holds one delegation link: handing it on again replaces it. The runs keep the whole chain.
 
 ## 5. Ask a person
 
@@ -111,6 +153,7 @@ A run is one piece of work, start to finish.
 ```json
 {
   "task_id": "7c1e...",
+  "run_id": "9a40...",
   "question": "EU totals round per line or per invoice? Finance has asked for both before.",
   "choices": ["Per line", "Per invoice"],
   "allow_other": true
@@ -119,8 +162,9 @@ A run is one piece of work, start to finish.
 
 - `asked_to` defaults to the agent's escalation target, then its owners, else the Owner.
 - `asked_to_group` asks a group: every member's bell rings, any member answers.
-- `expires_at` sets a deadline. After it, the question reads as expired.
+- `expires_at` sets a deadline. After it, the question is stored as expired, `question.expired` goes out, and whoever asked (for an agent, its owners) is told once.
 - `cancel_question` withdraws it.
+- `run_id` names your run: it waits on the answer ([Waiting on a person](#waiting-on-a-person)).
 
 ### Approvals
 
@@ -133,8 +177,19 @@ A run is one piece of work, start to finish.
 }
 ```
 
-- The person asked must be a person, never an agent (`422 approver_not_person`).
+- Name a person, or a reviewer agent on purpose, in `asked_to`. A default (your escalation target) that lands on an agent is refused (`422 approver_not_person`). Never yourself (`422 asked_self`).
 - Act only when `decision` is `approved`. `rejected`, expired or cancelled means no.
+- `run_id` holds your run while it waits, as on a question.
+- Whoever the approval names decides it, or the Owner. `decided_via` says how: `app`, `api_key`, `agent` or `act_for`.
+
+Deciding an approval (`answer_question` with `choice: "approve"` or `"reject"`):
+
+- An approval that names a person, or a group of people (or the Owner's override), is decided in the app, signed in. Over the API it needs a key that carries `approvals.decide`.
+- An approval asked to an agent by name is decided by that agent with its own key, no extra scope.
+- Admins and members hold `approvals.decide` on the API, but no key carries it by default. A person adds it to their own key on purpose.
+- An agent acting for the person (`X-Act-For`, or a personal agent) needs `approvals.decide` on its key, held by the person too. The decision is recorded as the person's. It never decides a request it made.
+- A connected AI tool (Connect AI) never decides one, whatever its scopes.
+- Refused: `403 approval_needs_person`, with a hint. Not the one named: `403 not_asked`. `can_answer` tells you first.
 - For new work to propose, use a task suggestion instead.
 
 ### Waiting for the answer
@@ -199,7 +254,7 @@ Send `Idempotency-Key` on any POST to make retries safe. Use a fresh UUID per th
 
 ## Limits and pause
 
-No limit applies until an Owner sets one. An Owner sets them on the agent's profile (Rules and powers), or with `PATCH /api/v1/agents/{id}` (MCP `update_agent`) and a `limits` object: `max_concurrent_runs`, `rate_per_minute`, `budget_usd`, `budget_tokens`, `budget_period` (`day`, `week` or `month`, UTC; `null` clears a field). Templates can carry limits.
+No limit applies until an Owner sets one. An Owner sets them on the agent's profile (Rules and powers), or with `PATCH /api/v1/agents/{id}` (MCP `update_agent`) and a `limits` object: `max_concurrent_runs`, `rate_per_minute`, `budget_usd`, `budget_tokens`, `budget_period` (`day`, `week` or `month`, UTC; `null` clears a field). Templates can carry limits. How the budget counts spend: [How spend is counted](#how-spend-is-counted).
 
 | Answer | Reason | Meaning | Do |
 |---|---|---|---|
@@ -221,8 +276,23 @@ While paused, an agent can still:
 
 Every other write answers 423. People are never paused.
 
+Pause and budget refuse calls into this app only. An agent that also works elsewhere checks `get_my_status` (`GET /api/v1/agents/me/status`) before each turn and skips the turn when `can_start_work` is false ([External agents](external-agents.md#check-before-each-turn)). Webhooks `agent.paused`, `agent.resumed` and `budget.exceeded` tell its host at once.
+
 Who pauses:
 
 - One agent: Pause in its profile's header (one click, no confirmation), or `PATCH /api/v1/agents/{id}` (MCP `update_agent`) with `paused: true` (whoever may manage it). `paused: false` resumes it.
 - Every agent: an Owner, from Settings > Security or the Agents home.
 - One agent on one project: the project's Agents tab, `set_project_agent` or `PUT /api/v1/projects/{id}/agents/{agentId}` with `status: "paused"`.
+
+### How spend is counted
+
+The budget and Analytics count spend the same way, once:
+
+- **Work under a run counts as the run's own totals.** Its `cost_usd`, `tokens_in` and `tokens_out` are the truth.
+- **Usage and turns that name a run never add again.** Send `run_id` (or `run_external_id`) on `usage.recorded` and `turn.completed` to say they belong to a run. They only stand in where the run reports no cost or tokens of its own.
+- **Usage that names no run adds on top.** So a run reporting $60 plus $50 of `usage.recorded` with no run is $110.
+- **Turns that name no run add their own tokens** only for an agent that reports no `usage.recorded` that period. Otherwise the usage already counts that work.
+- **Spent tokens are input plus output.** Cached tokens show in Analytics but never count against `budget_tokens`.
+- **Spend knows who it was for.** Each counted run, usage or turn carries the person the agent acted for (`principal_id`: `X-Act-For`, or a personal agent's person), so spend can be read by person. Work the agent did as itself has none.
+
+A run counts in the period it started. Usage counts at its `recorded_at`. Usage sent before `run_id` was accepted on it names no run, so it adds on top.

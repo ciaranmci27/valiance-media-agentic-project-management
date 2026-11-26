@@ -1101,7 +1101,7 @@ export interface EntityFile {
 // NOTIFICATIONS
 // ============================================================
 
-export type NotificationEntityType = 'task' | 'project' | 'lead' | 'comment' | 'member' | 'contact' | 'suggestion' | 'goal';
+export type NotificationEntityType = 'task' | 'project' | 'lead' | 'comment' | 'member' | 'contact' | 'suggestion' | 'goal' | 'question' | 'invoice' | 'reminder' | 'webhook';
 
 export interface Notification {
   id: string;
@@ -1156,9 +1156,10 @@ export const INVOICE_WEBHOOK_EVENT_TYPES = [
 /** Work events: what wakes an agent harness. Need only the Webhooks module. */
 export const WORK_WEBHOOK_EVENT_TYPES = [
   'task.created', 'task.updated', 'task.deleted', 'comment.created',
-  'question.asked', 'question.answered', 'question.cancelled',
+  'question.asked', 'question.answered', 'question.cancelled', 'question.expired',
   'suggestion.created', 'suggestion.decided', 'review.submitted',
-  'run.started', 'run.finished',
+  'run.started', 'run.updated', 'run.finished', 'agent.offline', 'agent.online',
+  'agent.paused', 'agent.resumed', 'budget.exceeded',
   'template.run',
 ] as const;
 
@@ -1178,7 +1179,17 @@ export const AGENT_EVENT_WEBHOOK_EVENT_TYPES = ['agent_event.created'] as const;
  */
 export const ASSISTANT_WEBHOOK_EVENT_TYPES = ['assistant.message'] as const;
 
-export const WEBHOOK_EVENT_TYPES = [...WORK_WEBHOOK_EVENT_TYPES, ...AGENT_EVENT_WEBHOOK_EVENT_TYPES, ...ASSISTANT_WEBHOOK_EVENT_TYPES, ...INVOICE_WEBHOOK_EVENT_TYPES] as const;
+/**
+ * A chat message for an agent, personal or company (the two bots): ids only
+ * (the message, its connection kind, channel, thread, whether it is a
+ * request or context, the sender, where to read and answer it), never chat
+ * text. Opt in only, and only on an endpoint filtered to an agent or scoped
+ * to an assistant setup. assistant.message is its deprecated alias for
+ * personal assistants.
+ */
+export const CHAT_WEBHOOK_EVENT_TYPES = ['chat.message'] as const;
+
+export const WEBHOOK_EVENT_TYPES = [...WORK_WEBHOOK_EVENT_TYPES, ...AGENT_EVENT_WEBHOOK_EVENT_TYPES, ...ASSISTANT_WEBHOOK_EVENT_TYPES, ...CHAT_WEBHOOK_EVENT_TYPES, ...INVOICE_WEBHOOK_EVENT_TYPES] as const;
 export type WebhookEventType = typeof WEBHOOK_EVENT_TYPES[number];
 
 export const WEBHOOK_DELIVERY_STATUSES = ['pending', 'delivering', 'succeeded', 'failed'] as const;
@@ -1207,6 +1218,8 @@ export interface WebhookEndpoint {
   member_id: string | null;
   /** agent_event.created only for these agent event types; null (or absent before 20261124001200) for every type. */
   agent_event_types?: string[] | null;
+  /** Only events that concern a personal agent this assistant setup made, assistant.message included; null (or absent before 20261125000900) for none. Never with member_id. */
+  assistant_setup_id?: string | null;
   created_by: string | null;
   last_delivery_at: string | null;
   created_at: string;

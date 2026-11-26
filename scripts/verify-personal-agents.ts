@@ -283,6 +283,8 @@ async function main() {
     NEXT_PUBLIC_APP_URL: 'https://pm.example.com',
   });
   delete process.env.APP_ENCRYPTION_KEY;
+  // The receiver here listens on 127.0.0.1, a private address: allowed as for a receiver on your own network.
+  process.env.WEBHOOKS_ALLOW_PRIVATE_TARGETS = 'true';
   installSession(server.url);
   try {
     const setupsRoute = await import('../src/app/api/workspace/assistants/setups/route');

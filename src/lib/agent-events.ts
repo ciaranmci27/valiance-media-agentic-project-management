@@ -28,8 +28,9 @@ import { z } from 'zod';
  *   which types exist is this file's to say.
  *
  * Legacy types (`task_started`, `heartbeat`, `custom`, ...) remain readable
- * forever - historical rows are immutable - but agent keys stop being able
- * to WRITE `custom` once the fleet's plugins speak this contract.
+ * forever - historical rows are immutable. Writing them is deprecated: each
+ * has its replacement in LEGACY_ACTIVITY_REPLACEMENTS below, and writes stop
+ * being accepted after the triage plans cutover.
  */
 
 const taskRef = {
@@ -156,6 +157,14 @@ export const AGENT_EVENT_SCHEMAS = {
     // both are valid ISO 8601 instants; rejecting one is contract brittleness,
     // observed live as every usage event bouncing 422.
     recorded_at: z.string().datetime({ offset: true }).optional(),
+    // Usage that is part of a run names it, as a turn does: run_id (the
+    // app's run id) or run_external_id (the harness's own). The server keeps
+    // run_id only when it names one of this agent's runs. Spend then counts
+    // the run's own totals and never adds this usage again (it stands in
+    // only where the run reports no cost or tokens of its own); usage that
+    // names no run adds on top (pm.agent_spend_facts).
+    run_id: looseId.optional(),
+    run_external_id: looseId.optional(),
   }),
 
   // How long an agent actually RAN. An internal capacity metric, never a
@@ -376,6 +385,38 @@ export function isHostRecordEvent(t: string): boolean {
 
 /** Every activity type analytics reads but no human should read in a feed. */
 export const TELEMETRY_EVENT_TYPES: AgentEventType[] = ['usage.recorded', 'turn.completed', ...HOST_RECORD_EVENT_TYPES];
+
+// -- legacy types -------------------------------------------------------------
+
+/**
+ * The legacy free-title activity types (schemas/agent-activity.ts accepts
+ * them so older harnesses keep logging), each with what to write instead.
+ * Deprecated: still accepted unchanged, and removed after the triage plans
+ * cutover (lib/api/version.ts). Historical rows stay readable forever. The
+ * docs list this map, and the legacy schema takes its types from it, so a
+ * legacy type cannot exist without a replacement.
+ */
+export const LEGACY_ACTIVITY_REPLACEMENTS = {
+  suggestion_created: 'nothing to post: POST /api/v1/task-suggestions records it (webhook suggestion.created)',
+  task_started: 'work.claimed',
+  task_completed: 'work.done, or work.handoff when the task goes to review',
+  task_failed: 'blocked (with a reason), and finish_run with status failed',
+  research_started: 'start_run (a run per piece of work), or note',
+  research_completed: 'spec.completed when it produced a spec, else finish_run or note',
+  suggestion_reviewed: 'nothing to post: deciding the suggestion records it (webhook suggestion.decided)',
+  comment_added: 'work.milestone with kind comment (posting the comment fires comment.created)',
+  status_changed: 'work.done or work.handoff for those moves; the task update records the rest (webhook task.updated)',
+  agent_spawned: 'start_run with parent_run_id (delegate_task links the subtask)',
+  agent_completed: 'finish_run with status succeeded',
+  agent_failed: 'finish_run with status failed (turn.failed from a host publisher)',
+  heartbeat: 'POST /api/v1/agents/heartbeat (the heartbeat tool)',
+  system_check: 'POST /api/v1/agents/heartbeat, or eval.result for a regression eval',
+  custom: 'note, or custom.<namespace>.<name>',
+} as const;
+
+export type LegacyActivityType = keyof typeof LEGACY_ACTIVITY_REPLACEMENTS;
+
+export const LEGACY_ACTIVITY_TYPES = Object.keys(LEGACY_ACTIVITY_REPLACEMENTS) as [LegacyActivityType, ...LegacyActivityType[]];
 
 // -- labels -----------------------------------------------------------------
 

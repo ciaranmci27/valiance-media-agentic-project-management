@@ -14,4 +14,4 @@ export const GET = withApi(async ({ supabase, searchParams, teamMemberId, access
   const projectId = searchParams.get('project_id');
   if (projectId && !UUID.test(projectId)) throw badRequest('project_id must be a uuid');
   return success(await nextTask({ supabase, memberId: teamMemberId, access, scopes }, projectId));
-});
+}, { permission: 'tasks.read' });

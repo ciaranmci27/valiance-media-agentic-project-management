@@ -14,9 +14,12 @@ import {
   type TaskLatestRun,
   type UpdateAgentRunInput,
   AGENT_RUN_STALE_AFTER_SECONDS,
+  isRunFinished,
+  waitingRunNeedsQuestionCheck,
 } from '@/lib/agent-runs';
+import { intersectAccess } from '@/lib/access-control';
 import { postgrestList, trashedProjectIds } from '@/lib/supabase/trash';
-import { accessAllows, accessAllowsProject, apiKeyAllows } from './access';
+import { accessAllows, accessAllowsProject, apiKeyAllows, resolveMemberAccess } from './access';
 import { requireAgentsEnabled } from './agents';
 import { afterResponse } from './after-response';
 import { checkBudgetAfterUsage, enforceRunStart } from './agent-limits';
@@ -63,6 +66,10 @@ const invalid = (message: string, details?: Record<string, unknown>) => new ApiE
 export function runWriteError(error: { code?: string; message?: string }): unknown {
   if (error?.code !== '23514') return error;
   const constraint = /constraint "([^"]+)"/.exec(error.message ?? '')?.[1] ?? null;
+  // The database's own chain guards (a start racing the server's checks).
+  if (constraint === 'agent_runs_chain_depth') return chainTooDeep();
+  if (constraint === 'agent_runs_no_cycle') return chainCycle();
+  if (constraint === 'agent_runs_principal_carried') return principalMismatch();
   return invalid('This run breaks one of its limits; check the fields you sent.', { reason: 'run_check_failed', constraint });
 }
 
@@ -108,10 +115,27 @@ async function attachedTurns(db: SupabaseClient, runIds: string[]): Promise<Map<
   return out;
 }
 
+/**
+ * Of these waiting runs, the ones an open question or approval names (not
+ * past expires_at, not in Trash): those never time out while it is open.
+ */
+async function runsWithOpenQuestion(db: SupabaseClient, runIds: string[]): Promise<Set<string>> {
+  if (runIds.length === 0) return new Set();
+  const { data, error } = await db.from('questions').select('run_id, expires_at')
+    .in('run_id', runIds).eq('status', 'open').is('deleted_at', null);
+  // A database before questions.run_id: nothing names a run.
+  if (error && (error.code === '42703' || /run_id/.test(error.message ?? ''))) return new Set();
+  if (error) throw error;
+  const now = Date.now();
+  return new Set(((data ?? []) as { run_id: string; expires_at: string | null }[])
+    .filter((q) => !q.expires_at || Date.parse(q.expires_at) > now).map((q) => q.run_id));
+}
+
 async function present(db: SupabaseClient, rows: Row[]): Promise<AgentRunSummary[]> {
-  const [names, turns] = await Promise.all([
+  const [names, turns, held] = await Promise.all([
     memberNames(db, rows.map((r) => r.agent_id)),
     attachedTurns(db, rows.filter((r) => r.source === 'run').map((r) => r.id)),
+    runsWithOpenQuestion(db, rows.filter((r) => r.source === 'run' && waitingRunNeedsQuestionCheck(r as { status: string; updated_at: string })).map((r) => r.id)),
   ]);
   return rows.map((row) => ({
     id: row.id,
@@ -121,7 +145,7 @@ async function present(db: SupabaseClient, rows: Row[]): Promise<AgentRunSummary
     task_id: row.task_id ?? null,
     project_id: row.project_id ?? null,
     // The view already reads a stale run as timed_out; this keeps one rule for rows read from the table.
-    status: row.source === 'run' ? effectiveRunStatus(row as { status: string; updated_at: string }) : row.status,
+    status: row.source === 'run' ? effectiveRunStatus({ status: row.status, updated_at: row.updated_at, open_question: held.has(row.id) }) : row.status,
     outcome: row.outcome ?? null,
     title: row.title ?? null,
     summary: row.summary ?? null,
@@ -265,13 +289,72 @@ async function loadParentRun(ctx: RunsContext, id: string): Promise<Row> {
   const sees = !!row && (row.agent_id === ctx.memberId || canManageRuns(ctx) || await runDelegatedTo(ctx.db, row.id, ctx.memberId));
   if (!row || !sees || !runInReach(ctx, row) || !(await placeLive(ctx.db, row))) throw notFound('Parent run');
   const principal = ctx.access.principal_id ?? null;
-  if (principal && principal !== (row.principal_id ?? null)) {
-    throw forbidden('A child run acts for the same person as its parent', {
-      reason: 'principal_mismatch',
-      hint: 'Start the child run for the person its parent ran for, or start a run of its own without parent_run_id.',
-    });
-  }
+  if (principal && principal !== (row.principal_id ?? null)) throw principalMismatch();
   return row;
+}
+
+// ── Chains of agents ─────────────────────────────────────────────────────
+
+/** How many hand-offs a chain goes below its root run (the database holds the same limit). */
+export const RUN_CHAIN_MAX_DEPTH = 8;
+
+export function principalMismatch(): ApiError {
+  return forbidden('A child run acts for the same person as its parent', {
+    reason: 'principal_mismatch',
+    hint: 'Start the child run for the person its parent ran for, or start a run of its own without parent_run_id.',
+  });
+}
+
+export function chainTooDeep(): ApiError {
+  return new ApiError(409, 'CONFLICT', `A chain of agents goes at most ${RUN_CHAIN_MAX_DEPTH} hand-offs below its first run.`, {
+    reason: 'chain_too_deep',
+    max_depth: RUN_CHAIN_MAX_DEPTH,
+    hint: 'Do this part yourself, or hand it to an agent higher up the chain (get_run_tree shows it).',
+  });
+}
+
+export function chainCycle(agentId?: string): ApiError {
+  return new ApiError(409, 'CONFLICT', 'That agent already has a run above this one in the chain: handing work back up would loop.', {
+    reason: 'delegation_cycle',
+    ...(agentId ? { agent_id: agentId } : {}),
+    hint: 'Finish your run with what you found; the agent above you hands the next piece on.',
+  });
+}
+
+/**
+ * A run and every run above it, nearest first: [run, parent, ..., root].
+ * Read only as far as the depth limit needs (one past it).
+ */
+export async function runAncestors(db: SupabaseClient, run: Row): Promise<Row[]> {
+  const chain: Row[] = [run];
+  const seen = new Set<string>([run.id as string]);
+  let at = (run.parent_run_id as string | null | undefined) ?? null;
+  while (at && !seen.has(at) && chain.length <= RUN_CHAIN_MAX_DEPTH) {
+    const { data, error } = await db.from('agent_runs').select('id, agent_id, parent_run_id, principal_id').eq('id', at).maybeSingle();
+    if (error) throw error;
+    if (!data) break;
+    chain.push(data as Row);
+    seen.add(at);
+    at = ((data as Row).parent_run_id as string | null) ?? null;
+  }
+  return chain;
+}
+
+/**
+ * The access a request works a chain with. Acting for the chain's person
+ * (or a chain for nobody): its own. A chain for a person it does not act
+ * for (a company agent handed a personal agent's work): its own and the
+ * person's together, as X-Act-For gives, so a hand-off never reaches what
+ * the person cannot. Acting for someone else: 403 principal_mismatch.
+ */
+export async function chainAccess(db: SupabaseClient, access: AccessContext, principalId: string | null): Promise<AccessContext> {
+  if (access.principal_id && access.principal_id !== principalId) throw principalMismatch();
+  if (!principalId || access.principal_id === principalId) return access;
+  const person = await resolveMemberAccess(db, principalId);
+  if (!person || person.role === 'agent' || person.status !== 'active') {
+    throw forbidden('The person this chain of work is for is suspended', { reason: 'principal_suspended' });
+  }
+  return intersectAccess(access, person);
 }
 
 /** Where a run hangs: a live task (its project comes with it), a live project, or nothing. */
@@ -344,7 +427,7 @@ function notBefore(start: string, value: string, field: string) {
   if (Date.parse(value) < Date.parse(start)) throw invalid(`${field} cannot be before the run started`, { reason: 'before_start', started_at: start });
 }
 
-const finished = (status: string) => status !== 'running';
+const finished = isRunFinished;
 
 /**
  * Starts a run, or (the same external_id for this agent again) answers with
@@ -356,7 +439,13 @@ export async function startRun(ctx: RunsContext, input: StartAgentRunInput): Pro
   const agentId = await resolveAgent(ctx, input.agent_id);
   // A child run: its parent must be one the key can see, and it acts for the same person.
   const parent = input.parent_run_id ? await loadParentRun(ctx, input.parent_run_id) : null;
-  const place = await resolvePlace(ctx, input);
+  let placeCtx = ctx;
+  if (parent) {
+    // At most RUN_CHAIN_MAX_DEPTH hand-offs deep, and only where the chain's person reaches too.
+    if ((await runAncestors(ctx.db, parent)).length > RUN_CHAIN_MAX_DEPTH) throw chainTooDeep();
+    placeCtx = { ...ctx, access: await chainAccess(ctx.db, ctx.access, (parent.principal_id as string | null) ?? null) };
+  }
+  const place = await resolvePlace(placeCtx, input);
   assertProjectWritable(place.project_id);
   if (input.started_at && Date.parse(input.started_at) > Date.now() + 60_000) {
     throw invalid('started_at cannot be in the future', { reason: 'starts_in_future' });
@@ -399,13 +488,18 @@ async function runByExternalId(db: SupabaseClient, agentId: string, externalId: 
   return (data as Row | null) ?? null;
 }
 
-/** A repeated start: what it sends lands on the run it names; its status stays. */
+/**
+ * A repeated start: what it sends lands on the run it names; its status
+ * stays, except that a run waiting on a person is back at work when its own
+ * agent writes to it.
+ */
 async function updateExisting(ctx: RunsContext, existing: Row, input: StartAgentRunInput, place: { task_id: string | null; project_id: string | null }): Promise<AgentRunView> {
   if (!(await placeLive(ctx.db, existing))) throw notFound('Run');
   const changes: Row = { ...fieldsFrom(input, existing.notes) };
   if (input.task_id !== undefined || input.project_id !== undefined) Object.assign(changes, place);
   if (input.trigger !== undefined) changes.trigger = input.trigger;
   if (Object.keys(changes).length === 0) return presentRun(ctx.db, existing);
+  if (existing.status === 'waiting' && existing.agent_id === ctx.memberId) changes.status = 'running';
   const { data, error } = await ctx.db.from('agent_runs').update(changes).eq('id', existing.id).select('*').single();
   if (error) throw runWriteError(error);
   return presentRun(ctx.db, data as Row);
@@ -416,13 +510,23 @@ async function updateExisting(ctx: RunsContext, existing: Row, input: StartAgent
  * increments, so a retry is safe), and the rest. A finished status finishes
  * it. A finished run keeps its status (409 run_finished for another one) but
  * still takes late details: a trace link, a summary, its final tokens.
- * Only the run's agent, or a key with agents.manage.
+ * status waiting says the run waits on a person; from waiting, any write by
+ * its own agent (without status waiting) brings it back to running, and a
+ * finish is a finish. Only the run's agent, or a key with agents.manage.
  */
 export async function updateRun(ctx: RunsContext, id: string, input: UpdateAgentRunInput & { finished_at?: string }): Promise<AgentRunView> {
   requireAgentsEnabled(ctx.access);
   const row = await loadRun(ctx, id);
   const changes = fieldsFrom(input, row.notes);
   if (input.task_id !== undefined) Object.assign(changes, await resolvePlace(ctx, { task_id: input.task_id }));
+  // A run waiting on a person is back at work when its own agent writes to
+  // it, unless the write says waiting (a progress note while it still
+  // waits). Someone else's note (agents.manage) leaves it waiting.
+  if (row.status === 'waiting' && input.status === undefined && row.agent_id === ctx.memberId && Object.keys(changes).length > 0) {
+    changes.status = 'running';
+  }
+  // Waiting again restarts its clock, even with nothing else sent.
+  if (row.status === 'waiting' && input.status === 'waiting') changes.status = 'waiting';
   if (input.status !== undefined && input.status !== row.status) {
     if (finished(row.status)) {
       throw new ApiError(409, 'CONFLICT', `This run already finished (${row.status}).`, { reason: 'run_finished', status: row.status });
@@ -445,7 +549,9 @@ export async function updateRun(ctx: RunsContext, id: string, input: UpdateAgent
   }
   // Another write finished it between our read and this one: the database
   // kept the first finish (handle_agent_run_before_write), so this one lost.
-  if (changes.status !== undefined && data.status !== changes.status) {
+  // (A run back at work only because its agent wrote to it took the details
+  // a finished run still takes.)
+  if (input.status !== undefined && changes.status !== undefined && data.status !== changes.status) {
     throw new ApiError(409, 'CONFLICT', `This run already finished (${data.status}).`, { reason: 'run_finished', status: data.status });
   }
   return presentRun(ctx.db, data as Row);
@@ -549,9 +655,11 @@ async function listRunsForPrincipal(ctx: RunsContext, filters: RunFilters): Prom
   if (filters.agentId) query = query.eq('agent_id', filters.agentId);
   if (filters.taskId) query = query.eq('task_id', filters.taskId);
   if (filters.projectId) query = query.eq('project_id', filters.projectId);
-  // The feed reads a run two hours past its last update as timed_out; the table stores it as running.
+  // A run two hours past its last update reads as timed_out; the watchdog stores that within minutes.
+  // A waiting run lists as waiting: after seven days, whether a question still holds it is read per
+  // row (present) and stored by the watchdog.
   const stale = new Date(Date.now() - AGENT_RUN_STALE_AFTER_SECONDS * 1000).toISOString();
-  if (filters.status === 'timed_out') query = query.eq('status', 'running').lt('updated_at', stale);
+  if (filters.status === 'timed_out') query = query.or(`status.eq.timed_out,and(status.eq.running,updated_at.lt.${stale})`);
   else if (filters.status === 'running') query = query.eq('status', 'running').gte('updated_at', stale);
   else if (filters.status) query = query.eq('status', filters.status);
   const trashedProjects = await trashedProjectIds(ctx.db);
@@ -583,10 +691,13 @@ export async function latestRunForTask(db: SupabaseClient, taskId: string): Prom
   if (missingRunsTable(error)) return null;
   if (error) throw error;
   if (!data) return null;
-  const names = await memberNames(db, [data.agent_id]);
+  const [names, held] = await Promise.all([
+    memberNames(db, [data.agent_id]),
+    runsWithOpenQuestion(db, waitingRunNeedsQuestionCheck(data) ? [data.id] : []),
+  ]);
   return {
     id: data.id,
-    status: effectiveRunStatus(data),
+    status: effectiveRunStatus({ status: data.status, updated_at: data.updated_at, open_question: held.has(data.id) }),
     agent_id: data.agent_id,
     agent_name: names.get(data.agent_id) ?? null,
     title: data.title ?? null,
@@ -599,7 +710,9 @@ export async function latestRunForTask(db: SupabaseClient, taskId: string): Prom
  * The run a turn.completed belongs to, from its payload's run_id (the app's
  * run id) or run_external_id (the harness's), among the agent's own runs.
  * Null when it names none, or none of this agent's. A running run it lands
- * on counts it as an update, so a run with live turns never times out.
+ * on counts it as an update, so a run with live turns never times out; a
+ * waiting run stays waiting (a turn is telemetry, not the agent saying it
+ * is back at work) but its clock restarts.
  * Missing runs never refuse the turn: telemetry is not stalled for a
  * reference.
  */
@@ -614,8 +727,8 @@ export async function resolveTurnRun(db: SupabaseClient, agentId: string | null,
   if (missingRunsTable(error)) return null;
   if (error) throw error;
   if (!data) return null;
-  if (data.status === 'running') {
-    const { error: touchError } = await db.from('agent_runs').update({ status: 'running' }).eq('id', data.id).eq('status', 'running');
+  if (data.status === 'running' || data.status === 'waiting') {
+    const { error: touchError } = await db.from('agent_runs').update({ status: data.status }).eq('id', data.id).eq('status', data.status);
     if (touchError) throw touchError;
   }
   return data.id as string;

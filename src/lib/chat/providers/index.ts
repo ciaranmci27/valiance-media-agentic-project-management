@@ -1,4 +1,5 @@
 import type { ChatAdapter } from './adapter';
+import { discordAdapter } from './discord';
 import { slackAdapter } from './slack';
 import { telegramAdapter } from './telegram';
 
@@ -8,6 +9,7 @@ export { chatHttp, ChatProviderError, type ChatAdapter, type ChatCredentials, ty
 const ADAPTERS: Record<string, ChatAdapter> = {
   slack: slackAdapter,
   telegram: telegramAdapter,
+  discord: discordAdapter,
 };
 
 /** The adapter for a provider, or null when none exists yet (teams, custom). */

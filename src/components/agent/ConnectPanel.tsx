@@ -57,11 +57,11 @@ export function SecretOnce({ secret, heading = 'Copy the key now. It is not show
 }) {
   return (
     <div className="rounded-2xl bg-amber-500/[0.08] p-4 ring-1 ring-inset ring-amber-400/20 sm:p-5">
-      <p className="flex items-center gap-2 text-sm font-semibold text-amber-100">
+      <p className="flex items-center gap-2 text-sm font-semibold text-amber-300">
         <KeyRound size={15} aria-hidden="true" />
         {heading}
       </p>
-      <p className="mt-1 text-xs leading-relaxed text-amber-200/80">
+      <p className="mt-1 text-xs leading-relaxed text-amber-300/80">
         {hint ?? <>Put it in the agent&apos;s environment as <span className="font-mono">{CONNECT_KEY_ENV}</span>. Lost it? Make a new key and revoke this one.</>}
       </p>
       <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">

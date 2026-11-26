@@ -2,11 +2,14 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { isModuleEnabled, type AccessContext } from '@/lib/access-control';
 import { formatEventTitle } from '@/lib/agent-events';
 import {
-  APPROVAL_CHOICES, approvalDecision, effectiveQuestionStatus, textAnswers, type AnswerQuestionInput, type ApprovalAction,
-  type AskQuestionInput, type QuestionKind, type QuestionStatus, type QuestionView, type RequestApprovalInput,
+  APPROVAL_CHOICES, APPROVALS_DECIDE, DECIDED_VIA, approvalDecision as approvalChoiceDecision, effectiveQuestionStatus, textAnswers,
+  type AnswerQuestionInput, type ApprovalAction, type AskQuestionInput, type DecidedVia, type QuestionKind, type QuestionStatus,
+  type QuestionView, type RequestApprovalInput,
 } from '@/lib/questions';
+import { isRunFinished } from '@/lib/agent-runs';
 import { accessAllows, accessAllowsProject } from './access';
 import { afterResponse } from './after-response';
+import { currentConnection } from './request-context';
 import { escalationRecipient } from './agent-rules';
 import { activeGroupMembers, groupNames, groupsMigrationPending, liveGroup, missingGroupsSchema } from './groups';
 import { ApiError, badRequest, forbidden, notFound } from './errors';
@@ -20,16 +23,23 @@ import { postgrestList, trashedProjectIds } from '@/lib/supabase/trash';
  * ones on a task or project they can open (never one whose task or project
  * is in Trash). The asked member, the Owner, or someone who may manage the
  * team answers; the asker or those managers cancel. An approval (kind
- * 'approval') is decided only by the member asked, who is always a person,
- * or the Owner: managing the team is not a say over a deploy or a spend.
+ * 'approval') is decided only by whoever it names, or the Owner: managing
+ * the team is not a say over a deploy or a spend. The door matters too
+ * (approvalDecision below): an agent named decides with its own key; one
+ * that names a person (or the Owner's override) is decided signed in to the
+ * app, with the person's own key carrying approvals.decide, or by an agent
+ * acting for them with approvals.decide on its key and held by both; never
+ * by a connected AI tool. decided_via records the door.
  *
  * A question can be asked to a group instead (asked_to_group): every member
  * of it is a party (they see it, and their bells ring), and any member may
  * answer it (answered_by says who). An approval asked to a group is decided
  * by any person in it, never an agent in it.
  *
- * Expiry needs no job: an open question past expires_at reads as expired,
- * and every list or change stores that first (which clears its bell).
+ * Expiry: an open question past expires_at reads as expired, and every list
+ * or change stores that first (which clears its bell). The watchdog
+ * (pm.run_watchdog) stores it within five minutes anyway; the stored change
+ * sends question.expired and tells whoever asked, once.
  */
 
 export interface QuestionsContext {
@@ -39,6 +49,11 @@ export interface QuestionsContext {
   channel: 'api' | 'app';
   /** The API key's scopes (api channel); the app channel has none. */
   scopes?: string[];
+  /**
+   * A Connect AI connection made the request. Left out, the API channel reads
+   * it from the request (withApi and the MCP server set it in process).
+   */
+  connection?: boolean;
 }
 
 const SELECT = '*';
@@ -53,6 +68,8 @@ interface QuestionRow {
   asked_to_group?: string | null;
   /** The person an agent asked it for (X-Act-For). */
   principal_id?: string | null;
+  /** The asker's run it holds; missing on a database before 20261125001300. */
+  run_id?: string | null;
   question: string;
   choices: string[] | null;
   allow_other: boolean;
@@ -70,6 +87,8 @@ interface QuestionRow {
   /** question or approval; missing on a database before 20261124000600 (a question). */
   kind?: string;
   action?: ApprovalAction | null;
+  /** How an approval was decided; missing on a database before 20261125000700 (none recorded). */
+  decided_via?: string | null;
   /** Filled by withPlaces: the live task and project it hangs on. */
   task?: { title: string } | null;
   project?: { name: string } | null;
@@ -122,7 +141,21 @@ async function inChunks<T>(ids: string[], read: (chunk: string[]) => PromiseLike
   return out;
 }
 
+/**
+ * Whether the caller reads tasks and projects through this request. In the
+ * app, by the member's permissions. Over the API, the key must carry
+ * tasks.read or tasks.manage_all (and its member hold it): a key that came
+ * in on questions.ask alone asks, reads and withdraws only questions that
+ * name no task or project, its own, whatever its member could open.
+ */
+export function readsPlaces(ctx: Pick<QuestionsContext, 'access' | 'channel' | 'scopes'>): boolean {
+  if (ctx.channel === 'app') return true;
+  return (['tasks.read', 'tasks.manage_all'] as const).some((permission) =>
+    (ctx.scopes ?? []).includes(permission) && accessAllows(ctx.access, permission, 'api'));
+}
+
 async function loadTaskReader(ctx: QuestionsContext): Promise<TaskReader> {
+  if (!readsPlaces(ctx)) return { full: false, readable: new Set() };
   if (accessAllows(ctx.access, 'tasks.read', ctx.channel) || accessAllows(ctx.access, 'tasks.manage_all', ctx.channel)) {
     return { full: true, readable: null };
   }
@@ -188,6 +221,7 @@ function taskReader(ctx: QuestionsContext): Promise<TaskReader> {
 
 /** Whether the reader may open the task (or project) a question hangs on. */
 function canOpenPlace(ctx: QuestionsContext, reader: TaskReader, place: { task_id: string | null; project_id: string | null }): boolean {
+  if ((place.task_id || place.project_id) && !readsPlaces(ctx)) return false;
   if (place.task_id) {
     return !!place.project_id && accessAllowsProject(ctx.access, place.project_id, ctx.channel)
       && (reader.full || !!reader.readable?.has(place.task_id));
@@ -216,6 +250,8 @@ function canSee(ctx: QuestionsContext, row: QuestionRow): boolean {
  * principal every party counts, as before.
  */
 function partyInReach(ctx: QuestionsContext, row: Pick<QuestionRow, 'project_id' | 'principal_id'>): boolean {
+  // A key on questions.ask alone reaches only questions on nothing.
+  if (row.project_id && !readsPlaces(ctx)) return false;
   const principal = ctx.access.principal_id;
   if (!principal) return true;
   if (row.project_id) return accessAllowsProject(ctx.access, row.project_id, ctx.channel);
@@ -225,15 +261,121 @@ function partyInReach(ctx: QuestionsContext, row: Pick<QuestionRow, 'project_id'
 const isApproval = (row: { kind?: string | null }) => row.kind === 'approval';
 
 /**
- * Who answers: the member asked (or, for a group, any member of it; an
- * approval only a person in it), the Owner, or for a plain question a team
- * manager.
+ * The person an agent acts for (X-Act-For, or a personal agent's person), as
+ * a possible approver: their role and the groups they are in. Null without a
+ * principal. Read once per request.
  */
-const canAnswer = (ctx: QuestionsContext, row: QuestionRow) =>
-  // Whoever asked a group never answers for it, Owner or not: someone else in it does.
-  !(!!row.asked_to_group && row.asked_by === ctx.memberId) && (row.asked_to === ctx.memberId
-  || (!!row.asked_to_group && row.to_reader === true && (!isApproval(row) || ctx.access.role !== 'agent'))
-  || (isApproval(row) ? ctx.access.role === 'owner' : canManage(ctx)));
+interface Principal {
+  id: string;
+  role: string | null;
+  groups: Set<string>;
+}
+
+const principals = new WeakMap<QuestionsContext, Promise<Principal | null>>();
+
+function actingFor(ctx: QuestionsContext): Promise<Principal | null> {
+  const id = ctx.access.principal_id;
+  if (!id || ctx.channel !== 'api') return Promise.resolve(null);
+  let principal = principals.get(ctx);
+  if (!principal) {
+    principal = Promise.all([
+      ctx.db.from('team_members').select('role').eq('id', id).maybeSingle(),
+      ctx.db.from('group_members').select('group_id').eq('member_id', id),
+    ]).then(([member, groups]) => {
+      if (member.error) throw member.error;
+      if (groups.error && !missingGroupsSchema(groups.error)) throw groups.error;
+      return {
+        id,
+        role: (member.data as { role?: string } | null)?.role ?? null,
+        groups: new Set(((groups.error ? [] : groups.data ?? []) as { group_id: string }[]).map((row) => row.group_id)),
+      };
+    });
+    principals.set(ctx, principal);
+  }
+  return principal;
+}
+
+/** The request came from a connected AI tool (Connect AI). */
+const viaConnection = (ctx: QuestionsContext) => ctx.channel === 'api' && (ctx.connection ?? currentConnection());
+
+/** The key carries approvals.decide and its member holds it (an agent acting for someone: the agent and the person both). */
+const keyMayDecide = (ctx: QuestionsContext) =>
+  (ctx.scopes ?? []).includes(APPROVALS_DECIDE) && accessAllows(ctx.access, APPROVALS_DECIDE, 'api');
+
+/** How an approval gets decided: who it is recorded as (answered_by), and through which door. */
+interface ApprovalDecider {
+  by: string;
+  via: DecidedVia;
+}
+
+const needsPerson = (message: string, hint: string) =>
+  forbidden(message, { reason: 'approval_needs_person', needs: APPROVALS_DECIDE, hint });
+
+const notNamed = () => forbidden('Only the person asked, or the Owner, can decide this approval.', { reason: 'not_asked' });
+
+/**
+ * Whoever the approval names decides it, or the Owner:
+ * - named to an agent (asked_to is the calling agent): that agent's own key
+ *   decides it (decided_via agent);
+ * - named to a person, or to a group (a person in it, never whoever asked),
+ *   or the Owner's override: signed in to the app (app); over the API only
+ *   with approvals.decide on the key and held by its member (a person's own
+ *   key: api_key; an agent acting for the person, X-Act-For or a personal
+ *   agent: act_for, which needs it held by the agent and the person both and
+ *   is recorded as the person's decision); a connected AI tool never,
+ *   whatever its scopes. An agent never decides a request it made.
+ * Answers the decider, or the 403 to throw: not_asked when the caller (or
+ * the person it acts for) is not whom it names, approval_needs_person when
+ * they are but this door may not decide for a person.
+ */
+function approvalDecision(ctx: QuestionsContext, row: QuestionRow, principal: Principal | null): ApprovalDecider | ApiError {
+  if (ctx.channel === 'api' && ctx.access.role === 'agent') {
+    // Never its own request (asking yourself is refused when asked; this holds for any row).
+    if (row.asked_to === ctx.memberId && row.asked_by !== ctx.memberId) return { by: ctx.memberId, via: 'agent' };
+    if (!principal || row.asked_by === ctx.memberId) return notNamed();
+    const named = !(!!row.asked_to_group && row.asked_by === principal.id) && (row.asked_to === principal.id
+      || (!!row.asked_to_group && principal.role !== 'agent' && principal.groups.has(row.asked_to_group))
+      || principal.role === 'owner');
+    if (!named) return notNamed();
+    if (!keyMayDecide(ctx)) {
+      return needsPerson(
+        `An agent decides an approval for a person only with ${APPROVALS_DECIDE} on its key, held by the person and the agent.`,
+        `Ask the person to decide it in the app, or add ${APPROVALS_DECIDE} to this key and have an Owner grant it to both.`,
+      );
+    }
+    return { by: principal.id, via: 'act_for' };
+  }
+  // A person: named, a person in the group named, or the Owner. Whoever asked a group never decides for it.
+  const named = !(!!row.asked_to_group && row.asked_by === ctx.memberId) && (row.asked_to === ctx.memberId
+    || (!!row.asked_to_group && row.to_reader === true) || ctx.access.role === 'owner');
+  if (!named) return notNamed();
+  if (ctx.channel === 'app') return { by: ctx.memberId, via: 'app' };
+  if (viaConnection(ctx)) {
+    return needsPerson(
+      'A connected AI tool cannot decide an approval for a person.',
+      `Decide it in the app, or with your own API key that carries ${APPROVALS_DECIDE}.`,
+    );
+  }
+  if (!keyMayDecide(ctx)) {
+    return needsPerson(
+      `Deciding an approval for a person over the API needs ${APPROVALS_DECIDE} on the key.`,
+      `Decide it in the app, or add ${APPROVALS_DECIDE} to your own key on purpose.`,
+    );
+  }
+  return { by: ctx.memberId, via: 'api_key' };
+}
+
+/**
+ * Who answers: the member asked (or, for a group, any member of it), the
+ * Owner, or for a plain question a team manager. An approval is decided by
+ * whom it names, through a door that may (approvalDecision).
+ */
+const canAnswer = (ctx: QuestionsContext, row: QuestionRow, principal: Principal | null) =>
+  isApproval(row)
+    ? !(approvalDecision(ctx, row, principal) instanceof ApiError)
+    // Whoever asked a group never answers for it, Owner or not: someone else in it does.
+    : !(!!row.asked_to_group && row.asked_by === ctx.memberId) && (row.asked_to === ctx.memberId
+      || (!!row.asked_to_group && row.to_reader === true) || canManage(ctx));
 const canCancel = (ctx: QuestionsContext, row: QuestionRow) => row.asked_by === ctx.memberId || canManage(ctx);
 
 async function memberNames(db: SupabaseClient, ids: (string | null)[]): Promise<Map<string, string>> {
@@ -276,9 +418,10 @@ async function withPlaces(ctx: QuestionsContext, rows: QuestionRow[]): Promise<Q
 }
 
 async function present(ctx: QuestionsContext, rows: QuestionRow[]): Promise<QuestionView[]> {
-  const [names, groupsById] = await Promise.all([
+  const [names, groupsById, principal] = await Promise.all([
     memberNames(ctx.db, rows.flatMap((r) => [r.asked_by, r.asked_to, r.answered_by, r.principal_id ?? null])),
     groupNames(ctx.db, rows.map((r) => r.asked_to_group)),
+    rows.some((r) => isApproval(r) && effectiveQuestionStatus(r) === 'open') ? actingFor(ctx) : Promise.resolve(null),
   ]);
   return rows.map((row) => {
     const status = effectiveQuestionStatus(row);
@@ -307,7 +450,7 @@ async function present(ctx: QuestionsContext, rows: QuestionRow[]): Promise<Ques
       expires_at: row.expires_at,
       created_at: row.created_at,
       updated_at: row.updated_at,
-      can_answer: status === 'open' && canAnswer(ctx, row),
+      can_answer: status === 'open' && canAnswer(ctx, row, principal),
       can_cancel: status === 'open' && canCancel(ctx, row),
       ...(isApproval(row) ? approvalFields(row, names) : {}),
       // Only a group's question and one asked for someone carry these, so a plain question reads as it always has.
@@ -317,6 +460,7 @@ async function present(ctx: QuestionsContext, rows: QuestionRow[]): Promise<Ques
         asked_to_you: row.to_reader === true,
       } : {}),
       ...(row.principal_id ? { principal_id: row.principal_id, principal_name: names.get(row.principal_id) ?? null } : {}),
+      ...(row.run_id ? { run_id: row.run_id } : {}),
     };
   });
 }
@@ -327,9 +471,10 @@ function approvalFields(row: QuestionRow, names: Map<string, string>): Partial<Q
   return {
     kind: 'approval',
     action: row.action ?? undefined,
-    decision: approvalDecision(row.answer_choice),
+    decision: approvalChoiceDecision(row.answer_choice),
     decided_by: decided,
     decided_by_name: decided ? names.get(decided) ?? null : null,
+    decided_via: decided && (DECIDED_VIA as readonly string[]).includes(row.decided_via ?? '') ? row.decided_via as DecidedVia : null,
   };
 }
 
@@ -355,6 +500,13 @@ async function loadRow(ctx: QuestionsContext, id: string): Promise<QuestionRow> 
 
 /** Where a new question hangs: a task (its project comes with it), a project, or nothing. */
 async function resolvePlace(ctx: QuestionsContext, input: AskQuestionInput) {
+  if ((input.task_id || input.project_id) && !readsPlaces(ctx)) {
+    throw forbidden('Naming a task or project needs tasks.read on this key', {
+      reason: 'place_needs_tasks_read',
+      grant_on: 'api_key',
+      hint: 'questions.ask covers questions and approvals that name no task or project. Leave task_id and project_id out, or use a key that carries tasks.read.',
+    });
+  }
   if (input.task_id) {
     const { data: task, error } = await ctx.db
       .from('tasks')
@@ -402,7 +554,9 @@ async function resolveAskedGroup(ctx: QuestionsContext, groupId: string, kind: Q
 /**
  * Who is asked: the named member or group, else the agent's escalation
  * target (a member or a group), else the Owner. An approval goes to a
- * person: an agent cannot approve an action.
+ * person, or to an agent named in asked_to (a reviewer agent asked on
+ * purpose); a default that lands on an agent is refused, so an agent is
+ * never an approver by accident. Nobody asks themselves.
  */
 async function resolveAddressee(ctx: QuestionsContext, input: AskQuestionInput, kind: QuestionKind = 'question'): Promise<Addressee> {
   if (input.asked_to && input.asked_to_group) {
@@ -422,11 +576,11 @@ async function resolveAddressee(ctx: QuestionsContext, input: AskQuestionInput, 
     if (recipient.kind === 'group') return resolveAskedGroup(ctx, recipient.id, kind, false);
     target = recipient.id;
   }
-  if (kind === 'approval') {
+  if (kind === 'approval' && !askedTo) {
     const { data, error } = await ctx.db.from('team_members').select('role').eq('id', target).maybeSingle();
     if (error) throw error;
     if ((data as { role?: string } | null)?.role === 'agent') {
-      throw invalid(askedTo ? 'An approval goes to a person: asked_to is an agent.' : 'Your escalation target is an agent, and an approval goes to a person: name one in asked_to.', { reason: 'approver_not_person' });
+      throw invalid('Your escalation target is an agent, and an approval goes to a person unless you name an agent in asked_to: name one.', { reason: 'approver_not_person' });
     }
   }
   if (target === ctx.memberId) {
@@ -434,6 +588,10 @@ async function resolveAddressee(ctx: QuestionsContext, input: AskQuestionInput, 
   }
   return { asked_to: target as string, asked_to_group: null };
 }
+
+/** A database without questions.decided_via yet (new code before 20261125000700_approval_decisions.sql). */
+const missingDecidedVia = (error: { code?: string; message?: string } | null) =>
+  !!error && (error.code === '42703' || error.code === 'PGRST204') && /decided_via/.test(error.message ?? '');
 
 /** A database without the approval columns yet (new code before its migration). */
 const missingApprovalColumns = (error: { code?: string; message?: string } | null) =>
@@ -484,9 +642,35 @@ export async function requestApproval(ctx: QuestionsContext, input: RequestAppro
   }, 'approval', action);
 }
 
+/**
+ * The run a question names: one of the asker's own runs, still unfinished.
+ * Another member's run and a missing one read the same (422 run_not_yours);
+ * a finished run is 409 run_finished.
+ */
+async function resolveQuestionRun(ctx: QuestionsContext, runId: string | undefined): Promise<string | null> {
+  if (!runId) return null;
+  const { data, error } = await ctx.db.from('agent_runs').select('id, agent_id, status').eq('id', runId).maybeSingle();
+  if (error && error.code !== '42P01' && error.code !== 'PGRST205') throw error;
+  if (!data || data.agent_id !== ctx.memberId) {
+    throw invalid('run_id must be one of your own runs', {
+      reason: 'run_not_yours',
+      hint: 'Name the run you are working in (start_run gives its id), or leave run_id out.',
+    });
+  }
+  if (isRunFinished(data.status)) {
+    throw new ApiError(409, 'CONFLICT', `That run already finished (${data.status}).`, {
+      reason: 'run_finished',
+      status: data.status,
+      hint: 'Ask without run_id, or start a new run first.',
+    });
+  }
+  return data.id as string;
+}
+
 async function createQuestion(ctx: QuestionsContext, input: AskQuestionInput, kind: QuestionKind, action: ApprovalAction | null): Promise<QuestionView> {
   const place = await resolvePlace(ctx, input);
   const addressee = await resolveAddressee(ctx, input, kind);
+  const runId = await resolveQuestionRun(ctx, input.run_id);
   if (input.expires_at && new Date(input.expires_at).getTime() <= Date.now()) {
     throw invalid('expires_at must be in the future', { reason: 'expires_in_past' });
   }
@@ -505,10 +689,17 @@ async function createQuestion(ctx: QuestionsContext, input: AskQuestionInput, ki
       // A plain question sends exactly what it always did.
       ...(kind === 'approval' ? { kind, action } : {}),
       ...(addressee.asked_to_group ? { asked_to_group: addressee.asked_to_group } : {}),
+      // Only a question that holds a run sends it, so the previous database takes the rest as before.
+      ...(runId ? { run_id: runId } : {}),
     })
     .select(SELECT)
     .single();
   if (addressee.asked_to_group && missingGroupsSchema(error)) throw groupsMigrationPending();
+  if (runId && error && (error.code === '42703' || error.code === 'PGRST204') && /run_id/.test(error.message ?? '')) {
+    throw new ApiError(503, 'SERVICE_UNAVAILABLE', 'Questions that hold a run work once the database update 20261125001300_watchdog_retention.sql is applied', {
+      reason: 'migration_pending',
+    });
+  }
   if (kind === 'approval' && missingApprovalColumns(error)) {
     throw new ApiError(503, 'SERVICE_UNAVAILABLE', 'Approvals work once the database update 20261124000600_open_agent_vocabulary.sql is applied', {
       reason: 'migration_pending',
@@ -586,6 +777,8 @@ export function questionFiltersFrom(searchParams: URLSearchParams, memberId: str
 async function visibleFilter(ctx: QuestionsContext, reader: TaskReader): Promise<string> {
   const groups = [...await readerGroups(ctx)];
   const parties = [`asked_by.eq.${ctx.memberId}`, `asked_to.eq.${ctx.memberId}`, ...(groups.length ? [`asked_to_group.in.(${groups.join(',')})`] : [])];
+  // A key on questions.ask alone reads its own questions on nothing (canSee checks each row again).
+  if (!readsPlaces(ctx)) return parties.map((party) => `and(${party},project_id.is.null,task_id.is.null)`).join(',');
   const readAll = accessAllows(ctx.access, 'projects.read_all', ctx.channel);
   const projects = readAll ? [] : accessAllows(ctx.access, 'projects.read', ctx.channel) ? ctx.access.project_ids : [];
   const inProjects = readAll ? 'project_id.not.is.null' : projects.length ? `project_id.in.(${projects.join(',')})` : null;
@@ -667,16 +860,23 @@ function notOpen(row: QuestionRow): ApiError | null {
   return new ApiError(409, 'CONFLICT', message, { reason: `question_${status}`, status });
 }
 
-/** Answers a question: asked_to, the Owner, or a team manager. Twice is 409. */
+/**
+ * Answers a question: asked_to, the Owner, or a team manager. An approval:
+ * whom it names, or the Owner, through a door that may decide it
+ * (approvalDecision), recorded in decided_via. Twice is 409.
+ */
 export async function answerQuestion(ctx: QuestionsContext, id: string, input: AnswerQuestionInput): Promise<QuestionView> {
   const row = await loadRow(ctx, id);
   if (row.asked_to_group && row.asked_by === ctx.memberId) {
     throw forbidden(isApproval(row) ? 'You asked for this approval: someone else in the group decides it.' : 'You asked this group: someone else in it answers.', { reason: 'asked_self' });
   }
-  if (!canAnswer(ctx, row)) {
-    throw isApproval(row)
-      ? forbidden('Only the person asked, or the Owner, can decide this approval.', { reason: 'not_asked' })
-      : forbidden('Only the person asked, the Owner, or someone who may manage the team can answer this question.', { reason: 'not_asked' });
+  let decider: ApprovalDecider | null = null;
+  if (isApproval(row)) {
+    const decision = approvalDecision(ctx, row, await actingFor(ctx));
+    if (decision instanceof ApiError) throw decision;
+    decider = decision;
+  } else if (!canAnswer(ctx, row, null)) {
+    throw forbidden('Only the person asked, the Owner, or someone who may manage the team can answer this question.', { reason: 'not_asked' });
   }
   const closed = notOpen(row);
   if (closed) throw closed;
@@ -690,13 +890,18 @@ export async function answerQuestion(ctx: QuestionsContext, id: string, input: A
     throw invalid(isApproval(row) ? 'Send choice approve or reject; text is an optional note.' : 'Pick one of the choices.', { reason: 'choice_required', choices });
   }
   const now = new Date().toISOString();
-  const { data, error } = await ctx.db
+  const answered = { status: 'answered', answer_choice: choice, answer_text: input.text ?? null, answered_by: decider?.by ?? ctx.memberId, answered_at: now };
+  const write = (fields: Record<string, unknown>) => ctx.db
     .from('questions')
-    .update({ status: 'answered', answer_choice: choice, answer_text: input.text ?? null, answered_by: ctx.memberId, answered_at: now })
+    .update(fields)
     .eq('id', id)
     .eq('status', 'open')
     .select(SELECT)
     .maybeSingle();
+  // A plain question writes exactly what it always did; an approval adds how it was decided.
+  let { data, error } = await write(decider ? { ...answered, decided_via: decider.via } : answered);
+  // A database before 20261125000700 has no decided_via yet: the decision stands, unrecorded.
+  if (decider && missingDecidedVia(error)) ({ data, error } = await write(answered));
   if (error) throw error;
   if (!data) {
     // Someone else answered or cancelled it a moment ago.

@@ -10,6 +10,12 @@
  *   agent; two agents may use the same id.
  * - Stale reads: a run running two hours past its last update reads
  *   timed_out (view, API, task), and any update brings it back.
+ * - Waiting: an agent PATCHes its run to waiting (API and MCP); a note with
+ *   status waiting keeps it, a supervisor's note leaves it, any other update
+ *   from its agent brings it back to running; a question or approval with
+ *   run_id holds it until answered; run_id must be the asker's own
+ *   unfinished run (422 run_not_yours, 409 run_finished); a finish from
+ *   waiting works.
  * - Turns: a turn.completed naming a run (run_id or run_external_id) is
  *   listed under it and keeps the run alive; one naming another agent's run,
  *   or none, reads as a finished run of its own; scheduled turns that did no
@@ -314,6 +320,56 @@ async function main() {
     check('stale: any update brings it back to running', revived.status === 200 && revived.body.data.status === 'running', revived.body);
     await finish(s.keys.builder, stale, { status: 'cancelled' });
 
+    // --- Waiting on a person --------------------------------------------------------------------
+    const questionsRoute = await import('../src/app/api/v1/questions/route');
+    const approvalsRoute = await import('../src/app/api/v1/approvals/route');
+    const ask = (apiKey: string, body: unknown) => call(questionsRoute.POST, 'POST', '/api/v1/questions', {}, apiKey, body);
+    const askApproval = (apiKey: string, body: unknown) => call(approvalsRoute.POST, 'POST', '/api/v1/approvals', {}, apiKey, body);
+    const waits = (await start(s.keys.builder, { title: 'Needs a decision' })).body.data.id as string;
+    const toWaiting = await patch(s.keys.builder, waits, { status: 'waiting', note: 'Asked finance about rounding' });
+    check('waiting: an agent PATCHes its run to waiting, unfinished', toWaiting.status === 200 && toWaiting.body.data.status === 'waiting'
+      && toWaiting.body.data.finished_at === null, toWaiting.body);
+    const waitingList = await list(s.keys.builder, '?status=waiting');
+    check('waiting: status=waiting lists it', waitingList.status === 200 && waitingList.body.data.some((r: Loose) => r.id === waits && r.status === 'waiting'), waitingList.body);
+    const stillWaiting = await patch(s.keys.builder, waits, { status: 'waiting', note: 'Still waiting on finance' });
+    check('waiting: a note sent with status waiting keeps it waiting', stillWaiting.body.data?.status === 'waiting', stillWaiting.body);
+    const supervisorNote = await patch(s.keys.owner, waits, { note: 'Supervisor: chase them tomorrow' });
+    check("waiting: someone else's note (agents.manage) leaves it waiting", supervisorNote.status === 200 && supervisorNote.body.data.status === 'waiting', supervisorNote.body);
+    const backToWork = await patch(s.keys.builder, waits, { note: 'Finance answered on the call' });
+    check('waiting: any other update from its agent brings it back to running', backToWork.status === 200 && backToWork.body.data.status === 'running', backToWork.body);
+    const explicitBack = await patch(s.keys.builder, waits, { status: 'waiting' });
+    const explicitRun = await patch(s.keys.builder, waits, { status: 'running' });
+    check('waiting: status running brings it back too', explicitBack.body.data?.status === 'waiting' && explicitRun.body.data?.status === 'running', [explicitBack.body, explicitRun.body]);
+    const waitEvents = (await runEvents(waits)).map((e) => e.event_type);
+    check('webhooks: waiting and back send no run.finished', !waitEvents.includes('run.finished'), waitEvents);
+
+    // A question names the run: the run waits on it; the answer brings it back.
+    const asked = await ask(s.keys.builder, { question: 'Round per line or per invoice?', run_id: waits, choices: ['Per line', 'Per invoice'] });
+    check('waiting: a question with run_id answers 201 carrying run_id', asked.status === 201 && asked.body.data.run_id === waits, asked.body);
+    check('waiting: the run it names is waiting', (await get(s.keys.builder, waits)).body.data.status === 'waiting');
+    const plainAsk = await ask(s.keys.builder, { question: 'Anything else?' });
+    check('waiting: a question without run_id carries no run_id', plainAsk.status === 201 && !('run_id' in plainAsk.body.data), plainAsk.body);
+    await s.q("UPDATE pm.questions SET status = 'answered', answer_choice = 'Per line', answered_by = $2, answered_at = now() WHERE id = $1", [asked.body.data.id, s.owner.id]);
+    check('waiting: answered, the run is running again', (await get(s.keys.builder, waits)).body.data.status === 'running');
+
+    // run_id must be the asker's own unfinished run.
+    const othersRun = await ask(s.keys.builder, { question: 'Whose run?', run_id: plannerRun });
+    check("waiting: a question naming another agent's run is 422 run_not_yours", othersRun.status === 422 && reason(othersRun) === 'run_not_yours', othersRun.body);
+    const missingRun = await ask(s.keys.builder, { question: 'Which run?', run_id: randomUUID() });
+    check('waiting: a run that does not exist reads the same (422 run_not_yours)', missingRun.status === 422 && reason(missingRun) === 'run_not_yours', missingRun.body);
+    const finishedRun = await ask(s.keys.builder, { question: 'Too late?', run_id: run1.id });
+    check('waiting: a question naming a finished run is 409 run_finished', finishedRun.status === 409 && reason(finishedRun) === 'run_finished', finishedRun.body);
+    const approvalOthers = await askApproval(s.keys.builder, { action: { type: 'deploy', summary: 'Deploy it' }, asked_to: s.owner.id, run_id: plannerRun });
+    check("waiting: an approval naming another agent's run is refused the same way", approvalOthers.status === 422 && reason(approvalOthers) === 'run_not_yours', approvalOthers.body);
+    const approval = await askApproval(s.keys.builder, { action: { type: 'deploy', summary: 'Deploy the rounding fix' }, asked_to: s.owner.id, run_id: waits });
+    check('waiting: an approval with run_id holds the run', approval.status === 201 && approval.body.data.run_id === waits
+      && (await get(s.keys.builder, waits)).body.data.status === 'waiting', approval.body);
+    const finishedFromWaiting = await finish(s.keys.builder, waits, { status: 'cancelled', summary: 'Deploy no longer needed' });
+    check('waiting: a run finishes from waiting', finishedFromWaiting.status === 200 && finishedFromWaiting.body.data.status === 'cancelled'
+      && !!finishedFromWaiting.body.data.finished_at, finishedFromWaiting.body);
+    const reWait = await patch(s.keys.builder, waits, { status: 'waiting' });
+    check('waiting: a finished run cannot wait (409 run_finished)', reWait.status === 409 && reason(reWait) === 'run_finished', reWait.body);
+
     // --- Task linkage ---------------------------------------------------------------------------
     const latest = await start(s.keys.builder, { task_id: checkout, title: 'Second pass', external_url: 'https://smith.example.test/runs/2' });
     const taskRead = await call(taskRoute.GET, 'GET', `/api/v1/tasks/${checkout}`, { id: checkout }, s.keys.morgan);
@@ -442,7 +498,10 @@ async function main() {
     };
     const mcpStart = await runTool(s.keys.planner, s.planner.id, 'start_run', { title: 'Over MCP', external_id: 'mcp-1', idempotency_key: randomUUID() });
     const mcpId = mcpStart?.data?.id;
+    const mcpWait = await runTool(s.keys.planner, s.planner.id, 'update_run', { run_id: mcpId, status: 'waiting' });
+    check('MCP: update_run sets waiting', mcpWait?.ok === true && mcpWait.data?.status === 'waiting', mcpWait);
     const mcpUpdate = await runTool(s.keys.planner, s.planner.id, 'update_run', { run_id: mcpId, note: 'Halfway', tokens_in: 10 });
+    check('MCP: any update_run without waiting brings it back to running', mcpUpdate?.data?.status === 'running', mcpUpdate);
     const mcpFinish = await runTool(s.keys.planner, s.planner.id, 'finish_run', { run_id: mcpId, status: 'failed', summary: 'The API was down' });
     const mcpGet = await runTool(s.keys.planner, s.planner.id, 'get_run', { run_id: mcpId });
     const mcpList = await runTool(s.keys.planner, s.planner.id, 'list_runs', { source: 'run' });

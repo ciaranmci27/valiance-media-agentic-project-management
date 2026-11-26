@@ -18,6 +18,13 @@
  * - Registries: rows merge with code, a code key is refused, the four
  *   former core profiles resolve to the same tools, the template key on
  *   the agent, export and import.
+ * - Chains of agents (20261125001600_delegation_chain.sql): the migration
+ *   twice matches schema.sql and keeps older writes working; the database
+ *   refuses a run deeper than 8 or under a looping chain; person to
+ *   personal agent to company agent to builder to reviewer is one tree for
+ *   that person; a whole task handed over; subtasks stay one level; a
+ *   cycle, too deep a chain, a receiver off the project, a switched person
+ *   and a personal agent not acting for its person are refused.
  *
  *   npm run -s test:handoff-scopes
  */
@@ -269,9 +276,184 @@ async function seed(db: PGlite) {
   return { q, owner, ana, ben, cara, ora, spec, zed, pip, rex, site, secret, group, task, specTask, keys, key };
 }
 
+// ── Chains of agents: the migration ──────────────────────────────────────
+
+const CHAIN_MIGRATION = '20261125001600_delegation_chain.sql';
+const CHAIN_SQL = readFileSync(join(__dirname, '..', 'supabase', 'migrations', CHAIN_MIGRATION), 'utf8').replace(/\r\n/g, '\n');
+
+async function chainMigrationChecks() {
+  check('chain: no em dashes in the migration', !CHAIN_SQL.includes('—'));
+  const section = CHAIN_SQL.trim();
+  check('chain: schema.sql mirrors the migration', SCHEMA_SQL.includes(section));
+  const old = await createFullSchemaDatabase({ schemaSql: SCHEMA_SQL.replace(section, '') });
+  const q = async <T = Loose>(sql: string, params: unknown[] = []) => (await old.query<T>(sql, params)).rows;
+  const fail = (sql: string, params: unknown[] = []) => old.query(sql, params).then(() => null, (e: Error) => e.message);
+  await old.exec('RESET ROLE');
+  const agent = (await q<{ id: string }>("INSERT INTO pm.team_members (name, email, role) VALUES ('Old', 'old@agents.example.com', 'agent') RETURNING id"))[0].id;
+  const project = (await q<{ id: string }>("INSERT INTO pm.projects (name) VALUES ('Old') RETURNING id"))[0].id;
+  const parentTask = (await q<{ id: string }>("INSERT INTO pm.tasks (project_id, title) VALUES ($1, 'Parent') RETURNING id", [project]))[0].id;
+  const sub = (await q<{ id: string }>("INSERT INTO pm.tasks (project_id, title, parent_task_id) VALUES ($1, 'Sub', $2) RETURNING id", [project, parentTask]))[0].id;
+  const run = (await q<{ id: string }>('INSERT INTO pm.agent_runs (agent_id) VALUES ($1) RETURNING id', [agent]))[0].id;
+  await q('INSERT INTO pm.task_delegations (task_id, run_id, delegated_by, delegated_to) VALUES ($1, $2, $3, $3)', [sub, run, agent]);
+  await old.exec(CHAIN_SQL);
+  await old.exec(CHAIN_SQL);
+  const fresh = await createFullSchemaDatabase();
+  const diff = diffSnapshots(await pmSnapshot(fresh), await pmSnapshot(old));
+  check('chain: the migration, run twice on the schema before it, matches schema.sql', diff.length === 0, diff.slice(0, 10));
+  const link = (await q<Loose>('SELECT mode, from_task_id FROM pm.task_delegations WHERE task_id = $1', [sub]))[0];
+  check('chain: an earlier delegation reads as a subtask from its parent', link?.mode === 'subtask' && link.from_task_id === parentTask, link);
+  const top = (await q<{ id: string }>("INSERT INTO pm.tasks (project_id, title) VALUES ($1, 'Top') RETURNING id", [project]))[0].id;
+  await q('INSERT INTO pm.task_delegations (task_id, run_id, delegated_by, delegated_to) VALUES ($1, $2, $3, $3) ON CONFLICT (task_id) DO UPDATE SET run_id = EXCLUDED.run_id', [top, run, agent]);
+  check('chain: the previous release\'s upsert still works', (await q<Loose>('SELECT mode FROM pm.task_delegations WHERE task_id = $1', [top]))[0]?.mode === 'subtask');
+  check('chain: an unknown mode is refused', /task_delegations_mode_check/.test(await fail("UPDATE pm.task_delegations SET mode = 'forward' WHERE task_id = $1", [top]) ?? ''));
+
+  // Depth: eight hand-offs below the root, never nine.
+  let at = run;
+  for (let depth = 1; depth <= 8; depth++) {
+    at = (await q<{ id: string }>('INSERT INTO pm.agent_runs (agent_id, parent_run_id) VALUES ($1, $2) RETURNING id', [agent, at]))[0].id;
+  }
+  check('chain: the database keeps a run at depth 8 on its root', (await q<Loose>('SELECT root_run_id FROM pm.agent_runs WHERE id = $1', [at]))[0]?.root_run_id === run);
+  check('chain: the database refuses a run at depth 9', /agent_runs_chain_depth/.test(await fail('INSERT INTO pm.agent_runs (agent_id, parent_run_id) VALUES ($1, $2)', [agent, at]) ?? ''));
+
+  // A loop can only come from links written around the guard; a run never goes under one.
+  const a = (await q<{ id: string }>('INSERT INTO pm.agent_runs (agent_id) VALUES ($1) RETURNING id', [agent]))[0].id;
+  const b = (await q<{ id: string }>('INSERT INTO pm.agent_runs (agent_id, parent_run_id) VALUES ($1, $2) RETURNING id', [agent, a]))[0].id;
+  await old.exec('ALTER TABLE pm.agent_runs DISABLE TRIGGER stamp_run_lineage');
+  await q('UPDATE pm.agent_runs SET parent_run_id = $1 WHERE id = $2', [b, a]);
+  await old.exec('ALTER TABLE pm.agent_runs ENABLE TRIGGER stamp_run_lineage');
+  check('chain: the database refuses a run under a looping chain', /agent_runs_no_cycle/.test(await fail('INSERT INTO pm.agent_runs (agent_id, parent_run_id) VALUES ($1, $2)', [agent, b]) ?? ''));
+  check('chain: the chain guard stays the server\'s', (await q<Loose>("SELECT has_function_privilege('authenticated', 'pm.guard_run_chain()', 'EXECUTE') OR has_function_privilege('anon', 'pm.guard_run_chain()', 'EXECUTE') AS can"))[0]?.can === false);
+  await fresh.close();
+  await old.close();
+}
+
+// ── Chains of agents: end to end ─────────────────────────────────────────
+
+interface ChainKit {
+  s: Awaited<ReturnType<typeof seed>>;
+  service: import('@supabase/supabase-js').SupabaseClient;
+  start: (key: string, body?: Loose) => Promise<Answer>;
+  tree: (key: string, id: string) => Promise<Answer>;
+  delegate: (key: string, taskId: string, body: Loose) => Promise<Answer>;
+  brief: (key: string, taskId: string) => Promise<Answer>;
+  reason: (answer: Answer) => unknown;
+  callTool: (key: string, name: string, args: Record<string, unknown>) => Promise<Loose>;
+}
+
+async function chainChecks({ s, service, start, tree, delegate, brief, reason, callTool }: ChainKit) {
+  const { delegateTask } = await import('../src/lib/api/agent-handoff');
+  const { resolveMemberAccess } = await import('../src/lib/api/access');
+  const AGENT = ['tasks.read', 'tasks.create', 'tasks.manage_assigned', 'tasks.manage_all', 'projects.read', 'agent_activity.write', 'project_context.read'];
+  const agent = async (name: string) => (await s.q<{ id: string }>("INSERT INTO pm.team_members (name, email, role) VALUES ($1, $2, 'agent') RETURNING id", [name, `${name.toLowerCase()}@agents.example.com`]))[0].id;
+  const alexa = await agent('Alexa');
+  const jeff = await agent('Jeff');
+  const rev = await agent('Rev');
+  // Handing work to others takes tasks.manage_all, held by the person too: a chain never widens access.
+  for (const m of [s.ana, s.pip, alexa, jeff, rev]) {
+    await s.q("INSERT INTO pm.team_member_permissions (member_id, permission_key, access_channel, effect) VALUES ($1, 'tasks.manage_all', 'api', 'allow')", [m]);
+  }
+  for (const m of [alexa, jeff, rev]) await s.q('INSERT INTO pm.project_members (project_id, member_id) VALUES ($1, $2)', [s.site, m]);
+  const ops = (await s.q<{ id: string }>("INSERT INTO pm.projects (name) VALUES ('Ops') RETURNING id"))[0].id;
+  for (const m of [s.ora, alexa]) await s.q('INSERT INTO pm.project_members (project_id, member_id) VALUES ($1, $2)', [ops, m]);
+  const keys = { pip: await s.key(s.pip, AGENT), alexa: await s.key(alexa, AGENT), jeff: await s.key(jeff, AGENT), rev: await s.key(rev, AGENT) };
+  const pricing = (await s.q<{ id: string }>("INSERT INTO pm.tasks (project_id, title, status, ai_readiness) VALUES ($1, 'Fix the pricing page', 'todo', 'ai_ready') RETURNING id", [s.site]))[0].id;
+  await s.q('INSERT INTO pm.task_assignees (task_id, member_id) VALUES ($1, $2)', [pricing, s.pip]);
+  const assignees = async (taskId: string) => (await s.q<{ member_id: string }>('SELECT member_id FROM pm.task_assignees WHERE task_id = $1 ORDER BY member_id', [taskId])).map((r) => r.member_id);
+
+  // 1. Ana asks Ashley (her personal agent, Pip here); Ashley hands the whole task to the company agent.
+  const ashley = await start(keys.pip, { title: 'Fix pricing for Ana' });
+  const ashleyRun: string = ashley.body?.data?.id;
+  const handed = await delegate(keys.pip, pricing, { mode: 'assign', agent_id: alexa, run_id: ashleyRun, reassign: true });
+  const handedLink = (await s.q<Loose>('SELECT run_id, delegated_by, delegated_to, mode, from_task_id FROM pm.task_delegations WHERE task_id = $1', [pricing]))[0];
+  check('chain: a whole top-level task is handed over (mode assign), not a subtask', handed.status === 200 && handed.body?.data?.mode === 'assign' && handed.body.data.task_id === pricing
+    && JSON.stringify(await assignees(pricing)) === JSON.stringify([alexa]) && handed.body.data.parent_task_id === null, [handed.status, handed.body]);
+  check('chain: the task records the run that handed it over', handedLink?.run_id === ashleyRun && handedLink.delegated_by === s.pip && handedLink.delegated_to === alexa && handedLink.mode === 'assign', handedLink);
+  const alexaBrief = await brief(keys.alexa, pricing);
+  check('chain: the receiver\'s brief names the run and the mode', alexaBrief.body?.data?.delegated_from?.run_id === ashleyRun && alexaBrief.body.data.delegated_from.mode === 'assign', alexaBrief.body?.data?.delegated_from);
+
+  // 2. The company agent continues the chain and hands the build to Jeff as a subtask.
+  const alexaRun: string = (await start(keys.alexa, { task_id: pricing, parent_run_id: ashleyRun, title: 'Plan the pricing fix' })).body?.data?.id;
+  const build = await delegate(keys.alexa, pricing, { agent_id: jeff, title: 'Build the new pricing table', run_id: alexaRun });
+  const buildTask: string = build.body?.data?.task_id;
+  check('chain: the company agent hands a subtask on from its own run', build.status === 201 && build.body?.data?.mode === 'subtask' && typeof buildTask === 'string', build.body);
+
+  // 3. Jeff builds, then hands his subtask (the task itself) to the reviewer.
+  const jeffRun: string = (await start(keys.jeff, { task_id: buildTask, parent_run_id: alexaRun, title: 'Build it' })).body?.data?.id;
+  const nested = await delegate(keys.jeff, buildTask, { agent_id: rev, title: 'Review it', run_id: jeffRun });
+  check('chain: subtasks stay one level (a subtask of a subtask is refused)', nested.status === 400 && /one level/.test(nested.body?.error?.message ?? ''), nested.body);
+  const review = await delegate(keys.jeff, buildTask, { mode: 'assign', agent_id: rev, run_id: jeffRun });
+  const subRow = (await s.q<Loose>('SELECT parent_task_id FROM pm.tasks WHERE id = $1', [buildTask]))[0];
+  check('chain: a subtask can be handed over whole instead, and stays where it is', review.status === 200 && subRow?.parent_task_id === pricing
+    && JSON.stringify(await assignees(buildTask)) === JSON.stringify([jeff, rev].sort()), [review.status, review.body, subRow]);
+
+  // 4. The reviewer's run closes the chain: one root, Ana throughout, four levels.
+  const revStart = await start(keys.rev, { task_id: buildTask, parent_run_id: jeffRun, title: 'Review the table' });
+  const revRun: string = revStart.body?.data?.id;
+  const t = await tree(keys.rev, revRun);
+  const nodes: Loose[] = t.body?.data?.runs ?? [];
+  const depthOf = (id: string) => nodes.find((n) => n.id === id)?.depth;
+  check('chain: person, personal agent, company agent, builder, reviewer: one root, one person, depth 4', t.status === 200 && t.body.data.root_run_id === ashleyRun
+    && t.body.data.principal_id === s.ana && t.body.data.levels === 4 && nodes.length === 4 && nodes.every((n) => n.principal_id === s.ana)
+    && depthOf(ashleyRun) === 0 && depthOf(alexaRun) === 1 && depthOf(jeffRun) === 2 && depthOf(revRun) === 3 && revStart.body?.data?.root_run_id === ashleyRun, t.body);
+  check('chain: the tree spans tasks and shows each hand-off with its mode', nodes.find((n) => n.id === alexaRun)?.task_id === pricing && nodes.find((n) => n.id === revRun)?.task_id === buildTask
+    && (nodes.find((n) => n.id === ashleyRun)?.delegated ?? []).some((d: Loose) => d.task_id === pricing && d.mode === 'assign')
+    && (nodes.find((n) => n.id === jeffRun)?.delegated ?? []).some((d: Loose) => d.task_id === buildTask && d.delegated_to === rev && d.mode === 'assign'), nodes);
+  const viaMcp = await callTool(keys.rev, 'get_run_tree', { run_id: revRun });
+  check('chain: get_run_tree over MCP answers the same chain', viaMcp?.ok === true && viaMcp.data?.levels === 4 && viaMcp.data?.principal_id === s.ana, viaMcp);
+
+  // Cycles: never back to an agent above, nor to yourself.
+  const back = await delegate(keys.alexa, pricing, { mode: 'assign', agent_id: s.pip, run_id: alexaRun });
+  const self = await delegate(keys.jeff, buildTask, { mode: 'assign', agent_id: jeff, run_id: jeffRun });
+  check('chain: handing work back up the chain is refused (409 delegation_cycle)', back.status === 409 && reason(back) === 'delegation_cycle'
+    && self.status === 409 && reason(self) === 'delegation_cycle', [back.body, self.body]);
+
+  // The receiver must reach the project; a chain for Ana stays where Ana reaches.
+  const offProject = await delegate(keys.alexa, pricing, { agent_id: s.zed, title: 'Audit it', run_id: alexaRun });
+  check('chain: a receiver without access to the project is refused (422)', offProject.status === 422 && reason(offProject) === 'receiver_no_project_access', offProject.body);
+  const opsTask = (await s.q<{ id: string }>("INSERT INTO pm.tasks (project_id, title, status) VALUES ($1, 'Rotate the logs', 'todo') RETURNING id", [ops]))[0].id;
+  await s.q('INSERT INTO pm.task_assignees (task_id, member_id) VALUES ($1, $2)', [opsTask, s.ora]);
+  const outside = await start(keys.alexa, { task_id: opsTask, parent_run_id: alexaRun });
+  const ownWork = await start(keys.alexa, { task_id: opsTask });
+  check('chain: a run in Ana\'s chain stays where Ana reaches; the same run of its own is fine', outside.status === 404 && ownWork.status === 201, [outside.status, outside.body, ownWork.status]);
+  const oraForAna: string = (await start(s.keys.ora, { parent_run_id: ashleyRun, title: 'Help with pricing' })).body?.data?.id;
+  const widened = await delegate(s.keys.ora, opsTask, { agent_id: alexa, title: 'Check the rotation', run_id: oraForAna });
+  const unchained = await delegate(s.keys.ora, opsTask, { agent_id: alexa, title: 'Check the rotation' });
+  check('chain: a hand-off in Ana\'s chain never reaches a project she cannot; outside the chain it can', widened.status === 404 && unchained.status === 201, [widened.status, widened.body, unchained.status]);
+
+  // The person is never switched.
+  const otherPerson = await delegate(keys.alexa, pricing, { mode: 'assign', agent_id: s.rex, run_id: alexaRun });
+  check('chain: handing Ana\'s work to someone else\'s personal agent is refused (403 principal_mismatch)', otherPerson.status === 403 && reason(otherPerson) === 'principal_mismatch', otherPerson.body);
+  const toPersonal = await delegate(keys.pip, pricing, { mode: 'assign', agent_id: s.rex });
+  check('chain: a personal agent hands work only to company agents', toPersonal.status === 403 && reason(toPersonal) === 'receiver_is_personal_agent', toPersonal.body);
+
+  // A personal agent not acting for its person hands nothing on.
+  const pipAccess = await resolveMemberAccess(service, s.pip);
+  const bare = { ...pipAccess! };
+  delete bare.principal_id;
+  const notActing = await delegateTask({ supabase: service, apiKeyId: 'no-key', teamMemberId: s.pip, access: bare, scopes: AGENT }, pricing, { agent_id: alexa, mode: 'assign', run_id: ashleyRun })
+    .then(() => null, (error: Loose) => error);
+  check('chain: a personal agent delegating without acting for its person is refused (403)', notActing?.statusCode === 403 && notActing.details?.reason === 'personal_agent_not_acting', notActing?.message ?? notActing);
+
+  // Depth: 8 hand-offs below the root, never 9, for a run or a delegation.
+  let deepest: string = (await start(s.keys.ora, { title: 'Depth 0' })).body?.data?.id;
+  for (let depth = 1; depth <= 8; depth++) deepest = (await start(s.keys.ora, { parent_run_id: deepest, title: `Depth ${depth}` })).body?.data?.id;
+  const deepTree = await tree(s.keys.ora, deepest);
+  const tooDeepRun = await start(s.keys.ora, { parent_run_id: deepest });
+  const tooDeepHand = await delegate(s.keys.ora, s.task, { agent_id: s.spec, title: 'Too deep', run_id: deepest });
+  check('chain: a chain 8 deep is fine; a run or hand-off below it is refused (409 chain_too_deep)', deepTree.body?.data?.levels === 9 && deepTree.body.data.max_depth === 8
+    && tooDeepRun.status === 409 && reason(tooDeepRun) === 'chain_too_deep' && tooDeepHand.status === 409 && reason(tooDeepHand) === 'chain_too_deep',
+  [deepTree.body?.data?.levels, tooDeepRun.body, tooDeepHand.body]);
+
+  // Mode assign takes no subtask fields; a subtask needs its title.
+  const mixed = await delegate(keys.alexa, pricing, { mode: 'assign', agent_id: jeff, title: 'x' });
+  const untitled = await delegate(keys.alexa, pricing, { agent_id: jeff });
+  check('chain: mode assign refuses subtask fields; a subtask needs a title', [400, 422].includes(mixed.status) && [400, 422].includes(untitled.status), [mixed.status, mixed.body, untitled.status]);
+}
+
 async function main() {
   pureChecks();
   await migrationChecks();
+  await chainMigrationChecks();
 
   const db = await createFullSchemaDatabase();
   const s = await seed(db);
@@ -386,7 +568,11 @@ async function main() {
     check('runs: a personal agent\'s run is made for its person', pipRun.status === 201 && pipRun.body.data.principal_id === s.ana, pipRun.body);
     const carried = await start(s.keys.ora, { parent_run_id: pipRun.body.data.id, title: 'Help Pip' });
     check('runs: a child of a run made for someone is made for them too', carried.status === 201 && carried.body.data.principal_id === s.ana && carried.body.data.root_run_id === pipRun.body.data.id, carried.body);
-    await delegate(s.keys.ora, s.task, { agent_id: s.pip, title: 'Book the venue', run_id: rootId });
+    const toPersonal = await delegate(s.keys.ora, s.task, { agent_id: s.pip, title: 'Book the venue', run_id: rootId });
+    check('delegate: a personal agent never receives work for someone else (403 principal_mismatch)', toPersonal.status === 403 && reason(toPersonal) === 'principal_mismatch', toPersonal.body);
+    // A link written some other way (an older release) still never lets the child switch person.
+    const venue = (await s.q<{ id: string }>("INSERT INTO pm.tasks (project_id, title, status) VALUES ($1, 'Book the venue', 'todo') RETURNING id", [s.site]))[0].id;
+    await s.q('INSERT INTO pm.task_delegations (task_id, run_id, delegated_by, delegated_to) VALUES ($1, $2, $3, $4)', [venue, rootId, s.ora, s.pip]);
     const switched = await start(s.keys.pip, { parent_run_id: rootId });
     check('runs: a child cannot switch to another person (403 principal_mismatch)', switched.status === 403 && reason(switched) === 'principal_mismatch', switched.body);
 
@@ -632,6 +818,8 @@ async function main() {
     const ownerTools = await toolNames(s.keys.owner);
     check('mcp: the registry tools are setup tools an Owner\'s key sees, never an agent\'s', ['list_agent_profiles', 'create_agent_profile', 'update_agent_profile', 'create_agent_template', 'update_agent_template', 'export_agent_registries', 'import_agent_registries'].every((n) => ownerTools.includes(n))
       && !specTools.includes('create_agent_profile'), ownerTools);
+
+    await chainChecks({ s, service, start, tree, delegate, brief, reason, callTool });
   } finally {
     await server.close();
     await db.close();

@@ -48,11 +48,11 @@ export const GET = withApi(async ({ supabase, searchParams, access }) => {
   }, access, 'api'));
 
   return paginated(projects, { page, limit, total: count || 0 });
-});
+}, { permission: 'projects.read' });
 
 export const POST = withApi(async ({ supabase, body, apiKeyId, teamMemberId, access, scopes }) => {
   // The one create path (lib/api/project-create.ts), also behind project setup.
   const project = await createProjectFromApi(supabase, { access, scopes, teamMemberId }, body as Record<string, unknown>);
   logAudit(supabase, { method: 'POST', endpoint: '/api/v1/projects', entityType: 'project', entityId: project.id, apiKeyId, teamMemberId, requestBody: body, afterSnapshot: project, statusCode: 201 });
   return created(project);
-}, { schema: createProjectSchema });
+}, { schema: createProjectSchema, permission: 'projects.manage' });

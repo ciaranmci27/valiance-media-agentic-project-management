@@ -1,4 +1,17 @@
 import type { ModuleId } from '@/lib/modules/registry';
+import { LEGACY_ACTIVITY_REPLACEMENTS } from '@/lib/agent-events';
+import { PLANS_CUTOVER_REMOVAL } from '@/lib/api/version';
+
+/**
+ * A part of the contract on its way out: it keeps working unchanged until
+ * removal, and replacement says what to use instead. Contract changes are
+ * additive; anything removed or renamed is labelled here first (see
+ * docs/agents/README.md, "Compatibility").
+ */
+export interface Deprecation {
+  replacement: string;
+  removal: string;
+}
 
 export interface EndpointDoc {
   method: string;
@@ -8,13 +21,23 @@ export interface EndpointDoc {
   params?: { name: string; type: string; required: boolean; description: string }[];
   queryParams?: { name: string; type: string; description: string }[];
   body?: { name: string; type: string; required: boolean; description: string }[];
+  /** The whole route is deprecated. */
+  deprecated?: Deprecation;
+  /** Fields, parameter values or accepted values of a live route that are deprecated. */
+  deprecatedFields?: ({ name: string } & Deprecation)[];
 }
+
+const cutover = (replacement: string): Deprecation => ({ replacement, removal: PLANS_CUTOVER_REMOVAL });
+/** The /api/v1/assistant/messages aliases and assistant.message stay at least three releases after chat.message arrived. */
+const CHAT_ALIAS_REMOVAL = 'no sooner than three releases after chat.message (/api/v1/chat) arrived';
+const SHADOW_REPLACEMENT ='triage_mode plans: after the cutover there is no older triage to shadow';
 
 export function getEndpointScopes(endpoint: EndpointDoc): string[] {
   const { method, path } = endpoint;
   const write = method !== 'GET' && method !== 'HEAD';
 
   if (path === '/api/v1/inbox/meetings') return ['meetings.write'];
+  if (path.startsWith('/api/chat/inbound/')) return ['no key: signed by the provider (Discord: by the relay)'];
   if (path.startsWith('/api/v1/delegations')) return ['agents.act_for'];
   if (path === '/api/v1/identities/link-requests') return ['identities.link'];
   if (path === '/api/v1/identities' || path.startsWith('/api/v1/identities/:id')) return ['team.manage'];
@@ -24,7 +47,7 @@ export function getEndpointScopes(endpoint: EndpointDoc): string[] {
   if (path.startsWith('/api/v1/task-templates')) return write ? ['templates.manage'] : ['tasks.create', 'templates.manage'];
   if (path === '/api/v1/api-keys/:id/rotate') return ['api_keys.manage_all', 'assistants.provision'];
   if (path.startsWith('/api/v1/api-keys')) return ['api_keys.manage_all'];
-  if (path.startsWith('/api/v1/assistant/')) return ['notifications.manage_own'];
+  if (path.startsWith('/api/v1/assistant/') || path.startsWith('/api/v1/chat/')) return ['notifications.manage_own'];
   if (path.startsWith('/api/v1/assistants') || path.startsWith('/api/v1/assistant-setups')) return ['assistants.provision'];
   if (path.startsWith('/api/v1/webhook-endpoints')) return ['webhooks.manage'];
   if (path === '/api/v1/agents') return method === 'GET' ? ['team.read', 'team.manage'] : ['team.manage'];
@@ -34,7 +57,7 @@ export function getEndpointScopes(endpoint: EndpointDoc): string[] {
   if (path === '/api/v1/projects/:id/agents/:agentId') return ['project_members.manage', 'team.read (an owner of the agent)'];
   if (path === '/api/v1/agents/:id/setup') return ['team.read', 'team.manage'];
   if (path === '/api/v1/agents/:id/projects') return ['project_members.manage'];
-  if (path === '/api/v1/agents/me/context' || path === '/api/v1/mcp/tools') return ['any scope'];
+  if (path === '/api/v1/agents/me/context' || path === '/api/v1/agents/me/status' || path === '/api/v1/mcp/tools') return ['any scope'];
   if (path === '/api/v1/agents/:id/context' || path === '/api/v1/agents/:id/export') return ['team.read', 'team.manage'];
   if (path === '/api/v1/agents/:id/template' || path === '/api/v1/agents/import' || path === '/api/v1/agent-templates') return ['team.manage'];
   if (path === '/api/v1/agent-profiles' && !write) return ['team.read', 'team.manage'];
@@ -42,9 +65,9 @@ export function getEndpointScopes(endpoint: EndpointDoc): string[] {
   if (path === '/api/v1/tasks/:id/delegate') return ['tasks.create', 'tasks.manage_all'];
   if (path === '/api/v1/agents/runs/:id/tree') return ['agent_activity.write', 'tasks.read', 'agents.manage'];
   if (path === '/api/v1/context' || path === '/api/v1/context/search' || path === '/api/v1/context/:entryId') return ['any scope'];
-  if (path.includes('/inbound-emails') || path.startsWith('/api/v1/inbox/') || path === '/api/v1/tasks/:id/messages') {
+  if (path.includes('/inbound-emails') || path.startsWith('/api/v1/inbox/') || path === '/api/v1/tasks/:id/messages' || path === '/api/v1/tasks/:id/emails') {
     if (path.endsWith('/signal')) return ['inbound_email.signal'];
-    if (path.endsWith('/messages/:id/tasks')) return ['tasks.create', 'inbound_email.triage'];
+    if (/\/(messages|inbound-emails)\/:id\/tasks$/.test(path)) return ['tasks.create', 'inbound_email.triage'];
     return write ? ['inbound_email.triage'] : ['inbound_email.read'];
   }
   if (path.includes('/client-notifications')) return ['communications.manage'];
@@ -73,7 +96,8 @@ export function getEndpointScopes(endpoint: EndpointDoc): string[] {
       : ['credentials.manage'];
   }
   if (path.includes('/reminders')) return ['reminders.manage_own'];
-  if (path.includes('/questions')) return ['tasks.read', 'tasks.manage_all'];
+  if (path === '/api/v1/questions/:id/answer') return ['tasks.read', 'tasks.manage_all'];
+  if (path.includes('/questions') || path.startsWith('/api/v1/approvals')) return ['tasks.read', 'tasks.manage_all', 'questions.ask (none on a task or project)'];
   if (path.includes('/notifications')) {
     if (method === 'POST' && path === '/api/v1/notifications') return ['notifications.send'];
     return ['notifications.manage_own'];
@@ -284,6 +308,7 @@ export const endpoints: EndpointDoc[] = [
   { method: 'GET', path: '/api/v1/agents/me/context', description: "The calling key's own context pack, generated now from its real setup and never stored: member (name, title, role, profile, agent_role: its role label for people, description), owners (the people responsible for it; [] reads as the workspace Owners), assignments ({ list: each project it is assigned to with status, template_key, settings, instructions and that project's pinned brief entries, more, hidden_count }), key (read_only), scopes (each with a plain label and what it allows), inactive_scopes (on the key but not held by its member), rules (self_assign, close_policy, create_policy, escalate_to { id, name }, and says: the rules in plain words; null for a person), projects ({ access, list, more, hidden_count }), tools (the MCP tools this key sees, name and lead), conventions (the house rules for the tools it can use), health ({ publisher_reports, expected_interval_seconds }), webhooks (endpoints filtered to it: name, events, project filter with up to 10 projects named and more_projects counting the rest, is_active; the URL in full only with webhooks.manage, else its host), template (the template it was set up from, with its brief) and omitted. Names come from the database: the workspace brand and the members. A project the reader does not reach is never named: filter projects show as { id: null, name: 'A project you cannot see' }. About 24,000 characters at most (cut_to_fit names what was shortened). The MCP tool pm_guide returns it as context. Any key may read its own; never cached.", group: 'Agent Setup',
     queryParams: [{ name: 'format', type: 'json|pack|markdown|md|skill', description: 'json (default) answers { pack, markdown }, pack { pack } and markdown { markdown }; md answers the Markdown as an AGENTS.md file and skill as a SKILL.md file with front matter, both with Content-Disposition: attachment, for a harness to drop into its repo' }],
   },
+  { method: 'GET', path: '/api/v1/agents/me/status', description: "May the calling agent start work now? Check it before each turn, then skip the turn when can_start_work is false; on a network error, go ahead (fail open). Pause and budget only refuse calls into this app, so an agent that works in another system needs this to stop there too. One database read, never cached. Answers member_id, agent (false for a person's key: people are never paused and have no budget), can_start_work, skip_reason (agents_paused, agent_paused or budget_exceeded, the first that applies; null when it may), paused, paused_reason (agents_paused: an Owner paused every agent, which wins; agent_paused: this agent), paused_at, workspace_paused_at, agent_paused_at, budget { period (day, week or month, UTC), period_start, resets_at, spent_usd, spent_tokens (spend this period, counted as the budget counts it: run totals plus usage that names no run), budget_usd, budget_tokens (null for none), exceeded }, limits (max_concurrent_runs, rate_per_minute, budget_usd, budget_tokens, budget_period; null when none are set) and checked_at. A project the agent is paused on is left out: that stops work on one project here, not the agent. Reading a spent budget the owners were not yet told about tells them and sends budget.exceeded, once a period. Any key reads it, including one with only agent_activity.write, and a paused agent's. MCP: get_my_status.", group: 'Agent Setup' },
   { method: 'GET', path: '/api/v1/agents/:id/context', description: "An agent's context pack, the same one its own key gets, for whoever sets it up. It describes one of its keys: key_id, else its newest live key, else (it has no key) the scopes it holds, with key.source saying which. As in get_agent_setup, key, scopes and tools need api_keys.manage_all and webhooks need webhooks.manage; without one that part is null and named in omitted. Projects you cannot reach are counted in hidden_count, never named. 422 for a member who is not an agent.", group: 'Agent Setup',
     params: [{ name: 'id', type: 'uuid', required: true, description: 'The agent member ID' }],
     queryParams: [
@@ -291,7 +316,7 @@ export const endpoints: EndpointDoc[] = [
       { name: 'format', type: 'json|md|skill', description: 'As for /agents/me/context' },
     ],
   },
-  { method: 'GET', path: '/api/v1/agent-templates', description: "The agent templates this workspace offers: core's data-health-watcher (self-directed, one task per problem with a dedupe_key, closes its own work), inbox-triage (only while the Inbox is on; new tasks need approval), builder (assigned work, claims, sends to review), weekly-reporter (reads, sends one summary a week) and personal-assistant (one person's own agent for their tasks, reminders and chat, with the assistant.message webhook; Settings > Assistants makes these), then the install's own from src/custom/agent-templates.ts, then the workspace's own (rows an Owner adds with POST). Each: key, label, description, rules (agent_self_assign, agent_close_policy, agent_create_policy), scopes (what a key for it should carry), context (the brief added to its context pack), webhook_events (suggested), module, settings (the fields an agent from it fills in per project: [{ key, label, help, type (text, textarea, number, boolean, select, url or regex), required, default, options, min, max, placeholder }]), role (the role label an agent from it starts with; default_role says the same) and profile (its starting MCP profile, or null).", group: 'Agent Setup' },
+  { method: 'GET', path: '/api/v1/agent-templates', description: "The agent templates this workspace offers: core's data-health-watcher (self-directed, one task per problem with a dedupe_key, closes its own work), inbox-triage (only while the Inbox is on; new tasks need approval), builder (assigned work, claims, sends to review), weekly-reporter (reads, sends one summary a week), personal-assistant (one person's own agent for their tasks, reminders and chat, with the assistant.message webhook; Settings > Assistants makes these) and external-agent (works in another system: no projects or task queue; reports runs, usage and health, asks people with questions.ask, and checks GET /api/v1/agents/me/status before each turn), then the install's own from src/custom/agent-templates.ts, then the workspace's own (rows an Owner adds with POST). Each: key, label, description, rules (agent_self_assign, agent_close_policy, agent_create_policy), scopes (what a key for it should carry), context (the brief added to its context pack), webhook_events (suggested), module, settings (the fields an agent from it fills in per project: [{ key, label, help, type (text, textarea, number, boolean, select, url or regex), required, default, options, min, max, placeholder }]), role (the role label an agent from it starts with; default_role says the same) and profile (its starting MCP profile, or null).", group: 'Agent Setup' },
   { method: 'POST', path: '/api/v1/agents/:id/template', description: "Apply a template to an agent: its three rules, and with create_key a key carrying its scopes. Templates add nothing to the security model: your key must be able to grant every scope the template suggests (403 scope_escalation, before anything changes), and a key is made only as POST /api/v1/api-keys would make it (an Owner's key with api_keys.manage_all; every scope held by the agent, 422 scope_not_held). Returns agent, template, rules, key ({ created, secret } once, or the scopes and not_held when no key was made) and webhook_events. Never cached; the Idempotency-Key header is refused because the answer can hold a secret. The template is recorded in the audit log, which is how the context pack and the export know it.", group: 'Agent Setup',
     params: [{ name: 'id', type: 'uuid', required: true, description: 'The agent member ID' }],
     body: [
@@ -346,18 +371,20 @@ export const endpoints: EndpointDoc[] = [
   { method: 'GET', path: '/api/v1/webhook-endpoints', description: 'List outbound webhook endpoints, as Settings > Developers does, without their signing secrets.', group: 'Webhook Endpoints',
     queryParams: [
       { name: 'member_id', type: 'uuid', description: 'Only endpoints filtered to this member' },
+      { name: 'assistant_setup_id', type: 'uuid', description: 'Only endpoints scoped to this assistant setup' },
       { name: 'active', type: 'boolean', description: 'Only endpoints that are on (true) or off (false)' },
     ],
   },
   { method: 'POST', path: '/api/v1/webhook-endpoints', description: 'Add an endpoint, with the rules of the Settings screen. Returns { endpoint, secret } (201): the signing secret (whsec_...) verifies each delivery and is shown only in this answer, so the Idempotency-Key header is refused here (400 idempotency_not_supported).', group: 'Webhook Endpoints',
     body: [
       { name: 'name', type: 'string', required: true, description: 'A name for the endpoint' },
-      { name: 'url', type: 'string', required: true, description: 'Where events go: HTTPS, or http on localhost for local development' },
-      { name: 'events', type: 'string[]', required: true, description: 'Events to send, at least one: task.created, task.updated, task.deleted, comment.created, question.asked, question.answered, question.cancelled, suggestion.created, suggestion.decided, review.submitted, run.started, run.finished, agent_event.created (every agent event, opt in; narrow it with member_id and agent_event_types), assistant.message (a chat message for a personal agent, ids only; only with member_id set to a personal agent), and (with Client invoicing on) invoice.paid, invoice.updated, invoice.deleted, invoice.payment_recorded, invoice.payment_removed' },
+      { name: 'url', type: 'string', required: true, description: 'Where events go: HTTPS to a public address. localhost, metadata hosts and private addresses are refused (here and again when each delivery resolves the host), and redirects are never followed. A host with WEBHOOKS_ALLOW_PRIVATE_TARGETS=true, or local development, also allows private addresses and http on localhost' },
+      { name: 'events', type: 'string[]', required: true, description: 'Events to send, at least one: task.created, task.updated, task.deleted, comment.created, question.asked, question.answered, question.cancelled, question.expired, suggestion.created, suggestion.decided, review.submitted, run.started, run.updated (an unfinished run changed status: waiting on a person, or back to running; payload run with its status), run.finished (a run with no update for two hours is stored as timed_out and sends it once; a run waiting on a person is skipped while a question naming it is open), agent.offline and agent.online (an agent stops responding or comes back; payload agent and offline_since, plus released_task_ids on offline), agent.paused and agent.resumed (an agent may no longer, or may again, start work: its own pause or the workspace pause changed; once per change, one event per agent; payload agent, paused, reason agent_paused or agents_paused, agent_paused_at, workspace_paused_at), budget.exceeded (the spend of an agent first reaches its budget this period, once a period; payload agent and budget { period, period_start, budget_usd, budget_tokens, spent_usd, spent_tokens }), agent_event.created (every agent event, opt in; narrow it with member_id and agent_event_types), chat.message (a chat message for an agent, personal or company, ids only: its connection_kind, channel, thread, is_request, route, person, act_for and where to read and reply; only with member_id set to an agent, or with assistant_setup_id, else 422 chat_message_needs_agent), assistant.message (deprecated alias of chat.message for personal agents, its payload unchanged; only with member_id set to a personal agent, or with assistant_setup_id), and (with Client invoicing on) invoice.paid, invoice.updated, invoice.deleted, invoice.payment_recorded, invoice.payment_removed' },
       { name: 'description', type: 'string', required: false, description: 'A note on what it is for' },
       { name: 'amount_basis', type: 'gross|net', required: false, description: 'Invoice amounts as billed (gross, the default) or net of revenue splits' },
       { name: 'project_ids', type: 'uuid[]|null', required: false, description: 'Only events on these projects (null or empty: every project)' },
       { name: 'member_id', type: 'uuid|null', required: false, description: "Only events that concern this member, such as an agent's own work (null: everyone)" },
+      { name: 'assistant_setup_id', type: 'uuid|null', required: false, description: "Instead of member_id: only events that concern a personal agent this assistant setup made, chat.message and assistant.message included, so an assistant host keeps one endpoint for all of them; each payload's member_ids (and agent_id on assistant.message) say which. An Owner's key, or one with assistants.provision (403 setup_scope_not_allowed otherwise). Both with member_id is refused" },
       { name: 'agent_event_types', type: 'string[]|null', required: false, description: 'For agent_event.created: only these agent event types (null or empty: every type)' },
       { name: 'is_active', type: 'boolean', required: false, description: 'false adds it paused (default true)' },
     ],
@@ -366,12 +393,13 @@ export const endpoints: EndpointDoc[] = [
     params: [{ name: 'id', type: 'uuid', required: true, description: 'Webhook endpoint ID' }],
     body: [
       { name: 'name', type: 'string', required: false, description: 'A name for the endpoint' },
-      { name: 'url', type: 'string', required: false, description: 'HTTPS, or http on localhost' },
+      { name: 'url', type: 'string', required: false, description: 'HTTPS to a public address, as on POST' },
       { name: 'events', type: 'string[]', required: false, description: 'Replaces the events, at least one' },
       { name: 'description', type: 'string', required: false, description: 'A note on what it is for' },
       { name: 'amount_basis', type: 'gross|net', required: false, description: 'Invoice amounts as billed or net of splits' },
       { name: 'project_ids', type: 'uuid[]|null', required: false, description: 'Only events on these projects; null removes the filter' },
       { name: 'member_id', type: 'uuid|null', required: false, description: 'Only events that concern this member; null removes the filter' },
+      { name: 'assistant_setup_id', type: 'uuid|null', required: false, description: 'Every personal agent this assistant setup made, as on POST; null removes the scope' },
       { name: 'agent_event_types', type: 'string[]|null', required: false, description: 'For agent_event.created: only these types; null or empty removes the filter' },
       { name: 'is_active', type: 'boolean', required: false, description: 'false pauses deliveries, true resumes them' },
     ],
@@ -761,7 +789,7 @@ export const endpoints: EndpointDoc[] = [
       { name: 'occurrence_note', type: 'string', required: false, description: 'What happened this time. When dedupe_key finds an open task, it is added there as a comment under the key\'s member.' },
     ],
   },
-  { method: 'GET', path: '/api/v1/tasks/:id', description: 'Get a single task with its parent ({ id, title, status } for a subtask, otherwise null), its subtasks (each a task: id, title, status, completed, assignee_ids, due_date, sorted by sort_order), comments (sorted by created_at), assignee_ids, acceptance_criteria, blocked_by (each blocker with id, title, status), dependencies_met (true when every blocker is done), and claim: who is working on it right now ({ member_id, member_name, claimed_at, expires_at }), or null when nobody holds a live claim. open_question: the oldest open question on the task ({ id, question, choices, allow_other, asked_by, asked_by_name, asked_to, asked_to_name, expires_at, created_at }), or null; while it is set the task is waiting on asked_to. GET /api/v1/questions?task_id= lists them all. latest_run: the newest agent run on the task ({ id, status, agent_id, agent_name, title, started_at, finished_at }, status timed_out for one running two hours past its last update), or null, and null while the AI agents module is off. It never carries the trace link: GET /api/v1/agents/runs/:id has it, for the run\'s agent or a key with agents.manage. GET /api/v1/agents/runs?task_id= lists them all. The row also carries claimed_by, claimed_at, claim_expires_at (a past claim_expires_at means the claim is over), dedupe_key, occurrences and last_occurred_at.', group: 'Tasks',
+  { method: 'GET', path: '/api/v1/tasks/:id', description: 'Get a single task with its parent ({ id, title, status } for a subtask, otherwise null), its subtasks (each a task: id, title, status, completed, assignee_ids, due_date, sorted by sort_order), comments (sorted by created_at), assignee_ids, acceptance_criteria, blocked_by (each blocker with id, title, status), dependencies_met (true when every blocker is done), and claim: who is working on it right now ({ member_id, member_name, claimed_at, expires_at }), or null when nobody holds a live claim. open_question: the oldest open question on the task ({ id, question, choices, allow_other, asked_by, asked_by_name, asked_to, asked_to_name, expires_at, created_at }), or null; while it is set the task is waiting on asked_to. GET /api/v1/questions?task_id= lists them all. latest_run: the newest agent run on the task ({ id, status, agent_id, agent_name, title, started_at, finished_at }, status timed_out for one running two hours past its last update, waiting for one waiting on a person), or null, and null while the AI agents module is off. It never carries the trace link: GET /api/v1/agents/runs/:id has it, for the run\'s agent or a key with agents.manage. GET /api/v1/agents/runs?task_id= lists them all. The row also carries claimed_by, claimed_at, claim_expires_at (a past claim_expires_at means the claim is over), dedupe_key, occurrences and last_occurred_at.', group: 'Tasks',
     params: [{ name: 'id', type: 'uuid', required: true, description: 'Task ID' }],
   },
   { method: 'GET', path: '/api/v1/tasks/:id/brief', description: 'Everything an agent needs to start work on a task, in one call: task (as GET /tasks/:id, without comments, long description cut with description_truncated), project (name, status, description, repo_path, branches, member_ids; needs projects.read), project_context ({ entries, total, truncated }: the active context entries, each cut at 2,000 characters and about 12,000 in all; needs project_context.read), comments ({ recent: the newest 10, total }), files (as GET /tasks/:id/files, up to 50; needs files.read), blockers ({ blocked_by, dependencies_met }), open_question, claim, latest_run (as GET /tasks/:id), rules (the caller\'s own: is_agent, self_assign, close_policy, create_policy, escalate_to { id, name }) and omitted (parts left out because the key cannot read them, each with the permission it needs). A brief still over about 36,000 characters is cut further, oldest comments first, then files, subtasks, criteria and descriptions; cut_to_fit names each step and the part carries a note. Same access as GET /tasks/:id.', group: 'Tasks',
@@ -1343,16 +1371,17 @@ export const endpoints: EndpointDoc[] = [
     queryParams: [
       { name: 'agent_id', type: 'uuid', description: 'Filter by agent team member ID' },
       { name: 'project_id', type: 'uuid', description: 'Filter by project' },
-      { name: 'activity_type', type: 'string', description: 'Filter by a typed event such as work.handoff, pr.merged, review.verdict, usage.recorded, or a grandfathered legacy type.' },
+      { name: 'activity_type', type: 'string', description: 'Filter by a typed event such as work.handoff, pr.merged, review.verdict, usage.recorded, or a legacy type (deprecated for writing; older rows stay readable).' },
       { name: 'label', type: 'string', description: 'Only events carrying this label' },
       { name: 'page', type: 'number', description: 'Page number (default 1)' },
       { name: 'limit', type: 'number', description: 'Items per page (default 25, max 100)' },
     ],
   },
   { method: 'POST', path: '/api/v1/agent-activities', description: 'Log a typed agent event. Typed writes carry activity_type, project_id, and a schema-validated payload; the server composes the title and derives the agent from the API key. Host telemetry (turn.completed, turn.outcome, turn.failed, agent.restarted, attention.message, dispatch.wake, billing.gap, eval.result) is idempotent on resend; turn.outcome merges onto the turn.completed with the same source_turn_id. A turn.completed may name its run with payload run_id (from POST /api/v1/agents/runs) or run_external_id (the harness\'s own run id): when it is one of the agent\'s runs the turn is listed under that run, otherwise run_id is dropped and the turn reads as a run of its own in GET /api/v1/agents/runs. The turn is stored and counted in analytics the same either way. A key with fleet_alerts.write may post only attention.message host alerts, stored with no agent. Grandfathered legacy writes remain accepted for rollout compatibility. For anything the typed events do not cover: note (payload { title, task_id?, task_title?, detail? }) or your own custom.<namespace>.<name> (lowercase letters, numbers and underscores; payload { title, task_id?, task_title?, ...your fields }, at most 4000 characters of JSON). title is plain text, at most 200 characters, and is the feed line as sent; an empty or longer one is 422. These never change an agent\'s status, and analytics leave them out.', group: 'Agent Activity',
+    deprecatedFields: Object.entries(LEGACY_ACTIVITY_REPLACEMENTS).map(([type, replacement]) => ({ name: `activity_type ${type} (legacy, with title)`, ...cutover(replacement) })),
     body: [
       { name: 'activity_type', type: 'string', required: true, description: 'Canonical typed event name, including work.handoff, pr.merged, review.verdict, or usage.recorded; or note, or custom.<namespace>.<name>.' },
-      { name: 'payload', type: 'object', required: true, description: 'Event-specific fields validated by the canonical agent event contract. usage.recorded takes an optional provider (anthropic, openai, ...) so analytics group usage by provider whatever the model is called.' },
+      { name: 'payload', type: 'object', required: true, description: 'Event-specific fields validated by the canonical agent event contract. usage.recorded takes an optional provider (anthropic, openai, ...) so analytics group usage by provider whatever the model is called, and an optional run_id (or run_external_id) when the usage is part of one of this agent\'s runs: spend then counts the run\'s own totals and never adds that usage again. Usage that names no run adds on top. A run_id that is not one of this agent\'s runs is dropped.' },
       { name: 'project_id', type: 'uuid|null', required: false, description: 'Related project (default null)' },
       { name: 'labels', type: 'string[]', required: false, description: 'Up to 20 labels, each lowercase letters, numbers and . _ : - (a letter or number first, at most 64 characters), such as client:acme or deploy. Duplicates collapse; anything else is 422. Analytics group and filter by them, and the export and agent_event.created carry them. A resend of an event already recorded keeps its labels: change them with POST /api/v1/agent-activities/:id/labels.' },
     ],
@@ -1406,7 +1435,7 @@ export const endpoints: EndpointDoc[] = [
       { name: 'metadata', type: 'object', required: false, description: 'Anything else, up to 8000 characters as JSON' },
       { name: 'started_at', type: 'ISO 8601', required: false, description: 'When it began (default now; not in the future)' },
       { name: 'agent_id', type: 'uuid', required: false, description: 'Another agent\'s run: needs agents.manage on key and member' },
-      { name: 'parent_run_id', type: 'uuid', required: false, description: 'The run that handed this work over: one the key can see (404 otherwise), and the child acts for the same person (403 principal_mismatch). The run then carries parent_run_id and root_run_id' },
+      { name: 'parent_run_id', type: 'uuid', required: false, description: 'The run that handed this work over: one the key can see (404 otherwise), and the child acts for the same person (403 principal_mismatch). At most 8 hand-offs below the first run of its chain (409 chain_too_deep). A chain for a person you do not act for is worked with your access and theirs together: the task or project must be in both reaches. The run then carries parent_run_id and root_run_id' },
     ],
   },
   { method: 'GET', path: '/api/v1/agents/runs', description: 'Runs, newest first (a run by its start, a turn by when it was recorded): stored runs (source run) and each turn.completed that names no run, read as a finished run (source turn, status succeeded, with its outcome, duration and its own tokens; never a cost, which lives in usage events). Scheduled turns that did no work (outcome idle, skipped or waiting) are not runs. A turn is never copied, so totals in analytics are unchanged and nothing is counted twice: a run\'s tokens and cost are what its harness reported, and turns that name a run are counted in its turns, not as rows. The key\'s own runs; with agents.manage every agent\'s. Runs on a task or project in Trash are left out. Each stored run carries turns ({ count, duration_ms, tokens_in, tokens_out }) for the turns that named it. Paginated.', group: 'Agent Runs',
@@ -1414,7 +1443,7 @@ export const endpoints: EndpointDoc[] = [
       { name: 'agent_id', type: 'me|uuid', description: 'One agent\'s runs. Another agent needs agents.manage (403 own_runs_only). Default: your own, or every agent\'s with agents.manage' },
       { name: 'task_id', type: 'uuid', description: 'Runs on one task' },
       { name: 'project_id', type: 'uuid', description: 'Runs on one project' },
-      { name: 'status', type: 'running|succeeded|failed|cancelled|timed_out|all', description: 'Default all. A run running two hours past its last update is timed_out' },
+      { name: 'status', type: 'running|waiting|succeeded|failed|cancelled|timed_out|all', description: 'Default all. A run running two hours past its last update is timed_out; waiting is a run waiting on a person, timed_out only after seven days with no open question naming it' },
       { name: 'source', type: 'run|turn|all', description: 'Stored runs, turns read as runs, or both (default)' },
       { name: 'page', type: 'number', description: 'Page number (default 1)' },
       { name: 'limit', type: 'number', description: 'Items per page (default 25, max 100)' },
@@ -1423,10 +1452,10 @@ export const endpoints: EndpointDoc[] = [
   { method: 'GET', path: '/api/v1/agents/runs/:id', description: 'One run: status, agent_id and agent_name, task_id, project_id, title, summary, model, trigger, started_at, finished_at, duration_ms, tokens_in, tokens_out, cost_usd, external_id, external_url, plan, notes (the newest 50, each { at, text }), metadata and turns. A child run also carries parent_run_id and root_run_id (the first run of its chain); other runs leave both out. A turn id reads as a finished run (source turn) with an empty plan. 404 when the key cannot see it.', group: 'Agent Runs',
     params: [{ name: 'id', type: 'uuid', required: true, description: 'Run ID' }],
   },
-  { method: 'PATCH', path: '/api/v1/agents/runs/:id', description: 'Change a run as it goes: plan replaces the plan, note adds a progress note (the newest 50 are kept), tokens_in, tokens_out and cost_usd are totals so far (not increments, so a retry is safe), and title, summary, model, task_id, external_url and metadata. Any change counts as an update, so a run updated at least every two hours never reads as timed_out. A finished status finishes it, as POST .../finish does. A finished run still takes details (a summary, its final tokens, a trace link), but its status cannot change (409 run_finished). Only the run\'s agent, or a key with agents.manage; 404 for a run the key cannot see.', group: 'Agent Runs',
+  { method: 'PATCH', path: '/api/v1/agents/runs/:id', description: 'Change a run as it goes: plan replaces the plan, note adds a progress note (the newest 50 are kept), tokens_in, tokens_out and cost_usd are totals so far (not increments, so a retry is safe), and title, summary, model, task_id, external_url and metadata. Any change counts as an update, so a run updated at least every two hours never times out; one that is not is stored as timed_out within five minutes (run.finished goes out once) and its status cannot change after that. A finished status finishes it, as POST .../finish does. status waiting says the run waits on a person (a question or approval with run_id does it on its own); run.updated goes out when an unfinished run changes status. From waiting, any update by its own agent without status waiting brings it back to running (send status waiting with a progress note to keep waiting), and a finish is a finish. A finished run still takes details (a summary, its final tokens, a trace link), but its status cannot change (409 run_finished). Only the run\'s agent, or a key with agents.manage; 404 for a run the key cannot see.', group: 'Agent Runs',
     params: [{ name: 'id', type: 'uuid', required: true, description: 'Run ID' }],
     body: [
-      { name: 'status', type: 'running|succeeded|failed|cancelled|timed_out', required: false, description: 'A finished status finishes the run' },
+      { name: 'status', type: 'running|waiting|succeeded|failed|cancelled|timed_out', required: false, description: 'A finished status finishes the run. waiting: the run waits on a person (never timed out while a question naming it is open; with none, after seven days without an update); running: back at work.' },
       { name: 'plan', type: 'array', required: false, description: 'The whole plan, up to 50 steps' },
       { name: 'note', type: 'string', required: false, description: 'One progress note to add' },
       { name: 'tokens_in', type: 'number', required: false, description: 'Input tokens so far' },
@@ -1631,6 +1660,7 @@ export const endpoints: EndpointDoc[] = [
   },
   { method: 'GET', path: '/api/v1/billing/draft-notices', description: 'Invoice drafts made by the retainer or billing schedule jobs that have not been passed on yet, oldest first, in projects the key can open: invoice_number, project_name, amount, currency (ISO 4217 code of the invoice, read only), date, due_date, summary and a link. Read only: nothing here sends an invoice, and a draft already sent or deleted is not listed. Requires invoices.read.', group: 'Invoices' },
   { method: 'POST', path: '/api/v1/billing/draft-notices/relayed', description: 'Mark invoice drafts as passed on, so the next check does not repeat them. Ids in projects this key cannot open are ignored and listed in ignored. Requires invoices.read.', group: 'Invoices',
+    deprecated: cutover('nothing to relay: the app emails the Invoice drafts digest itself; keep your own record of the drafts you passed on (by invoice id) from GET /api/v1/billing/draft-notices'),
     body: [{ name: 'invoice_ids', type: 'uuid[]', required: true, description: '1 to 100 invoice ids from draft-notices' }],
   },
 
@@ -1680,6 +1710,7 @@ export const endpoints: EndpointDoc[] = [
   // header into their message.
   // The older /api/v1/inbound-emails paths (and /api/v1/tasks/:id/emails)
   // serve the same handlers until they are retired.
+  // They are listed, labelled deprecated, after Reminders.
   // A conversation may be filed on several projects. Each email has a
   // project scope, the projects it may touch, decided by who sent it: the
   // conversation's projects (a guessed one only for a verified teammate),
@@ -1716,10 +1747,11 @@ export const endpoints: EndpointDoc[] = [
     ],
     body: [{ name: 'agent_label', type: 'string|null', required: true, description: 'Up to 200 characters, or null to clear' }],
   },
-  { method: 'POST', path: '/api/v1/inbox/messages/:id/tasks', description: 'Create the task an email asks for, on a project in the email\'s project_scope (checked before the task exists: 422 project_out_of_scope with the scope, nothing created), linked to the email as created and filed on its conversation. The body is POST /api/v1/tasks\'s. Needs tasks.create and inbound_email.triage. The agent\'s rules apply as on POST /api/v1/tasks: when its new tasks need approval it answers 202 with a task suggestion (needs_approval: true, the email\'s message_id in metadata) and links nothing; when its finished work goes to review, a done task is created in_review (sent_to_review: true).', group: 'Inbound Email',
+  { method: 'POST', path: '/api/v1/inbox/messages/:id/tasks', description: 'Create the task an email asks for, on a project in the email\'s project_scope (checked before the task exists: 422 project_out_of_scope with the scope, nothing created), linked to the email as created and filed on its conversation. The body is POST /api/v1/tasks\'s. Needs tasks.create and inbound_email.triage. The agent\'s rules apply as on POST /api/v1/tasks: when its new tasks need approval it answers 202 with a task suggestion (needs_approval: true, the email\'s message_id in metadata) and links nothing; when its finished work goes to review, a done task is created in_review (sent_to_review: true). What the body leaves out, the email\'s inbox fills: project_id from its default project, assignee_ids from its default assignees who can open the project (a member, or a group\'s leads; only for a key with tasks.manage_all). Values sent always win, [] included; with no default, project_id is required and no one else is assigned, as before.', group: 'Inbound Email',
     params: [{ name: 'id', type: 'uuid', required: true, description: 'Email ID' }],
   },
   { method: 'GET', path: '/api/v1/inbox/plans', description: 'Shadow plans beside what the older triage did with the same messages, newest first, for comparing the two before a cutover: { messages: [{ message_id, subject, received_at, shadow: { plan_id, summary, suspicious, flags, items: [{ type, intent, decision, reason, project, task, what }] }, older: { outcome, summary, question, links: [{ relation, task, project }], reminders: [{ title, remind_on }] } }] }. Read only, from your inboxes.', group: 'Inbound Email',
+    deprecated: cutover('nothing to compare after the cutover: the plans on each conversation are in GET /api/v1/inbox/messages/:id/context (conversation.plans)'),
     queryParams: [
       { name: 'days', type: 'integer', description: '1 to 90, default 14' },
       { name: 'inbox_id', type: 'uuid', description: 'One granted inbox (default: every granted inbox)' },
@@ -1744,6 +1776,7 @@ export const endpoints: EndpointDoc[] = [
     ],
   },
   { method: 'GET', path: '/api/v1/inbox/queue', description: 'The messages a triage job plans next, oldest first, each { id, inbox_id, conversation_id, subject, received_at }. mode=plans: new mail in inboxes whose triage_mode is plans, once its conversation has been quiet for 3 minutes (urgent account or security notifications at once), never in a muted conversation. mode=shadow: mail in shadow inboxes the older triage already handled, from the last 14 days, with no shadow plan yet.', group: 'Inbound Email',
+    deprecatedFields: [{ name: 'mode=shadow', ...cutover(SHADOW_REPLACEMENT) }],
     queryParams: [
       { name: 'mode', type: 'plans|shadow', description: 'Default plans' },
       { name: 'limit', type: 'integer', description: '1 to 100, default 20' },
@@ -1752,10 +1785,12 @@ export const endpoints: EndpointDoc[] = [
     ],
   },
   { method: 'GET', path: '/api/v1/inbox/messages/:id/context', description: 'Everything to read before planning a message, in one call: message (as GET /api/v1/inbox/messages/:id returns it, with inbox: handled_by_me, primary_handler, default_assignee, default_assignee_ids, default_project_id and decision_recipient); speaker (owner, teammate, client, client_colleague, prospect, machine or stranger, worked out by the app: owner and teammate from the verified teammate behind the message, machine from automated or bulk mail, prospect from a lead\'s address, client from the sender\'s mappings, client_colleague when the conversation is already filed other than by a guess); trust; delivery; addressed_to_agent (the inbox address among the main recipients, or the agent named at the top: its main handler, or any agent that handles the inbox); owner_forward_without_note; conversation ({ muted, plans: earlier plans with what each item did, reply_owed: open points, open_question, reminders }); projects (each project in scope or on the conversation: status, open_tasks, and recent: plan items on it from the last 14 days, from any conversation, so a request sent twice becomes one task). mode=shadow leaves out what this message already caused (its links and the tasks they created, the projects it filed, its reminders and triage), for a shadow triage running after the older one.', group: 'Inbound Email',
+    deprecatedFields: [{ name: 'mode=shadow', ...cutover(SHADOW_REPLACEMENT) }],
     params: [{ name: 'id', type: 'uuid', required: true, description: 'Message ID' }],
     queryParams: [{ name: 'mode', type: 'live|shadow', description: 'Default live' }],
   },
-  { method: 'POST', path: '/api/v1/inbox/messages/:id/plan', description: 'A triage plan for one message: a summary and its items. Every item is checked first; one that cannot be used rejects the whole plan (422 invalid_items with { index, reason } per problem; nothing written). The policy then decides each item: apply, apply_unsure (applied, shown as unsure, one tap to undo), propose (waits for a person, who is notified) or reject, each with decision_reason. The rules: the Owner writing to the agent is an instruction (applied); mail the Owner is copied on yields only what the Owner promised, what the Owner waits on and context; a suspicious plan or an untrusted sender only proposes, an unknown sender proposes money and account matters; a blind copy only files; bulk mail only feeds money, account risk and context; strangers and prospects reach no client work; a completed or archived project takes no new task; a project outside the message\'s scope is proposed, never refused; facts, mappings and leads propose; a field a person set is proposed, one the agent set changes as unsure; assignment, readiness and status wait for a person (a teammate may put their own task in review); only the Owner mutes, only the Owner or a teammate reverts; low confidence or work aimed at someone other than the Owner or the company applies as unsure. In live mode the app applies what may apply (each item\'s result is stored: ids created, values replaced), records a triage row (outcome needs_human when a question or a proposal waits, needs_reply when a reply is owed, task when a task was made, else no_action; status needs_human or handled) and notifies the people who can act on the inbox while anything waits. mode=shadow stores the decisions only. Responds { plan, items, replayed }. With an idempotency_key already used for this message and mode, the same body replays (finishing an interrupted plan) and another is 409. An email the key reads but may not act on (someone else\'s personal inbox without inbound_email.triage and its owner\'s grant, or one read under the Owners switch) is 403 inbox_triage.', group: 'Inbound Email',
+  { method: 'POST', path: '/api/v1/inbox/messages/:id/plan', description: 'A triage plan for one message: a summary and its items. Every item is checked first; one that cannot be used rejects the whole plan (422 invalid_items with { index, reason } per problem; nothing written). The policy then decides each item: apply, apply_unsure (applied, shown as unsure, one tap to undo), propose (waits for a person, who is notified) or reject, each with decision_reason. The rules: the Owner writing to the agent is an instruction (applied); mail the Owner is copied on yields only what the Owner promised, what the Owner waits on and context; a suspicious plan or an untrusted sender only proposes, an unknown sender proposes money and account matters; a blind copy only files; bulk mail only feeds money, account risk and context; strangers and prospects reach no client work; a completed or archived project takes no new task; a project outside the message\'s scope is proposed, never refused; facts, mappings and leads propose; a field a person set is proposed, one the agent set changes as unsure; assignment, readiness and status wait for a person (a teammate may put their own task in review); only the Owner mutes, only the Owner or a teammate reverts; low confidence or work aimed at someone other than the Owner or the company applies as unsure. In live mode the app applies what may apply (each item\'s result is stored: ids created, values replaced), records a triage row (outcome needs_human when a question or a proposal waits, needs_reply when a reply is owed, task when a task was made, else no_action; status needs_human or handled) and notifies the inbox\'s decision recipient (else the people who can act on the inbox) while anything waits. A create_task item gets its assignees from the inbox\'s default assignees who can open the project, else the Owner; for an agent whose new tasks need approval it becomes a task suggestion instead (result suggestion_id, needs_approval: true, the email in its metadata, linked once approved). mode=shadow stores the decisions only. Responds { plan, items, replayed }. With an idempotency_key already used for this message and mode, the same body replays (finishing an interrupted plan) and another is 409. An email the key reads but may not act on (someone else\'s personal inbox without inbound_email.triage and its owner\'s grant, or one read under the Owners switch) is 403 inbox_triage.', group: 'Inbound Email',
+    deprecatedFields: [{ name: 'mode shadow', ...cutover(SHADOW_REPLACEMENT) }],
     params: [{ name: 'id', type: 'uuid', required: true, description: 'Message ID' }],
     body: [
       { name: 'mode', type: 'live|shadow', required: false, description: 'Default live' },
@@ -1769,6 +1804,7 @@ export const endpoints: EndpointDoc[] = [
     ],
   },
   { method: 'POST', path: '/api/v1/inbox/messages/:id/triage', description: 'Record a triage (history kept, newest wins), filed on every project it names (project_ids) and every linked task\'s project, each within the email\'s project_scope (422 project_out_of_scope with the scope otherwise, and nothing is recorded). Status becomes ignored (Filtered) when category is outreach and no guardrail keeps it (a client or someone on a client conversation, a teammate, a live lead, a sender with an always rule, money, account or security mail, or a conversation someone on our side wrote in or that is linked to a task); otherwise needs_human when the outcome is needs_human or the sender is untrusted, else handled. Emits an email.triaged activity. With an idempotency_key already used on this email, the same body returns the first triage (200, replayed: true, nothing recorded) and a different body is 409 idempotency_conflict. A task linked to an email is a normal task. An email the key reads but may not act on (someone else\'s personal inbox without inbound_email.triage and its owner\'s grant, or one read under the Owners switch) is 403 inbox_triage.', group: 'Inbound Email',
+    deprecated: cutover('POST /api/v1/inbox/messages/:id/plan (MCP submit_triage_plan) in an inbox with triage_mode plans'),
     params: [{ name: 'id', type: 'uuid', required: true, description: 'Email ID' }],
     body: [
       { name: 'outcome', type: 'no_action|task|needs_reply|needs_human', required: true, description: 'What the email needs' },
@@ -1787,12 +1823,19 @@ export const endpoints: EndpointDoc[] = [
     ],
   },
   { method: 'GET', path: '/api/v1/inbox/triage/unsummarized', description: 'For the batched summary: the newest unsummarized triage per email from the last 14 days that drove an outcome (a task created or updated, a reminder the agent set, a reply owed or a question; an email read and left alone is never listed), oldest first, with the triage\'s own project_id, the email (sender, subject, conversation_id, routing_basis, forwarded_by and original_sender, as on the detail), the thread\'s strongest project ({ id, name, source }; source guessed when the agent picked it), projects (every project, strongest first), project_ids (the projects this triage filed on) and linked tasks with their project (no bodies).', group: 'Inbound Email',
+    deprecated: cutover('the answer from POST /api/v1/inbox/messages/:id/plan (each item and its decision): summarize as you plan'),
     queryParams: [{ name: 'inbox_id', type: 'uuid', description: 'One granted inbox (default: every granted inbox)' }],
   },
   { method: 'POST', path: '/api/v1/inbox/triage/mark-summarized', description: 'Mark triage as summarized, along with older unsummarized triage of the same emails. All or nothing: an id outside your inboxes marks nothing (404 with missing ids).', group: 'Inbound Email',
+    deprecated: cutover('the answer from POST /api/v1/inbox/messages/:id/plan (each item and its decision): summarize as you plan'),
     body: [{ name: 'triage_ids', type: 'uuid[]', required: true, description: '1 to 500 triage ids' }],
   },
   { method: 'GET', path: '/api/v1/inbox/signal', description: 'For the host dispatcher: { new_count, newest_received_at, unsummarized_count, drafts_requested, waiting_count, plans_new_count, plans_newest_received_at, plans_newest_queued_at, shadow_pending_count } across your inboxes. unsummarized_count counts only emails that drove an outcome (a task, a reminder, a reply owed or a question); waiting_count is the questions still waiting on a person. new_count and newest_received_at cover the inboxes the older triage runs (triage_mode legacy or shadow); plans_new_count is what is ready to plan, new mail in plan inboxes and every new meeting (its conversation quiet for a few minutes, not muted), and plans_newest_received_at the newest of it; plans_newest_queued_at is the newest time anything ready joined the queue, by arriving or by going back to New (a person sent it back or answered its question), so wake on it to catch an old message sent back; shadow_pending_count is mail in shadow inboxes the older triage handled with no shadow plan yet.', group: 'Inbound Email',
+    deprecatedFields: [
+      { name: 'shadow_pending_count', ...cutover(SHADOW_REPLACEMENT) },
+      { name: 'new_count and newest_received_at (the older triage)', ...cutover('plans_new_count, plans_newest_received_at and plans_newest_queued_at') },
+      { name: 'unsummarized_count', ...cutover('the answer from POST /api/v1/inbox/messages/:id/plan (each item and its decision): summarize as you plan') },
+    ],
     queryParams: [
       { name: 'inbox_id', type: 'uuid', description: 'One granted inbox (default: every granted inbox)' },
       { name: 'handled', type: 'me', description: 'Only the inboxes you handle, as yourself or through a group (default: every granted inbox)' },
@@ -1805,7 +1848,7 @@ export const endpoints: EndpointDoc[] = [
       { name: 'handled', type: 'me', description: 'Only the inboxes you handle, as yourself or through a group (default: every granted inbox)' },
     ],
   },
-  { method: 'PUT', path: '/api/v1/inbox/reply-drafts/:id', description: 'Answer a waiting draft request once (409 draft_answered after): the reply text, or why there is none. The person copies it into their own mail; nothing is ever sent.', group: 'Inbound Email',
+  { method: 'PUT', path: '/api/v1/inbox/reply-drafts/:id', description: 'Answer a waiting draft request once (409 draft_answered after): the reply text, or why there is none. The person copies it into their own mail; nothing is ever sent. A written draft notifies who copies and sends it: the inbox\'s primary handler when a person, else its decision recipient, else the Owners.', group: 'Inbound Email',
     params: [{ name: 'id', type: 'uuid', required: true, description: 'Draft request ID' }],
     body: [
       { name: 'body', type: 'string', required: false, description: 'The reply, in the owner\'s voice (up to 20000 characters)' },
@@ -1856,7 +1899,7 @@ export const endpoints: EndpointDoc[] = [
       { name: 'remind_on', type: 'YYYY-MM-DD|null', required: false, description: 'Day it is due; omit for no date' },
       { name: 'remind_at', type: 'HH:MM|null', required: false, description: 'Time on that day; needs remind_on' },
       { name: 'owner_id', type: 'uuid', required: false, description: 'Whose reminder it is (default the member behind the key)' },
-      { name: 'source_message_id', type: 'uuid|null', required: false, description: 'The inbound email it came from (an inbox the key can read, 404 otherwise). Its task\'s or project\'s project must be in that email\'s project_scope (422 project_out_of_scope otherwise). The reminder then shows on that email in the Inbox, and its source is email.' },
+      { name: 'source_message_id', type: 'uuid|null', required: false, description: 'The inbound email it came from (an inbox the key can read, 404 otherwise). Its task\'s or project\'s project must be in that email\'s project_scope (422 project_out_of_scope otherwise). The reminder then shows on that email in the Inbox, and its source is email. From an agent with no owner_id, it is for the email\'s inbox default assignee (the first one) when the inbox has one.' },
     ],
   },
   { method: 'GET', path: '/api/v1/reminders/:id', description: 'Get one reminder the key can see.', group: 'Reminders',
@@ -1875,6 +1918,23 @@ export const endpoints: EndpointDoc[] = [
   { method: 'DELETE', path: '/api/v1/reminders/:id', description: 'Move a reminder to Trash. Only its owner, its writer or a task manager may; anyone else ticks it off instead.', group: 'Reminders',
     params: [{ name: 'id', type: 'uuid', required: true, description: 'Reminder ID' }],
   },
+  // The older /api/v1/inbound-emails paths, each with its /api/v1/inbox equivalent (Inbound Email).
+  { method: 'GET', path: '/api/v1/inbound-emails', description: 'The older path of GET /api/v1/inbox/messages: the same handler and answer.', group: 'Inbound Email', deprecated: cutover('GET /api/v1/inbox/messages') },
+  { method: 'GET', path: '/api/v1/inbound-emails/:id', description: 'The older path of GET /api/v1/inbox/messages/:id: the same handler and answer.', group: 'Inbound Email', deprecated: cutover('GET /api/v1/inbox/messages/:id') },
+  { method: 'GET', path: '/api/v1/inbound-emails/:id/attachments/:aid/url', description: 'The older path of GET /api/v1/inbox/messages/:id/attachments/:aid/url: the same handler and answer.', group: 'Inbound Email', deprecated: cutover('GET /api/v1/inbox/messages/:id/attachments/:aid/url') },
+  { method: 'PATCH', path: '/api/v1/inbound-emails/:id/attachments/:aid', description: 'The older path of PATCH /api/v1/inbox/messages/:id/attachments/:aid: the same handler and answer.', group: 'Inbound Email', deprecated: cutover('PATCH /api/v1/inbox/messages/:id/attachments/:aid') },
+  { method: 'POST', path: '/api/v1/inbound-emails/:id/tasks', description: 'The older path of POST /api/v1/inbox/messages/:id/tasks: the same handler and answer.', group: 'Inbound Email', deprecated: cutover('POST /api/v1/inbox/messages/:id/tasks') },
+  { method: 'POST', path: '/api/v1/inbound-emails/:id/triage', description: 'The older path of POST /api/v1/inbox/messages/:id/triage: the same handler and answer.', group: 'Inbound Email', deprecated: cutover('POST /api/v1/inbox/messages/:id/plan (the older triage itself is deprecated too)') },
+  { method: 'GET', path: '/api/v1/inbound-emails/questions', description: 'The older path of GET /api/v1/inbox/questions: the same handler and answer.', group: 'Inbound Email', deprecated: cutover('GET /api/v1/inbox/questions') },
+  { method: 'GET', path: '/api/v1/inbound-emails/reply-drafts', description: 'The older path of GET /api/v1/inbox/reply-drafts: the same handler and answer.', group: 'Inbound Email', deprecated: cutover('GET /api/v1/inbox/reply-drafts') },
+  { method: 'PUT', path: '/api/v1/inbound-emails/reply-drafts/:id', description: 'The older path of PUT /api/v1/inbox/reply-drafts/:id: the same handler and answer.', group: 'Inbound Email', deprecated: cutover('PUT /api/v1/inbox/reply-drafts/:id') },
+  { method: 'GET', path: '/api/v1/inbound-emails/sender-rules', description: 'The older path of GET /api/v1/inbox/sender-rules: the same handler and answer.', group: 'Inbound Email', deprecated: cutover('GET /api/v1/inbox/sender-rules') },
+  { method: 'POST', path: '/api/v1/inbound-emails/sender-rules', description: 'The older path of POST /api/v1/inbox/sender-rules: the same handler and answer.', group: 'Inbound Email', deprecated: cutover('POST /api/v1/inbox/sender-rules') },
+  { method: 'GET', path: '/api/v1/inbound-emails/senders', description: 'The older path of GET /api/v1/inbox/senders: the same handler and answer.', group: 'Inbound Email', deprecated: cutover('GET /api/v1/inbox/senders') },
+  { method: 'GET', path: '/api/v1/inbound-emails/signal', description: 'The older path of GET /api/v1/inbox/signal: the same handler and answer.', group: 'Inbound Email', deprecated: cutover('GET /api/v1/inbox/signal') },
+  { method: 'GET', path: '/api/v1/inbound-emails/triage/unsummarized', description: 'The older path of GET /api/v1/inbox/triage/unsummarized: the same handler and answer.', group: 'Inbound Email', deprecated: cutover('the answer from POST /api/v1/inbox/messages/:id/plan (each item and its decision): summarize as you plan') },
+  { method: 'POST', path: '/api/v1/inbound-emails/triage/mark-summarized', description: 'The older path of POST /api/v1/inbox/triage/mark-summarized: the same handler and answer.', group: 'Inbound Email', deprecated: cutover('the answer from POST /api/v1/inbox/messages/:id/plan (each item and its decision): summarize as you plan') },
+  { method: 'GET', path: '/api/v1/tasks/:id/emails', description: 'The older path of GET /api/v1/tasks/:id/messages: the same handler and answer.', group: 'Inbound Email', deprecated: cutover('GET /api/v1/tasks/:id/messages') },
   // ─── Questions ────────────────────────────────────────────────────
   { method: 'POST', path: '/api/v1/questions', description: 'Ask a team member (a person or another agent) a question and get the answer back. On a task (task_id; its project comes with it), a project (project_id) or neither. asked_to defaults to the agent\'s escalation target (its rule agent_escalate_to while that member is active, then agent_escalate_to_group, its owners, its owner groups), else the Owner; asking yourself is refused (422 asked_self). asked_to_group asks a group instead: every active member\'s bell rings, any member answers (answered_by says who), and the answer clears every bell; the question then carries asked_to null, asked_to_group, asked_to_group_name and asked_to_you. A question an agent asks while acting for someone (X-Act-For) carries principal_id and principal_name. Their bell rings (a question notification linking to the task, or to My Tasks), a task with an open question shows as waiting on them, and an agent that asks logs the typed blocked event. Poll GET /api/v1/questions/:id for the answer. Answers 201 with the question: id, status open, task_title, project_name, asked_by_name, asked_to_name, can_answer and can_cancel for the caller.', group: 'Questions',
     body: [
@@ -1886,6 +1946,7 @@ export const endpoints: EndpointDoc[] = [
       { name: 'choices', type: 'string[]', required: false, description: '1 to 10 different short answers (up to 200 characters each), shown as buttons' },
       { name: 'allow_other', type: 'boolean', required: false, description: 'With choices: may they answer in their own words too (default true). false makes a choice required.' },
       { name: 'expires_at', type: 'ISO 8601', required: false, description: 'A future time after which an unanswered question reads as expired and its bell clears' },
+      { name: 'run_id', type: 'uuid', required: false, description: 'Your own unfinished run this question holds (from POST /api/v1/agents/runs). While it is open the run is waiting (on a person) and never times out; once it is answered, cancelled or expires and no other open question names the run, the run is running again and its two hours start over. The question carries run_id, and so do the question.* webhooks. Another member\'s run, or none, is 422 run_not_yours; a finished run is 409 run_finished.' },
     ],
   },
   { method: 'GET', path: '/api/v1/questions', description: 'List questions the key can see: ones its member asked, ones it was asked, and ones on tasks and projects it can open (never on a task or project in Trash). Newest first, paginated. An open question past expires_at is stored and shown as expired.', group: 'Questions',
@@ -1904,7 +1965,7 @@ export const endpoints: EndpointDoc[] = [
   { method: 'GET', path: '/api/v1/questions/:id', description: 'Get one question: status (open, answered, cancelled or expired), choices, allow_other, and once answered answer_choice, answer_text, answered_by, answered_by_name and answered_at. Cancelled ones carry cancelled_by and cancelled_at. 404 for a question the key cannot see.', group: 'Questions',
     params: [{ name: 'id', type: 'uuid', required: true, description: 'Question ID' }],
   },
-  { method: 'POST', path: '/api/v1/questions/:id/answer', description: 'Answer a question with a choice, text, or both. Without choices, text is the answer; with choices, choice must be one of them (422 unknown_choice), and when allow_other is false a choice is required (422 choice_required), text riding along as a note. Only the member asked, the Owner, or a key whose member may manage the team (team.manage on key and member) may answer (403 not_asked). An approval is decided here too: choice approve or reject, text an optional note, and only the member asked or the Owner may decide it. 409 when it is already answered, cancelled or expired (reason question_answered, question_cancelled, question_expired). Clears the asked member\'s bell. Answers with the question.', group: 'Questions',
+  { method: 'POST', path: '/api/v1/questions/:id/answer', description: 'Answer a question with a choice, text, or both. Without choices, text is the answer; with choices, choice must be one of them (422 unknown_choice), and when allow_other is false a choice is required (422 choice_required), text riding along as a note. Only the member asked, the Owner, or a key whose member may manage the team (team.manage on key and member) may answer (403 not_asked). An approval is decided here too: choice approve or reject, text an optional note, and only whoever it names, or the Owner, decides it (403 not_asked). The door matters: an approval asked to an agent is decided with that agent\'s own key; one that names a person (or a group of people, or the Owner\'s override) is decided in the app, or here only with a key that carries approvals.decide (admins and members hold it on the API, but no key carries it by default: a person adds it to their own key on purpose). An agent acting for the person (X-Act-For, or a personal agent) needs approvals.decide on its key and held by the person, and the decision is recorded as theirs; it never decides a request it made. A connected AI tool (Connect AI) never decides one, whatever its scopes. Otherwise 403 approval_needs_person, with a hint saying what is needed. The decided approval carries decided_via: app, api_key, agent or act_for. 409 when it is already answered, cancelled or expired (reason question_answered, question_cancelled, question_expired). Clears the asked member\'s bell. Answers with the question.', group: 'Questions',
     params: [{ name: 'id', type: 'uuid', required: true, description: 'Question ID' }],
     body: [
       { name: 'choice', type: 'string', required: false, description: 'One of the question\'s choices' },
@@ -1914,15 +1975,16 @@ export const endpoints: EndpointDoc[] = [
   { method: 'POST', path: '/api/v1/questions/:id/cancel', description: 'Withdraw an open question: whoever asked it, the Owner, or a key whose member may manage the team (403 not_asker otherwise). Clears the asked member\'s bell. 409 once it is answered, cancelled or expired. No body. Answers with the question, status cancelled.', group: 'Questions',
     params: [{ name: 'id', type: 'uuid', required: true, description: 'Question ID' }],
   },
-  { method: 'POST', path: '/api/v1/approvals', description: 'Ask a person to approve an action before you do it (a deploy, an email to a client, a spend, deleting data, a merge): a question of kind approval with the choices approve and reject. On a task, a project or neither, like a question. asked_to defaults to the agent\'s escalation target, else the Owner, and must be a person (422 approver_not_person). asked_to_group asks a group instead: any person in it decides (never an agent, and never whoever asked), and the approval carries asked_to null, asked_to_group and asked_to_group_name. Their bell rings ("Approval request from ..."), and My Tasks shows it with Approve and Reject. Only the member asked (or a person in the group asked), or the Owner, decides it, with POST /api/v1/questions/:id/answer. The question.* webhooks carry it, with kind, action, decision and decided_by. Answers 201 with the approval: the question\'s fields plus kind approval, action, decision (null until decided), decided_by and decided_by_name. For new work to propose, use task suggestions instead.', group: 'Questions',
+  { method: 'POST', path: '/api/v1/approvals', description: 'Ask a person to approve an action before you do it (a deploy, an email to a client, a spend, deleting data, a merge): a question of kind approval with the choices approve and reject. On a task, a project or neither, like a question. asked_to defaults to the agent\'s escalation target, else the Owner, and a default must be a person (422 approver_not_person). An agent named in asked_to on purpose (a reviewer agent) may be asked, and decides it with its own key; nobody asks themselves (422 asked_self). asked_to_group asks a group instead: any person in it decides (never an agent, and never whoever asked), and the approval carries asked_to null, asked_to_group and asked_to_group_name. Their bell rings ("Approval request from ..."), and My Tasks shows it with Approve and Reject. Only the member asked (or a person in the group asked), or the Owner, decides it, with POST /api/v1/questions/:id/answer (over the API only with approvals.decide on the key; never from a connected AI tool). The question.* webhooks carry it, with kind, action, decision, decided_by and decided_via. Answers 201 with the approval: the question\'s fields plus kind approval, action, decision (null until decided), decided_by, decided_by_name and decided_via (app, api_key, agent or act_for, once decided). For new work to propose, use task suggestions instead.', group: 'Questions',
     body: [
-      { name: 'action', type: 'object', required: true, description: '{ type, summary, details? }: type names the action in lowercase (deploy, send_email, spend, delete_data, merge, or your own, up to 63 characters); summary says exactly what will happen, 1 to 300 characters; details is any JSON object up to 4000 characters' },
+      { name: 'action', type: 'object', required: true, description: '{ type, summary, details?, external_url?, external_id? }: external_url is an https link (up to 2000 characters; any other scheme is 422) to the object in another system the agent works in, shown to the person as Open in its host, and external_id its id there (up to 200 characters); both come back on reads and in the question.* webhooks; type names the action in lowercase (deploy, send_email, spend, delete_data, merge, or your own, up to 63 characters); summary says exactly what will happen, 1 to 300 characters; details is any JSON object up to 4000 characters' },
       { name: 'question', type: 'string', required: false, description: 'Context for the person deciding, up to 2000 characters. Default: the summary' },
       { name: 'task_id', type: 'uuid|null', required: false, description: 'The task it is about' },
       { name: 'project_id', type: 'uuid|null', required: false, description: 'The project it is about, when not on a task' },
       { name: 'asked_to', type: 'uuid', required: false, description: 'The person to ask. Default: the agent\'s escalation target, else the Owner' },
       { name: 'asked_to_group', type: 'uuid', required: false, description: 'A live group to ask instead: any person in it decides. Send asked_to or asked_to_group, not both (422 two_addressees); 422 group_has_no_one when no person other than you is in it' },
       { name: 'expires_at', type: 'ISO 8601', required: false, description: 'A future time after which an undecided approval reads as expired: treat it as no' },
+      { name: 'run_id', type: 'uuid', required: false, description: 'Your own unfinished run this approval holds, as on POST /api/v1/questions: the run waits on a person until it is decided, cancelled or expires. 422 run_not_yours, 409 run_finished.' },
     ],
   },
   { method: 'GET', path: '/api/v1/approvals', description: 'List the approvals the key can see, newest first, with the filters of GET /api/v1/questions (status, asked_by, asked_to, asked_to_group, task_id, project_id). Paginated.', group: 'Questions',
@@ -2164,19 +2226,22 @@ export const endpoints: EndpointDoc[] = [
       { name: 'enabled', type: 'boolean', required: false, description: 'On or off' },
     ],
   },
-  { method: 'DELETE', path: '/api/v1/assistant-setups/:id', description: 'Remove a setup. The agents it made stay with their people.', group: 'Personal Agents',
+  { method: 'DELETE', path: '/api/v1/assistant-setups/:id', description: 'Remove a setup. The agents it made stay with their people. 409 setup_has_webhooks while a webhook endpoint is scoped to it: turn the setup off instead, or delete that endpoint first.', group: 'Personal Agents',
     params: [{ name: 'id', type: 'uuid', required: true, description: 'Setup ID' }],
   },
   { method: 'GET', path: '/api/v1/assistant/messages', description: "Chat messages routed to the calling personal agent (from Slack or Telegram through the app's chat connections), oldest first, each with its text, person, provider, conversation and the thread so far. Messages sent to a webhook (assistant.message) are notified; the rest wait here as pending. Chat is private: the webhook carries ids only, and the text is read here or with GET /api/v1/assistant/messages/:id. No X-Act-For is needed or given: a personal agent is already narrowed to its person. A personal agent's key with notifications.manage_own; any other key is 403 not_a_personal_agent.", group: 'Personal Agents',
+    deprecated: { replacement: 'GET /api/v1/chat/messages (personal and company agents)', removal: CHAT_ALIAS_REMOVAL },
     queryParams: [
       { name: 'status', type: 'pending|notified|replied|handled|unrouted|all', description: 'Default pending' },
       { name: 'limit', type: 'number', description: '1 to 100 (default 20)' },
     ],
   },
   { method: 'GET', path: '/api/v1/assistant/messages/:id', description: 'One chat message routed to the calling personal agent, with its text and the thread so far: what an assistant.message webhook points at. 404 for a message routed to another agent.', group: 'Personal Agents',
+    deprecated: { replacement: 'GET /api/v1/chat/messages/:id', removal: CHAT_ALIAS_REMOVAL },
     params: [{ name: 'id', type: 'uuid', required: true, description: 'Chat message ID' }],
   },
   { method: 'POST', path: '/api/v1/assistant/messages/:id/reply', description: "Reply to a chat message routed to the calling personal agent, in the conversation it came from: the app sends it through the provider (Slack chat.postMessage, Telegram sendMessage) and marks the message replied. 404 for a message routed to another agent; 502 provider_refused with the provider's code when it refuses (the reply is recorded as failed). Send an Idempotency-Key to make a retry safe.", group: 'Personal Agents',
+    deprecated: { replacement: 'POST /api/v1/chat/messages/:id/reply', removal: CHAT_ALIAS_REMOVAL },
     params: [{ name: 'id', type: 'uuid', required: true, description: 'Chat message ID' }],
     body: [
       { name: 'text', type: 'string', required: true, description: 'Plain text, up to 20,000 characters (Telegram splits it at 4,000)' },
@@ -2184,13 +2249,56 @@ export const endpoints: EndpointDoc[] = [
     ],
   },
   { method: 'POST', path: '/api/v1/assistant/messages/:id/handled', description: 'Mark a chat message handled without a reply, so it leaves the pending list. Repeating it changes nothing.', group: 'Personal Agents',
+    deprecated: { replacement: 'POST /api/v1/chat/messages/:id/handled', removal: CHAT_ALIAS_REMOVAL },
     params: [{ name: 'id', type: 'uuid', required: true, description: 'Chat message ID' }],
   },
-  { method: 'POST', path: '/api/v1/tasks/:id/delegate', description: "Hand part of a task to another agent: a subtask of the task, assigned to agent_id (an active agent), through the same create and assign as POST /api/v1/tasks with parent_task_id. The caller must be able to manage the task and assign others (tasks.manage_all), the agent must reach the project, and the caller's rules apply (approval answers 202 with a suggestion). run_id (the caller's own run) links the subtask to that run, so the specialist's run can name it as parent_run_id; get_task_brief shows it as delegated_from. Acting for someone records them as principal_id. Answers 201 with the task, task_id, delegated_to and run_id. Core never picks the specialist.", group: 'Agent Runs',
-    params: [{ name: 'id', type: 'uuid', required: true, description: 'Parent task ID' }],
+  { method: 'GET', path: '/api/v1/chat/messages', description: "Chat messages routed to the calling agent, oldest first: a person's own assistant (the personal bot, DMs) or a company agent (the company bot, channels and DMs). Each has its text, person (null for a stranger), provider, connection_kind, channel { id, name, direct, mapped_agent_id, listen }, is_request, route (company: direct, mention, channel, default or reply), attachments (files sent with it, each with its download path), in_reply_to (the started message it answers), act_for (a company request: the body for POST /api/v1/delegations, to act for its sender) and the thread so far. Messages sent to a webhook (chat.message) are notified; the rest wait as pending. Context (is_request false, status context) is a channel message recorded so the agent knows what was said: never answer it. An agent's key with notifications.manage_own; anyone else's is 403 not_an_agent.", group: 'Chat',
+    queryParams: [
+      { name: 'status', type: 'pending|notified|replied|handled|unrouted|context|all', description: 'Default pending' },
+      { name: 'limit', type: 'number', description: '1 to 100 (default 20)' },
+    ],
+  },
+  { method: 'POST', path: '/api/v1/chat/messages', description: "Start a chat conversation (a digest, an alert, a daily report). A personal assistant messages only its own person, by DM on a personal connection where they linked a verified account (403 recipient_not_allowed for anyone else or any channel). A company agent works on company connections that list it (403 not_on_connection): it posts only in a channel mapped to it (403 channel_not_allowed; being the default agent does not widen this), or DMs an active member with a verified linked account there while acting for them (X-Act-For naming them; 403 act_for_mismatch for anyone else) or, unasked, only with chat.notify on both the agent and the key (403 chat_notify_required). Under the agent's own name and avatar where the provider allows. Recorded as a started message (no webhook event); a reply to it (its thread, a quote of it, or the next messages in that DM within a day) comes back to the same agent as chat.message, route reply on a company connection, in_reply_to naming it. Rate limited per connection: 60 an hour per agent and 20 an hour per recipient (429 chat_rate_limited, with limit and reset_at). 409 no_linked_chat, choose_connection (with options), assistants_off; 423 while the agent or every agent is paused; 502 provider_refused (recorded as failed). Send an Idempotency-Key to make a retry safe. Answers id, status, connection_id, provider, conversation_id, external_message_id, direct and to { person_id, channel_id, channel_name }.", group: 'Chat',
     body: [
-      { name: 'agent_id', type: 'uuid', required: true, description: 'The specialist: an active agent' },
-      { name: 'title', type: 'string', required: true, description: 'The subtask title' },
+      { name: 'text', type: 'string', required: true, description: 'Plain text, up to 20,000 characters (Telegram splits it at 4,000, Discord at 2,000)' },
+      { name: 'person_id', type: 'uuid', required: false, description: "Who to DM. A personal assistant may leave it out (its person); a company agent sends this or channel" },
+      { name: 'channel', type: 'string', required: false, description: 'Company agents: a channel mapped to you, by id (C0123, -100123, a Discord channel id) or by its mapped name (#finance)' },
+      { name: 'connection_id', type: 'uuid', required: false, description: 'The chat connection, when more than one fits' },
+      { name: 'provider', type: 'slack|telegram|discord', required: false, description: 'Narrow to one provider instead of naming the connection' },
+      { name: 'link', type: '{ url, label }', required: false, description: 'An https link and its label (up to 80 characters): a Slack <url|label> link, a Telegram button under the message, a Discord [label](url) link' },
+    ],
+  },
+  { method: 'GET', path: '/api/v1/chat/messages/:id', description: 'One chat message routed to the calling agent, with its text and the thread so far: what a chat.message webhook points at. attachments lists the files sent with it ({ index, kind: photo|voice|audio|video|document, name, mime_type, size, duration_seconds, download }); in_reply_to names the message the agent started that it answers. 404 for a message routed to another agent.', group: 'Chat',
+    params: [{ name: 'id', type: 'uuid', required: true, description: 'Chat message ID' }],
+  },
+  { method: 'GET', path: '/api/v1/chat/messages/:id/attachments/:n', description: "One file sent with a chat message routed to the calling agent: a photo (Telegram's largest size), voice note, audio, video or document. The app fetches it from the provider now and streams the bytes through with the file's type (anything a browser would run comes as application/octet-stream) and name, never cached and never kept. The provider's address and the bot token never leave the server: Telegram's file links hold the token and Slack's need it, so every provider is proxied (Slack needs the files:read scope; an expired Discord CDN link is refreshed). 404 for a message routed to another agent or no such file; 413 attachment_too_large past 20 MB; 502 provider_refused.", group: 'Chat',
+    params: [
+      { name: 'id', type: 'uuid', required: true, description: 'Chat message ID' },
+      { name: 'n', type: 'number', required: true, description: "The file's index in the message's attachments (from 0)" },
+    ],
+  },
+  { method: 'POST', path: '/api/v1/chat/messages/:id/reply', description: "Reply to a chat request routed to the calling agent, under its own name and avatar on Slack and on Discord through a channel webhook (Telegram keeps the bot's name; Discord without Manage Webhooks, and in DMs, puts the name in bold on the first line). In a DM it answers in place; in a company channel it threads under the message. A company request from a person needs X-Act-For naming them (403 act_for_required, act_for_mismatch): mint the pass with the message's act_for body. Context is never answered (409 not_a_request). 404 for a message routed to another agent; 502 provider_refused with the provider's code (the reply is recorded as failed). Send an Idempotency-Key to make a retry safe. Answers id, status, external_message_id, reply_to, conversation_id and private.", group: 'Chat',
+    params: [{ name: 'id', type: 'uuid', required: true, description: 'Chat message ID' }],
+    body: [
+      { name: 'text', type: 'string', required: true, description: 'Plain text, up to 20,000 characters (Telegram splits it at 4,000, Discord at 2,000)' },
+      { name: 'in_thread', type: 'boolean', required: false, description: "Default true: answer in the message's thread (a company channel answer starts one under the message)" },
+      { name: 'also_send_to_channel', type: 'boolean', required: false, description: 'Slack: the threaded reply also shows in the channel (reply_broadcast). Ignored in a DM, on Telegram, and on Discord, where a reply to a channel message always shows in the channel' },
+      { name: 'private', type: 'boolean', required: false, description: 'Send it to the sender by DM instead (Slack needs im:write; on Telegram they must have started the bot)' },
+    ],
+  },
+  { method: 'POST', path: '/api/v1/chat/messages/:id/handled', description: 'Mark a chat request handled without a reply, so it leaves the pending list. Repeating it changes nothing. Context needs no marking (409 not_a_request).', group: 'Chat',
+    params: [{ name: 'id', type: 'uuid', required: true, description: 'Chat message ID' }],
+  },
+  { method: 'POST', path: '/api/chat/inbound/:id', description: "Where a chat connection's provider sends messages; no API key. Slack signs with its signing secret, Telegram echoes its secret token. Discord's relay (relay/discord in the repo, run by the install anywhere it likes, since Discord delivers messages only over its Gateway websocket) posts each Gateway MESSAGE_CREATE as { v: 1, t: 'MESSAGE_CREATE', d: <Discord's message>, channel: { id, type, parent_id } }, and { v: 1, t: 'RELAY_READY' } when it connects (marks the connection heard), with X-PM-Relay-Signature: t=<unix seconds>,v1=<hex HMAC-SHA256 of <t>.<raw body> with the connection's relay secret>. The relay secret is answered once when the connection is made (relay_secret) or renewed in Settings. A missing or wrong signature, or one more than five minutes off, is 401, the same answer as an unknown connection. A message id already recorded answers 200 duplicate and records nothing. Then the message is routed like any chat message (personal or company bot) and reaches its agent as chat.message. 429 when a connection or sender sends too fast; 5xx asks the sender to retry.", group: 'Chat',
+    params: [{ name: 'id', type: 'uuid', required: true, description: 'The chat connection ID (its inbound_url, the relay PM_INBOUND_URL)' }],
+  },
+  { method: 'POST', path: '/api/v1/tasks/:id/delegate', description: "Hand work to another agent. mode subtask (default): a subtask of the task, assigned to agent_id (an active agent), through the same create and assign as POST /api/v1/tasks with parent_task_id; answers 201 (202 with a suggestion when the caller's rules need approval). mode assign: the task itself, top-level or a subtask, handed over as it is: agent_id joins its assignees (reassign true takes the caller off, and with it the caller's claim); answers 200; a done task is 409 task_done. Either way the caller needs tasks.manage_all, the agent must reach the project (422 receiver_no_project_access). run_id (the caller's own run) links the task to that run (one link per task; handing it on again replaces it), so the receiver's run can name it as parent_run_id; get_task_brief shows it as delegated_from, with mode. A chain keeps its person: the hand-off is checked with the caller's access and that person's together, acting for anyone else is 403 principal_mismatch, and a personal agent receives only its own person's work. At most 8 hand-offs below the first run (409 chain_too_deep); never to an agent that already ran a run above (409 delegation_cycle). A personal agent delegates only while acting for its person (403 personal_agent_not_acting) and only to company agents (403 receiver_is_personal_agent). Answers the task, task_id, delegated_to, run_id and mode. Core never picks the receiver.", group: 'Agent Runs',
+    params: [{ name: 'id', type: 'uuid', required: true, description: 'The parent task (mode subtask) or the task handed over (mode assign)' }],
+    body: [
+      { name: 'agent_id', type: 'uuid', required: true, description: 'The receiver: an active agent' },
+      { name: 'mode', type: 'string', required: false, description: 'subtask (default) or assign' },
+      { name: 'reassign', type: 'boolean', required: false, description: 'mode assign: the caller comes off the task' },
+      { name: 'title', type: 'string', required: false, description: 'The subtask title; required for mode subtask. The fields below are for mode subtask only.' },
       { name: 'description', type: 'string', required: false, description: 'What to do' },
       { name: 'priority', type: 'string', required: false, description: 'low, medium, high or urgent' },
       { name: 'due_date', type: 'string', required: false, description: 'YYYY-MM-DD' },
@@ -2199,10 +2307,10 @@ export const endpoints: EndpointDoc[] = [
       { name: 'run_id', type: 'uuid', required: false, description: 'The delegating run (your own, or any with agents.manage)' },
     ],
   },
-  { method: 'GET', path: '/api/v1/agents/runs/:id/tree', description: "The chain a run belongs to, from its root, in start order: each run's id, parent_run_id, depth, agent_id and agent_name, task_id, status, title, started_at, finished_at, and delegated (the subtasks it handed over). Readable by anyone who sees one of its runs (their own, a run that delegated to them, or every run with agents.manage). Another agent's run has visible false and leaves out summary, tokens, cost and external_url. Runs start with parent_run_id on POST /api/v1/agents/runs (a run the key can see; the child acts for the same person, 403 principal_mismatch otherwise); run.started and run.finished carry parent_run_id and root_run_id when set.", group: 'Agent Runs',
+  { method: 'GET', path: '/api/v1/agents/runs/:id/tree', description: "The chain a run belongs to, from its root, in start order, across every task its runs worked on: each run's id, parent_run_id, depth (0 for the root), agent_id and agent_name, task_id, status, title, started_at, finished_at, principal_id, and delegated (the tasks it handed over: task_id, delegated_to, mode subtask or assign). On the tree: principal_id (the person the whole chain works for), levels (the deepest depth plus one) and max_depth (8: a child run deeper is 409 chain_too_deep). Readable by anyone who sees one of its runs (their own, a run that delegated to them, or every run with agents.manage). Another agent's run has visible false and leaves out summary, tokens, cost and external_url. Runs start with parent_run_id on POST /api/v1/agents/runs (a run the key can see; the child acts for the same person, 403 principal_mismatch otherwise); run.started and run.finished carry parent_run_id and root_run_id when set.", group: 'Agent Runs',
     params: [{ name: 'id', type: 'uuid', required: true, description: 'Any run in the chain' }],
   },
-  { method: 'GET', path: '/api/v1/context', description: "One scope's context as a brief: sections of entries (pinned first, then newest), name and can_edit. Any scope reads it; each scope has its own rule. Scopes: workspace (company knowledge, every member but guests), group (its members and whoever manages groups), project (as the project brief: project_context.read), agent (the agent and the people who manage it), member (one person's memory: only them, through their own key or connected AI tool only with context.memory, and their own personal agent while they allow it; never an Owner).", group: 'Context',
+  { method: 'GET', path: '/api/v1/context', description: "One scope's context as a brief: sections of entries (pinned first, then newest), name and can_edit. Any scope reads it; each scope has its own rule. Scopes: workspace (company knowledge, every member but guests), group (its members and whoever manages groups), project (as the project brief: project_context.read), agent (the agent and the people who manage it), member (one person's memory: only them, through their own key or connected AI tool only with context.memory, and their own personal agent while they allow it; never an Owner in the app, and reads by the assistant host are audited).", group: 'Context',
     queryParams: [
       { name: 'scope_type', type: 'string', description: 'workspace, group, project, agent or member (required)' },
       { name: 'scope_id', type: 'uuid', description: 'The group, project, agent or person; left out for the workspace' },
@@ -2357,6 +2465,7 @@ const GROUP_MODULE: Record<string, ModuleId> = {
   'Agent Setup': 'agents',
   'Acting For Someone': 'agents',
   'Personal Agents': 'agents',
+  Chat: 'agents',
   'Webhook Endpoints': 'webhooks',
 };
 

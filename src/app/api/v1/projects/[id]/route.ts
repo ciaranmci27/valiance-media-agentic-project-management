@@ -25,7 +25,7 @@ export const GET = withApi(async ({ supabase, params, access }) => {
   }, access, 'api');
 
   return success(project);
-});
+}, { permission: 'projects.read' });
 
 export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemberId, access, scopes }) => {
   const id = (params as any).id;
@@ -48,7 +48,7 @@ export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemb
   const project = await patchProject(supabase, id, updates, member_ids);
   logAudit(supabase, { method: 'PATCH', endpoint: `/api/v1/projects/${id}`, entityType: 'project', entityId: id, apiKeyId, teamMemberId, requestBody: body, beforeSnapshot: before, afterSnapshot: project, statusCode: 200 });
   return success(project);
-}, { schema: updateProjectSchema });
+}, { schema: updateProjectSchema, permission: 'projects.manage' });
 
 export const DELETE = withApi(async ({ supabase, params, apiKeyId, teamMemberId }) => {
   const id = (params as any).id;
@@ -58,4 +58,4 @@ export const DELETE = withApi(async ({ supabase, params, apiKeyId, teamMemberId 
   await trashForApi(supabase, 'projects', id, teamMemberId, 'Project');
   logAudit(supabase, { method: 'DELETE', endpoint: `/api/v1/projects/${id}`, entityType: 'project', entityId: id, apiKeyId, teamMemberId, beforeSnapshot: before, statusCode: 200 });
   return success({ deleted: true });
-});
+}, { permission: 'projects.manage' });

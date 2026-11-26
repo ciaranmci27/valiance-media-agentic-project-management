@@ -168,6 +168,8 @@ export const PERMISSION_MODULE: Record<PermissionKey, ModuleId | 'core'> = {
   'tasks.create': 'core',
   'tasks.manage_assigned': 'core',
   'tasks.manage_all': 'core',
+  'approvals.decide': 'core',
+  'questions.ask': 'core',
   'templates.manage': 'core',
   'time.manage_own': 'time',
   'time.read_all': 'time',
@@ -203,6 +205,7 @@ export const PERMISSION_MODULE: Record<PermissionKey, ModuleId | 'core'> = {
   'payouts.manage': 'team_pay',
   'agents.manage': 'agents',
   'agents.act_for': 'agents',
+  'chat.notify': 'agents',
   // Saved context any AI working the project reads (an agent or a person's own Claude over MCP).
   'project_context.read': 'core',
   'project_context.manage': 'core',

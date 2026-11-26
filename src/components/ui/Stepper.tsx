@@ -190,7 +190,7 @@ export function ChoiceGroup({ label, className = '', children }: { label: string
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     const keys = ['ArrowRight', 'ArrowDown', 'ArrowLeft', 'ArrowUp', 'Home', 'End'];
     if (!keys.includes(e.key)) return;
-    const radios = [...e.currentTarget.querySelectorAll<HTMLButtonElement>('[role="radio"]')];
+    const radios = [...e.currentTarget.querySelectorAll<HTMLButtonElement>('[role="radio"]:not(:disabled)')];
     const index = radios.indexOf(document.activeElement as HTMLButtonElement);
     if (index === -1) return;
     e.preventDefault();
@@ -212,8 +212,10 @@ export function ChoiceGroup({ label, className = '', children }: { label: string
  * One choice card (a template, a kind of setup) inside a ChoiceGroup: a big
  * target named by its title and described by its line. The picked card is
  * filled with the brand tint and ringed, so the choice reads at a glance.
+ * A disabled card (already connected, coming soon) stays in view, dimmed,
+ * with its reason in meta; arrow keys skip it.
  */
-export function ChoiceCard({ id, selected, focusable, onSelect, icon, title, description, meta }: {
+export function ChoiceCard({ id, selected, focusable, onSelect, icon, title, description, meta, disabled = false }: {
   /** Unique on the page: names the card for screen readers. */
   id: string;
   selected: boolean;
@@ -224,20 +226,24 @@ export function ChoiceCard({ id, selected, focusable, onSelect, icon, title, des
   title: string;
   description?: ReactNode;
   meta?: ReactNode;
+  disabled?: boolean;
 }) {
   return (
     <button
       type="button"
       role="radio"
+      disabled={disabled}
       aria-checked={selected}
       aria-labelledby={`${id}-title`}
       aria-describedby={description ? `${id}-desc` : undefined}
-      tabIndex={focusable ? 0 : -1}
+      tabIndex={focusable && !disabled ? 0 : -1}
       onClick={onSelect}
       className={`group flex h-full w-full flex-col rounded-2xl p-5 text-left transition-all duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--color-surface)] ${
         selected
           ? 'bg-brand-500/[0.18] ring-2 ring-inset ring-brand-400 shadow-glow'
-          : 'bg-white/[0.03] hover:bg-white/[0.06] ring-1 ring-inset ring-white/[0.06]'
+          : disabled
+            ? 'cursor-not-allowed bg-white/[0.02] opacity-60 ring-1 ring-inset ring-white/[0.04]'
+            : 'bg-white/[0.03] hover:bg-white/[0.06] ring-1 ring-inset ring-white/[0.06]'
       }`}
     >
       <span className="flex items-start justify-between gap-3">

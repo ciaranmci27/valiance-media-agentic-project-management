@@ -17,7 +17,7 @@ export const GET = withApi(async ({ supabase, params }) => {
   if (error) throw error;
   if (!data) throw notFound('Lead field');
   return success(data);
-});
+}, { permission: 'leads.read' });
 
 export const DELETE = withApi(async ({ supabase, params, apiKeyId, teamMemberId }) => {
   const { id, fieldId } = params as any;
@@ -26,4 +26,4 @@ export const DELETE = withApi(async ({ supabase, params, apiKeyId, teamMemberId 
   await trashForApi(supabase, 'lead_fields', fieldId, teamMemberId, 'Lead field');
   logAudit(supabase, { method: 'DELETE', endpoint: `/api/v1/leads/${id}/fields/${fieldId}`, entityType: 'lead_field', entityId: fieldId, apiKeyId, teamMemberId, beforeSnapshot: before, statusCode: 200 });
   return success({ deleted: true });
-});
+}, { permission: 'leads.manage' });

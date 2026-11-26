@@ -165,11 +165,25 @@ export async function updateAssistantSetup(service: SupabaseClient, caller: Agen
   return (await presentSetups(service, [data as Row]))[0];
 }
 
-/** Removes a setup. Agents it made stay; they are their people's until an Owner changes that. */
+/**
+ * Removes a setup. Agents it made stay; they are their people's until an
+ * Owner changes that. A setup a webhook endpoint is scoped to stays until
+ * that endpoint goes (409 setup_has_webhooks): its assistants would stop
+ * hearing their chat. Turning the setup off keeps them working.
+ */
 export async function deleteAssistantSetup(service: SupabaseClient, caller: AgentCaller, id: string): Promise<{ id: string; deleted: true }> {
   requireAgentsEnabled(caller.access);
   requireOwner(caller.access, 'manages assistant setups');
   await loadSetup(service, id);
+  const hooks = await service.from('webhook_endpoints').select('id, name').eq('assistant_setup_id', id);
+  // A database before 20261125000900 has no setup scope: nothing to keep.
+  if (hooks.error && !missingSchema(hooks.error)) throw hooks.error;
+  const scoped = (hooks.data ?? []) as Row[];
+  if (scoped.length > 0) {
+    throw new ApiError(409, 'CONFLICT', `Webhook endpoints send this setup's assistants their events (${scoped.map((hook) => hook.name).join(', ')}). Turn the setup off instead, or delete those endpoints first.`, {
+      reason: 'setup_has_webhooks', endpoint_ids: scoped.map((hook) => hook.id),
+    });
+  }
   const { error } = await service.from('assistant_setups').delete().eq('id', id);
   if (error) fail(error);
   return { id, deleted: true };
@@ -220,6 +234,8 @@ function agentRows(planned: PlannedAgent[], setups: Map<string, { template: Agen
       description: settings.description ?? null,
       delegate_of: plan.person.id,
       assistant_template: template.key,
+      // The setup that made it: endpoints scoped to the setup hear this agent (20261125000900; ignored before).
+      assistant_setup_id: plan.setup_id,
       agent_self_assign: rules.agent_self_assign ?? false,
       agent_close_policy: rules.agent_close_policy ?? 'close',
       agent_create_policy: rules.agent_create_policy ?? 'live',

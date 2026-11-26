@@ -86,7 +86,7 @@ export const GET = withApi(async ({ supabase, searchParams, access }) => {
   }));
 
   return paginated(tasks, { page, limit, total: count || 0 });
-});
+}, { permission: 'tasks.read' });
 
 // 201 with the new task; 200 with an open task that already held the
 // dedupe_key (deduplicated: true); 202 with a task suggestion for an agent
@@ -94,4 +94,4 @@ export const GET = withApi(async ({ supabase, searchParams, access }) => {
 export const POST = withApi(async (ctx) => {
   const { status, data } = await createTaskWithRules(ctx, '/api/v1/tasks');
   return success(data, status);
-}, { schema: createApiTaskSchema });
+}, { schema: createApiTaskSchema, permission: 'tasks.create' });

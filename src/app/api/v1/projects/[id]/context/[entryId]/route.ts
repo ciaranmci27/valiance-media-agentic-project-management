@@ -42,7 +42,7 @@ export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemb
   });
 
   return success(legacyContextRow(updated));
-}, { schema: updateProjectContextSchema });
+}, { schema: updateProjectContextSchema, permission: 'project_context.manage' });
 
 export const DELETE = withApi(async ({ supabase, params, apiKeyId, teamMemberId }) => {
   const { id: projectId, entryId } = params as any;
@@ -80,4 +80,4 @@ export const DELETE = withApi(async ({ supabase, params, apiKeyId, teamMemberId 
   });
 
   return success(legacyContextRow(updated));
-});
+}, { permission: 'project_context.manage' });

@@ -116,7 +116,12 @@ const draft = (fields: Partial<WebhookDraft> = {}): WebhookDraft => ({
 {
   check('a name is needed', webhookStepProblem(draft({ name: '  ' }), 'endpoint') === 'Give the endpoint a name.');
   check('plain http is refused off localhost', webhookStepProblem(draft({ url: 'http://example.com' }), 'endpoint') === 'Endpoint URL must use HTTPS.');
-  check('plain http on localhost is fine', webhookStepProblem(draft({ url: 'http://localhost:3000/hook' }), 'endpoint') === null);
+  check('localhost is refused: webhooks go to public addresses', /public address/.test(webhookStepProblem(draft({ url: 'https://localhost:3000/hook' }), 'endpoint') ?? '')
+    && webhookStepProblem(draft({ url: 'http://localhost:3000/hook' }), 'endpoint') === 'Endpoint URL must use HTTPS.');
+  check('a private address is refused', /public address/.test(webhookStepProblem(draft({ url: 'https://192.168.1.20/hook' }), 'endpoint') ?? ''));
+  process.env.WEBHOOKS_ALLOW_PRIVATE_TARGETS = 'true';
+  check('plain http on localhost is fine where private targets are allowed', webhookStepProblem(draft({ url: 'http://localhost:3000/hook' }), 'endpoint') === null);
+  delete process.env.WEBHOOKS_ALLOW_PRIVATE_TARGETS;
   check('at least one event', webhookStepProblem(draft({ events: [] }), 'events') === 'Choose at least one event.');
   check('a bad agent event type is named', webhookStepProblem(draft({ events: ['agent_event.created'], agentEventTypes: 'work.done, Bad Type' }), 'filters') === 'Bad Type is not an agent event type.');
   check('agent event types only matter with agent events', webhookStepProblem(draft({ agentEventTypes: 'Bad Type' }), 'filters') === null);
@@ -151,9 +156,9 @@ const draft = (fields: Partial<WebhookDraft> = {}): WebhookDraft => ({
   check('a delivered endpoint is ok', endpointHealth({ ...ep, last_delivery_at: NOW.toISOString() }, []).state === 'ok');
 }
 {
-  check('a whole group reads as its name', eventSummary(['question.asked', 'question.answered', 'question.cancelled']).join() === 'Questions');
+  check('a whole group reads as its name', eventSummary(['question.asked', 'question.answered', 'question.cancelled', 'question.expired']).join() === 'Questions');
   check('part of a group says how much', eventSummary(['task.created', 'task.updated']).join() === 'Work: 2 of 8');
-  check('groups read in order', eventSummary(['invoice.paid', 'run.started', 'run.finished']).join('|') === 'Agent runs|Invoices: 1 of 5');
+  check('groups read in order', eventSummary(['invoice.paid', 'run.started', 'run.updated', 'run.finished', 'agent.offline', 'agent.online', 'agent.paused', 'agent.resumed', 'budget.exceeded']).join('|') === 'Agents|Invoices: 1 of 5');
   check('an unknown event still shows by name', eventSummary(['task.created', 'custom.thing']).join('|') === 'Work: 1 of 8|custom.thing');
 }
 

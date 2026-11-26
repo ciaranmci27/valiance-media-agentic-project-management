@@ -17,4 +17,4 @@ export const POST = withApi(async ({ supabase, params, body, teamMemberId, acces
   const { id } = params as { id: string };
   const { lease_minutes } = body as z.infer<typeof extendSchema>;
   return success(await extendClaim({ supabase, memberId: teamMemberId, access, scopes }, id, lease_minutes));
-}, { schema: extendSchema, optionalBody: true });
+}, { schema: extendSchema, optionalBody: true, permission: 'tasks.manage_assigned' });

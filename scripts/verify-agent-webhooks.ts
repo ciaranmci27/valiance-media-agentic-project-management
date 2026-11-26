@@ -33,6 +33,7 @@ import type { PGlite } from '@electric-sql/pglite';
 import { NextRequest } from 'next/server';
 import { actAs, createFullSchemaDatabase, schemaAt, schemaBeforeMigration } from './full-schema-db';
 import { startFakePostgrest } from './fake-postgrest';
+import { API_VERSION } from '../src/lib/api/version';
 
 const MIGRATION = '20261124000200_agent_webhooks.sql';
 const MIGRATION_SQL = readFileSync(join(__dirname, '..', 'supabase', 'migrations', MIGRATION), 'utf8');
@@ -84,11 +85,17 @@ const FIXED = {
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/;
 
-/** A payload with what differs run to run (event id, sequence, times, generated ids) set aside. */
+/**
+ * A payload with what differs run to run (event id, sequence, times, generated
+ * ids) set aside, and api_version (added later, by
+ * 20261125001200_contract_cleanup.sql; test:contract checks it) left out so
+ * the rest still compares byte for byte with the schema before this migration.
+ */
 function normalizePayload(payload: Loose): Loose {
   const rest = { ...payload };
   delete rest.id;
   delete rest.sequence;
+  delete rest.api_version;
   return normalize(rest);
 }
 
@@ -103,7 +110,7 @@ function normalize(value: Loose): Loose {
   return value;
 }
 
-async function invoiceScenario(db: PGlite): Promise<{ events: string[]; claimed: string[] }> {
+async function invoiceScenario(db: PGlite): Promise<{ events: string[]; claimed: string[]; versions: unknown[] }> {
   const run = q(db);
   await asOwner(db);
   await setModules(db, { billing: true, webhooks: true, time: true });
@@ -123,8 +130,9 @@ async function invoiceScenario(db: PGlite): Promise<{ events: string[]; claimed:
   await run(`SELECT pm.emit_invoice_webhook_event(i, 'invoice.payment_recorded', '{"payment": {"amount": 1}}'::jsonb)
     FROM pm.project_invoices i WHERE i.id = $1`, [FIXED.invoice]);
   await run("UPDATE pm.project_invoices SET deleted_at = now() WHERE id = $1", [FIXED.invoice]);
-  const events = (await run<{ payload: Loose }>('SELECT payload FROM pm.webhook_events ORDER BY sequence'))
-    .map((r) => JSON.stringify(normalizePayload(r.payload)));
+  const stored = await run<{ payload: Loose }>('SELECT payload FROM pm.webhook_events ORDER BY sequence');
+  const versions = [...new Set(stored.map((r) => r.payload.api_version ?? null))];
+  const events = stored.map((r) => JSON.stringify(normalizePayload(r.payload)));
   // Every delivery through the claim (head of the line each round), as the dispatcher sees it.
   const claimed: string[] = [];
   for (let round = 0; round < 20; round++) {
@@ -137,7 +145,7 @@ async function invoiceScenario(db: PGlite): Promise<{ events: string[]; claimed:
       await run('SELECT pm.complete_webhook_delivery($1, $2, 200, NULL, NULL)', [row.delivery_id, row.attempt_token]);
     }
   }
-  return { events, claimed: claimed.sort() };
+  return { events, claimed: claimed.sort(), versions };
 }
 
 async function invoiceChecks() {
@@ -180,6 +188,8 @@ async function invoiceChecks() {
   check('invoice: what the claim hands out (gross and net) is the same after the upgrade', JSON.stringify(afterUpgrade.claimed) === JSON.stringify(reference.claimed),
     { reference: reference.claimed.slice(0, 2), afterUpgrade: afterUpgrade.claimed.slice(0, 2) });
   check('invoice: what the claim hands out (gross and net) is the same on a fresh install', JSON.stringify(fromSchema.claimed) === JSON.stringify(reference.claimed));
+  check('invoice: a fresh install adds only api_version to the envelope', JSON.stringify(fromSchema.versions) === JSON.stringify([API_VERSION]) && JSON.stringify(reference.versions) === JSON.stringify([null]),
+    { fresh: fromSchema.versions, reference: reference.versions });
   check('upgrade: an existing invoice-only endpoint gets no new events, and nothing is written for it', outboxAfter === outboxBefore, { outboxBefore, outboxAfter });
 }
 
@@ -360,7 +370,7 @@ async function workChecks() {
   await fresh();
   await run("UPDATE pm.questions SET status = 'expired' WHERE id = $1", [expiring]);
   rows = await fresh();
-  check('question expiry sends nothing', rows.length === 0, rows.map((r) => r.event_type));
+  check('question expiry sends nothing to endpoints not subscribed to question.expired', rows.length === 0, rows.map((r) => r.event_type));
 
   // -- suggestions ------------------------------------------------------------
   const suggestion = (await run<{ id: string }>(`INSERT INTO pm.task_suggestions (project_id, proposed_by, assigned_to, title, description, reasoning)
@@ -486,6 +496,8 @@ async function workChecks() {
   await run('UPDATE pm.webhook_endpoints SET url = $1, secret = $2', [base + '/hook', secret]);
   const server = await startFakePostgrest(db);
   Object.assign(process.env, { NEXT_PUBLIC_SUPABASE_URL: server.url, SUPABASE_SERVICE_ROLE_KEY: 'fake-service-key' });
+  // The receiver here listens on 127.0.0.1, a private address: allowed as for a receiver on your own network.
+  process.env.WEBHOOKS_ALLOW_PRIVATE_TARGETS = 'true';
   try {
     const { runDispatch } = await import('../src/lib/webhooks/dispatch');
     await setModules(db, { billing: true, webhooks: false });

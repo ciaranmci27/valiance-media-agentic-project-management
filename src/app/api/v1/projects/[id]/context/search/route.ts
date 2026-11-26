@@ -15,4 +15,4 @@ export const GET = withApi<unknown, { id: string }>(async ({ supabase, params, s
   if (!q) throw badRequest('Send q, the words to search for', { reason: 'query_required' });
   const limit = Number(searchParams.get('limit') ?? 20) || 20;
   return success(await searchProjectContext(supabase, params.id, q, limit));
-});
+}, { permission: 'project_context.read' });

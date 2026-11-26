@@ -30,7 +30,7 @@ export const GET = withApi(async ({ supabase, params, searchParams }) => {
   });
 
   return success(data);
-});
+}, { permission: 'project_context.read' });
 
 export const POST = withApi(async ({ supabase, params, body, apiKeyId, teamMemberId }) => {
   const projectId = (params as any).id;
@@ -117,4 +117,4 @@ export const POST = withApi(async ({ supabase, params, body, apiKeyId, teamMembe
   });
 
   return created(legacyContextRow(entry));
-}, { schema: createProjectContextSchema });
+}, { schema: createProjectContextSchema, permission: 'project_context.manage' });

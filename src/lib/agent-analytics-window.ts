@@ -138,11 +138,20 @@ export function activitiesFromWindow(payload: AnalyticsWindowPayload, options: {
 
 type RunStatTuple = [string, string | null, string | null, string | null, string, number, number, number, number, number, number, number, number, number];
 type RunFailureTuple = [string, string | null, string | null, string | null, string, string | null, string];
-type QuestionStatTuple = [string, string | null, string, number, number, number[] | null, number | null];
+type SpendTuple = [string, string | null, string | null, string | null, string, string[] | null, number, number, number, number, number, (string | null)?];
+type QuestionStatTuple =[string, string | null, string, number, number, number[] | null, number | null];
 
-/** pm.agent_run_stats's answer, as the read model takes it. */
-export function runStatsFromAnswer(answer: { groups?: RunStatTuple[]; failures?: RunFailureTuple[] } | null): RunStats {
+/** pm.agent_run_stats's answer, as the read model takes it. spend only from 20261125000800 on. */
+export function runStatsFromAnswer(answer: { groups?: RunStatTuple[]; failures?: RunFailureTuple[]; spend?: SpendTuple[] } | null): RunStats {
   return {
+    ...(Array.isArray(answer?.spend) ? {
+      spend: answer.spend.map(([agentId, projectId, model, provider, dateKey, labels, tokensIn, tokensOut, tokensCached, costUsd, unpricedTokens, principalId]) => ({
+        agentId, projectId, model, provider, dateKey, labels: Array.isArray(labels) ? labels : [],
+        tokensIn: Number(tokensIn), tokensOut: Number(tokensOut), tokensCached: Number(tokensCached),
+        costUsd: Number(costUsd), unpricedTokens: Number(unpricedTokens),
+        principalId: principalId ?? null,
+      })),
+    } : {}),
     groups: (answer?.groups ?? []).map(([agentId, projectId, model, provider, dateKey, runs, succeeded, failed, busyMs,
       tokensIn, tokensOut, costUsd, unpricedTokens, runsNoTokens]) => ({
       agentId, projectId, model, provider, dateKey,

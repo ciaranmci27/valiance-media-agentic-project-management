@@ -25,7 +25,7 @@ async function currentAssigneeIds(supabase: SupabaseClient, taskId: string): Pro
 
 export const GET = withApi(async ({ supabase, params, access }) => {
   return success(await readTaskInFull(supabase, params.id, { agentsOn: isModuleEnabled(access, 'agents') }));
-});
+}, { permission: 'tasks.read' });
 
 export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemberId, access, scopes }) => {
   const id = (params as any).id;
@@ -162,7 +162,7 @@ export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemb
   }
   logAudit(supabase, { method: 'PATCH', endpoint: `/api/v1/tasks/${id}`, entityType: 'task', entityId: id, apiKeyId, teamMemberId, requestBody: body, beforeSnapshot: before, afterSnapshot: data, statusCode: 200 });
   return success(data);
-}, { schema: updateTaskSchema });
+}, { schema: updateTaskSchema, permission: 'tasks.manage_assigned' });
 
 export const DELETE = withApi(async ({ supabase, params, apiKeyId, teamMemberId }) => {
   const id = (params as any).id;
@@ -172,4 +172,4 @@ export const DELETE = withApi(async ({ supabase, params, apiKeyId, teamMemberId 
   await trashForApi(supabase, 'tasks', id, teamMemberId, 'Task');
   logAudit(supabase, { method: 'DELETE', endpoint: `/api/v1/tasks/${id}`, entityType: 'task', entityId: id, apiKeyId, teamMemberId, beforeSnapshot: before, statusCode: 200 });
   return success({ deleted: true });
-});
+}, { permission: 'tasks.manage_all' });

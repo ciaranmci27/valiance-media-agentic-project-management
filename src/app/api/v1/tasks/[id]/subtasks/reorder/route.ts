@@ -26,4 +26,4 @@ export const PUT = withApi(async ({ supabase, params, body, apiKeyId, teamMember
   if (failed?.error) throw failed.error;
   logAudit(supabase, { method: 'PUT', endpoint: `/api/v1/tasks/${taskId}/subtasks/reorder`, entityType: 'task', entityId: taskId, apiKeyId, teamMemberId, requestBody: body, statusCode: 200 });
   return success({ reordered: true });
-}, { schema: reorderSubtasksSchema });
+}, { schema: reorderSubtasksSchema, permission: 'tasks.manage_assigned' });

@@ -91,12 +91,32 @@ export interface PmTool {
   /** The route serves only a person's own agent (access.principal_id), so only it sees the tool. */
   personalOnly?: boolean;
   /**
+   * Chat: a person's own agent, or a company agent (one that may act for
+   * people, agents.act_for on key and member, as every agent a company chat
+   * connection reaches must). Other agents never see it.
+   */
+  chatAgentsOnly?: boolean;
+  /**
    * A module the tool needs beyond its permission's own, for a tool whose
    * permission is core but whose route belongs to a module. Switched off, the
    * tool is not listed.
    */
   module?: ModuleId;
+  /**
+   * A tool on its way out: left off tools/list, the catalog and the context
+   * pack, so new callers never build on it, but still callable by name (for
+   * a key that may use it) until it is removed. See docs/agents/README.md,
+   * "Compatibility".
+   */
+  deprecated?: ToolDeprecation;
   run: (args: Record<string, unknown>, call: CallRoute, context: ToolContext) => Promise<ToolOutcome>;
+}
+
+export interface ToolDeprecation {
+  /** What to use instead. */
+  replacement: string;
+  /** When it goes. */
+  removal: string;
 }
 
 /** A tool that is exactly one v1 call. */
@@ -114,7 +134,9 @@ export function routeTool<I extends z.ZodObject>(config: {
   profiles?: readonly AgentProfile[];
   agentsOnly?: boolean;
   personalOnly?: boolean;
+  chatAgentsOnly?: boolean;
   module?: ModuleId;
+  deprecated?: ToolDeprecation;
   /**
    * Where idempotency_key goes: the Idempotency-Key header (default), or the
    * body, for a route with its own key in its body schema (triage and plans,
@@ -139,7 +161,9 @@ export function routeTool<I extends z.ZodObject>(config: {
     profiles: config.profiles,
     agentsOnly: config.agentsOnly,
     personalOnly: config.personalOnly,
+    chatAgentsOnly: config.chatAgentsOnly,
     module: config.module,
+    deprecated: config.deprecated,
     run: async (args, call, context) => {
       if (config.idempotencyKeyIn === 'body') {
         return { kind: 'route', result: await call({ method: config.method, path: config.path, ...config.request(args as z.infer<I>, context) }), present: config.present };

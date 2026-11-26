@@ -35,7 +35,7 @@ export const GET = withApi<unknown, { id: string; goalId: string }>(async ({ sup
       in_progress_tasks: tasks.filter((t: any) => t.status === 'in_progress').length,
     },
   });
-});
+}, { permission: 'goals.read' });
 
 export const PATCH = withApi<any, { id: string; goalId: string }>(async ({ supabase, params, body, apiKeyId, teamMemberId }) => {
 
@@ -63,7 +63,7 @@ export const PATCH = withApi<any, { id: string; goalId: string }>(async ({ supab
   });
 
   return success(goal);
-}, { schema: updateGoalSchema });
+}, { schema: updateGoalSchema, permission: 'goals.manage' });
 
 export const DELETE = withApi<unknown, { id: string; goalId: string }>(async ({ supabase, params, apiKeyId, teamMemberId }) => {
 
@@ -90,4 +90,4 @@ export const DELETE = withApi<unknown, { id: string; goalId: string }>(async ({ 
   });
 
   return success({ archived: true });
-});
+}, { permission: 'goals.manage' });

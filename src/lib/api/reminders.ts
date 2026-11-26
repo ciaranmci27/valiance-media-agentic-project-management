@@ -4,6 +4,7 @@ import type { AccessContext } from '@/lib/access-control';
 import { accessAllows, accessAllowsProject } from './access';
 import { ApiError, badRequest, forbidden, notFound } from './errors';
 import { loadAccessibleMessage } from '@/lib/communications/agent-access';
+import { defaultAssigneeIds, inboxDefaults } from '@/lib/communications/inbox-handlers';
 import { comms } from '@/lib/communications/db';
 
 /**
@@ -156,9 +157,15 @@ export async function createReminder(
   channel: 'api' | 'app' = 'api',
 ) {
   const place = await resolveReminderPlace(supabase, access, input, channel);
-  const ownerId = await resolveReminderOwner(supabase, access, memberId, input.owner_id);
+  const namedOwner = input.owner_id !== undefined ? await resolveReminderOwner(supabase, access, memberId, input.owner_id) : null;
   // An email the key cannot read is 404, like one that does not exist.
   const sourceMessage = input.source_message_id ? await loadAccessibleMessage(supabase, memberId, access, input.source_message_id) : null;
+  // An agent's reminder from an email that names no owner is for the email's inbox default
+  // assignee (the first one), when the inbox has one; else the agent's own, as before.
+  const inboxOwner = !namedOwner && sourceMessage && access.role === 'agent'
+    ? ((await defaultAssigneeIds(supabase, await inboxDefaults(supabase, sourceMessage.inbox_id))) ?? [])[0]
+    : undefined;
+  const ownerId = namedOwner ?? await resolveReminderOwner(supabase, access, memberId, inboxOwner);
   if (sourceMessage && place.project_id) {
     const { data: source, error: scopeError } = await comms(supabase).rpc('scope_source', { p_message_id: sourceMessage.id, p_project_id: place.project_id });
     if (scopeError) throw scopeError;

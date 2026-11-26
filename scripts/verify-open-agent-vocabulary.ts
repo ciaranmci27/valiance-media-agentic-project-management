@@ -7,7 +7,8 @@
  *   the person asked or the Owner decides (a team manager and the asker are
  *   refused); approve or reject with a note; polling reads the decision; the
  *   question.* webhooks carry kind, action, decision and decided_by; expiry
- *   reads as no decision; an agent is never the approver; MCP
+ *   reads as no decision; an agent is the approver only when named in
+ *   asked_to (never by default, never itself); MCP
  *   request_approval and get_approval. A plain question reads, rings and
  *   webhooks exactly as before.
  * - Reviews: a pull request review behaves as before (one verdict per
@@ -95,7 +96,8 @@ async function seed(db: PGlite) {
   };
   const AGENT = ['tasks.read', 'tasks.manage_assigned', 'projects.read', 'project_context.read', 'files.read', 'agent_activity.write', 'audit.read'];
   const keys = {
-    owner: await key(owner, ['tasks.read', 'projects.read', 'projects.read_all', 'team.manage', 'agents.manage']),
+    // approvals.decide: the Owner decides approvals with this key (20261125000700_approval_decisions.sql).
+    owner: await key(owner, ['tasks.read', 'projects.read', 'projects.read_all', 'team.manage', 'agents.manage', 'approvals.decide']),
     builder: await key(builder, AGENT),
     reviewer: await key(reviewer, [...AGENT, 'tasks.manage_all']),
     helper: await key(helper, AGENT),
@@ -343,9 +345,12 @@ async function main() {
 
     // Who can be asked, and what a request must say.
     const toAgent = await request(s.keys.builder, { action: { type: 'merge', summary: 'Merge PR #12' }, asked_to: s.reviewer });
-    check('ask: an agent is never the approver', toAgent.status === 422 && reason(toAgent) === 'approver_not_person', toAgent.body);
+    check('ask: an agent named in asked_to may be the approver (a reviewer agent)', toAgent.status === 201 && toAgent.body.data?.asked_to === s.reviewer
+      && toAgent.body.data?.kind === 'approval', toAgent.body);
+    const toItself = await request(s.keys.builder, { action: { type: 'merge', summary: 'Merge PR #12' }, asked_to: s.builder });
+    check('ask: an agent never asks itself to approve', toItself.status === 422 && reason(toItself) === 'asked_self', toItself.body);
     const viaAgent = await request(s.keys.helper, { action: { type: 'merge', summary: 'Merge PR #12' } });
-    check('ask: an escalation target that is an agent is refused too', viaAgent.status === 422 && reason(viaAgent) === 'approver_not_person', viaAgent.body);
+    check('ask: an escalation default that lands on an agent is still refused', viaAgent.status === 422 && reason(viaAgent) === 'approver_not_person', viaAgent.body);
     for (const [label, body] of [
       ['a type with capitals and spaces', { action: { type: 'Deploy Now', summary: 'x' } }],
       ['an empty summary', { action: { type: 'deploy', summary: '  ' } }],
@@ -595,6 +600,8 @@ async function main() {
     // The visibility rule as it was before the registry, to compare against.
     type Viewer = Parameters<typeof toolsFor>[0];
     const before0 = (caller: Viewer) => PM_TOOLS.filter((tool) => {
+      // A deprecated tool is no longer offered (2026-11-25 contract cleanup); it stays callable by name.
+      if (tool.deprecated) return false;
       if (tool.profiles && !tool.profiles.includes(caller.profile)) return false;
       if (tool.agentsOnly && caller.access.role !== 'agent') return false;
       // Chat tools (2.0.26) serve a person's own agent only.
@@ -603,6 +610,8 @@ async function main() {
       if (tool.write && caller.readOnly) return false;
       if (tool.name === GUIDE_TOOL) return true;
       const held = (p: Parameters<typeof permissionAlternatives>[0]) => caller.scopes.includes(p) && accessAllows(caller.access, p, 'api');
+      // Company chat (20261125001100): the chat tools also serve an agent that may act for people.
+      if (tool.chatAgentsOnly && !(caller.access.role === 'agent' && (caller.access.principal_id || held('agents.act_for')))) return false;
       const wanted = (Array.isArray(tool.permission) ? tool.permission : [tool.permission]).flatMap((p) => permissionAlternatives(p));
       return wanted.some(held) && (tool.requires ?? []).every((p) => permissionAlternatives(p).some(held));
     }).map((tool) => tool.name);
@@ -615,7 +624,7 @@ async function main() {
       for (const profile of profiles.CORE_AGENT_PROFILES.map((p) => p.value)) {
         const now = toolsFor({ ...viewer, profile }).map((tool) => tool.name);
         const was = before0({ ...viewer, profile });
-        check(`profiles: ${profile} (${viewer.who}) sees exactly the tools it saw before`, JSON.stringify(now) === JSON.stringify(was) && now.length > 5, { now: now.length, was: was.length });
+        check(`profiles: ${profile} (${viewer.who}) sees exactly the tools it saw before`, JSON.stringify(now) === JSON.stringify(was) && now.length > 5, { now: now.length, was: was.length, onlyNow: now.filter((n) => !was.includes(n)), onlyWas: was.filter((n) => !now.includes(n)) });
       }
     }
     // An install's own profile, registered as src/custom/agent-profiles.ts would.

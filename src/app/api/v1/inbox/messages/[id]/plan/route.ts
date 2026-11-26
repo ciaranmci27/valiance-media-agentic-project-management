@@ -29,7 +29,7 @@ export const POST = withApi<PlanRequest, { id: string }>(async ({ supabase, para
   const { data: member } = await supabase.from('team_members').select('name').eq('id', teamMemberId).maybeSingle();
   const agentName = ((member as { name?: string } | null)?.name ?? '').split(/\s+/)[0];
 
-  const result = await submitPlan({ db: supabase, memberId: teamMemberId, access, channel: 'api', scopes, asPerson: false }, message, body, agentName);
+  const result = await submitPlan({ db: supabase, memberId: teamMemberId, access, channel: 'api', scopes, apiKeyId, asPerson: false }, message, body, agentName);
   if (result.replayed) return success(result);
 
   if (access.role === 'agent' && result.plan.mode === 'live') {

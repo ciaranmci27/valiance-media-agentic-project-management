@@ -18,7 +18,7 @@ export const GET = withApi(async ({ supabase, params }) => {
   if (error) throw error;
   if (!data) throw notFound('Project contact');
   return success(data);
-});
+}, { permission: 'contacts.read' });
 
 export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemberId }) => {
   const { id, contactId } = params as any;
@@ -36,7 +36,7 @@ export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemb
   const pc = await updateProjectContact(supabase, contactId, id, body as any);
   logAudit(supabase, { method: 'PATCH', endpoint: `/api/v1/projects/${id}/contacts/${contactId}`, entityType: 'project_contact', entityId: contactId, apiKeyId, teamMemberId, requestBody: body, beforeSnapshot: before, afterSnapshot: pc, statusCode: 200 });
   return success(pc);
-}, { schema: updateProjectContactSchema });
+}, { schema: updateProjectContactSchema, permission: 'contacts.manage' });
 
 export const DELETE = withApi(async ({ supabase, params, apiKeyId, teamMemberId }) => {
   const { id, contactId } = params as any;
@@ -54,4 +54,4 @@ export const DELETE = withApi(async ({ supabase, params, apiKeyId, teamMemberId 
   await removeProjectContact(supabase, contactId);
   logAudit(supabase, { method: 'DELETE', endpoint: `/api/v1/projects/${id}/contacts/${contactId}`, entityType: 'project_contact', entityId: contactId, apiKeyId, teamMemberId, beforeSnapshot: before, statusCode: 200 });
   return success({ deleted: true });
-});
+}, { permission: 'contacts.manage' });

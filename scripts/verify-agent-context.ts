@@ -45,7 +45,9 @@ type Answer = { status: number; body: Loose; text: string; headers: Headers };
 
 const OWNER_SCOPES = ['team.manage', 'project_members.manage', 'api_keys.manage_all', 'webhooks.manage', 'tasks.read', 'tasks.create',
   'tasks.manage_assigned', 'projects.read', 'project_context.read', 'notifications.send', 'agent_activity.write', 'files.read',
-  'time.manage_own', 'goals.read', 'inbound_email.read', 'inbound_email.triage', 'reminders.manage_own', 'notifications.manage_own'];
+  'time.manage_own', 'goals.read', 'inbound_email.read', 'inbound_email.triage', 'reminders.manage_own', 'notifications.manage_own',
+  // The External agent template's (20261125001400_external_agents.sql).
+  'questions.ask'];
 const AGENT_KEY_SCOPES = ['tasks.read', 'tasks.manage_assigned', 'tasks.create', 'projects.read', 'agent_activity.write'];
 
 /** Supabase Auth's admin API, as much of it as creating a login needs. */
@@ -118,6 +120,8 @@ async function seed(db: PGlite) {
     adaHooks: await key(ada, ['team.read', 'webhooks.manage', 'projects.read']),
     // Ada, and the scopes an agent with no team or webhook permission holds.
     adaRead: await key(ada, ['team.read', 'projects.read']),
+    // Ada, hiring an External agent: the template's scopes on her own key.
+    adaExternal: await key(ada, ['team.manage', 'team.read', 'agent_activity.write', 'questions.ask']),
   };
   return { q, owner, ada, morgan, apex, queue, keys };
 }
@@ -141,7 +145,7 @@ function templateChecks() {
     rules: { agent_self_assign: false, agent_close_policy: 'review', agent_create_policy: 'approval' },
     scopes: ['tasks.read', 'projects.read'], context: 'Each Friday, draft release notes.',
   };
-  check('templates: core ships the five generic ones', JSON.stringify(CORE_AGENT_TEMPLATES.map((t) => t.key)) === JSON.stringify(['data-health-watcher', 'inbox-triage', 'builder', 'weekly-reporter', 'personal-assistant']));
+  check('templates: core ships the six generic ones', JSON.stringify(CORE_AGENT_TEMPLATES.map((t) => t.key)) === JSON.stringify(['data-health-watcher', 'inbox-triage', 'builder', 'weekly-reporter', 'personal-assistant', 'external-agent']));
   check("templates: the install's file loads and is a list of templates", Array.isArray(customTemplates));
   check("templates: the registry is core's, then the install's", JSON.stringify(AGENT_TEMPLATES.map((t) => t.key)) === JSON.stringify([...CORE_AGENT_TEMPLATES, ...customTemplates].map((t) => t.key)));
   const merged = mergeAgentTemplates(CORE_AGENT_TEMPLATES, [sample, { ...sample, key: 'inbox-helper', module: 'inbox' }]);
@@ -377,6 +381,16 @@ async function main() {
     const adaApply = await applyTemplate(s.keys.ada, reporter, { template: 'weekly-reporter' });
     check("apply: a non-owner's key that lacks the template's scopes is 403 scope_escalation", adaApply.status === 403 && reason(adaApply) === 'scope_escalation'
       && adaApply.body.error?.details?.beyond_caller?.includes('goals.read'), adaApply.body);
+    // An admin who may hire agents applies External agent: questions.ask is an admin's on the API by
+    // default (20261125001400_external_agents.sql); agent_activity.write is an Owner's grant to her.
+    const outside = await newAgent('Xena', 'generic');
+    const adaNoActivity = await applyTemplate(s.keys.adaExternal, outside, { template: 'external-agent' });
+    check('apply external-agent: an admin holds questions.ask on the API; only what an Owner has not granted is beyond her', adaNoActivity.status === 403
+      && JSON.stringify(adaNoActivity.body.error?.details?.beyond_caller) === JSON.stringify(['agent_activity.write']), adaNoActivity.body);
+    await s.q("INSERT INTO pm.team_member_permissions (member_id, permission_key, access_channel, effect) VALUES ($1, 'agent_activity.write', 'api', 'allow')", [s.ada]);
+    const adaExternal = await applyTemplate(s.keys.adaExternal, outside, { template: 'external-agent' });
+    await s.q("DELETE FROM pm.team_member_permissions WHERE member_id = $1 AND permission_key = 'agent_activity.write'", [s.ada]);
+    check('apply external-agent: an admin with team.manage applies it from her own key', adaExternal.status === 200, adaExternal.body);
     const narrowApply = await applyTemplate(s.keys.ownerNarrow, reporter, { template: 'weekly-reporter' });
     check("apply: an Owner's key is held to the same rule", narrowApply.status === 403 && reason(narrowApply) === 'scope_escalation', narrowApply.body);
     const rulesAfter = (await s.q('SELECT agent_close_policy, agent_create_policy FROM pm.team_members WHERE id = $1', [reporter]))[0];

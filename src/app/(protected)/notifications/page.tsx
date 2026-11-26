@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { Bell, CheckSquare, FolderKanban, Target, MessageSquare, Users, Loader2, CheckCheck } from 'lucide-react';
+import { Bell, CheckSquare, FolderKanban, Target, MessageSquare, Users, Loader2, CheckCheck, Webhook } from 'lucide-react';
 import { useDemo } from '@/lib/demo-context';
 import { demoNotifications } from '@/lib/demo-data';
 import { createClient } from '@/lib/supabase/client';
@@ -34,6 +34,7 @@ function getEntityIcon(entityType: NotificationEntityType | null) {
     case 'lead':    return Target;
     case 'comment': return MessageSquare;
     case 'member':  return Users;
+    case 'webhook': return Webhook;
     default:        return Bell;
   }
 }

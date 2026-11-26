@@ -17,19 +17,38 @@ import { z } from 'zod';
  * - turns that name a run are listed under that run (turns), never as rows.
  */
 
-export const AGENT_RUN_STATUSES = ['running', 'succeeded', 'failed', 'cancelled', 'timed_out'] as const;
+/**
+ * waiting: the run waits on a person (a question or approval naming it, or
+ * the agent said so). Neither finished nor running.
+ */
+export const AGENT_RUN_STATUSES = ['running', 'waiting', 'succeeded', 'failed', 'cancelled', 'timed_out'] as const;
 export type AgentRunStatus = (typeof AGENT_RUN_STATUSES)[number];
 
 /** The statuses a run finishes with. */
 export const AGENT_RUN_FINISHED = ['succeeded', 'failed', 'cancelled', 'timed_out'] as const;
 export type AgentRunFinish = (typeof AGENT_RUN_FINISHED)[number];
 
+/** The statuses of a run not yet finished. */
+export const AGENT_RUN_UNFINISHED = ['running', 'waiting'] as const;
+
+/** Whether a stored status is a finish (a finished run's status never changes). */
+export const isRunFinished = (status: string) => !(AGENT_RUN_UNFINISHED as readonly string[]).includes(status);
+
 /**
  * A run still running this long after its last update reads as timed_out
- * (the view pm.agent_run_feed uses the same two hours). The stored row stays
- * running, so a late update or finish still lands.
+ * (the view pm.agent_run_feed uses the same two hours). Within five minutes
+ * the watchdog (pm.run_watchdog) stores it as timed_out, which sends
+ * run.finished once; after that its status cannot change (409 run_finished).
  */
 export const AGENT_RUN_STALE_AFTER_SECONDS = 2 * 60 * 60;
+
+/**
+ * A run waiting on a person never times out while a question or approval
+ * naming it is open. Waiting with none (set by the agent and never
+ * followed up), it reads timed_out this long after its last update: seven
+ * days, so a run never hangs forever.
+ */
+export const AGENT_RUN_WAITING_STALE_AFTER_SECONDS = 7 * 24 * 60 * 60;
 
 export const AGENT_RUN_LIMITS = {
   title: 300,
@@ -93,7 +112,11 @@ export type StartAgentRunInput = z.infer<typeof startAgentRunSchema>;
 
 export const updateAgentRunSchema = z.object({
   ...runFields,
-  /** A finished status finishes the run, as POST .../finish does. */
+  /**
+   * A finished status finishes the run, as POST .../finish does. waiting
+   * says it waits on a person; running says it is back at work (any other
+   * update from the agent says so too).
+   */
   status: z.enum(AGENT_RUN_STATUSES).optional(),
   task_id: z.uuid('task_id must be a uuid').nullable().optional(),
 }).strict().refine((value) => Object.values(value).some((field) => field !== undefined), { message: 'Send at least one field to change' });
@@ -126,7 +149,10 @@ export interface AgentRunSummary {
   agent_name: string | null;
   task_id: string | null;
   project_id: string | null;
-  /** A run running two hours past its last update reads as timed_out. */
+  /**
+   * A run running two hours past its last update reads as timed_out; one
+   * waiting on a person, seven days with no open question naming it.
+   */
   status: AgentRunStatus;
   /** A turn's outcome (work, idle, blocked, ...); null for a stored run. */
   outcome: string | null;
@@ -178,8 +204,20 @@ export interface TaskLatestRun {
  */
 export const AGENT_TURNS_CACHE_TABLE = 'agent_activities:turn.completed';
 
-/** The status a reader sees: a run running past the stale threshold is timed_out. */
-export function effectiveRunStatus(row: { status: string; updated_at: string }, now = Date.now()): AgentRunStatus {
-  if (row.status === 'running' && Date.parse(row.updated_at) < now - AGENT_RUN_STALE_AFTER_SECONDS * 1000) return 'timed_out';
+/**
+ * The status a reader sees, by the watchdog's rule until it stores it: a run
+ * running two hours past its last update is timed_out, and so is one
+ * waiting seven days with no open question naming it. openQuestion says
+ * whether one names it; left out (not known), a waiting run reads as
+ * stored and the watchdog decides.
+ */
+export function effectiveRunStatus(row: { status: string; updated_at: string; open_question?: boolean }, now = Date.now()): AgentRunStatus {
+  const quietFor = now - Date.parse(row.updated_at);
+  if (row.status === 'running' && quietFor > AGENT_RUN_STALE_AFTER_SECONDS * 1000) return 'timed_out';
+  if (row.status === 'waiting' && row.open_question === false && quietFor > AGENT_RUN_WAITING_STALE_AFTER_SECONDS * 1000) return 'timed_out';
   return (AGENT_RUN_STATUSES as readonly string[]).includes(row.status) ? row.status as AgentRunStatus : 'running';
 }
+
+/** Whether a waiting run is quiet long enough that an open question decides its status. */
+export const waitingRunNeedsQuestionCheck = (row: { status: string; updated_at: string }, now = Date.now()) =>
+  row.status === 'waiting' && now - Date.parse(row.updated_at) > AGENT_RUN_WAITING_STALE_AFTER_SECONDS * 1000;

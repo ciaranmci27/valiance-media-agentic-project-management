@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { AGENT_EVENT_SCHEMAS, AGENT_EVENT_TYPES, agentLabelsSchema, isOpenEventType, isServerEvent, openEventSchema, type OpenEventType } from '@/lib/agent-events';
+import { AGENT_EVENT_SCHEMAS, AGENT_EVENT_TYPES, agentLabelsSchema, isOpenEventType, isServerEvent, LEGACY_ACTIVITY_TYPES, openEventSchema, type OpenEventType } from '@/lib/agent-events';
 
 /**
  * Three accepted shapes, one table (the third, OPEN, is at the end).
@@ -9,9 +9,9 @@ import { AGENT_EVENT_SCHEMAS, AGENT_EVENT_TYPES, agentLabelsSchema, isOpenEventT
  * composes it with the one canonical formatter, so plugins and prompts
  * cannot produce inconsistent prose.
  *
- * LEGACY: the original free-title shape, still accepted so the fleet keeps
- * logging during the plugin rollout. It disappears (with `custom`) once
- * every plugin speaks the typed contract.
+ * LEGACY: the original free-title shape, still accepted so older harnesses
+ * keep logging. Deprecated: it is removed after the triage plans cutover,
+ * and each type's replacement is in LEGACY_ACTIVITY_REPLACEMENTS.
  *
  * Every shape takes optional `labels` beside its payload (agent-events.ts:
  * AGENT_LABEL_PATTERN, at most 20). Left out, the event has none, exactly as
@@ -41,14 +41,8 @@ export const typedAgentEventSchema = z.discriminatedUnion('activity_type', [
 
 export const legacyAgentActivitySchema = z.object({
   project_id: z.string().uuid().nullable().default(null),
-  activity_type: z.enum([
-    'suggestion_created', 'task_started', 'task_completed', 'task_failed',
-    'research_started', 'research_completed', 'suggestion_reviewed',
-    'comment_added', 'status_changed',
-    'agent_spawned', 'agent_completed', 'agent_failed',
-    'heartbeat', 'system_check',
-    'custom',
-  ]),
+  // Deprecated: each type's replacement is in LEGACY_ACTIVITY_REPLACEMENTS.
+  activity_type: z.enum(LEGACY_ACTIVITY_TYPES),
   title: z.string().min(1, 'Title is required'),
   description: z.string().default(''),
   reference_type: z.string().nullable().default(null),

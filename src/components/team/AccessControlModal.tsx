@@ -299,6 +299,8 @@ export function AccessControlModal({
                       'meetings.write',
                       'agent_events.export',
                       'audit.export',
+                      'approvals.decide',
+                      'questions.ask',
                     ].includes(permission.key)),
               ),
             }))

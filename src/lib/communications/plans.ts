@@ -22,7 +22,8 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { isModuleEnabled, type AccessContext } from '@/lib/access-control';
 import { accessAllows, accessAllowsProject } from '@/lib/api/access';
 import { ApiError, moduleOff, notFound } from '@/lib/api/errors';
-import { createTaskAs } from '@/lib/api/create-task';
+import { createTaskAs, suggestInstead } from '@/lib/api/create-task';
+import { loadMemberRules } from '@/lib/api/agent-rules';
 import { createReminder } from '@/lib/api/reminders';
 import { assistantSwitchesOff } from '@/lib/api/assistant';
 import { insertComment, patchTask } from '@/lib/supabase/queries';
@@ -31,7 +32,7 @@ import { addTaskFile, type TaskFilesContext } from '@/lib/task-files/service';
 import { comms } from './db';
 import { inboxPeopleIds } from './inbox-visibility';
 import { normalizeAddress, isHostname } from './email/addresses';
-import { defaultAssigneeIds, defaultAssigneesForProject, inboxDefaults, liveDefaultProject } from './inbox-handlers';
+import { defaultAssigneeIds, defaultAssigneesForProject, inboxDecisionRecipients, inboxDefaults, liveDefaultProject } from './inbox-handlers';
 import { messageFacts, type MessageFacts } from './speaker';
 import { decideItem, type Decision, type PolicyItem } from './triage-policy';
 import type { PlanItemRequest, PlanRequest } from './plan-schemas';
@@ -46,6 +47,8 @@ export interface PlanActor {
   channel: 'api' | 'app';
   /** API only: the key's scopes. */
   scopes?: string[];
+  /** API only: the key, for the audit line of a task suggestion. */
+  apiKeyId?: string;
   /** A person did it: their filing is theirs (source person), whatever the message's scope. */
   asPerson: boolean;
 }
@@ -358,14 +361,15 @@ export async function applyItem(actor: PlanActor, message: PlanMessage, item: Pl
   };
   switch (item.type) {
     case 'create_task': {
-      // A retry never makes a second task: the id is saved the moment the task exists.
+      // A retry never makes a second task (or suggestion): the id is saved the moment it exists.
+      if (prior.suggestion_id) return { ...prior, task_id: null };
       let taskId = (prior.task_id as string | undefined) ?? null;
       if (!taskId) {
         const canAssignOthers = accessAllows(access, 'tasks.manage_all', actor.channel);
         // An item never names who does it: the inbox's default assignees (those who can open the project), else the Owner.
         const people = (await defaultAssigneesForProject(db, defaults, item.project_id)) ?? (owner ? [owner] : null);
         const assignee = people && canAssignOthers ? people : undefined;
-        const created = await createTaskAs({ supabase: db, memberId, access, canAssignOthers, channel: actor.channel }, {
+        const body = {
           project_id: item.project_id,
           ...(item.parent_task_id ? { parent_task_id: item.parent_task_id } : {}),
           title: item.title,
@@ -374,7 +378,21 @@ export async function applyItem(actor: PlanActor, message: PlanMessage, item: Pl
           ...(item.priority ? { priority: item.priority } : {}),
           ...(assignee ? { assignee_ids: assignee } : {}),
           source_note: sourceNote(message),
-        });
+        };
+        // The agent's own create policy holds here as on POST /tasks: new tasks that need
+        // approval become a suggestion (the email in its metadata, linked once approved).
+        // A person accepting a proposal creates the task as theirs.
+        const rules = actor.asPerson ? null : await loadMemberRules(db, memberId);
+        if (rules?.isAgent && rules.rules.agent_create_policy === 'approval') {
+          const { data: suggestion } = await suggestInstead(
+            { supabase: db, body, apiKeyId: actor.apiKeyId ?? '', teamMemberId: memberId, access, scopes: actor.scopes ?? [] },
+            rules, body, `/api/v1/inbox/messages/${message.id}/plan`, { message_id: message.id }, canAssignOthers,
+          );
+          const result = { task_id: null, suggestion_id: suggestion.id as string, needs_approval: true, suggested_assignee_id: item.suggested_assignee_id ?? null };
+          await save(result);
+          return result;
+        }
+        const created = await createTaskAs({ supabase: db, memberId, access, canAssignOthers, channel: actor.channel }, body);
         taskId = created.id as string;
         await save({ task_id: taskId });
       }
@@ -571,6 +589,15 @@ export async function undoItem(actor: PlanActor, itemId: string): Promise<Row> {
   const notes: Row = {};
   switch (item.type) {
     case 'create_task': {
+      // A suggestion still waiting is declined; one a person already reviewed stays as they left it.
+      if (result.suggestion_id) {
+        const { data: declined, error: declineError } = await db.from('task_suggestions')
+          .update({ status: 'declined', reviewed_by: memberId, reviewed_at: new Date().toISOString() })
+          .eq('id', result.suggestion_id as string).in('status', ['pending', 'needs_info']).select('id');
+        if (declineError) throw declineError;
+        if (!(declined ?? []).length) notes.changed_since = true;
+        break;
+      }
       if (!actor.asPerson) {
         const facts = (await loadTasks(db, [result.task_id as string])).get(result.task_id as string);
         if (facts?.personTouched) {
@@ -680,6 +707,7 @@ export async function restoreItem(actor: PlanActor, itemId: string): Promise<Row
   if (item.state !== 'undone') throw new PlanError(409, 'CONFLICT', 'Only an undone or skipped item can be put back.');
   if (!RESTORABLE.has(item.type)) throw new PlanError(409, 'CONFLICT', 'That change cannot be put back from here. Make it again by hand.');
   const result = item.result ?? {};
+  if (result.suggestion_id) throw new PlanError(409, 'CONFLICT', 'That suggestion was declined. Make the task again by hand.');
   const restore = async (table: Parameters<typeof restoreFromTrash>[1], id: unknown) => {
     if (typeof id === 'string') await restoreFromTrash(db, table, id, memberId);
   };
@@ -825,7 +853,9 @@ export async function syncWaitingNotification(db: SupabaseClient, message: PlanM
     proposals ? `${proposals} proposal${proposals === 1 ? '' : 's'} to approve` : null,
     (owed ?? []).length ? `${(owed ?? []).length} repl${(owed ?? []).length === 1 ? 'y' : 'ies'} owed` : null,
   ].filter(Boolean);
-  for (const person of await inboxPeople(db, message.inbox_id)) {
+  // The inbox's decision recipient when it names one (as POST /notifications audience owner), else everyone who can act on it.
+  const recipients = (await inboxDecisionRecipients(db, message.inbox_id)) ?? await inboxPeople(db, message.inbox_id);
+  for (const person of recipients) {
     const { error: notifyError } = await db.rpc('upsert_notification', {
       p_user_id: person,
       p_title: `${agentName || 'Your agent'} needs you on "${(message.subject ?? 'an email').slice(0, 80)}"`,

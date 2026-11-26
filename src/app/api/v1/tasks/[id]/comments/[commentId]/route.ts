@@ -27,7 +27,7 @@ export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemb
   if (!data) throw notFound('Comment');
   logAudit(supabase, { method: 'PATCH', endpoint: `/api/v1/tasks/${id}/comments/${commentId}`, entityType: 'comment', entityId: commentId, apiKeyId, teamMemberId, requestBody: body, beforeSnapshot: before, afterSnapshot: data, statusCode: 200 });
   return success(data);
-}, { schema: updateCommentSchema });
+}, { schema: updateCommentSchema, permission: 'tasks.read' });
 
 export const DELETE = withApi(async ({ supabase, params, apiKeyId, teamMemberId, access, scopes }) => {
   const { id, commentId } = params as any;
@@ -40,4 +40,4 @@ export const DELETE = withApi(async ({ supabase, params, apiKeyId, teamMemberId,
   await trashForApi(supabase, 'task_comments', commentId, teamMemberId, 'Comment');
   logAudit(supabase, { method: 'DELETE', endpoint: `/api/v1/tasks/${id}/comments/${commentId}`, entityType: 'comment', entityId: commentId, apiKeyId, teamMemberId, beforeSnapshot: before, statusCode: 200 });
   return success({ deleted: true });
-});
+}, { permission: 'tasks.read' });

@@ -77,6 +77,17 @@ Details: [The work loop](work-loop.md).
 
 Add an endpoint filtered to the agent (`member_id`), subscribed to `task.created`, `task.updated`, `comment.created` and `question.answered`. The harness then hears about its own work and nothing else. Without webhooks, poll `next_task`.
 
+## Compatibility
+
+What a harness builds on stays working:
+
+- **Additive only.** v1 routes, MCP tool names and webhook event payloads only ever gain fields, routes, tools and events. Ignore fields you do not know.
+- **Deprecation first.** A removal or rename is announced with a Deprecated label on `/api/docs` (route, field or tool, with its replacement) and kept working for at least 3 releases. A deprecated MCP tool leaves `tools/list` and the catalog at once, so new callers never pick it up, and stays callable by name until it goes.
+- **The legacy triage pieces** are kept, unchanged, until the triage plans cutover instead: the `/api/v1/inbound-emails/*` paths (each has an `/api/v1/inbox/*` twin), the older triage (`POST /inbox/messages/{id}/triage`, `record_email_triage`), the triage summary (`/inbox/triage/unsummarized`, `/inbox/triage/mark-summarized`), shadow mode (`mode=shadow`, `shadow_pending_count`, `GET /inbox/plans`), `POST /billing/draft-notices/relayed`, and the legacy free-title activity types on `POST /agent-activities` (each mapped to its typed replacement on `/api/docs`).
+- **`api_version`** (now `2026-11-25`) names the contract. It is the `X-PM-API-Version` header on every `/api/v1` answer, `api_version` on `GET /api/v1/mcp/tools` and on every webhook envelope. It changes only on a breaking change, and a breaking change needs a new major path (`/api/v2`), so v1 never breaks under you.
+
+New inboxes run triage plans (`triage_mode` defaults to `plans`); existing inboxes keep their mode.
+
 ## Pages
 
 | Page | For |
@@ -86,5 +97,7 @@ Add an endpoint filtered to the agent (`member_id`), subscribed to `task.created
 | [Identity and access](identity-and-access.md) | Keys, scopes, rotation, groups, linked chat accounts, acting for a person, personal agents, memory, audit |
 | [Set up from a chat](setup-by-ai.md) | Configuring agents, projects, templates and assistants over MCP, export and import, Connect AI, the tool catalog |
 | [Assistants](assistants.md) | For admins: a personal assistant for every person, Slack and Telegram, privacy, troubleshooting |
+| [External agents](external-agents.md) | An agent that works in another system (a bookkeeper in an accounting app): check before each turn, runs and usage for outside work, approvals with external links, health |
+| [Company chat](company-chat.md) | Company agents in Slack and Telegram channels: connecting, mentions, listening, threads, `chat.message`, replying for the person who asked |
 
 Also: [WEBHOOKS.md](../../WEBHOOKS.md) for every payload, and `/api/docs` on your install for every endpoint.

@@ -159,10 +159,11 @@ const withoutEmpty = (value: Record<string, unknown>) =>
  * metadata.requested. The same incident key while a suggestion waits counts
  * a repeat on it instead.
  */
-async function suggestInstead(ctx: CreateTaskContext, member: MemberRules, body: Record<string, unknown>, endpoint: string, extraMetadata: Record<string, unknown>): Promise<RuledCreate> {
+export async function suggestInstead(ctx: CreateTaskContext, member: MemberRules, body: Record<string, unknown>, endpoint: string, extraMetadata: Record<string, unknown>, canAssign?: boolean): Promise<RuledCreate> {
   const { supabase, apiKeyId, teamMemberId, access, scopes } = ctx;
   requireAgentsEnabled(access);
-  const canAssignOthers = scopes.includes('tasks.manage_all') && accessAllows(access, 'tasks.manage_all', 'api');
+  // canAssign: a caller that settled it already (a triage plan, by the member's permission on its channel).
+  const canAssignOthers = canAssign ?? (scopes.includes('tasks.manage_all') && accessAllows(access, 'tasks.manage_all', 'api'));
   const projectId = await targetProject(supabase, body, access);
   if (typeof body.parent_task_id === 'string') {
     assertCanManageParent(await loadParentTask(supabase, body.parent_task_id, access), teamMemberId, canAssignOthers);

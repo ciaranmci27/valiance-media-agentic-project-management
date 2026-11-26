@@ -21,7 +21,7 @@ export const GET = withApi(async ({ supabase, params, searchParams }) => {
 
   if (error) throw error;
   return paginated(data || [], { page, limit, total: count || 0 });
-});
+}, { permission: 'contacts.read' });
 
 export const POST = withApi(async ({ supabase, params, body, apiKeyId, teamMemberId }) => {
   const { id } = params as any;
@@ -33,4 +33,4 @@ export const POST = withApi(async ({ supabase, params, body, apiKeyId, teamMembe
   const pc = await addProjectContact(supabase, id, contact_id, role, custom_role, is_primary_client);
   logAudit(supabase, { method: 'POST', endpoint: `/api/v1/projects/${id}/contacts`, entityType: 'project_contact', entityId: pc.id, apiKeyId, teamMemberId, requestBody: body, afterSnapshot: pc, statusCode: 201 });
   return created(pc);
-}, { schema: addProjectContactSchema });
+}, { schema: addProjectContactSchema, permission: 'contacts.manage' });

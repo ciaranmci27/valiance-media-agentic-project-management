@@ -20,7 +20,7 @@ export const GET = withApi(async ({ supabase, params, access }) => {
   if (error) throw error;
   if (!data) throw notFound('Team member');
   return success(data);
-});
+}, { permission: 'team.read' });
 
 export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemberId, access }) => {
   const id = params.id;
@@ -59,7 +59,7 @@ export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemb
   if (!data) throw notFound('Team member');
   logAudit(supabase, { method: 'PATCH', endpoint: `/api/v1/team-members/${id}`, entityType: 'team_member', entityId: id, apiKeyId, teamMemberId, requestBody: body, beforeSnapshot: before, afterSnapshot: data, statusCode: 200 });
   return success(data);
-}, { schema: updateTeamMemberSchema });
+}, { schema: updateTeamMemberSchema, permission: 'team.manage' });
 
 // Team members are never deleted: their time, comments and pay history would
 // go with them. Removing someone suspends them, which ends their access and
@@ -81,4 +81,4 @@ export const DELETE = withApi(async ({ supabase, params, apiKeyId, teamMemberId,
   if (error) throw error;
   logAudit(supabase, { method: 'DELETE', endpoint: `/api/v1/team-members/${id}`, entityType: 'team_member', entityId: id, apiKeyId, teamMemberId, beforeSnapshot: before, afterSnapshot: data, statusCode: 200 });
   return success({ deleted: false, suspended: true });
-});
+}, { permission: 'team.manage' });

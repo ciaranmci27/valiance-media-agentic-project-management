@@ -53,6 +53,11 @@ const MEMBER_FUNCTIONS = [
   // Agents > Analytics (20261124001200): the second window and the run sums run
   // as the caller; the question sums check the caller's projects themselves.
   'agent_analytics_window_v2', 'agent_run_stats', 'agent_question_stats',
+  // Called by agent_run_stats as the caller (20261125000800): the spend facts.
+  'agent_spend_facts',
+  // Called by the run feed (pm.agent_run_feed, security invoker) as the caller
+  // (20261125001300): whether an open question holds a waiting run.
+  'agent_run_has_open_question',
   // Read-only, scoped to the caller, kept for installs' own code.
   'is_admin', 'get_team_directory', 'get_my_access_context',
   'get_accessible_time_entries', 'get_accessible_credential_metadata', 'invoice_hours_draft',

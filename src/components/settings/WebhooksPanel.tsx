@@ -30,6 +30,9 @@ import { WebhookEndpointDialog, type SaveEndpoint } from '@/components/settings/
 import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
 import { isModuleEnabled } from '@/lib/access-control';
+import { useRead } from '@/lib/query-cache';
+import { assistantSetupsRead } from '@/lib/reads';
+import type { AssistantSetupView } from '@/lib/assistant';
 import { generateWebhookSecret } from '@/lib/webhooks/sign';
 import { endpointHealth, eventSummary, hasInvoiceEvents, webhookFields, type EndpointHealth } from '@/lib/developers-settings';
 import {
@@ -46,6 +49,14 @@ import {
   type WebhookDelivery,
   type WebhookDeliveryStatus,
 } from '@/lib/types';
+
+const SETUP_ROLE_WORDS: Record<string, string> = { owner: 'Owners', admin: 'Admins', member: 'Members', guest: 'Guests' };
+
+/** "Members, Personal assistant": who a setup gives assistants to, and its template. */
+function setupName(setup: AssistantSetupView): string {
+  const who = setup.match_role ? SETUP_ROLE_WORDS[setup.match_role] ?? setup.match_role : setup.match_group_name ?? 'A removed group';
+  return setup.template_label ? `${who}, ${setup.template_label}` : who;
+}
 
 export const WEBHOOKS_DESCRIPTION = 'Send signed events to your other systems, such as an AI agent, a data warehouse or your accounting tool, when work, questions, agent runs or invoices change.';
 
@@ -125,6 +136,12 @@ export function WebhooksPanel({ teamMemberId }: { teamMemberId: string | null })
   const projectName = (id: string) => projects.find((p) => p.id === id)?.name ?? 'Unknown project';
   const memberName = (id: string) => team.find((m) => m.id === id)?.name ?? 'Unknown member';
   const endpointName = (id: string) => endpoints.find((e) => e.id === id)?.name ?? 'Deleted endpoint';
+  // Setup names only when an endpoint is scoped to one (Owners read setups; others see the plain label).
+  const setups = useRead(endpoints.some((e) => e.assistant_setup_id) ? assistantSetupsRead : null).data ?? [];
+  const setupLabel = (id: string) => {
+    const setup = setups.find((s) => s.id === id);
+    return setup ? `All assistants: ${setupName(setup)}` : 'All assistants from a setup';
+  };
 
   // Per-endpoint secret visibility
   const [shownSecrets, setShownSecrets] = useState<Record<string, boolean>>({});
@@ -341,6 +358,11 @@ export function WebhooksPanel({ teamMemberId }: { teamMemberId: string | null })
                   {endpoint.member_id && (
                     <span className="rounded bg-white/[0.06] px-1.5 py-0.5 text-[11px] text-zinc-300">
                       Concerns {memberName(endpoint.member_id)}
+                    </span>
+                  )}
+                  {endpoint.assistant_setup_id && (
+                    <span className="rounded bg-white/[0.06] px-1.5 py-0.5 text-[11px] text-zinc-300">
+                      {setupLabel(endpoint.assistant_setup_id)}
                     </span>
                   )}
                   {endpoint.agent_event_types && (

@@ -17,7 +17,11 @@ function respond(body: Record<string, unknown>, status = 200): Response {
 /**
  * Where a connected chat provider sends messages (public: the provider has no
  * session). The connection's adapter verifies every request before anything
- * is read: Slack's signing secret, Telegram's secret token. Slack's URL
+ * is read: Slack's signing secret, Telegram's secret token, the Discord
+ * relay's X-PM-Relay-Signature (app/relay/discord holds Discord's Gateway
+ * and posts each message here, signed with the connection's relay secret;
+ * a stale or unsigned request is refused, a message id already recorded is
+ * a duplicate). Slack's URL
  * verification challenge is answered here. Then the message reaches the
  * sender's own assistant (lib/chat/inbound.ts). 2xx tells the provider it is
  * done (a retry of the same delivery is a no-op); 5xx asks it to retry.

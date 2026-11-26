@@ -1510,31 +1510,46 @@ export async function fetchApiKeys(supabase: SupabaseClient) {
 // ============================================================
 
 const WEBHOOK_ENDPOINT_COLUMNS =
-  'id, name, url, secret, events, is_active, description, amount_basis, project_ids, member_id, agent_event_types, created_by, last_delivery_at, created_at, updated_at';
+  'id, name, url, secret, events, is_active, description, amount_basis, project_ids, member_id, agent_event_types, assistant_setup_id, created_by, last_delivery_at, created_at, updated_at';
+
+/** Endpoint columns an older database may not have yet: agent_event_types (20261124001200), assistant_setup_id (20261125000900). */
+const NEWER_ENDPOINT_COLUMNS = ['agent_event_types', 'assistant_setup_id'] as const;
+
+/** The newer endpoint column a database lacks (PostgREST 42703 on a read, PGRST204 on a write naming it), or null. */
+function missingEndpointColumn(error: unknown): (typeof NEWER_ENDPOINT_COLUMNS)[number] | null {
+  const e = error as { code?: string; message?: string } | null;
+  if (e?.code !== '42703' && e?.code !== 'PGRST204') return null;
+  return NEWER_ENDPOINT_COLUMNS.find((column) => (e?.message ?? '').includes(column)) ?? null;
+}
 
 /** A database before 20261124001200 has no agent_event_types (PostgREST 42703 on a read, PGRST204 on a write naming it). */
 export function missingAgentEventTypes(error: unknown): boolean {
-  const e = error as { code?: string; message?: string } | null;
-  return (e?.code === '42703' || e?.code === 'PGRST204') && /agent_event_types/.test(e?.message ?? '');
+  return missingEndpointColumn(error) === 'agent_event_types';
 }
 
 /**
- * Runs an endpoint query with its columns, and on a database without
- * agent_event_types again without it, reading the filter as null (none).
- * A write that fails on the missing column writes nothing, so running it
- * again is safe.
+ * Runs an endpoint query with its columns, and on a database without one of
+ * the newer columns again without it, reading it as null (no filter). A
+ * write that fails on a missing column writes nothing, so running it again
+ * is safe.
  */
 export async function withEndpointColumns<T>(
   columns: string,
   run: (columns: string) => PromiseLike<{ data: unknown; error: unknown }>,
 ): Promise<T> {
   let { data, error } = await run(columns);
-  if (error && missingAgentEventTypes(error)) {
-    ({ data, error } = await run(columns.replace(/,\s*agent_event_types/, '')));
-    if (!error) {
-      const withNull = (row: unknown) => (row && typeof row === 'object' ? { ...(row as object), agent_event_types: null } : row);
-      data = Array.isArray(data) ? data.map(withNull) : withNull(data);
-    }
+  const missing: string[] = [];
+  let column = error ? missingEndpointColumn(error) : null;
+  while (column && !missing.includes(column)) {
+    missing.push(column);
+    const left = missing.reduce((list, name) => list.replace(new RegExp(`,\\s*${name}`), ''), columns);
+    ({ data, error } = await run(left));
+    column = error ? missingEndpointColumn(error) : null;
+  }
+  if (!error && missing.length > 0) {
+    const nulls = Object.fromEntries(missing.map((name) => [name, null]));
+    const withNull = (row: unknown) => (row && typeof row === 'object' ? { ...(row as object), ...nulls } : row);
+    data = Array.isArray(data) ? data.map(withNull) : withNull(data);
   }
   if (error) throw error;
   return data as T;
@@ -1553,7 +1568,7 @@ export async function insertWebhookEndpoint(
   endpoint: {
     name: string; url: string; secret: string; events: string[]; description?: string;
     amount_basis?: WebhookEndpoint['amount_basis']; project_ids?: string[] | null; member_id?: string | null;
-    agent_event_types?: string[] | null; created_by: string | null;
+    agent_event_types?: string[] | null; assistant_setup_id?: string | null; created_by: string | null;
     /** Chosen by the server when it seals the secret to the endpoint's id (lib/webhooks/secret.ts). */
     id?: string;
   },
@@ -1571,6 +1586,7 @@ export async function insertWebhookEndpoint(
       project_ids: endpoint.project_ids?.length ? endpoint.project_ids : null,
       member_id: endpoint.member_id ?? null,
       ...(endpoint.agent_event_types?.length ? { agent_event_types: endpoint.agent_event_types } : {}),
+      ...(endpoint.assistant_setup_id ? { assistant_setup_id: endpoint.assistant_setup_id } : {}),
       created_by: endpoint.created_by,
     })
     .select(columns)
@@ -1580,7 +1596,7 @@ export async function insertWebhookEndpoint(
 export async function updateWebhookEndpoint(
   supabase: SupabaseClient,
   id: string,
-  patch: Partial<Pick<WebhookEndpoint, 'name' | 'url' | 'events' | 'is_active' | 'description' | 'amount_basis' | 'project_ids' | 'member_id' | 'agent_event_types'>>,
+  patch: Partial<Pick<WebhookEndpoint, 'name' | 'url' | 'events' | 'is_active' | 'description' | 'amount_basis' | 'project_ids' | 'member_id' | 'agent_event_types' | 'assistant_setup_id'>>,
 ) {
   // An empty project or type list means no filter (the columns refuse an empty array).
   let row = 'project_ids' in patch && !patch.project_ids?.length ? { ...patch, project_ids: null } : patch;

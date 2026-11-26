@@ -59,7 +59,7 @@ Every part is checked before anything is written. Pinned brief entries go into e
 
 A template is a starting setup: rules, suggested key scopes, suggested webhook events, a brief added to the agent's context, an optional starting role, profile and limits, and the settings fields it fills in per project.
 
-Core ships: `data-health-watcher`, `inbox-triage`, `builder`, `weekly-reporter` and `personal-assistant`.
+Core ships: `data-health-watcher`, `inbox-triage`, `builder`, `weekly-reporter`, `personal-assistant` and `external-agent` (works in another system: no projects, no task queue; see [External agents](external-agents.md)).
 
 Add your own two ways:
 

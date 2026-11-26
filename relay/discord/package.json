@@ -1,0 +1,17 @@
+{
+  "name": "pm-discord-relay",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Holds the Discord Gateway for a PM app install and posts each message to the app, signed.",
+  "type": "module",
+  "main": "relay.mjs",
+  "scripts": {
+    "start": "node relay.mjs"
+  },
+  "engines": {
+    "node": ">=18.17"
+  },
+  "dependencies": {
+    "discord.js": "14.16.3"
+  }
+}

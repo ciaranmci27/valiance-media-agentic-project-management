@@ -54,4 +54,4 @@ export const POST = withApi(async ({ supabase, params, body, apiKeyId, teamMembe
     contact: result.contact,
     project_contact: result.projectContact,
   });
-}, { schema: convertLeadSchema });
+}, { schema: convertLeadSchema, permission: 'leads.manage' });

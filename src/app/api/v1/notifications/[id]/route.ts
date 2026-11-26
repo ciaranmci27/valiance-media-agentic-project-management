@@ -19,7 +19,7 @@ export const GET = withApi(async ({ supabase, params, teamMemberId }) => {
   if (data.user_id !== teamMemberId) throw forbidden('Cannot access notifications belonging to another team member');
 
   return success(data);
-});
+}, { permission: 'notifications.manage_own' });
 
 export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemberId }) => {
   if (!teamMemberId) throw badRequest('API key must be linked to a team member to access notifications');
@@ -58,7 +58,7 @@ export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemb
   });
 
   return success(data);
-}, { schema: updateNotificationSchema });
+}, { schema: updateNotificationSchema, permission: 'notifications.manage_own' });
 
 export const DELETE = withApi(async ({ supabase, params, apiKeyId, teamMemberId }) => {
   if (!teamMemberId) throw badRequest('API key must be linked to a team member to access notifications');
@@ -92,4 +92,4 @@ export const DELETE = withApi(async ({ supabase, params, apiKeyId, teamMemberId 
   });
 
   return success({ deleted: true });
-});
+}, { permission: 'notifications.manage_own' });

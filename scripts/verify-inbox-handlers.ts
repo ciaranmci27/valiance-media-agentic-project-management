@@ -36,6 +36,16 @@
  * - POST /notifications audience owner about one inbox goes to its decision
  *   recipient (a member, or a group's members); otherwise to the Owner. A
  *   value that is not a uuid, or an inbox the key cannot read, is ignored.
+ * - Email work follows the inbox (step 3): POST /inbound-emails/:id/tasks
+ *   (and the /inbox/messages alias) fills a left-out project_id and
+ *   assignee_ids from the inbox (a member, or a group's leads), sent values
+ *   win ([] too), no default reads as before; an agent whose new tasks need
+ *   approval gets a 202 suggestion there and from a plan's create_task (undo
+ *   declines it); an agent's reminder from an email with no owner_id is the
+ *   inbox default's; a ready reply draft rings a person primary handler,
+ *   else the decision recipient, else the Owners, and the person who asked
+ *   for it (once); a plan's "needs you" goes
+ *   to the decision recipient, else everyone who can act on the inbox.
  * - Settings: handlers and defaults saved and shown; saving who reads the
  *   inbox never takes a handler's access away; only the Owner role chooses
  *   who gets decisions; before the migration a save without handlers or
@@ -281,6 +291,11 @@ async function main() {
     const sendersRoute = await import('../src/app/api/v1/inbox/senders/route');
     const notificationsRoute = await import('../src/app/api/v1/notifications/route');
     const remindersRoute = await import('../src/app/api/v1/reminders/route');
+    const emailTasksRoute = await import('../src/app/api/v1/inbound-emails/[id]/tasks/route');
+    const emailTasksAlias = await import('../src/app/api/v1/inbox/messages/[id]/tasks/route');
+    const draftAnswerRoute = await import('../src/app/api/v1/inbound-emails/reply-drafts/[id]/route');
+    const { undoItem } = await import('../src/lib/communications/plans');
+    const { inboxPeopleIds } = await import('../src/lib/communications/inbox-visibility');
     const settings = await import('../src/lib/communications/inbox-settings-service');
     const { ingestInbound } = await import('../src/lib/communications/email/ingest');
     const { resolveMemberAccess } = await import('../src/lib/api/access');
@@ -414,6 +429,117 @@ async function main() {
     const convGhost = await notify(keys.scout, { entity_id: E_N_CONVGHOST, conversation_id: fromMiaB.conversation });
     check('notify: a conversation in an inbox the key cannot read is ignored: the Owner', convGhost.status === 201 && JSON.stringify(await bells(E_N_CONVGHOST)) === JSON.stringify([ids.owner]), convGhost.body);
     await q('UPDATE pm.inboxes SET decision_group_id = NULL WHERE id = $1', [ids.inboxA]);
+
+    // ── Email tasks follow the inbox (step 3) ──────────────────────────────
+    const emailTask = async (key: string, inbox: string, title: string, fields: Row = {}, alias = false, extraProject?: string) => {
+      const msg = await message(db, inbox);
+      if (extraProject) await q("INSERT INTO pm.message_candidates (message_id, project_id, reason) VALUES ($1, $2, 'sender')", [msg.message, extraProject]);
+      const path = alias ? `/api/v1/inbox/messages/${msg.message}/tasks` : `/api/v1/inbound-emails/${msg.message}/tasks`;
+      const answer = await call(alias ? emailTasksAlias.POST : emailTasksRoute.POST, 'POST', path, key, { id: msg.message }, { title, ...fields });
+      const taskId = answer.status === 201 ? answer.body?.data?.id as string : undefined;
+      const task = taskId ? (await q('SELECT project_id FROM pm.tasks WHERE id = $1', [taskId]))[0] : null;
+      const assignees = taskId ? (await q<{ member_id: string }>('SELECT member_id FROM pm.task_assignees WHERE task_id = $1 ORDER BY member_id', [taskId])).map((r) => r.member_id) : [];
+      return { answer, task, assignees, message: msg };
+    };
+    const noInboxDefault = await emailTask(keys.atlas, ids.inboxB, 'Email task plain', { project_id: ids.acme });
+    check('email task: no inbox default, no assignee_ids: unassigned, as before', noInboxDefault.answer.status === 201 && noInboxDefault.task?.project_id === ids.acme
+      && JSON.stringify(noInboxDefault.assignees) === '[]', [noInboxDefault.answer.body, noInboxDefault.assignees]);
+    const noProject = await emailTask(keys.atlas, ids.inboxB, 'Email task no project');
+    check('email task: no project_id and no default project: the task API\'s 422 on project_id, as before', noProject.answer.status === 422
+      && noProject.answer.body?.error?.code === 'VALIDATION_ERROR' && JSON.stringify(noProject.answer.body?.error?.details?.map((i: Loose) => i.path)) === JSON.stringify([['project_id']]), noProject.answer.body);
+    await q('UPDATE pm.inboxes SET default_assignee_member_id = $1, default_project_id = $2 WHERE id = $3', [ids.mia, ids.acme, ids.inboxA]);
+    const fromDefaults = await emailTask(keys.scout, ids.inboxA, 'Email task defaults');
+    check('email task: left out, project_id and assignee_ids come from the inbox (member default)', fromDefaults.answer.status === 201 && fromDefaults.task?.project_id === ids.acme
+      && JSON.stringify(fromDefaults.assignees) === JSON.stringify([ids.mia]), [fromDefaults.answer.body, fromDefaults.assignees]);
+    const throughAlias = await emailTask(keys.scout, ids.inboxA, 'Email task alias', {}, true);
+    check('email task: the /inbox/messages alias fills the same defaults', throughAlias.answer.status === 201 && JSON.stringify(throughAlias.assignees) === JSON.stringify([ids.mia]), throughAlias.answer.body);
+    const explicitPeople = await emailTask(keys.scout, ids.inboxA, 'Email task explicit', { assignee_ids: [ids.nina] });
+    check('email task: explicit assignee_ids win', explicitPeople.answer.status === 201 && JSON.stringify(explicitPeople.assignees) === JSON.stringify([ids.nina]), explicitPeople.answer.body);
+    const explicitNobody = await emailTask(keys.scout, ids.inboxA, 'Email task nobody', { assignee_ids: [] });
+    check('email task: explicit [] wins too: unassigned', explicitNobody.answer.status === 201 && JSON.stringify(explicitNobody.assignees) === '[]', explicitNobody.answer.body);
+    const explicitProject = await emailTask(keys.scout, ids.inboxA, 'Email task Birch', { project_id: ids.birch }, false, ids.birch);
+    check('email task: an explicit project_id wins over the default project', explicitProject.answer.status === 201 && explicitProject.task?.project_id === ids.birch
+      && JSON.stringify(explicitProject.assignees) === JSON.stringify([ids.mia]), [explicitProject.answer.body, explicitProject.task]);
+    await q('UPDATE pm.inboxes SET default_assignee_member_id = NULL, default_assignee_group_id = $1 WHERE id = $2', [ids.support, ids.inboxA]);
+    const toLeads = await emailTask(keys.scout, ids.inboxA, 'Email task group');
+    check('email task: a group default goes to its leads', toLeads.answer.status === 201 && JSON.stringify(toLeads.assignees) === JSON.stringify([ids.nina]), [toLeads.answer.body, toLeads.assignees]);
+
+    // The agent's create policy holds for a plan as for the task API: approval makes a suggestion.
+    await q("UPDATE pm.team_members SET agent_create_policy = 'approval' WHERE id = $1", [ids.scout]);
+    const suggested = await emailTask(keys.scout, ids.inboxA, 'Email task approval');
+    check('email task: approval policy answers 202 with a suggestion for the group lead', suggested.answer.status === 202 && suggested.answer.body?.data?.needs_approval === true
+      && suggested.answer.body?.data?.assigned_to === ids.nina && suggested.answer.body?.data?.project_id === ids.acme, suggested.answer.body);
+    const tasksBefore = (await q<{ n: number }>('SELECT count(*)::int AS n FROM pm.tasks'))[0].n;
+    const approvalPlan = await runPlan(keys.scout, ids.inboxA, 'Size chart approval');
+    const planTask = approvalPlan.items.find((i) => i.type === 'create_task') as Loose;
+    const suggestion = planTask?.result?.suggestion_id
+      ? (await q('SELECT status, assigned_to, project_id, metadata FROM pm.task_suggestions WHERE id = $1', [planTask.result.suggestion_id]))[0] : null;
+    check('plan: an agent whose new tasks need approval gets a suggestion, never a task', approvalPlan.answer.status === 201 && planTask?.state === 'done'
+      && planTask?.result?.needs_approval === true && !planTask?.task_id && (await q<{ n: number }>('SELECT count(*)::int AS n FROM pm.tasks'))[0].n === tasksBefore,
+      [planTask, approvalPlan.answer.body?.error]);
+    check('plan: the suggestion keeps the email and goes to the inbox default', suggestion?.status === 'pending' && suggestion.metadata?.message_id === approvalPlan.message.message
+      && suggestion.assigned_to === ids.nina && suggestion.project_id === ids.acme, suggestion);
+    const undone = await undoItem({ db: service, memberId: ids.scout, access: (await resolveMemberAccess(service, ids.scout))!, channel: 'api', asPerson: false }, planTask.id);
+    check('plan: undoing it declines the waiting suggestion', (await q('SELECT status FROM pm.task_suggestions WHERE id = $1', [planTask.result.suggestion_id]))[0]?.status === 'declined' && !undone.changed_since, undone);
+    await q("UPDATE pm.team_members SET agent_create_policy = 'live' WHERE id = $1", [ids.scout]);
+
+    // A reminder from an email that names no owner: the inbox's default assignee.
+    const remindFrom = async (title: string, fields: Row = {}) => {
+      const msg = await message(db, ids.inboxA);
+      const answer = await call(remindersRoute.POST, 'POST', '/api/v1/reminders', keys.scout, {}, { title, remind_on: '2026-12-06', source_message_id: msg.message, ...fields });
+      return answer;
+    };
+    const groupOwned = await remindFrom('Email reminder group');
+    check('reminder: from an email, no owner_id: the inbox default (a group\'s lead)', groupOwned.status === 201 && groupOwned.body.data.owner_id === ids.nina, groupOwned.body);
+    await q('UPDATE pm.inboxes SET default_assignee_group_id = NULL, default_assignee_member_id = $1 WHERE id = $2', [ids.mia, ids.inboxA]);
+    const memberOwned = await remindFrom('Email reminder member');
+    check('reminder: from an email, no owner_id: the inbox default member', memberOwned.status === 201 && memberOwned.body.data.owner_id === ids.mia, memberOwned.body);
+    const namedOwner = await remindFrom('Email reminder named', { owner_id: ids.owner });
+    check('reminder: an explicit owner_id wins', namedOwner.status === 201 && namedOwner.body.data.owner_id === ids.owner, namedOwner.body);
+    const notFromEmail = await call(remindersRoute.POST, 'POST', '/api/v1/reminders', keys.scout, {}, { title: 'Not from email', remind_on: '2026-12-06' });
+    check('reminder: not from an email: the agent\'s own, as before', notFromEmail.status === 201 && notFromEmail.body.data.owner_id === ids.scout, notFromEmail.body);
+    await q('UPDATE pm.inboxes SET default_assignee_member_id = NULL, default_project_id = NULL WHERE id = $1', [ids.inboxA]);
+    const noDefaultOwner = await remindFrom('Email reminder no default');
+    check('reminder: from an email with no inbox default: the agent\'s own, as before', noDefaultOwner.status === 201 && noDefaultOwner.body.data.owner_id === ids.scout, noDefaultOwner.body);
+
+    // A ready reply draft: the primary handler when a person; else the decision recipient; else the Owners.
+    const draftFor = async (key: string, label: string, requestedBy: string | null = null) => {
+      const msg = await message(db, ids.inboxA);
+      const [draft] = await q<{ id: string }>("INSERT INTO pm.reply_drafts (thread_id, message_id, instructions, requested_by) VALUES ($1, $2, $3, $4) RETURNING id", [msg.conversation, msg.message, label, requestedBy]);
+      const answer = await call(draftAnswerRoute.PUT, 'PUT', `/api/v1/inbound-emails/reply-drafts/${draft.id}`, key, { id: draft.id }, { body: `Thanks, ${label}.` });
+      return { answer, bells: await bells(draft.id) };
+    };
+    const toOwners = await draftFor(keys.scout, 'owners');
+    check('draft: an agent primary and no decision recipient: the Owners', toOwners.answer.status === 200 && JSON.stringify(toOwners.bells) === JSON.stringify([ids.owner]), toOwners);
+    await q('UPDATE pm.inboxes SET decision_member_id = $1 WHERE id = $2', [ids.mia, ids.inboxA]);
+    const toDecider = await draftFor(keys.scout, 'decider');
+    check('draft: an agent primary: the decision recipient', toDecider.answer.status === 200 && JSON.stringify(toDecider.bells) === JSON.stringify([ids.mia]), toDecider);
+    await q('UPDATE pm.inboxes SET handler_member_id = $1 WHERE id = $2', [ids.nina, ids.inboxA]);
+    const toHandler = await draftFor(keys.atlas, 'handler');
+    check('draft: a person primary handler gets it, not the decision recipient', toHandler.answer.status === 200 && JSON.stringify(toHandler.bells) === JSON.stringify([ids.nina]), toHandler);
+    const askedByMia = await draftFor(keys.atlas, 'asked by mia', ids.mia);
+    check('draft: the person who asked for it is told too, beside the handler', askedByMia.answer.status === 200 && JSON.stringify(askedByMia.bells) === JSON.stringify([ids.mia, ids.nina].sort()), askedByMia);
+    const askedByHandler = await draftFor(keys.atlas, 'asked by nina', ids.nina);
+    check('draft: a requester who is already a recipient is told once', askedByHandler.answer.status === 200 && JSON.stringify(askedByHandler.bells) === JSON.stringify([ids.nina]), askedByHandler);
+    const askedByAgent = await draftFor(keys.atlas, 'asked by scout', ids.scout);
+    check('draft: an agent that asked is not told', askedByAgent.answer.status === 200 && JSON.stringify(askedByAgent.bells) === JSON.stringify([ids.nina]), askedByAgent);
+    await q('UPDATE pm.inboxes SET handler_member_id = $1 WHERE id = $2', [ids.scout, ids.inboxA]);
+
+    // "Needs you" on a plan: the decision recipient, else everyone who can act on the inbox.
+    const askPlan = async () => {
+      const msg = await message(db, ids.inboxA);
+      const answer = await call(planRoute.POST, 'POST', `/api/v1/inbox/messages/${msg.message}/plan`, keys.scout, { id: msg.message }, {
+        summary: 'Which project?', items: [{ type: 'ask', intent: 'context', question: 'Which project is this for?' }],
+      });
+      return { answer, bells: await bells(msg.message) };
+    };
+    const askDecider = await askPlan();
+    check('needs you: a plan question reaches the decision recipient only', askDecider.answer.status === 201 && JSON.stringify(askDecider.bells) === JSON.stringify([ids.mia]), askDecider.bells);
+    await q('UPDATE pm.inboxes SET decision_member_id = NULL WHERE id = $1', [ids.inboxA]);
+    const askOwners = await askPlan();
+    const actors = (await inboxPeopleIds(service, ids.inboxA)).sort();
+    check('needs you: no decision recipient: everyone who can act on the inbox (the Owner among them), as before', askOwners.answer.status === 201
+      && askOwners.bells.includes(ids.owner) && JSON.stringify(askOwners.bells) === JSON.stringify(actors), [askOwners.bells, actors]);
 
     // ── Sender rules ───────────────────────────────────────────────────────
     const ruleBody = { match_kind: 'domain', match_value: 'tool.example', topic: 'usage', action: 'ignore', reason: 'Four usage alerts this month, none acted on.' };

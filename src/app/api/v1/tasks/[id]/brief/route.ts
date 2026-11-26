@@ -13,4 +13,4 @@ export const dynamic = 'force-dynamic';
  */
 export const GET = withApi<unknown, { id: string }>(async ({ supabase, params, access, scopes, teamMemberId }) => {
   return success(await buildTaskBrief({ supabase, access, scopes, teamMemberId }, params.id));
-});
+}, { permission: 'tasks.read' });

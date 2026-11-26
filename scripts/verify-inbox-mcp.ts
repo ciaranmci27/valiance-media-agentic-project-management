@@ -74,9 +74,10 @@ async function main() {
     INSERT INTO pm.projects (id, name, status) VALUES ('${ids.acme}', 'Acme', 'active'), ('${ids.birch}', 'Birch', 'active'), ('${ids.cedar}', 'Cedar', 'active'),
       ('${ids.dune}', 'Dune', 'active'), ('${ids.elm}', 'Elm', 'active');
     INSERT INTO pm.project_members (project_id, member_id) VALUES ('${ids.acme}', '${ids.scout}'), ('${ids.birch}', '${ids.rex}');
-    INSERT INTO pm.inboxes (id, name, address, handler_member_id) VALUES
-      ('${ids.inboxA}', 'Scout', 'scout@agency.example', '${ids.scout}'),
-      ('${ids.inboxB}', 'Rex', 'rex@agency.example', '${ids.rex}');
+    -- On the older triage by name: a new inbox defaults to plans (20261125001200).
+    INSERT INTO pm.inboxes (id, name, address, handler_member_id, triage_mode) VALUES
+      ('${ids.inboxA}', 'Scout', 'scout@agency.example', '${ids.scout}', 'legacy'),
+      ('${ids.inboxB}', 'Rex', 'rex@agency.example', '${ids.rex}', 'legacy');
     INSERT INTO pm.inboxes (id, name, address, handler_member_id, triage_mode) VALUES
       ('${ids.inboxP}', 'Scout plans', 'scout-plans@agency.example', '${ids.scout}', 'plans');
     INSERT INTO pm.inbox_access (inbox_id, member_id) VALUES
@@ -218,20 +219,24 @@ async function main() {
 
     // ---- Who sees the inbox tools -------------------------------------------------------------
     const scoutTools = await listTools(keys.scout);
-    check('visible: a triage key sees every inbox tool', INBOX_TOOLS.every((name) => scoutTools.includes(name)), INBOX_TOOLS.filter((name) => !scoutTools.includes(name)));
+    const deprecatedInbox = INBOX_TOOLS.filter((name) => PM_TOOLS.find((t) => t.name === name)?.deprecated);
+    check('catalog: the older triage and its summary are the deprecated inbox tools',
+      isDeepStrictEqual([...deprecatedInbox].sort(), ['list_unsummarized_triage', 'mark_triage_summarized', 'record_email_triage']), deprecatedInbox);
+    check('visible: a triage key sees every inbox tool but the deprecated ones', INBOX_TOOLS.every((name) => scoutTools.includes(name) !== deprecatedInbox.includes(name)),
+      INBOX_TOOLS.filter((name) => scoutTools.includes(name) === deprecatedInbox.includes(name)));
     const noEmailTools = await listTools(keys.noEmail);
     check('hidden: a key without inbox scopes sees none', noEmailTools.length > 3 && !noEmailTools.some((name) => INBOX_TOOLS.includes(name)), noEmailTools);
     const readTools = await listTools(keys.readOnlyEmail);
     check('hidden: without inbound_email.triage, the reads only', readTools.includes('list_inbox') && readTools.includes('get_email')
       && !['record_email_triage', 'submit_triage_plan', 'write_reply_draft', 'create_task_from_email', 'add_sender_rule', 'get_inbox_signal'].some((name) => readTools.includes(name)), readTools);
     const noCreateTools = await listTools(keys.noTaskCreate);
-    check('hidden: create_task_from_email needs tasks.create as well as triage', noCreateTools.includes('record_email_triage') && !noCreateTools.includes('create_task_from_email'), noCreateTools);
+    check('hidden: create_task_from_email needs tasks.create as well as triage', noCreateTools.includes('submit_triage_plan') && !noCreateTools.includes('create_task_from_email'), noCreateTools);
     const readOnlyTools = await listTools(keys.readOnly);
     check('hidden: a read-only key sees no inbox write', readOnlyTools.includes('list_inbox')
       && !readOnlyTools.some((name) => PM_TOOLS.find((t) => t.name === name)?.write), readOnlyTools);
     await q("UPDATE pm.team_member_permissions SET effect = 'deny' WHERE member_id = $1 AND permission_key = 'inbound_email.triage' AND access_channel = 'api'", [ids.scout]);
     const deniedTools = await listTools(keys.scout);
-    check('hidden: the member losing triage hides the triage tools', deniedTools.includes('list_inbox') && !deniedTools.includes('record_email_triage'), deniedTools);
+    check('hidden: the member losing triage hides the triage tools', deniedTools.includes('list_inbox') && !deniedTools.includes('submit_triage_plan'), deniedTools);
     await q("UPDATE pm.team_member_permissions SET effect = 'allow' WHERE member_id = $1 AND effect = 'deny'", [ids.scout]);
     await q("UPDATE pm.workspace_modules SET enabled = false WHERE module_id = 'inbox'");
     const offTools = await listTools(keys.scout);
@@ -319,6 +324,7 @@ async function main() {
     };
     const triaged = await tool(keys.scout, 'record_email_triage', triageArgs);
     check('record_email_triage: recorded, waiting on a person', triaged.ok === true && triaged.data?.status === 'needs_human' && triaged.data?.replayed === false, triaged);
+    check('deprecated: record_email_triage is off tools/list yet still answers by name', !scoutTools.includes('record_email_triage') && triaged.ok === true, scoutTools);
     const triageAgain = await tool(keys.scout, 'record_email_triage', triageArgs);
     const restTriageAgain = await restCall(rest.triage.POST, 'POST', `/api/v1/inbox/messages/${ids.m1}/triage`, keys.scout, { id: ids.m1 },
       { ...triageArgs, message_id: undefined });
@@ -437,6 +443,8 @@ async function main() {
       && (await q('SELECT 1 FROM pm.triage WHERE summarized_at IS NOT NULL')).length === 0, foreignMark);
     const marked = await tool(keys.scout, 'mark_triage_summarized', { triage_ids: [triaged.data?.triage?.id] });
     check('mark_triage_summarized: marks its own', marked.ok === true && marked.data?.marked >= 1, { marked, triageIds });
+    check('deprecated: the summary tools are off tools/list yet still answer by name', !scoutTools.includes('list_unsummarized_triage') && !scoutTools.includes('mark_triage_summarized')
+      && unsummarized.ok === true && marked.ok === true, scoutTools);
 
     // ---- REST unchanged by all of it, for a read nothing above wrote to --------------------------------
     const restListAfter = await restCall(rest.list.GET, 'GET', `/api/v1/inbox/messages?inbox_id=${ids.inboxB}`, keys.rex);
@@ -505,7 +513,8 @@ async function main() {
       SELECT $1, k, 'api', 'allow' FROM unnest($2::text[]) AS k ON CONFLICT DO NOTHING`, [ids.scout, template?.scopes ?? []]);
     const access = await resolveMemberAccess(service, ids.scout);
     const templateTools = access ? toolsFor({ access, scopes: [...(template?.scopes ?? [])], readOnly: false, profile: 'generic' }).map((t) => t.name) : [];
-    const loop = ['get_triage_queue', 'list_inbox', 'get_email', 'get_email_triage_context', 'submit_triage_plan', 'record_email_triage', 'create_task_from_email', 'list_reply_drafts', 'write_reply_draft'];
+    // record_email_triage is deprecated: callable by name (above), no longer offered.
+    const loop = ['get_triage_queue', 'list_inbox', 'get_email', 'get_email_triage_context', 'submit_triage_plan', 'create_task_from_email', 'list_reply_drafts', 'write_reply_draft'];
     check('template: inbox-triage\'s scopes open the whole triage loop', loop.every((name) => templateTools.includes(name)), loop.filter((name) => !templateTools.includes(name)));
     check('template: its brief names the loop', ['get_triage_queue', 'get_email_triage_context', 'submit_triage_plan', 'record_email_triage'].every((name) => (template?.context ?? '').includes(name)), template?.context);
   } finally {
