@@ -222,8 +222,10 @@ export const CORE_TABLES: string[] = [
   'team_invites', 'team_member_notifications', 'team_member_permissions', 'team_members', 'trash_events', 'workspace_brand',
   'workspace_modules', 'workspace_region', 'app_secrets',
   'groups', 'group_members', 'member_identities', 'identity_link_requests',
-  // Task templates and every use of one.
-  'task_templates', 'task_template_runs',
+  // Task templates, every use of one, and which item each task a use made came from.
+  'task_templates', 'task_template_runs', 'task_template_run_tasks',
+  // Initiatives inside a project and their logs, as tasks are core.
+  'initiatives', 'initiative_entries',
   // Connect AI: registered tools, connections, codes, tokens and the endpoints' rate windows.
   'oauth_clients', 'oauth_grants', 'oauth_codes', 'oauth_tokens', 'oauth_rate_limit_windows',
   // What the watchdog already did (agents offline, expired questions told, failing endpoints): server only.

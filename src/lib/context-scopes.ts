@@ -14,6 +14,9 @@ import { BRIEF_ENTRY_MAX, BRIEF_SECTION_KEYS, type BriefEntry, type BriefSection
  *   connected AI tools only with context.memory) and their own personal
  *   agent only (while they allow it with "Remember things for me"). Never
  *   an Owner, never anyone else.
+ * - initiative: an initiative's brief (standing knowledge about that body
+ *   of work), for whoever reads its project's context. Its log is not here:
+ *   that is the dated record (initiative_entries).
  *
  * Pinned entries of the workspace, the agent's groups, the task's project,
  * the agent itself and (for a personal agent) its person's memory go into
@@ -21,7 +24,7 @@ import { BRIEF_ENTRY_MAX, BRIEF_SECTION_KEYS, type BriefEntry, type BriefSection
  * search_context.
  */
 
-export const CONTEXT_SCOPES = ['workspace', 'group', 'project', 'agent', 'member'] as const;
+export const CONTEXT_SCOPES = ['workspace', 'group', 'project', 'agent', 'member', 'initiative'] as const;
 export type ContextScope = (typeof CONTEXT_SCOPES)[number];
 
 export function isContextScope(value: unknown): value is ContextScope {
@@ -30,7 +33,7 @@ export function isContextScope(value: unknown): value is ContextScope {
 
 export interface ScopeRef {
   scope_type: ContextScope;
-  /** The group, project, agent or person; null for the workspace. */
+  /** The group, project, agent, person or initiative; null for the workspace. */
   scope_id: string | null;
 }
 
@@ -40,6 +43,7 @@ export const SCOPE_WORDS: Record<ContextScope, { label: string; says: string }> 
   project: { label: 'Project brief', says: 'What every agent and person on this project should know.' },
   agent: { label: 'Agent notes', says: 'What this agent should always keep in mind.' },
   member: { label: 'What it remembers', says: 'What your assistant remembers about you. Only you and your assistant see it.' },
+  initiative: { label: 'Initiative brief', says: 'What every agent and person working on this initiative should know.' },
 };
 
 /** One entry with the scope it belongs to (search results, the pack's scoped context). */

@@ -1,17 +1,18 @@
+import { z } from 'zod';
 import { withApi } from '@/lib/api/middleware';
 import { created, paginated } from '@/lib/api/response';
 import { parsePagination } from '@/lib/api/pagination';
 import { logAudit } from '@/lib/api/audit';
 import { createTemplate, listTemplates, templateFiltersFrom } from '@/lib/api/task-templates';
-import { createTaskTemplateSchema, type CreateTaskTemplateInput } from '@/lib/task-templates';
 
 /**
  * The task templates the key's member may read, by name, paged, without
  * their tasks (GET /api/v1/task-templates/:id has them). Filters: search
- * (name), project_id (only those usable there: unlocked ones and the ones
- * locked to it). A template locked to a project the member cannot open is
- * left out. Each with fields, item_count, task_count, version, run_count
- * and last_run_at.
+ * (name), project_id (only those usable there: company-wide ones and that
+ * project's own, its own first), scope (project or workspace). A project's
+ * template is left out when the member cannot open the project. Each with
+ * scope, can_edit, key_dates, roles, fields, item_count, task_count,
+ * version, run_count and last_run_at.
  *
  * Permission: tasks.create or templates.manage.
  */
@@ -22,14 +23,18 @@ export const GET = withApi(async ({ supabase, searchParams, teamMemberId, access
 }, { permission: ['tasks.create', 'templates.manage'] });
 
 /**
- * Creates a template: name, description, project_id (locks it to that
- * project; null for any), fields (fill-ins its titles and descriptions use,
- * such as {product}) and items (the tasks, each with optional subtasks).
+ * Creates a template from the documented JSON template (GET
+ * /api/v1/task-templates/schema): name, description, project_id (the project
+ * it belongs to; null for company-wide), guidance, key_dates, roles, fields
+ * and items. Checked whole: a refusal (422) lists every error with its JSON
+ * path and a fix, the same as POST /api/v1/task-templates/validate.
+ * Idempotency-Key: a retry gets the first answer back.
  *
- * Permission: templates.manage.
+ * Permission: templates.manage for a company-wide template; projects.manage
+ * (whoever manages the project) or templates.manage for a project's.
  */
-export const POST = withApi<CreateTaskTemplateInput>(async ({ supabase, body, teamMemberId, access, scopes, apiKeyId }) => {
+export const POST = withApi<Record<string, unknown>>(async ({ supabase, body, teamMemberId, access, scopes, apiKeyId }) => {
   const template = await createTemplate(supabase, { memberId: teamMemberId, access, scopes }, body);
   logAudit(supabase, { method: 'POST', endpoint: '/api/v1/task-templates', entityType: 'task_template', entityId: template.id, apiKeyId, teamMemberId, requestBody: body, afterSnapshot: template, statusCode: 201 });
   return created(template);
-}, { schema: createTaskTemplateSchema, permission: 'templates.manage' });
+}, { schema: z.record(z.string(), z.unknown()), permission: ['templates.manage', 'projects.manage'] });

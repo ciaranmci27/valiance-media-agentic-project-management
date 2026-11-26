@@ -14,6 +14,8 @@ export const createTaskSchema = z.object({
   tags: z.array(z.string()).default([]),
   assignee_ids: z.array(z.string().uuid()).default([]),
   project_goal_id: z.string().uuid().nullable().optional(),
+  // The initiative it belongs to, in the same project (a subtask takes its parent's).
+  initiative_id: z.string().uuid().nullable().optional(),
   task_type: taskTypeEnum.nullable().optional(),
   ai_readiness: aiReadinessEnum.nullable().optional(),
   acceptance_criteria: z.array(z.string().min(1)).optional(),
@@ -55,6 +57,8 @@ export const updateTaskSchema = z.object({
   assignee_ids: z.array(z.string().uuid()).optional(),
   project_id: z.string().uuid().optional(),
   project_goal_id: z.string().uuid().nullable().optional(),
+  // The initiative it belongs to, in its project; null takes it out. A subtask follows its parent's.
+  initiative_id: z.string().uuid().nullable().optional(),
   task_type: taskTypeEnum.nullable().optional(),
   ai_readiness: aiReadinessEnum.nullable().optional(),
   // Full replace: existing criteria rows are deleted and recreated, which

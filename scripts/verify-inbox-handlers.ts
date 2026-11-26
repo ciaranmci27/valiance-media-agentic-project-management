@@ -661,6 +661,36 @@ async function main() {
     check('handled: reply drafts only from handled inboxes', draftsAll.body.data.length === 2 && draftsMine.body.data.length === 1 && draftsMine.body.data[0].message_id === fromMiaB.message, [draftsAll.body.data, draftsMine.body.data]);
     const badHandled = await call(queueRoute.GET, 'GET', '/api/v1/inbox/queue?handled=everyone', keys.gale);
     check('handled: another value is refused', badHandled.status === 400, badHandled.body);
+    // The summary feed and waiting questions: one question in each inbox (Gale handles B through Bots, not A).
+    const askedA = await message(db, ids.inboxA, { subject: 'Asked in A' });
+    const askedB = await message(db, ids.inboxB, { subject: 'Asked in B' });
+    for (const [asked, member] of [[askedA, ids.scout], [askedB, ids.atlas]] as const) {
+      await q("INSERT INTO pm.triage (message_id, member_id, outcome, summary, question_for_human) VALUES ($1, $2, 'needs_human', 'Dana asks for a size chart.', 'Which size chart?')", [asked.message, member]);
+      await q("UPDATE pm.messages SET status = 'needs_human' WHERE id = $1", [asked.message]);
+    }
+    const unsummarizedRoute = await import('../src/app/api/v1/inbound-emails/triage/unsummarized/route');
+    const unsummarizedAlias = await import('../src/app/api/v1/inbox/triage/unsummarized/route');
+    const questionsRoute = await import('../src/app/api/v1/inbound-emails/questions/route');
+    const questionsAlias = await import('../src/app/api/v1/inbox/questions/route');
+    const inboxAMessages = new Set((await q<{ id: string }>('SELECT id FROM pm.messages WHERE inbox_id = $1', [ids.inboxA])).map((r) => r.id));
+    const summaryIds = (answer: { body: Loose }) => ((answer.body?.data ?? []) as Loose[]).map((item) => item.message?.id as string);
+    const summaryAll = await call(unsummarizedRoute.GET, 'GET', '/api/v1/inbound-emails/triage/unsummarized', keys.gale);
+    const summaryMine = await call(unsummarizedAlias.GET, 'GET', '/api/v1/inbox/triage/unsummarized?handled=me', keys.gale);
+    check('handled: without it, the summary feed covers every readable inbox', summaryAll.status === 200
+      && summaryIds(summaryAll).includes(askedA.message) && summaryIds(summaryAll).includes(askedB.message), summaryAll.body);
+    check('handled: the summary feed keeps only handled inboxes', summaryMine.status === 200 && summaryIds(summaryMine).includes(askedB.message)
+      && !summaryIds(summaryMine).some((m) => inboxAMessages.has(m))
+      && JSON.stringify(summaryMine.body.data) === JSON.stringify(summaryAll.body.data.filter((item: Loose) => item.message?.inbox_id === ids.inboxB)), [summaryAll.body, summaryMine.body]);
+    check('handled: the summary feed refuses another value', (await call(unsummarizedRoute.GET, 'GET', '/api/v1/inbound-emails/triage/unsummarized?handled=all', keys.gale)).status === 400);
+    const questionIds = (answer: { body: Loose }) => ((answer.body?.data ?? []) as Loose[]).map((item) => item.message_id as string);
+    const questionsAll = await call(questionsRoute.GET, 'GET', '/api/v1/inbound-emails/questions', keys.gale);
+    const questionsMine = await call(questionsAlias.GET, 'GET', '/api/v1/inbox/questions?handled=me', keys.gale);
+    check('handled: without it, waiting questions cover every readable inbox', questionsAll.status === 200
+      && questionIds(questionsAll).includes(askedA.message) && questionIds(questionsAll).includes(askedB.message), questionsAll.body);
+    check('handled: waiting questions only from handled inboxes', questionsMine.status === 200 && questionIds(questionsMine).includes(askedB.message)
+      && !questionIds(questionsMine).some((m) => inboxAMessages.has(m))
+      && JSON.stringify(questionsMine.body.data) === JSON.stringify(questionsAll.body.data.filter((item: Loose) => !inboxAMessages.has(item.message_id))), [questionsAll.body, questionsMine.body]);
+    check('handled: waiting questions refuse another value', (await call(questionsAlias.GET, 'GET', '/api/v1/inbox/questions?handled=everyone', keys.gale)).status === 400);
 
     // ── A message's inbox: who handles it and its defaults ─────────────────
     // Inbox A: Scout primary, Atlas a second handler. Inbox B: Atlas primary, the Bots group (Gale) a handler.

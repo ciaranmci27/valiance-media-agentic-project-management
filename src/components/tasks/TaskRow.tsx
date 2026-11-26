@@ -10,6 +10,7 @@ import { useState, useRef } from 'react';
 import { Popover } from '@/components/ui/Popover';
 import { TaskLinkCountBadges, useTaskLinkCounts } from '@/components/inbox/TaskSourceEmails';
 import { UnreadLabel } from './TaskUnread';
+import { InitiativeTag, useTaskInitiativeName } from '@/components/initiatives/InitiativeBits';
 import { subtaskProgress } from '@/lib/subtasks';
 import { lastActivityAt, taskTimesTooltip, timeAgo } from '@/lib/task-times';
 import { useTaskWarmer } from '@/lib/reads';
@@ -62,6 +63,8 @@ export function TaskRow({ task, onView, onDelete }: TaskRowProps) {
   // A subtask listed on its own (My Tasks, a filtered list) names its parent.
   const parent = task.parent_task_id ? tasks.find(t => t.id === task.parent_task_id) : undefined;
   const canEdit = canEditTask(access, task, teamMemberId, parent);
+  // The initiative it is in, named; a subtask names its parent instead, which carries it.
+  const initiativeName = useTaskInitiativeName(task);
   const canDelete = canManageAllTasks(access);
   const moveMenu = useMoveTaskMenuAction(task, canEdit);
 
@@ -125,6 +128,10 @@ export function TaskRow({ task, onView, onDelete }: TaskRowProps) {
 
           {task.description && (
             <p className="text-xs text-zinc-400 mt-1 line-clamp-1">{task.description}</p>
+          )}
+
+          {initiativeName && !parent && (
+            <div className="mt-1.5 flex min-w-0"><InitiativeTag name={initiativeName} /></div>
           )}
 
           {/* Tags */}
@@ -261,6 +268,8 @@ export function TaskRowDesktop({ task, onView, onDelete, selected, onToggleSelec
   // A subtask listed on its own (My Tasks, a filtered list) names its parent.
   const parent = task.parent_task_id ? tasks.find(t => t.id === task.parent_task_id) : undefined;
   const canEdit = canEditTask(access, task, teamMemberId, parent);
+  // The initiative it is in, named; a subtask names its parent instead, which carries it.
+  const initiativeName = useTaskInitiativeName(task);
   const canDelete = canManageAllTasks(access);
   const moveMenu = useMoveTaskMenuAction(task, canEdit);
 
@@ -334,6 +343,7 @@ export function TaskRowDesktop({ task, onView, onDelete, selected, onToggleSelec
             <span className="sr-only">Subtask of </span><span aria-hidden="true">in </span>{parent.title}
           </span>
         )}
+        {initiativeName && !parent && <InitiativeTag name={initiativeName} className="flex-shrink max-w-[180px]" />}
         <span className="min-w-0 flex-shrink"><UnreadLabel task={task} /></span>
         {isBlocked && (
           <Tooltip content="Blocked by another task">

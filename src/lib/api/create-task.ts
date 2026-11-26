@@ -10,6 +10,7 @@ import { assertAssigneesCanOpenProject, assertBlockersInProject, assertGoalInPro
 import { assertCanManageParent, loadParentTask, nextSubtaskOrder, subtaskRuleError } from '@/lib/api/subtasks';
 import { insertComment, insertTask, insertTaskSuggestion } from '@/lib/supabase/queries';
 import { requireAgentsEnabled } from '@/lib/api/agents';
+import { assertInitiativeInProject, assertSubtaskInitiative } from '@/lib/api/initiatives';
 import { applyClosePolicy, commentSentToReview, loadMemberRules, sentToReviewNote, type MemberRules } from '@/lib/api/agent-rules';
 
 interface CreateTaskContext {
@@ -84,6 +85,13 @@ export async function createTaskAs({ supabase, memberId: teamMemberId, access, c
   }
   if (taskData.project_goal_id) {
     await assertGoalInProject(supabase, taskData.project_goal_id, taskData.project_id);
+  }
+  // A subtask takes its parent's initiative (the database sets it); naming another is refused.
+  if (parent_task_id) {
+    await assertSubtaskInitiative(supabase, parent_task_id, taskData.initiative_id);
+    delete taskData.initiative_id;
+  } else if (taskData.initiative_id) {
+    await assertInitiativeInProject(supabase, taskData.initiative_id, taskData.project_id);
   }
   const criteria: string[] = Array.isArray(acceptance_criteria) ? acceptance_criteria : [];
   try {
@@ -171,6 +179,7 @@ export async function suggestInstead(ctx: CreateTaskContext, member: MemberRules
   const { data: liveProject } = await supabase.from('projects').select('id').eq('id', projectId).is('deleted_at', null).maybeSingle();
   if (!liveProject) throw notFound('Project');
   if (typeof body.project_goal_id === 'string') await assertGoalInProject(supabase, body.project_goal_id, projectId);
+  if (typeof body.parent_task_id !== 'string' && typeof body.initiative_id === 'string') await assertInitiativeInProject(supabase, body.initiative_id, projectId);
   const requested = Array.isArray(body.assignee_ids) ? (body.assignee_ids as string[]) : [];
   if (!canAssignOthers && requested.some((id) => id !== teamMemberId)) {
     throw forbidden('This API key can only assign newly created tasks to its own member');
@@ -229,6 +238,7 @@ export async function suggestInstead(ctx: CreateTaskContext, member: MemberRules
         assignee_ids: requested,
         blocked_by_ids: body.blocked_by_ids,
         parent_task_id: body.parent_task_id,
+        initiative_id: body.initiative_id,
       }),
     }),
   });

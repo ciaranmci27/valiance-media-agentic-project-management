@@ -49,7 +49,12 @@ pending (`GET /api/v1/chat/messages`).
 | `agent.paused` | An agent may no longer start work: it was paused, or an Owner paused every agent. Once per change, one event per agent: pausing one agent while every agent is paused, or pausing every agent while one is already paused on its own, changes nothing for it and sends nothing. | the agent |
 | `agent.resumed` | An agent may start work again: its own pause or the workspace pause ended (and the other is not on). | the agent |
 | `budget.exceeded` | An agent's spend this budget period first reaches its budget (`budget_usd` or `budget_tokens`). Once a period, when the app first sees it: after usage is reported, at a refused run start, or when the agent reads its status. | the agent |
-| `template.run` | A task template is used (by hand, POST /api/v1/task-templates/{id}/run, MCP run_task_template). Each task it makes also sends its own `task.created`. | the run |
+| `template.run` | A task template is used (by hand, POST /api/v1/task-templates/{id}/run, MCP run_task_template). Each task it makes also sends its own `task.created`; the initiative it makes (when asked, `create_initiative: true`) sends `initiative.created`. | the run |
+| `initiative.created` | An initiative is made in a project, or restored from Trash. Opt in: never a new endpoint's default. | the initiative |
+| `initiative.updated` | An initiative's name, description, owner, status, health or dates change. `data.changes` names the fields. Reordering sends nothing. | the initiative |
+| `initiative.deleted` | An initiative is moved to Trash (its tasks keep the link and read as having none). | the initiative |
+| `initiative_entry.created` | An entry is added to an initiative's log: an update, decision, issue or note. | the entry |
+| `initiative_entry.updated` | A log entry's title, body or task changes, or an issue is resolved or reopened. `data.changes` names the fields. | the entry |
 | `agent_event.created` | An agent records any event (POST /api/v1/agent-activities, MCP log_activity, host telemetry, a fleet alert). Opt in only: never a default. | the event itself |
 | `chat.message` | A chat message for an agent: a person messages their own assistant (the personal bot), or a company agent is asked, or hears channel context (the company bot). Opt in only, and only on an endpoint filtered to an agent or scoped to an assistant setup. | the chat message |
 | `assistant.message` | Deprecated alias of `chat.message` for personal assistants, kept unchanged for at least three releases: a person messages their own assistant. Opt in only, and only on an endpoint filtered to a personal agent or scoped to an assistant setup. Subscribe to one of the two, not both. | the chat message |
@@ -253,6 +258,7 @@ and `task.updated` adds `changes`:
       "id": "7c1e...",
       "project_id": "3ab2...",
       "parent_task_id": null,
+      "initiative_id": null,
       "title": "Fix the checkout total",
       "description": "EU rounding",
       "status": "in_progress",
@@ -349,11 +355,32 @@ are refused until the period resets or an Owner raises the budget. `project_id`,
 `task_id` and `project` are `null`; `actor_id` is whose request found it spent.
 
 **Template events** (`template.run`) add
-`run: { id, template_id, template_version, template_name, project_id, run_by, via, schedule_id, start_date, field_values, task_ids, created_at }`,
+`run: { id, template_id, template_version, template_name, project_id, run_by, via, schedule_id, start_date, field_values, task_ids, created_at, key_dates, initiative_id }`,
 plus `project` and `project_id`. `via` is `app`, `api`, `mcp` or `schedule`;
 `task_ids` lists every task the use made, subtasks included, in the order they
-were made. It concerns who ran it and everyone its tasks were assigned to, so an
+were made. `key_dates` is the date each of the template's key dates was set to
+(`{ "kickoff": "2026-12-01", "launch": "2027-01-15" }`; `{}` for a run
+recorded before key dates, whose `start_date` is its start), and
+`initiative_id` the initiative the run made (`null` when it made none). It concerns who ran it and everyone its tasks were assigned to, so an
 endpoint filtered to an agent hears about a playbook that gives it work.
+
+**Initiative events** (`initiative.created`, `initiative.updated`,
+`initiative.deleted`) add
+`initiative: { id, project_id, name, description, owner_member_id, owner_group_id, status, health, start_date, target_date, created_by, created_at, updated_at, deleted_at }`,
+plus `initiative_id`, `project` and `project_id`. They concern its owner (the
+member, or every member of its owner group) and whoever made it, so a member
+filter matches the owner. `initiative.updated` carries `changes`.
+
+**Log events** (`initiative_entry.created`, `initiative_entry.updated`) add
+`entry: { id, initiative_id, project_id, kind, title, body, task_id, status, resolved_at, resolved_by, created_by, created_at, updated_at }`,
+`initiative: { id, name }`, `initiative_id`, `project` and `project_id`. `kind` is
+`update`, `decision`, `issue` or `note`; `status` is `open` or `resolved` for
+an issue and `null` otherwise. They concern the entry's author, whoever
+resolved it and the initiative's owner. `initiative_entry.updated` carries
+`changes`. An entry moved to Trash sends nothing.
+
+**`task.*`** payloads carry `task.initiative_id`: the initiative the task
+belongs to, or `null`.
 
 **`agent_event.created`** carries
 `agent_event: { id, seq, source, occurred_at, agent_id, type, labels, title, payload, project_id, task_id, run_id, principal_id }`,

@@ -1,21 +1,12 @@
 'use client';
 
-import { Fragment, useState, useEffect, useRef, type ReactNode } from 'react';
-import { Popover } from '@/components/ui/Popover';
-import { TaskFilterControl, UNASSIGNED_FILTER_ID } from '@/components/tasks/TaskFilterControl';
-import { UnreadNotice, useCardUnread } from '@/components/tasks/TaskUnread';
+import { Fragment, useState, useEffect, type ReactNode } from 'react';
+import { useCardUnread } from '@/components/tasks/TaskUnread';
 import { useParams, usePathname, useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useApp, defaultFilters } from '@/lib/store';
 import { Header } from '@/components/layout/Header';
-import { BoardView } from '@/components/views/BoardView';
-import { ListView } from '@/components/views/ListView';
-import { CalendarView } from '@/components/views/CalendarView';
-import { NewTaskPanel } from '@/components/tasks/NewTaskPanel';
-import { TemplatePicker } from '@/components/templates/UseTemplateButton';
-import { UseTemplatePanel } from '@/components/templates/UseTemplatePanel';
 import { TaskDetailPanel } from '@/components/tasks/TaskDetailPanel';
-import { TaskMoveDialog } from '@/components/tasks/MoveTaskDialog';
 import { ProjectForm } from '@/components/projects/ProjectForm';
 import { ProjectContactsPanel } from '@/components/projects/ProjectContactsPanel';
 import { ClientPortalTab } from '@/components/projects/ClientPortalTab';
@@ -26,34 +17,32 @@ import InvoicesPanel from '@/components/projects/InvoicesPanel';
 import { ProjectOverview } from '@/components/projects/ProjectOverview';
 import { projectTrashMessage } from '@/components/projects/trash-message';
 import { ProjectTabs, projectPanelId, projectTabId, type ProjectTab } from '@/components/projects/ProjectTabs';
-import { EmptyCard, NoMatches, SubNav, TabToolbar, ToolbarButton } from '@/components/projects/TabLayout';
+import { EmptyCard } from '@/components/projects/TabLayout';
+import { ProjectTaskViews } from '@/components/projects/ProjectTaskViews';
+import { InitiativesTab } from '@/components/initiatives/InitiativesTab';
 import { RowActionsMenu } from '@/components/ui/RowActionsMenu';
 import { FileAttachments } from '@/components/ui/FileAttachments';
-import { DateInput } from '@/components/ui/inputs/DateInput';
 import { Button } from '@/components/ui/Button';
-import { Avatar } from '@/components/ui/Avatar';
 import { toast } from '@/components/ui/Toast';
 import { useTaskUrlParam } from '@/lib/use-task-url';
-import {
-  Plus, LayoutGrid, LayoutTemplate, List, Calendar,
-  Edit, ChevronRight, Trash2, Clock, FolderInput,
-} from 'lucide-react';
-import { Task, ViewMode } from '@/lib/types';
+import { Edit, Trash2, Clock } from 'lucide-react';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { useAuth } from '@/lib/auth-context';
 import { useDemo } from '@/lib/demo-context';
 import { warmRead, warmReads } from '@/lib/query-cache';
 import {
-  agentTemplatesRead, encryptionStatusRead, inboxLandingRead, projectAgentsRead, projectBillingRunsRead, projectBriefRead, projectForecastRead, projectPaymentsRead, useBillingToday,
+  agentTemplatesRead, encryptionStatusRead, inboxLandingRead, projectAgentsRead, projectBillingRunsRead, projectBriefRead, projectForecastRead,
+  projectInitiativesRead, projectPaymentsRead, useBillingToday,
 } from '@/lib/reads';
+import { INITIATIVE_LABEL } from '@/lib/initiatives';
 import { isRunning } from '@/lib/time-entry-utils';
-import { hasPermission, canOpenInbox, canEditTask, canManageAllTasks, canBeAssignedInProject, isModuleEnabled } from '@/lib/access-control';
+import { hasPermission, canOpenInbox, isModuleEnabled } from '@/lib/access-control';
 import { ProjectAgentsTab } from '@/components/agent/ProjectAgentsTab';
 import { BriefTab } from '@/components/projects/BriefTab';
 import { useCustomProjectTabs } from '@/lib/extensions/hooks';
 
 // Custom tabs (src/custom) are keyed x-<key>, so a core tab added later never collides.
-type ProjectTabKey = 'overview' | 'tasks' | 'agents' | 'brief' | 'time' | 'communication' | 'portal' | 'billing' | 'files' | 'credentials' | `x-${string}`;
+type ProjectTabKey = 'overview' | 'tasks' | 'initiatives' | 'agents' | 'brief' | 'time' | 'communication' | 'portal' | 'billing' | 'files' | 'credentials' | `x-${string}`;
 const DEFAULT_TAB: ProjectTabKey = 'overview';
 
 export default function ProjectDetailPage() {
@@ -70,8 +59,6 @@ export default function ProjectDetailPage() {
   // only mode when that is all the viewer holds).
   const canManageMembers = hasPermission(access, 'project_members.manage');
   const canOpenProjectForm = canManageProject || canManageMembers;
-  const canManageTasks = canManageAllTasks(access);
-  const canCreateTasks = hasPermission(access, 'tasks.create');
   const canReadContacts = hasPermission(access, 'contacts.read') || hasPermission(access, 'contacts.read_all');
   const canReadFiles = hasPermission(access, 'files.read');
   const canReadPortal = hasPermission(access, 'portal.read') || hasPermission(access, 'portal.manage');
@@ -86,8 +73,7 @@ export default function ProjectDetailPage() {
 
   const {
     getProject, getTasksByProject,
-    team,
-    deleteTask, deleteProject, updateTask, reorderTasks, filters, setFilters,
+    deleteTask, deleteProject, setFilters,
     tasks, loading, timeEntries, getInvoicesByProject, updateProject,
   } = useApp();
   const [turningOnTime, setTurningOnTime] = useState(false);
@@ -96,29 +82,16 @@ export default function ProjectDetailPage() {
 
   useEffect(() => { setFilters(defaultFilters); }, []);
 
-  const [viewMode, setViewMode] = useState<ViewMode>('board');
   const [isEditProjectOpen, setIsEditProjectOpen] = useState(false);
   const [isContactsPanelOpen, setIsContactsPanelOpen] = useState(false);
-  // A new task being drafted in the side panel, with a calendar day's date when it came from one.
-  const [newTask, setNewTask] = useState<{ dueDate?: string } | null>(null);
-  const [usingTemplate, setUsingTemplate] = useState<string | null>(null);
-  const [confirmDelete, setConfirmDelete] = useState<{ type: 'task' | 'project' | 'bulk'; id: string } | null>(null);
-  const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set());
-  const [showBulkMenu, setShowBulkMenu] = useState(false);
-  const bulkMenuRef = useRef<HTMLDivElement>(null);
-  // Clearing due dates wipes data with no undo, so it confirms first; it
-  // already cost real due dates to an accidental click.
-  const [confirmClearDueDates, setConfirmClearDueDates] = useState(false);
-  const [bulkMove, setBulkMove] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState<{ type: 'task' | 'project'; id: string } | null>(null);
   // Tabs mount on first visit and then stay mounted (hidden), so a half-typed
   // timer note or an open email thread survives a trip to another tab.
   const [visitedTabs, setVisitedTabs] = useState<Set<ProjectTabKey>>(() => new Set());
 
   const project = getProject(projectId);
 
-  // Unfiltered tasks for stats / progress bar: the project's top-level tasks.
-  const allProjectTasks = getTasksByProject(projectId);
-  // With their subtasks, which open in the panel and turn up in a search.
+  // The project's tasks with their subtasks, which open in the panel.
   const everyProjectTask = tasks.filter(t => t.project_id === projectId);
 
   // Tabs the viewer can open. A tab with nothing they may read is left out,
@@ -136,6 +109,9 @@ export default function ProjectDetailPage() {
     { key: 'overview', label: 'Overview', visible: true },
     { key: 'tasks', label: 'Tasks', visible: true,
       badge: { count: unreadTaskCount, label: `${unreadTaskCount} unread task${unreadTaskCount === 1 ? '' : 's'}` } },
+    // Shown to anyone who can open the project; empty, it says what one is.
+    { key: 'initiatives', label: INITIATIVE_LABEL.plural, visible: true,
+      warm: () => void warmRead(projectInitiativesRead(projectId, isDemoMode)) },
     { key: 'agents', label: 'Agents', visible: agentsOn && !isDemoMode,
       warm: () => warmReads([projectAgentsRead(projectId), agentTemplatesRead(isDemoMode)]) },
     { key: 'brief', label: 'Brief', visible: canReadBrief && !isDemoMode,
@@ -229,35 +205,6 @@ export default function ProjectDetailPage() {
     closeViewingTask();
   }, [viewingTaskId, loading, everyProjectTask, tasks, router, closeViewingTask]);
 
-  // Filtered tasks for the views. Looking for someone's work or a word also
-  // finds subtasks, which name their parent on the card.
-  const findsSubtasks = !!filters.search || filters.assigneeIds.length > 0;
-  let projectTasks = [...(findsSubtasks ? everyProjectTask : allProjectTasks)];
-  if (filters.unread) {
-    projectTasks = projectTasks.filter((task) => !!cardUnread(task));
-  }
-  if (filters.status.length > 0) {
-    projectTasks = projectTasks.filter(t => filters.status.includes(t.status));
-  }
-  if (filters.priority.length > 0) {
-    projectTasks = projectTasks.filter(t => filters.priority.includes(t.priority));
-  }
-  if (filters.assigneeIds.length > 0) {
-    projectTasks = projectTasks.filter(t =>
-      (filters.assigneeIds.includes(UNASSIGNED_FILTER_ID) && t.assignee_ids.length === 0) ||
-      t.assignee_ids.some(id => filters.assigneeIds.includes(id)));
-  }
-  if (filters.tags.length > 0) {
-    projectTasks = projectTasks.filter(t => t.tags.some(tag => filters.tags.includes(tag)));
-  }
-  if (filters.search) {
-    const search = filters.search.toLowerCase();
-    projectTasks = projectTasks.filter(t =>
-      t.title.toLowerCase().includes(search) ||
-      t.description.toLowerCase().includes(search)
-    );
-  }
-
   if (!project) {
     return (
       <div className="animate-fadeIn min-h-screen">
@@ -272,132 +219,14 @@ export default function ProjectDetailPage() {
     );
   }
 
-  const handleViewTask = (task: Task) => {
-    setViewingTaskId(task.id);
-  };
-
   const handleDeleteTask = (id: string) => {
     setConfirmDelete({ type: 'task', id });
-  };
-
-  // Recomputes sort_order for a status column after a drag. The drop index
-  // refers to the filtered (visible) list, but the whole unfiltered column is
-  // resequenced so hidden tasks keep a valid, stable position.
-  const reorderColumn = (taskId: string, status: Task['status'], visibleIndex: number) => {
-    const bySort = (a: Task, b: Task) => (a.sort_order ?? 0) - (b.sort_order ?? 0);
-    const task = allProjectTasks.find(t => t.id === taskId);
-    if (!task) return;
-
-    const visibleSiblings = projectTasks
-      .filter(t => t.id !== taskId && t.status === status && !t.parent_task_id)
-      .sort(bySort);
-    const allSiblings = allProjectTasks
-      .filter(t => t.id !== taskId && t.status === status)
-      .sort(bySort);
-
-    // Map the visible drop position onto the unfiltered column: insert before
-    // the visible task now at that position, or at the end of the column.
-    const clamped = Math.min(visibleIndex, visibleSiblings.length);
-    const anchor = visibleSiblings[clamped];
-    const insertAt = anchor ? allSiblings.findIndex(t => t.id === anchor.id) : allSiblings.length;
-    allSiblings.splice(insertAt, 0, task);
-
-    // Each element still carries its pre-drag sort_order, so only rows whose
-    // position actually changed are written
-    reorderTasks(
-      allSiblings
-        .map((t, idx) => ({ task: t, sort_order: idx }))
-        .filter(({ task: t, sort_order }) => (t.sort_order ?? 0) !== sort_order)
-        .map(({ task: t, sort_order }) => ({ id: t.id, sort_order }))
-    );
-  };
-
-  const handleStatusChange = (taskId: string, newStatus: Task['status'], targetIndex?: number) => {
-    updateTask(taskId, { status: newStatus });
-
-    // If a drop position was specified, reorder within the target column
-    if (targetIndex !== undefined) {
-      reorderColumn(taskId, newStatus, targetIndex);
-    }
-  };
-
-  const handleReorder = (taskId: string, newIndex: number) => {
-    const task = allProjectTasks.find(t => t.id === taskId);
-    if (!task) return;
-    reorderColumn(taskId, task.status, newIndex);
-  };
-
-  const toggleTaskSelection = (taskId: string) => {
-    setSelectedTaskIds(prev => {
-      const next = new Set(prev);
-      if (next.has(taskId)) next.delete(taskId);
-      else next.add(taskId);
-      return next;
-    });
-  };
-
-  const selectableTaskIds = projectTasks
-    .filter(t => canEditTask(access, t, teamMemberId))
-    .map(t => t.id);
-  const allSelectableSelected = selectableTaskIds.length > 0
-    && selectableTaskIds.every(id => selectedTaskIds.has(id));
-
-  const selectAllTasks = () => {
-    setSelectedTaskIds(allSelectableSelected ? new Set() : new Set(selectableTaskIds));
-  };
-
-  // Every write is awaited, so the toast reports what actually saved. Tasks
-  // that failed stay selected, ready for a retry on just those.
-  const runBulk = async (verb: 'Updated' | 'Deleted', write: (id: string) => Promise<boolean>) => {
-    const ids = [...selectedTaskIds];
-    setShowBulkMenu(false);
-    const results = await Promise.all(ids.map(write));
-    const failedIds = ids.filter((_, index) => !results[index]);
-    const saved = ids.length - failedIds.length;
-    const count = (n: number) => `${n} ${n === 1 ? 'task' : 'tasks'}`;
-    setSelectedTaskIds(new Set(failedIds));
-    if (failedIds.length === 0) {
-      toast('success', verb === 'Deleted' ? `Moved ${count(saved)} to Trash` : `${verb} ${count(saved)}`);
-    } else if (saved === 0) {
-      toast('error', verb === 'Deleted' ? `Couldn't move ${count(failedIds.length)} to Trash` : `Couldn't update ${count(failedIds.length)}`);
-    } else {
-      const done = verb === 'Deleted' ? `Moved ${count(saved)} to Trash` : `${verb} ${count(saved)}`;
-      toast('error', `${done}. ${count(failedIds.length)} failed and ${failedIds.length === 1 ? 'is' : 'are'} still selected.`);
-    }
-  };
-
-  const bulkUpdateStatus = (status: Task['status']) =>
-    runBulk('Updated', id => updateTask(id, { status }, { silent: true }));
-
-  const bulkUpdatePriority = (priority: Task['priority']) =>
-    runBulk('Updated', id => updateTask(id, { priority }, { silent: true }));
-
-  const bulkAssign = (memberId: string | null) =>
-    runBulk('Updated', id => updateTask(id, { assignee_ids: memberId ? [memberId] : [] }, { silent: true }));
-
-  const bulkSetDueDate = (date: string | null) =>
-    runBulk('Updated', id => updateTask(id, { due_date: date }, { silent: true }));
-
-  // A subtask moves with its parent, so only top-level tasks move from a selection.
-  const bulkMovable = canCreateTasks
-    ? tasks.filter(t => selectedTaskIds.has(t.id) && !t.parent_task_id).map(t => ({ id: t.id, title: t.title, project_id: t.project_id }))
-    : [];
-
-  const bulkDelete = () => {
-    setConfirmDelete({ type: 'bulk', id: 'bulk' });
-  };
-
-  const clearSelection = () => {
-    setSelectedTaskIds(new Set());
-    setShowBulkMenu(false);
   };
 
   const executeDelete = () => {
     if (!confirmDelete) return;
     if (confirmDelete.type === 'task') {
       deleteTask(confirmDelete.id);
-    } else if (confirmDelete.type === 'bulk') {
-      void runBulk('Deleted', id => deleteTask(id, { silent: true }));
     } else {
       router.push('/projects');
       void deleteProject(confirmDelete.id).then((moved) => {
@@ -405,12 +234,6 @@ export default function ProjectDetailPage() {
       });
     }
   };
-
-  const viewModes: { id: ViewMode; icon: typeof LayoutGrid; label: string }[] = [
-    { id: 'board', icon: LayoutGrid, label: 'Board' },
-    { id: 'list', icon: List, label: 'List' },
-    { id: 'calendar', icon: Calendar, label: 'Calendar' },
-  ];
 
   return (
     <div className="animate-fadeIn min-h-screen">
@@ -459,187 +282,17 @@ export default function ProjectDetailPage() {
         />
       ))}
 
-      {tabPanel('tasks', <>
-        {/* Tasks toolbar: the shared tab toolbar, search first */}
-        <TabToolbar
-          search={{
-            value: filters.search,
-            onChange: v => setFilters({ ...filters, search: v }),
-            placeholder: 'Search tasks',
-          }}
-          filters={allProjectTasks.length > 0 && (
-            <SubNav
-              label="Task view"
-              active={viewMode}
-              onChange={setViewMode}
-              items={viewModes.map(mode => ({ key: mode.id, label: mode.label, icon: mode.icon, hideLabelOnMobile: true }))}
-            />
-          )}
-          extra={<>
-            {/* Selection is a desktop-only gesture: the mobile cards have no
-                checkboxes, so offering Select all there would select rows the
-                user cannot see or unpick individually. */}
-            {selectableTaskIds.length > 0 && viewMode === 'list' && (
-              <button
-                onClick={selectAllTasks}
-                className="hidden lg:inline text-xs text-brand-300 hover:text-brand-300 transition-colors"
-              >
-                {allSelectableSelected ? 'Deselect all' : 'Select all'}
-              </button>
-            )}
-            {/* Bulk Actions (desktop-only, like the selection that feeds it) */}
-            {selectedTaskIds.size > 0 && (
-              <div ref={bulkMenuRef} className="relative hidden lg:block">
-                <button
-                  onClick={() => setShowBulkMenu(!showBulkMenu)}
-                  className="h-9 flex items-center gap-2 px-3 text-sm bg-brand-500/15 text-brand-300 border border-brand-500/30 rounded-lg hover:bg-brand-500/15 transition-colors"
-                >
-                  {selectedTaskIds.size} selected
-                  <ChevronRight size={14} className="rotate-90" />
-                </button>
-                <Popover
-                  anchorRef={bulkMenuRef}
-                  open={showBulkMenu}
-                  onClose={() => setShowBulkMenu(false)}
-                  align="start"
-                  width={248}
-                  className="bg-surface-raised rounded-lg shadow-xl border border-white/[0.08] py-1 max-h-[70vh] overflow-y-auto"
-                >
-                  {/* Same escape hatch the filter panel offers: back out of a
-                      half-committed bulk edit in one click. */}
-                  <div className="flex items-center justify-between px-3 py-1.5 border-b border-white/[0.06] mb-1">
-                    <span className="text-xs font-medium text-zinc-300">{selectedTaskIds.size} selected</span>
-                    <button
-                      onClick={clearSelection}
-                      className="text-xs text-brand-300 hover:text-brand-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-500 rounded"
-                    >
-                      Clear selection
-                    </button>
-                  </div>
-                  <p className="px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-zinc-400">Set Status</p>
-                  <div className="grid grid-cols-2 gap-1 px-2 pb-1">
-                    {(['backlog', 'todo', 'in_progress', 'in_review', 'done'] as const).map(s => (
-                      <button key={s} onClick={() => bulkUpdateStatus(s)} className="text-left px-2 py-1.5 text-sm text-zinc-300 rounded-md hover:bg-white/[0.06]">
-                        {s.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}
-                      </button>
-                    ))}
-                  </div>
-                  <div className="border-t border-white/[0.06] my-1" />
-                  <p className="px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-zinc-400">Set Priority</p>
-                  <div className="grid grid-cols-2 gap-1 px-2 pb-1">
-                    {(['low', 'medium', 'high', 'urgent'] as const).map(p => (
-                      <button key={p} onClick={() => bulkUpdatePriority(p)} className="text-left px-2 py-1.5 text-sm text-zinc-300 rounded-md hover:bg-white/[0.06]">
-                        {p.charAt(0).toUpperCase() + p.slice(1)}
-                      </button>
-                    ))}
-                  </div>
-                  {canManageTasks && <>
-                    <div className="border-t border-white/[0.06] my-1" />
-                    <p className="px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-zinc-400">Assign To</p>
-                    {team.filter(m => canBeAssignedInProject(m, project)).map(member => (
-                      <button key={member.id} onClick={() => bulkAssign(member.id)} className="w-full flex items-center gap-2 text-left px-3 py-1.5 text-sm text-zinc-300 hover:bg-white/[0.03]">
-                        <Avatar name={member.name} src={member.avatar || undefined} size="xs" />
-                        {member.name}
-                      </button>
-                    ))}
-                    <button onClick={() => bulkAssign(null)} className="w-full text-left px-3 py-1.5 text-sm text-zinc-400 hover:bg-white/[0.03]">
-                      Unassign all
-                    </button>
-                  </>}
-                  <div className="border-t border-white/[0.06] my-1" />
-                  <p className="px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-zinc-400">Due Date</p>
-                  <div className="px-3 pb-1.5">
-                    <DateInput value="" onChange={v => { if (v) bulkSetDueDate(v); }} />
-                  </div>
-                  <button onClick={() => { setShowBulkMenu(false); setConfirmClearDueDates(true); }} className="w-full text-left px-3 py-1.5 text-sm text-zinc-400 hover:bg-white/[0.03]">
-                    Clear due date
-                  </button>
-                  {bulkMovable.length > 0 && <>
-                    <div className="border-t border-white/[0.06] my-1" />
-                    <button onClick={() => { setShowBulkMenu(false); setBulkMove(true); }} className="w-full flex items-center gap-2 text-left px-3 py-1.5 text-sm text-zinc-300 hover:bg-white/[0.03]">
-                      <FolderInput size={14} aria-hidden="true" />
-                      {bulkMovable.length === selectedTaskIds.size ? 'Move to project...' : `Move ${bulkMovable.length} to project...`}
-                    </button>
-                  </>}
-                  {canManageTasks && <>
-                    <div className="border-t border-white/[0.06] my-1" />
-                    <button onClick={bulkDelete} className="w-full text-left px-3 py-1.5 text-sm text-red-400 hover:bg-red-500/15">
-                      Delete selected
-                    </button>
-                  </>}
-                </Popover>
-                {bulkMove && bulkMovable.length > 0 && (
-                  <TaskMoveDialog
-                    tasks={bulkMovable}
-                    onClose={() => setBulkMove(false)}
-                    onMoved={() => setSelectedTaskIds(new Set())}
-                  />
-                )}
-              </div>
-            )}
-          </>}
-          actions={<>
-            {allProjectTasks.length > 0 && <TaskFilterControl tasks={allProjectTasks} />}
-          </>}
-          primary={canCreateTasks && (
-            <>
-              <TemplatePicker
-                projectId={projectId}
-                onPick={(template) => setUsingTemplate(template.id)}
-                trigger={({ open, toggle }) => (
-                  <ToolbarButton variant="secondary" icon={<LayoutTemplate />} label="From a template" onClick={toggle} aria-expanded={open} aria-haspopup="listbox" />
-                )}
-              />
-              <ToolbarButton icon={<Plus />} label="Add task" onClick={() => setNewTask({})} />
-            </>
-          )}
+      {tabPanel('tasks', (
+        <ProjectTaskViews
+          projectId={projectId}
+          onOpenTask={setViewingTaskId}
+          onDeleteTask={handleDeleteTask}
         />
+      ))}
 
-        <UnreadNotice tasks={allProjectTasks} />
-
-        {/* Task Views */}
-        {allProjectTasks.length === 0 ? (
-          <EmptyCard
-            icon={<LayoutGrid />}
-            title="No tasks yet"
-            description={canCreateTasks ? 'Use Add task to create the first one.' : 'Tasks for this project will list here.'}
-          />
-        ) : projectTasks.length === 0 ? (
-          <div className="glass-card rounded-xl"><NoMatches>No tasks match.</NoMatches></div>
-        ) : (
-          <>
-            {viewMode === 'board' && (
-              <BoardView
-                tasks={projectTasks}
-                onViewTask={handleViewTask}
-                onDeleteTask={handleDeleteTask}
-                onStatusChange={handleStatusChange}
-                onReorder={handleReorder}
-              />
-            )}
-
-            {viewMode === 'list' && (
-              <ListView
-                tasks={projectTasks}
-                onViewTask={handleViewTask}
-                onDeleteTask={handleDeleteTask}
-                selectedIds={selectedTaskIds}
-                onToggleSelect={toggleTaskSelection}
-                onStatusChange={handleStatusChange}
-                onReorder={handleReorder}
-              />
-            )}
-
-            {viewMode === 'calendar' && (
-              <CalendarView
-                tasks={projectTasks}
-                onViewTask={handleViewTask}
-                onAddTask={canCreateTasks ? (date) => setNewTask({ dueDate: date }) : undefined}
-              />
-            )}
-          </>
-        )}
-      </>)}
+      {tabPanel('initiatives', (
+        <InitiativesTab projectId={projectId} />
+      ))}
 
       {tabPanel('time', timeTrackingOn ? (
         <TimeTrackingPanel projectId={projectId} projectColor={project.color} />
@@ -711,28 +364,6 @@ export default function ProjectDetailPage() {
         project={project}
       />}
 
-      {/* A new task, drafted in the side panel; once made, its own panel takes over. */}
-      {newTask && (
-        <NewTaskPanel
-          projectId={projectId}
-          initialDueDate={newTask.dueDate}
-          onClose={() => setNewTask(null)}
-          onCreated={(task) => {
-            setNewTask(null);
-            setViewingTaskId(task.id);
-          }}
-        />
-      )}
-
-      {/* Tasks from a template, previewed and filled in the same side panel. */}
-      {usingTemplate && (
-        <UseTemplatePanel
-          templateId={usingTemplate}
-          projectId={projectId}
-          onClose={() => setUsingTemplate(null)}
-        />
-      )}
-
       {/* Contacts Panel Modal */}
       {canReadContacts && <ProjectContactsPanel
         isOpen={isContactsPanelOpen}
@@ -752,32 +383,16 @@ export default function ProjectDetailPage() {
         isOpen={!!confirmDelete}
         onClose={() => setConfirmDelete(null)}
         onConfirm={executeDelete}
-        title={confirmDelete?.type === 'project' ? 'Move project to Trash?' : confirmDelete?.type === 'bulk' ? 'Move tasks to Trash?' : 'Move task to Trash?'}
+        title={confirmDelete?.type === 'project' ? 'Move project to Trash?' : 'Move task to Trash?'}
         message={
           confirmDelete?.type === 'project'
             ? projectTrashMessage(access)
-            : confirmDelete?.type === 'bulk'
-            ? `The ${selectedTaskIds.size} selected ${selectedTaskIds.size === 1 ? 'task goes' : 'tasks go'} to Trash with their subtasks and comments.`
             : 'The task goes to Trash with its subtasks and comments.'
         }
         variant="danger"
         trash
       />
 
-      {/* Confirm Clear Due Dates: destructive but recoverable by re-entering
-          dates, so the softer variant without double-confirm. */}
-      <ConfirmDialog
-        isOpen={confirmClearDueDates}
-        onClose={() => setConfirmClearDueDates(false)}
-        onConfirm={() => {
-          setConfirmClearDueDates(false);
-          bulkSetDueDate(null);
-        }}
-        title="Clear Due Dates"
-        message={`This will remove the due date from ${selectedTaskIds.size} selected ${selectedTaskIds.size === 1 ? 'task' : 'tasks'}.`}
-        confirmLabel="Clear due dates"
-        variant="default"
-      />
     </div>
   );
 }

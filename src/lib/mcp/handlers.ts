@@ -5,6 +5,10 @@ import * as projects from '@/app/api/v1/projects/route';
 import * as project from '@/app/api/v1/projects/[id]/route';
 import * as projectContext from '@/app/api/v1/projects/[id]/context/route';
 import * as projectGoals from '@/app/api/v1/projects/[id]/goals/route';
+import * as projectInitiatives from '@/app/api/v1/projects/[id]/initiatives/route';
+import * as projectInitiative from '@/app/api/v1/projects/[id]/initiatives/[initiativeId]/route';
+import * as initiativeEntries from '@/app/api/v1/projects/[id]/initiatives/[initiativeId]/entries/route';
+import * as initiativeEntry from '@/app/api/v1/projects/[id]/initiatives/[initiativeId]/entries/[entryId]/route';
 import * as projectTime from '@/app/api/v1/projects/[id]/time-entries/route';
 import * as timePause from '@/app/api/v1/projects/[id]/time-entries/[entryId]/pause/route';
 import * as timeResume from '@/app/api/v1/projects/[id]/time-entries/[entryId]/resume/route';
@@ -112,6 +116,9 @@ import * as taskTemplates from '@/app/api/v1/task-templates/route';
 import * as taskTemplate from '@/app/api/v1/task-templates/[id]/route';
 import * as taskTemplateRun from '@/app/api/v1/task-templates/[id]/run/route';
 import * as taskTemplateRuns from '@/app/api/v1/task-templates/[id]/runs/route';
+import * as taskTemplateSchema from '@/app/api/v1/task-templates/schema/route';
+import * as taskTemplateValidate from '@/app/api/v1/task-templates/validate/route';
+import * as taskTemplatePreview from '@/app/api/v1/task-templates/[id]/preview/route';
 import * as identityResolve from '@/app/api/v1/identities/resolve/route';
 import * as identityLinkRequests from '@/app/api/v1/identities/link-requests/route';
 import * as memberIdentities from '@/app/api/v1/members/[id]/identities/route';
@@ -138,6 +145,10 @@ export const ROUTE_MODULES: Record<string, RouteModule> = {
   '/api/v1/projects/{id}/agents/{agentId}': projectAgent,
   '/api/v1/projects/setup': projectSetup,
   '/api/v1/projects/{id}/goals': projectGoals,
+  '/api/v1/projects/{id}/initiatives': projectInitiatives,
+  '/api/v1/projects/{id}/initiatives/{initiativeId}': projectInitiative,
+  '/api/v1/projects/{id}/initiatives/{initiativeId}/entries': initiativeEntries,
+  '/api/v1/projects/{id}/initiatives/{initiativeId}/entries/{entryId}': initiativeEntry,
   '/api/v1/projects/{id}/time-entries': projectTime,
   '/api/v1/projects/{id}/time-entries/{entryId}/pause': timePause,
   '/api/v1/projects/{id}/time-entries/{entryId}/resume': timeResume,
@@ -241,6 +252,9 @@ export const ROUTE_MODULES: Record<string, RouteModule> = {
   '/api/v1/task-templates/{id}': taskTemplate,
   '/api/v1/task-templates/{id}/run': taskTemplateRun,
   '/api/v1/task-templates/{id}/runs': taskTemplateRuns,
+  '/api/v1/task-templates/schema': taskTemplateSchema,
+  '/api/v1/task-templates/validate': taskTemplateValidate,
+  '/api/v1/task-templates/{id}/preview': taskTemplatePreview,
   '/api/v1/identities/resolve': identityResolve,
   '/api/v1/identities/link-requests': identityLinkRequests,
   '/api/v1/members/{id}/identities': memberIdentities,

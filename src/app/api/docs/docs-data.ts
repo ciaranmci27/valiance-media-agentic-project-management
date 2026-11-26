@@ -43,8 +43,9 @@ export function getEndpointScopes(endpoint: EndpointDoc): string[] {
   if (path === '/api/v1/identities' || path.startsWith('/api/v1/identities/:id')) return ['team.manage'];
   if (path.startsWith('/api/v1/identities') || path.endsWith('/identities')) return ['identities.read'];
   if (path.startsWith('/api/v1/groups')) return write ? ['groups.manage'] : ['team.read', 'team.manage', 'groups.manage'];
-  if (path === '/api/v1/task-templates/:id/run') return ['tasks.create'];
-  if (path.startsWith('/api/v1/task-templates')) return write ? ['templates.manage'] : ['tasks.create', 'templates.manage'];
+  if (path === '/api/v1/task-templates/:id/run' || path === '/api/v1/task-templates/:id/preview') return ['tasks.create'];
+  if (path === '/api/v1/task-templates/schema') return ['tasks.create', 'templates.manage', 'projects.manage'];
+  if (path.startsWith('/api/v1/task-templates')) return write ? ['templates.manage', "projects.manage (a project's own templates)"] : ['tasks.create', 'templates.manage'];
   if (path === '/api/v1/api-keys/:id/rotate') return ['api_keys.manage_all', 'assistants.provision'];
   if (path.startsWith('/api/v1/api-keys')) return ['api_keys.manage_all'];
   if (path.startsWith('/api/v1/assistant/') || path.startsWith('/api/v1/chat/')) return ['notifications.manage_own'];
@@ -124,6 +125,9 @@ export function getEndpointScopes(endpoint: EndpointDoc): string[] {
   if (path.includes('/portal')) return write ? ['portal.manage'] : ['portal.read', 'portal.manage'];
   if (path.includes('/context')) return write ? ['project_context.manage'] : ['project_context.read', 'project_context.manage'];
   if (path.includes('/goals')) return write ? ['goals.manage'] : ['goals.read', 'goals.manage'];
+  if (path.includes('/initiatives/:initiativeId/entries')) return ['tasks.read (never a guest)'];
+  if (path === '/api/v1/projects/:id/initiatives/:initiativeId' && method === 'DELETE') return ['projects.manage', 'tasks.create (the member who made it)'];
+  if (path.includes('/initiatives')) return write ? ['tasks.create'] : ['projects.read', 'projects.read_all'];
   if (path === '/api/v1/audit/export') return ['audit.export'];
   if (path.includes('/audit-log') || path.includes('/activities')) return ['audit.read'];
   if (path.includes('/team-members')) return write ? ['team.manage'] : ['team.read', 'team.manage'];
@@ -759,6 +763,7 @@ export const endpoints: EndpointDoc[] = [
       { name: 'task_type', type: 'string', description: 'Filter by type: engineering, research, audit, marketing, copywriting, operations, general' },
       { name: 'ai_readiness', type: 'ai_ready|needs_spec|human_only', description: 'Filter by readiness' },
       { name: 'project_goal_id', type: 'uuid', description: 'Filter by linked project goal' },
+      { name: 'initiative_id', type: 'uuid|none', description: 'Only the tasks of this initiative (subtasks included), or none for tasks in no initiative' },
       { name: 'parent_task_id', type: 'uuid', description: "Only this task's subtasks" },
       { name: 'top_level', type: 'true', description: 'Only top-level tasks (no subtasks)' },
       { name: 'search', type: 'string', description: 'Search by task title or description' },
@@ -784,6 +789,7 @@ export const endpoints: EndpointDoc[] = [
       { name: 'acceptance_criteria', type: 'string[]', required: false, description: 'Creates addressable acceptance criteria (one row per string, in order)' },
       { name: 'blocked_by_ids', type: 'uuid[]', required: false, description: 'Tasks that must be done first. Must belong to the same project.' },
       { name: 'project_goal_id', type: 'uuid|null', required: false, description: 'Link this task to a project goal' },
+      { name: 'initiative_id', type: 'uuid|null', required: false, description: 'The initiative (body of work) it belongs to, in the same project. A subtask always takes its parent\'s: leave it out.' },
       { name: 'source_note', type: 'string', required: false, description: 'Why this key is creating the task, in a few words ("from Brennan\'s email"), up to 200 characters. Shown on the task as the key\'s own words; set once, never changed.' },
       { name: 'dedupe_key', type: 'string', required: false, description: 'An incident key, up to 200 characters (for example "checkout-500:/api/cart"). One open task per key in a project: while one holds it, this create counts a repeat on that task (occurrences goes up, last_occurred_at is set) and answers it with deduplicated: true and status 200, instead of making a second task. Two creates racing for the same key end as one task. Once that task is done (or in Trash) the key makes a new task.' },
       { name: 'occurrence_note', type: 'string', required: false, description: 'What happened this time. When dedupe_key finds an open task, it is added there as a comment under the key\'s member.' },
@@ -792,7 +798,7 @@ export const endpoints: EndpointDoc[] = [
   { method: 'GET', path: '/api/v1/tasks/:id', description: 'Get a single task with its parent ({ id, title, status } for a subtask, otherwise null), its subtasks (each a task: id, title, status, completed, assignee_ids, due_date, sorted by sort_order), comments (sorted by created_at), assignee_ids, acceptance_criteria, blocked_by (each blocker with id, title, status), dependencies_met (true when every blocker is done), and claim: who is working on it right now ({ member_id, member_name, claimed_at, expires_at }), or null when nobody holds a live claim. open_question: the oldest open question on the task ({ id, question, choices, allow_other, asked_by, asked_by_name, asked_to, asked_to_name, expires_at, created_at }), or null; while it is set the task is waiting on asked_to. GET /api/v1/questions?task_id= lists them all. latest_run: the newest agent run on the task ({ id, status, agent_id, agent_name, title, started_at, finished_at }, status timed_out for one running two hours past its last update, waiting for one waiting on a person), or null, and null while the AI agents module is off. It never carries the trace link: GET /api/v1/agents/runs/:id has it, for the run\'s agent or a key with agents.manage. GET /api/v1/agents/runs?task_id= lists them all. The row also carries claimed_by, claimed_at, claim_expires_at (a past claim_expires_at means the claim is over), dedupe_key, occurrences and last_occurred_at.', group: 'Tasks',
     params: [{ name: 'id', type: 'uuid', required: true, description: 'Task ID' }],
   },
-  { method: 'GET', path: '/api/v1/tasks/:id/brief', description: 'Everything an agent needs to start work on a task, in one call: task (as GET /tasks/:id, without comments, long description cut with description_truncated), project (name, status, description, repo_path, branches, member_ids; needs projects.read), project_context ({ entries, total, truncated }: the active context entries, each cut at 2,000 characters and about 12,000 in all; needs project_context.read), comments ({ recent: the newest 10, total }), files (as GET /tasks/:id/files, up to 50; needs files.read), blockers ({ blocked_by, dependencies_met }), open_question, claim, latest_run (as GET /tasks/:id), rules (the caller\'s own: is_agent, self_assign, close_policy, create_policy, escalate_to { id, name }) and omitted (parts left out because the key cannot read them, each with the permission it needs). A brief still over about 36,000 characters is cut further, oldest comments first, then files, subtasks, criteria and descriptions; cut_to_fit names each step and the part carries a note. Same access as GET /tasks/:id.', group: 'Tasks',
+  { method: 'GET', path: '/api/v1/tasks/:id/brief', description: 'Everything an agent needs to start work on a task, in one call: task (as GET /tasks/:id, without comments, long description cut with description_truncated), project (name, status, description, repo_path, branches, member_ids; needs projects.read), project_context ({ entries, total, truncated }: the active context entries, each cut at 2,000 characters and about 12,000 in all; needs project_context.read), initiative (the body of work the task belongs to: id, name, description cut at 2,000 characters, status, health, owner, dates and brief, its pinned brief entries (needs project_context.read); null when it has none or that initiative is in Trash; the task\'s goal stays task.project_goal_id), comments ({ recent: the newest 10, total }), files (as GET /tasks/:id/files, up to 50; needs files.read), blockers ({ blocked_by, dependencies_met }), open_question, claim, latest_run (as GET /tasks/:id), rules (the caller\'s own: is_agent, self_assign, close_policy, create_policy, escalate_to { id, name }) and omitted (parts left out because the key cannot read them, each with the permission it needs). A brief still over about 36,000 characters is cut further, oldest comments first, then files, subtasks, criteria and descriptions; cut_to_fit names each step and the part carries a note. Same access as GET /tasks/:id.', group: 'Tasks',
     params: [{ name: 'id', type: 'uuid', required: true, description: 'Task ID' }],
   },
   { method: 'GET', path: '/api/v1/tasks/:id/reviews', description: 'A task\'s review verdicts, newest first, paginated: id, round, verdict, summary, pr_url and head_sha (both null on a review of work without a pull request), reviewer_member_id and created_at. GET /tasks/:id carries the newest as latest_review.', group: 'Tasks',
@@ -824,6 +830,7 @@ export const endpoints: EndpointDoc[] = [
       { name: 'acceptance_criteria', type: 'string[]', required: false, description: 'Replace the full criteria list (deletes existing rows and resets satisfied flags). Use the acceptance-criteria endpoints to edit individual criteria.' },
       { name: 'blocked_by_ids', type: 'uuid[]', required: false, description: 'Replace the full blocker list. Must belong to the same project.' },
       { name: 'project_goal_id', type: 'uuid|null', required: false, description: 'Link to a goal or null to unlink' },
+      { name: 'initiative_id', type: 'uuid|null', required: false, description: 'The initiative it belongs to, in the task\'s project (after a move, the new one), or null to take it out. A subtask always has its parent\'s; changing a parent\'s changes its subtasks\'. Moving a task to another project clears it unless one there is named.' },
     ],
   },
   { method: 'DELETE', path: '/api/v1/tasks/:id', description: 'Move a task to Trash (needs tasks.manage_all). Its subtasks, comments and reminders go out of reach with it and come back when it is restored. It can be restored from Trash in the app.', group: 'Tasks',
@@ -1240,6 +1247,81 @@ export const endpoints: EndpointDoc[] = [
     ],
   },
 
+  // ─── Initiatives (core: bodies of work inside a project) ──────────
+  { method: 'GET', path: '/api/v1/projects/:id/initiatives', description: 'List a project\'s initiatives in order, paginated. An initiative is a named body of work inside a project, with an owner, status, its own board (the tasks with its initiative_id) and a log; a goal is an outcome to reach, a different thing. Done ones are left out unless include_done=true or status names one. Each with owner ({ kind, id, name } or null), progress ({ done, total } top-level tasks of those the key\'s member can see; null without a task permission), open_issue_count and last_entry_at (null for a key that may not read the log).', group: 'Initiatives',
+    params: [{ name: 'id', type: 'uuid', required: true, description: 'Project ID' }],
+    queryParams: [
+      { name: 'status', type: 'planned|active|paused|done', description: 'Only this status' },
+      { name: 'include_done', type: 'true', description: 'Include done ones' },
+      { name: 'page', type: 'number', description: 'Page number (default 1)' },
+      { name: 'limit', type: 'number', description: 'Items per page (default 25, max 100)' },
+    ],
+  },
+  { method: 'POST', path: '/api/v1/projects/:id/initiatives', description: 'Create an initiative in the project (tasks.create there). Answers 201 with it as the list shows it. Tag tasks with initiative_id on POST or PATCH /api/v1/tasks.', group: 'Initiatives',
+    params: [{ name: 'id', type: 'uuid', required: true, description: 'Project ID' }],
+    body: [
+      { name: 'name', type: 'string', required: true, description: 'Name, up to 120 characters' },
+      { name: 'description', type: 'string', required: false, description: 'What it is for, up to 5,000 characters. A project goal is an outcome; an initiative is the body of work.' },
+      { name: 'owner_member_id', type: 'uuid|null', required: false, description: 'Its owner, an active member. Naming one clears a group owner.' },
+      { name: 'owner_group_id', type: 'uuid|null', required: false, description: 'Or an owner group. One owner at most.' },
+      { name: 'status', type: 'planned|active|paused|done', required: false, description: 'Default planned' },
+      { name: 'health', type: 'on_track|at_risk|blocked|null', required: false, description: 'How it is going, only while active' },
+      { name: 'start_date', type: 'string|null', required: false, description: 'YYYY-MM-DD' },
+      { name: 'target_date', type: 'string|null', required: false, description: 'YYYY-MM-DD, on or after start_date' },
+      { name: 'sort_order', type: 'number', required: false, description: 'Its place in the project (default: last)' },
+    ],
+  },
+  { method: 'GET', path: '/api/v1/projects/:id/initiatives/:initiativeId', description: 'An initiative\'s starting read: { initiative, open_issues (newest 20), recent_entries (last 10), brief (pinned entries of its brief, context scope initiative), can }. Each list is { rows, more } (more: how many were left out). A part the key may not read is null: the log needs tasks.read and is never a guest\'s; the brief needs project_context.read.', group: 'Initiatives',
+    params: [{ name: 'id', type: 'uuid', required: true, description: 'Project ID' }, { name: 'initiativeId', type: 'uuid', required: true, description: 'Initiative ID' }],
+  },
+  { method: 'PATCH', path: '/api/v1/projects/:id/initiatives/:initiativeId', description: 'Change an initiative (tasks.create in the project). Send only what changes. Its project never changes.', group: 'Initiatives',
+    params: [{ name: 'id', type: 'uuid', required: true, description: 'Project ID' }, { name: 'initiativeId', type: 'uuid', required: true, description: 'Initiative ID' }],
+    body: [
+      { name: 'name', type: 'string', required: false, description: 'Name, up to 120 characters' },
+      { name: 'description', type: 'string', required: false, description: 'What it is for, up to 5,000 characters. A project goal is an outcome; an initiative is the body of work.' },
+      { name: 'owner_member_id', type: 'uuid|null', required: false, description: 'Its owner, an active member. Naming one clears a group owner.' },
+      { name: 'owner_group_id', type: 'uuid|null', required: false, description: 'Or an owner group. One owner at most.' },
+      { name: 'status', type: 'planned|active|paused|done', required: false, description: 'Its status; health is cleared when it is not active' },
+      { name: 'health', type: 'on_track|at_risk|blocked|null', required: false, description: 'How it is going, only while active' },
+      { name: 'start_date', type: 'string|null', required: false, description: 'YYYY-MM-DD' },
+      { name: 'target_date', type: 'string|null', required: false, description: 'YYYY-MM-DD, on or after start_date' },
+      { name: 'sort_order', type: 'number', required: false, description: 'Its place in the project' },
+    ],
+  },
+  { method: 'DELETE', path: '/api/v1/projects/:id/initiatives/:initiativeId', description: 'Move an initiative to Trash (projects.manage, or the member who made it). Its tasks stay where they are and keep initiative_id; they read as having no initiative until it is restored from Trash in the app. Its log goes out of reach with it.', group: 'Initiatives',
+    params: [{ name: 'id', type: 'uuid', required: true, description: 'Project ID' }, { name: 'initiativeId', type: 'uuid', required: true, description: 'Initiative ID' }],
+  },
+  { method: 'GET', path: '/api/v1/projects/:id/initiatives/:initiativeId/entries', description: 'An initiative\'s log, the dated record, newest first: updates, decisions, issues (status open or resolved) and notes, each with created_by_name and resolved_by_name. Standing knowledge is its brief (GET /api/v1/context, scope initiative). Needs tasks.read; never a guest.', group: 'Initiatives',
+    params: [{ name: 'id', type: 'uuid', required: true, description: 'Project ID' }, { name: 'initiativeId', type: 'uuid', required: true, description: 'Initiative ID' }],
+    queryParams: [
+      { name: 'kind', type: 'update|decision|issue|note', description: 'Only this kind' },
+      { name: 'status', type: 'open|resolved', description: 'Issues only: open or resolved' },
+      { name: 'page', type: 'number', description: 'Page number (default 1)' },
+      { name: 'limit', type: 'number', description: 'Items per page (default 50, max 100)' },
+    ],
+  },
+  { method: 'POST', path: '/api/v1/projects/:id/initiatives/:initiativeId/entries', description: 'Add an entry to the log under the key\'s member (tasks.read; never a guest). An issue starts open. A proposed task is a task suggestion (POST /api/v1/task-suggestions), never an entry. Answers 201 with the entry.', group: 'Initiatives',
+    params: [{ name: 'id', type: 'uuid', required: true, description: 'Project ID' }, { name: 'initiativeId', type: 'uuid', required: true, description: 'Initiative ID' }],
+    body: [
+      { name: 'kind', type: 'update|decision|issue|note', required: true, description: 'What it records' },
+      { name: 'title', type: 'string', required: true, description: 'Up to 200 characters' },
+      { name: 'body', type: 'string', required: false, description: 'Up to 20,000 characters' },
+      { name: 'task_id', type: 'uuid|null', required: false, description: 'A task in the same project it is about' },
+    ],
+  },
+  { method: 'PATCH', path: '/api/v1/projects/:id/initiatives/:initiativeId/entries/:entryId', description: 'Change a log entry. Its author changes title, body and task_id (403 not_author otherwise); status resolves or reopens an issue, for anyone who may log (422 not_an_issue for other kinds).', group: 'Initiatives',
+    params: [{ name: 'id', type: 'uuid', required: true, description: 'Project ID' }, { name: 'initiativeId', type: 'uuid', required: true, description: 'Initiative ID' }, { name: 'entryId', type: 'uuid', required: true, description: 'Log entry ID' }],
+    body: [
+      { name: 'title', type: 'string', required: false, description: 'Up to 200 characters' },
+      { name: 'body', type: 'string', required: false, description: 'Up to 20,000 characters' },
+      { name: 'task_id', type: 'uuid|null', required: false, description: 'A task in the same project, or null' },
+      { name: 'status', type: 'open|resolved', required: false, description: 'Issues only' },
+    ],
+  },
+  { method: 'DELETE', path: '/api/v1/projects/:id/initiatives/:initiativeId/entries/:entryId', description: 'Move a log entry to Trash: its author, or whoever manages projects.', group: 'Initiatives',
+    params: [{ name: 'id', type: 'uuid', required: true, description: 'Project ID' }, { name: 'initiativeId', type: 'uuid', required: true, description: 'Initiative ID' }, { name: 'entryId', type: 'uuid', required: true, description: 'Log entry ID' }],
+  },
+
   // ─── Project Context (core: any AI working the project reads it) ──
   { method: 'GET', path: '/api/v1/projects/:id/context', description: 'List project knowledge entries. Returns structured context that agents use to understand the project: business context, existing work, technical decisions, constraints, and lessons learned. Each entry has the same nine fields it always had (id, project_id, category, content, source, file_path, is_active, created_at, updated_at); its brief section and pin come from the search route and the project brief.', group: 'Project Context',
     params: [{ name: 'id', type: 'uuid', required: true, description: 'Project ID' }],
@@ -1435,7 +1517,7 @@ export const endpoints: EndpointDoc[] = [
       { name: 'metadata', type: 'object', required: false, description: 'Anything else, up to 8000 characters as JSON' },
       { name: 'started_at', type: 'ISO 8601', required: false, description: 'When it began (default now; not in the future)' },
       { name: 'agent_id', type: 'uuid', required: false, description: 'Another agent\'s run: needs agents.manage on key and member' },
-      { name: 'parent_run_id', type: 'uuid', required: false, description: 'The run that handed this work over: one the key can see (404 otherwise), and the child acts for the same person (403 principal_mismatch). At most 8 hand-offs below the first run of its chain (409 chain_too_deep). A chain for a person you do not act for is worked with your access and theirs together: the task or project must be in both reaches. The run then carries parent_run_id and root_run_id' },
+      { name: 'parent_run_id', type: 'uuid', required: false, description: 'The run that handed this work over: one the key can see, or one that asked your agent a question or approval directly (asked_to, not a group) naming that run_id, while it is open or up to 24 hours after it was answered (404 otherwise; linking reads nothing more of that run), and the child acts for the same person (403 principal_mismatch). At most 8 hand-offs below the first run of its chain (409 chain_too_deep). A chain for a person you do not act for is worked with your access and theirs together: the task or project must be in both reaches. The run then carries parent_run_id and root_run_id' },
     ],
   },
   { method: 'GET', path: '/api/v1/agents/runs', description: 'Runs, newest first (a run by its start, a turn by when it was recorded): stored runs (source run) and each turn.completed that names no run, read as a finished run (source turn, status succeeded, with its outcome, duration and its own tokens; never a cost, which lives in usage events). Scheduled turns that did no work (outcome idle, skipped or waiting) are not runs. A turn is never copied, so totals in analytics are unchanged and nothing is counted twice: a run\'s tokens and cost are what its harness reported, and turns that name a run are counted in its turns, not as rows. The key\'s own runs; with agents.manage every agent\'s. Runs on a task or project in Trash are left out. Each stored run carries turns ({ count, duration_ms, tokens_in, tokens_out }) for the turns that named it. Paginated.', group: 'Agent Runs',
@@ -1824,7 +1906,10 @@ export const endpoints: EndpointDoc[] = [
   },
   { method: 'GET', path: '/api/v1/inbox/triage/unsummarized', description: 'For the batched summary: the newest unsummarized triage per email from the last 14 days that drove an outcome (a task created or updated, a reminder the agent set, a reply owed or a question; an email read and left alone is never listed), oldest first, with the triage\'s own project_id, the email (sender, subject, conversation_id, routing_basis, forwarded_by and original_sender, as on the detail), the thread\'s strongest project ({ id, name, source }; source guessed when the agent picked it), projects (every project, strongest first), project_ids (the projects this triage filed on) and linked tasks with their project (no bodies).', group: 'Inbound Email',
     deprecated: cutover('the answer from POST /api/v1/inbox/messages/:id/plan (each item and its decision): summarize as you plan'),
-    queryParams: [{ name: 'inbox_id', type: 'uuid', description: 'One granted inbox (default: every granted inbox)' }],
+    queryParams: [
+      { name: 'inbox_id', type: 'uuid', description: 'One granted inbox (default: every granted inbox)' },
+      { name: 'handled', type: 'me', description: 'Only the inboxes you handle, as yourself or through a group (default: every granted inbox)' },
+    ],
   },
   { method: 'POST', path: '/api/v1/inbox/triage/mark-summarized', description: 'Mark triage as summarized, along with older unsummarized triage of the same emails. All or nothing: an id outside your inboxes marks nothing (404 with missing ids).', group: 'Inbound Email',
     deprecated: cutover('the answer from POST /api/v1/inbox/messages/:id/plan (each item and its decision): summarize as you plan'),
@@ -1856,7 +1941,10 @@ export const endpoints: EndpointDoc[] = [
     ],
   },
   { method: 'GET', path: '/api/v1/inbox/questions', description: 'Questions you asked at triage that still wait on a person, oldest first: message_id, conversation_id (thread_id is its older name), subject, from, project ({ id, name } or null, the strongest), projects (every project, each { id, name, source }), question, asked_at. Answering one in the Inbox (the email comes back to New with the answer) or marking the thread handled takes it off.', group: 'Inbound Email',
-    queryParams: [{ name: 'inbox_id', type: 'uuid', description: 'One granted inbox (default: every granted inbox)' }],
+    queryParams: [
+      { name: 'inbox_id', type: 'uuid', description: 'One granted inbox (default: every granted inbox)' },
+      { name: 'handled', type: 'me', description: 'Only the inboxes you handle, as yourself or through a group (default: every granted inbox)' },
+    ],
   },
   { method: 'GET', path: '/api/v1/inbox/sender-rules', description: 'The live sender rules: what sorting does with mail from an address or domain (for every topic, or one), each with a plain label such as "Usage alerts from okendo.io" and its source (person or agent). A rule for one inbox also has scope inbox and its inbox_id; a workspace rule has neither field.', group: 'Inbound Email',
     queryParams: [{ name: 'inbox_id', type: 'uuid', description: "One granted inbox: only the rules that sort its mail, the workspace's and its own (default: every live rule)" }],
@@ -2088,41 +2176,59 @@ export const endpoints: EndpointDoc[] = [
   { method: 'DELETE', path: '/api/v1/groups/:id/members/:memberId', description: 'Take a member out of a group.', group: 'Groups',
     params: [{ name: 'id', type: 'uuid', required: true, description: 'Group ID' }, { name: 'memberId', type: 'uuid', required: true, description: 'Team member ID' }],
   },
-  { method: 'GET', path: '/api/v1/task-templates', description: 'List task templates by name, paginated, without their tasks: one task or a playbook (an ordered list of tasks with subtasks) used again and again. A template locked to a project (project_id) is listed only to members who can open that project. Each with fields (its fill-ins), item_count, task_count, version, run_count and last_run_at.', group: 'Task Templates',
+  { method: 'GET', path: '/api/v1/task-templates', description: "List task templates by name, paginated, without their tasks: one task or a playbook (an ordered list of tasks with subtasks) used again and again. A project's template (project_id set) is listed only to members who can open that project; project_id null is company-wide. Each with scope (project or workspace), can_edit, key_dates, roles, fields (its fill-ins), item_count, task_count, version, run_count and last_run_at.", group: 'Task Templates',
     queryParams: [
       { name: 'search', type: 'string', description: 'Matches names' },
-      { name: 'project_id', type: 'uuid', description: 'Only templates usable in this project: unlocked ones and the ones locked to it' },
+      { name: 'project_id', type: 'uuid', description: "Only templates usable in this project: company-wide ones and the project's own, its own first" },
+      { name: 'scope', type: 'string', description: 'project (only templates that belong to a project) or workspace (only company-wide ones)' },
       { name: 'page', type: 'number', description: 'Page number (default 1)' },
       { name: 'limit', type: 'number', description: 'Items per page (default 25, max 100)' },
     ],
   },
-  { method: 'POST', path: '/api/v1/task-templates', description: 'Create a template for the whole workspace (there are no personal templates; the creator is recorded). Every {key} used in a title or description needs a field with that key, or the request is 422.', group: 'Task Templates',
+  { method: 'POST', path: '/api/v1/task-templates', description: "Create a template from the JSON template (GET /api/v1/task-templates/schema has it as JSON Schema). There are no personal templates; the creator is recorded. project_id null makes it company-wide (needs templates.manage); a project id puts it in that project (needs projects.manage or templates.manage there). Checked whole: a 422 lists every error in details.errors, each with path (items[2].depends_on[0]), code, message and hint, the same as POST /api/v1/task-templates/validate; details.reason is the first error's code. Idempotency-Key is accepted.", group: 'Task Templates',
     body: [
       { name: 'name', type: 'string', required: true, description: '1 to 120 characters' },
       { name: 'description', type: 'string', required: false, description: 'Up to 2000 characters: when to use it' },
-      { name: 'project_id', type: 'uuid|null', required: false, description: 'Locks it to this project: shown only there, and it always creates there. Null or left out: any project.' },
-      { name: 'fields', type: '{ key, label }[]', required: false, description: 'Fill-in fields (up to 10), asked for when it is used. key is lowercase letters, numbers and underscores: {product} in a title uses the field with key product.' },
-      { name: 'items', type: 'object[]', required: true, description: 'The tasks in order (1 to 50, 200 with subtasks): title (required), description, priority (low, medium, high, urgent), tags, assignee ("runner" for whoever uses it, a member id, or null), due_in_days (days after the start date, or null) and subtasks (up to 30, the same fields, one level deep)' },
+      { name: 'project_id', type: 'uuid|null', required: false, description: 'The project it belongs to: shown only there, and it always creates there. Null or left out: company-wide.' },
+      { name: 'guidance', type: 'string', required: false, description: 'Up to 10000 characters: how to fill it in and what to look at first, for a person or an agent' },
+      { name: 'key_dates', type: '{ key, label, main? }[]', required: false, description: "Named anchors due dates count from (1 to 10). Left out: one, { key: \"start\", label: \"Start date\" }. main marks the date a run's initiative targets (default the first)." },
+      { name: 'roles', type: '{ key, label, default_member_id?, required? }[]', required: false, description: 'Roles tasks are assigned by (up to 20). A run maps each to one member, a person or an agent; default_member_id fills it when the run does not; required means a run must have someone.' },
+      { name: 'fields', type: '{ key, label, type?, options?, required? }[]', required: false, description: 'Fill-in fields (up to 10), asked for when it is used. key is lowercase letters, numbers and underscores: {product} in a title uses the field with key product. type: text (default), date, member (a member id; fills in their name) or choice (one of options). required defaults to true.' },
+      { name: 'items', type: 'object[]', required: true, description: 'The tasks in order (1 to 50, 200 with subtasks): key (stable; the server gives t1, t2, t1.1 to any without one), title (required), description, priority (low, medium, high, urgent), tags, assignee ("runner" for whoever uses it, a member id, or null), role (a role key: the mapped member wins), anchor (a key date key; default the first) and due_in_days (days from it, -3650 to 3650, negative before it, or null), depends_on (keys of other top-level tasks it waits on, no loops) and subtasks (up to 30, the same fields but depends_on, one level deep)' },
+    ],
+  },
+  { method: 'GET', path: '/api/v1/task-templates/schema', description: 'The JSON template as JSON Schema (draft 2020-12): template (what create takes), update (a change) and run (what run and preview take), the rules beyond the shape, every error code in plain words, and a worked product launch example. Built from the schema the server checks with.', group: 'Task Templates' },
+  { method: 'POST', path: '/api/v1/task-templates/validate', description: 'Check a template without saving it: the same rules as create and update. Answers 200 with { valid, errors, template, can_save }: every error with path, code, message and hint (unknown_anchor, unknown_role, duplicate_key, dependency_cycle with cycle, unknown_dependency, undeclared_field, offset_out_of_range, project_not_found, assignee_not_active, ...); template is what would be saved, every task keyed; can_save says whether this key may save it in its scope.', group: 'Task Templates',
+    body: [
+      { name: 'template', type: 'object', required: true, description: 'The JSON template as create takes it; with template_id, a change as update takes it' },
+      { name: 'template_id', type: 'uuid', required: false, description: 'Check template as a change to this template' },
     ],
   },
   { method: 'GET', path: '/api/v1/task-templates/:id', description: 'Get one template with its tasks (items), fields, version, run_count, last_run_at and created_by_name.', group: 'Task Templates',
     params: [{ name: 'id', type: 'uuid', required: true, description: 'Template ID' }],
   },
-  { method: 'PATCH', path: '/api/v1/task-templates/:id', description: 'Change a template. Send only what changes; fields and items are replaced whole, so send both when the fill-ins change. Its version goes up by one when what it makes changes; runs already made keep the version they used.', group: 'Task Templates',
+  { method: 'PATCH', path: '/api/v1/task-templates/:id', description: "Change a template. Send only what changes; fields, items, key_dates and roles are replaced whole, so send fields with items when the fill-ins change and keep each task's key. A client that sends items without the newer item fields (key, anchor, role, depends_on) drops them for those items, and the tasks get new keys. Checked against the template it changes, with the same errors as validate. Needs the same rights as creating it, in its scope and, when project_id changes, the new one. Its version goes up by one when what it makes changes; the same change twice changes nothing; Idempotency-Key is accepted. Runs already made keep the version they used.", group: 'Task Templates',
     params: [{ name: 'id', type: 'uuid', required: true, description: 'Template ID' }],
   },
   { method: 'DELETE', path: '/api/v1/task-templates/:id', description: 'Move a template to Trash. It leaves the library; the tasks it already made and its runs stay as they are.', group: 'Task Templates',
     params: [{ name: 'id', type: 'uuid', required: true, description: 'Template ID' }],
   },
-  { method: 'POST', path: '/api/v1/task-templates/:id/run', description: "Use a template: every task and subtask is created in the project at once, through the same task service as POST /api/v1/tasks (each sends task.created), then the run is recorded (one template.run webhook). Fill-ins are replaced by values, due dates count from start_date, and \"runner\" assignees become the key's member. A named assignee who cannot open the project is left off, and notes says so. Answers 201 with { run, tasks, notes }. 422 locked_to_project, project_required or missing_values.", group: 'Task Templates',
+  { method: 'POST', path: '/api/v1/task-templates/:id/run', description: "Use a template: with create_initiative true, an active initiative is made for the run first (named from the run, target date the main key date, owned by the key's member unless initiative says otherwise); then every task and subtask is created in the project at once (inside that initiative, when there is one), through the same task service as POST /api/v1/tasks (each sends task.created), dependencies become task dependencies, and the run is recorded with a link from each task to its template item and planned due date (one template.run webhook). Fill-ins are replaced by values, due dates count from their key date, tasks with a role go to the member roles maps it to (mapping someone other than the key's member needs tasks.manage_all: 403 cannot_assign_others; a role's default member and assignees written in the template stand), and \"runner\" assignees become the key's member. A named assignee who cannot open the project is left off, and notes says so. Answers 201 with { run, tasks, initiative, notes }. A refusal lists every error in details.errors (locked_to_project, project_required, missing_values, missing_key_date, unknown_key_date, role_unmapped, ...), as POST /api/v1/task-templates/:id/preview shows before.", group: 'Task Templates',
     params: [{ name: 'id', type: 'uuid', required: true, description: 'Template ID' }],
     body: [
-      { name: 'project_id', type: 'uuid', required: false, description: 'Where the tasks go. Left out for a template locked to a project; another project is refused.' },
-      { name: 'start_date', type: 'YYYY-MM-DD', required: false, description: "Due dates count from here. Default: today in the member's time zone." },
-      { name: 'values', type: 'object', required: false, description: 'A value for every fill-in field, by key (up to 200 characters each): { "product": "Aurora" }' },
+      { name: 'project_id', type: 'uuid', required: false, description: "Where the tasks go. Left out for a project's own template; another project is refused." },
+      { name: 'start_date', type: 'YYYY-MM-DD', required: false, description: "The \"start\" key date. Default: today in the member's time zone." },
+      { name: 'key_dates', type: 'object', required: false, description: 'A date for each key date, by key: { "launch": "2027-03-01" }. Every key date but start needs one.' },
+      { name: 'values', type: 'object', required: false, description: 'A value for every fill-in field, by key (up to 200 characters each): { "product": "Aurora" }. A date field takes YYYY-MM-DD, a member field a member id, a choice field one of its options.' },
+      { name: 'roles', type: 'object', required: false, description: "One member per role, by role key: a member id (a person or an agent), \"runner\" for the key's member, or null for nobody" },
+      { name: 'create_initiative', type: 'boolean', required: false, description: 'Default false. true makes an initiative for the run, its tasks inside it.' },
+      { name: 'initiative', type: 'object', required: false, description: 'With create_initiative true: its name (default from the template and values), and one owner: owner_role (the member a role maps to), owner_member_id or owner_group_id. Sent without create_initiative true, it is refused (invalid_value at initiative).' },
     ],
   },
-  { method: 'GET', path: '/api/v1/task-templates/:id/runs', description: "A template's runs, newest first, paginated: run_by, via (app, api, mcp or schedule), project, start_date, values, template_version and task_ids (every task it made). Only runs on projects the key's member can open.", group: 'Task Templates',
+  { method: 'POST', path: '/api/v1/task-templates/:id/preview', description: "A dry run: takes what run takes and answers exactly what that run would make, writing nothing: { ok, errors, template, project, key_dates, main_key_date, roles (each with member and source: run, default or none), values, tasks (key, title, due_date, anchor, due_in_days, role, assignee_id, assignee_name, depends_on, subtasks), dependencies ({ task, waits_on } by key), initiative, task_count, notes }. ok false lists every reason the run would be refused, with path and hint. An agent's own rules (paused, approval) are checked only by the run.", group: 'Task Templates',
+    params: [{ name: 'id', type: 'uuid', required: true, description: 'Template ID' }],
+  },
+  { method: 'GET', path: '/api/v1/task-templates/:id/runs', description: "A template's runs, newest first, paginated: run_by, via (app, api, mcp or schedule), project, start_date, key_dates, role_members, initiative_id, values, template_version and task_ids (every task it made). Only runs on projects the key's member can open.", group: 'Task Templates',
     params: [{ name: 'id', type: 'uuid', required: true, description: 'Template ID' }],
     queryParams: [
       { name: 'page', type: 'number', description: 'Page number (default 1)' },
@@ -2310,7 +2416,7 @@ export const endpoints: EndpointDoc[] = [
   { method: 'GET', path: '/api/v1/agents/runs/:id/tree', description: "The chain a run belongs to, from its root, in start order, across every task its runs worked on: each run's id, parent_run_id, depth (0 for the root), agent_id and agent_name, task_id, status, title, started_at, finished_at, principal_id, and delegated (the tasks it handed over: task_id, delegated_to, mode subtask or assign). On the tree: principal_id (the person the whole chain works for), levels (the deepest depth plus one) and max_depth (8: a child run deeper is 409 chain_too_deep). Readable by anyone who sees one of its runs (their own, a run that delegated to them, or every run with agents.manage). Another agent's run has visible false and leaves out summary, tokens, cost and external_url. Runs start with parent_run_id on POST /api/v1/agents/runs (a run the key can see; the child acts for the same person, 403 principal_mismatch otherwise); run.started and run.finished carry parent_run_id and root_run_id when set.", group: 'Agent Runs',
     params: [{ name: 'id', type: 'uuid', required: true, description: 'Any run in the chain' }],
   },
-  { method: 'GET', path: '/api/v1/context', description: "One scope's context as a brief: sections of entries (pinned first, then newest), name and can_edit. Any scope reads it; each scope has its own rule. Scopes: workspace (company knowledge, every member but guests), group (its members and whoever manages groups), project (as the project brief: project_context.read), agent (the agent and the people who manage it), member (one person's memory: only them, through their own key or connected AI tool only with context.memory, and their own personal agent while they allow it; never an Owner in the app, and reads by the assistant host are audited).", group: 'Context',
+  { method: 'GET', path: '/api/v1/context', description: "One scope's context as a brief: sections of entries (pinned first, then newest), name and can_edit. Any scope reads it; each scope has its own rule. Scopes: workspace (company knowledge, every member but guests), group (its members and whoever manages groups), project (as the project brief: project_context.read), agent (the agent and the people who manage it), member (one person's memory: only them, through their own key or connected AI tool only with context.memory, and their own personal agent while they allow it; never an Owner in the app, and reads by the assistant host are audited), initiative (an initiative's brief, standing knowledge about that body of work: as its project's brief, project_context.read; its dated log is /initiatives/:initiativeId/entries).", group: 'Context',
     queryParams: [
       { name: 'scope_type', type: 'string', description: 'workspace, group, project, agent or member (required)' },
       { name: 'scope_id', type: 'uuid', description: 'The group, project, agent or person; left out for the workspace' },

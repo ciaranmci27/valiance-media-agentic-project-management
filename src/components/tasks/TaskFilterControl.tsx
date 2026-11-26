@@ -6,11 +6,14 @@ import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
 import { Popover } from '@/components/ui/Popover';
 import { Avatar } from '@/components/ui/Avatar';
-import type { Task } from '@/lib/types';
+import type { Initiative, Task } from '@/lib/types';
+import { INITIATIVE_LABEL, isOpenInitiative } from '@/lib/initiatives';
 
 // Sentinel stored alongside real member ids in filters.assigneeIds. A task
 // with no assignees matches it; a UUID can never collide with it.
 export const UNASSIGNED_FILTER_ID = '__unassigned__';
+// The same for filters.initiativeIds: a task in no live initiative matches it.
+export const NO_INITIATIVE_FILTER_ID = '__no_initiative__';
 
 /**
  * The task filter trigger and panel, living in the task toolbar next to the
@@ -22,8 +25,14 @@ export const UNASSIGNED_FILTER_ID = '__unassigned__';
  * `tasks` is the UNFILTERED project task list; it only feeds the tag
  * vocabulary, so the panel offers exactly the tags that exist here instead
  * of every tag in the workspace.
+ *
+ * `initiatives` (a project's Tasks tab) adds the initiative filter: each
+ * live initiative, done ones after open ones, and "No initiative".
  */
-export function TaskFilterControl({ tasks }: { tasks: Task[] }) {
+export function TaskFilterControl({ tasks, initiatives }: {
+  tasks: Task[];
+  initiatives?: readonly Pick<Initiative, 'id' | 'name' | 'status'>[];
+}) {
   const { filters, setFilters, team } = useApp();
   const { teamMemberId } = useAuth();
   const anchorRef = useRef<HTMLDivElement>(null);
@@ -39,14 +48,20 @@ export function TaskFilterControl({ tasks }: { tasks: Task[] }) {
     .sort((a, b) =>
       a.id === teamMemberId ? -1 : b.id === teamMemberId ? 1 : a.name.localeCompare(b.name));
 
-  const toggle = (key: 'status' | 'priority' | 'assigneeIds' | 'tags', value: string) => {
-    const current = filters[key];
+  const initiativeIds = filters.initiativeIds ?? [];
+  // Open ones first, then done ones, each in their own order.
+  const initiativeOptions = initiatives
+    ? [...initiatives.filter(isOpenInitiative), ...initiatives.filter((initiative) => !isOpenInitiative(initiative))]
+    : [];
+
+  const toggle = (key: 'status' | 'priority' | 'assigneeIds' | 'tags' | 'initiativeIds', value: string) => {
+    const current = filters[key] ?? [];
     const updated = current.includes(value) ? current.filter(v => v !== value) : [...current, value];
     setFilters({ ...filters, [key]: updated });
   };
 
   const activeCount =
-    filters.status.length + filters.priority.length + filters.assigneeIds.length + filters.tags.length;
+    filters.status.length + filters.priority.length + filters.assigneeIds.length + filters.tags.length + initiativeIds.length;
 
   const chip = (selected: boolean) =>
     `px-2 py-1 text-xs rounded-full transition-all ${
@@ -87,7 +102,7 @@ export function TaskFilterControl({ tasks }: { tasks: Task[] }) {
           <h3 className="text-sm font-medium text-zinc-200">Filters</h3>
           {activeCount > 0 && (
             <button
-              onClick={() => setFilters({ ...filters, status: [], priority: [], assigneeIds: [], tags: [] })}
+              onClick={() => setFilters({ ...filters, status: [], priority: [], assigneeIds: [], tags: [], initiativeIds: [] })}
               className="text-xs text-brand-300 hover:text-brand-200"
             >
               Clear all
@@ -116,6 +131,29 @@ export function TaskFilterControl({ tasks }: { tasks: Task[] }) {
             </button>
           </div>
         </div>
+
+        {initiatives && initiatives.length > 0 && (
+          <div>
+            <p className="text-xs font-medium text-zinc-400 mb-2">{INITIATIVE_LABEL.singular}</p>
+            <div className="flex flex-wrap gap-1.5">
+              {initiativeOptions.map(initiative => (
+                <button
+                  key={initiative.id}
+                  onClick={() => toggle('initiativeIds', initiative.id)}
+                  className={`${chip(initiativeIds.includes(initiative.id))} max-w-full truncate`}
+                >
+                  {initiative.name}
+                </button>
+              ))}
+              <button
+                onClick={() => toggle('initiativeIds', NO_INITIATIVE_FILTER_ID)}
+                className={chip(initiativeIds.includes(NO_INITIATIVE_FILTER_ID))}
+              >
+                No {INITIATIVE_LABEL.lower}
+              </button>
+            </div>
+          </div>
+        )}
 
         <div>
           <p className="text-xs font-medium text-zinc-400 mb-2">Status</p>

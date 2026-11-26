@@ -78,6 +78,11 @@ interface WithApiOptions<TBody> {
    */
   returnsSecret?: boolean;
   /**
+   * A PATCH that also takes Idempotency-Key, as every POST does: a retry
+   * with the same key and body gets the first answer back (task templates).
+   */
+  idempotentPatch?: boolean;
+  /**
    * Also accepts a Connect AI access token in Authorization: Bearer (the
    * tool catalog). Elsewhere a connection's token works only through the
    * MCP server, the one resource it is issued for.
@@ -466,9 +471,9 @@ export function withApi<TBody = unknown, TParams = Record<string, string>>(
         if (!link) throw forbidden('Contact scope denied', contactScopeDenied);
       }
 
-      // Idempotency-Key applies to POST only; it is checked before the body
-      // is read, so a bad key is a 400 whatever the body holds.
-      const idempotencyKey = method === 'POST' ? idempotencyKeyFrom(request.headers) : null;
+      // Idempotency-Key applies to POST (and a PATCH that opts in); it is
+      // checked before the body is read, so a bad key is a 400 whatever the body holds.
+      const idempotencyKey = method === 'POST' || (method === 'PATCH' && options?.idempotentPatch) ? idempotencyKeyFrom(request.headers) : null;
       if (idempotencyKey && options?.returnsSecret) {
         throw badRequest('Idempotency-Key is not accepted here: the answer holds a secret that is shown only once', {
           reason: 'idempotency_not_supported',

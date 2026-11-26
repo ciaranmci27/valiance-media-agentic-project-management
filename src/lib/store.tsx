@@ -1471,6 +1471,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const assigneeIds = task.assignee_ids || [];
     const optimisticId = crypto.randomUUID();
     const now = new Date().toISOString();
+    // A subtask is in its parent's initiative (the database sets it the same way).
+    const parentInitiative = task.parent_task_id ? tasks.find(t => t.id === task.parent_task_id)?.initiative_id ?? null : undefined;
+    if (parentInitiative !== undefined) task = { ...task, initiative_id: parentInitiative };
     const optimistic: Task = {
       ...task,
       id: optimisticId,
@@ -1526,7 +1529,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const reorderOnly = Object.keys(updates).every(k => k === 'sort_order');
     // Mirror the DB trigger: stamp completed_at when a task enters 'done',
     // clear it when it leaves
+    // A parent's subtasks follow its initiative (the database does the same).
+    const initiativeChange = updates.initiative_id !== undefined && existingTask && !existingTask.parent_task_id
+      ? updates.initiative_id ?? null : undefined;
     setTasks(t => t.map(task => {
+      if (initiativeChange !== undefined && task.parent_task_id === id) return { ...task, initiative_id: initiativeChange };
       if (task.id !== id) return task;
       const now = new Date().toISOString();
       const next = { ...task, ...updates, updated_at: reorderOnly ? task.updated_at : now };
@@ -1578,7 +1585,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
       return true;
     } catch {
-      setTasks(rollbackScope(prev, task => task.id === id));
+      setTasks(rollbackScope(prev, task => task.id === id || (initiativeChange !== undefined && task.parent_task_id === id)));
       if (!options?.silent) toast('error', 'Failed to update task');
       return false;
     }
@@ -1627,7 +1634,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const leaving = new Set(removedMemberIds);
     setTasks(t => t.map(task => {
       if (task.id !== id && task.parent_task_id !== id) return task;
-      const moved = { ...task, project_id: projectId, project_goal_id: null };
+      // Its goal and initiative were the old project's (the database clears them too).
+      const moved = { ...task, project_id: projectId, project_goal_id: null, initiative_id: null };
       if (!leaving.size) return moved;
       return {
         ...moved,
@@ -1715,6 +1723,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       parent_task_id: parentId,
       project_id: parent?.project_id ?? row.project_id,
       ...(moved ? { project_goal_id: parent.project_goal_id ?? null } : {}),
+      // Under a parent it takes the parent's initiative; made top-level it keeps its own.
+      ...(parent ? { initiative_id: parent.initiative_id ?? null } : {}),
       sort_order: sortOrder,
       updated_at: new Date().toISOString(),
     }));
@@ -1734,6 +1744,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         parent_task_id: saved.parent_task_id ?? null,
         project_id: saved.project_id ?? row.project_id,
         project_goal_id: saved.project_goal_id ?? null,
+        ...(saved.initiative_id !== undefined ? { initiative_id: saved.initiative_id ?? null } : {}),
         sort_order: saved.sort_order ?? row.sort_order,
         updated_at: saved.updated_at ?? row.updated_at,
       }));

@@ -215,6 +215,8 @@ export async function insertTask(
     created_by: task.created_by,
   };
   if (task.project_goal_id) insertPayload.project_goal_id = task.project_goal_id;
+  // Only when set, so a database before initiatives still takes the rest.
+  if (task.initiative_id) insertPayload.initiative_id = task.initiative_id;
   // A subtask goes where its caller placed it among its siblings.
   if (task.parent_task_id) {
     insertPayload.parent_task_id = task.parent_task_id;

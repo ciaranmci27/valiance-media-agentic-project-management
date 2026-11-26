@@ -13,6 +13,7 @@ import { applyClosePolicy, commentSentToReview, loadMemberRules, sentToReviewNot
 import { readTaskInFull } from '@/lib/api/task-read';
 import { finishTaskMove, lostAccessError, movingIds, planTaskMove, prepareTaskMove, resolveLostAccess, type LostAccessChoice } from '@/lib/api/task-move';
 import { isModuleEnabled } from '@/lib/access-control';
+import { assertInitiativeInProject, assertSubtaskInitiative } from '@/lib/api/initiatives';
 
 async function currentAssigneeIds(supabase: SupabaseClient, taskId: string): Promise<string[]> {
   const { data, error } = await supabase
@@ -125,6 +126,18 @@ export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemb
   const goalId: string | null | undefined = updates.project_goal_id !== undefined ? updates.project_goal_id : null;
   if (goalId) {
     await assertGoalInProject(supabase, goalId, targetProjectId);
+  }
+  // The initiative must be in the project the task ends up in. A subtask
+  // always has its parent's (the database keeps it so): naming another is
+  // refused. A move to another project clears it unless one there is named.
+  if (updates.initiative_id !== undefined) {
+    const parentAfter: string | null = parentChange ? parent_task_id : before.parent_task_id;
+    if (parentAfter) {
+      await assertSubtaskInitiative(supabase, parentAfter, updates.initiative_id);
+      delete updates.initiative_id;
+    } else {
+      await assertInitiativeInProject(supabase, updates.initiative_id, targetProjectId);
+    }
   }
   // New assignees, and when nesting under another project's task everyone
   // who stays assigned, must be able to open the task where it will live.

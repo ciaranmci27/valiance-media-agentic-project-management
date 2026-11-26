@@ -95,6 +95,7 @@ New inboxes run triage plans (`triage_mode` defaults to `plans`); existing inbox
 | [The work loop](work-loop.md) | Claims, briefs, runs, questions, approvals, handoff, heartbeat, retries, limits and pause |
 | [Events and webhooks](events-and-webhooks.md) | Waking the harness, filters, signatures, the event export, labels, a warehouse feed |
 | [Identity and access](identity-and-access.md) | Keys, scopes, rotation, groups, linked chat accounts, acting for a person, personal agents, memory, audit |
+| [Task templates](templates.md) | The JSON template (key dates, roles, dependencies, fill-ins), validate, preview and run, with a worked product launch |
 | [Set up from a chat](setup-by-ai.md) | Configuring agents, projects, templates and assistants over MCP, export and import, Connect AI, the tool catalog |
 | [Assistants](assistants.md) | For admins: a personal assistant for every person, Slack and Telegram, privacy, troubleshooting |
 | [External agents](external-agents.md) | An agent that works in another system (a bookkeeper in an accounting app): check before each turn, runs and usage for outside work, approvals with external links, health |

@@ -2,6 +2,7 @@ import { withApi } from '@/lib/api/middleware';
 import { success } from '@/lib/api/response';
 import { inboxScope } from '@/lib/communications/agent-access';
 import { comms } from '@/lib/communications/db';
+import { handledParam, narrowToHandled } from '@/lib/communications/inbox-handlers';
 
 export const dynamic = 'force-dynamic';
 
@@ -12,10 +13,11 @@ export const dynamic = 'force-dynamic';
  * alone stays out), oldest first, with sender, subject, routing
  * (routing_basis, forwarded_by, original_sender), the triage's project_id,
  * the thread's project with its source, and linked tasks (no bodies). superseded_triage_ids lists older unsummarized
- * triage of the same email, which mark-summarized clears too.
+ * triage of the same email, which mark-summarized clears too. handled=me
+ * keeps only the inboxes the key's member handles (as itself or through a group).
  */
 export const GET = withApi(async ({ supabase, searchParams, teamMemberId, access }) => {
-  const inboxIds = await inboxScope(supabase, teamMemberId, access, searchParams.get('inbox_id'));
+  const inboxIds = await narrowToHandled(supabase, teamMemberId, await inboxScope(supabase, teamMemberId, access, searchParams.get('inbox_id')), handledParam(searchParams));
   if (inboxIds.length === 0) return success([]);
   const { data, error } = await comms(supabase).rpc('unsummarized_triage', { p_inbox_ids: inboxIds, p_limit: 200 });
   if (error) throw error;

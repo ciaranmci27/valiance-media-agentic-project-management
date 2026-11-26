@@ -15,12 +15,17 @@
  *
  *   npm run -s test:table-grants
  */
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { PGlite } from '@electric-sql/pglite';
 import { actAs, createFullSchemaDatabase, SCHEMA_PATH } from './full-schema-db';
 
-const MIGRATION = readFileSync(join(__dirname, '..', 'supabase', 'migrations', '20261125000600_table_grants.sql'), 'utf8');
+const MIGRATIONS_DIR = join(__dirname, '..', 'supabase', 'migrations');
+const MIGRATION_FILE = '20261125000600_table_grants.sql';
+const MIGRATION = readFileSync(join(MIGRATIONS_DIR, MIGRATION_FILE), 'utf8');
+/** The migrations after it, in order. */
+const LATER_MIGRATIONS = readdirSync(MIGRATIONS_DIR).filter((file) => file.endsWith('.sql') && file > MIGRATION_FILE).sort()
+  .map((file) => readFileSync(join(MIGRATIONS_DIR, file), 'utf8'));
 const SCHEMA = readFileSync(SCHEMA_PATH, 'utf8').replace(/\r\n/g, '\n');
 /** The banner of the schema.sql section that mirrors the migration. */
 const SECTION = '-- TABLE GRANTS (20261125000600_table_grants.sql)';
@@ -43,6 +48,9 @@ const MEMBER_TABLES: Record<string, string> = {
   analytics_tracking_starts: 'SELECT', answers: 'SELECT', api_audit_log: 'SELECT',
   api_keys: 'SELECT', attachments: 'SELECT', conversation_projects: 'SELECT',
   conversations: 'SELECT', group_members: 'SELECT', groups: 'SELECT',
+  // Initiatives and their logs: written by the server; members read them
+  // (row policies initiatives_select, initiative_entries_select) and live sync needs SELECT.
+  initiative_entries: 'SELECT', initiatives: 'SELECT',
   ignored_addresses: 'SELECT', inbox_handlers: 'SELECT', invoice_payments: 'SELECT',
   maintenance_runs: 'SELECT', meetings: 'SELECT', member_identities: 'SELECT',
   message_candidates: 'SELECT', message_endpoints: 'SELECT', messages: 'SELECT',
@@ -236,13 +244,19 @@ async function main() {
     beforeHeld.some((h) => h.role === 'anon' && h.name === 'tasks' && h.priv === 'TRUNCATE'));
 
   // 6. The migration on the before state equals a fresh install, twice over.
-  await before.exec(MIGRATION);
+  // The releases after it run after it, as an upgrade runs them (they grant
+  // members what their own new tables need), and re-run safely.
+  const upgrade = async () => {
+    await before.exec(MIGRATION);
+    for (const sql of LATER_MIGRATIONS) await before.exec(sql);
+  };
+  await upgrade();
   const migrated = await acls(before);
   const freshAcls = await acls(fresh);
   const diff = (a: string[], b: string[]) => a.filter((x) => !b.includes(x));
   check('migration: the same grants as a fresh install', diff(migrated, freshAcls).length === 0 && diff(freshAcls, migrated).length === 0,
     [...diff(migrated, freshAcls), ...diff(freshAcls, migrated)].slice(0, 10));
-  await before.exec(MIGRATION);
+  await upgrade();
   check('migration: a second run changes nothing', JSON.stringify(await acls(before)) === JSON.stringify(migrated));
   await before.close();
 

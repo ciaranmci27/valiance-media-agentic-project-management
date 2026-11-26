@@ -1,13 +1,13 @@
 import { createTemplate, listTemplates, templateFiltersFrom } from '@/lib/api/task-templates';
 import { pageFrom, pageMeta, readWorkspaceBody, workspaceRoute } from '@/lib/api/workspace-route';
-import { createTaskTemplateSchema } from '@/lib/task-templates';
+import { z } from 'zod';
 
 export const dynamic = 'force-dynamic';
 
 /**
  * The task templates the signed-in member may read, by name, paged (limit up
  * to 200), without their tasks. Filters: search (name), project_id (only
- * those usable there). Answers { templates, meta }.
+ * those usable there, its own first), scope (project or workspace). Answers { templates, meta }.
  */
 export async function GET(request: Request) {
   return workspaceRoute(request, async ({ service, caller }) => {
@@ -18,10 +18,14 @@ export async function GET(request: Request) {
   });
 }
 
-/** Creates a template (templates.manage). */
+/**
+ * Creates a template from the JSON template: company-wide needs
+ * templates.manage, a project's needs projects.manage or templates.manage.
+ * A refusal lists every error with its path.
+ */
 export async function POST(request: Request) {
   return workspaceRoute(request, async ({ service, caller }) => {
-    const body = await readWorkspaceBody(request, createTaskTemplateSchema);
+    const body = await readWorkspaceBody(request, z.record(z.string(), z.unknown()));
     return createTemplate(service, caller, body);
   }, { status: 201 });
 }

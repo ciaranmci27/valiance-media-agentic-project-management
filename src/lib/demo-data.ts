@@ -2,6 +2,8 @@ import type { TeamMember, Contact, ContactEmail, Project, ProjectContact, Task, 
 import { DEFAULT_SECTION_ORDER } from './types';
 import { DEFAULT_ITEM_COLOR } from '@/lib/brand';
 import type { TaskTemplateRunView, TaskTemplateView } from '@/lib/task-templates';
+import type { Initiative, InitiativeEntry } from './types';
+import type { InitiativeDetail, InitiativeEntryView, InitiativeView } from '@/lib/initiatives';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -400,13 +402,28 @@ const demoTaskRows: DemoTask[] = [
   },
 ];
 
-// Subtasks are tasks: each inline one becomes a task under its parent.
+// The demo initiatives (below) and the tasks on their boards.
+const DEMO_INITIATIVE_BRAND = '1d1d1d1d-0001-4000-8000-000000000001';
+const DEMO_INITIATIVE_WEB = '1d1d1d1d-0002-4000-8000-000000000002';
+const DEMO_INITIATIVE_PRINT = '1d1d1d1d-0003-4000-8000-000000000003';
+const DEMO_TASK_INITIATIVE: Record<string, string> = {
+  'e5e5e5e5-0001-4000-8000-000000000001': DEMO_INITIATIVE_BRAND,
+  'e5e5e5e5-0002-4000-8000-000000000002': DEMO_INITIATIVE_BRAND,
+  'e5e5e5e5-0003-4000-8000-000000000003': DEMO_INITIATIVE_BRAND,
+  'e5e5e5e5-0004-4000-8000-000000000004': DEMO_INITIATIVE_PRINT,
+  'e5e5e5e5-0005-4000-8000-000000000005': DEMO_INITIATIVE_WEB,
+  'e5e5e5e5-0006-4000-8000-000000000006': DEMO_INITIATIVE_WEB,
+  'e5e5e5e5-0007-4000-8000-000000000007': DEMO_INITIATIVE_WEB,
+};
+
+// Subtasks are tasks: each inline one becomes a task under its parent (and in its initiative).
 export const demoTasks: DemoTask[] = demoTaskRows.flatMap(({ subtasks = [], ...task }) => [
-  task,
+  { ...task, initiative_id: DEMO_TASK_INITIATIVE[task.id] ?? null },
   ...subtasks.map((subtask): DemoTask => ({
     id: subtask.id,
     project_id: task.project_id,
     parent_task_id: task.id,
+    initiative_id: DEMO_TASK_INITIATIVE[task.id] ?? null,
     title: subtask.title,
     description: '',
     status: subtask.completed ? 'done' : 'todo',
@@ -2120,4 +2137,89 @@ export function demoTaskTemplateRuns(templateId: string): TaskTemplateRunView[] 
     task_ids: [],
     created_at: daysAgo(3 + i * 14),
   }));
+}
+
+// ---------------------------------------------------------------------------
+// INITIATIVES (Crest Financial Rebrand): bodies of work with their own board and log
+// ---------------------------------------------------------------------------
+export const demoInitiatives: Initiative[] = [
+  {
+    id: DEMO_INITIATIVE_BRAND, project_id: P_CREST, name: 'Brand identity',
+    description: 'A logo, palette and type system Crest can use everywhere, signed off by David before print and web start.',
+    owner_member_id: TM3, owner_group_id: null, status: 'active', health: 'on_track',
+    start_date: '2026-01-15', target_date: '2026-03-14', sort_order: 0, created_by: TM1, created_at: daysAgo(34), updated_at: daysAgo(2),
+  },
+  {
+    id: DEMO_INITIATIVE_WEB, project_id: P_CREST, name: 'Website relaunch',
+    description: 'The new crestfinancial.com on Next.js: wireframes, build and launch, with the old URLs redirected.',
+    owner_member_id: TM2, owner_group_id: null, status: 'active', health: 'at_risk',
+    start_date: '2026-02-20', target_date: '2026-04-30', sort_order: 1, created_by: TM1, created_at: daysAgo(22), updated_at: daysAgo(1),
+  },
+  {
+    id: DEMO_INITIATIVE_PRINT, project_id: P_CREST, name: 'Print collateral',
+    description: 'Business cards, letterhead and envelopes in the new identity, in time for the April 5 conference.',
+    owner_member_id: TM1, owner_group_id: null, status: 'planned', health: null,
+    start_date: '2026-03-15', target_date: '2026-04-01', sort_order: 2, created_by: TM1, created_at: daysAgo(20), updated_at: daysAgo(10),
+  },
+];
+
+const demoEntry = (entry: Omit<InitiativeEntry, 'project_id' | 'updated_at' | 'resolved_at' | 'resolved_by' | 'task_id' | 'status'>
+  & Partial<Pick<InitiativeEntry, 'resolved_at' | 'resolved_by' | 'task_id' | 'status'>>): InitiativeEntry => ({
+  project_id: P_CREST, task_id: null, status: entry.kind === 'issue' ? 'open' : null, resolved_at: null, resolved_by: null,
+  ...entry, updated_at: entry.created_at,
+});
+
+export const demoInitiativeEntries: InitiativeEntry[] = [
+  demoEntry({ id: '1e1e1e1e-0001-4000-8000-000000000001', initiative_id: DEMO_INITIATIVE_BRAND, kind: 'decision', title: 'Fraunces for headings, Inter for body',
+    body: 'David approved the pairing on the call. Fraunces carries the warmth the old wordmark lacked; Inter keeps forms readable.', task_id: 'e5e5e5e5-0003-4000-8000-000000000003', created_by: TM1, created_at: daysAgo(1) }),
+  demoEntry({ id: '1e1e1e1e-0002-4000-8000-000000000002', initiative_id: DEMO_INITIATIVE_BRAND, kind: 'update', title: 'Palette signed off',
+    body: 'Primary navy and the two accent greens are final. Contrast checked for AA on every pairing we use.', created_by: TM3, created_at: daysAgo(3) }),
+  demoEntry({ id: '1e1e1e1e-0003-4000-8000-000000000003', initiative_id: DEMO_INITIATIVE_BRAND, kind: 'issue', title: 'Logo files only exist as PNG',
+    body: 'We need vector masters before the guidelines can show clear space accurately.', status: 'resolved', resolved_at: daysAgo(6), resolved_by: TM3, created_by: TM3, created_at: daysAgo(9) }),
+  demoEntry({ id: '1e1e1e1e-0004-4000-8000-000000000004', initiative_id: DEMO_INITIATIVE_WEB, kind: 'issue', title: 'CMS choice still open',
+    body: 'Lisa wants to edit service pages herself. Waiting on Crest IT to confirm whether a hosted CMS is allowed.', created_by: TM2, created_at: daysAgo(2) }),
+  demoEntry({ id: '1e1e1e1e-0005-4000-8000-000000000005', initiative_id: DEMO_INITIATIVE_WEB, kind: 'update', title: 'Homepage and About wireframes done',
+    body: 'Hero moved above the fold after Lisa\'s notes. Services, Blog and Contact are next.', task_id: 'e5e5e5e5-0005-4000-8000-000000000005', created_by: TM2, created_at: daysAgo(4) }),
+  demoEntry({ id: '1e1e1e1e-0006-4000-8000-000000000006', initiative_id: DEMO_INITIATIVE_WEB, kind: 'note', title: 'Old URLs to redirect',
+    body: 'Atlas crawled the current site: 46 pages, 12 with inbound links worth keeping. List attached to the build task.', created_by: 'a1a1a1a1-0006-4000-8000-000000000006', created_at: daysAgo(5) }),
+  demoEntry({ id: '1e1e1e1e-0007-4000-8000-000000000007', initiative_id: DEMO_INITIATIVE_PRINT, kind: 'note', title: '500 cards for the April 5 conference',
+    body: 'Print-ready files must reach the printer by March 28.', created_by: TM1, created_at: daysAgo(10) }),
+];
+
+const demoName = (id: string | null) => (id ? demoTeam.find(m => m.id === id)?.name ?? null : null);
+
+/** A demo initiative as the server presents it: owner, progress from the demo tasks, the log's counts. */
+export function demoInitiativeView(initiative: Initiative): InitiativeView {
+  const entries = demoInitiativeEntries.filter(e => e.initiative_id === initiative.id);
+  const tops = demoTasks.filter(t => t.initiative_id === initiative.id && !t.parent_task_id);
+  const owner = demoTeam.find(m => m.id === initiative.owner_member_id);
+  return {
+    ...initiative,
+    owner: owner ? { kind: 'member', id: owner.id, name: owner.name } : null,
+    progress: { done: tops.filter(t => t.status === 'done').length, total: tops.length },
+    open_issue_count: entries.filter(e => e.kind === 'issue' && e.status === 'open').length,
+    last_entry_at: entries.reduce<string | null>((latest, e) => (!latest || e.created_at > latest ? e.created_at : latest), null),
+  };
+}
+
+export function demoInitiativeEntryViews(initiativeId: string): InitiativeEntryView[] {
+  return demoInitiativeEntries
+    .filter(e => e.initiative_id === initiativeId)
+    .sort((a, b) => b.created_at.localeCompare(a.created_at))
+    .map(e => ({ ...e, created_by_name: demoName(e.created_by), resolved_by_name: demoName(e.resolved_by) }));
+}
+
+/** A demo initiative's page read, bounded as the server bounds it. */
+export function demoInitiativeDetail(initiativeId: string): InitiativeDetail | null {
+  const initiative = demoInitiatives.find(i => i.id === initiativeId);
+  if (!initiative) return null;
+  const entries = demoInitiativeEntryViews(initiativeId);
+  const open = entries.filter(e => e.kind === 'issue' && e.status === 'open');
+  return {
+    initiative: demoInitiativeView(initiative),
+    open_issues: { rows: open.slice(0, 20), more: Math.max(0, open.length - 20) },
+    recent_entries: { rows: entries.slice(0, 10), more: Math.max(0, entries.length - 10) },
+    brief: { rows: [], more: 0 },
+    can: { edit: true, trash: true, log: true, read_brief: true, edit_brief: true },
+  };
 }

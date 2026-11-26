@@ -9,6 +9,22 @@ Each section starts with `## X.Y.Z (YYYY-MM-DD)` and uses these headings, leavin
 - `### Database`: the core migration files in the release, one per line. `npm run db:migrate` applies them.
 - `### Breaking`: what an install must do when it takes this release.
 
+## 2.0.46 (2026-11-26)
+
+### Added
+- **Initiatives**: a named body of work inside a project, with an owner (a person or a group), a status (planned, active, paused, done), its health while active (on track, at risk, blocked), dates, and its own tasks, log and brief. A project's new Initiatives tab shows each one as a card with its progress; an initiative's page has its Tasks (the project board, kept to its tasks), a Log of updates, decisions, issues and notes, and a Brief. On the project's Tasks tab, filter by initiative, see each task's initiative on its card, and set it on a task. A task belongs to at most one initiative; subtasks follow their parent; moving a task to another project clears it. Guests see initiatives and progress but never the log, and the client portal never shows them.
+- Initiatives over the API and MCP: `/api/v1/projects/:id/initiatives` (with `/entries`), tools `list_initiatives`, `get_initiative` (an agent's starting read: header, progress, open issues, recent log, pinned brief), `create_initiative`, `update_initiative`, `list_initiative_entries`, `add_initiative_entry`, `update_initiative_entry`; `create_task`, `update_task`, `search_tasks` and `GET /api/v1/tasks` take `initiative_id`; `get_task_brief` adds the task's initiative. Webhooks `initiative.created`, `initiative.updated`, `initiative.deleted`, `initiative_entry.created`, `initiative_entry.updated`; `task.*` payloads add `initiative_id`.
+- **Templates, version 2 (API and MCP)**: named key dates (each task due a number of days before or after one, negative allowed), roles mapped to a person or agent when the template runs (optionally required, with a default member), dependencies between top-level steps (carried onto the real tasks), a guidance note for AI, and a template that belongs to one project or to the whole company. A run can create an initiative for its tasks (`create_initiative: true`). Agents build templates predictably: `GET /api/v1/task-templates/schema` publishes the format, `validate` returns every error with its exact path and a fix hint, and `preview` shows the exact dated, assigned task list a run would create, writing nothing. See `docs/agents/templates.md`.
+
+### Changed
+- A project's own templates are written by whoever manages the project; company-wide templates still need `templates.manage`.
+- `template.run` payloads add `key_dates` and `initiative_id`.
+- The unsummarized-triage and inbox questions lists accept `handled=me`.
+
+### Database
+- `20261126000100_initiatives.sql`: initiatives and their log, `tasks.initiative_id`, the initiative brief scope, Trash, activity, live updates and webhooks for them.
+- `20261126000200_templates_v2.sql`: template key dates, roles and guidance, a run's key dates, role members and initiative, and the link from a run to the tasks it made.
+
 ## 2.0.45 (2026-11-26)
 
 ### Changed

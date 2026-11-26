@@ -30,7 +30,9 @@ Shared, in `src/components/ui/`: `Button` (primary, secondary, ghost, danger; sm
 
 `StatStrip` is the one way to show a row of numbers: one surface (or `bare` inside a card), stats side by side with hairlines once its own width fits them all, a label and value list below that. Label 12px zinc-500 and value 20px semibold tabular in the row; label 14px zinc-300 and value 16px in the list. Props per stat: `label`, `value` (null shows `empty` muted), `context`, `tone` (default, success, warning, danger, info), `icon`, `href` or `onSelect` with `selected`, `spark`. The row switch is the `strip-row` variant in `globals.css`.
 
-The side panel, `TaskPanelShell` (`src/components/tasks/`), is the one slide-out: a task, a new task's draft, and editing a project (`ProjectForm`) open in it. 480px from the right on desktop, full screen on phones; Escape, the backdrop or the X closes it. A form in it groups fields into hairline sections, one column, with the save bar pinned at the bottom, and asks before discarding unsaved edits.
+The side panel, `TaskPanelShell` (`src/components/tasks/`), is the one slide-out: a task, a new task's draft, editing a project (`ProjectForm`) and a new or edited initiative (`InitiativePanel`) open in it. 480px from the right on desktop, full screen on phones; Escape, the backdrop or the X closes it. A form in it groups fields into hairline sections, one column, with the save bar pinned at the bottom, and asks before discarding unsaved edits.
+
+`ProjectTaskViews` (`src/components/projects/`) is a project's task views in one piece (toolbar, bulk menu, Board, List and Calendar): the project's Tasks tab shows every task, an initiative's Tasks segment passes a task predicate and the initiative new tasks start in.
 
 Guided flows, in `src/components/ui/Stepper.tsx`: `FlowShell` (full page, a way out, the stepper, an optional aside), `Stepper` (numbered on desktop, "Step 2 of 6" with a bar on phones), `StepPanel`, `StepFooter` (Back, and a Next that names what it does: "Hire Nova"), `ChoiceCard`, `ChatSetupAside`. Hiring an agent (`/agent/new`) and setting up a project (`/projects/new`) are built from these; a new guided setup is too. A short create flow inside a `Modal` (New API key and New webhook endpoint in Settings > Developers) uses `Stepper`, `StepPanel` and `StepFooter` without `FlowShell`, and `SecretOnce` (`src/components/agent/ConnectPanel.tsx`) for a secret shown once.
 
@@ -55,6 +57,9 @@ Inbox pieces, in `src/components/inbox/`: `inbox-badges.tsx` (state dots, trust,
 ## Reference screens
 
 Match new work to these: the Inbox (list plus thread), a project's Tasks board, the task panel.
+
+- **A project's Initiatives tab** (`src/components/initiatives/InitiativesTab.tsx`): one card per live initiative (name, two-line description, status pill with health while active, progress bar with "N of M tasks done", owner, target date, open issues, last update), done ones behind "Show done". New and Edit open `InitiativePanel` in `TaskPanelShell`. The word on screen is always `INITIATIVE_LABEL`.
+- **The initiative page** (`/projects/[id]/initiatives/[initiativeId]`): breadcrumb back to the tab, a header card of chips (status, owner, dates, open issues) over the description and progress, then a `SubNav` of Tasks (the shared `ProjectTaskViews`, kept to its tasks), Log (`InitiativeLog`: kind chips, a composer that opens in place, Resolve and Reopen on issues) and Brief (`ContextBrief`, agents module only). Move to Trash acts at once and the tab it lands on offers Undo.
 
 ## Still converging
 

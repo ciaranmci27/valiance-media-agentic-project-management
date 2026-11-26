@@ -2,6 +2,7 @@
 
 import { useId, useState } from 'react';
 import { Task } from '@/lib/types';
+import { InitiativeTag, useTaskInitiativeName } from '@/components/initiatives/InitiativeBits';
 import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
 import { PriorityBadge } from '@/components/ui/Badge';
@@ -91,6 +92,9 @@ export function TaskCard({ task, onView, onDelete, onMove }: TaskCardProps) {
   // A subtask shown on its own (a filtered list) names the task it belongs to.
   const parent = task.parent_task_id ? tasks.find(t => t.id === task.parent_task_id) : undefined;
   const canEdit = canEditTask(access, task, teamMemberId, parent);
+  // The initiative it is in, named; a subtask names its parent instead, which carries it.
+  const initiativeName = useTaskInitiativeName(task);
+  const showInitiative = !!initiativeName && !parent;
   const canDelete = canManageAllTasks(access);
   const subtaskList = getSubtasks(task.id);
   const subtasks = subtaskProgress(subtaskList);
@@ -277,7 +281,12 @@ export function TaskCard({ task, onView, onDelete, onMove }: TaskCardProps) {
           </Tooltip>
         </div>
       )}
-      <h3 className={`font-medium text-white text-sm leading-snug mb-1 line-clamp-2 ${hasBadges || parent ? '' : 'pr-7'}`}>
+      {showInitiative && initiativeName && (
+        <div className={`mb-1 flex min-w-0 ${hasBadges ? '' : 'pr-7'}`}>
+          <InitiativeTag name={initiativeName} />
+        </div>
+      )}
+      <h3 className={`font-medium text-white text-sm leading-snug mb-1 line-clamp-2 ${hasBadges || parent || showInitiative ? '' : 'pr-7'}`}>
         {task.title}
       </h3>
 

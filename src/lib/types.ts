@@ -267,6 +267,12 @@ export interface Task {
   blocked_by_ids: string[];
   created_by?: string | null;
   project_goal_id?: string | null;
+  /**
+   * The initiative it belongs to, in its own project (lib/initiatives). A
+   * subtask always has its parent's. One whose initiative is in Trash keeps
+   * the id and reads as having none.
+   */
+  initiative_id?: string | null;
   source_task_suggestion_id?: string | null;
   completed_at?: string | null;
   /** How it was made, stamped by the database: see TaskCreatedVia. */
@@ -498,6 +504,8 @@ export interface FilterState {
   search: string;
   /** Only tasks unread by the viewer: new to them, or changed by someone else since they looked. */
   unread?: boolean;
+  /** A project's Tasks tab: tasks in these initiatives (the no-initiative sentinel for none). */
+  initiativeIds?: string[];
 }
 
 export type ViewMode = 'list' | 'board' | 'calendar';
@@ -1164,6 +1172,16 @@ export const WORK_WEBHOOK_EVENT_TYPES = [
 ] as const;
 
 /**
+ * Initiative events: an initiative made, changed or moved to Trash, and its
+ * log entries added or changed. Need only the Webhooks module. Opt in: never
+ * a new endpoint's default.
+ */
+export const INITIATIVE_WEBHOOK_EVENT_TYPES = [
+  'initiative.created', 'initiative.updated', 'initiative.deleted',
+  'initiative_entry.created', 'initiative_entry.updated',
+] as const;
+
+/**
  * Every agent event as it is recorded (agent_activities), for piping to a
  * data system. Opt in only: never a default, because the fleet's telemetry
  * alone is many events an hour. Filter by agent (member_id) and by type
@@ -1189,7 +1207,7 @@ export const ASSISTANT_WEBHOOK_EVENT_TYPES = ['assistant.message'] as const;
  */
 export const CHAT_WEBHOOK_EVENT_TYPES = ['chat.message'] as const;
 
-export const WEBHOOK_EVENT_TYPES = [...WORK_WEBHOOK_EVENT_TYPES, ...AGENT_EVENT_WEBHOOK_EVENT_TYPES, ...ASSISTANT_WEBHOOK_EVENT_TYPES, ...CHAT_WEBHOOK_EVENT_TYPES, ...INVOICE_WEBHOOK_EVENT_TYPES] as const;
+export const WEBHOOK_EVENT_TYPES = [...WORK_WEBHOOK_EVENT_TYPES, ...INITIATIVE_WEBHOOK_EVENT_TYPES, ...AGENT_EVENT_WEBHOOK_EVENT_TYPES, ...ASSISTANT_WEBHOOK_EVENT_TYPES, ...CHAT_WEBHOOK_EVENT_TYPES, ...INVOICE_WEBHOOK_EVENT_TYPES] as const;
 export type WebhookEventType = typeof WEBHOOK_EVENT_TYPES[number];
 
 export const WEBHOOK_DELIVERY_STATUSES = ['pending', 'delivering', 'succeeded', 'failed'] as const;
@@ -1331,6 +1349,64 @@ export interface ProjectGoal {
   status: 'active' | 'achieved' | 'paused' | 'abandoned';
   created_by: string | null;
   archived_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// ============================================================
+// INITIATIVES (a body of work inside a project; lib/initiatives.ts)
+// ============================================================
+
+export const INITIATIVE_STATUSES = ['planned', 'active', 'paused', 'done'] as const;
+export type InitiativeStatus = typeof INITIATIVE_STATUSES[number];
+
+/** How an active initiative is going; null for any other status. */
+export const INITIATIVE_HEALTHS = ['on_track', 'at_risk', 'blocked'] as const;
+export type InitiativeHealth = typeof INITIATIVE_HEALTHS[number];
+
+/** What a log entry records: news, a decision made, an issue (open or resolved), or a note. */
+export const INITIATIVE_ENTRY_KINDS = ['update', 'decision', 'issue', 'note'] as const;
+export type InitiativeEntryKind = typeof INITIATIVE_ENTRY_KINDS[number];
+
+export const INITIATIVE_ENTRY_STATUSES = ['open', 'resolved'] as const;
+export type InitiativeEntryStatus = typeof INITIATIVE_ENTRY_STATUSES[number];
+
+/** A row of pm.initiatives, as the server answers it (Trash columns left out). */
+export interface Initiative {
+  id: string;
+  project_id: string;
+  name: string;
+  /** What it is for (the screens may label it "Goal"; a project goal is a different thing). */
+  description: string;
+  owner_member_id: string | null;
+  owner_group_id: string | null;
+  status: InitiativeStatus;
+  health: InitiativeHealth | null;
+  /** Calendar dates, YYYY-MM-DD. */
+  start_date: string | null;
+  target_date: string | null;
+  sort_order: number;
+  created_by: string | null;
+  principal_id?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** A row of pm.initiative_entries: one dated entry in an initiative's log. */
+export interface InitiativeEntry {
+  id: string;
+  initiative_id: string;
+  project_id: string;
+  kind: InitiativeEntryKind;
+  title: string;
+  body: string;
+  task_id: string | null;
+  /** Issues only: open or resolved. Null for every other kind. */
+  status: InitiativeEntryStatus | null;
+  resolved_at: string | null;
+  resolved_by: string | null;
+  created_by: string | null;
+  principal_id?: string | null;
   created_at: string;
   updated_at: string;
 }

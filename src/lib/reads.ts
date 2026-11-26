@@ -33,7 +33,11 @@ import type {
   AgentActivity, BillingForecastItem, ProjectBillingPlan, ProjectBillingRun, ProjectContext, TaskSource, TeamActivity,
 } from '@/lib/types';
 import type { InboxAttention } from '@/lib/communications/inbox-view';
-import { demoNotifications, demoTaskTemplateRuns, demoTaskTemplates } from '@/lib/demo-data';
+import {
+  demoInitiativeDetail, demoInitiativeEntryViews, demoInitiatives, demoInitiativeView, demoNotifications, demoTaskTemplateRuns, demoTaskTemplates,
+} from '@/lib/demo-data';
+import { sortInitiatives, type InitiativeDetail, type InitiativeEntryView, type InitiativeView } from '@/lib/initiatives';
+import type { InitiativeEntryKind, InitiativeEntryStatus } from '@/lib/types';
 import type { ProfileActivityPage, TeamProfile } from '@/lib/team/profile';
 import type { GroupMemberView, GroupView } from '@/lib/groups';
 import type { IdentityView } from '@/lib/identities';
@@ -1039,6 +1043,75 @@ export function taskTemplateRunsRead(templateId: string, isDemo = false): Read<{
       const data = await workspaceApi<{ runs: TaskTemplateRunView[]; meta?: { total?: number } }>(
         `/api/workspace/task-templates/${encodeURIComponent(templateId)}/runs?limit=10`);
       return { rows: data.runs ?? [], total: data.meta?.total ?? data.runs?.length ?? 0 };
+    },
+  };
+}
+
+// ── Initiatives ─────────────────────────────────────────────────────────
+
+/** The tables an initiative read comes from (progress on screen comes from the store's tasks: lib/initiatives progressByInitiative). */
+export const INITIATIVE_TABLES = ['initiatives', 'initiative_entries'] as const;
+
+const initiativesPath = (projectId: string) => `/api/workspace/projects/${encodeURIComponent(projectId)}/initiatives`;
+
+/**
+ * A project's initiatives, done ones included (the screen hides them behind
+ * "Show done" with isOpenInitiative), in order, with owner and the log's open
+ * issues. One read per project; the Initiatives tab, the task panel's picker
+ * and the Tasks tab filter share it.
+ */
+export function projectInitiativesRead(projectId: string, isDemo = false): Read<InitiativeView[]> {
+  return {
+    key: `initiatives:${isDemo ? 'demo:' : ''}${projectId}`,
+    tables: INITIATIVE_TABLES,
+    load: async () => {
+      if (isDemo) return sortInitiatives(demoInitiatives.filter((i) => i.project_id === projectId)).map(demoInitiativeView);
+      return allPages<InitiativeView>(`${initiativesPath(projectId)}?include_done=true`, 'initiatives');
+    },
+  };
+}
+
+/** One initiative's page: header, open issues, recent entries, pinned brief and what the person may do. */
+export function initiativeRead(projectId: string, initiativeId: string, isDemo = false): Read<InitiativeDetail> {
+  return {
+    key: `initiative:${isDemo ? 'demo:' : ''}${initiativeId}`,
+    tables: [...INITIATIVE_TABLES, 'project_context'],
+    load: async () => {
+      if (isDemo) {
+        const found = demoInitiativeDetail(initiativeId);
+        if (!found) throw new Error('Initiative not found');
+        return found;
+      }
+      return workspaceApi<InitiativeDetail>(`${initiativesPath(projectId)}/${encodeURIComponent(initiativeId)}`);
+    },
+  };
+}
+
+export interface InitiativeEntryFilters {
+  kind?: InitiativeEntryKind | null;
+  status?: InitiativeEntryStatus | null;
+  /** From 1; 50 entries a page. */
+  page?: number;
+}
+
+/** A page of an initiative's log, newest first (the Log panel, filtered by kind). */
+export function initiativeEntriesRead(projectId: string, initiativeId: string, isDemo = false, filters: InitiativeEntryFilters = {}): Read<{ rows: InitiativeEntryView[]; total: number }> {
+  const page = Math.max(1, filters.page ?? 1);
+  return {
+    key: `initiative-entries:${isDemo ? 'demo:' : ''}${initiativeId}:${filters.kind ?? 'all'}:${filters.status ?? 'all'}:${page}`,
+    tables: ['initiative_entries'],
+    load: async () => {
+      if (isDemo) {
+        const rows = demoInitiativeEntryViews(initiativeId)
+          .filter((e) => (!filters.kind || e.kind === filters.kind) && (!filters.status || e.status === filters.status));
+        return { rows: rows.slice((page - 1) * 50, page * 50), total: rows.length };
+      }
+      const query = new URLSearchParams({ page: String(page) });
+      if (filters.kind) query.set('kind', filters.kind);
+      if (filters.status) query.set('status', filters.status);
+      const data = await workspaceApi<{ entries: InitiativeEntryView[]; meta?: { total?: number } }>(
+        `${initiativesPath(projectId)}/${encodeURIComponent(initiativeId)}/entries?${query}`);
+      return { rows: data.entries ?? [], total: data.meta?.total ?? data.entries?.length ?? 0 };
     },
   };
 }

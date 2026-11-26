@@ -147,8 +147,9 @@ async function migrationChecks() {
     const head = `CREATE OR REPLACE FUNCTION pm.${fn}(`;
     const inMigration = MIGRATION_SQL.slice(MIGRATION_SQL.indexOf(head), MIGRATION_SQL.indexOf('\n$$;', MIGRATION_SQL.indexOf(head)));
     const inSchema = SCHEMA_SQL.slice(SCHEMA_SQL.indexOf(head), SCHEMA_SQL.indexOf('\n$$;', SCHEMA_SQL.indexOf(head)));
-    check(`schema.sql: ${fn} is defined once, edited in place as the migration has it`, inMigration.includes('task_templates') && inMigration === inSchema
-      && SCHEMA_SQL.split(head).length === 2, fn);
+    // Later releases redefine it in their own sections (INITIATIVES first); the first definition is this one.
+    check(`schema.sql: ${fn} is edited in place where Trash is defined, as the migration has it`, inMigration.includes('task_templates') && inMigration === inSchema
+      && SCHEMA_SQL.indexOf(head) < at, fn);
   }
 
   const old = await createFullSchemaDatabase({ schemaSql: SCHEMA_SQL.slice(0, banner) });

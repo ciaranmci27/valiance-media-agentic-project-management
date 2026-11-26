@@ -13,6 +13,7 @@ import { toast } from '@/components/ui/Toast';
 import { TaskPanelShell } from './TaskPanelShell';
 import { TemplatePicker } from '@/components/templates/UseTemplateButton';
 import { UseTemplatePanel } from '@/components/templates/UseTemplatePanel';
+import { InitiativeField } from '@/components/initiatives/InitiativeField';
 import {
   DescriptionField, DetailRow, INLINE_DATE_CLASS, PeopleChips, PickField, PRIORITY_OPTIONS, STATUS_OPTIONS, TagsField, TitleField,
   taskTypeLabel, WHO_DOES_IT,
@@ -29,6 +30,7 @@ interface Draft {
   blocked_by_ids: string[];
   task_type: TaskType | null;
   ai_readiness: AiReadiness | null;
+  initiative_id: string | null;
 }
 
 const dot = (color: string) => <span className={`h-2 w-2 flex-shrink-0 rounded-full ${color}`} aria-hidden="true" />;
@@ -41,10 +43,12 @@ const dot = (color: string) => <span className={`h-2 w-2 flex-shrink-0 rounded-f
  * no empty task is ever left behind. Without managing every task, a new task
  * is yours, as the API makes it.
  */
-export function NewTaskPanel({ projectId, initialDueDate, onClose, onCreated }: {
+export function NewTaskPanel({ projectId, initialDueDate, initialInitiativeId = null, onClose, onCreated }: {
   projectId: string;
   /** A calendar day's click. */
   initialDueDate?: string;
+  /** The initiative it starts in (made from an initiative's board). */
+  initialInitiativeId?: string | null;
   onClose: () => void;
   /** The task it became; the caller opens it. */
   onCreated: (task: Task) => void;
@@ -65,6 +69,7 @@ export function NewTaskPanel({ projectId, initialDueDate, onClose, onCreated }: 
     blocked_by_ids: [],
     task_type: null,
     ai_readiness: null,
+    initiative_id: initialInitiativeId,
   }));
   const [creating, setCreating] = useState(false);
   // A template picked instead: its Use panel takes this one's place, and closing it comes back here.
@@ -87,6 +92,7 @@ export function NewTaskPanel({ projectId, initialDueDate, onClose, onCreated }: 
       project_id: projectId,
       assignee_ids: draft.assignee_ids,
       blocked_by_ids: draft.blocked_by_ids,
+      ...(draft.initiative_id ? { initiative_id: draft.initiative_id } : {}),
       ...(showAgentFields ? { task_type: draft.task_type, ai_readiness: draft.ai_readiness } : {}),
       comments: [],
       acceptance_criteria: [],
@@ -152,7 +158,8 @@ export function NewTaskPanel({ projectId, initialDueDate, onClose, onCreated }: 
       footer={
         <div className="flex items-center justify-between gap-3 border-t border-white/[0.06] px-5 py-3">
           <div className="flex min-w-0 items-center gap-3">
-            <TemplatePicker
+            {/* Tasks from a template land in no initiative, so an initiative's board leaves it out. */}
+            {!initialInitiativeId && <TemplatePicker
               projectId={projectId}
               onPick={(template) => setUsingTemplate(template.id)}
               trigger={({ open, toggle }) => (
@@ -167,7 +174,7 @@ export function NewTaskPanel({ projectId, initialDueDate, onClose, onCreated }: 
                   From a template
                 </button>
               )}
-            />
+            />}
             <p className="hidden truncate text-xs text-zinc-400 sm:block">Enter in the title creates it.</p>
           </div>
           <Button size="sm" onClick={() => void create()} disabled={!(typed || draft.title).trim() || creating}>
@@ -200,6 +207,12 @@ export function NewTaskPanel({ projectId, initialDueDate, onClose, onCreated }: 
               onChange={([next]) => next && set('priority', next as Task['priority'])}
             />
           </DetailRow>
+          <InitiativeField
+            projectId={projectId}
+            value={draft.initiative_id}
+            onChange={(initiativeId) => set('initiative_id', initiativeId)}
+            canEdit
+          />
           <DetailRow icon={Users} label="Assignees">
             <PickField
               label="Assignees"

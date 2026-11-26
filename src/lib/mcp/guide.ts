@@ -16,7 +16,8 @@ Tasks
 - update_task with acceptance_criteria replaces them all and clears their satisfied flags. To tick one off, use update_acceptance_criterion.
 
 Starting a task
-- Start every task with get_task_brief: one call gives the task (acceptance criteria, subtasks, blockers), its project and context entries, the newest comments, its files and links, any open question, the claim and your own rules. Read it before you plan; reach for get_task, list_task_comments, get_project_context or list_task_files only for what the brief cut or left out.
+- Start every task with get_task_brief: one call gives the task (acceptance criteria, subtasks, blockers), its project and context entries, its initiative, the newest comments, its files and links, any open question, the claim and your own rules. Read it before you plan; reach for get_task, list_task_comments, get_project_context or list_task_files only for what the brief cut or left out.
+- An initiative is a body of work inside a project (its own board, log and brief); a goal is an outcome. Working on one, read it with get_initiative, record what happened, was decided or blocks you with add_initiative_entry (the dated log), and put standing knowledge in its brief (add_context, scope_type initiative). Work you propose stays a task suggestion.
 
 Claiming work
 - Before you start a task, claim_task it: a lease (30 minutes unless you pass lease_minutes, up to 240) that tells everyone else it is yours. Call extend_claim well before it runs out on long work, and release_task if you stop without finishing. Setting the task to done ends the claim and keeps you assigned.

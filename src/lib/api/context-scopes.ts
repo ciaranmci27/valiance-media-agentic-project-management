@@ -31,6 +31,8 @@ import { readAll } from './read-all';
  *   tool only with context.memory), and their own personal agent while
  *   "Remember things for me" is on, as that person set it. Nobody else, an
  *   Owner included.
+ * - initiative: as its project's brief: project_context.read on the
+ *   project the initiative is in, while both are live.
  *
  * Who writes:
  * - workspace: an Owner, or settings.manage.
@@ -39,6 +41,7 @@ import { readAll } from './read-all';
  * - agent: the agent itself (they are its own notes), and the people who
  *   manage it.
  * - member: the person, and their personal agent while they allow it.
+ * - initiative: project_context.manage on its project.
  *
  * Only a project needs the context permissions: the other scopes have rules
  * of their own, so a member whose role holds no project_context permission
@@ -54,6 +57,11 @@ import { readAll } from './read-all';
 type Row = Record<string, any>;
 
 const SCOPED_COLUMNS = `${BRIEF_CONTEXT_COLUMNS}, scope_type, scope_id`;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** No initiative tables yet (20261126000100_initiatives.sql). */
+const missingInitiatives = (error: { code?: string; message?: string }) =>
+  ['42P01', 'PGRST205', '42703', 'PGRST204'].includes(error.code ?? '') || /initiatives/.test(error.message ?? '');
 
 export const missingScopeColumns = (error: { code?: string; message?: string } | null) =>
   !!error && (error.code === '42703' || error.code === 'PGRST204' || error.code === 'PGRST202' || error.code === '42883'
@@ -154,6 +162,18 @@ export async function scopeAccess(service: SupabaseClient, caller: AgentCaller, 
       if (caller.memberId === id) return { read: true, write: true, name };
       if (!(await canManageAgent(service, caller, id))) return NONE;
       return { read: true, write: true, name };
+    }
+    case 'initiative': {
+      if (!id || !UUID.test(id) || !holdsRead(caller)) return NONE;
+      const { data, error } = await service.from('initiatives').select('name, project_id').eq('id', id).is('deleted_at', null).maybeSingle();
+      // Before the initiatives update there are none to reach.
+      if (error && missingInitiatives(error)) return NONE;
+      if (error) throw error;
+      const row = data as Row | null;
+      if (!row || !accessAllowsProject(caller.access, row.project_id, callerChannel(caller))) return NONE;
+      const { data: project, error: projectError } = await service.from('projects').select('id').eq('id', row.project_id).is('deleted_at', null).maybeSingle();
+      if (projectError) throw projectError;
+      return project ? { read: true, write: holdsManage(caller), name: row.name } : NONE;
     }
     case 'member': {
       if (!id) return NONE;
@@ -316,10 +336,21 @@ export async function visibleScopes(service: SupabaseClient, caller: AgentCaller
       refs.push(...(await groupIdsOf(service, caller.memberId)).map((id) => ({ scope_type: 'group' as const, scope_id: id })));
     }
   }
-  if (want('project') && holdsRead(caller)) {
+  if ((want('project') || want('initiative')) && holdsRead(caller)) {
     const channel = callerChannel(caller);
     const rows = await readAll<{ id: string }>((from, to) => service.from('projects').select('id').is('deleted_at', null).order('id').range(from, to));
-    refs.push(...rows.filter((row) => accessAllowsProject(caller.access, row.id, channel)).map((row) => ({ scope_type: 'project' as const, scope_id: row.id })));
+    const reached = rows.filter((row) => accessAllowsProject(caller.access, row.id, channel)).map((row) => row.id);
+    if (want('project')) refs.push(...reached.map((id) => ({ scope_type: 'project' as const, scope_id: id })));
+    // The live initiatives of the live projects it reaches.
+    if (want('initiative') && reached.length) {
+      const live = new Set(reached);
+      const initiatives = await readAll<{ id: string; project_id: string }>((from, to) => service.from('initiatives').select('id, project_id')
+        .is('deleted_at', null).order('id').range(from, to)).catch((error: { code?: string; message?: string }) => {
+        if (missingInitiatives(error ?? {})) return [];
+        throw error;
+      });
+      refs.push(...initiatives.filter((row) => live.has(row.project_id)).map((row) => ({ scope_type: 'initiative' as const, scope_id: row.id })));
+    }
   }
   if (want('agent')) {
     if (caller.access.role === 'agent') refs.push({ scope_type: 'agent', scope_id: caller.memberId });

@@ -3,8 +3,8 @@
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import {
-  ArrowLeft, Briefcase, CheckSquare, Clock, DollarSign, FileText, FolderKanban, KeyRound, LayoutTemplate,
-  Megaphone, MessageSquare, RotateCcw, Trash2, UserCircle, type LucideIcon,
+  ArrowLeft, Briefcase, CheckSquare, Clock, DollarSign, FileText, FolderKanban, KeyRound, Layers, LayoutTemplate,
+  Megaphone, MessageSquare, RotateCcw, ScrollText, Trash2, UserCircle, type LucideIcon,
 } from 'lucide-react';
 import { useApp } from '@/lib/store';
 import { Header } from '@/components/layout/Header';
@@ -16,12 +16,13 @@ import { useAuth } from '@/lib/auth-context';
 import { isModuleEnabled, type AccessContext } from '@/lib/access-control';
 import { TRASH_TABLE_MODULE, type TrashTable } from '@/lib/supabase/trash';
 import { appLocale } from '@/lib/region';
+import { INITIATIVE_LABEL } from '@/lib/initiatives';
 
 type Group = 'all' | 'projects' | 'tasks' | 'billing' | 'clients' | 'files';
 
 const GROUPS: { key: Group; label: string; types: string[] }[] = [
   { key: 'all', label: 'All', types: [] },
-  { key: 'projects', label: 'Projects', types: ['projects'] },
+  { key: 'projects', label: 'Projects', types: ['projects', 'initiatives', 'initiative_entries'] },
   { key: 'tasks', label: 'Tasks', types: ['tasks', 'task_comments', 'task_files', 'reminders', 'task_templates'] },
   {
     key: 'billing',
@@ -34,6 +35,8 @@ const GROUPS: { key: Group; label: string; types: string[] }[] = [
 
 const TYPES: Record<string, { label: string; icon: LucideIcon }> = {
   projects: { label: 'Project', icon: FolderKanban },
+  initiatives: { label: INITIATIVE_LABEL.singular, icon: Layers },
+  initiative_entries: { label: `${INITIATIVE_LABEL.singular} log entry`, icon: ScrollText },
   tasks: { label: 'Task', icon: CheckSquare },
   task_comments: { label: 'Comment', icon: MessageSquare },
   task_files: { label: 'Task file', icon: FileText },

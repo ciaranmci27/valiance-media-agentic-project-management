@@ -61,6 +61,18 @@ const EXPECTED: Record<string, string> = {
   'PATCH /api/v1/projects/[id]/credentials/[credentialId]': 'credentials.manage',
   'POST /api/v1/projects/[id]/contacts': 'contacts.manage',
   'GET /api/v1/projects/[id]/goals': 'goals.read',
+  // initiatives (20261126000100_initiatives.sql): no new permission. Reading
+  // follows the project; writing needs tasks.create there; the log needs the
+  // right to comment on its tasks.
+  'GET /api/v1/projects/[id]/initiatives': 'projects.read',
+  'POST /api/v1/projects/[id]/initiatives': 'tasks.create',
+  'GET /api/v1/projects/[id]/initiatives/[initiativeId]': 'projects.read',
+  'PATCH /api/v1/projects/[id]/initiatives/[initiativeId]': 'tasks.create',
+  'DELETE /api/v1/projects/[id]/initiatives/[initiativeId]': 'projects.manage,tasks.create',
+  'GET /api/v1/projects/[id]/initiatives/[initiativeId]/entries': 'tasks.read',
+  'POST /api/v1/projects/[id]/initiatives/[initiativeId]/entries': 'tasks.read',
+  'PATCH /api/v1/projects/[id]/initiatives/[initiativeId]/entries/[entryId]': 'tasks.read',
+  'DELETE /api/v1/projects/[id]/initiatives/[initiativeId]/entries/[entryId]': 'tasks.read',
   'PUT /api/v1/projects/[id]/portal': 'portal.manage',
   // other inferred families
   'GET /api/v1/leads/[id]/contacts': 'leads.read',

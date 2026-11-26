@@ -495,6 +495,7 @@ const SCOPE_ENTRY_WORDS: Record<ScopeRef['scope_type'], EntryWords> = {
   workspace: { pinLabels: { pin: 'Pin: every agent reads it', unpin: 'Unpin: agents find it by search' }, pinLabel: 'Pin for every agent' },
   group: { pinLabels: { pin: "Pin: the group's agents read it", unpin: 'Unpin: agents find it by search' }, pinLabel: "Pin for the group's agents" },
   project: {},
+  initiative: { pinLabels: { pin: 'Pin: agents on its tasks read it', unpin: 'Unpin: agents find it by search' }, pinLabel: 'Pin for agents on its tasks' },
   agent: { pinLabels: { pin: 'Pin: the agent always reads it', unpin: 'Unpin: the agent finds it by search' }, pinLabel: 'Pin: the agent always reads it' },
   member: {
     deleteLabel: 'Delete',

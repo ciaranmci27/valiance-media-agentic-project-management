@@ -9,7 +9,7 @@ import { WEBHOOK_EVENT_TYPES } from '@/lib/types';
 import { planSchema } from '@/lib/communications/plan-schemas';
 import { AGENT_MESSAGE_STATUSES, triageSchema } from '@/lib/communications/schemas';
 import { MAIL_TOPICS, RULE_ACTIONS } from '@/lib/communications/sorting';
-import { TEMPLATE_NAME_MAX, templateFieldSchema, templateTaskSchema } from '@/lib/task-templates';
+import { runInitiativeSchema, TEMPLATE_SCOPES, templateDocumentSchema, templatePatchSchema } from '@/lib/task-templates';
 import { PLANS_CUTOVER_REMOVAL } from '@/lib/api/version';
 import { idempotencyKeyInput, routeTool, type PmTool } from './core';
 
@@ -69,7 +69,21 @@ const API_SCOPE = z.enum(API_ENDPOINT_PERMISSIONS);
 const WEBHOOK_EVENT = z.enum(WEBHOOK_EVENT_TYPES);
 // generic, an install's profile or an Owner's own (list_agent_profiles); the route checks it exists.
 const AGENT_PROFILE = z.string().regex(/^[a-z][a-z0-9-]{0,39}$/, 'A profile value is lowercase letters, numbers and dashes').describe('generic, or a value list_agent_profiles names');
-const CONTEXT_SCOPE = z.enum(['workspace', 'group', 'project', 'agent', 'member']);
+const CONTEXT_SCOPE = z.enum(['workspace', 'group', 'project', 'agent', 'member', 'initiative']);
+const INITIATIVE_STATUS = z.enum(['planned', 'active', 'paused', 'done']);
+const INITIATIVE_HEALTH = z.enum(['on_track', 'at_risk', 'blocked']);
+const INITIATIVE_ENTRY_KIND = z.enum(['update', 'decision', 'issue', 'note']);
+/** What run_task_template and preview_task_template_run take (besides template_id). */
+const runFields = {
+  project_id: id('project_id').optional(),
+  start_date: date.optional().describe('The "start" key date (default today)'),
+  values: z.record(z.string(), z.string().max(200)).optional().describe('A value for every fill-in field, by key: { "product": "Aurora" }'),
+  key_dates: z.record(z.string(), date).optional().describe('A date for each key date, by key: { "launch": "2027-03-01" }'),
+  roles: z.record(z.string(), z.union([z.literal('runner'), z.uuid('A role maps to a member id'), z.null()])).optional()
+    .describe('One member per role, by role key: a member id (a person or an agent), "runner" (you) or null'),
+  create_initiative: z.boolean().optional().describe('Default false. true: make an initiative for the run, its tasks inside it'),
+  initiative: runInitiativeSchema.optional().describe('With create_initiative true: its name, and one owner (owner_role, owner_member_id or owner_group_id; default you)'),
+};
 const atLeastOne = (fields: string[]) => (value: Record<string, unknown>) =>
   fields.some((field) => value[field] !== undefined);
 
@@ -373,10 +387,10 @@ export const PM_TOOLS: PmTool[] = [
   routeTool({
     name: 'search_context',
     lead: 'Search context at every level by words.',
-    detail: 'Full text across every scope you read at once: company knowledge (workspace), your groups, the projects you reach, your own notes (agent) and, for a personal agent whose person allows it, their memory (member). Best match first: words, "a phrase", -word to leave out. Each entry has scope_type, scope_id, its section, pinned and rank. scope_types narrows it. Pinned entries are already in get_task_brief and pm_guide; search finds the rest. limit 1 to 50 (default 20).',
+    detail: 'Full text across every scope you read at once: company knowledge (workspace), your groups, the projects you reach and their initiatives\' briefs (initiative), your own notes (agent) and, for a personal agent whose person allows it, their memory (member). Best match first: words, "a phrase", -word to leave out. Each entry has scope_type, scope_id, its section, pinned and rank. scope_types narrows it. Pinned entries are already in get_task_brief and pm_guide; search finds the rest. limit 1 to 50 (default 20).',
     input: z.object({
       q: z.string().min(1).max(500),
-      scope_types: z.array(CONTEXT_SCOPE).min(1).max(5).optional(),
+      scope_types: z.array(CONTEXT_SCOPE).min(1).max(6).optional(),
       limit: z.number().int().min(1).max(50).optional(),
     }).strict(),
     permission: [...API_ENDPOINT_PERMISSIONS],
@@ -387,7 +401,7 @@ export const PM_TOOLS: PmTool[] = [
   routeTool({
     name: 'add_context',
     lead: 'Add a context note at any level: your notes, a memory.',
-    detail: "scope_type agent with your own id keeps a note for yourself; member with your person's id (works_for) saves something they want you to remember, only while they turned on Remember things for me; workspace, group or project follow their own rules (the workspace: an Owner; a project: project_context.manage). scope_id names the group, project, agent or person (leave it out for the workspace). section defaults to overview; pinned puts it into your context every time, so pin only what you always need. Recorded as written by an agent.",
+    detail: "scope_type agent with your own id keeps a note for yourself; member with your person's id (works_for) saves something they want you to remember, only while they turned on Remember things for me; workspace, group, project or initiative follow their own rules (the workspace: an Owner; a project, and an initiative's brief: project_context.manage on its project). scope_id names the group, project, agent, person or initiative (leave it out for the workspace). An initiative's brief is standing knowledge about that body of work; dated news, decisions and issues go in its log (add_initiative_entry). section defaults to overview; pinned puts it into your context every time, so pin only what you always need. Recorded as written by an agent.",
     input: z.object({
       scope_type: CONTEXT_SCOPE,
       scope_id: id('scope_id').optional(),
@@ -447,6 +461,132 @@ export const PM_TOOLS: PmTool[] = [
     request: ({ project_id, ...query }) => ({ params: { id: project_id }, query }),
   }),
 
+  // Initiatives: a body of work inside a project, with its own board (the
+  // project's tasks tagged with it), log and brief. A goal is an outcome.
+  routeTool({
+    name: 'list_initiatives',
+    lead: "List a project's initiatives: its bodies of work.",
+    detail: 'An initiative is a named body of work inside a project, with an owner, a status, its own board (the tasks tagged with it) and a log; a goal (list_project_goals) is an outcome to reach, a different thing. In order; done ones only with include_done or status done. Each with owner, status, health (while active), dates, progress (top-level tasks done of those you can see) and, if you may read the log, open_issue_count. Read one with get_initiative before you work on its tasks.',
+    input: z.object({
+      project_id: id('project_id'),
+      status: INITIATIVE_STATUS.optional(),
+      include_done: z.boolean().optional(),
+      page, limit: limit(25),
+    }).strict(),
+    permission: 'projects.read',
+    method: 'GET',
+    path: '/api/v1/projects/{id}/initiatives',
+    request: ({ project_id, include_done, ...query }) => ({ params: { id: project_id }, query: { ...query, ...(include_done ? { include_done: 'true' } : {}) } }),
+  }),
+  routeTool({
+    name: 'get_initiative',
+    lead: 'Get an initiative: its header, open issues and log.',
+    detail: "Your starting read for a body of work: the initiative (description, owner, status, health, dates, progress), its open issues (newest 20), its last 10 log entries and its pinned brief entries, each with more (how many were left out). The log (list_initiative_entries) is the dated record; the brief (search_context with scope_types initiative, add_context) is standing knowledge. Its tasks: search_tasks with initiative_id. get_task_brief also carries a task's initiative.",
+    input: z.object({ project_id: id('project_id'), initiative_id: id('initiative_id') }).strict(),
+    permission: 'projects.read',
+    method: 'GET',
+    path: '/api/v1/projects/{id}/initiatives/{initiativeId}',
+    request: ({ project_id, initiative_id }) => ({ params: { id: project_id, initiativeId: initiative_id } }),
+  }),
+  routeTool({
+    name: 'create_initiative',
+    lead: 'Create an initiative: a body of work in a project.',
+    detail: 'Needs tasks.create in the project. description says what it is for (an outcome to track is a goal). One owner at most: owner_member_id or owner_group_id. status planned (default), active, paused or done; health on_track, at_risk or blocked only while active; dates YYYY-MM-DD. Then tag tasks with create_task or update_task initiative_id.',
+    input: z.object({
+      project_id: id('project_id'),
+      name: z.string().min(1).max(120),
+      description: z.string().max(5000).optional(),
+      owner_member_id: id('owner_member_id').nullable().optional(),
+      owner_group_id: id('owner_group_id').nullable().optional(),
+      status: INITIATIVE_STATUS.optional(),
+      health: INITIATIVE_HEALTH.nullable().optional(),
+      start_date: date.nullable().optional(),
+      target_date: date.nullable().optional(),
+      idempotency_key: idempotencyKeyInput,
+    }).strict(),
+    permission: 'tasks.create',
+    method: 'POST',
+    path: '/api/v1/projects/{id}/initiatives',
+    request: ({ project_id, ...body }) => ({ params: { id: project_id }, body }),
+  }),
+  routeTool({
+    name: 'update_initiative',
+    lead: 'Change an initiative: status, health, owner or dates.',
+    detail: 'Needs tasks.create in the project. Send only what changes. Naming a member owner clears a group owner and the other way round; health is cleared when it stops being active. Its project never changes. There is no delete tool: a person moves one to Trash.',
+    input: z.object({
+      project_id: id('project_id'),
+      initiative_id: id('initiative_id'),
+      name: z.string().min(1).max(120).optional(),
+      description: z.string().max(5000).optional(),
+      owner_member_id: id('owner_member_id').nullable().optional(),
+      owner_group_id: id('owner_group_id').nullable().optional(),
+      status: INITIATIVE_STATUS.optional(),
+      health: INITIATIVE_HEALTH.nullable().optional(),
+      start_date: date.nullable().optional(),
+      target_date: date.nullable().optional(),
+    }).strict().refine(
+      atLeastOne(['name', 'description', 'owner_member_id', 'owner_group_id', 'status', 'health', 'start_date', 'target_date']),
+      'Send at least one field to change',
+    ),
+    permission: 'tasks.create',
+    method: 'PATCH',
+    path: '/api/v1/projects/{id}/initiatives/{initiativeId}',
+    request: ({ project_id, initiative_id, ...body }) => ({ params: { id: project_id, initiativeId: initiative_id }, body }),
+  }),
+  routeTool({
+    name: 'list_initiative_entries',
+    lead: "List an initiative's log: updates, decisions, issues.",
+    detail: 'The dated record, newest first, 50 a page: kind update, decision, issue (status open or resolved) or note, each with its author. Filters: kind, status. Needs tasks.read; guests never read it.',
+    input: z.object({
+      project_id: id('project_id'),
+      initiative_id: id('initiative_id'),
+      kind: INITIATIVE_ENTRY_KIND.optional(),
+      status: z.enum(['open', 'resolved']).optional(),
+      page,
+      limit: limit(50),
+    }).strict(),
+    permission: 'tasks.read',
+    method: 'GET',
+    path: '/api/v1/projects/{id}/initiatives/{initiativeId}/entries',
+    request: ({ project_id, initiative_id, ...query }) => ({ params: { id: project_id, initiativeId: initiative_id }, query }),
+  }),
+  routeTool({
+    name: 'add_initiative_entry',
+    lead: 'Log an update, decision, issue or note on an initiative.',
+    detail: 'The log is the dated record of the work: what happened (update), what was decided and why (decision), what stands in the way (issue, starts open) or anything worth keeping (note). Standing knowledge everyone should always know goes in its brief instead (add_context, scope_type initiative); work you propose is a task suggestion (create_task_suggestion), never an entry. task_id ties it to a task in the same project. Posted under your own name.',
+    input: z.object({
+      project_id: id('project_id'),
+      initiative_id: id('initiative_id'),
+      kind: INITIATIVE_ENTRY_KIND,
+      title: z.string().min(1).max(200),
+      body: z.string().max(20_000).optional(),
+      task_id: id('task_id').nullable().optional(),
+      idempotency_key: idempotencyKeyInput,
+    }).strict(),
+    permission: 'tasks.read',
+    method: 'POST',
+    path: '/api/v1/projects/{id}/initiatives/{initiativeId}/entries',
+    request: ({ project_id, initiative_id, ...body }) => ({ params: { id: project_id, initiativeId: initiative_id }, body }),
+  }),
+  routeTool({
+    name: 'update_initiative_entry',
+    lead: 'Change a log entry, or resolve or reopen an issue.',
+    detail: 'Its author changes title, body and task_id. status resolved or open resolves or reopens an issue, for anyone who may log (only issues have a status).',
+    input: z.object({
+      project_id: id('project_id'),
+      initiative_id: id('initiative_id'),
+      entry_id: id('entry_id'),
+      title: z.string().min(1).max(200).optional(),
+      body: z.string().max(20_000).optional(),
+      task_id: id('task_id').nullable().optional(),
+      status: z.enum(['open', 'resolved']).optional(),
+    }).strict().refine(atLeastOne(['title', 'body', 'task_id', 'status']), 'Send at least one field to change'),
+    permission: 'tasks.read',
+    method: 'PATCH',
+    path: '/api/v1/projects/{id}/initiatives/{initiativeId}/entries/{entryId}',
+    request: ({ project_id, initiative_id, entry_id, ...body }) => ({ params: { id: project_id, initiativeId: initiative_id, entryId: entry_id }, body }),
+  }),
+
   // Tasks
   routeTool({
     name: 'search_tasks',
@@ -461,6 +601,7 @@ export const PM_TOOLS: PmTool[] = [
       task_type: TASK_TYPE.optional(),
       ai_readiness: AI_READINESS.optional(),
       project_goal_id: id('project_goal_id').optional(),
+      initiative_id: z.union([id('initiative_id'), z.literal('none')]).optional().describe('Only the tasks of this initiative (subtasks included), or none for tasks in no initiative'),
       parent_task_id: id('parent_task_id').optional().describe("Only this task's subtasks"),
       top_level: z.boolean().optional().describe('Only top-level tasks, no subtasks'),
       sort: z.enum(['created_at', 'updated_at', 'title', 'status', 'priority', 'due_date']).optional(),
@@ -487,7 +628,7 @@ export const PM_TOOLS: PmTool[] = [
     name: 'get_task_brief',
     lead: 'Get everything you need to start work on a task.',
     detail:
-      'One call before you start: the task (acceptance criteria, subtasks, blockers and dependencies_met), its project and the project\'s active context entries, the newest 10 comments, its files and links, the open question if it is waiting on someone, who holds the claim, the latest agent run on it, and your own rules (self_assign, close_policy, create_policy, escalate_to). Long text is cut and flagged; parts your key cannot read are listed in omitted.',
+      'One call before you start: the task (acceptance criteria, subtasks, blockers and dependencies_met; project_goal_id is its goal, the outcome), its project and the project\'s active context entries, its initiative (the body of work it belongs to: header and pinned brief entries; null if none), the newest 10 comments, its files and links, the open question if it is waiting on someone, who holds the claim, the latest agent run on it, and your own rules (self_assign, close_policy, create_policy, escalate_to). Long text is cut and flagged; parts your key cannot read are listed in omitted.',
     input: z.object({ task_id: id('task_id') }).strict(),
     permission: 'tasks.read',
     method: 'GET',
@@ -600,6 +741,7 @@ export const PM_TOOLS: PmTool[] = [
       tags: z.array(z.string().min(1).max(100)).max(50).optional(),
       assignee_ids: z.array(id('assignee_ids')).max(20).optional(),
       project_goal_id: id('project_goal_id').nullable().optional(),
+      initiative_id: id('initiative_id').nullable().optional().describe("The initiative (body of work) it belongs to, in the same project; a subtask takes its parent's"),
       task_type: TASK_TYPE.nullable().optional(),
       ai_readiness: AI_READINESS.nullable().optional(),
       acceptance_criteria: z.array(z.string().min(1).max(2000)).max(50).optional(),
@@ -617,7 +759,7 @@ export const PM_TOOLS: PmTool[] = [
     name: 'update_task',
     lead: "Change a task's fields, status or blockers.",
     detail:
-      'Send only what changes. acceptance_criteria REPLACES every criterion and clears their satisfied flags; use add_acceptance_criterion or update_acceptance_criterion for one. Changing assignees needs tasks.manage_all. project_id moves it: you must be able to change it and to create tasks in the new project; its subtasks, comments, files and reminders go with it and its goal is cleared. Anyone on it who cannot open the new project refuses the move by name: send lost_access unassign to take them off, or add_to_project to add them (needs project_members.manage). If your rules send finished work to review, status done moves it to in_review instead (sent_to_review: true). Answers with the bare task row.',
+      'Send only what changes. acceptance_criteria REPLACES every criterion and clears their satisfied flags; use add_acceptance_criterion or update_acceptance_criterion for one. Changing assignees needs tasks.manage_all. project_id moves it: you must be able to change it and to create tasks in the new project; its subtasks, comments, files and reminders go with it and its goal and initiative are cleared (unless you name an initiative there). Anyone on it who cannot open the new project refuses the move by name: send lost_access unassign to take them off, or add_to_project to add them (needs project_members.manage). If your rules send finished work to review, status done moves it to in_review instead (sent_to_review: true). Answers with the bare task row.',
     input: z.object({
       task_id: id('task_id'),
       title: z.string().min(1).max(500).optional(),
@@ -629,13 +771,14 @@ export const PM_TOOLS: PmTool[] = [
       assignee_ids: z.array(id('assignee_ids')).max(20).optional(),
       project_id: id('project_id').optional(),
       project_goal_id: id('project_goal_id').nullable().optional(),
+      initiative_id: id('initiative_id').nullable().optional().describe("The initiative it belongs to, in its project; null takes it out. A subtask follows its parent's"),
       task_type: TASK_TYPE.nullable().optional(),
       ai_readiness: AI_READINESS.nullable().optional(),
       acceptance_criteria: z.array(z.string().min(1).max(2000)).max(50).optional(),
       blocked_by_ids: z.array(id('blocked_by_ids')).max(50).optional(),
       lost_access: z.enum(['refuse', 'unassign', 'add_to_project']).optional(),
     }).strict().refine(
-      atLeastOne(['title', 'description', 'status', 'priority', 'due_date', 'tags', 'assignee_ids', 'project_id', 'project_goal_id', 'task_type', 'ai_readiness', 'acceptance_criteria', 'blocked_by_ids']),
+      atLeastOne(['title', 'description', 'status', 'priority', 'due_date', 'tags', 'assignee_ids', 'project_id', 'project_goal_id', 'initiative_id', 'task_type', 'ai_readiness', 'acceptance_criteria', 'blocked_by_ids']),
       'Send at least one field to change',
     ),
     permission: 'tasks.manage_assigned',
@@ -738,14 +881,16 @@ export const PM_TOOLS: PmTool[] = [
     path: '/api/v1/tasks/{id}/acceptance-criteria/{criterionId}',
     request: ({ task_id, criterion_id, ...body }) => ({ params: { id: task_id, criterionId: criterion_id }, body }),
   }),
-  // Task templates: one task or a playbook, used again and again.
+  // Task templates: one task or a playbook, used again and again. One JSON
+  // template (get_task_template_schema) for writing, validating and running.
   routeTool({
     name: 'list_task_templates',
     lead: 'List task templates and playbooks you can use.',
-    detail: 'By name, paged, without their tasks (get_task_template has them). project_id lists only those usable in that project: unlocked ones and the ones locked to it. Each with fields (the fill-ins run_task_template asks for), item_count, task_count, project_id (locked to it, or null), run_count and last_run_at.',
+    detail: "By name, paged, without their tasks (get_task_template has them). project_id lists only those usable in that project: company-wide ones and the project's own (its own first). scope narrows to project (templates that belong to a project) or workspace (company-wide). Each with scope, can_edit (you may change it), key_dates, roles, fields (the fill-ins run_task_template asks for), item_count, task_count, project_id (the project it belongs to, or null), run_count and last_run_at.",
     input: z.object({
       search: z.string().min(1).max(200).optional(),
       project_id: id('project_id').optional(),
+      scope: z.enum(TEMPLATE_SCOPES).optional().describe('project: only templates that belong to a project; workspace: only company-wide ones'),
       page,
       limit: limit(50),
     }).strict(),
@@ -756,8 +901,8 @@ export const PM_TOOLS: PmTool[] = [
   }),
   routeTool({
     name: 'get_task_template',
-    lead: 'Read one task template with its tasks.',
-    detail: 'items are its tasks in order, each with title, description, priority, tags, assignee ("runner" for whoever uses it, a member id, or null), due_in_days (after the start date) and subtasks. {key} in a title or description is a fill-in from fields.',
+    lead: 'Read one task template in full.',
+    detail: 'items are its tasks in order, each with key (stable), title, description, priority, tags, assignee ("runner" for whoever uses it, a member id, or null), role (assigned by the member a run maps it to), anchor (the key date due_in_days counts from), due_in_days (negative is before it), depends_on (keys of top-level tasks it waits on) and subtasks. Also key_dates (main: the initiative targets it), roles (default_member_id, required), fields ({key} fill-ins with type text, date, member or choice), guidance (how to fill it in) and scope.',
     input: z.object({ template_id: id('template_id') }).strict(),
     permission: ['tasks.create', 'templates.manage'],
     method: 'GET',
@@ -765,24 +910,56 @@ export const PM_TOOLS: PmTool[] = [
     request: ({ template_id }) => ({ params: { id: template_id } }),
   }),
   routeTool({
+    name: 'get_task_template_schema',
+    lead: 'Read the JSON template schema and its error codes.',
+    detail: 'JSON Schema (draft 2020-12) for template (what create_task_template takes), update and run (what run_task_template and preview_task_template_run take), the rules beyond the shape, every error code, and a worked product launch example. Read it before writing a template.',
+    input: z.object({}).strict(),
+    permission: ['tasks.create', 'templates.manage', 'projects.manage'],
+    method: 'GET',
+    path: '/api/v1/task-templates/schema',
+    request: () => ({}),
+  }),
+  routeTool({
+    name: 'validate_task_template',
+    lead: 'Check a task template without saving it.',
+    detail: 'template is the JSON template as create_task_template takes it (get_task_template_schema), or with template_id a change as update_task_template takes it. Writes nothing. Answers { valid, errors, template, can_save }: every error with path (items[2].depends_on[0]), code (unknown_anchor, dependency_cycle with cycle, duplicate_key, undeclared_field, offset_out_of_range, ...), message and hint (the fix); template is what would be saved, every task keyed. Fix every error, validate again, then create.',
+    input: z.object({
+      template: z.record(z.string(), z.unknown()).describe('The JSON template (or a change, with template_id)'),
+      template_id: id('template_id').optional(),
+    }).strict(),
+    permission: ['templates.manage', 'projects.manage'],
+    method: 'POST',
+    path: '/api/v1/task-templates/validate',
+    idempotent: true,
+    destructive: false,
+    request: (body) => ({ body }),
+  }),
+  routeTool({
+    name: 'preview_task_template_run',
+    lead: 'Preview a template run: dated, assigned tasks.',
+    detail: 'A dry run with what run_task_template takes: answers the exact tasks it would make (keys, titles with fill-ins, due dates from key_dates, assignees from roles, subtasks), dependencies ({ task, waits_on } by key), the initiative (name, target_date, owner) and notes, writing nothing. ok false lists every reason the run would be refused (missing_key_date, missing_values, role_unmapped, cannot_assign_others, ...) with path and hint. Run with the same input once ok is true.',
+    input: z.object({ template_id: id('template_id'), ...runFields }).strict(),
+    permission: 'tasks.create',
+    method: 'POST',
+    path: '/api/v1/task-templates/{id}/preview',
+    idempotent: true,
+    destructive: false,
+    request: ({ template_id, ...body }) => ({ params: { id: template_id }, body }),
+  }),
+  routeTool({
     name: 'run_task_template',
     lead: 'Use a task template: create all its tasks at once.',
-    detail: 'Creates every task and subtask in the project, fill-ins replaced by values (one per field, by key) and due dates counted from start_date (YYYY-MM-DD, default today). Leave out project_id for a template locked to a project; another project is 422 locked_to_project. Needs tasks.create on the project. Answers { run, tasks, notes }: notes say who was left unassigned because they cannot open the project.',
-    input: z.object({
-      template_id: id('template_id'),
-      project_id: id('project_id').optional(),
-      start_date: date.optional(),
-      values: z.record(z.string(), z.string().max(200)).optional().describe('A value for every fill-in field, by key: { "product": "Aurora" }'),
-      idempotency_key: idempotencyKeyInput,
-    }).strict(),
+    detail: 'Creates every task and subtask in the project: fill-ins replaced by values (one per field, by key), due dates counted from key_dates (by key; start defaults to today, start_date sets it too), tasks with a role assigned to the member roles maps it to ("runner" is you; mapping someone else needs tasks.manage_all), dependencies carried into task dependencies. With create_initiative true it also makes an active initiative named from the run, targeting the main key date, owned by you (initiative.owner_role, owner_member_id or owner_group_id to change), with the tasks inside it; by default it makes none. Leave out project_id for a project\'s own template; another project is 422 locked_to_project. Needs tasks.create on the project. Preview first with preview_task_template_run. Answers { run, tasks, initiative, notes }: notes say who was left unassigned because they cannot open the project.',
+    input: z.object({ template_id: id('template_id'), ...runFields, idempotency_key: idempotencyKeyInput }).strict(),
     permission: 'tasks.create',
     method: 'POST',
     path: '/api/v1/task-templates/{id}/run',
     request: ({ template_id, ...body }) => ({ params: { id: template_id }, body }),
     present: (data) => {
-      const result = (data ?? {}) as { run?: unknown; tasks?: Record<string, unknown>[]; notes?: string[] };
+      const result = (data ?? {}) as { run?: unknown; tasks?: Record<string, unknown>[]; notes?: string[]; initiative?: unknown };
       return {
         run: result.run,
+        initiative: result.initiative ?? null,
         tasks: (result.tasks ?? []).map((task) => ({
           id: task.id, title: task.title, parent_task_id: task.parent_task_id ?? null, due_date: task.due_date ?? null, assignee_ids: task.assignee_ids ?? [],
         })),
@@ -792,34 +969,21 @@ export const PM_TOOLS: PmTool[] = [
   }),
   routeTool({
     name: 'create_task_template',
-    lead: 'Create a task template or playbook for everyone.',
-    detail: 'Needs templates.manage. items are the tasks in order (1 to 50), each with optional subtasks (one level). assignee is "runner" (whoever uses it), a member id, or null; due_in_days counts from the start date picked when it is used. Every {key} used in a title or description needs a field { key, label }. project_id locks it to that project.',
-    input: z.object({
-      name: z.string().min(1).max(TEMPLATE_NAME_MAX),
-      description: z.string().max(2000).optional(),
-      project_id: id('project_id').nullable().optional(),
-      fields: z.array(templateFieldSchema).max(10).optional(),
-      items: z.array(templateTaskSchema).min(1).max(50),
-      idempotency_key: idempotencyKeyInput,
-    }).strict(),
-    permission: 'templates.manage',
+    lead: 'Create a task template or playbook.',
+    detail: 'The JSON template (get_task_template_schema; check it first with validate_task_template). project_id puts it in that project (needs projects.manage or templates.manage there); null makes it company-wide (needs templates.manage). items are the tasks in order (1 to 50, 200 with subtasks), each with key (set one on any task others depend on; the rest get t1, t2, t1.1), title, assignee ("runner", a member id or null), role, anchor and due_in_days (days from that key date, negative before it), depends_on (top-level keys, no loops) and subtasks (one level). key_dates name the anchors (default one, start); roles are filled per run; every {key} in a title or description needs a field. A refusal lists every error with its path and fix.',
+    input: templateDocumentSchema.extend({ idempotency_key: idempotencyKeyInput }).strict(),
+    permission: ['templates.manage', 'projects.manage'],
     method: 'POST',
     path: '/api/v1/task-templates',
     request: (body) => ({ body }),
   }),
   routeTool({
     name: 'update_task_template',
-    lead: 'Change a task template: its name, fields or tasks.',
-    detail: 'Needs templates.manage. Send only what changes; fields and items are replaced whole, so send both when the fill-ins change. Its version goes up when what it makes changes. Runs already made keep the version they used.',
-    input: z.object({
-      template_id: id('template_id'),
-      name: z.string().min(1).max(TEMPLATE_NAME_MAX).optional(),
-      description: z.string().max(2000).optional(),
-      project_id: id('project_id').nullable().optional(),
-      fields: z.array(templateFieldSchema).max(10).optional(),
-      items: z.array(templateTaskSchema).min(1).max(50).optional(),
-    }).strict().refine(atLeastOne(['name', 'description', 'project_id', 'fields', 'items']), 'Send at least one field to change'),
-    permission: 'templates.manage',
+    lead: 'Change a task template: its tasks, dates or roles.',
+    detail: 'Send only what changes; fields, items, key_dates and roles are replaced whole (keep each task\'s key so runs can follow it; send fields with items when the fill-ins change). Checked against the template it changes, with the same errors as validate_task_template. Needs the same rights as creating it in its scope (both scopes when project_id changes). Its version goes up when what it makes changes; the same change twice changes nothing. Runs already made keep the version they used.',
+    input: templatePatchSchema.extend({ template_id: id('template_id'), idempotency_key: idempotencyKeyInput }).strict()
+      .refine(atLeastOne(['name', 'description', 'project_id', 'guidance', 'key_dates', 'roles', 'fields', 'items']), 'Send at least one field to change'),
+    permission: ['templates.manage', 'projects.manage'],
     method: 'PATCH',
     path: '/api/v1/task-templates/{id}',
     request: ({ template_id, ...body }) => ({ params: { id: template_id }, body }),
@@ -2468,8 +2632,8 @@ export const PM_TOOLS: PmTool[] = [
   routeTool({
     name: 'list_inbox_questions',
     lead: 'List questions you asked that still wait on a person.',
-    detail: "Across your inboxes (or inbox_id), oldest first: each email's sender, subject, project, the question and when it was asked. A person answering it in the Inbox, or marking the thread handled, takes it off.",
-    input: z.object({ inbox_id: id('inbox_id').optional() }).strict(),
+    detail: "Across your inboxes (or inbox_id; handled me: only the ones you handle), oldest first: each email's sender, subject, project, the question and when it was asked. A person answering it in the Inbox, or marking the thread handled, takes it off.",
+    input: z.object({ inbox_id: id('inbox_id').optional(), handled: z.enum(['me']).optional().describe('me: only the inboxes you handle, as yourself or through a group'), }).strict(),
     permission: 'inbound_email.read',
     method: 'GET',
     path: '/api/v1/inbox/questions',
@@ -2543,8 +2707,8 @@ export const PM_TOOLS: PmTool[] = [
   routeTool({
     name: 'list_unsummarized_triage',
     lead: 'List triage not yet included in a summary.',
-    detail: 'For a batched summary: the newest triage of each email from the last 14 days that drove an outcome (a task, a reminder, a reply owed or a question) and was not summarized yet, oldest first, with sender, subject, routing, projects and linked tasks (no bodies), in your inboxes (or inbox_id). After you send the summary, mark_triage_summarized with their ids.',
-    input: z.object({ inbox_id: id('inbox_id').optional() }).strict(),
+    detail: 'For a batched summary: the newest triage of each email from the last 14 days that drove an outcome (a task, a reminder, a reply owed or a question) and was not summarized yet, oldest first, with sender, subject, routing, projects and linked tasks (no bodies), in your inboxes (or inbox_id; handled me: only the ones you handle). After you send the summary, mark_triage_summarized with their ids.',
+    input: z.object({ inbox_id: id('inbox_id').optional(), handled: z.enum(['me']).optional().describe('me: only the inboxes you handle, as yourself or through a group'), }).strict(),
     permission: 'inbound_email.read',
     deprecated: { replacement: 'the answer from submit_triage_plan (each item and its decision): summarize as you plan', removal: PLANS_CUTOVER_REMOVAL },
     method: 'GET',

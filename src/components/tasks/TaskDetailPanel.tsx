@@ -74,6 +74,7 @@ import { useMoveTaskMenuAction } from './MoveTaskDialog';
 import { claimUntil, liveClaim, occurrenceLabel } from '@/lib/claims';
 import { useOpenQuestions } from '@/lib/reads';
 import { QuestionCard } from '@/components/questions/QuestionCard';
+import { InitiativeField } from '@/components/initiatives/InitiativeField';
 import {
   DescriptionField, DetailRow, INLINE_DATE_CLASS, PeopleChips, PickField, PRIORITY_OPTIONS, STATUS_OPTIONS, TagsField, TitleField,
   taskTypeLabel, WHO_DOES_IT,
@@ -577,6 +578,14 @@ export function TaskDetailPanel({ task, onClose, onDelete, variant = 'panel' }: 
           )}
         </div>
       </DetailRow>
+
+      <InitiativeField
+        projectId={task.project_id}
+        value={parentTask ? parentTask.initiative_id : task.initiative_id}
+        onChange={(initiative_id) => updateTask(task.id, { initiative_id })}
+        canEdit={canEdit}
+        inheritedFromParent={!!parentTask}
+      />
 
       {claim && (
         <DetailRow icon={claimByAgent ? Bot : UserRound} label="Working on it">

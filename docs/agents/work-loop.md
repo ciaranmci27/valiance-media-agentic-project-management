@@ -62,6 +62,7 @@ Other refusals: `403 self_assign_off`, `403 not_ai_ready`, `403 assigned_to_othe
 
 - the task, its acceptance criteria, subtasks and blockers;
 - the project, its pinned brief entries and context;
+- the task's initiative (the body of work it belongs to), with its pinned brief entries;
 - the newest 10 comments, files and links;
 - any open question, the claim and the latest run;
 - the caller's own rules (`self_assign`, `close_policy`, `create_policy`, `escalate_to`);
@@ -69,6 +70,20 @@ Other refusals: `403 self_assign_off`, `403 not_ai_ready`, `403 assigned_to_othe
 - `omitted` and `cut_to_fit`, saying what was left out and why.
 
 Read it before planning. Reach for `get_task` or `list_task_comments` only for what the brief cut.
+
+### Initiatives
+
+An initiative is a named body of work inside a project: an owner, a status (`planned`, `active`, `paused`, `done`), a health while active, its own board (the project's tasks with its `initiative_id`) and a log. A goal is different: an outcome to reach (`project_goal_id`). A task belongs to at most one initiative; a subtask always has its parent's.
+
+When a task has one, its brief carries `initiative`. To work the initiative itself:
+
+1. `get_initiative` (`GET /api/v1/projects/{id}/initiatives/{initiativeId}`): the header and progress, open issues (newest 20), the last 10 log entries and the pinned brief entries, each list with `more`.
+2. `search_tasks` with `initiative_id` for its board.
+3. Record what happened with `add_initiative_entry`: `update` (news), `decision` (what was decided and why), `issue` (what blocks the work; it starts open, and `update_initiative_entry` with `status: resolved` closes it) or `note`.
+
+Three places, three jobs. The log is the dated record. The brief is standing knowledge everyone on it should always know (`add_context` with `scope_type: initiative`). Work you propose is a task suggestion (`create_task_suggestion`), never a log entry.
+
+The log needs `tasks.read` and is never a guest's. Creating and changing initiatives needs `tasks.create` in the project.
 
 ## 4. Record the run
 
@@ -113,6 +128,7 @@ A run can be `waiting`: neither running nor finished. Use it when the next step 
   - `mode: "subtask"` (the default) makes a subtask of the task, assigned to the receiver. Your own create rules apply (approval gives a suggestion, answered 202).
   - `mode: "assign"` hands the task itself over, as it is: top-level, or a subtask. The receiver joins its assignees; `reassign: true` takes you off (and ends your claim). Answered 200.
 - The receiver sees `delegated_from` (with `mode`) in its brief and starts its run with `parent_run_id` set to that run.
+- A reviewer asked for an approval (or a question) directly, with the asker's `run_id`, may start his run with `parent_run_id` set to that run: while it is open, or up to 24 hours after he decides it. Group questions do not count. Linking reads nothing more of the asker's run.
 - The whole chain shares one root and one person it is for. A child run for someone else is refused (`403 principal_mismatch`).
 - `get_run_tree` (`GET /api/v1/agents/runs/{id}/tree`) shows the chain from any run in it.
 

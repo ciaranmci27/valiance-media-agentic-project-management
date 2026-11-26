@@ -7,6 +7,10 @@ import { createTaskWithRules } from '@/lib/api/create-task';
 import { liveTaskIds } from '@/lib/api/task-guards';
 import { subtaskSummaries } from '@/lib/api/subtasks';
 import { hiddenSubtaskIds, postgrestList, trashedProjectIds } from '@/lib/supabase/trash';
+import { badRequest } from '@/lib/api/errors';
+import { initiativesMigrationPending, missingInitiativesSchema } from '@/lib/api/initiatives';
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export const GET = withApi(async ({ supabase, searchParams, access }) => {
   const { page, limit, offset } = parsePagination(searchParams);
@@ -56,6 +60,13 @@ export const GET = withApi(async ({ supabase, searchParams, access }) => {
   if (searchParams.get('top_level') === 'true') query = query.is('parent_task_id', null);
   const goalId = searchParams.get('project_goal_id');
   if (goalId) query = query.eq('project_goal_id', goalId);
+  // An initiative's tasks (subtasks included: they share it). "none": tasks in no initiative.
+  const initiativeId = searchParams.get('initiative_id');
+  if (initiativeId === 'none') query = query.is('initiative_id', null);
+  else if (initiativeId) {
+    if (!UUID.test(initiativeId)) throw badRequest('initiative_id must be a uuid, or none');
+    query = query.eq('initiative_id', initiativeId);
+  }
   if (search) {
     const s = sanitizeSearch(search);
     query = query.or(`title.ilike.%${s}%,description.ilike.%${s}%`);
@@ -65,7 +76,10 @@ export const GET = withApi(async ({ supabase, searchParams, access }) => {
     .order(sort, { ascending: order })
     .range(offset, offset + limit - 1);
 
-  if (error) throw error;
+  if (error) {
+    if (initiativeId && missingInitiativesSchema(error)) throw initiativesMigrationPending();
+    throw error;
+  }
 
   // A blocker in Trash blocks nothing (its dependency row waits for a restore).
   const liveBlockers = await liveTaskIds(supabase, (data || []).flatMap((t: { task_dependencies?: { blocked_by_task_id: string }[] | null }) =>

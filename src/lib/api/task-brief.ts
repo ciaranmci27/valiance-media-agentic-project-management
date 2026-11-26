@@ -11,6 +11,7 @@ import { groupTargetLabel } from '@/lib/groups';
 import { apiContext, listTaskFiles } from '@/lib/task-files/service';
 import { pinnedForAgent, type PinnedScope } from './context-scopes';
 import { delegationOf } from './agent-handoff';
+import { initiativeForBrief } from './initiatives';
 
 /**
  * Everything an agent needs to work one task, in one bounded read: the task
@@ -22,7 +23,10 @@ import { delegationOf } from './agent-handoff';
  * pinned entries beyond the project (the workspace's, its groups', its own
  * and, for a personal agent whose person allows it, its person's memory) as
  * scoped_context, and for a delegated subtask the run that handed it over
- * (delegated_from); each only when there is one.
+ * (delegated_from); each only when there is one. The task's initiative (the
+ * body of work it belongs to: its header and pinned brief entries) comes as
+ * initiative, beside the task's goal (task.project_goal_id); null when it
+ * has none or that initiative is in Trash.
  *
  * Every part comes from the reader its own route uses (GET /tasks/{id},
  * /projects/{id}, /projects/{id}/context, /tasks/{id}/files). The task's
@@ -51,6 +55,8 @@ export const BRIEF_LIMITS = {
   /** Characters of context content in all. */
   contextTotal: 12_000,
   contextEntries: 40,
+  /** Characters of the initiative's description. */
+  initiativeDescription: 2000,
   /** Characters of the caller's instructions on the project, and the least they are cut to. */
   assignmentInstructions: 4000,
   assignmentInstructionsFloor: 500,
@@ -121,10 +127,11 @@ export async function buildTaskBrief(caller: BriefCaller, taskId: string): Promi
     seeFiles ? listTaskFiles(apiContext(caller), taskId) : Promise.resolve(null),
     briefRules(caller),
   ]);
-  const [assignmentRow, scoped, delegatedFrom] = await Promise.all([
+  const [assignmentRow, scoped, delegatedFrom, initiative] = await Promise.all([
     rules.is_agent ? ownAssignment(supabase, caller.teamMemberId, full.project_id) : Promise.resolve(null),
     rules.is_agent && seeContext ? pinnedForAgent(supabase, caller.teamMemberId, { withMemory: true }) : Promise.resolve([] as PinnedScope[]),
     delegationOf(supabase, taskId),
+    initiativeForBrief(supabase, full.initiative_id as string | null | undefined, { withBrief: seeContext, descriptionMax: BRIEF_LIMITS.initiativeDescription }),
   ]);
 
   // The task, as GET /tasks/{id} reads it, without the parts the brief lifts
@@ -224,6 +231,7 @@ export async function buildTaskBrief(caller: BriefCaller, taskId: string): Promi
     task: briefTask,
     project,
     project_context: context,
+    initiative,
     ...(scoped.length ? { scoped_context: scoped } : {}),
     assignment,
     comments: {
