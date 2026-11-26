@@ -19,9 +19,11 @@ export interface FlowStep {
 }
 
 /**
- * Where the flow stands. Desktop: every step, numbered, done ones ticked;
- * a step already reached can be clicked back to. Phones: "Step 2 of 6",
- * the step's name and a progress bar, since six labels never fit.
+ * Where the flow stands, sized to the space it sits in (a container query,
+ * so a dialog and a full page each get what fits). Wide: every step,
+ * numbered, done ones ticked; a step already reached can be clicked back to.
+ * Medium: the same row with only the current step's name shown. Narrow:
+ * "Step 2 of 6", the step's name and a progress bar.
  */
 export function Stepper({ steps, current, reached, onJump, label = 'Progress' }: {
   steps: readonly FlowStep[];
@@ -34,8 +36,8 @@ export function Stepper({ steps, current, reached, onJump, label = 'Progress' }:
 }) {
   const pct = steps.length > 1 ? (current / (steps.length - 1)) * 100 : 100;
   return (
-    <nav aria-label={label}>
-      <div className="sm:hidden">
+    <nav aria-label={label} className="@container">
+      <div className="@lg:hidden">
         <p className="flex items-baseline justify-between text-xs text-zinc-400">
           <span>Step {current + 1} of {steps.length}</span>
           <span className="font-medium text-zinc-200">{steps[current]?.label}</span>
@@ -44,7 +46,7 @@ export function Stepper({ steps, current, reached, onJump, label = 'Progress' }:
           <div className="h-full rounded-full bg-brand-400 transition-[width] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none" style={{ width: `${pct}%` }} />
         </div>
       </div>
-      <ol className="hidden sm:flex items-center gap-2">
+      <ol className="hidden @lg:flex items-center gap-2">
         {steps.map((step, index) => {
           const done = index < current;
           const active = index === current;
@@ -61,11 +63,11 @@ export function Stepper({ steps, current, reached, onJump, label = 'Progress' }:
               >
                 {done ? <Check size={12} strokeWidth={3} /> : index + 1}
               </span>
-              <span className={`text-sm whitespace-nowrap ${active ? 'font-semibold text-white' : done ? 'text-zinc-300' : 'text-zinc-500'}`}>{step.label}</span>
+              <span className={`text-sm whitespace-nowrap ${active ? 'font-semibold text-white' : `sr-only @3xl:not-sr-only ${done ? 'text-zinc-300' : 'text-zinc-500'}`}`}>{step.label}</span>
             </>
           );
           return (
-            <li key={step.key} className="flex min-w-0 items-center gap-2">
+            <li key={step.key} className="flex min-w-0 items-center gap-2" title={active ? undefined : step.label}>
               {canJump ? (
                 <button type="button" onClick={() => onJump(index)} className="flex items-center gap-2 rounded-full pr-1 hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500">
                   {body}
@@ -74,7 +76,7 @@ export function Stepper({ steps, current, reached, onJump, label = 'Progress' }:
                 <span className="flex items-center gap-2" aria-current={active ? 'step' : undefined}>{body}</span>
               )}
               {index < steps.length - 1 && (
-                <span className={`hidden h-px w-6 lg:block xl:w-10 ${done ? 'bg-brand-500/40' : 'bg-white/[0.08]'}`} aria-hidden="true" />
+                <span className={`h-px w-4 @3xl:w-6 @5xl:w-10 ${done ? 'bg-brand-500/40' : 'bg-white/[0.08]'}`} aria-hidden="true" />
               )}
             </li>
           );

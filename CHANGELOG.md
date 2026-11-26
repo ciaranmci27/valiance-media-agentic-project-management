@@ -9,6 +9,11 @@ Each section starts with `## X.Y.Z (YYYY-MM-DD)` and uses these headings, leavin
 - `### Database`: the core migration files in the release, one per line. `npm run db:migrate` applies them.
 - `### Breaking`: what an install must do when it takes this release.
 
+## 2.0.43 (2026-11-26)
+
+### Changed
+- Step headers in dialogs and setup flows fit the space they sit in: every step name where there is room, only the current step's name in a narrower dialog (others on hover), and a compact progress bar when narrow. The Add chat app dialog's fourth step no longer runs off the edge.
+
 ## 2.0.42 (2026-11-26)
 
 ### Changed
