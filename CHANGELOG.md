@@ -9,6 +9,39 @@ Each section starts with `## X.Y.Z (YYYY-MM-DD)` and uses these headings, leavin
 - `### Database`: the core migration files in the release, one per line. `npm run db:migrate` applies them.
 - `### Breaking`: what an install must do when it takes this release.
 
+## 2.0.55 (2026-11-27)
+
+### Added
+- **Notifications by email and chat.** In Settings > Notifications each person chooses what reaches them by email or in their own chat (a message from the workspace bot with a link back). Needs you (questions, approvals, stuck agents) is on for both by default once a channel is on. Everything always shows in the app.
+- `GET`/`PATCH /api/v1/me/notification-preferences` and MCP `get/update_notification_preferences` gain `chat_enabled`, `chat`, `chat_available` and `needs_you` (409 `chat_not_linked` like `email_not_set_up`).
+- **Groups go to Trash and come back.** Moving a group to Trash acts at once with Undo; it is listed in Settings > Trash and restores exactly as it was (`POST /api/v1/trash/groups/{id}/restore`, `restore_from_trash`; MCP `trash_group`). While in Trash it grants nothing.
+- Until AI is set up, the sidebar invites an Owner to set it up, and invites anyone whose assistant has no chat account linked to connect one. It can be hidden.
+
+### Changed
+- **The sidebar shows six everyday entries** (Dashboard, My Tasks, Inbox, Projects, AI, Notifications); Leads, Contacts, Team and Finances are under More, which opens by itself on their pages. An install's own entry placed after one of those sits under More too.
+- Page tabs that do not fit on a phone or narrow window go under More, and the open tab always stays in view.
+- **Trash acts at once, with Undo:** projects (from the list, the project page and a contact's page), tasks in bulk, a subtask, a comment, an initiative log entry, a time entry, an invoice, a credential, a retainer and a portal update.
+- The Tasks toolbar on a phone keeps its words (search, Filter, Add task, then Board, List, Calendar, Template). The initiative page uses tabs for Tasks, Log and Brief, and filters its log with one Show button. Projects keeps one header row on a phone.
+- Team has People and Groups tabs; a group's page is laid out in cards.
+- The Inbox says "We could not confirm this sender" in plain words, with the technical result under Details. Sender rules say "Always read" instead of "Always triage".
+- A paused or on-hold assistant explains itself in one simple line on its page and in chat.
+- The Audit log filters through one Filter button beside Export. AI > Setup's Keys card says it opens everyone's keys.
+- Dialogs fit a phone's visible screen, so tall ones such as the Discord setup no longer lose their header.
+- Notification emails, including comment and file notices, go out from one delivery point with retries, and only while email sending is set up.
+- `GET /api/v1/notifications` with `view=updates`, `unread` or `done` lists exactly what the app lists (snoozed notices and a blocked comment's notice are left out), and its total matches.
+- A broken assistant reads "Not working", and Needs you looks the same everywhere, My Tasks included.
+- A kind of update switched off in the app is off by email and chat too; Settings > Notifications shows it that way.
+- Agents named on a new task are checked in the order named.
+
+### Database
+- `20261127003500_notifications_delivery.sql`: chat choices per person, the delivery queue with its trigger and pg_cron job (`pm-notification-deliveries`), and the Updates list function.
+- `20261127003700_cleanup_projects.sql`: groups in Trash (listed, restorable, granting nothing meanwhile).
+
+### Breaking
+- Email and chat deliveries go out when pg_cron and the scheduler secret in Vault are set up, as for schedules; otherwise only the app's own notices are sent at once.
+- `GET /api/v1/notifications` paged by `view` returns fewer rows (no snoozed notices, no blocked comment's notice) and a matching total.
+- Restoring a group is refused (409) while another live group uses its short name or outside id.
+
 ## 2.0.54 (2026-11-27)
 
 ### Added

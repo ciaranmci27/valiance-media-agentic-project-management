@@ -19,7 +19,7 @@ type Action = 'ignore' | 'fyi' | 'always';
 export const SENDER_RULE_ACTIONS: { value: Action; label: string; description: string }[] = [
   { value: 'ignore', label: 'Filter it', description: 'Goes straight to Filtered. Nobody reads it.' },
   { value: 'fyi', label: 'FYI only', description: 'The agent reads it and mentions it, but never flags you.' },
-  { value: 'always', label: 'Always triage', description: 'The agent reads it fully, even when it looks like noise.' },
+  { value: 'always', label: 'Always read', description: 'The agent reads it fully, even when it looks like noise.' },
 ];
 
 /**

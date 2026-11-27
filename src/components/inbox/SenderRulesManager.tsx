@@ -15,7 +15,7 @@ import type { InboxSenderRule } from '@/lib/communications/inbox-rules';
 const ACTION_OPTIONS = [
   { value: 'ignore', label: 'Filter' },
   { value: 'fyi', label: 'FYI only' },
-  { value: 'always', label: 'Always triage' },
+  { value: 'always', label: 'Always read' },
 ];
 
 type RuleChange = { action?: 'ignore' | 'fyi' | 'always'; enabled?: boolean };

@@ -19,10 +19,10 @@ import { formatPhone } from '@/lib/format-phone';
 import { excludedNote, totalInCurrency } from '@/lib/format';
 import { useMoney } from '@/lib/region/context';
 import { toast } from '@/components/ui/Toast';
-import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { useAuth } from '@/lib/auth-context';
 import { hasPermission } from '@/lib/access-control';
-import { projectTrashMessage } from '@/components/projects/trash-message';
+import { projectTrashedLine } from '@/components/projects/trash-message';
+import { useUndoTrash } from '@/components/projects/useUndoTrash';
 
 export default function ContactDetailPage() {
   const params = useParams();
@@ -39,7 +39,7 @@ export default function ContactDetailPage() {
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [isProjectFormOpen, setIsProjectFormOpen] = useState(false);
   const [editingProject, setEditingProject] = useState<Project | null>(null);
-  const [deletingProjectId, setDeletingProjectId] = useState<string | null>(null);
+  const undoTrash = useUndoTrash();
   const [isEditingNotes, setIsEditingNotes] = useState(false);
   const [notesValue, setNotesValue] = useState('');
 
@@ -77,13 +77,10 @@ export default function ContactDetailPage() {
     setIsProjectFormOpen(true);
   };
 
-  const handleDeleteProject = (id: string) => {
-    setDeletingProjectId(id);
-  };
-
-  const executeDeleteProject = async () => {
-    if (!deletingProjectId) return;
-    if (await deleteProject(deletingProjectId)) toast('success', 'Project moved to Trash');
+  // Acts at once with Undo (DESIGN.md Rule 6), as on the Projects page.
+  const handleDeleteProject = async (id: string) => {
+    const name = getProject(id)?.name;
+    if (await deleteProject(id)) undoTrash('projects', id, { message: projectTrashedLine(name, access) });
   };
 
   const handleCloseProjectForm = () => {
@@ -398,15 +395,6 @@ export default function ContactDetailPage() {
         project={editingProject}
       />}
 
-      <ConfirmDialog
-        isOpen={!!deletingProjectId}
-        onClose={() => setDeletingProjectId(null)}
-        onConfirm={executeDeleteProject}
-        title="Move project to Trash?"
-        message={projectTrashMessage(access)}
-        variant="danger"
-        trash
-      />
     </div>
   );
 }

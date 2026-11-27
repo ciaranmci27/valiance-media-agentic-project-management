@@ -373,8 +373,21 @@ export function demoCreateGroup(input: { name: string; slug: string; description
   return groupView(group);
 }
 
+const demoTrashedGroups = new Map<string, ReturnType<typeof s>['groups'][number]>();
+
 export function demoTrashGroup(groupId: string): void {
+  const group = s().groups.find((g) => g.id === groupId);
+  if (group) demoTrashedGroups.set(groupId, group);
   s().groups = s().groups.filter((g) => g.id !== groupId);
+}
+
+/** Undo for a demo group just moved to Trash; false when it is not there. */
+export function demoRestoreGroup(groupId: string): boolean {
+  const group = demoTrashedGroups.get(groupId);
+  if (!group) return false;
+  demoTrashedGroups.delete(groupId);
+  s().groups = [...s().groups, group];
+  return true;
 }
 
 // ── Project setup ───────────────────────────────────────────────────────

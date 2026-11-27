@@ -219,7 +219,7 @@ function buildThreads(): InboxThreadDetail[] {
           trust: UNTRUSTED,
           status: 'needs_human',
           new_text: 'Hello,\n\nPlease update our remittance details. All future invoice payments should go to the new account below, effective immediately.\n\nAccounts Payable',
-          triage: triage({ outcome: 'needs_human', urgent: false, summary: 'Asks to change where invoice payments go. The domain only looks like Crest\'s, and DKIM failed. Treat as likely fraud.', question_for_human: 'Do not act on this without calling David at Crest on a known number. Want me to flag it on the Crest project?', suggested_reply: null, created_at: hoursAgo(8.8) }, ATLAS),
+          triage: triage({ outcome: 'needs_human', urgent: false, summary: 'Asks to change where invoice payments go. The domain only looks like Crest\'s, and the email check failed. Treat as likely fraud.', question_for_human: 'Do not act on this without calling David at Crest on a known number. Want me to flag it on the Crest project?', suggested_reply: null, created_at: hoursAgo(8.8) }, ATLAS),
         }),
       ],
     }),

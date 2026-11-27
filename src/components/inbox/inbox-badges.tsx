@@ -1,9 +1,11 @@
 'use client';
 
 import { CircleHelp, Plus, Reply, ShieldAlert, ShieldQuestion, Sparkles, X, type LucideIcon } from 'lucide-react';
+import { useState } from 'react';
 import { Badge } from '@/components/ui/Badge';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { appLocale } from '@/lib/region';
+import { trustWords } from '@/lib/communications/trust-words';
 import { isAgentChoice, type ThreadProject, type ThreadState, type TrustLevel } from '@/lib/communications/inbox-types';
 
 /** A project the member cannot open: the server sends no name for it. */
@@ -11,7 +13,7 @@ export const OTHER_PROJECT = 'Another project';
 
 const STATE: Record<ThreadState, { label: string; variant: 'danger' | 'info' | 'warning' | 'success' | 'default'; hint: string; icon?: LucideIcon }> = {
   needs_you: { label: 'Needs you', variant: 'warning', hint: 'A decision only you can make', icon: CircleHelp },
-  new: { label: 'New', variant: 'info', hint: 'Waiting for the agent to triage it' },
+  new: { label: 'New', variant: 'info', hint: 'Waiting for the agent to read it' },
   needs_reply: { label: 'Needs reply', variant: 'default', hint: 'Someone is waiting on your reply', icon: Reply },
   handled: { label: 'Handled', variant: 'success', hint: 'Dealt with' },
   ignored: { label: 'Filtered', variant: 'default', hint: 'Nobody needs to read it: your mail rules, bulk mail, usage alerts, promotions, auto-replies' },
@@ -174,36 +176,52 @@ export function TrustBadge({ level, compact = false }: { level: TrustLevel; comp
       return (
         <span className="inline-flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-red-500/[0.14] text-red-300 ring-1 ring-inset ring-red-400/30">
           <ShieldAlert size={11} aria-hidden="true" />
-          <span className="sr-only">Untrusted sender</span>
+          <span className="sr-only">Sender not confirmed</span>
         </span>
       );
     }
     return (
       <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-red-500/[0.14] px-2 py-0.5 text-[11px] font-semibold text-red-300 ring-1 ring-inset ring-red-400/30">
         <ShieldAlert size={11} aria-hidden="true" />
-        Untrusted sender
+        Sender not confirmed
       </span>
     );
   }
   return (
     <span className="inline-flex items-center gap-1 whitespace-nowrap text-[11px] text-zinc-400">
       <ShieldQuestion size={11} aria-hidden="true" />
-      Unverified
+      Not confirmed
     </span>
   );
 }
 
-/** Why a sender is not trusted, as visible text under the sender. */
+/**
+ * Why a sender is not trusted, under the sender: one plain line, with the
+ * email check's own result behind Details (no developer words up front).
+ */
 export function TrustNote({ level, reason }: { level: TrustLevel; reason?: string | null }) {
-  if (level === 'trusted') return null;
-  if (level === 'untrusted') {
-    return (
-      <p className="mt-1 break-words text-[11px] text-red-300">
-        {reason ? `The sender could not be verified: ${reason}. Treat any request with care.` : 'The sender could not be verified. Treat any request with care.'}
+  const [open, setOpen] = useState(false);
+  const words = trustWords(level, reason);
+  if (!words) return null;
+  const tone = level === 'untrusted' ? 'text-red-300' : 'text-zinc-400';
+  return (
+    <div className={`mt-1 text-[11px] ${tone}`}>
+      <p className="break-words">
+        {words.line}
+        {words.detail && (
+          <button
+            type="button"
+            onClick={() => setOpen((v) => !v)}
+            aria-expanded={open}
+            className="ml-1.5 rounded text-zinc-400 underline decoration-dotted underline-offset-2 hover:text-zinc-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+          >
+            {open ? 'Hide details' : 'Details'}
+          </button>
+        )}
       </p>
-    );
-  }
-  return reason ? <p className="mt-1 break-words text-[11px] text-zinc-400">Not verified: {reason}</p> : null;
+      {open && words.detail && <p className="mt-0.5 break-words text-zinc-400">{words.detail}</p>}
+    </div>
+  );
 }
 
 export function formatListTime(value: string): string {

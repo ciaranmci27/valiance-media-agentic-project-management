@@ -15,13 +15,16 @@ import { isModuleEnabled } from '@/lib/access-control';
 import { useRead } from '@/lib/query-cache';
 import { assistantSettingsReadFor } from '@/lib/reads';
 import { ASSISTANT_SERVICE_ANCHOR } from '@/lib/assistant';
+import { assistantTabLabel } from '@/lib/ai-home';
 
 /**
  * AI > Setup (Owners): everything that sets up AI for the whole company, in
  * the order it is done. Assistants on or off first; while off, that one card
  * is all there is about assistants. While on: who gets one, how each is
  * doing, and the agent service that runs them. Then the chat apps people
- * message (company bots), and where every key lives (Settings > Developers).
+ * message (company bots), and where everyone's keys live (Settings >
+ * Developers, for Owners and key managers; each person's own are in the
+ * first tab too).
  * The demo shows samples with changes off.
  */
 export function SetupTab() {
@@ -59,8 +62,8 @@ export function SetupTab() {
         title="Keys"
         icon={<KeyRound />}
         id="ai-keys"
-        description="Every key for people and agents, what each may do and when it was last used, lives in one list."
-        action={<Button size="sm" variant="secondary" href="/settings/developers#api-keys">Open keys</Button>}
+        description={`Everyone's keys, for people and agents: what each may do and when it was last used. Your own are also in ${assistantTabLabel(assistantsOn, settings?.label)}.`}
+        action={<Button size="sm" variant="secondary" href="/settings/developers#api-keys">Open all keys</Button>}
         bodyClassName="pb-1"
       >
         {null}

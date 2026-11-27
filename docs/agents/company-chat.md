@@ -163,7 +163,7 @@ The app stores only the provider's reference, never the bytes. The agent fetches
 
 ## When the agent will not answer
 
-If the agent is on hold (paused on its agent page, or every agent paused), the app says so once per chat until it is back: "Ops AI is on hold right now and will answer when it's back." The message is still recorded and sent to it.
+If the agent is on hold (paused on its agent page, or every agent paused), the app says so once per chat until it is back: "Ops AI is on hold for now. It will reply when it's back." The message is still recorded and sent to it.
 
 If it is suspended, never connected, or its host stopped reporting: "Ops AI can't answer right now. Try again later." A suspended agent is never sent the message.
 

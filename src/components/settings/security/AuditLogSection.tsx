@@ -1,9 +1,11 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ChevronDown, ChevronLeft, ChevronRight, Download, ScrollText } from 'lucide-react';
 import { SettingsSectionHeader } from '@/components/settings/SettingsSectionHeader';
 import { Button } from '@/components/ui/Button';
+import { EmptyState } from '@/components/ui/EmptyState';
+import { FilterButton } from '@/components/ui/FilterButton';
 import { DateInput } from '@/components/ui/inputs/DateInput';
 import { Select } from '@/components/ui/inputs/Select';
 import { TextInput } from '@/components/ui/inputs/TextInput';
@@ -11,7 +13,7 @@ import { toast } from '@/components/ui/Toast';
 import { useApp } from '@/lib/store';
 import { useRead } from '@/lib/query-cache';
 import { auditLogRead } from '@/lib/reads';
-import { NO_AUDIT_FILTERS, VIA_LABELS, auditActionLabel, auditDetails, auditQuery, type AuditEntry, type AuditFilters } from '@/lib/audit-log';
+import { NO_AUDIT_FILTERS, VIA_LABELS, auditFilterCount, auditActionLabel, auditDetails, auditQuery, type AuditEntry, type AuditFilters } from '@/lib/audit-log';
 import { Pill } from '@/components/ui/Pill';
 import { formatDateTime } from '@/lib/time-format';
 
@@ -21,9 +23,10 @@ const ANYONE = '';
 const when = (iso: string) => formatDateTime(iso);
 
 /**
- * Settings > Security > Audit log: who changed what, newest first. Filters
- * by who did it, who it was done for (an agent acting for a person), the
- * action and dates (the viewer's own days); pages of 50. Each row opens to
+ * Settings > Security > Audit log: who changed what, newest first. One
+ * Filter button (DESIGN.md Rule 3) beside Export narrows it by who did it,
+ * who it was done for (an agent acting for a person), the action and dates
+ * (the viewer's own days), each applying as it is picked; pages of 50. Each row opens to
  * what was sent and the state before and after (secrets were never stored).
  * Export downloads every row the filters shown match, as CSV.
  */
@@ -50,6 +53,22 @@ export function AuditLogSection() {
     setOpen(null);
   };
   const filtered = JSON.stringify(filters) !== JSON.stringify(NO_AUDIT_FILTERS);
+  const activeCount = auditFilterCount(filters);
+  const clearFilters = () => { setDraft(NO_AUDIT_FILTERS); apply(NO_AUDIT_FILTERS); };
+  // A pick applies at once; typed action text applies once typing pauses.
+  const change = (patch: Partial<AuditFilters>) => {
+    const next = { ...draft, ...patch };
+    setDraft(next);
+    apply(next);
+  };
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setFilters((current) => (current.action === draft.action ? current : { ...current, action: draft.action }));
+      setPage(0);
+      setOpen(null);
+    }, 400);
+    return () => window.clearTimeout(timer);
+  }, [draft.action]);
   const [exporting, setExporting] = useState(false);
 
   // Every row the filters shown match (not the ones still being typed), as a CSV download.
@@ -91,34 +110,34 @@ export function AuditLogSection() {
         title="Audit log"
         description="Who changed members, keys, agents, settings, permissions and parts of the app, and every change an app or AI tool made. Entries never change once written."
         action={(
-          <Button size="sm" variant="secondary" onClick={() => { void exportRows(); }} disabled={exporting || !data || data.total === 0} icon={<Download size={14} aria-hidden="true" />}>
-            {exporting ? 'Exporting' : filtered ? 'Export these rows' : 'Export'}
-          </Button>
+          <div className="flex items-center gap-2">
+            <FilterButton activeCount={activeCount} onClear={clearFilters} title="Filter the audit log" width={320}>
+              <div className="space-y-3">
+                <Select label="Who" visibleLabel="Who" value={draft.member ?? ANYONE} onChange={(value) => change({ member: value || null })} options={memberOptions} searchable />
+                <Select label="Acting for" visibleLabel="Acting for" value={draft.actingFor ?? ANYONE} onChange={(value) => change({ actingFor: value || null })} options={peopleOptions} searchable />
+                <TextInput label="Action" placeholder="api_key, PATCH, settings" value={draft.action} onChange={(value) => setDraft((d) => ({ ...d, action: value }))} maxLength={100} />
+                <div className="grid grid-cols-2 gap-3">
+                  <DateInput label="From" value={draft.from ?? ''} onChange={(value) => change({ from: value || null })} />
+                  <DateInput label="To" value={draft.to ?? ''} onChange={(value) => change({ to: value || null })} />
+                </div>
+              </div>
+            </FilterButton>
+            <Button size="sm" variant="secondary" onClick={() => { void exportRows(); }} disabled={exporting || !data || data.total === 0} icon={<Download size={14} aria-hidden="true" />}>
+              {exporting ? 'Exporting' : filtered ? 'Export these rows' : 'Export'}
+            </Button>
+          </div>
         )}
       />
-      <form
-        className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5"
-        onSubmit={(event) => {
-          event.preventDefault();
-          apply(draft);
-        }}
-      >
-        <Select label="Who" value={draft.member ?? ANYONE} onChange={(value) => setDraft((d) => ({ ...d, member: value || null }))} options={memberOptions} searchable />
-        <Select label="Acting for" value={draft.actingFor ?? ANYONE} onChange={(value) => setDraft((d) => ({ ...d, actingFor: value || null }))} options={peopleOptions} searchable />
-        <TextInput label="Action" placeholder="api_key, PATCH, settings" value={draft.action} onChange={(value) => setDraft((d) => ({ ...d, action: value }))} maxLength={100} />
-        <DateInput label="From" value={draft.from ?? ''} onChange={(value) => setDraft((d) => ({ ...d, from: value || null }))} />
-        <DateInput label="To" value={draft.to ?? ''} onChange={(value) => setDraft((d) => ({ ...d, to: value || null }))} />
-        <div className="flex justify-end gap-2 sm:col-span-2 lg:col-span-5">
-          {filtered && <Button type="button" variant="ghost" onClick={() => { setDraft(NO_AUDIT_FILTERS); apply(NO_AUDIT_FILTERS); }}>Clear</Button>}
-          <Button type="submit" variant="secondary">Show</Button>
-        </div>
-      </form>
 
       <div className="mt-5">
         {!data ? (
-          <p className="text-sm text-zinc-400" role="status">{read.failed ? 'Could not load the audit log.' : 'Loading'}</p>
+          read.failed
+            ? <EmptyState variant="error" compact title="Could not load the audit log" onRetry={read.reload} />
+            : <p className="text-sm text-zinc-400" role="status">Loading</p>
         ) : data.entries.length === 0 ? (
-          <p className="rounded-lg bg-white/[0.03] px-4 py-6 text-center text-sm text-zinc-400">{filtered ? 'Nothing matches these filters.' : 'Nothing logged yet.'}</p>
+          filtered
+            ? <EmptyState variant="filtered" compact title="Nothing matches these filters" onClearFilters={clearFilters} />
+            : <EmptyState compact icon={<ScrollText />} title="Nothing logged yet" description="Changes people, apps and AI tools make show up here." />
         ) : (
           <ul className="divide-y divide-white/[0.06] rounded-lg border border-white/[0.06]">
             {data.entries.map((entry) => (

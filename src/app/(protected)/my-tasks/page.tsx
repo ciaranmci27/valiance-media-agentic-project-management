@@ -10,6 +10,8 @@ import { TaskDetailPanel } from '@/components/tasks/TaskDetailPanel';
 import { useTaskUrlParam } from '@/lib/use-task-url';
 import { useTaskWarmer } from '@/lib/reads';
 import { useNeedsYou } from '@/lib/use-needs-you';
+import { companyHubItems } from '@/lib/ai-home';
+import { NeedsYouView } from '@/components/agent/NeedsYouView';
 import { QuestionCard } from '@/components/questions/QuestionCard';
 import Link from 'next/link';
 import {
@@ -119,7 +121,15 @@ function RadarPageContent() {
   }, [suggestionById, projectById]);
 
   // Needs you now: the one answer the sidebar badge counts (snoozed items left out).
-  const needsYou = useNeedsYou().items;
+  const needsState = useNeedsYou();
+  const needsYou = needsState.items;
+  // Stuck agent work and agent work to review draw as the one Needs you row
+  // (the AI home's, the bell's, the page's): Reply, Answer, Review changes in place.
+  const hubRows = useMemo(() => {
+    const here = new Set(needsYou.flatMap((item) => (['blocked', 'merge', 'review'].includes(item.kind) && item.task ? [item.task.id] : [])));
+    return companyHubItems(needsState.agents).filter((row) => ['blocked', 'merge', 'review'].includes(row.kind) && !!row.taskId && here.has(row.taskId));
+  }, [needsYou, needsState.agents]);
+  const hubTaskIds = useMemo(() => new Set(hubRows.map((row) => row.taskId)), [hubRows]);
   // Questions asked to you: one row each, answered in place.
   const questionsForYou = needsYou.flatMap(item => (item.kind === 'question' && item.openQuestion ? [item.openQuestion] : []));
 
@@ -305,6 +315,8 @@ function RadarPageContent() {
     // Suggestions render in their own band, questions as their own rows.
     if (item.kind === 'suggestions' || item.kind === 'question' || !item.task) return null;
     const task = item.task;
+    // Drawn as a Needs you row above (agent work); only a person's own review or due task is a task row here.
+    if (item.kind !== 'due' && hubTaskIds.has(task.id)) return null;
     if (item.kind === 'blocked') {
       return {
         icon: iconSquare(MessageSquareWarning, 'bg-red-500/15 text-red-300'),
@@ -530,7 +542,7 @@ function RadarPageContent() {
                   for whether they missed it. */}
               {band({
                 icon: Zap,
-                title: 'Needs you now',
+                title: 'Needs you',
                 hint: 'each row is one action',
                 count: needsYouCount,
                 emphasis: true,
@@ -538,8 +550,11 @@ function RadarPageContent() {
                   ? (
                     <>
                       {questionsForYou.map(question => (
-                        <QuestionCard key={question.id} question={question} variant="band" place onOpenTask={setViewingTaskId} />
+                        <QuestionCard key={question.id} question={question} variant="hub" place onOpenTask={setViewingTaskId} />
                       ))}
+                      {hubRows.length > 0 && (
+                        <NeedsYouView needs={needsState.agents} items={hubRows} limit={hubRows.length} onOpenTask={setViewingTaskId} />
+                      )}
                       {needsGroups.map(group => groupRow(group, {
                         summarize: n => `${plural(n, 'subtask')} need${n === 1 ? 's' : ''} you`,
                         showChevron: true,
@@ -552,7 +567,7 @@ function RadarPageContent() {
                       <span className="w-8 h-8 rounded-lg bg-emerald-500/10 text-emerald-300 flex items-center justify-center flex-shrink-0">
                         <Check size={15} aria-hidden="true" />
                       </span>
-                      Nothing needs you right now.
+                      Nothing needs you right now. Questions, approvals and work waiting on you land here.
                     </div>
                   ),
               })}

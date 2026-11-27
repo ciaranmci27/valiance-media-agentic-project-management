@@ -1,4 +1,5 @@
 'use client';
+import { useUndoTrash } from './useUndoTrash';
 import { storedFileHref } from '@/lib/storage/stored-file-url';
 import { useSignedFileUrls } from '@/lib/storage/use-signed-file-urls';
 import { FileInput } from '@/components/ui/inputs/FileInput';
@@ -26,7 +27,6 @@ import { useAuth } from '@/lib/auth-context';
 import { useDemo } from '@/lib/demo-context';
 import { createClient } from '@/lib/supabase/client';
 import { toast } from '@/components/ui/Toast';
-import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { Button } from '@/components/ui/Button';
 import { EmptyCard, NoMatches } from './TabLayout';
@@ -293,7 +293,7 @@ export function PortalUpdatesPanel({ projectId, isAdding, onAddingChange: setIsA
     (!needle || u.title.toLowerCase().includes(needle) || (u.content || '').toLowerCase().includes(needle)));
 
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+  const undoTrash = useUndoTrash();
   const [uploading, setUploading] = useState(false);
 
   // Form state
@@ -442,8 +442,9 @@ export function PortalUpdatesPanel({ projectId, isAdding, onAddingChange: setIsA
     setIsAdding(false);
   };
 
-  const executeDelete = async () => {
-    if (deleteTarget && await deletePortalUpdate(deleteTarget)) toast('success', 'Update moved to Trash');
+  // Acts at once with Undo (DESIGN.md Rule 6).
+  const executeDelete = async (id: string) => {
+    if (await deletePortalUpdate(id)) undoTrash('portal_updates', id, { message: 'Update moved to Trash and off the client portal' });
   };
 
   const renderAttachFileButton = (
@@ -588,7 +589,7 @@ export function PortalUpdatesPanel({ projectId, isAdding, onAddingChange: setIsA
                             <button
                               type="button"
                               aria-label={`Delete ${update.title}`}
-                              onClick={() => setDeleteTarget(update.id)}
+                              onClick={() => void executeDelete(update.id)}
                               className="p-1.5 rounded-md text-zinc-500 hover:text-red-400 hover:bg-white/[0.06] transition-colors"
                             >
                               <Trash2 size={14} />
@@ -618,15 +619,6 @@ export function PortalUpdatesPanel({ projectId, isAdding, onAddingChange: setIsA
         />
       ) : null}
 
-      <ConfirmDialog
-        isOpen={!!deleteTarget}
-        onClose={() => setDeleteTarget(null)}
-        onConfirm={executeDelete}
-        title="Move update to Trash?"
-        message="The update and its attachments go to Trash and leave the client portal."
-        variant="danger"
-        trash
-      />
     </>
   );
 }

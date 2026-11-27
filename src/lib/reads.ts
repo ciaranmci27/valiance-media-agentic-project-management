@@ -24,7 +24,8 @@ import { invalidateTables, peekRead, useRead, warmReads, type Read } from '@/lib
 import type { QuestionView } from '@/lib/questions';
 import type { BlockedCommentSignal, BlockedRunSignal } from '@/lib/autonomy';
 import type { NotificationFeedView, NotificationGroupPage, NotificationPage, NotificationView, Snooze, UpdateFilters } from '@/lib/notifications';
-import { demoGroupRows, demoNotificationGroups, demoNotificationPage, demoSnoozes, demoUnreadCount } from '@/lib/demo-notifications';
+import { demoGroupRows, demoNotificationGroups, demoNotificationPage, demoNotificationPreferences, demoSnoozes, demoUnreadCount } from '@/lib/demo-notifications';
+import type { NotificationPreferencesView } from '@/lib/api/notification-preferences';
 import {
   workspaceApi, type AgentDetail, type AgentListItem, type AgentTemplateView, type BriefEntry, type ProjectAgentAssignment, type ProjectBrief,
 } from '@/lib/agent-workspace';
@@ -647,6 +648,16 @@ export async function fetchGroupRows(groupKey: string, isDemo: boolean): Promise
 export function fetchNotificationPage(view: NotificationFeedView, before: string | null): Promise<NotificationPage> {
   const query = new URLSearchParams({ view, ...(before ? { before } : {}) });
   return getWorkspaceData<NotificationPage>(`/api/workspace/notifications?${query}`, 'notifications');
+}
+
+/** The person's own Settings > Notifications choices (the same answer as GET /api/v1/me/notification-preferences). */
+export function notificationPreferencesRead(isDemo: boolean): Read<NotificationPreferencesView> {
+  return {
+    key: `notification-preferences${isDemo ? ':demo' : ''}`,
+    tables: ['team_members', 'member_identities', 'chat_connections', 'smtp_accounts'],
+    ttlMs: 5 * 60_000,
+    load: async () => (isDemo ? demoNotificationPreferences() : getWorkspaceData<NotificationPreferencesView>('/api/workspace/notification-preferences', 'notification settings')),
+  };
 }
 
 /** The member's snoozes still in force: Needs you and Updates leave these out until they wake. */

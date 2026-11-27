@@ -463,7 +463,10 @@ export async function gateSuggestionApproval(
 /** The agents among these member ids (one read). */
 export async function agentIdsAmong(db: SupabaseClient, ids: string[]): Promise<string[]> {
   const rows = await loadAgentAccess(db, ids);
-  return [...rows.values()].filter((row) => row.role === 'agent').map((row) => row.id);
+  // In the order they were named, never the database's: the first agent named is the first one asked.
+  // Ids compare in lower case, as the database keys them: an upper-case id must
+  // never slip past the agent gate (Postgres matches it, the map would not).
+  return [...new Set(ids.map((id) => id.toLowerCase()))].filter((id) => rows.get(id)?.role === 'agent');
 }
 
 /** Tells an agent's managers something (its owners in person, else the active workspace Owners), with a link. */

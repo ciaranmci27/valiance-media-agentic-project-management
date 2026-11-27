@@ -49,7 +49,7 @@ export class ActionError extends Error {
 }
 
 /** POSTs (or DELETEs) JSON to a workspace route and answers its data, or throws ActionError with the server's words. */
-export async function sendJson<T>(path: string, body: unknown, method: 'POST' | 'DELETE' = 'POST'): Promise<T> {
+export async function sendJson<T>(path: string, body: unknown, method: 'POST' | 'PATCH' | 'DELETE' = 'POST'): Promise<T> {
   const response = await fetch(path, {
     method,
     headers: { 'content-type': 'application/json' },

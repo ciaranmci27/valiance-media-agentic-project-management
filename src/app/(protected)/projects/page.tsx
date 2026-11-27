@@ -7,16 +7,16 @@ import { useApp, defaultFilters } from '@/lib/store';
 import { Header } from '@/components/layout/Header';
 import { ProjectForm } from '@/components/projects/ProjectForm';
 import { CustomProjectBadges } from '@/components/projects/CustomProjectBadges';
-import { projectTrashMessage } from '@/components/projects/trash-message';
+import { projectTrashedLine } from '@/components/projects/trash-message';
+import { useUndoTrash } from '@/components/projects/useUndoTrash';
 import { Button } from '@/components/ui/Button';
+import { EmptyState } from '@/components/ui/EmptyState';
 import { AvatarGroup } from '@/components/ui/Avatar';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { SectionHeader } from '@/components/ui/SectionHeader';
 import { RowActionsMenu, type RowAction } from '@/components/ui/RowActionsMenu';
 import { Plus, FolderKanban, Calendar, Users, Edit, Trash2 } from 'lucide-react';
 import { Project } from '@/lib/types';
-import { toast } from '@/components/ui/Toast';
-import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { useAuth } from '@/lib/auth-context';
 import { hasPermission } from '@/lib/access-control';
 import { parseDateOnly } from '@/lib/date-utils';
@@ -36,7 +36,7 @@ function ProjectsContent() {
   const canReadContacts = hasPermission(access, 'contacts.read') || hasPermission(access, 'contacts.read_all');
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingProject, setEditingProject] = useState<Project | null>(null);
-  const [deletingProjectId, setDeletingProjectId] = useState<string | null>(null);
+  const undoTrash = useUndoTrash();
 
   useEffect(() => { setFilters(defaultFilters); }, []);
 
@@ -50,9 +50,9 @@ function ProjectsContent() {
     setIsFormOpen(true);
   };
 
-  const executeDelete = async () => {
-    if (!deletingProjectId) return;
-    if (await deleteProject(deletingProjectId)) toast('success', 'Project moved to Trash');
+  // Moving to Trash acts at once and offers Undo (DESIGN.md Rule 6).
+  const trashProject = async (project: Project) => {
+    if (await deleteProject(project.id)) undoTrash('projects', project.id, { message: projectTrashedLine(project.name, access) });
   };
 
   const handleCloseForm = () => {
@@ -79,7 +79,7 @@ function ProjectsContent() {
 
   const buildActions = (p: Project): RowAction[] => [
     { label: 'Edit', icon: <Edit size={14} />, onClick: () => handleEdit(p) },
-    { label: 'Move to Trash', icon: <Trash2 size={14} />, variant: 'danger', onClick: () => setDeletingProjectId(p.id) },
+    { label: 'Move to Trash', icon: <Trash2 size={14} />, variant: 'danger', onClick: () => void trashProject(p) },
   ];
 
   // A project's unread tasks, the same badge as beside it in the sidebar.
@@ -270,30 +270,34 @@ function ProjectsContent() {
     <>
       <Header
         title="Projects"
-        subtitle={<span className="hidden sm:inline">{projects.length} total projects</span>}
-        searchPlaceholder="Search projects..."
+        subtitle={<span className="hidden sm:inline">{projects.length} {projects.length === 1 ? 'project' : 'projects'}</span>}
+        searchPlaceholder="Search projects"
+        // One primary action; Trash sits in the page menu so a phone keeps one header row (Rule 17).
         actions={canManageProjects ? (
-          <>
-            <Button href="/settings/trash?group=projects" variant="secondary" icon={<Trash2 size={16} />}>
-              Deleted
-            </Button>
-            <Button href="/projects/new" icon={<Plus size={16} />}>
+          <div className="flex items-center gap-2">
+            <Button href="/projects/new" icon={<Plus size={16} aria-hidden="true" />}>
               New project
             </Button>
-          </>
+            <RowActionsMenu
+              label="More project actions"
+              triggerClassName="liquid-glass !p-0 w-9 h-9 flex items-center justify-center !text-zinc-300"
+              actions={[{ label: 'Projects in Trash', icon: <Trash2 size={14} />, onClick: () => router.push('/settings/trash?group=projects') }]}
+            />
+          </div>
         ) : undefined}
       />
 
       <div className="p-4 lg:p-6 space-y-6">
         {projects.length === 0 ? (
-          <div className="text-center py-16 glass-card rounded-xl">
-            <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-white/[0.06] flex items-center justify-center">
-              <FolderKanban className="text-zinc-500" size={32} />
-            </div>
-            <h3 className="text-lg font-semibold text-white mb-2">No projects yet</h3>
-            <p className="text-zinc-400 mb-4">{canManageProjects ? 'Create your first project to get started' : 'No projects are assigned to you'}</p>
-            {canManageProjects && <Button href="/projects/new">Set up a project</Button>}
-          </div>
+          <EmptyState
+            framed
+            icon={<FolderKanban />}
+            title="No projects yet"
+            description={canManageProjects ? 'Set one up and its tasks, time and files live in it.' : 'Projects you are added to show here.'}
+            action={canManageProjects ? <Button href="/projects/new" icon={<Plus size={16} aria-hidden="true" />}>Set up a project</Button> : undefined}
+          />
+        ) : filtered.length === 0 ? (
+          <EmptyState framed variant="filtered" title="No projects match your search" onClearFilters={() => setFilters({ ...filters, search: '' })} />
         ) : (
           <>
             {activeProjects.length > 0 && renderSection('active', 'Active', activeProjects)}
@@ -309,15 +313,6 @@ function ProjectsContent() {
         project={editingProject}
       />}
 
-      <ConfirmDialog
-        isOpen={!!deletingProjectId}
-        onClose={() => setDeletingProjectId(null)}
-        onConfirm={executeDelete}
-        title="Move project to Trash?"
-        message={projectTrashMessage(access)}
-        variant="danger"
-        trash
-      />
     </>
   );
 }

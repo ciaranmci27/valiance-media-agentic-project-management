@@ -16,7 +16,7 @@ export const TRASH_TABLES = [
   'lead_interactions', 'lead_proposals', 'lead_fields',
   'project_time_entries', 'project_invoices', 'invoice_payments', 'project_hourly_rates',
   'project_retainers', 'project_retainer_amounts', 'task_files', 'task_templates',
-  'initiatives', 'initiative_entries',
+  'initiatives', 'initiative_entries', 'groups',
 ] as const;
 
 export type TrashTable = (typeof TRASH_TABLES)[number];
@@ -50,6 +50,7 @@ export const TRASH_TABLE_MODULE: Record<TrashTable, ModuleId | 'core'> = {
   task_templates: 'core',
   initiatives: 'core',
   initiative_entries: 'core',
+  groups: 'core',
 };
 
 export type TrashErrorReason = 'not_found' | 'forbidden' | 'blocked' | 'invalid';
@@ -159,6 +160,6 @@ export const TRASH_TYPES = TRASH_TABLES;
 export const TRASH_PERMISSIONS: PermissionKey[] = [
   'projects.manage', 'tasks.read', 'tasks.manage_assigned', 'tasks.manage_all', 'tasks.create', 'reminders.manage_own',
   'credentials.manage', 'files.upload', 'files.manage', 'portal.manage', 'contacts.manage', 'leads.manage',
-  'time.manage_own', 'time.manage_all', 'invoices.manage', 'invoices.record_payments', 'billing.manage', 'templates.manage',
+  'time.manage_own', 'time.manage_all', 'invoices.manage', 'invoices.record_payments', 'billing.manage', 'templates.manage', 'groups.manage',
 ];
 

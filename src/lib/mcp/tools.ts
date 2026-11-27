@@ -1954,6 +1954,16 @@ export const PM_TOOLS: PmTool[] = [
     request: ({ group_id, ...body }) => ({ params: { id: group_id }, body }),
   }),
   routeTool({
+    name: 'trash_group',
+    lead: 'Move a group to Trash.',
+    detail: 'Needs groups.manage. While it is in Trash it grants nothing: no new questions or escalation to it, and its members stop managing the agents it owns, using agents through it and handling its inboxes. Members, owned agents and audiences are kept; restore_from_trash (record_type groups) brings it all back, list_trash finds it.',
+    input: z.object({ group_id: id('group_id') }).strict(),
+    permission: 'groups.manage',
+    method: 'DELETE',
+    path: '/api/v1/groups/{id}',
+    request: ({ group_id }) => ({ params: { id: group_id } }),
+  }),
+  routeTool({
     name: 'add_group_members',
     lead: 'Add people or agents to a group.',
     detail: 'Needs groups.manage. member_ids (up to 500) join with role member (default) or lead; anyone already in it takes the role sent, unless only_new is true. Answers { added, updated }.',

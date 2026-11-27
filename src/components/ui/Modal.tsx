@@ -65,9 +65,10 @@ export default function Modal({ isOpen, onClose, title, children, size = 'md' }:
       {/* Backdrop */}
       <div className="absolute inset-0 bg-black/60 animate-fadeIn" />
 
-      {/* Modal */}
+      {/* Modal. 85dvh, not vh: on a phone vh counts the space behind the browser's
+          toolbars, so a tall dialog (Discord's setup) overflowed the screen and its header was cut off. */}
       <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby={titleId} className={`
-        relative w-full ${sizes[size]} max-h-[85vh] bg-surface-raised border border-white/10 rounded-xl
+        relative w-full ${sizes[size]} max-h-[85dvh] bg-surface-raised border border-white/10 rounded-xl
         shadow-[0_16px_48px_-12px_rgba(0,0,0,0.7)] transform animate-scaleIn flex flex-col
       `}>
         {/* Header */}

@@ -4,7 +4,7 @@ import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'rea
 import { useSearchParams } from 'next/navigation';
 import {
   ArrowLeft, Briefcase, CheckSquare, Clock, DollarSign, FileText, FolderKanban, KeyRound, Layers, LayoutTemplate,
-  Megaphone, MessageSquare, RotateCcw, ScrollText, Trash2, UserCircle, type LucideIcon,
+  Megaphone, MessageSquare, RotateCcw, ScrollText, Trash2, UserCircle, UsersRound, type LucideIcon,
 } from 'lucide-react';
 import { useApp } from '@/lib/store';
 import { Header } from '@/components/layout/Header';
@@ -18,7 +18,7 @@ import { TRASH_TABLE_MODULE, type TrashTable } from '@/lib/supabase/trash';
 import { appLocale } from '@/lib/region';
 import { INITIATIVE_LABEL } from '@/lib/initiatives';
 
-type Group = 'all' | 'projects' | 'tasks' | 'billing' | 'clients' | 'files';
+type Group = 'all' | 'projects' | 'tasks' | 'billing' | 'clients' | 'files' | 'team';
 
 const GROUPS: { key: Group; label: string; types: string[] }[] = [
   { key: 'all', label: 'All', types: [] },
@@ -31,6 +31,7 @@ const GROUPS: { key: Group; label: string; types: string[] }[] = [
   },
   { key: 'clients', label: 'Clients', types: ['contacts', 'leads', 'lead_interactions', 'lead_proposals', 'lead_fields'] },
   { key: 'files', label: 'Files and portal', types: ['entity_files', 'project_credentials', 'portal_updates', 'portal_update_attachments'] },
+  { key: 'team', label: 'Team', types: ['groups'] },
 ];
 
 const TYPES: Record<string, { label: string; icon: LucideIcon }> = {
@@ -57,6 +58,7 @@ const TYPES: Record<string, { label: string; icon: LucideIcon }> = {
   project_hourly_rates: { label: 'Hourly rate', icon: DollarSign },
   project_retainers: { label: 'Retainer', icon: DollarSign },
   project_retainer_amounts: { label: 'Retainer amount', icon: DollarSign },
+  groups: { label: 'Group', icon: UsersRound },
 };
 
 /** Whether a Trash row's module is on: rows of a switched-off module stay in Trash, out of sight. */

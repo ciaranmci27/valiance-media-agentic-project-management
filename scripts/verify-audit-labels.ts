@@ -7,7 +7,7 @@
  *
  *   npm run -s test:audit-labels
  */
-import { auditActionLabel, auditDetails, auditReferencedIds, type AuditEntry } from '@/lib/audit-log';
+import { NO_AUDIT_FILTERS, auditActionLabel, auditDetails, auditFilterCount, auditReferencedIds, type AuditEntry } from '@/lib/audit-log';
 
 let passed = 0;
 const failures: string[] = [];
@@ -74,6 +74,12 @@ check('details: at most 12 lines', auditDetails(row({ request_body: Object.fromE
 // The ids the server resolves to names.
 const ids = auditReferencedIds(row({ endpoint: `/api/v1/groups/${DESIGN}/members/${SAM}`, entity_id: DESIGN, request_body: { member_ids: [ALEXA] }, after_snapshot: { id: KEY, project_id: SITE } }));
 check('referenced ids: entity, path, body lists and snapshot fields (not the row\'s own id)', [DESIGN, SAM, ALEXA, SITE].every((id) => ids.includes(id)) && !ids.includes(KEY), ids);
+
+// The Filter button's count: who, acting for, action and the date range, each once.
+check('no filters count zero', auditFilterCount(NO_AUDIT_FILTERS) === 0);
+check('a from and a to are one date range', auditFilterCount({ ...NO_AUDIT_FILTERS, from: '2026-11-01', to: '2026-11-27' }) === 1);
+check('spaces alone are no action filter', auditFilterCount({ ...NO_AUDIT_FILTERS, action: '  ' }) === 0);
+check('every filter on counts four', auditFilterCount({ member: 'a', actingFor: 'b', action: 'PATCH', from: '2026-11-01', to: null }) === 4);
 
 if (failures.length) {
   console.error(`audit labels: ${failures.length} failed, ${passed} passed`);

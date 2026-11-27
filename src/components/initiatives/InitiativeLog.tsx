@@ -1,7 +1,8 @@
 'use client';
 
+import { useUndoTrash } from '@/components/projects/useUndoTrash';
 import { useState } from 'react';
-import { CheckCircle2, CircleAlert, Edit, Gavel, Link2, Megaphone, Plus, RefreshCw, RotateCcw, StickyNote, Trash2, type LucideIcon } from 'lucide-react';
+import { CheckCircle2, CircleAlert, Edit, Gavel, Link2, Megaphone, Plus, RotateCcw, ScrollText, StickyNote, Trash2, type LucideIcon } from 'lucide-react';
 import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
 import { useDemo } from '@/lib/demo-context';
@@ -19,12 +20,14 @@ import { TextInput } from '@/components/ui/inputs/TextInput';
 import { Textarea } from '@/components/ui/inputs/Textarea';
 import { Select } from '@/components/ui/inputs/Select';
 import { RowActionsMenu, type RowAction } from '@/components/ui/RowActionsMenu';
-import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { LinkedText } from '@/components/ui/LinkedText';
 import { toast } from '@/components/ui/Toast';
-import { Bone, NoMatches, Skeleton } from '@/components/projects/TabLayout';
-import { addInitiativeEntry, trashInitiativeEntry, updateInitiativeEntry, writeError } from './initiative-actions';
+import { Bone, Skeleton } from '@/components/projects/TabLayout';
+import { CardHeader } from '@/components/ui/Card';
+import { EmptyState } from '@/components/ui/EmptyState';
+import { FilterButton, FilterOption, FilterSection } from '@/components/ui/FilterButton';
+import { addInitiativeEntry, trashInitiativeEntry, updateInitiativeEntry, writeError, restoreDemoInitiativeEntry } from './initiative-actions';
 
 /**
  * An initiative's log: the dated record of updates, decisions, issues and
@@ -55,11 +58,6 @@ const FILTERS: { key: FilterKey; label: string }[] = [
 const filtersOf = (key: FilterKey): InitiativeEntryFilters =>
   key === 'all' ? {} : key === 'open' ? { kind: 'issue', status: 'open' } : { kind: key };
 
-const CHIP = (on: boolean) =>
-  `inline-flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 ${
-    on ? 'bg-brand-500/15 text-brand-300 border border-brand-500/30' : 'bg-white/[0.03] text-zinc-400 border border-white/10 hover:border-white/20 hover:text-zinc-200'
-  }`;
-
 export function InitiativeLog({ projectId, initiativeId, canLog, openIssueCount, linkableTasks, onOpenTask }: {
   projectId: string;
   initiativeId: string;
@@ -87,23 +85,27 @@ export function InitiativeLog({ projectId, initiativeId, canLog, openIssueCount,
     <div className="space-y-4">
       {canLog && <Composer projectId={projectId} initiativeId={initiativeId} linkableTasks={linkableTasks} />}
 
-      <div role="radiogroup" aria-label="Show entries" className="flex flex-wrap items-center gap-1.5">
-        {FILTERS.map((item) => (
-          <button
-            key={item.key}
-            type="button"
-            role="radio"
-            aria-checked={filter === item.key}
-            onClick={() => pick(item.key)}
-            className={CHIP(filter === item.key)}
-          >
-            {item.label}
-            {item.key === 'open' && openIssueCount > 0 && <span className="tabular-nums text-amber-300">{openIssueCount}</span>}
-          </button>
-        ))}
-      </div>
-
-      <section className="glass-card rounded-xl" aria-label="Log entries">
+      {/* One filter button in the log's own header (Rules 3 and 17), not a row of chips above it. */}
+      <section className="glass-card rounded-xl" aria-labelledby="initiative-log-heading">
+        <CardHeader
+          id="initiative-log-heading"
+          title={filter === 'all' ? 'All entries' : FILTERS.find((f) => f.key === filter)?.label}
+          icon={<ScrollText size={16} aria-hidden="true" />}
+          afterTitle={!first.loading && total > 0 ? <span className="text-xs font-normal tabular-nums text-zinc-400">{total}</span> : null}
+          action={(
+            <FilterButton label="Show" title="Show entries" activeCount={filter === 'all' ? 0 : 1} onClear={() => pick('all')} width={280}>
+              <FilterSection label="Kind">
+                {FILTERS.filter((item) => item.key !== 'all').map((item) => (
+                  <FilterOption key={item.key} selected={filter === item.key} onToggle={() => pick(filter === item.key ? 'all' : item.key)}>
+                    {item.label}
+                    {item.key === 'open' && openIssueCount > 0 && <span className="tabular-nums text-amber-300">{openIssueCount}</span>}
+                  </FilterOption>
+                ))}
+              </FilterSection>
+            </FilterButton>
+          )}
+        />
+        <div className="border-t border-white/[0.06]" />
         {first.loading ? (
           <Skeleton label="Loading the log" className="divide-y divide-white/[0.06]">
             {[0, 1, 2].map((i) => (
@@ -118,16 +120,23 @@ export function InitiativeLog({ projectId, initiativeId, canLog, openIssueCount,
             ))}
           </Skeleton>
         ) : first.failed ? (
-          <div className="px-5 py-10 text-center">
-            <p className="text-sm text-zinc-300">Couldn&apos;t load the log.</p>
-            <Button className="mt-3" size="sm" variant="secondary" icon={<RefreshCw size={14} aria-hidden="true" />} onClick={first.reload}>Try again</Button>
-          </div>
+          <EmptyState variant="error" compact title="Couldn't load the log" onRetry={first.reload} />
         ) : total === 0 ? (
-          <NoMatches>
-            {filter === 'all'
-              ? canLog ? 'Nothing logged yet. Add the first update, decision, issue or note.' : 'Nothing logged yet.'
-              : filter === 'open' ? 'No open issues.' : `No ${FILTERS.find((f) => f.key === filter)?.label.toLowerCase()} yet.`}
-          </NoMatches>
+          filter === 'all' ? (
+            <EmptyState
+              compact
+              icon={<ScrollText />}
+              title="Nothing logged yet"
+              description={canLog ? 'Add the first update, decision, issue or note above.' : 'Updates, decisions, issues and notes show here.'}
+            />
+          ) : (
+            <EmptyState
+              variant="filtered"
+              compact
+              title={filter === 'open' ? 'No open issues' : `No ${FILTERS.find((f) => f.key === filter)?.label.toLowerCase()} yet`}
+              onClearFilters={() => pick('all')}
+            />
+          )
         ) : (
           <ul className="divide-y divide-white/[0.06]">
             {(first.data?.rows ?? []).map((entry) => (
@@ -212,7 +221,7 @@ function EntryItem({ entry, projectId, canLog, onOpenTask }: {
   const { isDemoMode } = useDemo();
   const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [confirmTrash, setConfirmTrash] = useState(false);
+  const undoTrash = useUndoTrash();
   const [expanded, setExpanded] = useState(false);
   const isAuthor = !!teamMemberId && entry.created_by === teamMemberId;
   const canTrash = isAuthor || hasPermission(access, 'projects.manage');
@@ -233,10 +242,14 @@ function EntryItem({ entry, projectId, canLog, onOpenTask }: {
     }
   };
 
+  // Acts at once with Undo (DESIGN.md Rule 6).
   const trash = async () => {
     try {
       await trashInitiativeEntry(projectId, entry.initiative_id, entry.id, isDemoMode);
-      toast('success', 'Entry moved to Trash');
+      undoTrash('initiative_entries', entry.id, {
+        message: 'Entry moved to Trash',
+        ...(isDemoMode ? { restore: async (id: string) => restoreDemoInitiativeEntry(id) } : {}),
+      });
     } catch (error) {
       toast('error', writeError(error, "Couldn't move the entry to Trash"));
     }
@@ -244,7 +257,7 @@ function EntryItem({ entry, projectId, canLog, onOpenTask }: {
 
   const actions: RowAction[] = [
     ...(isAuthor ? [{ label: 'Edit', icon: <Edit size={14} />, onClick: () => setEditing(true) }] : []),
-    ...(canTrash ? [{ label: 'Move to Trash', icon: <Trash2 size={14} />, variant: 'danger' as const, divider: isAuthor, onClick: () => setConfirmTrash(true) }] : []),
+    ...(canTrash ? [{ label: 'Move to Trash', icon: <Trash2 size={14} />, variant: 'danger' as const, divider: isAuthor, onClick: () => void trash() }] : []),
   ];
 
   return (
@@ -328,15 +341,6 @@ function EntryItem({ entry, projectId, canLog, onOpenTask }: {
           </>
         )}
       </div>
-      <ConfirmDialog
-        isOpen={confirmTrash}
-        onClose={() => setConfirmTrash(false)}
-        onConfirm={() => void trash()}
-        title="Move entry to Trash?"
-        message="The entry leaves the log."
-        variant="danger"
-        trash
-      />
     </li>
   );
 }

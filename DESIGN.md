@@ -108,7 +108,7 @@ Inbox pieces, in `src/components/inbox/`: `inbox-badges.tsx` (state dots, trust,
 Match new work to these: the Inbox (list plus thread), a project's Tasks board, the task panel.
 
 - **A project's Initiatives tab** (`src/components/initiatives/InitiativesTab.tsx`): one card per live initiative (name, two-line description, status pill with health while active, progress bar with "N of M tasks done", owner, target date, open issues, last update), done ones behind "Show done". New and Edit open `InitiativePanel` in `TaskPanelShell`. The word on screen is always `INITIATIVE_LABEL`.
-- **The initiative page** (`/projects/[id]/initiatives/[initiativeId]`): breadcrumb back to the tab, a header card of chips (status, owner, dates, open issues) over the description and progress, then a `SubNav` of Tasks (the shared `ProjectTaskViews`, kept to its tasks), Log (`InitiativeLog`: kind chips, a composer that opens in place, Resolve and Reopen on issues) and Brief (`ContextBrief`, agents module only). Move to Trash acts at once and the tab it lands on offers Undo.
+- **The initiative page** (`/projects/[id]/initiatives/[initiativeId]`): breadcrumb back to the tab, a header card of chips (status, owner, dates, open issues) over the description and progress, then underline `Tabs` of Tasks (the shared `ProjectTaskViews`, kept to its tasks, whose Board, List and Calendar `SubNav` is the page's only segmented control), Log (`InitiativeLog`: a composer that opens in place, then the entries card with one `FilterButton` for the kind in its header, Resolve and Reopen on issues) and Brief (`ContextBrief` in a `Card`, agents module only). Move to Trash acts at once and the tab it lands on offers Undo.
 
 ## Moving to the rules
 

@@ -2,11 +2,13 @@ import { z } from 'zod';
 import { routeTool, type PmTool } from '../core';
 import { LOGO_KINDS } from '@/lib/brand/types';
 import { NOTIFICATION_CATEGORIES } from '@/lib/api/notification-preferences';
+import { DELIVERY_KEYS } from '@/lib/notification-defaults';
 import { EXCLUDED_IPS_MAX, EXCLUDED_IP_LABEL_MAX } from '@/lib/analytics-exclusions';
 import { atLeastOne, id } from './shared';
 
 const OWNER_ONLY = "Owner only (403 owner_only for anyone else), on a key that carries settings.manage, which only an Owner's key can.";
 const choices = z.partialRecord(z.enum(NOTIFICATION_CATEGORIES), z.boolean());
+const deliveryChoices = z.partialRecord(z.enum(DELIVERY_KEYS), z.boolean());
 
 /**
  * Your notification choices, the brand's logo, and the remaining settings
@@ -19,7 +21,7 @@ export const SETTINGS_TOOLS: PmTool[] = [
   routeTool({
     name: 'get_notification_preferences',
     lead: 'Read your own notification choices.',
-    detail: 'Settings > Notifications: in_app and email, each category on or off, email_enabled (the email switch) and email_available (whether the workspace can send email). Only your own.',
+    detail: 'Settings > Notifications: in_app (each category, in the app), email and chat (needs_you, for what waits on you, and each category), email_enabled and chat_enabled (the switches), email_available (the workspace can send email) and chat_available (you linked a chat account a connected bot reaches). Only your own.',
     input: z.object({}).strict(),
     permission: 'notifications.manage_own',
     method: 'GET',
@@ -29,9 +31,12 @@ export const SETTINGS_TOOLS: PmTool[] = [
   routeTool({
     name: 'update_notification_preferences',
     lead: 'Turn your own notifications on or off.',
-    detail: `Send only what changes: in_app and email map a category (${NOTIFICATION_CATEGORIES.slice(0, 4).join(', ')} ...) to true or false; email_enabled is the email switch (409 email_not_set_up while the workspace sends no email). Answers as get_notification_preferences. Only your own.`,
-    input: z.object({ in_app: choices.optional(), email_enabled: z.boolean().optional(), email: choices.optional() }).strict()
-      .refine(atLeastOne(['in_app', 'email_enabled', 'email']), 'Send in_app, email_enabled or email'),
+    detail: `Send only what changes: in_app maps a category (${NOTIFICATION_CATEGORIES.slice(0, 4).join(', ')} ...) to true or false; email and chat map needs_you or a category. email_enabled and chat_enabled are the switches (409 email_not_set_up while the workspace sends no email, 409 chat_not_linked until you link a chat account). Answers as get_notification_preferences. Only your own.`,
+    input: z.object({
+      in_app: choices.optional(), email_enabled: z.boolean().optional(), email: deliveryChoices.optional(),
+      chat_enabled: z.boolean().optional(), chat: deliveryChoices.optional(),
+    }).strict()
+      .refine(atLeastOne(['in_app', 'email_enabled', 'email', 'chat_enabled', 'chat']), 'Send in_app, email_enabled, email, chat_enabled or chat'),
     permission: 'notifications.manage_own',
     method: 'PATCH',
     path: '/api/v1/me/notification-preferences',

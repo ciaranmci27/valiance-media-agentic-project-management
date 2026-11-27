@@ -13,7 +13,7 @@ import { requireAgentsEnabled } from '@/lib/api/agents';
 import { logAudit } from '@/lib/api/audit';
 import { z } from 'zod';
 import { NextResponse } from 'next/server';
-import { RECEIPT_CATEGORIES, agentNoticeCategory, decodeCursor, encodeCursor, type NotificationFeedView, type NotificationView } from '@/lib/notifications';
+import { RECEIPT_CATEGORIES, agentNoticeCategory, decodeCursor, encodeCursor, withCategory, type NotificationFeedView, type NotificationView } from '@/lib/notifications';
 import { missingFoundation, notificationFeed, notificationGroupRows, notificationsNotReady, upsertNotification } from '@/lib/api/notifications';
 import { isRelativeAppPath } from '@/lib/security/safe-url';
 
@@ -52,6 +52,19 @@ export const GET = withApi(async ({ supabase, searchParams, teamMemberId }) => {
   }
 
   const { page, limit, offset } = parsePagination(searchParams);
+
+  // A view lists what the app lists (20261127003500): receipts, snoozed
+  // notices and a blocked comment's notice left out, the total to match.
+  if (view !== 'all') {
+    const listed = await updatesList(supabase, teamMemberId, { view: view as NotificationFeedView, category, entityType, isRead, limit, offset });
+    if (listed) {
+      const response = paginated(listed.rows, { page, limit, total: listed.total });
+      const body = await response.json() as { meta: Record<string, unknown> };
+      const last = listed.rows[listed.rows.length - 1];
+      return NextResponse.json({ ...body, meta: { ...body.meta, next_cursor: listed.rows.length === limit && last ? cursorAt(last, view as NotificationFeedView) : null } });
+    }
+  }
+
   let query = supabase
     .from('team_member_notifications')
     .select('*', { count: 'exact' })
@@ -81,6 +94,37 @@ export const GET = withApi(async ({ supabase, searchParams, teamMemberId }) => {
   const body = await response.json() as { meta: Record<string, unknown> };
   return NextResponse.json({ ...body, meta: { ...body.meta, next_cursor: rows.length === limit ? cursorAt(rows[rows.length - 1], view as NotificationFeedView) : null } });
 }, { permission: 'notifications.manage_own' });
+
+/** One offset page of a view from pm.notification_updates_list, with its total; null before 20261127003500 (the plain query answers then). */
+async function updatesList(
+  db: SupabaseClient,
+  memberId: string,
+  options: { view: NotificationFeedView; category: string | null; entityType: string | null; isRead: string | null; limit: number; offset: number },
+): Promise<{ rows: NotificationView[]; total: number } | null> {
+  const call = (limit: number, offset: number) => db.rpc('notification_updates_list', {
+    p_member_id: memberId,
+    p_view: options.view,
+    p_category: options.category,
+    p_entity_type: options.entityType,
+    p_is_read: options.isRead === 'true' ? true : options.isRead === 'false' ? false : null,
+    p_limit: limit,
+    p_offset: offset,
+  });
+  const { data, error } = await call(options.limit, options.offset);
+  if (error) {
+    if (missingFoundation(error)) return null;
+    throw error;
+  }
+  const found = (data ?? []) as { item: NotificationView; total: number }[];
+  let total = found[0]?.total ?? 0;
+  // Past the last page there is no row to carry the total: ask for the first one.
+  if (found.length === 0 && options.offset > 0) {
+    const first = await call(1, 0);
+    if (first.error) throw first.error;
+    total = ((first.data ?? []) as { total: number }[])[0]?.total ?? 0;
+  }
+  return { rows: found.map((entry) => withCategory(entry.item)), total };
+}
 
 function cursorAt(row: NotificationView, view: NotificationFeedView): string | null {
   const at = view === 'done' ? row.done_at : row.created_at;

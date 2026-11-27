@@ -21,6 +21,17 @@ const refresh = () => invalidateTables([...INITIATIVE_TABLES, 'project_context']
 
 /** Demo rows in Trash: they leave the demo arrays and come back on restore. */
 const demoTrash = new Map<string, Initiative>();
+const demoEntryTrash = new Map<string, InitiativeEntry>();
+
+/** Undo for a demo log entry just moved to Trash; false when it is not there. */
+export function restoreDemoInitiativeEntry(entryId: string): boolean {
+  const row = demoEntryTrash.get(entryId);
+  if (!row) return false;
+  demoEntryTrash.delete(entryId);
+  demoInitiativeEntries.push(row);
+  refresh();
+  return true;
+}
 
 export async function createInitiative(projectId: string, input: CreateInitiativeInput, demo: { isDemo: boolean; memberId: string | null }): Promise<{ id: string }> {
   if (demo.isDemo) {
@@ -144,7 +155,7 @@ export async function updateInitiativeEntry(
 export async function trashInitiativeEntry(projectId: string, initiativeId: string, entryId: string, isDemo: boolean): Promise<void> {
   if (isDemo) {
     const index = demoInitiativeEntries.findIndex((e) => e.id === entryId);
-    if (index >= 0) demoInitiativeEntries.splice(index, 1);
+    if (index >= 0) demoEntryTrash.set(entryId, demoInitiativeEntries.splice(index, 1)[0]);
     refresh();
     return;
   }

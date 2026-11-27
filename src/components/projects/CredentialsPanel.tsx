@@ -1,5 +1,6 @@
 'use client';
 
+import { useUndoTrash } from './useUndoTrash';
 import { useState, useRef } from 'react';
 import { setReadData, useRead } from '@/lib/query-cache';
 import { encryptionStatusRead } from '@/lib/reads';
@@ -33,7 +34,6 @@ import { Checkbox } from '@/components/ui/inputs/Checkbox';
 import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
 import { toast } from '@/components/ui/Toast';
-import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Tooltip } from '@/components/ui/Tooltip';
 import {
   CREDENTIAL_FIELDS,
@@ -247,7 +247,7 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
   const [editLoading, setEditLoading] = useState(false);
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<'all' | CredentialCategory>('all');
-  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+  const undoTrash = useUndoTrash();
   const [revealedData, setRevealedData] = useState<Record<string, CredentialPayload>>({});
   const [revealingId, setRevealingId] = useState<string | null>(null);
   const [shareTarget, setShareTarget] = useState<ProjectCredentialListItem | null>(null);
@@ -428,14 +428,15 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
     setRevealingId(null);
   };
 
-  const executeDelete = async () => {
-    if (deleteTarget && await deleteCredential(deleteTarget)) {
+  // Acts at once with Undo (DESIGN.md Rule 6).
+  const executeDelete = async (id: string) => {
+    if (await deleteCredential(id)) {
       setRevealedData((prev) => {
         const next = { ...prev };
-        delete next[deleteTarget];
+        delete next[id];
         return next;
       });
-      toast('success', 'Credential moved to Trash');
+      undoTrash('project_credentials', id, { message: 'Credential moved to Trash' });
     }
   };
 
@@ -822,7 +823,7 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
                   <button
                     type="button"
                     aria-label={`Delete ${cred.label}`}
-                    onClick={() => setDeleteTarget(cred.id)}
+                    onClick={() => void executeDelete(cred.id)}
                     className="p-1.5 text-zinc-500 hover:text-red-400 transition-colors rounded-md hover:bg-white/[0.06]"
                   >
                     <Trash2 size={14} />
@@ -936,15 +937,6 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
         </div>
       )}
 
-      <ConfirmDialog
-        isOpen={!!deleteTarget}
-        onClose={() => setDeleteTarget(null)}
-        onConfirm={executeDelete}
-        title="Move credential to Trash?"
-        message="The credential goes to Trash."
-        variant="danger"
-        trash
-      />
       <Modal
         isOpen={Boolean(shareTarget)}
         onClose={() => setShareTarget(null)}

@@ -1,5 +1,6 @@
 'use client';
 
+import { useUndoTrash } from './useUndoTrash';
 import { useState, useMemo, useEffect, useRef, Fragment } from 'react';
 import {
   Clock,
@@ -311,7 +312,7 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
     seededEndTime: string;
   } | null>(null);
 
-  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+  const undoTrash = useUndoTrash();
 
   // ── Segment edit/delete state ──
   const [editingSegment, setEditingSegment] = useState<{
@@ -768,8 +769,8 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
     cancelEdit();
   };
 
-  const executeDelete = async () => {
-    if (!deleteTarget) return;
+  // Acts at once with Undo (DESIGN.md Rule 6).
+  const executeDelete = async (deleteTarget: string) => {
     const entry = entries.find((item) => item.id === deleteTarget);
     const canModifyEntry = Boolean(
       entry &&
@@ -778,12 +779,8 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
             entry.member_id === teamMemberId &&
             entry.approval_status !== 'approved')),
     );
-    if (!canModifyEntry) {
-      setDeleteTarget(null);
-      return;
-    }
-    const deleted = await deleteTimeEntry(deleteTarget);
-    if (deleted) toast('success', 'Time entry moved to Trash');
+    if (!canModifyEntry) return;
+    if (await deleteTimeEntry(deleteTarget)) undoTrash('project_time_entries', deleteTarget, { message: 'Time entry moved to Trash' });
   };
 
   const dateGroups = Object.entries(groupedByDate);
@@ -1565,7 +1562,7 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
                   <Tooltip content="Delete">
                     <button
                       aria-label="Delete entry"
-                      onClick={() => setDeleteTarget(entry.id)}
+                      onClick={() => void executeDelete(entry.id)}
                       className="p-1.5 rounded-md text-zinc-500 hover:text-red-400 hover:bg-white/[0.06] transition-colors"
                     >
                       <Trash2 size={13} aria-hidden="true" />
@@ -1638,15 +1635,6 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
         )}
       </RailLayout>
 
-      <ConfirmDialog
-        isOpen={!!deleteTarget}
-        onClose={() => setDeleteTarget(null)}
-        onConfirm={executeDelete}
-        title="Move time entry to Trash?"
-        message="The time entry goes to Trash."
-        variant="danger"
-        trash
-      />
 
       <ConfirmDialog
         isOpen={!!deleteSegmentTarget}

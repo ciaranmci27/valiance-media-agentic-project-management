@@ -39,7 +39,7 @@ function GuideLink({ children = 'How to set up your agent service' }: { children
  * Settings > Assistants, first: the agent service, the program that runs
  * everyone's assistants. The app holds each assistant's settings, chat and
  * record; it never runs the AI itself. Until a service is connected, every
- * assistant stays "Getting ready", then "Needs you". The step makes the
+ * assistant stays "Getting ready", then "Not working". The step makes the
  * service's key here (assistants.provision, webhooks.manage and the scopes
  * the assistants need), shown once, links the guide, and reads "Waiting for
  * your service" until the service collects its first assistant's key, then

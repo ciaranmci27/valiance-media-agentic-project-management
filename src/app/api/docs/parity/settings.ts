@@ -11,15 +11,17 @@ export const SETTINGS_ENDPOINTS: EndpointDoc[] = [
   // ─── Your notifications ─────────────────────────────────────────────
   {
     method: 'GET', path: '/api/v1/me/notification-preferences', group: 'Notifications', scopes: ['notifications.manage_own (your own only)'],
-    description: "Settings > Notifications for the key's own member: in_app and email, each category on or off, email_enabled (the email switch) and email_available (whether the workspace can send email). No key reads anyone else's. MCP: get_notification_preferences.",
+    description: "Settings > Notifications for the key's own member: in_app (each category in the app), email and chat (needs_you, for what waits on you, and each category; needs_you is on by default for both), email_enabled and chat_enabled (the switches), email_available (the workspace can send email) and chat_available (a linked chat account a connected bot reaches). In the app every notice always shows. No key reads anyone else's. MCP: get_notification_preferences.",
   },
   {
     method: 'PATCH', path: '/api/v1/me/notification-preferences', group: 'Notifications', scopes: ['notifications.manage_own (your own only)'],
-    description: 'Changes only the categories sent, as the toggles do, and the email switch (409 email_not_set_up while the workspace sends no email). Audited. Answers as GET. MCP: update_notification_preferences.',
+    description: 'Changes only the choices sent, as the switches do, and the email and chat switches (409 email_not_set_up while the workspace sends no email; 409 chat_not_linked until a chat account is linked; 503 database_update_needed for chat before 20261127003500). Audited. Answers as GET. MCP: update_notification_preferences.',
     body: [
       { name: 'in_app', type: 'object', required: false, description: 'Category to true (on) or false (off), like { "task_comments": false }' },
       { name: 'email_enabled', type: 'boolean', required: false, description: 'The email switch' },
-      { name: 'email', type: 'object', required: false, description: 'Category to true or false, sent by email while email_enabled' },
+      { name: 'email', type: 'object', required: false, description: 'needs_you or a category to true or false, sent by email while email_enabled' },
+      { name: 'chat_enabled', type: 'boolean', required: false, description: 'The chat switch: a DM from a connected bot on your linked account, with a link back' },
+      { name: 'chat', type: 'object', required: false, description: 'needs_you or a category to true or false, sent to your chat while chat_enabled' },
     ],
   },
 

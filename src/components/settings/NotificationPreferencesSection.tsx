@@ -1,14 +1,25 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { Bell, Mail } from 'lucide-react';
-import { useApp } from '@/lib/store';
+import { updateDelivers } from '@/lib/notification-defaults';
+
+import { Bell, Mail, MessageCircle, Zap } from 'lucide-react';
 import { useAuth } from '@/lib/auth-context';
+import { useDemo } from '@/lib/demo-context';
 import { isModuleEnabled } from '@/lib/access-control';
+import { peekRead, setReadData, useRead } from '@/lib/query-cache';
+import { notificationPreferencesRead } from '@/lib/reads';
+import { sendJson } from '@/lib/needs-you-actions';
+import { demoUpdateNotificationPreferences } from '@/lib/demo-notifications';
+import { AI_SECTION_HREFS } from '@/lib/ai-home';
 import { Toggle } from '@/components/ui/inputs/Toggle';
+import { Button } from '@/components/ui/Button';
+import { EmptyState } from '@/components/ui/EmptyState';
 import { toast } from '@/components/ui/Toast';
-import { emailCategoryEnabled } from '@/lib/notification-defaults';
-import type { NotificationCategory, NotificationPreferences } from '@/lib/types';
+import { GroupLabel } from '@/components/projects/TabLayout';
+import { SettingsSectionHeader } from '@/components/settings/SettingsSectionHeader';
+import type { NotificationPreferencesPatch, NotificationPreferencesView } from '@/lib/api/notification-preferences';
+import type { DeliveryKey } from '@/lib/notification-defaults';
+import type { NotificationCategory } from '@/lib/types';
 import type { ModuleId } from '@/lib/modules/registry';
 
 /**
@@ -162,170 +173,181 @@ const NOTIF_GROUPS: {
   },
 ];
 
-/** In-app and email toggles per notification category, plus the email master switch. */
+type Channel = 'in_app' | 'email' | 'chat';
+
+/** A change shown at once, saved, and put back if the server refuses. */
+function useSaveChoice() {
+  const { isDemoMode } = useDemo();
+  return async (patch: NotificationPreferencesPatch, words: string) => {
+    const read = notificationPreferencesRead(isDemoMode);
+    const before = peekRead(read);
+    if (before) {
+      setReadData(read, () => ({
+        ...before,
+        in_app: { ...before.in_app, ...(patch.in_app ?? {}) },
+        email: { ...before.email, ...(patch.email ?? {}) },
+        chat: { ...before.chat, ...(patch.chat ?? {}) },
+        email_enabled: patch.email_enabled ?? before.email_enabled,
+        chat_enabled: patch.chat_enabled ?? before.chat_enabled,
+      }));
+    }
+    try {
+      const after = isDemoMode
+        ? demoUpdateNotificationPreferences(patch)
+        : await sendJson<NotificationPreferencesView>('/api/workspace/notification-preferences', patch, 'PATCH');
+      setReadData(read, () => after);
+      toast('success', words);
+    } catch (error) {
+      if (before) setReadData(read, () => before);
+      toast('error', error instanceof Error && error.message ? error.message : 'Could not save that');
+    }
+  };
+}
+
+/**
+ * Settings > Notifications: everything shows in the app; each person chooses
+ * what also reaches them by email or in their own chat. Needs you (questions,
+ * approvals, stuck agents) leads, on for both by default once a channel is
+ * on; then each kind of update. Switches save at once (Rule 8).
+ */
 export function NotificationPreferencesSection({ canManageAgents }: { canManageAgents: boolean }) {
-  const { team, updateTeamMember } = useApp();
-  const { teamMemberId, access } = useAuth();
-  const currentMember = team.find((m) => m.id === teamMemberId);
+  const { access } = useAuth();
+  const { isDemoMode } = useDemo();
+  const prefs = useRead(notificationPreferencesRead(isDemoMode));
+  const save = useSaveChoice();
 
-  const [notifPrefs, setNotifPrefs] = useState<NotificationPreferences>({});
-  const [emailEnabled, setEmailEnabled] = useState(false);
-  const [emailNotifPrefs, setEmailNotifPrefs] = useState<NotificationPreferences>({});
-  const [hasSmtp, setHasSmtp] = useState<boolean | null>(null);
+  if (prefs.failed) {
+    return <EmptyState framed variant="error" title="Could not load your notification settings" description="Check your connection, then try again." onRetry={prefs.reload} />;
+  }
+  const view = prefs.data;
+  if (!view) {
+    return <div className="glass-card h-64 animate-pulse rounded-xl motion-reduce:animate-none" role="status" aria-label="Loading notification settings" />;
+  }
 
-  // Hydrate once per member, so a store refresh never overwrites a toggle mid-flight.
-  useEffect(() => {
-    if (currentMember?.notification_prefs) {
-      setNotifPrefs(currentMember.notification_prefs);
-    }
-    if (currentMember?.email_notification_prefs) {
-      setEmailNotifPrefs(currentMember.email_notification_prefs);
-    }
-    if (currentMember?.email_notifications_enabled !== undefined) {
-      setEmailEnabled(currentMember.email_notifications_enabled);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentMember?.id]);
-
-  // Check if any SMTP accounts are configured. Uses the status endpoint
-  // (member-accessible) rather than /api/smtp, which is admin-only.
-  useEffect(() => {
-    fetch('/api/smtp/status')
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        setHasSmtp(data?.hasAccounts === true);
-      })
-      .catch(() => setHasSmtp(false));
-  }, []);
-
-  const handleToggleNotif = (category: NotificationCategory) => {
-    if (!teamMemberId) return;
-    const isCurrentlyEnabled = notifPrefs[category] !== false;
-    const newPrefs = { ...notifPrefs };
-    if (isCurrentlyEnabled) {
-      newPrefs[category] = false;
-    } else {
-      delete newPrefs[category];
-    }
-    setNotifPrefs(newPrefs);
-    updateTeamMember(teamMemberId, { notification_prefs: newPrefs });
-    toast('success', isCurrentlyEnabled ? 'Notification disabled' : 'Notification enabled');
+  const emailOn = view.email_enabled && view.email_available;
+  const chatOn = view.chat_enabled && view.chat_available;
+  const flip = (channel: Channel, key: DeliveryKey, label: string) => {
+    const now = channel === 'in_app' ? view.in_app[key as NotificationCategory] : view[channel][key];
+    const where = channel === 'in_app' ? 'in the app' : channel === 'email' ? 'by email' : 'in chat';
+    void save({ [channel]: { [key]: !now } } as NotificationPreferencesPatch, `${label} ${now ? 'off' : 'on'} ${where}`);
   };
+  const groups = NOTIF_GROUPS.filter((g) => !g.adminOnly || canManageAgents).map((g) => ({
+    ...g,
+    items: g.items.filter(({ key }) => {
+      const mod = CATEGORY_MODULE[key];
+      return !mod || isModuleEnabled(access, mod);
+    }),
+  })).filter((g) => g.items.length > 0);
 
-  const handleToggleEmailEnabled = () => {
-    if (!teamMemberId || hasSmtp === false) return;
-    const newValue = !emailEnabled;
-    setEmailEnabled(newValue);
-    updateTeamMember(teamMemberId, { email_notifications_enabled: newValue });
-    toast('success', newValue ? 'Email notifications enabled' : 'Email notifications disabled');
-  };
-
-  const handleToggleEmailNotif = (category: NotificationCategory) => {
-    if (!teamMemberId || !emailEnabled) return;
-    const isCurrentlyEnabled = emailCategoryEnabled(emailNotifPrefs, category);
-    // Explicit either way: some categories are on by default, so "absent"
-    // no longer means off for all of them.
-    const newPrefs = { ...emailNotifPrefs, [category]: !isCurrentlyEnabled };
-    setEmailNotifPrefs(newPrefs);
-    updateTeamMember(teamMemberId, { email_notification_prefs: newPrefs });
-    toast(
-      'success',
-      isCurrentlyEnabled ? 'Email notification disabled' : 'Email notification enabled',
-    );
-  };
+  const columns = (
+    <div className="flex flex-shrink-0 items-center gap-3 text-[11px] text-zinc-500" aria-hidden="true">
+      <span className="w-11 text-center">App</span>
+      <span className={`w-11 text-center ${emailOn ? '' : 'text-zinc-600'}`}>Email</span>
+      <span className={`w-11 text-center ${chatOn ? '' : 'text-zinc-600'}`}>Chat</span>
+    </div>
+  );
 
   return (
-    <section id="notifications" className="glass-card rounded-xl p-4 lg:p-6 scroll-mt-6">
-      <div className="flex items-center gap-3 mb-6">
-        <div className="p-2 bg-brand-500/15 rounded-lg">
-          <Bell className="text-brand-300" size={20} />
+    <div className="space-y-6">
+      <section id="notifications" className="glass-card scroll-mt-6 rounded-xl p-4 lg:p-5">
+        <SettingsSectionHeader icon={Bell} title="How you hear" description="Everything shows here in the app. Choose what also reaches you by email or in your chat." />
+        <div className="divide-y divide-white/[0.06]">
+          <ChannelRow
+            icon={<Mail size={16} />}
+            title="Email"
+            line={view.email_available ? 'To the address you sign in with.' : 'Email sending is not set up yet. An Owner sets it up in Settings > Email.'}
+            checked={emailOn}
+            disabled={!view.email_available}
+            onChange={() => void save({ email_enabled: !view.email_enabled }, view.email_enabled ? 'Email notifications off' : 'Email notifications on')}
+          />
+          <ChannelRow
+            icon={<MessageCircle size={16} />}
+            title="Chat"
+            line={view.chat_available
+              ? 'A message from your workspace bot on your linked account, with a link back here.'
+              : 'Link a chat account first, so the bot can reach you.'}
+            action={view.chat_available ? undefined : <Button size="sm" variant="secondary" href={AI_SECTION_HREFS['chat-accounts']}>Link an account</Button>}
+            checked={chatOn}
+            disabled={!view.chat_available}
+            onChange={() => void save({ chat_enabled: !view.chat_enabled }, view.chat_enabled ? 'Chat notifications off' : 'Chat notifications on')}
+          />
         </div>
-        <div>
-          <h2 className="font-semibold text-white">Notification preferences</h2>
-          <p className="text-sm text-zinc-400">Choose which notifications you receive</p>
-        </div>
-      </div>
+      </section>
 
-      {/* Email master toggle */}
-      <div
-        className={`flex items-center justify-between p-3 mb-6 rounded-lg border ${hasSmtp === false ? 'bg-white/[0.03] border-white/[0.06] opacity-60' : 'bg-white/[0.03] border-white/[0.08]'}`}
-      >
-        <div className="flex items-center gap-3">
-          <Mail className="text-zinc-400" size={18} />
-          <div>
-            <p className="text-sm font-medium text-zinc-300">Email notifications</p>
-            <p className="text-xs text-zinc-400">
-              {hasSmtp === false
-                ? 'Configure an SMTP account in Email settings to enable email notifications.'
-                : 'Receive email alerts for important updates.'}
-            </p>
+      <section className="glass-card rounded-xl p-4 lg:p-5" aria-labelledby="needs-you-delivery">
+        <div className="flex min-w-0 items-start gap-3">
+          <span className="mt-0.5 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-amber-500/[0.14] text-amber-300"><Zap size={16} aria-hidden="true" /></span>
+          <div className="min-w-0">
+            <p id="needs-you-delivery" className="text-sm font-semibold text-white">Needs you</p>
+            <p className="mt-0.5 text-xs text-zinc-400">Questions, approvals and agents stuck on your work. Always in the app; on by email and chat once those are on.</p>
           </div>
         </div>
-        <Toggle
-          checked={emailEnabled && hasSmtp !== false}
-          disabled={hasSmtp === false}
-          onChange={handleToggleEmailEnabled}
-          aria-label="Email notifications"
-        />
-      </div>
+        <div className="mt-4 flex justify-end">{columns}</div>
+        <div className="mt-2 flex items-center justify-between gap-4">
+          <p className="min-w-0 text-sm text-zinc-300">Everything waiting on you</p>
+          <div className="flex flex-shrink-0 items-center gap-3">
+            {/* Always on in the app: shown as an on switch that cannot be turned off. */}
+            <span className="flex w-11 justify-center"><Toggle checked disabled onChange={() => undefined} aria-label="Needs you in the app, always on" /></span>
+            <span className="flex w-11 justify-center">
+              <Toggle checked={emailOn && view.email.needs_you} disabled={!emailOn} onChange={() => flip('email', 'needs_you', 'Needs you')} aria-label="Needs you by email" />
+            </span>
+            <span className="flex w-11 justify-center">
+              <Toggle checked={chatOn && view.chat.needs_you} disabled={!chatOn} onChange={() => flip('chat', 'needs_you', 'Needs you')} aria-label="Needs you in chat" />
+            </span>
+          </div>
+        </div>
+      </section>
 
-      <div className="space-y-6">
-        {NOTIF_GROUPS.filter((g) => !g.adminOnly || canManageAgents).map((g) => ({
-          ...g,
-          items: g.items.filter(({ key }) => {
-            const mod = CATEGORY_MODULE[key];
-            return !mod || isModuleEnabled(access, mod);
-          }),
-        })).filter((g) => g.items.length > 0).map(({ group, items }) => (
-          <div key={group}>
-            {/* Group header with column labels */}
-            <div className="flex items-center justify-between mb-3">
-              <p className="text-xs font-medium text-zinc-500 uppercase tracking-wide">
-                {group}
-              </p>
-              <div className="flex items-center gap-3">
-                <span className="text-[10px] font-medium text-zinc-500 uppercase tracking-wide w-11 text-center">
-                  In-App
-                </span>
-                <span
-                  className={`text-[10px] font-medium uppercase tracking-wide w-11 text-center ${emailEnabled && hasSmtp !== false ? 'text-zinc-500' : 'text-zinc-600'}`}
-                >
-                  Email
-                </span>
-              </div>
-            </div>
-            <div className="space-y-3">
-              {items.map(({ key, label, desc }) => {
-                const inAppEnabled = notifPrefs[key] !== false;
-                const emailCatEnabled = emailCategoryEnabled(emailNotifPrefs, key);
-                return (
-                  <div key={key} className="flex items-center justify-between">
-                    <div className="min-w-0 flex-1 mr-4">
+      <section className="glass-card rounded-xl p-4 lg:p-5" aria-labelledby="updates-delivery">
+        <div className="mb-4 flex items-start justify-between gap-4">
+          <div className="min-w-0">
+            <p id="updates-delivery" className="text-sm font-semibold text-white">Updates</p>
+            <p className="mt-0.5 text-xs text-zinc-400">What happened on your work, by kind.</p>
+          </div>
+          {columns}
+        </div>
+        <div className="space-y-6">
+          {groups.map(({ group, items }) => (
+            <div key={group}>
+              <GroupLabel as="h3" className="mb-2">{group}</GroupLabel>
+              <div className="divide-y divide-white/[0.06]">
+                {items.map(({ key, label, desc }) => (
+                  <div key={key} className="flex items-center justify-between gap-4 py-2.5">
+                    <div className="min-w-0 flex-1">
                       <p className="text-sm text-zinc-300">{label}</p>
-                      <p className="text-xs text-zinc-400 mt-0.5">{desc}</p>
+                      <p className="mt-0.5 text-xs text-zinc-400">{view.in_app[key] ? desc : 'Off in the app, so it is not sent anywhere.'}</p>
                     </div>
-                    <div className="flex items-center gap-3 flex-shrink-0">
-                      {/* In-App toggle */}
-                      <Toggle
-                        checked={inAppEnabled}
-                        onChange={() => handleToggleNotif(key)}
-                        aria-label={`${label} in-app notification`}
-                      />
-                      {/* Email toggle */}
-                      <Toggle
-                        checked={emailCatEnabled && emailEnabled}
-                        disabled={!emailEnabled}
-                        onChange={() => handleToggleEmailNotif(key)}
-                        aria-label={`${label} email notification`}
-                      />
+                    <div className="flex flex-shrink-0 items-center gap-3">
+                      <span className="flex w-11 justify-center"><Toggle checked={view.in_app[key]} onChange={() => flip('in_app', key, label)} aria-label={`${label} in the app`} /></span>
+                      <span className="flex w-11 justify-center"><Toggle checked={updateDelivers({ inApp: view.in_app[key], channelOn: emailOn, choice: view.email[key] })} disabled={!emailOn || !view.in_app[key]} onChange={() => flip('email', key, label)} aria-label={`${label} by email`} /></span>
+                      <span className="flex w-11 justify-center"><Toggle checked={updateDelivers({ inApp: view.in_app[key], channelOn: chatOn, choice: view.chat[key] })} disabled={!chatOn || !view.in_app[key]} onChange={() => flip('chat', key, label)} aria-label={`${label} in chat`} /></span>
                     </div>
                   </div>
-                );
-              })}
+                ))}
+              </div>
             </div>
-          </div>
-        ))}
+          ))}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+/** One way to hear: what it is, where it goes (or the step to set it up), and its switch. */
+function ChannelRow({ icon, title, line, action, checked, disabled, onChange }: {
+  icon: React.ReactNode; title: string; line: string; action?: React.ReactNode; checked: boolean; disabled: boolean; onChange: () => void;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-4 py-3 first:pt-0 last:pb-0">
+      <div className="flex min-w-0 items-start gap-3">
+        <span className="mt-0.5 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-white/[0.06] text-zinc-300" aria-hidden="true">{icon}</span>
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-zinc-200">{title}</p>
+          <p className="mt-0.5 text-xs text-zinc-400">{line}</p>
+          {action && <div className="mt-2">{action}</div>}
+        </div>
       </div>
-    </section>
+      <Toggle checked={checked} disabled={disabled} onChange={onChange} aria-label={`${title} notifications`} />
+    </div>
   );
 }

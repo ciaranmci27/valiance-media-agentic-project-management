@@ -15,7 +15,8 @@ import { TimeTrackingPanel } from '@/components/projects/TimeTrackingPanel';
 import { CredentialsPanel } from '@/components/projects/CredentialsPanel';
 import InvoicesPanel from '@/components/projects/InvoicesPanel';
 import { ProjectOverview } from '@/components/projects/ProjectOverview';
-import { projectTrashMessage } from '@/components/projects/trash-message';
+import { projectTrashedLine } from '@/components/projects/trash-message';
+import { useUndoTrash } from '@/components/projects/useUndoTrash';
 import { ProjectTabs, projectPanelId, projectTabId, type ProjectTab } from '@/components/projects/ProjectTabs';
 import { EmptyCard } from '@/components/projects/TabLayout';
 import { ProjectTaskViews } from '@/components/projects/ProjectTaskViews';
@@ -26,7 +27,6 @@ import { Button } from '@/components/ui/Button';
 import { toast } from '@/components/ui/Toast';
 import { useTaskUrlParam } from '@/lib/use-task-url';
 import { Edit, Trash2, Clock } from 'lucide-react';
-import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { useTrashTask } from '@/components/tasks/useTrashTask';
 import { useAuth } from '@/lib/auth-context';
 import { useDemo } from '@/lib/demo-context';
@@ -85,7 +85,7 @@ export default function ProjectDetailPage() {
 
   const [isEditProjectOpen, setIsEditProjectOpen] = useState(false);
   const [isContactsPanelOpen, setIsContactsPanelOpen] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState<{ type: 'project'; id: string } | null>(null);
+  const undoTrash = useUndoTrash();
   const trashTask = useTrashTask();
   // Tabs mount on first visit and then stay mounted (hidden), so a half-typed
   // timer note or an open email thread survives a trip to another tab.
@@ -210,7 +210,7 @@ export default function ProjectDetailPage() {
   if (!project) {
     return (
       <div className="animate-fadeIn min-h-screen">
-        <Header title="Project Not Found" />
+        <Header title="Project not found" />
         <div className="p-6 text-center">
           <p className="text-zinc-400 mb-4">This project doesn&apos;t exist</p>
           <Link href="/projects">
@@ -227,11 +227,12 @@ export default function ProjectDetailPage() {
     void trashTask(id);
   };
 
-  const executeDelete = () => {
-    if (!confirmDelete) return;
+  // Acts at once (DESIGN.md Rule 6): back to the list, and the toast's Undo
+  // still works there, so the project comes back to the list it left.
+  const trashProject = (id: string, name: string) => {
     router.push('/projects');
-    void deleteProject(confirmDelete.id).then((moved) => {
-      if (moved) toast('success', 'Project moved to Trash');
+    void deleteProject(id).then((moved) => {
+      if (moved) undoTrash('projects', id, { message: projectTrashedLine(name, access) });
     });
   };
 
@@ -241,6 +242,8 @@ export default function ProjectDetailPage() {
           dates, people and progress are on the Overview. */}
       <Header
         title={project.name}
+        // A long name wraps; the actions menu stays beside it instead of on a row of its own.
+        wrapTitle
         actions={
           <>
             {canManageProject && (
@@ -251,7 +254,7 @@ export default function ProjectDetailPage() {
                 // restorable from Settings, Trash.
                 actions={[
                   { label: 'Edit project', icon: <Edit size={14} />, onClick: () => setIsEditProjectOpen(true) },
-                  { label: 'Move to Trash', icon: <Trash2 size={14} />, variant: 'danger', divider: true, onClick: () => setConfirmDelete({ type: 'project', id: project.id }) },
+                  { label: 'Move to Trash', icon: <Trash2 size={14} />, variant: 'danger', divider: true, onClick: () => trashProject(project.id, project.name) },
                 ]}
               />
             )}
@@ -378,16 +381,6 @@ export default function ProjectDetailPage() {
         onDelete={handleDeleteTask}
       />
 
-      {/* Confirm Delete Dialog */}
-      <ConfirmDialog
-        isOpen={!!confirmDelete}
-        onClose={() => setConfirmDelete(null)}
-        onConfirm={executeDelete}
-        title="Move project to Trash?"
-        message={projectTrashMessage(access)}
-        variant="danger"
-        trash
-      />
 
     </div>
   );

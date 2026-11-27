@@ -463,6 +463,11 @@ async function main() {
       [skipDelegate, skipSubtask, skipAssign, skipCreate].every((a) => a.status === 403 && reason(a) === 'not_your_report')
       && skipMcp?.ok === false && JSON.stringify(skipMcp).includes('not_your_report') && !(await assignees(t3)).includes(s.junior),
       [skipDelegate.body, skipSubtask.body, skipAssign.body, skipCreate.body, skipMcp]);
+    const upperAssign = await assign(s.keys.alexa, t3, [s.junior.toUpperCase()]);
+    const upperCreate = await v1(v1Tasks.POST, 'POST', '/api/v1/tasks', {}, s.keys.alexa, { project_id: s.project, title: 'Sneak it in capitals', assignee_ids: [s.junior.toUpperCase()] });
+    check('skip: an agent id in capitals is refused too, never assigned around the agent gate',
+      [upperAssign, upperCreate].every((a) => a.status >= 400 && a.status < 500) && !(await assignees(t3)).includes(s.junior),
+      [upperAssign.body, upperCreate.body]);
     const orchestratorHands = await delegate(s.keys.dev, t3, { mode: 'assign', agent_id: s.junior });
     check('skip: its own orchestrator hands it the work', orchestratorHands.status === 200 && (await assignees(t3)).includes(s.junior), orchestratorHands.body);
 

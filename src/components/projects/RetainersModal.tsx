@@ -5,8 +5,8 @@ import { invalidateTables, loadRead, peekRead } from '@/lib/query-cache';
 import { projectRetainersRead } from '@/lib/reads';
 import { ArrowLeft, Pause, Pencil, Play, Plus, Trash2 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
+import { useUndoTrash } from './useUndoTrash';
 import Modal from '@/components/ui/Modal';
-import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { toast } from '@/components/ui/Toast';
@@ -114,7 +114,7 @@ export default function RetainersModal({
   const [busy, setBusy] = useState(false);
   const [view, setView] = useState<'list' | 'form'>('list');
   const [editing, setEditing] = useState<ProjectRetainer | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<ProjectRetainer | null>(null);
+  const undoTrash = useUndoTrash();
   const [showAdvanced, setShowAdvanced] = useState(false);
 
   // Form state
@@ -333,13 +333,15 @@ export default function RetainersModal({
     }
   };
 
-  const confirmDelete = async () => {
-    if (!deleteTarget) return;
+  // Acts at once with Undo (DESIGN.md Rule 6); invoices already made stay as they are.
+  const trashRetainer = async (retainer: ProjectRetainer) => {
     setBusy(true);
     try {
-      await removeProjectRetainer(supabase, deleteTarget.id);
-      toast('success', 'Retainer moved to Trash');
-      setDeleteTarget(null);
+      await removeProjectRetainer(supabase, retainer.id);
+      undoTrash('project_retainers', retainer.id, {
+        message: `${retainer.name} moved to Trash. Invoices already made stay as they are`,
+        onRestored: () => { void load(true); onChanged?.(); },
+      });
       await load(true);
       onChanged?.();
     } catch (error) {
@@ -513,7 +515,7 @@ export default function RetainersModal({
                     ) : null}
                     <button
                       type="button"
-                      onClick={() => setDeleteTarget(retainer)}
+                      onClick={() => void trashRetainer(retainer)}
                       className="rounded-md p-1.5 text-zinc-400 transition-colors hover:bg-red-500/15 hover:text-red-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-400"
                       aria-label={`Delete retainer ${retainer.name}`}
                     >
@@ -751,15 +753,6 @@ export default function RetainersModal({
           {content}
         </Modal>
       )}
-      <ConfirmDialog
-        isOpen={!!deleteTarget}
-        onClose={() => setDeleteTarget(null)}
-        onConfirm={() => void confirmDelete()}
-        title="Move retainer to Trash?"
-        message={`${deleteTarget?.name ?? 'This retainer'} goes to Trash with its amounts. Invoices already created stay as they are, and earnings already recorded are kept.`}
-        variant="danger"
-        trash
-      />
     </>
   );
 }

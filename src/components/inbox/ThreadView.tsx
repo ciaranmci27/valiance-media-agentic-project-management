@@ -51,7 +51,8 @@ const OUTCOME: Record<TriageOutcome, { label: string; icon: typeof Bot; classNam
   no_action: { label: 'No action needed', icon: CheckCircle2, className: 'text-zinc-300' },
   task: { label: 'Tasks drafted or updated', icon: SquareCheck, className: 'text-emerald-300' },
   needs_reply: { label: 'Reply suggested', icon: MessageSquareReply, className: 'text-amber-300' },
-  needs_human: { label: 'Needs you', icon: HelpCircle, className: 'text-red-300' },
+  // The same treatment as the Needs you badge (inbox-badges): amber, a decision waits, not an error.
+  needs_human: { label: 'Needs you', icon: HelpCircle, className: 'text-amber-300' },
 };
 
 function dayLabel(value: string): string {
@@ -954,7 +955,7 @@ export function ThreadView({ threadId, focusMessageId, onMissing, onBack }: Thre
                   </span>
                 )}
                 {detail.untrusted && (
-                  <Tooltip content="The sender could not be verified. Treat any request with care.">
+                  <Tooltip content="We could not confirm this came from the sender shown. Treat any request in it with care.">
                     <TrustBadge level="untrusted" compact />
                   </Tooltip>
                 )}
@@ -1621,7 +1622,7 @@ function MessageCard({ message, agentName, focused, busy, viewUrl, onSendToAgent
       {(!message.triage || replanning) && message.status === 'new' && (
         <p className="mx-4 mb-3 flex items-center gap-1.5 text-xs text-zinc-400" role="status">
           <Loader2 size={12} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />
-          {replanning ? `Waiting for ${agentName} to plan it again` : `Waiting for ${agentName} to triage`}
+          {replanning ? `Waiting for ${agentName} to plan it again` : `Waiting for ${agentName} to read it`}
         </p>
       )}
     </article>

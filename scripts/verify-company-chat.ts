@@ -569,7 +569,7 @@ async function main() {
       && posts()[0]?.body?.username === "Ana's Assistant" && posts()[0]?.auth === `Bearer ${PERSONAL_TOKEN}`, { personalReply: personalReply.body, call: posts()[0] });
 
     // ── Once per hold, with the agent's name ───────────────────────────
-    const ON_HOLD = "Ops AI is on hold right now and will answer when it's back.";
+    const ON_HOLD = "Ops AI is on hold for now. It will reply when it's back.";
     await s.q('UPDATE pm.team_members SET agent_paused_at = now() WHERE id = $1', [s.ops]);
     providerCalls.length = 0;
     const held1 = await toCompany('U_ANA', 'status?', 'D_ANA_C', 'im');

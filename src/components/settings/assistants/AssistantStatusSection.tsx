@@ -16,7 +16,8 @@ const STATE_PILL: Record<AssistantState, { label: string; className: string }> =
   getting_ready: { label: 'Getting ready', className: 'bg-white/[0.06] text-zinc-300' },
   paused: { label: 'Paused by them', className: 'bg-white/[0.06] text-zinc-300' },
   on_hold: { label: 'On hold', className: 'bg-white/[0.06] text-zinc-300' },
-  broken: { label: 'Needs you', className: 'bg-amber-500/[0.14] text-amber-300' },
+  // A broken assistant is a problem to fix, never "Needs you" (that is what agents wait on a person for).
+  broken: { label: 'Not working', className: 'bg-red-500/[0.12] text-red-300' },
 };
 
 const WINDOW = 24;

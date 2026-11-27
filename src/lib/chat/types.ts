@@ -439,13 +439,13 @@ export const CHAT_WORDS = {
  * {page} is what the workspace calls assistants (the page's name).
  */
 export const QUIET_WORDS = {
-  onHold: (name: string) => `${name} is on hold right now and will answer when it's back.`,
+  onHold: (name: string) => `${name} is on hold for now. It will reply when it's back.`,
   /** Held for it: what they send meanwhile reaches it when they resume (the newest 20). */
-  paused: (name: string, page: string, url: string) => `${name} is paused. Resume it from your ${page} page: it gets what you send meanwhile when you do.\n${url}`,
-  pausedByAdmin: (name: string) => `${name} is paused by an admin. It gets what you send meanwhile when they resume it.`,
+  paused: (name: string, page: string, url: string) => `${name} is paused. Resume it on your ${page} page and it will pick up what you sent.\n${url}`,
+  pausedByAdmin: (name: string) => `${name} was paused by an admin. It will pick up what you sent when they resume it.`,
   /** On hold, and its host stopped reporting. fixer: an admin was told, or the person fixes it in Settings. */
   hostDown: (name: string, fixer: 'admin' | 'settings') =>
-    `${name} is on hold and its host is not responding. ${fixer === 'admin' ? 'Your admin has been told.' : 'Fix it in AI > Setup.'}`,
+    `${name} can't answer right now: the service that runs it is not responding. ${fixer === 'admin' ? 'Your admin has been told.' : 'Fix it in AI > Setup.'}`,
   /** Not working: why ("its key expired or was revoked"), then who fixes it. */
   broken: (name: string, why: string, fixer: 'admin' | 'settings') =>
     `${name} can't answer right now${why ? `: ${why}` : ''}. ${fixer === 'admin' ? 'Your admin has been told.' : 'Fix it in AI > Setup.'}`,

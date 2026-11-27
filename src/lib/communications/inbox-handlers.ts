@@ -280,6 +280,7 @@ export async function inboxHandling(db: SupabaseClient, inboxId: string, memberI
   const [assigneeIds, memberNames, groupNames] = await Promise.all([
     defaultAssigneeIds(db, defaults),
     names(idsOf('member'), (memberIds) => db.from('team_members').select('id, name').in('id', memberIds)),
+    // includes-deleted: names only, so a handler group in Trash still shows its name (it grants nothing there).
     names(idsOf('group'), (groupIds) => db.from('groups').select('id, name').in('id', groupIds)),
   ]);
   const named = (party: { kind: 'member' | 'group'; id: string } | null): InboxParty | null =>

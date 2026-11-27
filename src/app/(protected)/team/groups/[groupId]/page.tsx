@@ -3,28 +3,32 @@
 import { useCallback, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
-import { ArrowLeft, Bot, Inbox, MessageCircleQuestion, Pencil, RefreshCw, Search, Sparkles, Star, Target, Trash2, UserMinus, UserPlus, UsersRound, type LucideIcon } from 'lucide-react';
+import { BookOpen, Bot, ChevronLeft, Inbox, MessageCircleQuestion, Pencil, RefreshCw, Search, Sparkles, Star, Target, Trash2, UserMinus, UserPlus, Users, UsersRound, type LucideIcon } from 'lucide-react';
 import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
 import { useDemo } from '@/lib/demo-context';
 import { hasPermission } from '@/lib/access-control';
 import { invalidateTables, useRead, type Read } from '@/lib/query-cache';
 import { groupMembersRead, groupRead, GROUP_TABLES, GROUPS_PAGE_SIZE } from '@/lib/reads';
-import { showMoreLabel } from '@/lib/agents-ui';
 import { workspaceApi } from '@/lib/agent-workspace';
 import {
   GROUP_DESCRIPTION_MAX, GROUP_MEMBERS_BATCH_MAX, GROUP_NAME_MAX, groupUsagePhrases,
   type GroupMemberView, type GroupRole, type GroupUsage, type GroupUsageList, type GroupView,
 } from '@/lib/groups';
 import {
-  demoAddGroupMembers, demoGroupMembers, demoGroupRead, demoGroupUsageRead, demoRemoveGroupMember, demoSetGroupRole, demoTrashGroup, demoUpdateGroup,
+  demoAddGroupMembers, demoGroupMembers, demoGroupRead, demoGroupUsageRead, demoRemoveGroupMember, demoSetGroupRole, demoRestoreGroup, demoTrashGroup, demoUpdateGroup,
 } from '@/lib/demo-project-agents';
-import type { TeamMember } from '@/lib/types';
 import { Avatar } from '@/components/ui/Avatar';
 import { Button } from '@/components/ui/Button';
 import Modal from '@/components/ui/Modal';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
-import { DataTable, type Column } from '@/components/ui/DataTable';
+import { Card } from '@/components/ui/Card';
+import { EmptyState } from '@/components/ui/EmptyState';
+import { Pill } from '@/components/ui/Pill';
+import { ShowMore } from '@/components/ui/ShowMore';
+import { Header } from '@/components/layout/Header';
+import { Bone, Skeleton } from '@/components/projects/TabLayout';
+import { useUndoTrash } from '@/components/projects/useUndoTrash';
 import { RowActionsMenu, type RowAction } from '@/components/ui/RowActionsMenu';
 import { TextInput } from '@/components/ui/inputs/TextInput';
 import { Textarea } from '@/components/ui/inputs/Textarea';
@@ -32,7 +36,6 @@ import { MultiSelect } from '@/components/ui/inputs/MultiSelect';
 import { Select } from '@/components/ui/inputs/Select';
 import { Toggle } from '@/components/ui/inputs/Toggle';
 import { toast } from '@/components/ui/Toast';
-import { RoleChip } from '@/components/team/member-chips';
 import { useDebounced, usePagedRead } from '@/components/team/groups/paged';
 import { ContextBrief } from '@/components/projects/BriefTab';
 
@@ -76,6 +79,7 @@ export default function GroupPage() {
   const [editing, setEditing] = useState(false);
   const [adding, setAdding] = useState(false);
   const [trashing, setTrashing] = useState(false);
+  const undoTrash = useUndoTrash();
   const [removing, setRemoving] = useState<GroupMemberView | null>(null);
   const phrases = groupUsagePhrases(usage.data);
 
@@ -109,16 +113,24 @@ export default function GroupPage() {
     }
   };
 
+  // Acts at once with Undo (DESIGN.md Rule 6): Trash keeps its members, owned
+  // agents and audiences, so Undo brings the group back as it was.
   const trash = async () => {
+    if (trashing) return;
+    setTrashing(true);
+    const name = group.data?.name ?? 'Group';
     try {
       if (isDemoMode) demoTrashGroup(groupId);
       else await workspaceApi(`/api/workspace/groups/${encodeURIComponent(groupId)}`, { method: 'DELETE' });
       invalidateTables(['groups', 'group_members']);
-      toast('success', `${group.data?.name ?? 'Group'} moved to Trash`);
+      undoTrash('groups', groupId, {
+        message: `${name} moved to Trash`,
+        onRestored: () => invalidateTables(['groups', 'group_members']),
+        ...(isDemoMode ? { restore: async (id: string) => demoRestoreGroup(id) } : {}),
+      });
       router.push('/team/groups');
     } catch (error) {
       toast('error', error instanceof Error ? error.message : 'Could not move it to Trash');
-    } finally {
       setTrashing(false);
     }
   };
@@ -150,127 +162,122 @@ export default function GroupPage() {
     { label: 'Remove from group', icon: <UserMinus size={14} />, onClick: () => setRemoving(m), variant: 'danger', divider: true },
   ];
 
-  const leadBadge = (m: GroupMemberView) => m.role === 'lead' && (
-    <span className="rounded-full bg-brand-500/[0.14] px-2 py-0.5 text-[11px] font-medium text-brand-200">Lead</span>
-  );
+  const memberMeta = (m: GroupMemberView) => [m.title, m.team_role === 'agent' ? 'Agent' : m.team_role === 'guest' ? 'Guest' : null].filter(Boolean).join(' · ');
 
-  const columns: Column<GroupMemberView>[] = [
-    {
-      key: 'name',
-      header: 'Name',
-      render: (m) => (
-        <div className="flex min-w-0 items-center gap-3">
-          <Avatar name={m.name} src={m.avatar_url || undefined} size="md" />
-          <Link href={`/team/${m.member_id}`} onClick={(e) => e.stopPropagation()} className="truncate rounded font-semibold text-white transition-colors hover:text-brand-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500">
+  // One row per member in the Members card (Rule 4): face, name, what they are, one menu.
+  const memberRow = (m: GroupMemberView) => (
+    <li key={m.member_id} className="flex items-center gap-3 px-4 py-3 lg:px-5">
+      <Avatar name={m.name} src={m.avatar_url || undefined} size="md" />
+      <div className="min-w-0 flex-1">
+        <div className="flex min-w-0 items-center gap-2">
+          <Link href={`/team/${m.member_id}`} className="truncate rounded text-sm font-semibold text-white transition-colors hover:text-brand-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500">
             {m.name}
           </Link>
-          {leadBadge(m)}
-          {m.status === 'suspended' && <span className="rounded-full bg-red-500/15 px-2 py-0.5 text-[11px] font-medium text-red-300">Suspended</span>}
+          {m.role === 'lead' && <Pill tone="info">Lead</Pill>}
+          {m.status === 'suspended' && <Pill tone="problem">Suspended</Pill>}
         </div>
-      ),
-    },
-    { key: 'title', header: 'Title', className: 'hidden md:table-cell', render: (m) => <span className="block max-w-[200px] truncate text-zinc-300">{m.title}</span> },
-    { key: 'team_role', header: 'Role', className: 'hidden sm:table-cell', render: (m) => <RoleChip role={m.team_role as TeamMember['role']} /> },
-    {
-      key: 'actions',
-      header: <span className="sr-only">Actions</span>,
-      align: 'right',
-      width: 'w-12',
-      render: (m) => (canManage ? <RowActionsMenu actions={actionsFor(m)} label={`Actions for ${m.name}`} /> : null),
-    },
-  ];
-
-  const mobileCard = (m: GroupMemberView) => (
-    <div className="glass-card flex items-center justify-between gap-3 rounded-xl p-4">
-      <div className="flex min-w-0 items-center gap-3">
-        <Avatar name={m.name} src={m.avatar_url || undefined} size="lg" />
-        <div className="min-w-0">
-          <div className="flex min-w-0 items-center gap-2"><span className="truncate font-semibold text-white">{m.name}</span>{leadBadge(m)}</div>
-          <p className="truncate text-xs text-zinc-400">{[m.title, m.team_role === 'agent' ? 'Agent' : m.team_role === 'guest' ? 'Guest' : null, m.status === 'suspended' ? 'Suspended' : null].filter(Boolean).join(' · ')}</p>
-        </div>
+        {memberMeta(m) && <p className="truncate text-xs text-zinc-400">{memberMeta(m)}</p>}
       </div>
       {canManage && <RowActionsMenu actions={actionsFor(m)} label={`Actions for ${m.name}`} />}
-    </div>
+    </li>
+  );
+
+  const back = (
+    <Link href="/team/groups" className="inline-flex max-w-full items-center gap-1 rounded text-zinc-400 transition-colors hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500">
+      <ChevronLeft size={14} className="flex-shrink-0" aria-hidden="true" />
+      <span className="truncate">Team, Groups</span>
+    </Link>
   );
 
   return (
     <div className="animate-fadeIn min-h-screen">
-      <div className="px-4 pt-5 lg:px-6 lg:pt-7">
-        <Link href="/team/groups" className="inline-flex items-center gap-1.5 rounded-lg py-1 text-sm text-zinc-400 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500">
-          <ArrowLeft size={14} aria-hidden="true" />All groups
-        </Link>
-
-        <header className="mt-5 flex flex-col gap-4 sm:flex-row sm:items-start">
-          <span className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-2xl bg-brand-500/15 text-brand-300" aria-hidden="true"><UsersRound size={22} /></span>
-          <div className="min-w-0 flex-1">
-            <h1 className="truncate text-2xl font-bold tracking-tight text-white">{g.name}</h1>
-            <p className="mt-1 text-sm text-zinc-500">
-              {`${g.member_count} member${g.member_count === 1 ? '' : 's'}`}
-              {g.lead_count ? ` · ${g.lead_count} lead${g.lead_count === 1 ? '' : 's'}` : ''}
-              {g.is_member ? ' · You are in it' : ''}
-            </p>
-            <p className="mt-3 max-w-2xl text-[15px] text-zinc-200">{g.description || 'No description yet.'}</p>
-            <p className="mt-1 text-xs text-zinc-500">Anyone in {g.name} can answer questions sent to the group; every member is told.</p>
+      {/* The back link is the header's subtitle, never a row of its own above the title (Rule 17). */}
+      <Header
+        title={g.name}
+        subtitle={back}
+        wrapTitle
+        actions={canManage ? (
+          <div className="flex items-center gap-2">
+            <Button variant="secondary" size="sm" icon={<Pencil size={14} aria-hidden="true" />} onClick={() => setEditing(true)} className="max-sm:hidden">Edit</Button>
+            <RowActionsMenu
+              label={`Actions for ${g.name}`}
+              triggerClassName="liquid-glass !p-0 w-9 h-9 flex items-center justify-center !text-zinc-300"
+              actions={[
+                { label: 'Edit group', icon: <Pencil size={14} />, onClick: () => setEditing(true) },
+                { label: 'Move to Trash', icon: <Trash2 size={14} />, variant: 'danger', divider: true, onClick: () => void trash() },
+              ]}
+            />
           </div>
-          {canManage && (
-            <div className="flex flex-shrink-0 gap-2">
-              <Button variant="secondary" icon={<Pencil size={14} />} onClick={() => setEditing(true)}>Edit</Button>
-              <Button variant="secondary" icon={<Trash2 size={14} />} onClick={() => setTrashing(true)} aria-label={`Move ${g.name} to Trash`}>
-                <span className="hidden sm:inline">Move to Trash</span><span className="sm:hidden">Trash</span>
-              </Button>
-            </div>
+        ) : undefined}
+      />
+
+      <div className="space-y-6 p-4 lg:p-6">
+        <Card title="About" icon={<UsersRound size={16} aria-hidden="true" />}>
+          <p className="text-sm text-zinc-200">{g.description || 'No description yet.'}</p>
+          <p className="mt-2 text-xs text-zinc-400">
+            {`${g.member_count} member${g.member_count === 1 ? '' : 's'}`}
+            {g.lead_count ? `, ${g.lead_count} lead${g.lead_count === 1 ? '' : 's'}` : ''}
+            {g.is_member ? '. You are in it' : ''}. Anyone in {g.name} can answer questions sent to the group; every member is told.
+            {isDemoMode && canManage ? ' Demo: changes here show at once and last until you reload.' : ''}
+          </p>
+        </Card>
+
+        <UsedFor usage={usage.data} loading={usage.loading} failed={usage.failed} onRetry={usage.reload} groupName={g.name} />
+
+        <Card
+          id="group-members"
+          title="Members"
+          icon={<Users size={16} aria-hidden="true" />}
+          afterTitle={g.member_count > 0 ? <span className="text-xs font-normal tabular-nums text-zinc-400">{g.member_count}</span> : null}
+          action={<>
+            <TextInput value={query} onChange={setQuery} placeholder="Search members" aria-label="Search members" leftIcon={Search} type="search" size="sm" clearable className="w-full sm:w-56" />
+            {canManage && <Button size="sm" icon={<UserPlus size={14} aria-hidden="true" />} onClick={() => setAdding(true)}>Add members</Button>}
+          </>}
+          bodyClassName="pb-1"
+        >
+          {members.failed && !members.rows.length ? (
+            <EmptyState variant="error" compact title="Could not load the members" onRetry={members.reload} />
+          ) : members.loading && !members.rows.length ? (
+            <Skeleton label="Loading members" className="divide-y divide-white/[0.06] border-t border-white/[0.06]">
+              {[0, 1, 2].map((i) => (
+                <div key={i} className="flex items-center gap-3 px-4 py-3 lg:px-5">
+                  <Bone className="h-8 w-8 rounded-full" />
+                  <div className="flex-1 space-y-2"><Bone className="h-4 w-36" /><Bone className="h-3 w-20" /></div>
+                </div>
+              ))}
+            </Skeleton>
+          ) : !members.rows.length ? (
+            search ? (
+              <EmptyState variant="filtered" compact title="No members match your search" onClearFilters={() => setQuery('')} />
+            ) : (
+              <EmptyState
+                compact
+                icon={<Users />}
+                title="No one is in this group yet"
+                description="Members get the questions asked to it."
+                action={canManage ? <Button size="sm" icon={<UserPlus size={14} aria-hidden="true" />} onClick={() => setAdding(true)}>Add members</Button> : undefined}
+              />
+            )
+          ) : (
+            <>
+              <ul className="divide-y divide-white/[0.06] border-t border-white/[0.06]">{members.rows.map(memberRow)}</ul>
+              <ShowMore shown={members.rows.length} total={members.rows.length + members.hidden} step={GROUPS_PAGE_SIZE} onMore={members.loadMore} noun="members" className="border-t border-white/[0.06]" />
+              {members.moreFailed && <p role="alert" className="px-4 pb-3 text-center text-xs text-red-300">Could not load more. Try again.</p>}
+            </>
           )}
-        </header>
-        {isDemoMode && canManage && <p className="mt-3 text-xs text-zinc-500">Demo: changes here show at once and last until you reload.</p>}
-      </div>
+        </Card>
 
-      <UsedFor usage={usage.data} loading={usage.loading} failed={usage.failed} onRetry={usage.reload} groupName={g.name} />
-
-      <section aria-labelledby="group-members" className="space-y-4 p-4 lg:p-6">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <h2 id="group-members" className="text-[15px] font-semibold text-white">Members</h2>
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-            <TextInput value={query} onChange={setQuery} placeholder="Search members" leftIcon={Search} type="search" size="sm" clearable className="sm:w-64" />
-            {canManage && <Button size="sm" icon={<UserPlus size={14} />} onClick={() => setAdding(true)}>Add members</Button>}
-          </div>
-        </div>
-        {members.failed && !members.rows.length ? (
-          <div role="alert" className="glass-card flex flex-col items-center gap-3 rounded-xl py-10 text-center">
-            <p className="text-sm text-zinc-300">Could not load the members.</p>
-            <Button variant="secondary" size="sm" icon={<RefreshCw size={13} aria-hidden="true" />} onClick={members.reload}>Try again</Button>
-          </div>
-        ) : members.loading && !members.rows.length ? (
-          <div role="status" className="glass-card rounded-xl py-10 text-center text-sm text-zinc-400">Loading members</div>
-        ) : !members.rows.length ? (
-          <div className="glass-card rounded-xl py-10 text-center">
-            <p className="text-sm text-zinc-300">{search ? 'No members match your search' : 'No one is in this group yet'}</p>
-            {canManage && !search && <Button className="mt-4" size="sm" icon={<UserPlus size={14} />} onClick={() => setAdding(true)}>Add members</Button>}
-          </div>
-        ) : (
-          <>
-            <DataTable columns={columns} data={members.rows} keyExtractor={(m) => m.member_id} emptyState="No members" mobileCard={mobileCard} />
-            {members.hidden > 0 && (
-              <div className="flex flex-col items-center gap-1">
-                <Button variant="secondary" size="sm" onClick={members.loadMore} disabled={members.loadingMore}>
-                  {members.loadingMore ? 'Loading more' : showMoreLabel(members.hidden, GROUPS_PAGE_SIZE)}
-                </Button>
-                {members.moreFailed && <p role="alert" className="text-xs text-red-300">Could not load more. Try again.</p>}
-              </div>
-            )}
-          </>
+        {/* Group knowledge: for its members and whoever manages groups (the server checks too). */}
+        {(g.is_member || canManage) && (
+          <Card
+            title="Group knowledge"
+            icon={<BookOpen size={16} aria-hidden="true" />}
+            description="What this group's members and agents should know. Agents in the group always see the newest 5 pinned entries; they find the rest by search."
+          >
+            <ContextBrief scope={{ scope_type: 'group', scope_id: groupId }} label="group knowledge" emptyText="Nothing here yet. Add what someone joining this group should know." />
+          </Card>
         )}
-      </section>
-
-      {/* Group knowledge: for its members and whoever manages groups (the server checks too). */}
-      {(g.is_member || canManage) && (
-        <section aria-labelledby="group-knowledge" className="space-y-3 p-4 lg:p-6">
-          <div>
-            <h2 id="group-knowledge" className="text-[15px] font-semibold text-white">Group knowledge</h2>
-            <p className="mt-0.5 text-xs text-zinc-500">What this group&apos;s members and agents should know. Agents in the group always see the newest 5 pinned entries; they find the rest by search.</p>
-          </div>
-          <ContextBrief scope={{ scope_type: 'group', scope_id: groupId }} label="group knowledge" emptyText="Nothing here yet. Add what someone joining this group should know." />
-        </section>
-      )}
+      </div>
 
       {editing && <EditGroupModal group={g} onClose={() => setEditing(false)} />}
       <AddMembersModal
@@ -282,14 +289,6 @@ export default function GroupPage() {
         ownsAgents={(usage.data?.owns_agents.total ?? 0) > 0}
         onClose={() => setAdding(false)}
         onAdded={refresh}
-      />
-      <ConfirmDialog
-        isOpen={trashing}
-        onClose={() => setTrashing(false)}
-        onConfirm={trash}
-        trash
-        title={`Move ${g.name} to Trash?`}
-        message={`No one can ask it, escalate to it or name it anywhere new.${phrases.length ? ` Its members stop being able to ${joinPhrases(phrases)} through it.` : ''} Questions already asked to it can still be answered by its members.`}
       />
       <ConfirmDialog
         isOpen={!!removing}
@@ -318,37 +317,38 @@ function UsedFor({ usage, loading, failed, onRetry, groupName }: { usage: GroupU
     { key: 'assistants', icon: Sparkles, label: 'Assistant setups', list: usage.assistant_setups, says: 'People who join get the assistant these setups give.' },
   ].filter((row) => row.list.total > 0) : [];
   return (
-    <section aria-labelledby="group-used-for" className="px-4 pt-6 lg:px-6">
-      <h2 id="group-used-for" className="text-[15px] font-semibold text-white">Used for</h2>
+    <Card title="Used for" icon={<Target size={16} aria-hidden="true" />} bodyClassName={rows.length ? 'pb-1' : undefined}>
       {loading && !usage ? (
-        <p role="status" className="mt-2 text-sm text-zinc-400">Loading what it controls</p>
+        <p role="status" className="text-sm text-zinc-400">Loading what it controls</p>
       ) : failed && !usage ? (
-        <p role="alert" className="mt-2 text-sm text-red-300">Could not load what it controls. <button type="button" className="underline" onClick={onRetry}>Try again</button></p>
+        <EmptyState variant="error" compact title="Could not load what it controls" onRetry={onRetry} />
       ) : rows.length === 0 ? (
-        <p className="mt-2 text-sm text-zinc-400">Only questions so far. It owns no agents, inboxes or initiatives.</p>
+        <p className="text-sm text-zinc-400">Only questions so far. It owns no agents, inboxes or initiatives.</p>
       ) : (
-        <ul className="mt-3 divide-y divide-white/[0.06] overflow-hidden rounded-2xl bg-white/[0.02] ring-1 ring-inset ring-white/[0.06]">
-          {rows.map((row) => (
-            <li key={row.key} className="flex items-start gap-3 px-4 py-3 sm:px-5">
-              <row.icon size={16} className="mt-0.5 flex-shrink-0 text-brand-300" aria-hidden="true" />
-              <div className="min-w-0 flex-1">
-                <p className="text-sm text-white">
-                  <span className="font-medium">{row.label}</span>
-                  <span className="ml-2 tabular-nums text-zinc-400">{row.list.total}</span>
-                </p>
-                {row.list.names.length > 0 && (
-                  <p className="mt-0.5 truncate text-sm text-zinc-300">
-                    {row.list.names.join(', ')}{row.list.total > row.list.names.length ? `, and ${row.list.total - row.list.names.length} more` : ''}
+        <>
+          <ul className="divide-y divide-white/[0.06] border-t border-white/[0.06]">
+            {rows.map((row) => (
+              <li key={row.key} className="flex items-start gap-3 px-4 py-3 lg:px-5">
+                <row.icon size={16} className="mt-0.5 flex-shrink-0 text-zinc-400" aria-hidden="true" />
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm text-white">
+                    <span className="font-medium">{row.label}</span>
+                    <span className="ml-2 tabular-nums text-zinc-400">{row.list.total}</span>
                   </p>
-                )}
-                <p className="mt-0.5 text-xs text-zinc-500">{row.says}</p>
-              </div>
-            </li>
-          ))}
-        </ul>
+                  {row.list.names.length > 0 && (
+                    <p className="mt-0.5 truncate text-sm text-zinc-300">
+                      {row.list.names.join(', ')}{row.list.total > row.list.names.length ? `, and ${row.list.total - row.list.names.length} more` : ''}
+                    </p>
+                  )}
+                  <p className="mt-0.5 text-xs text-zinc-400">{row.says}</p>
+                </div>
+              </li>
+            ))}
+          </ul>
+          <p className="border-t border-white/[0.06] px-4 py-3 text-xs text-zinc-400 lg:px-5">Adding someone to {groupName} gives them all of this; removing them takes it away.</p>
+        </>
       )}
-      {rows.length > 0 && <p className="mt-2 text-xs text-zinc-500">Adding someone to {groupName} gives them all of this; removing them takes it away.</p>}
-    </section>
+    </Card>
   );
 }
 

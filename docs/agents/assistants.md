@@ -118,9 +118,9 @@ When the person's assistant will not answer right now, the app says so itself, u
 
 | Assistant | Answer | The message |
 |---|---|---|
-| On hold | "Nova is on hold right now and will answer when it's back." | Recorded and sent to it; it answers once resumed |
-| Paused by them | "Nova is paused. Resume it from your Assistant page: it gets what you send meanwhile when you do." with a link | Held, then sent to it when resumed (the newest 20, oldest first; older ones are kept, not sent) |
-| Paused by an admin | "Nova is paused by an admin. It gets what you send meanwhile when they resume it." | Held, then sent when resumed, the same way |
+| On hold | "Nova is on hold for now. It will reply when it's back." | Recorded and sent to it; it answers once resumed |
+| Paused by them | "Nova is paused. Resume it on your Assistant page and it will pick up what you sent." with a link | Held, then sent to it when resumed (the newest 20, oldest first; older ones are kept, not sent) |
+| Paused by an admin | "Nova was paused by an admin. It will pick up what you sent when they resume it." | Held, then sent when resumed, the same way |
 | Not connected, or its service stopped | "Nova can't answer right now: its key expired or was revoked. Your admin has been told." (the reason, then who fixes it: "Fix it in AI > Setup." for an Owner, or when nobody else could be told) | Recorded and sent to it |
 
 ## What employees see
@@ -168,6 +168,6 @@ AI > Setup > **Status** lists every assistant. Each one that needs you says why;
 | On hold: "Paused by an admin." | Someone other than the person suspended the assistant's account. Deliberate, so nobody is notified. | Reactivate it from the Team page or its agent page. |
 | On hold: "Every agent is paused." | An Owner paused every agent (Settings > Security). | Resume agents there. |
 | On hold: "Paused on its agent page." | Someone paused this agent from its profile or with `paused: true`. | Resume it on its agent page. |
-| On hold: "On hold. Its host is not responding." | On hold, and its service also stopped reporting (the same rule as above). Resuming alone will not bring it back. | Restart the service, then resume. |
+| On hold: "On hold, and the service that runs it is not responding." | On hold, and its service also stopped reporting (the same rule as above). Resuming alone will not bring it back. | Restart the service, then resume. |
 
 On hold is deliberate, so nobody is notified, unless its service also stopped reporting: then the admins get the same notification as above, at most once a day. The person sees "On hold" on their page, with why. While on hold the assistant can still read and report, but its other writes answer `423`, replies in chat included: chat messages are still recorded and sent to it, and it answers once resumed. See [Limits and pause](work-loop.md#limits-and-pause).

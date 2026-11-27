@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useRef, useState } from 'react';
-import { ChevronRight, FolderInput, LayoutGrid, LayoutTemplate, Calendar, List, Plus } from 'lucide-react';
+import { ChevronRight, FolderInput, LayoutGrid, LayoutTemplate, Plus } from 'lucide-react';
 import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
 import { useDemo } from '@/lib/demo-context';
@@ -19,6 +19,7 @@ import { TaskFilterControl, UNASSIGNED_FILTER_ID, NO_INITIATIVE_FILTER_ID } from
 import { UnreadNotice, useCardUnread } from '@/components/tasks/TaskUnread';
 import { NewTaskPanel } from '@/components/tasks/NewTaskPanel';
 import { TaskMoveDialog } from '@/components/tasks/MoveTaskDialog';
+import { Button } from '@/components/ui/Button';
 import { TemplatePicker } from '@/components/templates/UseTemplateButton';
 import { UseTemplatePanel } from '@/components/templates/UseTemplatePanel';
 import { ProjectTemplatesPanel } from '@/components/templates/ProjectTemplatesPanel';
@@ -26,12 +27,13 @@ import { BoardView } from '@/components/views/BoardView';
 import { ListView } from '@/components/views/ListView';
 import { CalendarView } from '@/components/views/CalendarView';
 import { InitiativeNamesProvider } from '@/components/initiatives/InitiativeBits';
-import { EmptyCard, NoMatches, SubNav, TabToolbar, ToolbarButton } from './TabLayout';
+import { EmptyCard, NoMatches, SubNav, TabToolbar } from './TabLayout';
+import { restoreOrder, useUndoTrash } from './useUndoTrash';
 
-const viewModes: { id: ViewMode; icon: typeof LayoutGrid; label: string }[] = [
-  { id: 'board', icon: LayoutGrid, label: 'Board' },
-  { id: 'list', icon: List, label: 'List' },
-  { id: 'calendar', icon: Calendar, label: 'Calendar' },
+const viewModes: { id: ViewMode; label: string }[] = [
+  { id: 'board', label: 'Board' },
+  { id: 'list', label: 'List' },
+  { id: 'calendar', label: 'Calendar' },
 ];
 
 const NO_INITIATIVES = new Map<string, string>();
@@ -72,7 +74,7 @@ export function ProjectTaskViews({ projectId, taskFilter, newTaskInitiativeId = 
   const [newTask, setNewTask] = useState<{ dueDate?: string } | null>(null);
   const [usingTemplate, setUsingTemplate] = useState<string | null>(null);
   const [managingTemplates, setManagingTemplates] = useState(false);
-  const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
+  const undoTrash = useUndoTrash();
   const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set());
   const [showBulkMenu, setShowBulkMenu] = useState(false);
   const bulkMenuRef = useRef<HTMLDivElement>(null);
@@ -216,8 +218,12 @@ export function ProjectTaskViews({ projectId, taskFilter, newTaskInitiativeId = 
     const saved = ids.length - failedIds.length;
     const count = (n: number) => `${n} ${n === 1 ? 'task' : 'tasks'}`;
     setSelectedTaskIds(new Set(failedIds));
-    if (failedIds.length === 0) {
-      toast('success', verb === 'Deleted' ? `Moved ${count(saved)} to Trash` : `${verb} ${count(saved)}`);
+    if (failedIds.length === 0 && verb === 'Deleted') {
+      // Undo brings back every task this moved, parents before their subtasks.
+      const moved = restoreOrder(ids.map((id) => ({ id, parentId: tasks.find((t) => t.id === id)?.parent_task_id ?? null })));
+      undoTrash('tasks', moved.map((m) => m.id), { message: `Moved ${count(saved)} to Trash` });
+    } else if (failedIds.length === 0) {
+      toast('success', `${verb} ${count(saved)}`);
     } else if (saved === 0) {
       toast('error', verb === 'Deleted' ? `Couldn't move ${count(failedIds.length)} to Trash` : `Couldn't update ${count(failedIds.length)}`);
     } else {
@@ -225,6 +231,9 @@ export function ProjectTaskViews({ projectId, taskFilter, newTaskInitiativeId = 
       toast('error', `${done}. ${count(failedIds.length)} failed and ${failedIds.length === 1 ? 'is' : 'are'} still selected.`);
     }
   };
+
+  // Acts at once with Undo (DESIGN.md Rule 6): no confirm before Trash.
+  const bulkTrash = () => runBulk('Deleted', id => deleteTask(id, { silent: true }));
 
   const bulkUpdateStatus = (status: Task['status']) =>
     runBulk('Updated', id => updateTask(id, { status }, { silent: true }));
@@ -254,6 +263,20 @@ export function ProjectTaskViews({ projectId, taskFilter, newTaskInitiativeId = 
     setShowBulkMenu(false);
   };
 
+  // One picker per place it shows (the views row on phones, the actions from sm up); only one is visible.
+  const templateButton = (label: string) => (
+    <TemplatePicker
+      projectId={projectId}
+      onPick={(template) => setUsingTemplate(template.id)}
+      onManage={() => setManagingTemplates(true)}
+      trigger={({ open, toggle }) => (
+        <Button variant="secondary" className="h-9 whitespace-nowrap" icon={<LayoutTemplate size={16} aria-hidden="true" />} onClick={toggle} aria-expanded={open} aria-haspopup="listbox">
+          {label}
+        </Button>
+      )}
+    />
+  );
+
   const liveInitiatives = initiatives.filter((initiative) => initiative.status !== 'done');
 
   return (
@@ -270,10 +293,16 @@ export function ProjectTaskViews({ projectId, taskFilter, newTaskInitiativeId = 
             label="Task view"
             active={viewMode}
             onChange={setViewMode}
-            items={viewModes.map(mode => ({ key: mode.id, label: mode.label, icon: mode.icon, hideLabelOnMobile: true }))}
+            // Words, not bare icons: they fit beside the template button on a phone.
+            items={viewModes.map(mode => ({ key: mode.id, label: mode.label }))}
           />
         )}
         extra={<>
+          {/* Phones: the template picker sits at the end of the views row,
+              labelled, so the toolbar never turns into bare icons (J1). */}
+          {canCreateTasks && !scoped && (
+            <div className="ml-auto sm:hidden">{templateButton('Template')}</div>
+          )}
           {/* Selection is a desktop-only gesture: the mobile cards have no
               checkboxes, so offering Select all there would select rows the
               user cannot see or unpick individually. */}
@@ -373,7 +402,7 @@ export function ProjectTaskViews({ projectId, taskFilter, newTaskInitiativeId = 
                 </>}
                 {canManageTasks && <>
                   <div className="border-t border-white/[0.06] my-1" />
-                  <button onClick={() => setConfirmBulkDelete(true)} className="w-full text-left px-3 py-1.5 text-sm text-red-400 hover:bg-red-500/15">
+                  <button onClick={() => void bulkTrash()} className="w-full text-left px-3 py-1.5 text-sm text-red-400 hover:bg-red-500/15">
                     Delete selected
                   </button>
                 </>}
@@ -396,17 +425,10 @@ export function ProjectTaskViews({ projectId, taskFilter, newTaskInitiativeId = 
         primary={canCreateTasks && (
           <>
             {/* Tasks from a template land in no initiative, so an initiative's board offers only Add task. */}
-            {!scoped && (
-              <TemplatePicker
-                projectId={projectId}
-                onPick={(template) => setUsingTemplate(template.id)}
-                onManage={() => setManagingTemplates(true)}
-                trigger={({ open, toggle }) => (
-                  <ToolbarButton variant="secondary" icon={<LayoutTemplate />} label="From a template" onClick={toggle} aria-expanded={open} aria-haspopup="listbox" />
-                )}
-              />
-            )}
-            <ToolbarButton icon={<Plus />} label="Add task" onClick={() => setNewTask({})} />
+            {!scoped && <div className="hidden sm:block">{templateButton('From a template')}</div>}
+            <Button className="h-9 whitespace-nowrap" icon={<Plus size={16} aria-hidden="true" />} onClick={() => setNewTask({})}>
+              Add task
+            </Button>
           </>
         )}
       />
@@ -483,15 +505,6 @@ export function ProjectTaskViews({ projectId, taskFilter, newTaskInitiativeId = 
       {/* The project's own templates, from "Manage templates" at the picker's foot. */}
       {managingTemplates && <ProjectTemplatesPanel projectId={projectId} onClose={() => setManagingTemplates(false)} />}
 
-      <ConfirmDialog
-        isOpen={confirmBulkDelete}
-        onClose={() => setConfirmBulkDelete(false)}
-        onConfirm={() => { void runBulk('Deleted', id => deleteTask(id, { silent: true })); }}
-        title="Move tasks to Trash?"
-        message={`The ${selectedTaskIds.size} selected ${selectedTaskIds.size === 1 ? 'task goes' : 'tasks go'} to Trash with their subtasks and comments.`}
-        variant="danger"
-        trash
-      />
 
       {/* Confirm Clear Due Dates: destructive but recoverable by re-entering
           dates, so the softer variant without double-confirm. */}

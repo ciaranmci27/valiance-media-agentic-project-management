@@ -577,6 +577,7 @@ export async function pinnedForAgent(service: SupabaseClient, agentId: string, o
   const groupNames = new Map<string, string>();
   const groupIds = [...out.values()].filter((scope) => scope.scope_type === 'group').map((scope) => scope.scope_id as string);
   if (groupIds.length) {
+    // includes-deleted: names only, so a scope whose group is in Trash still shows what it was.
     const { data: rows } = await service.from('groups').select('id, name').in('id', groupIds);
     for (const group of (rows ?? []) as Row[]) groupNames.set(group.id, group.name);
   }

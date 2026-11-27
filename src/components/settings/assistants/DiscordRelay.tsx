@@ -7,7 +7,7 @@ import { CopyField } from './CopyField';
 
 /** Why Discord asks for one more piece, in plain words. Said once here, read in the add flow. */
 export const DISCORD_RELAY_WHY =
-  "Discord is the one chat app that needs an extra piece. It only passes ordinary messages to a bot over a live connection, which this app's host can't keep open. A small relay keeps that connection and hands each message to this app. Slack and Telegram send messages here directly, so they need nothing extra.";
+  'Discord needs one extra piece that Slack and Telegram do not: a small relay you run, which passes its messages here. The next steps show you how.';
 
 /** A link out, in the quiet underlined style the add flow uses. */
 function OutLink({ href, children }: { href: string; children: React.ReactNode }) {

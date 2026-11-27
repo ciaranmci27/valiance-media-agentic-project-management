@@ -1,10 +1,7 @@
 import { isModuleEnabled, type AccessContext } from '@/lib/access-control';
 
-/**
- * What moving a project to Trash takes with it, naming only the parts this
- * workspace uses. Every delete-project dialog says the same line.
- */
-export function projectTrashMessage(access: AccessContext | null | undefined): string {
+/** The parts of a project that go to Trash with it, naming only the parts this workspace uses. */
+function projectParts(access: AccessContext | null | undefined): string {
   const parts = [
     'tasks',
     ...(isModuleEnabled(access, 'time') ? ['time'] : []),
@@ -12,6 +9,10 @@ export function projectTrashMessage(access: AccessContext | null | undefined): s
     'files',
     ...(isModuleEnabled(access, 'portal') ? ['the client portal'] : []),
   ];
-  const list = `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`;
-  return `The project goes to Trash with everything in it: ${list}.`;
+  return `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`;
+}
+
+/** The line a project leaves once it is in Trash, beside Undo (DESIGN.md Rule 6). */
+export function projectTrashedLine(name: string | undefined, access: AccessContext | null | undefined): string {
+  return `${name ? `"${name}"` : 'Project'} moved to Trash with its ${projectParts(access)}`;
 }

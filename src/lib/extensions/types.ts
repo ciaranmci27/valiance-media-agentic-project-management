@@ -34,7 +34,10 @@ export interface NavItemExtension extends ExtensionAccess {
   href: string;
   label: string;
   icon: LucideIcon;
-  /** Sits right after the entry with this href ('/projects', say). Absent or not shown: after the core entries. */
+  /**
+   * Sits right after the entry with this href ('/projects', say). Absent or not shown: after the core entries.
+   * After an entry under the sidebar's More (Leads, Contacts, Team, Finances), it sits under More too.
+   */
   after?: string;
 }
 

@@ -74,6 +74,11 @@ export interface AuditFilters {
 
 export const NO_AUDIT_FILTERS: AuditFilters = { member: null, actingFor: null, action: '', from: null, to: null };
 
+/** How many filters are on, for the Filter button: each of who, acting for, action and the date range counts once. */
+export function auditFilterCount(filters: AuditFilters): number {
+  return [filters.member, filters.actingFor, filters.action.trim(), filters.from || filters.to].filter(Boolean).length;
+}
+
 /** The start of a local day (YYYY-MM-DD in this browser's time zone) as an ISO time. */
 export function localDayStart(day: string): string {
   const [year, month, date] = day.split('-').map(Number);

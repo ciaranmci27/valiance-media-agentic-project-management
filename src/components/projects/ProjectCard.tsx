@@ -1,15 +1,14 @@
 'use client';
 
 import Link from 'next/link';
-import { Calendar, Users, MoreVertical, Edit, Trash2 } from 'lucide-react';
+import { Calendar, Users, Edit, Trash2 } from 'lucide-react';
 import { Project } from '@/lib/types';
 import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
 import { hasPermission } from '@/lib/access-control';
 import { StatusBadge } from '@/components/ui/Badge';
 import { AvatarGroup } from '@/components/ui/Avatar';
-import { useState, useRef } from 'react';
-import { Popover } from '@/components/ui/Popover';
+import { RowActionsMenu } from '@/components/ui/RowActionsMenu';
 import { parseDateOnly } from '@/lib/date-utils';
 import { appLocale } from '@/lib/region';
 import { CustomProjectBadges } from './CustomProjectBadges';
@@ -23,8 +22,6 @@ interface ProjectCardProps {
 export function ProjectCard({ project, onEdit, onDelete }: ProjectCardProps) {
   const { team, getTasksByProject, getPrimaryClient } = useApp();
   const { access } = useAuth();
-  const [showMenu, setShowMenu] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
 
   const canReadContacts = hasPermission(access, 'contacts.read') || hasPermission(access, 'contacts.read_all');
 
@@ -67,38 +64,18 @@ export function ProjectCard({ project, onEdit, onDelete }: ProjectCardProps) {
           </div>
         </div>
 
-        {(onEdit || onDelete) && <div ref={menuRef} className="relative flex-shrink-0">
-          <button
-            onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowMenu(!showMenu); }}
-            className="lg:opacity-0 group-hover:opacity-100 p-1.5 rounded-lg text-zinc-500 hover:text-zinc-300 hover:bg-white/[0.06] transition-all"
-          >
-            <MoreVertical size={16} />
-          </button>
-
-          <Popover
-            anchorRef={menuRef}
-            open={showMenu}
-            onClose={() => setShowMenu(false)}
-            align="end"
-            width={140}
-            className="bg-surface-raised rounded-lg shadow-xl border border-white/[0.08] py-1"
-          >
-            <button
-              onClick={(e) => { e.preventDefault(); e.stopPropagation(); onEdit?.(project); setShowMenu(false); }}
-              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-zinc-300 hover:bg-white/[0.06]"
-            >
-              <Edit size={14} />
-              Edit
-            </button>
-            <button
-              onClick={(e) => { e.preventDefault(); e.stopPropagation(); onDelete?.(project.id); setShowMenu(false); }}
-              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-400 hover:bg-red-500/15"
-            >
-              <Trash2 size={14} />
-              Delete
-            </button>
-          </Popover>
-        </div>}
+        {(onEdit || onDelete) && (
+          // Inside the card's link: the menu must not open the project.
+          <div className="flex-shrink-0" onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}>
+            <RowActionsMenu
+              label={`Actions for ${project.name}`}
+              actions={[
+                ...(onEdit ? [{ label: 'Edit', icon: <Edit size={14} />, onClick: () => onEdit(project) }] : []),
+                ...(onDelete ? [{ label: 'Move to Trash', icon: <Trash2 size={14} />, variant: 'danger' as const, divider: !!onEdit, onClick: () => onDelete(project.id) }] : []),
+              ]}
+            />
+          </div>
+        )}
       </div>
 
       <p className="text-xs lg:text-sm text-zinc-400 mb-3 lg:mb-4 line-clamp-2">

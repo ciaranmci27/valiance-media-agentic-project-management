@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useParams, usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { BookOpen, Calendar, CalendarCog, ChevronLeft, CircleAlert, Edit, LayoutGrid, Layers, ScrollText, Trash2, Users } from 'lucide-react';
+import { BookOpen, Calendar, CalendarCog, ChevronLeft, CircleAlert, Edit, Layers, Trash2, Users } from 'lucide-react';
 import { useApp, defaultFilters } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
 import { useDemo } from '@/lib/demo-context';
@@ -21,7 +21,9 @@ import { RowActionsMenu } from '@/components/ui/RowActionsMenu';
 import { toast } from '@/components/ui/Toast';
 import { LinkedText } from '@/components/ui/LinkedText';
 import { TaskDetailPanel } from '@/components/tasks/TaskDetailPanel';
-import { Bone, EmptyCard, Skeleton, SubNav, useKeptViews } from '@/components/projects/TabLayout';
+import { Bone, EmptyCard, Skeleton, useKeptViews } from '@/components/projects/TabLayout';
+import { Tabs, tabId, tabPanelId } from '@/components/ui/Tabs';
+import { Card } from '@/components/ui/Card';
 import { ProjectTaskViews } from '@/components/projects/ProjectTaskViews';
 import { ContextBrief } from '@/components/projects/BriefTab';
 import { InitiativePanel } from '@/components/initiatives/InitiativePanel';
@@ -80,10 +82,10 @@ export default function InitiativePage() {
   const canReadLog = !!detail && detail.recent_entries !== null;
   const canReadBrief = !!detail && isModuleEnabled(access, 'agents') && hasPermission(access, 'project_context.read')
     && detail.can.read_brief && !isDemoMode;
-  const segments: { key: Segment; label: string; icon: typeof LayoutGrid; count?: number }[] = [
-    { key: 'board', label: 'Tasks', icon: LayoutGrid },
-    ...(canReadLog ? [{ key: 'log' as const, label: 'Log', icon: ScrollText }] : []),
-    ...(canReadBrief ? [{ key: 'brief' as const, label: 'Brief', icon: BookOpen }] : []),
+  const segments: { key: Segment; label: string }[] = [
+    { key: 'board', label: 'Tasks' },
+    ...(canReadLog ? [{ key: 'log' as const, label: 'Log' }] : []),
+    ...(canReadBrief ? [{ key: 'brief' as const, label: 'Brief' }] : []),
   ];
   const requested = searchParams.get('view');
   const segment: Segment = segments.find((s) => s.key === requested)?.key ?? 'board';
@@ -95,6 +97,11 @@ export default function InitiativePage() {
     const query = next.toString();
     window.history.pushState(null, '', query ? `${pathname}?${query}` : pathname);
   };
+
+  // Each section is a tab panel when there are tabs to label it.
+  const panelProps = (key: Segment) => (segments.length > 1
+    ? { role: 'tabpanel' as const, id: tabPanelId('initiative', key), 'aria-labelledby': tabId('initiative', key) }
+    : {});
 
   const back = (
     <Link
@@ -182,7 +189,7 @@ export default function InitiativePage() {
         )}
       />
 
-      <div className="px-4 lg:px-6 pt-4 space-y-5 pb-4 lg:pb-6">
+      <div className="px-4 lg:px-6 pt-4 space-y-6 pb-4 lg:pb-6">
         {/* A template run made it: which template, the run's key dates, and Change dates for whoever may create tasks here. */}
         {detail.template_run && (
           <InitiativeTemplateStrip
@@ -248,17 +255,20 @@ export default function InitiativePage() {
           <InitiativeProgressBar progress={progress} done={live.status === 'done'} className="mt-4 max-w-md" />
         </section>
 
+        {/* The page's sections are underline tabs, so the task views'
+            Board, List and Calendar below are the only segmented control (Rule 3). */}
         {segments.length > 1 && (
-          <SubNav
-            label={`${INITIATIVE_LABEL.singular} view`}
+          <Tabs
+            label={`${INITIATIVE_LABEL.singular} sections`}
+            idPrefix="initiative"
             active={segment}
             onChange={setSegment}
-            items={segments.map((s) => ({ key: s.key, label: s.label, icon: s.icon }))}
+            tabs={segments.map((s) => ({ key: s.key, label: s.label }))}
           />
         )}
 
         {kept.has('board') && (
-          <div hidden={segment !== 'board'}>
+          <div hidden={segment !== 'board'} {...panelProps('board')}>
             <ProjectTaskViews
               projectId={projectId}
               taskFilter={board}
@@ -275,7 +285,7 @@ export default function InitiativePage() {
         )}
 
         {canReadLog && kept.has('log') && (
-          <div hidden={segment !== 'log'}>
+          <div hidden={segment !== 'log'} {...panelProps('log')}>
             <InitiativeLog
               projectId={projectId}
               initiativeId={initiativeId}
@@ -288,18 +298,18 @@ export default function InitiativePage() {
         )}
 
         {canReadBrief && kept.has('brief') && (
-          <div hidden={segment !== 'brief'}>
-            <section className="glass-card rounded-xl px-4 py-4 sm:px-5" aria-labelledby="initiative-brief">
-              <h2 id="initiative-brief" className="text-[15px] font-semibold text-white">{INITIATIVE_LABEL.singular} brief</h2>
-              <p className="mt-0.5 mb-4 text-xs text-zinc-400">
-                What every agent and person working on it should know. Pinned entries go into the context of agents on its tasks.
-              </p>
+          <div hidden={segment !== 'brief'} {...panelProps('brief')}>
+            <Card
+              title={`${INITIATIVE_LABEL.singular} brief`}
+              icon={<BookOpen size={16} aria-hidden="true" />}
+              description="What every agent and person working on it should know. Pinned entries go into the context of agents on its tasks."
+            >
               <ContextBrief
                 scope={{ scope_type: 'initiative', scope_id: initiativeId }}
                 label={`${INITIATIVE_LABEL.lower} brief`}
                 emptyText={`Nothing here yet. Add what someone joining this ${INITIATIVE_LABEL.lower} should know.`}
               />
-            </section>
+            </Card>
           </div>
         )}
       </div>

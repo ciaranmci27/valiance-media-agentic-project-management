@@ -77,10 +77,10 @@ function AssistantHome({ view, assistant, isDemo }: { view: MyAssistantView; ass
       {assistant.state === 'on_hold' && assistant.reason && (
         <div role="status" className="flex items-start gap-3 rounded-xl bg-white/[0.04] px-4 py-3">
           <PauseCircle size={16} className="mt-0.5 flex-shrink-0 text-zinc-400" aria-hidden="true" />
-          <div className="space-y-1">
-            {assistant.host_down && <p className="text-sm font-medium text-zinc-100">{HOST_DOWN_WORDS} {fixerWords(assistant.fixer)}</p>}
-            <p className="text-sm text-zinc-300">{HOLD_WORDS[assistant.reason as HoldReason].person}</p>
-          </div>
+          {/* One plain line: why it is on hold and when it starts again, or, with its service down too, that and who fixes it. */}
+          <p className="text-sm text-zinc-300">
+            {assistant.host_down ? `${HOST_DOWN_WORDS} ${fixerWords(assistant.fixer)}` : HOLD_WORDS[assistant.reason as HoldReason].person}
+          </p>
         </div>
       )}
       {assistant.state === 'getting_ready' && (

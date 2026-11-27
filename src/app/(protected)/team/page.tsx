@@ -7,7 +7,9 @@ import { useApp, defaultFilters } from '@/lib/store';
 import { Header } from '@/components/layout/Header';
 import { Avatar } from '@/components/ui/Avatar';
 import { Button } from '@/components/ui/Button';
-import { User, UserPlus, SlidersHorizontal, UsersRound } from 'lucide-react';
+import { User, UserPlus, SlidersHorizontal } from 'lucide-react';
+import { EmptyState } from '@/components/ui/EmptyState';
+import { TeamTabs, teamPanelProps } from '@/components/team/TeamTabs';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { RowActionsMenu } from '@/components/ui/RowActionsMenu';
 import { TeamMember } from '@/lib/types';
@@ -159,14 +161,10 @@ export default function TeamPage() {
     <div className="animate-fadeIn min-h-screen">
       <Header
         title="Team"
-        subtitle={<span className="hidden sm:inline">{team.length} team members</span>}
-        searchPlaceholder="Search team members..."
+        subtitle={<span className="hidden sm:inline">{team.length} {team.length === 1 ? 'person' : 'people'}</span>}
+        searchPlaceholder="Search people"
         actions={
           <div className="flex gap-2">
-            {/* Groups: teams people ask at once. Anyone who sees the team sees them. */}
-            <Button variant="secondary" icon={<UsersRound size={16} />} href="/team/groups">
-              Groups
-            </Button>
             {!isDemoMode && canManageAccess && (
               <Button
                 variant="secondary"
@@ -185,20 +183,18 @@ export default function TeamPage() {
         }
       />
 
-      <div className="p-4 lg:p-6 space-y-4">
+      <TeamTabs active="people" />
+
+      <div className="p-4 lg:p-6" {...teamPanelProps('people')}>
         {team.length === 0 ? (
-          <div className="text-center py-12 glass-card rounded-xl">
-            <User className="mx-auto mb-3 text-zinc-500" size={40} />
-            <h3 className="font-medium text-zinc-300 mb-1">No team members yet</h3>
-            <p className="text-sm text-zinc-400">Team members are managed through Supabase</p>
-          </div>
+          <EmptyState framed icon={<User />} title="No people yet" description="People you invite show here." />
         ) : (
           <DataTable
             columns={columns}
             data={filtered}
             keyExtractor={(m) => m.id}
             onRowClick={(m) => router.push(profileHref(m))}
-            emptyState="No team members match your search"
+            emptyState="No people match your search"
             mobileCard={mobileCard}
           />
         )}

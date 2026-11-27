@@ -20,6 +20,7 @@ import {
   Wallet,
   Inbox,
   Sparkles,
+  MoreHorizontal,
 } from 'lucide-react';
 import { useApp } from '@/lib/store';
 import { AI_HOME, hubCountLabel } from '@/lib/ai-home';
@@ -43,6 +44,8 @@ import { canOpenInbox, hasPermission, isModuleEnabled } from '@/lib/access-contr
 import { financeViews, type FinanceEntryKind } from '@/lib/finance/finance-views';
 import { reminderGroup } from '@/lib/reminders';
 import { placeNavItems } from '@/lib/extensions/registry';
+import { navActive, splitNav } from '@/lib/nav';
+import { AiNudgeCard } from './AiNudge';
 import { useCustomNavItems } from '@/lib/extensions/hooks';
 import type { InboxAttention } from '@/lib/communications/inbox-view';
 import { useOwnerUpdateSignal } from '@/components/settings/updates/use-owner-updates';
@@ -85,8 +88,6 @@ export function Sidebar() {
   }, [timeEntries, teamMemberId, isTimeEnabled]);
   const { isEnvForcedDemo, isDemoMode } = useDemo();
   const [isOpen, setIsOpen] = useState(false);
-  // The Agent item expands into its three surfaces. null = follow the route
-  // (auto-expand while on an /agent page); a manual toggle always wins.
   // With projects as a menu (Settings > Workspace > Brand), the Projects item
   // folds every active project under it. Closed each time the app loads; it
   // stays as set while moving between pages. The active projects section is
@@ -173,12 +174,182 @@ export function Sidebar() {
     // The bell: one number, each thing once (what needs you, then unread
     // Updates; a notice announcing a Needs you item is never counted again).
     { href: '/notifications', icon: Bell, label: 'Notifications',
-      count: { value: bellCount, label: bellCountLabel(aiHub.all.length, unreadNotifications), tone: aiHub.all.length > 0 ? 'danger' : 'brand' } },
+      // The same tone as every other Needs you count (My Tasks, AI): one look.
+      count: { value: bellCount, label: bellCountLabel(aiHub.all.length, unreadNotifications), tone: 'brand' } },
   ];
   // The install's entries (src/custom), after the core ones or the entry each names.
   const navItems = placeNavItems<NavEntry>(coreNavItems, customNavItems);
 
   const closeSidebar = () => setIsOpen(false);
+
+  // Everyday entries in view, the rest under More (lib/nav).
+  const nav = splitNav(navItems, new Set(coreNavItems.map((item) => item.href)));
+  const moreActive = nav.more.some((item) => navActive(pathname, item.href));
+  // null = follow the route: open while on a page under More; a manual toggle wins.
+  const [moreToggled, setMoreToggled] = useState<boolean | null>(null);
+  const moreOpen = moreToggled ?? moreActive;
+  const moreCount = nav.more.reduce((sum, item) => sum + (item.count?.value ?? 0), 0);
+
+  const renderEntry = (item: NavEntry) => {
+    const isActive = navActive(pathname, item.href);
+
+    // Projects as a menu folds the active projects under it.
+    if (item.href === '/projects' && projectsAsMenu) {
+      const onProjectsIndex = pathname === '/projects';
+      // A short list of active projects is the whole picture. The
+      // index link shows from four projects, whenever the menu hides
+      // some (completed or archived), and with no active project, so
+      // the menu never opens empty. New projects start on the
+      // Projects page or the Dashboard.
+      const showAllProjects = projects.length > 3
+        || projects.length > activeProjects.length
+        || (!loading && activeProjects.length === 0);
+      return (
+        <div key={item.href}>
+          <button
+            type="button"
+            onClick={() => setProjectsOpen(!projectsOpen)}
+            aria-expanded={projectsOpen}
+            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 ${
+              isActive
+                ? 'bg-brand-500/15 text-brand-300 glow-brand-soft'
+                : 'text-zinc-400 hover:bg-white/5 hover:text-zinc-200'
+            }`}
+          >
+            <span className="relative flex-shrink-0 leading-none">
+              <item.icon size={18} aria-hidden="true" />
+              {item.count && <CountBadge {...badgeProps(item.count)} placement="icon" />}
+            </span>
+            <span className="text-sm font-medium flex-1 text-left">{item.label}</span>
+            <ChevronDown
+              size={14}
+              className={`flex-shrink-0 transition-transform ${projectsOpen ? '' : '-rotate-90'}`}
+              aria-hidden="true"
+            />
+          </button>
+          {projectsOpen && (
+            /* The same rail as Agent's: one hairline under the parent
+               icon, labels meeting the parent label. */
+            <div className="relative ml-[20.5px] mt-0.5 mb-1 animate-slideDown">
+              <span className="absolute left-0 top-1 bottom-1 w-px bg-white/[0.08]" aria-hidden="true" />
+              {loading && activeProjects.length === 0 && [1, 2, 3].map((i) => (
+                <div key={i} className="flex items-center gap-2 pl-[21.5px] pr-3 py-2" aria-hidden="true">
+                  <div className="w-1.5 h-1.5 rounded-full bg-white/10 animate-pulse" />
+                  <div className="h-3.5 rounded bg-white/10 animate-pulse" style={{ width: `${50 + i * 15}px` }} />
+                </div>
+              ))}
+              {activeProjects.map((project) => {
+                const href = `/projects/${project.id}`;
+                const current = pathname === href || pathname.startsWith(`${href}/`);
+                return (
+                  <Link
+                    key={project.id}
+                    href={href}
+                    onClick={closeSidebar}
+                    onMouseEnter={() => warmProject(project.id)}
+                    onFocus={() => warmProject(project.id)}
+                    aria-current={current ? 'page' : undefined}
+                    className={`relative flex items-center pl-[21.5px] pr-3 py-1.5 rounded-md text-[13px] font-medium transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 gap-2 ${current ? 'text-brand-300' : 'text-zinc-500 hover:text-zinc-200'}`}
+                  >
+                    {current && <span className="absolute -left-[0.5px] top-1/2 -translate-y-1/2 h-4 w-[2px] rounded-full bg-brand-400" aria-hidden="true" />}
+                    {/* No color picked: the brand color, so every name lines up. */}
+                    <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: project.color || 'var(--color-brand-500)' }} aria-hidden="true" />
+                    <span className="truncate flex-1 min-w-0">{project.name}</span>
+                    {myRunningProjectIds.has(project.id) && (
+                      <Tooltip content="Time tracker is active" position="right">
+                        <LivePulse label="Time tracker is active for this project" />
+                      </Tooltip>
+                    )}
+                  </Link>
+                );
+              })}
+              {/* Last, after the projects it leads beyond. */}
+              {showAllProjects && <Link
+                href="/projects"
+                onClick={closeSidebar}
+                aria-current={onProjectsIndex ? 'page' : undefined}
+                className={`relative flex items-center pl-[21.5px] pr-3 py-1.5 rounded-md text-[13px] font-medium transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 ${onProjectsIndex ? 'text-brand-300' : 'text-zinc-500 hover:text-zinc-200'}`}
+              >
+                {onProjectsIndex && <span className="absolute -left-[0.5px] top-1/2 -translate-y-1/2 h-4 w-[2px] rounded-full bg-brand-400" aria-hidden="true" />}
+                All projects
+              </Link>}
+            </div>
+          )}
+        </div>
+      );
+    }
+    // The bell opens its popover (a sheet on phones); See all inside it opens the page.
+    if (item.href === '/notifications') {
+      return (
+        <button
+          key={item.href}
+          ref={bellRef}
+          type="button"
+          onClick={() => {
+            // On phones the sheet replaces the open drawer.
+            if (window.matchMedia('(max-width: 639px)').matches) closeSidebar();
+            bell.toggle();
+          }}
+          aria-haspopup="dialog"
+          aria-expanded={bell.open}
+          className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 ${
+            isActive || bell.open
+              ? 'bg-brand-500/15 text-brand-300 glow-brand-soft'
+              : 'text-zinc-400 hover:bg-white/5 hover:text-zinc-200'
+          }`}
+        >
+          <span className="relative flex-shrink-0 leading-none">
+            <item.icon size={18} aria-hidden="true" />
+            {item.count && <CountBadge {...badgeProps(item.count)} placement="icon" />}
+          </span>
+          <span className="text-sm font-medium flex-1 text-left">{item.label}</span>
+        </button>
+      );
+    }
+    return (
+      <Link
+        key={item.href}
+        href={item.href}
+        onClick={closeSidebar}
+        {...warmTab(item.href)}
+        className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-150 ${
+          isActive
+            ? 'bg-brand-500/15 text-brand-300 glow-brand-soft'
+            : 'text-zinc-400 hover:bg-white/5 hover:text-zinc-200'
+        }`}
+      >
+        <span className="relative flex-shrink-0 leading-none">
+          <item.icon size={18} aria-hidden="true" />
+          {item.count && <CountBadge {...badgeProps(item.count)} placement="icon" />}
+        </span>
+        <span className="text-sm font-medium flex-1">{item.label}</span>
+      </Link>
+    );
+  };
+
+  const renderMore = () => (
+    <div>
+      <button
+        type="button"
+        onClick={() => setMoreToggled(!moreOpen)}
+        aria-expanded={moreOpen}
+        className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 ${
+          moreActive && !moreOpen
+            ? 'bg-brand-500/15 text-brand-300 glow-brand-soft'
+            : 'text-zinc-400 hover:bg-white/5 hover:text-zinc-200'
+        }`}
+      >
+        <span className="relative flex-shrink-0 leading-none">
+          <MoreHorizontal size={18} aria-hidden="true" />
+          {!moreOpen && moreCount > 0 && <CountBadge count={moreCount} label={`${moreCount} under More`} placement="icon" />}
+        </span>
+        <span className="text-sm font-medium flex-1 text-left">More</span>
+        <ChevronDown size={14} className={`flex-shrink-0 transition-transform ${moreOpen ? '' : '-rotate-90'}`} aria-hidden="true" />
+      </button>
+      {/* Indented on a hairline under More, so its entries read as its own. */}
+      {moreOpen && <div className="ml-[20.5px] mt-1 space-y-1 border-l border-white/[0.08] pl-2 animate-slideDown">{nav.more.map(renderEntry)}</div>}
+    </div>
+  );
 
   return (
     <>
@@ -218,143 +389,8 @@ export function Sidebar() {
 
         {/* Main nav */}
         <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto sidebar-scroll">
-          {navItems.map((item) => {
-            const isActive = pathname === item.href || pathname.startsWith(`${item.href}/`);
-            // Agent is the one expandable group: the row toggles a sub-list of
-            // the three agent surfaces instead of navigating, so the pages'
-            // headers no longer need their own switcher.
-            if (item.href === '/projects' && projectsAsMenu) {
-              const onProjectsIndex = pathname === '/projects';
-              // A short list of active projects is the whole picture. The
-              // index link shows from four projects, whenever the menu hides
-              // some (completed or archived), and with no active project, so
-              // the menu never opens empty. New projects start on the
-              // Projects page or the Dashboard.
-              const showAllProjects = projects.length > 3
-                || projects.length > activeProjects.length
-                || (!loading && activeProjects.length === 0);
-              return (
-                <div key={item.href}>
-                  <button
-                    type="button"
-                    onClick={() => setProjectsOpen(!projectsOpen)}
-                    aria-expanded={projectsOpen}
-                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 ${
-                      isActive
-                        ? 'bg-brand-500/15 text-brand-300 glow-brand-soft'
-                        : 'text-zinc-400 hover:bg-white/5 hover:text-zinc-200'
-                    }`}
-                  >
-                    <span className="relative flex-shrink-0 leading-none">
-                      <item.icon size={18} aria-hidden="true" />
-                      {item.count && <CountBadge {...badgeProps(item.count)} placement="icon" />}
-                    </span>
-                    <span className="text-sm font-medium flex-1 text-left">{item.label}</span>
-                    <ChevronDown
-                      size={14}
-                      className={`flex-shrink-0 transition-transform ${projectsOpen ? '' : '-rotate-90'}`}
-                      aria-hidden="true"
-                    />
-                  </button>
-                  {projectsOpen && (
-                    /* The same rail as Agent's: one hairline under the parent
-                       icon, labels meeting the parent label. */
-                    <div className="relative ml-[20.5px] mt-0.5 mb-1 animate-slideDown">
-                      <span className="absolute left-0 top-1 bottom-1 w-px bg-white/[0.08]" aria-hidden="true" />
-                      {loading && activeProjects.length === 0 && [1, 2, 3].map((i) => (
-                        <div key={i} className="flex items-center gap-2 pl-[21.5px] pr-3 py-2" aria-hidden="true">
-                          <div className="w-1.5 h-1.5 rounded-full bg-white/10 animate-pulse" />
-                          <div className="h-3.5 rounded bg-white/10 animate-pulse" style={{ width: `${50 + i * 15}px` }} />
-                        </div>
-                      ))}
-                      {activeProjects.map((project) => {
-                        const href = `/projects/${project.id}`;
-                        const current = pathname === href || pathname.startsWith(`${href}/`);
-                        return (
-                          <Link
-                            key={project.id}
-                            href={href}
-                            onClick={closeSidebar}
-                            onMouseEnter={() => warmProject(project.id)}
-                            onFocus={() => warmProject(project.id)}
-                            aria-current={current ? 'page' : undefined}
-                            className={`relative flex items-center pl-[21.5px] pr-3 py-1.5 rounded-md text-[13px] font-medium transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 gap-2 ${current ? 'text-brand-300' : 'text-zinc-500 hover:text-zinc-200'}`}
-                          >
-                            {current && <span className="absolute -left-[0.5px] top-1/2 -translate-y-1/2 h-4 w-[2px] rounded-full bg-brand-400" aria-hidden="true" />}
-                            {/* No color picked: the brand color, so every name lines up. */}
-                            <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: project.color || 'var(--color-brand-500)' }} aria-hidden="true" />
-                            <span className="truncate flex-1 min-w-0">{project.name}</span>
-                            {myRunningProjectIds.has(project.id) && (
-                              <Tooltip content="Time tracker is active" position="right">
-                                <LivePulse label="Time tracker is active for this project" />
-                              </Tooltip>
-                            )}
-                          </Link>
-                        );
-                      })}
-                      {/* Last, after the projects it leads beyond. */}
-                      {showAllProjects && <Link
-                        href="/projects"
-                        onClick={closeSidebar}
-                        aria-current={onProjectsIndex ? 'page' : undefined}
-                        className={`relative flex items-center pl-[21.5px] pr-3 py-1.5 rounded-md text-[13px] font-medium transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 ${onProjectsIndex ? 'text-brand-300' : 'text-zinc-500 hover:text-zinc-200'}`}
-                      >
-                        {onProjectsIndex && <span className="absolute -left-[0.5px] top-1/2 -translate-y-1/2 h-4 w-[2px] rounded-full bg-brand-400" aria-hidden="true" />}
-                        All projects
-                      </Link>}
-                    </div>
-                  )}
-                </div>
-              );
-            }
-            // The bell opens its popover (a sheet on phones); See all inside it opens the page.
-            if (item.href === '/notifications') {
-              return (
-                <button
-                  key={item.href}
-                  ref={bellRef}
-                  type="button"
-                  onClick={() => {
-                    // On phones the sheet replaces the open drawer.
-                    if (window.matchMedia('(max-width: 639px)').matches) closeSidebar();
-                    bell.toggle();
-                  }}
-                  aria-haspopup="dialog"
-                  aria-expanded={bell.open}
-                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 ${
-                    isActive || bell.open
-                      ? 'bg-brand-500/15 text-brand-300 glow-brand-soft'
-                      : 'text-zinc-400 hover:bg-white/5 hover:text-zinc-200'
-                  }`}
-                >
-                  <span className="relative flex-shrink-0 leading-none">
-                    <item.icon size={18} aria-hidden="true" />
-                    {item.count && <CountBadge {...badgeProps(item.count)} placement="icon" />}
-                  </span>
-                  <span className="text-sm font-medium flex-1 text-left">{item.label}</span>
-                </button>
-              );
-            }
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                onClick={closeSidebar}
-                {...warmTab(item.href)}
-                className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-150 ${
-                  isActive
-                    ? 'bg-brand-500/15 text-brand-300 glow-brand-soft'
-                    : 'text-zinc-400 hover:bg-white/5 hover:text-zinc-200'
-                }`}
-              >
-                <span className="relative flex-shrink-0 leading-none">
-                  <item.icon size={18} aria-hidden="true" />
-                  {item.count && <CountBadge {...badgeProps(item.count)} placement="icon" />}
-                </span>
-                <span className="text-sm font-medium flex-1">{item.label}</span>
-              </Link>
-            );
-          })}
+          {nav.main.map(renderEntry)}
+          {nav.more.length > 0 && renderMore()}
 
           {/* Active projects section (Settings > Workspace > Brand), with either Projects style */}
           {showActiveProjects && (loading || projects.length > 0) && (
@@ -429,6 +465,9 @@ export function Sidebar() {
           </div>
           )}
         </nav>
+
+        {/* Until AI is set up: one dismissible nudge (lib/nav aiNudge). */}
+        <AiNudgeCard hub={aiHub} onNavigate={closeSidebar} />
 
         {/* User section */}
         <div className="p-3 border-t border-white/5">

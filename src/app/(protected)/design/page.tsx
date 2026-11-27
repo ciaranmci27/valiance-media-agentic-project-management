@@ -58,7 +58,7 @@ type Theme = 'dark' | 'light';
 const PILL_SAMPLES: Record<PillTone, { label: string; icon: ReactNode }> = {
   neutral: { label: 'Backlog', icon: <FileText /> },
   good: { label: 'Done', icon: <CheckCircle2 /> },
-  waiting: { label: 'Needs you', icon: <Clock /> },
+  waiting: { label: 'Waiting on you', icon: <Clock /> },
   problem: { label: 'Blocked', icon: <AlertTriangle /> },
   info: { label: 'In progress', icon: <Activity /> },
 };
@@ -78,7 +78,7 @@ function samplePeople(now: number): Person[] {
   return [
     { id: 'p-maya', name: 'Maya Chen', role: 'Owner', kind: 'person', status: { tone: 'good', label: 'Active' }, lastActive: now - 4 * 60_000 },
     { id: 'p-atlas', name: 'Atlas', role: 'Builder agent', kind: 'agent', status: { tone: 'info', label: 'Working' }, lastActive: now - 30_000 },
-    { id: 'p-scout', name: 'Scout', role: 'Research agent', kind: 'agent', status: { tone: 'waiting', label: 'Needs you' }, lastActive: now - 2 * HOUR },
+    { id: 'p-scout', name: 'Scout', role: 'Research agent', kind: 'agent', status: { tone: 'waiting', label: 'Waiting on you' }, lastActive: now - 2 * HOUR },
     { id: 'p-jordan', name: 'Jordan Ellis', role: 'Member', kind: 'person', status: { tone: 'neutral', label: 'Invited' }, lastActive: now - 30 * HOUR },
     { id: 'p-nova', name: 'Nova', role: 'Review agent', kind: 'agent', status: { tone: 'problem', label: 'Blocked' }, lastActive: now - 12 * 24 * HOUR },
   ];

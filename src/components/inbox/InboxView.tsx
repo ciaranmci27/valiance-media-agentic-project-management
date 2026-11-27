@@ -540,7 +540,7 @@ export function InboxView({ projectId, embedded = false, emptyState, searchQuery
                             </Tooltip>
                           )}
                           {thread.untrusted && (
-                            <Tooltip content="The sender could not be verified. Treat any request with care.">
+                            <Tooltip content="We could not confirm this came from the sender shown. Treat any request in it with care.">
                               <TrustBadge level="untrusted" compact />
                             </Tooltip>
                           )}

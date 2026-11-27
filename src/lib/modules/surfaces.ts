@@ -245,6 +245,8 @@ export const CORE_ROUTES: string[] = [
   'api/v1/task-templates', 'api/workspace/task-templates', '(protected)/templates',
   // Schedules make tasks (a template on a schedule, a task's repeat), and the scheduler that runs them.
   'api/v1/schedules', 'api/workspace/schedules', 'api/internal/schedules',
+  // Notification email and chat delivery, and Settings > Notifications (20261127003500).
+  'api/internal/notifications', 'api/workspace/notification-preferences',
   // The install's own routes and pages (src/custom): each item names its own module, permission or role.
   'api/x', '(protected)/x',
   '(protected)/dashboard', '(protected)/my-tasks', '(protected)/notifications', '(protected)/projects',
@@ -261,7 +263,7 @@ export const CORE_TABLES: string[] = [
   'permission_modules', 'project_context', 'project_members', 'projects', 'questions', 'reminders', 'role_permissions',
   'smtp_accounts', 'task_acceptance_criteria', 'task_assignees', 'task_comments', 'task_dependencies',
   'task_events', 'task_files', 'task_reviews', 'task_subtasks', 'task_views', 'tasks',
-  'team_invites', 'team_member_notifications', 'member_snoozes', 'team_member_permissions', 'team_members', 'trash_events', 'workspace_brand',
+  'team_invites', 'team_member_notifications', 'member_snoozes', 'notification_deliveries', 'team_member_permissions', 'team_members', 'trash_events', 'workspace_brand',
   'workspace_modules', 'workspace_region', 'app_secrets',
   'groups', 'group_members', 'member_identities', 'identity_link_requests',
   // Task templates, every use of one, which item each task a use made came from, and runs proposed for approval.

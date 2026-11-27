@@ -142,7 +142,7 @@ function pureChecks() {
     quietWords(lapsed, 'Nova', 'Assistant', 'https://x/assistant', 'admin') === "Nova can't answer right now: its key expired or was revoked. Your admin has been told."
       && quietWords(lapsed, 'Nova', 'Assistant', 'https://x/assistant', 'settings') === "Nova can't answer right now: its key expired or was revoked. Fix it in AI > Setup.",
     quietWords(lapsed, 'Nova', 'Assistant', 'https://x/assistant', 'settings'));
-  check('chat line: an admin pause reads as a hold that ends, not as broken', quietWords({ state: 'on_hold', reason: 'paused_by_admin' }, 'Nova', 'Assistant', 'u') === 'Nova is paused by an admin. It gets what you send meanwhile when they resume it.');
+  check('chat line: an admin pause reads as a hold that ends, not as broken', quietWords({ state: 'on_hold', reason: 'paused_by_admin' }, 'Nova', 'Assistant', 'u') === 'Nova was paused by an admin. It will pick up what you sent when they resume it.');
   const conn = { enabled: true, kind: 'personal' as const, agents: [] };
   const recent = new Date(Date.now() - 3600_000).toISOString();
   check('chat status: nothing verified yet is waiting, a recent message is connected, an old one is quiet',
@@ -987,7 +987,7 @@ async function main() {
     providerCalls.length = 0;
     const toPaused = await inbound(telegramId, update(103, 'hello?'), { 'x-telegram-bot-api-secret-token': telegramSecret });
     check('admin pause: chat says it is paused by an admin and gets the message on resume; nothing reaches it now', toPaused.body?.status === 'unrouted' && toPaused.body?.held === true
-      && providerCalls.some((call) => call.body?.text === "Ben's Assistant is paused by an admin. It gets what you send meanwhile when they resume it."), [toPaused.body, providerCalls]);
+      && providerCalls.some((call) => call.body?.text === "Ben's Assistant was paused by an admin. It will pick up what you sent when they resume it."), [toPaused.body, providerCalls]);
     check('admin pause: nobody is alerted about a deliberate pause', await count("SELECT count(*)::int AS n FROM pm.team_member_notifications WHERE entity_id = $1", [s.benAgent]) === toldBeforePause);
     providerCalls.length = 0;
     const toPausedAgain = await inbound(telegramId, update(104, 'anyone?'), { 'x-telegram-bot-api-secret-token': telegramSecret });
@@ -1037,7 +1037,7 @@ async function main() {
       const body = event(id, 'U_ANA', text);
       return inbound(slackId, body, slackSigned(body));
     };
-    const ON_HOLD_LINE = "Nova is on hold right now and will answer when it's back.";
+    const ON_HOLD_LINE = "Nova is on hold for now. It will reply when it's back.";
     await s.q('UPDATE pm.business_settings SET agents_paused_at = now(), agents_paused_by = $1', [s.owner]);
     providerCalls.length = 0;
     const held1 = await fromAnaNow('EvHold1', 'Book the venue for Friday');
@@ -1093,7 +1093,7 @@ async function main() {
     providerCalls.length = 0;
     const toHerPaused = await fromAnaNow('EvPaused1', 'Are you there?');
     check('paused by her: the line with its name and a link to her page, held, nothing reaches it yet', toHerPaused.body?.status === 'unrouted' && toHerPaused.body?.held === true
-      && JSON.stringify(slackLines()) === JSON.stringify(['Nova is paused. Resume it from your Helper page: it gets what you send meanwhile when you do.\nhttps://pm.example.com/assistant']), [toHerPaused.body, providerCalls]);
+      && JSON.stringify(slackLines()) === JSON.stringify(['Nova is paused. Resume it on your Helper page and it will pick up what you sent.\nhttps://pm.example.com/assistant']), [toHerPaused.body, providerCalls]);
     providerCalls.length = 0;
     await fromAnaNow('EvPaused2', 'Hello?');
     check('paused by her: once, not on every message', slackLines().length === 0, providerCalls);

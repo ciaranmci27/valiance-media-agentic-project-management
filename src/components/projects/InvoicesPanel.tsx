@@ -1,4 +1,5 @@
 'use client';
+import { useUndoTrash } from './useUndoTrash';
 import { storedFileHref } from '@/lib/storage/stored-file-url';
 import { FileInput } from '@/components/ui/inputs/FileInput';
 
@@ -46,7 +47,6 @@ import { useAuth } from '@/lib/auth-context';
 import { hasPermission } from '@/lib/access-control';
 import { createClient } from '@/lib/supabase/client';
 import { toast } from '@/components/ui/Toast';
-import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import Modal from '@/components/ui/Modal';
 import { useDemo } from '@/lib/demo-context';
 import { Select } from '@/components/ui/inputs/Select';
@@ -257,7 +257,7 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
   const [formLineShares, setFormLineShares] = useState<Record<string, LineSplit[]>>({});
   const touchedShareLinesRef = useRef<Set<string>>(new Set());
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+  const undoTrash = useUndoTrash();
   const [previewInvoiceId, setPreviewInvoiceId] = useState<string | null>(null);
   const [emailInvoiceId, setEmailInvoiceId] = useState<string | null>(null);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
@@ -1205,8 +1205,9 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
     setIsAdding(false);
   };
 
-  const executeDelete = async () => {
-    if (deleteTarget && await deleteInvoice(deleteTarget)) toast('success', 'Invoice moved to Trash');
+  // Acts at once with Undo (DESIGN.md Rule 6).
+  const executeDelete = async (id: string) => {
+    if (await deleteInvoice(id)) undoTrash('project_invoices', id, { message: 'Invoice moved to Trash. Its hours are free to invoice again' });
   };
 
   const reviewTrackedLineItem = (lineItem: InvoiceLineItem) => {
@@ -1964,7 +1965,7 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
             : []),
           { label: 'Edit', icon: <Edit2 size={14} />, onClick: () => startEditing(invoice), divider: true },
           { label: 'Duplicate', icon: <Copy size={14} />, onClick: () => startDuplicating(invoice) },
-          { label: 'Move to Trash', icon: <Trash2 size={14} />, onClick: () => setDeleteTarget(invoice.id), variant: 'danger' as const, divider: true },
+          { label: 'Move to Trash', icon: <Trash2 size={14} />, onClick: () => void executeDelete(invoice.id), variant: 'danger' as const, divider: true },
         ]}
       />
     </div>
@@ -2315,15 +2316,6 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
         </div>
       </Modal>
 
-      <ConfirmDialog
-        isOpen={!!deleteTarget}
-        onClose={() => setDeleteTarget(null)}
-        onConfirm={executeDelete}
-        title="Move invoice to Trash?"
-        message="The invoice goes to Trash. Its hours become free to invoice again."
-        variant="danger"
-        trash
-      />
 
       <InvoicePreviewModal invoiceId={previewInvoiceId} onClose={() => setPreviewInvoiceId(null)} />
 

@@ -296,3 +296,70 @@ export async function sendChatMessage(service: SupabaseClient, caller: ChatSendC
     to: { person_id: target.personId, channel_id: target.channel?.channel_id ?? null, channel_name: target.channel?.channel_name ?? null },
   };
 }
+
+/** Why a system chat notice did not go out: the person has no chat to reach, or got too many this hour. */
+export type SystemChatSkip = 'no_linked_chat' | 'rate_limited';
+
+/**
+ * Sends a person a notice from the app itself, not from an agent: the
+ * notification delivery point (lib/notification-delivery) uses it for chat.
+ * It reaches only the person's own verified linked account, by DM, on an
+ * enabled connection: the one they last wrote to first, else a company
+ * connection, else their own assistant's. It counts against the same
+ * per-recipient hourly limit agents' messages do, so the app and agents
+ * together never flood a person. sendChatMessage stays agents only; this is
+ * the one other way out, and it takes no recipient from a caller: the
+ * delivery queue names the person, who asked for chat in their settings.
+ */
+export async function sendSystemChatNotice(
+  service: SupabaseClient,
+  personId: string,
+  input: { text: string; link: { url: string; label: string } | null; as: { username: string; iconUrl: string | null } },
+): Promise<{ status: 'sent'; id: string } | { status: 'skipped'; reason: SystemChatSkip }> {
+  const { data: connections, error } = await service.from('chat_connections').select(CONNECTION_COLUMNS).eq('enabled', true).order('created_at');
+  if (missingColumn(error) || missingAssistantSchema(error)) throw databasePending();
+  if (error) throw error;
+  const candidates: (Target & { known: boolean })[] = [];
+  for (const connection of (connections ?? []) as Row[]) {
+    const adapter = chatAdapter(connection.provider);
+    if (!adapter) continue;
+    const identity = await identityOn(service, connection, adapter, personId);
+    if (!identity) continue;
+    const { data: wrote } = await service.from('chat_messages').select('id')
+      .eq('connection_id', connection.id).eq('direction', 'inbound').eq('external_user_id', identity.external_id).limit(1);
+    candidates.push({ connection, adapter, personId, identity, channel: null, known: ((wrote ?? []) as Row[]).length > 0 });
+  }
+  if (candidates.length === 0) return { status: 'skipped', reason: 'no_linked_chat' };
+  // Where they already talk to a bot first; a company bot before an assistant's.
+  candidates.sort((a, b) => Number(b.known) - Number(a.known)
+    || Number(connectionKind(a.connection) === 'personal') - Number(connectionKind(b.connection) === 'personal'));
+  const target = candidates[0];
+  const window = await allowed(service, target.connection.id, `out:to:member:${personId}`, CHAT_SEND_RECIPIENT_LIMIT);
+  if (!window.allowed) return { status: 'skipped', reason: 'rate_limited' };
+
+  const credentials = openCredentials(target.connection as { id: string; credentials: string });
+  let conversationId = '';
+  let externalId: string | null = null;
+  let failure: ChatProviderError | null = null;
+  try {
+    conversationId = await directConversation(service, target);
+    const sent = await target.adapter.send(credentials, {
+      conversationId, threadId: null, text: input.text, as: input.as, direct: true, link: input.link,
+    });
+    externalId = sent.externalMessageId;
+    if (sent.credentials) await storeCredentials(service, target.connection.id, credentials, sent.credentials);
+  } catch (sendError) {
+    if (!(sendError instanceof ChatProviderError)) throw sendError;
+    failure = sendError;
+  }
+  const { data, error: insertError } = await service.from('chat_messages').insert({
+    connection_id: target.connection.id, direction: 'outbound', status: failure ? 'failed' : 'sent', initiated: true,
+    conversation_id: conversationId || String(target.identity!.external_id), thread_id: null, external_message_id: externalId,
+    member_id: personId, agent_id: null, is_direct: true, text: recordedText({ text: input.text, link: input.link ?? undefined } as ChatSendInput),
+    error: failure ? failure.message.slice(0, 500) : null,
+  }).select('id').single();
+  if (missingColumn(insertError)) throw databasePending();
+  if (insertError) throw insertError;
+  if (failure) throw failure;
+  return { status: 'sent', id: (data as Row).id };
+}

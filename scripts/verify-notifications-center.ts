@@ -415,8 +415,9 @@ async function main() {
       first.status === 200 && !!cursor && second?.status === 200 && seenIds.length === 3 && new Set(seenIds).size === 3
         && !seenIds.includes(ids[0]) && !seenIds.includes(ids[2]) && second.body.meta.next_cursor === null, { first: first.body, second: second?.body });
     const unread = await call(listRoute.GET, 'GET', '/api/v1/notifications?view=unread', {}, s.keys.olivia);
-    check('REST: view=unread lists open Updates not read (receipts left out)', unread.status === 200 && unread.body?.data?.every((n: Loose) => !n.is_read && !n.done_at && n.category !== 'question_asked')
-      && unread.body?.meta?.total === 3, unread.body?.meta);
+    // As the app counts unread (20261127003500): the snoozed one is left out too.
+    check('REST: view=unread lists open Updates not read (receipts and snoozed left out), the same count as the app', unread.status === 200 && unread.body?.data?.every((n: Loose) => !n.is_read && !n.done_at && n.category !== 'question_asked')
+      && unread.body?.meta?.total === 2 && !unread.body.data.some((n: Loose) => n.id === ids[2]), unread.body?.meta);
     const mixed = await call(listRoute.GET, 'GET', `/api/v1/notifications?view=updates&category=task_comments&before=${encodeURIComponent(cursor ?? 'x')}`, {}, s.keys.olivia);
     const noView = await call(listRoute.GET, 'GET', `/api/v1/notifications?before=${encodeURIComponent(cursor ?? 'x')}`, {}, s.keys.olivia);
     const junk = await call(listRoute.GET, 'GET', '/api/v1/notifications?view=done&before=nonsense', {}, s.keys.olivia);

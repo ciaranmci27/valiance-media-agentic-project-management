@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, Plus, RefreshCw, UsersRound } from 'lucide-react';
+import { Plus, UsersRound } from 'lucide-react';
 import { useApp, defaultFilters } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
 import { useDemo } from '@/lib/demo-context';
@@ -11,13 +11,16 @@ import { hasPermission } from '@/lib/access-control';
 import { invalidateTables } from '@/lib/query-cache';
 import { groupsPageRead, GROUP_TABLES, GROUPS_PAGE_SIZE } from '@/lib/reads';
 import { demoCreateGroup, demoGroupsPage } from '@/lib/demo-project-agents';
-import { showMoreLabel } from '@/lib/agents-ui';
 import { workspaceApi, fieldErrorsFrom } from '@/lib/agent-workspace';
 import { GROUP_DESCRIPTION_MAX, GROUP_NAME_MAX, slugifyGroupName, type GroupView } from '@/lib/groups';
 import { Header } from '@/components/layout/Header';
 import { Button } from '@/components/ui/Button';
 import Modal from '@/components/ui/Modal';
-import { DataTable, type Column } from '@/components/ui/DataTable';
+import { Card } from '@/components/ui/Card';
+import { EmptyState } from '@/components/ui/EmptyState';
+import { ShowMore } from '@/components/ui/ShowMore';
+import { Bone, Skeleton } from '@/components/projects/TabLayout';
+import { TeamTabs, teamPanelProps } from '@/components/team/TeamTabs';
 import { TextInput } from '@/components/ui/inputs/TextInput';
 import { Textarea } from '@/components/ui/inputs/Textarea';
 import { toast } from '@/components/ui/Toast';
@@ -51,119 +54,79 @@ export default function GroupsPage() {
   const list = usePagedRead<GroupView>(readFor, search);
 
   const href = (g: GroupView) => `/team/groups/${g.id}`;
-  const nameLink = (g: GroupView) => (
-    <Link
-      href={href(g)}
-      onClick={(e) => e.stopPropagation()}
-      className="truncate rounded font-semibold text-white transition-colors hover:text-brand-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
-    >
-      {g.name}
-    </Link>
-  );
   const countLine = (g: GroupView) => `${g.member_count} member${g.member_count === 1 ? '' : 's'}${g.lead_count ? `, ${g.lead_count} lead${g.lead_count === 1 ? '' : 's'}` : ''}`;
+  const newGroup = canManage ? <Button icon={<Plus size={16} aria-hidden="true" />} onClick={() => setCreating(true)}>New group</Button> : undefined;
 
-  const columns: Column<GroupView>[] = [
-    {
-      key: 'name',
-      header: 'Group',
-      render: (g) => (
-        <div className="flex min-w-0 items-center gap-3">
-          <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-brand-500/15 text-brand-300" aria-hidden="true"><UsersRound size={15} /></span>
-          <div className="min-w-0">
-            {nameLink(g)}
-            {g.is_member && <span className="ml-2 rounded-full bg-white/[0.06] px-1.5 py-0.5 text-[11px] text-zinc-300">You are in it</span>}
-          </div>
-        </div>
-      ),
-    },
-    {
-      key: 'description',
-      header: 'About',
-      className: 'hidden md:table-cell',
-      render: (g) => <span className="block max-w-[360px] truncate text-zinc-400">{g.description || <span className="text-zinc-600">No description</span>}</span>,
-    },
-    {
-      key: 'members',
-      header: 'Members',
-      align: 'right',
-      render: (g) => <span className="tabular-nums text-zinc-300">{g.member_count}</span>,
-    },
-    {
-      key: 'leads',
-      header: 'Leads',
-      align: 'right',
-      className: 'hidden sm:table-cell',
-      render: (g) => <span className="tabular-nums text-zinc-400">{g.lead_count}</span>,
-    },
-  ];
-
-  const mobileCard = (g: GroupView) => (
-    <div className="glass-card rounded-xl p-4">
-      <div className="flex items-start gap-3">
-        <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-brand-500/15 text-brand-300" aria-hidden="true"><UsersRound size={16} /></span>
-        <div className="min-w-0 flex-1">
-          <h3 className="min-w-0 truncate">{nameLink(g)}</h3>
-          <p className="truncate text-xs text-zinc-400">{countLine(g)}{g.is_member ? ' · You are in it' : ''}</p>
-          {g.description && <p className="mt-1 line-clamp-2 text-sm text-zinc-400">{g.description}</p>}
-        </div>
-      </div>
-    </div>
+  // A row list in one card (Rule 4), the intro in the card's header (Rule 17).
+  const row = (g: GroupView) => (
+    <li key={g.id}>
+      <Link
+        href={href(g)}
+        className="flex items-start gap-3 px-4 py-3 transition-colors hover:bg-white/[0.03] focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-500 lg:px-5"
+      >
+        <span className="mt-0.5 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-brand-500/15 text-brand-300" aria-hidden="true"><UsersRound size={15} /></span>
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-sm font-semibold text-white">{g.name}</span>
+          <span className="block truncate text-xs text-zinc-400">{countLine(g)}{g.is_member ? ' · You are in it' : ''}</span>
+          {g.description && <span className="mt-0.5 block truncate text-xs text-zinc-500">{g.description}</span>}
+        </span>
+      </Link>
+    </li>
   );
 
   return (
     <div className="animate-fadeIn min-h-screen">
-      <div className="px-4 pt-5 lg:px-6">
-        <Link href="/team" className="inline-flex items-center gap-1.5 rounded-lg py-1 text-sm text-zinc-400 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500">
-          <ArrowLeft size={14} aria-hidden="true" />Team
-        </Link>
-      </div>
       <Header
-        title="Groups"
+        title="Team"
         subtitle={<span className="hidden sm:inline">{list.loading ? 'Loading groups' : `${list.total} group${list.total === 1 ? '' : 's'}`}</span>}
-        searchPlaceholder="Search groups..."
-        actions={canManage ? <Button icon={<Plus size={16} />} onClick={() => setCreating(true)}>New group</Button> : undefined}
+        searchPlaceholder="Search groups"
+        actions={newGroup}
       />
+      <TeamTabs active="groups" />
 
-      <div className="space-y-4 p-4 lg:p-6">
-        <p className="max-w-2xl text-sm text-zinc-400">
-          Ask a group instead of one person: every member gets the question and any of them can answer. A group can also own agents (its members manage them), handle an inbox and own initiatives, so who is in it matters.
-        </p>
-        {list.failed && !list.rows.length ? (
-          <div role="alert" className="glass-card flex flex-col items-center gap-3 rounded-xl py-12 text-center">
-            <p className="text-sm text-zinc-300">Could not load the groups.</p>
-            <Button variant="secondary" size="sm" icon={<RefreshCw size={13} aria-hidden="true" />} onClick={list.reload}>Try again</Button>
-          </div>
-        ) : list.loading && !list.rows.length ? (
-          <div role="status" className="glass-card rounded-xl py-12 text-center text-sm text-zinc-400">Loading groups</div>
-        ) : !list.rows.length ? (
-          <div className="glass-card rounded-xl py-12 text-center">
-            <UsersRound className="mx-auto mb-3 text-zinc-500" size={36} aria-hidden="true" />
-            <h3 className="mb-1 font-medium text-zinc-300">{search ? 'No groups match your search' : 'No groups yet'}</h3>
-            <p className="text-sm text-zinc-400">
-              {search ? 'Try another name.' : canManage ? 'Make one for a team people ask together, such as Finance or Support.' : 'An Owner, or someone who manages groups, makes them for teams people ask together.'}
-            </p>
-            {canManage && !search && <Button className="mt-4" icon={<Plus size={16} />} onClick={() => setCreating(true)}>New group</Button>}
-          </div>
-        ) : (
-          <>
-            <DataTable
-              columns={columns}
-              data={list.rows}
-              keyExtractor={(g) => g.id}
-              onRowClick={(g) => router.push(href(g))}
-              emptyState="No groups"
-              mobileCard={mobileCard}
-            />
-            {list.hidden > 0 && (
-              <div className="flex flex-col items-center gap-1">
-                <Button variant="secondary" size="sm" onClick={list.loadMore} disabled={list.loadingMore}>
-                  {list.loadingMore ? 'Loading more' : showMoreLabel(list.hidden, GROUPS_PAGE_SIZE)}
-                </Button>
-                {list.moreFailed && <p role="alert" className="text-xs text-red-300">Could not load more. Try again.</p>}
-              </div>
-            )}
-          </>
-        )}
+      <div className="p-4 lg:p-6" {...teamPanelProps('groups')}>
+        <Card
+          title="Groups"
+          icon={<UsersRound size={16} aria-hidden="true" />}
+          description="Ask a group instead of one person: every member gets the question and any of them can answer. A group can also own agents, handle an inbox and own initiatives."
+          bodyClassName="pb-1"
+        >
+          {list.failed && !list.rows.length ? (
+            <EmptyState variant="error" compact title="Could not load the groups" onRetry={list.reload} />
+          ) : list.loading && !list.rows.length ? (
+            <Skeleton label="Loading groups" className="divide-y divide-white/[0.06] border-t border-white/[0.06]">
+              {[0, 1, 2].map((i) => (
+                <div key={i} className="flex gap-3 px-4 py-3 lg:px-5">
+                  <Bone className="h-8 w-8 rounded-lg" />
+                  <div className="flex-1 space-y-2"><Bone className="h-4 w-40" /><Bone className="h-3 w-24" /></div>
+                </div>
+              ))}
+            </Skeleton>
+          ) : !list.rows.length ? (
+            search ? (
+              <EmptyState
+                variant="filtered"
+                compact
+                title="No groups match your search"
+                onClearFilters={() => setFilters({ ...filters, search: '' })}
+              />
+            ) : (
+              <EmptyState
+                compact
+                icon={<UsersRound />}
+                title="No groups yet"
+                description={canManage ? 'Make one for a team people ask together, such as Finance or Support.' : 'An Owner, or someone who manages groups, makes them for teams people ask together.'}
+                action={newGroup}
+              />
+            )
+          ) : (
+            <>
+              <ul className="divide-y divide-white/[0.06] border-t border-white/[0.06]">{list.rows.map(row)}</ul>
+              <ShowMore shown={list.rows.length} total={list.total} step={GROUPS_PAGE_SIZE} onMore={list.loadMore} noun="groups" className="border-t border-white/[0.06]" />
+              {list.moreFailed && <p role="alert" className="px-4 pb-3 text-center text-xs text-red-300">Could not load more. Try again.</p>}
+            </>
+          )}
+        </Card>
       </div>
 
       <CreateGroupModal

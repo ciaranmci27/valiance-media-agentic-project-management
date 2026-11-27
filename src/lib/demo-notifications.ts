@@ -2,6 +2,8 @@
 
 import { demoNotifications } from '@/lib/demo-data';
 import { demoTeam } from '@/lib/demo-data';
+import { CHAT_ON_BY_DEFAULT, DELIVERY_KEYS, EMAIL_ON_BY_DEFAULT, NOTIFICATION_CATEGORY_KEYS } from '@/lib/notification-defaults';
+import type { NotificationPreferencesPatch, NotificationPreferencesView } from '@/lib/api/notification-preferences';
 import {
   activeSnoozes, groupKeyOf, isReceiptCategory, withCategory,
   type NotificationFeedView, type NotificationGroup, type NotificationGroupPage, type NotificationPage, type NotificationView, type Snooze, type UpdateFilters,
@@ -107,4 +109,36 @@ export function demoMarkGroupRead(groupKey: string) {
 export function demoMarkGroupDone(groupKey: string) {
   const now = new Date().toISOString();
   rows = all().map((row) => (groupKeyOf(row) === groupKey && !row.done_at && !isReceiptCategory(row.category) ? { ...row, done_at: now, is_read: true } : row));
+}
+
+// ── Settings > Notifications in the demo ───────────────────────────────
+
+let demoPrefs: NotificationPreferencesView | null = null;
+
+/** The demo person's choices: email set up, a linked Telegram account, chat on for what needs them. */
+export function demoNotificationPreferences(): NotificationPreferencesView {
+  demoPrefs ??= {
+    in_app: Object.fromEntries(NOTIFICATION_CATEGORY_KEYS.map((key) => [key, key !== 'time_entries'])) as NotificationPreferencesView['in_app'],
+    email_enabled: true,
+    email: Object.fromEntries(DELIVERY_KEYS.map((key) => [key, EMAIL_ON_BY_DEFAULT.has(key) || key === 'task_assignments'])) as NotificationPreferencesView['email'],
+    email_available: true,
+    chat_enabled: true,
+    chat: Object.fromEntries(DELIVERY_KEYS.map((key) => [key, CHAT_ON_BY_DEFAULT.has(key)])) as NotificationPreferencesView['chat'],
+    chat_available: true,
+  };
+  return { ...demoPrefs, in_app: { ...demoPrefs.in_app }, email: { ...demoPrefs.email }, chat: { ...demoPrefs.chat } };
+}
+
+/** Changes the demo's choices for the visit; nothing is saved. */
+export function demoUpdateNotificationPreferences(patch: NotificationPreferencesPatch): NotificationPreferencesView {
+  const now = demoNotificationPreferences();
+  demoPrefs = {
+    ...now,
+    in_app: { ...now.in_app, ...(patch.in_app ?? {}) },
+    email: { ...now.email, ...(patch.email ?? {}) },
+    chat: { ...now.chat, ...(patch.chat ?? {}) },
+    email_enabled: patch.email_enabled ?? now.email_enabled,
+    chat_enabled: patch.chat_enabled ?? now.chat_enabled,
+  };
+  return demoNotificationPreferences();
 }

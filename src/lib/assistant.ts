@@ -244,12 +244,12 @@ export const BROKEN_WORDS: Record<BrokenReason, string> = {
   offline: 'The service that runs it stopped reporting.',
 };
 
-const ADMIN_PAUSED_PERSON = 'An admin paused your assistant. It picks up again when they resume it.';
+const ADMIN_PAUSED_PERSON = 'An admin paused your assistant. It starts again when they resume it.';
 
 /** Why it is on hold, for the person (My Assistant) and the Owner (Settings > Assistants). */
 export const HOLD_WORDS: Record<HoldReason, { person: string; owner: string }> = {
   assistants_off: {
-    person: 'Assistants are off for your workspace, so yours does nothing for now. It picks up again when an Owner turns them back on.',
+    person: 'Assistants are switched off for everyone right now. Yours starts again when an Owner turns them back on.',
     owner: 'Assistants are off.',
   },
   paused_by_admin: {
@@ -257,7 +257,7 @@ export const HOLD_WORDS: Record<HoldReason, { person: string; owner: string }> =
     owner: 'Paused by an admin.',
   },
   agents_paused: {
-    person: 'Every agent in this workspace is paused right now, yours too. It picks up again when an Owner resumes agents.',
+    person: 'All AI here is paused for now, yours too. It starts again when an Owner resumes it.',
     owner: 'Every agent is paused.',
   },
   agent_paused: {
@@ -267,7 +267,7 @@ export const HOLD_WORDS: Record<HoldReason, { person: string; owner: string }> =
 };
 
 /** On hold, and its host stopped reporting too: the person's page and Settings > Assistants > Status say this. */
-export const HOST_DOWN_WORDS = 'On hold. Its host is not responding.';
+export const HOST_DOWN_WORDS = 'On hold, and the service that runs it is not responding.';
 
 /** The state in a word or two, for the person's own page. */
 export const PERSON_STATE_WORDS: Record<AssistantState, string> = {

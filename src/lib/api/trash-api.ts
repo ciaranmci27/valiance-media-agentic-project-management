@@ -211,6 +211,9 @@ export async function apiMayTrash(caller: TrashCaller, table: TrashTable, row: R
     case 'initiative_entries':
       return caller.access.role !== 'guest' && holds(caller, 'tasks.read') && await reachesProject(row.project_id)
         && (row.created_by === me || holds(caller, 'projects.manage'));
+    case 'groups':
+      // An Owner or Manage groups, as the groups routes (canManageGroups).
+      return (caller.access.role === 'owner' && caller.access.status === 'active') || holds(caller, 'groups.manage');
     default:
       return false;
   }

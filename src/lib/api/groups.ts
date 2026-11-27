@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { moveToTrash } from '@/lib/supabase/trash';
 import {
   slugifyGroupName, GROUP_USAGE_NAMES, type AddGroupMembersInput, type CreateGroupInput, type GroupMemberView, type GroupRole, type GroupUsage,
   type GroupUsageList, type GroupView, type UpdateGroupInput,
@@ -93,6 +94,7 @@ export async function liveGroup(service: SupabaseClient, groupId: string): Promi
 export async function groupNames(service: SupabaseClient, ids: (string | null | undefined)[]): Promise<Map<string, string>> {
   const unique = [...new Set(ids.filter((id): id is string => !!id))];
   if (unique.length === 0) return new Map();
+  // includes-deleted: names only; a question names the group it was asked to, even in Trash.
   const { data, error } = await service.from('groups').select('id, name').in('id', unique);
   if (missingGroupsSchema(error)) return new Map();
   if (error) throw error;
@@ -278,12 +280,16 @@ export async function updateGroup(service: SupabaseClient, caller: AgentCaller, 
   return { before, group: await getGroup(service, caller, groupId) };
 }
 
-/** Moves a group to Trash. It stops being a target; who was in it is kept. */
+/**
+ * Moves a group to Trash, through the same function as every Trash record,
+ * so Settings > Trash lists it and Restore brings it back. While it is there
+ * it grants nothing (every grant reads live groups only); who was in it, the
+ * agents it owns and the audiences naming it are kept for the restore.
+ */
 export async function trashGroup(service: SupabaseClient, caller: AgentCaller, groupId: string): Promise<GroupView> {
   requireManageGroups(caller);
   const group = await getGroup(service, caller, groupId);
-  const { error } = await service.from('groups').update({ deleted_at: new Date().toISOString(), deleted_by: caller.memberId }).eq('id', groupId).is('deleted_at', null);
-  if (error) fail(error);
+  await moveToTrash(service, 'groups', groupId, caller.memberId);
   return group;
 }
 

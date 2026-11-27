@@ -20,7 +20,8 @@ import type { ChatConnectionCard } from '@/lib/assistant';
  * switched off stays listed, tagged Off, so the account does not seem to
  * vanish. Discord says where to find the bot: in a server they share.
  */
-function linkedFor<T extends { provider: string; workspace_id: string | null; verified: boolean }>(connection: ChatConnectionCard, identities: T[]): T | undefined {
+/** The person's linked account for a chat app, if they linked one (the sidebar's AI nudge reads it too). */
+export function linkedFor<T extends { provider: string; workspace_id: string | null; verified: boolean }>(connection: ChatConnectionCard, identities: T[]): T | undefined {
   return identities.find((identity) => identity.provider === connection.provider && identity.verified
     && (connection.workspace_id === null || identity.workspace_id === connection.workspace_id));
 }

@@ -1,5 +1,6 @@
 'use client';
 
+import { useUndoTrash } from '@/components/projects/useUndoTrash';
 import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 import { Task, TASK_TYPES, type AiReadiness, type TaskType } from '@/lib/types';
@@ -331,6 +332,7 @@ export function TaskDetailPanel({ task, onClose, onDelete, variant = 'panel' }: 
   const { teamMemberId, access } = useAuth();
   // Questions on this task still waiting on an answer: the task is waiting on someone.
   const openQuestions = useOpenQuestions();
+  const undoTrash = useUndoTrash();
   const [newComment, setNewComment] = useState('');
   const [showStatusMenu, setShowStatusMenu] = useState(false);
   const [showPriorityMenu, setShowPriorityMenu] = useState(false);
@@ -343,12 +345,10 @@ export function TaskDetailPanel({ task, onClose, onDelete, variant = 'panel' }: 
   const [draggedSubtaskId, setDraggedSubtaskId] = useState<string | null>(null);
   // Local subtask order while dragging; persisted once on drag end
   const [dragSubtaskOrder, setDragSubtaskOrder] = useState<string[] | null>(null);
-  const [deleteSubtaskTarget, setDeleteSubtaskTarget] = useState<string | null>(null);
   // Finishing a task leaves its subtasks as they are; this offers to finish them too.
   const [finishSubtasksOf, setFinishSubtasksOf] = useState<string | null>(null);
   const { openTask: openTaskInPanel } = useTaskUrlParam();
   const router = useRouter();
-  const [deleteCommentTarget, setDeleteCommentTarget] = useState<string | null>(null);
   const [editingCriterionId, setEditingCriterionId] = useState<string | null>(null);
   const [editingCriterionText, setEditingCriterionText] = useState('');
   const [deleteCriterionTarget, setDeleteCriterionTarget] = useState<string | null>(null);
@@ -908,7 +908,7 @@ export function TaskDetailPanel({ task, onClose, onDelete, variant = 'panel' }: 
                   <Tooltip content="Move to Trash">
                     <button
                       type="button"
-                      onClick={() => setDeleteSubtaskTarget(subtask.id)}
+                      onClick={() => void trashSubtask(subtask.id)}
                       aria-label={`Move "${subtask.title}" to Trash`}
                       className={`${ROW_ICON_BUTTON} hover:text-red-400`}
                     >
@@ -1111,7 +1111,7 @@ export function TaskDetailPanel({ task, onClose, onDelete, variant = 'panel' }: 
                           <Tooltip content="Delete">
                             <button
                               type="button"
-                              onClick={() => setDeleteCommentTarget(comment.id)}
+                              onClick={() => void trashComment(comment.id)}
                               aria-label="Delete comment"
                               className={`${ROW_ICON_BUTTON} hover:text-red-400`}
                             >
@@ -1192,20 +1192,16 @@ export function TaskDetailPanel({ task, onClose, onDelete, variant = 'panel' }: 
     </>
   );
 
+  // Subtasks and comments go to Trash at once, with Undo (DESIGN.md Rule 6).
+  const trashSubtask = async (id: string) => {
+    if (await deleteTask(id)) undoTrash('tasks', id, { message: 'Subtask moved to Trash' });
+  };
+  const trashComment = async (id: string) => {
+    if (await deleteComment(task.id, id)) undoTrash('task_comments', id, { message: 'Comment moved to Trash' });
+  };
+
   const dialogs = (
     <>
-      <ConfirmDialog
-        isOpen={!!deleteSubtaskTarget}
-        onClose={() => setDeleteSubtaskTarget(null)}
-        onConfirm={async () => {
-          if (deleteSubtaskTarget && await deleteTask(deleteSubtaskTarget)) toast('success', 'Subtask moved to Trash');
-        }}
-        title="Move subtask to Trash?"
-        message="The subtask goes to Trash with its comments and files."
-        variant="danger"
-        trash
-      />
-
       <ConfirmDialog
         isOpen={finishSubtasksOf === task.id && openSubtasks.length > 0}
         onClose={() => setFinishSubtasksOf(null)}
@@ -1224,22 +1220,10 @@ export function TaskDetailPanel({ task, onClose, onDelete, variant = 'panel' }: 
         onConfirm={() => {
           if (deleteCriterionTarget) deleteCriterion(task.id, deleteCriterionTarget);
         }}
-        title="Delete Acceptance Criterion"
-        message="Are you sure you want to delete this acceptance criterion?"
+        title="Delete this criterion?"
+        message="It is deleted for good."
         confirmLabel="Delete"
         variant="danger"
-      />
-
-      <ConfirmDialog
-        isOpen={!!deleteCommentTarget}
-        onClose={() => setDeleteCommentTarget(null)}
-        onConfirm={async () => {
-          if (deleteCommentTarget && await deleteComment(task.id, deleteCommentTarget)) toast('success', 'Comment moved to Trash');
-        }}
-        title="Move comment to Trash?"
-        message="The comment goes to Trash."
-        variant="danger"
-        trash
       />
     </>
   );
