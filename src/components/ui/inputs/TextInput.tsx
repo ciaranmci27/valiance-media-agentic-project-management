@@ -130,24 +130,13 @@ export const TextInput = forwardRef<HTMLInputElement, TextInputProps>(function T
 
   return (
     <div className={`space-y-1.5 ${className || ''}`}>
-      {(label || description) && (
-        <div className="flex items-center justify-between gap-2">
-          {label ? (
-            <label
-              htmlFor={inputId}
-              className={`block ${labelSizeClass(size)} font-medium text-input-text-label`}
-            >
-              {label}
-            </label>
-          ) : (
-            <span />
-          )}
-          {description && (
-            <p id={descId} className="text-xs text-input-text-subtle flex-shrink-0 mb-0">
-              {description}
-            </p>
-          )}
-        </div>
+      {label && (
+        <label
+          htmlFor={inputId}
+          className={`block ${labelSizeClass(size)} font-medium text-input-text-label`}
+        >
+          {label}
+        </label>
       )}
       <div
         className={`flex items-center gap-1.5 ${wrapperPx} outline-none ${fieldChrome(error, disabled)} ${
@@ -212,6 +201,11 @@ export const TextInput = forwardRef<HTMLInputElement, TextInputProps>(function T
           <RightIcon className={`${iconSizeClasses} text-input-text-placeholder flex-shrink-0`} />
         )}
       </div>
+      {description && (
+        <p id={descId} className="text-xs text-input-text-subtle">
+          {description}
+        </p>
+      )}
       {error && (
         <p id={errorId} role="alert" className="text-xs text-input-error">
           {error}

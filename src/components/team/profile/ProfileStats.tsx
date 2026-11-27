@@ -1,5 +1,5 @@
-import { AlertCircle, CalendarCheck, CheckCircle2, Clock, ListTodo, LogIn, MousePointerClick, Timer } from 'lucide-react';
-import { SectionHeader } from '@/components/ui/SectionHeader';
+import { Activity, AlertCircle, CalendarCheck, CheckCircle2, Clock, ListTodo, LogIn, MousePointerClick, Timer } from 'lucide-react';
+import { Card } from '@/components/ui/Card';
 import { StatStrip } from '@/components/ui/StatStrip';
 import { appLocale, weekStartDay } from '@/lib/region';
 import { timeAgo } from '@/lib/task-times';
@@ -44,9 +44,9 @@ export function ProfileNumbers({ work, time, shared }: { work?: Work; time?: Tim
 export function ProfileUsage({ usage }: { usage: Usage }) {
   const month = new Date().toLocaleDateString(appLocale(), { month: 'long' });
   return (
-    <section aria-labelledby="profile-usage">
-      <SectionHeader label={<span id="profile-usage">Usage</span>} />
+    <Card title="Usage" icon={<Activity />} id="profile-usage" bodyClassName="px-4 pb-4 lg:px-5">
       <StatStrip
+        bare
         stats={[
           { label: 'Active days', value: usage.active_days, icon: CalendarCheck, context: 'Of the last 30' },
           { label: 'Actions', value: usage.actions_this_month, icon: MousePointerClick, context: `In ${month}` },
@@ -58,6 +58,6 @@ export function ProfileUsage({ usage }: { usage: Usage }) {
           },
         ]}
       />
-    </section>
+    </Card>
   );
 }

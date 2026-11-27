@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { UserX } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
+import { EmptyState } from '@/components/ui/EmptyState';
 import { StatStrip } from '@/components/ui/StatStrip';
 
 const bar = 'rounded bg-white/[0.06] motion-safe:animate-pulse';
@@ -30,18 +31,14 @@ export function ProfileSkeleton() {
         loading
         stats={[{ label: 'Open tasks', value: null }, { label: 'Overdue', value: null }, { label: 'Done', value: null }]}
       />
-      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_340px] gap-6 items-start">
-        <div>
-          <div className={`${bar} h-3 w-24 mb-3`} />
-          <div className="glass-card rounded-xl p-5 space-y-4">
-            {Array.from({ length: 4 }, (_, i) => <div key={i} className={`${bar} h-4 w-full`} />)}
-          </div>
+      <div className="card-row lg:grid-cols-[minmax(0,1fr)_340px]">
+        <div className="glass-card rounded-xl p-4 lg:p-5 space-y-4">
+          <div className={`${bar} h-3 w-24`} />
+          {Array.from({ length: 4 }, (_, i) => <div key={i} className={`${bar} h-4 w-full`} />)}
         </div>
-        <div>
-          <div className={`${bar} h-3 w-20 mb-3`} />
-          <div className="glass-card rounded-xl p-5 space-y-4">
-            {Array.from({ length: 3 }, (_, i) => <div key={i} className={`${bar} h-4 w-full`} />)}
-          </div>
+        <div className="glass-card rounded-xl p-4 lg:p-5 space-y-4">
+          <div className={`${bar} h-3 w-20`} />
+          {Array.from({ length: 3 }, (_, i) => <div key={i} className={`${bar} h-4 w-full`} />)}
         </div>
       </div>
     </div>
@@ -55,16 +52,13 @@ export function ProfileSkeleton() {
 export function ProfileNotFound() {
   return (
     <div className="p-4 lg:p-6">
-      <div className="glass-card rounded-xl px-6 py-14 text-center">
-        <div className="w-12 h-12 mx-auto mb-3 rounded-full bg-white/[0.06] flex items-center justify-center">
-          <UserX size={22} className="text-zinc-500" aria-hidden="true" />
-        </div>
-        <h2 className="font-semibold text-white">Team member not found</h2>
-        <p className="text-sm text-zinc-400 mt-1">They are not on the team, or not on a project you share.</p>
-        <Link href="/team" className="inline-block mt-5">
-          <Button variant="secondary">Back to Team</Button>
-        </Link>
-      </div>
+      <EmptyState
+        framed
+        icon={<UserX />}
+        title="Team member not found"
+        description="They are not on the team, or not on a project you share."
+        action={<Link href="/team"><Button variant="secondary" size="sm">Back to Team</Button></Link>}
+      />
     </div>
   );
 }
@@ -72,11 +66,7 @@ export function ProfileNotFound() {
 export function ProfileError({ onRetry }: { onRetry: () => void }) {
   return (
     <div className="p-4 lg:p-6">
-      <div className="glass-card rounded-xl px-6 py-14 text-center">
-        <h2 className="font-semibold text-white">Could not load this profile</h2>
-        <p className="text-sm text-zinc-400 mt-1">Check your connection and try again.</p>
-        <Button variant="secondary" className="mt-5" onClick={onRetry}>Try again</Button>
-      </div>
+      <EmptyState framed variant="error" title="Could not load this profile" description="Check your connection and try again." onRetry={onRetry} />
     </div>
   );
 }

@@ -62,6 +62,7 @@ import { formatCalendarDay } from '@/lib/time-format';
 import { hasPermission, canEditTask, canManageAllTasks, canBeAssignedInProject, isModuleEnabled } from '@/lib/access-control';
 import { linkCountsOf, linkSectionTitle, TaskSourceEmailsSection, useKnownTaskLinkCounts, useTaskSourceEmails } from '@/components/inbox/TaskSourceEmails';
 import { RailCard, RailLayout } from '@/components/projects/TabLayout';
+import { CardRow } from '@/components/ui/Card';
 import { TaskSourceLine, useTaskSource } from './TaskSource';
 import { NewSinceDivider, useLookedSince, useUnreadSubtasks } from './TaskUnread';
 import { TaskActivity, useTaskActivityCount } from './TaskActivity';
@@ -202,6 +203,12 @@ function Section({ variant, title, afterTitle, icon: Icon, count, action, childr
       {children}
     </section>
   );
+}
+
+/** Two page cards in one row of equal height from lg; anywhere else its children as they are. */
+function PagePair({ paired, children }: { paired: boolean; children: ReactNode }) {
+  if (!paired) return <>{children}</>;
+  return <CardRow className="gap-6 lg:grid-cols-2">{children}</CardRow>;
 }
 
 /**
@@ -760,6 +767,9 @@ export function TaskDetailPanel({ task, onClose, onDelete, variant = 'panel' }: 
         <DescriptionField key={task.id} value={task.description} onChange={(description) => updateTask(task.id, { description })} canEdit={canEdit} />
       </Section>
 
+      {/* On the page, Reminders and Subtasks sit side by side, so two short
+          cards do not each run the full width (DESIGN.md Rule 19). */}
+      <PagePair paired={variant === 'page' && !task.parent_task_id}>
       <Section variant={variant} title="Reminders" icon={BellRing} count={openReminders > 0 ? `${openReminders} open` : undefined}>
         <TaskReminders task={task} />
       </Section>
@@ -926,6 +936,7 @@ export function TaskDetailPanel({ task, onClose, onDelete, variant = 'panel' }: 
         {canEdit && <InlineAdd label="Add subtask" placeholder="Subtask title" onAdd={(text) => { void addSubtask(task.id, text); }} />}
       </Section>
       )}
+      </PagePair>
 
       {showCriteria && (
       <FoldingSection

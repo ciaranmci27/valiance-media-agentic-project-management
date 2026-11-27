@@ -310,7 +310,7 @@ export default function ProjectDetailPage() {
             : 'Ask a project lead to turn it on to log hours here.'}
           action={canManageProject ? (
             <Button
-              size="sm"
+              icon={<Clock size={16} aria-hidden="true" />}
               disabled={turningOnTime}
               onClick={async () => {
                 setTurningOnTime(true);

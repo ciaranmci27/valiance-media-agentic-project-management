@@ -21,7 +21,7 @@ export function AgentsPauseSection() {
   const agentsOn = isModuleEnabled(access, 'agents');
   const paused = !!pause.state?.paused_at;
   return (
-    <section className="glass-card rounded-xl p-4 lg:p-5" aria-labelledby="agents-pause-heading">
+    <section className="glass-card h-full rounded-xl p-4 lg:p-5" aria-labelledby="agents-pause-heading">
       <SettingsSectionHeader
         icon={PauseCircle}
         headingId="agents-pause-heading"

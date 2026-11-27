@@ -109,11 +109,6 @@ export const PasswordInput = forwardRef<HTMLInputElement, PasswordInputProps>(
             {label}
           </label>
         )}
-        {description && (
-          <p id={descId} className="text-xs text-input-text-subtle">
-            {description}
-          </p>
-        )}
         <div
           className={`flex items-center gap-1.5 ${wrapperPx} outline-none ${fieldChrome(error, disabled)} ${inputClassName || ''}`}
         >
@@ -155,6 +150,11 @@ export const PasswordInput = forwardRef<HTMLInputElement, PasswordInputProps>(
             <ToggleIcon className={iconSizeClasses} />
           </button>
         </div>
+        {description && (
+          <p id={descId} className="text-xs text-input-text-subtle">
+            {description}
+          </p>
+        )}
         {error && (
           <p id={errorId} role="alert" className="text-xs text-input-error">
             {error}

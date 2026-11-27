@@ -21,7 +21,6 @@ import {
   Wallet,
   Inbox,
   Sparkles,
-  MoreHorizontal,
 } from 'lucide-react';
 import { useApp } from '@/lib/store';
 import { AI_HOME, hubCountLabel } from '@/lib/ai-home';
@@ -45,7 +44,7 @@ import { canOpenInbox, hasPermission, isModuleEnabled } from '@/lib/access-contr
 import { financeViews, type FinanceEntryKind } from '@/lib/finance/finance-views';
 import { reminderGroup } from '@/lib/reminders';
 import { placeNavItems } from '@/lib/extensions/registry';
-import { navActive, splitNav } from '@/lib/nav';
+import { navActive } from '@/lib/nav';
 import { AiNudgeCard } from './AiNudge';
 import { useCustomNavItems } from '@/lib/extensions/hooks';
 import type { InboxAttention } from '@/lib/communications/inbox-view';
@@ -182,14 +181,6 @@ export function Sidebar() {
   const navItems = placeNavItems<NavEntry>(coreNavItems, customNavItems);
 
   const closeSidebar = () => setIsOpen(false);
-
-  // Everyday entries in view, the rest under More (lib/nav).
-  const nav = splitNav(navItems, new Set(coreNavItems.map((item) => item.href)));
-  const moreActive = nav.more.some((item) => navActive(pathname, item.href));
-  // null = follow the route: open while on a page under More; a manual toggle wins.
-  const [moreToggled, setMoreToggled] = useState<boolean | null>(null);
-  const moreOpen = moreToggled ?? moreActive;
-  const moreCount = nav.more.reduce((sum, item) => sum + (item.count?.value ?? 0), 0);
 
   const renderEntry = (item: NavEntry) => {
     const isActive = navActive(pathname, item.href);
@@ -328,30 +319,6 @@ export function Sidebar() {
     );
   };
 
-  const renderMore = () => (
-    <div>
-      <button
-        type="button"
-        onClick={() => setMoreToggled(!moreOpen)}
-        aria-expanded={moreOpen}
-        className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 ${
-          moreActive && !moreOpen
-            ? 'bg-brand-500/15 text-brand-300 glow-brand-soft'
-            : 'text-zinc-400 hover:bg-white/5 hover:text-zinc-200'
-        }`}
-      >
-        <span className="relative flex-shrink-0 leading-none">
-          <MoreHorizontal size={18} aria-hidden="true" />
-          {!moreOpen && moreCount > 0 && <CountBadge count={moreCount} label={`${moreCount} under More`} placement="icon" />}
-        </span>
-        <span className="text-sm font-medium flex-1 text-left">More</span>
-        <ChevronDown size={14} className={`flex-shrink-0 transition-transform ${moreOpen ? '' : '-rotate-90'}`} aria-hidden="true" />
-      </button>
-      {/* Indented on a hairline under More, so its entries read as its own. */}
-      {moreOpen && <div className="ml-[20.5px] mt-1 space-y-1 border-l border-white/[0.08] pl-2 animate-slideDown">{nav.more.map(renderEntry)}</div>}
-    </div>
-  );
-
   return (
     <>
       {/* Overlay */}
@@ -390,8 +357,7 @@ export function Sidebar() {
 
         {/* Main nav */}
         <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto sidebar-scroll">
-          {nav.main.map(renderEntry)}
-          {nav.more.length > 0 && renderMore()}
+          {navItems.map(renderEntry)}
 
           {/* Active projects section (Settings > Workspace > Brand), with either Projects style */}
           {showActiveProjects && (loading || projects.length > 0) && (

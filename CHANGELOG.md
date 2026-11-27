@@ -9,6 +9,19 @@ Each section starts with `## X.Y.Z (YYYY-MM-DD)` and uses these headings, leavin
 - `### Database`: the core migration files in the release, one per line. `npm run db:migrate` applies them.
 - `### Breaking`: what an install must do when it takes this release.
 
+## 2.0.57 (2026-11-27)
+
+### Changed
+
+- **The sidebar lists every entry again.** Leads, Contacts, Team and Finances are back in the list in their usual places; the More group is gone.
+- **One width per page.** A page's header, tabs and content share one width, and wide screens lay settings and forms out in columns instead of one narrow strip (DESIGN.md Rule 9). Settings, a task page, My Tasks and Trash use the full width.
+- **An agent's page:** Access is two columns (who it works for, who can use it, who manages it and what it may do; its keys and how its host connects), with what it reads below. Empty notes show one empty state with Add instead of six blank sections, on agents, company knowledge and project briefs too.
+- **Dashboard:** Add task and New project sit in the header, the chart says what it counts, recent and due tasks sit side by side, and a task opens in the side panel.
+- **My Tasks** puts Reminders in a rail beside the queue. A person's profile fills the page, with their work and projects side by side.
+- **Settings:** related cards sit side by side (time zone and appearance, the security cards, Trash and Demo mode), notification settings flow in two columns, the audit log and Trash end with Show more, Invoice details save through the save bar, and email settings use the standard headers and empty states.
+- **Finances, Time, Contacts and Leads** use the standard card headers, plain ink for money, Pill statuses and standard empty states; Leads says when a search matches nothing.
+- **Every input shows its hint under the field**, as selects do, so fields in a row line up. Long tables such as Team end with Show more.
+
 ## 2.0.56 (2026-11-27)
 
 ### Added

@@ -150,7 +150,7 @@ export function AgentKeysCard({ detail, powers, suspended, held }: {
       title="Keys"
       icon={<KeyRound />}
       id="access-keys"
-      description={person ? `${person.name || 'Its person'} makes its keys on Your assistant.` : 'How its host signs in. Each key does what the list above allows.'}
+      description={person ? `${person.name || 'Its person'} makes its keys on Your assistant.` : 'How its host signs in. Each key does what "What it may do" allows.'}
       action={powers.mint ? <Button size="sm" variant="secondary" icon={<KeyRound size={13} aria-hidden="true" />} onClick={newKey}>New key</Button> : undefined}
       bodyClassName="pb-1"
     >

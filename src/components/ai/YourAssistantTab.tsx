@@ -5,6 +5,7 @@ import { AssistantSection } from '@/components/assistant/MyAssistantPage';
 import { ApiKeysSection } from '@/components/settings/ApiKeysSection';
 import { ConnectAiSection } from '@/components/settings/ConnectAiSection';
 import { LinkedAccountsSection } from '@/components/settings/LinkedAccountsSection';
+import { SectionsAsCards } from '@/components/settings/SettingsSectionHeader';
 import { useAuth } from '@/lib/auth-context';
 import { useDemo } from '@/lib/demo-context';
 import type { AiHub } from '@/lib/use-ai-hub';
@@ -30,11 +31,14 @@ export function YourAssistantTab({ hub, onOpenTask, onOpenSetup }: {
     <div className="space-y-6">
       <NeedsYouView scope="mine" needs={hub.mine.needs} items={hub.mine.items} drafts={hub.mine.drafts} onOpenTask={onOpenTask} />
       {showAssistant && <AssistantSection view={hub.assistant!} onOpenSetup={onOpenSetup} />}
-      {/* Your own AI tools: anyone who signs in; keys are not made in the demo or by guests. */}
-      <ConnectAiSection canMakeKeys={canMakeKeys} />
-      {/* Your own API keys, for a tool that cannot sign in with Connect AI (everyone else's are in Settings > Developers). */}
-      {canMakeKeys && <ApiKeysSection scope="mine" />}
-      {showAssistant && <LinkedAccountsSection />}
+      {/* Settings sections shown here take the calm card header, like the cards beside them (Rule 2). */}
+      <SectionsAsCards>
+        {/* Your own AI tools: anyone who signs in; keys are not made in the demo or by guests. */}
+        <ConnectAiSection canMakeKeys={canMakeKeys} />
+        {/* Your own API keys, for a tool that cannot sign in with Connect AI (everyone else's are in Settings > Developers). */}
+        {canMakeKeys && <ApiKeysSection scope="mine" />}
+        {showAssistant && <LinkedAccountsSection />}
+      </SectionsAsCards>
     </div>
   );
 }

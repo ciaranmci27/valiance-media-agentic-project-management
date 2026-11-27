@@ -91,7 +91,7 @@ export function localDayStart(day: string): string {
  * (exclusive), sent as ISO times, so a row dated today in the list is in a
  * filter for today.
  */
-export function auditQuery(filters: AuditFilters, page: number): string {
+export function auditQuery(filters: AuditFilters, page: number, before?: AuditEntry): string {
   const params = new URLSearchParams();
   if (filters.member) params.set('member', filters.member);
   if (filters.actingFor) params.set('acting_for', filters.actingFor);
@@ -101,7 +101,8 @@ export function auditQuery(filters: AuditFilters, page: number): string {
     const [year, month, date] = filters.to.split('-').map(Number);
     params.set('to', new Date(year, month - 1, date + 1).toISOString());
   }
-  if (page > 0) params.set('page', String(page));
+  if (before) params.set('before', `${before.timestamp}|${before.id}`);
+  else if (page > 0) params.set('page', String(page));
   return params.toString();
 }
 

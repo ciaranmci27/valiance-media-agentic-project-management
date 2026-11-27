@@ -277,17 +277,14 @@ export function ChoiceCard({ id, selected, focusable, onSelect, icon, title, des
 }
 
 /** "Set this up from a chat": the aside every flow carries, showing an AI can do the same over MCP. */
-export function ChatSetupAside({ prompt, tools }: { prompt: string; tools: string[] }) {
+export function ChatSetupAside({ prompt }: { prompt: string }) {
   return (
     <div className="rounded-2xl bg-white/[0.03] p-5 ring-1 ring-inset ring-white/[0.06]">
       <p className="text-sm font-semibold text-white">Set this up from a chat</p>
       <p className="mt-1.5 text-xs leading-relaxed text-zinc-400">
-        Any AI connected to this workspace over MCP can do these steps for you. Ask it in plain words:
+        Any AI connected to this workspace can do these steps for you. Ask it in plain words:
       </p>
       <p className="mt-3 rounded-lg bg-white/[0.04] px-3 py-2.5 text-xs leading-relaxed text-zinc-200">{prompt}</p>
-      <p className="mt-3 text-[11px] leading-relaxed text-zinc-500">
-        It uses <span className="font-mono text-zinc-400">{tools.join(', ')}</span>.
-      </p>
     </div>
   );
 }

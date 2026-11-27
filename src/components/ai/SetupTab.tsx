@@ -7,6 +7,7 @@ import { AssistantSetupsSection } from '@/components/settings/assistants/Assista
 import { AssistantStatusSection } from '@/components/settings/assistants/AssistantStatusSection';
 import { ChatConnectionsSection } from '@/components/settings/assistants/ChatConnectionsSection';
 import { ASSISTANTS_DEMO_NOTE } from '@/components/settings/assistants/demo';
+import { SectionsAsCards } from '@/components/settings/SettingsSectionHeader';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { useAuth } from '@/lib/auth-context';
@@ -35,6 +36,8 @@ export function SetupTab() {
   const assistantsOn = agentsOn && !!settings?.enabled;
 
   return (
+    // Settings sections shown here take the calm card header, like the Keys card (Rule 2).
+    <SectionsAsCards>
     <div className="space-y-6">
       {isDemoMode && <p role="note" className="rounded-lg bg-white/[0.04] px-3.5 py-3 text-sm text-zinc-300">{ASSISTANTS_DEMO_NOTE}</p>}
       <div id="assistants" className="scroll-mt-6">
@@ -69,5 +72,6 @@ export function SetupTab() {
         {null}
       </Card>
     </div>
+    </SectionsAsCards>
   );
 }

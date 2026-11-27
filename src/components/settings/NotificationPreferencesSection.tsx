@@ -2,7 +2,7 @@
 
 import { updateDelivers } from '@/lib/notification-defaults';
 
-import { Bell, Mail, MessageCircle, Zap } from 'lucide-react';
+import { Bell, Mail, MessageCircle, Send, Zap } from 'lucide-react';
 import { useAuth } from '@/lib/auth-context';
 import { useDemo } from '@/lib/demo-context';
 import { isModuleEnabled } from '@/lib/access-control';
@@ -13,6 +13,7 @@ import { demoUpdateNotificationPreferences } from '@/lib/demo-notifications';
 import { AI_SECTION_HREFS } from '@/lib/ai-home';
 import { Toggle } from '@/components/ui/inputs/Toggle';
 import { Button } from '@/components/ui/Button';
+import { CardRow } from '@/components/ui/Card';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { toast } from '@/components/ui/Toast';
 import { GroupLabel } from '@/components/projects/TabLayout';
@@ -247,69 +248,69 @@ export function NotificationPreferencesSection({ canManageAgents }: { canManageA
     </div>
   );
 
+  // One switch per channel, in the same three columns on every row.
+  const switches = (key: DeliveryKey | null, label: string, inApp: boolean, email: boolean, chat: boolean) => (
+    <div className="flex flex-shrink-0 items-center gap-3">
+      <span className="flex w-11 justify-center">
+        {key === null
+          // Needs you is always on in the app: shown as an on switch that cannot be turned off.
+          ? <Toggle checked disabled onChange={() => undefined} aria-label={`${label} in the app, always on`} />
+          : <Toggle checked={inApp} onChange={() => flip('in_app', key, label)} aria-label={`${label} in the app`} />}
+      </span>
+      <span className="flex w-11 justify-center"><Toggle checked={email} disabled={!emailOn || !inApp} onChange={() => flip('email', key ?? 'needs_you', label)} aria-label={`${label} by email`} /></span>
+      <span className="flex w-11 justify-center"><Toggle checked={chat} disabled={!chatOn || !inApp} onChange={() => flip('chat', key ?? 'needs_you', label)} aria-label={`${label} in chat`} /></span>
+    </div>
+  );
+
   return (
     <div className="space-y-6">
-      <section id="notifications" className="glass-card scroll-mt-6 rounded-xl p-4 lg:p-5">
-        <SettingsSectionHeader icon={Bell} title="How you hear" description="Everything shows here in the app. Choose what also reaches you by email or in your chat." />
-        <div className="divide-y divide-white/[0.06]">
-          <ChannelRow
-            icon={<Mail size={16} />}
-            title="Email"
-            line={view.email_available ? 'To the address you sign in with.' : 'Email sending is not set up yet. An Owner sets it up in Settings > Email.'}
-            checked={emailOn}
-            disabled={!view.email_available}
-            onChange={() => void save({ email_enabled: !view.email_enabled }, view.email_enabled ? 'Email notifications off' : 'Email notifications on')}
-          />
-          <ChannelRow
-            icon={<MessageCircle size={16} />}
-            title="Chat"
-            line={view.chat_available
-              ? 'A message from your workspace bot on your linked account, with a link back here.'
-              : 'Link a chat account first, so the bot can reach you.'}
-            action={view.chat_available ? undefined : <Button size="sm" variant="secondary" href={AI_SECTION_HREFS['chat-accounts']}>Link an account</Button>}
-            checked={chatOn}
-            disabled={!view.chat_available}
-            onChange={() => void save({ chat_enabled: !view.chat_enabled }, view.chat_enabled ? 'Chat notifications off' : 'Chat notifications on')}
-          />
-        </div>
-      </section>
+      {/* The channels and the one thing that always reaches you, side by side on wide screens (Rule 9). */}
+      <CardRow className="lg:grid-cols-2">
+        <section id="notifications" className="glass-card card-fill scroll-mt-6 rounded-xl p-4 lg:p-5">
+          <SettingsSectionHeader icon={Send} title="How you hear" description="Everything shows here in the app. Choose what also reaches you by email or in your chat." />
+          <div className="divide-y divide-white/[0.06]">
+            <ChannelRow
+              icon={<Mail size={16} />}
+              title="Email"
+              line={view.email_available ? 'To the address you sign in with.' : 'Email sending is not set up yet. An Owner sets it up in Settings > Email.'}
+              checked={emailOn}
+              disabled={!view.email_available}
+              onChange={() => void save({ email_enabled: !view.email_enabled }, view.email_enabled ? 'Email notifications off' : 'Email notifications on')}
+            />
+            <ChannelRow
+              icon={<MessageCircle size={16} />}
+              title="Chat"
+              line={view.chat_available
+                ? 'A message from your workspace bot on your linked account, with a link back here.'
+                : 'Link a chat account first, so the bot can reach you.'}
+              action={view.chat_available ? undefined : <Button size="sm" variant="secondary" href={AI_SECTION_HREFS['chat-accounts']}>Link an account</Button>}
+              checked={chatOn}
+              disabled={!view.chat_available}
+              onChange={() => void save({ chat_enabled: !view.chat_enabled }, view.chat_enabled ? 'Chat notifications off' : 'Chat notifications on')}
+            />
+          </div>
+        </section>
 
-      <section className="glass-card rounded-xl p-4 lg:p-5" aria-labelledby="needs-you-delivery">
-        <div className="flex min-w-0 items-start gap-3">
-          <span className="mt-0.5 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-amber-500/[0.14] text-amber-300"><Zap size={16} aria-hidden="true" /></span>
-          <div className="min-w-0">
-            <p id="needs-you-delivery" className="text-sm font-semibold text-white">Needs you</p>
-            <p className="mt-0.5 text-xs text-zinc-400">Questions, approvals and agents stuck on your work. Always in the app; on by email and chat once those are on.</p>
+        <section className="glass-card card-fill rounded-xl p-4 lg:p-5" aria-labelledby="needs-you-delivery">
+          <SettingsSectionHeader icon={Zap} headingId="needs-you-delivery" title="Needs you" description="Questions, approvals and agents stuck on your work. Always in the app; on by email and chat once those are on." />
+          <div className="flex justify-end pb-2">{columns}</div>
+          <div className="flex items-center justify-between gap-4 border-t border-white/[0.06] py-2.5">
+            <p className="min-w-0 text-sm text-zinc-300">Everything waiting on you</p>
+            {switches(null, 'Needs you', true, emailOn && view.email.needs_you, chatOn && view.chat.needs_you)}
           </div>
-        </div>
-        <div className="mt-4 flex justify-end">{columns}</div>
-        <div className="mt-2 flex items-center justify-between gap-4">
-          <p className="min-w-0 text-sm text-zinc-300">Everything waiting on you</p>
-          <div className="flex flex-shrink-0 items-center gap-3">
-            {/* Always on in the app: shown as an on switch that cannot be turned off. */}
-            <span className="flex w-11 justify-center"><Toggle checked disabled onChange={() => undefined} aria-label="Needs you in the app, always on" /></span>
-            <span className="flex w-11 justify-center">
-              <Toggle checked={emailOn && view.email.needs_you} disabled={!emailOn} onChange={() => flip('email', 'needs_you', 'Needs you')} aria-label="Needs you by email" />
-            </span>
-            <span className="flex w-11 justify-center">
-              <Toggle checked={chatOn && view.chat.needs_you} disabled={!chatOn} onChange={() => flip('chat', 'needs_you', 'Needs you')} aria-label="Needs you in chat" />
-            </span>
-          </div>
-        </div>
-      </section>
+        </section>
+      </CardRow>
 
       <section className="glass-card rounded-xl p-4 lg:p-5" aria-labelledby="updates-delivery">
-        <div className="mb-4 flex items-start justify-between gap-4">
-          <div className="min-w-0">
-            <p id="updates-delivery" className="text-sm font-semibold text-white">Updates</p>
-            <p className="mt-0.5 text-xs text-zinc-400">What happened on your work, by kind.</p>
-          </div>
-          {columns}
-        </div>
-        <div className="space-y-6">
+        <SettingsSectionHeader icon={Bell} headingId="updates-delivery" title="Updates" description="What happened on your work, by kind. Off in the app means it is not sent anywhere." />
+        {/* Two columns of kinds on wide screens, so each label sits beside its switches (Rule 19). */}
+        <div className="xl:columns-2 xl:gap-10">
           {groups.map(({ group, items }) => (
-            <div key={group}>
-              <GroupLabel as="h3" className="mb-2">{group}</GroupLabel>
+            <div key={group} className="break-inside-avoid pb-6 last:pb-0">
+              <div className="mb-1 flex items-center justify-between gap-4">
+                <GroupLabel as="h3">{group}</GroupLabel>
+                {columns}
+              </div>
               <div className="divide-y divide-white/[0.06]">
                 {items.map(({ key, label, desc }) => (
                   <div key={key} className="flex items-center justify-between gap-4 py-2.5">
@@ -317,11 +318,13 @@ export function NotificationPreferencesSection({ canManageAgents }: { canManageA
                       <p className="text-sm text-zinc-300">{label}</p>
                       <p className="mt-0.5 text-xs text-zinc-400">{view.in_app[key] ? desc : 'Off in the app, so it is not sent anywhere.'}</p>
                     </div>
-                    <div className="flex flex-shrink-0 items-center gap-3">
-                      <span className="flex w-11 justify-center"><Toggle checked={view.in_app[key]} onChange={() => flip('in_app', key, label)} aria-label={`${label} in the app`} /></span>
-                      <span className="flex w-11 justify-center"><Toggle checked={updateDelivers({ inApp: view.in_app[key], channelOn: emailOn, choice: view.email[key] })} disabled={!emailOn || !view.in_app[key]} onChange={() => flip('email', key, label)} aria-label={`${label} by email`} /></span>
-                      <span className="flex w-11 justify-center"><Toggle checked={updateDelivers({ inApp: view.in_app[key], channelOn: chatOn, choice: view.chat[key] })} disabled={!chatOn || !view.in_app[key]} onChange={() => flip('chat', key, label)} aria-label={`${label} in chat`} /></span>
-                    </div>
+                    {switches(
+                      key,
+                      label,
+                      view.in_app[key],
+                      updateDelivers({ inApp: view.in_app[key], channelOn: emailOn, choice: view.email[key] }),
+                      updateDelivers({ inApp: view.in_app[key], channelOn: chatOn, choice: view.chat[key] }),
+                    )}
                   </div>
                 ))}
               </div>

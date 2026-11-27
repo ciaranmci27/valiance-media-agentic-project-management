@@ -4,18 +4,21 @@ import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'rea
 import { useSearchParams } from 'next/navigation';
 import {
   ArrowLeft, Briefcase, CheckSquare, Clock, DollarSign, FileText, FolderKanban, KeyRound, Layers, LayoutTemplate,
-  Megaphone, MessageSquare, RefreshCw, RotateCcw, ScrollText, Trash2, UserCircle, UsersRound, type LucideIcon,
+  Megaphone, MessageSquare, RotateCcw, ScrollText, Trash2, UserCircle, UsersRound, type LucideIcon,
 } from 'lucide-react';
 import { useApp } from '@/lib/store';
 import { Header } from '@/components/layout/Header';
 import { Button } from '@/components/ui/Button';
 import { toast } from '@/components/ui/Toast';
-import { Bone, EmptyCard, NoMatches, SubNav, TabToolbar } from '@/components/projects/TabLayout';
+import { Bone, TabToolbar } from '@/components/projects/TabLayout';
+import { EmptyState } from '@/components/ui/EmptyState';
+import { FilterButton, FilterOption, FilterSection } from '@/components/ui/FilterButton';
+import { ShowMore, SHOW_MORE_STEP } from '@/components/ui/ShowMore';
+import { formatAgo } from '@/lib/time-format';
 import type { TrashItem } from '@/lib/types';
 import { useAuth } from '@/lib/auth-context';
 import { isModuleEnabled, type AccessContext } from '@/lib/access-control';
 import { TRASH_TABLE_MODULE, type TrashTable } from '@/lib/supabase/trash';
-import { appLocale } from '@/lib/region';
 import { INITIATIVE_LABEL } from '@/lib/initiatives';
 
 type Group = 'all' | 'projects' | 'tasks' | 'billing' | 'clients' | 'files' | 'team';
@@ -83,18 +86,6 @@ function groupsFor(access: AccessContext | null): typeof GROUPS {
   })).filter((g) => g.key === 'all' || g.types.length > 0);
 }
 
-function timeAgo(dateStr: string): string {
-  const diff = Math.max(0, Date.now() - new Date(dateStr).getTime());
-  const minutes = Math.floor(diff / 60000);
-  if (minutes < 1) return 'just now';
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  if (days < 7) return `${days}d ago`;
-  return new Date(dateStr).toLocaleDateString(appLocale());
-}
-
 export default function TrashPage() {
   // useSearchParams (?group=projects from the Projects page) needs a Suspense boundary.
   return (
@@ -121,6 +112,10 @@ function TrashPageContent() {
   const [loadFailed, setLoadFailed] = useState(false);
   const [restoring, setRestoring] = useState<string | null>(null);
   const [query, setQuery] = useState('');
+  const [shown, setShown] = useState(SHOW_MORE_STEP);
+  // A new type or search starts the list from the top again.
+  useEffect(() => { setShown(SHOW_MORE_STEP); }, [selectedGroup, query]);
+  const clearFilters = () => { setGroup('all'); setQuery(''); };
 
   // The store's functions change identity on every store update; load once on
   // open and after each restore, not on every render.
@@ -176,31 +171,34 @@ function TrashPageContent() {
       <Header
         title="Trash"
         subtitle="Deleted items, kept until you restore them. Nothing here is ever permanently deleted."
+        actions={<Button href="/settings/data" variant="ghost" size="sm" icon={<ArrowLeft size={14} aria-hidden="true" />}>Data settings</Button>}
       />
 
-      <div className="p-4 lg:p-6 max-w-4xl mx-auto">
-        <div className="mb-4">
-          <Button href="/settings/data" variant="ghost" size="sm" icon={<ArrowLeft size={14} />}>Settings</Button>
-        </div>
-
+      {/* Full width like every app page (Rule 9). */}
+      <div className="p-4 lg:p-6">
         <TabToolbar
-          search={{ value: query, onChange: setQuery, placeholder: 'Search Trash...' }}
+          search={{ value: query, onChange: setQuery, placeholder: 'Search Trash' }}
           filters={(
-            <SubNav
-              label="Trash type"
-              items={groups.map((g) => ({ key: g.key, label: g.label, count: items ? counts[g.key] : undefined }))}
-              active={group}
-              onChange={setGroup}
-            />
+            // Seven kinds is more than a segmented control holds: one Filter button (Rule 3).
+            <FilterButton activeCount={group === 'all' ? 0 : 1} onClear={() => setGroup('all')} title="Filter Trash" width={300} align="start">
+              <FilterSection label="Type">
+                {groups.map((g) => (
+                  <FilterOption key={g.key} selected={group === g.key} onToggle={() => setGroup(group === g.key ? 'all' : g.key)}>
+                    {g.label}{items ? <span className="tabular-nums text-zinc-500">{counts[g.key] ?? 0}</span> : null}
+                  </FilterOption>
+                ))}
+              </FilterSection>
+            </FilterButton>
           )}
         />
 
         {loadFailed && items === null ? (
-          <EmptyCard
-            icon={<Trash2 />}
+          <EmptyState
+            framed
+            variant="error"
             title="Trash could not load"
             description="Nothing has been lost. Check your connection and try again."
-            action={<Button size="sm" variant="secondary" icon={<RefreshCw size={14} />} onClick={() => void reload()}>Try again</Button>}
+            onRetry={() => void reload()}
           />
         ) : items === null ? (
           <div className="glass-card rounded-xl divide-y divide-white/[0.06]" role="status" aria-busy="true" aria-label="Loading Trash">
@@ -216,7 +214,8 @@ function TrashPageContent() {
             ))}
           </div>
         ) : items.length === 0 ? (
-          <EmptyCard
+          <EmptyState
+            framed
             icon={<Trash2 />}
             title="Trash is empty"
             description="When you delete a project, task, file or anything else, it lands here and you can bring it back."
@@ -224,17 +223,18 @@ function TrashPageContent() {
         ) : (
           <div className="glass-card rounded-xl">
             {visible.length === 0 ? (
-              <NoMatches>Nothing in Trash matches.</NoMatches>
+              <EmptyState variant="filtered" title="Nothing in Trash matches" onClearFilters={clearFilters} />
             ) : (
+              <>
               <ul className="divide-y divide-white/[0.06]">
-                {visible.map((item) => {
+                {visible.slice(0, shown).map((item) => {
                   const type = TYPES[item.record_type] ?? { label: 'Item', icon: FileText };
                   const Icon = type.icon;
                   // Offer the project's restore only when the project is what blocks it.
                   const parentProject = item.blocker?.startsWith('Restore the project') && item.project_id
                     ? trashedProjects.get(item.project_id) : undefined;
                   return (
-                    <li key={`${item.record_type}:${item.id}`} className="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center">
+                    <li key={`${item.record_type}:${item.id}`} className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center lg:px-5">
                       <div className="flex items-start gap-3 min-w-0 flex-1">
                         <div className="w-8 h-8 rounded-lg bg-white/[0.06] flex items-center justify-center flex-shrink-0">
                           <Icon size={16} className="text-zinc-400" aria-hidden="true" />
@@ -246,7 +246,7 @@ function TrashPageContent() {
                             {item.record_type === 'tasks' && item.context?.startsWith('Subtask of ')
                               ? item.context
                               : `${type.label}${item.context ? ` in ${item.context}` : ''}`}
-                            {' · '}deleted {timeAgo(item.deleted_at)}{item.deleted_by_name ? ` by ${item.deleted_by_name}` : ''}
+                            {' · '}deleted {formatAgo(item.deleted_at, { midSentence: true })}{item.deleted_by_name ? ` by ${item.deleted_by_name}` : ''}
                           </p>
                           {item.blocker && <p className="text-xs text-amber-300 mt-1">{item.blocker}</p>}
                         </div>
@@ -270,7 +270,7 @@ function TrashPageContent() {
                             disabled={restoring !== null || !!item.blocker}
                             onClick={() => void restore(item)}
                           >
-                            {restoring === item.id ? 'Restoring...' : 'Restore'}
+                            {restoring === item.id ? 'Restoring' : 'Restore'}
                             <span className="sr-only"> {type.label.toLowerCase()} {item.label}</span>
                           </Button>
                         )}
@@ -279,6 +279,8 @@ function TrashPageContent() {
                   );
                 })}
               </ul>
+              <ShowMore shown={Math.min(shown, visible.length)} total={visible.length} onMore={() => setShown((n) => n + SHOW_MORE_STEP)} noun="items" className="border-t border-white/[0.06]" />
+              </>
             )}
           </div>
         )}

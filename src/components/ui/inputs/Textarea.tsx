@@ -171,11 +171,6 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(function 
           )}
         </div>
       )}
-      {description && (
-        <p id={descId} className="text-xs text-input-text-subtle">
-          {description}
-        </p>
-      )}
       <textarea
         {...nativeProps}
         ref={mergeRefs(internalRef, forwardedRef)}
@@ -209,6 +204,11 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(function 
               : undefined
         }
       />
+      {description && (
+        <p id={descId} className="text-xs text-input-text-subtle">
+          {description}
+        </p>
+      )}
       {error && (
         <p id={errorId} role="alert" className="text-xs text-input-error">
           {error}

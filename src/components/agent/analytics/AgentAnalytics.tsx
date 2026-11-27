@@ -515,10 +515,11 @@ export function AgentAnalytics() {
         subscriptionLine={subscriptionLine}
       />
 
+      {/* Cards side by side share one height (DESIGN.md Rule 14): each cell stretches, and its card fills it. */}
       {customCards.length > 0 && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {customCards.map(({ key, title, size, component: Body }) => (
-            <div key={key} aria-label={title} role="region" className={`${size === 'half' ? '' : 'lg:col-span-2'} min-w-0`}>
+            <div key={key} aria-label={title} role="region" className={`${size === 'half' ? '' : 'lg:col-span-2'} flex min-w-0 flex-col [&>*]:flex-1`}>
               <Body
                 range={range}
                 timezone={timezone}

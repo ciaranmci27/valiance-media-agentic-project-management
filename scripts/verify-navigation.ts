@@ -1,13 +1,10 @@
 /**
- * Navigation: the sidebar's everyday entries and More (with an install's own
- * entries kept beside the one they were placed after), the AI nudge until AI
- * is set up, and a page's tab row keeping what fits with the open tab always
+ * Navigation: the AI nudge until AI is set up, and a page's tab row keeping what fits with the open tab always
  * shown. Pure logic; nothing touches a database.
  *
  *   npm run -s test:navigation
  */
-import { aiNudge, splitNav, NAV_MORE_HREFS, type AiNudgeInput } from '@/lib/nav';
-import { placeNavItems } from '@/lib/extensions/registry';
+import { aiNudge, type AiNudgeInput } from '@/lib/nav';
 import { fitTabs } from '@/lib/tab-overflow';
 
 let passed = 0;
@@ -15,33 +12,6 @@ const failures: string[] = [];
 function check(label: string, ok: boolean, detail?: unknown) {
   if (ok) passed++;
   else failures.push(detail === undefined ? label : `${label}: ${JSON.stringify(detail)}`);
-}
-
-// ── Sidebar: everyday in view, the rest under More ─────────────────────────
-{
-  const owner = ['/dashboard', '/my-tasks', '/inbox', '/projects', '/leads', '/contacts', '/team', '/finances', '/ai', '/notifications'].map((href) => ({ href }));
-  const core = new Set(owner.map((e) => e.href));
-  const { main, more } = splitNav(owner, core);
-  check('an Owner sees six everyday entries', main.map((e) => e.href).join() === '/dashboard,/my-tasks,/inbox,/projects,/ai,/notifications', main);
-  check('Leads, Contacts, Team and Finances sit under More, in order', more.map((e) => e.href).join() === '/leads,/contacts,/team,/finances', more);
-  check('nothing is lost or doubled', main.length + more.length === owner.length);
-
-  // A member who sees only the timesheet: More would hold one entry, so it shows in the list.
-  const member = ['/dashboard', '/my-tasks', '/projects', '/time', '/ai', '/notifications'].map((href) => ({ href }));
-  const memberSplit = splitNav(member, new Set(member.map((e) => e.href)));
-  check('a More of one is no More: the entry stays in the list, in place', memberSplit.more.length === 0 && memberSplit.main.map((e) => e.href).join() === member.map((e) => e.href).join(), memberSplit);
-
-  // An install's own entries: placed by placeNavItems, then beside their anchor.
-  const placed = placeNavItems(owner, [
-    { href: '/x/pipeline', after: '/leads' },
-    { href: '/x/reports', after: '/projects' },
-    { href: '/x/wiki' },
-  ]);
-  const custom = splitNav(placed, core);
-  check('a custom entry placed after Leads goes under More, right after Leads', custom.more.map((e) => e.href).join() === '/leads,/x/pipeline,/contacts,/team,/finances', custom.more);
-  check('a custom entry placed after Projects stays in view after Projects', custom.main.map((e) => e.href).indexOf('/x/reports') === custom.main.map((e) => e.href).indexOf('/projects') + 1, custom.main);
-  check('a custom entry with no anchor stays in view, at the end', custom.main.at(-1)?.href === '/x/wiki', custom.main);
-  check('each Finances path is under More', ['/finances', '/time'].every((href) => NAV_MORE_HREFS.includes(href)));
 }
 
 // ── The AI nudge ───────────────────────────────────────────────────────────

@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/Button';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { ProviderLogo } from '@/components/ui/ProviderLogo';
 import { RowActionsMenu, type RowAction } from '@/components/ui/RowActionsMenu';
+import { ShowMore } from '@/components/ui/ShowMore';
 import { connectionHealthBadge, type LogoBadge } from '@/lib/logos';
 import { Toggle } from '@/components/ui/inputs/Toggle';
 import { toast } from '@/components/ui/Toast';
@@ -81,6 +82,9 @@ function statusLine(connection: ChatConnectionView, health: ChatConnectionHealth
   return heard ? `Last message ${heard}` : 'No messages yet';
 }
 
+/** How many chat apps show before Show more, and how many each click adds. */
+const CONNECTIONS_STEP = 8;
+
 /**
  * Chat apps: the app is the front door for chat. With nothing connected, a
  * card per chat app opens the add flow with
@@ -116,6 +120,8 @@ export function ChatConnectionsSection() {
   const [replacing, setReplacing] = useState<ChatConnectionView | null>(null);
   /** Off connections whose setup someone opened from the row menu. */
   const [opened, setOpened] = useState<Set<string>>(() => new Set());
+  // A long list shows the first few, then Show more (Rule 4).
+  const [shown, setShown] = useState(CONNECTIONS_STEP);
 
   const startAdding = (provider: ChatProvider | null) => { if (demoBlocked(isDemoMode)) return; setAdding({ provider }); setMade(null); };
 
@@ -239,8 +245,9 @@ export function ChatConnectionsSection() {
           <p className="mt-3 text-[11px] text-zinc-500">Bot tokens are stored encrypted.</p>
         </>
       ) : (
+        <>
         <ul className="divide-y divide-white/[0.06] overflow-hidden rounded-lg border border-white/[0.08]">
-          {connections.map((connection) => {
+          {connections.slice(0, shown).map((connection) => {
             const status = connectionStatus(connection);
             const name = `${connection.provider_label} ${connection.kind === 'company' ? 'Company' : 'Personal'}`;
             // An off connection is one compact row; its setup shows when it is on, or opened from its menu.
@@ -341,6 +348,8 @@ export function ChatConnectionsSection() {
             );
           })}
         </ul>
+        <ShowMore shown={Math.min(shown, connections.length)} total={connections.length} step={CONNECTIONS_STEP} onMore={() => setShown((n) => n + CONNECTIONS_STEP)} noun="chat apps" className="pb-0" />
+        </>
       )}
 
       <AddChatConnectionDialog

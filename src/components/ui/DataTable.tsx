@@ -2,6 +2,7 @@
 
 import { useState, useMemo, type ReactNode } from 'react';
 import { ArrowUp, ArrowDown, ChevronsUpDown } from 'lucide-react';
+import { ShowMore } from './ShowMore';
 
 export interface Column<T> {
   /** Stable key, also used as the sort key. */
@@ -42,6 +43,14 @@ interface DataTableProps<T> {
    * line up across every table. Pair it with a `width` on each column.
    */
   fixedLayout?: boolean;
+  /**
+   * Shows this many rows, then ShowMore adds the same again (Rule 4). Applied
+   * after sorting, so a sort always reads the whole list. Leave it out for a
+   * short list, or one the server already pages.
+   */
+  pageSize?: number;
+  /** Noun for ShowMore's screen-reader label ("people"). */
+  noun?: string;
 }
 
 const alignClass = (align?: Column<unknown>['align']) =>
@@ -58,7 +67,10 @@ export function DataTable<T>({
   className = '',
   mobileCard,
   fixedLayout = false,
+  pageSize,
+  noun,
 }: DataTableProps<T>) {
+  const [limit, setLimit] = useState(pageSize ?? Infinity);
   const [sort, setSort] = useState<{ key: string; dir: 'asc' | 'desc' } | null>(initialSort ?? null);
 
   const sorted = useMemo(() => {
@@ -75,6 +87,11 @@ export function DataTable<T>({
       return sort.dir === 'asc' ? cmp : -cmp;
     });
   }, [data, sort, columns]);
+
+  const visible = useMemo(() => (Number.isFinite(limit) ? sorted.slice(0, limit) : sorted), [sorted, limit]);
+  const more = pageSize && sorted.length > visible.length ? (
+    <ShowMore shown={visible.length} total={sorted.length} step={pageSize} noun={noun} onMore={() => setLimit((n) => n + pageSize)} />
+  ) : null;
 
   const toggleSort = (key: string) => {
     setSort(prev => {
@@ -96,7 +113,7 @@ export function DataTable<T>({
               {emptyContent}
             </div>
           ) : (
-            sorted.map((row) => (
+            visible.map((row) => (
               <div
                 key={keyExtractor(row)}
                 onClick={onRowClick ? () => onRowClick(row) : undefined}
@@ -106,6 +123,7 @@ export function DataTable<T>({
               </div>
             ))
           )}
+          {more}
         </div>
       )}
 
@@ -152,7 +170,7 @@ export function DataTable<T>({
                   </td>
                 </tr>
               ) : (
-                sorted.map((row) => (
+                visible.map((row) => (
                   <tr
                     key={keyExtractor(row)}
                     onClick={onRowClick ? () => onRowClick(row) : undefined}
@@ -173,6 +191,7 @@ export function DataTable<T>({
           </table>
         </div>
       </div>
+      {more && <div className={mobileCard ? 'hidden md:block' : undefined}>{more}</div>}
     </>
   );
 }

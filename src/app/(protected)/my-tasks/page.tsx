@@ -4,6 +4,9 @@ import { Suspense, useMemo, useState } from 'react';
 import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
 import { Header } from '@/components/layout/Header';
+import { CardHeader } from '@/components/ui/Card';
+import { CountBadge } from '@/components/ui/CountBadge';
+import { EmptyState } from '@/components/ui/EmptyState';
 import { PriorityBadge } from '@/components/ui/Badge';
 import { useTrashTask } from '@/components/tasks/useTrashTask';
 import { TaskDetailPanel } from '@/components/tasks/TaskDetailPanel';
@@ -448,26 +451,22 @@ function RadarPageContent() {
   const band = (opts: {
     icon: typeof Zap;
     title: string;
-    hint: string;
+    hint?: string;
     count: number;
+    countLabel: string;
     emphasis?: boolean;
     id?: string;
     children: React.ReactNode;
   }) => (
-    <section
-      id={opts.id}
-      className={`glass-card rounded-xl overflow-hidden ${opts.emphasis ? 'border border-amber-500/20' : ''}`}
-    >
-      <div className={`flex items-center gap-2 px-4 py-3 border-b ${opts.emphasis ? 'border-amber-500/15 bg-amber-500/[0.05]' : 'border-white/[0.08]'}`}>
-        <opts.icon size={15} className={opts.emphasis ? 'text-amber-300' : 'text-zinc-400'} aria-hidden="true" />
-        <h2 className="text-sm font-semibold text-white">{opts.title}</h2>
-        <span className={`text-xs tabular-nums px-1.5 py-0.5 rounded-full ${
-          opts.emphasis && opts.count > 0 ? 'bg-amber-500/15 text-amber-300' : 'bg-white/[0.06] text-zinc-400'
-        }`}>
-          {opts.count}
-        </span>
-        <span className="text-xs text-zinc-500 ml-auto hidden sm:block truncate pl-3">{opts.hint}</span>
-      </div>
+    <section id={opts.id} className="glass-card rounded-xl overflow-hidden scroll-mt-6" aria-labelledby={opts.id ? `${opts.id}-title` : undefined}>
+      <CardHeader
+        id={opts.id ? `${opts.id}-title` : undefined}
+        title={opts.title}
+        icon={<opts.icon className={opts.emphasis && opts.count > 0 ? '!text-amber-300' : undefined} />}
+        afterTitle={<CountBadge count={opts.count} label={opts.countLabel} tone={opts.emphasis ? 'warning' : 'neutral'} />}
+        description={opts.hint}
+        className="border-b border-white/[0.06]"
+      />
       <div className="divide-y divide-white/[0.04]">{opts.children}</div>
     </section>
   );
@@ -480,8 +479,9 @@ function RadarPageContent() {
   const remindersBand = band({
     icon: BellRing,
     title: 'Reminders',
-    hint: 'next steps and follow-ups; due ones move up',
+    hint: 'Next steps and follow-ups. Due ones move up to Needs you.',
     count: laterReminders.length,
+    countLabel: `${plural(laterReminders.length, 'reminder')} coming up`,
     id: 'reminders',
     children: (
       <>
@@ -523,129 +523,128 @@ function RadarPageContent() {
         }
       />
 
-      {/* One centered reading column: a queue reads top-down, and centering
-          is what makes the narrow measure look deliberate on wide screens
-          instead of abandoned. */}
+      {/* Full width (DESIGN.md Rule 9): the queue on the left, your reminders
+          in a rail beside it from lg, below it on a phone. */}
       <div className="p-4 lg:p-6">
-        <div className="max-w-3xl mx-auto space-y-5">
-          {allClear ? (
-            <div className="text-center py-20 glass-card rounded-xl">
-              <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-white/[0.06] flex items-center justify-center">
-                <ListTodo className="text-brand-300" size={30} aria-hidden="true" />
-              </div>
-              <h3 className="text-lg font-semibold text-white mb-2">All clear</h3>
-              <p className="text-zinc-400 max-w-md mx-auto">
-                Nothing needs you, nothing is in your hands, and nothing in
-                flight is headed your way. The moment that changes, it
-                appears here.
-              </p>
-            </div>
-          ) : null}
-          {allClear ? remindersBand : (
-            <>
-              {/* Band 1 is ALWAYS rendered: its empty state is the good
-                  news, and a band that disappears makes the reader hunt
-                  for whether they missed it. */}
-              {band({
-                icon: Zap,
-                title: 'Needs you',
-                hint: 'each row is one action',
-                count: needsYouCount,
-                emphasis: true,
-                children: needsYouCount > 0
-                  ? (
-                    <>
-                      {questionsForYou.map(question => (
-                        <QuestionCard key={question.id} question={question} variant="hub" place onOpenTask={setViewingTaskId}
-                          lead={askerFace(question.asked_by)} />
-                      ))}
-                      {hubRows.length > 0 && (
-                        <NeedsYouView needs={needsState.agents} items={hubRows} limit={hubRows.length} onOpenTask={setViewingTaskId} />
-                      )}
-                      {needsGroups.map(group => groupRow(group, {
-                        summarize: n => `${plural(n, 'subtask')} need${n === 1 ? 's' : ''} you`,
-                        showChevron: true,
-                      }))}
-                      {dueReminders.map(reminderRow)}
-                    </>
-                  )
-                  : (
-                    <div className="flex items-center gap-3 px-4 py-4 text-sm text-zinc-400">
-                      <span className="w-8 h-8 rounded-lg bg-emerald-500/10 text-emerald-300 flex items-center justify-center flex-shrink-0">
-                        <Check size={15} aria-hidden="true" />
-                      </span>
-                      Nothing needs you right now. Questions, approvals and work waiting on you land here.
-                    </div>
-                  ),
-              })}
-
-              {inProgressGroups.length > 0 &&
-                band({
-                  icon: Activity,
-                  title: 'In progress',
-                  hint: 'work you have started',
-                  count: inProgressGroups.length,
-                  children: inProgressGroups.map(group => groupRow(group, {
-                    summarize: n => `${plural(n, 'subtask')} started by you`,
-                    showPriority: true,
-                  })),
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_360px] xl:grid-cols-[minmax(0,1fr)_400px] items-start">
+          <div className="min-w-0 space-y-6">
+            {allClear && (
+              <EmptyState
+                framed
+                icon={<ListTodo />}
+                title="All clear"
+                description="Nothing needs you, nothing is in your hands, and no agent work is headed your way. The moment that changes, it shows here."
+              />
+            )}
+            {!allClear && (
+              <>
+                {/* Band 1 is ALWAYS rendered: its empty state is the good
+                    news, and a band that disappears makes the reader hunt
+                    for whether they missed it. */}
+                {band({
+                  icon: Zap,
+                  title: 'Needs you',
+                  count: needsYouCount,
+                  countLabel: `${plural(needsYouCount, 'thing')} waiting on you`,
+                  emphasis: true,
+                  children: needsYouCount > 0
+                    ? (
+                      <>
+                        {questionsForYou.map(question => (
+                          <QuestionCard key={question.id} question={question} variant="hub" place onOpenTask={setViewingTaskId}
+                            lead={askerFace(question.asked_by)} />
+                        ))}
+                        {hubRows.length > 0 && (
+                          <NeedsYouView needs={needsState.agents} items={hubRows} limit={hubRows.length} onOpenTask={setViewingTaskId} />
+                        )}
+                        {needsGroups.map(group => groupRow(group, {
+                          summarize: n => `${plural(n, 'subtask')} need${n === 1 ? 's' : ''} you`,
+                          showChevron: true,
+                        }))}
+                        {dueReminders.map(reminderRow)}
+                      </>
+                    )
+                    : (
+                      <div className="flex items-center gap-3 px-4 py-4 text-sm text-zinc-400">
+                        <span className="w-8 h-8 rounded-lg bg-emerald-500/10 text-emerald-300 flex items-center justify-center flex-shrink-0">
+                          <Check size={15} aria-hidden="true" />
+                        </span>
+                        Nothing needs you right now. Questions, approvals and work waiting on you land here.
+                      </div>
+                    ),
                 })}
 
-              {remindersBand}
+                {inProgressGroups.length > 0 &&
+                  band({
+                    icon: Activity,
+                    title: 'In progress',
+                    hint: 'Work you have started.',
+                    count: inProgressGroups.length,
+                    countLabel: `${plural(inProgressGroups.length, 'task')} in progress`,
+                    children: inProgressGroups.map(group => groupRow(group, {
+                      summarize: n => `${plural(n, 'subtask')} started by you`,
+                      showPriority: true,
+                    })),
+                  })}
 
-              {assignedGroups.length > 0 &&
-                band({
-                  icon: ClipboardList,
-                  title: 'Assigned to you',
-                  hint: 'everything else in your queue',
-                  count: assignedGroups.length,
-                  children: assignedGroups.map(group => groupRow(group, {
-                    summarize: n => `${plural(n, 'subtask')} for you`,
-                    showPriority: true,
-                  })),
-                })}
+                {assignedGroups.length > 0 &&
+                  band({
+                    icon: ClipboardList,
+                    title: 'Assigned to you',
+                    hint: 'Everything else in your queue, soonest due first.',
+                    count: assignedGroups.length,
+                    countLabel: `${plural(assignedGroups.length, 'task')} assigned to you`,
+                    children: assignedGroups.map(group => groupRow(group, {
+                      summarize: n => `${plural(n, 'subtask')} for you`,
+                      showPriority: true,
+                    })),
+                  })}
 
-              {inReviewGroups.length > 0 &&
-                band({
-                  icon: Eye,
-                  title: 'In review',
-                  hint: 'subtasks you are waiting on',
-                  count: inReviewGroups.length,
-                  children: inReviewGroups.map(group => groupRow(group, {
-                    summarize: n => `${plural(n, 'subtask')} in review`,
-                    showPriority: true,
-                  })),
-                })}
+                {inReviewGroups.length > 0 &&
+                  band({
+                    icon: Eye,
+                    title: 'In review',
+                    hint: 'Subtasks you are waiting on.',
+                    count: inReviewGroups.length,
+                    countLabel: `${plural(inReviewGroups.length, 'task')} in review`,
+                    children: inReviewGroups.map(group => groupRow(group, {
+                      summarize: n => `${plural(n, 'subtask')} in review`,
+                      showPriority: true,
+                    })),
+                  })}
 
-              {pendingSuggestions > 0 &&
-                band({
-                  icon: Inbox,
-                  title: 'Suggestions',
-                  hint: 'reviewed in the Agent queue',
-                  count: pendingSuggestions,
-                  children: row({
-                    key: 'suggestions',
-                    icon: iconSquare(Inbox, 'bg-brand-500/15 text-brand-300'),
-                    title: `${pendingSuggestions} suggestion${pendingSuggestions === 1 ? '' : 's'} awaiting your review`,
-                    context: 'Approve or decline in the review queue',
-                    href: '/ai?tab=company',
-                    showChevron: true,
-                  }),
-                })}
+                {pendingSuggestions > 0 &&
+                  band({
+                    icon: Inbox,
+                    title: 'Suggestions',
+                    count: pendingSuggestions,
+                    countLabel: `${plural(pendingSuggestions, 'suggestion')} to review`,
+                    children: row({
+                      key: 'suggestions',
+                      icon: iconSquare(Inbox, 'bg-brand-500/15 text-brand-300'),
+                      title: `${pendingSuggestions} suggestion${pendingSuggestions === 1 ? '' : 's'} awaiting your review`,
+                      context: 'Approve or decline in the review queue',
+                      href: '/ai?tab=company',
+                      showChevron: true,
+                    }),
+                  })}
 
-              {comingGroups.length > 0 &&
-                band({
-                  icon: Hourglass,
-                  title: 'Coming your way',
-                  hint: 'each will ask for one merge click when built',
-                  count: comingGroups.length,
-                  children: comingGroups.map(group => groupRow(group, {
-                    summarize: n => `${plural(n, 'subtask')} with the agent`,
-                    showPriority: true,
-                  })),
-                })}
-            </>
-          )}
+                {comingGroups.length > 0 &&
+                  band({
+                    icon: Hourglass,
+                    title: 'Coming your way',
+                    hint: 'Agent work that will ask for your merge once it is built.',
+                    count: comingGroups.length,
+                    countLabel: `${plural(comingGroups.length, 'task')} with agents`,
+                    children: comingGroups.map(group => groupRow(group, {
+                      summarize: n => `${plural(n, 'subtask')} with the agent`,
+                      showPriority: true,
+                    })),
+                  })}
+              </>
+            )}
+          </div>
+          <div className="min-w-0 lg:sticky lg:top-6">{remindersBand}</div>
         </div>
       </div>
 

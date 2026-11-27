@@ -6,21 +6,27 @@ import { AuditSettingsSection } from '@/components/settings/security/AuditSettin
 import { ConnectAiSettingSection } from '@/components/settings/security/ConnectAiSettingSection';
 import { DataRetentionSection } from '@/components/settings/security/DataRetentionSection';
 import { useSettingsAccess } from '@/components/settings/settings-groups';
+import { CardRow } from '@/components/ui/Card';
 
 /** Security (Owners only): pause every agent at once, let people connect AI tools or not, read the audit log, say how long it is kept, and how long other data is kept. */
 export default function SecuritySettingsPage() {
   const { show } = useSettingsAccess();
   return (
     <>
-      {show.agentsPause && (
-        <div id="agents-pause" className="scroll-mt-6">
-          <AgentsPauseSection />
-        </div>
-      )}
-      {show.connectAiSetting && (
-        <div id="connect-ai-setting" className="scroll-mt-6">
-          <ConnectAiSettingSection />
-        </div>
+      {/* The two switches that let agents in or stop them, side by side when both show (Rule 9). */}
+      {(show.agentsPause || show.connectAiSetting) && (
+        <CardRow className={show.agentsPause && show.connectAiSetting ? 'lg:grid-cols-2' : ''}>
+          {show.agentsPause && (
+            <div id="agents-pause" className="scroll-mt-6">
+              <AgentsPauseSection />
+            </div>
+          )}
+          {show.connectAiSetting && (
+            <div id="connect-ai-setting" className="scroll-mt-6">
+              <ConnectAiSettingSection />
+            </div>
+          )}
+        </CardRow>
       )}
       {show.auditLog && (
         <>

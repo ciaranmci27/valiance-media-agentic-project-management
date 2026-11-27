@@ -96,8 +96,9 @@ export function ProfileIdentity({
         </div>
       )}
 
-      <div className="glass-card rounded-xl p-5">
-        <div className="flex items-center gap-4 min-w-0">
+      {/* From lg, who they are on the left and the facts on the right: one band, no empty half. */}
+      <div className="glass-card rounded-xl p-4 lg:p-5 lg:flex lg:items-center lg:gap-8">
+        <div className="flex items-center gap-4 min-w-0 lg:flex-shrink-0 lg:max-w-[40%]">
           <Avatar name={member.name} src={member.avatar || undefined} size="lg" className="!w-14 !h-14 !text-lg flex-shrink-0" />
           <div className="min-w-0">
             {member.title?.trim() ? (
@@ -113,7 +114,7 @@ export function ProfileIdentity({
         </div>
 
         {facts.length > 0 && (
-          <dl className="mt-5 pt-5 border-t border-white/[0.06] flex flex-col divide-y divide-white/[0.06] sm:flex-row sm:flex-wrap sm:divide-y-0 sm:gap-x-10 sm:gap-y-4">
+          <dl className="mt-4 pt-4 border-t border-white/[0.06] flex flex-col divide-y divide-white/[0.06] sm:flex-row sm:flex-wrap sm:divide-y-0 sm:gap-x-10 sm:gap-y-4 lg:mt-0 lg:pt-0 lg:border-t-0 lg:ml-auto lg:justify-end lg:gap-x-12">
             {facts.map((fact) => (
               <Fact key={fact.label} label={fact.label}>{fact.value}</Fact>
             ))}

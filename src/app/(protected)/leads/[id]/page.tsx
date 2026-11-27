@@ -6,6 +6,7 @@ import { useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useApp } from '@/lib/store';
 import { Header } from '@/components/layout/Header';
+import { EmptyState } from '@/components/ui/EmptyState';
 import { LeadForm } from '@/components/leads/LeadForm';
 import { LeadInteractionForm } from '@/components/leads/LeadInteractionForm';
 import { LeadProposalForm } from '@/components/leads/LeadProposalForm';
@@ -110,17 +111,14 @@ export default function LeadDetailPage() {
 
   if (!lead) {
     return (
-      <div className="animate-fadeIn min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <Target className="mx-auto mb-3 text-zinc-500" size={40} />
-          <h3 className="font-medium text-zinc-300 mb-1">Lead not found</h3>
-          <button
-            onClick={() => router.push('/leads')}
-            className="text-sm text-brand-300 hover:text-brand-300"
-          >
-            Back to leads
-          </button>
-        </div>
+      <div className="animate-fadeIn min-h-screen p-4 lg:p-6">
+        <EmptyState
+          framed
+          icon={<Target />}
+          title="Lead not found"
+          description="It may have moved to Trash, or it is not shared with you."
+          action={<Button size="sm" variant="secondary" onClick={() => router.push('/leads')}>Back to leads</Button>}
+        />
       </div>
     );
   }
@@ -313,9 +311,9 @@ export default function LeadDetailPage() {
           <div className="bg-amber-500/15 rounded-xl border border-amber-500/30 p-5 lg:p-6">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
-                <CalendarClock size={18} className="text-amber-400" />
-                <h2 className="font-semibold text-amber-900">
-                  Upcoming Follow-ups ({upcomingFollowUps.length})
+                <CalendarClock size={16} aria-hidden="true" className="text-amber-300" />
+                <h2 className="flex items-center gap-2 text-sm font-semibold text-white">
+                  Upcoming follow-ups <span className="text-xs font-normal tabular-nums text-zinc-500">{upcomingFollowUps.length}</span>
                 </h2>
               </div>
               {canManageLeads && <Button
@@ -337,14 +335,14 @@ export default function LeadDetailPage() {
                     }`}
                   >
                     <div className="flex items-center gap-3 min-w-0">
-                      <CalendarClock size={16} className={overdue ? 'text-red-500' : 'text-amber-500'} />
+                      <CalendarClock size={16} aria-hidden="true" className={overdue ? 'text-red-300' : 'text-amber-300'} />
                       <div className="min-w-0">
                         <p className={`text-sm font-medium truncate ${overdue ? 'text-red-300' : 'text-white'}`}>
                           {fu.title}
                         </p>
-                        <p className={`text-xs ${overdue ? 'text-red-400' : 'text-zinc-400'}`}>
+                        <p className={`text-xs ${overdue ? 'text-red-300' : 'text-zinc-400'}`}>
                           {fu.scheduled_at ? formatDate(fu.scheduled_at) : ''}
-                          {overdue && ' (Overdue)'}
+                          {overdue && ', overdue'}
                         </p>
                       </div>
                     </div>
@@ -353,7 +351,7 @@ export default function LeadDetailPage() {
                       className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-amber-300 hover:bg-amber-500/15 rounded-lg transition-colors flex-shrink-0"
                     >
                       <Check size={14} />
-                      Mark Complete
+                      Mark done
                     </button>}
                   </div>
                 );
@@ -366,11 +364,11 @@ export default function LeadDetailPage() {
         <div className="card-row lg:grid-cols-2">
           {/* Interactions Timeline */}
           <div className="glass-card card-fill rounded-xl overflow-hidden">
-            <div className="flex items-center justify-between px-5 py-3 border-b border-white/[0.08] flex-shrink-0">
+            <div className="flex items-center justify-between px-4 py-3.5 lg:px-5 border-b border-white/[0.06] flex-shrink-0">
               <div className="flex items-center gap-2">
-                <StickyNote size={18} className="text-zinc-400" />
-                <h2 className="font-semibold text-white">
-                  Interactions ({interactions.length})
+                <StickyNote size={16} aria-hidden="true" className="text-zinc-400" />
+                <h2 className="flex items-center gap-2 text-sm font-semibold text-white">
+                  Interactions <span className="text-xs font-normal tabular-nums text-zinc-500">{interactions.length}</span>
                 </h2>
               </div>
               {canManageLeads && <Button
@@ -450,11 +448,11 @@ export default function LeadDetailPage() {
 
           {/* Proposals */}
           <div className="glass-card card-fill rounded-xl overflow-hidden">
-            <div className="flex items-center justify-between px-5 py-3 border-b border-white/[0.08] flex-shrink-0">
+            <div className="flex items-center justify-between px-4 py-3.5 lg:px-5 border-b border-white/[0.06] flex-shrink-0">
               <div className="flex items-center gap-2">
-                <DollarSign size={18} className="text-zinc-400" />
-                <h2 className="font-semibold text-white">
-                  Proposals ({proposals.length})
+                <DollarSign size={16} aria-hidden="true" className="text-zinc-400" />
+                <h2 className="flex items-center gap-2 text-sm font-semibold text-white">
+                  Proposals <span className="text-xs font-normal tabular-nums text-zinc-500">{proposals.length}</span>
                 </h2>
               </div>
               {canManageLeads && <Button

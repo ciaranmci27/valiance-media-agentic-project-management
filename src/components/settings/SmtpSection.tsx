@@ -15,6 +15,9 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import { Button } from '@/components/ui/Button';
+import { EmptyState } from '@/components/ui/EmptyState';
+import { IconButton } from '@/components/ui/IconButton';
+import { SettingsSectionHeader } from '@/components/settings/SettingsSectionHeader';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/inputs/Select';
 import { TextInput } from '@/components/ui/inputs/TextInput';
@@ -23,6 +26,8 @@ import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { toast } from '@/components/ui/Toast';
 import { Tooltip } from '@/components/ui/Tooltip';
 import type { SmtpAccountSafe } from '@/lib/email/types';
+
+const DESCRIPTION = 'The email accounts the app sends invoices, portal and notification email from.';
 
 interface AccountStatus {
   online: boolean | null; // null = checking
@@ -296,15 +301,7 @@ export function SmtpSection() {
   if (loading) {
     return (
       <section className="glass-card rounded-xl p-4 lg:p-5">
-        <div className="flex items-center gap-3">
-          <div className="p-2 bg-cyan-500/15 rounded-lg">
-            <Mail className="text-cyan-400" size={20} />
-          </div>
-          <div>
-            <h2 className="font-semibold text-white">Sending</h2>
-            <p className="text-sm text-zinc-400">Loading...</p>
-          </div>
-        </div>
+        <SettingsSectionHeader icon={Mail} title="Sending" description={DESCRIPTION} />
         <div className="flex justify-center py-8">
           <Loader2 className="animate-spin motion-reduce:animate-none text-zinc-400" size={24} role="status" aria-label="Loading sending" />
         </div>
@@ -317,21 +314,11 @@ export function SmtpSection() {
   if (!encryptionConfigured) {
     return (
       <section className="glass-card rounded-xl p-4 lg:p-5">
-        <div className="flex items-center gap-3 mb-6">
-          <div className="p-2 bg-cyan-500/15 rounded-lg">
-            <Mail className="text-cyan-400" size={20} />
-          </div>
-          <div>
-            <h2 className="font-semibold text-white">Sending</h2>
-            <p className="text-sm text-zinc-400">
-              Set the app&apos;s encryption key first. It keeps SMTP passwords safe.
-            </p>
-          </div>
-        </div>
+        <SettingsSectionHeader icon={Mail} title="Sending" description="Set the app's encryption key first. It keeps the sending passwords safe." />
 
         {!generatedKey ? (
           <Button onClick={handleGenerateKey} disabled={generating}>
-            {generating ? 'Generating...' : 'Generate Key'}
+            {generating ? 'Generating' : 'Generate key'}
           </Button>
         ) : (
           <div className="space-y-4">
@@ -344,22 +331,17 @@ export function SmtpSection() {
                 <code className="flex-1 px-3 py-2 bg-white/[0.03] border border-white/[0.08] rounded-lg text-sm font-mono text-zinc-100 break-all select-all">
                   APP_ENCRYPTION_KEY={generatedKey}
                 </code>
-                <button
-                  onClick={handleCopyKey}
-                  className="p-2 text-zinc-400 hover:text-zinc-300 hover:bg-white/[0.06] rounded-lg transition-colors flex-shrink-0"
-                >
-                  {keyCopied ? <Check size={16} /> : <Copy size={16} />}
-                </button>
+                <IconButton icon={keyCopied ? <Check /> : <Copy />} label={keyCopied ? 'Copied' : 'Copy the key'} onClick={handleCopyKey} className="flex-shrink-0" />
               </div>
             </div>
 
             <p className="text-xs text-zinc-400">
               64 hex characters. Keep it safe: if it&apos;s lost, saved passwords and keys can&apos;t be
-              recovered. After adding it, redeploy or restart the app, then click &ldquo;Verify Setup&rdquo;.
+              recovered. After adding it, redeploy or restart the app, then click &ldquo;Check setup&rdquo;.
             </p>
 
             <Button onClick={handleVerifySetup} disabled={verifying}>
-              {verifying ? 'Checking...' : 'Verify Setup'}
+              {verifying ? 'Checking' : 'Check setup'}
             </Button>
           </div>
         )}
@@ -372,19 +354,11 @@ export function SmtpSection() {
   return (
     <>
       <section className="glass-card rounded-xl p-4 lg:p-5">
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-cyan-500/15 rounded-lg">
-              <Mail className="text-cyan-400" size={20} />
-            </div>
-            <div>
-              <h2 className="font-semibold text-white">Sending</h2>
-              <p className="text-sm text-zinc-400 hidden sm:block">
-                Accounts the app sends invoices, portal and notification email from
-              </p>
-            </div>
-          </div>
-          {!showForm && (
+        <SettingsSectionHeader
+          icon={Mail}
+          title="Sending"
+          description={DESCRIPTION}
+          action={!showForm && (
             <div className="flex items-center gap-2">
               <Link href="/smtp/docs">
                 <Button size="sm" variant="secondary" icon={<BookOpen size={14} />}>
@@ -400,32 +374,32 @@ export function SmtpSection() {
                 icon={<Plus size={14} />}
               >
                 <span className="sm:hidden">Add</span>
-                <span className="hidden sm:inline">Add Account</span>
+                <span className="hidden sm:inline">Add account</span>
               </Button>
             </div>
           )}
-        </div>
+        />
 
         {/* Add / Edit form */}
         {showForm && (
           <div className="mb-6 p-4 bg-white/[0.03] border border-white/[0.08] rounded-lg space-y-4">
             <h4 className="text-sm font-medium text-white">
-              {editingId ? 'Edit Account' : 'New SMTP Account'}
+              {editingId ? 'Edit account' : 'New sending account'}
             </h4>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {/* Row 1: Label | Host */}
               <Input
-                label="Account Name"
+                label="Account name"
                 value={form.label}
                 onChange={(e) => setForm((f) => ({ ...f, label: e.target.value }))}
-                placeholder="e.g. No-Reply"
+                placeholder="No reply"
               />
               <Input
                 label="Host"
                 value={form.host}
                 onChange={(e) => setForm((f) => ({ ...f, host: e.target.value }))}
-                placeholder="e.g. mail.yourdomain.com"
+                placeholder="mail.yourdomain.com"
               />
 
               {/* Row 2: Username | Password */}
@@ -442,7 +416,7 @@ export function SmtpSection() {
                     return updated;
                   });
                 }}
-                placeholder="e.g. noreply@yourdomain.com"
+                placeholder="noreply@yourdomain.com"
                 autoComplete="off"
               />
               <Input
@@ -458,17 +432,17 @@ export function SmtpSection() {
 
               {/* Row 3: From Name | From Email */}
               <Input
-                label="From Name"
+                label="From name"
                 value={form.from_name}
                 onChange={(e) => setForm((f) => ({ ...f, from_name: e.target.value }))}
-                placeholder="e.g. Your Company"
+                placeholder="Your Company"
               />
               <Input
-                label="From Email"
+                label="From email"
                 type="email"
                 value={form.from_email}
                 onChange={(e) => setForm((f) => ({ ...f, from_email: e.target.value }))}
-                placeholder="e.g. noreply@yourdomain.com"
+                placeholder="noreply@yourdomain.com"
               />
 
               {/* Row 4: Port | Reply-To */}
@@ -493,7 +467,7 @@ export function SmtpSection() {
                 {form.port !== 465 && form.port !== 587 && (
                   <div className="mt-2">
                     <NumberInput
-                      placeholder="Enter custom port"
+                      placeholder="Custom port"
                       value={form.port || ''}
                       onChange={(v) => {
                         const port = typeof v === 'number' ? v : 0;
@@ -511,7 +485,7 @@ export function SmtpSection() {
                 type="email"
                 value={form.reply_to}
                 onChange={(e) => setForm((f) => ({ ...f, reply_to: e.target.value }))}
-                placeholder="e.g. hello@yourdomain.com"
+                placeholder="hello@yourdomain.com"
               />
 
               {/* Row 5: Default toggle */}
@@ -542,7 +516,7 @@ export function SmtpSection() {
 
             <div className="flex gap-2 mt-5 pt-4 border-t border-white/[0.08]">
               <Button onClick={handleSave} disabled={formSaving}>
-                {formSaving ? 'Saving...' : editingId ? 'Update Account' : 'Create Account'}
+                {formSaving ? 'Saving' : editingId ? 'Save account' : 'Add account'}
               </Button>
               <Button variant="secondary" onClick={resetForm}>
                 Cancel
@@ -564,7 +538,7 @@ export function SmtpSection() {
                       <Tooltip
                         content={
                           status?.online === null
-                            ? 'Checking...'
+                            ? 'Checking'
                             : status?.online
                               ? 'Connected'
                               : status?.reason || 'Offline'
@@ -658,7 +632,7 @@ export function SmtpSection() {
                         onClick={() => handleSendTest(account.id)}
                         disabled={testSending || !testTo.trim()}
                       >
-                        {testSending ? 'Sending...' : 'Send'}
+                        {testSending ? 'Sending' : 'Send'}
                       </Button>
                     </div>
                   )}
@@ -667,11 +641,12 @@ export function SmtpSection() {
             })}
           </div>
         ) : !showForm ? (
-          <div className="text-center py-6 text-zinc-400">
-            <Mail className="mx-auto mb-2" size={24} />
-            <p className="text-sm">No SMTP accounts yet</p>
-            <p className="text-xs mt-1">Add an account to enable outgoing email</p>
-          </div>
+          <EmptyState
+            compact
+            icon={<Mail />}
+            title="No sending account yet"
+            description="Add the email account the app sends from, and invoices and notifications go out by email."
+          />
         ) : null}
       </section>
 

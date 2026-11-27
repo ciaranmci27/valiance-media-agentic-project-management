@@ -93,7 +93,7 @@ export function InitiativesTab({ projectId }: { projectId: string }) {
 
   if (read.loading) {
     return (
-      <Skeleton label={`Loading ${INITIATIVE_LABEL.lowerPlural}`} className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+      <Skeleton label={`Loading ${INITIATIVE_LABEL.lowerPlural}`} className="grid gap-6 sm:grid-cols-2 xl:grid-cols-3">
         {[0, 1, 2].map((i) => (
           <div key={i} className="glass-card rounded-xl p-5 space-y-3">
             <Bone className="h-4 w-2/3" />
@@ -171,7 +171,11 @@ export function InitiativesTab({ projectId }: { projectId: string }) {
           description={`Show done to see them, or start a new ${INITIATIVE_LABEL.lower}.`}
         />
       ) : (
-        <ul className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3" aria-label={INITIATIVE_LABEL.plural}>
+        // Never more columns than cards, so one or two never sit in a third of the row (DESIGN.md Rule 19).
+        <ul
+          className={`grid gap-6 ${shown.length === 1 ? '' : shown.length === 2 ? 'sm:grid-cols-2' : 'sm:grid-cols-2 xl:grid-cols-3'}`}
+          aria-label={INITIATIVE_LABEL.plural}
+        >
           {shown.map((initiative) => (
             <li key={initiative.id} className="min-w-0">
               <InitiativeCard

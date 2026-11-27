@@ -77,7 +77,7 @@ export function KeyLifetimeSection({ agentsOn }: { agentsOn: boolean }) {
       {!loaded ? (
         <p className="text-sm text-zinc-400" role="status">{failed ? 'Could not load the settings.' : 'Loading'}</p>
       ) : (
-        <div className="grid max-w-2xl gap-4 sm:grid-cols-2">
+        <div className="grid gap-4 sm:grid-cols-2">
           <Select
             label="People's keys"
             value={personal!}

@@ -117,7 +117,19 @@ function auditFilters(searchParams: URLSearchParams) {
   if (member && !UUID.test(member)) throw badRequest('member must be a team member id');
   if (actingFor && !UUID.test(actingFor)) throw badRequest('acting_for must be a team member id');
   if (action.length > 100) throw badRequest('action is 100 characters at most');
-  return { member, actingFor, action, from: auditBound(searchParams.get('from'), false), to: auditBound(searchParams.get('to'), true) };
+  return { member, actingFor, action, from: auditBound(searchParams.get('from'), false), to: auditBound(searchParams.get('to'), true), before: auditCursor(searchParams.get('before')) };
+}
+
+/**
+ * Show more's cursor: the time and id of the last row shown ("<timestamp>|<id>"),
+ * so the next rows are the ones older than it however many arrived since.
+ * Paging by offset would repeat or skip rows while the log grows.
+ */
+function auditCursor(raw: string | null): { timestamp: string; id: string } | null {
+  if (!raw) return null;
+  const [timestamp, id] = raw.split('|');
+  if (!id || !UUID.test(id) || !/^[0-9T:.+\- Z]{10,40}$/.test(timestamp ?? '') || Number.isNaN(Date.parse(timestamp))) throw badRequest('before must be the time and id of a row, as "<timestamp>|<id>"');
+  return { timestamp, id };
 }
 
 /** The audit log query with these filters, newest first. */
@@ -127,6 +139,11 @@ function filteredAuditQuery(db: SupabaseClient, filters: ReturnType<typeof audit
   if (filters.actingFor) query = query.eq('principal_id', filters.actingFor);
   if (filters.from) query = query.gte('timestamp', filters.from);
   if (filters.to) query = query.lt('timestamp', filters.to);
+  if (filters.before) {
+    // Newest first by time then id, so "older" is an earlier time, or the same time and a lower id.
+    const at = `"${filters.before.timestamp}"`;
+    query = query.or(`timestamp.lt.${at},and(timestamp.eq.${at},id.lt.${filters.before.id})`);
+  }
   if (filters.action) {
     // Commas and parentheses would break the filter list; they mean nothing in an action.
     const term = filters.action.replace(/[,()*"\\]/g, ' ').trim();
@@ -183,11 +200,13 @@ async function auditNames(db: SupabaseClient, entries: readonly AuditEntry[], ev
  * One page of the audit log, newest first, with the names of who did it and
  * who it was for. Filters: member (who), acting_for (principal), action (text
  * in the method, endpoint or entity type), from and to (ISO times, to
- * exclusive; or days, inclusive, UTC).
+ * exclusive; or days, inclusive, UTC), before (a cursor: only rows older
+ * than that row; total then counts those).
  */
 export async function listAuditLog(db: SupabaseClient, searchParams: URLSearchParams): Promise<{ entries: AuditEntry[]; total: number; page: number; page_size: number; names: Record<string, string> }> {
   const filters = auditFilters(searchParams);
-  const page = Math.min(MAX_PAGE, Math.max(0, Math.floor(Number(searchParams.get('page') ?? 0)) || 0));
+  // A cursor (before) reads from the top of what is older; page stays for older callers.
+  const page = filters.before ? 0 : Math.min(MAX_PAGE, Math.max(0, Math.floor(Number(searchParams.get('page') ?? 0)) || 0));
   const { data, count, error } = await readPage(filteredAuditQuery(db, filters, true), { offset: page * AUDIT_PAGE_SIZE, limit: AUDIT_PAGE_SIZE });
   if (error) throw error;
   const entries = (data ?? []) as unknown as AuditEntry[];

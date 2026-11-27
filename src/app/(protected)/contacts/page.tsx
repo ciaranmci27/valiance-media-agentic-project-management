@@ -9,6 +9,8 @@ import { Header } from '@/components/layout/Header';
 import { ContactForm } from '@/components/contacts/ContactForm';
 import { ExtraEmails } from '@/components/contacts/ContactCard';
 import { Button } from '@/components/ui/Button';
+import { EmptyState } from '@/components/ui/EmptyState';
+import { ShowMore, SHOW_MORE_STEP } from '@/components/ui/ShowMore';
 import { Avatar } from '@/components/ui/Avatar';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { RowActionsMenu, type RowAction } from '@/components/ui/RowActionsMenu';
@@ -28,7 +30,7 @@ export default function ContactsPage() {
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingContact, setEditingContact] = useState<Contact | null>(null);
   const undoTrash = useUndoTrash();
-  const [visibleCount, setVisibleCount] = useState(20);
+  const [visibleCount, setVisibleCount] = useState(SHOW_MORE_STEP);
 
   useEffect(() => { setFilters(defaultFilters); }, []);
 
@@ -86,11 +88,11 @@ export default function ContactsPage() {
       <div className="mt-3 flex flex-col gap-1.5 text-sm text-zinc-400">
         <span className="flex items-center gap-2">
           <Phone size={14} className="text-zinc-500 flex-shrink-0" />
-          {c.phone ? formatPhone(c.phone) : <span className="text-zinc-600 italic">No phone</span>}
+          {c.phone ? formatPhone(c.phone) : <span className="text-zinc-600">-</span>}
         </span>
         <span className="flex items-center gap-2 min-w-0">
           <Mail size={14} className="text-zinc-500 flex-shrink-0" />
-          <span className={c.email ? 'truncate' : 'text-zinc-600 italic'}>{c.email || 'No email'}</span>
+          <span className={c.email ? 'truncate' : 'text-zinc-600'}>{c.email || '-'}</span>
           <ExtraEmails contactId={c.id} primaryEmail={c.email} />
         </span>
       </div>
@@ -122,7 +124,7 @@ export default function ContactsPage() {
       className: 'hidden sm:table-cell',
       render: (c) => c.company
         ? <span className="text-zinc-300">{c.company}</span>
-        : <span className="text-zinc-600 italic">No company</span>,
+        : <span className="text-zinc-600">-</span>,
     },
     {
       key: 'phone',
@@ -131,7 +133,7 @@ export default function ContactsPage() {
       render: (c) => (
         <span className="flex items-center gap-1.5 text-zinc-300">
           <Phone size={14} className="text-zinc-500 flex-shrink-0" />
-          {c.phone ? formatPhone(c.phone) : <span className="text-zinc-600 italic">No phone</span>}
+          {c.phone ? formatPhone(c.phone) : <span className="text-zinc-600">-</span>}
         </span>
       ),
     },
@@ -141,7 +143,7 @@ export default function ContactsPage() {
       render: (c) => (
         <span className="flex items-center gap-1.5 text-zinc-300 min-w-0">
           <Mail size={14} className="text-zinc-500 flex-shrink-0" />
-          <span className={c.email ? 'truncate' : 'text-zinc-600 italic'}>{c.email || 'No email'}</span>
+          <span className={c.email ? 'truncate' : 'text-zinc-600'}>{c.email || '-'}</span>
           <ExtraEmails contactId={c.id} primaryEmail={c.email} />
         </span>
       ),
@@ -159,8 +161,8 @@ export default function ContactsPage() {
     <div className="animate-fadeIn min-h-screen">
       <Header
         title="Contacts"
-        subtitle={<span className="hidden sm:inline">{contacts.length} contacts</span>}
-        searchPlaceholder="Search contacts by name, company, or email..."
+        subtitle={<span className="hidden sm:inline">{contacts.length} {contacts.length === 1 ? 'contact' : 'contacts'}</span>}
+        searchPlaceholder="Search contacts"
         actions={canManageContacts ? (
           <Button onClick={() => setIsFormOpen(true)} icon={<Plus size={16} />}>
             Add contact
@@ -168,16 +170,15 @@ export default function ContactsPage() {
         ) : undefined}
       />
 
-      <div className="p-4 lg:p-6 space-y-6">
+      <div className="p-4 lg:p-6">
         {contacts.length === 0 ? (
-          <div className="text-center py-16 glass-card rounded-xl">
-            <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-white/[0.06] flex items-center justify-center">
-              <UserCircle className="text-zinc-500" size={32} />
-            </div>
-            <h3 className="text-lg font-semibold text-white mb-2">No contacts yet</h3>
-            <p className="text-zinc-400 mb-4">{!canManageContacts ? 'No contacts are available to you' : canConvertLeads ? 'Add a contact or convert a lead to get started' : 'Add a contact to get started'}</p>
-            {canManageContacts && <Button onClick={() => setIsFormOpen(true)}>Add contact</Button>}
-          </div>
+          <EmptyState
+            framed
+            icon={<UserCircle />}
+            title="No contacts yet"
+            description={!canManageContacts ? 'No contacts are shared with you yet.' : canConvertLeads ? 'Add a contact, or convert a lead when it is won.' : 'Add the people you work with.'}
+            action={canManageContacts ? <Button size="sm" variant="secondary" icon={<Plus size={14} />} onClick={() => setIsFormOpen(true)}>Add contact</Button> : undefined}
+          />
         ) : (
           <>
             <DataTable
@@ -189,16 +190,13 @@ export default function ContactsPage() {
               emptyState="No contacts match your search"
               mobileCard={mobileCard}
             />
-            {filtered.length > visibleCount && (
-              <div className="text-center pt-2">
-                <button
-                  onClick={() => setVisibleCount(prev => prev + 20)}
-                  className="text-sm text-brand-300 hover:text-brand-300 font-medium transition-colors"
-                >
-                  Show more ({filtered.length - visibleCount} remaining)
-                </button>
-              </div>
-            )}
+            <ShowMore
+              shown={Math.min(visibleCount, filtered.length)}
+              total={filtered.length}
+              step={SHOW_MORE_STEP}
+              onMore={() => setVisibleCount(prev => prev + SHOW_MORE_STEP)}
+              noun="contacts"
+            />
           </>
         )}
       </div>

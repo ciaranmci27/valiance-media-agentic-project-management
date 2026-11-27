@@ -378,11 +378,6 @@ export const DateInput = forwardRef<HTMLButtonElement, DateInputProps>(function 
           {label}
         </label>
       )}
-      {description && (
-        <p id={descId} className="text-xs text-input-text-subtle">
-          {description}
-        </p>
-      )}
 
       {(name || required) && (
         <input
@@ -454,6 +449,11 @@ export const DateInput = forwardRef<HTMLButtonElement, DateInputProps>(function 
         </div>
       </button>
 
+      {description && (
+        <p id={descId} className="text-xs text-input-text-subtle">
+          {description}
+        </p>
+      )}
       {error && (
         <p id={errorId} role="alert" className="text-xs text-input-error">
           {error}

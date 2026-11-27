@@ -96,7 +96,7 @@ export function AvatarGroup({ users, max = 4, size = 'sm' }: AvatarGroupProps) {
   const separation = overlapping ? 'ring-2 ring-surface-raised' : '';
 
   return (
-    <div className="flex -space-x-2">
+    <div className={`flex ${size === 'xs' ? '-space-x-1.5' : '-space-x-2'}`}>
       {visible.map((user) => (
         <Avatar
           key={user.id}
@@ -109,7 +109,7 @@ export function AvatarGroup({ users, max = 4, size = 'sm' }: AvatarGroupProps) {
       ))}
       {remaining > 0 && (
         <div
-          className={`${sizeClasses[size]} rounded-full flex items-center justify-center font-medium bg-white/10 text-zinc-300 ${separation}`}
+          className={`${sizeClasses[size]} relative rounded-full flex items-center justify-center font-medium bg-surface-raised text-zinc-300 tabular-nums ${separation}`}
         >
           +{remaining}
         </div>

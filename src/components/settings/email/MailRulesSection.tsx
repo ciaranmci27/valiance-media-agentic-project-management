@@ -3,6 +3,7 @@
 import { useId, useMemo, useState } from 'react';
 import { Filter, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
+import { EmptyState } from '@/components/ui/EmptyState';
 import { SettingsSectionHeader } from '@/components/settings/SettingsSectionHeader';
 import { TextInput } from '@/components/ui/inputs/TextInput';
 import { Select, type SelectOption } from '@/components/ui/inputs/Select';
@@ -154,17 +155,24 @@ export function MailRulesSection() {
             label="Why (optional)"
             value={form.reason}
             onChange={(value) => update('reason', value)}
-            placeholder="e.g. Weekly usage digest nobody reads"
+            placeholder="Weekly usage digest nobody reads"
             maxLength={500}
           />
-          <div className="flex gap-2 pt-4 border-t border-white/[0.08]">
-            <Button type="submit" disabled={adding}>{adding ? 'Saving...' : 'Save rule'}</Button>
+          <div className="flex justify-end gap-2 pt-4 border-t border-white/[0.08]">
             <Button type="button" variant="secondary" onClick={close}>Cancel</Button>
+            <Button type="submit" disabled={adding}>{adding ? 'Saving' : 'Save rule'}</Button>
           </div>
         </form>
       )}
 
-      {!isDemoMode && (
+      {!isDemoMode && rules?.length === 0 && !loadError ? (
+        <EmptyState
+          compact
+          icon={<Filter />}
+          title="No mail rules yet"
+          description="Add one here, or from any email with Filter mail like this. Rules apply to new mail."
+        />
+      ) : !isDemoMode && (
         <>
           <SenderRulesList
             rules={rules}

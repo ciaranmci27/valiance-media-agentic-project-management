@@ -1,14 +1,15 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Loader2, Receipt } from 'lucide-react';
+import { Receipt } from 'lucide-react';
 import { useApp } from '@/lib/store';
 import { Input } from '@/components/ui/Input';
-import { Button } from '@/components/ui/Button';
 import { Textarea } from '@/components/ui/inputs/Textarea';
 import { toast } from '@/components/ui/Toast';
 import { useDemo } from '@/lib/demo-context';
 import { SettingsSectionHeader } from '@/components/settings/SettingsSectionHeader';
+import { SettingsSaveBar } from '@/components/settings/SettingsSaveBar';
+import { useDiscardGuard } from '@/components/ui/useDiscardGuard';
 
 const PAYMENT_INSTRUCTIONS_MAX = 500;
 const DEFAULT_NOTES_MAX = 300;
@@ -16,7 +17,7 @@ const DEFAULT_NOTES_MAX = 300;
 /**
  * Settings > Billing > Invoice details (Client invoicing only): the "From"
  * block, payment terms, instructions and the fallback note every invoice
- * PDF carries. Edit, then Save; the singleton business_settings row is
+ * PDF carries. Edit, then Save in the SaveBar (Rule 8); the singleton business_settings row is
  * patched. With Client invoicing off the section is hidden and its stored
  * values stay as they are.
  */
@@ -33,8 +34,8 @@ export function InvoiceDetailsSection() {
   const [defaultNotes, setDefaultNotes] = useState('');
   const [saving, setSaving] = useState(false);
 
-  // Hydrate local form state when the singleton row arrives.
-  useEffect(() => {
+  // Fill the form from the saved row: when it arrives, and on Discard.
+  const reset = () => {
     if (!businessSettings) return;
     setName(businessSettings.business_name);
     setAddress(businessSettings.business_address);
@@ -43,9 +44,10 @@ export function InvoiceDetailsSection() {
     setPaymentTerms(businessSettings.payment_terms);
     setPaymentInstructions(businessSettings.payment_instructions);
     setDefaultNotes(businessSettings.default_invoice_notes);
-    // Only when the row itself arrives; later edits are the form's own.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [businessSettings?.id]);
+  };
+  // Only when the row itself arrives; later edits are the form's own.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(reset, [businessSettings?.id]);
 
   const isDirty =
     !!businessSettings &&
@@ -56,6 +58,8 @@ export function InvoiceDetailsSection() {
       paymentTerms !== businessSettings.payment_terms ||
       paymentInstructions !== businessSettings.payment_instructions ||
       defaultNotes !== businessSettings.default_invoice_notes);
+
+  const guard = useDiscardGuard(isDirty && !isDemoMode, reset);
 
   const handleSave = async () => {
     if (!isDirty) return;
@@ -127,10 +131,11 @@ export function InvoiceDetailsSection() {
         />
       </div>
 
-      <div className="mt-4">
+      {/* The two lines every invoice ends with, side by side on wide screens (Rule 9). */}
+      <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
         <Textarea
           label="Payment instructions"
-          description="Shown at the bottom of every invoice, such as wire details, a payment link or a mailing address."
+          description="Wire details, a payment link or an address."
           value={paymentInstructions}
           onChange={setPaymentInstructions}
           placeholder="Pay online at https://...&#10;Make checks payable to"
@@ -139,34 +144,23 @@ export function InvoiceDetailsSection() {
           showCharCount
           disabled={isDemoMode}
         />
-      </div>
-
-      <div className="mt-4">
         <Textarea
           label="Invoice notes"
           description="Used when an invoice has no notes of its own."
           value={defaultNotes}
           onChange={setDefaultNotes}
           placeholder="Thank you for your business!"
-          rows={2}
+          rows={3}
           maxLength={DEFAULT_NOTES_MAX}
           showCharCount
           disabled={isDemoMode}
         />
       </div>
 
-      <div className="mt-4">
-        <Button onClick={handleSave} disabled={!isDirty || saving || isDemoMode}>
-          {saving ? (
-            <>
-              <Loader2 size={14} className="animate-spin mr-1.5" />
-              Saving
-            </>
-          ) : (
-            'Save invoice details'
-          )}
-        </Button>
-      </div>
+      {guard.dialog}
+      {!isDemoMode && (
+        <SettingsSaveBar dirty={isDirty} saving={saving} onDiscard={reset} onSave={() => { void handleSave(); }} />
+      )}
     </section>
   );
 }

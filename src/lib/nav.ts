@@ -1,39 +1,7 @@
 /**
- * The sidebar's shape: which entries show at once and which sit under More,
- * and when the sidebar nudges someone to set up AI. Pure, so
- * scripts/verify-navigation.ts checks it alone.
+ * Sidebar helpers: which entry is active, and when the sidebar nudges
+ * someone to set up AI. Pure, so scripts/verify-navigation.ts checks it alone.
  */
-
-/**
- * Entries people open now and then rather than every day: under More, one
- * extra tap away. Everyday work stays in view: Dashboard, My Tasks, Inbox,
- * Projects, AI and Notifications. Finances is whichever of its names the
- * person sees (Finances, My earnings, Time), so all three paths are listed.
- */
-export const NAV_MORE_HREFS: readonly string[] = ['/leads', '/contacts', '/team', '/finances', '/time'];
-
-/** More holds at least this many entries; fewer show in the list itself, since a group of one saves nothing. */
-export const NAV_MORE_MIN = 2;
-
-/**
- * Splits the placed entries (core and the install's own, in order) into the
- * ones shown and the ones under More. A core entry goes under More when it
- * is on NAV_MORE_HREFS. An install's entry stays beside the entry it was
- * placed after: under More when that one is, in view otherwise (its own
- * `after`), so an entry placed after Leads sits with Leads.
- */
-export function splitNav<T extends { href: string }>(entries: readonly T[], coreHrefs: ReadonlySet<string>, moreHrefs: readonly string[] = NAV_MORE_HREFS): { main: T[]; more: T[] } {
-  const main: T[] = [];
-  const more: T[] = [];
-  let previousInMore = false;
-  for (const entry of entries) {
-    const inMore: boolean = coreHrefs.has(entry.href) ? moreHrefs.includes(entry.href) : previousInMore;
-    (inMore ? more : main).push(entry);
-    previousInMore = inMore;
-  }
-  if (more.length >= NAV_MORE_MIN) return { main, more };
-  return { main: [...entries], more: [] };
-}
 
 /** Whether a path is this entry's page or below it. */
 export const navActive = (pathname: string, href: string) => pathname === href || pathname.startsWith(`${href}/`);

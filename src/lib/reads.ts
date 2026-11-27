@@ -1658,8 +1658,9 @@ export function dataRetentionRead(isDemo: boolean): Read<DataRetentionSettings> 
 }
 
 /** Settings > Security: one page of the audit log with these filters (Owner). */
-export function auditLogRead(filters: AuditFilters, page: number): Read<{ entries: AuditEntry[]; total: number; page: number; page_size: number; names: Record<string, string> }> {
-  const query = auditQuery(filters, page);
+/** One page of the audit log: the newest (page 0), or the rows older than `before` (Show more). */
+export function auditLogRead(filters: AuditFilters, page: number, before?: AuditEntry): Read<{ entries: AuditEntry[]; total: number; page: number; page_size: number; names: Record<string, string> }> {
+  const query = auditQuery(filters, page, before);
   return {
     key: `audit-log:${query}`,
     tables: ['api_audit_log'],

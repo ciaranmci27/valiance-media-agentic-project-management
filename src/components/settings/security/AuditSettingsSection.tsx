@@ -86,7 +86,7 @@ export function AuditSettingsSection() {
       {!settings ? (
         <p className="text-sm text-zinc-400" role="status">{read.failed ? 'Could not load the settings.' : 'Loading'}</p>
       ) : (
-        <div className="grid max-w-2xl gap-4 sm:grid-cols-2">
+        <div className="grid gap-4 sm:grid-cols-2">
           <Select
             label="Keep rows for"
             value={retention}
@@ -94,13 +94,16 @@ export function AuditSettingsSection() {
             options={choices.map((c) => ({ value: c.value === null ? FOREVER : String(c.value), label: c.label }))}
             helperText="Older rows are removed once a day."
           />
-          <TextInput
-            label="More fields to leave out"
-            description="Field names, separated by commas."
-            placeholder="ssn, iban"
-            value={keys}
-            onChange={setKeys}
-          />
+          <div className="space-y-1.5">
+            <TextInput
+              label="More fields to leave out"
+              placeholder="ssn, iban"
+              value={keys}
+              onChange={setKeys}
+              aria-describedby="audit-redact-help"
+            />
+            <p id="audit-redact-help" className="text-xs text-input-text-subtle">Field names, separated by commas.</p>
+          </div>
         </div>
       )}
       {confirm.dialog}

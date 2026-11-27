@@ -82,9 +82,9 @@ export function DataRetentionSection() {
       {!settings || !draft ? (
         <p className="text-sm text-zinc-400" role="status">{read.failed ? 'Could not load the settings.' : 'Loading'}</p>
       ) : (
-        <div className="grid max-w-2xl gap-4 sm:grid-cols-2">
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {isDemoMode && (
-            <p role="note" className="rounded-lg bg-white/[0.04] px-3.5 py-3 text-sm text-zinc-300 sm:col-span-2">Sample settings: changes are off in the demo.</p>
+            <p role="note" className="rounded-lg bg-white/[0.04] px-3.5 py-3 text-sm text-zinc-300 sm:col-span-2 xl:col-span-3">Sample settings: changes are off in the demo.</p>
           )}
           {fields.map((field) => (
             <Select

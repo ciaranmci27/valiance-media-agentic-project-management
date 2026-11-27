@@ -305,11 +305,6 @@ export const MultiSelect = forwardRef<HTMLButtonElement, MultiSelectProps>(funct
           {label}
         </label>
       )}
-      {description && (
-        <p id={descId} className="text-xs text-input-text-subtle">
-          {description}
-        </p>
-      )}
 
       {name && value.map((v) => <input key={v} type="hidden" name={name} value={v} />)}
 
@@ -343,6 +338,11 @@ export const MultiSelect = forwardRef<HTMLButtonElement, MultiSelectProps>(funct
         />
       </button>
 
+      {description && (
+        <p id={descId} className="text-xs text-input-text-subtle">
+          {description}
+        </p>
+      )}
       {error && (
         <p id={errorId} role="alert" className="text-xs text-input-error">
           {error}

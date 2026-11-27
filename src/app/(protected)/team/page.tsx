@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/Button';
 import { User, UserPlus, SlidersHorizontal } from 'lucide-react';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { TeamTabs, teamPanelProps } from '@/components/team/TeamTabs';
+import { SHOW_MORE_STEP } from '@/components/ui/ShowMore';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { RowActionsMenu } from '@/components/ui/RowActionsMenu';
 import { TeamMember } from '@/lib/types';
@@ -53,7 +54,10 @@ export default function TeamPage() {
             (m.email ?? '').toLowerCase().includes(searchLower),
         )
       : [...team]
-  ).sort((a, b) => roleRank[a.role] - roleRank[b.role] || a.name.localeCompare(b.name));
+  )
+    // Suspended people sink below everyone active, so a long list leads with who can work.
+    .sort((a, b) => Number(a.status === 'suspended') - Number(b.status === 'suspended')
+      || roleRank[a.role] - roleRank[b.role] || a.name.localeCompare(b.name));
 
   const nameLink = (m: TeamMember, className: string) => (
     <Link
@@ -192,6 +196,8 @@ export default function TeamPage() {
           <DataTable
             columns={columns}
             data={filtered}
+            pageSize={SHOW_MORE_STEP}
+            noun="people"
             keyExtractor={(m) => m.id}
             onRowClick={(m) => router.push(profileHref(m))}
             emptyState="No people match your search"

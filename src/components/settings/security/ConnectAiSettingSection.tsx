@@ -59,7 +59,7 @@ export function ConnectAiSettingSection() {
 
   const data = read.data;
   return (
-    <section className="glass-card rounded-xl p-4 lg:p-5" aria-labelledby="connect-ai-setting-heading">
+    <section className="glass-card h-full rounded-xl p-4 lg:p-5" aria-labelledby="connect-ai-setting-heading">
       <SettingsSectionHeader
         icon={Sparkles}
         headingId="connect-ai-setting-heading"

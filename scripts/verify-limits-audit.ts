@@ -707,6 +707,21 @@ async function main() {
     const total = await count('SELECT count(*)::int AS n FROM pm.api_audit_log');
     const page2 = await session(auditLogRoute.GET, 'GET', '/api/workspace/audit-log?page=1');
     check('audit log: pages of 50, newest first', page2.status === 200 && page2.body.data.total === total && page2.body.data.entries.length === Math.min(50, Math.max(0, total - 50)), [total, page2.body?.data?.entries?.length]);
+    // Show more reads by cursor: rows logged between two reads never repeat a row or skip one.
+    const ordered = (await s.q<Loose>('SELECT id FROM pm.api_audit_log ORDER BY timestamp DESC, id DESC')).map((r) => r.id as string);
+    const newest = await session(auditLogRoute.GET, 'GET', '/api/workspace/audit-log');
+    const last = newest.body.data.entries.at(-1) as Loose;
+    await s.q(`INSERT INTO pm.api_audit_log (method, endpoint, status_code, via) VALUES ('POST', '/probe/later', 200, 'app'), ('POST', '/probe/later', 200, 'app'), ('POST', '/probe/later', 200, 'app')`);
+    const more = await session(auditLogRoute.GET, 'GET', `/api/workspace/audit-log?before=${encodeURIComponent(`${last.timestamp}|${last.id}`)}`);
+    const shownIds = [...newest.body.data.entries, ...(more.body?.data?.entries ?? [])].map((e: Loose) => e.id as string);
+    check('audit log: Show more by cursor continues right after the last row shown, with no repeat or gap, though rows arrived meanwhile',
+      more.status === 200 && shownIds.join() === ordered.slice(0, shownIds.length).join() && new Set(shownIds).size === shownIds.length
+      && more.body.data.total === ordered.length - newest.body.data.entries.length, [more.status, more.body?.error, shownIds.length, ordered.length]);
+    const actionMore = await session(auditLogRoute.GET, 'GET', `/api/workspace/audit-log?action=probe&before=${encodeURIComponent(`${last.timestamp}|${last.id}`)}`);
+    check('audit log: the cursor and an action filter apply together',
+      actionMore.status === 200 && (actionMore.body.data.entries as Loose[]).every((e) => /probe/.test(e.endpoint) && !String(e.endpoint).includes('/probe/later')), actionMore.body?.data?.entries?.map((e: Loose) => e.endpoint));
+    const malformed = await session(auditLogRoute.GET, 'GET', '/api/workspace/audit-log?before=yesterday');
+    check('audit log: a malformed cursor is refused', malformed.status === 400, malformed.status);
     const future = await session(auditLogRoute.GET, 'GET', '/api/workspace/audit-log?from=2099-01-01');
     check('audit log: filters by date', future.body?.data?.total === 0);
 

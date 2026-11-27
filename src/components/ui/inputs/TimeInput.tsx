@@ -216,11 +216,6 @@ export const TimeInput = forwardRef<HTMLButtonElement, TimeInputProps>(function 
           {label}
         </label>
       )}
-      {description && (
-        <p id={descId} className="text-xs text-input-text-subtle">
-          {description}
-        </p>
-      )}
 
       {name && <input type="hidden" name={name} value={value || ''} />}
 
@@ -251,6 +246,11 @@ export const TimeInput = forwardRef<HTMLButtonElement, TimeInputProps>(function 
         <Clock size={clockSize} className="flex-shrink-0 text-input-text-placeholder" />
       </button>
 
+      {description && (
+        <p id={descId} className="text-xs text-input-text-subtle">
+          {description}
+        </p>
+      )}
       {error && (
         <p id={errorId} role="alert" className="text-xs text-input-error">
           {error}

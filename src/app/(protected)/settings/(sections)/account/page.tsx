@@ -6,6 +6,7 @@ import { ProfileSection } from '@/components/settings/ProfileSection';
 import { TimezoneSection } from '@/components/settings/TimezoneSection';
 import { SignInSection } from '@/components/settings/SignInSection';
 import { AppearanceSection } from '@/components/settings/AppearanceSection';
+import { CardRow } from '@/components/ui/Card';
 import { useSettingsAccess } from '@/components/settings/settings-groups';
 import { AI_SECTION_HREFS } from '@/lib/ai-home';
 
@@ -20,10 +21,13 @@ export default function AccountSettingsPage() {
   return (
     <>
       <ProfileSection />
-      <TimezoneSection />
+      {/* Two short personal choices side by side on wide screens (Rule 9). */}
+      <CardRow className="lg:grid-cols-2">
+        <TimezoneSection />
+        <AppearanceSection />
+      </CardRow>
       {/* Your password and Google link. The demo shows a sample with nothing to change. */}
       {show.signIn && <SignInSection />}
-      <AppearanceSection />
     </>
   );
 }

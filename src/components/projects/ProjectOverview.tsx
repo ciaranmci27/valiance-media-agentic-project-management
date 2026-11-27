@@ -57,7 +57,7 @@ function shortDate(value: string): string {
   return parseDateOnly(value).toLocaleDateString(appLocale(), { month: 'short', day: 'numeric' });
 }
 
-const ROW_CLASS = 'w-full flex items-center gap-3 px-2.5 py-2 -mx-2.5 rounded-lg text-left hover:bg-white/[0.04] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500';
+const ROW_CLASS = 'w-[calc(100%+1.25rem)] flex items-center gap-3 px-2.5 py-2 -mx-2.5 rounded-lg text-left hover:bg-white/[0.04] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500';
 
 /** One line in an Overview list: icon, title, a muted detail, and an end slot. */
 function RowBody({ icon, title, detail, end }: { icon: ReactNode; title: string; detail?: ReactNode; end?: ReactNode }) {

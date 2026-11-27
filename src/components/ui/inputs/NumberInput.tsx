@@ -262,11 +262,6 @@ export const NumberInput = forwardRef<HTMLInputElement, NumberInputProps>(functi
           {label}
         </label>
       )}
-      {description && (
-        <p id={descId} className="text-xs text-input-text-subtle">
-          {description}
-        </p>
-      )}
       <div
         className={`flex items-center outline-none ${fieldChrome(error, disabled)} ${inputClassName || ''}`}
       >
@@ -340,6 +335,11 @@ export const NumberInput = forwardRef<HTMLInputElement, NumberInputProps>(functi
           </div>
         )}
       </div>
+      {description && (
+        <p id={descId} className="text-xs text-input-text-subtle">
+          {description}
+        </p>
+      )}
       {error && (
         <p id={errorId} role="alert" className="text-xs text-input-error">
           {error}

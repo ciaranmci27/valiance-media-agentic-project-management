@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import {
-  AlertTriangle, ArrowLeft, ChevronRight, FileText, IdCard, ListChecks, LogOut, PauseCircle, PlayCircle, Plug, Plus, RefreshCw, StickyNote, UserCheck, Users, UserX,
+  AlertTriangle, ArrowLeft, ChevronRight, FileText, FolderKanban, IdCard, ListChecks, LogOut, PauseCircle, PlayCircle, Plug, Plus, RefreshCw, StickyNote, UserCheck, Users, UserX,
 } from 'lucide-react';
 import { useApp } from '@/lib/store';
 import { createClient } from '@/lib/supabase/client';
@@ -413,9 +413,10 @@ export function AgentProfile({ agentId }: { agentId: string }) {
         ))}
 
         {panel('access', detail.loading ? <LoadingRows /> : !data ? <Failed onRetry={detail.reload} what="who can use it" /> : (
-          <div className="space-y-6">
-            <AccessTab
+          <AccessTab
               detail={data}
+              connect={<ConnectHostCard detail={data} />}
+              reads={<WhatItReadsCard agentId={data.agent.id} />}
               keyPowers={keyPowers}
               suspended={suspended}
               managedBy={(
@@ -432,8 +433,6 @@ export function AgentProfile({ agentId }: { agentId: string }) {
                 />
               )}
             />
-            <ConnectTab detail={data} />
-          </div>
         ))}
       </div>
 
@@ -717,7 +716,7 @@ function RecentRuns({ agentId, agentName, onOpenTask }: { agentId: string; agent
   const open = openId ? runs.find((r) => r.id === openId) ?? null : null;
   if (recent.loading) return <LoadingRows />;
   if (recent.failed) return <Failed onRetry={recent.reload} what="runs" />;
-  if (runs.length === 0) return <p className="text-sm text-zinc-400">No runs yet. They show here as {agentName} starts work.</p>;
+  if (runs.length === 0) return <EmptyState framed compact icon={<PlayCircle />} title="No runs yet" description={`They show here as ${agentName} starts work.`} />;
   return (
     <>
       <ul className="divide-y divide-white/[0.05] overflow-hidden rounded-2xl bg-white/[0.025] ring-1 ring-inset ring-white/[0.06]">
@@ -832,28 +831,24 @@ function AgentProjects({ detail, canEdit, suspended, templateLabel, templateLabe
 
   if (onProjects.length === 0 && detail.projects.length === 0 && !adding && !pending) {
     return (
-      <div className="max-w-4xl rounded-2xl bg-white/[0.02] px-6 py-12 text-center ring-1 ring-inset ring-white/[0.06]">
-        <p className="text-sm font-semibold text-white">
-          {hiddenCount > 0 ? `On ${hiddenCount} ${hiddenCount === 1 ? 'project' : 'projects'} you cannot open` : 'Not on any project yet'}
-        </p>
-        <p className="mt-1.5 text-sm text-zinc-400">
-          {hiddenCount > 0
+      <EmptyState
+        framed
+        icon={<FolderKanban />}
+        title={hiddenCount > 0 ? `On ${hiddenCount} ${hiddenCount === 1 ? 'project' : 'projects'} you cannot open` : 'Not on any project yet'}
+        description={suspended
+          ? `Reactivate ${agentName} to put it on a project.`
+          : hiddenCount > 0
             ? 'Only people on those projects see them here.'
-            : "Put it on a project and it reads that project's brief, settings and instructions."}
-        </p>
-        {suspended && <p className="mt-3 text-xs text-zinc-500">Reactivate {agentName} to put it on a project.</p>}
-        {canEdit && available.length > 0 && <Button className="mt-5" icon={<Plus size={15} aria-hidden="true" />} onClick={() => setAdding(true)}>Add to a project</Button>}
-        {canEdit && withheld > 0 && <p className="mt-3 text-xs text-zinc-500">Adding it to a project takes an Owner or someone who assigns project members.</p>}
-      </div>
+            : canEdit && available.length === 0 && withheld > 0
+              ? 'Adding it to a project takes an Owner or someone who assigns project members.'
+              : "Put it on a project and it reads that project's brief, settings and instructions."}
+        action={canEdit && available.length > 0 ? <Button size="sm" icon={<Plus size={13} aria-hidden="true" />} onClick={() => setAdding(true)}>Add to a project</Button> : undefined}
+      />
     );
   }
 
   return (
-    <div className="max-w-4xl space-y-8">
-      <p className="text-sm text-zinc-400">
-        {projectsLine(total, false, detail.projects_total ?? detail.projects.length)}. It works on every project it can open; the ones set up carry their own settings and instructions.
-        {hiddenCount > 0 && ` ${hiddenCount} of them ${hiddenCount === 1 ? 'is' : 'are'} hidden from you.`}
-      </p>
+    <div className="flex flex-col gap-6">
       {suspended && <p className="rounded-xl bg-white/[0.03] px-4 py-3 text-sm text-zinc-400">Suspended: reactivate {agentName} to add it to a project or set it up.</p>}
 
       {adding && !pending && (
@@ -871,10 +866,16 @@ function AgentProjects({ detail, canEdit, suspended, templateLabel, templateLabe
       {pendingPanel}
 
       <section aria-labelledby="ap-setup">
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-          <h2 id="ap-setup" className="text-sm font-semibold text-white">Set up</h2>
+        <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
+          <div className="min-w-0">
+            <h2 id="ap-setup" className="text-sm font-semibold text-white">Set up</h2>
+            <p className="mt-0.5 text-xs text-zinc-500">
+              {projectsLine(total, false, detail.projects_total ?? detail.projects.length)}. It works on every project it can open; the ones set up carry their own settings and instructions.
+              {hiddenCount > 0 && ` ${hiddenCount} of them ${hiddenCount === 1 ? 'is' : 'are'} hidden from you.`}
+            </p>
+          </div>
           {canEdit && !adding && available.length > 0 && (
-            <Button variant="secondary" icon={<Plus size={15} aria-hidden="true" />} onClick={() => setAdding(true)}>Add to another project</Button>
+            <Button size="sm" variant="secondary" icon={<Plus size={13} aria-hidden="true" />} onClick={() => setAdding(true)}>Add to another project</Button>
           )}
         </div>
         {(detail.projects_total ?? 0) > detail.projects.length && (
@@ -1141,32 +1142,38 @@ function AgentPicture({ agentId, name, saved }: { agentId: string; name: string;
 
 /**
  * Connect, on Access under its keys: how its host reaches this workspace
- * (the snippets) and what it reads (AGENTS.md).
+ * (the snippets, with its AGENTS.md to download).
  */
-function ConnectTab({ detail }: { detail: AgentDetail }) {
+function ConnectHostCard({ detail }: { detail: AgentDetail }) {
   const { isDemoMode } = useDemo();
   const context = useRead(agentContextRead(detail.agent.id, isDemoMode));
   const [now] = useState(() => Date.now());
   const name = detail.agent.name;
   const hasWorkingKey = activeKeys(detail.keys ?? [], now).length > 0;
   return (
-    <div className="page-read flex flex-col gap-6">
-      <Card title="Connect its host" icon={<Plug />} id="cn-host" className="scroll-mt-6">
-        <div className="space-y-4">
-          {!hasWorkingKey && detail.keys !== undefined && (
-            <p className="rounded-xl bg-white/[0.03] px-4 py-3 text-sm text-zinc-300">{name} needs a key first. Make one under Keys above, then paste a snippet below.</p>
-          )}
-          <ConnectSnippets agentName={name} onDownloadBrief={context.data ? () => downloadText('AGENTS.md', context.data!) : undefined} />
-        </div>
-      </Card>
-      <Card title="What it reads" icon={<FileText />} id="cn-pack" description="Its rules, projects, settings, instructions and each project's pinned brief, as it receives them (AGENTS.md).">
-        {context.loading ? <LoadingRows /> : context.failed ? <Failed onRetry={context.reload} what="what it reads" /> : context.data ? (
-          <pre className="max-h-[560px] overflow-auto whitespace-pre-wrap break-words rounded-xl bg-white/[0.03] p-4 font-mono text-xs leading-relaxed text-zinc-200 ring-1 ring-inset ring-white/[0.06]">{context.data}</pre>
-        ) : (
-          <EmptyState compact title="Nothing for it to read yet" description="It fills in as you set its rules and put it on projects." />
+    <Card title="Connect its host" icon={<Plug />} id="cn-host" className="scroll-mt-6">
+      <div className="space-y-4">
+        {!hasWorkingKey && detail.keys !== undefined && (
+          <p className="rounded-xl bg-white/[0.03] px-4 py-3 text-sm text-zinc-300">{name} needs a key first. Make one under Keys, then paste a snippet below.</p>
         )}
-      </Card>
-    </div>
+        <ConnectSnippets agentName={name} onDownloadBrief={context.data ? () => downloadText('AGENTS.md', context.data!) : undefined} />
+      </div>
+    </Card>
+  );
+}
+
+/** What it reads, full width at the foot of Access: its AGENTS.md as it receives it. */
+function WhatItReadsCard({ agentId }: { agentId: string }) {
+  const { isDemoMode } = useDemo();
+  const context = useRead(agentContextRead(agentId, isDemoMode));
+  return (
+    <Card title="What it reads" icon={<FileText />} id="cn-pack" description="Its rules, projects, settings, instructions and each project's pinned brief, as it receives them (AGENTS.md).">
+      {context.loading ? <LoadingRows /> : context.failed ? <Failed onRetry={context.reload} what="what it reads" /> : context.data ? (
+        <pre className="max-h-[560px] overflow-auto whitespace-pre-wrap break-words rounded-xl bg-white/[0.03] p-4 font-mono text-xs leading-relaxed text-zinc-200 ring-1 ring-inset ring-white/[0.06]">{context.data}</pre>
+      ) : (
+        <EmptyState compact title="Nothing for it to read yet" description="It fills in as you set its rules and put it on projects." />
+      )}
+    </Card>
   );
 }
 

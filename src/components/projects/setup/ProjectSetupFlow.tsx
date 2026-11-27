@@ -261,7 +261,6 @@ export function ProjectSetupFlow() {
       aside={!created ? (
         <ChatSetupAside
           prompt={'"Set up a project called Website refresh for Acme, due March 1. Put Nova on it as the builder and add our brand rules to the brief."'}
-          tools={['setup_project', 'add_project_context', 'set_project_agent']}
         />
       ) : undefined}
     >

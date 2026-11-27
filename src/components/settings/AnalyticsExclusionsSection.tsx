@@ -17,6 +17,7 @@ import { SettingsSectionHeader } from '@/components/settings/SettingsSectionHead
 import { useApp } from '@/lib/store';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
+import { IconButton } from '@/components/ui/IconButton';
 import { toast } from '@/components/ui/Toast';
 import { useDemo } from '@/lib/demo-context';
 import type { ExcludedIp } from '@/lib/types';
@@ -115,11 +116,8 @@ export function AnalyticsExclusionsSection() {
       <SettingsSectionHeader
         icon={ShieldOff}
         title="Analytics exclusions"
-        description="Visits from these IP addresses are left out of every project's portal analytics."
+        description="Visits from these IP addresses are left out of every project's portal analytics. Each project's portal is switched on from its own Client portal tab."
       />
-      <p className="-mt-3 mb-5 text-xs text-zinc-500">
-        Each project&apos;s portal is switched on from that project&apos;s Client portal tab.
-      </p>
 
       {excludedIps.length > 0 && (
         <div className="rounded-lg border border-white/[0.08] divide-y divide-white/[0.06] mb-4 overflow-hidden">
@@ -129,21 +127,20 @@ export function AnalyticsExclusionsSection() {
                 <div className="text-sm font-mono text-zinc-100 truncate">{entry.ip}</div>
                 <div className="text-xs text-zinc-400 truncate">{entry.label}</div>
               </div>
-              <button
-                type="button"
+              <IconButton
+                icon={<Trash2 />}
+                tone="danger"
+                size="sm"
                 onClick={() => handleRemoveIp(entry.ip)}
                 disabled={isDemoMode || saving}
-                className="p-1.5 rounded-md text-zinc-500 hover:text-rose-400 hover:bg-rose-500/15 transition-colors disabled:opacity-40 disabled:cursor-not-allowed focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-500"
-                aria-label={`Remove ${entry.ip}`}
-              >
-                <Trash2 size={14} />
-              </button>
+                label={`Remove ${entry.ip}`}
+              />
             </div>
           ))}
         </div>
       )}
 
-      <div className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_auto] gap-2">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_1fr_auto]">
         <Input
           label="IP address"
           value={newIp}
@@ -168,8 +165,7 @@ export function AnalyticsExclusionsSection() {
               {detectingIp ? <Loader2 size={14} className="animate-spin" /> : 'Detect IP'}
             </Button>
           )}
-          <Button onClick={handleAddIp} disabled={!newIp.trim() || isDemoMode || saving}>
-            {saving ? <Loader2 size={14} className="mr-1 animate-spin" /> : <Plus size={14} className="mr-1" />}
+          <Button onClick={handleAddIp} disabled={!newIp.trim() || isDemoMode || saving} icon={saving ? <Loader2 size={14} className="animate-spin" aria-hidden="true" /> : <Plus size={14} aria-hidden="true" />}>
             Add
           </Button>
         </div>

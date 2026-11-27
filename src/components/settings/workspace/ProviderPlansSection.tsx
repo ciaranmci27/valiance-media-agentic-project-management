@@ -19,6 +19,7 @@ import { Input } from '@/components/ui/Input';
 import { ProviderLogo } from '@/components/ui/ProviderLogo';
 import { ProviderPicker } from '@/components/ui/ProviderPicker';
 import { Button } from '@/components/ui/Button';
+import { IconButton } from '@/components/ui/IconButton';
 import { toast } from '@/components/ui/Toast';
 import { createClient } from '@/lib/supabase/client';
 import { loadRead, useRead } from '@/lib/query-cache';
@@ -94,7 +95,7 @@ export function ProviderPlansSection() {
       <SettingsSectionHeader
         icon={Receipt}
         title="AI provider plans"
-        description="What a provider's subscription costs a month. Agents > Analytics shows it beside measured model cost, as an estimate shared out by tokens, never added to it."
+        description="What a provider's subscription costs a month. Agents > Analytics shows it beside measured model cost, as an estimate shared out by tokens, never added to it. Plans match your agents' usage by provider, in US dollars."
       />
 
       {plans.length > 0 && (
@@ -113,15 +114,14 @@ export function ProviderPlansSection() {
                   {formatMoney(plan.monthlyCostUsd)} per seat · {plan.seats} {plan.seats === 1 ? 'seat' : 'seats'}{plan.notes ? ` · ${plan.notes}` : ''}
                 </div>
               </div>
-              <button
-                type="button"
+              <IconButton
+                icon={<Trash2 />}
+                tone="danger"
+                size="sm"
                 onClick={() => void remove(plan)}
                 disabled={saving}
-                className="p-1.5 rounded-md text-zinc-500 hover:text-rose-400 hover:bg-rose-500/15 transition-colors disabled:opacity-40 disabled:cursor-not-allowed focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-500"
-                aria-label={`Remove ${planProvider(plan.provider).name}`}
-              >
-                <Trash2 size={14} />
-              </button>
+                label={`Remove ${planProvider(plan.provider).name}`}
+              />
             </div>
           ))}
         </div>
@@ -135,22 +135,19 @@ export function ProviderPlansSection() {
         disabled={saving}
         other={{ description: 'Any other provider', name: { label: 'Provider name', placeholder: 'As your agents report it, like mistral' } }}
       />
-      <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-[10rem_7rem]">
+      {/* One row of fields and the add button on wide screens (Rule 9). */}
+      <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-[9rem_6rem_minmax(0,1fr)_auto] md:items-end">
         <Input label="Per seat, a month" inputMode="decimal" value={cost} onChange={(e) => setCost(e.target.value)} placeholder="200" />
         <Input label="Seats" inputMode="numeric" value={seats} onChange={(e) => setSeats(e.target.value)} placeholder="1" />
-      </div>
-      <div className="mt-2 grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-2">
-        <Input label="Notes (optional)" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Max plan for the builder agent" maxLength={500} />
-        <div className="flex items-end">
-          <Button onClick={() => void save()} disabled={saving || !provider.trim() || !cost.trim()}>
-            {saving ? <Loader2 size={14} className="mr-1 animate-spin" /> : <Plus size={14} className="mr-1" />}
-            Save plan
+        <div className="col-span-2 md:col-span-1">
+          <Input label="Notes (optional)" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Max plan for the builder agent" maxLength={500} />
+        </div>
+        <div className="col-span-2 flex justify-end md:col-span-1">
+          <Button onClick={() => void save()} disabled={saving || !provider.trim() || !cost.trim()} icon={saving ? <Loader2 size={14} className="animate-spin" aria-hidden="true" /> : <Plus size={14} aria-hidden="true" />}>
+            {saving ? 'Adding' : 'Add plan'}
           </Button>
         </div>
       </div>
-      <p className="mt-3 text-xs text-zinc-500">
-        Plans match your agents&apos; usage by provider. US dollars.
-      </p>
 
       {line && <p role="status" className="mt-3 text-xs text-zinc-400">{line}</p>}
     </section>

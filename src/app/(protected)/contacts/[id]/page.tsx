@@ -5,6 +5,7 @@ import { useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useApp } from '@/lib/store';
 import { Header } from '@/components/layout/Header';
+import { EmptyState } from '@/components/ui/EmptyState';
 import { ProjectCard } from '@/components/projects/ProjectCard';
 import { ProjectForm } from '@/components/projects/ProjectForm';
 import { ContactForm } from '@/components/contacts/ContactForm';
@@ -48,17 +49,14 @@ export default function ContactDetailPage() {
 
   if (!contact) {
     return (
-      <div className="animate-fadeIn min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <UserCircle className="mx-auto mb-3 text-zinc-500" size={40} />
-          <h3 className="font-medium text-zinc-300 mb-1">Contact not found</h3>
-          <button
-            onClick={() => router.push('/contacts')}
-            className="text-sm text-brand-300 hover:text-brand-300"
-          >
-            Back to contacts
-          </button>
-        </div>
+      <div className="animate-fadeIn min-h-screen p-4 lg:p-6">
+        <EmptyState
+          framed
+          icon={<UserCircle />}
+          title="Contact not found"
+          description="It may have moved to Trash, or it is not shared with you."
+          action={<Button size="sm" variant="secondary" onClick={() => router.push('/contacts')}>Back to contacts</Button>}
+        />
       </div>
     );
   }
@@ -226,11 +224,11 @@ export default function ContactDetailPage() {
         {/* Linked Leads */}
         {canReadLeads && (
         <div className="glass-card card-fill rounded-xl overflow-hidden">
-          <div className="flex items-center justify-between px-5 py-3 border-b border-white/[0.08] flex-shrink-0">
+          <div className="flex items-center justify-between px-4 py-3.5 lg:px-5 border-b border-white/[0.06] flex-shrink-0">
             <div className="flex items-center gap-2">
-              <Target size={18} className="text-zinc-400" />
-              <h2 className="font-semibold text-white">
-                Leads ({linkedLeads.length})
+              <Target size={16} aria-hidden="true" className="text-zinc-400" />
+              <h2 className="flex items-center gap-2 text-sm font-semibold text-white">
+                Leads <span className="text-xs font-normal tabular-nums text-zinc-500">{linkedLeads.length}</span>
               </h2>
             </div>
           </div>
@@ -284,10 +282,10 @@ export default function ContactDetailPage() {
           const leftOut = excludedNote(paid.excluded + outstanding.excluded);
           return (
             <div className="glass-card rounded-xl overflow-hidden flex flex-col">
-              <div className="flex items-center justify-between px-5 py-4 border-b border-white/[0.08] flex-shrink-0">
+              <div className="flex items-center justify-between px-4 py-3.5 lg:px-5 border-b border-white/[0.06] flex-shrink-0">
                 <div className="flex items-center gap-2">
-                  <Receipt size={18} className="text-zinc-400" />
-                  <h2 className="font-semibold text-white">Invoices ({contactInvoices.length})</h2>
+                  <Receipt size={16} aria-hidden="true" className="text-zinc-400" />
+                  <h2 className="flex items-center gap-2 text-sm font-semibold text-white">Invoices <span className="text-xs font-normal tabular-nums text-zinc-500">{contactInvoices.length}</span></h2>
                 </div>
                 <div className="flex items-center gap-4 text-xs">
                   <div>
@@ -338,11 +336,11 @@ export default function ContactDetailPage() {
         <div className={`card-row ${canReadFiles ? 'lg:grid-cols-2' : ''}`}>
           {/* Linked Projects */}
           <div className="glass-card card-fill rounded-xl overflow-hidden">
-            <div className="flex items-center justify-between px-5 py-3 border-b border-white/[0.08] flex-shrink-0">
+            <div className="flex items-center justify-between px-4 py-3.5 lg:px-5 border-b border-white/[0.06] flex-shrink-0">
               <div className="flex items-center gap-2">
-                <FolderKanban size={18} className="text-zinc-400" />
-                <h2 className="font-semibold text-white">
-                  Projects ({linkedProjects.length})
+                <FolderKanban size={16} aria-hidden="true" className="text-zinc-400" />
+                <h2 className="flex items-center gap-2 text-sm font-semibold text-white">
+                  Projects <span className="text-xs font-normal tabular-nums text-zinc-500">{linkedProjects.length}</span>
                 </h2>
               </div>
               {canManageProjects && <Button

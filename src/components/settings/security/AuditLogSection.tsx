@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { ChevronDown, ChevronLeft, ChevronRight, Download, ScrollText } from 'lucide-react';
+import { ChevronDown, Download, ScrollText } from 'lucide-react';
 import { SettingsSectionHeader } from '@/components/settings/SettingsSectionHeader';
 import { Button } from '@/components/ui/Button';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -15,6 +15,7 @@ import { useRead } from '@/lib/query-cache';
 import { auditLogRead } from '@/lib/reads';
 import { NO_AUDIT_FILTERS, VIA_LABELS, auditFilterCount, auditActionLabel, auditDetails, auditQuery, type AuditEntry, type AuditFilters } from '@/lib/audit-log';
 import { Pill } from '@/components/ui/Pill';
+import { ShowMore } from '@/components/ui/ShowMore';
 import { formatDateTime } from '@/lib/time-format';
 
 const ANYONE = '';
@@ -26,7 +27,8 @@ const when = (iso: string) => formatDateTime(iso);
  * Settings > Security > Audit log: who changed what, newest first. One
  * Filter button (DESIGN.md Rule 3) beside Export narrows it by who did it,
  * who it was done for (an agent acting for a person), the action and dates
- * (the viewer's own days), each applying as it is picked; pages of 50. Each row opens to
+ * (the viewer's own days), each applying as it is picked; the newest 50, then
+ * Show more for older ones (Rule 4). Each row opens to
  * what was sent and the state before and after (secrets were never stored).
  * Export downloads every row the filters shown match, as CSV.
  */
@@ -34,22 +36,48 @@ export function AuditLogSection() {
   const { team } = useApp();
   const [draft, setDraft] = useState<AuditFilters>(NO_AUDIT_FILTERS);
   const [filters, setFilters] = useState<AuditFilters>(NO_AUDIT_FILTERS);
-  const [page, setPage] = useState(0);
   const [open, setOpen] = useState<string | null>(null);
-  const read = useRead(auditLogRead(filters, page));
+  // The newest page stays live until Show more is used. From then the list
+  // holds still (that newest page plus each older batch, read by cursor from
+  // the last row shown), so rows logged meanwhile never repeat or push rows
+  // out of view; changing the filters starts over.
+  const read = useRead(auditLogRead(filters, 0));
   const data = read.data;
-  const pages = data ? Math.max(1, Math.ceil(data.total / data.page_size)) : 1;
+  type Held = { key: string; entries: AuditEntry[]; names: Record<string, string>; total: number };
+  const [held, setHeld] = useState<Held | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const filterKey = JSON.stringify(filters);
+  const heldNow = held?.key === filterKey ? held : null;
+  const entries = heldNow ? heldNow.entries : data?.entries ?? [];
+  const total = heldNow ? heldNow.total : data?.total ?? 0;
+  const heldNames = heldNow?.names ?? {};
+  const showMore = async () => {
+    const last = entries.at(-1);
+    if (!data || !last || loadingMore) return;
+    setLoadingMore(true);
+    try {
+      const next = await auditLogRead(filters, 0, last).load();
+      const have = new Set(entries.map((e) => e.id));
+      const merged = [...entries, ...next.entries.filter((e) => !have.has(e.id))];
+      // next.total counts the rows older than `last`: what is shown plus what is left.
+      setHeld({ key: filterKey, entries: merged, names: { ...(heldNow?.names ?? data.names), ...next.names }, total: entries.length + next.total });
+    } catch (error) {
+      toast('error', error instanceof Error && error.message ? error.message : 'Could not load older rows');
+    } finally {
+      setLoadingMore(false);
+    }
+  };
 
   const members = [...team].sort((a, b) => a.name.localeCompare(b.name));
   const memberOptions = [{ value: ANYONE, label: 'Anyone' }, ...members.map((m) => ({ value: m.id, label: m.role === 'agent' ? `${m.name} (agent)` : m.name }))];
   const peopleOptions = [{ value: ANYONE, label: 'Anyone' }, ...members.filter((m) => m.role !== 'agent').map((m) => ({ value: m.id, label: m.name }))];
-  const nameOf = (id: string | null) => (id ? data?.names[id] ?? team.find((m) => m.id === id)?.name ?? 'Someone removed' : null);
+  const nameOf = (id: string | null) => (id ? heldNames[id] ?? data?.names[id] ?? team.find((m) => m.id === id)?.name ?? 'Someone removed' : null);
   // Every name a row may mention: the server's (people, groups, projects, tasks, keys), then the team's.
-  const names: Record<string, string> = { ...Object.fromEntries(team.map((m) => [m.id, m.name])), ...(data?.names ?? {}) };
+  const names: Record<string, string> = { ...Object.fromEntries(team.map((m) => [m.id, m.name])), ...(data?.names ?? {}), ...heldNames };
 
   const apply = (next: AuditFilters) => {
     setFilters(next);
-    setPage(0);
+    setHeld(null);
     setOpen(null);
   };
   const filtered = JSON.stringify(filters) !== JSON.stringify(NO_AUDIT_FILTERS);
@@ -64,7 +92,6 @@ export function AuditLogSection() {
   useEffect(() => {
     const timer = window.setTimeout(() => {
       setFilters((current) => (current.action === draft.action ? current : { ...current, action: draft.action }));
-      setPage(0);
       setOpen(null);
     }, 400);
     return () => window.clearTimeout(timer);
@@ -122,7 +149,7 @@ export function AuditLogSection() {
                 </div>
               </div>
             </FilterButton>
-            <Button size="sm" variant="secondary" onClick={() => { void exportRows(); }} disabled={exporting || !data || data.total === 0} icon={<Download size={14} aria-hidden="true" />}>
+            <Button size="md" variant="secondary" onClick={() => { void exportRows(); }} disabled={exporting || !data || data.total === 0} icon={<Download size={14} aria-hidden="true" />}>
               {exporting ? 'Exporting' : filtered ? 'Export these rows' : 'Export'}
             </Button>
           </div>
@@ -140,19 +167,13 @@ export function AuditLogSection() {
             : <EmptyState compact icon={<ScrollText />} title="Nothing logged yet" description="Changes people, apps and AI tools make show up here." />
         ) : (
           <ul className="divide-y divide-white/[0.06] rounded-lg border border-white/[0.06]">
-            {data.entries.map((entry) => (
+            {entries.map((entry) => (
               <AuditRow key={entry.id} entry={entry} names={names} who={nameOf(entry.team_member_id)} actingFor={nameOf(entry.principal_id)} open={open === entry.id} onToggle={() => setOpen(open === entry.id ? null : entry.id)} />
             ))}
           </ul>
         )}
-        {data && data.total > data.page_size && (
-          <nav aria-label="Audit log pages" className="mt-3 flex items-center justify-between text-sm text-zinc-400">
-            <span>Page {page + 1} of {pages} · {data.total.toLocaleString()} rows</span>
-            <span className="flex gap-2">
-              <Button size="sm" variant="ghost" icon={<ChevronLeft size={14} aria-hidden="true" />} disabled={page === 0} onClick={() => setPage(page - 1)}>Newer</Button>
-              <Button size="sm" variant="ghost" icon={<ChevronRight size={14} aria-hidden="true" />} disabled={page + 1 >= pages} onClick={() => setPage(page + 1)}>Older</Button>
-            </span>
-          </nav>
+        {data && entries.length > 0 && (
+          <ShowMore shown={entries.length} total={total} step={data.page_size} onMore={() => { void showMore(); }} noun="audit log rows" className="pb-0" />
         )}
       </div>
     </section>

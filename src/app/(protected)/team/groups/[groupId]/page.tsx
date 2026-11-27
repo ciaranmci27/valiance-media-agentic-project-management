@@ -135,21 +135,42 @@ export default function GroupPage() {
     }
   };
 
+  const back = (
+    <Link href="/team/groups" className="inline-flex max-w-full items-center gap-1 rounded text-zinc-400 transition-colors hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500">
+      <ChevronLeft size={14} className="flex-shrink-0" aria-hidden="true" />
+      <span className="truncate">Team, Groups</span>
+    </Link>
+  );
+
   if (!group.data) {
     return (
-      <div className="flex min-h-[60vh] flex-col items-center justify-center px-6 text-center">
-        {group.loading ? (
-          <p role="status" className="text-sm text-zinc-400">Loading the group</p>
-        ) : (
-          <>
-            <p className="text-lg font-semibold text-white">{group.failed ? 'Could not load this group' : 'No such group'}</p>
-            <p className="mt-1 text-sm text-zinc-400">It may be in Trash, or you cannot see it.</p>
-            <div className="mt-5 flex gap-2">
-              {group.failed && <Button variant="secondary" icon={<RefreshCw size={14} aria-hidden="true" />} onClick={group.reload}>Try again</Button>}
-              <Button variant="ghost" href="/team/groups">All groups</Button>
+      <div className="animate-fadeIn min-h-screen">
+        <Header
+          title={group.loading ? (
+            <span className="inline-block h-7 w-48 max-w-full rounded bg-white/[0.06] motion-safe:animate-pulse align-middle">
+              <span className="sr-only">Loading the group</span>
+            </span>
+          ) : 'Group'}
+          subtitle={back}
+        />
+        <div className="space-y-6 p-4 lg:p-6">
+          {group.loading ? (
+            <div className="glass-card rounded-xl p-4 lg:p-5 space-y-4" aria-busy="true">
+              <div className="h-3 w-24 rounded bg-white/[0.06] motion-safe:animate-pulse" />
+              {[0, 1, 2].map((i) => <div key={i} className="h-4 w-full rounded bg-white/[0.06] motion-safe:animate-pulse" />)}
             </div>
-          </>
-        )}
+          ) : group.failed ? (
+            <EmptyState framed variant="error" title="Could not load this group" description="Check your connection and try again." onRetry={group.reload} />
+          ) : (
+            <EmptyState
+              framed
+              icon={<UsersRound />}
+              title="No such group"
+              description="It may be in Trash, or you cannot see it."
+              action={<Button variant="secondary" size="sm" href="/team/groups">All groups</Button>}
+            />
+          )}
+        </div>
       </div>
     );
   }
@@ -182,12 +203,6 @@ export default function GroupPage() {
     </li>
   );
 
-  const back = (
-    <Link href="/team/groups" className="inline-flex max-w-full items-center gap-1 rounded text-zinc-400 transition-colors hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500">
-      <ChevronLeft size={14} className="flex-shrink-0" aria-hidden="true" />
-      <span className="truncate">Team, Groups</span>
-    </Link>
-  );
 
   return (
     <div className="animate-fadeIn min-h-screen">

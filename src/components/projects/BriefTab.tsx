@@ -3,7 +3,7 @@
 import { Pill } from '@/components/ui/Pill';
 import { useEffect, useMemo, useState } from 'react';
 import {
-  AlertTriangle, Archive, Bot, CalendarDays, Check, CornerDownRight, Pencil, Pin, PinOff, Plus, RefreshCw, Search, Target, Trash2,
+  AlertTriangle, Archive, BookOpen, Bot, CalendarDays, Check, CornerDownRight, Pencil, Pin, PinOff, Plus, RefreshCw, Search, Target, Trash2,
 } from 'lucide-react';
 import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
@@ -39,6 +39,7 @@ import { RowActionsMenu, type RowAction } from '@/components/ui/RowActionsMenu';
 import { Bone, Skeleton } from '@/components/projects/TabLayout';
 import { toast } from '@/components/ui/Toast';
 import { UndoLine } from '@/components/ui/UndoLine';
+import { EmptyState } from '@/components/ui/EmptyState';
 
 /**
  * A project's brief: what every agent and person should know about it, in
@@ -641,6 +642,16 @@ const SCOPE_ENTRY_WORDS: Record<ScopeRef['scope_type'], EntryWords> = {
  * found by search. A person's memory has one Add for every section, in its
  * own words. Company and group knowledge work in the demo on its own copy.
  */
+/** A scope's section hints, in words that fit any scope (the project brief's own say "this project"). */
+const SCOPE_SECTION_HINTS: Record<BriefSectionKey, string> = {
+  overview: 'What it is, who it is for, what good looks like.',
+  rules: 'What must always or never happen.',
+  decisions: 'Calls already made, and who makes the next ones.',
+  links: 'Repos, docs, dashboards, designs.',
+  glossary: 'Words used here in their own way.',
+  history: 'What was tried, what worked, what to avoid.',
+};
+
 export function ContextBrief({ scope, emptyText, label }: {
   scope: ScopeRef;
   /** What an empty list says to someone who can add to it. */
@@ -660,7 +671,8 @@ export function ContextBrief({ scope, emptyText, label }: {
   }, [q]);
   const search = useRead(debounced.length >= 2 && !isDemoMode ? scopedBriefSearchRead(scope, debounced) : null);
   const [deleting, setDeleting] = useState<BriefEntry | null>(null);
-  const [addingMemory, setAddingMemory] = useState(false);
+  // One Add for every section, above them (the empty sections stay hidden, so nothing repeats "Nothing here yet").
+  const [adding, setAdding] = useState(false);
   // An agent's own notes: what it wrote itself can be cleared at once, with Undo (security review finding 10).
   const [cleared, setCleared] = useState<string[] | null>(null);
   const [clearBusy, setClearBusy] = useState<'clear' | 'undo' | null>(null);
@@ -715,8 +727,9 @@ export function ContextBrief({ scope, emptyText, label }: {
   const results = searching
     ? (demoReady ? demoSearchEntries(scope, debounced) : search.data ?? all.filter((e) => e.content.toLowerCase().includes(debounced.toLowerCase())))
     : [];
-  // A person's memory shows only the sections that hold something (one Add serves them all); so does a scope the reader cannot add to.
-  const shownSections = canEdit && !memory ? sections : sections.filter((s) => s.entries.length > 0);
+  // Only the sections that hold something show; one Add above them serves every section (DESIGN.md Rule 5: no wall of empty blocks).
+  const shownSections = sections.filter((s) => s.entries.length > 0);
+  const addLabel = memory ? 'Add something to remember' : 'Add';
   const rowProps: RowProps = { canEdit, actions, reach, onDelete: setDeleting, sections: sections.map((s) => ({ key: s.key, label: s.label })), words };
   const pinnedLine = memory ? (reach.pinned ? `${reach.pinned} pinned` : null) : pinnedReachLine(reach.pinned)?.replace('agents', words.reader ?? 'agents') ?? null;
   const agentNotes = scope.scope_type === 'agent' && canEdit && !demoReady;
@@ -750,24 +763,21 @@ export function ContextBrief({ scope, emptyText, label }: {
 
   return (
     <div className="min-w-0">
+      {totalEntries > 0 && (
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-zinc-400">
-          {totalEntries === 0
-            ? 'Nothing written yet.'
-            : [
+          {[
                 `${totalEntries} ${totalEntries === 1 ? 'entry' : 'entries'}`,
                 updated ? freshnessLabel(updated) : null,
                 pinnedLine,
               ].filter(Boolean).join(' · ')}
         </p>
         <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
-          {totalEntries > 0 && (
-            <div className="w-full sm:w-72">
-              <TextInput type="search" aria-label={`Search ${name}`} placeholder={`Search ${name}`} value={q} onChange={setQ} leftIcon={Search} clearable />
-            </div>
-          )}
-          {memory && canEdit && !addingMemory && (
-            <Button variant="secondary" size="sm" icon={<Plus size={13} aria-hidden="true" />} onClick={() => setAddingMemory(true)}>Add something to remember</Button>
+          <div className="w-full sm:w-72">
+            <TextInput type="search" aria-label={`Search ${name}`} placeholder={`Search ${name}`} value={q} onChange={setQ} leftIcon={Search} clearable />
+          </div>
+          {canEdit && !adding && (
+            <Button variant="secondary" size="sm" icon={<Plus size={13} aria-hidden="true" />} onClick={() => setAdding(true)}>{addLabel}</Button>
           )}
           {agentWritten > 0 && (
             <Button variant="ghost" size="sm" icon={<Archive size={13} aria-hidden="true" />} onClick={() => void clearAgentWritten()} disabled={clearBusy !== null}>
@@ -776,20 +786,21 @@ export function ContextBrief({ scope, emptyText, label }: {
           )}
         </div>
       </div>
+      )}
       {cleared && cleared.length > 0 && (
         <UndoLine className="mt-2" onUndo={() => void undoClear()} busy={clearBusy === 'undo'}>
           Cleared {cleared.length} {cleared.length === 1 ? 'note' : 'notes'} it wrote.
         </UndoLine>
       )}
       {cleared && cleared.length === 0 && <p className="mt-2 text-xs text-zinc-500">Nothing it wrote is left to clear.</p>}
-      {!canEdit && <p className="mt-2 text-xs text-zinc-500">Read only for you. {WHO_EDITS[scope.scope_type]}</p>}
+      {!canEdit && <p className={`${totalEntries > 0 ? 'mt-2 ' : ''}text-xs text-zinc-500`}>Read only for you. {WHO_EDITS[scope.scope_type]}</p>}
       {demoReady && canEdit && <p className="mt-1 text-xs text-zinc-500">Demo: changes here show at once and last until you reload.</p>}
-      {memory && addingMemory && (
+      {adding && (
         <NewEntry
           pinLabel={words.pinLabel}
           sections={sections.map((s) => ({ key: s.key, label: s.label }))}
-          onCancel={() => setAddingMemory(false)}
-          onSubmit={async (content, pin, section) => { if (await actions.onAdd(section ?? 'overview', content, pin)) setAddingMemory(false); }}
+          onCancel={() => setAdding(false)}
+          onSubmit={async (content, pin, section) => { if (await actions.onAdd(section ?? 'overview', content, pin)) setAdding(false); }}
         />
       )}
 
@@ -801,7 +812,15 @@ export function ContextBrief({ scope, emptyText, label }: {
           </ul>
         </section>
       ) : shownSections.length === 0 ? (
-        <p className="mt-4 rounded-xl bg-white/[0.02] px-4 py-3 text-sm text-zinc-500">{canEdit && emptyText ? emptyText : 'Nothing here yet.'}</p>
+        adding ? null : (
+          <EmptyState
+            compact
+            icon={<BookOpen />}
+            title="Nothing here yet"
+            description={canEdit && emptyText ? emptyText.replace(/^Nothing (here )?yet\.\s*/, '') || undefined : undefined}
+            action={canEdit ? <Button variant="secondary" size="sm" icon={<Plus size={13} aria-hidden="true" />} onClick={() => setAdding(true)}>{addLabel}</Button> : undefined}
+          />
+        )
       ) : (
         <div className="mt-5 space-y-8">
           {shownSections.map((section) => (
@@ -809,7 +828,7 @@ export function ContextBrief({ scope, emptyText, label }: {
               key={section.key}
               pageRead={(key, page) => scopedBriefSectionRead(scope, key, page, BRIEF_SERVER_PAGE)}
               section={section}
-              hint={memory ? undefined : BRIEF_SECTIONS.find((s) => s.key === section.key)?.hint}
+              hint={memory ? undefined : SCOPE_SECTION_HINTS[section.key]}
               rowProps={rowProps}
               canAdd={!memory && canEdit}
               emptyText="Nothing here yet."

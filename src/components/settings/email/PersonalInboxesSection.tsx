@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, Loader2, Users } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
+import { EmptyState } from '@/components/ui/EmptyState';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Toggle } from '@/components/ui/inputs/Toggle';
 import { Tooltip } from '@/components/ui/Tooltip';
@@ -209,7 +210,12 @@ export function PersonalInboxesSection() {
           })}
         </ul>
       ) : (
-        <p className="py-4 text-center text-sm text-zinc-400">Nobody has connected their own inbox yet.</p>
+        <EmptyState
+          compact
+          icon={<Users />}
+          title="No personal inboxes yet"
+          description="When teammates connect their own email in Settings > Email > Your inbox, each one shows here."
+        />
       )}
 
       <ConfirmDialog

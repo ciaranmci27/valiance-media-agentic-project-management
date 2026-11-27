@@ -974,14 +974,14 @@ export function PayrollPanel({ team, projects, reviewOnly = false }: { team: Tea
   if (!reviewOnly && !loading && visibleMembers.length === 0 && pending.length === 0) return null;
 
   return (
-    <section className="rounded-xl border border-white/[0.08] bg-surface-raised">
-      <div className="px-5 py-4 flex flex-wrap items-center justify-between gap-3 border-b border-white/[0.06]">
+    <section className="glass-card rounded-xl">
+      <div className="px-4 py-3.5 lg:px-5 flex flex-wrap items-center justify-between gap-3 border-b border-white/[0.06]">
         <div>
           <div className="flex items-center gap-2">
             {isPayEnabled
-              ? <WalletCards size={18} className="text-brand-300" />
-              : <Clock3 size={18} className="text-brand-300" aria-hidden="true" />}
-            <h2 className="font-semibold text-white">
+              ? <WalletCards size={16} className="text-zinc-400" aria-hidden="true" />
+              : <Clock3 size={16} className="text-zinc-400" aria-hidden="true" />}
+            <h2 className="text-sm font-semibold text-white">
               {reviewOnly ? 'Time review' : canManage ? 'Team pay' : 'My earnings'}
             </h2>
           </div>

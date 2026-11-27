@@ -1,7 +1,8 @@
 'use client';
 
 import { Pill } from '@/components/ui/Pill';
-import { useState, useMemo, useEffect } from 'react';
+import { Suspense, useState, useMemo, useEffect, type ReactNode } from 'react';
+import { useRouter } from 'next/navigation';
 import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
 import { Header } from '@/components/layout/Header';
@@ -11,11 +12,21 @@ import { NewTaskPanel } from '@/components/tasks/NewTaskPanel';
 import { toast } from '@/components/ui/Toast';
 import Link from 'next/link';
 import Modal from '@/components/ui/Modal';
-import { FolderKanban, CheckCircle, Clock, AlertTriangle, Plus, ArrowRight, Users, Target, Activity, DollarSign, Wallet } from 'lucide-react';
+import { FolderKanban, CheckCircle, Clock, AlertTriangle, Plus, ArrowRight, Users, Target, Activity, DollarSign, Wallet, BarChart3, CalendarClock, History, ListPlus } from 'lucide-react';
+import { Button } from '@/components/ui/Button';
+import { Card, CardRow } from '@/components/ui/Card';
+import { CardLink } from '@/components/projects/TabLayout';
+import { EmptyState } from '@/components/ui/EmptyState';
+import { ShowMore } from '@/components/ui/ShowMore';
+import { TaskDetailPanel } from '@/components/tasks/TaskDetailPanel';
+import { useTrashTask } from '@/components/tasks/useTrashTask';
+import { useTaskUrlParam } from '@/lib/use-task-url';
+import { useTaskWarmer } from '@/lib/reads';
+import type { Task } from '@/lib/types';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { StatStrip } from '@/components/ui/StatStrip';
 import { parseDateOnly, toLocalDateKey } from '@/lib/date-utils';
-import { formatCalendarDay } from '@/lib/time-format';
+import { formatAgo, formatCalendarDay } from '@/lib/time-format';
 import { hasPermission } from '@/lib/access-control';
 import { computeCompanyFinanceSummary, computeMemberEarningsSummary } from '@/lib/finance/summary';
 import { useRetainerFinanceInputs } from '@/lib/finance/use-retainer-finance';
@@ -25,7 +36,6 @@ import { activityAfterName, teamActivityHref } from '@/lib/team-activity';
 import { GettingStartedCard } from '@/components/welcome/GettingStartedCard';
 import { useCustomDashboardWidgets } from '@/lib/extensions/hooks';
 import { excludedNote, formatHours } from '@/lib/format';
-import { appLocale } from '@/lib/region';
 import { useMoney } from '@/lib/region/context';
 import { profileTimeZone } from '@/lib/time-zone';
 
@@ -39,19 +49,16 @@ function trendChip(current: number, prior: number, fallback: string): { text: st
   return { text: 'Same as the 30 days before', up: false };
 }
 
-function getTimeAgo(dateStr: string): string {
-  const now = new Date();
-  const date = new Date(dateStr);
-  const diffMs = now.getTime() - date.getTime();
-  const diffMins = Math.floor(diffMs / 60000);
-  if (diffMins < 1) return 'Just now';
-  if (diffMins < 60) return `${diffMins}m ago`;
-  const diffHours = Math.floor(diffMins / 60);
-  if (diffHours < 24) return `${diffHours}h ago`;
-  const diffDays = Math.floor(diffHours / 24);
-  if (diffDays < 7) return `${diffDays}d ago`;
-  return date.toLocaleDateString(appLocale(), { month: 'short', day: 'numeric' });
-}
+/** One line in a dashboard list, the same as the project Overview's. */
+const ROW_CLASS = 'w-[calc(100%+1.25rem)] flex items-center gap-3 px-2.5 py-2 -mx-2.5 rounded-lg text-left hover:bg-white/[0.04] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500';
+
+const STATUS_WORD: Record<Task['status'], string> = {
+  backlog: 'Backlog',
+  todo: 'To do',
+  in_progress: 'In progress',
+  in_review: 'In review',
+  done: 'Done',
+};
 
 /**
  * The install's Dashboard cards in the page's own card: the same glass, the
@@ -62,33 +69,43 @@ function CustomWidgets({ placement }: { placement: 'top' | 'bottom' }) {
   const widgets = useCustomDashboardWidgets(placement);
   if (!widgets.length) return null;
   return (
-    <div className="card-row lg:grid-cols-2">
+    <CardRow className="lg:grid-cols-2 gap-6">
       {widgets.map(({ key, title, icon: Icon, href, size, component: Body }) => (
-        <section key={key} className={`${size === 'half' ? '' : 'lg:col-span-2'} glass-card card-fill rounded-xl overflow-hidden min-w-0`}>
-          <div className="flex items-center gap-2 p-4 border-b border-white/[0.06]">
-            {Icon && <Icon size={16} className="text-zinc-400" aria-hidden="true" />}
-            <h2 className="font-semibold text-white flex-1 min-w-0 truncate">{title}</h2>
-            {href && (
-              <Link href={href} aria-label={`Open ${title}`} className="text-zinc-500 hover:text-zinc-300 transition-colors">
-                <ArrowRight size={16} />
-              </Link>
-            )}
-          </div>
-          <div className="card-fill-grow p-4 lg:p-5">
-            <Body />
-          </div>
-        </section>
+        <Card
+          key={key}
+          fill
+          className={`${size === 'half' ? '' : 'lg:col-span-2'} overflow-hidden`}
+          title={title}
+          icon={Icon ? <Icon /> : undefined}
+          action={href ? <Link href={href} className="flex items-center gap-1 text-xs text-zinc-400 hover:text-brand-300 transition-colors rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500">Open <ArrowRight size={12} aria-hidden="true" /></Link> : undefined}
+        >
+          <Body />
+        </Card>
       ))}
-    </div>
+    </CardRow>
   );
 }
 
 export default function DashboardPage() {
+  // useSearchParams (the open task) needs a Suspense boundary on a static page.
+  return (
+    <Suspense fallback={null}>
+      <DashboardContent />
+    </Suspense>
+  );
+}
+
+function DashboardContent() {
+  const router = useRouter();
+  // The open task is the URL's ?task=, so a row opens it in the side panel and the address is a link to it.
+  const { taskId: viewingTaskId, openTask, closeTask } = useTaskUrlParam();
+  const warmTask = useTaskWarmer();
+  const trashTask = useTrashTask();
+  const [overdueShown, setOverdueShown] = useState(5);
   const { projects, tasks, contacts, leads, activities, getTeamMember, projectInvoices, timeEntries, team, employeeEarnings } = useApp();
   const { user, teamMemberId, access } = useAuth();
   const canManageProjects = hasPermission(access, 'projects.manage');
   const canCreateTasks = hasPermission(access, 'tasks.create');
-  const canViewTeam = hasPermission(access, 'team.read') || hasPermission(access, 'team.manage');
   const canViewContacts = hasPermission(access, 'contacts.read') || hasPermission(access, 'contacts.read_all') || hasPermission(access, 'contacts.manage');
   const canViewLeads = hasPermission(access, 'leads.read') || hasPermission(access, 'leads.read_all') || hasPermission(access, 'leads.manage');
   const canReadCompanyFinance = hasPermission(access, 'finance.company.read');
@@ -238,25 +255,57 @@ export default function DashboardPage() {
   const pipelineData = pipelineStages.map(s => ({ ...s, count: leads.filter(l => l.status === s.status).length }));
   const pipelineTotal = pipelineData.reduce((sum, s) => sum + s.count, 0);
 
+  // One line under the greeting that says where things stand, in words.
+  const standing = [
+    `${inProgressTasks.length} in progress`,
+    `${dueThisWeek.length} due this week`,
+    overdue.length > 0 ? `${overdue.length} overdue` : 'nothing overdue',
+  ].join(', ');
+
+  const projectById = new Map(projects.map(p => [p.id, p]));
+
+  /** One task line, the same in every list here: status dot, title, project and date, priority. Opens the task in the side panel. */
+  const taskRow = (task: typeof tasks[number], detail?: ReactNode) => {
+    const project = projectById.get(task.project_id);
+    return (
+      <button key={task.id} type="button" onClick={() => openTask(task.id)} className={ROW_CLASS} {...warmTask(task.id)}>
+        <span
+          className={`w-2 h-2 rounded-full flex-shrink-0 ${task.status === 'done' ? 'bg-emerald-400' : task.status === 'in_progress' ? 'bg-brand-400' : task.status === 'in_review' ? 'bg-amber-400' : 'bg-zinc-500'}`}
+          aria-hidden="true"
+        />
+        <span className="min-w-0 flex-1">
+          <span className="block text-sm text-zinc-200 truncate">{task.title}</span>
+          <span className="flex items-center gap-1.5 text-xs text-zinc-500 min-w-0">
+            <span className="truncate">{project?.name}</span>
+            {detail && <><span aria-hidden="true">·</span><span className="flex-shrink-0">{detail}</span></>}
+          </span>
+        </span>
+        <span className="flex-shrink-0"><PriorityBadge priority={task.priority} /></span>
+      </button>
+    );
+  };
+
+  // Projects in the overview: never more columns than there are projects, so two never strand a third of the row.
+  const overviewProjects = projects.slice(0, 6);
+  const overviewCols = overviewProjects.length >= 3 ? 'sm:grid-cols-2 lg:grid-cols-3' : overviewProjects.length === 2 ? 'sm:grid-cols-2' : '';
+
   return (
     <div className="animate-fadeIn min-h-screen">
       <Header
         title={`${greeting}, ${displayName.split(' ')[0]}`}
-        subtitle="Here's where things stand today."
-        actions={
-          <div className="hidden sm:flex items-center gap-2 flex-wrap">
-            <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium text-zinc-300 bg-white/[0.05] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.05)]">
-              <span className="w-1.5 h-1.5 rounded-full bg-brand-400" />{inProgressTasks.length} in progress
-            </span>
-            <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium text-zinc-300 bg-white/[0.05] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.05)]">
-              <span className="w-1.5 h-1.5 rounded-full bg-zinc-400" />{dueThisWeek.length} due this week
-            </span>
-            <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium text-zinc-300 bg-white/[0.05] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.05)]">
-              <span className={`w-1.5 h-1.5 rounded-full ${overdue.length > 0 ? 'bg-red-400' : 'bg-emerald-400'}`} />
-              {overdue.length > 0 ? `${overdue.length} overdue` : 'on track'}
-            </span>
+        subtitle={standing.charAt(0).toUpperCase() + standing.slice(1)}
+        actions={(canCreateTasks && activeProjects.length > 0) || canManageProjects ? (
+          <div className="flex items-center gap-2">
+            {canCreateTasks && activeProjects.length > 0 && (
+              <Button variant="secondary" icon={<ListPlus size={16} aria-hidden="true" />} onClick={() => setShowProjectPicker(true)}>
+                Add task
+              </Button>
+            )}
+            {canManageProjects && (
+              <Button href="/projects/new" icon={<Plus size={16} aria-hidden="true" />}>New project</Button>
+            )}
           </div>
-        }
+        ) : undefined}
       />
 
       <div className="p-4 lg:p-6 space-y-6">
@@ -264,69 +313,50 @@ export default function DashboardPage() {
         <GettingStartedCard />
 
         {/* Headline numbers: one strip, whatever the switched-on modules leave. */}
-        <StatStrip
-          label="Headline numbers"
-          stats={kpis.map((kpi) => ({
-            label: kpi.label,
-            value: kpi.display ?? kpi.value,
-            icon: kpi.icon,
-            spark: kpi.spark,
-            context: kpi.up ? (
-              <span className="text-emerald-300/90"><span aria-hidden="true">&#9650; </span>{kpi.context}</span>
-            ) : kpi.context,
-          }))}
-        />
-        {financeNote && <p className="-mt-3 lg:-mt-4 px-1 text-xs text-zinc-500">{financeNote}</p>}
+        <div>
+          <StatStrip
+            label="Headline numbers"
+            stats={kpis.map((kpi) => ({
+              label: kpi.label,
+              value: kpi.display ?? kpi.value,
+              icon: kpi.icon,
+              spark: kpi.spark,
+              context: kpi.up ? (
+                <span className="text-emerald-300/90"><span aria-hidden="true">&#9650; </span>{kpi.context}</span>
+              ) : kpi.context,
+            }))}
+          />
+          {financeNote && <p className="mt-2 px-1 text-xs text-zinc-500">{financeNote}</p>}
+        </div>
 
         {/* The install's own cards placed at the top (src/custom). */}
         <CustomWidgets placement="top" />
 
-        {/* Overdue alert */}
         {overdue.length > 0 && (
-          <div className="glass-card rounded-xl overflow-hidden !border-red-500/25">
-            <div className="flex items-center gap-3 p-4 border-b border-red-500/20">
-              <div className="p-2 bg-red-500/[0.12] rounded-lg">
-                <AlertTriangle size={18} className="text-red-300" />
-              </div>
-              <div>
-                <h2 className="font-semibold text-white">Overdue tasks</h2>
-                <p className="text-sm text-red-300/80">{overdue.length} task{overdue.length !== 1 ? 's' : ''} past due date</p>
-              </div>
-            </div>
-            <div className="divide-y divide-white/[0.06]">
-              {overdue.slice(0, 5).map((task) => {
-                const project = projects.find(p => p.id === task.project_id);
-                const daysOverdue = Math.floor((today.getTime() - parseDateOnly(task.due_date!).getTime()) / (1000 * 60 * 60 * 24));
-                return (
-                  <Link key={task.id} href={`/projects/${task.project_id}`} className="flex items-center gap-3 p-3 lg:p-4 hover:bg-white/[0.03] transition-colors">
-                    <div className="w-2 h-2 rounded-full bg-red-400 flex-shrink-0" />
-                    <div className="flex-1 min-w-0">
-                      <p className="font-medium text-white text-sm lg:text-base truncate">{task.title}</p>
-                      <p className="text-xs text-zinc-400 truncate">{project?.name}</p>
-                    </div>
-                    <div className="flex items-center gap-2 flex-shrink-0">
-                      <Pill tone="problem">{daysOverdue}d overdue</Pill>
-                      <PriorityBadge priority={task.priority} />
-                    </div>
-                  </Link>
-                );
-              })}
-              {overdue.length > 5 && <div className="p-3 text-center"><span className="text-xs text-zinc-500">+{overdue.length - 5} more overdue tasks</span></div>}
-            </div>
-          </div>
+          <Card
+            title="Overdue"
+            icon={<AlertTriangle className="!text-red-300" />}
+            afterTitle={<Pill tone="problem">{overdue.length}</Pill>}
+            bodyClassName="px-4 pb-3 lg:px-5"
+          >
+            {overdue.slice(0, overdueShown).map((task) => {
+              const daysOverdue = Math.floor((today.getTime() - parseDateOnly(task.due_date!).getTime()) / (1000 * 60 * 60 * 24));
+              return taskRow(task, <span className="text-red-300">{daysOverdue === 1 ? '1 day late' : `${daysOverdue} days late`}</span>);
+            })}
+            <ShowMore shown={Math.min(overdueShown, overdue.length)} total={overdue.length} step={10} noun="overdue tasks" onMore={() => setOverdueShown(n => n + 10)} className="!pb-0" />
+          </Card>
         )}
 
         {/* Activity chart + Leads pipeline */}
-        <div className="card-row lg:grid-cols-3">
-          <div className={`${showPipeline ? 'lg:col-span-2' : 'lg:col-span-3'} glass-card rounded-xl p-4 lg:p-5`}>
-            <div className="flex items-start justify-between">
-              <div>
-                <h2 className="font-semibold text-white">Activity</h2>
-                <p className="text-xs text-zinc-500 mt-0.5">{seesAllTasks ? 'Tasks completed' : 'Your tasks completed'}, last 7 days</p>
-              </div>
-              <p className="text-xl font-bold text-white tabular-nums">{completedThisWeek}<span className="text-xs text-zinc-500 font-medium"> total</span></p>
-            </div>
-            <div className="flex items-end gap-2 lg:gap-3 h-32 mt-5 pb-6 relative">
+        <CardRow className="lg:grid-cols-3 gap-6">
+          <Card
+            fill
+            className={showPipeline ? 'lg:col-span-2' : 'lg:col-span-3'}
+            title={seesAllTasks ? 'Tasks completed, last 7 days' : 'Your tasks completed, last 7 days'}
+            icon={<BarChart3 />}
+            action={<span className="text-sm font-semibold text-white tabular-nums">{completedThisWeek}<span className="text-xs text-zinc-500 font-normal"> {completedThisWeek === 1 ? 'task' : 'tasks'}</span></span>}
+          >
+            <div className="flex items-end gap-2 lg:gap-3 h-28 mt-2 pb-6 relative">
               {completedPerDay.map((v, i) => {
                 const isToday = i === completedPerDay.length - 1;
                 const dateLabel = dayBuckets[i].start.toLocaleDateString(locale, { weekday: 'short', month: 'short', day: 'numeric' });
@@ -335,14 +365,9 @@ export default function DashboardPage() {
                     {/* The sized outer div owns the %-height so the Tooltip
                         wrapper (auto-sized) can't collapse the bar. */}
                     <div className="w-full max-w-[36px] flex" style={{ height: `${Math.max((v / maxDay) * 100, 3)}%` }}>
-                      <Tooltip content={`${v} ${v === 1 ? 'task' : 'tasks'} completed · ${dateLabel}`} className="w-full h-full">
+                      <Tooltip content={`${v} ${v === 1 ? 'task' : 'tasks'} completed, ${dateLabel}`} className="w-full h-full">
                         <div
-                          className="chart-bar relative w-full h-full rounded-t-md transition-all"
-                          style={{
-                            background: isToday
-                              ? 'linear-gradient(180deg, #a7ccca, var(--color-brand-500))'
-                              : 'linear-gradient(180deg, var(--color-brand-400), var(--color-brand-600))',
-                          }}
+                          className={`chart-bar relative w-full h-full rounded-t-md transition-all ${isToday ? 'bg-brand-400' : 'bg-white/[0.12]'}`}
                         />
                       </Tooltip>
                     </div>
@@ -351,142 +376,111 @@ export default function DashboardPage() {
                 );
               })}
             </div>
-          </div>
+          </Card>
 
           {showPipeline && (
-            <div className="glass-card rounded-xl p-4 lg:p-5">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h2 className="font-semibold text-white">Leads pipeline</h2>
-                  <p className="text-xs text-zinc-500 mt-0.5">{pipelineTotal} lead{pipelineTotal !== 1 ? 's' : ''} in pipeline</p>
-                </div>
-                <Link href="/leads" className="text-zinc-500 hover:text-zinc-300 transition-colors"><ArrowRight size={16} /></Link>
-              </div>
-              <div className="flex h-2.5 rounded-full overflow-hidden bg-white/[0.05] mt-4">
+            <Card
+              fill
+              title="Leads pipeline"
+              icon={<Target />}
+              afterTitle={<span className="text-xs font-normal text-zinc-500 tabular-nums">{pipelineTotal}</span>}
+              action={<CardLink onClick={() => router.push('/leads')}>Leads</CardLink>}
+            >
+              <div className="flex h-2 rounded-full overflow-hidden bg-white/[0.05]">
                 {pipelineData.map(s => s.count > 0 && (
                   <div key={s.status} style={{ width: `${(s.count / Math.max(1, pipelineTotal)) * 100}%`, backgroundColor: s.color }} />
                 ))}
               </div>
-              <div className="flex flex-col gap-2.5 mt-4">
+              <div className="flex flex-col gap-2 mt-4">
                 {pipelineData.map(s => (
                   <div key={s.status} className="flex items-center gap-2.5 text-sm">
-                    <span className="w-2.5 h-2.5 rounded-[3px] flex-shrink-0" style={{ backgroundColor: s.color }} />
+                    <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: s.color }} aria-hidden="true" />
                     <span className="text-zinc-300 flex-1">{s.label}</span>
-                    <span className="font-semibold text-white tabular-nums">{s.count}</span>
+                    <span className="text-white tabular-nums">{s.count}</span>
                   </div>
                 ))}
               </div>
-            </div>
+            </Card>
           )}
-        </div>
+        </CardRow>
 
-        {/* Recent Tasks + right rail */}
-        <div className="card-row lg:grid-cols-3">
-          <div className="lg:col-span-2 glass-card card-fill rounded-xl overflow-hidden">
-            <div className="flex items-center justify-between p-4 border-b border-white/[0.06] flex-shrink-0">
-              <h2 className="font-semibold text-white">Recent tasks</h2>
-              <Link href="/projects" className="text-sm text-brand-300 hover:text-brand-200 flex items-center gap-1">View all <ArrowRight size={14} /></Link>
-            </div>
-            <div className="card-scroll divide-y divide-white/[0.06]">
-              {recentTasks.length > 0 ? recentTasks.map((task) => {
-                const project = projects.find(p => p.id === task.project_id);
-                return (
-                  <Link key={task.id} href={`/projects/${task.project_id}`} className="flex items-center gap-3 p-3 lg:p-4 hover:bg-white/[0.03] transition-colors">
-                    <div className={`w-2 h-2 rounded-full flex-shrink-0 ${task.status === 'done' ? 'bg-emerald-400' : task.status === 'in_progress' ? 'bg-brand-400' : task.status === 'in_review' ? 'bg-amber-400' : 'bg-zinc-500'}`} />
-                    <div className="flex-1 min-w-0">
-                      <p className="font-medium text-white text-sm lg:text-base truncate">{task.title}</p>
-                      <p className="text-xs lg:text-sm text-zinc-400 truncate">{project?.name}</p>
-                    </div>
-                    <PriorityBadge priority={task.priority} />
-                  </Link>
-                );
-              }) : (
-                <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
-                  <div className="w-10 h-10 rounded-full bg-white/[0.06] flex items-center justify-center mb-3"><CheckCircle size={18} className="text-zinc-500" /></div>
-                  <p className="text-sm font-medium text-zinc-400">No tasks yet</p>
-                  <p className="text-xs text-zinc-500 mt-1">Tasks will appear here as they&apos;re created</p>
-                </div>
-              )}
-            </div>
-          </div>
+        {/* Recent tasks beside what is due this week: one height, each list scrolls in its own area. */}
+        <CardRow className="lg:grid-cols-3 gap-6">
+          <Card
+            fill
+            className="lg:col-span-2"
+            title="Recently changed"
+            icon={<History />}
+            action={<CardLink onClick={() => router.push('/my-tasks')}>My Tasks</CardLink>}
+            bodyClassName="px-4 pb-3 lg:px-5"
+          >
+            {recentTasks.length > 0 ? (
+              // Six rows at most: this list sets the row's height, and Due this week scrolls beside it.
+              <div>{recentTasks.map((task) => taskRow(task, STATUS_WORD[task.status]))}</div>
+            ) : (
+              <EmptyState compact icon={<CheckCircle />} title="No tasks yet" description="Tasks show here as they are added and moved." />
+            )}
+          </Card>
 
-          <div className="card-fill gap-6">
-            <div className="glass-card rounded-xl p-4 lg:p-5">
-              <h2 className="font-semibold text-white mb-4">Quick actions</h2>
-              <div className="space-y-2">
-                {canManageProjects && <Link href="/projects/new" className="flex items-center gap-3 p-3 rounded-lg bg-white/[0.03] text-zinc-300 hover:bg-white/[0.06] transition-colors"><Plus size={18} /><span className="font-medium text-sm">New project</span></Link>}
-                {canCreateTasks && activeProjects.length > 0 && (
-                  <button onClick={() => setShowProjectPicker(true)} className="w-full flex items-center gap-3 p-3 rounded-lg bg-white/[0.03] text-zinc-300 hover:bg-white/[0.06] transition-colors"><FolderKanban size={18} /><span className="font-medium text-sm">Add task</span></button>
-                )}
-                {canViewTeam && <Link href="/team" className="flex items-center gap-3 p-3 rounded-lg bg-white/[0.03] text-zinc-300 hover:bg-white/[0.06] transition-colors"><Users size={18} /><span className="font-medium text-sm">{hasPermission(access, 'team.manage') ? 'Manage team' : 'View team'}</span></Link>}
+          <Card
+            fill
+            title="Due this week"
+            icon={<CalendarClock />}
+            afterTitle={<span className="text-xs font-normal text-zinc-500 tabular-nums">{dueThisWeek.length}</span>}
+            bodyClassName="px-4 pb-3 lg:px-5"
+          >
+            {dueThisWeek.length > 0 ? (
+              <div className="card-scroll -mx-2.5 px-2.5">
+                {[...dueThisWeek]
+                  .sort((a, b) => (a.due_date! < b.due_date! ? -1 : a.due_date! > b.due_date! ? 1 : 0))
+                  .map((task) => taskRow(task, formatCalendarDay(task.due_date!, { weekday: true })))}
               </div>
-            </div>
+            ) : (
+              <EmptyState compact icon={<CalendarClock />} title="Nothing due this week" description="Tasks due in the next 7 days show here." />
+            )}
+          </Card>
+        </CardRow>
 
-            <div className="glass-card card-fill card-fill-grow rounded-xl overflow-hidden">
-              <div className="p-4 border-b border-white/[0.06]">
-                <h2 className="font-semibold text-white">Due this week</h2>
-                <p className="text-sm text-zinc-400">{dueThisWeek.length} task{dueThisWeek.length !== 1 ? 's' : ''}</p>
-              </div>
-              <div className="card-scroll divide-y divide-white/[0.06]">
-                {dueThisWeek.length > 0 ? dueThisWeek.slice(0, 5).map((task) => {
-                  const project = projects.find(p => p.id === task.project_id);
-                  return (
-                    <Link key={task.id} href={`/projects/${task.project_id}`} className="block p-3 lg:p-4 hover:bg-white/[0.03] transition-colors">
-                      <p className="font-medium text-white text-sm">{task.title}</p>
-                      <div className="flex items-center gap-2 mt-1">
-                        <p className="text-xs text-zinc-400">{project?.name}</p>
-                        {task.due_date && <span className="text-xs text-zinc-500">&bull; {formatCalendarDay(task.due_date, { weekday: true })}</span>}
-                      </div>
-                    </Link>
-                  );
-                }) : <p className="p-4 text-sm text-zinc-500 text-center">Nothing due this week</p>}
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Projects Overview */}
-        {projects.length > 0 && (
-          <div className="glass-card rounded-xl overflow-hidden">
-            <div className="flex items-center justify-between p-4 border-b border-white/[0.06]">
-              <h2 className="font-semibold text-white">Projects overview</h2>
-              <Link href="/projects" className="text-sm text-brand-300 hover:text-brand-200 flex items-center gap-1">View all <ArrowRight size={14} /></Link>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 divide-x divide-white/[0.06]">
-              {projects.slice(0, 6).map((project) => {
+        {overviewProjects.length > 0 && (
+          <Card
+            title="Projects"
+            icon={<FolderKanban />}
+            action={<CardLink onClick={() => router.push('/projects')}>All projects</CardLink>}
+          >
+            <div className={`grid grid-cols-1 gap-3 ${overviewCols}`}>
+              {overviewProjects.map((project) => {
                 // Backlog is not committed work, so it does not count against
                 // progress; neither do subtasks, which are part of their task.
                 const projectTasks = tasks.filter(t => t.project_id === project.id && t.status !== 'backlog' && !t.parent_task_id);
                 const done = projectTasks.filter(t => t.status === 'done').length;
                 const progress = projectTasks.length > 0 ? Math.round((done / projectTasks.length) * 100) : 0;
                 return (
-                  <Link key={project.id} href={`/projects/${project.id}`} className="p-4 hover:bg-white/[0.03] transition-colors">
-                    <div className="flex items-center gap-2 mb-2">
-                      {project.color && <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: project.color }} />}
-                      <h3 className="font-medium text-white truncate">{project.name}</h3>
-                    </div>
-                    <div className="flex items-center justify-between text-xs lg:text-sm text-zinc-400 mb-2">
-                      <span>{projectTasks.length} {projectTasks.length === 1 ? 'task' : 'tasks'}</span>
-                      <span className="tabular-nums">{progress}% done</span>
-                    </div>
-                    <div className="h-1.5 bg-white/[0.06] rounded-full overflow-hidden">
-                      <div className="h-full rounded-full bg-brand-500 transition-all" style={{ width: `${progress}%` }} />
-                    </div>
+                  <Link
+                    key={project.id}
+                    href={`/projects/${project.id}`}
+                    className="block rounded-lg bg-white/[0.03] p-4 hover:bg-white/[0.05] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+                  >
+                    <span className="flex items-center gap-2 min-w-0">
+                      {project.color && <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: project.color }} aria-hidden="true" />}
+                      <span className="text-sm font-medium text-white truncate">{project.name}</span>
+                    </span>
+                    <span className="mt-3 block h-1.5 bg-white/[0.06] rounded-full overflow-hidden">
+                      <span className="block h-full rounded-full bg-brand-500 transition-all" style={{ width: `${progress}%` }} />
+                    </span>
+                    <span className="mt-2 flex items-center justify-between text-xs text-zinc-500 tabular-nums">
+                      <span>{done} of {projectTasks.length} {projectTasks.length === 1 ? 'task' : 'tasks'} done</span>
+                      <span>{progress}%</span>
+                    </span>
                   </Link>
                 );
               })}
             </div>
-          </div>
+          </Card>
         )}
 
-        {/* Recent Activity */}
         {activities.length > 0 && (
-          <div className="glass-card rounded-xl overflow-hidden">
-            <div className="flex items-center gap-2 p-4 border-b border-white/[0.06]">
-              <Activity size={16} className="text-zinc-400" />
-              <h2 className="font-semibold text-white">Recent activity</h2>
-            </div>
-            <div className="divide-y divide-white/[0.06] max-h-72 overflow-y-auto">
+          <Card title="Recent activity" icon={<Activity />} bodyClassName="px-4 pb-3 lg:px-5">
+            <div className="max-h-80 overflow-y-auto -mx-2.5 px-2.5">
               {activities.slice(0, 10).map((activity) => {
                 const member = activity.user_id ? getTeamMember(activity.user_id) : undefined;
                 const name = member?.name || 'Someone';
@@ -494,31 +488,31 @@ export default function DashboardPage() {
                 const body = (
                   <>
                     <Avatar name={name} src={member?.avatar || undefined} size="sm" />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm text-zinc-300"><span className="font-medium text-white">{name}</span> {activityAfterName(activity.description)}</p>
-                      <p className="text-xs text-zinc-500 mt-0.5">{getTimeAgo(activity.created_at)}</p>
-                    </div>
+                    <span className="flex-1 min-w-0 text-sm text-zinc-300">
+                      <span className="font-medium text-white">{name}</span> {activityAfterName(activity.description)}
+                    </span>
+                    <span className="flex-shrink-0 text-xs text-zinc-500 tabular-nums">{formatAgo(activity.created_at)}</span>
                   </>
                 );
                 return href ? (
-                  <Link
-                    key={activity.id}
-                    href={href}
-                    className="flex items-start gap-3 p-3 lg:p-4 hover:bg-white/[0.03] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-500"
-                  >
-                    {body}
-                  </Link>
+                  <Link key={activity.id} href={href} className={ROW_CLASS}>{body}</Link>
                 ) : (
-                  <div key={activity.id} className="flex items-start gap-3 p-3 lg:p-4">{body}</div>
+                  <div key={activity.id} className="flex items-center gap-3 py-2">{body}</div>
                 );
               })}
             </div>
-          </div>
+          </Card>
         )}
 
         {/* The install's own cards (src/custom), at the end by default. */}
         <CustomWidgets placement="bottom" />
       </div>
+
+      <TaskDetailPanel
+        task={viewingTaskId ? tasks.find(t => t.id === viewingTaskId) ?? null : null}
+        onClose={closeTask}
+        onDelete={(id) => { closeTask(); void trashTask(id); }}
+      />
 
       {/* Project Picker Modal */}
       {canCreateTasks && <Modal isOpen={showProjectPicker} onClose={() => setShowProjectPicker(false)} title="Pick a project" size="sm">

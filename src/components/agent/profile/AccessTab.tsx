@@ -53,12 +53,16 @@ function demoStops(isDemoMode: boolean): boolean {
   return isDemoMode;
 }
 
-export function AccessTab({ detail, keyPowers, suspended, managedBy }: {
+export function AccessTab({ detail, keyPowers, suspended, managedBy, connect, reads }: {
   detail: AgentDetail;
   keyPowers: KeyPowers;
   suspended: boolean;
   /** Its owners and the way to change them (the profile's owners row). */
   managedBy: ReactNode;
+  /** How its host connects (the snippets), under its keys. */
+  connect?: ReactNode;
+  /** What it reads (its AGENTS.md), full width below both columns. */
+  reads?: ReactNode;
 }) {
   const { isDemoMode } = useDemo();
   const agentId = detail.agent.id;
@@ -71,57 +75,92 @@ export function AccessTab({ detail, keyPowers, suspended, managedBy }: {
 
   if (person) {
     return (
-      <div className="page-read flex flex-col gap-6">
-        <Card title="Who it works for" icon={<Users />} id="access-person">
-          <p className="text-sm text-zinc-300">
-            {person.name || 'One person'}&apos;s personal assistant. Only they can use it, and it never joins the company&apos;s agent team.
-          </p>
-        </Card>
-        <AgentKeysCard detail={detail} powers={keyPowers} suspended={suspended} held={[]} />
-      </div>
+      <AccessLayout
+        main={(
+          <Card title="Who it works for" icon={<Users />} id="access-person">
+            <p className="text-sm text-zinc-300">
+              {person.name || 'One person'}&apos;s personal assistant. Only they can use it, and it never joins the company&apos;s agent team.
+            </p>
+          </Card>
+        )}
+        side={(
+          <>
+            <AgentKeysCard detail={detail} powers={keyPowers} suspended={suspended} held={[]} />
+            {connect}
+          </>
+        )}
+        reads={reads}
+      />
     );
   }
 
   return (
-    <div className="page-read flex flex-col gap-6">
-      {access.loading && !access.data ? (
-        <Skeleton label="Loading access" className="flex flex-col gap-6">{[0, 1].map((i) => <Bone key={i} className="h-36 rounded-xl" />)}</Skeleton>
-      ) : !access.data ? (
-        <EmptyState variant="error" title="Could not load who can use it" description="Try again in a moment." onRetry={access.reload} framed />
-      ) : (
+    <AccessLayout
+      main={(
         <>
-          <WorksForCard access={access.data} />
-          <WhoCanUseCard access={access.data} />
+          {access.loading && !access.data ? (
+            <Skeleton label="Loading access" className="flex flex-col gap-6">{[0, 1].map((i) => <Bone key={i} className="h-36 rounded-xl" />)}</Skeleton>
+          ) : !access.data ? (
+            <EmptyState variant="error" title="Could not load who can use it" description="Try again in a moment." onRetry={access.reload} framed />
+          ) : (
+            <>
+              <WorksForCard access={access.data} />
+              <WhoCanUseCard access={access.data} />
+            </>
+          )}
+
+          <Card title="Managed by" icon={<ShieldCheck />} id="access-managers" description="They change its setup, get its questions and approve what it asks for.">
+            {managedBy}
+          </Card>
+          {detail.keys !== undefined && (
+            <Card
+              title="What it may do"
+              icon={<KeyRound />}
+              id="access-powers"
+              afterTitle={powers.data?.out_of_step ? <Pill tone="waiting" dot>Keys differ</Pill> : undefined}
+              action={powers.data?.can_edit ? <Button size="sm" variant="secondary" onClick={() => setEditingPowers(true)}>Edit</Button> : undefined}
+            >
+              {powers.loading && !powers.data ? (
+                <Skeleton label="Loading what it may do" className="space-y-2"><Bone className="h-4 w-40" /><Bone className="h-4 w-full" /></Skeleton>
+              ) : !powers.data ? (
+                <EmptyState variant="error" compact title="Could not load what it may do" onRetry={powers.reload} />
+              ) : (
+                <PowersSummary scopes={powers.data.scopes} liveKeys={powers.data.live_keys.length} outOfStep={powers.data.out_of_step} name={name} />
+              )}
+            </Card>
+          )}
         </>
       )}
-
-      <Card title="Managed by" icon={<ShieldCheck />} id="access-managers" description="They change its setup, get its questions and approve what it asks for.">
-        {managedBy}
-      </Card>
-
-      {detail.keys !== undefined && (
-        <Card
-          title="What it may do"
-          icon={<KeyRound />}
-          id="access-powers"
-          afterTitle={powers.data?.out_of_step ? <Pill tone="waiting" dot>Keys differ</Pill> : undefined}
-          action={powers.data?.can_edit ? <Button size="sm" variant="secondary" onClick={() => setEditingPowers(true)}>Edit</Button> : undefined}
-        >
-          {powers.loading && !powers.data ? (
-            <Skeleton label="Loading what it may do" className="space-y-2"><Bone className="h-4 w-40" /><Bone className="h-4 w-full" /></Skeleton>
-          ) : !powers.data ? (
-            <EmptyState variant="error" compact title="Could not load what it may do" onRetry={powers.reload} />
-          ) : (
-            <PowersSummary scopes={powers.data.scopes} liveKeys={powers.data.live_keys.length} outOfStep={powers.data.out_of_step} name={name} />
-          )}
-        </Card>
+      side={(
+        <>
+          <AgentKeysCard detail={detail} powers={keyPowers} suspended={suspended} held={held} />
+          {connect}
+        </>
       )}
-
-      <AgentKeysCard detail={detail} powers={keyPowers} suspended={suspended} held={held} />
-
+      reads={reads}
+    >
       {editingPowers && powers.data && (
         <AgentPowersPanel agentId={agentId} agentName={name} powers={powers.data} onClose={() => setEditingPowers(false)} />
       )}
+    </AccessLayout>
+  );
+}
+
+/**
+ * The tab's one width (DESIGN.md Rule 9): on wide screens who it works for,
+ * who can use it, who manages it and what it may do sit on the left, its keys
+ * and how its host connects on the right, and what it reads spans both below.
+ * Stacked on phones, in that order.
+ */
+function AccessLayout({ main, side, reads, children }: { main: ReactNode; side: ReactNode; reads?: ReactNode; children?: ReactNode }) {
+  return (
+    <div className="flex flex-col gap-6">
+      <div className="grid gap-6 lg:grid-cols-2 lg:items-start">
+        <div className="flex min-w-0 flex-col gap-6">{main}</div>
+        <div className="flex min-w-0 flex-col gap-6">{side}</div>
+      </div>
+      {reads}
+      {children}
     </div>
   );
 }
@@ -129,7 +168,7 @@ export function AccessTab({ detail, keyPowers, suspended, managedBy }: {
 function PowersSummary({ scopes, liveKeys, outOfStep, name }: { scopes: string[]; liveKeys: number; outOfStep: boolean; name: string }) {
   const [all, setAll] = useState(false);
   if (liveKeys === 0 && scopes.length === 0) {
-    return <p className="text-sm text-zinc-400">Nothing yet. Make a key below and choose what {name} may do.</p>;
+    return <p className="text-sm text-zinc-400">Nothing yet. Make a key and choose what {name} may do.</p>;
   }
   const labels = scopes.map(permissionLabel);
   const shown = all ? labels : labels.slice(0, 8);
@@ -307,7 +346,7 @@ function WhoCanUseCard({ access }: { access: AgentAccessView }) {
         {access.can_manage ? (
           <div className="grid items-end gap-4 sm:grid-cols-2">
             <MultiSelect
-              ariaLabel="Who can use it"
+              label="Can use it"
               value={value.include.length ? value.include : ['everyone']}
               onChange={(include) => setDraft({ ...value, include: pickIncludes(value.include, include) })}
               options={withSaved([{ value: 'everyone', label: 'Everyone' }, ...subjects], value.include)}

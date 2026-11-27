@@ -2,46 +2,22 @@
 
 import { FlaskConical } from 'lucide-react';
 import { useDemo } from '@/lib/demo-context';
+import { SettingsSectionHeader } from '@/components/settings/SettingsSectionHeader';
+import { Toggle } from '@/components/ui/inputs/Toggle';
 
 /** Swaps live data for sample data on this device. */
 export function DemoModeSection() {
   const { isDemoMode, toggleDemoMode } = useDemo();
 
   return (
-    <section id="demo-mode" className="glass-card rounded-xl p-4 lg:p-5 scroll-mt-6">
-      <div className="flex items-center gap-3 mb-6">
-        <div className="p-2 bg-amber-500/15 rounded-lg">
-          <FlaskConical className="text-amber-400" size={20} />
+    <section id="demo-mode" className="glass-card h-full rounded-xl p-4 lg:p-5 scroll-mt-6">
+      <SettingsSectionHeader icon={FlaskConical} title="Demo mode" description="See the app with sample data, to show it or try it out." />
+      <div className="flex items-center justify-between gap-4">
+        <div className="min-w-0">
+          <p className="text-sm text-zinc-300">Use sample data</p>
+          <p className="mt-0.5 text-xs text-zinc-400">Replaces live data with sample data. Changes are not saved.</p>
         </div>
-        <div>
-          <h2 className="font-semibold text-white">Demo mode</h2>
-          <p className="text-sm text-zinc-400">View the app with sample data</p>
-        </div>
-      </div>
-
-      <div className="flex items-center justify-between">
-        <div>
-          <p className="text-sm text-zinc-300">Enable demo mode</p>
-          <p className="text-xs text-zinc-400 mt-0.5">
-            Replaces live data with sample data. Changes won&apos;t be saved.
-          </p>
-        </div>
-        <button
-          type="button"
-          role="switch"
-          aria-checked={isDemoMode}
-          aria-label="Enable demo mode"
-          onClick={toggleDemoMode}
-          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-            isDemoMode ? 'bg-amber-500' : 'bg-white/[0.08]'
-          }`}
-        >
-          <span
-            className={`inline-block h-4 w-4 transform rounded-full bg-surface-raised transition-transform ${
-              isDemoMode ? 'translate-x-6' : 'translate-x-1'
-            }`}
-          />
-        </button>
+        <Toggle checked={isDemoMode} onChange={() => toggleDemoMode()} aria-label="Use sample data" />
       </div>
     </section>
   );

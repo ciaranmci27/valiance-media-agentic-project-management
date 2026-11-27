@@ -194,9 +194,12 @@ export function RunFeed({ filters, onChange, onOpenTask, lockAgent = false }: {
     ? <div className="flex max-h-40 w-full flex-wrap gap-1.5 overflow-y-auto">{children}</div>
     : children);
 
+  // With no runs at all there is nothing to count or filter: the empty state stands alone.
+  const nothingYet = !!feed.data && total === 0 && !filtered;
+
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between gap-3">
+      <div className={`flex items-center justify-between gap-3 ${nothingYet ? 'hidden' : ''}`}>
         <span className="text-xs tabular-nums text-zinc-400" aria-live="polite">
           {feed.data ? `${formatNumber(total, { maximumFractionDigits: 0 })} ${total === 1 ? 'run' : 'runs'}` : ''}
         </span>

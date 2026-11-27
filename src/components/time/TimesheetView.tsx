@@ -11,6 +11,7 @@ import { getWorkedHoursByDay, isRunning } from '@/lib/time-entry-utils';
 import { hourApprovalsExist } from '@/lib/finance/finance-views';
 import { useRegion } from '@/lib/region/context';
 import { StatStrip } from '@/components/ui/StatStrip';
+import { IconButton } from '@/components/ui/IconButton';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { Avatar } from '@/components/ui/Avatar';
 import { Button } from '@/components/ui/Button';
@@ -257,7 +258,8 @@ function OwnHours({
         />
       </div>
 
-      <StatStrip
+      {/* A week with nothing logged skips the seven empty days: the line above and the table say it once. */}
+      {(loading || total > 0) && <StatStrip
         label={`Your hours by day, ${fmtWeekRange(weekStart)}`}
         loading={loading}
         stats={days.map((day) => {
@@ -273,7 +275,7 @@ function OwnHours({
             selected: activeDay === key,
           };
         })}
-      />
+      />}
 
       {loading ? (
         <RowsSkeleton label="Loading your hours" />
@@ -540,7 +542,6 @@ function TeamHours({
           showPending && {
             label: 'Waiting for review',
             value: pendingTotal,
-            tone: pendingTotal > 0 ? 'warning' : 'default',
             context: pendingTotal === 1 ? 'session' : 'sessions',
           },
         ]}
@@ -622,21 +623,11 @@ function WeekPicker({ weekStart, isThisWeek, onChange, thisWeek }: {
       {!isThisWeek && (
         <Button size="sm" variant="ghost" onClick={() => onChange(thisWeek)}>This week</Button>
       )}
-      <Button size="sm" variant="secondary" aria-label="Previous week" onClick={() => onChange(addDays(weekStart, -7))}>
-        <ChevronLeft size={14} aria-hidden="true" />
-      </Button>
-      <span className="min-w-[8.5rem] text-center text-xs font-medium tabular-nums text-zinc-200" aria-live="polite">
+      <IconButton size="sm" icon={<ChevronLeft />} label="Previous week" onClick={() => onChange(addDays(weekStart, -7))} />
+      <span className="min-w-[7rem] text-center text-xs font-medium tabular-nums text-zinc-200" aria-live="polite">
         {fmtWeekRange(weekStart)}
       </span>
-      <Button
-        size="sm"
-        variant="secondary"
-        aria-label="Next week"
-        disabled={isThisWeek}
-        onClick={() => onChange(addDays(weekStart, 7))}
-      >
-        <ChevronRight size={14} aria-hidden="true" />
-      </Button>
+      <IconButton size="sm" icon={<ChevronRight />} label="Next week" disabled={isThisWeek} onClick={() => onChange(addDays(weekStart, 7))} />
     </div>
   );
 }

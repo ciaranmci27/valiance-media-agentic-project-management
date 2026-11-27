@@ -76,7 +76,7 @@ export function ProviderPicker({
     <div className={`min-w-0 space-y-2 ${className}`}>
       {!hideLabel && <p className="text-sm font-medium text-input-text-label">{label}</p>}
       {layout === 'cards' ? (
-        <ChoiceGroup label={label} className="grid gap-3 sm:grid-cols-3">
+        <ChoiceGroup label={label} className={`grid gap-3 ${options.length === 4 ? 'sm:grid-cols-2 lg:grid-cols-4' : 'sm:grid-cols-3'}`}>
           {options.map((option) => (
             <ChoiceCard
               key={option.value}
@@ -93,7 +93,7 @@ export function ProviderPicker({
           ))}
         </ChoiceGroup>
       ) : (
-        <ChoiceGroup label={label} className="grid grid-cols-1 gap-2 min-[420px]:grid-cols-2 sm:grid-cols-3">
+        <ChoiceGroup label={label} className={`grid grid-cols-1 gap-2 min-[420px]:grid-cols-2 ${options.length === 4 ? 'lg:grid-cols-4' : 'sm:grid-cols-3'}`}>
           {options.map((option) => {
             const selected = state.selected === option.value;
             const off = disabled || !!option.disabled;

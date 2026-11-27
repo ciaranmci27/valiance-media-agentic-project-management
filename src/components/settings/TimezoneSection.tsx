@@ -54,13 +54,13 @@ export function TimezoneSection() {
   const browser = timeZoneChoice(browserTimeZone(), Date.now());
 
   return (
-    <section id="timezone" className="glass-card rounded-xl p-4 lg:p-5 scroll-mt-6">
+    <section id="timezone" className="glass-card h-full rounded-xl p-4 lg:p-5 scroll-mt-6">
       <SettingsSectionHeader
         icon={Globe}
         title="Time zone"
         description="Times across the app show in this zone, and repeats and schedules you set run in it."
       />
-      <div className="max-w-md">
+      <div>
         <Select
           ariaLabel="Time zone"
           searchable

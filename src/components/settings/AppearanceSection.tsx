@@ -34,7 +34,7 @@ export function AppearanceSection() {
   };
 
   return (
-    <section id="appearance" className="glass-card rounded-xl p-4 lg:p-5 scroll-mt-6">
+    <section id="appearance" className="glass-card h-full rounded-xl p-4 lg:p-5 scroll-mt-6">
       <SettingsSectionHeader icon={Sun} title="Appearance" description="How the app looks for you, on every device you sign in on." />
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="min-w-0">

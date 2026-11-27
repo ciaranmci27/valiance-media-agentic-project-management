@@ -64,7 +64,8 @@ export function SettingsFrame({ children }: { children: ReactNode }) {
   return (
     <>
     <Header title={current?.label ?? 'Settings'} />
-    <div className="p-4 lg:p-6 max-w-3xl lg:max-w-6xl mx-auto lg:grid lg:grid-cols-[200px_minmax(0,1fr)] lg:gap-8 lg:items-start">
+    {/* One width with the Header above it (Rule 9): full width, the menu beside the page from lg. */}
+    <div className="p-4 lg:p-6 lg:grid lg:grid-cols-[200px_minmax(0,1fr)] lg:gap-8 lg:items-start">
       {/* Phones: the page is the whole screen, with a way back to the list of Settings pages (/settings).
           A sub-page (Email's) has its own way back to its group instead. */}
       <nav aria-label="Settings" className={`lg:hidden mb-4 ${current && pathname !== current.href ? 'hidden' : ''}`}>

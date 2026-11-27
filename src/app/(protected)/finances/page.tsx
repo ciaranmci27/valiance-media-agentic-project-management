@@ -1,6 +1,6 @@
 'use client';
 
-import { Pill } from '@/components/ui/Pill';
+import { Pill, sentenceCase, type PillTone } from '@/components/ui/Pill';
 import { Suspense, useMemo, useState, useRef, useEffect } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useApp } from '@/lib/store';
@@ -9,6 +9,7 @@ import { getWorkedHoursByHour, isRunning } from '@/lib/time-entry-utils';
 import { DateInput } from '@/components/ui/inputs/DateInput';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { StatStrip } from '@/components/ui/StatStrip';
+import { EmptyState } from '@/components/ui/EmptyState';
 import { Popover } from '@/components/ui/Popover';
 import { ensureLineItems, spreadLineItem } from '@/lib/invoice-utils';
 import {
@@ -191,12 +192,12 @@ function fmtRangeDisplay(startKey: string, endKey: string, locale = appLocale())
   return `${start.toLocaleDateString(locale, dayYear)} - ${end.toLocaleDateString(locale, dayYear)}`;
 }
 
-const STATUS_COLORS: Record<string, string> = {
-  draft: 'bg-white/[0.06] text-zinc-300',
-  sent: 'bg-blue-500/15 text-blue-300',
-  paid: 'bg-emerald-500/15 text-emerald-300',
-  overdue: 'bg-red-500/15 text-red-300',
-  cancelled: 'bg-white/[0.06] text-zinc-500',
+const STATUS_TONE: Record<string, PillTone> = {
+  draft: 'neutral',
+  sent: 'info',
+  paid: 'good',
+  overdue: 'problem',
+  cancelled: 'neutral',
 };
 
 // ---------------------------------------------------------------------------
@@ -1129,10 +1130,10 @@ function CompanyOverview() {
     <div className="space-y-4 lg:space-y-6">
         {/* ── Overview + Date Filter ──────────────────────── */}
         <div className="glass-card rounded-xl">
-          <div className="px-5 py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-white/[0.06]">
+          <div className="px-4 py-3.5 lg:px-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-white/[0.06]">
             <div className="flex items-center gap-2">
-              <DollarSign size={18} className="text-zinc-400" />
-              <h2 className="font-semibold text-white">Overview</h2>
+              <DollarSign size={16} aria-hidden="true" className="text-zinc-400" />
+              <h2 className="text-sm font-semibold text-white">Totals</h2>
               {sourceLabel && (
                 <Pill tone="info">
                   {sourceLabel}
@@ -1435,32 +1436,30 @@ function CompanyOverview() {
                company money, so they only render in the company view. */
             <StatStrip
               bare
-              className="px-5 py-4"
+              className="px-4 py-4 lg:px-5"
               label="Contributor totals"
               stats={[
-                { label: 'Earned', value: money(sourceData.totalEarned), tone: sourceData.totalEarned >= 0 ? 'success' : 'danger' },
+                { label: 'Earned', value: money(sourceData.totalEarned) },
                 {
                   label: 'Recorded cost',
                   value: attribution.recordedCost !== null ? money(attribution.recordedCost) : null,
                   empty: <NotTrackedValue reason={costNotTrackedReason} />,
-                  tone: attribution.recordedCost !== null && attribution.recordedCost > 0 ? 'warning' : 'default',
-                },
+                                  },
                 {
                   label: 'Contribution',
                   value: attribution.contribution !== null ? money(attribution.contribution) : null,
                   empty: <NotTrackedValue reason={costNotTrackedReason} />,
-                  tone: attribution.contribution !== null && attribution.contribution < 0 ? 'danger' : 'success',
-                },
+                                  },
                 { label: 'Hours', value: formatHours(sourceData.totalHours) },
               ]}
             />
           ) : (
             <StatStrip
               bare
-              className="px-5 py-4"
+              className="px-4 py-4 lg:px-5"
               label="Totals"
               stats={[
-                { label: 'Earned', value: money(data.totalEarned), tone: data.totalEarned >= 0 ? 'success' : 'danger' },
+                { label: 'Earned', value: money(data.totalEarned) },
                 // Worked but unapproved value. Shown rather than folded into
                 // Earned so reviewing a session can only ever move this number
                 // into Earned, never make Earned fall.
@@ -1477,11 +1476,10 @@ function CompanyOverview() {
                 {
                   label: 'Outstanding',
                   value: money(data.totalOutstanding),
-                  tone: data.totalOutstanding > 0 ? 'warning' : 'default',
-                  context: data.totalOverdue > 0 ? <span className="text-red-300">{money(data.totalOverdue)} overdue</span> : undefined,
+                                    context: data.totalOverdue > 0 ? <span className="text-red-300">{money(data.totalOverdue)} overdue</span> : undefined,
                 },
                 { label: 'Invoiced', value: money(data.totalInvoiced) },
-                { label: 'Received', value: money(data.totalPaymentsReceived), tone: 'success' },
+                { label: 'Received', value: money(data.totalPaymentsReceived) },
                 { label: 'Total hours', value: formatHours(data.totalHours) },
                 // Every currency counts here; the money totals add the workspace
                 // currency only, so this is where the strip says what they leave out.
@@ -1496,11 +1494,11 @@ function CompanyOverview() {
 
           {/* ── Daily earnings chart (2/3) ──────────────────── */}
           {/* An empty chart stays short on phones instead of a tall blank card. */}
-          <div className={`lg:col-span-2 glass-card rounded-xl overflow-hidden flex flex-col ${chartIsEmpty ? 'min-h-[200px] lg:min-h-[500px]' : 'min-h-[500px]'}`}>
-            <div className="px-5 py-4 flex items-center justify-between border-b border-white/[0.06] flex-shrink-0">
+          <div className={`lg:col-span-2 glass-card rounded-xl overflow-hidden flex flex-col ${chartIsEmpty ? 'min-h-[200px] lg:min-h-[300px]' : 'min-h-[500px]'}`}>
+            <div className="px-4 py-3.5 lg:px-5 flex items-center justify-between gap-3 border-b border-white/[0.06] flex-shrink-0">
               <div className="flex items-center gap-2 min-w-0">
-                <TrendingUp size={18} className="text-zinc-400 flex-shrink-0" />
-                <h2 className="font-semibold text-white truncate">
+                <TrendingUp size={16} aria-hidden="true" className="text-zinc-400 flex-shrink-0" />
+                <h2 className="text-sm font-semibold text-white truncate">
                   {isHourView
                     ? `Hourly earnings · ${fmtDate(drilldownDay!, true)}`
                     : isBucketView
@@ -1540,22 +1538,10 @@ function CompanyOverview() {
             <div className="chart-vivid px-5 pt-5 pb-4 flex-1 flex flex-col">
               {(!showHourly && !showRecurring && !showFixed && !showTeam && !showPayments) ? (
                 /* Empty state when both series are toggled off */
-                <div className="flex-1 flex flex-col items-center justify-center text-center px-6">
-                  <div className="w-10 h-10 rounded-full bg-white/[0.06] flex items-center justify-center mb-3">
-                    <TrendingUp size={18} className="text-zinc-500" />
-                  </div>
-                  <p className="text-sm font-medium text-zinc-400">No data series selected</p>
-                  <p className="text-xs text-zinc-500 mt-1">Toggle a legend below to view earnings data</p>
-                </div>
+                <EmptyState compact icon={<TrendingUp />} title="No data series selected" description="Toggle a legend below to view earnings data." className="flex-1" />
               ) : !hasAnyChartData ? (
                 /* Empty state when there's no data in the selected range */
-                <div className="flex-1 flex flex-col items-center justify-center text-center px-6">
-                  <div className="w-10 h-10 rounded-full bg-white/[0.06] flex items-center justify-center mb-3">
-                    <TrendingUp size={18} className="text-zinc-500" />
-                  </div>
-                  <p className="text-sm font-medium text-zinc-400">No earnings in this range</p>
-                  <p className="text-xs text-zinc-500 mt-1">Try a different date range or log some billable time</p>
-                </div>
+                <EmptyState compact icon={<TrendingUp />} title="No earnings in this range" description="Try a different date range or log some billable time." className="flex-1" />
               ) : (
                 <>
                   {/* Chart area with Y-axis */}
@@ -1963,10 +1949,10 @@ function CompanyOverview() {
 
           {/* ── Invoices (1/3) ──────────────────────── */}
           <div className="glass-card card-fill rounded-xl overflow-hidden">
-            <div className="px-5 py-4 flex items-center justify-between border-b border-white/[0.06] flex-shrink-0">
+            <div className="px-4 py-3.5 lg:px-5 flex items-center justify-between gap-3 border-b border-white/[0.06] flex-shrink-0">
               <div className="flex items-center gap-2">
-                <Receipt size={18} className="text-zinc-400" />
-                <h2 className="font-semibold text-white">
+                <Receipt size={16} aria-hidden="true" className="text-zinc-400" />
+                <h2 className="text-sm font-semibold text-white">
                   Invoices
                   {data.allInvoices.length > 0 && (
                     <span className="ml-1.5 text-xs font-medium text-zinc-500">({data.allInvoices.length})</span>
@@ -1992,12 +1978,8 @@ function CompanyOverview() {
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
                           <span className="text-sm font-medium text-white">{inv.invoice_number}</span>
-                          <span className={`text-[11px] font-medium px-1.5 py-0.5 rounded-full capitalize ${STATUS_COLORS[inv.status] || ''}`}>
-                            {inv.status}
-                          </span>
-                          <span className="text-[11px] font-medium px-1.5 py-0.5 rounded-full bg-white/[0.06] text-zinc-300 capitalize">
-                            {isMulti ? `${items.length} items` : (singleItemType ?? inv.invoice_type)}
-                          </span>
+                          <Pill tone={STATUS_TONE[inv.status] ?? 'neutral'} dot>{sentenceCase(inv.status)}</Pill>
+                          <Pill>{isMulti ? `${items.length} items` : sentenceCase(singleItemType ?? inv.invoice_type)}</Pill>
                         </div>
                         <p className="text-xs text-zinc-400 mt-0.5 truncate">{project?.name || 'Unknown project'}</p>
                       </div>
@@ -2010,23 +1992,17 @@ function CompanyOverview() {
                 })}
               </div>
             ) : (
-              <div className="flex-1 flex flex-col items-center justify-center text-center px-6 py-10 min-h-[200px]">
-                <div className="w-10 h-10 rounded-full bg-white/[0.06] flex items-center justify-center mb-3">
-                  <Receipt size={18} className="text-zinc-500" />
-                </div>
-                <p className="text-sm font-medium text-zinc-400">No invoices in this range</p>
-                <p className="text-xs text-zinc-500 mt-1">Try a different date range or create an invoice</p>
-              </div>
+              <EmptyState compact icon={<Receipt />} title="No invoices in this range" description="Try a different date range or create an invoice." className="flex-1" />
             )}
           </div>
         </div>
 
         {/* ── Project Breakdown ────────────────────────────── */}
         <div className="glass-card rounded-xl overflow-hidden flex flex-col min-h-[260px]">
-            <div className="px-5 py-4 flex items-center justify-between border-b border-white/[0.06] flex-shrink-0">
+            <div className="px-4 py-3.5 lg:px-5 flex items-center justify-between gap-3 border-b border-white/[0.06] flex-shrink-0">
               <div className="flex items-center gap-2">
-                <FolderKanban size={18} className="text-zinc-400" />
-                <h2 className="font-semibold text-white">By project</h2>
+                <FolderKanban size={16} aria-hidden="true" className="text-zinc-400" />
+                <h2 className="text-sm font-semibold text-white">By project</h2>
                 <LiveTickIndicator
                   timerCount={runningCount}
                   fixedIncomeLive={liveServiceRevenue.fixed}
@@ -2077,13 +2053,13 @@ function CompanyOverview() {
                           </div>
                         </div>
                       </div>
-                      <span className={`text-sm font-semibold text-right w-24 ${p.earned >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{money(p.earned)}</span>
-                      <span className="text-sm text-emerald-300 font-semibold text-right w-24">{money(p.received)}</span>
-                      <span className="text-sm text-zinc-300 font-medium text-right w-24">{money(p.invoiced)}</span>
-                      <span className={`text-sm font-medium text-right w-24 ${p.outstanding > 0 ? 'text-amber-400' : 'text-zinc-600'}`}>
+                      <span className="text-sm font-semibold text-white text-right w-24 tabular-nums">{money(p.earned)}</span>
+                      <span className="text-sm text-zinc-300 font-medium text-right w-24 tabular-nums">{money(p.received)}</span>
+                      <span className="text-sm text-zinc-300 font-medium text-right w-24 tabular-nums">{money(p.invoiced)}</span>
+                      <span className={`text-sm font-medium text-right w-24 tabular-nums ${p.outstanding > 0 ? 'text-zinc-300' : 'text-zinc-600'}`}>
                         {p.outstanding > 0 ? money(p.outstanding) : '-'}
                       </span>
-                      <span className={`text-sm text-right w-20 ${p.hours > 0 ? 'text-violet-400 font-medium' : 'text-zinc-600'}`}>
+                      <span className={`text-sm text-right w-20 tabular-nums ${p.hours > 0 ? 'text-zinc-300 font-medium' : 'text-zinc-600'}`}>
                         {p.hours > 0 ? formatHours(p.hours) : '-'}
                       </span>
                     </Link>
@@ -2094,13 +2070,13 @@ function CompanyOverview() {
               {/* Totals */}
               <div className="grid grid-cols-[1fr_auto_auto_auto_auto_auto] gap-x-6 px-5 py-3.5 border-t border-white/[0.08] bg-white/[0.03]">
                 <span className="text-sm font-semibold text-zinc-300">Total</span>
-                <span className={`text-sm font-bold text-right w-24 ${data.totalEarned >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{money(data.totalEarned)}</span>
-                <span className="text-sm font-bold text-emerald-300 text-right w-24">{money(data.totalPaymentsReceived)}</span>
-                <span className="text-sm font-bold text-white text-right w-24">{money(data.totalInvoiced)}</span>
-                <span className={`text-sm font-bold text-right w-24 ${data.totalOutstanding > 0 ? 'text-amber-400' : 'text-zinc-600'}`}>
+                <span className="text-sm font-semibold text-white text-right w-24 tabular-nums">{money(data.totalEarned)}</span>
+                <span className="text-sm font-semibold text-white text-right w-24 tabular-nums">{money(data.totalPaymentsReceived)}</span>
+                <span className="text-sm font-semibold text-white text-right w-24 tabular-nums">{money(data.totalInvoiced)}</span>
+                <span className={`text-sm font-semibold text-right w-24 tabular-nums ${data.totalOutstanding > 0 ? 'text-white' : 'text-zinc-600'}`}>
                   {data.totalOutstanding > 0 ? money(data.totalOutstanding) : '-'}
                 </span>
-                <span className="text-sm font-bold text-violet-400 text-right w-20">{formatHours(data.totalHours)}</span>
+                <span className="text-sm font-semibold text-white text-right w-20 tabular-nums">{formatHours(data.totalHours)}</span>
               </div>
             </div>
 
@@ -2120,9 +2096,9 @@ function CompanyOverview() {
                     bare
                     label={`${p.name} totals`}
                     stats={[
-                      { label: 'Earned', value: money(p.earned), tone: p.earned >= 0 ? 'success' : 'danger' },
-                      { label: 'Received', value: money(p.received), tone: 'success' },
-                      { label: 'Outstanding', value: p.outstanding > 0 ? money(p.outstanding) : null, empty: '-', tone: 'warning' },
+                      { label: 'Earned', value: money(p.earned) },
+                      { label: 'Received', value: money(p.received) },
+                      { label: 'Outstanding', value: p.outstanding > 0 ? money(p.outstanding) : null, empty: '-' },
                       { label: 'Hours', value: p.hours > 0 ? formatHours(p.hours) : null, empty: '-' },
                     ]}
                   />
@@ -2131,13 +2107,7 @@ function CompanyOverview() {
             </div>
               </>
             ) : (
-              <div className="flex-1 flex flex-col items-center justify-center text-center px-6 py-8">
-                <div className="w-10 h-10 rounded-full bg-white/[0.06] flex items-center justify-center mb-3">
-                  <FolderKanban size={18} className="text-zinc-500" />
-                </div>
-                <p className="text-sm font-medium text-zinc-400">No project activity in this range</p>
-                <p className="text-xs text-zinc-500 mt-1">Projects with invoices or logged hours will appear here</p>
-              </div>
+              <EmptyState compact icon={<FolderKanban />} title="No project activity in this range" description="Projects with invoices or logged hours will appear here." className="flex-1" />
             )}
           </div>
     </div>

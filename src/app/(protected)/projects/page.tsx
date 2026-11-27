@@ -111,16 +111,14 @@ function ProjectsContent() {
               <CustomProjectBadges project={p} />
             </div>
             {client?.contact && (
-              <div className="mt-1.5">
-                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-white/[0.06] text-zinc-300">{client.contact.name}</span>
-              </div>
+              <p className="mt-1 text-xs text-zinc-400 truncate">{client.contact.name}</p>
             )}
           </div>
           {canManageProjects && <RowActionsMenu actions={buildActions(p)} label={`Actions for ${p.name}`} />}
         </div>
 
         <p className="mt-3 text-sm text-zinc-400 line-clamp-2">
-          {p.description || <span className="text-zinc-600 italic">No description</span>}
+          {p.description || <span className="text-zinc-500">No description</span>}
         </p>
 
         {total > 0 && (
@@ -145,11 +143,13 @@ function ProjectsContent() {
     );
   };
 
+  const showClientColumn = canReadContacts && projects.some(p => !!getPrimaryClient(p.id)?.contact);
+
   const columns: Column<Project>[] = [
     {
       key: 'name',
       header: 'Name',
-      width: 'w-[19%]',
+      width: 'w-[24%]',
       sortValue: (p) => p.name.toLowerCase(),
       render: (p) => (
         <div className="flex items-center gap-2 min-w-0">
@@ -170,8 +170,9 @@ function ProjectsContent() {
         </div>
       ),
     },
-    // Without contacts there is no client to show; Description takes its width.
-    ...(canReadContacts ? [{
+    // Without contacts, or when no project has a client yet, there is no
+    // client to show: no column of empty cells, Description takes its width.
+    ...(showClientColumn ? [{
       key: 'client',
       header: 'Client',
       width: 'w-[14%]',
@@ -179,18 +180,18 @@ function ProjectsContent() {
       render: (p) => {
         const client = getPrimaryClient(p.id);
         return client?.contact
-          ? <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-white/[0.06] text-zinc-300">{client.contact.name}</span>
-          : <span className="text-zinc-600 italic">—</span>;
+          ? <span className="text-zinc-300 truncate block">{client.contact.name}</span>
+          : <span className="text-zinc-500">No client</span>;
       },
     } satisfies Column<Project>] : []),
     {
       key: 'description',
       header: 'Description',
-      width: canReadContacts ? 'w-[29%]' : 'w-[43%]',
+      width: showClientColumn ? 'w-[24%]' : 'w-[38%]',
       className: 'hidden lg:table-cell',
       render: (p) => p.description
         ? <span className="text-zinc-400 truncate block">{p.description}</span>
-        : <span className="text-zinc-600 italic">No description</span>,
+        : <span className="text-zinc-500">No description</span>,
     },
     {
       key: 'progress',
@@ -200,7 +201,7 @@ function ProjectsContent() {
       sortValue: (p) => getProgress(p).pct,
       render: (p) => {
         const { pct, total } = getProgress(p);
-        if (total === 0) return <span className="text-zinc-600 italic text-xs">No tasks</span>;
+        if (total === 0) return <span className="text-zinc-500 text-xs">No tasks</span>;
         return (
           <div className="flex items-center gap-2 min-w-[120px]">
             <div className="flex-1 h-1.5 rounded-full bg-white/[0.06] overflow-hidden">
@@ -224,7 +225,7 @@ function ProjectsContent() {
             {parseDateOnly(p.due_date).toLocaleDateString(appLocale(), { month: 'short', day: 'numeric' })}
           </span>
         )
-        : <span className="text-zinc-600 italic">—</span>,
+        : <span className="text-zinc-500">No date</span>,
     },
     {
       key: 'team',
@@ -232,14 +233,10 @@ function ProjectsContent() {
       width: 'w-[12%]',
       render: (p) => {
         const members = team.filter(m => p.member_ids.includes(m.id));
+        // The faces carry the count (+N past three), so no separate number squeezes them.
         return members.length > 0
-          ? (
-            <div className="flex items-center gap-2">
-              <span className="inline-flex items-center gap-1 text-xs text-zinc-500"><Users size={13} />{members.length}</span>
-              <AvatarGroup users={members} max={3} size="xs" />
-            </div>
-          )
-          : <span className="text-zinc-600 italic text-xs">—</span>;
+          ? <AvatarGroup users={members} max={3} size="xs" />
+          : <span className="text-zinc-500 text-xs">No one yet</span>;
       },
     },
     ...(canManageProjects ? [{
@@ -319,11 +316,7 @@ function ProjectsContent() {
 
 export default function ProjectsPage() {
   return (
-    <Suspense fallback={
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-zinc-400">Loading...</div>
-      </div>
-    }>
+    <Suspense fallback={null}>
       <ProjectsContent />
     </Suspense>
   );

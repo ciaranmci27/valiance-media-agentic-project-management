@@ -1,8 +1,8 @@
 'use client';
 
-import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, SearchX } from 'lucide-react';
+import { EmptyState } from '@/components/ui/EmptyState';
 import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
 import { canEditTask } from '@/lib/access-control';
@@ -49,11 +49,14 @@ export default function TaskPage() {
     return (
       <div className="animate-fadeIn min-h-screen">
         <Header title="Task not found" />
-        <div className="p-6 text-center">
-          <p className="text-zinc-400 mb-4">This task does not exist, or you cannot open it.</p>
-          <Link href={boardHref}>
-            <Button variant="secondary">Back to the project</Button>
-          </Link>
+        <div className="p-4 lg:p-6">
+          <EmptyState
+            framed
+            icon={<SearchX />}
+            title="This task is not here"
+            description="It may have moved to Trash, or you cannot open it."
+            action={<Button variant="secondary" href={boardHref}>Back to the project</Button>}
+          />
         </div>
       </div>
     );
@@ -61,8 +64,8 @@ export default function TaskPage() {
 
   return (
     <div className="animate-fadeIn min-h-screen">
-      {/* One centred column, so wide screens do not leave it against the sidebar. */}
-      <div className="max-w-6xl mx-auto">
+      {/* Full width like every app page (DESIGN.md Rule 9): the header and the task share one width. */}
+      <div>
         <Header
           wrapTitle
           title={
@@ -92,7 +95,7 @@ export default function TaskPage() {
         />
       </div>
 
-      <div className="p-4 lg:p-6 max-w-6xl mx-auto">
+      <div className="p-4 lg:p-6">
         <TaskDetailPanel
           variant="page"
           task={task}

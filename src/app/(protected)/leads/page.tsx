@@ -9,6 +9,7 @@ import { Header } from '@/components/layout/Header';
 import { LeadForm } from '@/components/leads/LeadForm';
 import { ConvertLeadModal } from '@/components/leads/ConvertLeadModal';
 import { Button } from '@/components/ui/Button';
+import { EmptyState } from '@/components/ui/EmptyState';
 import { Badge } from '@/components/ui/Badge';
 import { AvatarGroup } from '@/components/ui/Avatar';
 import { DataTable, type Column } from '@/components/ui/DataTable';
@@ -205,7 +206,7 @@ export default function LeadsPage() {
         const b = budgetForLead(l.id);
         return b
           ? <span className="text-zinc-200">{b}</span>
-          : <span className="text-zinc-600 italic">—</span>;
+          : <span className="text-zinc-600">-</span>;
       },
     },
     {
@@ -217,7 +218,7 @@ export default function LeadsPage() {
         const members = (l.member_ids || []).map(id => getTeamMember(id)).filter(Boolean) as { id: string; name: string; avatar?: string }[];
         return members.length > 0
           ? <AvatarGroup users={members} max={3} size="xs" />
-          : <span className="text-zinc-600 italic text-xs">—</span>;
+          : <span className="text-zinc-600 text-xs">-</span>;
       },
     },
     {
@@ -257,8 +258,8 @@ export default function LeadsPage() {
     <div className="animate-fadeIn min-h-screen">
       <Header
         title="Leads"
-        subtitle={<span className="hidden sm:inline">{activeLeads.length} active leads</span>}
-        searchPlaceholder="Search leads by name, company, or email..."
+        subtitle={<span className="hidden sm:inline">{activeLeads.length} active {activeLeads.length === 1 ? 'lead' : 'leads'}</span>}
+        searchPlaceholder="Search leads"
         actions={canManageLeads ? (
           <Button onClick={() => setIsFormOpen(true)} icon={<Plus size={16} />}>
             Add lead
@@ -268,14 +269,15 @@ export default function LeadsPage() {
 
       <div className="p-4 lg:p-6 space-y-6">
         {leads.length === 0 ? (
-          <div className="text-center py-16 glass-card rounded-xl">
-            <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-white/[0.06] flex items-center justify-center">
-              <Target className="text-zinc-500" size={32} />
-            </div>
-            <h3 className="text-lg font-semibold text-white mb-2">No leads yet</h3>
-            <p className="text-zinc-400 mb-4">{canManageLeads ? 'Add your first lead to start building your pipeline' : 'No leads are available to you'}</p>
-            {canManageLeads && <Button onClick={() => setIsFormOpen(true)}>Add lead</Button>}
-          </div>
+          <EmptyState
+            framed
+            icon={<Target />}
+            title="No leads yet"
+            description={canManageLeads ? 'Add a lead to start your pipeline. It moves through each stage until won or lost.' : 'No leads are shared with you yet.'}
+            action={canManageLeads ? <Button size="sm" variant="secondary" icon={<Plus size={14} />} onClick={() => setIsFormOpen(true)}>Add lead</Button> : undefined}
+          />
+        ) : filtered.length === 0 ? (
+          <EmptyState framed variant="filtered" title="No leads match your search" description="Try another name, company or email." onClearFilters={() => setFilters(defaultFilters)} />
         ) : (
           <>
             {PIPELINE_STAGES.map((stage) => {
