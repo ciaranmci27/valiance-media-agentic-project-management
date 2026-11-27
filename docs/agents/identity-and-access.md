@@ -14,6 +14,7 @@ Who an agent is, what it may do, and how every action is traced back to a key an
 - **Secrets are shown once.** API key secrets, delegation passes, link URLs and OAuth tokens are stored only as hashes. Chat bot tokens are stored encrypted, and so are webhook signing secrets for endpoints made while `APP_ENCRYPTION_KEY` is set (Settings > Encryption moves older ones).
 - **The audit log is append-only**, with secrets removed before anything is written.
 - **Profiles narrow tools, never widen them.** An agent profile decides which MCP tools an agent sees. Its keys still decide what each call may do.
+- **Company agents follow their chart.** An agent with an orchestrator takes work only from its orchestrator, and a person may use an agent only if they are allowed at that agent and at every orchestrator above it ([Orchestrators and who can use an agent](#orchestrators-and-who-can-use-an-agent)).
 
 ## Keys and scopes
 
@@ -150,6 +151,64 @@ Passes last 15 minutes. Mint one per request you handle. On the company chat bot
 Refusals: `401 act_for_invalid` (expired, revoked or another agent's), `403 identity_not_verified`, `403 principal_suspended`, `403 principal_is_agent`, `403 not_an_agent`.
 
 Minting a pass is REST only. There is no MCP tool for it.
+
+## Orchestrators and who can use an agent
+
+Company agents can form an org chart, and each one says who may use it. Nothing changes until someone sets it: an agent with no orchestrator and no audience works exactly as before.
+
+### Orchestrators
+
+- An agent can work under another company agent, its **orchestrator** (`orchestrator_id`). A chart is at most 4 levels deep and never loops. Personal assistants are never in a chart.
+- **No skipping levels.** An agent with an orchestrator takes work from other agents only from its orchestrator. To reach it, hand the work to its orchestrator. Anything else answers `403 not_your_report`, on every door: `delegate_task`, assigning it a task, and starting a child run (`parent_run_id`).
+- **Down the chart only.** An agent that has an orchestrator hands work only to its own reports, never sideways or up (`403 not_your_report`). Asking another agent a question or for a review is not handing it work, and an asked agent linking its run under the run that asked it is an answer, so both stay allowed.
+- An agent with no orchestrator, giving or taking, works as before.
+- **No pulling work of its own.** Getting an orchestrator turns off "Can pick up unassigned work" (`agent_self_assign`): such an agent cannot claim unassigned tasks, `next_task` offers it none, and it cannot put itself on a new task (`403 self_assign_off`). Breaking down a task it already holds into subtasks is its own work and always allowed. One of its managers can turn it back on.
+- **Reachable directly** (`reachable_directly`, on by default): people may give it work or talk to it in chat themselves. Off: only through its orchestrator (`403 agent_not_available`, `why: only_through_orchestrator`). It matters only while the agent has an orchestrator.
+- Moving an agent to a new orchestrator changes only where new work may come from. Tasks it has and runs it is in stay where they are. Orchestrator changes are made one at a time, so two moves at once never make a loop or too deep a chart.
+
+### Who can use it
+
+Each company agent has an audience: entries of `everyone`, a `role` (owner, admin, member, guest), a `group` or a `member` (a person), each one **included** or **excluded**.
+
+- No entries: everyone who may otherwise give it work, as before.
+- Include entries: only the people they name. An exclude always wins.
+- **Orchestrators limit everyone under them.** A person may use an agent only if they are in its own audience and in every orchestrator's above it. Take someone out of an orchestrator's audience and they lose every agent under it too, whatever those agents say. `get_agent_access` shows the limit in plain words (`inherited_words`: "Limited by Dev orchestrator: Engineering only.") and how many people can use it now (`people_count`).
+- **Checked at every hop.** When a chain of agents works for a person, the person is checked at the receiving agent and at every agent above it in the chain.
+- **Work for nobody cannot reach a restricted agent.** An agent working on its own (no person) cannot hand work to an agent that has any audience entries, unless it is that agent's own orchestrator (`403 agent_not_available`, `why: needs_person`). Act for the person who asked instead.
+- A refusal answers `403 agent_not_available`. In chat, the person gets one line saying the agent is not available to them.
+- Changing the audience replaces it in one step: if a part fails, the old audience stays.
+- Personal assistants keep today's behaviour: these rules leave them out, and `delegate_task` keeps its own rules for them.
+
+### Ask first
+
+With **Ask first** (`ask_first`) on, work someone gives the agent waits for one of its managers: an approval goes to its first owner (else a group that owns it, else an Owner) and nothing runs. The call answers `202` with `approval_id` and `status: awaiting_approval`.
+
+- Trying again while it is open answers the same approval. Two requests at the same moment still make only one.
+- Only a decision by someone who manages the agent counts. Nobody can ask for one by hand: `request_approval` refuses the action type `agent.use` (`422 reserved_action_type`).
+- **Approvals are used up.** A task's approval covers that task only. A new task's approval (by its title, in its project) allows one task, and is used only when that task is made: a request that fails a later check, becomes a suggestion, or waits on another agent's managers leaves it unused. A chat conversation's approval lasts 24 hours.
+- **A reject stands for a day.** While a manager's latest decision is a reject, trying again answers `403 agent_use_declined` instead of asking again. After 24 hours the person may ask again.
+- Its managers (an Owner, `team.manage`, or one of its owners) never wait.
+- Starting a child run never asks: the approval came when the work was handed over.
+
+In the app, assigning a company agent a task (a new assignment, or one changed to point at the agent) is checked by the database the same way. An agent that asks first is refused there until one of its managers approves that task for that person.
+
+### Suggestions and repeats
+
+- **Approving a suggestion** assigns its agent for whoever approves it, checked before any task is made: `403` when they may not give it work, `202` with the approval when it asks first (bulk approve reports each one). In the app the refusal is shown and no task is made. When the agent asks first, the app asks its managers instead ("Sent to <agent>'s managers to approve") and the suggestion stays pending; once one of them approves, the person approves the suggestion. Someone who may not assign others (no `tasks.manage_all`) gets the task unassigned, as before.
+- **Proposing a suggestion** for an agent (`assigned_to`) is checked for the proposer the same way, without asking first.
+- **A repeat** checks again each time it makes a copy. An agent whoever runs the repeat may no longer give work to stays off the copy, and its managers get a notification.
+
+### Reading and setting it
+
+| What | REST | MCP |
+|---|---|---|
+| The chart | `GET /api/v1/agents/tree` | `get_agent_tree` |
+| One agent's orchestrator, audience and flags | `GET /api/v1/agents/{id}/access` | `get_agent_access` |
+| Change them | `PUT /api/v1/agents/{id}/access` | `set_agent_access` |
+
+Reading needs `team.read`. Changing needs an Owner, `team.manage` or `agents.manage`, or being one of the agent's owners; an agent never changes its own. `list_agents` and the agent's profile carry `orchestrator_id`, `reachable_directly`, `ask_first` and `audience_summary`.
+
+Agents hired from a template that touches code or money (Builder, External agent) start usable by their managers only. The others start open to everyone, as before.
 
 ## Personal agents
 

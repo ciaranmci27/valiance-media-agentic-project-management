@@ -1,7 +1,7 @@
 import { withApi } from '@/lib/api/middleware';
 import { success, created, paginated } from '@/lib/api/response';
 import { createGoalSchema } from '@/lib/schemas';
-import { parsePagination, sanitizeSearch } from '@/lib/api/pagination';
+import { parsePagination, sanitizeSearch, readPage } from '@/lib/api/pagination';
 import { insertGoal } from '@/lib/supabase/queries';
 import { notFound } from '@/lib/api/errors';
 import { logAudit } from '@/lib/api/audit';
@@ -19,9 +19,9 @@ export const GET = withApi<unknown, { id: string }>(async ({ supabase, params, s
 
   if (status) query = query.eq('status', status);
 
-  const { data, count, error } = await query
+  const { data, count, error } = await readPage(query
     .order('created_at', { ascending: false })
-    .range(offset, offset + limit - 1);
+    .order('id'), { offset, limit });
 
   if (error) throw error;
   return paginated(data || [], { page, limit, total: count || 0 });

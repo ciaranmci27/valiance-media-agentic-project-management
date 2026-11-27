@@ -5,6 +5,7 @@ import { Download, Pencil } from 'lucide-react';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 import Modal from '@/components/ui/Modal';
+import { storedFileHref } from '@/lib/storage/stored-file-url';
 
 const MARKDOWN_STYLES = `<style>
 .md-preview{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans',Helvetica,Arial,sans-serif;font-size:14px;line-height:1.6;color:#1f2328;word-wrap:break-word}
@@ -177,7 +178,7 @@ export function FilePreviewModal({ isOpen, onClose, file, onEdit }: FilePreviewM
       (async () => {
         try {
           const XLSX = await import('xlsx');
-          const res = await fetch(file.file_url);
+          const res = await fetch(storedFileHref(file.file_url));
           const buf = await res.arrayBuffer();
           const wb = XLSX.read(buf, { type: 'array' });
           const ws = wb.Sheets[wb.SheetNames[0]];
@@ -191,7 +192,7 @@ export function FilePreviewModal({ isOpen, onClose, file, onEdit }: FilePreviewM
       })();
     } else if (isCsv) {
       setLoading(true);
-      fetch(file.file_url)
+      fetch(storedFileHref(file.file_url))
         .then(res => res.text())
         .then(text => {
           setContent(text);
@@ -201,7 +202,7 @@ export function FilePreviewModal({ isOpen, onClose, file, onEdit }: FilePreviewM
         .finally(() => setLoading(false));
     } else if (isTextBasedFile(file.mime_type, file.name)) {
       setLoading(true);
-      fetch(file.file_url)
+      fetch(storedFileHref(file.file_url))
         .then(res => res.text())
         .then(text => setContent(text))
         .catch(() => setContent(null))
@@ -213,7 +214,7 @@ export function FilePreviewModal({ isOpen, onClose, file, onEdit }: FilePreviewM
 
   const handleDownload = async () => {
     try {
-      const res = await fetch(file.file_url);
+      const res = await fetch(storedFileHref(file.file_url));
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -252,13 +253,13 @@ export function FilePreviewModal({ isOpen, onClose, file, onEdit }: FilePreviewM
     if (isImage) {
       return (
         <div className="flex items-center justify-center">
-          <img src={file.file_url} alt={file.name} className="max-h-[70vh] max-w-full object-contain rounded-lg" />
+          <img src={storedFileHref(file.file_url)} alt={file.name} className="max-h-[70vh] max-w-full object-contain rounded-lg" />
         </div>
       );
     }
 
     if (isPdf) {
-      return <iframe src={file.file_url} className="w-full h-[70vh] rounded-lg border border-white/[0.08]" title={file.name} />;
+      return <iframe src={storedFileHref(file.file_url)} className="w-full h-[70vh] rounded-lg border border-white/[0.08]" title={file.name} />;
     }
 
     if (isHtml && content !== null) {
@@ -273,7 +274,13 @@ export function FilePreviewModal({ isOpen, onClose, file, onEdit }: FilePreviewM
     }
 
     if (isMarkdown && content !== null) {
-      const html = DOMPurify.sanitize(marked.parse(content, { async: false }) as string);
+      // A file's own markup never restyles the app or draws a form: its
+      // styles and form controls are dropped (the preview's look comes from
+      // MARKDOWN_STYLES, added after sanitizing).
+      const html = DOMPurify.sanitize(marked.parse(content, { async: false }) as string, {
+        FORBID_TAGS: ['style', 'form', 'input', 'button', 'textarea', 'select', 'option'],
+        FORBID_ATTR: ['style'],
+      });
       const styledHtml = MARKDOWN_STYLES + html;
       return (
         <div className="max-h-[70vh] overflow-auto rounded-lg border border-white/[0.08] bg-surface-raised">
@@ -300,7 +307,7 @@ export function FilePreviewModal({ isOpen, onClose, file, onEdit }: FilePreviewM
     if (isVideo) {
       return (
         <video controls className="w-full max-h-[70vh] rounded-lg">
-          <source src={file.file_url} type={mime} />
+          <source src={storedFileHref(file.file_url)} type={mime} />
           Your browser does not support video playback.
         </video>
       );
@@ -310,7 +317,7 @@ export function FilePreviewModal({ isOpen, onClose, file, onEdit }: FilePreviewM
       return (
         <div className="flex items-center justify-center py-12">
           <audio controls className="w-full max-w-md">
-            <source src={file.file_url} type={mime} />
+            <source src={storedFileHref(file.file_url)} type={mime} />
             Your browser does not support audio playback.
           </audio>
         </div>

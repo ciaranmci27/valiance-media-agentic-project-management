@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { calendarDate } from '@/lib/schemas/shared';
 import {
   AGENT_EVENT_SCHEMAS, AGENT_EVENT_TYPES, AGENT_LABELS_MAX, agentLabelSchema, CUSTOM_EVENT_TYPE_PATTERN, isOpenEventType, isServerEvent, isTelemetryEvent, NOTE_EVENT_TYPE,
   openEventSchema, type AgentEventType,
@@ -6,6 +7,7 @@ import {
 import { API_ENDPOINT_PERMISSIONS } from '@/lib/access-control';
 import { agentLimitsPatchSchema } from '@/lib/agent-limits';
 import { WEBHOOK_EVENT_TYPES } from '@/lib/types';
+import { notificationLinkSchema } from '@/lib/schemas/notifications';
 import { planSchema } from '@/lib/communications/plan-schemas';
 import { AGENT_MESSAGE_STATUSES, triageSchema } from '@/lib/communications/schemas';
 import { MAIL_TOPICS, RULE_ACTIONS } from '@/lib/communications/sorting';
@@ -17,7 +19,9 @@ import {
   recurrenceSchema, REPEAT_MODES, SCHEDULE_KINDS, SCHEDULE_STATUSES, taskRepeatSchema, templateScheduleSchema,
 } from '@/lib/schedules';
 import { PLANS_CUTOVER_REMOVAL } from '@/lib/api/version';
+import { FEED_PERMISSIONS, FEED_RETENTION_DAYS, FEED_TYPES, LONG_POLL } from '@/lib/event-feed-contract';
 import { idempotencyKeyInput, routeTool, type PmTool } from './core';
+import { avatarUrlSchema } from '@/lib/schemas/profile';
 
 /**
  * The PM MCP server's tools: a curated set over the v1 API (it has no
@@ -59,7 +63,7 @@ const page = z.number().int().min(1).optional().describe('Page number, from 1');
 const limit = (fallback: number) =>
   z.number().int().min(1).max(100).default(fallback).describe(`Rows per page (1-100, default ${fallback})`);
 const order = z.enum(['asc', 'desc']).optional().describe('Default desc');
-const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD');
+const date = calendarDate;
 const TASK_STATUS = z.enum(['backlog', 'todo', 'in_progress', 'in_review', 'done']);
 const PRIORITY = z.enum(['low', 'medium', 'high', 'urgent']);
 const TASK_TYPE = z.enum(['engineering', 'research', 'audit', 'marketing', 'copywriting', 'operations', 'general']);
@@ -928,7 +932,7 @@ export const PM_TOOLS: PmTool[] = [
   routeTool({
     name: 'validate_task_template',
     lead: 'Check a task template without saving it.',
-    detail: 'template is the JSON template as create_task_template takes it (get_task_template_schema), or with template_id a change as update_task_template takes it. Writes nothing. Answers { valid, errors, template, can_save }: every error with path (items[2].depends_on[0]), code (unknown_anchor, dependency_cycle with cycle, duplicate_key, undeclared_field, offset_out_of_range, ...), message and hint (the fix); template is what would be saved, every task keyed. Fix every error, validate again, then create.',
+    detail: 'template is the JSON template as create_task_template takes it (get_task_template_schema), or with template_id a change as update_task_template takes it. Writes nothing. Answers { valid, errors, warnings, template, can_save }: every error with path (items[2].depends_on[0]), code (unknown_anchor, dependency_cycle with cycle, duplicate_key, undeclared_field, offset_out_of_range, ...), message and hint (the fix); warnings never stop a save (dependency_due_before: a task due before a task it waits on); template is what would be saved, every task keyed. Fix every error, validate again, then create.',
     input: z.object({
       template: z.record(z.string(), z.unknown()).describe('The JSON template (or a change, with template_id)'),
       template_id: id('template_id').optional(),
@@ -943,7 +947,7 @@ export const PM_TOOLS: PmTool[] = [
   routeTool({
     name: 'preview_task_template_run',
     lead: 'Preview a template run: dated, assigned tasks.',
-    detail: 'A dry run with what run_task_template takes: answers the exact tasks it would make (keys, titles with fill-ins, due dates from key_dates, assignees from roles, subtasks), dependencies ({ task, waits_on } by key), the initiative (name, target_date, owner), notes and past_due (each task due before today in your time zone), writing nothing. ok false lists every reason the run would be refused (missing_key_date, missing_values, role_unmapped, cannot_assign_others, ...) with path and hint. Run with the same input once ok is true.',
+    detail: 'A dry run with what run_task_template takes: answers the exact tasks it would make (keys, titles with fill-ins, due dates from key_dates, assignees from roles, subtasks), dependencies ({ task, waits_on } by key), the initiative (name, target_date, owner), notes, past_due (each task due before today in your time zone) and date_warnings (key dates set out of order, a task due before a task it waits on: warnings, the run still works), writing nothing. ok false lists every reason the run would be refused (missing_key_date, missing_values, role_unmapped, cannot_assign_others, ...) with path and hint. Run with the same input once ok is true.',
     input: z.object({ template_id: id('template_id'), ...runFields }).strict(),
     permission: 'tasks.create',
     method: 'POST',
@@ -1408,7 +1412,7 @@ export const PM_TOOLS: PmTool[] = [
     input: z.object({
       title: z.string().min(1).max(200),
       message: z.string().min(1).max(5000),
-      link: z.string().min(1).max(2000).nullable().optional(),
+      link: notificationLinkSchema.nullable().optional(),
       entity_type: z.enum(['task', 'project', 'lead', 'comment', 'member', 'contact', 'suggestion', 'goal', 'question']).optional(),
       entity_id: id('entity_id').nullable().optional(),
       inbox_id: id('inbox_id').optional().describe('The inbox it is about'),
@@ -1485,7 +1489,7 @@ export const PM_TOOLS: PmTool[] = [
       choice: z.string().min(1).max(200).optional(),
       text: z.string().min(1).max(5000).optional(),
     }).strict().refine(atLeastOne(['choice', 'text']), 'Send choice, text, or both'),
-    permission: 'tasks.read',
+    permission: ['tasks.read', 'questions.ask', 'approvals.decide'],
     method: 'POST',
     path: '/api/v1/questions/{id}/answer',
     request: ({ question_id, ...body }) => ({ params: { id: question_id }, body }),
@@ -1647,7 +1651,7 @@ export const PM_TOOLS: PmTool[] = [
     name: 'get_my_status',
     lead: 'Check whether you may start work now: pause and budget.',
     detail:
-      "Call it before each turn. can_start_work false means skip the turn: skip_reason says why (agents_paused: an Owner paused every agent; agent_paused: you are paused; budget_exceeded: your budget for this period is spent). Also answers paused, paused_reason, paused_at, budget { period, period_start, resets_at, spent_usd, spent_tokens, budget_usd, budget_tokens, exceeded } (spend counted as the budget counts it) and limits. Pause and budget only refuse calls into this app, so an agent working in another system needs this to stop there too. If the call fails on the network, go ahead. Any key reads it, paused or not.",
+      "Call it before each turn. can_start_work false means skip the turn: skip_reason says why (agents_paused: an Owner paused every agent; assistants_off: you are a personal assistant and assistants are switched off for the workspace; agent_paused: you are paused; budget_exceeded: your budget for this period is spent). Also answers paused, paused_reason, assistants_off, paused_at, budget { period, period_start, resets_at, spent_usd, spent_tokens, budget_usd, budget_tokens, exceeded } (spend counted as the budget counts it) and limits. Pause and budget only refuse calls into this app, so an agent working in another system needs this to stop there too. If the call fails on the network, go ahead. Any key reads it, paused or not.",
     input: z.object({}).strict(),
     permission: [...API_ENDPOINT_PERMISSIONS],
     method: 'GET',
@@ -1798,7 +1802,7 @@ export const PM_TOOLS: PmTool[] = [
   routeTool({
     name: 'delegate_task',
     lead: 'Hand work to another agent: a new subtask, or a whole task.',
-    detail: "mode subtask (default) creates a subtask of task_id assigned to agent_id (an active agent; list_agents has them), the same way create_task with parent_task_id does; title is required. mode assign hands task_id itself (top-level or a subtask) to the agent, as it is: the agent is added to its assignees, and with reassign true you come off it. Either way you need tasks.manage_all, the agent must reach the project, and your own rules apply (approval gives a suggestion for a subtask). Name your current run as run_id so the task is linked to it: the receiver starts its run with parent_run_id and get_run_tree shows the chain, at any depth. A chain keeps the person it works for: work for them stays where both they and the receiver reach (403 principal_mismatch for someone else), at most 8 hand-offs deep (409 chain_too_deep), never back to an agent above you (409 delegation_cycle). A personal agent hands work only to company agents. ai_readiness defaults to ai_ready. Answers with the task (task_id) and mode. Choosing the receiver is yours.",
+    detail: "mode subtask (default) creates a subtask of task_id assigned to agent_id (an active agent; list_agents has them), the same way create_task with parent_task_id does; title is required. mode assign hands task_id itself (top-level or a subtask) to the agent, as it is: the agent is added to its assignees, and with reassign true you come off it. Either way you need tasks.manage_all, the agent must reach the project, and your own rules apply (approval gives a suggestion for a subtask). Name your current run as run_id so the task is linked to it: the receiver starts its run with parent_run_id and get_run_tree shows the chain, at any depth. A chain keeps the person it works for: work for them stays where both they and the receiver reach (403 principal_mismatch for someone else), at most 8 hand-offs deep (409 chain_too_deep), never back to an agent above you (409 delegation_cycle). A personal agent hands work only to company agents. An agent with an orchestrator takes work only from its orchestrator (403 not_your_report: get_agent_tree shows who works under you); the person the chain works for must be allowed to use the receiver and every agent above it (403 agent_not_available). A receiver that asks first answers 202 with approval_id and makes nothing: try again once one of its managers approves. ai_readiness defaults to ai_ready. Answers with the task (task_id) and mode. Choosing the receiver is yours.",
     input: z.object({
       task_id: id('task_id'),
       agent_id: id('agent_id'),
@@ -2016,7 +2020,7 @@ export const PM_TOOLS: PmTool[] = [
       name: z.string().min(1).max(100),
       email: z.email('email must be an email address'),
       title: z.string().max(80).optional(),
-      avatar: z.string().max(2000).optional(),
+      avatar: avatarUrlSchema.optional(),
       agent_profile: AGENT_PROFILE.optional(),
       agent_role: AGENT_ROLE.optional().describe('A label for people (builder, code-reviewer); it drives no behaviour'),
       description: z.string().max(2000).optional(),
@@ -2060,6 +2064,7 @@ export const PM_TOOLS: PmTool[] = [
       create_key: z.boolean().optional(),
       key_name: z.string().min(1).max(100).optional(),
       scopes: z.array(z.string().max(100)).max(100).optional().describe("The key's scopes; left out, the template's"),
+      request_id: id('request_id').optional().describe('A UUID you make once per hire and send again on a retry of it: a second call hires nothing more (409 already_hired)'),
     }).strict(),
     permission: 'team.manage',
     module: 'agents',
@@ -2070,7 +2075,7 @@ export const PM_TOOLS: PmTool[] = [
   routeTool({
     name: 'list_agents',
     lead: 'List the agents with their roles, owners and health.',
-    detail: "By name, paged: each agent's role label, owners, template, live health, current run and how many projects it is on. Filters: role, owner (me or a member id), template, project, status (active or suspended), search.",
+    detail: "By name, paged: each agent's role label, owners, template, live health, current run, how many projects it is on, its orchestrator (orchestrator_id), reachable_directly, ask_first and who can use it in words (audience_summary). Filters: role, owner (me or a member id), template, project, status (active or suspended), search.",
     input: z.object({
       role: AGENT_ROLE.optional(),
       owner: z.string().min(1).max(40).optional().describe('me, or a team member id'),
@@ -2087,6 +2092,52 @@ export const PM_TOOLS: PmTool[] = [
     request: (args) => ({ query: args }),
   }),
   routeTool({
+    name: 'get_agent_tree',
+    lead: 'Read the chart of company agents: who works under whom.',
+    detail: "Every company agent with its orchestrator (orchestrator_id), depth (0 at the top, at most 4 levels), the agents under it (report_ids), reachable_directly, ask_first and who can use it in words. Top orchestrators first, each followed by the agents under it; personal assistants are left out. Hand work only to agents whose orchestrator is you (403 not_your_report otherwise); an agent with no orchestrator takes work from any agent.",
+    input: z.object({}).strict(),
+    permission: 'team.read',
+    module: 'agents',
+    method: 'GET',
+    path: '/api/v1/agents/tree',
+    request: () => ({}),
+  }),
+  routeTool({
+    name: 'get_agent_access',
+    lead: "Read an agent's orchestrator and who can use it.",
+    detail: "Its orchestrator and the agents under it, reachable_directly (false: people reach it only through its orchestrator), ask_first (work waits for one of its managers to approve), its audience (kind everyone, role, group or member; effect include or exclude), the limits its orchestrators put on it (inherited, inherited_words), how many people can use it now (people_count) and can_manage.",
+    input: z.object({ agent_id: id('agent_id') }).strict(),
+    permission: 'team.read',
+    module: 'agents',
+    method: 'GET',
+    path: '/api/v1/agents/{id}/access',
+    request: ({ agent_id }) => ({ params: { id: agent_id } }),
+  }),
+  routeTool({
+    name: 'set_agent_access',
+    lead: "Set an agent's orchestrator, who can use it, and Ask first.",
+    detail: "For an Owner, team.manage or agents.manage, or one of the agent's owners (403 not_agent_owner); never the agent itself (403 own_access); never a personal assistant (422 personal_agent). Send only what changes. orchestrator_id: another company agent it works under (null takes it out of the chart); no loops (422 orchestrator_loop), at most 4 levels (422 orchestrator_too_deep). audience replaces who can use it: entries of kind everyone (no ref), role (ref owner, admin, member or guest), group (ref a group id) or member (ref a person's id), each with effect include (default) or exclude; an exclude always wins; an empty list lets in everyone who may otherwise give it work. A person can use an agent only if they are in its audience and every orchestrator's above it. Moving an agent never moves work it already has. Answers as get_agent_access.",
+    input: z.object({
+      agent_id: id('agent_id'),
+      orchestrator_id: id('orchestrator_id').nullable().optional(),
+      reachable_directly: z.boolean().optional(),
+      ask_first: z.boolean().optional(),
+      audience: z.array(z.object({
+        kind: z.enum(['everyone', 'role', 'group', 'member']),
+        ref: z.string().min(1).max(100).nullable().optional(),
+        effect: z.enum(['include', 'exclude']).optional(),
+      }).strict()).max(100).optional(),
+    }).strict().refine(
+      atLeastOne(['orchestrator_id', 'reachable_directly', 'ask_first', 'audience']),
+      'Send at least one field to change',
+    ),
+    permission: 'team.read',
+    module: 'agents',
+    method: 'PUT',
+    path: '/api/v1/agents/{id}/access',
+    request: ({ agent_id, ...body }) => ({ params: { id: agent_id }, body }),
+  }),
+  routeTool({
     name: 'update_agent',
     lead: "Change an agent's name, rules, owners, limits or pause.",
     detail: "For an Owner, team.manage or one of the agent's owners (403 not_agent_owner otherwise). Send only what changes: name, title, description, avatar_url, agent_role (null clears it), rules (self_assign, close_policy, create_policy, escalate_to, escalate_to_group). owner_ids replaces its owners (people, never agents) and owner_group_ids its owner groups (any member manages it); both are for an Owner or one of its owners. limits (max_concurrent_runs, rate_per_minute, budget_usd, budget_tokens, budget_period; null clears one) is a workspace Owner's only (403 owner_only). paused true stops its writes (reads, heartbeats and telemetry go on; other writes answer 423 agent_paused), false resumes it. Keys stay create_api_key's.",
@@ -2095,7 +2146,7 @@ export const PM_TOOLS: PmTool[] = [
       name: z.string().min(1).max(100).optional(),
       title: z.string().max(80).nullable().optional(),
       description: z.string().max(2000).nullable().optional(),
-      avatar_url: z.string().max(2000).nullable().optional(),
+      avatar_url: avatarUrlSchema.nullable().optional(),
       agent_role: AGENT_ROLE.nullable().optional(),
       rules: z.object({
         self_assign: z.boolean().optional(),
@@ -2357,10 +2408,11 @@ export const PM_TOOLS: PmTool[] = [
   routeTool({
     name: 'list_chat_messages',
     lead: 'List chat messages sent to you.',
-    detail: 'For a person\'s own assistant, or a company agent on a company chat connection. status pending (the default: messages no webhook was sent for, waiting for you), notified, replied, handled, unrouted, context (channel messages recorded for you to know, never to answer) or all; limit 1 to 100. Each has its text, person, provider, connection_kind, channel, is_request and the thread so far, oldest first. Answer each request with reply_in_chat, or mark_chat_handled when no answer is needed.',
+    detail: `For a person's own assistant, or a company agent on a company chat connection. status pending (the default: messages no webhook was sent for, waiting for you), notified, replied, handled, unrouted, context (channel messages recorded for you to know, never to answer) or all; limit 1 to 100. wait (0 to ${LONG_POLL.maxWaitSeconds} seconds) holds an empty answer until a message arrives, for a harness with no webhook; at most ${LONG_POLL.maxConcurrentWaitsPerKey} waits open per key. Each has its text, person, provider, connection_kind, channel, is_request and the thread so far, oldest first. Answer each request with reply_in_chat, or mark_chat_handled when no answer is needed.`,
     input: z.object({
       status: z.enum(['pending', 'notified', 'replied', 'handled', 'unrouted', 'context', 'all']).optional(),
       limit: z.number().int().min(1).max(100).optional(),
+      wait: z.number().int().min(0).max(LONG_POLL.maxWaitSeconds).optional(),
     }).strict(),
     permission: 'notifications.manage_own',
     agentsOnly: true,
@@ -2369,6 +2421,31 @@ export const PM_TOOLS: PmTool[] = [
     method: 'GET',
     path: '/api/v1/chat/messages',
     request: (args) => ({ query: args }),
+  }),
+  routeTool({
+    name: 'get_events',
+    lead: 'Read what happened for you since your cursor.',
+    detail: `One feed for a harness with no webhook: chat.message (chat routed to you), question.answered, question.cancelled and question.expired (questions you asked), run.updated (your runs changed status, with actor_id) and, opt in, agent_event.created (agent events on your projects; agent_event_types and agents narrow it). since is meta.next_cursor from your last call (leave out to start from now); types leaves out what you do not want (default: every type you may read except agent events). wait (0 to ${LONG_POLL.maxWaitSeconds} seconds) holds an empty answer until something arrives. Keep meta.next_cursor even when nothing came. At least once: skip an event id you already handled. Each has id, type, cursor, subject, data and read (where to read it in full). A cursor older than ${FEED_RETENTION_DAYS} days is 410 resync with the cursor to continue from: read current state first. At most ${LONG_POLL.maxConcurrentWaitsPerKey} waits open per key.`,
+    input: z.object({
+      since: z.string().min(1).max(64).optional(),
+      types: z.array(z.enum(FEED_TYPES)).min(1).max(FEED_TYPES.length).optional(),
+      agent_event_types: z.array(z.string().min(1).max(100)).min(1).max(100).optional(),
+      agents: z.array(id('agent_id')).min(1).max(200).optional(),
+      limit: z.number().int().min(1).max(100).optional(),
+      wait: z.number().int().min(0).max(LONG_POLL.maxWaitSeconds).optional(),
+    }).strict(),
+    permission: FEED_PERMISSIONS,
+    module: 'agents',
+    method: 'GET',
+    path: '/api/v1/events',
+    request: ({ types, agent_event_types, agents, ...rest }) => ({
+      query: {
+        ...rest,
+        ...(types ? { types: types.join(',') } : {}),
+        ...(agent_event_types ? { agent_event_types: agent_event_types.join(',') } : {}),
+        ...(agents ? { agents: agents.join(',') } : {}),
+      },
+    }),
   }),
   routeTool({
     name: 'get_chat_message',

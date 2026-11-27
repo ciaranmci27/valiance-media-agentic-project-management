@@ -16,7 +16,7 @@ import { useTaskUrlParam } from '@/lib/use-task-url';
 import { Header } from '@/components/layout/Header';
 import { Avatar } from '@/components/ui/Avatar';
 import { Button } from '@/components/ui/Button';
-import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { useTrashTask } from '@/components/tasks/useTrashTask';
 import { RowActionsMenu } from '@/components/ui/RowActionsMenu';
 import { toast } from '@/components/ui/Toast';
 import { LinkedText } from '@/components/ui/LinkedText';
@@ -50,11 +50,11 @@ export default function InitiativePage() {
   const initiativeId = params.initiativeId as string;
   const { isDemoMode } = useDemo();
   const { access } = useAuth();
-  const { getProject, tasks, team, deleteTask, setFilters, loading } = useApp();
+  const { getProject, tasks, team, setFilters, loading } = useApp();
   const read = useRead(initiativeRead(projectId, initiativeId, isDemoMode));
   const [editing, setEditing] = useState(false);
   const [changingDates, setChangingDates] = useState(false);
-  const [confirmDeleteTask, setConfirmDeleteTask] = useState<string | null>(null);
+  const trashTask = useTrashTask();
 
   useEffect(() => { setFilters(defaultFilters); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -269,7 +269,7 @@ export default function InitiativePage() {
                 cannot: `Tasks in this ${INITIATIVE_LABEL.lower} will show here.`,
               }}
               onOpenTask={openTask}
-              onDeleteTask={setConfirmDeleteTask}
+              onDeleteTask={(id) => void trashTask(id)}
             />
           </div>
         )}
@@ -308,17 +308,7 @@ export default function InitiativePage() {
         <InitiativePanel projectId={projectId} initiative={live} onClose={() => setEditing(false)} />
       )}
 
-      <TaskDetailPanel task={viewingTask} onClose={closeTask} onDelete={setConfirmDeleteTask} />
-
-      <ConfirmDialog
-        isOpen={!!confirmDeleteTask}
-        onClose={() => setConfirmDeleteTask(null)}
-        onConfirm={() => { if (confirmDeleteTask) deleteTask(confirmDeleteTask); }}
-        title="Move task to Trash?"
-        message="The task goes to Trash with its subtasks and comments."
-        variant="danger"
-        trash
-      />
+      <TaskDetailPanel task={viewingTask} onClose={closeTask} onDelete={(id) => { closeTask(); void trashTask(id); }} />
 
     </div>
   );

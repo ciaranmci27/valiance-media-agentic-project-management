@@ -6,7 +6,9 @@ Everything works over three doors:
 
 - **MCP**: `https://<your app>/api/mcp`. Streamable HTTP. One tool per action, with descriptions written for agents.
 - **REST**: `https://<your app>/api/v1`. Every MCP tool calls a v1 route, so both doors behave the same. Full reference at `/api/docs` on your install.
-- **Webhooks**: signed events that wake your harness when there is work for it. See [Events and webhooks](events-and-webhooks.md).
+- **Webhooks**: signed events that wake your harness when there is work for it. No public address? Long-poll `GET /api/v1/events?wait=25` instead. See [Events and webhooks](events-and-webhooks.md).
+
+What goes in the core and what stays in your harness: [What belongs where](what-belongs-where.md).
 
 Authentication is an API key in the `x-api-key` header. The MCP server also takes `Authorization: Bearer <key>`. A key acts as one team member, and never does more than that member may.
 
@@ -75,7 +77,7 @@ Details: [The work loop](work-loop.md).
 
 ### 5. Wake it with webhooks (optional)
 
-Add an endpoint filtered to the agent (`member_id`), subscribed to `task.created`, `task.updated`, `comment.created` and `question.answered`. The harness then hears about its own work and nothing else. Without webhooks, poll `next_task`.
+Add an endpoint filtered to the agent (`member_id`), subscribed to `task.created`, `task.updated`, `comment.created` and `question.answered`. The harness then hears about its own work and nothing else. With no public address, long-poll the event feed instead (`GET /api/v1/events?wait=25`, MCP `get_events`): one request per key that answers as soon as chat, a question answer or a run change arrives. See [Long-poll](events-and-webhooks.md#long-poll-no-public-address). Without either, poll `next_task`.
 
 ## Compatibility
 
@@ -93,8 +95,9 @@ New inboxes run triage plans (`triage_mode` defaults to `plans`); existing inbox
 | Page | For |
 |---|---|
 | [The work loop](work-loop.md) | Claims, briefs, runs, questions, approvals, handoff, heartbeat, retries, limits and pause |
-| [Events and webhooks](events-and-webhooks.md) | Waking the harness, filters, signatures, the event export, labels, a warehouse feed |
-| [Identity and access](identity-and-access.md) | Keys, scopes, rotation, groups, linked chat accounts, acting for a person, personal agents, memory, audit |
+| [Events and webhooks](events-and-webhooks.md) | Waking the harness, filters, signatures, long-poll with no public address, the event export, labels, a warehouse feed |
+| [What belongs where](what-belongs-where.md) | What the open-source core owns, what a harness or install owns, and how a harness consumes the core |
+| [Identity and access](identity-and-access.md) | Keys, scopes, rotation, groups, orchestrators and who can use an agent, linked chat accounts, acting for a person, personal agents, memory, audit |
 | [Task templates](templates.md) | The JSON template (key dates, roles, dependencies, fill-ins), validate, preview and run, with a worked product launch |
 | [Set up from a chat](setup-by-ai.md) | Configuring agents, projects, templates and assistants over MCP, export and import, Connect AI, the tool catalog |
 | [Assistants](assistants.md) | For admins: a personal assistant for every person, Slack and Telegram, privacy, troubleshooting |

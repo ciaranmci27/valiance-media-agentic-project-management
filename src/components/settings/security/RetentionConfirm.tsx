@@ -3,8 +3,8 @@
 import { useState } from 'react';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { workspaceApi } from '@/lib/agent-workspace';
-import { appLocale } from '@/lib/region';
 import { nextDailyRun, retentionConfirmMessage } from '@/lib/data-retention';
+import { formatInZone } from '@/lib/time-format';
 
 /** One period being shortened: its setting, label, new days, and whether it blanks text rather than removing rows. */
 export interface ShortenedPeriod {
@@ -37,7 +37,7 @@ export function useRetentionConfirm(runsAtUtc: { hour: number; minute: number })
     } finally {
       setCounting(false);
     }
-    const runsAt = nextDailyRun(runsAtUtc).toLocaleString(appLocale(), { weekday: 'short', hour: 'numeric', minute: '2-digit' });
+    const runsAt = formatInZone(nextDailyRun(runsAtUtc), { weekday: 'short', hour: 'numeric', minute: '2-digit' });
     const message = retentionConfirmMessage(periods.map((period) => ({ ...period, rows: rows[period.key] ?? null })), runsAt);
     setPending({ message, onConfirm: save });
   };

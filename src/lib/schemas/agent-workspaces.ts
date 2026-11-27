@@ -4,6 +4,7 @@ import { agentLimitsPatchSchema } from '@/lib/agent-limits';
 import { agentProfileSchema } from '@/lib/mcp/profiles';
 import { AGENT_ROLE_PATTERN, PROJECT_AGENT_INSTRUCTIONS_MAX, PROJECT_AGENT_STATUSES } from '@/lib/project-agents';
 import { BRIEF_ENTRY_MAX, BRIEF_SECTION_KEYS } from '@/lib/project-brief';
+import { avatarUrlSchema } from './profile';
 
 /**
  * Bodies of the agent workspace routes: hiring an agent, editing it, its
@@ -63,7 +64,7 @@ export const hireAgentSchema = z.object({
   name: z.string().trim().min(1, 'Name is required').max(100),
   title: z.string().trim().max(80, 'Title must be 80 characters or fewer').optional(),
   description: z.string().trim().max(2000, 'Description must be 2000 characters or fewer').optional(),
-  avatar_url: z.string().max(2000).optional(),
+  avatar_url: avatarUrlSchema.optional(),
   agent_role: agentRoleSchema.optional(),
   agent_profile: agentProfileSchema.optional(),
   /** An address only this agent uses; left out, one is made up (it never signs in). */
@@ -82,6 +83,13 @@ export const hireAgentSchema = z.object({
   create_key: z.boolean().optional(),
   key_name: z.string().trim().min(1).max(100).optional(),
   scopes: z.array(z.string().max(100)).max(100).optional(),
+  /**
+   * One id per hire attempt (a UUID the caller makes once and sends on every
+   * retry of it): a second call with the same id hires nothing more and is
+   * answered 409 already_hired (or hire_in_progress while the first runs).
+   * The answer holds a key secret, so it is never replayed.
+   */
+  request_id: z.string().uuid('request_id must be a UUID').optional(),
 }).strict();
 export type HireAgent = z.infer<typeof hireAgentSchema>;
 
@@ -90,7 +98,7 @@ export const patchAgentSchema = z.object({
   name: z.string().trim().min(1).max(100).optional(),
   title: z.string().trim().max(80).nullable().optional(),
   description: z.string().trim().max(2000).nullable().optional(),
-  avatar_url: z.string().max(2000).nullable().optional(),
+  avatar_url: avatarUrlSchema.nullable().optional(),
   agent_role: agentRoleSchema.nullable().optional(),
   rules: agentRulesPatchSchema.optional(),
   owner_ids: z.array(uuid('owner_ids')).max(20).optional(),

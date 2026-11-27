@@ -9,6 +9,38 @@ Each section starts with `## X.Y.Z (YYYY-MM-DD)` and uses these headings, leavin
 - `### Database`: the core migration files in the release, one per line. `npm run db:migrate` applies them.
 - `### Breaking`: what an install must do when it takes this release.
 
+## 2.0.50 (2026-11-27)
+
+### Added
+- **Orchestrators and who can use an agent.** An agent can work under an orchestrator (any depth up to 4, no loops), and the org tree reads at `GET /api/v1/agents/tree` (MCP `get_agent_tree`). Each company agent has "who can use it": everyone, roles, groups or people, with exceptions, limited further by every orchestrator above it. The app checks it everywhere work reaches an agent: assigning, chat, mentions, hand-offs, child runs, approving suggestions and repeats. An agent under an orchestrator takes work only from it, hands work only to its own team, and stops picking up unassigned work by itself. "Ask first" turns a request into one approval for the agent's managers. `GET`/`PUT /api/v1/agents/:id/access` (MCP `get_agent_access`, `set_agent_access`). See docs/agents/identity-and-access.md, "Orchestrators and who can use an agent".
+- **Near-instant events without a public address.** `GET /api/v1/events` is a cursor feed (chat messages, answered questions, run updates, optional agent events) that waits up to 25 seconds for something new; `wait` also works on `GET /api/v1/chat/messages`. MCP `get_events`. Cost, limits and failure handling are in docs/agents/events-and-webhooks.md. New docs/agents/what-belongs-where.md: what the core owns and what a harness or install owns.
+- API key Pause and Resume in Settings > Developers and on an agent's Connect tab, with Undo.
+- Notifications show who sent them.
+- One logo set for the services the app connects to, with a state badge (connected, waiting, problem), and a provider picker where you used to type a provider.
+- Template warnings when key dates are out of order or a task is due before one it waits on; validate answers `warnings`.
+- `download_url` (a short signed link) on file reads over the API: entity files, invoices, portal updates and their attachments.
+
+### Changed
+- **Security**: files in project, lead, contact, invoice and portal storage are private and open through short signed links; who may read, change or delete a file follows the record it belongs to. Comments cannot be moved to another task or given another author. Time entry links follow the time entry. Lead notes are shown as safe text. The sign-in check now runs on every page (signed-out visits go to the sign-in page) and the API answers cross-origin requests. Notifications are limited to records sender and recipients can both open, links to that record's pages; a link that is not an in-app path is dropped and the notice still goes out. Guests no longer send notifications directly; their comments and uploads still notify the team. Request bodies over 1 MB (5 MB with inline files, 6 MB for MCP) answer 413. A task the caller cannot see answers the same 404 as one that does not exist. Webhook endpoints only receive events their creator can read. Avatar links must be https or the app's own.
+- **API**: a page past the end answers an empty page (was 500), and every list keeps a stable order across pages. Dates accept YYYY-MM-DD or any ISO 8601 date-time, stored as the date written, and refuse days that do not exist; years 1900 to 2200. Text has sensible limits (title 500, name 200, description 100,000, comment 50,000, 50 tags) and refuses invisible control characters; bodies nested deeper than 64 levels answer 422. Every 429 carries Retry-After. The person or agent asked can answer a question with `questions.ask` or `approvals.decide`.
+- **Agents and schedules**: with the AI agents module off, agent keys get `403 MODULE_OFF` and agent-run schedules wait. Resuming a schedule on a skipped day runs it that day. A schedule that pauses itself tells its people. Questions to someone who is suspended expire and the asker is told. A power given to an agent with a key is taken back when it leaves the agent's last key. Reorder and assignee changes are safe under concurrent use. Run history keeps whole chains together until all of it is past retention.
+- **Screens**: a name can no longer be saved empty. Guests see only the questions and approvals that involve them. Analytics counts only finished runs in success rates. The audit log reads in plain words. One time zone rule: your profile's zone, from your browser until you choose one. The agent page no longer shifts while it loads. Hiring cannot create the same agent twice. Moving to Trash acts at once with Undo.
+
+### Database
+- `20261127001000_agent_hierarchy_access.sql`: orchestrators, who can use an agent, ask first.
+- `20261127001100_event_feed.sql`: the event feed and its 7-day pruning job `pm-event-feed-prune`.
+- `20261127001200_security_hardening.sql`: storage access rules and private file buckets, comment and time link rules, server-set fields.
+- `20261127001300_api_hardening.sql`: an expired claim cannot be extended.
+- `20261127001400_lifecycle_fixes.sql`: schedules, suspended members' questions, key-given powers, safe reorder, run retention.
+- `20261127001500_ui_fixes.sql`: guest question visibility, hire requests, finished-run counts, the time zone flag.
+
+### Breaking
+- **Apply this release's migrations with or before the deploy.** New code before the migrations: reordering tasks, `GET /api/v1/events` and setting an agent's access answer 503 until they run. Migrations before new code: stored file links stop opening in the previous release's screens (client portal included) until the new code is live.
+- **A webhook endpoint follows its maker's reach.** It stops receiving a project's events when the person or agent who made it cannot read that project (or is suspended). Check endpoints made by people who have since lost access.
+- **Signed-out visits now redirect to the sign-in page** (the request filter never ran before). An install that relied on a page being open without signing in must list it in `src/custom/middleware.ts`.
+- **Stored public file addresses no longer open.** API readers use `download_url`.
+- **With the AI agents module off, agent keys are refused** (`403 MODULE_OFF`).
+
 ## 2.0.49 (2026-11-27)
 
 ### Added

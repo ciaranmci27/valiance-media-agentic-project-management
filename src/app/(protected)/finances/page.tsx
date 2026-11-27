@@ -46,6 +46,7 @@ import { toLocalDateKey } from '@/lib/date-utils';
 import { excludedNote, formatHours } from '@/lib/format';
 import { appLocale, startOfWeek, weekStartDay, type Region, type WeekStart } from '@/lib/region';
 import { useMoney, useRegion } from '@/lib/region/context';
+import { profileTimeZone } from '@/lib/time-zone';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -517,9 +518,7 @@ function CompanyOverview() {
   // Agent cost and the AI agents lens belong to the agents module.
   const isAgentsEnabled = isModuleEnabled(access, 'agents');
   const currentMember = team.find(member => member.id === teamMemberId);
-  const preferredTimezone = currentMember?.timezone && currentMember.timezone !== 'UTC'
-    ? currentMember.timezone
-    : undefined;
+  const preferredTimezone = profileTimeZone(currentMember);
 
   // ── Live-tick clock for active timers ───────────────────────
   // Active timers and today's service revenue both depend on wall-clock time.

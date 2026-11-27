@@ -58,6 +58,7 @@ import {
 import type { ChatConnectionView } from '@/lib/chat/types';
 import type { ScopedBrief, ScopeRef } from '@/lib/context-scopes';
 import { templateSummary, type TaskTemplateRunView, type TaskTemplateSummary, type TaskTemplateView } from '@/lib/task-templates';
+import { profileTimeZone } from '@/lib/time-zone';
 
 /**
  * Every read a screen makes outside the store, described once: its key, its
@@ -196,8 +197,7 @@ export function refreshBilling() {
 export function useBillingToday(): string {
   const { team } = useApp();
   const { teamMemberId } = useAuth();
-  const zone = team.find((m) => m.id === teamMemberId)?.timezone;
-  return toLocalDateString(zone && zone !== 'UTC' ? zone : undefined);
+  return toLocalDateString(profileTimeZone(team.find((m) => m.id === teamMemberId)));
 }
 
 /** What a person may see on a project's Overview, which decides what is worth reading ahead. */
@@ -941,7 +941,7 @@ export function agentDetailRead(agentId: string, isDemo = false): Read<AgentDeta
 export function agentContextRead(agentId: string, isDemo = false): Read<string> {
   return {
     key: `agent-context:${isDemo ? 'demo:' : ''}${agentId}`,
-    tables: ['project_context', 'project_agents', 'team_members', 'project_goals'],
+    tables: ['project_context', 'project_agents', 'team_members', 'project_goals', 'api_keys'],
     ttlMs: 60_000,
     load: async () => {
       if (isDemo) return demoAgentContext(agentId);

@@ -58,12 +58,16 @@ export function emptyProjectBasics(memberId: string | null): ProjectBasics {
 
 const numberOrNull = (value: string) => (value && !isNaN(parseFloat(value)) ? parseFloat(value) : null);
 
-/** What a basics form must hold before it saves; keys match the fields. */
+/**
+ * What a basics form must hold before it saves; keys match the fields. Only
+ * the name: a project's primary client is optional (the API and Edit project
+ * make projects without one, and internal work has none).
+ */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- opts is the callers' contract; nothing in it is required today
 export function validateProjectBasics(fields: ProjectBasics, opts: { creating: boolean; rights: Pick<ProjectFormRights, 'manageContacts'> }): Record<string, string> {
   const errors: Record<string, string> = {};
   if (!fields.name.trim()) errors.name = 'Give the project a name.';
   if (fields.description.length > PROJECT_DESCRIPTION_MAX) errors.description = `Keep the description under ${PROJECT_DESCRIPTION_MAX} characters.`;
-  if (opts.creating && opts.rights.manageContacts && !fields.clientId) errors.clientId = 'Pick the primary client.';
   if (fields.startDate && fields.dueDate && fields.dueDate < fields.startDate) errors.dueDate = 'The due date is before the start date.';
   if (fields.billingEmail.trim() && !/^\S+@\S+\.\S+$/.test(fields.billingEmail.trim())) errors.billingEmail = 'Enter an email address.';
   return errors;

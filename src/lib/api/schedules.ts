@@ -3,8 +3,9 @@ import { apiScopesFor } from '@/lib/access-control';
 import {
   addDays, dateInZone, daysBetween, describeRecurrence, lastOnOrBefore, nextAfter, nextOnOrAfter, OCCURRENCE_REASON_WORDS, scheduleFills,
   upcomingDates, zonedMidnight, type OccurrenceStatus, type Recurrence, type RepeatMode, type ScheduleKind, type ScheduleOccurrenceView,
-  type ScheduleStatus, type ScheduleUpdateInput, type ScheduleView, type TaskRepeatInput, type TemplateScheduleInput, isTimeZone, recurrenceSchema,
+  type ScheduleStatus, type ScheduleUpdateInput, type ScheduleView, type TaskRepeatInput, type TemplateScheduleInput, inScheduleRange, isTimeZone, recurrenceSchema,
 } from '@/lib/schedules';
+import { readEnabledModules } from '@/lib/modules/server';
 import { keyDatesOf, templateIssue, type RunTaskTemplateInput, type TemplateField, type TemplateKeyDate } from '@/lib/task-templates';
 import { insertTask } from '@/lib/supabase/queries';
 import { moveToTrash } from '@/lib/supabase/trash';
@@ -13,9 +14,12 @@ import { savedInApp } from '@/lib/secrets/store';
 import { accessAllowsProject, resolveMemberAccess } from './access';
 import { callerChannel, callerHolds, type AgentCaller } from './agent-owners';
 import { loadMemberRules } from './agent-rules';
+import { agentIdsAmong, mayGiveAgentWork, notifyAgentManagers, workGiverOf } from './agent-access';
 import { requireAssistantSwitch } from './assistant';
 import { ApiError, badRequest, forbidden, notFound } from './errors';
 import { subtaskRuleError } from './subtasks';
+import { readPage } from './pagination';
+import { apiDateOf } from '@/lib/schemas/shared';
 import {
   canManageTemplates, canRunTemplates, canWriteTemplate, createTemplateRun, loadTemplateRow, memberNames, prepareRun, projectNames, templateErrors,
 } from './task-templates';
@@ -146,16 +150,42 @@ export function initialState(input: {
   return { next_on: next, next_run_at: startOf(fire, input.zone), done_on: null, status: 'active' };
 }
 
+/**
+ * A template schedule's next date moved past the dates that already made
+ * their run (or are making it), so what a resume or change answers is what
+ * happens: a date that made nothing (skipped, failed twice) runs again
+ * (pm.claim_schedule_occurrence claims it again); one that made its run is
+ * never made twice, so the answer names the date after it.
+ */
+async function pastMadeDates(service: SupabaseClient, row: Row, scheduleId: string): Promise<Partial<ScheduleState>> {
+  if (row.status !== 'active' || !row.next_on) return {};
+  const rule = row.recurrence as Recurrence;
+  const { data, error } = await service.from('schedule_occurrences').select('scheduled_for').eq('schedule_id', scheduleId)
+    .in('status', ['created', 'running']).gte('scheduled_for', row.next_on).order('scheduled_for').limit(50);
+  if (error) fail(error);
+  const made = new Set(((data ?? []) as Row[]).map((o) => day(o.scheduled_for)));
+  let next = row.next_on as string;
+  while (made.has(next)) next = nextAfter(rule, row.start_date, next);
+  if (next === row.next_on) return {};
+  if (row.end_date && next > row.end_date) return { next_on: null, next_run_at: null, status: 'ended' };
+  return { next_on: next, next_run_at: startOf(next, row.timezone) };
+}
+
 // ── Presenting ──────────────────────────────────────────────────────────
 
 const objectOf = <T,>(value: unknown): Record<string, T> => (value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, T> : {});
 
-function present(row: Row, maps: { projects: Map<string, string>; templates: Map<string, string>; tasks: Map<string, string>; names: Map<string, string> }, canEdit: boolean, now = new Date()): ScheduleView {
+function present(row: Row, maps: { projects: Map<string, string>; templates: Map<string, string>; tasks: Map<string, string>; names: Map<string, string>; trashedTemplates: Set<string> }, canEdit: boolean, now = new Date()): ScheduleView {
   const rule = row.recurrence as Recurrence;
+  // A live schedule whose template is in Trash cannot run: it reads as paused
+  // for that reason now, not only on its next date (when the engine pauses it).
+  if (row.status === 'active' && row.kind === 'template' && maps.trashedTemplates.has(row.template_id)) {
+    row = { ...row, status: 'paused', paused_reason: 'template_gone' };
+  }
   let upcoming: string[] = [];
   if (row.status === 'active' && row.next_on) {
     try { upcoming = upcomingDates(rule, row.start_date, row.next_on, 5, row.end_date ?? null); } catch { upcoming = []; }
-  } else if (row.status === 'paused' && row.kind === 'template') {
+  } else if (row.status === 'paused' && row.kind === 'template' && row.paused_reason !== 'template_gone') {
     try { upcoming = upcomingDates(rule, row.start_date, todayIn(row.timezone, now), 5, row.end_date ?? null); } catch { upcoming = []; }
   }
   let label = '';
@@ -205,7 +235,7 @@ async function namesFor(service: SupabaseClient, rows: Row[]) {
     projectNames(service, rows.map((r) => r.project_id)),
     memberNames(service, rows.map((r) => r.run_as)),
     // includes-deleted: names only
-    templateIds.length ? service.from('task_templates').select('id, name, project_id').in('id', templateIds) : Promise.resolve({ data: [], error: null }),
+    templateIds.length ? service.from('task_templates').select('id, name, project_id, deleted_at').in('id', templateIds) : Promise.resolve({ data: [], error: null }),
     // includes-deleted: names only
     taskIds.length ? service.from('tasks').select('id, title').in('id', taskIds) : Promise.resolve({ data: [], error: null }),
   ]);
@@ -215,6 +245,7 @@ async function namesFor(service: SupabaseClient, rows: Row[]) {
     names,
     templates: new Map(templateRows.map((t) => [t.id as string, t.name as string])),
     templateProjects: new Map(templateRows.map((t) => [t.id as string, (t.project_id as string | null) ?? null])),
+    trashedTemplates: new Set(templateRows.filter((t) => !!t.deleted_at).map((t) => t.id as string)),
     tasks: new Map(((tasks.data ?? []) as Row[]).map((t) => [t.id as string, t.title as string])),
   };
 }
@@ -300,13 +331,22 @@ export async function listSchedules(service: SupabaseClient, caller: AgentCaller
   if (filters.template_id) query = query.eq('template_id', filters.template_id);
   if (filters.task_id) query = query.eq('task_id', filters.task_id);
   if (filters.project_id) query = query.eq('project_id', filters.project_id);
-  if (filters.status) query = query.eq('status', filters.status);
+  if (filters.status) {
+    // By the status it reads: an active schedule whose template is in Trash reads paused (present).
+    // includes-deleted: the templates in Trash, to sort their schedules into paused
+    const { data: trashed, error: trashedError } = await service.from('task_templates').select('id').not('deleted_at', 'is', null);
+    if (trashedError) fail(trashedError);
+    const gone = ((trashed ?? []) as Row[]).map((t) => t.id as string).filter((tid) => UUID.test(tid));
+    if (!gone.length || filters.status === 'ended') query = query.eq('status', filters.status);
+    else if (filters.status === 'active') query = query.eq('status', 'active').or(`template_id.is.null,template_id.not.in.(${gone.join(',')})`);
+    else query = query.or(`status.eq.paused,and(status.eq.active,template_id.in.(${gone.join(',')}))`);
+  }
   if (!callerHolds(caller, 'projects.read_all')) {
     const reachable = caller.access.project_ids.filter((id) => UUID.test(id) && reaches(caller, id));
     if (!reachable.length) return { rows: [], total: 0 };
     query = query.in('project_id', reachable);
   }
-  const { data, count, error } = await query.order('next_run_at', { ascending: true, nullsFirst: false }).order('created_at').range(filters.offset, filters.offset + filters.limit - 1);
+  const { data, count, error } = await readPage(query.order('next_run_at', { ascending: true, nullsFirst: false }).order('created_at').order('id'), filters);
   if (error) fail(error);
   const reached = ((data ?? []) as Row[]).filter((row) => reaches(caller, row.project_id));
   const readable = await readableTasks(service, caller, reached.filter((row) => row.kind === 'task').map((row) => row.task_id as string));
@@ -339,8 +379,8 @@ function presentOccurrence(row: Row): ScheduleOccurrenceView {
 /** What a schedule made, skipped or failed, newest first, paged. */
 export async function listOccurrences(service: SupabaseClient, caller: AgentCaller, id: string, page: { offset: number; limit: number }): Promise<{ rows: ScheduleOccurrenceView[]; total: number }> {
   await loadRow(service, caller, id);
-  const { data, count, error } = await service.from('schedule_occurrences').select(OCCURRENCE_COLUMNS, { count: 'exact' })
-    .eq('schedule_id', id).order('scheduled_for', { ascending: false }).range(page.offset, page.offset + page.limit - 1);
+  const { data, count, error } = await readPage(service.from('schedule_occurrences').select(OCCURRENCE_COLUMNS, { count: 'exact' })
+    .eq('schedule_id', id).order('scheduled_for', { ascending: false }).order('id'), page);
   if (error) fail(error);
   return { rows: ((data ?? []) as Row[]).map(presentOccurrence), total: count ?? 0 };
 }
@@ -479,12 +519,16 @@ export async function setTaskRepeat(service: SupabaseClient, caller: AgentCaller
   const rule = recurrenceSchema.parse(input.recurrence);
   const today = todayIn(zone, now);
   const dueSet = !task.due_date;
-  const due = (task.due_date as string | null) ?? nextOnOrAfter(rule, today, today);
-  checkDates(due, input.end_date);
-  if (dueSet) {
-    const { error } = await service.from('tasks').update({ due_date: due }).eq('id', taskId).is('deleted_at', null);
-    if (error) throw error;
+  // A due date saved before dates were checked (text column) counts by its day (an ISO date-time gives its date); one that is no date is a 422, never a 500.
+  const storedDue = task.due_date ? apiDateOf(String(task.due_date)) : null;
+  if (task.due_date && !storedDue) {
+    throw new ApiError(422, 'VALIDATION_ERROR', `The task's due date ${String(task.due_date)} is not a real date. Change it, then set the repeat.`, { reason: 'invalid_due_date', field: 'due_date' });
   }
+  const due = storedDue ?? nextOnOrAfter(rule, today, today);
+  if (!inScheduleRange(due)) {
+    throw unprocessable(`A repeat counts from the task's due date, ${due}, which is outside 2000 to 2099`, 'due_date', 'invalid_date', 'Give the task a due date from 2000 to 2099 first.');
+  }
+  checkDates(due, input.end_date);
   const mode = input.mode ?? 'schedule';
   const state = initialState({ kind: 'task', mode, rule, start: due, end: input.end_date ?? null, zone, sourceDue: due, sourceDone: task.status === 'done' }, now);
   const fields: Row = {
@@ -503,6 +547,12 @@ export async function setTaskRepeat(service: SupabaseClient, caller: AgentCaller
       fail(error);
     }
     saved = data as Row;
+  }
+  // Only once the repeat is saved: a request refused above (409) changes nothing.
+  // A due date someone set meanwhile stays.
+  if (dueSet) {
+    const { error } = await service.from('tasks').update({ due_date: due }).eq('id', taskId).is('deleted_at', null).is('due_date', null);
+    if (error) throw error;
   }
   await ensureSchedulerSecret(service);
   return { repeat: (await presentRows(service, caller, [saved]))[0], due_date: due, due_date_set: dueSet };
@@ -584,8 +634,16 @@ export async function updateSchedule(service: SupabaseClient, caller: AgentCalle
       sourceDue: task?.due_date ?? null, sourceDone: task?.status === 'done',
     }, now);
     Object.assign(next, state, { paused_reason: null });
+    if (next.kind === 'template') Object.assign(next, await pastMadeDates(service, next, id));
   }
   if (row.kind === 'template' && (content || input.status === 'active')) {
+    if (input.status === 'active') {
+      // includes-deleted: a schedule whose template is in Trash says so, rather than "not found"
+      const { data: tpl } = await service.from('task_templates').select('deleted_at').eq('id', row.template_id).maybeSingle();
+      if ((tpl as Row | null)?.deleted_at) {
+        throw new ApiError(409, 'CONFLICT', 'The template is in Trash, so this schedule cannot run. Restore the template, then resume it.', { reason: 'template_in_trash' });
+      }
+    }
     const template = await loadTemplateRow(service, caller, row.template_id);
     if (template.project_id && next.project_id !== template.project_id) {
       throw unprocessable('This template belongs to another project and always runs there', 'project_id', 'locked_to_project', 'Leave project_id out, or use the template\'s own project.');
@@ -670,9 +728,45 @@ const errorText = (error: unknown) => {
   return error instanceof Error ? error.message : String(error);
 };
 
+/**
+ * Who hears that a schedule paused itself: the people who can fix it. Its
+ * runner and whoever set it up, when they are active people; for an agent
+ * among them, the people who manage it (its owners, owner groups or person,
+ * else the Owners: pm.agent_people_to_tell, as the watchdog tells them).
+ * Nobody left (a suspended person ran it alone): the Owners.
+ */
+async function peopleToTellAboutSchedule(service: SupabaseClient, row: Row): Promise<string[]> {
+  const ids = [...new Set([row.run_as, row.created_by].filter(Boolean))] as string[];
+  if (!ids.length) return [];
+  const { data, error } = await service.from('team_members').select('id, role, status').in('id', ids);
+  if (error) throw error;
+  const people = new Set<string>();
+  for (const member of (data ?? []) as Row[]) {
+    if (member.role === 'agent') {
+      const { data: managers, error: managersError } = await service.rpc('agent_people_to_tell', { p_agent_id: member.id });
+      if (managersError) throw managersError;
+      for (const managerId of (managers ?? []) as string[]) people.add(managerId);
+    } else if ((member.status ?? 'active') === 'active') {
+      people.add(member.id as string);
+    }
+  }
+  if (!people.size) {
+    const { data: owners, error: ownersError } = await service.from('team_members').select('id, status').eq('role', 'owner');
+    if (ownersError) throw ownersError;
+    for (const owner of (owners ?? []) as Row[]) if ((owner.status ?? 'active') === 'active') people.add(owner.id as string);
+  }
+  return [...people];
+}
+
 async function notifyPaused(service: SupabaseClient, row: Row, reason: string): Promise<void> {
-  const to = row.run_as ?? row.created_by;
-  if (!to) return;
+  let people: string[];
+  try {
+    people = await peopleToTellAboutSchedule(service, row);
+  } catch (error) {
+    console.error('[schedules] could not work out who to tell about a paused schedule', row.id, error);
+    return;
+  }
+  if (!people.length) return;
   const why = OCCURRENCE_REASON_WORDS[reason] ?? reason;
   let what = 'A schedule';
   let link = '/settings/templates';
@@ -687,11 +781,13 @@ async function notifyPaused(service: SupabaseClient, row: Row, reason: string): 
     what = `The repeat on "${(data as Row | null)?.title ?? 'a task'}"`;
     link = `/projects/${row.project_id}?task=${row.task_id}`;
   }
-  const { error } = await service.rpc('upsert_notification', {
-    p_user_id: to, p_title: 'A schedule paused', p_message: `${what} paused: ${why}. Open it to fix it and resume.`.slice(0, 500),
-    p_link: link, p_entity_type: 'schedule', p_entity_id: row.id,
-  });
-  if (error) console.error('[schedules] could not notify about a paused schedule', row.id, error);
+  await Promise.all(people.map(async (to) => {
+    const { error } = await service.rpc('upsert_notification', {
+      p_user_id: to, p_title: 'A schedule paused', p_message: `${what} paused: ${why}. Open it to fix it and resume.`.slice(0, 500),
+      p_link: link, p_entity_type: 'schedule', p_entity_id: row.id,
+    });
+    if (error) console.error('[schedules] could not notify about a paused schedule', row.id, error);
+  }));
 }
 
 /** Makes the next copy of a task, due on `dueOn`: same title, description, people, initiative, tags and priority; subtasks unchecked, their dates shifted alike. */
@@ -714,6 +810,16 @@ async function copyTask(service: SupabaseClient, caller: AgentCaller, source: Ro
     return !!access && access.status === 'active' && (accessAllowsProject(access, source.project_id, 'app') || accessAllowsProject(access, source.project_id, 'api'));
   }));
   const allowed = new Set(ids.filter((_, i) => reach[i]));
+  // An agent whoever runs the repeat may no longer give work to (its orchestrator, who can use it, ask first)
+  // stays off the copy, and its managers are told: a repeat never feeds an agent that was narrowed.
+  const giver = workGiverOf(caller.access, caller.memberId);
+  const refusedAgents: string[] = [];
+  for (const agentId of await agentIdsAmong(service, [...allowed])) {
+    if (!(await mayGiveAgentWork(service, agentId, giver))) {
+      allowed.delete(agentId);
+      refusedAgents.push(agentId);
+    }
+  }
   const peopleOf = (taskId: string) => assignments.filter((a) => a.task_id === taskId && allowed.has(a.member_id)).map((a) => a.member_id as string);
   const delta = source.due_date ? daysBetween(source.due_date, dueOn) : 0;
   const note = `Repeats from "${source.title}"`.slice(0, 200);
@@ -738,6 +844,16 @@ async function copyTask(service: SupabaseClient, caller: AgentCaller, source: Ro
       console.error('[schedules] could not move a partly made copy to Trash', parent.id, trashError);
     });
     throw error;
+  }
+  for (const agentId of refusedAgents) {
+    const { data: agent } = await service.from('team_members').select('name').eq('id', agentId).maybeSingle();
+    await notifyAgentManagers(service, agentId, {
+      title: 'A repeat was left unassigned',
+      message: `The next "${source.title}" was made without ${(agent as Row | null)?.name ?? 'its agent'}: whoever runs the repeat can no longer give it work. Assign it, or change who can use the agent.`,
+      link: `/projects/${source.project_id}?task=${parent.id}`,
+      entityType: 'task',
+      entityId: parent.id as string,
+    });
   }
   return parent.id as string;
 }
@@ -926,6 +1042,21 @@ async function processRetry(service: SupabaseClient, occurrence: Row, now: Date,
 }
 
 /**
+ * While the AI agents module is off, agents do nothing: a schedule run by an
+ * agent is held back, unclaimed (pm.schedules_kick skips it too), so it
+ * runs its latest date when the module is on again. Answers the agents
+ * whose schedules wait, empty while the module is on.
+ */
+async function agentRunnersHeldBack(service: SupabaseClient): Promise<Set<string>> {
+  const modules = await readEnabledModules(service);
+  if (!modules) throw new Error('Could not read which features are switched on');
+  if (modules.includes('agents')) return new Set();
+  const { data, error } = await service.from('team_members').select('id').eq('role', 'agent');
+  if (error) throw error;
+  return new Set(((data ?? []) as Row[]).map((m) => m.id as string));
+}
+
+/**
  * Runs everything due: retries first (a failed occurrence once more, one
  * that stopped before it finished), then each due schedule's occurrence,
  * oldest first, up to `limit` of each per call. Safe to call from two places
@@ -933,11 +1064,19 @@ async function processRetry(service: SupabaseClient, occurrence: Row, now: Date,
  */
 export async function runDueSchedules(service: SupabaseClient, now = new Date(), limit = 25): Promise<ScheduleRunSummary> {
   const summary: ScheduleRunSummary = { due: 0, created: 0, skipped: 0, failed: 0, retried: 0, paused: 0, ended: 0 };
+  const heldBack = await agentRunnersHeldBack(service);
+  const held = (row: Row) => heldBack.has((row.run_as ?? row.created_by) as string);
   const cutoff = new Date(now.getTime() - STALE_MS).toISOString();
   const { data: retries, error: retryError } = await service.from('schedule_occurrences').select(OCCURRENCE_COLUMNS)
     .or(`and(status.eq.failed,attempts.lt.2),and(status.eq.running,started_at.lt."${cutoff}")`).order('started_at').limit(limit);
   if (retryError) fail(retryError);
-  for (const occurrence of ((retries ?? []) as Row[]).map((o): Row => ({ ...o, scheduled_for: day(o.scheduled_for) }))) {
+  const retrying = ((retries ?? []) as Row[]).map((o): Row => ({ ...o, scheduled_for: day(o.scheduled_for) }));
+  const heldSchedules = new Set<string>();
+  if (heldBack.size && retrying.length) {
+    const { data: owners } = await service.from('schedules').select('id, run_as, created_by').in('id', [...new Set(retrying.map((o) => o.schedule_id as string))]);
+    for (const schedule of (owners ?? []) as Row[]) if (held(schedule)) heldSchedules.add(schedule.id as string);
+  }
+  for (const occurrence of retrying.filter((o) => !heldSchedules.has(o.schedule_id))) {
     if (occurrence.status === 'running' && occurrence.attempts >= 2) {
       // Its second try stopped before it finished: no third.
       const { data: stopped } = await service.from('schedule_occurrences').update({ status: 'failed', error: 'Stopped before it finished, twice', finished_at: now.toISOString() })
@@ -951,10 +1090,14 @@ export async function runDueSchedules(service: SupabaseClient, now = new Date(),
     }
     await processRetry(service, occurrence, now, summary);
   }
-  const { data: due, error } = await service.from('schedules').select(COLUMNS).eq('status', 'active').is('deleted_at', null)
-    .lte('next_run_at', now.toISOString()).order('next_run_at').limit(limit);
+  let dueQuery = service.from('schedules').select(COLUMNS).eq('status', 'active').is('deleted_at', null)
+    .lte('next_run_at', now.toISOString());
+  // Held back in the query too, so they never crowd out the rest.
+  // A schedule with no run_as (its creator runs it) stays in: held() checks its creator below.
+  if (heldBack.size) dueQuery = dueQuery.or(`run_as.is.null,run_as.not.in.(${[...heldBack].join(',')})`);
+  const { data: due, error } = await dueQuery.order('next_run_at').limit(limit);
   if (error) fail(error);
-  for (const row of ((due ?? []) as Row[]).map(normalize)) {
+  for (const row of ((due ?? []) as Row[]).map(normalize).filter((r) => !held(r))) {
     try {
       await processDue(service, row, now, summary);
     } catch (error) {

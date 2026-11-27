@@ -247,6 +247,8 @@ export interface QuestionView {
   principal_name?: string | null;
   /** Set when it holds one of the asker's runs: that run waits on a person while it is open. */
   run_id?: string;
+  /** Set when it expired before its time: asked_member_suspended (the member asked was suspended; ask someone else). */
+  expired_reason?: 'asked_member_suspended';
 }
 
 /** The status a reader sees: an open question past its expiry is expired. */

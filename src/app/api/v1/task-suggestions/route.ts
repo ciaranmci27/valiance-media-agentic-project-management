@@ -2,13 +2,14 @@ import { withApi } from '@/lib/api/middleware';
 import { created, paginated } from '@/lib/api/response';
 import { createSuggestionSchema } from '@/lib/schemas';
 import { requireAgentsEnabled } from '@/lib/api/agents';
-import { parsePagination } from '@/lib/api/pagination';
+import { parsePagination, readPage } from '@/lib/api/pagination';
 import { forbidden, badRequest, notFound } from '@/lib/api/errors';
 import { insertTaskSuggestion } from '@/lib/supabase/queries';
 import { logAudit } from '@/lib/api/audit';
 import { accessAllows, accessAllowsProject } from '@/lib/api/access';
 import { assertSuggestionEmailReadable } from '@/lib/api/suggestion-email';
 import { postgrestList, trashedProjectIds } from '@/lib/supabase/trash';
+import { gateAgentWork, workGiverOf } from '@/lib/api/agent-access';
 
 export const GET = withApi(async ({ supabase, searchParams, access }) => {
   requireAgentsEnabled(access);
@@ -38,9 +39,9 @@ export const GET = withApi(async ({ supabase, searchParams, access }) => {
   const taskType = searchParams.get('task_type');
   if (taskType) query = query.eq('task_type', taskType);
 
-  const { data, count, error } = await query
+  const { data, count, error } = await readPage(query
     .order('created_at', { ascending: false })
-    .range(offset, offset + limit - 1);
+    .order('id'), { offset, limit });
 
   if (error) throw error;
   return paginated(data || [], { page, limit, total: count || 0 });
@@ -82,6 +83,11 @@ export const POST = withApi(async ({ supabase, body, apiKeyId, teamMemberId, acc
     .eq('project_id', suggestionInput.project_id)
     .maybeSingle();
   if (!goal) throw badRequest('goal_id must belong to project_id');
+  // An agent it names must be one this agent may hand work to (its orchestrator, who can use it); approving checks the approver again.
+  const assignedTo = (body as { assigned_to?: string | null }).assigned_to;
+  if (assignedTo && assignedTo !== teamMemberId) {
+    await gateAgentWork(supabase, { ...workGiverOf(access, teamMemberId), agentId: assignedTo, entry: 'assign', target: `suggestion:${suggestionInput.project_id}`, ask: false });
+  }
   // Approving it links the email it names, so it may name only one the key reads.
   await assertSuggestionEmailReadable(supabase, { memberId: teamMemberId, access, metadata: (body as { metadata?: unknown }).metadata });
 

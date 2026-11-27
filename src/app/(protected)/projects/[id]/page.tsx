@@ -27,6 +27,7 @@ import { toast } from '@/components/ui/Toast';
 import { useTaskUrlParam } from '@/lib/use-task-url';
 import { Edit, Trash2, Clock } from 'lucide-react';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { useTrashTask } from '@/components/tasks/useTrashTask';
 import { useAuth } from '@/lib/auth-context';
 import { useDemo } from '@/lib/demo-context';
 import { warmRead, warmReads } from '@/lib/query-cache';
@@ -73,7 +74,7 @@ export default function ProjectDetailPage() {
 
   const {
     getProject, getTasksByProject,
-    deleteTask, deleteProject, setFilters,
+    deleteProject, setFilters,
     tasks, loading, timeEntries, getInvoicesByProject, updateProject,
   } = useApp();
   const [turningOnTime, setTurningOnTime] = useState(false);
@@ -84,7 +85,8 @@ export default function ProjectDetailPage() {
 
   const [isEditProjectOpen, setIsEditProjectOpen] = useState(false);
   const [isContactsPanelOpen, setIsContactsPanelOpen] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState<{ type: 'task' | 'project'; id: string } | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<{ type: 'project'; id: string } | null>(null);
+  const trashTask = useTrashTask();
   // Tabs mount on first visit and then stay mounted (hidden), so a half-typed
   // timer note or an open email thread survives a trip to another tab.
   const [visitedTabs, setVisitedTabs] = useState<Set<ProjectTabKey>>(() => new Set());
@@ -219,20 +221,18 @@ export default function ProjectDetailPage() {
     );
   }
 
+  // A task goes to Trash at once, with Undo (Rule 6).
   const handleDeleteTask = (id: string) => {
-    setConfirmDelete({ type: 'task', id });
+    closeViewingTask();
+    void trashTask(id);
   };
 
   const executeDelete = () => {
     if (!confirmDelete) return;
-    if (confirmDelete.type === 'task') {
-      deleteTask(confirmDelete.id);
-    } else {
-      router.push('/projects');
-      void deleteProject(confirmDelete.id).then((moved) => {
-        if (moved) toast('success', 'Project moved to Trash');
-      });
-    }
+    router.push('/projects');
+    void deleteProject(confirmDelete.id).then((moved) => {
+      if (moved) toast('success', 'Project moved to Trash');
+    });
   };
 
   return (
@@ -383,12 +383,8 @@ export default function ProjectDetailPage() {
         isOpen={!!confirmDelete}
         onClose={() => setConfirmDelete(null)}
         onConfirm={executeDelete}
-        title={confirmDelete?.type === 'project' ? 'Move project to Trash?' : 'Move task to Trash?'}
-        message={
-          confirmDelete?.type === 'project'
-            ? projectTrashMessage(access)
-            : 'The task goes to Trash with its subtasks and comments.'
-        }
+        title="Move project to Trash?"
+        message={projectTrashMessage(access)}
         variant="danger"
         trash
       />

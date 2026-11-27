@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { ExternalLink, MessagesSquare } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
+import { ProviderLogo } from '@/components/ui/ProviderLogo';
 import { ChatAccountRow, useUnlinkChatAccount } from '@/components/settings/LinkedAccountsSection';
 import { useRead } from '@/lib/query-cache';
 import { myIdentitiesRead } from '@/lib/reads';
@@ -43,8 +44,9 @@ export function AssistantChatCard({ connections, assistantName, isDemo }: { conn
           const stepsId = `chat-steps-${connection.id}`;
           if (!connection.enabled) {
             return (
-              <li key={connection.id} className="flex items-center justify-between gap-3 px-4 py-3">
-                <div className="min-w-0">
+              <li key={connection.id} className="flex items-center gap-3 px-4 py-3">
+                <ProviderLogo provider={connection.provider} label={connection.provider_label} size="md" tile decorative />
+                <div className="min-w-0 flex-1">
                   <p className="text-sm font-medium text-zinc-100">{connection.provider_label}</p>
                   <p className="truncate text-xs text-zinc-500">Switched off here for now. Ask your admin.</p>
                 </div>
@@ -57,8 +59,9 @@ export function AssistantChatCard({ connections, assistantName, isDemo }: { conn
               {linked ? (
                 <ChatAccountRow identity={linked} onUnlink={() => ask(linked)} disabled={isDemo || busy} />
               ) : (
-                <div className="flex items-center justify-between gap-3">
-                  <div className="min-w-0">
+                <div className="flex items-center gap-3">
+                  <ProviderLogo provider={connection.provider} label={connection.provider_label} size="md" tile decorative />
+                  <div className="min-w-0 flex-1">
                     <p className="text-sm font-medium text-zinc-100">{connection.provider_label}</p>
                     <p className="truncate text-xs text-zinc-500">{connection.display_name}</p>
                   </div>

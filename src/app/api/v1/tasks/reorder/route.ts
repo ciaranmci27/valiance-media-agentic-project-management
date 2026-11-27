@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { withApi } from '@/lib/api/middleware';
 import { success } from '@/lib/api/response';
-import { forbidden, notFound } from '@/lib/api/errors';
+import { ApiError, forbidden, notFound } from '@/lib/api/errors';
 import { logAudit } from '@/lib/api/audit';
 import { accessAllows, accessAllowsProject } from '@/lib/api/access';
 
@@ -41,40 +41,19 @@ export const POST = withApi(async ({ supabase, body, apiKeyId, teamMemberId, acc
     return success(task);
   }
 
-  // Siblings: a subtask's are its parent's other subtasks; a top-level
-  // task's are the top-level tasks in its project and status column.
-  let siblingQuery = supabase
-    .from('tasks')
-    .select('id, sort_order')
-    .is('deleted_at', null);
-  siblingQuery = task.parent_task_id
-    ? siblingQuery.eq('parent_task_id', task.parent_task_id)
-    : siblingQuery.eq('project_id', task.project_id).eq('status', task.status).is('parent_task_id', null);
-  const { data: siblings } = await siblingQuery
-    .order('sort_order')
-    .order('created_at');
-
-  if (!siblings) return success(task);
-
-  // Remove the moved task and insert at new position
-  const filtered = siblings.filter(t => t.id !== task_id);
-  const insertAt = Math.min(new_sort_order, filtered.length);
-  filtered.splice(insertAt, 0, { id: task_id, sort_order: new_sort_order });
-
-  // Reassign sequential sort_order values, only update changed rows
-  const reordered = filtered.map((t, idx) => ({ id: t.id, sort_order: idx }));
-  for (const u of reordered) {
-    if (siblings.find(s => s.id === u.id)?.sort_order !== u.sort_order) {
-      const { error: updateErr } = await supabase
-        .from('tasks')
-        .update({ sort_order: u.sort_order })
-        .eq('id', u.id)
-        .is('deleted_at', null);
-      if (updateErr) console.error(`[reorder] Failed to update task ${u.id}:`, updateErr);
+  // Siblings (a subtask's: its parent's other subtasks; a top-level task's:
+  // the top-level tasks in its project and status column) are renumbered in
+  // one transaction, one move at a time per list, so moves sent together
+  // never leave two tasks on one position (pm.move_task_to_position).
+  const { data: moved, error: moveError } = await supabase.rpc('move_task_to_position', { p_task_id: task_id, p_position: new_sort_order });
+  if (moveError) {
+    if (moveError.code === 'PGRST202' || /move_task_to_position/.test(moveError.message ?? '') && /schema cache|does not exist|could not find/i.test(moveError.message ?? '')) {
+      throw new ApiError(503, 'SERVICE_UNAVAILABLE', 'Reordering needs the database update 20261127001400_lifecycle_fixes.sql. Apply it (npm run db:migrate), then try again.', { reason: 'migration_pending' });
     }
+    throw moveError;
   }
-
-  const finalOrder = reordered.find(u => u.id === task_id)?.sort_order ?? insertAt;
+  if (moved === null) throw notFound('Task');
+  const finalOrder = moved as number;
 
   logAudit(supabase, {
     method: 'POST',

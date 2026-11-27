@@ -11,6 +11,7 @@ import { INBOUND_EMAIL_BUCKET } from '@/lib/communications/email/ingest';
 import { trashApiError } from '@/lib/api/trash';
 import { moveToTrash } from '@/lib/supabase/trash';
 import { pmStorage } from '@/lib/supabase/storage';
+import { signStoredFileUrl, signStoredFileUrls } from '@/lib/storage/sign-stored-file';
 import { BUCKETS } from '@/lib/supabase/schema';
 
 /**
@@ -688,6 +689,9 @@ export async function trashTaskFile(ctx: TaskFilesContext, taskId: string, fileI
   if (!moved) throw notFound('Task file');
 }
 
+/** How long the signed links in a task's file candidates last (an open picker, a preview). */
+const CANDIDATE_LINK_SECONDS = 3600;
+
 /**
  * A short link to open a task file: a one-minute download, or with `inline`
  * a five-minute link the browser shows (images, PDFs and text only, never a
@@ -741,8 +745,10 @@ export async function taskFileLink(ctx: TaskFilesContext, taskId: string, fileId
       .select('id, entity_type, entity_id, file_url, deleted_at').eq('id', file.entity_file_id!).maybeSingle();
     if (error) throw error;
     if (!data || data.deleted_at || data.entity_type !== 'project' || data.entity_id !== task.project_id) throw notFound('Project file');
-    // Project files live in the public entity-files bucket.
-    url = data.file_url;
+    // Project files live in the private entity-files bucket (an outside link opens as it is).
+    const signed = await signStoredFileUrl(ctx.db, data.file_url, expiresIn, options.inline ? {} : { download: file.name || true });
+    if (!signed) throw notFound('Stored file');
+    url = signed;
   }
   return { url, name: file.name, mime_type: file.mime_type, expires_in: expiresIn };
 }
@@ -878,5 +884,11 @@ export async function taskFileCandidates(ctx: TaskFilesContext, taskId: string):
         task_file_id: haveEntityFiles.get(file.id) ?? null,
       };
     });
+  // Project files are private: the list carries signed links (one batch), so
+  // its thumbnails and previews open without a request each. Anything left
+  // unsigned keeps its stored address, which the app opens through the
+  // checked route.
+  const signed = await signStoredFileUrls(ctx.db, project_files.map((file) => file.url), CANDIDATE_LINK_SECONDS);
+  for (const file of project_files) file.url = signed.get(file.url) ?? file.url;
   return { email_attachments, project_files };
 }

@@ -1,4 +1,5 @@
 import { withApi } from '@/lib/api/middleware';
+import { FILE_BODY_LIMIT } from '@/lib/api/body-limit';
 import { created, success } from '@/lib/api/response';
 import { ApiError, forbidden } from '@/lib/api/errors';
 import { inboxScope } from '@/lib/communications/agent-access';
@@ -26,4 +27,4 @@ export const POST = withApi<MeetingPackage>(async ({ supabase, body, teamMemberI
     if (caught instanceof MeetingTooLargeError) throw new ApiError(413, 'meeting_too_large', caught.message);
     throw caught;
   }
-}, { schema: meetingPackageSchema, permission: 'meetings.write' });
+}, { schema: meetingPackageSchema, permission: 'meetings.write', maxBodyBytes: FILE_BODY_LIMIT });

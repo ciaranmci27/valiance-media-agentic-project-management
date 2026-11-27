@@ -3,7 +3,7 @@ import { paginated, created } from '@/lib/api/response';
 import { createCredentialSchema, payloadFromBody } from '@/lib/schemas/credentials';
 import { notFound, badRequest } from '@/lib/api/errors';
 import { logAudit } from '@/lib/api/audit';
-import { parsePagination } from '@/lib/api/pagination';
+import { parsePagination, readPage } from '@/lib/api/pagination';
 import { encrypt, isEncryptionConfigured } from '@/lib/api/encryption';
 import { insertProjectCredential } from '@/lib/supabase/queries';
 import type { CredentialPayload } from '@/lib/types';
@@ -34,9 +34,9 @@ export const GET = withApi(async ({ supabase, params, searchParams, access, scop
     query = query.in('id', credentialIds);
   }
 
-  const { data, count, error } = await query
+  const { data, count, error } = await readPage(query
     .order('created_at', { ascending: false })
-    .range(offset, offset + limit - 1);
+    .order('id'), { offset, limit });
 
   if (error) throw error;
   return paginated(data || [], { page, limit, total: count || 0 });

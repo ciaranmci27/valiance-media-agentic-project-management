@@ -1,6 +1,6 @@
 import { withApi } from '@/lib/api/middleware';
 import { paginated } from '@/lib/api/response';
-import { parsePagination } from '@/lib/api/pagination';
+import { parsePagination, readPage } from '@/lib/api/pagination';
 
 export const GET = withApi(async ({ supabase, searchParams }) => {
   const { page, limit, offset } = parsePagination(searchParams);
@@ -16,9 +16,9 @@ export const GET = withApi(async ({ supabase, searchParams }) => {
   if (entityId) query = query.eq('entity_id', entityId);
   if (type) query = query.eq('type', type);
 
-  const { data, count, error } = await query
+  const { data, count, error } = await readPage(query
     .order('created_at', { ascending: false })
-    .range(offset, offset + limit - 1);
+    .order('id'), { offset, limit });
 
   if (error) throw error;
   return paginated(data || [], { page, limit, total: count || 0 });

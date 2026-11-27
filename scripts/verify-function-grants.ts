@@ -35,6 +35,8 @@ const MEMBER_FUNCTIONS = [
   'contact_is_live', 'credential_is_live', 'file_entity_is_live', 'invoice_is_live',
   'lead_is_live', 'portal_update_is_live', 'project_is_live', 'retainer_is_live',
   'task_is_live', 'time_entry_is_live',
+  // Storage row policies (20261127001200): who reads and writes a stored file.
+  'storage_object_allowed',
   // Column defaults and check constraints.
   'workspace_currency', 'email_inbox_verification_code', 'email_is_address',
   'email_is_hostname', 'email_domain_is_public',

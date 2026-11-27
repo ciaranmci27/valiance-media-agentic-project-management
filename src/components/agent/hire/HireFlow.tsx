@@ -18,7 +18,7 @@ import { invalidateTables, loadRead, useRead, type ReadState } from '@/lib/query
 import { agentContextRead, agentKeyLifetimeRead, agentNewScopesRead, agentRolesRead, agentTemplatesRead, allGroupsRead } from '@/lib/reads';
 import {
   applyTemplate, emptyHireDraft, firstInvalidHireStep, hireRefusal, hireRequestFrom, hireTemplates, keyExpiryLine, limitsLine, listOf, normalizeRole,
-  ownerPickerValue, projectFromLink, readsInbox, roleLabel, roleSuggestions, sameNameMember, scopeLabel, scopesBeyondRole, setDraftProjects,
+  ownerPickerValue, projectFromLink, readsInbox, roleLabel, roleSuggestions, freeAgentName, sameNameMember, scopeLabel, scopesBeyondRole, setDraftProjects,
   settingsSummary, showMoreLabel, splitOwnerPicker, validateHireStep, windowOf, worksOutsideProjects, HIRE_OWNERS_MAX, HIRE_STEPS, HIRE_STEPS_BEFORE_HIRE,
   type HireDraft, type HireRefusal, type HireStep,
 } from '@/lib/agents-ui';
@@ -148,6 +148,11 @@ export function HireFlow() {
     return () => window.removeEventListener('beforeunload', handler);
   }, [atRisk]);
 
+  // One hire per attempt: a second click in the same tick finds the first under way and does nothing,
+  // and the server makes one agent per request id however many calls arrive.
+  const hiring = useRef(false);
+  const [requestId] = useState(() => crypto.randomUUID());
+
   if (!isOwner) {
     return (
       <div className="flex min-h-[70vh] flex-col items-center justify-center px-6 text-center">
@@ -185,6 +190,7 @@ export function HireFlow() {
   const projectName = (id: string) => projects.find((p) => p.id === id)?.name;
 
   const hire = async () => {
+    if (hiring.current || busy) return;
     // Every earlier step must still pass (a template change can unsettle the projects step).
     const bad = firstInvalidHireStep(draft, template, grantable, 'review');
     if (bad) {
@@ -192,11 +198,12 @@ export function HireFlow() {
       setErrors(validateHireStep(bad, draft, template, grantable));
       return;
     }
+    hiring.current = true;
     setBusy(true);
     setServerError(null);
     setIncomplete(null);
     try {
-      const result = isDemoMode ? demoHire(draft) : await workspaceApi<HireResponse>('/api/workspace/agents', { method: 'POST', body: hireRequestFrom(draft) });
+      const result = isDemoMode ? demoHire(draft) : await workspaceApi<HireResponse>('/api/workspace/agents', { method: 'POST', body: hireRequestFrom(draft, requestId) });
       if (!isDemoMode) invalidateTables(['team_members', 'project_agents', 'agent_owners', 'team_member_permissions']);
       setHired(result);
       if (picture && !isDemoMode) void uploadPicture(result.agent.id, picture.blob);
@@ -218,6 +225,7 @@ export function HireFlow() {
       setServerError(refusal.message);
       setIncomplete(refusal.incomplete);
     } finally {
+      hiring.current = false;
       setBusy(false);
     }
   };
@@ -289,6 +297,7 @@ export function HireFlow() {
   const escalateLabel = `Its owners (first: ${draft.ownerIds[0] === teamMemberId || !firstOwner ? 'you' : firstOwner})`;
   const beyondRole = scopesBeyondRole(draft.createKey ? draft.scopes : [], agentScopes.data);
   const duplicate = sameNameMember(draft.name, team);
+  const namePlaceholder = freeAgentName(team);
   const expiry = keyExpiryLine(secret?.expires_at, secret?.expires_at === undefined ? lifetime.data?.agent_key_lifetime_days : null);
 
   const scopePicker = (
@@ -345,9 +354,9 @@ export function HireFlow() {
           <div className="space-y-5">
             <div className="grid gap-4 sm:grid-cols-2">
               <div>
-                <TextInput label="Name *" value={draft.name} onChange={(v) => setDraft({ ...draft, name: v })} placeholder="Nova" error={errors.name} autoFocus maxLength={80} />
+                <TextInput label="Name *" value={draft.name} onChange={(v) => setDraft({ ...draft, name: v })} placeholder={namePlaceholder} error={errors.name} autoFocus maxLength={80} />
                 {duplicate && !errors.name && (
-                  <p className="mt-1.5 text-xs text-amber-200">{duplicate.role === 'agent' ? 'An agent' : 'Someone'} on the team is already called {duplicate.name}. A different name keeps mentions clear.</p>
+                  <p role="status" className="mt-1.5 text-xs text-amber-300">{duplicate.role === 'agent' ? 'An agent' : 'Someone'} on the team is already called {duplicate.name}. You can still hire it; a different name keeps mentions clear.</p>
                 )}
               </div>
               <TextInput label="Title" value={draft.title} onChange={(v) => setDraft({ ...draft, title: v })} placeholder="Builder" error={errors.title} maxLength={80} />

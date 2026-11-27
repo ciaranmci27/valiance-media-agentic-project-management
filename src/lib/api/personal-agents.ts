@@ -25,6 +25,7 @@ import { requireAgentsEnabled } from './agents';
 import { ApiError, forbidden, notFound } from './errors';
 import { requireTemplate } from './project-agents';
 import { readAll } from './read-all';
+import { readPage } from './pagination';
 
 /**
  * Personal agents on the server: assistant setups, provisioning in bulk and
@@ -498,7 +499,7 @@ export async function listPersonalAgents(
   }
   let query = service.from('team_members').select(PERSONAL_COLUMNS, { count: 'exact' }).not('delegate_of', 'is', null);
   if (filters.personId) query = query.eq('delegate_of', filters.personId);
-  const { data, error, count } = await query.order('name').order('id').range(filters.offset, filters.offset + filters.limit - 1);
+  const { data, error, count } = await readPage(query.order('name').order('id'), filters);
   if (error) fail(error);
   return { rows: await presentPersonalAgents(service, (data ?? []) as Row[]), total: count ?? 0 };
 }

@@ -3,8 +3,10 @@
  * to strings suitable for HTML date/time inputs, using the user's
  * stored timezone preference (IANA identifier, e.g. 'America/Phoenix').
  *
- * When no timezone is provided, falls back to the browser's local timezone.
+ * When no timezone is given, the app's zone (lib/time-zone: the person's profile
+ * zone, else the browser's) is used.
  */
+import { appTimeZone } from '@/lib/time-zone';
 
 function getParts(iso: string, timezone?: string) {
   const d = new Date(iso);
@@ -12,7 +14,7 @@ function getParts(iso: string, timezone?: string) {
     year: 'numeric', month: '2-digit', day: '2-digit',
     hour: '2-digit', minute: '2-digit',
     hour12: false,
-    ...(timezone ? { timeZone: timezone } : {}),
+    timeZone: timezone ?? appTimeZone(),
   };
   const parts = new Intl.DateTimeFormat('en-US', opts).formatToParts(d);
   const get = (type: Intl.DateTimeFormatPartTypes) =>

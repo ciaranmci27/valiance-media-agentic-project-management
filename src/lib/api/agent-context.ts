@@ -603,8 +603,13 @@ export async function buildContextPack(
   if (isAgent && typeof row.delegate_of === 'string') {
     const { data: person } = await service.from('team_members').select('id, name').eq('id', row.delegate_of).maybeSingle();
     const name = (person as { name?: string } | null)?.name ?? 'your person';
-    const settings = await preferenceLinesFor(service, row.id, name);
-    worksFor = { id: row.delegate_of, name, says: personalAgentBrief(name), preferences: settings.preferences, preferences_say: settings.says };
+    // A person's preferences for their assistant are theirs: the assistant
+    // itself, its person and an Owner read them; anyone else setting it up
+    // sees whose it is, not what they asked of it.
+    const seesPreferences = input.mode === 'self' || viewer.memberId === row.delegate_of || viewer.access.role === 'owner';
+    const settings = seesPreferences ? await preferenceLinesFor(service, row.id, name) : null;
+    if (!seesPreferences) omitted.push({ part: 'preferences', needs: `${name} or an Owner` });
+    worksFor = { id: row.delegate_of, name, says: personalAgentBrief(name), ...(settings ? { preferences: settings.preferences, preferences_say: settings.says } : {}) };
   }
   const conventions = conventionsFor(toolNames, health, (tools ?? PM_TOOLS).some((tool) => tool.write && IDEMPOTENCY_KEY_ARGUMENT in tool.input.shape),
     !worksFor && !!effective?.includes('agents.act_for'));

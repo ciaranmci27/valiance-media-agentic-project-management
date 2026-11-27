@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { isModuleEnabled, type AccessContext } from '@/lib/access-control';
 import { INVOICE_WEBHOOK_EVENT_TYPES, type WebhookEndpoint } from '@/lib/types';
 import { ApiError, forbidden } from './errors';
-import { apiKeyAllows } from './access';
+import { accessAllows, accessAllowsProject, apiKeyAllows } from './access';
 import { insertWebhookEndpoint, withEndpointColumns } from '@/lib/supabase/queries';
 import { sealWebhookSecret } from '@/lib/webhooks/secret';
 
@@ -72,7 +72,7 @@ export function canScopeToAssistantSetup(access: AccessContext, scopes?: string[
 
 /**
  * Checks an endpoint's filters and events before a write: every project is
- * live, the member exists, the assistant setup exists and the caller may
+ * live and ones the caller opens (every project needs projects.read_all), the member exists, the assistant setup exists and the caller may
  * scope to it, and invoice events are added only while Client invoicing is
  * on. An endpoint keeps invoice events it already had while invoicing is
  * off (they send nothing until it is back), as the screen does.
@@ -146,6 +146,23 @@ export async function checkWebhookFields(
     if (missing.length > 0) {
       throw new ApiError(422, 'VALIDATION_ERROR', 'project_ids holds projects that do not exist or are in Trash', { project_ids: missing });
     }
+  }
+  // An endpoint never receives what its maker could not read: its projects
+  // are ones the caller opens, and one for every project needs
+  // projects.read_all. (Delivery checks the maker's reach again, in
+  // pm.webhook_endpoint_matches, so access lost later stops it too.)
+  const channel = scopes === undefined || scopes === null ? 'app' : 'api';
+  const unreachable = projectIds.filter((id) => !accessAllowsProject(access, id, channel));
+  if (unreachable.length > 0) {
+    throw forbidden('project_ids holds projects you cannot open', { reason: 'project_scope', grant_on: 'project_membership', project_ids: unreachable });
+  }
+  // Filtered to one member or assistant setup (an agent's own chat), it is
+  // not a feed of every project; delivery still checks the maker's reach.
+  const everyProject = !memberId && !setupId && (fields.project_ids === null || (!existing && fields.project_ids === undefined));
+  if (everyProject && !accessAllows(access, 'projects.read_all', channel)) {
+    throw forbidden('An endpoint for every project needs projects.read_all: name the projects it is for in project_ids', {
+      reason: 'project_scope', needs: 'projects.read_all',
+    });
   }
   if (fields.member_id) {
     const { data, error } = await service.from('team_members').select('id').eq('id', fields.member_id).maybeSingle();

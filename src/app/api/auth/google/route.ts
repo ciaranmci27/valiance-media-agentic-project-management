@@ -44,7 +44,7 @@ function limited(request: NextRequest): boolean {
 }
 
 const refuse = (status: number, error: string, field?: string) =>
-  NextResponse.json({ error, ...(field ? { field } : {}) }, { status, headers: { 'Cache-Control': 'no-store' } });
+  NextResponse.json({ error, ...(field ? { field } : {}) }, { status, headers: { 'Cache-Control': 'no-store', ...(status === 429 ? { 'Retry-After': String(WINDOW_MS / 1000) } : {}) } });
 
 async function googleAllowed(): Promise<boolean> {
   return allowsGoogle(await signInMethodsOrDefault(getServiceClient()));

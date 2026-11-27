@@ -13,6 +13,7 @@ import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { toast } from '@/components/ui/Toast';
 import { pmStorage } from '@/lib/supabase/storage';
 import { BUCKETS } from '@/lib/supabase/schema';
+import { checkMemberName } from '@/lib/member-profile';
 
 /** Avatar, display name and login email (an email change asks first). */
 export function ProfileSection() {
@@ -27,6 +28,7 @@ export function ProfileSection() {
   const [userEmail, setUserEmail] = useState('');
   const [originalEmail, setOriginalEmail] = useState('');
   const [emailError, setEmailError] = useState('');
+  const [nameError, setNameError] = useState('');
   const [showEmailConfirm, setShowEmailConfirm] = useState(false);
   const [profileLoading, setProfileLoading] = useState(false);
   const [avatarUploading, setAvatarUploading] = useState(false);
@@ -95,6 +97,14 @@ export function ProfileSection() {
 
   const handleSaveProfile = async () => {
     if (!teamMemberId) return;
+    // A name is required (the server says the same): a blank one left a nameless row on Team.
+    const checked = checkMemberName(userName);
+    if (!checked.ok) {
+      setNameError(checked.error);
+      document.getElementById('profile-display-name')?.focus();
+      return;
+    }
+    setUserName(checked.name);
 
     const emailChanged = userEmail.trim().toLowerCase() !== originalEmail.toLowerCase();
 
@@ -105,8 +115,8 @@ export function ProfileSection() {
 
     setProfileLoading(true);
     try {
-      await updateTeamMember(teamMemberId, { name: userName });
-      toast('success', 'Profile saved');
+      // The store says why when the save fails; only a saved profile says so.
+      if (await updateTeamMember(teamMemberId, { name: checked.name })) toast('success', 'Profile saved');
     } catch {
       toast('error', 'Failed to save profile');
     } finally {
@@ -116,6 +126,12 @@ export function ProfileSection() {
 
   const handleConfirmEmailChange = async () => {
     if (!teamMemberId) return;
+    const checked = checkMemberName(userName);
+    if (!checked.ok) {
+      setShowEmailConfirm(false);
+      setNameError(checked.error);
+      return;
+    }
     setShowEmailConfirm(false);
     setProfileLoading(true);
     setEmailError('');
@@ -138,7 +154,7 @@ export function ProfileSection() {
       }
 
       setOriginalEmail(userEmail.trim().toLowerCase());
-      updateTeamMember(teamMemberId, { name: userName, email: userEmail.trim().toLowerCase() });
+      updateTeamMember(teamMemberId, { name: checked.name, email: userEmail.trim().toLowerCase() });
       toast('success', 'Profile and email updated');
     } catch {
       toast('error', 'Failed to update email');
@@ -177,10 +193,17 @@ export function ProfileSection() {
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <Input
-            label="Display Name"
+            id="profile-display-name"
+            label="Display name"
             value={userName}
-            onChange={(e) => setUserName(e.target.value)}
+            onChange={(e) => {
+              setUserName(e.target.value);
+              setNameError('');
+            }}
             placeholder="Your name"
+            error={nameError}
+            required
+            maxLength={100}
           />
           <Input
             label="Email"
@@ -198,7 +221,7 @@ export function ProfileSection() {
 
         <div className="mt-4">
           <Button onClick={handleSaveProfile} disabled={profileLoading}>
-            {profileLoading ? 'Saving...' : 'Save changes'}
+            {profileLoading ? 'Saving' : 'Save changes'}
           </Button>
         </div>
       </section>
@@ -207,9 +230,9 @@ export function ProfileSection() {
         isOpen={showEmailConfirm}
         onClose={() => setShowEmailConfirm(false)}
         onConfirm={handleConfirmEmailChange}
-        title="Change Email Address"
+        title="Change your email?"
         message={`This will change your login email from "${originalEmail}" to "${userEmail.trim().toLowerCase()}". You'll need to use the new email to sign in.`}
-        confirmLabel="Update Email"
+        confirmLabel="Change email"
         variant="default"
         doubleConfirm={false}
       />

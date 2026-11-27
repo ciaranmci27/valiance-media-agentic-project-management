@@ -18,6 +18,7 @@ import { callerHolds, type AgentCaller } from './agent-owners';
 import { requireReachableProject } from './project-agents';
 import { BRIEF_CONTEXT_COLUMNS } from './project-context';
 import { ApiError, forbidden, notFound } from './errors';
+import { readPage } from './pagination';
 
 /**
  * A project's brief: its context entries read as sections, plus its goals.
@@ -76,7 +77,7 @@ function requireWrite(caller: AgentCaller) {
 
 /** One section's entries, pinned first then newest, paged, with its total. */
 async function sectionPage(service: SupabaseClient, projectId: string, section: BriefSectionKey, offset: number, limit: number): Promise<BriefSection> {
-  const { data, error, count } = await service
+  const { data, error, count } = await readPage(service
     .from('project_context')
     .select(BRIEF_CONTEXT_COLUMNS, { count: 'exact' })
     .eq('project_id', projectId)
@@ -84,7 +85,7 @@ async function sectionPage(service: SupabaseClient, projectId: string, section: 
     .eq('is_active', true)
     .order('pinned', { ascending: false })
     .order('updated_at', { ascending: false })
-    .range(offset, offset + limit - 1);
+    .order('id'), { offset, limit });
   if (missingColumn(error)) throw pending();
   if (error) throw error;
   const label = BRIEF_SECTIONS.find((s) => s.key === section)?.label ?? section;

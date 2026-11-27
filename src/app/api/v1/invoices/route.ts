@@ -1,7 +1,7 @@
 import { withApi } from '@/lib/api/middleware';
 import { paginated } from '@/lib/api/response';
 import { badRequest } from '@/lib/api/errors';
-import { parsePagination } from '@/lib/api/pagination';
+import { parsePagination, readPage } from '@/lib/api/pagination';
 import { accessAllows } from '@/lib/api/access';
 import { invoiceTotals, normalizedInvoiceLines, outstandingOf, serializePayment } from '@/lib/api/invoice-payments';
 import { INVOICE_STATUSES, type ProjectInvoice } from '@/lib/types';
@@ -49,10 +49,9 @@ export const GET = withApi(async ({ supabase, searchParams, access }) => {
   if (trashed.length) query = query.not('project_id', 'in', postgrestList(trashed));
   if (statuses.length) query = query.in('status', statuses);
   if (updatedSince) query = query.gte('updated_at', new Date(updatedSince).toISOString());
-  const { data, count, error } = await query
+  const { data, count, error } = await readPage(query
     .order('created_at', { ascending: true })
-    .order('id', { ascending: true })
-    .range(offset, offset + limit - 1);
+    .order('id', { ascending: true }), { offset, limit });
   if (error) throw error;
   const rows = (data ?? []) as unknown as Row[];
 

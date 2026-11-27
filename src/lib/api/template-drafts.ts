@@ -13,6 +13,7 @@ import { callerChannel, callerHolds, type AgentCaller } from './agent-owners';
 import { currentActorVia } from './request-context';
 import { ApiError, forbidden, notFound } from './errors';
 import { answerQuestion, expireDueQuestions, requestApproval, type QuestionsContext } from './questions';
+import { readPage } from './pagination';
 import {
   activeMembers, canManageTemplates, canRunTemplates, createTemplateRun, draftItems, loadTemplateRow, memberNames, prepareRun,
   presentRun, previewOfPrepared, projectNames, RUN_COLUMNS, templateErrors, type DraftSource, type TemplateRunPreview, type TemplateSnapshot,
@@ -352,7 +353,7 @@ export async function listTemplateDrafts(service: SupabaseClient, caller: AgentC
   }
   if (filters.template_id) query = query.eq('template_id', filters.template_id);
   if (filters.status) query = query.eq('status', filters.status);
-  const { data, count, error } = await query.order('created_at', { ascending: false }).order('id').range(filters.offset, filters.offset + filters.limit - 1);
+  const { data, count, error } = await readPage(query.order('created_at', { ascending: false }).order('id'), filters);
   if (error) fail(error);
   const rows = (data ?? []) as Row[];
   return { rows: await present(service, rows), total: count ?? rows.length };

@@ -20,8 +20,8 @@ import { toast } from '@/components/ui/Toast';
 import { DetailRow } from '@/components/tasks/TaskFields';
 import { RecurrencePicker } from './RecurrencePicker';
 import { dismissRemoved, errorText, refreshSchedules, removeSchedule, todayIn, undoRemoveSchedule, useRemovedSchedules, useTaskRepeat } from './schedule-actions';
+import { profileTimeZone } from '@/lib/time-zone';
 
-const browserZone = () => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; } catch { return 'UTC'; } };
 
 const MODE_OPTIONS: { value: RepeatMode; label: string; description: string }[] = [
   { value: 'schedule', label: 'On schedule', description: 'The next copy appears when this one falls due.' },
@@ -101,8 +101,8 @@ function RepeatEditor({ task, repeat, onDone }: { task: Task; repeat: ScheduleVi
   const { team, updateTask } = useApp();
   const { teamMemberId } = useAuth();
   const { isDemoMode } = useDemo();
-  const memberZone = team.find((m) => m.id === teamMemberId)?.timezone;
-  const timeZone = repeat?.timezone ?? (memberZone && memberZone !== 'UTC' ? memberZone : browserZone());
+  // A new repeat runs in the person's own zone (their profile's, lib/time-zone); an existing one keeps its own.
+  const timeZone = repeat?.timezone ?? profileTimeZone(team.find((m) => m.id === teamMemberId));
   const today = todayIn(timeZone);
   // Copies count from the task's due date; a task without one takes the pattern's first date.
   const startDate = task.due_date ?? today;

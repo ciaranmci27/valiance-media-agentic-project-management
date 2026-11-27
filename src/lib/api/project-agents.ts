@@ -14,6 +14,7 @@ import { accessAllows, accessAllowsProject } from './access';
 import { callerChannel, callerHolds, canManageAgent, type AgentCaller } from './agent-owners';
 import { requireAgentsEnabled } from './agents';
 import { ApiError, forbidden, notFound } from './errors';
+import { readPage } from './pagination';
 
 /**
  * Agents on projects (pm.project_agents), for the session routes, the v1
@@ -210,7 +211,7 @@ export async function listProjectAgents(service: SupabaseClient, caller: AgentCa
   if (caller.access.role === 'agent') query = query.eq('agent_id', caller.memberId);
   if (filters.status) query = query.eq('status', filters.status);
   if (filters.template) query = query.eq('template_key', filters.template);
-  const { data, error, count } = await query.order('created_at', { ascending: false }).range(filters.offset, filters.offset + filters.limit - 1);
+  const { data, error, count } = await readPage(query.order('created_at', { ascending: false }).order('id'), filters);
   if (missingTable(error)) throw migrationPending();
   if (error) throw error;
   const rows = await presentAssignments(service, (data ?? []) as Row[], new Map([[project.id, project.name]]));
@@ -230,7 +231,7 @@ export async function listAgentAssignments(service: SupabaseClient, viewer: Agen
   const reachAll = self || accessAllows(viewer.access, 'projects.read_all', callerChannel(viewer));
   // A viewer who reaches only some projects reads only those, so a page is never short.
   if (!reachAll) query = query.in('project_id', viewer.access.project_ids.length ? viewer.access.project_ids : ['00000000-0000-0000-0000-000000000000']);
-  const { data, error, count } = await query.order('created_at', { ascending: false }).range(filters.offset, filters.offset + filters.limit - 1);
+  const { data, error, count } = await readPage(query.order('created_at', { ascending: false }).order('id'), filters);
   if (missingTable(error)) throw migrationPending();
   if (error) throw error;
   const rows = (data ?? []) as Row[];

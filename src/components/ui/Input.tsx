@@ -12,7 +12,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
     return (
       <div className="space-y-1.5">
         {label && (
-          <label className="block text-sm font-medium text-input-text-label">
+          <label htmlFor={props.id} className="block text-sm font-medium text-input-text-label">
             {label}
           </label>
         )}
@@ -25,10 +25,11 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
             }
             placeholder:text-input-text-placeholder
             ${className}`}
+          aria-invalid={error ? true : undefined}
           {...props}
         />
         {error && (
-          <p className="text-xs text-input-error">{error}</p>
+          <p role="alert" className="text-xs text-input-error">{error}</p>
         )}
       </div>
     );

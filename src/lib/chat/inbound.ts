@@ -4,6 +4,8 @@ import { alertOf, assistantFixer, readAssistantSettings, findPersonalAgent, miss
 import { BROKEN_WORDS, type AssistantFixer, type AssistantStatus } from '@/lib/assistant';
 import { createLinkRequest, findIdentity } from '@/lib/api/identities';
 import { afterResponse } from '@/lib/api/after-response';
+import { gateAgentWork } from '@/lib/api/agent-access';
+import { ApiError } from '@/lib/api/errors';
 import { readStoredBrand } from '@/lib/brand/server';
 import { enabledModuleSet } from '@/lib/modules/server';
 import { runDispatch } from '@/lib/webhooks/dispatch';
@@ -61,7 +63,11 @@ import { assistantMessagePayload, chatMessagePayload } from './messages';
  * id and no member; context is never answered and never acted on. A
  * stranger's request gets the link handshake in a DM, and "message me
  * directly" in a channel. An agent that is on hold, paused or whose host is
- * down gets the same once-per-spell line, with its name.
+ * down gets the same once-per-spell line, with its name. A request is
+ * checked like every other door (agent-access.ts): someone the agent is not
+ * available to, or one only reachable through its orchestrator, is told so and the
+ * agent never sees it; one that asks first asks its managers once per
+ * conversation, and the person's messages there go through once approved.
  *
  * Replies to a message an agent started (POST /api/v1/chat/messages): in
  * its thread, quoting it, or in a DM the next messages after it, go back to
@@ -509,6 +515,25 @@ async function handleCompany(service: SupabaseClient, ctx: Ctx, parsed: Message,
   const known = { member_id: sender.person.id, identity_id: sender.identity.id };
   const agent = decision.agent;
   if (!agent) return unrouted(known, CHAT_WORDS.noAgentHere);
+
+  // Who can use it, only through its orchestrator, ask first: the same rule as every other door.
+  // An approval covers this person and agent in this conversation.
+  try {
+    const pending = await gateAgentWork(service, {
+      agentId: agent.id, personId: sender.person.id, byAgentId: null,
+      entry: decision.route === 'mention' ? 'mention' : 'chat',
+      target: `chat:${connection.id}:${parsed.conversationId}`,
+      ask: { summary: `${sender.person.name ?? 'Someone'} wants to use ${agent.name} in chat` },
+    });
+    if (pending) return unrouted(known, CHAT_WORDS.agentAskFirst(agent.name));
+  } catch (error) {
+    const details = error instanceof ApiError ? (error.details as Record<string, unknown> | undefined) : undefined;
+    if (details?.reason !== 'agent_not_available') throw error;
+    const words = details.why === 'only_through_orchestrator' && typeof details.orchestrator_name === 'string'
+      ? CHAT_WORDS.agentThroughOrchestrator(agent.name, details.orchestrator_name)
+      : CHAT_WORDS.agentNotAvailable(agent.name);
+    return unrouted(known, words);
+  }
 
   const status = (await statesOf(service, [agent.row])).get(agent.id)!;
   const quiet = {

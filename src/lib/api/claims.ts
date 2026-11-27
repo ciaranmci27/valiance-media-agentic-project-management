@@ -45,6 +45,9 @@ interface ClaimResult {
   holder?: Holder;
   /** release: the holder's assignment went with the claim (the claim had made it). */
   unassigned?: boolean;
+  /** extend: the caller's own claim ran out (not_held), and when. */
+  expired?: boolean;
+  expired_at?: string | null;
 }
 
 /** A claim as the API shows it on a task: null when nobody holds a live one. */
@@ -198,6 +201,12 @@ export async function extendClaim(actor: ClaimActor, taskId: string, leaseMinute
   if (result.outcome === 'not_found') throw notFound('Task');
   if (result.outcome === 'held') throw heldBy(result.holder);
   if (result.outcome === 'not_held') {
+    // Run out (20261127001300): a lapsed claim is no claim; claiming again may find someone else on it.
+    if (result.expired) {
+      throw new ApiError(409, 'CONFLICT', 'Your claim on this task ran out. Claim it again.', {
+        reason: 'claim_expired', expired_at: result.expired_at ?? null,
+      });
+    }
     throw new ApiError(409, 'CONFLICT', 'You do not hold a claim on this task. Claim it first.', { reason: 'not_claimed' });
   }
   const row = result.task ?? {};

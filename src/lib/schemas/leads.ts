@@ -1,27 +1,28 @@
 import { z } from 'zod';
+import { longText, nameText } from './shared';
 import { DEFAULT_ITEM_COLOR } from '@/lib/brand';
 
 export const createLeadSchema = z.object({
-  name: z.string().min(1, 'Name is required'),
+  name: nameText(),
   email: z.string().default(''),
   phone: z.string().default(''),
   company: z.string().default(''),
   source: z.enum(['referral', 'website', 'social', 'cold_outreach', 'event', 'network', 'other']).default('other'),
   status: z.enum(['new', 'contacted', 'qualified', 'proposal', 'won', 'lost']).default('new'),
-  notes: z.string().default(''),
+  notes: longText('notes').default(''),
   assigned_to: z.string().uuid().nullable().default(null),
   contact_id: z.string().uuid().nullable().default(null),
   member_ids: z.array(z.string().uuid()).default([]),
 });
 
 export const updateLeadSchema = z.object({
-  name: z.string().min(1).optional(),
+  name: nameText().optional(),
   email: z.string().optional(),
   phone: z.string().optional(),
   company: z.string().optional(),
   source: z.enum(['referral', 'website', 'social', 'cold_outreach', 'event', 'network', 'other']).optional(),
   status: z.enum(['new', 'contacted', 'qualified', 'proposal', 'won', 'lost']).optional(),
-  notes: z.string().optional(),
+  notes: longText('notes').optional(),
   assigned_to: z.string().uuid().nullable().optional(),
   contact_id: z.string().uuid().nullable().optional(),
   member_ids: z.array(z.string().uuid()).optional(),

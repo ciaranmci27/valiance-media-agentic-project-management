@@ -11,11 +11,14 @@ import { toast } from '@/components/ui/Toast';
 import { useApp } from '@/lib/store';
 import { useRead } from '@/lib/query-cache';
 import { auditLogRead } from '@/lib/reads';
-import { NO_AUDIT_FILTERS, VIA_LABELS, auditActionLabel, auditQuery, type AuditEntry, type AuditFilters } from '@/lib/audit-log';
+import { NO_AUDIT_FILTERS, VIA_LABELS, auditActionLabel, auditDetails, auditQuery, type AuditEntry, type AuditFilters } from '@/lib/audit-log';
+import { Pill } from '@/components/ui/Pill';
+import { formatDateTime } from '@/lib/time-format';
 
 const ANYONE = '';
 
-const when = (iso: string) => new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+/** When it happened, in the person's own time zone (lib/time-zone). */
+const when = (iso: string) => formatDateTime(iso);
 
 /**
  * Settings > Security > Audit log: who changed what, newest first. Filters
@@ -38,6 +41,8 @@ export function AuditLogSection() {
   const memberOptions = [{ value: ANYONE, label: 'Anyone' }, ...members.map((m) => ({ value: m.id, label: m.role === 'agent' ? `${m.name} (agent)` : m.name }))];
   const peopleOptions = [{ value: ANYONE, label: 'Anyone' }, ...members.filter((m) => m.role !== 'agent').map((m) => ({ value: m.id, label: m.name }))];
   const nameOf = (id: string | null) => (id ? data?.names[id] ?? team.find((m) => m.id === id)?.name ?? 'Someone removed' : null);
+  // Every name a row may mention: the server's (people, groups, projects, tasks, keys), then the team's.
+  const names: Record<string, string> = { ...Object.fromEntries(team.map((m) => [m.id, m.name])), ...(data?.names ?? {}) };
 
   const apply = (next: AuditFilters) => {
     setFilters(next);
@@ -117,7 +122,7 @@ export function AuditLogSection() {
         ) : (
           <ul className="divide-y divide-white/[0.06] rounded-lg border border-white/[0.06]">
             {data.entries.map((entry) => (
-              <AuditRow key={entry.id} entry={entry} who={nameOf(entry.team_member_id)} actingFor={nameOf(entry.principal_id)} open={open === entry.id} onToggle={() => setOpen(open === entry.id ? null : entry.id)} />
+              <AuditRow key={entry.id} entry={entry} names={names} who={nameOf(entry.team_member_id)} actingFor={nameOf(entry.principal_id)} open={open === entry.id} onToggle={() => setOpen(open === entry.id ? null : entry.id)} />
             ))}
           </ul>
         )}
@@ -135,8 +140,10 @@ export function AuditLogSection() {
   );
 }
 
-function AuditRow({ entry, who, actingFor, open, onToggle }: { entry: AuditEntry; who: string | null; actingFor: string | null; open: boolean; onToggle: () => void }) {
+function AuditRow({ entry, names, who, actingFor, open, onToggle }: { entry: AuditEntry; names: Record<string, string>; who: string | null; actingFor: string | null; open: boolean; onToggle: () => void }) {
   const failed = entry.status_code >= 400;
+  const [advanced, setAdvanced] = useState(false);
+  const details = open ? auditDetails(entry, names) : [];
   return (
     <li>
       <button
@@ -148,11 +155,10 @@ function AuditRow({ entry, who, actingFor, open, onToggle }: { entry: AuditEntry
         <ChevronDown size={14} className={`mt-1 flex-shrink-0 text-zinc-500 transition-transform ${open ? '' : '-rotate-90'}`} aria-hidden="true" />
         <span className="min-w-0 flex-1">
           <span className="flex flex-wrap items-baseline gap-x-2">
-            <span className="text-sm font-medium text-white">{auditActionLabel(entry)}</span>
+            <span className="text-sm font-medium text-white">{auditActionLabel(entry, names)}</span>
             <span className="text-sm text-zinc-400">by {who ?? 'the system'}{actingFor ? ` for ${actingFor}` : ''}</span>
-            {failed && <span className="rounded bg-red-500/[0.12] px-1.5 py-0.5 text-[11px] text-red-200">{entry.status_code}</span>}
+            {failed && <Pill tone="problem" dot>Refused</Pill>}
           </span>
-          <span className="mt-0.5 block truncate font-mono text-[11px] text-zinc-500">{entry.method} {entry.endpoint}</span>
         </span>
         <span className="flex-shrink-0 text-right text-xs text-zinc-500">
           <span className="block">{when(entry.timestamp)}</span>
@@ -160,11 +166,34 @@ function AuditRow({ entry, who, actingFor, open, onToggle }: { entry: AuditEntry
         </span>
       </button>
       {open && (
-        <div className="grid gap-3 px-3 pb-3 pl-9 lg:grid-cols-3">
-          {entry.error && <p className="text-sm text-red-200 lg:col-span-3">{entry.error}</p>}
-          <Json label="Sent" value={entry.request_body} />
-          <Json label="Before" value={entry.before_snapshot} />
-          <Json label="After" value={entry.after_snapshot} />
+        <div className="space-y-3 px-3 pb-3 pl-9">
+          {entry.error && <p className="text-sm text-red-300">{entry.error}</p>}
+          {details.length > 0 ? (
+            <dl className="grid gap-x-4 gap-y-1.5 text-sm sm:grid-cols-[minmax(0,10rem)_minmax(0,1fr)]">
+              {details.map((detail, index) => (
+                <div key={`${detail.label}-${index}`} className="contents">
+                  <dt className="text-xs text-zinc-500 sm:pt-0.5">{detail.label}</dt>
+                  <dd className="min-w-0 break-words text-zinc-200">{detail.value}</dd>
+                </div>
+              ))}
+            </dl>
+          ) : (
+            <p className="text-xs text-zinc-500">No details were recorded.</p>
+          )}
+          <Button size="sm" variant="ghost" className="-ml-2.5" aria-expanded={advanced} onClick={() => setAdvanced((shown) => !shown)}
+            icon={<ChevronDown size={14} aria-hidden="true" className={`transition-transform ${advanced ? 'rotate-180' : ''}`} />}>
+            Advanced
+          </Button>
+          {advanced && (
+            <div className="space-y-3">
+              <p className="break-all font-mono text-[11px] text-zinc-500">{entry.method} {entry.endpoint}{failed ? ` (${entry.status_code})` : ''}</p>
+              <div className="grid gap-3 lg:grid-cols-3">
+                <Json label="Sent" value={entry.request_body} />
+                <Json label="Before" value={entry.before_snapshot} />
+                <Json label="After" value={entry.after_snapshot} />
+              </div>
+            </div>
+          )}
         </div>
       )}
     </li>

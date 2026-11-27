@@ -154,10 +154,14 @@ function pureChecks() {
   check('setup key: a member\'s carries only what they hold of it', JSON.stringify(aiSetupKeyScopes(member)) === JSON.stringify(['projects.read']));
   const prompt = aiSetupPrompt(AI_SETUP_EXAMPLES[0].request);
   check('prompt: the company example is the owner\'s own words, and every prompt says to read pm_guide first, ask first, read it back',
-    /Alexa who runs the company, hands work to Jeff, John and Greg, and can act for me/.test(prompt) && /Start with pm_guide/.test(prompt)
+    /Atlas who runs day-to-day operations, hands work to our other agents, and can act for me/.test(prompt) && /Start with pm_guide/.test(prompt)
     && /Ask me anything you need before/.test(prompt) && /get_agent_setup/.test(prompt));
   check('prompt: examples per role (company, inbox triage, builder, reviewer, external)', ['company', 'inbox-triage', 'builder', 'reviewer', 'external'].every((id) => AI_SETUP_EXAMPLES.some((e) => e.id === id)));
   check('copy: no em dashes', !/—/.test(JSON.stringify({ AI_SETUP_EXAMPLES, prompt })));
+  // Core ships to every install: its examples never name one customer's own agents or people.
+  const customerNames = /\b(Jeff|John|Greg|Alexa|Ashley)\b/;
+  check('prompt: the examples use generic names, never one install\'s agents', AI_SETUP_EXAMPLES.every((e) => !customerNames.test(e.request)),
+    AI_SETUP_EXAMPLES.filter((e) => customerNames.test(e.request)).map((e) => e.id));
   check('time: minutes left reads 60 at the start and never goes below 0', minutesLeft(new Date(Date.now() + 3_600_000).toISOString()) === 60 && minutesLeft(new Date(Date.now() - 5000).toISOString()) === 0);
 }
 

@@ -16,7 +16,8 @@ import { afterResponse } from './after-response';
  * start do.
  */
 
-export type PauseReason = 'agents_paused' | 'agent_paused';
+/** assistants_off: a personal agent while assistants are switched off for the workspace (on hold, like a pause). */
+export type PauseReason = 'agents_paused' | 'assistants_off' | 'agent_paused';
 export type SkipReason = PauseReason | 'budget_exceeded';
 
 export interface AgentBudgetStatus {
@@ -39,11 +40,13 @@ export interface AgentStatus {
   agent: boolean;
   /** False while paused or over budget: skip the turn. */
   can_start_work: boolean;
-  /** Why not, the first that applies: agents_paused, agent_paused, budget_exceeded; null when it may. */
+  /** Why not, the first that applies: agents_paused, assistants_off, agent_paused, budget_exceeded; null when it may. */
   skip_reason: SkipReason | null;
   paused: boolean;
-  /** agents_paused (every agent, by an Owner) wins over agent_paused (this agent). */
+  /** agents_paused (every agent, by an Owner) wins over assistants_off (a personal agent while assistants are off), then agent_paused (this agent). */
   paused_reason: PauseReason | null;
+  /** A personal agent while assistants are switched off for the workspace: on hold until an Owner turns them on. */
+  assistants_off: boolean;
   paused_at: string | null;
   workspace_paused_at: string | null;
   agent_paused_at: string | null;
@@ -74,13 +77,16 @@ export function composeAgentStatus(input: {
   agent: boolean;
   workspacePausedAt: string | null;
   agentPausedAt: string | null;
+  /** A personal agent while assistants are switched off. */
+  assistantsOff?: boolean;
   state: LimitState | null;
   resetsAt?: string | null;
   now?: Date;
 }): AgentStatus {
   const workspace = input.agent ? iso(input.workspacePausedAt) : null;
   const own = input.agent ? iso(input.agentPausedAt) : null;
-  const pausedReason: PauseReason | null = workspace ? 'agents_paused' : own ? 'agent_paused' : null;
+  const assistantsOff = input.agent && input.assistantsOff === true;
+  const pausedReason: PauseReason | null = workspace ? 'agents_paused' : assistantsOff ? 'assistants_off' : own ? 'agent_paused' : null;
   const limits = input.agent ? input.state?.limits ?? null : null;
   const usage = input.state?.usage;
   const period = limits?.budget_period ?? 'month';
@@ -94,6 +100,7 @@ export function composeAgentStatus(input: {
     skip_reason: skip,
     paused: pausedReason !== null,
     paused_reason: pausedReason,
+    assistants_off: assistantsOff,
     paused_at: workspace ?? own,
     workspace_paused_at: workspace,
     agent_paused_at: own,
@@ -158,6 +165,8 @@ export async function loadAgentStatus(db: SupabaseClient, memberId: string): Pro
       memberId, agent: row.agent === true, state,
       workspacePausedAt: row.workspace_paused_at ?? null,
       agentPausedAt: row.agent_paused_at ?? null,
+      // Before 20261127001000 the database does not say; the request gate still holds such an agent's writes.
+      assistantsOff: row.assistants_off === true,
       resetsAt: row.period_end ?? null,
     });
   }

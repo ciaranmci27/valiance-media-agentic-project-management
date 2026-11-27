@@ -2,12 +2,15 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
-import { AlertTriangle, CheckCircle2, Clock, Link2, Loader2, UserX } from 'lucide-react';
+import { AlertTriangle, Link2, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
+import { ProviderLogo } from '@/components/ui/ProviderLogo';
+import type { LogoBadge } from '@/lib/logos';
 import { invalidateTables } from '@/lib/query-cache';
 import { workspaceApi } from '@/lib/agent-workspace';
-import { appLocale } from '@/lib/region';
+import { useDemo } from '@/lib/demo-context';
 import type { IdentityView, LinkRequestView } from '@/lib/identities';
+import { formatTime } from '@/lib/time-format';
 
 /**
  * Link a chat account: a chat bot sent this one-time link so the signed-in
@@ -15,7 +18,8 @@ import type { IdentityView, LinkRequestView } from '@/lib/identities';
  * they started by messaging the bot says so ("You messaged the Slack bot");
  * one an agent asked for names it. Confirm links it. A used, expired or
  * someone else's link says so plainly, with what to do next: message the
- * bot again for a new one.
+ * bot again for a new one. Every state that knows the chat app leads with
+ * its real logo and a state badge (DESIGN.md Rule 20).
  */
 
 type Loaded =
@@ -25,9 +29,20 @@ type Loaded =
   | { kind: 'ready'; link: LinkRequestView }
   | { kind: 'linked'; link: LinkRequestView; identity: IdentityView };
 
+const DEMO_APPS: Record<string, string> = { telegram: 'Telegram', slack: 'Slack', discord: 'Discord' };
+
+/** The demo has no links: /link/telegram (or slack, discord) shows a sample one to try, and Link my account links nothing. */
+function demoLink(token: string): LinkRequestView {
+  const provider = DEMO_APPS[token] ? token : 'telegram';
+  return {
+    provider, provider_label: DEMO_APPS[provider], external_id: '5551234', workspace_id: null, handle: '@sarahchen',
+    expires_at: new Date(Date.now() + 15 * 60_000).toISOString(), requested_by_name: null, from_chat: true, state: 'open', already_yours: false,
+  };
+}
+
 function expiryLine(iso: string): string {
   const when = new Date(iso);
-  return `Works until ${when.toLocaleTimeString(appLocale(), { hour: 'numeric', minute: '2-digit' })}`;
+  return `Works until ${formatTime(when)}`;
 }
 
 export default function LinkAccountPage() {
@@ -36,21 +51,34 @@ export default function LinkAccountPage() {
   const [state, setState] = useState<Loaded>({ kind: 'loading' });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { isDemoMode } = useDemo();
 
   const load = useCallback(async () => {
     setState({ kind: 'loading' });
+    if (isDemoMode) {
+      setState({ kind: 'ready', link: demoLink(token) });
+      return;
+    }
     try {
       setState({ kind: 'ready', link: await workspaceApi<LinkRequestView>(`/api/workspace/identities/link/${encodeURIComponent(token)}`) });
     } catch (failure) {
       const status = (failure as { status?: number }).status;
       setState(status === 404 ? { kind: 'missing' } : { kind: 'failed', message: failure instanceof Error ? failure.message : 'Could not load this link' });
     }
-  }, [token]);
+  }, [token, isDemoMode]);
 
   useEffect(() => { void load(); }, [load]);
 
   const confirm = async () => {
     if (state.kind !== 'ready') return;
+    if (isDemoMode) {
+      const { link } = state;
+      setState({ kind: 'linked', link, identity: {
+        id: 'demo', member_id: 'demo', provider: link.provider, external_id: link.external_id, workspace_id: null, handle: link.handle,
+        verified: true, verified_at: new Date().toISOString(), verified_method: null, created_at: new Date().toISOString(),
+      } });
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
@@ -73,40 +101,40 @@ export default function LinkAccountPage() {
           </div>
         )}
         {state.kind === 'missing' && (
-          <Outcome icon={AlertTriangle} tone="danger" title="This link does not work"
+          <Outcome icon={AlertTriangle} title="This link does not work"
             body="It may be mistyped, or it was never made. Message the bot again for a new link." />
         )}
         {state.kind === 'failed' && (
-          <Outcome icon={AlertTriangle} tone="danger" title="Could not load this link" body={state.message}
+          <Outcome icon={AlertTriangle} title="Could not load this link" body={state.message}
             action={<Button variant="secondary" onClick={() => void load()}>Try again</Button>} />
         )}
         {state.kind === 'linked' && (
-          <Outcome icon={CheckCircle2} tone="success" title={`${state.link.provider_label} account linked`}
-            body={`${state.identity.handle ?? state.identity.external_id} is linked to you. The bot says so in ${state.link.provider_label}: message it there and your assistant answers. You can unlink it any time.`}
+          <Outcome provider={state.link.provider} badge="done" title={`${state.link.provider_label} account linked`}
+            body={`${state.identity.handle ?? state.identity.external_id} is yours now. Message the bot in ${state.link.provider_label} and your assistant answers.`}
             action={<Button href="/settings/account#chat-accounts">See chat accounts</Button>} />
         )}
         {state.kind === 'ready' && (() => {
           const { link } = state;
           if (link.already_yours) {
-            return <Outcome icon={CheckCircle2} tone="success" title="Already linked"
+            return <Outcome provider={link.provider} badge="done" title="Already linked"
               body={`${link.handle ?? link.external_id} on ${link.provider_label} is already linked to you. Nothing else to do.`}
               action={<Button variant="secondary" href="/settings/account#chat-accounts">See chat accounts</Button>} />;
           }
           if (link.state === 'used') {
-            return <Outcome icon={Clock} tone="muted" title="This link was already used"
+            return <Outcome provider={link.provider} badge="waiting" title="This link was already used"
               body="Each link works once. If the account is not linked yet, message the bot again for a new link." />;
           }
           if (link.state === 'expired') {
-            return <Outcome icon={Clock} tone="muted" title="This link expired"
+            return <Outcome provider={link.provider} badge="waiting" title="This link expired"
               body="Links last 15 minutes. Message the bot again and it sends a new one at once." />;
           }
           if (link.state === 'wrong_member') {
-            return <Outcome icon={UserX} tone="danger" title="This link is for someone else"
+            return <Outcome provider={link.provider} badge="problem" title="This link is for someone else"
               body="It was made for another person. Sign out and sign in as them, or message the bot yourself for a link of your own." />;
           }
           return (
             <div>
-              <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-brand-500/15 text-brand-300" aria-hidden="true"><Link2 size={22} /></span>
+              <ProviderLogo provider={link.provider} label={link.provider_label} size="xl" badge="waiting" />
               <h1 className="mt-4 text-lg font-semibold text-white">{link.from_chat ? `You messaged the ${link.provider_label} bot` : `Link your ${link.provider_label} account?`}</h1>
               <p className="mt-1.5 text-sm text-zinc-400">
                 {link.from_chat
@@ -137,21 +165,27 @@ export default function LinkAccountPage() {
 }
 
 const TONES = {
-  success: 'bg-emerald-500/[0.14] text-emerald-300',
   danger: 'bg-red-500/[0.14] text-red-300',
-  muted: 'bg-white/[0.06] text-zinc-300',
 } as const;
 
-function Outcome({ icon: Icon, tone, title, body, action }: {
-  icon: typeof Link2;
-  tone: keyof typeof TONES;
+/**
+ * One outcome, centred: the chat app's logo with its state badge when the
+ * link names one (Rule 20), else a plain icon (a link that never existed
+ * names no app), then the title, one line and the one action.
+ */
+function Outcome({ provider, badge, icon: Icon = Link2, title, body, action }: {
+  provider?: string;
+  badge?: LogoBadge;
+  icon?: typeof Link2;
   title: string;
   body: string;
   action?: React.ReactNode;
 }) {
   return (
     <div className="flex flex-col items-center py-4 text-center">
-      <span className={`flex h-12 w-12 items-center justify-center rounded-2xl ${TONES[tone]}`} aria-hidden="true"><Icon size={22} /></span>
+      {provider
+        ? <ProviderLogo provider={provider} size="xl" badge={badge} />
+        : <span className={`flex h-12 w-12 items-center justify-center rounded-2xl ${TONES.danger}`} aria-hidden="true"><Icon size={22} /></span>}
       <h1 className="mt-4 text-lg font-semibold text-white">{title}</h1>
       <p className="mt-1.5 max-w-sm text-sm text-zinc-400">{body}</p>
       {action && <div className="mt-5">{action}</div>}

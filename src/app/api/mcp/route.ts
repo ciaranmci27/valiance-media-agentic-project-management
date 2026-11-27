@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { createMcpHandler } from '@modelcontextprotocol/server';
 import { ApiError } from '@/lib/api/errors';
+import { MCP_BODY_LIMIT, assertDeclaredBodySize, readBodyText } from '@/lib/api/body-limit';
 import { resolveApiKey } from '@/lib/api/middleware';
 import { resolveAgentProfile } from '@/lib/api/agent-registries';
 import { bearerChallenge } from '@/lib/api/connect-ai';
@@ -74,6 +75,13 @@ function unauthorizedRpc(request: NextRequest, message: string, data: unknown, t
 
 export async function POST(request: NextRequest) {
   if (foreignOrigin(request)) return rpcError(403, 'This origin may not call the PM MCP server.');
+  // A body that says it is too large is refused before the key is looked up.
+  try {
+    assertDeclaredBodySize(request.headers, MCP_BODY_LIMIT);
+  } catch (caught) {
+    if (caught instanceof ApiError) return rpcError(caught.statusCode, caught.message, caught.details);
+    throw caught;
+  }
   const key = readKey(request);
   const connect = isConnectAccessToken(key);
   if (!key) {
@@ -93,6 +101,7 @@ export async function POST(request: NextRequest) {
     caller = {
       key: key as string,
       origin: request.nextUrl.origin,
+      signal: request.signal,
       access,
       scopes: Array.isArray(keyRow.scopes) ? keyRow.scopes : [],
       readOnly: keyRow.permissions === 'read_only',
@@ -113,7 +122,18 @@ export async function POST(request: NextRequest) {
     return rpcError(500, 'Something went wrong on the server.', { reason: 'internal' });
   }
 
-  return mcp.fetch(request, {
+  // The body is read here, never past MCP_BODY_LIMIT (a chunked body has no
+  // length to check), and handed on as text.
+  let bounded: Request;
+  try {
+    const text = await readBodyText(request, MCP_BODY_LIMIT);
+    bounded = new Request(request.url, { method: request.method, headers: request.headers, body: text });
+  } catch (caught) {
+    if (caught instanceof ApiError) return rpcError(caught.statusCode, caught.message, caught.details);
+    throw caught;
+  }
+
+  return mcp.fetch(bounded, {
     authInfo: { token: caller.key, clientId: caller.member.id, scopes: caller.scopes, extra: { caller } },
   });
 }

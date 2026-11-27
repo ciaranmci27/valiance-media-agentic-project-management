@@ -1,7 +1,7 @@
 import { withApi } from '@/lib/api/middleware';
 import { created, paginated } from '@/lib/api/response';
 import { createLeadSchema } from '@/lib/schemas';
-import { parsePagination, sanitizeSearch, validateSort } from '@/lib/api/pagination';
+import { parsePagination, sanitizeSearch, validateSort, readPage } from '@/lib/api/pagination';
 import { insertLead } from '@/lib/supabase/queries';
 import { logAudit } from '@/lib/api/audit';
 import { accessAllows } from '@/lib/api/access';
@@ -39,9 +39,9 @@ export const GET = withApi(async ({ supabase, searchParams, access, teamMemberId
     query = query.or(`name.ilike.%${s}%,email.ilike.%${s}%,company.ilike.%${s}%`);
   }
 
-  const { data, count, error } = await query
+  const { data, count, error } = await readPage(query
     .order(sort, { ascending: order })
-    .range(offset, offset + limit - 1);
+    .order('id'), { offset, limit });
 
   if (error) throw error;
 

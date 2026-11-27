@@ -20,7 +20,7 @@ import { AGENT_FIELDS } from '@/lib/api/project-create';
 import { newKeyFrom, WorkspaceApiError } from '@/lib/agent-workspace';
 import { canAddAgentToProject, needsClamp, projectsLine, rosterProjects, showMoreLabel } from '@/lib/agents-ui';
 import {
-  hireRefusal, hireTemplates, keyExpiryLine, limitsLine, projectFromLink, readsInbox, sameNameMember, scopesBeyondRole, worksOutsideProjects,
+  hireRefusal, hireTemplates, freeAgentName, AGENT_NAME_SUGGESTIONS, keyExpiryLine, limitsLine, projectFromLink, readsInbox, sameNameMember, scopesBeyondRole, worksOutsideProjects,
   HIRE_HIDDEN_TEMPLATES, HIRE_STEPS, HIRE_STEPS_BEFORE_HIRE,
 } from '@/lib/agents-ui';
 import { buildConnectInfo, connectSnippetsWithKey } from '@/lib/agent-connect';
@@ -137,6 +137,8 @@ const builder: AgentTemplateView = {
   const handed = hireRequestFrom({ ...draft, ownerIds: [MATE] });
   check('owners are sent as picked: taking yourself out leaves only who you named', JSON.stringify(handed.owner_ids) === JSON.stringify([MATE]), handed.owner_ids);
   check('with no owners picked, none are sent (the server makes the hirer its owner)', !('owner_ids' in hireRequestFrom({ ...draft, ownerIds: [] })));
+  check('the hire body carries the attempt\'s request id when given, and none otherwise',
+    hireRequestFrom(draft, '7b0c9a3e-2f4d-4b1a-9c8e-1d2f3a4b5c6d').request_id === '7b0c9a3e-2f4d-4b1a-9c8e-1d2f3a4b5c6d' && !('request_id' in hireRequestFrom(draft)));
   check('more than 20 people as owners is refused on Identity',
     'owners' in validateHireStep('identity', { ...draft, ownerIds: Array.from({ length: 21 }, (_, i) => `p${i}`) }, builder, grantable)
     && !('owners' in validateHireStep('identity', { ...draft, ownerIds: Array.from({ length: 20 }, (_, i) => `p${i}`) }, builder, grantable)));
@@ -187,6 +189,8 @@ const builder: AgentTemplateView = {
   check('a hire that stopped partway names the suspended agent it left', partway.step === null && partway.incomplete?.agentId === 'a1' && partway.incomplete.remains.length === 1, partway);
 
   check('a ?project= link to a project that is not open is dropped', projectFromLink('gone', ['p1']).dropped && projectFromLink('p1', ['p1']).projectId === 'p1' && !projectFromLink(null, []).dropped);
+  check('the name placeholder is never someone already on the team', freeAgentName([{ name: 'nova' }, { name: 'Atlas' }]) === 'Iris'
+    && freeAgentName([]) === 'Nova' && freeAgentName(AGENT_NAME_SUGGESTIONS.map((name) => ({ name }))) === '');
   check('a same-named active member is found, any case; a suspended one is not',
     sameNameMember(' nova ', [{ name: 'Nova', status: 'active' }])?.name === 'Nova' && sameNameMember('Nova', [{ name: 'Nova', status: 'suspended' }]) === null);
   check('an agent that works in another system has no task rules', worksOutsideProjects({ scopes: ['agent_activity.write', 'questions.ask'] }) && !worksOutsideProjects({ scopes: ['tasks.read'] }) && !worksOutsideProjects(null));
@@ -323,7 +327,9 @@ function agent(i: number, fields: Partial<RosterFacts> = {}): RosterFacts {
   const rights = { manageBilling: false, manageMembers: true, manageContacts: true, timeOn: true };
   const blank = emptyProjectBasics(ME);
   const errors = validateProjectBasics(blank, { creating: true, rights });
-  check('a new project needs a name and, for who manages contacts, a client', 'name' in errors && 'clientId' in errors, errors);
+  // A project's client is optional in the data (the API and Edit project make one without): only the name is needed, as setup says.
+  check('a new project needs only a name, never a client', 'name' in errors && !('clientId' in errors)
+    && Object.keys(validateProjectBasics({ ...blank, name: 'Internal tools' }, { creating: true, rights })).length === 0, errors);
   check('editing does not ask for a client again', !('clientId' in validateProjectBasics({ ...blank, name: 'X' }, { creating: false, rights })));
   check('a due date before the start is refused', 'dueDate' in validateProjectBasics({ ...blank, name: 'X', clientId: 'c', startDate: '2026-12-10', dueDate: '2026-12-01' }, { creating: true, rights }));
   const payload = projectPayload({ ...blank, name: '  Site  ', budgetType: 'hours', budgetValue: '40' }, rights, null, ME);

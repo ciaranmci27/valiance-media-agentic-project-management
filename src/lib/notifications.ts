@@ -72,8 +72,71 @@ export function agentNoticeCategory(entityType: string | null | undefined, title
   return entityType === 'project' && title.endsWith('findings are waiting on you') ? 'findings_nudge' : 'agent_message';
 }
 
-/** A notification as the app reads it: its category always set. */
-export type NotificationView = Notification & { category: string };
+/** Who sent a notification, as the Notifications page shows them. */
+export interface NotificationActor {
+  id: string;
+  name: string;
+  avatar: string | null;
+  /** owner, admin, member, guest or agent. */
+  role: string;
+}
+
+/** A notification as the app reads it: its category always set, and its sender when the server named one. */
+export type NotificationView = Notification & { category: string; actor?: NotificationActor | null };
+
+/** The longest link a notification keeps. */
+export const NOTIFICATION_LINK_MAX = 500;
+
+/**
+ * A notification's link as the app may follow it: a path in this app
+ * ("/projects/abc?tab=tasks"), never a URL to another site. A full URL,
+ * a protocol-relative "//host", a backslash, a control character or
+ * anything over NOTIFICATION_LINK_MAX is no link (null). The server keeps
+ * only links this allows, and the page follows only links this allows.
+ */
+export function safeNotificationLink(link: unknown): string | null {
+  if (typeof link !== 'string') return null;
+  const trimmed = link.trim();
+  if (!trimmed || trimmed.length > NOTIFICATION_LINK_MAX) return null;
+  if (!trimmed.startsWith('/') || trimmed.startsWith('//')) return null;
+  if (/[\\\u0000-\u001f\u007f]/.test(trimmed)) return null;
+  return trimmed;
+}
+
+/** Who a notification says it is from: a person, an agent, or the app itself. */
+export type NotificationSender =
+  | { kind: 'person' | 'agent'; id: string; name: string; avatar: string | null; guest: boolean }
+  | { kind: 'system' };
+
+/**
+ * The sender line of a notification: the member who caused it (from the
+ * server's actor, else the team list by actor_id), or the app itself when
+ * nobody did. An actor the reader cannot see reads as "Someone", never as
+ * the app, so a member's notice never passes for a system message.
+ */
+export function notificationSender(
+  row: Pick<NotificationView, 'actor_id' | 'actor'>,
+  team: readonly { id: string; name: string; avatar?: string | null; role: string }[] = [],
+): NotificationSender {
+  const actorId = row.actor?.id ?? row.actor_id ?? null;
+  if (!actorId) return { kind: 'system' };
+  const known = row.actor ?? team.find((member) => member.id === actorId) ?? null;
+  const role = known?.role ?? 'member';
+  return {
+    kind: role === 'agent' ? 'agent' : 'person',
+    id: actorId,
+    name: known?.name?.trim() || 'Someone',
+    avatar: known?.avatar ?? null,
+    guest: role === 'guest',
+  };
+}
+
+/** The sender in words: "From Casey Brooks (guest)", "From Atlas (agent)", "From you", "From the app". */
+export function notificationSenderLabel(sender: NotificationSender, viewerId: string | null = null): string {
+  if (sender.kind === 'system') return 'From the app';
+  if (viewerId && sender.id === viewerId) return 'From you';
+  return `From ${sender.name}${sender.guest ? ' (guest)' : sender.kind === 'agent' ? ' (agent)' : ''}`;
+}
 
 /**
  * A row's category, worked out when it has none (a database before the

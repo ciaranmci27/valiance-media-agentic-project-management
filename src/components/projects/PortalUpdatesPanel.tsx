@@ -1,4 +1,6 @@
 'use client';
+import { storedFileHref } from '@/lib/storage/stored-file-url';
+import { useSignedFileUrls } from '@/lib/storage/use-signed-file-urls';
 import { FileInput } from '@/components/ui/inputs/FileInput';
 
 import { useState, useRef } from 'react';
@@ -103,13 +105,15 @@ function AttachmentChips({
   attachments: PortalUpdateAttachment[];
   onRemove?: (id: string) => void;
 }) {
+  // Pictures: one signed batch for the update, not a request per picture.
+  const imageUrl = useSignedFileUrls(attachments.filter((a) => a.mime_type.startsWith('image/')).map((a) => a.file_url));
   if (attachments.length === 0) return null;
   const images = attachments.filter((a) => a.mime_type.startsWith('image/'));
   const files = attachments.filter((a) => !a.mime_type.startsWith('image/'));
 
   const downloadFile = async (url: string, name: string) => {
     try {
-      const res = await fetch(url);
+      const res = await fetch(storedFileHref(url));
       const blob = await res.blob();
       const blobUrl = URL.createObjectURL(blob);
       const el = document.createElement('a');
@@ -132,7 +136,7 @@ function AttachmentChips({
             <div key={a.id} className="relative group/att">
               {a.file_url !== '#' ? (
                 <img
-                  src={a.file_url}
+                  src={imageUrl(a.file_url)}
                   alt={a.name}
                   className="h-16 w-auto rounded-md border border-white/[0.08] object-cover"
                 />
@@ -153,7 +157,7 @@ function AttachmentChips({
                   <div className="absolute inset-0 rounded-md flex items-center justify-center gap-1 transition-colors sm:bg-black/0 sm:group-hover/att:bg-black/40 sm:opacity-0 sm:group-hover/att:opacity-100 sm:focus-within:opacity-100">
                     <Tooltip content="Preview">
                       <button
-                        onClick={() => window.open(a.file_url, '_blank', 'noopener,noreferrer')}
+                        onClick={() => window.open(storedFileHref(a.file_url), '_blank', 'noopener,noreferrer')}
                         className="p-1 bg-white/90 rounded text-zinc-300 hover:bg-surface-raised transition-colors"
                       >
                         <Eye size={11} />
@@ -199,7 +203,7 @@ function AttachmentChips({
                     {a.file_url !== '#' && (
                       <Tooltip content="Preview">
                         <button
-                          onClick={() => window.open(a.file_url, '_blank', 'noopener,noreferrer')}
+                          onClick={() => window.open(storedFileHref(a.file_url), '_blank', 'noopener,noreferrer')}
                           className="p-0.5 text-zinc-500 hover:text-brand-300 transition-colors"
                         >
                           <Eye size={11} />

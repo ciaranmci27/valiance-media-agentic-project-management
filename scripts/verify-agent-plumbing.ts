@@ -451,7 +451,9 @@ async function main() {
       && ownerRules.body.data?.rules?.escalate_to === null, ownerRules.body.data?.rules);
 
     const outsider = await brief(work, s.keys.pat);
-    check('brief: a member outside the project is refused like reading the task', outsider.status === 403 && outsider.body.error?.details?.reason === 'project_scope', outsider);
+    // A task out of reach answers as one that does not exist: never "denied" with its project id.
+    check('brief: a member outside the project gets the 404 of a missing task', outsider.status === 404 && outsider.body.error?.details?.reason === 'not_found_or_in_trash'
+      && !JSON.stringify(outsider.body).includes('project_id'), outsider);
     const outsiderTask = await call(taskRoute.GET, 'GET', `/api/v1/tasks/${work}`, { id: work }, s.keys.pat);
     check('brief: the same answer GET /tasks/{id} gives', outsiderTask.status === outsider.status && outsiderTask.body.error?.details?.reason === outsider.body.error?.details?.reason);
     const missing = await brief(randomUUID(), s.keys.builder);

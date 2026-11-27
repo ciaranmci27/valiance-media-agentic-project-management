@@ -209,13 +209,18 @@ export async function insertApiKey(
 
 /** A member's live keys (not revoked), newest first, never with a hash or secret. */
 export async function memberApiKeys(service: SupabaseClient, memberId: string): Promise<ApiKey[]> {
-  const { data, error } = await service
+  const read = (columns: string) => service
     .from('api_keys')
-    .select(API_KEY_COLUMNS)
+    .select(columns)
     .eq('team_member_id', memberId)
     .is('revoked_at', null)
     .neq('permissions', 'connection')
     .order('created_at', { ascending: false });
+  // paused_at (20261127000600) says a key is paused; a database before it has no paused keys.
+  let { data, error } = await read(`${API_KEY_COLUMNS}, paused_at`);
+  if (error && (error.code === '42703' || error.code === 'PGRST204') && /paused_at/.test(error.message ?? '')) {
+    ({ data, error } = await read(API_KEY_COLUMNS));
+  }
   if (error) throw error;
   return (data ?? []) as unknown as ApiKey[];
 }

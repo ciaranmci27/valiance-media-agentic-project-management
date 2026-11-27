@@ -91,7 +91,8 @@ const EXPECTED: Record<string, string> = {
   'POST /api/v1/agents': 'team.manage',
   // questions.ask (20261125001400_external_agents.sql): asking with no task or project, without tasks.read.
   'POST /api/v1/questions': 'questions.ask,tasks.read',
-  'POST /api/v1/questions/[id]/answer': 'tasks.read',
+  // approvals.decide: a key that only decides approvals (the named person's own key).
+  'POST /api/v1/questions/[id]/answer': 'approvals.decide,questions.ask,tasks.read',
   'GET /api/v1/chat/messages': 'notifications.manage_own',
   'POST /api/v1/chat/messages/[id]/reply': 'notifications.manage_own',
 };

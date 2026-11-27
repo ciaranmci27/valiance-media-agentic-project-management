@@ -3,27 +3,29 @@ import { paginated, created } from '@/lib/api/response';
 import { createPortalUpdateSchema } from '@/lib/schemas';
 import { insertPortalUpdate } from '@/lib/supabase/queries';
 import { logAudit } from '@/lib/api/audit';
-import { parsePagination } from '@/lib/api/pagination';
+import { parsePagination, readPage } from '@/lib/api/pagination';
+import { withDownloadUrls } from '@/lib/storage/sign-stored-file';
 
 export const GET = withApi(async ({ supabase, params, searchParams }) => {
   const { id } = params as any;
   const { page, limit, offset } = parsePagination(searchParams);
 
-  const { data, count, error } = await supabase
+  const { data, count, error } = await readPage(supabase
     .from('portal_updates')
     .select('*, portal_update_attachments(id, name, file_url, file_size, mime_type, uploaded_by, created_at)', { count: 'exact' })
     .eq('project_id', id)
     .is('deleted_at', null)
     .is('portal_update_attachments.deleted_at', null)
     .order('created_at', { ascending: false })
-    .range(offset, offset + limit - 1);
+    .order('id'), { offset, limit });
 
   if (error) throw error;
 
-  const mapped = (data || []).map((u: any) => {
+  // Attachments are private: each download_url is a signed link that lasts an hour.
+  const mapped = await Promise.all((data || []).map(async (u: any) => {
     const { portal_update_attachments, ...rest } = u;
-    return { ...rest, attachments: portal_update_attachments || [] };
-  });
+    return { ...rest, attachments: await withDownloadUrls(supabase, portal_update_attachments || [], 3600) };
+  }));
 
   return paginated(mapped, { page, limit, total: count || 0 });
 }, { permission: 'portal.read' });

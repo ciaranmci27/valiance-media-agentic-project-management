@@ -14,6 +14,7 @@ import { escalationRecipient } from './agent-rules';
 import { activeGroupMembers, groupNames, groupsMigrationPending, liveGroup, missingGroupsSchema } from './groups';
 import { ApiError, badRequest, forbidden, notFound } from './errors';
 import { postgrestList, trashedProjectIds } from '@/lib/supabase/trash';
+import { readPage } from './pagination';
 
 /**
  * Questions for the API (v1, MCP) and the app's session routes: one member
@@ -70,6 +71,8 @@ interface QuestionRow {
   principal_id?: string | null;
   /** The asker's run it holds; missing on a database before 20261125001300. */
   run_id?: string | null;
+  /** Why it expired before its time; missing on a database before 20261127001400. */
+  expired_reason?: string | null;
   question: string;
   choices: string[] | null;
   allow_other: boolean;
@@ -103,6 +106,9 @@ interface QuestionRow {
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const invalid = (message: string, details?: Record<string, unknown>) => new ApiError(422, 'VALIDATION_ERROR', message, details);
+
+/** The ask-first approval's action type, made only by the app (agent-access.ts). */
+const AGENT_USE_ACTION = 'agent.use';
 
 /** A database that does not have the questions table yet (new code before its migration). */
 export const missingQuestionsTable = (error: { code?: string; message?: string } | null) =>
@@ -152,6 +158,16 @@ export function readsPlaces(ctx: Pick<QuestionsContext, 'access' | 'channel' | '
   if (ctx.channel === 'app') return true;
   return (['tasks.read', 'tasks.manage_all'] as const).some((permission) =>
     (ctx.scopes ?? []).includes(permission) && accessAllows(ctx.access, permission, 'api'));
+}
+
+/**
+ * Whether the request may answer a plain question: the app, or a key that
+ * reads questions (tasks.read, tasks.manage_all or questions.ask, held by its
+ * member). A key on approvals.decide alone decides approvals only.
+ */
+function readsQuestions(ctx: Pick<QuestionsContext, 'access' | 'channel' | 'scopes'>): boolean {
+  return readsPlaces(ctx)
+    || ((ctx.scopes ?? []).includes('questions.ask') && accessAllows(ctx.access, 'questions.ask', 'api'));
 }
 
 async function loadTaskReader(ctx: QuestionsContext): Promise<TaskReader> {
@@ -238,8 +254,17 @@ function canOpenPlace(ctx: QuestionsContext, reader: TaskReader, place: { task_i
 function canSee(ctx: QuestionsContext, row: QuestionRow): boolean {
   if (row.deleted_at || row.place_live === false) return false;
   const party = row.asked_by === ctx.memberId || row.asked_to === ctx.memberId || row.to_reader === true;
+  // A guest sees only what is addressed to them (or a group they are in) and
+  // what they asked: never the team's own questions and approvals on the
+  // tasks they can open.
+  if (isGuestReader(ctx)) return party && partyInReach(ctx, row);
   return (party && partyInReach(ctx, row))
     || ((!!row.task_id || !!row.project_id) && row.can_open_place === true);
+}
+
+/** A guest (a client let into some projects) reads questions as a party only. Mirrors questions_select (20261127001500). */
+export function isGuestReader(ctx: Pick<QuestionsContext, 'access'>): boolean {
+  return ctx.access.role === 'guest';
 }
 
 /**
@@ -461,6 +486,7 @@ async function present(ctx: QuestionsContext, rows: QuestionRow[]): Promise<Ques
       } : {}),
       ...(row.principal_id ? { principal_id: row.principal_id, principal_name: names.get(row.principal_id) ?? null } : {}),
       ...(row.run_id ? { run_id: row.run_id } : {}),
+      ...(row.expired_reason === 'asked_member_suspended' ? { expired_reason: 'asked_member_suspended' as const } : {}),
     };
   });
 }
@@ -634,6 +660,10 @@ export async function askQuestion(ctx: QuestionsContext, input: AskQuestionInput
  */
 export async function requestApproval(ctx: QuestionsContext, input: RequestApprovalInput): Promise<QuestionView> {
   const { action, question, ...rest } = input;
+  // agent.use is the app's own ask-first approval (agent-access.ts): nobody asks for one by hand.
+  if (action.type === AGENT_USE_ACTION) {
+    throw invalid(`action.type ${AGENT_USE_ACTION} is the app's own: give the agent the work instead, and the app asks its managers when it asks first.`, { reason: 'reserved_action_type' });
+  }
   return createQuestion(ctx, {
     ...rest,
     question: question ?? action.summary,
@@ -779,6 +809,8 @@ async function visibleFilter(ctx: QuestionsContext, reader: TaskReader): Promise
   const parties = [`asked_by.eq.${ctx.memberId}`, `asked_to.eq.${ctx.memberId}`, ...(groups.length ? [`asked_to_group.in.(${groups.join(',')})`] : [])];
   // A key on questions.ask alone reads its own questions on nothing (canSee checks each row again).
   if (!readsPlaces(ctx)) return parties.map((party) => `and(${party},project_id.is.null,task_id.is.null)`).join(',');
+  // A guest: only the questions they are a party to, wherever they hang (canSee checks each row again).
+  if (isGuestReader(ctx)) return parties.join(',');
   const readAll = accessAllows(ctx.access, 'projects.read_all', ctx.channel);
   const projects = readAll ? [] : accessAllows(ctx.access, 'projects.read', ctx.channel) ? ctx.access.project_ids : [];
   const inProjects = readAll ? 'project_id.not.is.null' : projects.length ? `project_id.in.(${projects.join(',')})` : null;
@@ -841,9 +873,9 @@ export async function listQuestions(ctx: QuestionsContext, filters: QuestionFilt
   if (filters.taskId) query = query.eq('task_id', filters.taskId);
   if (filters.projectId) query = query.eq('project_id', filters.projectId);
   if (filters.kind) query = query.eq('kind', filters.kind);
-  const { data, count, error } = await query
+  const { data, count, error } = await readPage(query
     .order('created_at', { ascending: !!filters.oldestFirst })
-    .range(filters.offset, filters.offset + filters.limit - 1);
+    .order('id'), filters);
   if (error) throw error;
   const rows = (await withPlaces(ctx, (data ?? []) as QuestionRow[])).filter((row) => canSee(ctx, row));
   return { rows: await present(ctx, rows), total: count ?? rows.length };
@@ -871,9 +903,14 @@ async function notOpen(ctx: QuestionsContext, row: QuestionRow): Promise<ApiErro
     : {
       answered: 'This question has already been answered.',
       cancelled: 'This question was cancelled.',
-      expired: 'This question expired before anyone answered it.',
+      expired: row.expired_reason === 'asked_member_suspended'
+        ? 'This question closed: the member it was asked to was suspended. Ask someone else.'
+        : 'This question expired before anyone answered it.',
     }[status];
-  return new ApiError(409, 'CONFLICT', message, { reason: `question_${status}`, status, handled_by: by, handled_by_name: name });
+  return new ApiError(409, 'CONFLICT', message, {
+    reason: `question_${status}`, status, handled_by: by, handled_by_name: name,
+    ...(status === 'expired' && row.expired_reason ? { expired_reason: row.expired_reason } : {}),
+  });
 }
 
 /** What else a decision did: a template draft the approval was about (template-drafts.ts). */
@@ -899,6 +936,10 @@ export async function answerQuestion(ctx: QuestionsContext, id: string, input: A
     const decision = approvalDecision(ctx, row, await actingFor(ctx));
     if (decision instanceof ApiError) throw decision;
     decider = decision;
+  } else if (!readsQuestions(ctx)) {
+    throw forbidden(`${APPROVALS_DECIDE} decides approvals only: answering a question needs questions.ask or tasks.read on this key.`, {
+      reason: 'missing_key_scope', needs: ['questions.ask', 'tasks.read'],
+    });
   } else if (!canAnswer(ctx, row, null)) {
     throw forbidden('Only the person asked, the Owner, or someone who may manage the team can answer this question.', { reason: 'not_asked' });
   }
@@ -1008,7 +1049,7 @@ export interface OpenQuestion {
  * question has exactly the fields it always had; an approval adds kind and
  * action.
  */
-export async function openQuestionForTask(db: SupabaseClient, taskId: string): Promise<OpenQuestion | null> {
+export async function openQuestionForTask(db: SupabaseClient, taskId: string, onlyFor?: { memberId: string } | null): Promise<OpenQuestion | null> {
   // Every column, so a database before the approval columns reads the same.
   const { data, error } = await db
     .from('questions')
@@ -1020,7 +1061,16 @@ export async function openQuestionForTask(db: SupabaseClient, taskId: string): P
     .limit(20);
   if (missingQuestionsTable(error)) return null;
   if (error) throw error;
-  const open = ((data ?? []) as QuestionRow[]).find((q) => effectiveQuestionStatus(q) === 'open');
+  // A guest reader (onlyFor) sees only a question asked by them, of them or of a group they are in.
+  let groups: Set<string> | null = null;
+  if (onlyFor) {
+    const { data: memberships, error: groupsError } = await db.from('group_members').select('group_id').eq('member_id', onlyFor.memberId);
+    if (groupsError && !missingGroupsSchema(groupsError)) throw groupsError;
+    groups = new Set(((memberships ?? []) as { group_id: string }[]).map((row) => row.group_id));
+  }
+  const addressed = (q: QuestionRow) => !onlyFor || q.asked_by === onlyFor.memberId || q.asked_to === onlyFor.memberId
+    || (!!q.asked_to_group && !!groups?.has(q.asked_to_group));
+  const open = ((data ?? []) as QuestionRow[]).find((q) => effectiveQuestionStatus(q) === 'open' && addressed(q));
   if (!open) return null;
   const [names, groupsById] = await Promise.all([
     memberNames(db, [open.asked_by, open.asked_to]),

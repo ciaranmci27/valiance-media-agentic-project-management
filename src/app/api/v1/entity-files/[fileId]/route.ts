@@ -6,6 +6,7 @@ import { logAudit } from '@/lib/api/audit';
 import { forbidden } from '@/lib/api/errors';
 import { accessAllowsEntity } from '@/lib/api/access';
 import { trashForApi } from '@/lib/api/trash';
+import { withDownloadUrls } from '@/lib/storage/sign-stored-file';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { AccessContext } from '@/lib/access-control';
 
@@ -22,7 +23,9 @@ async function requireFileScope(supabase: SupabaseClient, fileId: string, access
 export const GET = withApi(async ({ supabase, params, access, teamMemberId }) => {
   const { fileId } = params as { fileId: string };
   const data = await requireFileScope(supabase, fileId, access, teamMemberId);
-  return success(data);
+  // Stored files are private: download_url is a signed link that lasts an hour.
+  const [withLink] = await withDownloadUrls(supabase, [data], 3600);
+  return success(withLink);
 }, { permission: 'files.read' });
 
 export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemberId, access }) => {

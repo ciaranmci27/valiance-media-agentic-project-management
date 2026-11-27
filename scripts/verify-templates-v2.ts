@@ -46,7 +46,7 @@ import { actAs, applyMigrationsFrom, createFullSchemaDatabase, SCHEMA_PATH } fro
 import { startFakePostgrest } from './fake-postgrest';
 import { diffSnapshots, pmSnapshot } from './lib/pm-catalog';
 import {
-  assignTemplateKeys, dueLabel, issuesFromZod, planRun, templateDocumentSchema, templateIssues, templateJsonSchemas, type TemplateTask,
+  assignTemplateKeys, dueLabel, issuesFromZod, keyDateOrderWarnings, planRun, runDateWarnings, templateDocumentSchema, templateIssues, templateJsonSchemas, templateWarnings, type TemplateTask,
 } from '../src/lib/task-templates';
 import { PRODUCT_LAUNCH_EXAMPLE } from '../src/lib/task-template-schema';
 
@@ -157,6 +157,38 @@ function pureChecks() {
   check('shape: an offset out of range and an unknown property, each at its path', shapeIssues.some((i) => i.path === 'items[1].due_in_days' && i.code === 'offset_out_of_range')
     && shapeIssues.some((i) => i.path === 'items[1].colour' && i.code === 'unknown_property'), shapeIssues);
   check('rules: the worked example is clean', templateIssues(PRODUCT_LAUNCH_EXAMPLE).length === 0 && templateDocumentSchema.safeParse(PRODUCT_LAUNCH_EXAMPLE).success);
+
+  // Dates that may not be meant: a task due before what it waits on warns at save and at run; it never refuses.
+  const impossibleDoc = {
+    key_dates: [{ key: 'kickoff', label: 'Kickoff' }, { key: 'golive', label: 'Go-live' }],
+    items: [
+      { key: 'moodboard', title: 'Moodboard', anchor: 'kickoff', due_in_days: 7 },
+      { key: 'checklist', title: 'Go-live checklist', anchor: 'kickoff', due_in_days: 2, depends_on: ['moodboard'] },
+      { key: 'sameday', title: 'Same day', anchor: 'kickoff', due_in_days: 7, depends_on: ['moodboard'] },
+      { key: 'launch', title: 'Launch', anchor: 'golive', due_in_days: -10, depends_on: ['moodboard'] },
+      { key: 'undated', title: 'Undated', depends_on: ['moodboard'] },
+    ],
+  };
+  const impossible = templateIssues(impossibleDoc);
+  check('rules: a task due before what it waits on is never an error (existing templates keep saving)', !impossible.some((issue) => issue.code === 'dependency_due_before'), impossible);
+  const dueBefore = templateWarnings(impossibleDoc).filter((issue) => issue.code === 'dependency_due_before');
+  check('warnings: a task due before what it waits on, from the same key date, is warned in true words with a fix', dueBefore.length === 1
+    && dueBefore[0].path === 'items[1].depends_on[0]'
+    && dueBefore[0].message === '"Go-live checklist" is due before a task it waits on: due 2 days after Kickoff, while "Moodboard" is due 7 days after Kickoff'
+    && /5 days later/.test(dueBefore[0].hint), dueBefore);
+  const ordered = keyDateOrderWarnings([{ key: 'kickoff', label: 'Kickoff' }, { key: 'golive', label: 'Go-live' }], { kickoff: '2026-11-30', golive: '2026-11-27' });
+  check('run warnings: Go-live before Kickoff is said plainly', ordered.length === 1 && ordered[0].code === 'key_dates_out_of_order'
+    && ordered[0].message === 'Go-live, Nov 27, 2026, is before Kickoff, Nov 30, 2026' && JSON.stringify(ordered[0].keys) === '["golive","kickoff"]', ordered);
+  check('run warnings: key dates in order, or not set yet, warn nothing', keyDateOrderWarnings([{ key: 'a', label: 'A' }, { key: 'b', label: 'B' }], { a: '2026-11-27', b: '2026-11-27' }).length === 0
+    && keyDateOrderWarnings([{ key: 'a', label: 'A' }, { key: 'b', label: 'B' }], { b: '2026-11-27' }).length === 0);
+  const late = runDateWarnings([
+    { key: 'moodboard', title: 'Moodboard', due_date: '2026-12-07' },
+    { key: 'checklist', title: 'Go-live checklist', due_date: '2026-11-27', depends_on: ['moodboard'] },
+    { key: 'after', title: 'After', due_date: '2026-12-07', depends_on: ['moodboard'] },
+  ], [{ key: 'kickoff', label: 'Kickoff' }, { key: 'golive', label: 'Go-live' }], { kickoff: '2026-11-30', golive: '2026-11-27' });
+  check('run warnings: key dates first, then each task due before what it waits on (same day is fine)', late.length === 2 && late[0].code === 'key_dates_out_of_order'
+    && late[1].code === 'due_before_dependency' && late[1].message === 'Go-live checklist is due Nov 27, 2026 but waits on Moodboard, due Dec 7, 2026'
+    && JSON.stringify(late[1].keys) === '["checklist","moodboard"]', late);
   const schemas = templateJsonSchemas() as Loose;
   const itemProps = schemas.template?.properties?.items?.items?.properties ?? {};
   check('schema: the JSON Schema has key dates, roles, guidance and each item\'s key, anchor, role and depends_on', ['key_dates', 'roles', 'guidance', 'fields', 'items'].every((k) => k in (schemas.template?.properties ?? {}))
@@ -481,6 +513,13 @@ async function main() {
       && pastBrief?.due_date === '2020-01-08' && pastBrief.title === pastPreview.tasks[0].title
       && (pastPreview.past_due as Loose[]).every((d) => d.due_date < '2026-01-01') && !(pastPreview.past_due as Loose[]).some((d) => d.key === 'ship')
       && Array.isArray(futurePreview?.past_due) && futurePreview.past_due.length === 0, { past: pastPreview?.past_due, future: futurePreview?.past_due });
+    // Launch set before kickoff: the run still previews ok, and says so plainly, with every task now due before what it waits on.
+    const backwards = (await session(previewRoute.POST, 'POST', `/api/workspace/task-templates/${launchId}/preview`, { id: launchId }, { ...runInput, key_dates: { kickoff: '2099-03-02', launch: '2099-01-05' } })).body?.data;
+    const warned = (backwards?.date_warnings ?? []) as Loose[];
+    check('preview: key dates out of order and tasks due before what they wait on are warned, the run still allowed', backwards?.ok === true
+      && warned[0]?.code === 'key_dates_out_of_order' && warned[0].message === 'Launch date, Jan 5, 2099, is before Kickoff, Mar 2, 2099'
+      && warned.some((w) => w.code === 'due_before_dependency' && JSON.stringify(w.keys) === '["assets","brief"]')
+      && Array.isArray(futurePreview?.date_warnings) && futurePreview.date_warnings.length === 0, warned);
 
     const ran = await session(runRoute.POST, 'POST', `/api/workspace/task-templates/${launchId}/run`, { id: launchId }, runInput);
     const made = (ran.body?.data?.tasks ?? []) as Loose[];

@@ -12,6 +12,7 @@ import { Select } from '@/components/ui/inputs/Select';
 import { Textarea } from '@/components/ui/inputs/Textarea';
 import { DateInput } from '@/components/ui/inputs/DateInput';
 import { TimeInput } from '@/components/ui/inputs/TimeInput';
+import { profileTimeZone } from '@/lib/time-zone';
 
 interface LeadInteractionFormProps {
   isOpen: boolean;
@@ -36,7 +37,7 @@ export function LeadInteractionForm({
 }: LeadInteractionFormProps) {
   const { addLeadInteraction, updateLeadInteraction, team } = useApp();
   const { teamMemberId } = useAuth();
-  const tz = team.find((m) => m.id === teamMemberId)?.timezone;
+  const tz = profileTimeZone(team.find((m) => m.id === teamMemberId));
 
   const [type, setType] = useState<LeadInteraction['type']>('note');
   const [title, setTitle] = useState('');

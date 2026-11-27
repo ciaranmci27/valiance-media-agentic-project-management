@@ -1,24 +1,25 @@
 import { z } from 'zod';
 import { AI_READINESS } from '@/lib/types';
+import { clearableDate, commentText, criterionText, longText, tagList, titleText } from './shared';
 
 const taskTypeEnum = z.enum(['engineering', 'research', 'audit', 'marketing', 'copywriting', 'operations', 'general']);
 const aiReadinessEnum = z.enum(AI_READINESS);
 
 export const createTaskSchema = z.object({
   project_id: z.string().uuid('project_id must be a UUID'),
-  title: z.string().min(1, 'Title is required'),
-  description: z.string().default(''),
+  title: titleText(),
+  description: longText().default(''),
   status: z.enum(['backlog', 'todo', 'in_progress', 'in_review', 'done']).default('todo'),
   priority: z.enum(['low', 'medium', 'high', 'urgent']).default('medium'),
-  due_date: z.string().nullable().default(null),
-  tags: z.array(z.string()).default([]),
+  due_date: clearableDate.nullable().default(null),
+  tags: tagList.default([]),
   assignee_ids: z.array(z.string().uuid()).default([]),
   project_goal_id: z.string().uuid().nullable().optional(),
   // The initiative it belongs to, in the same project (a subtask takes its parent's).
   initiative_id: z.string().uuid().nullable().optional(),
   task_type: taskTypeEnum.nullable().optional(),
   ai_readiness: aiReadinessEnum.nullable().optional(),
-  acceptance_criteria: z.array(z.string().min(1)).optional(),
+  acceptance_criteria: z.array(criterionText()).max(100).optional(),
   blocked_by_ids: z.array(z.string().uuid()).optional(),
   // Why this key is creating the task ("from Brennan's email"); shown as the
   // caller's own words on the task. Set once, never changed.
@@ -41,19 +42,19 @@ export const createApiTaskSchema = createTaskSchema.extend({
   // counts a repeat there instead of making a second task.
   dedupe_key: z.string().trim().min(1).max(200).optional(),
   // A repeat's note, added to the open task as a comment.
-  occurrence_note: z.string().trim().min(1).max(20_000).optional(),
+  occurrence_note: commentText('occurrence_note').optional(),
 }).refine((body) => body.project_id || body.parent_task_id, {
   message: 'project_id is required (or parent_task_id, for a subtask)',
   path: ['project_id'],
 });
 
 export const updateTaskSchema = z.object({
-  title: z.string().min(1).optional(),
-  description: z.string().optional(),
+  title: titleText().optional(),
+  description: longText().optional(),
   status: z.enum(['backlog', 'todo', 'in_progress', 'in_review', 'done']).optional(),
   priority: z.enum(['low', 'medium', 'high', 'urgent']).optional(),
-  due_date: z.string().nullable().optional(),
-  tags: z.array(z.string()).optional(),
+  due_date: clearableDate.nullable().optional(),
+  tags: tagList.optional(),
   assignee_ids: z.array(z.string().uuid()).optional(),
   project_id: z.string().uuid().optional(),
   project_goal_id: z.string().uuid().nullable().optional(),
@@ -63,7 +64,7 @@ export const updateTaskSchema = z.object({
   ai_readiness: aiReadinessEnum.nullable().optional(),
   // Full replace: existing criteria rows are deleted and recreated, which
   // resets satisfied flags. Intended for retrofitting specs before work starts.
-  acceptance_criteria: z.array(z.string().min(1)).optional(),
+  acceptance_criteria: z.array(criterionText()).max(100).optional(),
   blocked_by_ids: z.array(z.string().uuid()).optional(),
   // A task id makes it a subtask of that task; null makes it top-level.
   parent_task_id: z.string().uuid('parent_task_id must be a UUID').nullable().optional(),

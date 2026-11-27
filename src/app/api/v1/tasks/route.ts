@@ -1,7 +1,7 @@
 import { withApi } from '@/lib/api/middleware';
 import { paginated, success } from '@/lib/api/response';
 import { createApiTaskSchema } from '@/lib/schemas';
-import { parsePagination, sanitizeSearch, validateSort } from '@/lib/api/pagination';
+import { parsePagination, sanitizeSearch, validateSort, readPage } from '@/lib/api/pagination';
 import { accessAllows } from '@/lib/api/access';
 import { createTaskWithRules } from '@/lib/api/create-task';
 import { liveTaskIds } from '@/lib/api/task-guards';
@@ -72,9 +72,9 @@ export const GET = withApi(async ({ supabase, searchParams, access }) => {
     query = query.or(`title.ilike.%${s}%,description.ilike.%${s}%`);
   }
 
-  const { data, count, error } = await query
+  const { data, count, error } = await readPage(query
     .order(sort, { ascending: order })
-    .range(offset, offset + limit - 1);
+    .order('id'), { offset, limit });
 
   if (error) {
     if (initiativeId && missingInitiativesSchema(error)) throw initiativesMigrationPending();

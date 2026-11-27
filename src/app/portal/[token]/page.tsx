@@ -165,6 +165,7 @@ function PortalPageInner() {
             updates={data.updates || []}
             onPreview={setPreviewFile}
             onDownload={handleDownload}
+            onLinkExpired={portal.refreshLinks}
           />
         );
       case 'show_hours':

@@ -4,8 +4,9 @@ import { createEntityFileSchema } from '@/lib/schemas';
 import { badRequest, forbidden } from '@/lib/api/errors';
 import { accessAllowsEntity } from '@/lib/api/access';
 import { logAudit } from '@/lib/api/audit';
-import { parsePagination } from '@/lib/api/pagination';
+import { parsePagination, readPage } from '@/lib/api/pagination';
 import { z } from 'zod';
+import { withDownloadUrls } from '@/lib/storage/sign-stored-file';
 
 const ENTITY_TYPES = ['lead', 'project', 'contact'] as const;
 
@@ -47,12 +48,13 @@ export const GET = withApi(async ({ supabase, searchParams, access, teamMemberId
     query = query.eq('visibility', visibility);
   }
 
-  const { data, count, error } = await query
+  const { data, count, error } = await readPage(query
     .order('created_at', { ascending: false })
-    .range(offset, offset + limit - 1);
+    .order('id'), { offset, limit });
 
   if (error) throw error;
-  return paginated(data || [], { page, limit, total: count || 0 });
+  // Stored files are private: download_url is a signed link that lasts an hour.
+  return paginated(await withDownloadUrls(supabase, data || [], 3600), { page, limit, total: count || 0 });
 }, { permission: 'files.read' });
 
 export const POST = withApi(async ({ supabase, body, apiKeyId, teamMemberId, access }) => {

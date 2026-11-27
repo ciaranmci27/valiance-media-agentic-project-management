@@ -127,8 +127,12 @@ export const MODULE_SURFACES: Record<ModuleId, ModuleSurface> = {
       'agent_health', 'agent_health_history', 'agent_activities', 'project_goals', 'task_suggestions',
       'agent_billing_gap_reviews', 'analytics_tracking_starts', 'task_reopens', 'agent_runs',
       'project_agents', 'agent_owners',
+      // One hire per attempt (a request id claimed once).
+      'agent_hire_requests',
       // Groups that own agents, and agents acting for a person (X-Act-For).
       'agent_owner_groups', 'delegation_tokens',
+      // Who can use an agent (its audience; orchestrators live on team_members).
+      'agent_audience',
       // What a provider's subscription costs, for the Analytics estimate.
       'provider_plans',
       // Personal agents by role or group.
@@ -141,6 +145,8 @@ export const MODULE_SURFACES: Record<ModuleId, ModuleSurface> = {
       'agent_limits', 'agent_rate_limit_windows',
       // A subtask an agent handed to another, and an Owner's own agent profiles and templates.
       'task_delegations', 'mcp_profile_rows', 'agent_template_rows',
+      // The event feed a harness long-polls, its retention mark and its open waits.
+      'event_feed', 'event_feed_state', 'event_feed_waits',
     ],
     // The question sums for Agents > Analytics, and whether an open question
     // holds a waiting run (the run feed reads it as the caller).
@@ -148,6 +154,8 @@ export const MODULE_SURFACES: Record<ModuleId, ModuleSurface> = {
     routes: [
       // Every agent event and run, in order, for a data system.
       'api/v1/agent-events',
+      // The event feed a harness with no public address long-polls.
+      'api/v1/events',
       'api/v1/agent-activities', 'api/v1/agent-templates', 'api/v1/agents', 'api/v1/projects/[id]/goals', 'api/v1/task-suggestions',
       // An agent's own assignments and a project's agents (pm.project_agents).
       'api/v1/agents/me/projects', 'api/v1/projects/[id]/agents',
@@ -191,6 +199,10 @@ export const CORE_ROUTES: string[] = [
   'api/workspace/access', 'api/workspace/api-keys', 'api/workspace/brand', 'api/workspace/me', 'api/workspace/region', 'api/workspace/modules', 'api/workspace/setup-checks', 'api/workspace/secrets', 'api/workspace/encryption', 'api/workspace/webhook-retries', 'api/welcome',
   'api/workspace/projects', 'api/workspace/questions', 'api/workspace/notifications', 'api/workspace/tasks', 'api/workspace/team-directory', 'api/workspace/team-members',
   'api/workspace/updates',
+  // Opens a stored project, lead, contact, invoice or portal file through a short signed link; the file's own record decides.
+  'api/storage/file',
+  // The notice about a comment or file just added, written by the server from the record.
+  'api/workspace/announce',
   // How long new agent keys last (Owner only), with AI agents on or off.
   'api/workspace/key-settings',
   // The audit log: Settings > Security (Owner only) and its export (audit.export).
@@ -250,6 +262,8 @@ export const CORE_RPCS: string[] = [
   'activity_member_name', 'activity_actor', 'workspace_today', 'consume_api_rate_limit',
   'list_trash', 'can_trash_record', 'soft_delete_record', 'restore_record', 'trash_restore_blocker',
   'trash_delete_blocker', 'project_is_live', 'task_is_live', 'file_entity_is_live',
+  // Storage row policies: who reads and writes a stored file, by the record it belongs to (20261127001200).
+  'storage_object_allowed',
   // The workspace region: the currency new money is stamped with, and amounts as the app writes them.
   'workspace_currency', 'format_money',
 ];

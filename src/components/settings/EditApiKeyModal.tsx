@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useState } from 'react';
 import Modal from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { TextInput } from '@/components/ui/inputs/TextInput';
@@ -55,8 +55,21 @@ export function EditApiKeyModal({ apiKey, memberName, onClose }: EditApiKeyModal
   const [name, setName] = useState('');
   const [scopes, setScopes] = useState<string[]>([]);
   const [loadError, setLoadError] = useState('');
+  // Each problem shows at its own field (the name, the powers); what the server says shows at the top.
   const [error, setError] = useState('');
+  const [nameError, setNameError] = useState('');
+  const [scopesError, setScopesError] = useState('');
   const [saving, setSaving] = useState(false);
+  const fieldId = useId();
+  const nameId = `${fieldId}-name`;
+  const scopesId = `${fieldId}-scopes`;
+  const topId = `${fieldId}-top`;
+  /** Brings a field's problem into view: the dialog scrolls, and Save at its foot would otherwise seem to do nothing. */
+  const showProblem = (elementId: string) => requestAnimationFrame(() => {
+    const element = document.getElementById(elementId);
+    element?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    if (element instanceof HTMLInputElement) element.focus({ preventScroll: true });
+  });
   const id = apiKey?.id;
   // An agent's key: what you may give (yours) beside what it holds, its lacks marked; else the member's scopes.
   const mine = useMemo(() => apiScopesFor(access), [access]);
@@ -80,6 +93,8 @@ export function EditApiKeyModal({ apiKey, memberName, onClose }: EditApiKeyModal
     setForAgent(false);
     setLoadError('');
     setError('');
+    setNameError('');
+    setScopesError('');
     fetch(`/api/workspace/api-keys/${encodeURIComponent(id)}`, { signal: controller.signal })
       .then(async (response) => {
         const payload = await response.json().catch(() => ({}));
@@ -114,9 +129,14 @@ export function EditApiKeyModal({ apiKey, memberName, onClose }: EditApiKeyModal
     event.preventDefault();
     if (!base || !available) return;
     const trimmed = name.trim();
-    if (!trimmed) return setError('Name is required.');
-    if (scopes.filter((scope) => !parked(scope)).length === 0) return setError('Choose at least one thing this key can do.');
-    if (unheld.length > 0) return setError('Remove the access this key no longer allows first.');
+    const noName = !trimmed ? 'Give the key a name.' : '';
+    const noScopes = scopes.filter((scope) => !parked(scope)).length === 0
+      ? 'Choose at least one thing this key can do.'
+      : unheld.length > 0 ? 'Remove the access this key no longer allows first.' : '';
+    setNameError(noName);
+    setScopesError(noScopes);
+    setError('');
+    if (noName || noScopes) return showProblem(noName ? nameId : scopesId);
 
     const changes: { name?: string; scopes?: string[] } = {};
     if (trimmed !== base.name) changes.name = trimmed;
@@ -133,6 +153,7 @@ export function EditApiKeyModal({ apiKey, memberName, onClose }: EditApiKeyModal
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not save the key.');
+      showProblem(topId);
     } finally {
       setSaving(false);
     }
@@ -148,15 +169,17 @@ export function EditApiKeyModal({ apiKey, memberName, onClose }: EditApiKeyModal
     <Modal isOpen={!!apiKey} onClose={close} title="Edit key" size="lg">
       <form onSubmit={save} noValidate className="space-y-4">
         {(loadError || error) && (
-          <p role="alert" className="rounded-lg bg-red-500/15 px-3 py-2 text-sm text-red-400">
+          <p id={topId} role="alert" className="rounded-lg bg-red-500/15 px-3 py-2 text-sm text-red-400">
             {loadError || error}
           </p>
         )}
 
         <TextInput
+          id={nameId}
           label="Name"
           value={name}
-          onChange={setName}
+          error={nameError || undefined}
+          onChange={(next) => { setName(next); if (nameError && next.trim()) setNameError(''); }}
           maxLength={100}
           required
           autoFocus
@@ -164,15 +187,18 @@ export function EditApiKeyModal({ apiKey, memberName, onClose }: EditApiKeyModal
         />
 
         {available ? (
-          <fieldset className="space-y-2">
+          <fieldset id={scopesId} className="scroll-mt-4 space-y-2" aria-describedby={scopesError ? `${scopesId}-error` : undefined}>
             <legend className="mb-1.5 block text-sm font-medium text-zinc-300">What it can do</legend>
             <p className="text-xs text-zinc-400">{hint}</p>
+            {scopesError && (
+              <p id={`${scopesId}-error`} role="alert" className="text-xs text-input-error">{scopesError}</p>
+            )}
             {unheld.length > 0 && (
               <div role="status" className="flex flex-wrap items-center gap-3 rounded-lg bg-amber-500/[0.14] px-3.5 py-2.5">
                 <p className="min-w-0 flex-1 text-sm text-amber-200">
                   No longer allowed for {memberName ?? 'you'}: {unheld.map(permissionLabel).join(', ')}
                 </p>
-                <Button type="button" size="sm" variant="secondary" disabled={saving} onClick={() => setScopes(scopes.filter((scope) => !unheld.includes(scope)))}>
+                <Button type="button" size="sm" variant="secondary" disabled={saving} onClick={() => { setScopes(scopes.filter((scope) => !unheld.includes(scope))); setScopesError(''); }}>
                   Remove {unheld.length === 1 ? 'it' : 'them'}
                 </Button>
               </div>
@@ -184,7 +210,7 @@ export function EditApiKeyModal({ apiKey, memberName, onClose }: EditApiKeyModal
                 grantable={grantable}
                 groups={groups}
                 value={scopes.filter((scope) => !parked(scope))}
-                onChange={(next) => setScopes([...next, ...scopes.filter(parked)])}
+                onChange={(next) => { setScopes([...next, ...scopes.filter(parked)]); if (scopesError && next.length > 0) setScopesError(''); }}
                 disabled={saving}
                 {...(forAgent ? { agentHeld: available, mayGiveBeyondRole: owner, beyondRoleNote: AGENT_KEY_SCOPE_BEYOND_ROLE } : {})}
               />

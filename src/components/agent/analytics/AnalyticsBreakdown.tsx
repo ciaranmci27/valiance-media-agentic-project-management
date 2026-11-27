@@ -8,7 +8,7 @@ import { TextInput } from '@/components/ui/inputs/TextInput';
 import { formatMoney, formatNumber } from '@/lib/format';
 import { showMoreLabel } from '@/lib/agents-ui';
 import {
-  ESTIMATE_LABEL, MIXED_LABEL, NO_LABEL, UNSPLIT_MODEL, breakdown, costLabel, costText, marginOf, metricValue, rankRows, successRate,
+  ESTIMATE_LABEL, MIXED_LABEL, NO_LABEL, UNSPLIT_MODEL, breakdown, costLabel, costText, marginOf, metricValue, rankRows, runOutcomeLine,
   type BreakdownLabels, type BreakdownRow, type Dimension, type Fact, type Group, type MetricKey,
 } from '@/lib/agent-analytics-model';
 import { fmtCount, fmtDuration, fmtPct } from '@/components/agent/analytics/shared';
@@ -48,10 +48,7 @@ function columns(showMoney: boolean): Record<ColumnKey, Column> {
   return {
     runs: {
       key: 'runs', label: 'Runs', metric: 'runs', has: (g) => g.sums.run > 0,
-      render: (g) => {
-        const rate = successRate(g.sums);
-        return <>{formatNumber(g.sums.run)}{rate !== null && <span className="block text-[11px] text-zinc-500">{fmtPct(rate)} ok</span>}</>;
-      },
+      render: (g) => <>{formatNumber(g.sums.run)}<span className="block text-[11px] text-zinc-500">{runOutcomeLine(g.sums, true)}</span></>,
     },
     busy: { key: 'busy', label: 'Busy time', metric: 'busy', has: (g) => g.sums.busyMs > 0, render: (g) => (g.sums.busyMs > 0 ? fmtDuration(g.sums.busyMs) : muted('0')) },
     tokens: {

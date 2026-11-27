@@ -6,8 +6,14 @@ import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
 import { Popover } from '@/components/ui/Popover';
 import { toast } from '@/components/ui/Toast';
+import { browserTimeZone, profileTimeZone } from '@/lib/time-zone';
 
-/** The member's timezone, picked from every zone grouped by UTC offset. */
+/**
+ * The member's time zone, picked from every zone grouped by UTC offset: the
+ * one the app shows times in and saves repeats and schedules in
+ * (lib/time-zone). Until it is set, the browser's zone stands in, and the
+ * first sign-in saves it.
+ */
 export function TimezoneSection() {
   const { team, updateTeamMember } = useApp();
   const { teamMemberId } = useAuth();
@@ -100,9 +106,14 @@ export function TimezoneSection() {
     setTimezone(tz);
     setTzDropdownOpen(false);
     setTzSearch('');
-    updateTeamMember(teamMemberId, { timezone: tz });
-    toast('success', `Timezone set to ${tz}`);
+    void updateTeamMember(teamMemberId, { timezone: tz, timezone_set: true }).then((saved) => {
+      if (saved) toast('success', `Time zone set to ${tz.replace(/_/g, ' ')}`);
+    });
   };
+
+  // Not chosen yet: the app uses the browser's zone meanwhile (profileTimeZone).
+  const unset = !!currentMember && profileTimeZone(currentMember) !== currentMember.timezone;
+  const showingZone = unset ? browserTimeZone() : timezone;
 
   // Anchor for the portaled timezone dropdown (Popover handles outside-click).
   const tzRef = useRef<HTMLDivElement>(null);
@@ -111,35 +122,32 @@ export function TimezoneSection() {
     <section
       id="timezone"
       className={`rounded-xl border p-4 lg:p-6 scroll-mt-6 ${
-        timezone === 'UTC'
+        unset
           ? 'bg-amber-500/15 border-amber-500/30'
           : 'bg-surface-raised border-white/[0.08]'
       }`}
     >
       <div className="flex items-center gap-3 mb-4">
         <div
-          className={`p-2 rounded-lg ${timezone === 'UTC' ? 'bg-amber-500/15' : 'bg-emerald-500/15'}`}
+          className={`p-2 rounded-lg ${unset ? 'bg-amber-500/15' : 'bg-emerald-500/15'}`}
         >
           <Globe
-            className={timezone === 'UTC' ? 'text-amber-400' : 'text-emerald-400'}
+            className={unset ? 'text-amber-300' : 'text-emerald-300'}
             size={20}
           />
         </div>
         <div className="flex-1">
-          <h2 className="font-semibold text-white">Timezone</h2>
+          <h2 className="font-semibold text-white">Time zone</h2>
           <p className="text-sm text-zinc-400">
-            All times in the app will be shown in this timezone
+            Times across the app show in this zone, and repeats and schedules you set run in it.
           </p>
         </div>
       </div>
 
-      {timezone === 'UTC' && (
-        <div className="flex items-start gap-2.5 mb-4 px-3 py-2.5 bg-amber-500/15 border border-amber-500/30 rounded-lg">
-          <span className="text-amber-400 mt-0.5 flex-shrink-0">&#9888;</span>
+      {unset && (
+        <div role="status" className="mb-4 rounded-lg border border-amber-500/30 bg-amber-500/15 px-3 py-2.5">
           <p className="text-sm text-amber-300">
-            Your timezone is set to <span className="font-semibold">UTC</span>. Times may appear
-            incorrect. Select your local timezone below so all dates and times display
-            accurately.
+            Not set yet, so times show in your browser&apos;s zone, <span className="font-semibold">{showingZone.replace(/_/g, ' ')}</span>. Pick yours below to keep it on every device.
           </p>
         </div>
       )}
@@ -149,14 +157,14 @@ export function TimezoneSection() {
           type="button"
           onClick={() => setTzDropdownOpen(!tzDropdownOpen)}
           className={`w-full md:w-96 flex items-center justify-between px-3 py-2 text-sm border rounded-lg hover:border-white/[0.12] transition-colors text-left ${
-            timezone === 'UTC'
+            unset
               ? 'bg-surface-raised border-amber-500/30'
               : 'bg-surface-raised border-white/[0.08]'
           }`}
         >
-          <span className="text-white">{timezone.replace(/_/g, ' ')}</span>
+          <span className="text-white">{unset ? 'Pick your time zone' : timezone.replace(/_/g, ' ')}</span>
           <span className="text-zinc-500 text-xs font-mono">
-            {tzEntries.find((e) => e.id === timezone)?.label || 'UTC+0'}
+            {tzEntries.find((e) => e.id === showingZone)?.label || 'UTC+0'}
           </span>
         </button>
 
@@ -176,14 +184,14 @@ export function TimezoneSection() {
               type="text"
               value={tzSearch}
               onChange={(e) => setTzSearch(e.target.value)}
-              placeholder="Search timezones or offset (e.g. UTC-7)..."
+              placeholder="Search zones or offset, like UTC-7"
               className="w-full px-3 py-1.5 text-sm bg-white/[0.03] border border-white/[0.08] rounded-md outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500/30"
               autoFocus
             />
           </div>
           <div className="max-h-72 overflow-y-auto">
             {filteredTzEntries.length === 0 ? (
-              <p className="px-3 py-2 text-sm text-zinc-500">No matching timezones</p>
+              <p className="px-3 py-2 text-sm text-zinc-500">No matching time zones</p>
             ) : (
               filteredTzEntries.map((group) => (
                 <div key={group.label}>

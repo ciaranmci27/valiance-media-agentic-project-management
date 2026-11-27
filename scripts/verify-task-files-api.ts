@@ -220,7 +220,9 @@ async function main() {
       && pngLink.body.data?.expires_in === 60, pngLink);
     const hiddenList = await call(files.GET, 'GET', `/api/v1/tasks/${s.hiddenTask}/files`, { id: s.hiddenTask });
     const hiddenAdd = await add({ content_base64: PNG.toString('base64'), name: 'x.png' }, s.hiddenTask);
-    check("scope: no reading or adding to another project's task", hiddenList.status === 403 && hiddenAdd.status === 403, { hiddenList, hiddenAdd });
+    // Another project's task answers as a missing one: never "denied" with its project id.
+    check("scope: no reading or adding to another project's task", hiddenList.status === 404 && hiddenAdd.status === 404
+      && hiddenList.body.error?.details?.reason === 'not_found_or_in_trash' && !JSON.stringify([hiddenList.body, hiddenAdd.body]).includes('project_id'), { hiddenList, hiddenAdd });
     const renamed = await call(one.PATCH, 'PATCH', `${base}/${png.body.data?.id}`, { id: s.task, fileId: png.body.data?.id }, { name: 'final banner.png', note: null });
     check('change: rename your own file and clear its note', renamed.status === 200 && renamed.body.data?.name === 'final banner.png' && renamed.body.data?.note === null, renamed);
 

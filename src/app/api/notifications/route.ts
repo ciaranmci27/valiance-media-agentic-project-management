@@ -7,13 +7,13 @@ import {
   accessAllowsEntity,
   accessAllowsProject,
   requireSessionAccess,
-  resolveMemberAccess,
 } from '@/lib/api/access';
-import { sendTransactional } from '@/lib/email/send-mail';
-import { buildNotificationEmail } from '@/lib/email/templates/team/notification';
-import { getBrand } from '@/lib/brand/server';
-import { upsertNotification } from '@/lib/api/notifications';
-import { isReceiptCategory } from '@/lib/notifications';
+import { notificationLinkSchema } from '@/lib/schemas/notifications';
+import { deliverTeamNotice } from '@/lib/api/team-notice';
+import { readJsonBody } from '@/lib/api/body-limit';
+import { ApiError } from '@/lib/api/errors';
+import { afterResponse } from '@/lib/api/after-response';
+import { insertAuditRows } from '@/lib/api/audit';
 
 export const dynamic = 'force-dynamic';
 
@@ -27,7 +27,7 @@ const emailDetailSchema = z.object({
 // Links stay inside the app: a path, never a URL. An absolute or
 // protocol-relative link would let any session put someone else's address
 // behind a button in an email sent from the workspace.
-const inAppLink = z.string().max(500).regex(/^\/(?![/\\])/, 'link must be an in-app path');
+const inAppLink = notificationLinkSchema;
 
 const notificationSchema = z.object({
   recipient_ids: z.array(z.string().uuid()).min(1).max(50),
@@ -77,15 +77,78 @@ function projectIdFromLink(link: string | null): string | null {
  * no longer resolve, so they fall back to the project in the link, which the
  * caller must be able to see as well.
  */
+type CanSee = (access: AccessContext, memberId: string) => Promise<boolean>;
+
+interface NoticeScope {
+  /** Whether the caller may send a notice about it. */
+  callerMay: CanSee;
+  /** Whether a recipient may hear about it. */
+  recipientMay: CanSee;
+  /** The in-app pages a notice about it may link to (query and hash aside); any other link is dropped. */
+  links: string[];
+}
+
+const REFUSED: NoticeScope = { callerMay: async () => false, recipientMay: async () => false, links: [] };
+
+/** A link's path without its query, hash or trailing slash. */
+function noticeLinkPath(link: string): string {
+  return link.split(/[?#]/, 1)[0].replace(/\/+$/, '') || '/';
+}
+
+/**
+ * What a notice is about decides who may send it, who hears it and where it
+ * may point. Every notice names its subject: one about nothing, or about a
+ * member who is not on the team, is refused, so a session can never write
+ * any text to anyone. A link is kept only when it is a page of that subject
+ * (a task's project, the lead, ...). The app's own notices always are;
+ * anything else (an OAuth consent page, another project) is dropped.
+ */
+async function buildNoticeScope(service: SupabaseClient, body: NotificationBody): Promise<NoticeScope> {
+  const { entity_type: entityType, entity_id: entityId } = body;
+  if (!entityType) return REFUSED;
+
+  if (entityType === 'member') {
+    // An API key made, changed or revoked (anyone makes their own): the
+    // people who look after keys hear of it.
+    if (!entityId) {
+      if (body.category !== 'api_keys') return REFUSED;
+      return {
+        callerMay: async () => true,
+        recipientMay: async (access) => accessAllows(access, 'team.manage') || accessAllows(access, 'api_keys.manage_all'),
+        links: ['/settings/developers'],
+      };
+    }
+    // Someone joined or left the team: told by whoever manages it.
+    const { data: member } = await service.from('team_members').select('id').eq('id', entityId).maybeSingle();
+    if (!member) return REFUSED;
+    return { callerMay: async (access) => accessAllows(access, 'team.manage'), recipientMay: async () => true, links: ['/team'] };
+  }
+
+  if (!entityId) return REFUSED;
+  const canSee = await buildVisibilityCheck(service, body, entityType, entityId);
+  return { callerMay: canSee, recipientMay: canSee, links: await linksFor(service, body, entityType, entityId) };
+}
+
+/** The pages of a subject a notice may open. */
+async function linksFor(service: SupabaseClient, body: NotificationBody, entityType: string, entityId: string): Promise<string[]> {
+  if (entityType === 'project') return [`/projects/${entityId}`, '/projects', '/agent'];
+  if (entityType === 'lead') return [`/leads/${entityId}`, '/leads'];
+  if (entityType === 'contact') return [`/contacts/${entityId}`, '/contacts'];
+  if (entityType === 'task' || entityType === 'goal') {
+    const { data } = await service.from(entityType === 'task' ? 'tasks' : 'project_goals').select('project_id').eq('id', entityId).maybeSingle();
+    // Already in Trash: the project in the link, which visibility was checked against.
+    const projectId = (data as { project_id?: string } | null)?.project_id ?? projectIdFromLink(body.link);
+    return [...(projectId ? [`/projects/${projectId}`] : []), ...(entityType === 'goal' ? ['/agent'] : [])];
+  }
+  return [];
+}
+
 async function buildVisibilityCheck(
   service: SupabaseClient,
   body: NotificationBody,
-): Promise<(access: AccessContext, memberId: string) => Promise<boolean>> {
-  const { entity_type: entityType, entity_id: entityId } = body;
-
-  if (!entityType || entityType === 'member' || !entityId) {
-    return async () => true;
-  }
+  entityType: NonNullable<NotificationBody['entity_type']>,
+  entityId: string,
+): Promise<CanSee> {
 
   if (entityType === 'task') {
     // Same rule as the tasks RLS (can_read_task_row): tasks.read sees every
@@ -128,93 +191,67 @@ async function buildVisibilityCheck(
   return (access, memberId) => accessAllowsEntity(service, access, memberId, entityType, entityId, 'app', { includeTrashed: true });
 }
 
+/** A refused notice goes in the audit log: who tried, about what, to how many, and why. */
+function auditRefusal(service: SupabaseClient, callerId: string, body: NotificationBody | null, reason: string): void {
+  afterResponse('notification refusal audit', async () => {
+    await insertAuditRows(service, {
+      method: 'POST',
+      endpoint: '/api/notifications',
+      entity_type: body?.entity_type ?? null,
+      entity_id: body?.entity_id && UUID_RE.test(body.entity_id) ? body.entity_id : null,
+      api_key_id: null,
+      team_member_id: callerId,
+      request_body: body ? { recipients: body.recipient_ids.length, category: body.category, link: body.link, reason } : { reason },
+      status_code: 403,
+      error: 'Forbidden',
+      via: 'app',
+    });
+  });
+}
+
 export async function POST(req: NextRequest) {
   const session = await requireSessionAccess();
   if (session.error) return session.error;
   const { memberId: callerId, access: callerAccess, service } = session.data;
 
+  // Guests (outside clients) never notify the team: the app's notices come
+  // from the team's own work, and a guest's would be text of their choosing
+  // in a member's bell and inbox.
+  if (callerAccess.role === 'guest') {
+    auditRefusal(service, callerId, null, 'guest');
+    return NextResponse.json({ error: 'Guests do not send notifications' }, { status: 403 });
+  }
+
   if (!allowCall(callerId)) {
-    return NextResponse.json({ error: 'Too many notifications' }, { status: 429 });
+    return NextResponse.json({ error: 'Too many notifications' }, { status: 429, headers: { 'Retry-After': String(RATE_WINDOW_MS / 1000) } });
   }
 
   let body: NotificationBody;
   try {
-    body = notificationSchema.parse(await req.json());
+    body = notificationSchema.parse(await readJsonBody(req));
   } catch (err) {
+    if (err instanceof ApiError) return NextResponse.json({ error: err.message }, { status: err.statusCode });
     if (err instanceof z.ZodError) {
       return NextResponse.json({ error: 'Validation failed', details: err.flatten().fieldErrors }, { status: 422 });
     }
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
   }
 
-  const canSee = await buildVisibilityCheck(service, body);
-  if (!(await canSee(callerAccess, callerId))) {
+  const scope = await buildNoticeScope(service, body);
+  if (!(await scope.callerMay(callerAccess, callerId))) {
+    auditRefusal(service, callerId, body, body.entity_type ? 'subject_out_of_reach' : 'no_subject');
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
+  // A link that is not a page of the subject is dropped, never followed.
+  if (body.link && !scope.links.includes(noticeLinkPath(body.link))) body.link = null;
+  const canSee = scope.recipientMay;
 
-  const { data: members, error: fetchError } = await service
-    .from('team_members')
-    .select('id, email, status, notification_prefs, email_notifications_enabled, email_notification_prefs')
-    .in('id', body.recipient_ids.filter(id => id !== callerId))
-    .eq('status', 'active');
-  if (fetchError || !members) {
-    return NextResponse.json({ error: 'Failed to fetch recipients' }, { status: 500 });
-  }
-
-  // A member only hears about what they could open themselves.
-  const audience = (await Promise.all(members.map(async (member) => {
-    const access = await resolveMemberAccess(service, member.id);
-    return access && await canSee(access, member.id) ? member : null;
-  }))).filter((member): member is (typeof members)[number] => member !== null);
-
-  const inApp = audience.filter(member => {
-    const prefs = (member.notification_prefs || {}) as Record<string, boolean>;
-    return prefs[body.category] !== false;
+  const delivered = await deliverTeamNotice(service, {
+    recipientIds: body.recipient_ids,
+    callerId,
+    notice: body,
+    canSee,
   });
-  await Promise.all(inApp.map(member =>
-    upsertNotification(service, {
-      userId: member.id,
-      title: body.title,
-      message: body.message,
-      link: body.link,
-      entityType: body.entity_type,
-      entityId: body.entity_id,
-      // A receipt is its producer's to name; a screen's notice is always an update.
-      category: isReceiptCategory(body.category) ? null : body.category,
-      actorId: callerId,
-    }).catch((error: { message?: string }) => {
-      console.error('[notifications] in-app upsert failed', { userId: member.id, error: error?.message });
-    }),
-  ));
-
-  const emailable = audience.filter(member => {
-    if (!member.email_notifications_enabled) return false;
-    const prefs = (member.email_notification_prefs || {}) as Record<string, boolean>;
-    return prefs[body.category] === true;
-  });
-  let emailed = 0;
-  if (emailable.length > 0) {
-    const { html, text } = buildNotificationEmail({
-      brand: await getBrand(),
-      title: body.title,
-      message: body.message,
-      link: body.link,
-      details: body.email?.details,
-    });
-    const results = await Promise.allSettled(
-      emailable.map(member => sendTransactional({
-        to: member.email,
-        subject: body.email?.subject || body.title,
-        html,
-        text,
-      })),
-    );
-    emailed = results.filter(r => r.status === 'fulfilled' && r.value.success).length;
-  }
-
-  return NextResponse.json({
-    notified: inApp.length,
-    emailed,
-    withheld: members.length - audience.length,
-  });
+  if (delivered.error) return NextResponse.json({ error: delivered.error }, { status: 500 });
+  return NextResponse.json({ notified: delivered.notified, emailed: delivered.emailed, withheld: delivered.withheld });
 }

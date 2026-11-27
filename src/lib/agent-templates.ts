@@ -27,6 +27,10 @@ import customTemplates from '@/custom/agent-templates';
  *   app); this app oversees it: no projects, no task queue, reports its runs,
  *   usage and health, asks people, and checks its status before each turn.
  *
+ * builder and external-agent touch code or money, so an agent hired from
+ * them starts usable by its managers only (audience 'managers'); the rest
+ * keep today's behaviour.
+ *
  * Each declares the role label an agent hired from it starts with and the
  * settings it asks for on each project (generic ones: a repository, a
  * schedule). Each starts on the generic MCP profile. An Owner adds templates
@@ -73,6 +77,8 @@ export const CORE_AGENT_TEMPLATES: AgentTemplate[] = defineAgentTemplates([
     description: 'Works the tasks assigned to it, claims each before starting, and sends finished work to review.',
     role: 'builder',
     rules: { agent_self_assign: false, agent_close_policy: 'review', agent_create_policy: 'live' },
+    // It changes code: at first only its managers give it work.
+    audience: 'managers',
     scopes: ['tasks.read', 'tasks.manage_assigned', 'tasks.create', 'projects.read', 'project_context.read', 'files.read', 'time.manage_own', 'agent_activity.write'],
     settings: [
       { key: 'repository_url', label: 'Repository URL', help: 'Where the code for this project lives.', type: 'url', placeholder: 'https://github.com/acme/site' },
@@ -133,6 +139,8 @@ export const CORE_AGENT_TEMPLATES: AgentTemplate[] = defineAgentTemplates([
     description: 'Works in another system, like a bookkeeper in your accounting app. This app oversees it: health, spend, pause and approvals.',
     role: 'external',
     rules: { agent_self_assign: false, agent_close_policy: 'close', agent_create_policy: 'approval' },
+    // It works in systems that hold money (a bookkeeper): at first only its managers give it work.
+    audience: 'managers',
     // Reporting, asking people and reading its own status and context: no task or project scopes.
     scopes: ['agent_activity.write', 'questions.ask'],
     context: [
@@ -194,5 +202,7 @@ export function agentTemplateView(template: AgentTemplate) {
     profile: template.profile ?? null,
     /** The limits an agent set up from it starts with; null for none. */
     limits: template.limits ?? null,
+    /** Who can use an agent hired from it at first: managers (its owners only) or everyone. */
+    audience: template.audience ?? 'everyone',
   };
 }

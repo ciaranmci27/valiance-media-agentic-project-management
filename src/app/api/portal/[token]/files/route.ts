@@ -6,6 +6,7 @@ import { enabledModuleSet } from '@/lib/modules/server';
 import { PM_DB } from '@/lib/supabase/schema';
 import { pmStorage } from '@/lib/supabase/storage';
 import { BUCKETS } from '@/lib/supabase/schema';
+import { signStoredFileUrl } from '@/lib/storage/sign-stored-file';
 
 export const dynamic = 'force-dynamic';
 
@@ -119,5 +120,7 @@ export async function POST(
     return NextResponse.json({ error: 'Failed to save file record' }, { status: 500 });
   }
 
-  return NextResponse.json(record, { status: 201 });
+  // The bucket is private: the visitor's page gets a link that lasts an hour.
+  const fileUrl = (await signStoredFileUrl(supabase, record.file_url, 3600)) ?? record.file_url;
+  return NextResponse.json({ ...record, file_url: fileUrl }, { status: 201 });
 }

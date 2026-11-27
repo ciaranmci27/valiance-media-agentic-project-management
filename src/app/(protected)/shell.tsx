@@ -8,6 +8,7 @@ import { AppProvider, useApp } from '@/lib/store';
 import { DemoProvider } from '@/lib/demo-context';
 import { Sidebar } from '@/components/layout/Sidebar';
 import { ThemeSync } from '@/components/layout/ThemeSync';
+import { TimeZoneSync } from '@/components/layout/TimeZoneSync';
 import { DemoBanner } from '@/components/layout/DemoBanner';
 import { LoadErrorBanner } from '@/components/layout/LoadErrorBanner';
 import { UpdateNotice } from '@/components/settings/updates/UpdateNotice';
@@ -125,6 +126,7 @@ function StoreGate({ children }: { children: React.ReactNode }) {
       {/* Mounted through the load so the saved theme applies the moment the
           team arrives, and any toast raised during boot has a home. */}
       <ThemeSync />
+      <TimeZoneSync />
       <ToastContainer />
       {/* First-run setup: the wizard has the whole screen, no sidebar. */}
       {ready && isWelcomePath(pathname) && <main className="min-h-screen">{children}</main>}

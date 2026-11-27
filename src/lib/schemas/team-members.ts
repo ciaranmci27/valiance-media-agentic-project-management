@@ -2,29 +2,34 @@ import { z } from 'zod';
 import { agentRulesUpdateSchema } from '@/lib/agent-rules';
 import { agentProfileSchema } from '@/lib/mcp/profiles';
 import { AGENT_ROLE_PATTERN } from '@/lib/project-agents';
+import { MEMBER_NAME_MAX } from '@/lib/member-profile';
+import { avatarUrlSchema, notificationPrefsSchema, timeZoneSchema } from './profile';
+
+/** A display name: required, trimmed, never blank (lib/member-profile). */
+const memberName = z.string().trim().min(1, 'Name is required').max(MEMBER_NAME_MAX);
 
 const agentRole = z.string().trim().regex(AGENT_ROLE_PATTERN, 'A role is lowercase words joined by dashes, 40 characters at most (builder, code-reviewer)');
 
 export const createTeamMemberSchema = z.object({
-  name: z.string().min(1, 'Name is required'),
+  name: memberName,
   email: z.string().email('Must be a valid email'),
-  avatar: z.string().default(''),
+  avatar: avatarUrlSchema.default(''),
   role: z.enum(['owner', 'admin', 'member', 'guest', 'agent']).default('member'),
-  timezone: z.string().default('UTC'),
+  timezone: timeZoneSchema.default('UTC'),
   email_notifications_enabled: z.boolean().optional(),
-  email_notification_prefs: z.record(z.string(), z.boolean()).optional(),
+  email_notification_prefs: notificationPrefsSchema.optional(),
 });
 
 export const updateTeamMemberSchema = z.object({
-  name: z.string().min(1).optional(),
+  name: memberName.optional(),
   email: z.string().email().optional(),
-  avatar: z.string().optional(),
+  avatar: avatarUrlSchema.optional(),
   role: z.enum(['owner', 'admin', 'member', 'guest', 'agent']).optional(),
   status: z.enum(['active', 'suspended']).optional(),
-  timezone: z.string().optional(),
-  notification_prefs: z.record(z.string(), z.boolean()).optional(),
+  timezone: timeZoneSchema.optional(),
+  notification_prefs: notificationPrefsSchema.optional(),
   email_notifications_enabled: z.boolean().optional(),
-  email_notification_prefs: z.record(z.string(), z.boolean()).optional(),
+  email_notification_prefs: notificationPrefsSchema.optional(),
   // An agent's rules (team.manage, agent members only): see lib/agent-rules.
   ...agentRulesUpdateSchema.shape,
   // Agents only: a role label for people, and what it is for.
@@ -41,7 +46,7 @@ export const createAgentSchema = z.object({
   name: z.string().trim().min(1, 'Name is required').max(100),
   email: z.string().trim().toLowerCase().email('Invalid email address'),
   title: z.string().trim().max(80, 'Title must be 80 characters or fewer').optional(),
-  avatar: z.string().max(2000).optional(),
+  avatar: avatarUrlSchema.optional(),
   agent_profile: agentProfileSchema.optional(),
   agent_role: agentRole.optional(),
   description: z.string().trim().max(2000, 'Description must be 2000 characters or fewer').optional(),

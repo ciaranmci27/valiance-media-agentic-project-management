@@ -12,6 +12,7 @@ import { callerChannel, callerHolds, type AgentCaller } from './agent-owners';
 import { SCOPED_PINNED_LIMITS, missingScopeColumns } from './context-scopes';
 import { trashApiError, trashForApi } from './trash';
 import { ApiError, badRequest, forbidden, notFound } from './errors';
+import { readPage } from './pagination';
 
 /**
  * Initiatives for the API (v1, MCP) and the session routes. Routes run on
@@ -292,8 +293,7 @@ export async function listInitiatives(
   let query = service.from('initiatives').select(INITIATIVE_COLUMNS, { count: 'exact' }).eq('project_id', projectId).is('deleted_at', null);
   if (filters.status) query = query.eq('status', filters.status);
   else if (!filters.include_done) query = query.neq('status', 'done');
-  const { data, count, error } = await query.order('sort_order').order('created_at').order('id')
-    .range(filters.offset, filters.offset + filters.limit - 1);
+  const { data, count, error } = await readPage(query.order('sort_order').order('created_at').order('id'), filters);
   if (error) fail(error);
   const rows = (data ?? []) as Row[];
   return { rows: await present(service, caller, rows), total: count ?? rows.length };
@@ -567,8 +567,7 @@ export async function listEntries(
   let query = service.from('initiative_entries').select(ENTRY_COLUMNS, { count: 'exact' }).eq('initiative_id', initiativeId).is('deleted_at', null);
   if (filters.kind) query = query.eq('kind', filters.kind);
   if (filters.status) query = query.eq('status', filters.status);
-  const { data, count, error } = await query.order('created_at', { ascending: false }).order('id')
-    .range(filters.offset, filters.offset + filters.limit - 1);
+  const { data, count, error } = await readPage(query.order('created_at', { ascending: false }).order('id'), filters);
   if (error) fail(error);
   const rows = (data ?? []) as Row[];
   return { rows: await presentEntries(service, rows), total: count ?? rows.length };

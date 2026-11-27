@@ -14,6 +14,7 @@ import { FolderKanban, CheckCircle, Clock, AlertTriangle, Plus, ArrowRight, User
 import { Tooltip } from '@/components/ui/Tooltip';
 import { StatStrip } from '@/components/ui/StatStrip';
 import { parseDateOnly, toLocalDateKey } from '@/lib/date-utils';
+import { formatCalendarDay } from '@/lib/time-format';
 import { hasPermission } from '@/lib/access-control';
 import { computeCompanyFinanceSummary, computeMemberEarningsSummary } from '@/lib/finance/summary';
 import { useRetainerFinanceInputs } from '@/lib/finance/use-retainer-finance';
@@ -25,6 +26,7 @@ import { useCustomDashboardWidgets } from '@/lib/extensions/hooks';
 import { excludedNote, formatHours } from '@/lib/format';
 import { appLocale } from '@/lib/region';
 import { useMoney } from '@/lib/region/context';
+import { profileTimeZone } from '@/lib/time-zone';
 
 // Trend chip: percent change vs the prior 30-day window (▲ up is added by the card,
 // ▼ down is baked in). Falls back to a plain label when there's no prior baseline.
@@ -167,7 +169,7 @@ export default function DashboardPage() {
   const { lineSharePercent, accruingRetainerLines } = useRetainerFinanceInputs(canReadCompanyFinance);
 
   const financeCards = useMemo<Kpi[]>(() => {
-    const tz = currentMember?.timezone && currentMember.timezone !== 'UTC' ? currentMember.timezone : undefined;
+    const tz = profileTimeZone(currentMember);
     const nowMs = financeNow;
     const endKey = toLocalDateKey(new Date(nowMs).toISOString(), tz);
     const [ey, em, ed] = endKey.split('-').map(Number);
@@ -432,7 +434,7 @@ export default function DashboardPage() {
                       <p className="font-medium text-white text-sm">{task.title}</p>
                       <div className="flex items-center gap-2 mt-1">
                         <p className="text-xs text-zinc-400">{project?.name}</p>
-                        {task.due_date && <span className="text-xs text-zinc-500">&bull; {parseDateOnly(task.due_date).toLocaleDateString(locale, { weekday: 'short', month: 'short', day: 'numeric' })}</span>}
+                        {task.due_date && <span className="text-xs text-zinc-500">&bull; {formatCalendarDay(task.due_date, { weekday: true })}</span>}
                       </div>
                     </Link>
                   );

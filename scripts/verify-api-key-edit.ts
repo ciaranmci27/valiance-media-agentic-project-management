@@ -71,7 +71,7 @@ async function seed(db: PGlite) {
       api_key_id uuid, team_member_id uuid, request_body jsonb, before_snapshot jsonb, after_snapshot jsonb, status_code integer, via text);
     CREATE TABLE pm.role_permissions (role text, permission_key text, access_channel text);
     CREATE TABLE pm.team_member_permissions (member_id uuid, permission_key text, access_channel text, effect text, created_by uuid,
-      UNIQUE (member_id, permission_key, access_channel));
+      given_with_key boolean NOT NULL DEFAULT false, UNIQUE (member_id, permission_key, access_channel));
     CREATE TABLE pm.project_members (member_id uuid, project_id uuid);
     CREATE FUNCTION pm.consume_api_rate_limit(p_api_key_id uuid, p_limit integer, p_window_seconds integer) RETURNS jsonb
       LANGUAGE sql AS $$ SELECT jsonb_build_object('allowed', true, 'remaining', p_limit - 1, 'reset_at', now() + make_interval(secs => p_window_seconds)) $$;
@@ -285,9 +285,10 @@ async function main() {
       !!last && last.team_member_id === OWNER && last.via === 'app'
         && last.before_snapshot.scopes.join() === 'tasks.read' && last.after_snapshot.scopes.join() === 'tasks.read,agents.act_for'
         && JSON.stringify(last.request_body.scopes_given) === '["agents.act_for"]' && JSON.stringify(last.request_body.added) === '["agents.act_for"]', last);
-    // Removing it later is a plain edit: the agent keeps what it was given.
+    // Removing it later from its only key carrying it takes the power away too: no hidden grant stays.
     result = await editApiKey(service, owner, hermes.id, { scopes: ['tasks.read'] });
-    check('beyond role: a later removal gives nothing new', result.status === 200 && result.body.scopes_given === undefined && (await grantsOf(AGENT)).length === 1, result);
+    check('beyond role: a later removal from its only key takes the power away, and says so', result.status === 200 && result.body.scopes_given === undefined
+      && JSON.stringify(result.body.scopes_revoked) === '["agents.act_for"]' && (await grantsOf(AGENT)).length === 0 && (await callActFor(hermes.secret)).status === 403, result);
 
     // A failed write takes the grant back: a row it added goes, a deny it replaced returns.
     await db.query("INSERT INTO team_member_permissions(member_id, permission_key, access_channel, effect) VALUES ($1, 'projects.read', 'api', 'deny')", [AGENT]);
@@ -302,7 +303,7 @@ async function main() {
     result = await editApiKey(service, owner, boom.id, { scopes: ['tasks.read', 'tasks.create', 'projects.read'] });
     check('beyond role: a failed write is a 500', result.status === 500, result);
     check('beyond role: a failed write undoes the grant (added row gone, replaced deny back)',
-      JSON.stringify(await effects()) === JSON.stringify(grantsBefore) && grantsBefore.join() === 'agents.act_for:api:allow,projects.read:api:deny', { before: grantsBefore, after: await effects() });
+      JSON.stringify(await effects()) === JSON.stringify(grantsBefore) && grantsBefore.join() === 'projects.read:api:deny', { before: grantsBefore, after: await effects() });
     check('beyond role: a failed write leaves the key as it was', (await row(boom.id)).scopes.join() === 'tasks.read');
   } finally {
     await server.close();

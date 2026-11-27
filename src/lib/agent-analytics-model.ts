@@ -58,7 +58,10 @@ import type { AgentRunStatus } from '@/lib/agent-runs';
 // ── Facts ───────────────────────────────────────────────────────────────────
 
 export const SUM_KINDS = [
-  'run', 'runSucceeded', 'runFailed', 'busyMs',
+  'run', 'runSucceeded', 'runFailed',
+  /** Runs still going (running or waiting): counted in run, never in a success rate. */
+  'runRunning',
+  'busyMs',
   'tokensIn', 'tokensOut', 'tokensCached', 'costUsd', 'unpricedTokens',
   /** Cost from records the server summed per hour: priced, or priced and unpriced merged. Part of costUsd. */
   'mergedCostUsd',
@@ -343,6 +346,8 @@ export interface RunStatGroup {
   runs: number;
   succeeded: number;
   failed: number;
+  /** Runs still going (running or waiting); undefined from a database before 20261127001500. */
+  running?: number;
   busyMs: number;
   tokensIn: number;
   tokensOut: number;
@@ -764,6 +769,7 @@ export function buildAgentAnalytics(input: AgentAnalyticsInput): AgentAnalyticsM
     push('run', run.agentId, run.projectId, dateKey, 1, model, provider);
     if (verdict === 'success') push('runSucceeded', run.agentId, run.projectId, dateKey, 1, model, provider);
     if (verdict === 'failure') push('runFailed', run.agentId, run.projectId, dateKey, 1, model, provider);
+    if (verdict === 'running' || run.status === 'waiting') push('runRunning', run.agentId, run.projectId, dateKey, 1, model, provider);
     if (!ledgerAgents.has(run.agentId)) {
       if (run.source === 'run' && run.tokensIn === null && run.tokensOut === null) {
         push('runsNoTokens', run.agentId, run.projectId, dateKey, 1, model, provider);
@@ -792,6 +798,7 @@ export function buildAgentAnalytics(input: AgentAnalyticsInput): AgentAnalyticsM
       at('run', g.runs);
       at('runSucceeded', g.succeeded);
       at('runFailed', g.failed);
+      if (g.running !== undefined) at('runRunning', g.running);
       at('busyMs', g.busyMs);
       if (!ledgerAgents.has(g.agentId)) {
         at('runsNoTokens', g.runsNoTokens);
@@ -1164,6 +1171,20 @@ export function topAgents(facts: Fact[], metric: MetricKey, limit: number): { id
 export function successRate(s: Sums): number | null {
   const decided = s.runSucceeded + s.runFailed;
   return decided > 0 ? s.runSucceeded / decided : null;
+}
+
+/**
+ * How runs ended, in plain words, counting only finished ones: running runs
+ * never count as succeeded. The tile reads "1 succeeded, 0 failed · 14
+ * running"; a breakdown cell (short) reads "1 of 1 ok · 14 running". Nothing
+ * finished yet says so instead of a rate.
+ */
+export function runOutcomeLine(s: Pick<Sums, 'runSucceeded' | 'runFailed' | 'runRunning'>, short = false): string {
+  const decided = s.runSucceeded + s.runFailed;
+  const running = s.runRunning > 0 ? `${s.runRunning} running` : null;
+  if (decided === 0) return running ? `${running}, none finished yet` : 'None finished yet';
+  const ended = short ? `${s.runSucceeded} of ${decided} ok` : `${s.runSucceeded} succeeded, ${s.runFailed} failed`;
+  return running ? `${ended} · ${running}` : ended;
 }
 
 /** Margin over revenue; null without revenue. */

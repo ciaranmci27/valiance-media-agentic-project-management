@@ -24,7 +24,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { PGlite } from '@electric-sql/pglite';
 import { NextRequest } from 'next/server';
-import { createFullSchemaDatabase, SCHEMA_PATH } from './full-schema-db';
+import { applyMigrationsFrom, createFullSchemaDatabase, SCHEMA_PATH } from './full-schema-db';
 import { startFakePostgrest } from './fake-postgrest';
 import { diffSnapshots, pmSnapshot } from './lib/pm-catalog';
 import { API_ENDPOINT_PERMISSIONS, PERMISSIONS } from '../src/lib/access-control';
@@ -59,8 +59,12 @@ function schemaWithoutSection(): string {
   const next = /\n-- =+\n-- [A-Z][^\n]*\(\d{14}_[a-z0-9_]+\.sql\)/g;
   next.lastIndex = at + SECTION.length;
   const end = next.exec(SCHEMA_SQL)?.index ?? SCHEMA_SQL.length;
-  return SCHEMA_SQL.slice(0, start) + SCHEMA_SQL.slice(end);
+  // A later section changes pm.agent_status again (20261127001000): it is left out too and applied after.
+  const later = SCHEMA_SQL.lastIndexOf('\n-- ====', SCHEMA_SQL.indexOf(LATER_SECTION));
+  return SCHEMA_SQL.slice(0, start) + SCHEMA_SQL.slice(end, later);
 }
+
+const LATER_SECTION = '-- ORCHESTRATORS AND WHO CAN USE AN AGENT (20261127001000_agent_hierarchy_access.sql)';
 
 const q = (db: PGlite) => async <T = Loose>(sql: string, params: unknown[] = []) => {
   await db.exec('RESET ROLE');
@@ -81,6 +85,8 @@ async function migrationChecks() {
     (await run<Loose>("SELECT to_regprocedure('pm.agent_status(uuid)') AS f"))[0].f === null);
   await old.exec(MIGRATION_SQL);
   await old.exec(MIGRATION_SQL);
+  // A later migration changes pm.agent_status again (assistants_off): it runs after, as an upgrade does.
+  await applyMigrationsFrom(old, '20261127001000_agent_hierarchy_access.sql');
   const fresh = await createFullSchemaDatabase();
   const diff = diffSnapshots(await pmSnapshot(fresh), await pmSnapshot(old));
   check('upgrade: the migration, run twice on the schema without it, matches schema.sql', diff.length === 0, diff.slice(0, 10));

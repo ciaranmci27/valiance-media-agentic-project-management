@@ -1,5 +1,6 @@
 import { API_ENDPOINT_PERMISSIONS, PERMISSION_GROUPS, type PermissionKey } from '@/lib/access-control';
 import { SENSITIVE_SCOPES, type ScopeGroup } from '@/lib/agents-ui';
+import { isAiSetupKey } from '@/lib/ai-setup';
 import { webhookUrlError } from '@/lib/webhooks/endpoint-input';
 import {
   INVOICE_WEBHOOK_EVENT_TYPES,
@@ -48,6 +49,19 @@ export function keyEnded(key: Pick<ApiKey, 'revoked_at' | 'expires_at'> & { disa
 }
 
 /**
+ * Pause or Resume for a key's menu (lib/api/key-manage.ts): a working key
+ * pauses, a paused one resumes, an ended key does neither (ending wins) and
+ * a one-hour AI setup key (pk_setup_) never changes, so it has neither.
+ */
+export function keyPauseAction(
+  key: Pick<ApiKey, 'revoked_at' | 'expires_at' | 'key_prefix'> & { disabled_at?: string | null; paused_at?: string | null },
+  now: Date = new Date(),
+): 'pause' | 'resume' | null {
+  if (keyEnded(key, now) || isAiSetupKey(key.key_prefix)) return null;
+  return key.paused_at ? 'resume' : 'pause';
+}
+
+/**
  * The keys a newer key replaced (its rotated_from), while that newer key is
  * not revoked: they work out their overlap and are rotated no further.
  */
@@ -83,11 +97,18 @@ export function groupApiKeys(keys: readonly ApiKey[], me: string | null, agentId
 /**
  * An agent's key on this page: always listed and revocable (an Owner must be
  * able to stop one even with the Agents module off, when its profile is out
- * of reach); Open Connect only while that profile can be opened.
+ * of reach); Open Connect only where the person can act there: the profile
+ * opens (agents on, agents.manage) and its Connect tab shows the keys
+ * (api_keys.manage_all, the server's rule for an agent's keys). Anyone else
+ * is told who makes and rotates agent keys instead of being sent to a tab
+ * that shows them nothing.
  */
-export function agentKeyRow(input: { agentsOn: boolean; canManageAgents: boolean }): { listed: true; revoke: true; openConnect: boolean } {
-  return { listed: true, revoke: true, openConnect: input.agentsOn && input.canManageAgents };
+export function agentKeyRow(input: { agentsOn: boolean; canManageAgents: boolean; canManageAllKeys: boolean }): { listed: true; revoke: true; openConnect: boolean } {
+  return { listed: true, revoke: true, openConnect: input.agentsOn && input.canManageAgents && input.canManageAllKeys };
 }
+
+/** Who makes and rotates an agent's keys, for someone who cannot. */
+export const AGENT_KEYS_WHO = "An Owner, or someone who manages every API key, makes and rotates agent keys on each agent's profile.";
 
 export interface KeyExpiry {
   label: string;

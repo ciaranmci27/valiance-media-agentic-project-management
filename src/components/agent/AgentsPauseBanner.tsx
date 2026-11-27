@@ -7,11 +7,12 @@ import { useDemo } from '@/lib/demo-context';
 import { workspaceApi } from '@/lib/agent-workspace';
 import { invalidateTables, setReadData, useRead } from '@/lib/query-cache';
 import { agentsPauseDemoRead, agentsPauseRead } from '@/lib/reads';
-import { timeAgo } from '@/lib/task-times';
 import type { AgentsPauseState } from '@/lib/audit-log';
 import { Button } from '@/components/ui/Button';
+import { Bone, Skeleton } from '@/components/projects/TabLayout';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { toast } from '@/components/ui/Toast';
+import { formatAgo } from '@/lib/time-format';
 
 /** What the kill switch stops, in plain words: personal assistants and company chat agents too. */
 export const AGENTS_PAUSE_WHAT_STOPS = "Stops every agent at once, including people's personal assistants and company chat agents. They keep reading and reporting their heartbeat and usage, so you can still watch them; every other change they try is refused.";
@@ -62,7 +63,7 @@ export function useAgentsPause() {
 }
 
 export function pausedLine(state: AgentsPauseState): string {
-  return `Every agent is paused${state.paused_by ? ` by ${state.paused_by.name}` : ''}${state.paused_at ? `, ${timeAgo(state.paused_at).toLowerCase()}` : ''}.`;
+  return `Every agent is paused${state.paused_by ? ` by ${state.paused_by.name}` : ''}${state.paused_at ? `, ${formatAgo(state.paused_at, { midSentence: true })}` : ''}.`;
 }
 
 /**
@@ -92,6 +93,17 @@ export function AgentsPauseBanner() {
 /** The Agents header's Pause all button (Owner only, while agents work). */
 export function PauseAllButton() {
   const pause = useAgentsPause();
+  // Its place is held while the switch loads, so Hire an agent beside it never moves under the cursor.
+  if (pause.canSwitch && !pause.state && pause.loading) {
+    return (
+      <Skeleton label="Loading actions" className="relative">
+        <span aria-hidden="true" className="invisible block">
+          <Button variant="secondary" icon={<PauseCircle size={16} aria-hidden="true" />} tabIndex={-1}>Pause all</Button>
+        </span>
+        <Bone className="absolute inset-0 rounded-lg" />
+      </Skeleton>
+    );
+  }
   if (!pause.canSwitch || !pause.state || pause.state.paused_at) return null;
   return (
     <>

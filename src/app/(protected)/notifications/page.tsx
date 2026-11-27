@@ -6,28 +6,17 @@ import { Bell, CheckSquare, FolderKanban, Target, MessageSquare, Users, Loader2,
 import { useDemo } from '@/lib/demo-context';
 import { Header } from '@/components/layout/Header';
 import { Button } from '@/components/ui/Button';
+import { Avatar } from '@/components/ui/Avatar';
 import type { NotificationEntityType } from '@/lib/types';
-import { appLocale } from '@/lib/region';
+import { useApp } from '@/lib/store';
+import { useAuth } from '@/lib/auth-context';
+import { formatAgo, formatFull } from '@/lib/time-format';
 import { peekRead, setReadData, useRead } from '@/lib/query-cache';
 import { fetchNotificationPage, notificationsRead, unreadNotificationsRead } from '@/lib/reads';
 import { useNeedsYouActions } from '@/lib/needs-you-actions';
-import type { NotificationFeedView, NotificationPage, NotificationView } from '@/lib/notifications';
+import { notificationSender, notificationSenderLabel, safeNotificationLink, type NotificationFeedView, type NotificationPage, type NotificationView } from '@/lib/notifications';
 
 type FilterTab = 'all' | 'unread';
-
-function timeAgo(dateStr: string): string {
-  const now = Date.now();
-  const then = new Date(dateStr).getTime();
-  const diff = Math.max(0, now - then);
-  const minutes = Math.floor(diff / 60000);
-  if (minutes < 1) return 'just now';
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  if (days < 7) return `${days}d ago`;
-  return new Date(dateStr).toLocaleDateString(appLocale());
-}
 
 function getEntityIcon(entityType: NotificationEntityType | null) {
   switch (entityType) {
@@ -61,6 +50,8 @@ const VIEWS: readonly NotificationFeedView[] = ['updates', 'unread'];
 export default function NotificationsPage() {
   const router = useRouter();
   const { isDemoMode } = useDemo();
+  const { team } = useApp();
+  const { teamMemberId } = useAuth();
   const actions = useNeedsYouActions();
   const [filter, setFilter] = useState<FilterTab>('all');
   const view: NotificationFeedView = filter === 'unread' ? 'unread' : 'updates';
@@ -118,7 +109,9 @@ export default function NotificationsPage() {
 
   const handleNotificationClick = async (notification: NotificationView) => {
     if (!notification.is_read) await handleMarkAsRead(notification.id);
-    if (notification.link) router.push(notification.link);
+    // Only a path in this app is followed, whatever the row holds.
+    const link = safeNotificationLink(notification.link);
+    if (link) router.push(link);
   };
 
   const tabs: { id: FilterTab; label: string }[] = [
@@ -206,7 +199,7 @@ export default function NotificationsPage() {
                         {notification.message && (
                           <p className="text-[13px] text-zinc-400 line-clamp-2 mt-0.5">{notification.message}</p>
                         )}
-                        <p className="text-xs text-zinc-500 mt-1.5">{timeAgo(notification.created_at)}</p>
+                        <SenderLine notification={notification} team={team} viewerId={teamMemberId ?? null} />
                       </div>
                       {!notification.is_read && (
                         <div className="h-2 w-2 rounded-full bg-brand-500 shrink-0 mt-2" />
@@ -227,6 +220,25 @@ export default function NotificationsPage() {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+/**
+ * Who sent it and when: the person or agent with their face ("From Casey
+ * Brooks (guest)"), or "From the app" for the app's own notices, so a
+ * member's notice never passes for a system message.
+ */
+function SenderLine({ notification, team, viewerId }: { notification: NotificationView; team: readonly { id: string; name: string; avatar?: string | null; role: string }[]; viewerId: string | null }) {
+  const sender = notificationSender(notification, team);
+  return (
+    <div className="mt-1.5 flex min-w-0 items-center gap-1.5 text-xs text-zinc-500">
+      {sender.kind === 'system'
+        ? <Bell size={12} aria-hidden="true" className="flex-shrink-0 text-zinc-500" />
+        : <Avatar name={sender.name} src={sender.avatar ?? undefined} id={sender.id} size="xs" />}
+      <span className="min-w-0 truncate text-zinc-400">{notificationSenderLabel(sender, viewerId)}</span>
+      <span aria-hidden="true">·</span>
+      <time dateTime={notification.created_at} title={formatFull(notification.created_at)} className="flex-shrink-0">{formatAgo(notification.created_at)}</time>
     </div>
   );
 }

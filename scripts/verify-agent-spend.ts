@@ -65,7 +65,22 @@ function schemaWithoutSection(): string {
   const next = /\n-- =+\n-- [^\n]*\(\d{14}_[a-z0-9_]+\.sql\)/g;
   next.lastIndex = at + BANNER.length;
   const after = next.exec(SCHEMA_SQL);
-  return SCHEMA_SQL.slice(0, start) + (after ? SCHEMA_SQL.slice(after.index) : '\n');
+  // A later section that replaces pm.agent_run_stats reads agent_spend_facts,
+  // which only this section makes: it is held back and run after the
+  // migration (laterRunStats), as an install upgrading in order would.
+  const tail = after ? SCHEMA_SQL.slice(after.index).replace(LATER_RUN_STATS, '\n') : '\n';
+  return SCHEMA_SQL.slice(0, start) + tail;
+}
+
+const LATER_RUN_STATS = /\nCREATE OR REPLACE FUNCTION pm\.agent_run_stats\([\s\S]*?\nGRANT EXECUTE ON FUNCTION pm\.agent_run_stats\([^\n]*\n/g;
+
+/** The later sections' replacements of pm.agent_run_stats that schemaWithoutSection held back. */
+function laterRunStats(): string {
+  const at = SCHEMA_SQL.indexOf(BANNER);
+  const next = /\n-- =+\n-- [^\n]*\(\d{14}_[a-z0-9_]+\.sql\)/g;
+  next.lastIndex = at + BANNER.length;
+  const after = next.exec(SCHEMA_SQL);
+  return after ? (SCHEMA_SQL.slice(after.index).match(LATER_RUN_STATS) ?? []).join('\n') : '';
 }
 
 /** The current UTC month, as the budget reads it, and the days so far. */
@@ -141,6 +156,8 @@ async function migrationChecks() {
   const before = await limitSpent(old, legacy);
   await old.exec(MIGRATION_SQL);
   await old.exec(MIGRATION_SQL);
+  const later = laterRunStats();
+  if (later) await old.exec(later);
   const after = await limitSpent(old, legacy);
   console.log(`  before (2.0.40 rule, largest of the three): spent_usd ${before.usd}, spent_tokens ${before.tokens}`);
   console.log(`  after (run totals + unattached usage):       spent_usd ${after.usd}, spent_tokens ${after.tokens}`);

@@ -74,6 +74,10 @@ async function seed(db: PGlite) {
     pat: await key(pat, SCOPES),
     max: await key(max, [...SCOPES, 'team.manage']),
     builderReadOnly: await key(builder, SCOPES, 'read_only'),
+    // An agent in another system: it asks and answers questions on nothing, reads no tasks.
+    helperAskOnly: await key(helper, ['questions.ask']),
+    // A person's own key that only decides approvals.
+    morganDecideOnly: await key(morgan, ['approvals.decide']),
   };
   const task = async (projectId: string, title: string, assignees: string[] = []) => {
     const id = (await q<{ id: string }>('INSERT INTO pm.tasks (project_id, title) VALUES ($1, $2) RETURNING id', [projectId, title]))[0].id;
@@ -358,6 +362,31 @@ async function main() {
       ownerMcp, { memberId: s.owner }), true).structuredContent as Loose;
     check('MCP: answer_question on a cancelled question is a 409 the agent can read', closed?.ok === false && closed.status === 409
       && closed.error?.reason === 'question_cancelled', closed);
+
+    // --- Whoever is asked answers with the scope that reads it -------------------------------
+    const approvalsRoute = await import('../src/app/api/v1/approvals/route');
+    const toHelper = await ask(s.keys.builder, { question: 'Which region ships first?', asked_to: s.helper, choices: ['EU', 'US'] });
+    const helperSees = await get(toHelper.body.data?.id, s.keys.helperAskOnly);
+    check('a questions.ask-only key reads a question on nothing asked to it, can_answer true', helperSees.status === 200 && helperSees.body.data?.can_answer === true, helperSees);
+    const helperAskAnswers = await answer(toHelper.body.data?.id, s.keys.helperAskOnly, { choice: 'EU' });
+    check('a questions.ask-only key answers what it was asked (no tasks.read needed)', helperAskAnswers.status === 200 && helperAskAnswers.body.data?.status === 'answered'
+      && helperAskAnswers.body.data?.answered_by === s.helper, helperAskAnswers);
+    const onTaskToHelper = await ask(s.keys.builder, { task_id: checkout, question: 'Ship the checkout fix today?', asked_to: s.helper, choices: ['Yes', 'No'] });
+    const helperOnTask = await answer(onTaskToHelper.body.data?.id, s.keys.helperAskOnly, { choice: 'Yes' });
+    check('a questions.ask-only key still cannot answer a question on a task it cannot read (404, never wider)', helperOnTask.status === 404, helperOnTask);
+    const approval = await call(approvalsRoute.POST, 'POST', '/api/v1/approvals', {}, s.keys.builder, {
+      question: 'Merge the pricing PR?', asked_to: s.morgan, action: { type: 'merge', summary: 'Merge PR #40' },
+    });
+    const decided = await answer(approval.body.data?.id, s.keys.morganDecideOnly, { choice: 'approve' });
+    check('the named person decides an approval with a key that only carries approvals.decide', approval.status === 201 && decided.status === 200
+      && decided.body.data?.decision === 'approved' && decided.body.data?.decided_via === 'api_key', [approval.status, decided]);
+    const plainToMorgan = await ask(s.keys.builder, { question: 'Can you review the copy?', asked_to: s.morgan });
+    const decideOnlyPlain = await answer(plainToMorgan.body.data?.id, s.keys.morganDecideOnly, { text: 'Yes' });
+    check('approvals.decide alone answers no plain question (403 missing_key_scope)', decideOnlyPlain.status === 403
+      && decideOnlyPlain.body.error?.details?.reason === 'missing_key_scope', decideOnlyPlain);
+    const answerToolPermission = tool('answer_question').permission;
+    check('MCP answer_question takes the same scopes as the route', Array.isArray(answerToolPermission)
+      && ['tasks.read', 'questions.ask', 'approvals.decide'].every((p) => (answerToolPermission as string[]).includes(p)), answerToolPermission);
   } finally {
     await server.close();
     await db.close();

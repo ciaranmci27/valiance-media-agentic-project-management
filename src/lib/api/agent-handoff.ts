@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { z } from 'zod';
+import { calendarDate } from '@/lib/schemas/shared';
 import type { AccessContext } from '@/lib/access-control';
 import { effectiveRunStatus, type AgentRunStatus } from '@/lib/agent-runs';
 import { logAudit } from '@/lib/api/audit';
@@ -8,9 +9,10 @@ import { accessAllows, accessAllowsProject, delegateOf, resolveMemberAccess } fr
 import { requireAgentsEnabled } from './agents';
 import {
   canManageRuns, chainAccess, chainCycle, chainTooDeep, lineagePending, loadRun, missingLineageColumns, missingRunsTable, placeLive,
-  principalMismatch, RUN_CHAIN_MAX_DEPTH, runAncestors, runDelegatedTo, runInReach, type RunsContext,
+  RUN_CHAIN_MAX_DEPTH, runAncestors, runDelegatedTo, runInReach, type RunsContext,
 } from './agent-runs';
 import { createTaskWithRules, type RuledCreate } from './create-task';
+import { gateAgentWork, newTaskTarget, releaseApprovals } from './agent-access';
 import { ApiError, forbidden, notFound } from './errors';
 import { assertProjectWritable } from './request-gate';
 import { loadParentTask, subtaskRuleError } from './subtasks';
@@ -91,7 +93,7 @@ export const delegateTaskSchema = z.object({
   title: z.string().trim().min(1).max(500).optional(),
   description: z.string().max(50_000).optional(),
   priority: z.enum(['low', 'medium', 'high', 'urgent']).optional(),
-  due_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD').nullable().optional(),
+  due_date: calendarDate.nullable().optional(),
   acceptance_criteria: z.array(z.string().min(1).max(2000)).max(50).optional(),
   /** Left out: ai_ready, the work an agent picks up. */
   ai_readiness: z.enum(['ai_ready', 'needs_spec', 'human_only']).nullable().optional(),
@@ -193,6 +195,7 @@ export async function delegateTask(ctx: DelegateContext, taskId: string, input: 
 
   let run: Row | null = null;
   let access = ctx.access;
+  let chainAgents: string[] = [];
   if (input.run_id) {
     const runs: RunsContext = { db: ctx.supabase, access: ctx.access, memberId: ctx.teamMemberId, scopes: ctx.scopes };
     run = await loadRun(runs, input.run_id);
@@ -201,6 +204,7 @@ export async function delegateTask(ctx: DelegateContext, taskId: string, input: 
     const above = await runAncestors(ctx.supabase, run);
     if (above.length > RUN_CHAIN_MAX_DEPTH) throw chainTooDeep();
     if (above.some((r) => r.agent_id === target.id)) throw chainCycle(target.id);
+    chainAgents = above.map((r) => r.agent_id as string);
     // Before the update there is nowhere to link it: refuse before anything is made.
     const probe = await ctx.supabase.from('task_delegations').select('task_id').limit(1);
     if (probe.error) {
@@ -208,14 +212,39 @@ export async function delegateTask(ctx: DelegateContext, taskId: string, input: 
       throw probe.error;
     }
   }
-  // A personal agent receives only its own person's work.
-  if (target.delegate_of && target.delegate_of !== (access.principal_id ?? null)) throw principalMismatch();
+  // A personal agent receives only its own person's work (run or no run: the reason is the receiver, not a chain).
+  if (target.delegate_of && target.delegate_of !== (access.principal_id ?? null)) {
+    throw forbidden("A personal assistant takes only its own person's work.", {
+      reason: 'principal_mismatch',
+      hint: 'Hand it to a company agent, or have its person (or an agent acting for them with X-Act-For) hand it over.',
+    });
+  }
   const acting: DelegateContext = { ...ctx, access };
 
-  if (mode === 'assign') return assignTask(acting, taskId, input, target.id, run);
+  // No skipping levels, and the person it is for at the receiver and every agent above it in the chain.
+  const person = access.principal_id ?? (run?.principal_id as string | null | undefined) ?? null;
+  // A new subtask's approval it uses is claimed, and given back unless the subtask is made.
+  const claimed: string[] = [];
+  const gate = async (projectId: string, summary: string, targetKey: string): Promise<RuledCreate | null> => {
+    const pending = await gateAgentWork(ctx.supabase, {
+      agentId: target.id,
+      byAgentId: ctx.access.role === 'agent' ? ctx.teamMemberId : null,
+      personId: ctx.access.role === 'agent' ? person : ctx.teamMemberId,
+      chainAgentIds: chainAgents,
+      entry: 'delegate',
+      target: targetKey,
+      ask: { summary, taskId, projectId },
+      claimed,
+    });
+    return pending ? { status: 202, data: { ...pending, task_id: null, delegated_to: target.id, run_id: run?.id ?? null, mode } } : null;
+  };
+
+  if (mode === 'assign') return assignTask(acting, taskId, input, target.id, run, gate);
 
   const parent = await loadParentTask(ctx.supabase, taskId, access);
   await assertReceiverCanOpen(ctx.supabase, target.id, parent.project_id);
+  const waiting = await gate(parent.project_id, `New subtask "${(input.title ?? '').slice(0, 200)}"`, newTaskTarget(taskId, input.title ?? ''));
+  if (waiting) return waiting;
   const { agent_id: agentId, run_id: _run, mode: _mode, reassign: _reassign, ...fields } = input;
   void _run; void _mode; void _reassign;
   const body = {
@@ -224,7 +253,15 @@ export async function delegateTask(ctx: DelegateContext, taskId: string, input: 
     parent_task_id: taskId,
     assignee_ids: [agentId],
   };
-  const result = await createTaskWithRules({ ...acting, body }, `/api/v1/tasks/${taskId}/delegate`, run ? { delegated_from_run_id: run.id } : {});
+  let result: RuledCreate;
+  try {
+    result = await createTaskWithRules({ ...acting, body, agentsChecked: true }, `/api/v1/tasks/${taskId}/delegate`, run ? { delegated_from_run_id: run.id } : {});
+  } catch (error) {
+    await releaseApprovals(ctx.supabase, claimed);
+    throw error;
+  }
+  // A suggestion instead of a subtask (the caller's rules): the approval stays unused.
+  if (result.status === 202) await releaseApprovals(ctx.supabase, claimed);
   const newTaskId = result.status === 202 ? null : (result.data.id as string);
   if (newTaskId && run) {
     await recordDelegation(ctx.supabase, { task_id: newTaskId, run_id: run.id, delegated_by: ctx.teamMemberId, delegated_to: agentId, mode, from_task_id: taskId });
@@ -236,7 +273,10 @@ export async function delegateTask(ctx: DelegateContext, taskId: string, input: 
 }
 
 /** Mode assign: the task itself goes to the receiver, through update_task's assignment rules. */
-async function assignTask(ctx: DelegateContext, taskId: string, input: DelegateTaskInput, agentId: string, run: Row | null): Promise<RuledCreate> {
+async function assignTask(
+  ctx: DelegateContext, taskId: string, input: DelegateTaskInput, agentId: string, run: Row | null,
+  gate: (projectId: string, summary: string, target: string) => Promise<RuledCreate | null>,
+): Promise<RuledCreate> {
   const task = await loadAssignedTask(ctx.supabase, taskId, ctx.access);
   const canManageAll = ctx.scopes.includes('tasks.manage_all') && accessAllows(ctx.access, 'tasks.manage_all', 'api');
   if (!canManageAll) {
@@ -247,8 +287,14 @@ async function assignTask(ctx: DelegateContext, taskId: string, input: DelegateT
   }
   assertProjectWritable(task.project_id as string);
   await assertReceiverCanOpen(ctx.supabase, agentId, task.project_id as string);
+  const current0 = ((task.task_assignees ?? []) as { member_id: string }[]).map((a) => a.member_id);
+  // Already on it: nothing new reaches it, so nothing to check.
+  if (!current0.includes(agentId)) {
+    const waiting = await gate(task.project_id as string, `Task "${String(task.title ?? '').slice(0, 200)}"`, `task:${taskId}`);
+    if (waiting) return waiting;
+  }
 
-  const current = ((task.task_assignees ?? []) as { member_id: string }[]).map((a) => a.member_id);
+  const current =((task.task_assignees ?? []) as { member_id: string }[]).map((a) => a.member_id);
   const next = [...new Set([...current.filter((id) => !(input.reassign && id === ctx.teamMemberId)), agentId])];
   const changed = next.length !== current.length || next.some((id) => !current.includes(id));
   let saved: Row = task;

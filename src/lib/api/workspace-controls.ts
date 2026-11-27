@@ -1,12 +1,14 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import {
   AUDIT_PAGE_SIZE,
+  auditReferencedIds,
   type AgentsPauseState,
   type AuditEntry,
   type AuditSettings,
   type AuditSettingsPatch,
 } from '@/lib/audit-log';
 import { resetAuditRedactKeys } from './audit-redact';
+import { MAX_PAGE, readPage } from './pagination';
 import { ApiError, badRequest } from './errors';
 import { missingLimitsSchema } from './agent-limits';
 
@@ -135,8 +137,24 @@ function filteredAuditQuery(db: SupabaseClient, filters: ReturnType<typeof audit
   return query.order('timestamp', { ascending: false }).order('id', { ascending: false });
 }
 
-/** The names of who did it and who it was for. */
-async function auditNames(db: SupabaseClient, entries: readonly AuditEntry[]): Promise<Record<string, string>> {
+/** Where a referenced id's name lives: the table and its name column. */
+const NAMED_TABLES: { table: string; column: string }[] = [
+  { table: 'team_members', column: 'name' },
+  { table: 'groups', column: 'name' },
+  { table: 'projects', column: 'name' },
+  { table: 'tasks', column: 'title' },
+  { table: 'api_keys', column: 'name' },
+  { table: 'task_templates', column: 'name' },
+  { table: 'initiatives', column: 'name' },
+];
+
+/**
+ * The names of who did it and who it was for; with `everything`, also of
+ * each person, group, project, task, key, template and initiative a row
+ * names (for the screen's plain labels: auditReferencedIds). A table a
+ * database does not have is skipped.
+ */
+async function auditNames(db: SupabaseClient, entries: readonly AuditEntry[], everything = false): Promise<Record<string, string>> {
   const ids = [...new Set(entries.flatMap((entry) => [entry.team_member_id, entry.principal_id]).filter((id): id is string => !!id))];
   const names: Record<string, string> = {};
   for (let at = 0; at < ids.length; at += 200) {
@@ -144,6 +162,20 @@ async function auditNames(db: SupabaseClient, entries: readonly AuditEntry[]): P
     if (peopleError) throw peopleError;
     for (const person of (people ?? []) as Row[]) names[person.id as string] = person.name as string;
   }
+  if (!everything) return names;
+  const referenced = [...new Set(entries.flatMap((entry) => auditReferencedIds(entry)))].filter((id) => !(id in names));
+  if (referenced.length === 0) return names;
+  await Promise.all(NAMED_TABLES.map(async ({ table, column }) => {
+    for (let at = 0; at < referenced.length; at += 200) {
+      // includes-deleted: a record removed or in Trash still names what it was
+      const { data, error } = await db.from(table).select(`id, ${column}`).in('id', referenced.slice(at, at + 200));
+      if (error) return;
+      for (const row of (data ?? []) as Row[]) {
+        const label = row[column];
+        if (typeof label === 'string' && label.trim() && !(String(row.id) in names)) names[String(row.id)] = label;
+      }
+    }
+  }));
   return names;
 }
 
@@ -155,12 +187,11 @@ async function auditNames(db: SupabaseClient, entries: readonly AuditEntry[]): P
  */
 export async function listAuditLog(db: SupabaseClient, searchParams: URLSearchParams): Promise<{ entries: AuditEntry[]; total: number; page: number; page_size: number; names: Record<string, string> }> {
   const filters = auditFilters(searchParams);
-  const page = Math.max(0, Math.floor(Number(searchParams.get('page') ?? 0)) || 0);
-  const { data, count, error } = await filteredAuditQuery(db, filters, true)
-    .range(page * AUDIT_PAGE_SIZE, page * AUDIT_PAGE_SIZE + AUDIT_PAGE_SIZE - 1);
+  const page = Math.min(MAX_PAGE, Math.max(0, Math.floor(Number(searchParams.get('page') ?? 0)) || 0));
+  const { data, count, error } = await readPage(filteredAuditQuery(db, filters, true), { offset: page * AUDIT_PAGE_SIZE, limit: AUDIT_PAGE_SIZE });
   if (error) throw error;
   const entries = (data ?? []) as unknown as AuditEntry[];
-  return { entries, total: count ?? 0, page, page_size: AUDIT_PAGE_SIZE, names: await auditNames(db, entries) };
+  return { entries, total: count ?? 0, page, page_size: AUDIT_PAGE_SIZE, names: await auditNames(db, entries, true) };
 }
 
 /** The most rows one Settings export holds; past it, narrow the filters (or use the export API). */

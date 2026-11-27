@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { ProviderLogo } from '@/components/ui/ProviderLogo';
+import { connectionHealthBadge, type LogoBadge } from '@/lib/logos';
 import { Toggle } from '@/components/ui/inputs/Toggle';
 import { toast } from '@/components/ui/Toast';
 import { workspaceApi } from '@/lib/agent-workspace';
@@ -22,14 +23,11 @@ import { CopyField } from './CopyField';
 import { DiscordLinks, DiscordRelaySecret } from './DiscordRelay';
 import { ReplaceTokenDialog } from './ReplaceTokenDialog';
 import { demoBlocked } from './demo';
+import { formatAgo } from '@/lib/time-format';
 
-/** A chat app's mark on a quiet neutral tile, the same in both themes. */
-function LogoTile({ provider, size = 'md' }: { provider: string; size?: 'md' | 'lg' }) {
-  return (
-    <span className={`flex flex-shrink-0 items-center justify-center rounded-xl bg-white/[0.06] ${size === 'lg' ? 'h-11 w-11' : 'h-9 w-9'}`} aria-hidden="true">
-      <ProviderLogo provider={provider} size={size === 'lg' ? 22 : 18} />
-    </span>
-  );
+/** A chat app's mark on a quiet tile (Rule 20), with its state as a badge when it has one. */
+function LogoTile({ provider, size = 'md', badge = null }: { provider: string; size?: 'md' | 'lg'; badge?: LogoBadge | null }) {
+  return <ProviderLogo provider={provider} size={size === 'lg' ? 'lg' : 'md'} tile badge={badge} decorative />;
 }
 
 const PROVIDER_WAITING: Record<string, string> = { discord: 'Waiting for relay', slack: 'Waiting for Slack', telegram: 'Waiting for first message' };
@@ -55,16 +53,16 @@ export function connectionStatus(connection: ChatConnectionView): { health: Chat
 
 /** The line under a connection: what its status means and what to do about it. */
 function statusLine(connection: ChatConnectionView, health: ChatConnectionHealth): string {
-  const heard = connection.last_inbound_at ? new Date(connection.last_inbound_at).toLocaleString() : null;
+  const heard = connection.last_inbound_at ? formatAgo(connection.last_inbound_at, { midSentence: true }) : null;
   if (health === 'not_receiving') {
     if (connection.provider === 'slack') return "Slack's requests fail the signing check: the signing secret is wrong. Replace it below.";
     if (connection.provider === 'discord') return "The relay's requests fail the check: give it the current relay secret (PM_RELAY_SECRET), or make a new one.";
     return "Telegram's requests fail the check. Replace the token to set its webhook again.";
   }
   if (health === 'waiting') {
-    if (connection.provider === 'slack') return 'Nothing from Slack yet. Paste the Request URL into Event Subscriptions. If Slack says it did not respond, the signing secret is wrong.';
+    if (connection.provider === 'slack') return 'Next: paste the Request URL into Event Subscriptions. If Slack says it did not respond, the signing secret is wrong.';
     if (connection.provider === 'discord') return 'Run the relay with the current secret to start hearing Discord.';
-    return 'Nothing yet. Message the bot to check it.';
+    return 'Message the bot once to finish: it starts answering from the first message.';
   }
   if (health === 'quiet') return `No messages in ${CHAT_CONNECTED_DAYS} days${heard ? `: the last was ${heard}` : ''}.`;
   if (connection.provider === 'discord') return heard ? `Relay last heard ${heard}` : 'Run the relay to start hearing Discord';
@@ -216,7 +214,7 @@ export function ChatConnectionsSection() {
             return (
               <li key={connection.id} className="bg-surface-raised px-3 py-3 sm:px-4">
                 <div className="flex items-start gap-3">
-                  <LogoTile provider={connection.provider} />
+                  <LogoTile provider={connection.provider} badge={connectionHealthBadge(status.health)} />
                   <div className="min-w-0 flex-1">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">

@@ -16,7 +16,15 @@ import { latestRunForTask } from './agent-runs';
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- rows are read field by field, as the route always did
 export type TaskRow = Record<string, any>;
 
-export async function readTaskInFull(supabase: SupabaseClient, taskId: string, options: { agentsOn: boolean }): Promise<TaskRow> {
+export async function readTaskInFull(supabase: SupabaseClient, taskId: string, options: {
+  agentsOn: boolean;
+  /**
+   * The reader when they are a guest (null otherwise): only a question
+   * addressed to them shows as the open question. Required, so every
+   * caller decides.
+   */
+  guestId: string | null;
+}): Promise<TaskRow> {
   const { data, error } = await supabase
     .from('tasks')
     .select(`
@@ -92,7 +100,7 @@ export async function readTaskInFull(supabase: SupabaseClient, taskId: string, o
     // Who is working on it right now (a live claim), or null.
     claim: await claimWithName(supabase, data),
     // The task is waiting on someone: its oldest open question, or null.
-    open_question: await openQuestionForTask(supabase, data.id),
+    open_question: await openQuestionForTask(supabase, data.id, options.guestId ? { memberId: options.guestId } : null),
     // The newest agent run on it (status, agent, start, trace link), or null.
     latest_run: options.agentsOn ? await latestRunForTask(supabase, data.id) : null,
     criteria: undefined,

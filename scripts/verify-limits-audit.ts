@@ -43,6 +43,7 @@ import { isSensitiveKey, redactAuditRow, redactForAudit, REDACTED, urlOrigin } f
 import { missingLimitsSchema } from '../src/lib/api/agent-limits';
 import { limitsInWords, agentLimitsOf } from '../src/lib/agent-limits';
 import { pauseExempt } from '../src/lib/api/request-gate';
+import { auditActionLabel, auditDetails } from '../src/lib/audit-log';
 
 const MIGRATION = '20261124001500_limits_audit.sql';
 const MIGRATION_SQL = readFileSync(join(__dirname, '..', 'supabase', 'migrations', MIGRATION), 'utf8').replace(/\r\n/g, '\n');
@@ -682,6 +683,25 @@ async function main() {
     const page = await session(auditLogRoute.GET, 'GET', `/api/workspace/audit-log?member=${s.owner}&action=api_key`);
     check('audit log: filters by who and action, names who', page.status === 200 && page.body.data.entries.length >= 1
       && page.body.data.entries.every((e: Loose) => e.team_member_id === s.owner && /api_key/.test(`${e.endpoint} ${e.entity_type}`)) && page.body.data.names[s.owner] === 'Olivia', page.body?.data?.entries?.length);
+    // Plain labels: the page names every person, group and project a row mentions, so no id shows.
+    const design = (await s.q<Loose>("INSERT INTO pm.groups (name, slug) VALUES ('Design', 'design') RETURNING id"))[0].id as string;
+    const boltName = (await s.q<Loose>('SELECT name FROM pm.team_members WHERE id = $1', [s.bolt]))[0].name as string;
+    await s.q(`INSERT INTO pm.api_audit_log (method, endpoint, entity_type, entity_id, team_member_id, after_snapshot, status_code, via) VALUES
+      ('DELETE', $1, 'group', $2, $3, $4::jsonb, 200, 'app'),
+      ('PUT', $5, 'project_agent', $6, $3, $7::jsonb, 200, 'app')`, [
+      `/api/v1/groups/${design}/members/${s.ana}`, design, s.owner, JSON.stringify({ removed: s.ana }),
+      `/api/v1/projects/${s.site}/agents/${s.bolt}`, s.bolt, JSON.stringify({ agent_id: s.bolt, project_id: s.site }),
+    ]);
+    const labelled = await session(auditLogRoute.GET, 'GET', '/api/workspace/audit-log?action=members');
+    const removal = (labelled.body?.data?.entries ?? []).find((e: Loose) => e.entity_id === design);
+    const removalLabel = removal ? auditActionLabel(removal, labelled.body.data.names) : null;
+    const removalDetails = removal ? auditDetails(removal, labelled.body.data.names) : [];
+    check('audit log: a member taken out of a group reads "Removed Ana Lopez from Design", its details name her',
+      removalLabel === 'Removed Ana Lopez from Design' && removalDetails.some((d) => d.label === 'Removed' && d.value === 'Ana Lopez'), [removalLabel, removalDetails]);
+    const access = await session(auditLogRoute.GET, 'GET', '/api/workspace/audit-log?action=project_agent');
+    const grant = (access.body?.data?.entries ?? []).find((e: Loose) => e.entity_id === s.bolt);
+    const grantLabel = grant ? auditActionLabel(grant, access.body.data.names) : null;
+    check('audit log: giving an agent a project reads "Gave <agent> access to Site"', grantLabel === `Gave ${boltName} access to Site`, grantLabel);
     const actingFor = await session(auditLogRoute.GET, 'GET', `/api/workspace/audit-log?acting_for=${s.ana}`);
     check('audit log: filters by who it was done for', actingFor.body?.data?.entries?.length === 1 && actingFor.body.data.entries[0].endpoint === '/probe/principal');
     const total = await count('SELECT count(*)::int AS n FROM pm.api_audit_log');

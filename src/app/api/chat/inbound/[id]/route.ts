@@ -11,7 +11,8 @@ export const maxDuration = 30;
 const MAX_BODY_BYTES = 262_144;
 
 function respond(body: Record<string, unknown>, status = 200): Response {
-  return Response.json(body, { status, headers: privateHeaders });
+  // A 429 is the connection's per-minute chat window (lib/chat/inbound.ts).
+  return Response.json(body, { status, headers: status === 429 ? { ...privateHeaders, 'Retry-After': '60' } : privateHeaders });
 }
 
 /**

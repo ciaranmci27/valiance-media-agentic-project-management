@@ -227,6 +227,13 @@ export function ChangeDatesPanel({ run, initiativeName, initiativeId, onClose, o
                   : `${INITIATIVE_LABEL.singular} target stays ${shown.initiative.target_date ? shortDate(shown.initiative.target_date) : 'unset'}: it was set by hand.`}
               </p>
             )}
+            {shown.initiative && shown.initiative.start_from !== shown.initiative.start_to && (
+              <p className="rounded-lg bg-white/[0.03] px-3 py-2 text-xs text-zinc-300">
+                {shown.initiative.start_follows
+                  ? <>{INITIATIVE_LABEL.singular} start moves: <DateChange from={shown.initiative.start_from} to={shown.initiative.start_to} /></>
+                  : `${INITIATIVE_LABEL.singular} start stays ${shown.initiative.start_date ? shortDate(shown.initiative.start_date) : 'unset'}: it was set by hand.`}
+              </p>
+            )}
 
             {shown.kept.length > 0 && (
               <div>
@@ -299,5 +306,6 @@ function resultLine(result: ReflowResult): string {
   const moved = result.moved.length;
   const kept = result.kept.length;
   const target = result.initiative?.follows && result.initiative.to ? ` The ${INITIATIVE_LABEL.lower} now targets ${shortDate(result.initiative.to)}.` : '';
-  return `Dates saved. Moved ${plural(moved, 'task')}${kept ? `, kept ${kept}` : ''}.${target}`;
+  const start = result.initiative?.start_follows && result.initiative.start_to ? ` It now starts ${shortDate(result.initiative.start_to)}.` : '';
+  return `Dates saved. Moved ${plural(moved, 'task')}${kept ? `, kept ${kept}` : ''}.${target}${start}`;
 }

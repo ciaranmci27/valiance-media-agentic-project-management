@@ -10,9 +10,9 @@ import {
   DEFAULT_TILE_CAP, METRIC_KEYS, MIXED_LABEL, RUN_METRICS, SCOPE_QUESTIONS, SCOPE_TASKS, SCOPE_TIME, SUM_KINDS, UNPRICED_LABEL, UNSPLIT_MODEL,
   arrangeTiles, breakdown, buildAgentAnalytics, clipOverlaps, collapseRepeats, costLabel, costText, dailyByAgent,
   groupOf, metricValue, moneyVisibility, profitCaveat, providerOf, rangeDays, rankRows, resolveSelectedMetric, runsFromTurns,
-  scopeNotes, successRate, tileStates, unionMs, type AgentAnalyticsInput, type Dimension, type Fact, type MetricKey, type RunRow, type Sums,
+  runOutcomeLine, scopeNotes, successRate, tileStates, unionMs, type AgentAnalyticsInput, type Dimension, type Fact, type MetricKey, type RunRow, type Sums,
 } from '@/lib/agent-analytics-model';
-import { activitiesFromWindow, type AnalyticsWindowPayload } from '@/lib/agent-analytics-window';
+import { activitiesFromWindow, runStatsFromAnswer, type AnalyticsWindowPayload } from '@/lib/agent-analytics-window';
 import { keysetPages, type PageCursor } from '@/lib/agent-analytics-paging';
 import { computeFinanceAttribution } from '@/lib/finance/summary';
 import { agentsTabFrom, AGENTS_TAB_LABELS } from '@/lib/agents-tab';
@@ -178,6 +178,8 @@ const rich = base({
     run({ agentId: BUILDER, projectId: APP, startedAt: '2026-11-02T10:40:00Z', durationMs: 5 * 60_000, status: 'failed', title: 'Deploy' }),
     run({ agentId: REVIEWER, projectId: SITE, startedAt: '2026-11-03T09:00:00Z', durationMs: 20 * 60_000, source: 'turn', outcome: 'work', tokensIn: 50, tokensOut: 5 }),
     run({ agentId: HELPER, startedAt: '2026-11-04T09:00:00Z', durationMs: 10 * 60_000, source: 'turn', outcome: 'blocked' }),
+    // Still running: counted in runs, never in the success rate.
+    run({ agentId: HELPER, startedAt: '2026-11-07T19:59:00Z', status: 'running' }),
     // Outside the window: never counted.
     run({ agentId: BUILDER, projectId: SITE, startedAt: '2026-10-20T09:00:00Z', durationMs: 10 * 60_000 }),
   ],
@@ -234,7 +236,7 @@ for (const metric of METRIC_KEYS) {
   check(`${metric}: chart days add up to the tile`, Math.abs(viaDays - metricValue(metric, model.totals.sums)) < 1e-6, { viaDays, tile: metricValue(metric, model.totals.sums) });
 }
 
-check('runs in the window: 5 (the October run is out)', model.totals.sums.run === 5, model.totals.sums.run);
+check('runs in the window: 6 (the October run is out)', model.totals.sums.run === 6, model.totals.sums.run);
 check('the PR opened twice counts once', model.totals.sums.prOpened === 1);
 check('a merge by a person goes to the agent that handed it off', breakdown(model.facts, 'agent', labels).find((r) => r.key === BUILDER)?.group.sums.prMerged === 1);
 check('a review started and given in one round counts once', model.totals.sums.review === 1);
@@ -249,6 +251,31 @@ check('blocked waits until the next step, from the first block', JSON.stringify(
 check('a failed deploy repeated within the hour is one incident', model.totals.sums.incident === 1, model.totals.sums.incident);
 check('success rate counts successes over successes and failures (a blocked turn is neither)',
   successRate(model.totals.sums) === 2 / 4, { s: model.totals.sums.runSucceeded, f: model.totals.sums.runFailed });
+
+// Running runs are never succeeded: 14 running and 1 succeeded read as such, not "15 runs, 100% succeeded".
+{
+  const busy = buildAgentAnalytics(base({
+    activities: [],
+    runs: [
+      run({ agentId: BUILDER, startedAt: '2026-11-03T10:00:00Z', finishedAt: '2026-11-03T10:05:00Z' }),
+      ...Array.from({ length: 14 }, (_, i) => run({ agentId: REVIEWER, startedAt: `2026-11-07T1${i % 10}:00:00Z`, status: 'running' })),
+    ],
+  }));
+  const sums = busy.totals.sums;
+  check('running runs: counted in runs and as running, never as succeeded', sums.run === 15 && sums.runRunning === 14 && sums.runSucceeded === 1 && sums.runFailed === 0, sums);
+  check('the runs tile says how many finished and how many still run', runOutcomeLine(sums) === '1 succeeded, 0 failed · 14 running', runOutcomeLine(sums));
+  const reviewer = breakdown(busy.facts, 'agent', labels).find((r) => r.key === REVIEWER)?.group.sums;
+  check('an agent with only running runs shows no rate', !!reviewer && successRate(reviewer) === null && runOutcomeLine(reviewer, true) === '14 running, none finished yet', reviewer && runOutcomeLine(reviewer, true));
+  check('the breakdown cell reads short', runOutcomeLine({ runSucceeded: 3, runFailed: 1, runRunning: 2 }, true) === '3 of 4 ok · 2 running');
+  check('nothing at all reads as none finished', runOutcomeLine({ runSucceeded: 0, runFailed: 0, runRunning: 0 }) === 'None finished yet');
+  const stats = runStatsFromAnswer({ groups: [
+    [REVIEWER, null, null, null, '2026-11-07', 15, 1, 0, 0, 0, 0, 0, 0, 0, 14],
+    [BUILDER, null, null, null, '2026-11-07', 2, 2, 0, 0, 0, 0, 0, 0, 0],
+  ], failures: [] });
+  check('the server sends running as the 15th group value; an older database sends none', stats.groups[0].running === 14 && stats.groups[1].running === undefined, stats.groups);
+  const fromServer = buildAgentAnalytics(base({ activities: [], runs: [], runStats: stats }));
+  check('server sums: running counted apart from succeeded', fromServer.totals.sums.runRunning === 14 && fromServer.totals.sums.runSucceeded === 3, fromServer.totals.sums);
+}
 
 // Busy time: overlaps merged, two ways.
 const builderSpans = [

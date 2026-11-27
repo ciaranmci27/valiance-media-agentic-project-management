@@ -8,6 +8,7 @@ import type { AgentCaller } from './agent-owners';
 import type { Granter } from './agent-setup';
 import { sessionCaller } from './agent-workspace';
 import { ApiError } from './errors';
+import { JSON_BODY_LIMIT, readBodyText } from './body-limit';
 
 /**
  * The shell of the agent workspace session routes (/api/workspace/agents,
@@ -65,8 +66,9 @@ export async function workspaceRoute(
 }
 
 /** The JSON body parsed with `schema` (an empty body reads as {}), or a 422 naming each problem. */
-export async function readWorkspaceBody<S extends z.ZodType>(request: Request, schema: S): Promise<z.infer<S>> {
-  const text = await request.text();
+export async function readWorkspaceBody<S extends z.ZodType>(request: Request, schema: S, limit: number = JSON_BODY_LIMIT): Promise<z.infer<S>> {
+  // Never more than `limit` bytes read (413 PAYLOAD_TOO_LARGE): see body-limit.ts.
+  const text = await readBodyText(request, limit);
   let body: unknown = {};
   if (text.trim()) {
     try {

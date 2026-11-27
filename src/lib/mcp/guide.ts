@@ -80,7 +80,7 @@ Runs
 - If your host records turns (turn.completed), it can name the run with run_id (or run_external_id), and the turn is listed under that run. Turns that name no run show as runs of their own.
 
 Handing work to another agent
-- To hand part of a task to a specialist, delegate_task: a subtask assigned to that agent, linked to your run (run_id). To hand a whole task over (a subtask cannot have subtasks), delegate_task with mode assign. Which agent fits is your call.
+- To hand part of a task to a specialist, delegate_task: a subtask assigned to that agent, linked to your run (run_id). To hand a whole task over (a subtask cannot have subtasks), delegate_task with mode assign. Which agent fits is your call, within the chart: an agent with an orchestrator takes work only from its orchestrator (get_agent_tree shows who works under you; 403 not_your_report otherwise), and the person you work for must be allowed to use it (403 agent_not_available). An agent that asks first answers 202 with approval_id and nothing is made: wait for its managers, then try again.
 - A chain can go 8 hand-offs deep, keeps the person it works for, and never goes back to an agent above you.
 - When a task was delegated to you, get_task_brief has delegated_from: start your run with parent_run_id set to its run_id. A child run acts for the same person as its parent; it can never switch to someone else.
 - get_run_tree shows the whole chain from any run in it.
@@ -121,6 +121,7 @@ export const SETUP_TOOLS: readonly string[] = [
   'list_agents', 'update_agent', 'set_project_agent', 'remove_project_agent', 'setup_project',
   'rotate_api_key', 'list_agent_profiles', 'create_agent_profile', 'update_agent_profile', 'create_agent_template', 'update_agent_template',
   'export_agent_registries', 'import_agent_registries', 'update_api_key', 'pause_api_key', 'resume_api_key',
+  'set_agent_access',
 ];
 
 export const PM_SETUP_GUIDE = `Set up an agent from a chat
@@ -135,6 +136,7 @@ export const PM_SETUP_GUIDE = `Set up an agent from a chat
 - get_agent_context shows what the agent will be told about itself (its pm_guide context), with an AGENTS.md to hand its host. To copy an agent, export_agent_config, then import_agent_config with dry_run true, read the plan back to the person, and run it again without dry_run.
 - Give an agent work on a project with set_project_agent: its template's settings (list_agent_templates shows each template's fields) and instructions for that project only. Those, and the project's pinned brief entries, go into its context; remove_project_agent takes it off.
 - An agent's owners are the people responsible for it; its questions go to them when it names nobody. update_agent changes its name, role label, rules and owners, its limits (an Owner only) and whether it is paused; a role label is for people and changes nothing it may do. list_agents filters by role, owner (me), template and project.
+- Company agents form a chart: set_agent_access gives an agent an orchestrator (another company agent, at most 4 levels, no loops), says who can use it (everyone, roles, groups or people, with exceptions), whether people reach it directly or only through its orchestrator, and whether it asks its managers first. A person can use an agent only if they are in its audience and every orchestrator's above it. get_agent_tree and get_agent_access read it back.
 - To set up a new project from a chat, gather the project, its members, brief (overview, rules, decisions, links, glossary, history), goals and agents, read the plan back to the person, then setup_project once: everything is checked before anything is written.
 - Keys can expire (an Owner sets how long new agent keys last). Before one does, rotate_api_key: the new secret shows once and the old key keeps working for overlap_hours, so the host can switch without a gap.
 - To stop a key for a while without losing it, pause_api_key; resume_api_key brings back the same secret. update_api_key renames a key or changes its scopes in place.

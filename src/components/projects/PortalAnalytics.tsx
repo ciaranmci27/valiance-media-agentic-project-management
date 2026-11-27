@@ -29,6 +29,7 @@ import { buildDemoPortalAnalytics } from '@/lib/demo-data';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { Button } from '@/components/ui/Button';
 import { appLocale } from '@/lib/region';
+import { formatInZone, formatTime } from '@/lib/time-format';
 
 interface PortalAnalyticsProps {
   projectId: string;
@@ -396,7 +397,7 @@ function SessionsTable({
                   >
                     <div className="flex flex-col min-w-0">
                       <span className="text-zinc-100 font-medium truncate">{formatRelative(s.last_seen_at)}</span>
-                      <span className="text-[11px] text-zinc-500 truncate">{new Date(s.started_at).toLocaleString(appLocale())}</span>
+                      <span className="text-[11px] text-zinc-500 truncate">{formatInZone(s.started_at)}</span>
                     </div>
                     <div className="flex items-center gap-2 text-zinc-300 min-w-0">
                       <span className="text-zinc-500 flex-shrink-0"><DeviceIcon type={s.device_type} /></span>
@@ -466,7 +467,7 @@ function SessionsTable({
                             row.kind === 'event' ? (
                               <li key={row.event.id} className="flex items-baseline gap-2 text-xs">
                                 <span className="text-zinc-500 tabular-nums">
-                                  {new Date(row.event.created_at).toLocaleTimeString(appLocale(), { hour: 'numeric', minute: '2-digit', second: '2-digit' })}
+                                  {formatInZone(row.event.created_at, { hour: 'numeric', minute: '2-digit', second: '2-digit' })}
                                 </span>
                                 <span
                                   className={`w-1.5 h-1.5 rounded-full flex-shrink-0 self-center ${
@@ -480,7 +481,7 @@ function SessionsTable({
                             ) : (
                               <li key={row.key} className="flex items-baseline gap-2 text-xs italic text-zinc-500">
                                 <span className="tabular-nums">
-                                  {new Date(row.startedAt).toLocaleTimeString(appLocale(), { hour: 'numeric', minute: '2-digit' })}
+                                  {formatTime(row.startedAt)}
                                 </span>
                                 <span className="w-1.5 h-1.5 rounded-full bg-white/[0.08] flex-shrink-0 self-center" />
                                 <span>Active for {formatDuration(row.durationSeconds)}</span>

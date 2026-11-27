@@ -54,7 +54,7 @@ export function Pill({ children, tone = 'neutral', dot = false, icon, className 
       ) : dot ? (
         <span className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${color ? 'bg-current' : DOT[tone]}`} aria-hidden="true" />
       ) : null}
-      <span className="min-w-0 truncate">{children}</span>
+      <span className="inline-flex min-w-0 items-center gap-1 truncate [&>svg]:flex-shrink-0">{children}</span>
     </span>
   );
 }

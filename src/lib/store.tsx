@@ -130,6 +130,8 @@ import { restoreFromTrash, TRASH_TABLES, TrashError, type TrashTable } from '@/l
 import { workspaceApi } from '@/lib/agent-workspace';
 import { keyDatesOf, mainKeyDate, planRun, RUNNER, type PlannedTask, type RunTaskTemplateInput, type TaskTemplateRunResult } from '@/lib/task-templates';
 import { toLocalDateString } from '@/lib/date-utils';
+import { agentRefusalWords, isAskFirstRefusal } from '@/lib/agent-refusal';
+import { profileTimeZone } from '@/lib/time-zone';
 
 // A refused move to Trash says why (time on an invoice, payments from an
 // accounting connection, no permission); anything else gets the fallback.
@@ -446,6 +448,8 @@ interface AppContextType {
   updateApiKey: (id: string, changes: { name?: string; scopes?: string[] }) => Promise<ApiKey | undefined>;
   /** Replaces a key: the successor's secret comes back once, and the old key ends after overlapHours. Throws the server's words. */
   rotateApiKey: (id: string, overlapHours: number) => Promise<{ key: ApiKey; secret: string }>;
+  /** Pauses or resumes a key: it keeps its secret and is refused while paused. Shown at once; throws the server's words (and rolls back) on failure. */
+  setApiKeyPaused: (id: string, paused: boolean) => Promise<ApiKey>;
 
   // Agent data (loaded while the AI agents module is on)
   projectGoals: ProjectGoal[];
@@ -681,6 +685,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
         category,
         ...(emailOverrides && { email: emailOverrides }),
       }),
+    }).catch(() => {});
+  };
+
+  // Fire-and-forget: the server writes the notice about something this person
+  // just added (a comment, a file) from the record itself and sends it to
+  // whoever can open it. Guests' comments and uploads reach the team this way.
+  const announce = (kind: 'task_comment' | 'entity_file', id: string) => {
+    if (skipSupabase) return;
+    fetch('/api/workspace/announce', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ kind, id }),
     }).catch(() => {});
   };
 
@@ -1764,8 +1780,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (!template) throw new Error('This template is not in the demo.');
     const projectId = template.project_id ?? input.project_id;
     if (!projectId) throw new Error('Pick the project the tasks go in.');
-    const zone = team.find(m => m.id === teamMemberId)?.timezone;
-    const today = toLocalDateString(zone && zone !== 'UTC' ? zone : undefined);
+    const today = toLocalDateString(profileTimeZone(team.find(m => m.id === teamMemberId)));
     const keyDateList = keyDatesOf(template.key_dates);
     const keyDates: Record<string, string> = { ...(input.key_dates ?? {}) };
     if (keyDateList.some(k => k.key === 'start')) keyDates.start = keyDates.start ?? input.start_date ?? today;
@@ -2013,20 +2028,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
           : t
       ));
 
-      // Notify task assignees about the new comment (dedup key = parent task)
-      const task = tasks.find(t => t.id === taskId);
-      if (task) {
-        const preview = text.length > 60 ? text.slice(0, 60) + '...' : text;
-        const project = projects.find(p => p.id === task.project_id);
-        notify(allMemberIds(), `New comment on "${task.title}"`, `${actorName()}: "${preview}"`, `/projects/${task.project_id}`, 'task', taskId, 'task_comments', {
-          subject: `${actorName()} commented on "${task.title.length > 40 ? task.title.slice(0, 40) + '...' : task.title}"`,
-          details: [
-            ...(project ? [{ label: 'Project', value: project.name }] : []),
-            { label: 'Task', value: task.title },
-            { label: 'Comment by', value: actorName() },
-          ],
-        });
-      }
+      // The team hears of it (dedup key = parent task); the server writes the notice.
+      announce('task_comment', newComment.id);
     } catch (err) {
       setTasks(prev => prev.map(t =>
         t.id === taskId
@@ -3486,8 +3489,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     try {
       const created = await insertEntityFileQuery(supabase, file);
       setEntityFiles(prev => prev.map(f => f.id === optimisticId ? created : f));
-      const link = file.entity_type === 'project' ? `/projects/${file.entity_id}` : file.entity_type === 'lead' ? `/leads/${file.entity_id}` : `/contacts/${file.entity_id}`;
-      notify(allMemberIds(), `File attached to ${file.entity_type}`, `${actorName()} uploaded a file.`, link, file.entity_type, file.entity_id, 'entity_files');
+      announce('entity_file', created.id);
       return true;
     } catch {
       setEntityFiles(prev => prev.filter(f => f.id !== optimisticId));
@@ -3945,6 +3947,28 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return { key, secret };
   };
 
+  const setApiKeyPausedAction = async (id: string, paused: boolean): Promise<ApiKey> => {
+    const prev = apiKeys;
+    const at = new Date().toISOString();
+    const existing = apiKeys.find(k => k.id === id);
+    setApiKeys(keys => keys.map(k => k.id === id ? { ...k, paused_at: paused ? k.paused_at ?? at : null, state: paused ? 'paused' : 'active' } : k));
+    if (skipSupabase) return { ...(existing as ApiKey), paused_at: paused ? at : null, state: paused ? 'paused' : 'active' };
+    try {
+      const response = await fetch(`/api/workspace/api-keys/${encodeURIComponent(id)}/${paused ? 'pause' : 'resume'}`, { method: 'POST' });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        const message = typeof payload.error === 'string' ? payload.error : payload.error?.message;
+        throw new Error(message || (paused ? 'Could not pause the key.' : 'Could not resume the key.'));
+      }
+      const updated = payload.data as ApiKey;
+      setApiKeys(keys => keys.map(k => k.id === id ? { ...k, ...updated } : k));
+      return updated;
+    } catch (err) {
+      setApiKeys(rollbackScope(prev, k => k.id === id));
+      throw err;
+    }
+  };
+
   // Project Goal CRUD
   const addGoalAction = async (goal: { project_id: string; title: string; description?: string; target_date?: string | null; status?: string }): Promise<ProjectGoal | undefined> => {
     const optimisticId = crypto.randomUUID();
@@ -4088,7 +4112,36 @@ export function AppProvider({ children }: { children: ReactNode }) {
       // Revert only this suggestion; a mid-batch failure must not undo
       // the optimistic state of other suggestions in a bulk approve
       setTaskSuggestions(s => s.map(sug => sug.id === id ? suggestion : sug));
-      toast('error', 'Failed to approve suggestion');
+      // Its agent asks its managers first: the server asks them (or, once they
+      // approved it, approves the suggestion here); the suggestion stays pending meanwhile.
+      if (isAskFirstRefusal(err)) {
+        try {
+          const response = await fetch(`/api/workspace/task-suggestions/${id}/approve`, {
+            method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(taskOverrides),
+          });
+          const payload = await response.json().catch(() => null) as { data?: Record<string, unknown>; error?: { message?: string } } | null;
+          if (!response.ok) {
+            toast('error', payload?.error?.message ?? 'Failed to approve suggestion');
+            return false;
+          }
+          const data = payload?.data ?? {};
+          if (data.status === 'awaiting_approval') {
+            toast('info', `Sent to ${typeof data.agent_name === 'string' && data.agent_name ? `${data.agent_name}'s` : 'the agent\'s'} managers to approve`);
+            return false;
+          }
+          const approved = data as unknown as { suggestion: TaskSuggestion; task: Task };
+          setTaskSuggestions(s => s.map(sug => sug.id === id ? approved.suggestion : sug));
+          setTasks(prev => [approved.task, ...prev]);
+          linkSuggestionEmails([approved.suggestion]);
+          kickWorkWebhooks();
+          return true;
+        } catch {
+          toast('error', 'Failed to approve suggestion');
+          return false;
+        }
+      }
+      // An agent the reviewer may not give work to: say why (no task was made).
+      toast('error', agentRefusalWords(err) ?? 'Failed to approve suggestion');
       return false;
     }
   };
@@ -4132,7 +4185,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const original = members.find(m => m.id === sug.id);
         return original ?? sug;
       }));
-      toast('error', err instanceof Error ? err.message : 'Failed to approve bundle');
+      toast('error', agentRefusalWords(err) ?? (err instanceof Error ? err.message : 'Failed to approve bundle'));
       return false;
     }
   };
@@ -4826,6 +4879,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       revokeApiKey: revokeApiKeyAction,
       updateApiKey: updateApiKeyAction,
       rotateApiKey: rotateApiKeyAction,
+      setApiKeyPaused: setApiKeyPausedAction,
       projectGoals,
       taskSuggestions,
       agentActivity: agentActivityList,

@@ -18,8 +18,8 @@ import { useTaskFileCount } from './task-file-counts';
 import { TaskRepeatIcon } from '@/components/schedules/TaskRepeatIcon';
 import { useMoveTaskMenuAction } from './MoveTaskDialog';
 import { Tooltip } from '@/components/ui/Tooltip';
-import { parseDateOnly, isDateOverdue } from '@/lib/date-utils';
-import { useRegion } from '@/lib/region/context';
+import { isDateOverdue } from '@/lib/date-utils';
+import { formatCalendarDay } from '@/lib/time-format';
 import { hasPermission, canEditTask, canManageAllTasks, isModuleEnabled } from '@/lib/access-control';
 
 /**
@@ -51,7 +51,6 @@ export function TaskRow({ task, onView, onDelete }: TaskRowProps) {
   const { team, tasks, getSubtasks, getTaskUpdate } = useApp();
   const warmTask = useTaskWarmer();
   const { teamMemberId, access } = useAuth();
-  const { locale } = useRegion();
   const [showMenu, setShowMenu] = useState(false);
   const linkCounts = useTaskLinkCounts(task.id);
   const fileCount = useTaskFileCount(task.id);
@@ -71,10 +70,9 @@ export function TaskRow({ task, onView, onDelete }: TaskRowProps) {
 
   const formatDate = (date: string | null) => {
     if (!date) return null;
-    const d = parseDateOnly(date);
     const isOverdue = isDateOverdue(date) && task.status !== 'done' && task.status !== 'backlog';
     return {
-      text: d.toLocaleDateString(locale, { month: 'short', day: 'numeric' }),
+      text: formatCalendarDay(date),
       isOverdue
     };
   };
@@ -258,7 +256,6 @@ export function TaskRowDesktop({ task, onView, onDelete, selected, onToggleSelec
   const { team, tasks, getSubtasks, getTaskUpdate } = useApp();
   const warmTask = useTaskWarmer();
   const { teamMemberId, access } = useAuth();
-  const { locale } = useRegion();
   const [showMenu, setShowMenu] = useState(false);
   const linkCounts = useTaskLinkCounts(task.id);
   const fileCount = useTaskFileCount(task.id);
@@ -278,10 +275,9 @@ export function TaskRowDesktop({ task, onView, onDelete, selected, onToggleSelec
 
   const formatDate = (date: string | null) => {
     if (!date) return null;
-    const d = parseDateOnly(date);
     const isOverdue = isDateOverdue(date) && task.status !== 'done' && task.status !== 'backlog';
     return {
-      text: d.toLocaleDateString(locale, { month: 'short', day: 'numeric' }),
+      text: formatCalendarDay(date),
       isOverdue
     };
   };

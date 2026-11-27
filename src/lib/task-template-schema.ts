@@ -19,6 +19,7 @@ export const TEMPLATE_ERROR_CODES: Record<TemplateIssueCode, string> = {
   unknown_dependency: 'depends_on names a key no top-level task has.',
   dependency_not_top_level: 'depends_on names a subtask; tasks wait only on top-level tasks.',
   dependency_cycle: 'Tasks wait on each other in a loop; the error lists the loop in cycle.',
+  dependency_due_before: 'A warning, never an error: a task counts from the same key date as a task it waits on but is due before it.',
   undeclared_field: 'A {key} in a title or description has no field.',
   too_many_tasks: 'More than 200 tasks, subtasks included.',
   main_key_date: 'More than one key date is marked main.',

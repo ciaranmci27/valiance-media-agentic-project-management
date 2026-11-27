@@ -1,15 +1,16 @@
 import { z } from 'zod';
+import { clearableDate, longText, titleText } from './shared';
 
 export const createGoalSchema = z.object({
-  title: z.string().min(1, 'Title is required'),
-  description: z.string().default(''),
-  target_date: z.string().nullable().default(null),
+  title: titleText(),
+  description: longText().default(''),
+  target_date: clearableDate.nullable().default(null),
   status: z.enum(['active', 'achieved', 'paused', 'abandoned']).default('active'),
 });
 
 export const updateGoalSchema = z.object({
-  title: z.string().min(1).optional(),
-  description: z.string().optional(),
-  target_date: z.string().nullable().optional(),
+  title: titleText().optional(),
+  description: longText().optional(),
+  target_date: clearableDate.nullable().optional(),
   status: z.enum(['active', 'achieved', 'paused', 'abandoned']).optional(),
 });

@@ -1,12 +1,13 @@
 import { NextRequest } from 'next/server';
 import { ZodSchema, ZodError } from 'zod';
 import { SupabaseClient } from '@supabase/supabase-js';
-import { PERMISSION_IMPLIED_BY, type AccessContext, type PermissionKey } from '@/lib/access-control';
+import { isModuleEnabled, PERMISSION_IMPLIED_BY, type AccessContext, type PermissionKey } from '@/lib/access-control';
 import { getActorClient, getServiceClient } from './supabase-service';
 import { hashApiKey } from './crypto';
 import { passRequestGate, pausedRefusal, projectPausedRefusal, pauseExempt, type RequestGate } from './request-gate';
 import { ApiError, unauthorized, forbidden, tooManyRequests, badRequest, notFound, moduleOff } from './errors';
 import { errorResponse } from './response';
+import { JSON_BODY_LIMIT, assertDeclaredBodySize, readBodyText } from './body-limit';
 import { accessAllows, accessAllowsProject, moduleOffFor, resolveMemberAccess } from './access';
 import { apiRequestContext } from './request-context';
 import { verifyActFor } from './delegation';
@@ -19,6 +20,7 @@ import { liveTaskIds } from './task-guards';
 import { afterResponse } from './after-response';
 import { kickWebhooks } from '@/lib/webhooks/kick';
 import { API_VERSION, API_VERSION_HEADER } from './version';
+import { BODY_DEPTH_MAX, bodyProblem } from '@/lib/schemas/shared';
 import { missingPauseColumns, successorPaused } from './key-manage';
 import {
   claimIdempotencyKey,
@@ -32,12 +34,22 @@ import {
 /** Static routes under /api/v1/tasks/ that are not a task id. */
 export const TASK_COLLECTION_ACTIONS: ReadonlySet<string> = new Set(['reorder', 'next']);
 
+/** Whole seconds until `resetAt` (ms), at least 1; a minute when unknown. */
+function retryAfterSeconds(resetAt: number | null): string {
+  if (resetAt === null || !Number.isFinite(resetAt)) return '60';
+  return String(Math.max(1, Math.ceil((resetAt - Date.now()) / 1000)));
+}
+
 /** Every answer withApi gives: the contract version (lib/api/version.ts), and the rate limit once it is known. */
 function applyRateLimitHeaders(
   response: Response,
   rateInfo: { remaining: number; resetAt: number; limit: number } | null,
 ): Response {
   response.headers.set(API_VERSION_HEADER, API_VERSION);
+  // Every 429 says when to come back: its own window if it named one, else the key's.
+  if (response.status === 429 && !response.headers.has('Retry-After')) {
+    response.headers.set('Retry-After', retryAfterSeconds(rateInfo?.resetAt ?? null));
+  }
   if (rateInfo) {
     response.headers.set('X-RateLimit-Limit', String(rateInfo.limit));
     response.headers.set('X-RateLimit-Remaining', String(rateInfo.remaining));
@@ -60,6 +72,13 @@ export interface ApiContext<TBody = unknown, TParams = Record<string, string>> {
   principalId: string | null;
   /** This request's origin, for links the answer carries (NEXT_PUBLIC_APP_URL wins where it is set). */
   origin: string;
+  /** Aborted when the caller goes away: a long-poll wait (lib/api/long-poll.ts) ends early on it. */
+  signal: AbortSignal;
+}
+
+/** The one answer for a task that is missing, in Trash, or in a project out of reach. */
+export function taskNotFound(): ApiError {
+  return new ApiError(404, 'NOT_FOUND', 'Task not found. It may be in Trash.', { reason: 'not_found_or_in_trash', resource: 'task' });
 }
 
 interface WithApiOptions<TBody> {
@@ -91,6 +110,12 @@ interface WithApiOptions<TBody> {
    * MCP server, the one resource it is issued for.
    */
   acceptsConnection?: boolean;
+  /**
+   * The largest body this route reads, in bytes (default JSON_BODY_LIMIT,
+   * 1 MB). Larger bodies answer 413 PAYLOAD_TOO_LARGE before they are parsed.
+   * Only routes that carry a file inline raise it (FILE_BODY_LIMIT).
+   */
+  maxBodyBytes?: number;
 }
 
 type HandlerFn<TBody, TParams> = (ctx: ApiContext<TBody, TParams>) => Promise<Response>;
@@ -216,6 +241,9 @@ export async function resolveApiKey(apiKey: string | null, actFor: string | null
   ]);
   if (businessSettings?.api_enabled === false) throw forbidden('Workspace API access is disabled', { reason: 'api_disabled' });
   if (!access || access.status !== 'active') throw forbidden('Linked team member is suspended', { reason: 'member_suspended' });
+  // AI agents switched off: agents (workspace and personal) do nothing, on
+  // every route and the MCP server, until an Owner turns the module on again.
+  if (access.role === 'agent' && !isModuleEnabled(access, 'agents')) throw moduleOff('agents');
   // A setup key works for its person alone, on the setup routes alone.
   if (isAiSetupKey(apiKey)) {
     if (actFor !== null) throw forbidden('This is not available while acting for someone', { reason: 'act_for_not_allowed', hint: 'A setup key acts as its person. Send the request without X-Act-For.' });
@@ -250,6 +278,10 @@ export function withApi<TBody = unknown, TParams = Record<string, string>>(
     let service: SupabaseClient | null = null;
 
     try {
+      // A body that says it is too large is refused before anything else is
+      // done; one without a length is counted as it is read below.
+      const bodyLimit = options?.maxBodyBytes ?? JSON_BODY_LIMIT;
+      if (request.method !== 'GET' && request.method !== 'HEAD') assertDeclaredBodySize(request.headers, bodyLimit);
       const actFor = actForFrom(request);
       // A connection's token comes in-process from the MCP server (which
       // checked it first) or, where a route opts in, as a bearer token.
@@ -412,16 +444,11 @@ export function withApi<TBody = unknown, TParams = Record<string, string>>(
           .maybeSingle();
         // So does a subtask whose parent is in Trash.
         const parentGone = !!task?.parent_task_id && !(await liveTaskIds(supabase, [task.id])).has(task.id);
-        // Not found, never "denied": an agent told "denied" takes it for a permission problem.
-        if (!task || parentGone) throw new ApiError(404, 'NOT_FOUND', 'Task not found. It may be in Trash.', { reason: 'not_found_or_in_trash', resource: 'task' });
-        if (!accessAllowsProject(access, task.project_id, 'api')) {
-          throw forbidden('Project scope denied', {
-            reason: 'project_scope',
-            grant_on: 'project_membership',
-            project_id: task.project_id,
-            hint: "Assign the linked member to this task's project, or grant projects.read_all.",
-          });
-        }
+        // Not found, never "denied": an agent told "denied" takes it for a
+        // permission problem. A task in a project the key cannot open answers
+        // exactly the same, so the answer never confirms that an id exists or
+        // names its project.
+        if (!task || parentGone || !accessAllowsProject(access, task.project_id, 'api')) throw taskNotFound();
         const pausedHere = projectWriteRefusal(task.project_id);
         if (pausedHere) throw pausedHere;
         const isCommentWrite = request.nextUrl.pathname.includes('/comments') && isWrite;
@@ -515,7 +542,7 @@ export function withApi<TBody = unknown, TParams = Record<string, string>>(
       const parsesBody = !!options?.schema && (method === 'POST' || method === 'PUT' || method === 'PATCH');
       // A route with no schema reads the request itself (custom /api/x routes
       // do), so the key's hash reads a clone and leaves the body to it.
-      const text = parsesBody ? await request.text() : idempotencyKey ? await request.clone().text() : '';
+      const text = parsesBody ? await readBodyText(request, bodyLimit) : idempotencyKey ? await readBodyText(request.clone(), bodyLimit) : '';
 
       let body = undefined as unknown as TBody;
       if (options?.schema && parsesBody) {
@@ -527,7 +554,22 @@ export function withApi<TBody = unknown, TParams = Record<string, string>>(
             throw badRequest('Request body must be valid JSON');
           }
         }
+        // A body nested past any real one: refused before anything walks it.
+        const deep = bodyProblem(raw, { text: false });
+        if (deep) {
+          throw new ApiError(422, 'VALIDATION_ERROR', `The body nests more than ${BODY_DEPTH_MAX} levels deep (at ${deep.path})`, {
+            reason: 'too_deep', field: deep.path, max_depth: BODY_DEPTH_MAX,
+          });
+        }
         body = options.schema.parse(raw);
+        // NUL or a lone surrogate would fail in the database as a 500: refuse it here, by field.
+        // Checked on what the schema kept: a field it cleans, or a key it drops, passes as before.
+        const unstorable = bodyProblem(body);
+        if (unstorable) {
+          throw new ApiError(422, 'VALIDATION_ERROR', `${unstorable.path} holds a character that cannot be stored (NUL or half of a surrogate pair)`, {
+            reason: 'invalid_text', field: unstorable.path,
+          });
+        }
       }
       // A session's call changes agents only (lib/api/ai-setup.ts).
       if (setupGrant) await assertAiSetupCall(supabase, { method, pathname: request.nextUrl.pathname, body, memberId: keyRow.team_member_id });
@@ -571,6 +613,7 @@ export function withApi<TBody = unknown, TParams = Record<string, string>>(
         scopes,
         principalId,
         origin: request.nextUrl.origin,
+        signal: request.signal,
       }));
       if (idempotency) {
         // Stored before the answer leaves, so a retry that arrives right after gets it.
@@ -587,7 +630,11 @@ export function withApi<TBody = unknown, TParams = Record<string, string>>(
         return applyRateLimitHeaders(errorResponse(422, 'VALIDATION_ERROR', 'Validation failed', err.issues), rateInfo);
       }
       if (err instanceof ApiError) {
-        return applyRateLimitHeaders(errorResponse(err.statusCode, err.code, err.message, err.details), rateInfo);
+        const response = errorResponse(err.statusCode, err.code, err.message, err.details);
+        // A 429 with its own window (chat_rate_limited's reset_at) waits for that, not the key's.
+        const ownReset = err.statusCode === 429 ? Date.parse(String((err.details as { reset_at?: unknown } | undefined)?.reset_at ?? '')) : NaN;
+        if (Number.isFinite(ownReset)) response.headers.set('Retry-After', retryAfterSeconds(ownReset));
+        return applyRateLimitHeaders(response, rateInfo);
       }
       // Attach a request id so an opaque 500 can be traced to its server log.
       const requestId = crypto.randomUUID();

@@ -279,7 +279,7 @@ No limit applies until an Owner sets one. An Owner sets them on the agent's prof
 | `402 BUDGET_EXCEEDED` | `budget_exceeded` | The budget for this period is spent. New runs are refused; owners are told once a period. | Finish what you hold, keep reporting usage, wait for the reset or a raise. |
 | `409 CONFLICT` | `limit_concurrent_runs` | Too many runs going at once. | Finish one first. |
 | `409 CONFLICT` | `limit_concurrent_claims` | Too many claimed tasks at once (same number as runs). | Finish or release one. |
-| `429 RATE_LIMIT_EXCEEDED` | | Over the requests-per-minute limit (120 per key unless the agent has its own, shared across its keys). | Back off. `X-RateLimit-Reset` says when. |
+| `429 RATE_LIMIT_EXCEEDED` | | Over the requests-per-minute limit (120 per key unless the agent has its own, shared across its keys). | Back off. `Retry-After` says how many seconds (MCP: `retry_after_seconds`). |
 | `423 AGENTS_PAUSED` | `agents_paused` | An Owner paused every agent. | Stop starting work. Check again later. |
 | `423 AGENT_PAUSED` | `agent_paused` | This agent is paused. | Same. |
 | `423 ASSISTANTS_OFF` | `assistants_off` | A personal assistant, while an Owner has assistants switched off. | Same. |

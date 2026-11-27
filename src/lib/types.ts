@@ -472,6 +472,8 @@ export interface TeamMember {
   /** For an agent: when it was paused (reads, heartbeats and telemetry only); null while it works. */
   agent_paused_at?: string | null;
   timezone?: string;
+  /** The person (or their first sign-in, from the browser) has set the time zone; false while it is the default (20261127001500). */
+  timezone_set?: boolean;
   notification_prefs?: NotificationPreferences;
   email_notifications_enabled?: boolean;
   email_notification_prefs?: NotificationPreferences;

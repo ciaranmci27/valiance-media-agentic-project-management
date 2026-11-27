@@ -9,7 +9,6 @@ import { invalidateTables, useRead } from '@/lib/query-cache';
 import { aiSetupRead } from '@/lib/reads';
 import { workspaceApi } from '@/lib/agent-workspace';
 import { buildConnectInfo, type ConnectInfo } from '@/lib/agent-connect';
-import { appLocale } from '@/lib/region/active';
 import { roleLabel } from '@/lib/agents-ui';
 import {
   AI_SETUP_ABILITIES, AI_SETUP_EXAMPLES, AI_SETUP_KEY_NAME, AI_SETUP_MINUTES, aiSetupNever, aiSetupPrompt, minutesLeft,
@@ -23,6 +22,7 @@ import { Bone, Skeleton } from '@/components/projects/TabLayout';
 import { AgentAvatar } from '@/components/agent/AgentAvatar';
 import { ConnectSnippets, CopyButton, SecretOnce } from '@/components/agent/ConnectPanel';
 import { toast } from '@/components/ui/Toast';
+import { formatTime } from '@/lib/time-format';
 
 /**
  * Hire an agent > Set it up with AI. Three parts on one page:
@@ -44,7 +44,7 @@ const STEPS = [
 const CONNECT_AI_HREF = '/settings/account#connect-ai';
 const POLL_MS = 5000;
 
-const timeOf = (iso: string) => new Date(iso).toLocaleTimeString(appLocale(), { hour: 'numeric', minute: '2-digit' });
+const timeOf = (iso: string) => formatTime(iso);
 const randomHex = (bytes: number) => Array.from(crypto.getRandomValues(new Uint8Array(bytes)), (b) => b.toString(16).padStart(2, '0')).join('');
 
 export function AiSetupFlow({ exitHref, onManual, projectName }: { exitHref: string; onManual: () => void; projectName: string | null }) {

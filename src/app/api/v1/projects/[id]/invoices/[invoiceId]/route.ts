@@ -1,5 +1,6 @@
 import { after } from 'next/server';
 import { withApi } from '@/lib/api/middleware';
+import { withDownloadUrls } from '@/lib/storage/sign-stored-file';
 import { success } from '@/lib/api/response';
 import { updateInvoiceSchema } from '@/lib/schemas';
 import { ApiError, badRequest, notFound } from '@/lib/api/errors';
@@ -31,7 +32,9 @@ async function fetchInvoice(supabase: SupabaseClient, projectId: string, invoice
 
 export const GET = withApi(async ({ supabase, params }) => {
   const { invoice_time_entry_allocations, ...invoice } = await fetchInvoice(supabase, params.id, params.invoiceId);
-  return success({ ...invoice, time_allocations: invoice_time_entry_allocations || [] });
+  // A stored invoice PDF is private: download_url is a signed link that lasts an hour.
+  const [withLink] = await withDownloadUrls(supabase, [invoice], 3600);
+  return success({ ...withLink, time_allocations: invoice_time_entry_allocations || [] });
 }, { permission: 'invoices.read' });
 
 export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemberId }) => {

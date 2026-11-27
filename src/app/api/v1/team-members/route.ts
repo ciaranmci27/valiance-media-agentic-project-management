@@ -1,7 +1,7 @@
 import { withApi } from '@/lib/api/middleware';
 import { created, paginated } from '@/lib/api/response';
 import { createTeamMemberSchema } from '@/lib/schemas';
-import { parsePagination, sanitizeSearch } from '@/lib/api/pagination';
+import { parsePagination, sanitizeSearch, readPage } from '@/lib/api/pagination';
 import { logAudit } from '@/lib/api/audit';
 import { forbidden } from '@/lib/api/errors';
 import { accessAllows } from '@/lib/api/access';
@@ -22,9 +22,9 @@ export const GET = withApi(async ({ supabase, searchParams, access }) => {
     query = query.or(`name.ilike.%${s}%,email.ilike.%${s}%`);
   }
 
-  const { data, count, error } = await query
+  const { data, count, error } = await readPage(query
     .order('created_at', { ascending: true })
-    .range(offset, offset + limit - 1);
+    .order('id'), { offset, limit });
 
   if (error) throw error;
   return paginated(data || [], { page, limit, total: count || 0 });

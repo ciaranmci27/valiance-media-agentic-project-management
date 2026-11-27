@@ -1,9 +1,10 @@
 import { after } from 'next/server';
 import { withApi } from '@/lib/api/middleware';
+import { withDownloadUrls } from '@/lib/storage/sign-stored-file';
 import { created, paginated } from '@/lib/api/response';
 import { createInvoiceSchema } from '@/lib/schemas';
 import { badRequest } from '@/lib/api/errors';
-import { parsePagination } from '@/lib/api/pagination';
+import { parsePagination, readPage } from '@/lib/api/pagination';
 import { logAudit } from '@/lib/api/audit';
 import { runDispatch } from '@/lib/webhooks/dispatch';
 
@@ -24,16 +25,17 @@ export const GET = withApi(async ({ supabase, params, searchParams }) => {
     .is('deleted_at', null);
   if (status) query = query.eq('status', status);
 
-  const { data, count, error } = await query
+  const { data, count, error } = await readPage(query
     .order('date', { ascending: false })
-    .range(offset, offset + limit - 1);
+    .order('id'), { offset, limit });
   if (error) throw error;
 
   const invoices = (data || []).map(({ invoice_time_entry_allocations, ...invoice }) => ({
     ...invoice,
     time_allocations: invoice_time_entry_allocations || [],
   }));
-  return paginated(invoices, { page, limit, total: count || 0 });
+  // A stored invoice PDF is private: download_url is a signed link that lasts an hour.
+  return paginated(await withDownloadUrls(supabase, invoices, 3600), { page, limit, total: count || 0 });
 }, { permission: 'invoices.read' });
 
 export const POST = withApi(async ({ supabase, params, body, apiKeyId, teamMemberId }) => {

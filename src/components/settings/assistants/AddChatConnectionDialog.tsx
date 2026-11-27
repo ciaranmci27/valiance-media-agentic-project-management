@@ -5,7 +5,7 @@ import { Building2, UserRound } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import Modal from '@/components/ui/Modal';
 import { PasswordInput } from '@/components/ui/inputs/PasswordInput';
-import { ProviderLogo } from '@/components/ui/ProviderLogo';
+import { ProviderPicker } from '@/components/ui/ProviderPicker';
 import { ChoiceCard, ChoiceGroup, StepFooter, StepPanel, Stepper, type FlowStep } from '@/components/ui/Stepper';
 import { workspaceApi } from '@/lib/agent-workspace';
 import { CHAT_APPS, CHAT_PROVIDERS, chatAppConnectable, chatProviderLabel, type ChatConnectionKind, type ChatConnectionView, type ChatProvider } from '@/lib/chat/types';
@@ -94,7 +94,6 @@ function AddFlow({ initialProvider, free, onBusy, onAdded }: {
   const steps = provider === 'discord' ? DISCORD_STEPS : STEPS;
   const connectStep = STEPS.length - 1;
   const freeKinds = provider ? free[provider] : [];
-  const firstOpenApp = CHAT_PROVIDERS.find((p) => chatAppConnectable(p) && free[p].length > 0) ?? null;
   const firstOpenKind = freeKinds[0] ?? null;
 
   const go = (index: number) => { setError(null); setStep(index); setReached((prev) => Math.max(prev, index)); };
@@ -153,26 +152,24 @@ function AddFlow({ initialProvider, free, onBusy, onAdded }: {
 
       {step === 0 && (
         <StepPanel stepKey="app" title="Which chat app" description="Bot tokens are stored encrypted.">
-          <ChoiceGroup label="Chat app" className="grid gap-3 sm:grid-cols-3">
-            {CHAT_APPS.map((app) => {
+          <ProviderPicker
+            label="Chat app"
+            hideLabel
+            layout="cards"
+            value={provider ?? ''}
+            onChange={(value) => { if (chatAppConnectable(value) && free[value].length > 0) pickProvider(value); }}
+            choices={CHAT_APPS.map((app) => {
               const available = chatAppConnectable(app.provider);
               const full = available && free[app.provider as ChatProvider].length === 0;
-              return (
-                <ChoiceCard
-                  key={app.provider}
-                  id={`chat-app-${app.provider}`}
-                  selected={provider === app.provider}
-                  focusable={provider ? provider === app.provider : firstOpenApp === app.provider}
-                  disabled={!available || full}
-                  onSelect={() => { if (available && !full) pickProvider(app.provider as ChatProvider); }}
-                  icon={<ProviderLogo provider={app.provider} size={20} />}
-                  title={app.name}
-                  description={app.line}
-                  meta={!available ? 'Coming soon' : full ? 'Already connected' : null}
-                />
-              );
+              return {
+                value: app.provider,
+                label: app.name,
+                description: app.line,
+                disabled: !available || full,
+                meta: !available ? 'Coming soon' : full ? 'Already connected' : null,
+              };
             })}
-          </ChoiceGroup>
+          />
         </StepPanel>
       )}
 

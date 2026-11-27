@@ -4,7 +4,7 @@ import { createLeadInteractionSchema } from '@/lib/schemas';
 import { notFound } from '@/lib/api/errors';
 import { insertLeadInteraction } from '@/lib/supabase/queries';
 import { logAudit } from '@/lib/api/audit';
-import { parsePagination } from '@/lib/api/pagination';
+import { parsePagination, readPage } from '@/lib/api/pagination';
 
 export const GET = withApi(async ({ supabase, params, searchParams }) => {
   const { id } = params as any;
@@ -23,9 +23,9 @@ export const GET = withApi(async ({ supabase, params, searchParams }) => {
     query = query.eq('completed', completed === 'true');
   }
 
-  const { data, count, error } = await query
+  const { data, count, error } = await readPage(query
     .order('occurred_at', { ascending: false })
-    .range(offset, offset + limit - 1);
+    .order('id'), { offset, limit });
 
   if (error) throw error;
   return paginated(data || [], { page, limit, total: count || 0 });

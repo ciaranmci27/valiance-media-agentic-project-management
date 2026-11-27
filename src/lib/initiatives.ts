@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { calendarDate } from '@/lib/schemas/shared';
 import {
   INITIATIVE_ENTRY_KINDS, INITIATIVE_ENTRY_STATUSES, INITIATIVE_HEALTHS, INITIATIVE_STATUSES,
   type Initiative, type InitiativeEntry, type InitiativeEntryKind, type InitiativeHealth, type InitiativeStatus, type Task,
@@ -215,7 +216,7 @@ export interface InitiativeDetail {
 
 // ── Requests ────────────────────────────────────────────────────────────
 
-const day = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD');
+const day = calendarDate;
 const uuid = (what: string) => z.uuid(`${what} must be a uuid`);
 
 const ownerFields = {

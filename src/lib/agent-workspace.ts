@@ -77,6 +77,8 @@ export interface AgentKeyView {
   expires_at?: string | null;
   /** When it was switched off; it no longer works. */
   disabled_at?: string | null;
+  /** When it was paused: it keeps its secret and is refused until resumed. */
+  paused_at?: string | null;
 }
 
 export interface AgentDetail {

@@ -30934,3 +30934,3041 @@ $$;
 
 REVOKE ALL ON FUNCTION pm.notification_unread_count(uuid) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION pm.notification_unread_count(uuid) TO service_role;
+
+-- ============================================================
+-- ORCHESTRATORS AND WHO CAN USE AN AGENT (20261127001000_agent_hierarchy_access.sql)
+-- ============================================================
+-- Orchestrators and who can use an agent: company agents as an org chart,
+-- with access managed at every level.
+--
+-- - pm.team_members.orchestrator_id: the agent a company agent works under
+--   (its orchestrator). Only an agent has one, it is always another company
+--   agent, never itself, never a loop, and a chart is at most 4 levels deep
+--   (a top orchestrator and three levels under it). Personal agents
+--   (delegate_of) are never in a chart. Null for every agent today: nothing
+--   changes until someone sets one. Orchestrator changes take one lock, so
+--   two at once never make a loop or too deep a chart. An agent that gets an
+--   orchestrator has "pick up unassigned work" (agent_self_assign) turned
+--   off; a manager can turn it on again.
+-- - pm.team_members.reachable_directly (default true): people may use the
+--   agent directly (give it a task, talk to it in chat). False: only through
+--   its orchestrator. Only matters while it has an orchestrator.
+-- - pm.team_members.ask_first (default false): work someone gives it waits
+--   for one of its managers to approve (an approval asked to them), unless
+--   that someone manages it.
+-- - pm.agent_audience (agent_id, kind, ref, effect): who can use an agent.
+--   kind everyone (no ref), role (owner, admin, member or guest), group (a
+--   group id) or member (a person's id); effect include or exclude. An agent
+--   with no include rows admits everyone who may otherwise give it work, as
+--   today; an exclude row always wins. Written by the server only; members
+--   with team.read (and the agent itself) read it.
+-- - pm.member_may_use_agent(agent, member): the agent's own audience AND
+--   every orchestrator's above it. A personal agent admits only its own person.
+--   Server only.
+-- - pm.agent_audience_members(agent): the active people who may use it, for
+--   the "N people can use it" preview. Server only.
+-- - pm.member_manages_agent(agent, member): a workspace Owner, a member with
+--   team.manage, or one of the agent's owners (in person or through a
+--   group). Server only.
+-- - pm.replace_agent_audience(agent, rows, created_by): replaces an agent's
+--   audience in one transaction, so a failure leaves the old rows. Server
+--   only.
+-- - A signed-in member who assigns a company agent to a task (the browser
+--   and pm.save_task, a new row or a row changed to point at the agent) is
+--   checked by the database: refused when the agent is only reachable
+--   through its orchestrator, when they are not in its audience, or when it asks
+--   first and none of its managers approved that task for them. Personal
+--   agents keep today's behaviour. Server routes (the API, MCP, chat) check
+--   the same rules in code, where they know the person a chain of agents
+--   works for.
+-- - One open ask-first approval per agent, asker and piece of work: a
+--   unique index on pm.questions.
+-- - pm.agent_status also answers assistants_off for a personal agent while
+--   assistants are switched off for the workspace (get_my_status).
+--
+-- Additive and safe to run twice. The previous release's code reads and
+-- writes agents as before: no orchestrator, no audience rows, reachable, never asks.
+
+ALTER TABLE pm.team_members
+  ADD COLUMN IF NOT EXISTS orchestrator_id uuid REFERENCES pm.team_members(id) ON DELETE SET NULL,
+  ADD COLUMN IF NOT EXISTS reachable_directly boolean NOT NULL DEFAULT true,
+  ADD COLUMN IF NOT EXISTS ask_first boolean NOT NULL DEFAULT false;
+
+ALTER TABLE pm.team_members DROP CONSTRAINT IF EXISTS team_members_orchestrator_not_self;
+ALTER TABLE pm.team_members
+  ADD CONSTRAINT team_members_orchestrator_not_self CHECK (orchestrator_id IS NULL OR orchestrator_id <> id);
+
+COMMENT ON COLUMN pm.team_members.orchestrator_id IS
+  'The company agent this agent works under (its orchestrator). Agents only; no loops; at most 4 levels. Work reaches it only from its orchestrator.';
+COMMENT ON COLUMN pm.team_members.reachable_directly IS
+  'People may use the agent directly. False: only through its orchestrator (matters only while it has one).';
+COMMENT ON COLUMN pm.team_members.ask_first IS
+  'Work given to the agent waits for one of its managers to approve, unless the giver manages it.';
+
+-- The agents under an orchestrator.
+CREATE INDEX IF NOT EXISTS idx_team_members_orchestrator ON pm.team_members (orchestrator_id) WHERE orchestrator_id IS NOT NULL;
+
+-- An orchestrator is a company agent; the chart has no loops and at most 4 levels.
+CREATE OR REPLACE FUNCTION pm.team_members_orchestrator_guard()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = ''
+AS $$
+DECLARE
+  v_at uuid;
+  v_above integer := 0;
+  v_below integer := 0;
+BEGIN
+  -- One orchestrator change at a time: two moves at once never make a loop or too deep a chart.
+  PERFORM pg_advisory_xact_lock(hashtext('pm.team_members.orchestrator_id'));
+  IF NEW.orchestrator_id IS NULL THEN
+    -- A personal agent is never an orchestrator.
+    IF NEW.delegate_of IS NOT NULL AND EXISTS (SELECT 1 FROM pm.team_members r WHERE r.orchestrator_id = NEW.id) THEN
+      RAISE EXCEPTION 'agent_orchestrator_personal: a personal agent is never an orchestrator of other agents' USING ERRCODE = '23514';
+    END IF;
+    RETURN NEW;
+  END IF;
+  IF NEW.role IS DISTINCT FROM 'agent' THEN
+    RAISE EXCEPTION 'agent_orchestrator_agents_only: only an agent works under an orchestrator' USING ERRCODE = '23514';
+  END IF;
+  IF NEW.delegate_of IS NOT NULL THEN
+    RAISE EXCEPTION 'agent_orchestrator_personal: a personal agent never works under an orchestrator' USING ERRCODE = '23514';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pm.team_members l WHERE l.id = NEW.orchestrator_id AND l.role = 'agent' AND l.delegate_of IS NULL) THEN
+    RAISE EXCEPTION 'agent_orchestrator_not_agent: an orchestrator is a company agent' USING ERRCODE = '23514';
+  END IF;
+  IF TG_OP = 'UPDATE' AND NEW.orchestrator_id IS NOT DISTINCT FROM OLD.orchestrator_id
+    AND NEW.role IS NOT DISTINCT FROM OLD.role AND NEW.delegate_of IS NOT DISTINCT FROM OLD.delegate_of THEN
+    RETURN NEW;
+  END IF;
+  -- Up from the orchestrator: never back to this agent.
+  v_at := NEW.orchestrator_id;
+  WHILE v_at IS NOT NULL LOOP
+    IF v_at = NEW.id THEN
+      RAISE EXCEPTION 'agent_orchestrator_loop: that orchestrator already works under this agent' USING ERRCODE = '23514';
+    END IF;
+    v_above := v_above + 1;
+    IF v_above > 4 THEN
+      RAISE EXCEPTION 'agent_orchestrator_too_deep: a chart of agents is at most 4 levels deep' USING ERRCODE = '23514';
+    END IF;
+    SELECT l.orchestrator_id INTO v_at FROM pm.team_members l WHERE l.id = v_at;
+  END LOOP;
+  -- Down from this agent: the levels it brings with it.
+  WITH RECURSIVE below AS (
+    SELECT r.id, 1 AS depth FROM pm.team_members r WHERE r.orchestrator_id = NEW.id
+    UNION ALL
+    SELECT r.id, b.depth + 1 FROM pm.team_members r JOIN below b ON r.orchestrator_id = b.id WHERE b.depth < 5
+  )
+  SELECT coalesce(max(depth), 0) INTO v_below FROM below;
+  IF v_above + 1 + v_below > 4 THEN
+    RAISE EXCEPTION 'agent_orchestrator_too_deep: a chart of agents is at most 4 levels deep' USING ERRCODE = '23514';
+  END IF;
+  -- A sub-agent goes through its orchestrator: getting an orchestrator turns
+  -- off picking up unassigned work; one of its managers can turn it back on
+  -- afterwards.
+  IF TG_OP = 'INSERT' OR OLD.orchestrator_id IS NULL THEN
+    NEW.agent_self_assign := false;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION pm.team_members_orchestrator_guard() FROM PUBLIC, anon, authenticated;
+
+DROP TRIGGER IF EXISTS team_members_orchestrator_guard ON pm.team_members;
+CREATE TRIGGER team_members_orchestrator_guard
+  BEFORE INSERT OR UPDATE OF orchestrator_id, role, delegate_of ON pm.team_members
+  FOR EACH ROW EXECUTE FUNCTION pm.team_members_orchestrator_guard();
+
+-- ---------------------------------------------------------------------------
+-- Who can use an agent
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS pm.agent_audience (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  agent_id uuid NOT NULL REFERENCES pm.team_members(id) ON DELETE CASCADE,
+  kind text NOT NULL,
+  ref text,
+  effect text NOT NULL DEFAULT 'include',
+  created_by uuid REFERENCES pm.team_members(id) ON DELETE SET NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+ALTER TABLE pm.agent_audience DROP CONSTRAINT IF EXISTS agent_audience_kind_check;
+ALTER TABLE pm.agent_audience
+  ADD CONSTRAINT agent_audience_kind_check CHECK (kind IN ('everyone', 'role', 'group', 'member'));
+ALTER TABLE pm.agent_audience DROP CONSTRAINT IF EXISTS agent_audience_effect_check;
+ALTER TABLE pm.agent_audience
+  ADD CONSTRAINT agent_audience_effect_check CHECK (effect IN ('include', 'exclude'));
+ALTER TABLE pm.agent_audience DROP CONSTRAINT IF EXISTS agent_audience_ref_check;
+ALTER TABLE pm.agent_audience
+  ADD CONSTRAINT agent_audience_ref_check CHECK (
+    (kind = 'everyone' AND ref IS NULL)
+    OR (kind = 'role' AND ref IN ('owner', 'admin', 'member', 'guest'))
+    OR (kind IN ('group', 'member') AND ref ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')
+  );
+
+COMMENT ON TABLE pm.agent_audience IS
+  'Who can use an agent: everyone, a role, a group or a person, included or excluded. No include rows: everyone who may otherwise give it work. Exclude wins. Effective audience is this AND every orchestrator''s above it. Written by the server only.';
+
+-- One row per subject on an agent.
+CREATE UNIQUE INDEX IF NOT EXISTS agent_audience_subject ON pm.agent_audience (agent_id, kind, coalesce(ref, ''));
+
+-- Only an agent has an audience, and a personal agent never has one (it is its person's).
+CREATE OR REPLACE FUNCTION pm.handle_agent_audience_before_write()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = pm
+AS $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pm.team_members m WHERE m.id = NEW.agent_id AND m.role = 'agent' AND m.delegate_of IS NULL) THEN
+    RAISE EXCEPTION 'agent_audience_agents_only: only a company agent has an audience' USING ERRCODE = '23514';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION pm.handle_agent_audience_before_write() FROM PUBLIC, anon, authenticated;
+
+DROP TRIGGER IF EXISTS agent_audience_before_write ON pm.agent_audience;
+CREATE TRIGGER agent_audience_before_write
+  BEFORE INSERT OR UPDATE ON pm.agent_audience
+  FOR EACH ROW EXECUTE FUNCTION pm.handle_agent_audience_before_write();
+
+ALTER TABLE pm.agent_audience ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS agent_audience_select ON pm.agent_audience;
+CREATE POLICY agent_audience_select ON pm.agent_audience FOR SELECT TO authenticated
+  USING (pm.has_permission('team.read') OR agent_id = pm.current_team_member_id());
+
+DROP POLICY IF EXISTS agent_audience_module_on ON pm.agent_audience;
+CREATE POLICY agent_audience_module_on ON pm.agent_audience AS RESTRICTIVE FOR ALL TO authenticated
+  USING ((select pm.module_enabled('agents')));
+
+REVOKE ALL ON pm.agent_audience FROM PUBLIC, anon, authenticated;
+GRANT SELECT ON pm.agent_audience TO authenticated;
+GRANT ALL ON pm.agent_audience TO service_role;
+
+-- Replaces an agent's audience with exactly these rows ([{ kind, ref,
+-- effect }]), in one transaction: a row the table refuses leaves the old
+-- audience as it was. Kept in the order given.
+CREATE OR REPLACE FUNCTION pm.replace_agent_audience(p_agent uuid, p_rows jsonb, p_created_by uuid)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pm
+AS $$
+BEGIN
+  IF jsonb_typeof(coalesce(p_rows, '[]'::jsonb)) <> 'array' THEN
+    RAISE EXCEPTION 'replace_agent_audience: rows must be a JSON array' USING ERRCODE = '22023';
+  END IF;
+  DELETE FROM pm.agent_audience WHERE agent_id = p_agent;
+  INSERT INTO pm.agent_audience (agent_id, kind, ref, effect, created_by, created_at)
+  SELECT p_agent, r.value->>'kind', r.value->>'ref', coalesce(r.value->>'effect', 'include'), p_created_by,
+    now() + ((r.ordinality - 1) * interval '1 millisecond')
+  FROM jsonb_array_elements(coalesce(p_rows, '[]'::jsonb)) WITH ORDINALITY AS r(value, ordinality);
+END;
+$$;
+
+REVOKE ALL ON FUNCTION pm.replace_agent_audience(uuid, jsonb, uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION pm.replace_agent_audience(uuid, jsonb, uuid) TO service_role;
+
+-- Whether a member may use an agent: its own audience and every orchestrator's above it.
+CREATE OR REPLACE FUNCTION pm.member_may_use_agent(p_agent uuid, p_member uuid)
+RETURNS boolean
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = pm
+AS $$
+DECLARE
+  v_role text;
+  v_delegate uuid;
+  v_member_role text;
+  v_member_status text;
+  v_at uuid;
+  v_seen uuid[] := '{}';
+BEGIN
+  SELECT role, delegate_of INTO v_role, v_delegate FROM pm.team_members WHERE id = p_agent;
+  IF NOT FOUND OR v_role IS DISTINCT FROM 'agent' THEN
+    RETURN false;
+  END IF;
+  -- A personal agent works for its own person only.
+  IF v_delegate IS NOT NULL THEN
+    RETURN p_member IS NOT DISTINCT FROM v_delegate;
+  END IF;
+  SELECT role, coalesce(status, 'active') INTO v_member_role, v_member_status FROM pm.team_members WHERE id = p_member;
+  IF NOT FOUND OR v_member_status <> 'active' THEN
+    RETURN false;
+  END IF;
+  v_at := p_agent;
+  WHILE v_at IS NOT NULL AND NOT (v_at = ANY (v_seen)) AND cardinality(v_seen) < 8 LOOP
+    -- Include rows narrow it to who they name; none admits everyone.
+    IF EXISTS (SELECT 1 FROM pm.agent_audience a WHERE a.agent_id = v_at AND a.effect = 'include')
+      AND NOT EXISTS (
+        SELECT 1 FROM pm.agent_audience a
+        WHERE a.agent_id = v_at AND a.effect = 'include'
+          AND (a.kind = 'everyone'
+            OR (a.kind = 'role' AND a.ref = v_member_role)
+            OR (a.kind = 'member' AND a.ref = p_member::text)
+            OR (a.kind = 'group' AND EXISTS (
+              SELECT 1 FROM pm.group_members gm JOIN pm.groups g ON g.id = gm.group_id AND g.deleted_at IS NULL
+              WHERE gm.group_id::text = a.ref AND gm.member_id = p_member)))
+      ) THEN
+      RETURN false;
+    END IF;
+    -- An exclude row always wins.
+    IF EXISTS (
+      SELECT 1 FROM pm.agent_audience a
+      WHERE a.agent_id = v_at AND a.effect = 'exclude'
+        AND (a.kind = 'everyone'
+          OR (a.kind = 'role' AND a.ref = v_member_role)
+          OR (a.kind = 'member' AND a.ref = p_member::text)
+          OR (a.kind = 'group' AND EXISTS (
+            SELECT 1 FROM pm.group_members gm JOIN pm.groups g ON g.id = gm.group_id AND g.deleted_at IS NULL
+            WHERE gm.group_id::text = a.ref AND gm.member_id = p_member)))
+    ) THEN
+      RETURN false;
+    END IF;
+    v_seen := v_seen || v_at;
+    SELECT orchestrator_id INTO v_at FROM pm.team_members WHERE id = v_at;
+  END LOOP;
+  RETURN true;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION pm.member_may_use_agent(uuid, uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION pm.member_may_use_agent(uuid, uuid) TO service_role;
+
+-- The active people who may use an agent (agents and suspended members left out).
+CREATE OR REPLACE FUNCTION pm.agent_audience_members(p_agent uuid)
+RETURNS TABLE (member_id uuid)
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = pm
+AS $$
+  SELECT m.id FROM pm.team_members m
+  WHERE m.role <> 'agent' AND coalesce(m.status, 'active') = 'active' AND pm.member_may_use_agent(p_agent, m.id)
+  ORDER BY m.name, m.id
+$$;
+
+REVOKE ALL ON FUNCTION pm.agent_audience_members(uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION pm.agent_audience_members(uuid) TO service_role;
+
+-- Whether a member manages an agent: a workspace Owner, team.manage, or one of its owners.
+CREATE OR REPLACE FUNCTION pm.member_manages_agent(p_agent uuid, p_member uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = pm
+AS $$
+  SELECT p_agent IS DISTINCT FROM p_member AND EXISTS (
+    SELECT 1 FROM pm.team_members m
+    WHERE m.id = p_member AND coalesce(m.status, 'active') = 'active' AND m.role <> 'agent'
+      AND (m.role = 'owner'
+        OR EXISTS (SELECT 1 FROM pm.team_member_permissions p
+          WHERE p.member_id = m.id AND p.permission_key = 'team.manage' AND p.access_channel = 'app' AND p.effect = 'allow')
+        OR (EXISTS (SELECT 1 FROM pm.role_permissions r
+          WHERE r.role = m.role AND r.permission_key = 'team.manage' AND r.access_channel = 'app')
+          AND NOT EXISTS (SELECT 1 FROM pm.team_member_permissions p
+            WHERE p.member_id = m.id AND p.permission_key = 'team.manage' AND p.access_channel = 'app' AND p.effect = 'deny'))
+        OR EXISTS (SELECT 1 FROM pm.agent_owners o WHERE o.agent_id = p_agent AND o.member_id = m.id)
+        OR EXISTS (SELECT 1 FROM pm.agent_owner_groups og
+          JOIN pm.groups g ON g.id = og.group_id AND g.deleted_at IS NULL
+          JOIN pm.group_members gm ON gm.group_id = og.group_id AND gm.member_id = m.id
+          WHERE og.agent_id = p_agent))
+  )
+$$;
+
+REVOKE ALL ON FUNCTION pm.member_manages_agent(uuid, uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION pm.member_manages_agent(uuid, uuid) TO service_role;
+
+-- ---------------------------------------------------------------------------
+-- A signed-in member assigning an agent
+-- ---------------------------------------------------------------------------
+-- The browser and pm.save_task write task_assignees as the member. A
+-- company agent newly on a task (a new row, or a row changed to another
+-- agent or task) is refused when it is only reachable through its orchestrator,
+-- when the member is not in its audience, or when it asks first and none of
+-- its managers approved this task for this member (the approval answered by
+-- someone who manages it). An assignment already there (a save that keeps
+-- it), personal agents (today's behaviour) and server writes (no signed-in
+-- member: the server checks in code) pass.
+CREATE OR REPLACE FUNCTION pm.guard_agent_assignment()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pm
+AS $$
+DECLARE
+  v_actor uuid := pm.current_team_member_id();
+  v_role text;
+  v_delegate uuid;
+  v_orchestrator uuid;
+  v_reachable boolean;
+  v_ask boolean;
+BEGIN
+  IF v_actor IS NULL OR v_actor = NEW.member_id THEN
+    RETURN NEW;
+  END IF;
+  IF TG_OP = 'UPDATE' AND NEW.member_id = OLD.member_id AND NEW.task_id = OLD.task_id THEN
+    RETURN NEW;
+  END IF;
+  SELECT role, delegate_of, orchestrator_id, reachable_directly, ask_first INTO v_role, v_delegate, v_orchestrator, v_reachable, v_ask
+  FROM pm.team_members WHERE id = NEW.member_id;
+  IF NOT FOUND OR v_role IS DISTINCT FROM 'agent' OR v_delegate IS NOT NULL THEN
+    RETURN NEW;
+  END IF;
+  IF EXISTS (SELECT 1 FROM pm.task_assignees a WHERE a.task_id = NEW.task_id AND a.member_id = NEW.member_id) THEN
+    RETURN NEW;
+  END IF;
+  IF v_orchestrator IS NOT NULL AND NOT v_reachable THEN
+    RAISE EXCEPTION 'agent_not_available: this agent takes work only through its orchestrator'
+      USING ERRCODE = '42501', HINT = 'Give the task to its orchestrator instead.';
+  END IF;
+  IF NOT pm.member_may_use_agent(NEW.member_id, v_actor) THEN
+    RAISE EXCEPTION 'agent_not_available: you cannot give this agent work'
+      USING ERRCODE = '42501', HINT = 'Ask one of its managers to add you to who can use it.';
+  END IF;
+  IF v_ask AND NOT pm.member_manages_agent(NEW.member_id, v_actor) AND NOT EXISTS (
+    SELECT 1 FROM pm.questions q
+    WHERE q.kind = 'approval' AND q.deleted_at IS NULL AND q.status = 'answered' AND q.answer_choice = 'approve'
+      AND q.action->>'type' = 'agent.use'
+      AND q.action->'details'->>'key' = NEW.member_id::text || ':' || v_actor::text || ':task:' || NEW.task_id::text
+      AND pm.member_manages_agent(NEW.member_id, q.answered_by)
+  ) THEN
+    RAISE EXCEPTION 'agent_ask_first: this agent asks its managers before it takes work'
+      USING ERRCODE = '42501', HINT = 'Ask its managers to approve this task for you first.';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION pm.guard_agent_assignment() FROM PUBLIC, anon, authenticated;
+
+DROP TRIGGER IF EXISTS guard_agent_assignment ON pm.task_assignees;
+CREATE TRIGGER guard_agent_assignment
+  BEFORE INSERT OR UPDATE OF member_id, task_id ON pm.task_assignees
+  FOR EACH ROW EXECUTE FUNCTION pm.guard_agent_assignment();
+
+-- When an ask-first approval for a new task was used (it makes one task).
+-- Null for every other question.
+ALTER TABLE pm.questions ADD COLUMN IF NOT EXISTS used_at timestamptz;
+
+COMMENT ON COLUMN pm.questions.used_at IS
+  'An ask-first approval (action type agent.use) for a new task: when the one task it allows was made. Set by the server only.';
+
+-- One open ask-first approval per agent, asker and piece of work: two
+-- requests at once make one approval (the second reads the first).
+CREATE UNIQUE INDEX IF NOT EXISTS questions_open_agent_use ON pm.questions ((action->'details'->>'key'))
+  WHERE kind = 'approval' AND status = 'open' AND deleted_at IS NULL AND action->>'type' = 'agent.use';
+
+-- ---------------------------------------------------------------------------
+-- What an agent checks before each turn: assistants switched off
+-- ---------------------------------------------------------------------------
+-- As before, plus assistants_off: true for a personal agent while assistants
+-- are switched off for the workspace (it is on hold, as pm.api_request_gate
+-- says on every write).
+CREATE OR REPLACE FUNCTION pm.agent_status(p_member_id uuid)
+RETURNS jsonb
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = pm
+AS $$
+DECLARE
+  v_role text;
+  v_delegate_of uuid;
+  v_agent_paused timestamptz;
+  v_workspace_paused timestamptz;
+  v_assistants_on boolean;
+  v_state jsonb;
+  v_period text;
+BEGIN
+  SELECT role, agent_paused_at, delegate_of INTO v_role, v_agent_paused, v_delegate_of FROM pm.team_members WHERE id = p_member_id;
+  IF NOT FOUND THEN
+    RETURN NULL;
+  END IF;
+  IF v_role IS DISTINCT FROM 'agent' THEN
+    RETURN jsonb_build_object('agent', false, 'workspace_paused_at', NULL, 'agent_paused_at', NULL, 'assistants_off', false, 'state', NULL);
+  END IF;
+  SELECT s.agents_paused_at INTO v_workspace_paused FROM pm.business_settings s ORDER BY s.agents_paused_at NULLS LAST LIMIT 1;
+  SELECT s.assistants_enabled INTO v_assistants_on FROM pm.business_settings s LIMIT 1;
+  v_state := pm.agent_limit_state(p_member_id, true);
+  v_period := coalesce(v_state->'limits'->>'budget_period', 'month');
+  RETURN jsonb_build_object(
+    'agent', true,
+    'workspace_paused_at', v_workspace_paused,
+    'agent_paused_at', v_agent_paused,
+    'assistants_off', v_delegate_of IS NOT NULL AND v_assistants_on IS NOT TRUE,
+    'budget_period', v_period,
+    'period_end', (date_trunc(v_period, now() AT TIME ZONE 'UTC') + ('1 ' || v_period)::interval) AT TIME ZONE 'UTC',
+    'state', v_state);
+END;
+$$;
+
+REVOKE ALL ON FUNCTION pm.agent_status(uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION pm.agent_status(uuid) TO service_role;
+
+-- ============================================================
+-- EVENT FEED (20261127001100_event_feed.sql)
+-- ============================================================
+-- The event feed: what an agent harness with no public address long-polls
+-- (GET /api/v1/events?since=&wait=, MCP get_events), and the wake signal
+-- behind GET /api/v1/chat/messages?wait=.
+--
+-- - pm.event_feed: one row per event a harness may hear, written by AFTER
+--   triggers, so every writer (REST, MCP, the app, the watchdog, provider
+--   webhooks) feeds it:
+--   chat.message (an inbound chat message routed to an agent: inserted
+--   routed, re-routed, or released after it was held), question.answered,
+--   question.cancelled and question.expired (to the member who asked),
+--   run.updated (an agent's run started or changed status, with who changed
+--   it) and agent_event.created (any agent event; the API reads these by
+--   project, as GET /api/v1/agent-activities does). Rows carry ids and
+--   status only: the API composes what each caller may read.
+-- - Order: (change_txid, seq), as the agent event export. A row is served
+--   only once every transaction below its own has ended, so a cursor never
+--   passes a row that commits late. A write transaction left open holds the
+--   feed back until it ends.
+-- - Retention: pm.prune_event_feed deletes rows older than 7 days (pg_cron
+--   pm-event-feed-prune, hourly), in batches, and records the position it
+--   pruned through in pm.event_feed_state, in the same transaction. A
+--   cursor below that position answers 410 resync, never a silent gap.
+-- - pm.event_feed_waits: the long-poll waits open per API key, each a lease
+--   that ends by itself if its server dies. pm.event_feed_wait_begin
+--   refuses a wait beyond the API's limit (2 per key) and says when the
+--   earliest open one ends.
+-- - pm.event_feed_read (a page after a cursor, for one caller's filters)
+--   and pm.event_feed_heads (the newest visible position per waiting member
+--   and per project a wait reads agent events on, one cheap indexed probe a
+--   server shares across all its open waits).
+--
+-- Server only. Additive and safe to run twice. 2.0.49 code never reads the
+-- new tables; the triggers only add rows beside what they did before.
+
+-- ---------------------------------------------------------------------------
+-- The feed
+-- ---------------------------------------------------------------------------
+CREATE SEQUENCE IF NOT EXISTS pm.event_feed_seq;
+REVOKE ALL ON SEQUENCE pm.event_feed_seq FROM PUBLIC, anon, authenticated;
+GRANT USAGE, SELECT ON SEQUENCE pm.event_feed_seq TO service_role;
+
+CREATE TABLE IF NOT EXISTS pm.event_feed (
+  seq bigint PRIMARY KEY DEFAULT nextval('pm.event_feed_seq'),
+  -- The transaction that wrote the row: the feed orders by (change_txid, seq).
+  change_txid bigint NOT NULL DEFAULT (pg_current_xact_id()::text::bigint),
+  event_type text NOT NULL,
+  -- Who it is routed to (chat.message, question.*, run.updated); null for
+  -- agent_event.created, which is read by project.
+  member_id uuid,
+  -- The agent it is about.
+  agent_id uuid,
+  project_id uuid,
+  subject_type text NOT NULL,
+  subject_id uuid NOT NULL,
+  -- agent_event.created: the agent event's own type (work.done, ...).
+  agent_event_type text,
+  data jsonb NOT NULL DEFAULT '{}'::jsonb,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+COMMENT ON TABLE pm.event_feed IS
+  'Events a harness long-polls (GET /api/v1/events): ids and status only, ordered by (change_txid, seq), kept 7 days (pm.prune_event_feed). Server only.';
+
+CREATE INDEX IF NOT EXISTS idx_event_feed_member
+  ON pm.event_feed (member_id, change_txid, seq) WHERE member_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_event_feed_agent_events
+  ON pm.event_feed (change_txid, seq) WHERE event_type = 'agent_event.created';
+CREATE INDEX IF NOT EXISTS idx_event_feed_agent_events_project
+  ON pm.event_feed (project_id, change_txid, seq) WHERE event_type = 'agent_event.created';
+CREATE INDEX IF NOT EXISTS idx_event_feed_position
+  ON pm.event_feed (change_txid, seq);
+CREATE INDEX IF NOT EXISTS idx_event_feed_created_at
+  ON pm.event_feed (created_at);
+
+ALTER TABLE pm.event_feed ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON pm.event_feed FROM PUBLIC, anon, authenticated;
+GRANT ALL ON pm.event_feed TO service_role;
+
+-- One row: the position retention pruned through.
+CREATE TABLE IF NOT EXISTS pm.event_feed_state (
+  id boolean PRIMARY KEY DEFAULT true CHECK (id),
+  pruned_txid bigint NOT NULL DEFAULT 0,
+  pruned_seq bigint NOT NULL DEFAULT 0,
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+COMMENT ON TABLE pm.event_feed_state IS
+  'The (change_txid, seq) pm.prune_event_feed deleted through; a cursor below it must resync. Server only.';
+
+ALTER TABLE pm.event_feed_state ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON pm.event_feed_state FROM PUBLIC, anon, authenticated;
+GRANT ALL ON pm.event_feed_state TO service_role;
+
+-- Open long-poll waits, one lease each.
+CREATE TABLE IF NOT EXISTS pm.event_feed_waits (
+  id uuid PRIMARY KEY,
+  api_key_id uuid NOT NULL REFERENCES pm.api_keys(id) ON DELETE CASCADE,
+  expires_at timestamptz NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+COMMENT ON TABLE pm.event_feed_waits IS
+  'Long-poll waits open per API key; a lease past expires_at is over (its server died). Server only.';
+
+CREATE INDEX IF NOT EXISTS idx_event_feed_waits_key
+  ON pm.event_feed_waits (api_key_id, expires_at);
+
+ALTER TABLE pm.event_feed_waits ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON pm.event_feed_waits FROM PUBLIC, anon, authenticated;
+GRANT ALL ON pm.event_feed_waits TO service_role;
+
+-- ---------------------------------------------------------------------------
+-- Writers
+-- ---------------------------------------------------------------------------
+-- A chat message routed to an agent: inserted routed, given to another
+-- agent, or released from unrouted (held while the agent was paused). Moving
+-- between pending, notified and context is the same message, not a new one.
+CREATE OR REPLACE FUNCTION pm.feed_chat_message()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pm
+AS $$
+BEGIN
+  IF NEW.direction <> 'inbound' OR NEW.agent_id IS NULL OR NEW.status NOT IN ('pending', 'notified', 'context') THEN
+    RETURN NULL;
+  END IF;
+  IF TG_OP = 'UPDATE' AND OLD.agent_id IS NOT DISTINCT FROM NEW.agent_id
+     AND OLD.status IN ('pending', 'notified', 'context') THEN
+    RETURN NULL;
+  END IF;
+  INSERT INTO pm.event_feed (event_type, member_id, agent_id, subject_type, subject_id, data)
+  VALUES ('chat.message', NEW.agent_id, NEW.agent_id, 'chat_message', NEW.id, jsonb_build_object(
+    'message', jsonb_build_object(
+      'id', NEW.id,
+      'status', NEW.status,
+      'connection_id', NEW.connection_id,
+      'conversation_id', NEW.conversation_id,
+      'thread_id', NEW.thread_id,
+      'created_at', NEW.created_at
+    )
+  ));
+  RETURN NULL;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION pm.feed_chat_message() FROM PUBLIC, anon, authenticated;
+
+DROP TRIGGER IF EXISTS feed_chat_message ON pm.chat_messages;
+CREATE TRIGGER feed_chat_message
+  AFTER INSERT OR UPDATE OF agent_id, status ON pm.chat_messages
+  FOR EACH ROW EXECUTE FUNCTION pm.feed_chat_message();
+
+-- A question or approval the member asked is answered, cancelled or expires.
+CREATE OR REPLACE FUNCTION pm.feed_question_closed()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pm
+AS $$
+BEGIN
+  IF OLD.status <> 'open' OR NEW.status NOT IN ('answered', 'cancelled', 'expired') THEN
+    RETURN NULL;
+  END IF;
+  INSERT INTO pm.event_feed (event_type, member_id, agent_id, project_id, subject_type, subject_id, data)
+  VALUES ('question.' || NEW.status, NEW.asked_by, NEW.asked_by, NEW.project_id, 'question', NEW.id, jsonb_build_object(
+    'question', jsonb_build_object(
+      'id', NEW.id,
+      'kind', NEW.kind,
+      'status', NEW.status,
+      'task_id', NEW.task_id,
+      'project_id', NEW.project_id,
+      'run_id', NEW.run_id
+    ),
+    'actor_id', pm.webhook_actor_id()
+  ));
+  RETURN NULL;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION pm.feed_question_closed() FROM PUBLIC, anon, authenticated;
+
+DROP TRIGGER IF EXISTS feed_question_closed ON pm.questions;
+CREATE TRIGGER feed_question_closed
+  AFTER UPDATE OF status ON pm.questions
+  FOR EACH ROW EXECUTE FUNCTION pm.feed_question_closed();
+
+-- An agent's run starts or changes status (waiting, running again, finished,
+-- timed out by the watchdog, cancelled by a person). actor_id says who did
+-- it, so a harness skips what it did itself.
+CREATE OR REPLACE FUNCTION pm.feed_agent_run()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pm
+AS $$
+BEGIN
+  IF TG_OP = 'UPDATE' AND OLD.status IS NOT DISTINCT FROM NEW.status THEN
+    RETURN NULL;
+  END IF;
+  INSERT INTO pm.event_feed (event_type, member_id, agent_id, project_id, subject_type, subject_id, data)
+  VALUES ('run.updated', NEW.agent_id, NEW.agent_id, NEW.project_id, 'run', NEW.id, jsonb_build_object(
+    'run', jsonb_build_object(
+      'id', NEW.id,
+      'status', NEW.status,
+      'previous_status', CASE WHEN TG_OP = 'UPDATE' THEN OLD.status END,
+      'task_id', NEW.task_id,
+      'project_id', NEW.project_id,
+      'parent_run_id', NEW.parent_run_id
+    ),
+    'actor_id', pm.webhook_actor_id()
+  ));
+  RETURN NULL;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION pm.feed_agent_run() FROM PUBLIC, anon, authenticated;
+
+DROP TRIGGER IF EXISTS feed_agent_run ON pm.agent_runs;
+CREATE TRIGGER feed_agent_run
+  AFTER INSERT OR UPDATE OF status ON pm.agent_runs
+  FOR EACH ROW EXECUTE FUNCTION pm.feed_agent_run();
+
+-- Any agent event. The row is the pointer; the API reads the event itself
+-- (the export's row shape) when it serves it.
+CREATE OR REPLACE FUNCTION pm.feed_agent_event()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pm
+AS $$
+BEGIN
+  INSERT INTO pm.event_feed (event_type, agent_id, project_id, subject_type, subject_id, agent_event_type)
+  VALUES ('agent_event.created', NEW.agent_id, NEW.project_id, 'agent_activity', NEW.id, NEW.activity_type);
+  RETURN NULL;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION pm.feed_agent_event() FROM PUBLIC, anon, authenticated;
+
+DROP TRIGGER IF EXISTS feed_agent_event ON pm.agent_activities;
+CREATE TRIGGER feed_agent_event
+  AFTER INSERT ON pm.agent_activities
+  FOR EACH ROW EXECUTE FUNCTION pm.feed_agent_event();
+
+-- ---------------------------------------------------------------------------
+-- Readers
+-- ---------------------------------------------------------------------------
+-- One page for one caller after a cursor, in (change_txid, seq) order, only
+-- from finished transactions. p_after_txid null starts from now. Member
+-- events (p_member_types) are the caller's own; agent events are filtered
+-- by project (null: every project), agent and type. Answers
+-- { resync: true, cursor } when the cursor is below what retention pruned,
+-- else { resync: false, events, has_more, cursor }: cursor is the last
+-- event's position when the page is full, else the horizon (the oldest
+-- transaction still open, seq 0), so an idle feed moves forward and a later
+-- read starts past everything already decided. Positions are text, as
+-- bigint does not fit a JSON number.
+CREATE OR REPLACE FUNCTION pm.event_feed_read(
+  p_after_txid bigint,
+  p_after_seq bigint,
+  p_limit integer,
+  p_member_id uuid,
+  p_member_types text[],
+  p_agent_events boolean,
+  p_agent_event_types text[] DEFAULT NULL,
+  p_agents uuid[] DEFAULT NULL,
+  p_project_ids uuid[] DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+STABLE
+SET search_path = pm
+AS $$
+DECLARE
+  v_xmin bigint := pg_snapshot_xmin(pg_current_snapshot())::text::bigint;
+  v_limit integer := least(greatest(coalesce(p_limit, 50), 1), 1000);
+  v_txid bigint := coalesce(p_after_txid, v_xmin);
+  v_seq bigint := CASE WHEN p_after_txid IS NULL THEN 0 ELSE coalesce(p_after_seq, 0) END;
+  v_state pm.event_feed_state;
+  v_rows jsonb;
+  v_count integer;
+  v_last jsonb;
+BEGIN
+  SELECT * INTO v_state FROM pm.event_feed_state WHERE id;
+  IF FOUND AND (v_txid, v_seq) < (v_state.pruned_txid, v_state.pruned_seq) THEN
+    RETURN jsonb_build_object('resync', true, 'cursor', jsonb_build_array(v_xmin::text, '0'));
+  END IF;
+
+  WITH picked AS (
+    (
+      SELECT f.*
+      FROM pm.event_feed f
+      WHERE p_member_id IS NOT NULL
+        AND f.member_id = p_member_id
+        AND f.event_type = ANY (coalesce(p_member_types, '{}'))
+        AND (f.change_txid, f.seq) > (v_txid, v_seq)
+        AND f.change_txid < v_xmin
+      ORDER BY f.change_txid, f.seq
+      LIMIT v_limit + 1
+    )
+    UNION ALL
+    (
+      SELECT f.*
+      FROM pm.event_feed f
+      WHERE coalesce(p_agent_events, false)
+        AND f.event_type = 'agent_event.created'
+        AND (f.change_txid, f.seq) > (v_txid, v_seq)
+        AND f.change_txid < v_xmin
+        AND (p_project_ids IS NULL OR f.project_id = ANY (p_project_ids))
+        AND (p_agents IS NULL OR f.agent_id = ANY (p_agents))
+        AND (p_agent_event_types IS NULL OR f.agent_event_type = ANY (p_agent_event_types))
+      ORDER BY f.change_txid, f.seq
+      LIMIT v_limit + 1
+    )
+  ), ordered AS (
+    SELECT p.*, row_number() OVER (ORDER BY p.change_txid, p.seq) AS n
+    FROM picked p
+    ORDER BY p.change_txid, p.seq
+    LIMIT v_limit + 1
+  )
+  SELECT
+    coalesce(jsonb_agg(jsonb_build_object(
+      'txid', o.change_txid::text,
+      'seq', o.seq::text,
+      'type', o.event_type,
+      'member_id', o.member_id,
+      'agent_id', o.agent_id,
+      'project_id', o.project_id,
+      'subject_type', o.subject_type,
+      'subject_id', o.subject_id,
+      'created_at', o.created_at,
+      'data', o.data,
+      'agent_event', CASE WHEN o.event_type = 'agent_event.created'
+        THEN (SELECT pm.agent_event_row(a) FROM pm.agent_activities a WHERE a.id = o.subject_id) END
+    ) ORDER BY o.change_txid, o.seq) FILTER (WHERE o.n <= v_limit), '[]'::jsonb),
+    count(*)
+  INTO v_rows, v_count
+  FROM ordered o;
+
+  IF v_count > v_limit THEN
+    v_last := v_rows -> (v_limit - 1);
+    RETURN jsonb_build_object('resync', false, 'events', v_rows, 'has_more', true,
+      'cursor', jsonb_build_array(v_last ->> 'txid', v_last ->> 'seq'));
+  END IF;
+  RETURN jsonb_build_object('resync', false, 'events', v_rows, 'has_more', false,
+    'cursor', jsonb_build_array(greatest(v_xmin, v_txid)::text, CASE WHEN v_xmin > v_txid THEN '0' ELSE v_seq::text END));
+END;
+$$;
+
+REVOKE ALL ON FUNCTION pm.event_feed_read(bigint, bigint, integer, uuid, text[], boolean, text[], uuid[], uuid[]) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION pm.event_feed_read(bigint, bigint, integer, uuid, text[], boolean, text[], uuid[], uuid[]) TO service_role;
+
+-- The newest visible position routed to each member, of any agent event
+-- (p_agent_events, for waits that read every project) and of agent events on
+-- each of p_projects (for waits that read only some): one probe a server
+-- makes every few seconds for all its open waits. Each is a single backward
+-- step on an index.
+CREATE OR REPLACE FUNCTION pm.event_feed_heads(p_members uuid[], p_agent_events boolean DEFAULT false, p_projects uuid[] DEFAULT NULL)
+RETURNS jsonb
+LANGUAGE plpgsql
+STABLE
+SET search_path = pm
+AS $$
+DECLARE
+  v_xmin bigint := pg_snapshot_xmin(pg_current_snapshot())::text::bigint;
+  v_members jsonb;
+  v_agent_events jsonb;
+  v_projects jsonb;
+BEGIN
+  SELECT coalesce(jsonb_object_agg(p.id, (
+    SELECT jsonb_build_array(f.change_txid::text, f.seq::text)
+    FROM pm.event_feed f
+    WHERE f.event_type = 'agent_event.created' AND f.project_id = p.id AND f.change_txid < v_xmin
+    ORDER BY f.change_txid DESC, f.seq DESC
+    LIMIT 1
+  )), '{}'::jsonb)
+  INTO v_projects
+  FROM (SELECT DISTINCT unnest(coalesce(p_projects, '{}')) AS id) p;
+
+  SELECT coalesce(jsonb_object_agg(m.id, (
+    SELECT jsonb_build_array(f.change_txid::text, f.seq::text)
+    FROM pm.event_feed f
+    WHERE f.member_id = m.id AND f.change_txid < v_xmin
+    ORDER BY f.change_txid DESC, f.seq DESC
+    LIMIT 1
+  )), '{}'::jsonb)
+  INTO v_members
+  FROM (SELECT DISTINCT unnest(coalesce(p_members, '{}')) AS id) m;
+
+  IF coalesce(p_agent_events, false) THEN
+    SELECT jsonb_build_array(f.change_txid::text, f.seq::text) INTO v_agent_events
+    FROM pm.event_feed f
+    WHERE f.event_type = 'agent_event.created' AND f.change_txid < v_xmin
+    ORDER BY f.change_txid DESC, f.seq DESC
+    LIMIT 1;
+  END IF;
+
+  RETURN jsonb_build_object('members', v_members, 'agent_events', v_agent_events, 'projects', v_projects);
+END;
+$$;
+
+REVOKE ALL ON FUNCTION pm.event_feed_heads(uuid[], boolean, uuid[]) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION pm.event_feed_heads(uuid[], boolean, uuid[]) TO service_role;
+
+-- ---------------------------------------------------------------------------
+-- Waits: at most p_max open per key
+-- ---------------------------------------------------------------------------
+-- Takes a lease for p_seconds, or answers { ok: false, retry_after } (the
+-- seconds until the earliest open wait on the key ends). Leases past their
+-- time are over: a server that died mid-wait frees its slot by itself.
+CREATE OR REPLACE FUNCTION pm.event_feed_wait_begin(p_api_key_id uuid, p_wait_id uuid, p_seconds integer, p_max integer)
+RETURNS jsonb
+LANGUAGE plpgsql
+SET search_path = pm
+AS $$
+DECLARE
+  v_open integer;
+  v_next timestamptz;
+BEGIN
+  -- One key's waits are counted one at a time, so two at once never both slip in.
+  PERFORM pg_advisory_xact_lock(hashtextextended('pm.event_feed_waits:' || p_api_key_id::text, 0));
+  DELETE FROM pm.event_feed_waits WHERE api_key_id = p_api_key_id AND expires_at <= now();
+  SELECT count(*), min(expires_at) INTO v_open, v_next FROM pm.event_feed_waits WHERE api_key_id = p_api_key_id;
+  IF v_open >= greatest(p_max, 1) THEN
+    RETURN jsonb_build_object('ok', false, 'open', v_open,
+      'retry_after', greatest(1, ceil(extract(epoch FROM v_next - now()))::integer));
+  END IF;
+  INSERT INTO pm.event_feed_waits (id, api_key_id, expires_at)
+  VALUES (p_wait_id, p_api_key_id, now() + make_interval(secs => least(greatest(p_seconds, 1), 600)))
+  ON CONFLICT (id) DO NOTHING;
+  RETURN jsonb_build_object('ok', true, 'open', v_open + 1);
+END;
+$$;
+
+REVOKE ALL ON FUNCTION pm.event_feed_wait_begin(uuid, uuid, integer, integer) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION pm.event_feed_wait_begin(uuid, uuid, integer, integer) TO service_role;
+
+CREATE OR REPLACE FUNCTION pm.event_feed_wait_end(p_wait_id uuid)
+RETURNS void
+LANGUAGE sql
+SET search_path = pm
+AS $$
+  DELETE FROM pm.event_feed_waits WHERE id = p_wait_id;
+$$;
+
+REVOKE ALL ON FUNCTION pm.event_feed_wait_end(uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION pm.event_feed_wait_end(uuid) TO service_role;
+
+-- ---------------------------------------------------------------------------
+-- Retention
+-- ---------------------------------------------------------------------------
+-- Rows older than p_keep go, through the newest such position whose
+-- transaction and every one below it have ended (so nothing still to commit
+-- lies behind it). The position is recorded in the same transaction as the
+-- delete: a reader sees both or neither. In batches of 5000. Answers how
+-- many rows went. Expired wait leases go too.
+CREATE OR REPLACE FUNCTION pm.prune_event_feed(p_keep interval DEFAULT interval '7 days')
+RETURNS integer
+LANGUAGE plpgsql
+SET search_path = pm
+AS $$
+DECLARE
+  v_xmin bigint := pg_snapshot_xmin(pg_current_snapshot())::text::bigint;
+  v_txid bigint;
+  v_seq bigint;
+  v_count integer;
+  v_total integer := 0;
+BEGIN
+  DELETE FROM pm.event_feed_waits WHERE expires_at <= now();
+
+  SELECT f.change_txid, f.seq INTO v_txid, v_seq
+  FROM pm.event_feed f
+  WHERE f.created_at < now() - p_keep AND f.change_txid < v_xmin
+  ORDER BY f.change_txid DESC, f.seq DESC
+  LIMIT 1;
+  IF v_txid IS NULL THEN
+    RETURN 0;
+  END IF;
+
+  INSERT INTO pm.event_feed_state AS s (id, pruned_txid, pruned_seq, updated_at)
+  VALUES (true, v_txid, v_seq, now())
+  ON CONFLICT (id) DO UPDATE
+    SET pruned_txid = EXCLUDED.pruned_txid, pruned_seq = EXCLUDED.pruned_seq, updated_at = now()
+    WHERE (s.pruned_txid, s.pruned_seq) < (EXCLUDED.pruned_txid, EXCLUDED.pruned_seq);
+
+  LOOP
+    DELETE FROM pm.event_feed WHERE seq IN (
+      SELECT f.seq FROM pm.event_feed f
+      WHERE (f.change_txid, f.seq) <= (v_txid, v_seq)
+      ORDER BY f.change_txid, f.seq
+      LIMIT 5000
+    );
+    GET DIAGNOSTICS v_count = ROW_COUNT;
+    v_total := v_total + v_count;
+    EXIT WHEN v_count = 0;
+  END LOOP;
+  RETURN v_total;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION pm.prune_event_feed(interval) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION pm.prune_event_feed(interval) TO service_role;
+
+-- Hourly. Skipped where pg_cron is unavailable (PGlite).
+-- Re-running cron.schedule updates the job in place.
+DO $do$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = 'pg_cron') THEN
+    RAISE NOTICE 'pg_cron is unavailable here; the event feed will not be pruned on a schedule';
+    RETURN;
+  END IF;
+  CREATE EXTENSION IF NOT EXISTS pg_cron;
+  PERFORM cron.schedule('pm-event-feed-prune', '29 * * * *', $job$SELECT pm.prune_event_feed();$job$);
+END;
+$do$;
+
+-- ============================================================
+-- SECURITY HARDENING (20261127001200_security_hardening.sql)
+-- ============================================================
+-- Security hardening (break-it round, 2026-11-27).
+--
+-- Safe to run twice; works with the 2.0.49 code (every path that writes these
+-- tables from the browser keeps working; server routes use the service role).
+--
+-- 1. Storage: who reads, uploads, changes or deletes a stored file is decided
+--    by the record it belongs to, through pm.storage_object_allowed():
+--    - pm-entity-files: {project|lead|contact}/{id}/... follows that record's
+--      file rules (files.read / files.upload, files.manage or the uploader to
+--      change or delete); invoices/{project}/... follows invoices.read /
+--      invoices.manage on that project.
+--    - pm-portal-files: updates/{project}/... follows portal.read /
+--      portal.manage on that project.
+--    - pm-avatars: still public to read (pictures show everywhere, signed out
+--      on the portal too); team/{member}.jpg is written only by that member,
+--      a holder of team.manage, or one of the agent's owners (by name or through a group);
+--      contacts/{contact}.jpg by contacts.manage on a contact they reach;
+--      portal/{project}.* by portal.manage on that project.
+--    pm-entity-files and pm-portal-files become private: the app serves them
+--    through short signed links (/api/storage/file, the portal routes). The
+--    pre-2.0 buckets of an upgraded install (entity-files, portal-files,
+--    avatars) lose the app's old member-wide write policies, and the two file
+--    buckets turn private too; the app signs their files the same way.
+-- 2. task_comments: a comment stays on its task and keeps its author. The
+--    update policy checks the task on both sides, and a trigger refuses a
+--    browser write that moves a comment or changes its author.
+-- 3. time_entry_tasks: read with the time entry; written only by whoever may
+--    edit that entry, and only with tasks of the entry's project.
+-- 4. Manage without View all: leads.manage, contacts.manage and
+--    tasks.manage_all no longer read or change every row; they act on the
+--    leads, contacts and tasks the person reaches (and what they created).
+--    projects_manage reads only reachable projects.
+-- 5. Personal inboxes: verification is the server's. A browser write never
+--    sets verified_at or verification_code, and changing an inbox's address
+--    from the browser clears its verification.
+-- 6. Server-set columns: a browser insert or update of a task or comment
+--    never sets created_at, a task's completed_at (outside a status change),
+--    its claim or its repeat count.
+-- 7. Trash: soft_delete_record checks permission before saying whether a
+--    record exists, and restore_record answers a missing record as it answers
+--    one the member may not restore.
+-- 8. Webhooks: an endpoint receives a project's events only while its maker
+--    reads that project.
+-- 9. Avatars: team_members.avatar and contacts.avatar_url hold only an https
+--    picture link or a path on the app.
+
+-- ---------------------------------------------------------------------------
+-- 1. Storage
+-- ---------------------------------------------------------------------------
+
+-- Whether the signed-in member may read, write (upload) or delete (also
+-- change) a stored object, from its bucket and path. Old bucket names (before
+-- 2.0) follow the same rules as their pm- twins. p_owner is the object's
+-- owner (storage.objects.owner), so an uploader may remove what they put.
+CREATE OR REPLACE FUNCTION pm.storage_object_allowed(p_bucket text, p_name text, p_action text, p_owner uuid DEFAULT NULL)
+RETURNS boolean
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = pm
+AS $$
+DECLARE
+  me uuid := pm.current_team_member_id();
+  v_bucket text := CASE WHEN p_bucket LIKE 'pm-%' THEN p_bucket ELSE 'pm-' || coalesce(p_bucket, '') END;
+  v_parts text[] := string_to_array(coalesce(p_name, ''), '/');
+  v_depth integer := coalesce(array_length(string_to_array(coalesce(p_name, ''), '/'), 1), 0);
+  v_kind text;
+  v_target_text text;
+  v_target uuid;
+BEGIN
+  IF me IS NULL OR p_action IS NULL OR p_action NOT IN ('read', 'write', 'delete') OR v_depth < 2 THEN
+    RETURN false;
+  END IF;
+  v_kind := v_parts[1];
+  IF v_bucket = 'pm-avatars' THEN
+    IF p_action = 'read' THEN
+      RETURN true;
+    END IF;
+    -- One picture per record: <kind>/<id>.<ext>
+    IF v_depth <> 2 THEN
+      RETURN false;
+    END IF;
+    v_target_text := substring(v_parts[2] FROM '^([0-9A-Fa-f-]{36})(\.[A-Za-z0-9]{1,8})?$');
+  ELSE
+    -- <kind>/<id>/<file name>
+    IF v_depth < 3 OR v_parts[v_depth] = '' THEN
+      RETURN false;
+    END IF;
+    v_target_text := v_parts[2];
+  END IF;
+  IF v_target_text IS NULL
+     OR v_target_text !~ '^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$' THEN
+    RETURN false;
+  END IF;
+  v_target := v_target_text::uuid;
+
+  IF v_bucket = 'pm-entity-files' THEN
+    IF v_kind IN ('project', 'lead', 'contact') THEN
+      IF NOT pm.can_access_file_entity(v_kind, v_target) THEN
+        RETURN false;
+      END IF;
+      RETURN CASE p_action
+        WHEN 'read' THEN pm.has_permission('files.read') OR pm.has_permission('files.manage')
+        WHEN 'write' THEN pm.has_permission('files.upload') OR pm.has_permission('files.manage')
+        ELSE pm.has_permission('files.manage') OR (p_owner IS NOT NULL AND p_owner = auth.uid())
+      END;
+    ELSIF v_kind = 'invoices' THEN
+      RETURN pm.can_access_project(v_target) AND (
+        pm.has_permission('invoices.manage')
+        OR (p_action = 'read' AND pm.has_permission('invoices.read'))
+      );
+    END IF;
+    RETURN false;
+  ELSIF v_bucket = 'pm-portal-files' THEN
+    IF v_kind = 'updates' THEN
+      RETURN pm.can_access_project(v_target) AND (
+        pm.has_permission('portal.manage')
+        OR (p_action = 'read' AND pm.has_permission('portal.read'))
+      );
+    END IF;
+    RETURN false;
+  ELSIF v_bucket = 'pm-avatars' THEN
+    IF v_kind = 'team' THEN
+      IF pm.has_permission('team.manage') THEN
+        RETURN true;
+      END IF;
+      -- A person's own picture (an agent's is its managers', as canManageAgent says).
+      IF v_target = me THEN
+        RETURN NOT EXISTS (SELECT 1 FROM pm.team_members self_row WHERE self_row.id = me AND self_row.role = 'agent');
+      END IF;
+      -- An agent's picture: its owners, by name, or as an active person in a
+      -- live group that owns it (isAgentOwner in agent-owners.ts).
+      RETURN EXISTS (SELECT 1 FROM pm.team_members agent WHERE agent.id = v_target AND agent.role = 'agent')
+        AND (
+          EXISTS (SELECT 1 FROM pm.agent_owners owner_row WHERE owner_row.agent_id = v_target AND owner_row.member_id = me)
+          OR (
+            EXISTS (SELECT 1 FROM pm.team_members person WHERE person.id = me AND person.role <> 'agent' AND coalesce(person.status, 'active') = 'active')
+            AND EXISTS (
+              SELECT 1 FROM pm.agent_owner_groups owner_group
+              JOIN pm.groups owning ON owning.id = owner_group.group_id AND owning.deleted_at IS NULL
+              JOIN pm.group_members membership ON membership.group_id = owner_group.group_id AND membership.member_id = me
+              WHERE owner_group.agent_id = v_target
+            )
+          )
+        );
+    ELSIF v_kind = 'contacts' THEN
+      RETURN pm.has_permission('contacts.manage') AND EXISTS (
+        SELECT 1 FROM pm.contacts contact
+        WHERE contact.id = v_target AND contact.deleted_at IS NULL
+          AND (contact.created_by = me OR pm.can_access_file_entity('contact', v_target))
+      );
+    ELSIF v_kind = 'portal' THEN
+      RETURN pm.has_permission('portal.manage') AND pm.can_access_project(v_target);
+    END IF;
+    RETURN false;
+  END IF;
+  RETURN false;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION pm.storage_object_allowed(text, text, text, uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION pm.storage_object_allowed(text, text, text, uuid) TO authenticated, service_role;
+
+UPDATE storage.buckets SET public = false WHERE id IN ('pm-entity-files', 'pm-portal-files') AND public;
+
+-- Entity files (project, lead and contact files, invoice PDFs).
+DROP POLICY IF EXISTS "pm: Authenticated users can upload entity files" ON storage.objects;
+DROP POLICY IF EXISTS "pm: Authenticated users can update entity files" ON storage.objects;
+DROP POLICY IF EXISTS "pm: Authenticated users can delete entity files" ON storage.objects;
+DROP POLICY IF EXISTS "pm: Authenticated users can read entity files" ON storage.objects;
+DROP POLICY IF EXISTS "pm: Entity files are read by who opens their record" ON storage.objects;
+CREATE POLICY "pm: Entity files are read by who opens their record" ON storage.objects FOR SELECT TO authenticated
+  USING (bucket_id = 'pm-entity-files' AND (select pm.current_team_member_id()) IS NOT NULL AND pm.storage_object_allowed(bucket_id, name, 'read'));
+DROP POLICY IF EXISTS "pm: Entity files are added by who may upload to their record" ON storage.objects;
+CREATE POLICY "pm: Entity files are added by who may upload to their record" ON storage.objects FOR INSERT TO authenticated
+  WITH CHECK (bucket_id = 'pm-entity-files' AND (select pm.current_team_member_id()) IS NOT NULL AND pm.storage_object_allowed(bucket_id, name, 'write'));
+DROP POLICY IF EXISTS "pm: Entity files are changed by who manages them" ON storage.objects;
+CREATE POLICY "pm: Entity files are changed by who manages them" ON storage.objects FOR UPDATE TO authenticated
+  USING (bucket_id = 'pm-entity-files' AND (select pm.current_team_member_id()) IS NOT NULL AND pm.storage_object_allowed(bucket_id, name, 'delete', owner))
+  WITH CHECK (bucket_id = 'pm-entity-files' AND (select pm.current_team_member_id()) IS NOT NULL AND pm.storage_object_allowed(bucket_id, name, 'write'));
+DROP POLICY IF EXISTS "pm: Entity files are removed by who manages them" ON storage.objects;
+CREATE POLICY "pm: Entity files are removed by who manages them" ON storage.objects FOR DELETE TO authenticated
+  USING (bucket_id = 'pm-entity-files' AND (select pm.current_team_member_id()) IS NOT NULL AND pm.storage_object_allowed(bucket_id, name, 'delete', owner));
+
+-- Portal update attachments.
+DROP POLICY IF EXISTS "pm: Authenticated users can upload portal files" ON storage.objects;
+DROP POLICY IF EXISTS "pm: Authenticated users can update portal files" ON storage.objects;
+DROP POLICY IF EXISTS "pm: Authenticated users can delete portal files" ON storage.objects;
+DROP POLICY IF EXISTS "pm: Public can read portal files" ON storage.objects;
+DROP POLICY IF EXISTS "pm: Portal files are read by who sees the portal" ON storage.objects;
+CREATE POLICY "pm: Portal files are read by who sees the portal" ON storage.objects FOR SELECT TO authenticated
+  USING (bucket_id = 'pm-portal-files' AND (select pm.current_team_member_id()) IS NOT NULL AND pm.storage_object_allowed(bucket_id, name, 'read'));
+DROP POLICY IF EXISTS "pm: Portal files are added by who manages the portal" ON storage.objects;
+CREATE POLICY "pm: Portal files are added by who manages the portal" ON storage.objects FOR INSERT TO authenticated
+  WITH CHECK (bucket_id = 'pm-portal-files' AND (select pm.current_team_member_id()) IS NOT NULL AND pm.storage_object_allowed(bucket_id, name, 'write'));
+DROP POLICY IF EXISTS "pm: Portal files are changed by who manages the portal" ON storage.objects;
+CREATE POLICY "pm: Portal files are changed by who manages the portal" ON storage.objects FOR UPDATE TO authenticated
+  USING (bucket_id = 'pm-portal-files' AND (select pm.current_team_member_id()) IS NOT NULL AND pm.storage_object_allowed(bucket_id, name, 'delete', owner))
+  WITH CHECK (bucket_id = 'pm-portal-files' AND (select pm.current_team_member_id()) IS NOT NULL AND pm.storage_object_allowed(bucket_id, name, 'write'));
+DROP POLICY IF EXISTS "pm: Portal files are removed by who manages the portal" ON storage.objects;
+CREATE POLICY "pm: Portal files are removed by who manages the portal" ON storage.objects FOR DELETE TO authenticated
+  USING (bucket_id = 'pm-portal-files' AND (select pm.current_team_member_id()) IS NOT NULL AND pm.storage_object_allowed(bucket_id, name, 'delete', owner));
+
+-- Avatars: public to read ("pm: Public can read avatars" stays), written by
+-- the picture's own person or record managers.
+DROP POLICY IF EXISTS "pm: Authenticated users can upload avatars" ON storage.objects;
+DROP POLICY IF EXISTS "pm: Authenticated users can update avatars" ON storage.objects;
+DROP POLICY IF EXISTS "pm: Authenticated users can delete avatars" ON storage.objects;
+DROP POLICY IF EXISTS "pm: Avatars are added by their person or record managers" ON storage.objects;
+CREATE POLICY "pm: Avatars are added by their person or record managers" ON storage.objects FOR INSERT TO authenticated
+  WITH CHECK (bucket_id = 'pm-avatars' AND (select pm.current_team_member_id()) IS NOT NULL AND pm.storage_object_allowed(bucket_id, name, 'write'));
+DROP POLICY IF EXISTS "pm: Avatars are changed by their person or record managers" ON storage.objects;
+CREATE POLICY "pm: Avatars are changed by their person or record managers" ON storage.objects FOR UPDATE TO authenticated
+  USING (bucket_id = 'pm-avatars' AND (select pm.current_team_member_id()) IS NOT NULL AND pm.storage_object_allowed(bucket_id, name, 'delete', owner))
+  WITH CHECK (bucket_id = 'pm-avatars' AND (select pm.current_team_member_id()) IS NOT NULL AND pm.storage_object_allowed(bucket_id, name, 'write'));
+DROP POLICY IF EXISTS "pm: Avatars are removed by their person or record managers" ON storage.objects;
+CREATE POLICY "pm: Avatars are removed by their person or record managers" ON storage.objects FOR DELETE TO authenticated
+  USING (bucket_id = 'pm-avatars' AND (select pm.current_team_member_id()) IS NOT NULL AND pm.storage_object_allowed(bucket_id, name, 'delete', owner));
+
+-- The pre-2.0 buckets of an upgraded install: read-only fallbacks the server
+-- reads (and signs) until 2.1. The app's old member-wide policies go, found
+-- by their exact names so another app's buckets are never touched; the file
+-- buckets turn private. A fresh install has none of this.
+DO $legacy_storage$
+BEGIN
+  IF to_regclass('storage.objects') IS NULL THEN
+    RETURN;
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'storage' AND tablename = 'objects' AND policyname IN (
+    'Authenticated users can upload entity files', 'Authenticated users can update entity files',
+    'Authenticated users can delete entity files', 'Authenticated users can read entity files')) THEN
+    DROP POLICY IF EXISTS "Authenticated users can upload entity files" ON storage.objects;
+    DROP POLICY IF EXISTS "Authenticated users can update entity files" ON storage.objects;
+    DROP POLICY IF EXISTS "Authenticated users can delete entity files" ON storage.objects;
+    DROP POLICY IF EXISTS "Authenticated users can read entity files" ON storage.objects;
+    UPDATE storage.buckets SET public = false WHERE id = 'entity-files';
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'storage' AND tablename = 'objects' AND policyname IN (
+    'Authenticated users can upload portal files', 'Authenticated users can update portal files',
+    'Authenticated users can delete portal files', 'Public can read portal files')) THEN
+    DROP POLICY IF EXISTS "Authenticated users can upload portal files" ON storage.objects;
+    DROP POLICY IF EXISTS "Authenticated users can update portal files" ON storage.objects;
+    DROP POLICY IF EXISTS "Authenticated users can delete portal files" ON storage.objects;
+    DROP POLICY IF EXISTS "Public can read portal files" ON storage.objects;
+    UPDATE storage.buckets SET public = false WHERE id = 'portal-files';
+  END IF;
+  DROP POLICY IF EXISTS "Authenticated users can upload avatars" ON storage.objects;
+  DROP POLICY IF EXISTS "Authenticated users can update avatars" ON storage.objects;
+  DROP POLICY IF EXISTS "Authenticated users can delete avatars" ON storage.objects;
+END
+$legacy_storage$;
+
+-- ---------------------------------------------------------------------------
+-- 2. task_comments: a comment stays on its task and keeps its author
+-- ---------------------------------------------------------------------------
+DROP POLICY IF EXISTS task_comments_update_delete ON pm.task_comments;
+DROP POLICY IF EXISTS task_comments_update ON pm.task_comments;
+CREATE POLICY task_comments_update ON pm.task_comments FOR UPDATE TO authenticated
+  USING (pm.can_access_task(task_id) AND (user_id = pm.current_team_member_id() OR pm.has_permission('tasks.manage_all')))
+  WITH CHECK (pm.can_access_task(task_id) AND (user_id = pm.current_team_member_id() OR pm.has_permission('tasks.manage_all')));
+DROP POLICY IF EXISTS task_comments_delete ON pm.task_comments;
+CREATE POLICY task_comments_delete ON pm.task_comments FOR DELETE TO authenticated
+  USING (pm.can_access_task(task_id) AND (user_id = pm.current_team_member_id() OR pm.has_permission('tasks.manage_all')));
+
+-- Browser writes (the authenticated role itself; server code and SECURITY
+-- DEFINER functions run as another role): a new comment is the writer's, made
+-- now; an edit never moves it to another task, never changes its author and
+-- never changes when it was made.
+CREATE OR REPLACE FUNCTION pm.task_comments_server_fields()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = pm
+AS $$
+BEGIN
+  IF current_user <> 'authenticated' THEN
+    RETURN NEW;
+  END IF;
+  IF TG_OP = 'INSERT' THEN
+    NEW.created_at := now();
+    RETURN NEW;
+  END IF;
+  IF NEW.task_id IS DISTINCT FROM OLD.task_id OR NEW.user_id IS DISTINCT FROM OLD.user_id THEN
+    RAISE EXCEPTION 'A comment stays on its task and keeps its author'
+      USING ERRCODE = 'insufficient_privilege';
+  END IF;
+  NEW.created_at := OLD.created_at;
+  RETURN NEW;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION pm.task_comments_server_fields() FROM PUBLIC, anon, authenticated;
+
+DROP TRIGGER IF EXISTS task_comments_server_fields ON pm.task_comments;
+CREATE TRIGGER task_comments_server_fields
+  BEFORE INSERT OR UPDATE ON pm.task_comments
+  FOR EACH ROW EXECUTE FUNCTION pm.task_comments_server_fields();
+
+-- ---------------------------------------------------------------------------
+-- 3. time_entry_tasks: the time entry's own rules
+-- ---------------------------------------------------------------------------
+-- Read with the entry (the subquery reads project_time_entries under the
+-- reader's own row policies). Written by whoever may edit the entry, as
+-- time_entries_update allows, and only with tasks of the entry's project.
+DROP POLICY IF EXISTS time_entry_tasks_all ON pm.time_entry_tasks;
+DROP POLICY IF EXISTS time_entry_tasks_select ON pm.time_entry_tasks;
+CREATE POLICY time_entry_tasks_select ON pm.time_entry_tasks FOR SELECT TO authenticated
+  USING (EXISTS (SELECT 1 FROM pm.project_time_entries entry WHERE entry.id = time_entry_tasks.time_entry_id));
+DROP POLICY IF EXISTS time_entry_tasks_insert ON pm.time_entry_tasks;
+CREATE POLICY time_entry_tasks_insert ON pm.time_entry_tasks FOR INSERT TO authenticated
+  WITH CHECK (EXISTS (
+    SELECT 1 FROM pm.project_time_entries entry
+    WHERE entry.id = time_entry_tasks.time_entry_id
+      AND pm.can_access_project(entry.project_id)
+      AND (pm.has_permission('time.manage_all') OR (
+        pm.has_permission('time.manage_own')
+        AND entry.member_id = pm.current_team_member_id()
+        AND entry.approval_status IN ('draft', 'pending', 'rejected')
+      ))
+      AND EXISTS (SELECT 1 FROM pm.tasks task WHERE task.id = time_entry_tasks.task_id AND task.project_id = entry.project_id)
+  ));
+DROP POLICY IF EXISTS time_entry_tasks_update ON pm.time_entry_tasks;
+CREATE POLICY time_entry_tasks_update ON pm.time_entry_tasks FOR UPDATE TO authenticated
+  USING (EXISTS (
+    SELECT 1 FROM pm.project_time_entries entry
+    WHERE entry.id = time_entry_tasks.time_entry_id
+      AND pm.can_access_project(entry.project_id)
+      AND (pm.has_permission('time.manage_all') OR (
+        pm.has_permission('time.manage_own')
+        AND entry.member_id = pm.current_team_member_id()
+        AND entry.approval_status IN ('draft', 'pending', 'rejected')
+      ))
+  ))
+  WITH CHECK (EXISTS (
+    SELECT 1 FROM pm.project_time_entries entry
+    WHERE entry.id = time_entry_tasks.time_entry_id
+      AND pm.can_access_project(entry.project_id)
+      AND (pm.has_permission('time.manage_all') OR (
+        pm.has_permission('time.manage_own')
+        AND entry.member_id = pm.current_team_member_id()
+        AND entry.approval_status IN ('draft', 'pending', 'rejected')
+      ))
+      AND EXISTS (SELECT 1 FROM pm.tasks task WHERE task.id = time_entry_tasks.task_id AND task.project_id = entry.project_id)
+  ));
+DROP POLICY IF EXISTS time_entry_tasks_delete ON pm.time_entry_tasks;
+CREATE POLICY time_entry_tasks_delete ON pm.time_entry_tasks FOR DELETE TO authenticated
+  USING (EXISTS (
+    SELECT 1 FROM pm.project_time_entries entry
+    WHERE entry.id = time_entry_tasks.time_entry_id
+      AND pm.can_access_project(entry.project_id)
+      AND (pm.has_permission('time.manage_all') OR (
+        pm.has_permission('time.manage_own')
+        AND entry.member_id = pm.current_team_member_id()
+        AND entry.approval_status IN ('draft', 'pending', 'rejected')
+      ))
+  ));
+
+-- ---------------------------------------------------------------------------
+-- 4. Manage without View all
+-- ---------------------------------------------------------------------------
+-- leads.manage acts on the leads the person reaches (can_access_lead), plus
+-- the ones they created or hold. It still adds leads. The extra read policy
+-- keeps a new lead readable to its maker in the same statement (INSERT ...
+-- RETURNING), where can_access_lead cannot see the row yet.
+DROP POLICY IF EXISTS leads_manage ON pm.leads;
+DROP POLICY IF EXISTS leads_manage_select ON pm.leads;
+CREATE POLICY leads_manage_select ON pm.leads FOR SELECT TO authenticated
+  USING (pm.has_permission('leads.manage') AND (
+    pm.has_permission('leads.read_all')
+    OR assigned_to = pm.current_team_member_id()
+    OR created_by = pm.current_team_member_id()
+  ));
+DROP POLICY IF EXISTS leads_insert ON pm.leads;
+CREATE POLICY leads_insert ON pm.leads FOR INSERT TO authenticated
+  WITH CHECK (pm.has_permission('leads.manage'));
+DROP POLICY IF EXISTS leads_update ON pm.leads;
+CREATE POLICY leads_update ON pm.leads FOR UPDATE TO authenticated
+  USING (pm.has_permission('leads.manage') AND (pm.can_access_lead(id) OR created_by = pm.current_team_member_id()))
+  WITH CHECK (pm.has_permission('leads.manage'));
+DROP POLICY IF EXISTS leads_delete ON pm.leads;
+CREATE POLICY leads_delete ON pm.leads FOR DELETE TO authenticated
+  USING (pm.has_permission('leads.manage') AND (pm.can_access_lead(id) OR created_by = pm.current_team_member_id()));
+
+-- contacts.manage acts on the contacts the person reaches (contacts.read_all,
+-- or linked to a project they open), plus the ones they created.
+DROP POLICY IF EXISTS contacts_manage ON pm.contacts;
+DROP POLICY IF EXISTS contacts_manage_select ON pm.contacts;
+CREATE POLICY contacts_manage_select ON pm.contacts FOR SELECT TO authenticated
+  USING (pm.has_permission('contacts.manage') AND (
+    pm.has_permission('contacts.read_all') OR created_by = pm.current_team_member_id()
+  ));
+DROP POLICY IF EXISTS contacts_insert ON pm.contacts;
+CREATE POLICY contacts_insert ON pm.contacts FOR INSERT TO authenticated
+  WITH CHECK (pm.has_permission('contacts.manage'));
+DROP POLICY IF EXISTS contacts_update ON pm.contacts;
+CREATE POLICY contacts_update ON pm.contacts FOR UPDATE TO authenticated
+  USING (pm.has_permission('contacts.manage') AND (
+    pm.can_access_file_entity('contact', id) OR created_by = pm.current_team_member_id()
+  ))
+  WITH CHECK (pm.has_permission('contacts.manage'));
+DROP POLICY IF EXISTS contacts_delete ON pm.contacts;
+CREATE POLICY contacts_delete ON pm.contacts FOR DELETE TO authenticated
+  USING (pm.has_permission('contacts.manage') AND (
+    pm.can_access_file_entity('contact', id) OR created_by = pm.current_team_member_id()
+  ));
+
+-- Linking a contact to a project needs that project.
+DROP POLICY IF EXISTS project_contacts_manage ON pm.project_contacts;
+CREATE POLICY project_contacts_manage ON pm.project_contacts FOR ALL TO authenticated
+  USING (pm.has_permission('contacts.manage') AND pm.can_access_project(project_id))
+  WITH CHECK (pm.has_permission('contacts.manage') AND pm.can_access_project(project_id));
+
+-- tasks.manage_all changes the assignees of tasks the person reaches.
+DROP POLICY IF EXISTS task_assignees_manage ON pm.task_assignees;
+CREATE POLICY task_assignees_manage ON pm.task_assignees FOR ALL TO authenticated
+  USING (pm.has_permission('tasks.manage_all') AND pm.can_access_task(task_id))
+  WITH CHECK (pm.has_permission('tasks.manage_all') AND pm.can_access_task(task_id));
+
+-- projects has no member write grants: this policy only ever read. It reads
+-- the projects the person opens.
+DROP POLICY IF EXISTS projects_manage ON pm.projects;
+CREATE POLICY projects_manage ON pm.projects FOR ALL TO authenticated
+  USING (pm.has_permission('projects.manage') AND pm.can_access_project(id))
+  WITH CHECK (pm.has_permission('projects.manage') AND pm.can_access_project(id));
+
+-- ---------------------------------------------------------------------------
+-- 5. Personal inboxes: verification is the server's
+-- ---------------------------------------------------------------------------
+-- Inboxes are made and verified by the server (the settings service and
+-- ingestion run as the service role). A browser write never sets
+-- verified_at or verification_code, and a browser change of address clears
+-- the verification until the new code arrives.
+CREATE OR REPLACE FUNCTION pm.inboxes_server_verification()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = pm
+AS $$
+BEGIN
+  IF current_user <> 'authenticated' THEN
+    RETURN NEW;
+  END IF;
+  IF TG_OP = 'INSERT' THEN
+    NEW.verified_at := NULL;
+    NEW.verification_code := pm.email_inbox_verification_code();
+    RETURN NEW;
+  END IF;
+  NEW.verification_code := OLD.verification_code;
+  IF NEW.address IS DISTINCT FROM OLD.address THEN
+    NEW.verified_at := NULL;
+  ELSE
+    NEW.verified_at := OLD.verified_at;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION pm.inboxes_server_verification() FROM PUBLIC, anon, authenticated;
+
+DROP TRIGGER IF EXISTS inboxes_server_verification ON pm.inboxes;
+CREATE TRIGGER inboxes_server_verification
+  BEFORE INSERT OR UPDATE ON pm.inboxes
+  FOR EACH ROW EXECUTE FUNCTION pm.inboxes_server_verification();
+
+-- ---------------------------------------------------------------------------
+-- 6. Server-set task columns
+-- ---------------------------------------------------------------------------
+-- A browser write (the authenticated role itself) never backdates a task,
+-- never sets when it was finished outside a status change, never takes or
+-- extends a claim (it may release one) and never sets the repeat count.
+-- Claims go through pm.claim_task and friends, which run as their owner.
+CREATE OR REPLACE FUNCTION pm.tasks_server_fields()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = pm
+AS $$
+BEGIN
+  IF current_user <> 'authenticated' THEN
+    RETURN NEW;
+  END IF;
+  IF TG_OP = 'INSERT' THEN
+    NEW.created_at := now();
+    NEW.completed_at := CASE WHEN NEW.status = 'done' THEN now() END;
+    NEW.claimed_by := NULL;
+    NEW.claimed_at := NULL;
+    NEW.claim_expires_at := NULL;
+    NEW.claim_assigned := false;
+    NEW.occurrences := 1;
+    NEW.last_occurred_at := NULL;
+    RETURN NEW;
+  END IF;
+  NEW.created_at := OLD.created_at;
+  IF NEW.status IS NOT DISTINCT FROM OLD.status THEN
+    NEW.completed_at := OLD.completed_at;
+  END IF;
+  IF NEW.claimed_by IS NOT NULL
+     AND (NEW.claimed_by, NEW.claimed_at, NEW.claim_expires_at, NEW.claim_assigned)
+       IS DISTINCT FROM (OLD.claimed_by, OLD.claimed_at, OLD.claim_expires_at, OLD.claim_assigned) THEN
+    NEW.claimed_by := OLD.claimed_by;
+    NEW.claimed_at := OLD.claimed_at;
+    NEW.claim_expires_at := OLD.claim_expires_at;
+    NEW.claim_assigned := OLD.claim_assigned;
+  END IF;
+  NEW.occurrences := OLD.occurrences;
+  NEW.last_occurred_at := OLD.last_occurred_at;
+  RETURN NEW;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION pm.tasks_server_fields() FROM PUBLIC, anon, authenticated;
+
+-- Named to run after tasks_before_update, which stamps completed_at on a
+-- status change and ends the claim of a finished task.
+DROP TRIGGER IF EXISTS tasks_server_fields ON pm.tasks;
+CREATE TRIGGER tasks_server_fields
+  BEFORE INSERT OR UPDATE ON pm.tasks
+  FOR EACH ROW EXECUTE FUNCTION pm.tasks_server_fields();
+
+-- ---------------------------------------------------------------------------
+-- 7. Trash: permission before existence
+-- ---------------------------------------------------------------------------
+-- A member without the right gets the same answer for a record that exists
+-- and one that does not (restore_record: see the note inside it).
+CREATE OR REPLACE FUNCTION pm.soft_delete_record(p_table text, p_id uuid, p_actor uuid DEFAULT NULL)
+RETURNS boolean
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pm
+AS $$
+DECLARE
+  is_service boolean := coalesce(auth.role(), '') = 'service_role';
+  actor uuid;
+  changed integer;
+  found_row boolean;
+  before jsonb;
+  after jsonb;
+BEGIN
+  IF NOT p_table = ANY (pm.trash_record_types()) THEN
+    RAISE EXCEPTION 'Trash does not handle %', p_table USING ERRCODE = '22023';
+  END IF;
+  IF NOT is_service AND NOT coalesce(pm.can_trash_record(p_table, p_id), false) THEN
+    RAISE EXCEPTION 'You do not have permission to delete this' USING ERRCODE = '42501';
+  END IF;
+  EXECUTE format('SELECT EXISTS (SELECT 1 FROM pm.%I WHERE id = $1)', p_table) INTO found_row USING p_id;
+  IF NOT found_row THEN
+    RAISE EXCEPTION 'Record not found' USING ERRCODE = 'P0002';
+  END IF;
+  actor := CASE WHEN is_service THEN p_actor ELSE pm.current_team_member_id() END;
+  EXECUTE format('SELECT to_jsonb(t) FROM pm.%I t WHERE id = $1', p_table) INTO before USING p_id;
+  EXECUTE format('UPDATE pm.%I t SET deleted_at = now(), deleted_by = $1 WHERE id = $2 AND deleted_at IS NULL RETURNING to_jsonb(t)', p_table)
+    INTO after USING actor, p_id;
+  changed := CASE WHEN after IS NULL THEN 0 ELSE 1 END;
+  IF changed > 0 AND NOT is_service THEN
+    PERFORM pm.audit_trash_change(p_table, p_id, false, before, after);
+  END IF;
+  RETURN changed > 0;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION pm.restore_record(p_table text, p_id uuid, p_actor uuid DEFAULT NULL)
+RETURNS boolean
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pm
+AS $$
+DECLARE
+  is_service boolean := coalesce(auth.role(), '') = 'service_role';
+  blocker text;
+  changed integer;
+  found_row boolean;
+  before jsonb;
+  after jsonb;
+BEGIN
+  IF NOT p_table = ANY (pm.trash_record_types()) THEN
+    RAISE EXCEPTION 'Trash does not handle %', p_table USING ERRCODE = '22023';
+  END IF;
+  -- A member hears "no permission" for a record that does not exist, as for
+  -- one they may not restore. What still blocks a restore (its task or
+  -- project in Trash) is said first, so whoever trashed both learns the order.
+  EXECUTE format('SELECT EXISTS (SELECT 1 FROM pm.%I WHERE id = $1)', p_table) INTO found_row USING p_id;
+  IF NOT found_row THEN
+    IF is_service THEN
+      RAISE EXCEPTION 'Record not found' USING ERRCODE = 'P0002';
+    END IF;
+    RAISE EXCEPTION 'You do not have permission to restore this' USING ERRCODE = '42501';
+  END IF;
+  blocker := pm.trash_restore_blocker(p_table, p_id);
+  IF blocker IS NOT NULL THEN
+    RAISE EXCEPTION '%', blocker USING ERRCODE = '55000';
+  END IF;
+  IF NOT is_service AND NOT coalesce(pm.can_trash_record(p_table, p_id), false) THEN
+    RAISE EXCEPTION 'You do not have permission to restore this' USING ERRCODE = '42501';
+  END IF;
+  -- Restoring re-runs the record's own rules (an invoice links its hours
+  -- and retainer period again); a clash with what happened meanwhile
+  -- refuses it, saying why.
+  EXECUTE format('SELECT to_jsonb(t) FROM pm.%I t WHERE id = $1', p_table) INTO before USING p_id;
+  BEGIN
+    EXECUTE format('UPDATE pm.%I t SET deleted_at = NULL, deleted_by = NULL WHERE id = $1 AND deleted_at IS NOT NULL RETURNING to_jsonb(t)', p_table)
+      INTO after USING p_id;
+    changed := CASE WHEN after IS NULL THEN 0 ELSE 1 END;
+  EXCEPTION WHEN raise_exception THEN
+    RAISE EXCEPTION 'It cannot come back as it was: %', SQLERRM USING ERRCODE = '55000';
+  END;
+  IF changed > 0 AND NOT is_service THEN
+    PERFORM pm.audit_trash_change(p_table, p_id, true, before, after);
+  END IF;
+  -- Retainer months that came due while it (or its project) was in Trash
+  -- are skipped, as a pause skips them: restoring never back-bills.
+  IF changed > 0 AND p_table IN ('projects', 'project_retainers') THEN
+    INSERT INTO pm.project_retainer_periods (retainer_id, period_start, period_end, status)
+    SELECT due.retainer_id, due.period_start, due.period_end, 'skipped'
+    FROM pm.retainer_due_periods_internal(
+      CASE WHEN p_table = 'projects' THEN p_id ELSE (after->>'project_id')::uuid END,
+      pm.workspace_today()) due
+    WHERE (p_table = 'projects' OR due.retainer_id = p_id)
+      AND due.bill_date >= ((before->>'deleted_at')::timestamptz AT TIME ZONE pm.workspace_timezone())::date
+    ON CONFLICT (retainer_id, period_start) DO NOTHING;
+  END IF;
+  RETURN changed > 0;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION pm.soft_delete_record(text, uuid, uuid) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.soft_delete_record(text, uuid, uuid) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION pm.restore_record(text, uuid, uuid) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION pm.restore_record(text, uuid, uuid) TO authenticated, service_role;
+
+-- ---------------------------------------------------------------------------
+-- 8. Webhooks: an endpoint never receives what its maker could not read
+-- ---------------------------------------------------------------------------
+-- An endpoint with project_ids NULL received every project's events, whoever
+-- made it. Now an event that touches projects reaches an endpoint only while
+-- the endpoint's maker (created_by) reads at least one of those projects
+-- (projects.read_all, or projects.read and a member of one). Events that
+-- touch no project are unchanged. An endpoint whose maker left the team
+-- (created_by NULL) is the workspace's own and is unchanged. A suspended
+-- maker reads nothing, so their endpoints stop receiving project events.
+CREATE OR REPLACE FUNCTION pm.webhook_maker_reaches(p_maker uuid, p_project_ids uuid[])
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = pm
+AS $$
+  SELECT p_maker IS NULL
+    OR coalesce(cardinality(p_project_ids), 0) = 0
+    -- Either channel: an agent's reach is granted on the API channel only (2.0.49), a person's usually on the app.
+    OR pm.member_has_permission(p_maker, 'projects.read_all', 'app')
+    OR pm.member_has_permission(p_maker, 'projects.read_all', 'api')
+    OR ((pm.member_has_permission(p_maker, 'projects.read', 'app') OR pm.member_has_permission(p_maker, 'projects.read', 'api')) AND EXISTS (
+      SELECT 1 FROM pm.project_members pmb
+      WHERE pmb.member_id = p_maker AND pmb.project_id = ANY (p_project_ids)
+    ))
+$$;
+
+REVOKE ALL ON FUNCTION pm.webhook_maker_reaches(uuid, uuid[]) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION pm.webhook_maker_reaches(uuid, uuid[]) TO service_role;
+
+CREATE OR REPLACE FUNCTION pm.webhook_endpoint_matches(
+  p_endpoint pm.webhook_endpoints,
+  p_event_type text,
+  p_project_ids uuid[],
+  p_member_ids uuid[]
+)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SET search_path = pm
+AS $$
+  SELECT p_endpoint.is_active
+    AND p_event_type = ANY (p_endpoint.events)
+    AND (p_endpoint.project_ids IS NULL OR p_endpoint.project_ids && coalesce(p_project_ids, '{}'))
+    AND (p_endpoint.member_id IS NULL OR p_endpoint.member_id = ANY (coalesce(p_member_ids, '{}')))
+    AND (p_endpoint.assistant_setup_id IS NULL OR EXISTS (
+      SELECT 1 FROM pm.team_members a
+      WHERE a.id = ANY (coalesce(p_member_ids, '{}'))
+        AND a.assistant_setup_id = p_endpoint.assistant_setup_id
+        AND a.role = 'agent' AND a.delegate_of IS NOT NULL
+    ))
+    AND pm.webhook_maker_reaches(p_endpoint.created_by, p_project_ids)
+$$;
+
+REVOKE ALL ON FUNCTION pm.webhook_endpoint_matches(pm.webhook_endpoints, text, uuid[], uuid[]) FROM PUBLIC, anon, authenticated;
+
+-- ---------------------------------------------------------------------------
+-- 9. Avatars: only a picture link or a path on the app is stored
+-- ---------------------------------------------------------------------------
+-- The server routes check this (src/lib/schemas/profile.ts); this catches the
+-- direct writes (contacts by contacts.manage holders, team_members by an
+-- Owner). Checked only when the avatar changes, so a row stored before this
+-- (rendered through safeImageUrl, which drops anything unsafe) never blocks
+-- an unrelated update.
+CREATE OR REPLACE FUNCTION pm.guard_avatar_url()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = pm
+AS $$
+DECLARE
+  v_new text := CASE WHEN TG_TABLE_NAME = 'contacts' THEN to_jsonb(NEW)->>'avatar_url' ELSE to_jsonb(NEW)->>'avatar' END;
+  v_old text := CASE WHEN TG_OP = 'UPDATE' THEN (CASE WHEN TG_TABLE_NAME = 'contacts' THEN to_jsonb(OLD)->>'avatar_url' ELSE to_jsonb(OLD)->>'avatar' END) END;
+BEGIN
+  IF (TG_OP = 'INSERT' OR v_new IS DISTINCT FROM v_old) AND v_new IS NOT NULL AND v_new <> '' AND NOT (
+    length(v_new) <= 2000 AND (
+      v_new ~ '^https://[^[:space:][:cntrl:]]+$'
+      OR v_new ~ '^http://(localhost|127\.0\.0\.1|\[::1\])([:/][^[:space:][:cntrl:]]*)?$'
+      OR (v_new ~ '^/[^/[:space:][:cntrl:]][^[:space:][:cntrl:]]*$' AND strpos(v_new, chr(92)) = 0)
+    )
+  ) THEN
+    RAISE EXCEPTION 'An avatar must be an https picture link or a path on this app' USING ERRCODE = '22023';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION pm.guard_avatar_url() FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION pm.guard_avatar_url() TO service_role;
+
+DROP TRIGGER IF EXISTS team_members_avatar_guard ON pm.team_members;
+CREATE TRIGGER team_members_avatar_guard BEFORE INSERT OR UPDATE OF avatar ON pm.team_members
+  FOR EACH ROW EXECUTE FUNCTION pm.guard_avatar_url();
+DROP TRIGGER IF EXISTS contacts_avatar_guard ON pm.contacts;
+CREATE TRIGGER contacts_avatar_guard BEFORE INSERT OR UPDATE OF avatar_url ON pm.contacts
+  FOR EACH ROW EXECUTE FUNCTION pm.guard_avatar_url();
+
+
+-- ============================================================
+-- API HARDENING (20261127001300_api_hardening.sql)
+-- ============================================================
+
+CREATE OR REPLACE FUNCTION pm.extend_task_claim(
+  p_task_id uuid,
+  p_member_id uuid,
+  p_lease_minutes integer DEFAULT 30
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+DECLARE
+  v_task pm.tasks;
+BEGIN
+  IF p_lease_minutes IS NULL OR p_lease_minutes < 1 OR p_lease_minutes > 240 THEN
+    RAISE EXCEPTION 'A claim lasts 1 to 240 minutes' USING ERRCODE = '22023';
+  END IF;
+  SELECT * INTO v_task FROM pm.tasks WHERE id = p_task_id AND deleted_at IS NULL FOR UPDATE;
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('outcome', 'not_found');
+  END IF;
+  IF v_task.claimed_by IS NULL THEN
+    RETURN jsonb_build_object('outcome', 'not_held');
+  END IF;
+  IF v_task.claimed_by <> p_member_id THEN
+    IF v_task.claim_expires_at > now() THEN
+      RETURN jsonb_build_object('outcome', 'held', 'holder', pm.task_claim_holder(v_task));
+    END IF;
+    RETURN jsonb_build_object('outcome', 'not_held');
+  END IF;
+  -- Theirs, but run out: a lapsed claim is no claim. Claim it again.
+  IF v_task.claim_expires_at IS NULL OR v_task.claim_expires_at <= now() THEN
+    RETURN jsonb_build_object('outcome', 'not_held', 'expired', true, 'expired_at', v_task.claim_expires_at);
+  END IF;
+  UPDATE pm.tasks SET claim_expires_at = now() + make_interval(mins => p_lease_minutes)
+  WHERE id = p_task_id
+  RETURNING * INTO v_task;
+  RETURN jsonb_build_object('outcome', 'extended', 'task', to_jsonb(v_task));
+END;
+$$;
+
+REVOKE ALL ON FUNCTION pm.extend_task_claim(uuid, uuid, integer) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION pm.extend_task_claim(uuid, uuid, integer) TO service_role;
+
+-- ============================================================
+-- LIFECYCLE FIXES (20261127001400_lifecycle_fixes.sql)
+-- ============================================================
+-- Lifecycle fixes: schedules, suspended members, the AI agents switch,
+-- races, Change dates and data retention.
+--
+-- - pm.claim_schedule_occurrence: a date that made nothing (skipped, or
+--   failed twice) is claimed again when the schedule comes back to it, so
+--   resuming a schedule on a day it skipped makes that day's run, as the
+--   resume answer says. A date that made its work (created, or still
+--   running) is still never made twice.
+-- - pm.clear_schedule_paused_notice: the "A schedule paused" notice clears
+--   when its schedule is active again, ends or is removed (a later pause
+--   raises it again).
+-- - pm.schedules_kick: a schedule run by an agent is not due while the AI
+--   agents module is off (the app holds it back too, claiming nothing), so
+--   it runs when the module is on again.
+-- - pm.team_member_permissions.given_with_key: a power an agent was given
+--   beyond its role by making or editing its key; the app takes it away
+--   again when no live key of the agent carries that scope.
+-- - pm.questions.expired_reason, pm.close_asks_of_suspended_member: a
+--   member who is suspended stops being asked. Their open questions and
+--   approvals expire at once with expired_reason asked_member_suspended
+--   (question.expired carries it), the asked bell clears, a run one of them
+--   held runs again, and whoever asked is told (an agent's people, as the
+--   watchdog tells them).
+-- - pm.run_watchdog: while the AI agents module is off, runs do not time
+--   out (agents cannot report then).
+-- - pm.move_task_to_position: POST /api/v1/tasks/reorder in one
+--   transaction, one at a time per sibling list, so positions stay unique.
+-- - pm.save_task: one save at a time per task, so two "replace assignees"
+--   at once leave one list, never both.
+-- - pm.reflow_task_template_run: refuses while the run's initiative is in
+--   Trash (initiative_in_trash), and moves the initiative's start date with
+--   the earliest key date (p_initiative start_from, start_to), under the
+--   same rule as its target: only while it still is the old date.
+-- - pm.apply_data_retention: a finished run stays while any run in its tree
+--   is unfinished or finished inside the window, so a recent run never
+--   loses its lineage.
+--
+-- Additive and safe to run twice. The previous release's code calls every
+-- function here with the same arguments and gets the same answer shape
+-- (plus new fields), and never reads expired_reason.
+
+-- ---------------------------------------------------------------------------
+-- Claiming an occurrence: a date that made nothing is tried again
+-- ---------------------------------------------------------------------------
+-- Moves the schedule on to (p_next_on, p_next_run_at, p_status) only while
+-- it is active and next_run_at is still p_expected_run_at, then records the
+-- occurrence for p_scheduled_for. Answers its id, or null when another run
+-- claimed it first (nothing changes) or the date already made its work (the
+-- schedule still moves on; nothing is made twice). A date whose occurrence
+-- made nothing (skipped, or failed on both tries) is reached again only by
+-- resuming or changing the schedule: it is claimed again, from its first try.
+CREATE OR REPLACE FUNCTION pm.claim_schedule_occurrence(
+  p_schedule_id uuid,
+  p_expected_run_at timestamptz,
+  p_scheduled_for date,
+  p_next_on date,
+  p_next_run_at timestamptz,
+  p_status text DEFAULT 'active',
+  p_source_task_id uuid DEFAULT NULL
+)
+RETURNS uuid
+LANGUAGE plpgsql
+SET search_path = pm
+AS $$
+DECLARE
+  v_id uuid;
+BEGIN
+  UPDATE pm.schedules
+  SET next_on = p_next_on,
+      next_run_at = p_next_run_at,
+      status = coalesce(p_status, 'active'),
+      done_on = NULL,
+      updated_at = now()
+  WHERE id = p_schedule_id
+    AND status = 'active'
+    AND deleted_at IS NULL
+    AND next_run_at IS NOT DISTINCT FROM p_expected_run_at;
+  IF NOT FOUND THEN
+    RETURN NULL;
+  END IF;
+
+  INSERT INTO pm.schedule_occurrences (schedule_id, scheduled_for, source_task_id)
+  VALUES (p_schedule_id, p_scheduled_for, p_source_task_id)
+  ON CONFLICT (schedule_id, scheduled_for) DO UPDATE
+    SET status = 'running', reason = NULL, error = NULL, attempts = 1, run_id = NULL, task_id = NULL,
+        source_task_id = EXCLUDED.source_task_id, started_at = now(), finished_at = NULL
+    WHERE pm.schedule_occurrences.status = 'skipped'
+       OR (pm.schedule_occurrences.status = 'failed' AND pm.schedule_occurrences.attempts >= 2)
+  RETURNING id INTO v_id;
+  RETURN v_id;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION pm.claim_schedule_occurrence(uuid, timestamptz, date, date, timestamptz, text, uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION pm.claim_schedule_occurrence(uuid, timestamptz, date, date, timestamptz, text, uuid) TO service_role;
+
+-- ---------------------------------------------------------------------------
+-- The "A schedule paused" notice follows its schedule
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION pm.clear_schedule_paused_notice()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pm
+AS $$
+BEGIN
+  IF NEW.status <> 'paused' OR NEW.deleted_at IS NOT NULL THEN
+    PERFORM pm.set_notifications_cleared('schedule', NEW.id::text, true, 'A schedule paused');
+  END IF;
+  RETURN NULL;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION pm.clear_schedule_paused_notice() FROM PUBLIC, anon, authenticated;
+
+DROP TRIGGER IF EXISTS clear_schedule_paused_notice ON pm.schedules;
+CREATE TRIGGER clear_schedule_paused_notice
+  AFTER UPDATE OF status, deleted_at ON pm.schedules
+  FOR EACH ROW
+  WHEN (OLD.status = 'paused' AND (NEW.status IS DISTINCT FROM OLD.status OR NEW.deleted_at IS DISTINCT FROM OLD.deleted_at))
+  EXECUTE FUNCTION pm.clear_schedule_paused_notice();
+
+-- ---------------------------------------------------------------------------
+-- The kick: a schedule run by an agent waits while the AI agents module is off
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION pm.schedules_kick()
+RETURNS bigint
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pm
+AS $$
+DECLARE
+  app_url text;
+  secret text;
+  v_agents boolean := pm.module_enabled('agents');
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pm.schedules s
+    WHERE s.status = 'active' AND s.deleted_at IS NULL AND s.next_run_at <= now()
+      AND (v_agents OR NOT EXISTS (
+        SELECT 1 FROM pm.team_members m WHERE m.id = coalesce(s.run_as, s.created_by) AND m.role = 'agent'))
+  ) AND NOT EXISTS (
+    SELECT 1 FROM pm.schedule_occurrences o
+    JOIN pm.schedules s ON s.id = o.schedule_id
+    WHERE s.status IN ('active', 'ended') AND s.deleted_at IS NULL
+      AND ((o.status = 'failed' AND o.attempts < 2) OR (o.status = 'running' AND o.started_at < now() - interval '15 minutes'))
+      AND (v_agents OR NOT EXISTS (
+        SELECT 1 FROM pm.team_members m WHERE m.id = coalesce(s.run_as, s.created_by) AND m.role = 'agent'))
+  ) THEN
+    RETURN NULL;
+  END IF;
+
+  SELECT decrypted_secret INTO app_url FROM vault.decrypted_secrets WHERE name = 'pm_webhook_scheduler_url';
+  SELECT decrypted_secret INTO secret FROM vault.decrypted_secrets WHERE name = 'pm_webhook_scheduler_secret';
+  IF app_url IS NULL OR secret IS NULL THEN
+    RAISE NOTICE 'webhook_scheduler_url or webhook_scheduler_secret is missing from Vault; schedules wait until the app sets up its scheduler';
+    RETURN NULL;
+  END IF;
+
+  RETURN net.http_post(
+    url := rtrim(app_url, '/') || '/api/internal/schedules/run',
+    headers := jsonb_build_object('Content-Type', 'application/json', 'Authorization', 'Bearer ' || secret),
+    body := '{"source":"pg_cron"}'::jsonb,
+    timeout_milliseconds := 60000
+  );
+END;
+$$;
+
+REVOKE ALL ON FUNCTION pm.schedules_kick() FROM PUBLIC, anon, authenticated, service_role;
+
+-- ---------------------------------------------------------------------------
+-- A power given to an agent with a key is marked as such
+-- ---------------------------------------------------------------------------
+-- Set by the server when making or editing an agent's key gives it a power
+-- beyond its role. Taking that scope off the last live key carrying it takes
+-- the power away again; an allow an Owner set in Team > Roles & permissions
+-- (false) is never touched by a key edit.
+ALTER TABLE pm.team_member_permissions ADD COLUMN IF NOT EXISTS given_with_key boolean NOT NULL DEFAULT false;
+
+COMMENT ON COLUMN pm.team_member_permissions.given_with_key IS
+  'True when making or editing an agent''s key gave it this power beyond its role: it goes again when no live key of the agent carries the scope.';
+
+-- ---------------------------------------------------------------------------
+-- A suspended member is no longer asked
+-- ---------------------------------------------------------------------------
+ALTER TABLE pm.questions ADD COLUMN IF NOT EXISTS expired_reason text;
+ALTER TABLE pm.questions DROP CONSTRAINT IF EXISTS questions_expired_reason_check;
+ALTER TABLE pm.questions
+  ADD CONSTRAINT questions_expired_reason_check CHECK (expired_reason IS NULL OR expired_reason IN ('asked_member_suspended'));
+
+COMMENT ON COLUMN pm.questions.expired_reason IS
+  'Why it expired before its time: asked_member_suspended (the member it was asked to was suspended). Null when its time ran out, or it did not expire.';
+
+-- Their open questions and approvals expire now, saying why. Whoever asked
+-- is told here, once (the watchdog mark keeps the watchdog from telling
+-- them again): an agent's people (its owners, else the Owners), or the
+-- person who asked.
+CREATE OR REPLACE FUNCTION pm.close_asks_of_suspended_member()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pm
+AS $$
+DECLARE
+  r record;
+  v_people uuid[];
+  v_person uuid;
+  v_title text;
+  v_link text;
+BEGIN
+  FOR r IN
+    WITH closed AS (
+      UPDATE pm.questions q
+      SET status = 'expired', expires_at = now(), expired_reason = 'asked_member_suspended'
+      WHERE q.asked_to = NEW.id AND q.status = 'open' AND q.deleted_at IS NULL
+      RETURNING q.id, q.kind, q.question, q.asked_by, q.project_id, q.task_id
+    )
+    SELECT c.*, asker.name AS asker_name, asker.role AS asker_role
+    FROM closed c JOIN pm.team_members asker ON asker.id = c.asked_by
+  LOOP
+    INSERT INTO pm.watchdog_marks (kind, subject_id, notified_at) VALUES ('question_expired', r.id, now())
+    ON CONFLICT (kind, subject_id) DO NOTHING;
+    IF r.asker_role = 'agent' THEN
+      v_people := pm.agent_people_to_tell(r.asked_by);
+      v_title := r.asker_name || '''s ';
+      v_link := '/agent/' || r.asked_by;
+    ELSE
+      SELECT coalesce(array_agg(m.id), '{}') INTO v_people FROM pm.team_members m
+      WHERE m.id = r.asked_by AND coalesce(m.status, 'active') = 'active';
+      v_title := 'Your ';
+      v_link := '/my-tasks';
+    END IF;
+    IF r.task_id IS NOT NULL AND r.project_id IS NOT NULL THEN
+      v_link := '/projects/' || r.project_id || '?task=' || r.task_id;
+    END IF;
+    v_title := v_title || CASE WHEN r.kind = 'approval' THEN 'approval request to ' ELSE 'question to ' END
+      || coalesce(nullif(btrim(NEW.name), ''), 'a teammate')
+      || CASE WHEN r.kind = 'approval' THEN ' expired without a decision' ELSE ' expired without an answer' END
+      || ': ' || coalesce(nullif(btrim(NEW.name), ''), 'they') || ' was suspended';
+    FOREACH v_person IN ARRAY v_people LOOP
+      CONTINUE WHEN v_person = NEW.id;
+      PERFORM pm.upsert_notification(v_person, left(v_title, 200), left(r.question, 500), v_link, 'question', r.id::text);
+    END LOOP;
+  END LOOP;
+  RETURN NULL;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION pm.close_asks_of_suspended_member() FROM PUBLIC, anon, authenticated;
+
+DROP TRIGGER IF EXISTS close_asks_of_suspended_member ON pm.team_members;
+CREATE TRIGGER close_asks_of_suspended_member
+  AFTER UPDATE OF status ON pm.team_members
+  FOR EACH ROW
+  WHEN (NEW.status = 'suspended' AND OLD.status IS DISTINCT FROM 'suspended')
+  EXECUTE FUNCTION pm.close_asks_of_suspended_member();
+
+-- question.expired says why, when it expired before its time (expired_reason).
+CREATE OR REPLACE FUNCTION pm.emit_question_webhook()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pm
+AS $$
+DECLARE
+  v_type text;
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pm.webhook_endpoints e
+    WHERE e.is_active AND e.events && ARRAY['question.asked', 'question.answered', 'question.cancelled', 'question.expired']
+  ) THEN
+    RETURN NULL;
+  END IF;
+
+  IF TG_OP = 'INSERT' THEN
+    IF NEW.status = 'open' AND NEW.deleted_at IS NULL THEN
+      v_type := 'question.asked';
+    END IF;
+  ELSIF NEW.deleted_at IS NOT NULL THEN
+    IF OLD.deleted_at IS NULL AND OLD.status = 'open' THEN
+      v_type := 'question.cancelled';
+    END IF;
+  ELSIF OLD.deleted_at IS NOT NULL THEN
+    IF NEW.status = 'open' THEN
+      v_type := 'question.asked';
+    END IF;
+  ELSIF NEW.status IS DISTINCT FROM OLD.status THEN
+    v_type := CASE NEW.status
+      WHEN 'open' THEN 'question.asked'
+      WHEN 'answered' THEN 'question.answered'
+      WHEN 'cancelled' THEN 'question.cancelled'
+      WHEN 'expired' THEN 'question.expired'
+    END;
+  END IF;
+  IF v_type IS NULL THEN
+    RETURN NULL;
+  END IF;
+
+  PERFORM pm.emit_webhook_event(
+    v_type,
+    'question',
+    NEW.id,
+    ARRAY[NEW.project_id],
+    pm.webhook_event_members('question', NEW.id),
+    jsonb_build_object(
+      'question', jsonb_build_object(
+        'id', NEW.id,
+        'project_id', NEW.project_id,
+        'task_id', NEW.task_id,
+        'asked_by', NEW.asked_by,
+        'asked_to', NEW.asked_to,
+        'question', NEW.question,
+        'choices', NEW.choices,
+        'allow_other', NEW.allow_other,
+        'status', NEW.status,
+        'answer_choice', NEW.answer_choice,
+        'answer_text', NEW.answer_text,
+        'answered_by', NEW.answered_by,
+        'answered_at', NEW.answered_at,
+        'cancelled_by', NEW.cancelled_by,
+        'cancelled_at', NEW.cancelled_at,
+        'expires_at', NEW.expires_at,
+        'created_at', NEW.created_at,
+        'updated_at', NEW.updated_at,
+        'deleted_at', NEW.deleted_at
+      ) || CASE WHEN NEW.kind = 'approval' THEN jsonb_build_object(
+        'kind', NEW.kind,
+        'action', NEW.action,
+        'decision', CASE NEW.answer_choice WHEN 'approve' THEN 'approved' WHEN 'reject' THEN 'rejected' END,
+        'decided_by', CASE WHEN NEW.status = 'answered' THEN NEW.answered_by END,
+        'decided_via', CASE WHEN NEW.status = 'answered' THEN NEW.decided_via END
+      ) ELSE '{}'::jsonb END
+        || CASE WHEN NEW.asked_to_group IS NOT NULL THEN jsonb_build_object('asked_to_group', NEW.asked_to_group) ELSE '{}'::jsonb END
+        || CASE WHEN NEW.principal_id IS NOT NULL THEN jsonb_build_object('principal_id', NEW.principal_id) ELSE '{}'::jsonb END
+        || CASE WHEN NEW.run_id IS NOT NULL THEN jsonb_build_object('run_id', NEW.run_id) ELSE '{}'::jsonb END
+        || CASE WHEN NEW.expired_reason IS NOT NULL THEN jsonb_build_object('expired_reason', NEW.expired_reason) ELSE '{}'::jsonb END,
+      'project', CASE WHEN NEW.project_id IS NOT NULL THEN jsonb_build_object(
+        'id', NEW.project_id,
+        'name', coalesce((SELECT p.name FROM pm.projects p WHERE p.id = NEW.project_id), '')
+      ) END,
+      'project_id', NEW.project_id,
+      'task_id', NEW.task_id,
+      'actor_id', pm.webhook_actor_id()
+    )
+  );
+  RETURN NULL;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION pm.emit_question_webhook() FROM PUBLIC, anon, authenticated;
+
+-- ---------------------------------------------------------------------------
+-- The watchdog: runs do not time out while the AI agents module is off
+-- ---------------------------------------------------------------------------
+-- Every 5 minutes. Each change is made once (a stored status, or a marker),
+-- so a second run in a row does nothing. Answers what it did.
+CREATE OR REPLACE FUNCTION pm.run_watchdog()
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pm
+AS $$
+DECLARE
+  r record;
+  v_person uuid;
+  v_people uuid[];
+  v_claims uuid[];
+  v_stale integer;
+  v_tell boolean;
+  v_text text;
+  v_title text;
+  v_link text;
+  v_workspace_paused boolean;
+  v_offline integer := 0;
+  v_online integer := 0;
+  v_runs integer := 0;
+  v_questions integer := 0;
+  v_told integer := 0;
+  v_webhooks integer := 0;
+BEGIN
+  -- One watchdog at a time; a run that overlaps the last one waits for the next.
+  IF NOT pg_try_advisory_xact_lock(hashtext('pm.run_watchdog')) THEN
+    RETURN jsonb_build_object('skipped', true);
+  END IF;
+
+  -- Agents that stopped responding, and agents that came back.
+  IF pm.module_enabled('agents') THEN
+    SELECT coalesce(bool_or(s.agents_paused_at IS NOT NULL), false) INTO v_workspace_paused FROM pm.business_settings s;
+
+    FOR r IN
+      SELECT a.id, a.name, h.reported_at, h.expected_interval_seconds AS interval_seconds
+      FROM pm.agent_health h
+      JOIN pm.team_members a ON a.id = h.member_id
+      WHERE a.role = 'agent'
+        AND a.delegate_of IS NULL
+        AND coalesce(a.status, 'active') = 'active'
+        AND a.agent_paused_at IS NULL
+        AND NOT v_workspace_paused
+        AND h.reported_at < now() - make_interval(secs => pm.heartbeat_stale_after_seconds(h.expected_interval_seconds))
+        AND NOT EXISTS (SELECT 1 FROM pm.watchdog_marks w WHERE w.kind = 'agent_offline' AND w.subject_id = a.id)
+      ORDER BY h.reported_at
+    LOOP
+      v_stale := pm.heartbeat_stale_after_seconds(r.interval_seconds);
+      -- Claims that ran out while it was silent: those tasks are free again.
+      SELECT coalesce(array_agg(t.id ORDER BY t.id), '{}') INTO v_claims
+      FROM pm.tasks t
+      WHERE t.claimed_by = r.id AND t.claim_expires_at <= now() AND t.claim_expires_at > r.reported_at
+        AND t.status <> 'done' AND t.deleted_at IS NULL;
+      -- An agent silent long before the watchdog first saw it is marked
+      -- without a bell: nobody needs news that old.
+      v_tell := now() - r.reported_at <= make_interval(secs => v_stale) + interval '1 day';
+      v_people := CASE WHEN v_tell THEN pm.agent_people_to_tell(r.id) ELSE '{}'::uuid[] END;
+
+      INSERT INTO pm.watchdog_marks (kind, subject_id, since, detail, notified_at)
+      VALUES ('agent_offline', r.id, r.reported_at, jsonb_build_object('released_task_ids', to_jsonb(v_claims)),
+        CASE WHEN cardinality(v_people) > 0 THEN now() END);
+
+      PERFORM pm.emit_webhook_event('agent.offline', 'agent', r.id, '{}'::uuid[], ARRAY[r.id], jsonb_build_object(
+        'agent', jsonb_build_object('id', r.id, 'name', r.name, 'reported_at', r.reported_at,
+          'expected_interval_seconds', r.interval_seconds, 'stale_after_seconds', v_stale),
+        'offline_since', r.reported_at,
+        'released_task_ids', to_jsonb(v_claims),
+        'project', NULL, 'project_id', NULL, 'task_id', NULL, 'actor_id', NULL));
+
+      v_text := r.name || ' stopped responding ' || pm.watchdog_ago(r.reported_at) || ' ago'
+        || CASE cardinality(v_claims)
+             WHEN 0 THEN '.'
+             WHEN 1 THEN ', its claimed task went back to the queue.'
+             ELSE ', its ' || cardinality(v_claims) || ' claimed tasks went back to the queue.'
+           END;
+      FOREACH v_person IN ARRAY v_people LOOP
+        PERFORM pm.upsert_notification(v_person, r.name || ' stopped responding', v_text, '/agent/' || r.id, 'member', r.id::text);
+      END LOOP;
+      v_offline := v_offline + 1;
+    END LOOP;
+
+    FOR r IN
+      SELECT w.subject_id AS id, w.since, w.notified_at, a.name, h.reported_at, h.expected_interval_seconds AS interval_seconds
+      FROM pm.watchdog_marks w
+      JOIN pm.team_members a ON a.id = w.subject_id
+      JOIN pm.agent_health h ON h.member_id = w.subject_id
+      WHERE w.kind = 'agent_offline'
+        AND h.reported_at >= now() - make_interval(secs => pm.heartbeat_stale_after_seconds(h.expected_interval_seconds))
+    LOOP
+      DELETE FROM pm.watchdog_marks WHERE kind = 'agent_offline' AND subject_id = r.id;
+      PERFORM pm.emit_webhook_event('agent.online', 'agent', r.id, '{}'::uuid[], ARRAY[r.id], jsonb_build_object(
+        'agent', jsonb_build_object('id', r.id, 'name', r.name, 'reported_at', r.reported_at,
+          'expected_interval_seconds', r.interval_seconds, 'stale_after_seconds', pm.heartbeat_stale_after_seconds(r.interval_seconds)),
+        'offline_since', r.since,
+        'project', NULL, 'project_id', NULL, 'task_id', NULL, 'actor_id', NULL));
+      IF r.notified_at IS NOT NULL THEN
+        FOREACH v_person IN ARRAY pm.agent_people_to_tell(r.id) LOOP
+          PERFORM pm.upsert_notification(v_person, r.name || ' is back', r.name || ' is responding again.', '/agent/' || r.id, 'member', r.id::text);
+        END LOOP;
+      END IF;
+      v_online := v_online + 1;
+    END LOOP;
+
+    -- An agent removed, or no longer reporting at all, has nothing to come back from.
+    DELETE FROM pm.watchdog_marks w
+    WHERE w.kind = 'agent_offline'
+      AND NOT EXISTS (
+        SELECT 1 FROM pm.team_members a JOIN pm.agent_health h ON h.member_id = a.id
+        WHERE a.id = w.subject_id AND a.role = 'agent' AND coalesce(a.status, 'active') = 'active'
+      );
+  END IF;
+
+  -- Open questions past their time: stored as expired (the same update a
+  -- read makes), which sends question.expired and clears the asked bells.
+  -- A run one of them held is running again, its clock restarted.
+  UPDATE pm.questions SET status = 'expired'
+  WHERE status = 'open' AND expires_at <= now();
+  GET DIAGNOSTICS v_questions = ROW_COUNT;
+
+  -- Runs with no update for two hours: stored as timed_out, which sends
+  -- run.finished. The run ends at its last update. A run waiting on a
+  -- person is skipped while a question naming it is open; waiting with
+  -- none, it gets seven days.
+  -- While the AI agents module is off, agents cannot report, so nothing times out.
+  IF pm.module_enabled('agents') THEN
+    UPDATE pm.agent_runs run
+    SET status = 'timed_out', finished_at = greatest(run.started_at, run.updated_at)
+    WHERE (run.status = 'running' AND run.updated_at < now() - interval '2 hours')
+       OR (run.status = 'waiting' AND run.updated_at < now() - interval '7 days'
+           AND NOT pm.agent_run_has_open_question(run.id));
+    GET DIAGNOSTICS v_runs = ROW_COUNT;
+  END IF;
+
+  -- Whoever asked hears once, however the expiry was stored, within a day.
+  FOR r IN
+    SELECT q.id, q.kind, q.question, q.asked_by, q.asked_to, q.project_id, q.task_id,
+      asker.name AS asker_name, asker.role AS asker_role, coalesce(target.name, g.name) AS target_name
+    FROM pm.questions q
+    JOIN pm.team_members asker ON asker.id = q.asked_by
+    LEFT JOIN pm.team_members target ON target.id = q.asked_to
+    LEFT JOIN pm.groups g ON g.id = q.asked_to_group
+    WHERE q.status = 'expired' AND q.deleted_at IS NULL AND q.expires_at > now() - interval '1 day'
+      AND NOT EXISTS (SELECT 1 FROM pm.watchdog_marks w WHERE w.kind = 'question_expired' AND w.subject_id = q.id)
+    ORDER BY q.expires_at
+  LOOP
+    INSERT INTO pm.watchdog_marks (kind, subject_id, notified_at) VALUES ('question_expired', r.id, now());
+    IF r.asker_role = 'agent' THEN
+      v_people := pm.agent_people_to_tell(r.asked_by);
+      v_title := r.asker_name || '''s ';
+      v_link := '/agent/' || r.asked_by;
+    ELSE
+      SELECT coalesce(array_agg(m.id), '{}') INTO v_people FROM pm.team_members m
+      WHERE m.id = r.asked_by AND coalesce(m.status, 'active') = 'active';
+      v_title := 'Your ';
+      v_link := '/my-tasks';
+    END IF;
+    IF r.task_id IS NOT NULL AND r.project_id IS NOT NULL THEN
+      v_link := '/projects/' || r.project_id || '?task=' || r.task_id;
+    END IF;
+    v_title := v_title || CASE WHEN r.kind = 'approval' THEN 'approval request to ' ELSE 'question to ' END
+      || coalesce(nullif(btrim(r.target_name), ''), 'a teammate')
+      || CASE WHEN r.kind = 'approval' THEN ' expired without a decision' ELSE ' expired without an answer' END;
+    FOREACH v_person IN ARRAY v_people LOOP
+      -- Whoever was asked already knows.
+      CONTINUE WHEN v_person IS NOT DISTINCT FROM r.asked_to;
+      PERFORM pm.upsert_notification(v_person, v_title, left(r.question, 500), v_link, 'question', r.id::text);
+      v_told := v_told + 1;
+    END LOOP;
+  END LOOP;
+  DELETE FROM pm.watchdog_marks WHERE kind = 'question_expired' AND since < now() - interval '2 days';
+
+  -- Webhook endpoints that keep failing: 5 attempts in a row, or failing for
+  -- a day. Told once; a success resets it (track_webhook_endpoint_health).
+  IF pm.module_enabled('webhooks') THEN
+    FOR r IN
+      SELECT w.subject_id AS id, w.detail, e.name
+      FROM pm.watchdog_marks w
+      JOIN pm.webhook_endpoints e ON e.id = w.subject_id
+      WHERE w.kind = 'webhook_failing' AND w.notified_at IS NULL AND e.is_active
+        AND (w.failures >= 5 OR w.since <= now() - interval '24 hours')
+    LOOP
+      UPDATE pm.watchdog_marks SET notified_at = now(), updated_at = now()
+      WHERE kind = 'webhook_failing' AND subject_id = r.id;
+      FOR v_person IN
+        SELECT m.id FROM pm.team_members m
+        WHERE m.role <> 'agent' AND coalesce(m.status, 'active') = 'active'
+          AND (m.role = 'owner' OR pm.member_has_permission(m.id, 'webhooks.manage', 'app'))
+        ORDER BY m.id
+      LOOP
+        PERFORM pm.upsert_notification(v_person, 'Webhook ' || r.name || ' keeps failing',
+          'Last error: ' || coalesce(r.detail ->> 'last_error', 'unknown'), '/settings/developers#webhooks', 'webhook', r.id::text);
+      END LOOP;
+      v_webhooks := v_webhooks + 1;
+    END LOOP;
+  END IF;
+  DELETE FROM pm.watchdog_marks w
+  WHERE w.kind = 'webhook_failing'
+    AND NOT EXISTS (SELECT 1 FROM pm.webhook_endpoints e WHERE e.id = w.subject_id);
+
+  RETURN jsonb_build_object(
+    'agents_offline', v_offline,
+    'agents_online', v_online,
+    'runs_timed_out', v_runs,
+    'questions_expired', v_questions,
+    'askers_told', v_told,
+    'webhooks_failing', v_webhooks
+  );
+END;
+$$;
+
+REVOKE ALL ON FUNCTION pm.run_watchdog() FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION pm.run_watchdog() TO service_role;
+
+-- ---------------------------------------------------------------------------
+-- Reordering a task, one at a time per sibling list
+-- ---------------------------------------------------------------------------
+-- Moves a task to p_position among its siblings (a subtask's: its parent's
+-- other subtasks; a top-level task's: the top-level tasks in its project and
+-- status column), then numbers them 0, 1, 2... in that order, writing only
+-- the rows that change. One move at a time per sibling list, so moves sent
+-- together never leave two tasks on one position. Answers the task's new
+-- position, or null when it is missing or in Trash.
+CREATE OR REPLACE FUNCTION pm.move_task_to_position(p_task_id uuid, p_position integer)
+RETURNS integer
+LANGUAGE plpgsql
+SET search_path = pm
+AS $$
+DECLARE
+  v_task pm.tasks%ROWTYPE;
+  v_count integer;
+  v_at integer;
+BEGIN
+  SELECT * INTO v_task FROM pm.tasks WHERE id = p_task_id AND deleted_at IS NULL;
+  IF NOT FOUND THEN
+    RETURN NULL;
+  END IF;
+  PERFORM pg_advisory_xact_lock(hashtext('pm.task_order'),
+    hashtext(coalesce(v_task.parent_task_id::text, v_task.project_id::text || ':' || coalesce(v_task.status, ''))));
+  -- Read again under the lock: another move may have changed it.
+  SELECT * INTO v_task FROM pm.tasks WHERE id = p_task_id AND deleted_at IS NULL;
+  IF NOT FOUND THEN
+    RETURN NULL;
+  END IF;
+
+  SELECT count(*) INTO v_count FROM pm.tasks t
+  WHERE t.deleted_at IS NULL AND t.id <> p_task_id
+    AND CASE WHEN v_task.parent_task_id IS NOT NULL THEN t.parent_task_id = v_task.parent_task_id
+             ELSE t.parent_task_id IS NULL AND t.project_id = v_task.project_id AND t.status IS NOT DISTINCT FROM v_task.status END;
+  v_at := least(greatest(coalesce(p_position, 0), 0), v_count);
+
+  WITH siblings AS (
+    SELECT t.id, (row_number() OVER (ORDER BY t.sort_order, t.created_at, t.id) - 1)::integer AS pos
+    FROM pm.tasks t
+    WHERE t.deleted_at IS NULL AND t.id <> p_task_id
+      AND CASE WHEN v_task.parent_task_id IS NOT NULL THEN t.parent_task_id = v_task.parent_task_id
+               ELSE t.parent_task_id IS NULL AND t.project_id = v_task.project_id AND t.status IS NOT DISTINCT FROM v_task.status END
+  ), placed AS (
+    SELECT s.id, CASE WHEN s.pos < v_at THEN s.pos ELSE s.pos + 1 END AS sort_order FROM siblings s
+    UNION ALL
+    SELECT p_task_id, v_at
+  )
+  UPDATE pm.tasks t SET sort_order = p.sort_order
+  FROM placed p
+  WHERE t.id = p.id AND t.sort_order IS DISTINCT FROM p.sort_order;
+
+  RETURN v_at;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION pm.move_task_to_position(uuid, integer) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION pm.move_task_to_position(uuid, integer) TO service_role;
+
+-- ---------------------------------------------------------------------------
+-- Saving a task: one save at a time per task
+-- ---------------------------------------------------------------------------
+-- As before: a task row and its assignees, criteria and blockers in one
+-- transaction. SECURITY INVOKER, so every RLS policy still applies. p_task is
+-- a column patch; a NULL list is left unchanged, an empty list clears it.
+CREATE OR REPLACE FUNCTION pm.save_task(
+  p_task_id uuid,
+  p_task jsonb,
+  p_assignee_ids uuid[] DEFAULT NULL,
+  p_criteria text[] DEFAULT NULL,
+  p_blocked_by uuid[] DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = pm
+AS $$
+DECLARE
+  v_task_id uuid := p_task_id;
+  v_payload jsonb := COALESCE(p_task, '{}'::jsonb);
+  v_unknown text;
+  v_cols text[];
+  v_rows integer;
+  v_task pm.tasks;
+BEGIN
+  IF jsonb_typeof(v_payload) <> 'object' THEN
+    RAISE EXCEPTION 'save_task: p_task must be a JSON object' USING ERRCODE = '22023';
+  END IF;
+
+  -- Same contract as a PostgREST update: an unknown column is an error, not
+  -- a silently dropped field.
+  SELECT key INTO v_unknown
+  FROM jsonb_object_keys(v_payload) AS key
+  WHERE NOT EXISTS (
+    SELECT 1 FROM pg_attribute a
+    WHERE a.attrelid = 'pm.tasks'::regclass
+      AND a.attnum > 0
+      AND NOT a.attisdropped
+      AND a.attname = key
+  )
+  LIMIT 1;
+  IF v_unknown IS NOT NULL THEN
+    RAISE EXCEPTION 'save_task: unknown task column "%"', v_unknown USING ERRCODE = '42703';
+  END IF;
+
+  -- One save at a time per task: two saves replacing its lists at once
+  -- would each keep what the other added (each delete misses the other's
+  -- uncommitted rows). Held to the end of the transaction.
+  IF v_task_id IS NOT NULL THEN
+    PERFORM pg_advisory_xact_lock(hashtext('pm.save_task'), hashtext(v_task_id::text));
+  END IF;
+
+  SELECT array_agg(key ORDER BY key) INTO v_cols
+  FROM jsonb_object_keys(v_payload) AS key
+  WHERE key NOT IN ('id', 'created_at');
+
+  IF v_task_id IS NULL THEN
+    IF v_cols IS NULL THEN
+      RAISE EXCEPTION 'save_task: a new task needs its columns' USING ERRCODE = '22023';
+    END IF;
+    EXECUTE format(
+      'INSERT INTO pm.tasks (%s) SELECT %s FROM jsonb_populate_record(NULL::pm.tasks, $1) r RETURNING id',
+      (SELECT string_agg(format('%I', c), ', ') FROM unnest(v_cols) c),
+      (SELECT string_agg(format('r.%I', c), ', ') FROM unnest(v_cols) c)
+    ) INTO v_task_id USING v_payload;
+  ELSIF v_cols IS NOT NULL THEN
+    EXECUTE format(
+      'UPDATE pm.tasks t SET %s FROM jsonb_populate_record(NULL::pm.tasks, $1) r WHERE t.id = $2',
+      (SELECT string_agg(format('%I = r.%I', c, c), ', ') FROM unnest(v_cols) c)
+    ) USING v_payload, v_task_id;
+    GET DIAGNOSTICS v_rows = ROW_COUNT;
+    -- RLS turns a denied update into zero rows; that is a failure, not a save.
+    IF v_rows = 0 THEN
+      RAISE EXCEPTION 'save_task: task % not found or not permitted', v_task_id USING ERRCODE = 'P0002';
+    END IF;
+  ELSE
+    PERFORM 1 FROM pm.tasks WHERE id = v_task_id;
+    IF NOT FOUND THEN
+      RAISE EXCEPTION 'save_task: task % not found or not permitted', v_task_id USING ERRCODE = 'P0002';
+    END IF;
+  END IF;
+
+  IF p_assignee_ids IS NOT NULL THEN
+    DELETE FROM pm.task_assignees
+    WHERE task_id = v_task_id AND NOT (member_id = ANY (p_assignee_ids));
+    INSERT INTO pm.task_assignees (task_id, member_id)
+    SELECT DISTINCT v_task_id, member_id FROM unnest(p_assignee_ids) AS member_id
+    ON CONFLICT (task_id, member_id) DO NOTHING;
+  END IF;
+
+  IF p_criteria IS NOT NULL THEN
+    DELETE FROM pm.task_acceptance_criteria WHERE task_id = v_task_id;
+    INSERT INTO pm.task_acceptance_criteria (task_id, criterion, sort_order)
+    SELECT v_task_id, c.criterion, (c.ordinality - 1)::int
+    FROM unnest(p_criteria) WITH ORDINALITY AS c(criterion, ordinality);
+  END IF;
+
+  IF p_blocked_by IS NOT NULL THEN
+    DELETE FROM pm.task_dependencies WHERE task_id = v_task_id;
+    INSERT INTO pm.task_dependencies (task_id, blocked_by_task_id)
+    SELECT DISTINCT v_task_id, blocked_by FROM unnest(p_blocked_by) AS blocked_by;
+  END IF;
+
+  SELECT * INTO v_task FROM pm.tasks WHERE id = v_task_id;
+  RETURN jsonb_build_object(
+    'task', to_jsonb(v_task),
+    'criteria', COALESCE((
+      SELECT jsonb_agg(to_jsonb(c) ORDER BY c.sort_order)
+      FROM pm.task_acceptance_criteria c
+      WHERE c.task_id = v_task_id
+    ), '[]'::jsonb)
+  );
+END;
+$$;
+
+REVOKE ALL ON FUNCTION pm.save_task(uuid, jsonb, uuid[], text[], uuid[]) FROM public, anon;
+GRANT EXECUTE ON FUNCTION pm.save_task(uuid, jsonb, uuid[], text[], uuid[]) TO authenticated, service_role;
+
+-- ---------------------------------------------------------------------------
+-- Reflow: refused while the initiative is in Trash; its start follows too
+-- ---------------------------------------------------------------------------
+-- In one transaction: the run's key dates (refused when they changed since
+-- the caller read them: run_changed; refused while the run's initiative is
+-- in Trash: initiative_in_trash), each task in p_moves that is still not
+-- done, not in Trash, and still due on its planned date (or forced: a
+-- hand-changed task the caller opted in), its planned date with it, and the
+-- initiative's dates: its target when it still is the old main key date,
+-- its start when it still is the old earliest key date. p_moves is
+-- [{ task_id, due_date, force }]; p_initiative is { id, from, to,
+-- start_from, start_to } (each pair only when that date follows) or null.
+-- Logs the change in the team activity log as whoever made it (a person;
+-- agents keep their own log). Answers { moved: [task ids],
+-- initiative_moved: boolean, initiative_start_moved: boolean }.
+CREATE OR REPLACE FUNCTION pm.reflow_task_template_run(
+  p_run_id uuid,
+  p_expected jsonb,
+  p_key_dates jsonb,
+  p_start_date date,
+  p_moves jsonb,
+  p_initiative jsonb
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SET search_path = pm
+AS $$
+DECLARE
+  v_run pm.task_template_runs%ROWTYPE;
+  v_moved uuid[];
+  v_initiative_moved boolean := false;
+  v_start_moved boolean := false;
+  v_initiative pm.initiatives%ROWTYPE;
+BEGIN
+  SELECT * INTO v_run FROM pm.task_template_runs WHERE id = p_run_id FOR UPDATE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'run_not_found' USING ERRCODE = 'P0002';
+  END IF;
+  IF v_run.key_dates IS DISTINCT FROM coalesce(p_expected, '{}'::jsonb) THEN
+    RAISE EXCEPTION 'run_changed' USING ERRCODE = 'P0001';
+  END IF;
+  -- The run lives on its initiative: while that is in Trash, nothing moves.
+  IF EXISTS (SELECT 1 FROM pm.initiatives i WHERE i.id = v_run.initiative_id AND i.deleted_at IS NOT NULL) THEN
+    RAISE EXCEPTION 'initiative_in_trash' USING ERRCODE = 'P0001';
+  END IF;
+
+  WITH wanted AS (
+    SELECT (m ->> 'task_id')::uuid AS task_id, (m ->> 'due_date')::date AS due_date, coalesce((m ->> 'force')::boolean, false) AS force
+    FROM jsonb_array_elements(coalesce(p_moves, '[]'::jsonb)) AS m
+  ),
+  moved AS (
+    UPDATE pm.tasks t
+    SET due_date = to_char(w.due_date, 'YYYY-MM-DD')
+    FROM wanted w, pm.task_template_run_tasks l
+    WHERE t.id = w.task_id
+      AND l.run_id = p_run_id AND l.task_id = t.id
+      AND t.deleted_at IS NULL
+      AND t.status <> 'done'
+      AND (w.force OR left(t.due_date, 10) IS NOT DISTINCT FROM to_char(l.planned_due_date, 'YYYY-MM-DD'))
+    RETURNING t.id, w.due_date
+  ),
+  planned AS (
+    UPDATE pm.task_template_run_tasks l
+    SET planned_due_date = moved.due_date
+    FROM moved
+    WHERE l.run_id = p_run_id AND l.task_id = moved.id
+    RETURNING l.task_id
+  )
+  SELECT coalesce(array_agg(task_id), '{}') INTO v_moved FROM planned;
+
+  UPDATE pm.task_template_runs
+  SET key_dates = coalesce(p_key_dates, '{}'::jsonb), start_date = coalesce(p_start_date, start_date)
+  WHERE id = p_run_id;
+
+  IF p_initiative IS NOT NULL AND p_initiative ? 'id' AND (p_initiative ? 'to' OR NOT p_initiative ? 'start_to') THEN
+    UPDATE pm.initiatives
+    SET target_date = nullif(p_initiative ->> 'to', '')::date
+    WHERE id = (p_initiative ->> 'id')::uuid
+      AND deleted_at IS NULL
+      AND target_date IS NOT DISTINCT FROM nullif(p_initiative ->> 'from', '')::date;
+    v_initiative_moved := FOUND;
+  END IF;
+  -- Its start follows the earliest key date, under the same rule.
+  IF p_initiative IS NOT NULL AND p_initiative ? 'id' AND p_initiative ? 'start_to' THEN
+    UPDATE pm.initiatives
+    SET start_date = nullif(p_initiative ->> 'start_to', '')::date
+    WHERE id = (p_initiative ->> 'id')::uuid
+      AND deleted_at IS NULL
+      AND start_date IS NOT DISTINCT FROM nullif(p_initiative ->> 'start_from', '')::date;
+    v_start_moved := FOUND;
+  END IF;
+
+  IF v_run.key_dates IS DISTINCT FROM coalesce(p_key_dates, '{}'::jsonb) AND v_run.initiative_id IS NOT NULL THEN
+    SELECT * INTO v_initiative FROM pm.initiatives WHERE id = v_run.initiative_id;
+    IF FOUND THEN
+      PERFORM pm.log_team_activity(
+        'initiative.key_dates',
+        'initiative',
+        v_initiative.id::text,
+        v_run.project_id,
+        format('Changed the key dates of "%s"', v_initiative.name),
+        jsonb_build_object(
+          'initiative_id', v_initiative.id,
+          'initiative_name', v_initiative.name,
+          'run_id', v_run.id,
+          'template_id', v_run.template_id,
+          'from', v_run.key_dates,
+          'to', coalesce(p_key_dates, '{}'::jsonb),
+          'moved', coalesce(array_length(v_moved, 1), 0)
+        )
+      );
+    END IF;
+  END IF;
+
+  RETURN jsonb_build_object('moved', to_jsonb(v_moved), 'initiative_moved', v_initiative_moved, 'initiative_start_moved', v_start_moved);
+END;
+$$;
+
+REVOKE ALL ON FUNCTION pm.reflow_task_template_run(uuid, jsonb, jsonb, date, jsonb, jsonb) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION pm.reflow_task_template_run(uuid, jsonb, jsonb, date, jsonb, jsonb) TO service_role;
+
+-- ---------------------------------------------------------------------------
+-- Data retention: a run tree goes together
+-- ---------------------------------------------------------------------------
+-- Daily. Up to 20 batches of 5,000 rows per kind per run, so a large
+-- backlog is worked down over a few days without a long transaction. Answers
+-- how many rows went (chat: how many texts were blanked). A finished run
+-- stays while any run in its tree (its root and every run under it) is
+-- unfinished or finished inside the window.
+CREATE OR REPLACE FUNCTION pm.apply_data_retention()
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pm
+AS $$
+DECLARE
+  batch constant integer := 5000;
+  max_rounds constant integer := 20;
+  s record;
+  v_cutoff timestamptz;
+  v_n integer;
+  v_round integer;
+  v_deliveries integer := 0;
+  v_events integer := 0;
+  v_health integer := 0;
+  v_activities integer := 0;
+  v_runs integer := 0;
+  v_chat integer := 0;
+BEGIN
+  IF NOT pg_try_advisory_xact_lock(hashtext('pm.apply_data_retention')) THEN
+    RETURN jsonb_build_object('skipped', true);
+  END IF;
+  SELECT webhook_retention_days, agent_health_history_days, agent_activity_retention_days,
+    agent_run_retention_days, chat_retention_days
+  INTO s FROM pm.business_settings LIMIT 1;
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('skipped', true);
+  END IF;
+
+  -- Webhooks: finished deliveries, then events no delivery needs any more.
+  IF s.webhook_retention_days IS NOT NULL THEN
+    v_cutoff := now() - make_interval(days => s.webhook_retention_days);
+    v_round := 0;
+    LOOP
+      DELETE FROM pm.webhook_deliveries WHERE id IN (
+        SELECT d.id FROM pm.webhook_deliveries d
+        WHERE d.status IN ('succeeded', 'failed') AND d.created_at < v_cutoff
+        LIMIT batch);
+      GET DIAGNOSTICS v_n = ROW_COUNT;
+      v_deliveries := v_deliveries + v_n;
+      v_round := v_round + 1;
+      EXIT WHEN v_n < batch OR v_round >= max_rounds;
+    END LOOP;
+    v_round := 0;
+    LOOP
+      DELETE FROM pm.webhook_events WHERE id IN (
+        SELECT ev.id FROM pm.webhook_events ev
+        WHERE ev.created_at < v_cutoff
+          AND NOT EXISTS (SELECT 1 FROM pm.webhook_deliveries d WHERE d.webhook_event_id = ev.id)
+        LIMIT batch);
+      GET DIAGNOSTICS v_n = ROW_COUNT;
+      v_events := v_events + v_n;
+      v_round := v_round + 1;
+      EXIT WHEN v_n < batch OR v_round >= max_rounds;
+    END LOOP;
+  END IF;
+
+  -- Uptime history: the newest row per agent stays, so its state is known.
+  IF s.agent_health_history_days IS NOT NULL THEN
+    v_cutoff := now() - make_interval(days => s.agent_health_history_days);
+    v_round := 0;
+    LOOP
+      DELETE FROM pm.agent_health_history WHERE id IN (
+        SELECT h.id FROM pm.agent_health_history h
+        WHERE h.changed_at < v_cutoff
+          AND EXISTS (SELECT 1 FROM pm.agent_health_history newer
+                      WHERE newer.member_id = h.member_id AND newer.changed_at > h.changed_at)
+        LIMIT batch);
+      GET DIAGNOSTICS v_n = ROW_COUNT;
+      v_health := v_health + v_n;
+      v_round := v_round + 1;
+      EXIT WHEN v_n < batch OR v_round >= max_rounds;
+    END LOOP;
+  END IF;
+
+  -- Agent events: billing events (what agent time was billed from) stay.
+  IF s.agent_activity_retention_days IS NOT NULL THEN
+    v_cutoff := now() - make_interval(days => s.agent_activity_retention_days);
+    v_round := 0;
+    LOOP
+      DELETE FROM pm.agent_activities WHERE id IN (
+        SELECT a.id FROM pm.agent_activities a
+        WHERE a.created_at < v_cutoff AND a.activity_type NOT LIKE 'billing.%'
+        LIMIT batch);
+      GET DIAGNOSTICS v_n = ROW_COUNT;
+      v_activities := v_activities + v_n;
+      v_round := v_round + 1;
+      EXIT WHEN v_n < batch OR v_round >= max_rounds;
+    END LOOP;
+  END IF;
+
+  -- Finished runs, unless an unfinished run, an open delegation or a pending
+  -- delivery still needs them.
+  IF s.agent_run_retention_days IS NOT NULL THEN
+    v_cutoff := now() - make_interval(days => s.agent_run_retention_days);
+    PERFORM set_config('pm.data_retention', 'on', true);
+    v_round := 0;
+    LOOP
+      DELETE FROM pm.agent_runs WHERE id IN (
+        SELECT r.id FROM pm.agent_runs r
+        WHERE r.status <> 'running' AND r.finished_at < v_cutoff
+          AND NOT EXISTS (SELECT 1 FROM pm.agent_runs c
+                          WHERE (c.parent_run_id = r.id OR c.root_run_id = r.id) AND c.status IN ('running', 'waiting'))
+          -- The whole tree goes together: none of it while any run in it is
+          -- unfinished or finished inside the window.
+          AND NOT EXISTS (SELECT 1 FROM pm.agent_runs o
+                          WHERE (o.id = coalesce(r.root_run_id, r.id) OR o.root_run_id = coalesce(r.root_run_id, r.id))
+                            AND (o.finished_at IS NULL OR o.finished_at >= v_cutoff))
+          AND NOT EXISTS (SELECT 1 FROM pm.task_delegations dl JOIN pm.tasks t ON t.id = dl.task_id
+                          WHERE dl.run_id = r.id AND t.status <> 'done' AND t.deleted_at IS NULL)
+          AND NOT EXISTS (SELECT 1 FROM pm.webhook_events ev JOIN pm.webhook_deliveries d ON d.webhook_event_id = ev.id
+                          WHERE ev.resource_type = 'run' AND ev.resource_id = r.id AND d.status IN ('pending', 'delivering'))
+        LIMIT batch);
+      GET DIAGNOSTICS v_n = ROW_COUNT;
+      v_runs := v_runs + v_n;
+      v_round := v_round + 1;
+      EXIT WHEN v_n < batch OR v_round >= max_rounds;
+    END LOOP;
+    PERFORM set_config('pm.data_retention', 'off', true);
+  END IF;
+
+  -- Chat text is blanked, the row stays: its dedupe key (a provider retry,
+  -- the one on-hold notice) and its place in the thread still count. A
+  -- message still waiting for its assistant, or for a delivery, keeps it.
+  IF s.chat_retention_days IS NOT NULL THEN
+    v_cutoff := now() - make_interval(days => s.chat_retention_days);
+    v_round := 0;
+    LOOP
+      UPDATE pm.chat_messages SET text = '' WHERE id IN (
+        SELECT m.id FROM pm.chat_messages m
+        WHERE m.text <> '' AND m.created_at < v_cutoff
+          AND NOT (m.direction = 'inbound' AND m.status IN ('pending', 'notified'))
+          AND NOT EXISTS (SELECT 1 FROM pm.webhook_events ev JOIN pm.webhook_deliveries d ON d.webhook_event_id = ev.id
+                          WHERE ev.resource_type = 'chat_message' AND ev.resource_id = m.id AND d.status IN ('pending', 'delivering'))
+        LIMIT batch);
+      GET DIAGNOSTICS v_n = ROW_COUNT;
+      v_chat := v_chat + v_n;
+      v_round := v_round + 1;
+      EXIT WHEN v_n < batch OR v_round >= max_rounds;
+    END LOOP;
+  END IF;
+
+  IF v_deliveries + v_events + v_health + v_activities + v_runs + v_chat > 0 THEN
+    INSERT INTO pm.api_audit_log (method, endpoint, entity_type, request_body, status_code, via)
+    VALUES ('DELETE', '/app/data/retention', 'business_settings', jsonb_build_object(
+      'webhook_deliveries', v_deliveries, 'webhook_events', v_events, 'agent_health_history', v_health,
+      'agent_activities', v_activities, 'agent_runs', v_runs, 'chat_texts', v_chat), 200, 'app');
+  END IF;
+  RETURN jsonb_build_object(
+    'webhook_deliveries', v_deliveries,
+    'webhook_events', v_events,
+    'agent_health_history', v_health,
+    'agent_activities', v_activities,
+    'agent_runs', v_runs,
+    'chat_texts', v_chat
+  );
+END;
+$$;
+
+REVOKE ALL ON FUNCTION pm.apply_data_retention() FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION pm.apply_data_retention() TO service_role;
+
+-- ============================================================
+-- UI FIXES (20261127001500_ui_fixes.sql)
+-- ============================================================
+
+-- ---------------------------------------------------------------------------
+-- Questions: a guest sees only what is addressed to them
+-- ---------------------------------------------------------------------------
+-- A guest (a client let into some projects) saw the team's own questions and
+-- approvals on the tasks they can open. A guest now reads a question only as a
+-- party: asked by them, asked of them, or asked of a group they are in.
+-- Everyone else reads as before. The app's read (lib/api/questions.ts,
+-- isGuestReader) applies the same rule.
+DROP POLICY IF EXISTS questions_select ON pm.questions;
+CREATE POLICY questions_select ON pm.questions FOR SELECT TO authenticated
+  USING (
+    asked_by = pm.current_team_member_id()
+    OR asked_to = pm.current_team_member_id()
+    OR (asked_to_group IS NOT NULL AND EXISTS (SELECT 1 FROM pm.group_members gm WHERE gm.group_id = questions.asked_to_group AND gm.member_id = pm.current_team_member_id()))
+    OR (
+      pm.current_team_member_role() IS DISTINCT FROM 'guest'
+      AND (
+        (task_id IS NOT NULL AND pm.can_access_task(task_id))
+        OR (task_id IS NULL AND project_id IS NOT NULL AND pm.can_access_project(project_id))
+      )
+    )
+  );
+
+
+-- ---------------------------------------------------------------------------
+-- Agents and keys
+-- ---------------------------------------------------------------------------
+-- One hire per attempt: the Hire screen (and any API caller) sends a
+-- request_id once per attempt; the first call claims it here in one insert,
+-- so a double click makes one agent and one key. Read and written by the
+-- server only.
+CREATE TABLE IF NOT EXISTS pm.agent_hire_requests (
+  request_id uuid PRIMARY KEY,
+  hired_by uuid NOT NULL REFERENCES pm.team_members(id) ON DELETE CASCADE,
+  -- Set once the hire went through; null while it runs.
+  agent_id uuid REFERENCES pm.team_members(id) ON DELETE CASCADE,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+COMMENT ON TABLE pm.agent_hire_requests IS
+  'One row per hire attempt (request_id from POST /api/workspace/agents or /api/v1/agents/hire): a second call with the same id hires nothing more.';
+
+ALTER TABLE pm.agent_hire_requests ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON pm.agent_hire_requests FROM PUBLIC, anon, authenticated;
+GRANT ALL ON pm.agent_hire_requests TO service_role;
+
+-- ---------------------------------------------------------------------------
+-- Agent analytics: runs still going are counted apart (a 15th group value)
+-- ---------------------------------------------------------------------------
+-- Agents > Analytics read "15 runs, 100% succeeded" with 14 still running:
+-- each group now also carries how many of its runs are running or waiting,
+-- appended as the last value, so a previous release's code reads it as before.
+CREATE OR REPLACE FUNCTION pm.agent_run_stats(
+  p_start date,
+  p_end date,
+  p_tz text,
+  p_project_ids uuid[] DEFAULT NULL,
+  p_now timestamptz DEFAULT now()
+)
+RETURNS jsonb
+LANGUAGE sql
+STABLE
+SECURITY INVOKER
+SET search_path = pm
+AS $$
+  with feed as (
+    select f.id, f.source, f.agent_id, f.project_id, f.status, f.outcome, f.title, f.model, r.provider,
+           f.started_at, f.finished_at, f.duration_ms, f.tokens_in, f.tokens_out, f.cost_usd
+    from agent_run_feed f
+    left join agent_runs r on f.source = 'run' and r.id = f.id
+    where f.sort_at >= (p_start::timestamp - interval '1 day') at time zone 'UTC'
+      and f.sort_at <= (p_end::timestamp + interval '2 days' - interval '1 millisecond') at time zone 'UTC'
+  ),
+  attached as (
+    select a.metadata->>'run_id' as run_id,
+           sum(agent_analytics_int(a.metadata->'tokens'->>'input')) filter (where a.metadata->'tokens' ? 'input') as tokens_in,
+           sum(agent_analytics_int(a.metadata->'tokens'->>'output')) filter (where a.metadata->'tokens' ? 'output') as tokens_out
+    from agent_activities a
+    where a.activity_type = 'turn.completed'
+      and a.metadata->>'run_id' in (select id::text from feed where source = 'run' and tokens_in is null and tokens_out is null)
+      and a.metadata->>'tokens_scope' = 'turn'
+    group by a.metadata->>'run_id'
+  ),
+  runs as (
+    select f.*,
+      (f.started_at at time zone p_tz)::date as day,
+      case
+        when f.status in ('running', 'waiting') then f.status
+        when f.source = 'run' then case f.status when 'succeeded' then 'success' when 'failed' then 'failure'
+          when 'timed_out' then 'failure' else 'neutral' end
+        when lower(coalesce(f.outcome, '')) = 'blocked' then 'neutral'
+        when lower(coalesce(f.outcome, '')) in ('failed', 'error') then 'failure'
+        when lower(coalesce(f.outcome, '')) in ('idle', 'skipped', 'waiting', 'no_work', 'nothing', 'nothing_to_do') then 'neutral'
+        when coalesce(f.outcome, '') = '' or lower(f.outcome) in ('work', 'worked', 'ok', 'done', 'shipped', 'succeeded') then 'success'
+        else 'neutral'
+      end as verdict,
+      case when f.source = 'run' and f.tokens_in is null and f.tokens_out is null then t.tokens_in else f.tokens_in end as tin,
+      case when f.source = 'run' and f.tokens_in is null and f.tokens_out is null then t.tokens_out else f.tokens_out end as tout,
+      case
+        when f.duration_ms is not null then greatest(f.duration_ms, 0)
+        when f.finished_at is not null then greatest(floor(extract(epoch from f.finished_at) * 1000) - floor(extract(epoch from f.started_at) * 1000), 0)::bigint
+        when f.status = 'running' then greatest(floor(extract(epoch from p_now) * 1000) - floor(extract(epoch from f.started_at) * 1000), 0)::bigint
+      end as span_ms
+    from feed f
+    left join attached t on t.run_id = f.id::text
+  ),
+  placed as (
+    select * from runs where day >= p_start and day <= p_end
+  ),
+  spans as (
+    select p.id, p.agent_id, p.project_id, p.model, p.provider, p.day,
+           floor(extract(epoch from p.started_at) * 1000)::bigint as s,
+           floor(extract(epoch from p.started_at) * 1000)::bigint + p.span_ms as e
+    from placed p
+    where p.span_ms > 0
+      and (p_project_ids is null or p.project_id = any (p_project_ids))
+  ),
+  clipped as (
+    select sp.*,
+      max(sp.e) over (partition by sp.agent_id order by sp.s, sp.e, sp.id rows between unbounded preceding and 1 preceding) as covered
+    from spans sp
+  ),
+  busy as (
+    select agent_id, project_id, model, provider, day,
+           sum(greatest(0, e - greatest(s, coalesce(covered, s)))) as busy_ms
+    from clipped
+    group by agent_id, project_id, model, provider, day
+  ),
+  counts as (
+    select agent_id, project_id, model, provider, day,
+      count(*) as runs,
+      count(*) filter (where verdict = 'success') as succeeded,
+      count(*) filter (where verdict = 'failure') as failed,
+      count(*) filter (where verdict in ('running', 'waiting')) as running,
+      coalesce(sum(tin), 0) as tokens_in,
+      coalesce(sum(tout), 0) as tokens_out,
+      coalesce(sum(cost_usd) filter (where cost_usd > 0), 0) as cost_usd,
+      coalesce(sum(coalesce(tin, 0) + coalesce(tout, 0)) filter (where not (coalesce(cost_usd, 0) > 0)), 0) as unpriced_tokens,
+      count(*) filter (where source = 'run' and tin is null and tout is null) as runs_no_tokens
+    from placed
+    group by agent_id, project_id, model, provider, day
+  ),
+  grouped as (
+    select coalesce(c.agent_id, b.agent_id) as agent_id, coalesce(c.project_id, b.project_id) as project_id,
+           coalesce(c.model, b.model) as model, coalesce(c.provider, b.provider) as provider, coalesce(c.day, b.day) as day,
+           coalesce(c.runs, 0) as runs, coalesce(c.succeeded, 0) as succeeded, coalesce(c.failed, 0) as failed,
+           coalesce(b.busy_ms, 0) as busy_ms, coalesce(c.tokens_in, 0) as tokens_in, coalesce(c.tokens_out, 0) as tokens_out,
+           coalesce(c.cost_usd, 0) as cost_usd, coalesce(c.unpriced_tokens, 0) as unpriced_tokens,
+           coalesce(c.runs_no_tokens, 0) as runs_no_tokens,
+           coalesce(c.running, 0) as running
+    from counts c
+    full join busy b on b.agent_id = c.agent_id and b.project_id is not distinct from c.project_id
+      and b.model is not distinct from c.model and b.provider is not distinct from c.provider and b.day = c.day
+  ),
+  spend as (
+    select f.agent_id, f.project_id, f.model, f.provider, (f.at at time zone p_tz)::date as day, f.labels, f.principal_id,
+           sum(f.tokens_in) as tokens_in, sum(f.tokens_out) as tokens_out, sum(f.tokens_cached) as tokens_cached,
+           coalesce(sum(f.cost_usd), 0) as cost_usd,
+           coalesce(sum(f.tokens_in + f.tokens_out + f.tokens_cached) filter (where f.cost_usd is null), 0) as unpriced_tokens
+    from agent_spend_facts(p_start::timestamp at time zone p_tz, (p_end + 1)::timestamp at time zone p_tz, null) f
+    group by f.agent_id, f.project_id, f.model, f.provider, (f.at at time zone p_tz)::date, f.labels, f.principal_id
+  )
+  select jsonb_build_object(
+    'groups', coalesce((
+      select jsonb_agg(jsonb_build_array(g.agent_id, g.project_id, g.model, g.provider, to_char(g.day, 'YYYY-MM-DD'),
+        g.runs, g.succeeded, g.failed, g.busy_ms, g.tokens_in, g.tokens_out, g.cost_usd, g.unpriced_tokens, g.runs_no_tokens, g.running))
+      from grouped g
+    ), '[]'::jsonb),
+    'failures', coalesce((
+      select jsonb_agg(jsonb_build_array(r.agent_id, r.project_id, r.model, r.provider, r.started_at, r.title, r.status)
+        order by r.started_at)
+      from runs r
+      where r.verdict = 'failure'
+    ), '[]'::jsonb),
+    'spend', coalesce((
+      select jsonb_agg(jsonb_build_array(sp.agent_id, sp.project_id, sp.model, sp.provider, to_char(sp.day, 'YYYY-MM-DD'),
+        to_jsonb(sp.labels), sp.tokens_in, sp.tokens_out, sp.tokens_cached, sp.cost_usd, sp.unpriced_tokens, sp.principal_id))
+      from spend sp
+    ), '[]'::jsonb)
+  );
+$$;
+
+REVOKE ALL ON FUNCTION pm.agent_run_stats(date, date, text, uuid[], timestamptz) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION pm.agent_run_stats(date, date, text, uuid[], timestamptz) TO authenticated, service_role;
+
+-- ---------------------------------------------------------------------------
+-- Time zones: a person's profile zone is the one the app uses
+-- ---------------------------------------------------------------------------
+-- Every profile started as UTC, so a stored UTC could not tell "chosen" from
+-- "never set". timezone_set says the person chose it (or their first sign-in
+-- took it from the browser); until then the app uses the browser's zone and
+-- the first sign-in saves it. A zone other than UTC was chosen by someone.
+ALTER TABLE pm.team_members
+  ADD COLUMN IF NOT EXISTS timezone_set boolean NOT NULL DEFAULT false;
+
+COMMENT ON COLUMN pm.team_members.timezone_set IS
+  'The time zone was chosen (in Settings, or from the browser on first sign-in); false while it is the default.';
+
+UPDATE pm.team_members SET timezone_set = true WHERE NOT timezone_set AND timezone IS DISTINCT FROM 'UTC';
+
+-- A change to the zone from any path (the app, the API) makes it chosen.
+CREATE OR REPLACE FUNCTION pm.team_members_mark_timezone_set()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = pm
+AS $$
+BEGIN
+  IF TG_OP = 'INSERT' THEN
+    NEW.timezone_set := NEW.timezone_set OR NEW.timezone IS DISTINCT FROM 'UTC';
+  ELSIF NEW.timezone IS DISTINCT FROM OLD.timezone THEN
+    NEW.timezone_set := true;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION pm.team_members_mark_timezone_set() FROM PUBLIC, anon, authenticated;
+
+DROP TRIGGER IF EXISTS team_members_mark_timezone_set ON pm.team_members;
+CREATE TRIGGER team_members_mark_timezone_set
+  BEFORE INSERT OR UPDATE OF timezone ON pm.team_members
+  FOR EACH ROW EXECUTE FUNCTION pm.team_members_mark_timezone_set();

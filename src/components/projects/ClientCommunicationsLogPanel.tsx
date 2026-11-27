@@ -15,6 +15,7 @@ import type {
   ClientCommunication,
   ClientCommType,
 } from '@/lib/types';
+import { formatInZone } from '@/lib/time-format';
 
 interface CommunicationHistoryProps {
   projectId: string;
@@ -194,7 +195,7 @@ function CommRow({
   const StatusIcon = status.icon;
   const timestamp = comm.sent_at ?? comm.dismissed_at ?? comm.created_at;
   const relTime = formatRelative(timestamp);
-  const fullTime = new Date(timestamp).toLocaleString(appLocale(), {
+  const fullTime = formatInZone(timestamp, {
     month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit',
   });
 

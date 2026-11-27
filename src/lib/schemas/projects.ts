@@ -1,12 +1,13 @@
 import { z } from 'zod';
+import { clearableDate, longText, nameText } from './shared';
 
 export const createProjectSchema = z.object({
-  name: z.string().min(1, 'Name is required'),
-  description: z.string().default(''),
+  name: nameText(),
+  description: longText().default(''),
   color: z.string().regex(/^(#[0-9a-fA-F]{6})?$/).default(''),
   status: z.enum(['active', 'completed', 'archived']).default('active'),
-  start_date: z.string().nullable().default(null),
-  due_date: z.string().nullable().default(null),
+  start_date: clearableDate.nullable().default(null),
+  due_date: clearableDate.nullable().default(null),
   hourly_tracking: z.boolean().default(false),
   time_tracking_enabled: z.boolean().default(false),
   client_time_billing: z.enum(['hourly', 'included']).default('included'),
@@ -22,7 +23,7 @@ export const createProjectSchema = z.object({
   member_ids: z.array(z.string().uuid()).default([]),
   contact_id: z.string().uuid().nullable().default(null),
   contact: z.object({
-    name: z.string().min(1),
+    name: nameText(),
     email: z.string().default(''),
     phone: z.string().default(''),
     company: z.string().default(''),
@@ -30,12 +31,12 @@ export const createProjectSchema = z.object({
 });
 
 export const updateProjectSchema = z.object({
-  name: z.string().min(1).optional(),
-  description: z.string().optional(),
+  name: nameText().optional(),
+  description: longText().optional(),
   color: z.string().regex(/^(#[0-9a-fA-F]{6})?$/).optional(),
   status: z.enum(['active', 'completed', 'archived']).optional(),
-  start_date: z.string().nullable().optional(),
-  due_date: z.string().nullable().optional(),
+  start_date: clearableDate.nullable().optional(),
+  due_date: clearableDate.nullable().optional(),
   hourly_tracking: z.boolean().optional(),
   time_tracking_enabled: z.boolean().optional(),
   client_time_billing: z.enum(['hourly', 'included']).optional(),

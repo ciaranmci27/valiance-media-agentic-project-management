@@ -7,6 +7,7 @@ import { getBrand } from '@/lib/brand/server';
 import { recordPortalEvent, getOrCreateSessionId } from '@/lib/portal-analytics';
 import { checkPortalPin, pinFailureResponse } from '@/lib/portal-pin';
 import { enabledModuleSet } from '@/lib/modules/server';
+import { signStoredFileUrl } from '@/lib/storage/sign-stored-file';
 
 function getServiceClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
@@ -100,7 +101,9 @@ export async function GET(
     metadata: { file_id: file.id },
   });
 
-  return NextResponse.json({ file_url: file.file_url, name: file.name, mime_type: file.mime_type });
+  // Portal files live in a private bucket: the visitor gets a link that lasts an hour.
+  const fileUrl = (await signStoredFileUrl(supabase, file.file_url, 3600)) ?? file.file_url;
+  return NextResponse.json({ file_url: fileUrl, name: file.name, mime_type: file.mime_type });
 }
 
 function handleDemoMode(token: string, fileId: string, request: NextRequest, brand: Brand) {

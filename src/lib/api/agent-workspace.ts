@@ -47,8 +47,11 @@ import {
   requireTemplate,
 } from './project-agents';
 import { requireAgentsEnabled } from './agents';
+import { loadAgentAccess } from './agent-access';
+import { audienceSummaries, audienceWords, writeManagersOnlyAudience, type AudienceSummary } from './agent-hierarchy';
 import { readAll } from './read-all';
 import { ApiError, forbidden, notFound } from './errors';
+import { readPage } from './pagination';
 
 /**
  * The agents as people manage them: the list, one agent's profile, edits,
@@ -146,6 +149,14 @@ export interface AgentListItem {
   health: Row | null;
   current_run: AgentRunSummary | null;
   created_at: string;
+  /** The company agent it works under (its orchestrator); null at the top or outside the chart. */
+  orchestrator_id: string | null;
+  /** People may use it directly; false: only through its orchestrator. */
+  reachable_directly: boolean;
+  /** Work given to it waits for one of its managers to approve. */
+  ask_first: boolean;
+  /** Who can use it, in words (its own audience; get_agent_access adds what its orchestrators limit). */
+  audience_summary: AudienceSummary;
 }
 
 /** Ids listed per agent in a list read; the rest are counted. */
@@ -223,7 +234,7 @@ export async function listAgents(service: SupabaseClient, viewer: AgentCaller, f
     }
     if (byPersonal && personal === 'exclude') query = query.is('delegate_of', null);
     if (byPersonal && personal === 'only') query = query.not('delegate_of', 'is', null);
-    return query.order('name').range(filters.offset, filters.offset + filters.limit - 1);
+    return readPage(query.order('name').order('id'), filters);
   };
   let { data, error, count } = await page(personal !== 'include');
   // Before 20261124001300 there are no personal agents: every agent is shared.
@@ -237,7 +248,7 @@ export async function listAgents(service: SupabaseClient, viewer: AgentCaller, f
   const pageIds = members.map((member) => member.id as string);
   if (pageIds.length === 0) return { rows: [], total: count ?? 0 };
 
-  const [health, runs, owners, counts, templates, access, ownerGroups] = await Promise.all([
+  const [health, runs, owners, counts, templates, access, ownerGroups, chart, audiences] = await Promise.all([
     service.from('agent_health').select('*').in('member_id', pageIds)
       .then(({ data: rows }) => new Map(((rows ?? []) as Row[]).map((row) => [row.member_id as string, row]))),
     service.from('agent_runs').select('*').in('agent_id', pageIds).eq('status', 'running').order('started_at', { ascending: false }).limit(pageIds.length * 3)
@@ -254,10 +265,15 @@ export async function listAgents(service: SupabaseClient, viewer: AgentCaller, f
     appliedTemplateKeys(service, pageIds),
     memberProjectAccess(service, viewer, pageIds),
     ownerGroupsOf(service, pageIds),
+    loadAgentAccess(service, pageIds),
+    audienceSummaries(service, pageIds),
   ]);
 
   const reachAll = accessAllows(viewer.access, 'projects.read_all', viewer.scopes === null ? 'app' : 'api');
   const reach = new Set(viewer.access.project_ids);
+  // A run shows only to someone who may read it (runsVisibleTo); an agent's owners manage it.
+  const ownedByViewer = new Set(pageIds.filter((id) => (owners.get(id) ?? []).some((owner) => owner.id === viewer.memberId)));
+  const seenRuns = await runsVisibleTo(service, viewer, [...runs.values()], ownedByViewer);
   return {
     rows: members.map((member): AgentListItem => {
       const counted = counts.get(member.id);
@@ -278,12 +294,69 @@ export async function listAgents(service: SupabaseClient, viewer: AgentCaller, f
         access_total: access.get(member.id)?.total ?? 0,
         assignments: { active: counted?.active ?? 0, total: counted?.total ?? 0 },
         health: health.get(member.id) ?? null,
-        current_run: runs.get(member.id) ?? null,
+        current_run: (() => {
+          const run = runs.get(member.id);
+          return run && seenRuns.has(run.id) ? run : null;
+        })(),
         created_at: member.created_at,
+        orchestrator_id: chart.get(member.id)?.orchestrator_id ?? null,
+        reachable_directly: chart.get(member.id)?.reachable_directly ?? true,
+        ask_first: chart.get(member.id)?.ask_first ?? false,
+        audience_summary: chart.get(member.id)?.delegate_of
+          ? { limited: true, words: 'Only its person' }
+          : audiences.get(member.id) ?? audienceWords([]),
       };
     }),
     total: count ?? members.length,
   };
+}
+
+/**
+ * The runs (an agent's current one) the viewer may see: a run names its task
+ * and title and carries its cost, so it follows what the viewer may read.
+ * agents.manage sees every run (as the agent_runs row policy); otherwise a
+ * run on a task shows only to someone who can read that task (as task reads
+ * carry its latest run), one on a project with no task to someone who reads
+ * that project's tasks, and one on neither only to the agent itself and its
+ * managers (`managedAgentIds`). Answers the visible run ids.
+ */
+export async function runsVisibleTo(
+  service: SupabaseClient,
+  viewer: AgentCaller,
+  runs: AgentRunSummary[],
+  managedAgentIds: ReadonlySet<string> = new Set(),
+): Promise<Set<string>> {
+  if (callerHolds(viewer, 'agents.manage')) return new Set(runs.map((run) => run.id));
+  const channel = callerChannel(viewer);
+  const readsAll = accessAllows(viewer.access, 'tasks.read', channel);
+  const readsAssigned = accessAllows(viewer.access, 'tasks.read_assigned', channel);
+  const taskIds = [...new Set(runs.map((run) => run.task_id).filter((id): id is string => !!id))];
+  const tasks = new Map<string, { project_id: string; created_by: string | null; assignees: string[] }>();
+  if (taskIds.length > 0 && (readsAll || readsAssigned)) {
+    const { data, error } = await service.from('tasks')
+      .select('id, project_id, created_by, task_assignees(member_id)')
+      .in('id', taskIds)
+      .is('deleted_at', null);
+    if (error) throw error;
+    for (const row of (data ?? []) as { id: string; project_id: string; created_by: string | null; task_assignees: { member_id: string }[] | null }[]) {
+      tasks.set(row.id, { project_id: row.project_id, created_by: row.created_by, assignees: (row.task_assignees ?? []).map((a) => a.member_id) });
+    }
+  }
+  const visible = new Set<string>();
+  for (const run of runs) {
+    if (run.agent_id === viewer.memberId || managedAgentIds.has(run.agent_id)) {
+      visible.add(run.id);
+      continue;
+    }
+    if (run.task_id) {
+      const task = tasks.get(run.task_id);
+      if (!task || !accessAllowsProject(viewer.access, task.project_id, channel)) continue;
+      if (readsAll || (readsAssigned && (task.created_by === viewer.memberId || task.assignees.includes(viewer.memberId)))) visible.add(run.id);
+      continue;
+    }
+    if (run.project_id && readsAll && accessAllowsProject(viewer.access, run.project_id, channel)) visible.add(run.id);
+  }
+  return visible;
 }
 
 /** The role labels in use, by how many agents carry each, most first. */
@@ -357,7 +430,7 @@ export async function agentDetail(service: SupabaseClient, viewer: AgentCaller, 
   if (!canHooks) omitted.push('webhooks');
   // A personal agent works for one person (team_members.delegate_of): its keys are theirs to make, its escalation theirs.
   const delegateId = typeof row.delegate_of === 'string' ? row.delegate_of : null;
-  const [health, run, assignments, owners, keys, webhooks, templateKey, access, canManage, ownerGroups, limitState, isOwner, person, heldScopes] = await Promise.all([
+  const [health, run, assignments, owners, keys, webhooks, templateKey, access, canManage, ownerGroups, limitState, isOwner, person, heldScopes, chart, audiences] = await Promise.all([
     service.from('agent_health').select('*').eq('member_id', agentId).maybeSingle().then(({ data }) => (data as Row | null) ?? null),
     service.from('agent_runs').select('*').eq('agent_id', agentId).eq('status', 'running').order('started_at', { ascending: false }).limit(1)
       .then(async ({ data, error }) => {
@@ -386,6 +459,8 @@ export async function agentDetail(service: SupabaseClient, viewer: AgentCaller, 
     canKeys && !delegateId
       ? resolveMemberAccess(service, agentId).then((agentAccess) => (agentAccess ? apiScopesFor(agentAccess) as string[] : []))
       : Promise.resolve(null),
+    loadAgentAccess(service, [agentId]).then((map) => map.get(agentId) ?? null),
+    audienceSummaries(service, [agentId]),
   ]);
   return {
     agent: { ...agentView(row), delegate_of: delegateId },
@@ -403,7 +478,7 @@ export async function agentDetail(service: SupabaseClient, viewer: AgentCaller, 
     limits: limitState?.limits ?? null,
     usage: limitState?.usage ?? null,
     health,
-    current_run: run,
+    current_run: run && (await runsVisibleTo(service, viewer, [run], canManage ? new Set([agentId]) : undefined)).has(run.id) ? run : null,
     projects: assignments.rows,
     projects_total: assignments.total,
     projects_hidden: assignments.hidden_count,
@@ -417,6 +492,8 @@ export async function agentDetail(service: SupabaseClient, viewer: AgentCaller, 
         created_at: key.created_at, last_used_at: key.last_used_at ?? null, revoked_at: key.revoked_at ?? null,
         // An ended key (past its expiry, or switched off) is listed but no longer works.
         expires_at: key.expires_at ?? null, disabled_at: key.disabled_at ?? null,
+        // A paused key keeps its secret and is refused until resumed.
+        paused_at: key.paused_at ?? null,
       }))
       : undefined,
     // The scopes a new key for it may carry (what it holds on the api channel); with its keys only.
@@ -425,6 +502,11 @@ export async function agentDetail(service: SupabaseClient, viewer: AgentCaller, 
     template_key: templateKey,
     can_manage: canManage,
     is_owner: isOwner,
+    // Its place in the chart and who can use it (get_agent_access has the whole picture).
+    orchestrator_id: chart?.orchestrator_id ?? null,
+    reachable_directly: chart?.reachable_directly ?? true,
+    ask_first: chart?.ask_first ?? false,
+    audience_summary: delegateId ? { limited: true, words: 'Only its person' } : audiences.get(agentId) ?? audienceWords([]),
     omitted,
   };
 }
@@ -650,7 +732,10 @@ export async function hireAgent(
     assertMayGiveAgentScopes(caller.access, beyondRole);
   }
 
-  // 2. Write, undoing on a failure.
+  // 2. One hire per request id: a double click or a retry of the same attempt makes nothing more.
+  const requestId = input.request_id ? await claimHireRequest(service, input.request_id, caller.memberId) : null;
+
+  // 3. Write, undoing on a failure.
   const state: HireState = {
     agentId: null, done: [], ownersAdded: [], ownerGroupsAdded: [], accessAdded: [], assignmentIds: [], keyId: null, scopeGrants: { added: [], wasDenied: [] },
   };
@@ -686,6 +771,11 @@ export async function hireAgent(
     }
     state.ownersAdded = await addOwners(service, agentId, owners, caller.memberId);
     state.ownerGroupsAdded = await addOwnerGroups(service, agentId, ownerGroupIds, caller.memberId);
+    // A template for code or money starts with its managers only; the rest keep today's behaviour.
+    if (template?.audience === 'managers') {
+      await writeManagersOnlyAudience(service, agentId, owners, ownerGroupIds, caller.memberId);
+      state.done.push('who can use it set');
+    }
 
     let assignments: ProjectAgentAssignment[] = [];
     if (assignmentRows.length) {
@@ -723,6 +813,7 @@ export async function hireAgent(
         expires_at: (made.key as { expires_at?: string | null }).expires_at ?? null,
       };
     }
+    if (requestId) await finishHireRequest(service, requestId, agentId);
 
     return {
       agent: {
@@ -739,9 +830,66 @@ export async function hireAgent(
       connect: buildConnectInfo(appUrl),
     };
   } catch (failure) {
+    // The attempt did not stick: its request id is free again, so a retry can hire.
+    if (requestId) await releaseHireRequest(service, requestId);
     if (!state.agentId) throw failure;
     return undoHire(service, caller, state, failure, { apiKeyId, via });
   }
+}
+
+/** pm.agent_hire_requests is missing (new code before 20261127001500): hire without the guard, as before. */
+const missingHireRequests = (error: { code?: string; message?: string } | null) =>
+  !!error && (error.code === '42P01' || error.code === 'PGRST205'
+    || (/agent_hire_requests/.test(error.message ?? '') && /does not exist|schema cache/i.test(error.message ?? '')));
+
+/**
+ * Claims a hire's request id in one insert, so two calls racing with the same
+ * id cannot both hire. A second call is 409: already_hired (with the agent it
+ * made; its key secret is never shown again) or hire_in_progress while the
+ * first still runs; an id another person used is 409 request_id_reused.
+ * Answers the id when claimed, or null on a database before the table.
+ */
+async function claimHireRequest(service: SupabaseClient, requestId: string, memberId: string): Promise<string | null> {
+  const { error } = await service.from('agent_hire_requests').insert({ request_id: requestId, hired_by: memberId });
+  if (!error) return requestId;
+  if (missingHireRequests(error)) return null;
+  if (error.code !== '23505') throw error;
+  const { data, error: readError } = await service.from('agent_hire_requests').select('hired_by, agent_id').eq('request_id', requestId).maybeSingle();
+  if (readError) throw readError;
+  const row = data as { hired_by: string; agent_id: string | null } | null;
+  if (row && row.hired_by !== memberId) {
+    throw new ApiError(409, 'CONFLICT', 'That request_id belongs to another hire. Send a new one for a new hire.', { reason: 'request_id_reused' });
+  }
+  if (row?.agent_id) {
+    throw new ApiError(409, 'CONFLICT', 'This hire already went through; nothing more was made. Its key secret was shown once, in the first answer.', {
+      reason: 'already_hired', agent_id: row.agent_id,
+    });
+  }
+  // A hire killed half way (the server stopped before it finished or let go)
+  // leaves its claim unfinished. After HIRE_CLAIM_STALE_MS it is free: one
+  // update takes it over, so of two retries racing only one wins.
+  const { data: taken, error: takeError } = await service.from('agent_hire_requests')
+    .update({ created_at: new Date().toISOString() })
+    .eq('request_id', requestId)
+    .is('agent_id', null)
+    .lt('created_at', new Date(Date.now() - HIRE_CLAIM_STALE_MS).toISOString())
+    .select('request_id');
+  if (takeError) throw takeError;
+  if ((taken ?? []).length > 0) return requestId;
+  throw new ApiError(409, 'CONFLICT', 'This hire is still being made. Wait for the first answer.', { reason: 'hire_in_progress' });
+}
+
+/** How long an unfinished hire claim holds its request id before a retry may take it over. */
+export const HIRE_CLAIM_STALE_MS = 2 * 60_000;
+
+async function finishHireRequest(service: SupabaseClient, requestId: string, agentId: string): Promise<void> {
+  const { error } = await service.from('agent_hire_requests').update({ agent_id: agentId }).eq('request_id', requestId);
+  if (error) console.error('[agents] hire request not recorded', error);
+}
+
+async function releaseHireRequest(service: SupabaseClient, requestId: string): Promise<void> {
+  const { error } = await service.from('agent_hire_requests').delete().eq('request_id', requestId).is('agent_id', null);
+  if (error) console.error('[agents] hire request not released', error);
 }
 
 interface HireState {

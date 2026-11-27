@@ -13,13 +13,13 @@ import {
 } from '@/lib/agents-tab';
 import { effectiveRunStatus, type AgentRunPlanStep, type AgentRunStatus, type AgentRunSummary, type RunDisplayStatus } from '@/lib/agent-runs';
 import { formatMoneyExact, formatNumber } from '@/lib/format';
-import { appLocale } from '@/lib/region';
 import { timeAgo } from '@/lib/task-times';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import Modal from '@/components/ui/Modal';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { QuestionCard } from '@/components/questions/QuestionCard';
+import { formatInZone } from '@/lib/time-format';
 
 /**
  * The pieces every run view shares: the status pill, the started and length
@@ -40,7 +40,7 @@ export function RunStatusPill({ status, run }: { status?: AgentRunStatus; run?: 
 
 /** "Nov 24, 2:05 PM": when a run started, in full. */
 export function runStartedFull(iso: string): string {
-  return new Date(iso).toLocaleString(appLocale(), { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  return formatInZone(iso, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 }
 
 /** The started cell: "5 min ago", with the full time on hover and for screen readers. */

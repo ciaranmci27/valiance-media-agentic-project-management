@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { clearableDate, longText, titleText } from './shared';
 import { AI_READINESS } from '@/lib/types';
 
 const taskTypeEnum = z.enum(['engineering', 'research', 'audit', 'marketing', 'copywriting', 'operations', 'general']);
@@ -6,9 +7,9 @@ const taskTypeEnum = z.enum(['engineering', 'research', 'audit', 'marketing', 'c
 export const createSuggestionSchema = z.object({
   project_id: z.string().uuid('project_id must be a UUID'),
   goal_id: z.string().uuid('goal_id must be a UUID'),
-  title: z.string().min(1, 'Title is required'),
-  description: z.string().min(1, 'Description is required'),
-  reasoning: z.string().min(1, 'Reasoning is required'),
+  title: titleText(),
+  description: longText().refine((text) => text.trim().length > 0, 'description cannot be blank'),
+  reasoning: longText('reasoning').refine((text) => text.trim().length > 0, 'reasoning cannot be blank'),
   priority: z.enum(['low', 'medium', 'high', 'urgent']).default('medium'),
   effort_estimate: z.enum(['small', 'medium', 'large']).nullable().default(null),
   assigned_to: z.string().uuid().nullable().default(null),
@@ -24,9 +25,9 @@ export const createSuggestionSchema = z.object({
 });
 
 export const updateSuggestionSchema = z.object({
-  title: z.string().min(1).optional(),
-  description: z.string().min(1).optional(),
-  reasoning: z.string().min(1).optional(),
+  title: titleText().optional(),
+  description: longText().refine((text) => text.trim().length > 0, 'description cannot be blank').optional(),
+  reasoning: longText('reasoning').refine((text) => text.trim().length > 0, 'reasoning cannot be blank').optional(),
   priority: z.enum(['low', 'medium', 'high', 'urgent']).optional(),
   effort_estimate: z.enum(['small', 'medium', 'large']).nullable().optional(),
   task_type: taskTypeEnum.nullable().optional(),
@@ -36,7 +37,7 @@ export const updateSuggestionSchema = z.object({
 export const approveSuggestionSchema = z.object({
   priority: z.enum(['low', 'medium', 'high', 'urgent']).optional(),
   assigned_to: z.string().uuid().nullable().optional(),
-  due_date: z.string().nullable().optional(),
+  due_date: clearableDate.nullable().optional(),
   task_type: taskTypeEnum.nullable().optional(),
   ai_readiness: z.enum(AI_READINESS).nullable().optional(),
 });

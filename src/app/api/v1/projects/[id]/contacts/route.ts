@@ -4,20 +4,20 @@ import { addProjectContactSchema } from '@/lib/schemas';
 import { notFound } from '@/lib/api/errors';
 import { addProjectContact } from '@/lib/supabase/queries';
 import { logAudit } from '@/lib/api/audit';
-import { parsePagination } from '@/lib/api/pagination';
+import { parsePagination, readPage } from '@/lib/api/pagination';
 
 export const GET = withApi(async ({ supabase, params, searchParams }) => {
   const { id } = params as any;
   const { page, limit, offset } = parsePagination(searchParams);
 
   // A contact in Trash leaves the project's contact list with it.
-  const { data, count, error } = await supabase
+  const { data, count, error } = await readPage(supabase
     .from('project_contacts')
     .select('*, contact:contacts!inner(*)', { count: 'exact' })
     .eq('project_id', id)
     .is('contact.deleted_at', null)
     .order('created_at', { ascending: true })
-    .range(offset, offset + limit - 1);
+    .order('id'), { offset, limit });
 
   if (error) throw error;
   return paginated(data || [], { page, limit, total: count || 0 });

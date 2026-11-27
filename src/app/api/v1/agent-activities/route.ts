@@ -6,7 +6,7 @@ import { created, paginated } from '@/lib/api/response';
 import { agentActivityBodySchema, type LegacyAgentActivity, type OpenAgentEvent, type TypedAgentEvent } from '@/lib/schemas/agent-activity';
 import { AGENT_LABEL_PATTERN, formatEventTitle, formatOpenEventTitle, HOST_RECORD_EVENT_TYPES, isAgentEventType, isOpenEventType } from '@/lib/agent-events';
 import { requireAgentsEnabled } from '@/lib/api/agents';
-import { parsePagination } from '@/lib/api/pagination';
+import { parsePagination, readPage } from '@/lib/api/pagination';
 import { ApiError, forbidden, badRequest } from '@/lib/api/errors';
 import { insertAgentActivity } from '@/lib/supabase/queries';
 import { logAudit } from '@/lib/api/audit';
@@ -53,9 +53,9 @@ export const GET = withApi(async ({ supabase, searchParams, access }) => {
   // directed turn as progress.
   else query = query.not('activity_type', 'in', `(${HOST_RECORD_EVENT_TYPES.join(',')})`);
 
-  const { data, count, error } = await query
+  const { data, count, error } = await readPage(query
     .order('created_at', { ascending: false })
-    .range(offset, offset + limit - 1);
+    .order('id'), { offset, limit });
 
   if (error) throw error;
   return paginated(data || [], { page, limit, total: count || 0 });

@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { withApi } from '@/lib/api/middleware';
 import { paginated, success } from '@/lib/api/response';
 import { badRequest, forbidden } from '@/lib/api/errors';
-import { parsePagination } from '@/lib/api/pagination';
+import { parsePagination, readPage } from '@/lib/api/pagination';
 import { logAudit } from '@/lib/api/audit';
 import { apiKeyAllows } from '@/lib/api/access';
 import { previewCommunication, sendCommunication, type RenderContext } from '@/lib/email/client-notifications';
@@ -39,9 +39,9 @@ export const GET = withApi(async ({ supabase, params, searchParams }) => {
     .eq('project_id', params.id);
   if (status && status !== 'all') query = query.eq('status', status);
 
-  const { data, count, error } = await query
+  const { data, count, error } = await readPage(query
     .order('created_at', { ascending: false })
-    .range(offset, offset + limit - 1);
+    .order('id'), { offset, limit });
   if (error) throw error;
   return paginated(data || [], { page, limit, total: count || 0 });
 }, { permission: 'communications.read' });

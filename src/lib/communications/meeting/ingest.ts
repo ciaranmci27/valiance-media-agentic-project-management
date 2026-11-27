@@ -30,12 +30,16 @@ const person = z.object({
   name: z.string().trim().max(300).optional().nullable(),
 });
 
+/** A meeting script copies text from Docs and Meet: a NUL in it is dropped, never a 422 or a 500. */
+const dropNul = (value: string) => value.replace(/\u0000/g, '');
+
 export const meetingPackageSchema = z.object({
   inbox_id: z.string().uuid(),
   /** The script's key for the meeting: its calendar event and start, else its notes Doc. */
   meeting_key: z.string().trim().min(1).max(300),
   kind: z.enum(['transcript', 'summary']),
-  title: z.string().trim().min(1).max(500),
+  /** NUL dropped (it cannot be stored), as the emailed path always did for the text. */
+  title: z.string().transform(dropNul).pipe(z.string().trim().min(1).max(500)),
   /** The meeting's day where it happened (YYYY-MM-DD), as the script's calendar shows it. */
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   starts_at: z.string().datetime({ offset: true }).optional().nullable(),
@@ -49,7 +53,7 @@ export const meetingPackageSchema = z.object({
   /** Why this package is what it is ("No transcript came within 90 minutes..."). */
   note: z.string().trim().max(1000).optional().nullable(),
   /** The transcript, or Gemini's notes: every word. */
-  text: z.string().min(1).max(TEXT_LIMIT),
+  text: z.string().transform(dropNul).pipe(z.string().min(1).max(TEXT_LIMIT)),
 });
 export type MeetingPackage = z.infer<typeof meetingPackageSchema>;
 

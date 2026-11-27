@@ -8,7 +8,7 @@ import { useBrand } from '@/lib/brand/context';
 import { Button } from '@/components/ui/Button';
 import { TextInput } from '@/components/ui/inputs/TextInput';
 import { PasswordInput } from '@/components/ui/inputs/PasswordInput';
-import { RadioGroup } from '@/components/ui/inputs/RadioGroup';
+import { ProviderPicker } from '@/components/ui/ProviderPicker';
 import { OutcomeLine } from '@/components/settings/workspace/OutcomeLine';
 import { useWizardPreview } from '../wizard-preview';
 
@@ -32,8 +32,8 @@ const PROVIDERS: Record<ProviderId, {
   secretHint: string;
 }> = {
   google: {
-    label: 'Google (Gmail or Workspace)',
-    description: 'Sends from your Google address.',
+    label: 'Google',
+    description: 'Gmail or Workspace: sends from your Google address.',
     host: 'smtp.gmail.com',
     port: 465,
     emailLabel: 'Email address',
@@ -267,12 +267,13 @@ function ConnectForm({ brandName, preview, onCancel, onConnected, onKeyMissing }
 
   return (
     <div ref={group} role="group" aria-label="Connect email" onKeyDown={onKeyDown} className="space-y-5">
-      <RadioGroup<ProviderId>
+      <ProviderPicker
         label="Email provider"
         value={provider}
-        onChange={pickProvider}
+        onChange={(next) => pickProvider(next as ProviderId)}
         disabled={connecting}
-        options={PROVIDER_IDS.map((id) => ({ value: id, label: PROVIDERS[id].label, description: PROVIDERS[id].description }))}
+        choices={PROVIDER_IDS.filter((id) => id !== 'other').map((id) => ({ value: id, label: PROVIDERS[id].label, description: PROVIDERS[id].description }))}
+        other={{ label: PROVIDERS.other.label, description: PROVIDERS.other.description }}
       />
 
       {other && (

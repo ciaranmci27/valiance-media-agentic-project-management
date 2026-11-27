@@ -4,18 +4,18 @@ import { createAcceptanceCriterionSchema } from '@/lib/schemas';
 import { notFound } from '@/lib/api/errors';
 import { insertAcceptanceCriterion } from '@/lib/supabase/queries';
 import { logAudit } from '@/lib/api/audit';
-import { parsePagination } from '@/lib/api/pagination';
+import { parsePagination, readPage } from '@/lib/api/pagination';
 
 export const GET = withApi(async ({ supabase, params, searchParams }) => {
   const { id } = params as any;
   const { page, limit, offset } = parsePagination(searchParams);
 
-  const { data, count, error } = await supabase
+  const { data, count, error } = await readPage(supabase
     .from('task_acceptance_criteria')
     .select('*', { count: 'exact' })
     .eq('task_id', id)
     .order('sort_order', { ascending: true })
-    .range(offset, offset + limit - 1);
+    .order('id'), { offset, limit });
 
   if (error) throw error;
   return paginated(data || [], { page, limit, total: count || 0 });

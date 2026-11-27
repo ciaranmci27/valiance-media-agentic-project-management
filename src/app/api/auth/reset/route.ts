@@ -34,7 +34,7 @@ function limited(request: NextRequest): boolean {
 
 export async function POST(request: NextRequest) {
   if (limited(request)) {
-    return NextResponse.json({ error: 'Too many tries. Wait a few minutes and try again.' }, { status: 429 });
+    return NextResponse.json({ error: 'Too many tries. Wait a few minutes and try again.' }, { status: 429, headers: { 'Retry-After': String(WINDOW_MS / 1000) } });
   }
   const body = await request.json().catch(() => null) as { email?: unknown } | null;
   const demo = process.env.NEXT_PUBLIC_DEMO_MODE === 'true' && process.env.DEMO_MODE === 'true';

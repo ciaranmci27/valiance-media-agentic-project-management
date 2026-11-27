@@ -1,7 +1,7 @@
 import { randomUUID } from 'crypto';
 import { withApi } from '@/lib/api/middleware';
 import { created, paginated } from '@/lib/api/response';
-import { parsePagination } from '@/lib/api/pagination';
+import { parsePagination, readPage } from '@/lib/api/pagination';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { AccessContext } from '@/lib/access-control';
 import { badRequest } from '@/lib/api/errors';
@@ -14,6 +14,7 @@ import { logAudit } from '@/lib/api/audit';
 import { z } from 'zod';
 import { RECEIPT_CATEGORIES, agentNoticeCategory } from '@/lib/notifications';
 import { missingFoundation, notificationsNotReady, upsertNotification } from '@/lib/api/notifications';
+import { isRelativeAppPath } from '@/lib/security/safe-url';
 
 export const GET = withApi(async ({ supabase, searchParams, teamMemberId }) => {
   if (!teamMemberId) throw badRequest('API key must be linked to a team member to access notifications');
@@ -42,9 +43,9 @@ export const GET = withApi(async ({ supabase, searchParams, teamMemberId }) => {
   if (view === 'updates') query = query.is('done_at', null).not('category', 'in', `(${RECEIPT_CATEGORIES.join(',')})`);
   if (view === 'done') query = query.not('done_at', 'is', null);
 
-  const { data, count, error } = await query
+  const { data, count, error } = await readPage(query
     .order('created_at', { ascending: false })
-    .range(offset, offset + limit - 1);
+    .order('id'), { offset, limit });
 
   if (error) {
     if ((view !== 'all' || category) && missingFoundation(error)) throw notificationsNotReady();
@@ -114,12 +115,15 @@ export const POST = withApi(async ({ supabase, body, apiKeyId, teamMemberId, acc
   // escalation is an update the person reads (agent_message), not a receipt
   // for a question nobody asked. Only the findings nudge convention is one.
   const category = agentNoticeCategory(notification.entity_type, notification.title);
+  // A link stays inside the app (a path, never another site or //host): any other is dropped, so a key never puts
+  // someone else's address behind a notice.
+  const link = notification.link && isRelativeAppPath(notification.link.trim()) ? notification.link.trim() : null;
   for (const recipient of recipients || []) {
     await upsertNotification(supabase, {
       userId: recipient.id,
       title: notification.title,
       message: notification.message,
-      link: notification.link || null,
+      link,
       entityType: notification.entity_type,
       entityId,
       category,

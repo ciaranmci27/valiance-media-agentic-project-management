@@ -6,7 +6,7 @@ import customPublicPaths from '@/custom/middleware';
 import { matchesPublicPath } from '@/lib/extensions/registry';
 import { PM_DB } from '@/lib/supabase/schema';
 
-function isPublicRoute(pathname: string) {
+export function isPublicRoute(pathname: string) {
   return (
     // Local-only preview surfaces (visual iteration without a session); the
     // pages themselves also 404 outside development.
@@ -46,6 +46,9 @@ function isPublicRoute(pathname: string) {
     pathname === '/api/oauth/register' ||
     pathname === '/api/oauth/token' ||
     pathname.startsWith('/api/docs') ||
+    // The SMTP and webhook guides: static docs, like /api/docs.
+    pathname === '/smtp/docs' ||
+    pathname === '/webhooks/docs' ||
     // The install's own endpoints: each route checks its declared auth itself
     // (a session by default, an API key, or public by explicit opt-in), so an
     // API key call is answered rather than sent to the login page.
@@ -63,6 +66,7 @@ export async function updateSession(request: NextRequest) {
   // email and invoice-draft crons verify Vercel's CRON_SECRET bearer.
   if (
     request.nextUrl.pathname === '/api/internal/webhooks/scheduled'
+    || request.nextUrl.pathname === '/api/internal/schedules/run'
     || request.nextUrl.pathname === '/api/inbound-email/resend'
     || request.nextUrl.pathname === '/api/internal/inbound-email/retention'
     || request.nextUrl.pathname === '/api/internal/inbound-email/orphan-sweep'
@@ -124,13 +128,23 @@ export async function updateSession(request: NextRequest) {
   );
 
   // Refreshes an expired session (writing the new cookies through setAll
-  // above), then verifies the token locally rather than asking Supabase Auth
-  // on every request.
+  // above), then verifies the token (sessionUser: auth.getClaims). With an
+  // asymmetric signing key (ES256/RS256, published as JWKS) that check is
+  // local, the keys cached per server instance; a project still on the legacy
+  // symmetric secret (HS256) asks Supabase Auth instead, one call per request.
   let user = null;
   try {
     user = await sessionUser(supabase as unknown as Parameters<typeof sessionUser>[0]);
   } catch {
     // If auth check fails, treat as unauthenticated
+  }
+
+  // An API call is answered by its route, never the login page: every API
+  // route checks its own credentials (a session, an API key, a signature or
+  // a cron secret) and answers 401 in JSON, which a script or the app's own
+  // fetch can read. The session refresh above still applies to them.
+  if (!user && request.nextUrl.pathname.startsWith('/api/')) {
+    return supabaseResponse;
   }
 
   // Redirect unauthenticated users to /login (except auth routes). The

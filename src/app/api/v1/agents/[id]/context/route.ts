@@ -2,7 +2,7 @@ import { withApi } from '@/lib/api/middleware';
 import { requireAgentsEnabled } from '@/lib/api/agents';
 import { loadSetupTarget, requireAgentTarget } from '@/lib/api/agent-setup';
 import { buildContextPack, contextPackResponse, packKeyFor } from '@/lib/api/agent-context';
-import { badRequest } from '@/lib/api/errors';
+import { badRequest, forbidden } from '@/lib/api/errors';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -22,6 +22,8 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
  * Permission: team.read, with the AI agents module on (as get_agent_setup).
  */
 export const GET = withApi<unknown, { id: string }>(async ({ supabase, params, access, scopes, teamMemberId, searchParams }) => {
+  // Guests never see the agents, as on every other agents route.
+  if (access.role === 'guest') throw forbidden('Guests do not see the agents');
   requireAgentsEnabled(access);
   const viewer = { memberId: teamMemberId, access, scopes };
   const target = await loadSetupTarget(supabase, viewer, params.id);

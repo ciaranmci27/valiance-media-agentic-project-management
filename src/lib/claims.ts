@@ -1,5 +1,5 @@
 import type { Task, TeamMember } from '@/lib/types';
-import { appLocale } from '@/lib/region';
+import { formatTime } from '@/lib/time-format';
 
 /**
  * A task's claim as the screens show it: who is working on it right now and
@@ -10,7 +10,7 @@ export interface LiveClaim {
   memberId: string;
   /** The holder's name from the team list; never hard-coded. */
   name: string;
-  /** "9:40" in the viewer's locale. */
+  /** "9:40 AM", in the viewer's own time zone. */
   since: string | null;
   expiresAt: string;
 }
@@ -20,7 +20,7 @@ export function liveClaim(task: Pick<Task, 'claimed_by' | 'claimed_at' | 'claim_
   if (new Date(task.claim_expires_at).getTime() <= Date.now()) return null;
   const name = team.find((member) => member.id === task.claimed_by)?.name ?? 'Someone';
   const since = task.claimed_at
-    ? new Date(task.claimed_at).toLocaleTimeString(appLocale(), { hour: 'numeric', minute: '2-digit' })
+    ? formatTime(task.claimed_at)
     : null;
   return { memberId: task.claimed_by, name, since, expiresAt: task.claim_expires_at };
 }
@@ -33,6 +33,6 @@ export function occurrenceLabel(task: Pick<Task, 'occurrences'>): string | null 
 
 /** The tooltip for a claim: until when the lease runs. */
 export function claimUntil(claim: LiveClaim): string {
-  const until = new Date(claim.expiresAt).toLocaleTimeString(appLocale(), { hour: 'numeric', minute: '2-digit' });
+  const until = formatTime(claim.expiresAt);
   return `${claim.name} claimed this${claim.since ? ` at ${claim.since}` : ''}. The claim runs until ${until} unless renewed.`;
 }

@@ -58,7 +58,9 @@ function key() {
   check('open: a key per purpose', throws(() => open('smtp', sealed, 'resend_api_key', env)));
   check('open: another key cannot open it', throws(() => open('secrets', sealed, 'resend_api_key', { APP_ENCRYPTION_KEY: KEY_B })));
   check('open: refuses without the key', throws(() => open('secrets', sealed, 'resend_api_key', {})));
-  const tampered = sealed.slice(0, -2) + (sealed.endsWith('A') ? 'BB' : 'AA');
+  // Change a character in the middle: the last base64 characters can carry padding bits that decode to the same bytes.
+  const mid = Math.floor(sealed.length / 2);
+  const tampered = sealed.slice(0, mid) + (sealed[mid] === 'A' ? 'B' : 'A') + sealed.slice(mid + 1);
   check('open: tampering is caught', throws(() => open('secrets', tampered, 'resend_api_key', env)));
   const [ivPart, tagPart, dataPart] = sealed.slice(4).split('.');
   const shortTag = `pm1:${ivPart}.${Buffer.from(tagPart, 'base64url').subarray(0, 4).toString('base64url')}.${dataPart}`;

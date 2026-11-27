@@ -5,10 +5,11 @@
  * The app's policy decides each item (triage-policy.ts).
  */
 import { z } from 'zod';
+import { calendarDate } from '@/lib/schemas/shared';
 import { ADDRESSEES, PLAN_INTENTS } from './triage-policy';
 
 const id = z.uuid();
-const day = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD');
+const day = calendarDate;
 const time = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/, 'Use HH:MM (24-hour)');
 const text = (max: number) => z.string().trim().min(1).max(max);
 

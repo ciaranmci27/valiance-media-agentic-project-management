@@ -113,7 +113,7 @@ export async function POST(
   }
 
   if (!checkRateLimit(sessionId)) {
-    return NextResponse.json({ error: 'Too many events' }, { status: 429 });
+    return NextResponse.json({ error: 'Too many events' }, { status: 429, headers: { 'Retry-After': String(RATE_LIMIT_WINDOW_MS / 1000) } });
   }
 
   const supabase = getServiceClient();

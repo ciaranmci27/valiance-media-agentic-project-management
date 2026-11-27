@@ -20,7 +20,6 @@ import {
 import Modal from '@/components/ui/Modal';
 import { SecretOnce } from '@/components/agent/ConnectPanel';
 import { createClient } from '@/lib/supabase/client';
-import { appLocale } from '@/lib/region';
 import { Button } from '@/components/ui/Button';
 import { Toggle } from '@/components/ui/inputs/Toggle';
 import { Select } from '@/components/ui/inputs/Select';
@@ -56,6 +55,7 @@ import {
   type WebhookDelivery,
   type WebhookDeliveryStatus,
 } from '@/lib/types';
+import { formatInZone } from '@/lib/time-format';
 
 const SETUP_ROLE_WORDS: Record<string, string> = { owner: 'Owners', admin: 'Admins', member: 'Members', guest: 'Guests' };
 
@@ -94,7 +94,7 @@ function deliveryLabel(d: WebhookDelivery): string {
 
 function formatWhen(value: string | null): string {
   if (!value) return 'not yet';
-  return new Date(value).toLocaleString(appLocale(), {
+  return formatInZone(value, {
     month: 'short',
     day: 'numeric',
     hour: '2-digit',

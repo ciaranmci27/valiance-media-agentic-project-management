@@ -8,13 +8,13 @@ import { Select } from '@/components/ui/inputs/Select';
 import { toast } from '@/components/ui/Toast';
 import { SecretOnce } from '@/components/agent/ConnectPanel';
 import { useApp } from '@/lib/store';
-import { appLocale } from '@/lib/region';
 import { ROTATE_OVERLAP_DEFAULT_HOURS, rotateOverlapOptions, rotatedKeyExpiryLine, rotationLifetimeNote } from '@/lib/developers-settings';
 import type { ApiKey } from '@/lib/types';
+import { formatInZone } from '@/lib/time-format';
 
 const OPTIONS = rotateOverlapOptions();
 
-const formatEnd = (iso: string) => new Date(iso).toLocaleString(appLocale(), { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+const formatEnd = (iso: string) => formatInZone(iso, { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
 
 /**
  * Rotate: a new secret with the same name and access, while the old key
@@ -54,7 +54,7 @@ function RotateFlow({ apiKey, agent, onClose, onHoldOpen }: { apiKey: ApiKey; ag
       const { secret, key } = await rotateApiKey(apiKey.id, hours);
       const oldEnds = hours === 0
         ? 'The old key has stopped working.'
-        : `The old key keeps working until ${new Date(Date.now() + hours * 3_600_000).toLocaleString(appLocale(), { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}.`;
+        : `The old key keeps working until ${formatInZone(Date.now() + hours * 3_600_000, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}.`;
       setDone({ secret, oldEnds, newEnds: rotatedKeyExpiryLine(key.expires_at ?? null, formatEnd) });
       toast('success', 'Key rotated');
     } catch (err) {

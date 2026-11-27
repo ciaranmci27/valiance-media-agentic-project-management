@@ -11,10 +11,12 @@ export const dynamic = 'force-dynamic';
  * An agent's context pack as the signed-in viewer may see it, the same one
  * GET /api/v1/agents/{id}/context answers: format=md an AGENTS.md file,
  * format=pack { pack }, format=markdown { markdown }, default { pack,
- * markdown }. For team.read or the agent's managers. Never cached.
+ * markdown }. For team.read or the agent's managers, never a guest. Never cached.
  */
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
   return workspaceRoute(request, async ({ service, caller, granter, access }) => {
+    // Guests never see the agents, as on every other agents route.
+    if (access.role === 'guest') throw forbidden('Guests do not see the agents');
     requireAgentsEnabled(access);
     const { id } = await params;
     if (!callerHolds(caller, 'team.read') && !callerHolds(caller, 'team.manage') && !(await canManageAgent(service, caller, id))) {

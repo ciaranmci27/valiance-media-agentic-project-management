@@ -23,6 +23,10 @@ import { checkPortalPin, pinFailureResponse } from '@/lib/portal-pin';
 import { resolveProjectHourlyRate } from '@/lib/supabase/queries';
 import { enabledModuleSet } from '@/lib/modules/server';
 import { createPmClient } from '@/lib/supabase/pm-client';
+import { signFileUrls } from '@/lib/storage/sign-stored-file';
+// The portal's files live in private buckets: its page gets links that last
+// an hour, and asks /api/portal/[token]/links for fresh ones before then.
+import { PORTAL_LINK_SECONDS } from '@/lib/portal-file-links';
 
 /**
  * Pause duration within an entry: the part of the [start_time, end_time] span
@@ -186,13 +190,13 @@ export async function GET(
       .is('deleted_at', null)
       .order('created_at', { ascending: false });
 
-    files = (entityFiles || []).map((f: any) => ({
+    files = await signFileUrls(supabase, (entityFiles || []).map((f: any) => ({
       id: f.id,
       name: f.name,
       file_url: f.file_url,
       file_size: f.file_size,
       mime_type: f.mime_type,
-    }));
+    })), PORTAL_LINK_SECONDS);
   }
 
   // Fetch invoices once. We need them for the invoices section AND, on hourly
@@ -307,7 +311,7 @@ export async function GET(
 
   // Project the already-loaded invoice rows down to what the client needs.
   const invoices: PortalData['invoices'] = showInvoices
-    ? allInvoices.map((i: any) => ({
+    ? await signFileUrls(supabase, allInvoices.map((i: any) => ({
         id: i.id,
         invoice_number: i.invoice_number,
         amount: i.amount,
@@ -324,7 +328,7 @@ export async function GET(
         file_size: i.file_size,
         mime_type: i.mime_type,
         paid_amount: invoiceAmountPaid(i, project.tax_rate ?? null),
-      }))
+      })), PORTAL_LINK_SECONDS)
     : [];
 
   // Pre-build per-invoice PDF data so the portal can render the same preview
@@ -402,12 +406,13 @@ export async function GET(
 
       // Fetch attachments for all updates
       const updateIds = portalUpdates.map((u: any) => u.id);
-      const { data: allAttachments } = await supabase
+      const { data: storedAttachments } = await supabase
         .from('portal_update_attachments')
         .select('id, update_id, name, file_url, file_size, mime_type')
         .in('update_id', updateIds)
         .is('deleted_at', null)
         .order('created_at', { ascending: true });
+      const allAttachments = await signFileUrls(supabase, storedAttachments || [], PORTAL_LINK_SECONDS);
 
       const attachmentMap = new Map<string, typeof allAttachments>();
       for (const att of allAttachments || []) {

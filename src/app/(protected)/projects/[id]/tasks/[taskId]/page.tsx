@@ -1,6 +1,5 @@
 'use client';
 
-import { useState } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { ArrowLeft } from 'lucide-react';
@@ -9,7 +8,7 @@ import { useAuth } from '@/lib/auth-context';
 import { canEditTask } from '@/lib/access-control';
 import { Header } from '@/components/layout/Header';
 import { Button } from '@/components/ui/Button';
-import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { useTrashTask } from '@/components/tasks/useTrashTask';
 import { TaskActionsMenu, TaskDetailPanel } from '@/components/tasks/TaskDetailPanel';
 import { TitleField } from '@/components/tasks/TaskFields';
 import { canGoBackInApp } from '@/lib/tab-history';
@@ -28,14 +27,19 @@ export default function TaskPage() {
   const router = useRouter();
   const projectId = params.id as string;
   const taskId = params.taskId as string;
-  const { tasks, getProject, deleteTask, updateTask } = useApp();
+  const { tasks, getProject, updateTask } = useApp();
   const { teamMemberId, access } = useAuth();
-  const [confirmDelete, setConfirmDelete] = useState(false);
+  const trashTask = useTrashTask();
 
   const task = tasks.find(t => t.id === taskId) ?? null;
   // The task's own project wins over the address (a task moved since).
   const project = getProject(task?.project_id ?? projectId);
   const boardHref = `/projects/${project?.id ?? projectId}`;
+  // To Trash at once, back on the board, with Undo (Rule 6).
+  const trash = () => {
+    router.replace(boardHref);
+    void trashTask(taskId);
+  };
   const goBack = () => {
     if (canGoBackInApp()) router.back();
     else router.push(`${boardHref}?task=${taskId}`);
@@ -83,7 +87,7 @@ export default function TaskPage() {
               >
                 <span className="hidden sm:inline">Back</span>
               </Button>
-              <TaskActionsMenu task={task} onDelete={() => setConfirmDelete(true)} />
+              <TaskActionsMenu task={task} onDelete={trash} />
             </div>
           }
         />
@@ -94,22 +98,9 @@ export default function TaskPage() {
           variant="page"
           task={task}
           onClose={() => router.push(boardHref)}
-          onDelete={() => setConfirmDelete(true)}
+          onDelete={trash}
         />
       </div>
-
-      <ConfirmDialog
-        isOpen={confirmDelete}
-        onClose={() => setConfirmDelete(false)}
-        onConfirm={() => {
-          deleteTask(task.id);
-          router.replace(boardHref);
-        }}
-        title="Move task to Trash?"
-        message="The task goes to Trash with its subtasks and comments."
-        variant="danger"
-        trash
-      />
     </div>
   );
 }

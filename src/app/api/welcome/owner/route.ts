@@ -33,7 +33,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'The demo workspace has no accounts to create.' }, { status: 409 });
   }
   if (limited(request)) {
-    return NextResponse.json({ error: 'Too many tries. Wait a few minutes and try again.' }, { status: 429 });
+    return NextResponse.json({ error: 'Too many tries. Wait a few minutes and try again.' }, { status: 429, headers: { 'Retry-After': String(WINDOW_MS / 1000) } });
   }
   // Same rule as the page: nothing past "Connect your server" until the required settings are set.
   if (missingServerSettings(process.env).length) {

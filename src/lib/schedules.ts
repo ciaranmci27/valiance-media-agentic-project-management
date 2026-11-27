@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { calendarDate } from '@/lib/schemas/shared';
 import { RUNNER, TEMPLATE_VALUE_MAX } from '@/lib/task-templates';
 
 /**
@@ -18,7 +19,12 @@ import { RUNNER, TEMPLATE_VALUE_MAX } from '@/lib/task-templates';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
-const dateString = z.string().regex(DATE, 'Use YYYY-MM-DD').refine(isDate, 'Use a real calendar date, YYYY-MM-DD');
+const dateString = calendarDate;
+/** The dates a schedule takes (start, end, a repeated task's due date): this century, so every date it lists is a real one. */
+export const SCHEDULE_FIRST_DATE = '2000-01-01';
+export const SCHEDULE_LAST_DATE = '2099-12-31';
+export const inScheduleRange = (date: string) => date >= SCHEDULE_FIRST_DATE && date <= SCHEDULE_LAST_DATE;
+const scheduleDate = dateString.refine(inScheduleRange, 'Pick a date from 2000 to 2099');
 
 export const SCHEDULE_FREQUENCIES = ['daily', 'weekly', 'monthly'] as const;
 export type ScheduleFrequency = typeof SCHEDULE_FREQUENCIES[number];
@@ -81,9 +87,9 @@ export const templateScheduleSchema = z.object({
   /** IANA time zone the dates are in. Default: the workspace's. */
   timezone: zone.optional(),
   /** The first day it may run. Default: today, in its time zone. */
-  start_date: dateString.optional(),
+  start_date: scheduleDate.optional(),
   /** The last day it may run. Null: no end. */
-  end_date: dateString.nullable().optional(),
+  end_date: scheduleDate.nullable().optional(),
   /** One member per role, by role key ("runner" is whoever runs it: the schedule's runner). */
   roles: roleMap.default({}),
   /** A value per fill-in field; date and month are filled on each run. */
@@ -101,8 +107,8 @@ export const scheduleUpdateSchema = z.object({
   project_id: z.string().regex(UUID, 'project_id must be a uuid').optional(),
   recurrence: recurrenceSchema.optional(),
   timezone: zone.optional(),
-  start_date: dateString.optional(),
-  end_date: dateString.nullable().optional(),
+  start_date: scheduleDate.optional(),
+  end_date: scheduleDate.nullable().optional(),
   roles: roleMap.optional(),
   values: values.optional(),
   key_date_offsets: offsets.optional(),
@@ -120,7 +126,7 @@ export const taskRepeatSchema = z.object({
   mode: z.enum(REPEAT_MODES).default('schedule'),
   timezone: zone.optional(),
   /** No copy is due after this day. Null: no end. */
-  end_date: dateString.nullable().optional(),
+  end_date: scheduleDate.nullable().optional(),
 }).strict();
 export type TaskRepeatInput = z.infer<typeof taskRepeatSchema>;
 
@@ -255,7 +261,7 @@ export function lastOnOrBefore(rule: Recurrence, start: string, date: string): s
 export function upcomingDates(rule: Recurrence, start: string, from: string, count: number, end: string | null = null): string[] {
   const out: string[] = [];
   let day = nextOnOrAfter(rule, start, from);
-  while (out.length < count && (!end || day <= end)) {
+  while (out.length < count && (!end || day <= end) && day <= SCHEDULE_LAST_DATE) {
     out.push(day);
     day = nextAfter(rule, start, day);
   }

@@ -70,6 +70,8 @@ import * as myContext from '@/app/api/v1/agents/me/context/route';
 import * as myStatus from '@/app/api/v1/agents/me/status/route';
 import * as agentTemplates from '@/app/api/v1/agent-templates/route';
 import * as agentOne from '@/app/api/v1/agents/[id]/route';
+import * as agentAccess from '@/app/api/v1/agents/[id]/access/route';
+import * as agentTree from '@/app/api/v1/agents/tree/route';
 import * as myProjects from '@/app/api/v1/agents/me/projects/route';
 import * as projectAgents from '@/app/api/v1/projects/[id]/agents/route';
 import * as projectAgent from '@/app/api/v1/projects/[id]/agents/[agentId]/route';
@@ -91,6 +93,7 @@ import * as chatMessages from '@/app/api/v1/chat/messages/route';
 import * as chatMessage from '@/app/api/v1/chat/messages/[id]/route';
 import * as chatMessageReply from '@/app/api/v1/chat/messages/[id]/reply/route';
 import * as chatMessageHandled from '@/app/api/v1/chat/messages/[id]/handled/route';
+import * as events from '@/app/api/v1/events/route';
 import * as assistantSetups from '@/app/api/v1/assistant-setups/route';
 import * as webhookEndpoints from '@/app/api/v1/webhook-endpoints/route';
 import * as webhookEndpoint from '@/app/api/v1/webhook-endpoints/[id]/route';
@@ -208,6 +211,8 @@ export const ROUTE_MODULES: Record<string, RouteModule> = {
   '/api/v1/contacts': contacts,
   '/api/v1/agents': agents,
   '/api/v1/agents/{id}/setup': agentSetup,
+  '/api/v1/agents/{id}/access': agentAccess,
+  '/api/v1/agents/tree': agentTree,
   '/api/v1/agents/{id}/projects': agentProjects,
   '/api/v1/agents/{id}/context': agentContext,
   '/api/v1/agents/{id}/export': agentExport,
@@ -240,6 +245,7 @@ export const ROUTE_MODULES: Record<string, RouteModule> = {
   '/api/v1/chat/messages/{id}': chatMessage,
   '/api/v1/chat/messages/{id}/reply': chatMessageReply,
   '/api/v1/chat/messages/{id}/handled': chatMessageHandled,
+  '/api/v1/events': events,
   '/api/v1/assistant-setups': assistantSetups,
   '/api/v1/webhook-endpoints': webhookEndpoints,
   '/api/v1/webhook-endpoints/{id}': webhookEndpoint,

@@ -5,7 +5,7 @@ import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
 import { Header } from '@/components/layout/Header';
 import { PriorityBadge } from '@/components/ui/Badge';
-import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { useTrashTask } from '@/components/tasks/useTrashTask';
 import { TaskDetailPanel } from '@/components/tasks/TaskDetailPanel';
 import { useTaskUrlParam } from '@/lib/use-task-url';
 import { useTaskWarmer } from '@/lib/reads';
@@ -28,7 +28,7 @@ import { ReminderComposer } from '@/components/reminders/ReminderComposer';
 import { compareReminders, reminderGroup } from '@/lib/reminders';
 import { UnreadLabel, useCardUnread } from '@/components/tasks/TaskUnread';
 import { MyTaskSubtasks, type SubtaskFlag } from '@/components/tasks/MyTaskSubtasks';
-import { appLocale } from '@/lib/region';
+import { formatCalendarDay } from '@/lib/time-format';
 import { pendingSuggestionsInReach } from '@/lib/suggestion-reach';
 
 /**
@@ -85,7 +85,7 @@ export default function RadarPage() {
 }
 
 function RadarPageContent() {
-  const { tasks, projects, taskSuggestions, timeEntries, agentActivity, deleteTask, reminders, addReminder } = useApp();
+  const { tasks, projects, taskSuggestions, timeEntries, agentActivity, reminders, addReminder } = useApp();
   const { teamMemberId, access } = useAuth();
   const cardUnread = useCardUnread();
 
@@ -94,7 +94,7 @@ function RadarPageContent() {
   // Pointing at a task warms its panel, so it opens with its emails and files.
   const warmTask = useTaskWarmer();
   const [reviewingTaskId, setReviewingTaskId] = useState<string | null>(null);
-  const [deletingTaskId, setDeletingTaskId] = useState<string | null>(null);
+  const trashTask = useTrashTask();
   const [showDoneReminders, setShowDoneReminders] = useState(false);
   // Subtask trays the person opened or closed; the rest follow the default.
   const [trayOpen, setTrayOpen] = useState<Map<string, boolean>>(() => new Map());
@@ -234,7 +234,7 @@ function RadarPageContent() {
       <span className={`text-xs flex items-center gap-1 flex-shrink-0 tabular-nums ${overdue ? 'text-red-400 font-medium' : 'text-zinc-500'}`}>
         <CalendarClock size={12} aria-hidden="true" />
         {overdue ? 'Overdue ' : ''}
-        {d.toLocaleDateString(appLocale(), { month: 'short', day: 'numeric' })}
+        {formatCalendarDay(task.due_date)}
       </span>
     );
   };
@@ -639,20 +639,7 @@ function RadarPageContent() {
       <TaskDetailPanel
         task={viewingTask}
         onClose={closeViewingTask}
-        onDelete={(id) => setDeletingTaskId(id)}
-      />
-
-      <ConfirmDialog
-        isOpen={!!deletingTaskId}
-        onClose={() => setDeletingTaskId(null)}
-        onConfirm={() => {
-          if (deletingTaskId) deleteTask(deletingTaskId);
-          closeViewingTask();
-        }}
-        title="Move task to Trash?"
-        message="The task goes to Trash with its subtasks and comments."
-        variant="danger"
-        trash
+        onDelete={(id) => { closeViewingTask(); void trashTask(id); }}
       />
     </div>
   );

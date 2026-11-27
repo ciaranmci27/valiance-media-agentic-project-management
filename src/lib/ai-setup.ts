@@ -39,6 +39,7 @@ export const AI_SETUP_TOOLS: readonly string[] = [
   'hire_agent', 'create_agent', 'apply_agent_template', 'update_agent',
   'set_agent_projects', 'set_project_agent', 'remove_project_agent',
   'create_api_key', 'list_webhook_endpoints', 'create_webhook_endpoint',
+  'get_agent_tree', 'get_agent_access', 'set_agent_access',
 ];
 
 type Method = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
@@ -67,6 +68,9 @@ export const AI_SETUP_ROUTES: ReadonlyArray<readonly [Method, string]> = [
   ['POST', '/api/v1/api-keys'],
   ['GET', '/api/v1/webhook-endpoints'],
   ['POST', '/api/v1/webhook-endpoints'],
+  ['GET', '/api/v1/agents/tree'],
+  ['GET', '/api/v1/agents/{id}/access'],
+  ['PUT', '/api/v1/agents/{id}/access'],
 ];
 
 const ROUTE_PATTERNS = AI_SETUP_ROUTES.map(([method, path]) => ({
@@ -80,7 +84,7 @@ export function aiSetupRoute(method: string, pathname: string): string | null {
   const found = ROUTE_PATTERNS.find((route) => route.method === method && route.pattern.test(pathname));
   if (!found) return null;
   // /api/v1/agents/{id} must not stand for /api/v1/agents/me or /hire.
-  if (found.path.startsWith('/api/v1/agents/{id}') && /^\/api\/v1\/agents\/(me|hire|import|roles|health|heartbeat|runs)(\/|$)/.test(pathname)) return null;
+  if (found.path.startsWith('/api/v1/agents/{id}') && /^\/api\/v1\/agents\/(me|hire|import|roles|health|heartbeat|runs|tree)(\/|$)/.test(pathname)) return null;
   return found.path;
 }
 
@@ -186,7 +190,7 @@ export const AI_SETUP_EXAMPLES: readonly AiSetupExample[] = [
   {
     id: 'company',
     label: 'Company agent',
-    request: 'Set up a company agent called Alexa who runs the company, hands work to Jeff, John and Greg, and can act for me. Ask me anything you need first.',
+    request: 'Set up a company agent called Atlas who runs day-to-day operations, hands work to our other agents, and can act for me. Ask me anything you need first.',
   },
   {
     id: 'inbox-triage',

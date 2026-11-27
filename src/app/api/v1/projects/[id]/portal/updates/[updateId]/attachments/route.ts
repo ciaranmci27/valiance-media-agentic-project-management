@@ -1,9 +1,10 @@
 import { withApi } from '@/lib/api/middleware';
+import { withDownloadUrls } from '@/lib/storage/sign-stored-file';
 import { paginated, created } from '@/lib/api/response';
 import { createPortalUpdateAttachmentSchema } from '@/lib/schemas';
 import { notFound } from '@/lib/api/errors';
 import { logAudit } from '@/lib/api/audit';
-import { parsePagination } from '@/lib/api/pagination';
+import { parsePagination, readPage } from '@/lib/api/pagination';
 import { insertPortalUpdateAttachments } from '@/lib/supabase/queries';
 import { z } from 'zod';
 
@@ -21,16 +22,17 @@ export const GET = withApi(async ({ supabase, params, searchParams }) => {
     .maybeSingle();
   if (!update) throw notFound('Portal update');
 
-  const { data, count, error } = await supabase
+  const { data, count, error } = await readPage(supabase
     .from('portal_update_attachments')
     .select('*', { count: 'exact' })
     .eq('update_id', updateId)
     .is('deleted_at', null)
     .order('created_at', { ascending: true })
-    .range(offset, offset + limit - 1);
+    .order('id'), { offset, limit });
 
   if (error) throw error;
-  return paginated(data || [], { page, limit, total: count || 0 });
+  // Attachments are private: download_url is a signed link that lasts an hour.
+  return paginated(await withDownloadUrls(supabase, data || [], 3600), { page, limit, total: count || 0 });
 }, { permission: 'portal.read' });
 
 export const POST = withApi(async ({ supabase, params, body, apiKeyId, teamMemberId }) => {

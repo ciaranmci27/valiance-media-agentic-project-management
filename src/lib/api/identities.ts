@@ -9,6 +9,7 @@ import { hashApiKey } from './crypto';
 import { ApiError, forbidden, notFound } from './errors';
 import { groupsMigrationPending, missingGroupsSchema } from './groups';
 import { readAll } from './read-all';
+import { readPage } from './pagination';
 
 /**
  * Linked identities for the API (v1, MCP) and the session routes.
@@ -354,14 +355,13 @@ export async function groupIdentities(
   const { data: group, error: groupError } = await service.from('groups').select('id, name').eq('id', groupId).is('deleted_at', null).maybeSingle();
   if (groupError) fail(groupError);
   if (!group) throw notFound('Group');
-  const { data, count, error } = await service
+  const { data, count, error } = await readPage(service
     .from('group_members')
     .select('member_id, role, created_at, member:team_members!group_members_member_id_fkey!inner(id, name, role, title, status)', { count: 'exact' })
     .eq('group_id', groupId)
     .order('role', { ascending: true })
     .order('created_at')
-    .order('member_id')
-    .range(page.offset, page.offset + page.limit - 1);
+    .order('member_id'), page);
   if (error) fail(error);
   const rows = (data ?? []) as Row[];
   const activeIds = rows.filter((row) => row.member?.status !== 'suspended').map((row) => row.member_id as string);

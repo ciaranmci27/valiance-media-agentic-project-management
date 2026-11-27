@@ -10,6 +10,7 @@ import { accessAllowsProject } from '@/lib/api/access';
 import type { AccessContext } from '@/lib/access-control';
 import { actingForOf } from './inbox-visibility';
 import { inboxHandling } from './inbox-handlers';
+import { readPage } from '@/lib/api/pagination';
 
 /**
  * What the agent API returns. Reads are plain queries joined here (no
@@ -203,10 +204,9 @@ export async function listMessages(
     if (filed.length === 0) return { data: [], total: 0 };
     query = query.in('thread_id', filed.map((row) => row.conversation_id));
   }
-  const { data, count, error } = await query
+  const { data, count, error } = await readPage(query
     .order('received_at', { ascending: false })
-    .order('id', { ascending: false })
-    .range(page.offset, page.offset + page.limit - 1);
+    .order('id', { ascending: false }), page);
   if (error) throw error;
   const messages = (data ?? []) as Row[];
   const ids = messages.map((message) => message.id as string);

@@ -1,10 +1,11 @@
 import { z } from 'zod';
+import { criterionText } from './shared';
 
 export const createAcceptanceCriterionSchema = z.object({
-  criterion: z.string().min(1, 'Criterion is required'),
+  criterion: criterionText(),
 });
 
 export const updateAcceptanceCriterionSchema = z.object({
-  criterion: z.string().min(1).optional(),
+  criterion: criterionText().optional(),
   satisfied: z.boolean().optional(),
 });

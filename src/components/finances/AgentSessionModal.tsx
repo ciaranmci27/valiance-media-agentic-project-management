@@ -12,6 +12,7 @@ import type { TeamMember, TimeEntry } from '@/lib/types';
 import { formatNumber } from '@/lib/format';
 import { appLocale } from '@/lib/region';
 import { Bot, Clock3, PauseCircle } from 'lucide-react';
+import { formatInZone } from '@/lib/time-format';
 
 /** Review surface for one agent work session: the raw segment timeline, what
  *  the agent logged while the timer ran, and the billing conversion preview.
@@ -28,7 +29,7 @@ interface AgentSessionModalProps {
 }
 
 const timeFmt = (iso: string) =>
-  new Date(iso).toLocaleTimeString(appLocale(), { hour: 'numeric', minute: '2-digit', second: '2-digit' });
+  formatInZone(iso, { hour: 'numeric', minute: '2-digit', second: '2-digit' });
 const dateFmt = (iso: string) =>
   new Date(iso).toLocaleDateString(appLocale(), { weekday: 'short', month: 'short', day: 'numeric' });
 

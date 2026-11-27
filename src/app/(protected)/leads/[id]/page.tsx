@@ -19,6 +19,7 @@ import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { toast } from '@/components/ui/Toast';
 import { LeadInteraction, LeadProposal } from '@/lib/types';
 import { RichTextEditor } from '@/components/ui/RichTextEditor';
+import { richTextToSafeHtml } from '@/lib/security/rich-text';
 import {
   Edit, Trash2, ArrowRightCircle, Target,
   Mail, Phone, Building2, User, StickyNote, DollarSign, Plus, CalendarClock,
@@ -299,7 +300,9 @@ export default function LeadDetailPage() {
               lead.notes ? (
                 <div
                   className="text-sm text-zinc-300 prose prose-sm prose-zinc max-w-none"
-                  dangerouslySetInnerHTML={{ __html: lead.notes }}
+                  // Escaped, with only the editor's own tags turned back on: notes come
+                  // from members, agents and email triage (src/lib/security/rich-text.ts).
+                  dangerouslySetInnerHTML={{ __html: richTextToSafeHtml(lead.notes) }}
                 />
               ) : (
                 <p className="text-sm text-zinc-500 italic">No notes yet</p>

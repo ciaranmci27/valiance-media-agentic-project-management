@@ -1310,6 +1310,7 @@ export const demoNotifications: Notification[] = [
     is_read: false,
     entity_type: 'task',
     entity_id: 'd4d4d4d4-0001-4000-8000-000000000001',
+    actor_id: 'a1a1a1a1-0002-4000-8000-000000000002',
     created_at: hoursAgo(1),
   },
   {
@@ -1321,6 +1322,7 @@ export const demoNotifications: Notification[] = [
     is_read: false,
     entity_type: 'comment',
     entity_id: 'd4d4d4d4-0005-4000-8000-000000000005',
+    actor_id: 'a1a1a1a1-0004-4000-8000-000000000004',
     created_at: hoursAgo(3),
   },
   // Read
@@ -1333,6 +1335,7 @@ export const demoNotifications: Notification[] = [
     is_read: true,
     entity_type: 'lead',
     entity_id: 'e5e5e5e5-0003-4000-8000-000000000003',
+    actor_id: 'a1a1a1a1-0003-4000-8000-000000000003',
     created_at: hoursAgo(8),
   },
   {
@@ -1344,6 +1347,7 @@ export const demoNotifications: Notification[] = [
     is_read: true,
     entity_type: 'task',
     entity_id: 'd4d4d4d4-0002-4000-8000-000000000002',
+    actor_id: 'a1a1a1a1-0003-4000-8000-000000000003',
     created_at: hoursAgo(12),
   },
   {
@@ -1366,6 +1370,7 @@ export const demoNotifications: Notification[] = [
     is_read: true,
     entity_type: 'lead',
     entity_id: 'e5e5e5e5-0004-4000-8000-000000000004',
+    actor_id: 'a1a1a1a1-0001-4000-8000-000000000001',
     created_at: daysAgo(2),
   },
   {
@@ -1377,6 +1382,7 @@ export const demoNotifications: Notification[] = [
     is_read: true,
     entity_type: 'task',
     entity_id: 'd4d4d4d4-0007-4000-8000-000000000007',
+    actor_id: 'a1a1a1a1-0004-4000-8000-000000000004',
     created_at: daysAgo(3),
   },
   {

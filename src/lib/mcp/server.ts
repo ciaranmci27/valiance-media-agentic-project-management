@@ -33,6 +33,8 @@ export interface McpCaller {
   connection?: boolean;
   /** A live AI setup session (lib/ai-setup.ts): the setup tools with its powers, and for a setup key nothing else. */
   aiSetup?: { scopes: string[]; only: boolean; clientName: string; expiresAt: string | null } | null;
+  /** The HTTP request's signal: a tool call that waits (get_events, list_chat_messages with wait) ends early when the client goes away. */
+  signal?: AbortSignal;
 }
 
 /** Hermes spills larger results to disk; reads over this are refused with a hint. */
@@ -76,7 +78,7 @@ export function refusal(status: number, code: string, message: string, details: 
  * own schema, and the route writes its audit row tagged via = mcp, exactly
  * as for REST.
  */
-export function routeCaller(caller: Pick<McpCaller, 'key' | 'origin' | 'actFor' | 'connection'>): CallRoute {
+export function routeCaller(caller: Pick<McpCaller, 'key' | 'origin' | 'actFor' | 'connection' | 'signal'>): CallRoute {
   return async ({ method, path, params = {}, query, body, idempotencyKey }) => {
     const handler = routeHandler(path, method);
     if (!handler) return { status: 500, envelope: { success: false, error: { code: 'INTERNAL_ERROR', message: `No handler for ${method} ${path}` } } };
@@ -94,20 +96,26 @@ export function routeCaller(caller: Pick<McpCaller, 'key' | 'origin' | 'actFor' 
         method,
         headers,
         ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+        ...(caller.signal ? { signal: caller.signal } : {}),
       }),
       { params: Promise.resolve(params) },
     ));
     const envelope = (await response.json().catch(() => null)) as RouteEnvelope | null;
-    return { status: response.status, envelope };
+    const retryAfter = Number(response.headers.get('Retry-After'));
+    return { status: response.status, envelope, ...(response.status === 429 && retryAfter > 0 ? { retryAfter } : {}) };
   };
 }
 
 export function outcomeResult(outcome: ToolOutcome, write: boolean, maxChars = MAX_RESULT_CHARS): CallToolResult {
   if (outcome.kind === 'payload') return payloadResult(outcome.payload, outcome.payload.ok === false);
-  const { status, envelope } = outcome.result;
+  const { status, envelope, retryAfter } = outcome.result;
   if (status >= 400 || !envelope?.success) {
     const error = envelope?.error;
-    return refusal(status >= 400 ? status : 500, error?.code ?? 'INTERNAL_ERROR', error?.message ?? 'Something went wrong on the server.', error?.details);
+    // A 429 carries REST's Retry-After as retry_after_seconds.
+    const details = retryAfter && !Array.isArray(error?.details)
+      ? { ...((error?.details ?? {}) as Record<string, unknown>), retry_after_seconds: retryAfter }
+      : error?.details;
+    return refusal(status >= 400 ? status : 500, error?.code ?? 'INTERNAL_ERROR', error?.message ?? 'Something went wrong on the server.', details);
   }
   const data = outcome.present ? outcome.present(envelope.data, envelope.meta) : envelope.data;
   const payload: Record<string, unknown> = { ok: true, data, ...(envelope.meta ? { meta: envelope.meta } : {}) };

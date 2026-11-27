@@ -1,15 +1,16 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import {
-  assignTemplateKeys, isCalendarDate, issuesFromZod, keyDatesOf, mainKeyDate, missingValues, pastDueOf, planRun, RUNNER, taskCount,
-  TEMPLATE_FIELD_KEY, templateDocumentSchema, templateIssue, templateIssues, templatePatchSchema, templateScope,
+  assignTemplateKeys, isCalendarDate, issuesFromZod, keyDatesOf, mainKeyDate, missingValues, pastDueOf, planRun, RUNNER, runDateWarnings, taskCount,
+  TEMPLATE_FIELD_KEY, templateDocumentSchema, templateIssue, templateIssues, templateWarnings, templatePatchSchema, templateScope,
   type PlannedTask, type RunTaskTemplateInput, type TaskTemplateRunResult, type TaskTemplateRunView, type TaskTemplateSummary,
   type TaskTemplateView, type TemplateField, type TemplateIssue, type TemplateKeyDate, type TemplateRole,
-  type TemplatePastDue, type TemplateRunInitiative, type TemplateRunVia, type TemplateScope, type TemplateTask,
+  type TemplateDateWarning, type TemplatePastDue, type TemplateRunInitiative, type TemplateRunVia, type TemplateScope, type TemplateTask,
 } from '@/lib/task-templates';
 import { toLocalDateString } from '@/lib/date-utils';
 import { moveToTrash } from '@/lib/supabase/trash';
 import { accessAllowsProject, resolveMemberAccess } from './access';
 import { callerChannel, callerHolds, type AgentCaller } from './agent-owners';
+import { agentIdsAmong, mayGiveAgentWork, workGiverOf } from './agent-access';
 import { loadMemberRules } from './agent-rules';
 import { requireAssistantSwitch } from './assistant';
 import { insertTask } from '@/lib/supabase/queries';
@@ -19,6 +20,7 @@ import { assertProjectWritable } from './request-gate';
 import { trashForApi } from './trash';
 import { createInitiative } from './initiatives';
 import { ApiError, forbidden, notFound } from './errors';
+import { readPage } from './pagination';
 
 /**
  * Task templates for the API (v1, MCP) and the session routes. Routes run on
@@ -284,7 +286,7 @@ export async function listTemplates(service: SupabaseClient, caller: AgentCaller
   if (search) query = query.ilike('name', `%${search}%`);
   // In a project, its own templates come first, then the company's.
   if (filters.project_id) query = query.order('project_id', { ascending: true, nullsFirst: false });
-  const { data, count, error } = await query.order('name').order('id').range(filters.offset, filters.offset + filters.limit - 1);
+  const { data, count, error } = await readPage(query.order('name').order('id'), filters);
   if (error) fail(error);
   const rows = (data ?? []) as Row[];
   const [projects, stats] = await Promise.all([projectNames(service, rows.map((r) => r.project_id)), runStats(service, rows.map((r) => r.id))]);
@@ -429,6 +431,8 @@ async function workspaceIssues(service: SupabaseClient, caller: AgentCaller, cha
 export interface TemplateValidation {
   valid: boolean;
   errors: Omit<TemplateIssue, 'segments'>[];
+  /** What may not be meant (dependency_due_before): never stops a save or a run. */
+  warnings: Omit<TemplateIssue, 'segments'>[];
   template: (TemplateContent & { scope: TemplateScope; task_count: number }) | null;
   /** Whether the caller may save it where it is scoped. */
   can_save: boolean;
@@ -446,6 +450,7 @@ export async function validateTemplate(service: SupabaseClient, caller: AgentCal
   return {
     valid: check.errors.length === 0,
     errors: publicIssues(check.errors),
+    warnings: publicIssues(templateWarnings(content ?? (before ? { ...contentOfView(before), ...(raw as object) } : raw))),
     template: content ? { ...content, scope: templateScope(content.project_id), task_count: taskCount(content.items) } : null,
     can_save: !!content && canWriteTemplate(caller, content.project_id) && (!before || canWriteTemplate(caller, before.project_id)),
   };
@@ -546,7 +551,7 @@ export async function listRuns(service: SupabaseClient, caller: AgentCaller, tem
     if (!reachable.length) return { rows: [], total: 0 };
     query = query.in('project_id', reachable);
   }
-  const { data, count, error } = await query.order('created_at', { ascending: false }).order('id').range(page.offset, page.offset + page.limit - 1);
+  const { data, count, error } = await readPage(query.order('created_at', { ascending: false }).order('id'), page);
   if (error) fail(error);
   const rows = (data ?? []) as Row[];
   const [projects, names] = await Promise.all([projectNames(service, rows.map((r) => r.project_id)), memberNames(service, rows.map((r) => r.run_by))]);
@@ -569,22 +574,32 @@ export async function runnerToday(service: SupabaseClient, memberId: string): Pr
  * project. Anyone else is left off, and a note says so, so a use (or a
  * schedule later) never fails because someone left a project.
  */
-async function resolveAssignees(service: SupabaseClient, plan: PlannedTask[], projectId: string, projectName: string): Promise<{ allowed: Set<string>; notes: string[] }> {
+async function resolveAssignees(service: SupabaseClient, plan: PlannedTask[], projectId: string, projectName: string, caller: AgentCaller): Promise<{ allowed: Set<string>; notes: string[] }> {
   const ids = [...new Set(plan.flatMap((task) => [task.assignee_id, ...task.subtasks.map((s) => s.assignee_id)]).filter((id): id is string => !!id))];
   const allowed = new Set<string>();
   const refused: string[] = [];
+  const unavailable: string[] = [];
   const reach = await Promise.all(ids.map(async (id) => {
     const access = await resolveMemberAccess(service, id);
     return !!access && access.status === 'active'
       && (accessAllowsProject(access, projectId, 'app') || accessAllowsProject(access, projectId, 'api'));
   }));
-  ids.forEach((id, i) => (reach[i] ? allowed.add(id) : refused.push(id)));
+  // An agent the caller may not give work to (its orchestrator, who can use it, ask first) is left off too.
+  const giver = workGiverOf(caller.access, caller.memberId);
+  const agents = new Set(await agentIdsAmong(service, ids.filter((_, i) => reach[i])));
+  const usable = await Promise.all(ids.map((id) => (agents.has(id) ? mayGiveAgentWork(service, id, giver) : Promise.resolve(true))));
+  ids.forEach((id, i) => (!reach[i] ? refused.push(id) : !usable[i] ? unavailable.push(id) : allowed.add(id)));
   const notes: string[] = [];
-  if (refused.length) {
-    const names = await memberNames(service, refused);
+  if (refused.length || unavailable.length) {
+    const names = await memberNames(service, [...refused, ...unavailable]);
+    const titlesOf = (id: string) => plan.flatMap((task) => [task, ...task.subtasks]).filter((task) => task.assignee_id === id).map((task) => `"${task.title}"`);
     for (const id of refused) {
-      const titles = plan.flatMap((task) => [task, ...task.subtasks]).filter((task) => task.assignee_id === id).map((task) => `"${task.title}"`);
+      const titles = titlesOf(id);
       notes.push(`${names.get(id) ?? 'Someone'} cannot open ${projectName}, so ${titles.join(', ')} ${titles.length === 1 ? 'is' : 'are'} unassigned.`);
+    }
+    for (const id of unavailable) {
+      const titles = titlesOf(id);
+      notes.push(`${names.get(id) ?? 'That agent'} is not available to you right now, so ${titles.join(', ')} ${titles.length === 1 ? 'is' : 'are'} unassigned.`);
     }
   }
   return { allowed, notes };
@@ -908,7 +923,7 @@ export async function prepareRun(service: SupabaseClient, caller: AgentCaller, t
   });
   let allowed: Set<string> | null = null;
   if (projectId && projectName) {
-    const resolved = await resolveAssignees(service, plan, projectId, projectName);
+    const resolved = await resolveAssignees(service, plan, projectId, projectName, caller);
     allowed = resolved.allowed;
     notes.push(...resolved.notes);
   }
@@ -953,6 +968,8 @@ export interface TemplateRunPreview {
   notes: string[];
   /** Every task and subtask the plan dates before today in the caller's time zone, in plan order (a note per task on screen). */
   past_due: TemplatePastDue[];
+  /** Dates that do not add up: key dates out of order, a task due before a task it waits on. Warnings; the run still works. */
+  date_warnings: TemplateDateWarning[];
 }
 
 /**
@@ -993,6 +1010,7 @@ export async function previewOfPrepared(service: SupabaseClient, prepared: Prepa
     task_count: taskCount(prepared.items),
     notes: prepared.notes,
     past_due: pastDueOf(tasks, today),
+    date_warnings: runDateWarnings(tasks, prepared.keyDateList, prepared.keyDates),
   };
 }
 

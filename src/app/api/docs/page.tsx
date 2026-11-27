@@ -248,11 +248,11 @@ export default async function ApiDocsPage() {
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div className="p-3 bg-zinc-50 rounded-lg border border-zinc-100">
                   <p className="text-sm font-medium text-zinc-700">Rate Limit</p>
-                  <p className="text-xs text-zinc-500 mt-0.5">120 requests/minute per key</p>
+                  <p className="text-xs text-zinc-500 mt-0.5">120 requests/minute per key. Bodies up to 1 MB (5 MB for a file sent inline), else 413 body_too_large</p>
                 </div>
                 <div className="p-3 bg-zinc-50 rounded-lg border border-zinc-100">
                   <p className="text-sm font-medium text-zinc-700">Pagination</p>
-                  <p className="text-xs text-zinc-500 mt-0.5">?page=1&limit=25 (max 100)</p>
+                  <p className="text-xs text-zinc-500 mt-0.5">?page=1&limit=25 (max 100). A page past the end is empty, with meta.total.</p>
                 </div>
                 <div className="p-3 bg-zinc-50 rounded-lg border border-zinc-100">
                   <p className="text-sm font-medium text-zinc-700">Read-only Keys</p>
@@ -351,12 +351,12 @@ export default async function ApiDocsPage() {
                         ['401', 'UNAUTHORIZED', 'Missing, invalid, disabled, or expired API key. See error.details.reason.'],
                         ['403', 'FORBIDDEN', 'Authenticated but not allowed. error.details says what to grant and where.'],
                         ['400', 'BAD_REQUEST', 'Malformed request, e.g. the body is not valid JSON.'],
-                        ['422', 'VALIDATION_ERROR', 'Body failed validation. error.details lists the offending fields.'],
+                        ['422', 'VALIDATION_ERROR', 'Body failed validation. error.details lists the offending fields (dates are real days, YYYY-MM-DD or an ISO 8601 date-time read as its date, years 1900 to 2200; titles are trimmed, never blank; text is capped; NUL and half surrogate pairs are refused with details.field).'],
                         ['404', 'NOT_FOUND', 'The requested record does not exist.'],
                         ['409', 'CONFLICT', 'The request conflicts with the current state.'],
                         ['409', 'IDEMPOTENCY_IN_FLIGHT', 'A request with the same Idempotency-Key is still running. Retry shortly with the same key.'],
                         ['422', 'IDEMPOTENCY_KEY_REUSED', 'The Idempotency-Key was already used for a different request.'],
-                        ['429', 'RATE_LIMIT_EXCEEDED', 'Too many requests. Retry after the X-RateLimit-Reset time.'],
+                        ['429', 'RATE_LIMIT_EXCEEDED', 'Too many requests. Retry-After says how many seconds to wait (X-RateLimit-Reset is the same moment).'],
                         ['500', 'INTERNAL_ERROR', 'Unexpected server error. error.details.request_id identifies the server log.'],
                       ].map(([status, code, meaning]) => (
                         <tr key={code}>

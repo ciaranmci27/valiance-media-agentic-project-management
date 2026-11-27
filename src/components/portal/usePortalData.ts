@@ -1,6 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import type { PortalFileLinks } from '@/lib/portal-file-links';
+import { filesWithFreshLinks, PORTAL_LINK_REFRESH_MS, withFreshLinks } from './portal-links';
 import type { PortalData } from '@/lib/types';
 import type { PinInputRef } from '@/components/ui/PinInput';
 import { toast } from '@/components/ui/Toast';
@@ -98,6 +100,8 @@ export function usePortalData(token: string) {
   // Stable session id for the lifetime of this tab. Sent on every portal API
   // call so the server can group events into one "visit" in the analytics view.
   const sessionId = useRef<string>('');
+  /** When the page's file links were signed (see refreshLinks). */
+  const linksAtRef = useRef(0);
   if (typeof window !== 'undefined' && !sessionId.current) {
     sessionId.current = getOrCreateClientSessionId(token);
   }
@@ -182,6 +186,7 @@ export function usePortalData(token: string) {
 
       const portalData: PortalData = await res.json();
       setData(portalData);
+      linksAtRef.current = Date.now();
       setPinRequired(false);
       setPinLockMessage(null);
 
@@ -241,6 +246,44 @@ export function usePortalData(token: string) {
   // the page and fire once per section per session. The set lives in a ref so
   // re-renders don't re-fire events. The sections only exist once the loader
   // has left, so this waits for that rather than for the data alone.
+  // Files live in private buckets and their links last an hour: an open page
+  // asks for fresh ones before they run out (checked each minute and when the
+  // tab comes back), and when a picture fails to load. Not a visit, so no
+  // analytics event.
+  const linksTriedAtRef = useRef(0);
+  const refreshLinks = useCallback(async () => {
+    if (Date.now() - linksTriedAtRef.current < 30_000) return;
+    linksTriedAtRef.current = Date.now();
+    try {
+      const storedPin = getStoredPin(token);
+      const headers: Record<string, string> = {};
+      if (storedPin) headers['x-portal-pin'] = storedPin;
+      const res = await fetch(`/api/portal/${token}/links${portalDemoQuery()}`, { headers, cache: 'no-store' });
+      if (!res.ok) return;
+      const links: PortalFileLinks = await res.json();
+      setData((prev) => (prev ? withFreshLinks(prev, links) : prev));
+      setLocalFiles((prev) => filesWithFreshLinks(prev, links));
+      linksAtRef.current = Date.now();
+    } catch {
+      /* the next check tries again */
+    }
+  }, [token]);
+  const hasData = data !== null;
+  useEffect(() => {
+    if (!hasData || pinRequired) return;
+    const check = () => {
+      if (document.visibilityState === 'visible' && Date.now() - linksAtRef.current > PORTAL_LINK_REFRESH_MS) void refreshLinks();
+    };
+    const timer = setInterval(check, 60_000);
+    window.addEventListener('focus', check);
+    document.addEventListener('visibilitychange', check);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener('focus', check);
+      document.removeEventListener('visibilitychange', check);
+    };
+  }, [hasData, pinRequired, refreshLinks]);
+
   const firedSectionsRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     if (!data || pinRequired || phase !== 'done') return;
@@ -310,5 +353,6 @@ export function usePortalData(token: string) {
     localFiles,
     fileUploading,
     uploadFile,
+    refreshLinks,
   };
 }

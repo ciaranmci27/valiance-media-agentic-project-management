@@ -6,6 +6,8 @@ import { Check, Link2, Loader2 } from 'lucide-react';
 import { SettingsSectionHeader } from '@/components/settings/SettingsSectionHeader';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Button } from '@/components/ui/Button';
+import { Pill } from '@/components/ui/Pill';
+import { ProviderLogo } from '@/components/ui/ProviderLogo';
 import { toast } from '@/components/ui/Toast';
 import { useDemo } from '@/lib/demo-context';
 import { invalidateTables, useRead } from '@/lib/query-cache';
@@ -33,17 +35,14 @@ export function ChatAccountRow({ identity, onUnlink, disabled, detail }: {
   const handle = identity.handle ?? identity.external_id;
   return (
     <div className="flex items-center justify-between gap-3">
+      <ProviderLogo provider={identity.provider} label={providerLabel(identity.provider)} size="md" tile badge={identity.verified ? 'done' : 'waiting'} decorative />
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
           <span className="text-sm font-medium text-zinc-100">{providerLabel(identity.provider)}</span>
           <span className="truncate text-sm text-zinc-300">{handle}</span>
-          {identity.verified ? (
-            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/[0.14] px-2 py-0.5 text-[11px] font-medium text-emerald-300">
-              <Check size={11} aria-hidden="true" />Connected
-            </span>
-          ) : (
-            <span className="rounded-full bg-amber-500/[0.14] px-2 py-0.5 text-[11px] font-medium text-amber-300">Not verified</span>
-          )}
+          {identity.verified
+            ? <Pill tone="good" icon={<Check size={11} aria-hidden="true" />}>Connected</Pill>
+            : <Pill tone="waiting" dot>Not verified</Pill>}
         </div>
         {detail && <p className="mt-0.5 truncate text-xs text-zinc-500">{detail}</p>}
       </div>

@@ -13,6 +13,7 @@ import { getBrand } from '@/lib/brand/server';
 import { getRegion } from '@/lib/region/server';
 import { formatMoney } from '@/lib/format';
 import type { EmailRegion } from '@/lib/email/templates/client/layout';
+import { requireSessionAccess } from '@/lib/api/access';
 
 export const dynamic = 'force-dynamic';
 
@@ -58,6 +59,11 @@ function invoicePreview(brand: Brand, region: EmailRegion, status: InvoiceStatus
 }
 
 export async function GET(req: NextRequest) {
+  // Sample emails in this workspace's brand, for the team only: the route
+  // refuses a signed-out caller itself, whatever the proxy does.
+  const access = await requireSessionAccess();
+  if (access.error) return access.error;
+
   const template = req.nextUrl.searchParams.get('template') || 'portal-welcome';
   // Previews show this workspace's brand, as the real emails do.
   const brand = await getBrand();

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { accessAllows, requireSessionAccess } from '@/lib/api/access';
+import { missingMarker } from '@/lib/api/agent-scope-grants';
 import { PERMISSIONS, TEAM_ROLES, accessChannelsFor, type AccessChannel, type AccessContext, type PermissionEffect } from '@/lib/access-control';
 
 /**
@@ -105,9 +106,12 @@ export async function PUT(request: Request) {
       permission_key: body.permission_key,
       access_channel: body.access_channel!,
     };
-    const result = body.effect
-      ? await service.from('team_member_permissions').upsert({ ...match, effect: body.effect, created_by: memberId }).select().single()
-      : await service.from('team_member_permissions').delete().match(match);
+    // Set here, an allow or deny is the Owner's own (given_with_key false): a key edit never takes it away.
+    const save = (marked: boolean) => service.from('team_member_permissions')
+      .upsert({ ...match, effect: body.effect, created_by: memberId, ...(marked ? { given_with_key: false } : {}) }, { onConflict: 'member_id,permission_key,access_channel' })
+      .select().single();
+    let result = body.effect ? await save(true) : await service.from('team_member_permissions').delete().match(match);
+    if (body.effect && missingMarker(result.error)) result = await save(false);
     if (result.error) return NextResponse.json({ error: result.error.message }, { status: 500 });
   }
   return NextResponse.json({ success: true });

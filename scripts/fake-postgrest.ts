@@ -374,6 +374,9 @@ export async function startFakePostgrest(db: PGlite, options: { maxRows?: number
               for (const embed of select.embeds) out[embed.key] = row[embed.key];
               return out;
             });
+        // An exact count with an offset past it answers 416, as PostgREST does.
+        if (total !== null && offset > total)
+          return send(416, { code: "PGRST103", message: "Requested range not satisfiable", details: `An offset of ${offset} was requested, but there are only ${total} rows.`, hint: null }, { "Content-Range": `*/${total}` });
         const headers: Record<string, string> = {};
         if (total !== null) headers["Content-Range"] = projected.length ? `${offset}-${offset + projected.length - 1}/${total}` : `*/${total}`;
         if (request.method === "HEAD") return send(200, undefined, headers);
@@ -403,13 +406,17 @@ export async function startFakePostgrest(db: PGlite, options: { maxRows?: number
         const returning = (request.headers.prefer ?? "").includes("return=representation");
         // Upsert, as supabase-js sends it: Prefer resolution=merge-duplicates plus ?on_conflict=cols.
         const merge = (request.headers.prefer ?? "").includes("resolution=merge-duplicates");
+        // ignoreDuplicates: Prefer resolution=ignore-duplicates, an existing row is left as it is and not returned.
+        const ignore = (request.headers.prefer ?? "").includes("resolution=ignore-duplicates");
         const conflict = (url.searchParams.get("on_conflict") ?? "").split(",").map((c) => c.trim()).filter(Boolean);
         const out: unknown[] = [];
         await asService(request.headers, async () => {
           for (const record of records) {
             const keys = Object.keys(record);
             const params = await Promise.all(keys.map((key) => columnValue(schemaName, rest, key, record[key])));
-            const upsert = merge && conflict.length
+            const upsert = ignore && conflict.length
+              ? ` ON CONFLICT (${conflict.map(ident).join(", ")}) DO NOTHING`
+              : merge && conflict.length
               ? ` ON CONFLICT (${conflict.map(ident).join(", ")}) DO UPDATE SET ${keys.filter((k) => !conflict.includes(k)).map((k) => `${ident(k)} = EXCLUDED.${ident(k)}`).join(", ") || `${ident(conflict[0])} = EXCLUDED.${ident(conflict[0])}`}`
               : "";
             const result = await db.query(

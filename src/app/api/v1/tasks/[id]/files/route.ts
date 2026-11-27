@@ -1,4 +1,5 @@
 import { withApi } from '@/lib/api/middleware';
+import { FILE_BODY_LIMIT } from '@/lib/api/body-limit';
 import { created, success } from '@/lib/api/response';
 import { logAudit } from '@/lib/api/audit';
 import { addTaskFileSchema } from '@/lib/task-files/schemas';
@@ -35,4 +36,4 @@ export const POST = withApi<AddTaskFileInput, { id: string }>(async (ctx) => {
     });
   }
   return added ? created(file) : success(file);
-}, { schema: addTaskFileSchema, permission: 'files.upload' });
+}, { schema: addTaskFileSchema, permission: 'files.upload', maxBodyBytes: FILE_BODY_LIMIT });

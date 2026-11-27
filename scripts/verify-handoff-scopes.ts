@@ -644,6 +644,12 @@ async function main() {
     check('runs: a child of a run made for someone is made for them too', carried.status === 201 && carried.body.data.principal_id === s.ana && carried.body.data.root_run_id === pipRun.body.data.id, carried.body);
     const toPersonal = await delegate(s.keys.ora, s.task, { agent_id: s.pip, title: 'Book the venue', run_id: rootId });
     check('delegate: a personal agent never receives work for someone else (403 principal_mismatch)', toPersonal.status === 403 && reason(toPersonal) === 'principal_mismatch', toPersonal.body);
+    // No run involved: the refusal names the real reason, the receiver, not a child run.
+    const toPersonalNoRun = await delegate(s.keys.ora, s.task, { agent_id: s.pip, title: 'Book the venue' });
+    const noRunMessage = String(toPersonalNoRun.body?.error?.message ?? '');
+    check('delegate: to someone else\'s personal assistant without a run says a personal assistant takes only its person\'s work', toPersonalNoRun.status === 403
+      && reason(toPersonalNoRun) === 'principal_mismatch' && /personal assistant takes only its own person's work/.test(noRunMessage)
+      && !/child run/i.test(noRunMessage + JSON.stringify(toPersonalNoRun.body?.error?.details ?? {})), toPersonalNoRun.body);
     // A link written some other way (an older release) still never lets the child switch person.
     const venue = (await s.q<{ id: string }>("INSERT INTO pm.tasks (project_id, title, status) VALUES ($1, 'Book the venue', 'todo') RETURNING id", [s.site]))[0].id;
     await s.q('INSERT INTO pm.task_delegations (task_id, run_id, delegated_by, delegated_to) VALUES ($1, $2, $3, $4)', [venue, rootId, s.ora, s.pip]);

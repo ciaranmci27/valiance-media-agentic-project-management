@@ -276,8 +276,9 @@ export function ProjectSetupFlow() {
             {rights.manageContacts && (
               <div>
                 <Select
-                  label="Primary client *"
-                  visibleLabel="Primary client *"
+                  label="Primary client"
+                  visibleLabel="Primary client"
+                  description="Optional. Who it is for; you can add one later."
                   value={basics.clientId}
                   onChange={(clientId) => set({ clientId })}
                   searchable

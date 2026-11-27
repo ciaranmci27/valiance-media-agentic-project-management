@@ -4,6 +4,7 @@ import { requireSessionAccess } from '@/lib/api/access';
 import { ApiError } from '@/lib/api/errors';
 import { getActorClient } from '@/lib/api/supabase-service';
 import type { TaskFilesContext } from './service';
+import { FILE_BODY_LIMIT, readBodyText } from '@/lib/api/body-limit';
 
 /**
  * The session-route shell for task files: a signed-in member, writes named
@@ -29,9 +30,11 @@ export async function taskFilesRoute<T>(
 
 /** The request body parsed with `schema`, or a 422 with the first problem. */
 export async function readTaskFileBody<S extends z.ZodType>(request: Request, schema: S): Promise<z.infer<S>> {
+  // A file comes inline (content_base64, 3 MB at most): never more than FILE_BODY_LIMIT read.
+  const text = await readBodyText(request, FILE_BODY_LIMIT);
   let body: unknown;
   try {
-    body = await request.json();
+    body = JSON.parse(text);
   } catch {
     throw new ApiError(400, 'BAD_REQUEST', 'The request body must be JSON');
   }

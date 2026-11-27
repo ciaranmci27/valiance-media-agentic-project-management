@@ -12,6 +12,7 @@ import { insertComment, insertTask, insertTaskSuggestion } from '@/lib/supabase/
 import { requireAgentsEnabled } from '@/lib/api/agents';
 import { assertInitiativeInProject, assertSubtaskInitiative } from '@/lib/api/initiatives';
 import { applyClosePolicy, commentSentToReview, loadMemberRules, sentToReviewNote, type MemberRules } from '@/lib/api/agent-rules';
+import { agentIdsAmong, gateAgentWork, gateAgentsWork, loadAgentAccess, newTaskTarget, releaseApprovals, workGiverOf, type AskFirstPending } from '@/lib/api/agent-access';
 
 interface CreateTaskContext {
   supabase: SupabaseClient;
@@ -20,6 +21,8 @@ interface CreateTaskContext {
   teamMemberId: string;
   access: AccessContext;
   scopes: string[];
+  /** The agents it is assigned to were already checked (agent-access.ts) by the caller (delegate_task). */
+  agentsChecked?: boolean;
 }
 
 /** Who a task is created as: their client, member, access, and whether they may assign others. */
@@ -30,6 +33,8 @@ export interface TaskActor {
   canAssignOthers: boolean;
   /** Which of the member's permissions apply: their API ones (a key) or their app ones (a person in the app). */
   channel?: 'api' | 'app';
+  /** The agents it is assigned to were already checked (agent-access.ts). */
+  agentsChecked?: boolean;
 }
 
 /**
@@ -37,9 +42,9 @@ export interface TaskActor {
  * to the key's member unless the key may assign others, with its criteria and
  * blockers. endpoint names the route in the audit log.
  */
-export async function createApiTask({ supabase, body, apiKeyId, teamMemberId, access, scopes }: CreateTaskContext, endpoint: string) {
+export async function createApiTask({ supabase, body, apiKeyId, teamMemberId, access, scopes, agentsChecked }: CreateTaskContext, endpoint: string) {
   const canAssignOthers = scopes.includes('tasks.manage_all') && accessAllows(access, 'tasks.manage_all', 'api');
-  const task = await createTaskAs({ supabase, memberId: teamMemberId, access, canAssignOthers }, body);
+  const task = await createTaskAs({ supabase, memberId: teamMemberId, access, canAssignOthers, agentsChecked }, body);
   logAudit(supabase, { method: 'POST', endpoint, entityType: 'task', entityId: task.id, apiKeyId, teamMemberId, requestBody: body, afterSnapshot: task, statusCode: 201 });
   return task;
 }
@@ -50,12 +55,14 @@ export async function createApiTask({ supabase, body, apiKeyId, teamMemberId, ac
  * blockers. The body is createTaskSchema's; with parent_task_id it is a
  * subtask of a task they may manage, in that task's project.
  */
-export async function createTaskAs({ supabase, memberId: teamMemberId, access, canAssignOthers, channel = 'api' }: TaskActor, body: unknown) {
+export async function createTaskAs({ supabase, memberId: teamMemberId, access, canAssignOthers, channel = 'api', agentsChecked }: TaskActor, body: unknown) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- validated by createTaskSchema by the caller
   const { assignee_ids, acceptance_criteria, blocked_by_ids, source_note, parent_task_id, ...taskData } = body as any;
   let sortOrder: number | undefined;
+  let holdsParent = false;
   if (parent_task_id) {
     const parent = await loadParentTask(supabase, parent_task_id, access, channel);
+    holdsParent = parent.assignee_ids.includes(teamMemberId);
     if (taskData.project_id && taskData.project_id !== parent.project_id) {
       throw badRequest("A subtask is always in its parent task's project: leave out project_id, or send the parent's");
     }
@@ -79,6 +86,39 @@ export async function createTaskAs({ supabase, memberId: teamMemberId, access, c
   }
   const effectiveAssignees = canAssignOthers ? requestedAssignees : [teamMemberId];
   await assertAssigneesCanOpenProject(supabase, effectiveAssignees.filter(Boolean), taskData.project_id);
+  // A sub-agent (one with an orchestrator) takes on new work of its own only when a manager let it pick up
+  // work. Breaking down a task it already holds into subtasks is its own work, and always allowed.
+  if (access.role === 'agent' && effectiveAssignees.includes(teamMemberId) && !(parent_task_id && holdsParent)) {
+    const me = (await loadAgentAccess(supabase, [teamMemberId])).get(teamMemberId);
+    if (me?.orchestrator_id && !me.delegate_of) {
+      const rules = await loadMemberRules(supabase, teamMemberId);
+      if (rules.isAgent && !rules.rules.agent_self_assign) {
+        throw forbidden(`${rules.name} works under an orchestrator and does not take on new work of its own. Its orchestrator hands it work.`, {
+          reason: 'self_assign_off',
+          hint: canAssignOthers
+            ? 'Leave yourself off the new task (give it to an agent under you), add it as a subtask of a task you are on, or ask a manager to turn on "Can pick up unassigned work" for you.'
+            : 'Your key makes tasks only for yourself: add it as a subtask of a task you are on, ask your orchestrator to make the task, or ask a manager to turn on "Can pick up unassigned work" for you.',
+        });
+      }
+    }
+  }
+  // A new task's approval it uses is given back if no task is made after all.
+  const claimed: string[] = [];
+  if (!agentsChecked) {
+    // The agents it goes to: their orchestrator, who can use them, ask first. This door cannot answer 202, so it refuses instead.
+    const pending = await gateNewTaskAgents(supabase, access, teamMemberId, effectiveAssignees.filter(Boolean), taskData.project_id, String(taskData.title ?? ''), parent_task_id ?? null, claimed);
+    if (pending) {
+      throw forbidden(pending.message, { reason: 'agent_not_available', why: 'ask_first', approval_id: pending.approval_id, agent_id: pending.agent_id });
+    }
+  }
+  try {
+    return await insertTaskChecked();
+  } catch (error) {
+    await releaseApprovals(supabase, claimed);
+    throw error;
+  }
+
+  async function insertTaskChecked() {
   const blockedByIds: string[] = Array.isArray(blocked_by_ids) ? blocked_by_ids : [];
   if (blockedByIds.length > 0) {
     await assertBlockersInProject(supabase, blockedByIds, taskData.project_id);
@@ -112,6 +152,25 @@ export async function createTaskAs({ supabase, memberId: teamMemberId, access, c
   } catch (error) {
     throw subtaskRuleError(error);
   }
+  }
+}
+
+/**
+ * The agents a new task goes to (all but its creator), checked by
+ * agent-access.ts: answers the approval it waits on when one asks first.
+ * A new task's approval it may use is claimed into `claimed`; the caller
+ * gives it back (releaseApprovals) when no task is made after all.
+ */
+export async function gateNewTaskAgents(supabase: SupabaseClient, access: AccessContext, memberId: string, assigneeIds: string[], projectId: string, title: string, parentTaskId: string | null | undefined, claimed: string[]): Promise<AskFirstPending | null> {
+  const agents = (await agentIdsAmong(supabase, assigneeIds)).filter((id) => id !== memberId);
+  if (agents.length === 0) return null;
+  return gateAgentsWork(supabase, agents, {
+    ...workGiverOf(access, memberId),
+    entry: 'assign',
+    target: newTaskTarget(projectId, title),
+    ask: { summary: `New task "${title.slice(0, 200)}"`, taskId: parentTaskId ?? null, projectId },
+    claimed,
+  });
 }
 
 /** What POST /api/v1/tasks answered: a new task, a repeat on an open one, or a suggestion to approve. */
@@ -186,6 +245,10 @@ export async function suggestInstead(ctx: CreateTaskContext, member: MemberRules
   }
   const assignee = canAssignOthers ? requested[0] ?? null : teamMemberId;
   if (assignee) await assertAssigneesCanOpenProject(supabase, [assignee], projectId);
+  // An agent it names must be one the proposer may give work to (approving it is checked again, for the approver).
+  if (assignee && assignee !== teamMemberId) {
+    await gateAgentWork(supabase, { ...workGiverOf(access, teamMemberId), agentId: assignee, entry: 'assign', target: `suggestion:${projectId}`, ask: false });
+  }
 
   const note = approvalNote(member);
   const dedupeKey = typeof body.dedupe_key === 'string' ? body.dedupe_key : null;
@@ -279,22 +342,41 @@ export async function createTaskWithRules(ctx: CreateTaskContext, endpoint: stri
     const repeat = await recordOccurrence(supabase, projectId, dedupeKey, occurrenceNote, teamMemberId);
     if (repeat) return { status: 200, data: repeat };
   }
+  // The agents it goes to: their orchestrator, who can use them, ask first (202 with the approval; nothing is made).
+  // A new task's approval it uses is claimed here and given back unless a task is made.
+  const claimed: string[] = [];
+  if (!ctx.agentsChecked) {
+    const canAssignOthers = ctx.scopes.includes('tasks.manage_all') && accessAllows(access, 'tasks.manage_all', 'api');
+    const requested = Array.isArray(body.assignee_ids) ? (body.assignee_ids as string[]) : [];
+    if (canAssignOthers && requested.some((id) => id !== teamMemberId)) {
+      projectId = projectId ?? await targetProject(supabase, body, access);
+      const pending = await gateNewTaskAgents(supabase, access, teamMemberId, requested, projectId, String(body.title ?? ''),
+        typeof body.parent_task_id === 'string' ? body.parent_task_id : null, claimed);
+      if (pending) return { status: 202, data: { ...pending } };
+    }
+  }
   if (member.isAgent && member.rules.agent_create_policy === 'approval') {
+    // A suggestion, not a task: the approval stays unused (approving the suggestion checks again).
+    await releaseApprovals(supabase, claimed);
     return suggestInstead(ctx, member, body, endpoint, suggestionMetadata);
   }
 
   const close = applyClosePolicy(member, body.status as string | undefined);
   if (close.sentToReview) body.status = close.status;
   try {
-    const task = await createApiTask({ ...ctx, body }, endpoint);
+    // The agents it goes to were checked above (or it goes only to its creator).
+    const task = await createApiTask({ ...ctx, body, agentsChecked: true }, endpoint);
     if (!close.sentToReview) return { status: 201, data: { ...task } };
     await commentSentToReview(supabase, task.id, member);
     return { status: 201, data: { ...task, sent_to_review: true, note: sentToReviewNote(member) } };
   } catch (error) {
     if (dedupeKey && projectId && isOpenKeyConflict(error)) {
       const repeat = await recordOccurrence(supabase, projectId, dedupeKey, occurrenceNote, teamMemberId);
+      await releaseApprovals(supabase, claimed);
       if (repeat) return { status: 200, data: repeat };
     }
+    // No task was made: the approval it claimed goes back.
+    await releaseApprovals(supabase, claimed);
     throw error;
   }
 }

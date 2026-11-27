@@ -1,6 +1,7 @@
 'use client';
 
 import { avatarTone, initialsOf } from '@/lib/agents-ui';
+import { safeImageUrl } from '@/lib/security/safe-url';
 
 /**
  * The one face for a person or an agent (DESIGN.md Rule 11): their picture,
@@ -41,9 +42,13 @@ export function avatarFace(name: string, id?: string | null, tone?: number | nul
   return { tone: picked, initials: initialsOf(name), toneClass: AVATAR_TONE_BG[picked] };
 }
 
-/** A picture link the app can show (uploaded, relative or a local preview). */
+/**
+ * A picture link the app can show (uploaded, relative or a local preview).
+ * Anything else (a `javascript:` or `data:` link, `//other-host`) shows the
+ * initials instead (src/lib/security/safe-url.ts).
+ */
 export function avatarPicture(src: string | null | undefined): string | null {
-  return src && /^(https?:|\/|blob:)/.test(src) ? src : null;
+  return safeImageUrl(src);
 }
 
 export function Avatar({ name, src, id, tone, color, size = 'md', className = '' }: AvatarProps) {

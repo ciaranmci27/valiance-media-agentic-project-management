@@ -12,7 +12,8 @@ import { useNeedsYouActions, type ActionResult } from '@/lib/needs-you-actions';
 import { ANSWER_MAX, answerLine, approvalDetailRows, approvalTypeLabel, decisionLine, externalLinkHost, textAnswers, type QuestionView } from '@/lib/questions';
 import { timeAgo } from '@/lib/task-times';
 import { groupTargetLabel } from '@/lib/groups';
-import { appLocale } from '@/lib/region';
+import { formatTime, formatDay } from '@/lib/time-format';
+import { appTimeZone, dayKeyIn } from '@/lib/time-zone';
 
 /**
  * One question, answered where it shows: on the task panel, on a board card,
@@ -46,10 +47,9 @@ type Variant = 'panel' | 'card' | 'band';
 
 function expiresLabel(iso: string): string {
   const when = new Date(iso);
-  const sameDay = when.toDateString() === new Date().toDateString();
-  return sameDay
-    ? `Closes at ${when.toLocaleTimeString(appLocale(), { hour: 'numeric', minute: '2-digit' })}`
-    : `Closes ${when.toLocaleDateString(appLocale(), { month: 'short', day: 'numeric' })}`;
+  const zone = appTimeZone();
+  const sameDay = dayKeyIn(when, zone) === dayKeyIn(new Date(), zone);
+  return sameDay ? `Closes at ${formatTime(when)}` : `Closes ${formatDay(when)}`;
 }
 
 export function QuestionCard({ question, variant = 'panel', place, onOpenTask }: {

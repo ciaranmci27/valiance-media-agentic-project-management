@@ -2,8 +2,8 @@ import { z } from 'zod';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { ApiError } from './errors';
 import {
-  RECEIPT_CATEGORIES, SNOOZE_KINDS, SNOOZE_MAX_DAYS, decodeCursor, encodeCursor, isReceiptCategory, withCategory,
-  type NotificationFeedView, type NotificationGroupPage, type NotificationPage, type NotificationView, type Snooze,
+  RECEIPT_CATEGORIES, SNOOZE_KINDS, SNOOZE_MAX_DAYS, decodeCursor, encodeCursor, isReceiptCategory, safeNotificationLink, withCategory,
+  type NotificationActor, type NotificationFeedView, type NotificationGroupPage, type NotificationPage, type NotificationView, type Snooze,
 } from '@/lib/notifications';
 import type { Notification } from '@/lib/types';
 
@@ -49,8 +49,9 @@ export interface UpsertNotificationInput {
  * database before the migration.
  */
 export async function upsertNotification(db: SupabaseClient, input: UpsertNotificationInput): Promise<void> {
+  // Only a path in this app is kept as a link: a notice never sends anyone to another site.
   const base = {
-    p_user_id: input.userId, p_title: input.title, p_message: input.message, p_link: input.link,
+    p_user_id: input.userId, p_title: input.title, p_message: input.message, p_link: safeNotificationLink(input.link),
     p_entity_type: input.entityType, p_entity_id: input.entityId,
   };
   // A category the column would refuse is left for the database to work out.
@@ -120,12 +121,32 @@ export async function notificationUnreadCount(db: SupabaseClient, memberId: stri
     .filter((row) => !isReceiptCategory(withCategory(row as Notification).category)).length;
 }
 
+/**
+ * Each notification with who sent it (name, picture, role), so the page can
+ * say "From Casey Brooks (guest)" and a member's notice never passes for the
+ * app's own. Links are kept only when they are paths in this app.
+ */
+export async function withActors(db: SupabaseClient, items: NotificationView[]): Promise<NotificationView[]> {
+  const ids = [...new Set(items.map((item) => item.actor_id).filter((id): id is string => !!id))];
+  let byId = new Map<string, NotificationActor>();
+  if (ids.length) {
+    const { data, error } = await db.from('team_members').select('id, name, avatar, role').in('id', ids);
+    if (error) throw error;
+    byId = new Map(((data ?? []) as NotificationActor[]).map((row) => [row.id, { id: row.id, name: row.name, avatar: row.avatar || null, role: row.role }]));
+  }
+  return items.map((item) => ({
+    ...item,
+    link: safeNotificationLink(item.link),
+    actor: item.actor_id ? byId.get(item.actor_id) ?? null : null,
+  }));
+}
+
 /** A page of Updates and the unread count together, as the Notifications page reads them. */
 export async function notificationPage(db: SupabaseClient, memberId: string, options: FeedOptions = {}): Promise<NotificationPage> {
   const view = options.view ?? 'updates';
   const limit = Math.min(100, Math.max(1, options.limit ?? FEED_PAGE_SIZE));
   const [items, unread] = await Promise.all([notificationFeed(db, memberId, { ...options, view, limit }), notificationUnreadCount(db, memberId)]);
-  return { items, unread, next_cursor: cursorOf(items, view, limit) };
+  return { items: await withActors(db, items), unread, next_cursor: cursorOf(items, view, limit) };
 }
 
 type GroupRow = Omit<Notification, 'user_id'> & { group_key: string; group_count: number; unread_count: number };

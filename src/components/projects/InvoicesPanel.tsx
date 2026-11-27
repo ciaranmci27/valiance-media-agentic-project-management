@@ -1,4 +1,5 @@
 'use client';
+import { storedFileHref } from '@/lib/storage/stored-file-url';
 import { FileInput } from '@/components/ui/inputs/FileInput';
 
 import { useState, useRef, useEffect, useMemo } from 'react';
@@ -90,6 +91,7 @@ import {
 } from '@/lib/invoice-utils';
 import { pmStorage } from '@/lib/supabase/storage';
 import { BUCKETS } from '@/lib/supabase/schema';
+import { profileTimeZone } from '@/lib/time-zone';
 
 interface InvoicesPanelProps {
   projectId: string;
@@ -223,10 +225,7 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
   const { teamMemberId, access } = useAuth();
   const { isDemoMode } = useDemo();
   const currentMember = team.find((m) => m.id === teamMemberId);
-  const preferredTimezone =
-    currentMember?.timezone && currentMember.timezone !== 'UTC'
-      ? currentMember.timezone
-      : undefined;
+  const preferredTimezone = profileTimeZone(currentMember);
   // YYYY-MM-DD for "today" in the user's preferred zone. If the stored zone is
   // still the unset default, fall back to the browser's local day.
   const todayLocalDate = useBillingToday();
@@ -2036,7 +2035,7 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
             <div>
               <h4 className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400 mb-1">Attachment</h4>
               <a
-                href={invoice.file_url}
+                href={storedFileHref(invoice.file_url)}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-1.5 text-sm text-brand-300 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 rounded"

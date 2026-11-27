@@ -2,12 +2,14 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import Link from 'next/link';
-import { Ban, Bot, ChevronDown, KeyRound, Pencil, Plus, RefreshCw, ShieldOff } from 'lucide-react';
+import { Ban, Bot, ChevronDown, KeyRound, PauseCircle, Pencil, PlayCircle, Plus, RefreshCw, ShieldOff } from 'lucide-react';
 import { appLocale } from '@/lib/region';
 import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
 import { Button } from '@/components/ui/Button';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { Pill } from '@/components/ui/Pill';
+import { UndoLine } from '@/components/ui/UndoLine';
 import { RowActionsMenu, type RowAction } from '@/components/ui/RowActionsMenu';
 import { toast } from '@/components/ui/Toast';
 import { SettingsSectionHeader } from '@/components/settings/SettingsSectionHeader';
@@ -15,7 +17,7 @@ import { EditApiKeyModal } from '@/components/settings/EditApiKeyModal';
 import { NewApiKeyDialog } from '@/components/settings/NewApiKeyDialog';
 import { RotateApiKeyDialog } from '@/components/settings/RotateApiKeyDialog';
 import { canEditApiKey, hasPermission, isModuleEnabled, permissionLabel } from '@/lib/access-control';
-import { agentKeyRow, groupApiKeys, keyExpiry, replacedKeyIds } from '@/lib/developers-settings';
+import { AGENT_KEYS_WHO, agentKeyRow, groupApiKeys, keyExpiry, keyPauseAction, replacedKeyIds } from '@/lib/developers-settings';
 import { useRead } from '@/lib/query-cache';
 import { connectAiSettingRead } from '@/lib/reads';
 import { useDemo } from '@/lib/demo-context';
@@ -59,7 +61,7 @@ const LINK = 'rounded font-medium text-brand-300 underline underline-offset-2 ho
  * While workspace API access is off, a banner says every key is refused.
  */
 export function ApiKeysSection() {
-  const { team, apiKeys, revokeApiKey } = useApp();
+  const { team, apiKeys, revokeApiKey, setApiKeyPaused } = useApp();
   const { teamMemberId, access } = useAuth();
   const { isDemoMode } = useDemo();
   const agentsOn = isModuleEnabled(access, 'agents');
@@ -71,6 +73,9 @@ export function ApiKeysSection() {
   const [editTarget, setEditTarget] = useState<ApiKey | null>(null);
   const [rotateTarget, setRotateTarget] = useState<ApiKey | null>(null);
   const [showEnded, setShowEnded] = useState(false);
+  // The key just paused here: its row shows "Paused <name>. Undo" (DESIGN.md Rule 6).
+  const [pausedHere, setPausedHere] = useState<{ id: string; name: string } | null>(null);
+  const [undoing, setUndoing] = useState(false);
 
   const agentIds = useMemo(() => new Set(team.filter((m) => m.role === 'agent').map((m) => m.id)), [team]);
   const { mine, people, agents, ended } = groupApiKeys(apiKeys, teamMemberId, agentIds);
@@ -108,9 +113,38 @@ export function ApiKeysSection() {
     setRevokeTarget(null);
   };
 
+  const pause = async (key: ApiKey, paused: boolean) => {
+    try {
+      await setApiKeyPaused(key.id, paused);
+      if (paused) setPausedHere({ id: key.id, name: key.name });
+      else {
+        setPausedHere((current) => (current?.id === key.id ? null : current));
+        toast('success', `${key.name} works again`);
+      }
+    } catch (error) {
+      toast('error', error instanceof Error ? error.message : 'Could not change the key');
+    }
+  };
+  const undoPause = async () => {
+    const target = pausedHere && apiKeys.find((k) => k.id === pausedHere.id);
+    if (!target) return;
+    setUndoing(true);
+    try {
+      await setApiKeyPaused(target.id, false);
+      setPausedHere(null);
+    } catch (error) {
+      toast('error', error instanceof Error ? error.message : 'Could not resume the key');
+    } finally {
+      setUndoing(false);
+    }
+  };
+  const pauseNotice = (key: ApiKey) => (pausedHere?.id === key.id && key.paused_at
+    ? <UndoLine className="mt-2" onUndo={() => void undoPause()} busy={undoing}>Paused {pausedHere.name}.</UndoLine>
+    : undefined);
+
   const revokeAction = (key: ApiKey): RowAction => ({ label: 'Revoke', icon: <Ban size={14} aria-hidden="true" />, onClick: () => setRevokeTarget(key), variant: 'danger', divider: true });
   // Agent keys: always listed, editable and revocable; Open Connect only where the profile opens.
-  const agentRow = agentKeyRow({ agentsOn, canManageAgents: hasPermission(access, 'agents.manage') });
+  const agentRow = agentKeyRow({ agentsOn, canManageAgents: hasPermission(access, 'agents.manage'), canManageAllKeys: hasPermission(access, 'api_keys.manage_all') });
 
   const actionsFor = (key: ApiKey, own: boolean): RowAction[] => [
     ...(canEditApiKey(access, teamMemberId, key)
@@ -118,6 +152,9 @@ export function ApiKeysSection() {
       : []),
     // Rotating is for your own keys (an agent's rotate on its profile), and a key is replaced once: rotate its newest key.
     ...(own && !replaced.has(key.id) ? [{ label: 'Rotate', icon: <RefreshCw size={14} aria-hidden="true" />, onClick: () => setRotateTarget(key) }] : []),
+    // Every key listed here is one this person may pause (its member, its creator, or api_keys.manage_all: lib/api/key-manage.ts).
+    ...(keyPauseAction(key) === 'pause' ? [{ label: 'Pause', icon: <PauseCircle size={14} aria-hidden="true" />, onClick: () => void pause(key, true) }] : []),
+    ...(keyPauseAction(key) === 'resume' ? [{ label: 'Resume', icon: <PlayCircle size={14} aria-hidden="true" />, onClick: () => void pause(key, false) }] : []),
     revokeAction(key),
   ];
 
@@ -151,7 +188,7 @@ export function ApiKeysSection() {
         {mine.length > 0 ? (
           <KeyList label="Your API keys">
             {mine.map((key) => (
-              <KeyRow key={key.id} apiKey={key} replaced={replaced.has(key.id)} actions={actionsFor(key, true)} />
+              <KeyRow key={key.id} apiKey={key} replaced={replaced.has(key.id)} actions={actionsFor(key, true)} notice={pauseNotice(key)} />
             ))}
           </KeyList>
         ) : (
@@ -167,7 +204,7 @@ export function ApiKeysSection() {
             <p className="mb-2 text-xs font-medium text-zinc-400">Other people&apos;s keys</p>
             <KeyList label="Other people's API keys">
               {people.map((key) => (
-                <KeyRow key={key.id} apiKey={key} replaced={replaced.has(key.id)} owner={memberName(key.team_member_id)} actions={actionsFor(key, false)} />
+                <KeyRow key={key.id} apiKey={key} replaced={replaced.has(key.id)} owner={memberName(key.team_member_id)} actions={actionsFor(key, false)} notice={pauseNotice(key)} />
               ))}
             </KeyList>
           </div>
@@ -180,8 +217,9 @@ export function ApiKeysSection() {
               <p className="min-w-0 flex-1 text-sm text-zinc-300">
                 {agentsOn ? (
                   <>
-                    Agent keys are made and rotated on each agent&apos;s profile, under Connect.{' '}
-                    {agentRow.openConnect && <Link href="/agent?tab=agents" className={LINK}>Open agents</Link>}
+                    {agentRow.openConnect ? (
+                      <>Agent keys are made and rotated on each agent&apos;s profile, under Connect.{' '}<Link href="/agent?tab=agents" className={LINK}>Open agents</Link></>
+                    ) : AGENT_KEYS_WHO}
                   </>
                 ) : (
                   <>
@@ -206,6 +244,7 @@ export function ApiKeysSection() {
                         </Button>
                       ) : undefined}
                       actions={actionsFor(key, false)}
+                      notice={pauseNotice(key)}
                     />
                   ))}
                 </KeyList>
@@ -268,10 +307,11 @@ export function ApiKeysSection() {
         isOpen={!!revokeTarget}
         onClose={() => setRevokeTarget(null)}
         onConfirm={handleRevokeKey}
-        title="Revoke API key"
+        title="Revoke this key?"
         message={revokeMessage}
         confirmLabel="Revoke"
         variant="danger"
+        doubleConfirm={false}
       />
     </>
   );
@@ -291,7 +331,7 @@ function KeyList({ label, children }: { label: string; children: ReactNode }) {
  * do, in plain words), prefix, then created, last used and expiry. A key a
  * rotation replaced says so beside when it ends.
  */
-function KeyRow({ apiKey, owner, actions, trailing, replaced = false }: { apiKey: ApiKey; owner?: string; actions?: RowAction[]; trailing?: ReactNode; replaced?: boolean }) {
+function KeyRow({ apiKey, owner, actions, trailing, notice, replaced = false }: { apiKey: ApiKey; owner?: string; actions?: RowAction[]; trailing?: ReactNode; notice?: ReactNode; replaced?: boolean }) {
   const scopes = apiKey.scopes ?? [];
   const scopeCount = scopes.length;
   const expiry = keyExpiry(apiKey.expires_at, new Date(), formatDate);
@@ -313,6 +353,7 @@ function KeyRow({ apiKey, owner, actions, trailing, replaced = false }: { apiKey
             {scopeCount} {scopeCount === 1 ? 'permission' : 'permissions'}
             {scopeCount > 0 && <ChevronDown size={10} aria-hidden="true" className={`transition-transform duration-200 ${showScopes ? 'rotate-180' : ''}`} />}
           </button>
+          {apiKey.paused_at && <Pill tone="waiting" dot>Paused</Pill>}
           {replaced && (
             <span className="flex-shrink-0 rounded bg-white/[0.06] px-1.5 py-0.5 text-[10px] font-medium text-zinc-300">Replaced</span>
           )}
@@ -333,6 +374,7 @@ function KeyRow({ apiKey, owner, actions, trailing, replaced = false }: { apiKey
             ))}
           </ul>
         )}
+        {notice}
       </div>
       <div className="flex flex-shrink-0 items-center">
         {trailing}

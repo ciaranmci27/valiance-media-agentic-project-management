@@ -19,7 +19,7 @@ import {
 } from '@/lib/agents-tab';
 import { Header } from '@/components/layout/Header';
 import { Button } from '@/components/ui/Button';
-import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { toast } from '@/components/ui/Toast';
 import { ProjectTabs, projectPanelId, projectTabId, type ProjectTab } from '@/components/projects/ProjectTabs';
 import { TaskDetailPanel } from '@/components/tasks/TaskDetailPanel';
 import { NeedsYouView, useAgentNeedsYou } from '@/components/agent/NeedsYouView';
@@ -27,6 +27,7 @@ import { AgentRoster } from '@/components/agent/AgentRoster';
 import { AgentsPauseBanner, PauseAllButton } from '@/components/agent/AgentsPauseBanner';
 import { RunFeed } from '@/components/agent/runs/RunFeed';
 import { AgentAnalytics } from '@/components/agent/analytics/AgentAnalytics';
+import { profileTimeZone } from '@/lib/time-zone';
 
 /**
  * Agents: one page, four views, each its own ?tab= so it can be linked to.
@@ -85,7 +86,7 @@ function runFiltersFrom(params: URLSearchParams): { filters: RunFeedFilters; pag
 }
 
 function AgentsPage() {
-  const { team, tasks, deleteTask } = useApp();
+  const { team, tasks, deleteTask, restoreRecord } = useApp();
   const { access, teamMemberId } = useAuth();
   const { isDemoMode } = useDemo();
   const pathname = usePathname();
@@ -94,12 +95,15 @@ function AgentsPage() {
   const active = agentsTabFrom(rawTab);
   const needs = useAgentNeedsYou();
   const { taskId: viewingTaskId, openTask, closeTask } = useTaskUrlParam();
-  const [deletingTaskId, setDeletingTaskId] = useState<string | null>(null);
   const router = useRouter();
+  const trashTask = async (id: string) => {
+    closeTask();
+    if (await deleteTask(id)) toast('success', 'Moved to Trash', { action: { label: 'Undo', onClick: () => void restoreRecord('tasks', id) } });
+  };
 
   const canAddAgent = access?.role === 'owner' && hasPermission(access, 'team.manage') && !isDemoMode;
   const agentCount = team.filter((m) => m.role === 'agent').length;
-  const timezone = team.find((m) => m.id === teamMemberId)?.timezone;
+  const timezone = profileTimeZone(team.find((m) => m.id === teamMemberId));
 
   // Native pushState, which Next syncs into useSearchParams: a tab switch is
   // instant and adds a history entry, with no server round trip.
@@ -177,7 +181,7 @@ function AgentsPage() {
     ...(key === 'analytics' ? { warm: () => {
       const range = defaultAgentAnalyticsRange(timezone);
       prefetchAgentAnalytics(range);
-      if (!isDemoMode) prefetchAnalyticsReads(range, timezone && timezone !== 'UTC' ? timezone : undefined);
+      if (!isDemoMode) prefetchAnalyticsReads(range, timezone);
     } } : {}),
   }));
 
@@ -224,20 +228,8 @@ function AgentsPage() {
         {panel('analytics', <AgentAnalytics />)}
       </div>
 
-      <TaskDetailPanel task={viewingTask} onClose={closeTask} onDelete={(id) => setDeletingTaskId(id)} />
-
-      <ConfirmDialog
-        isOpen={!!deletingTaskId}
-        onClose={() => setDeletingTaskId(null)}
-        onConfirm={() => {
-          if (deletingTaskId) deleteTask(deletingTaskId);
-          closeTask();
-        }}
-        title="Move task to Trash?"
-        message="The task goes to Trash with its subtasks and comments."
-        variant="danger"
-        trash
-      />
+      {/* Trash acts at once and offers Undo (DESIGN.md Rule 6); the panel closes, so the Undo rides on the toast. */}
+      <TaskDetailPanel task={viewingTask} onClose={closeTask} onDelete={(id) => void trashTask(id)} />
     </div>
   );
 }

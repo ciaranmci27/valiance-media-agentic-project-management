@@ -136,7 +136,7 @@ export function activitiesFromWindow(payload: AnalyticsWindowPayload, options: {
 
 // ── Server aggregates (20261124001200_agent_event_pipeline.sql) ─────────────
 
-type RunStatTuple = [string, string | null, string | null, string | null, string, number, number, number, number, number, number, number, number, number];
+type RunStatTuple = [string, string | null, string | null, string | null, string, number, number, number, number, number, number, number, number, number, number?];
 type RunFailureTuple = [string, string | null, string | null, string | null, string, string | null, string];
 type SpendTuple = [string, string | null, string | null, string | null, string, string[] | null, number, number, number, number, number, (string | null)?];
 type QuestionStatTuple =[string, string | null, string, number, number, number[] | null, number | null];
@@ -153,11 +153,13 @@ export function runStatsFromAnswer(answer: { groups?: RunStatTuple[]; failures?:
       })),
     } : {}),
     groups: (answer?.groups ?? []).map(([agentId, projectId, model, provider, dateKey, runs, succeeded, failed, busyMs,
-      tokensIn, tokensOut, costUsd, unpricedTokens, runsNoTokens]) => ({
+      tokensIn, tokensOut, costUsd, unpricedTokens, runsNoTokens, running]) => ({
       agentId, projectId, model, provider, dateKey,
       runs: Number(runs), succeeded: Number(succeeded), failed: Number(failed), busyMs: Number(busyMs),
       tokensIn: Number(tokensIn), tokensOut: Number(tokensOut), costUsd: Number(costUsd),
       unpricedTokens: Number(unpricedTokens), runsNoTokens: Number(runsNoTokens),
+      // Runs still going: sent from 20261127001500 on; before that, unknown.
+      ...(running === undefined || running === null ? {} : { running: Number(running) }),
     })),
     failures: (answer?.failures ?? []).map(([agentId, projectId, model, provider, startedAt, title, status]) => ({
       agentId, projectId, model, provider, startedAt: iso(startedAt), title, status,

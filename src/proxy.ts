@@ -1,10 +1,20 @@
 import { updateSession } from '@/lib/supabase/middleware';
 import { type NextRequest, NextResponse } from 'next/server';
 
+/**
+ * The app's request proxy (Next 16's name for middleware): the sign-in wall
+ * for pages, the `next` return path, the session refresh, and CORS for the
+ * public API. Next loads it only from `proxy.ts` beside the app directory,
+ * which is `src/` here (next/dist/build/index.js: rootDir is the parent of
+ * src/app, and the file must sit at '/' or '/src' of it). Up to 2.0.49 it sat
+ * at the app root as middleware.ts, where Next never loaded it.
+ * `npm run test:security-hardening` fails if it moves.
+ */
+
 const CORS_HEADERS: Record<string, string> = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, x-api-key',
+  'Access-Control-Allow-Headers': 'Content-Type, x-api-key, Authorization, Idempotency-Key, x-act-for',
   'Access-Control-Max-Age': '86400',
 };
 
@@ -25,7 +35,7 @@ function isOAuthPublic(pathname: string): boolean {
   return pathname.startsWith('/.well-known/oauth-') || pathname === '/api/oauth/register' || pathname === '/api/oauth/token';
 }
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const isApi = request.nextUrl.pathname.startsWith('/api/v1/');
   const isOAuth = isOAuthPublic(request.nextUrl.pathname);
   const cors = isApi ? CORS_HEADERS : isOAuth ? OAUTH_CORS_HEADERS : null;

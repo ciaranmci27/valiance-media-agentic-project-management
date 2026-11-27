@@ -30,6 +30,7 @@ import { RecurrencePicker } from './RecurrencePicker';
 import {
   errorText, refreshSchedules, removeSchedule, scheduleStatusLine, setSchedulePaused, todayIn, undoRemoveSchedule, useRemovedSchedules,
 } from './schedule-actions';
+import { profileTimeZone } from '@/lib/time-zone';
 
 /**
  * A template's schedule, in the side panel: when it runs (the pattern, its
@@ -90,7 +91,6 @@ function Section({ id, title, description, children }: { id: string; title: stri
 }
 
 const BUILT_IN = new Set<string>(BUILT_IN_FILLS);
-const browserZone = () => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; } catch { return 'UTC'; } };
 let zoneOptionsCache: SelectOption[] | null = null;
 /** Every IANA zone the browser knows, with its offset now ("GMT-7"), built once. */
 function zoneOptions(): SelectOption[] {
@@ -125,8 +125,8 @@ function ScheduleForm({ template: t, schedule, onOpen, onClose }: {
   const editable = schedule ? schedule.can_edit : canRun;
   const assignsOthers = hasPermission(access, 'tasks.manage_all');
 
-  const memberZone = team.find((m) => m.id === teamMemberId)?.timezone;
-  const initialZone = schedule?.timezone ?? (memberZone && memberZone !== 'UTC' ? memberZone : browserZone());
+  // A new schedule starts in the person's own zone (their profile's, lib/time-zone); an existing one keeps its own.
+  const initialZone = schedule?.timezone ?? profileTimeZone(team.find((m) => m.id === teamMemberId));
   const keyDateList = keyDatesOf(t.key_dates);
   const roles = useMemo(() => t.roles ?? [], [t.roles]);
   const askFields = t.fields.filter((f) => !BUILT_IN.has(f.key));

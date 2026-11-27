@@ -48,6 +48,8 @@ export interface RouteEnvelope {
 export interface RouteResult {
   status: number;
   envelope: RouteEnvelope | null;
+  /** A 429's Retry-After, in seconds. */
+  retryAfter?: number;
 }
 
 export type CallRoute = (call: RouteCall) => Promise<RouteResult>;

@@ -1,8 +1,9 @@
 # Events and webhooks
 
-Two ways to hear what happens:
+Three ways to hear what happens:
 
 - **Webhooks** push signed events to your harness as they happen, so it wakes only when there is something for it.
+- **Long-poll** (`GET /api/v1/events?wait=`) for a harness with no public address: it holds one request open and hears within about two seconds. See [Long-poll](#long-poll-no-public-address).
 - **The agent event export** lets a data system pull every agent event and run, in order, from a cursor.
 
 Full payloads, retries and ordering rules: [WEBHOOKS.md](../../WEBHOOKS.md). This page covers what an agent harness needs.
@@ -98,6 +99,109 @@ Then:
 - Deduplicate on `X-VM-Event-Id`: a retry can send the same event twice.
 - Use `sequence` to drop stale events for the same subject.
 - `data` is always the subject's current state, so reconcile rather than track deltas.
+
+## Long-poll (no public address)
+
+A harness on a laptop, behind a firewall or on a server with only outbound connections cannot receive webhooks. It long-polls instead: one request that stays open until something arrives for it, then answers at once.
+
+### Which to use
+
+| Your harness | Use |
+|---|---|
+| Has a public HTTPS address | Webhooks. Nothing runs while idle; events arrive in under a second. |
+| Only makes outbound connections | Long-poll `GET /api/v1/events?wait=25`. Events arrive within about 2 seconds. |
+| Is an MCP client that works in turns (Claude Code, Codex) | MCP. Call `get_events` (with `wait`) at the start of a turn, or `list_chat_messages` with `wait` for chat only. |
+
+Webhooks and long-poll can run side by side. A chat message sent to a webhook still appears in the feed.
+
+### The feed
+
+`GET /api/v1/events` returns everything routed to the calling key after a cursor, in order:
+
+| Type | What | Read it with |
+|---|---|---|
+| `chat.message` | A chat message routed to this agent (ids and status, never the text) | `read`, then `reply` or `handled` from `data` |
+| `question.answered`, `question.cancelled`, `question.expired` | A question or approval this member asked was closed | `GET /api/v1/questions/{id}` |
+| `run.updated` | One of its runs started or changed status. `actor_id` says who did it, so skip your own changes | `GET /api/v1/agents/runs/{id}` |
+| `agent_event.created` | Opt in. Agent events on projects the key can read, in the export's row shape. `agent_event_types` and `agents` narrow it | Already in `data.event` |
+
+Leave out `types` to get every type the key may read except agent events. Each type needs the permission of the read it extends, so the feed never shows a caller more than it could read anyway. A type the key may not read is `403 type_not_allowed`.
+
+Each event has `id` (stable), `type`, `cursor`, `occurred_at`, `agent_id`, `project_id`, `subject`, `data` and `read`. `meta.next_cursor` is where to read from next, even when nothing came.
+
+### The loop
+
+```js
+let cursor = await loadCursor(); // null on the first run: the feed starts from now
+for (;;) {
+  const url = `${PM_API_URL}/events?wait=25${cursor ? `&since=${cursor}` : ''}`;
+  const res = await fetch(url, { headers: { 'x-api-key': PM_API_KEY } }).catch(() => null);
+  if (!res || res.status >= 500) { await backoff(); continue; }     // network or server: retry
+  if (res.status === 429) { await sleep(retryDelayMs(res)); continue; }   // too many waits, or the key's rate limit
+  const body = await res.json();
+  if (res.status === 410) { await resyncFromState(); cursor = body.error.details.cursor; continue; }
+  if (!res.ok) throw new Error(body.error.message);                  // 401 or 403: fix the key, do not retry
+  for (const event of body.data) {
+    if (!(await alreadyHandled(event.id))) await handle(event);
+  }
+  cursor = body.meta.next_cursor;
+  await saveCursor(cursor);
+  backoffReset();
+}
+
+// Retry-After (seconds) when the answer has it, else X-RateLimit-Reset (a Unix time); never under 1 second.
+function retryDelayMs(res) {
+  const after = Number(res.headers.get('retry-after'));
+  const reset = Number(res.headers.get('x-ratelimit-reset'));
+  const seconds = after > 0 ? after : reset > 0 ? reset - Date.now() / 1000 : 1;
+  return Math.max(1, seconds) * 1000;
+}
+```
+
+Save the cursor only after the events are handled. A crash then replays them, which is safe when you skip ids you already handled.
+
+### What the wait does
+
+- `wait` is 0 to 25 seconds. A longer one is cut to 25 (`meta.wait.cap_seconds`).
+- With something new, the answer comes at once. With nothing new, the request stays open. Every open wait on one server shares one cheap database probe every 2 seconds (one index lookup per waiting agent, and per project a wait reads agent events on). A wait re-reads its own page only when the probe shows something new for it: an agent event on a project it cannot read never wakes it. Nothing re-queries every second.
+- It answers empty, with `next_cursor`, when the time runs out, when your client disconnects, or when the server is shutting down (a deploy). `meta.wait.ended` says which: `event`, `timeout`, `aborted`, `shutdown` or `no_wait`.
+- `GET /api/v1/chat/messages?wait=25` waits the same way for chat only, and answers with the full messages.
+- Why not Realtime or LISTEN/NOTIFY: the API reaches the database over HTTP (PostgREST). LISTEN needs a held database connection, which serverless functions do not keep. Realtime from a server function adds a socket per instance, counts against the project's Realtime quota, and still needs a cursor for anything missed while reconnecting. One indexed probe every 2 seconds is cheaper and has no extra failure mode.
+
+### Delivery guarantees
+
+- **No drops.** The cursor is durable: it names a place in the feed, ordered by the writing transaction's id, then a sequence number. A write still in progress holds later events back until it ends, so a cursor never passes one that commits late.
+- **Retention and resync.** The feed keeps 7 days. A cursor older than that answers `410 RESYNC_REQUIRED` (`details.reason` `resync`, `details.cursor` to continue from). Read current state first (pending chat with `GET /api/v1/chat/messages`, your open questions, your runs), then continue from `details.cursor`. Nothing is lost silently.
+- **After a database restore from a dump**, start again without a cursor (transaction ids restart in the new database). Point-in-time recovery keeps the ids, so cursors stay good.
+- **At least once.** An answer lost in transit comes again from the same cursor, with the same event ids. Deduplicate on `id`. Replying to a chat message is safe to retry with an `Idempotency-Key`; marking one handled twice changes nothing.
+- **Order** is by cursor: transaction id, then sequence. It is stable and has no gaps, but it is not exactly commit order: two changes to one subject made at almost the same moment can arrive swapped. Act on the state you read, not on the order events came in (`previous_status` on `run.updated` helps). Each event's own `cursor` resumes just after it.
+- **One key, two instances.** Each instance keeps its own cursor and gets every event. The feed does not split work between them: use claims (`claim_task`) for that, or run one instance per key.
+
+### Errors and limits
+
+| Answer | Meaning | Do |
+|---|---|---|
+| 200, empty | Nothing new in the wait | Loop with `meta.next_cursor` |
+| 400 | A bad `since`, `types`, `limit` or `wait` | Fix the request |
+| 401 | The key is missing, wrong, revoked or expired | Stop. Fix the key |
+| 403 | A permission, a type the key may not read, a paused key, or the AI agents module is off (`MODULE_OFF`) | Stop. Grant it or switch it on |
+| 410 `RESYNC_REQUIRED` | The cursor is older than 7 days | Read current state, continue from `details.cursor` |
+| 429 `too_many_waits` | This key already has 2 waits open (the feed and the chat wait count together) | Wait `Retry-After` seconds. Run one feed per key, not one wait per type |
+| 429 `RATE_LIMIT_EXCEEDED` | The key's request rate limit | Wait until `X-RateLimit-Reset` |
+| 503 `migration_pending` | The install has not applied the event feed database update | Retry later; ask an admin to run `npm run db:migrate` |
+| 5xx, network error | The server or the connection failed | Retry with backoff: 1, 2, 4, 8 seconds up to 60, with jitter |
+
+### Cost
+
+One feed per harness key is the design: it covers chat, questions, runs and agent events in one wait, instead of one poll per type. On Vercel with Fluid compute:
+
+- **Requests.** An idle feed makes one request every 25 seconds: 144 an hour, about 104,000 a month per idle agent.
+- **Compute.** A waiting request uses no CPU while it waits. Each request spends roughly 20 to 50 ms of CPU on the key check, the wait lease and its reads: about 1 CPU-hour a month per idle agent.
+- **Memory.** Fluid runs many concurrent requests on one instance, so all idle harnesses share one warm instance (up to the platform's per-instance concurrency). Open waits keep that instance alive around the clock: 720 instance-hours a month, at the function's memory size. This is the main cost, and it is paid once per install, not per agent.
+- **Database.** Per idle agent, about 8 small queries every 25 seconds (key check, lease, read). Plus one shared probe every 2 seconds per warm instance, whatever the number of waits.
+- **Ballpark** at Vercel's published Fluid rates when this was written (about $0.128 per active CPU-hour, $0.0106 per GB-hour of memory, $0.60 per million invocations; check your plan): one warm 2 GB instance is about $15 a month; each idle agent adds about $0.20 (invocations and CPU). Ten idle agents: about $17 a month. A webhook harness costs nothing while idle.
+
+The wait cap (25 seconds), the probe interval (2 seconds) and the per-key limit (2) are set in code (`src/lib/event-feed-contract.ts`), the same for every install; retention (7 days) is the database's hourly `pm-event-feed-prune` job. Each route that waits allows 60 seconds, so a wait always ends well inside it.
 
 ## Agent event export
 

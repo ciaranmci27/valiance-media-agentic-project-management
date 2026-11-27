@@ -4,7 +4,7 @@ import type { NextConfig } from "next";
 // Relative imports: the config loads before the `@/` path alias exists.
 import customNextConfig from "./src/custom/next.config";
 import { mergeNextConfig } from "./src/lib/extensions/next-config";
-import { noFramingHeaders } from "./src/lib/security/frame-headers";
+import { contentSecurityPolicyHeaders, noFramingHeaders } from "./src/lib/security/frame-headers";
 
 // The source install (Valiance's own) is built inside the monorepo, where the
 // app sits next to admin/ and website/. The public repo and every install have
@@ -38,9 +38,10 @@ const coreNextConfig: NextConfig = {
   // /_next/* asset requests blocked as cross-origin without this.
   allowedDevOrigins: ['127.0.0.1', '192.168.127.227', '100.79.77.23', 'valiance-vps', '100.92.204.26', '**.ts.net'],
 
-  // The Connect AI consent screen and sign-in never load inside another site's frame.
+  // Every page: no plugin content and no <base> (frame-headers.ts). The
+  // Connect AI consent screen and sign-in never load inside another site's frame.
   async headers() {
-    return noFramingHeaders();
+    return [...contentSecurityPolicyHeaders(), ...noFramingHeaders()];
   },
 
   // Old addresses of the live agent room, removed in 2.0.7.

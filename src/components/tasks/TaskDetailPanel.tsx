@@ -56,6 +56,7 @@ import { LinkedText } from '@/components/ui/LinkedText';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { Popover } from '@/components/ui/Popover';
 import { parseDateOnly, isDateOverdue } from '@/lib/date-utils';
+import { formatCalendarDay } from '@/lib/time-format';
 import { hasPermission, canEditTask, canManageAllTasks, canBeAssignedInProject, isModuleEnabled } from '@/lib/access-control';
 import { linkCountsOf, linkSectionTitle, TaskSourceEmailsSection, useKnownTaskLinkCounts, useTaskSourceEmails } from '@/components/inbox/TaskSourceEmails';
 import { RailCard, RailLayout } from '@/components/projects/TabLayout';
@@ -880,7 +881,7 @@ export function TaskDetailPanel({ task, onClose, onDelete, variant = 'panel' }: 
               {subtask.due_date && (
                 <span className={`flex-shrink-0 text-xs tabular-nums ${late ? 'text-red-300' : 'text-zinc-400'}`}>
                   <span className="sr-only">Due </span>
-                  {parseDateOnly(subtask.due_date).toLocaleDateString(locale, { month: 'short', day: 'numeric' })}
+                  {formatCalendarDay(subtask.due_date)}
                   {late && <span className="sr-only"> (overdue)</span>}
                 </span>
               )}

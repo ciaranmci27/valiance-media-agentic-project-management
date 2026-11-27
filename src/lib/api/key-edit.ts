@@ -14,7 +14,10 @@ import { updateApiKeySchema } from '@/lib/schemas/api-keys';
 import { API_KEY_COLUMNS } from '@/lib/supabase/queries';
 import type { ApiKey } from '@/lib/types';
 import { resolveMemberAccess } from './access';
-import { addAgentScopeGrants, agentScopesBeyondRole, assertMayGiveAgentScopes, mayGiveAgentScopes, removeAgentScopeGrants } from './agent-scope-grants';
+import {
+  addAgentScopeGrants, agentScopesBeyondRole, assertMayGiveAgentScopes, mayGiveAgentScopes, removeAgentScopeGrants, removeUncarriedAgentScopeGrants,
+  uncarriedAgentScopeGrants,
+} from './agent-scope-grants';
 import { checkKeyGrant, loadSetupTarget, type Granter } from './agent-setup';
 import { insertAuditRows } from './audit';
 import { ApiError, notFound } from './errors';
@@ -44,6 +47,11 @@ import { KEY_PAUSE_COLUMNS, missingPauseColumns, setupKeyFixed, withKeyState } f
  * - Scopes the key already carries stay, even ones its member no longer
  *   holds (they grant nothing while not held), so a removal never fails
  *   because of them.
+ * - Taking a scope off a workspace agent's key takes away the power a
+ *   key gave it beyond its role (not one an Owner set in Team > Roles &
+ *   permissions), once no other live key of the agent carries it (agent-scope-grants.ts, uncarriedAgentScopeGrants): the agent never
+ *   keeps a power no key shows. The answer and the audit row name it
+ *   (scopes_revoked). In Settings and over the API alike.
  * - A one-hour AI setup key is never edited (409 setup_key_fixed).
  * - Every change writes an audit row with the key before and after.
  */
@@ -60,8 +68,11 @@ export type KeyEditOptionsResult =
   | { status: 200; body: { data: { key: ApiKey; available_scopes: PermissionKey[]; for_agent: boolean } } }
   | Failure;
 
-/** scopes_given: powers this edit gave the agent beyond its role (now its own, as a per-member allow). */
-export type KeyEditResult = { status: 200; body: { data: ApiKey; scopes_given?: string[] } } | Failure;
+/**
+ * scopes_given: powers this edit gave the agent beyond its role (now its own, as a per-member allow).
+ * scopes_revoked: powers beyond its role the agent lost with this edit (no live key carries them any more).
+ */
+export type KeyEditResult = { status: 200; body: { data: ApiKey; scopes_given?: string[]; scopes_revoked?: string[] } } | Failure;
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const NOT_FOUND: Failure = { status: 404, body: { error: 'API key not found' } };
@@ -164,7 +175,7 @@ async function writeEdit(
   service: SupabaseClient,
   before: ApiKey,
   changes: { name?: string; scopes?: string[] },
-  audit: { memberId: string; apiKeyId: string | null; endpoint: string; via: 'rest' | 'mcp' | 'app'; added: string[]; removed: string[]; scopesGiven?: string[] },
+  audit: { memberId: string; apiKeyId: string | null; endpoint: string; via: 'rest' | 'mcp' | 'app'; added: string[]; removed: string[]; scopesGiven?: string[]; scopesRevoked?: string[] },
 ): Promise<ApiKey | null> {
   const { data, error } = await service
     .from('api_keys')
@@ -190,6 +201,8 @@ async function writeEdit(
       ...(changes.scopes ? { added: audit.added, removed: audit.removed } : {}),
       // Powers given to the agent with this edit (the per-member allows on the API channel).
       ...(audit.scopesGiven?.length ? { scopes_given: audit.scopesGiven } : {}),
+      // Powers beyond its role the agent lost with this edit.
+      ...(audit.scopesRevoked?.length ? { scopes_revoked: audit.scopesRevoked } : {}),
     },
     before_snapshot: withKeyState(before),
     after_snapshot: withKeyState(after),
@@ -274,6 +287,12 @@ export async function editApiKey(
     }
     changes.scopes = [...new Set(parsed.data.scopes)];
   }
+  let revoking: string[] = [];
+  try {
+    revoking = await uncarriedAgentScopeGrants(service, key.team_member_id!, key.id, removed);
+  } catch {
+    return { status: 500, body: { error: "Failed to load the key member's access" } };
+  }
 
   // The agent gets the powers first (a key carries only what its member
   // holds), and loses them again if the key is then not changed.
@@ -283,13 +302,19 @@ export async function editApiKey(
   try {
     given = await addAgentScopeGrants(service, key.team_member_id!, beyondRole, editor.memberId);
     const after = await writeEdit(service, key, changes, {
-      memberId: editor.memberId, apiKeyId: null, endpoint: `/api/workspace/api-keys/${id}`, via: 'app', added, removed, scopesGiven: beyondRole,
+      memberId: editor.memberId, apiKeyId: null, endpoint: `/api/workspace/api-keys/${id}`, via: 'app', added, removed, scopesGiven: beyondRole, scopesRevoked: revoking,
     });
     if (!after) {
       await undoGrants();
       return REVOKED;
     }
-    return { status: 200, body: { data: after, ...(beyondRole.length ? { scopes_given: beyondRole } : {}) } };
+    try {
+      await removeUncarriedAgentScopeGrants(service, key.team_member_id!, revoking);
+    } catch (error) {
+      console.error('[API] key edit could not take away the powers beyond the agent role', error);
+      return { status: 500, body: { error: 'The key changed, but the agent still holds what it was given beyond its role. Take it away in Team > Roles & permissions.' } };
+    }
+    return { status: 200, body: { data: after, ...(beyondRole.length ? { scopes_given: beyondRole } : {}), ...(revoking.length ? { scopes_revoked: revoking } : {}) } };
   } catch {
     await undoGrants();
     return { status: 500, body: { error: 'Failed to update API key' } };
@@ -350,10 +375,12 @@ export async function editApiKeyOverApi(service: SupabaseClient, caller: ApiKeyE
     }
     changes.scopes = [...new Set(parsed.data.scopes)];
   }
+  const revoking = await uncarriedAgentScopeGrants(service, key.team_member_id, key.id, removed);
 
   const after = await writeEdit(service, key, changes, {
-    memberId: caller.memberId, apiKeyId: caller.apiKeyId, endpoint: `/api/v1/api-keys/${id}`, via: caller.via, added, removed,
+    memberId: caller.memberId, apiKeyId: caller.apiKeyId, endpoint: `/api/v1/api-keys/${id}`, via: caller.via, added, removed, scopesRevoked: revoking,
   });
   if (!after) throw new ApiError(409, 'CONFLICT', 'This key is revoked: make a new one instead', { reason: 'key_revoked' });
+  await removeUncarriedAgentScopeGrants(service, key.team_member_id, revoking);
   return after;
 }

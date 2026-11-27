@@ -412,7 +412,7 @@ async function retentionChecks(s: Seed) {
   await s.q("INSERT INTO pm.agent_activities (agent_id, activity_type, title, created_at) VALUES ($1, 'custom', 'Old note', now() - interval '400 days'), ($1, 'billing.started', 'Billing', now() - interval '400 days')", [s.nova]);
   const oldRun = (await s.q<{ id: string }>("INSERT INTO pm.agent_runs (agent_id, title, status, started_at, finished_at) VALUES ($1, 'Ancient', 'succeeded', now() - interval '400 days', now() - interval '399 days') RETURNING id", [s.nova]))[0].id;
   // An old parent run whose finished child is newer than the cutoff: the
-  // parent goes, the child stays with its lineage cleared (ON DELETE SET NULL).
+  // tree stays whole (20261127001400), so the child keeps its lineage.
   const oldParent = (await s.q<{ id: string }>("INSERT INTO pm.agent_runs (agent_id, title, status, started_at, finished_at) VALUES ($1, 'Old parent', 'succeeded', now() - interval '400 days', now() - interval '399 days') RETURNING id", [s.nova]))[0].id;
   const newerChild = (await s.q<{ id: string }>("INSERT INTO pm.agent_runs (agent_id, title, status, started_at, finished_at, parent_run_id) VALUES ($1, 'Newer child', 'succeeded', now() - interval '10 days', now() - interval '9 days', $2) RETURNING id", [s.nova, oldParent]))[0].id;
   await s.q("UPDATE pm.webhook_deliveries d SET status = 'succeeded', delivered_at = now() FROM pm.webhook_events ev WHERE ev.id = d.webhook_event_id AND ev.resource_id IN ($1, $2)", [oldParent, newerChild]);
@@ -429,8 +429,8 @@ async function retentionChecks(s: Seed) {
   check('retention: runs without error with an old parent run whose child is newer', !ran.error, ran);
   const left = async (table: string, id: string) => (await s.q(`SELECT 1 FROM pm.${table} WHERE id = $1`, [id])).length === 1;
   const child = (await s.q<Loose>('SELECT parent_run_id, root_run_id FROM pm.agent_runs WHERE id = $1', [newerChild]))[0];
-  check('retention: the old parent goes; its newer child stays, its parent and root cleared', !(await left('agent_runs', oldParent))
-    && child?.parent_run_id === null && child.root_run_id === null && ran.agent_runs === 1, { ran, child });
+  check('retention: an old parent with a newer child stays, and the child keeps its parent and root', await left('agent_runs', oldParent)
+    && child?.parent_run_id === oldParent && child.root_run_id === oldParent && ran.agent_runs === 0, { ran, child });
   const liveParent = (await s.q<{ id: string }>("INSERT INTO pm.agent_runs (agent_id, title, status, started_at, finished_at) VALUES ($1, 'Live parent', 'succeeded', now() - interval '2 days', now() - interval '2 days') RETURNING id", [s.nova]))[0].id;
   const liveChild = (await s.q<{ id: string }>("INSERT INTO pm.agent_runs (agent_id, title, status, started_at, finished_at, parent_run_id) VALUES ($1, 'Live child', 'succeeded', now() - interval '1 day', now() - interval '1 day', $2) RETURNING id", [s.nova, liveParent]))[0].id;
   await s.q('UPDATE pm.agent_runs SET parent_run_id = NULL, root_run_id = NULL WHERE id = $1', [liveChild]);

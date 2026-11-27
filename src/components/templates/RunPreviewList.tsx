@@ -3,7 +3,7 @@
 import { CalendarClock, CalendarDays, CornerDownRight, Link2, Sparkles } from 'lucide-react';
 import { parseDateOnly } from '@/lib/date-utils';
 import { appLocale } from '@/lib/region';
-import type { TemplatePastDue } from '@/lib/task-templates';
+import type { TemplateDateWarning, TemplatePastDue } from '@/lib/task-templates';
 import type { TemplateRunPreview } from '@/lib/template-ui';
 import { PRIORITY_OPTIONS } from '@/components/tasks/TaskFields';
 
@@ -91,6 +91,32 @@ function PlannedRow({ task, roles, small = false, past = false }: { task: Previe
 }
 
 /** One note per planned task due before today, so nobody creates overdue work without seeing it. */
+/**
+ * Dates in a run that do not add up (key dates out of order, a task due
+ * before what it waits on), said plainly before anyone creates it: the same
+ * amber note as past due dates, one line each.
+ */
+export function DateWarnings({ items }: { items: readonly TemplateDateWarning[] }) {
+  if (!items.length) return null;
+  const order = items.some((item) => item.code === 'key_dates_out_of_order');
+  const late = items.filter((item) => item.code === 'due_before_dependency').length;
+  const title = order && late ? 'These dates do not add up'
+    : order ? 'Key dates are out of order'
+      : late === 1 ? '1 task is due before what it waits on' : `${late} tasks are due before what they wait on`;
+  return (
+    <div role="status" className="rounded-lg bg-amber-500/[0.1] px-3 py-2.5 text-xs text-amber-300">
+      <p className="flex items-center gap-1.5 font-medium">
+        <CalendarClock size={13} aria-hidden="true" />
+        {title}
+      </p>
+      <ul className="mt-1 space-y-0.5 pl-[19px]">
+        {items.map((item) => <li key={`${item.code}:${item.keys.join('>')}`} className="break-words">{item.message}.</li>)}
+      </ul>
+      <p className="mt-1 pl-[19px]">You can still create it; change the dates if this is not what you meant.</p>
+    </div>
+  );
+}
+
 export function PastDueNotes({ items }: { items: readonly TemplatePastDue[] }) {
   if (!items.length) return null;
   return (

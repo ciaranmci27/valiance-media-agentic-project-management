@@ -7,6 +7,7 @@ import { approveTaskSuggestion } from '@/lib/supabase/queries';
 import { logAudit } from '@/lib/api/audit';
 import { accessAllowsProject } from '@/lib/api/access';
 import { linkApprovedSuggestionEmail } from '@/lib/api/suggestion-email';
+import { gateSuggestionApproval } from '@/lib/api/agent-access';
 
 export const POST = withApi<any, { id: string }>(async ({ supabase, params, body, apiKeyId, teamMemberId, access }) => {
   requireAgentsEnabled(access);
@@ -24,6 +25,10 @@ export const POST = withApi<any, { id: string }>(async ({ supabase, params, body
   if (before.status !== 'pending' && before.status !== 'needs_info') {
     throw badRequest(`Cannot approve a suggestion with status "${before.status}"`);
   }
+
+  // The agent it would go to, for the approver: refused (403) or waiting on its managers (202) before any task is made.
+  const pending = await gateSuggestionApproval(supabase, access, teamMemberId, before, (body as { assigned_to?: string | null } | null)?.assigned_to);
+  if (pending) return success(pending, 202);
 
   const reviewedBy = teamMemberId || apiKeyId;
   const result = await approveTaskSuggestion(supabase, params.id, (body || {}) as any, reviewedBy);

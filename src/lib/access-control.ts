@@ -124,7 +124,9 @@ export const API_ENDPOINT_PERMISSIONS = [
   'chat.notify',
   // Every agent event and run, in order, for a data system (GET /api/v1/agent-events/export). No role holds it by default.
   'agent_events.export',
-  // A harness that runs people's personal agents: lists them and collects each one's key once. No role holds it by default.
+  // A harness that runs people's personal agents: lists them and collects each one's key once. No role but Owner
+  // (who holds every permission) has it, and it works only on a key that carries it, which an Owner makes for the
+  // assistant service (Settings > Assistants). By hand, POST /api/v1/api-keys never makes a key for someone else's assistant.
   'assistants.provision',
   // Every audit row, in order, for a compliance or data system (GET /api/v1/audit/export). Owners only by default.
   'audit.export',

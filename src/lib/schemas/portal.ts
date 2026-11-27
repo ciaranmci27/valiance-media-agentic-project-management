@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { longText, titleText } from './shared';
 
 export const upsertPortalSettingsSchema = z.object({
   enabled: z.boolean().optional(),
@@ -23,14 +24,14 @@ export const upsertPortalSettingsSchema = z.object({
 });
 
 export const createPortalUpdateSchema = z.object({
-  title: z.string().min(1, 'Title is required'),
-  content: z.string().default(''),
+  title: titleText(),
+  content: longText('content').default(''),
   update_type: z.enum(['general', 'milestone', 'deliverable', 'note']).default('general'),
 });
 
 export const updatePortalUpdateSchema = z.object({
-  title: z.string().min(1).optional(),
-  content: z.string().optional(),
+  title: titleText().optional(),
+  content: longText('content').optional(),
   update_type: z.enum(['general', 'milestone', 'deliverable', 'note']).optional(),
   pinned: z.boolean().optional(),
 });

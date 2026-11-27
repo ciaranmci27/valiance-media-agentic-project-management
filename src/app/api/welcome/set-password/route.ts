@@ -42,7 +42,7 @@ function answer(error: unknown) {
   return NextResponse.json({ error: 'Something went wrong. Try again.' }, { status: 500 });
 }
 
-const tooMany = () => NextResponse.json({ error: 'Too many tries. Wait a few minutes and try again.' }, { status: 429 });
+const tooMany = () => NextResponse.json({ error: 'Too many tries. Wait a few minutes and try again.' }, { status: 429, headers: { 'Retry-After': String(WINDOW_MS / 1000) } });
 
 export async function GET(request: NextRequest) {
   if (limited(request)) return tooMany();

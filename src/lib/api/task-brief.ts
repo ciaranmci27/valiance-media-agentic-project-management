@@ -108,7 +108,11 @@ async function briefRules(caller: BriefCaller) {
 
 export async function buildTaskBrief(caller: BriefCaller, taskId: string): Promise<Row> {
   const { supabase } = caller;
-  const full = await readTaskInFull(supabase, taskId, { agentsOn: isModuleEnabled(caller.access, 'agents') });
+  const full = await readTaskInFull(supabase, taskId, {
+    agentsOn: isModuleEnabled(caller.access, 'agents'),
+    // A guest's brief carries only a question addressed to them, as their task read does.
+    guestId: caller.access.role === 'guest' ? caller.teamMemberId : null,
+  });
   const omitted: { part: string; reason: string; needs: PermissionKey }[] = [];
 
   const seeProject = keyHolds(caller, 'projects.read');

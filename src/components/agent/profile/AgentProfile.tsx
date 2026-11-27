@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import {
-  AlertTriangle, ArrowLeft, ChevronRight, KeyRound, LogOut, PauseCircle, PlayCircle, Plus, RefreshCw, RotateCw, UserCheck, Users, UserX,
+  AlertTriangle, ArrowLeft, Ban, ChevronRight, KeyRound, LogOut, PauseCircle, Pencil, PlayCircle, Plus, RefreshCw, RotateCw, UserCheck, Users, UserX,
 } from 'lucide-react';
 import { useApp } from '@/lib/store';
 import { createClient } from '@/lib/supabase/client';
@@ -12,7 +12,7 @@ import { pmStorage } from '@/lib/supabase/storage';
 import { BUCKETS } from '@/lib/supabase/schema';
 import { useAuth } from '@/lib/auth-context';
 import { useDemo } from '@/lib/demo-context';
-import { hasPermission } from '@/lib/access-control';
+import { hasPermission, permissionLabel } from '@/lib/access-control';
 import { invalidateTables, loadRead, useRead } from '@/lib/query-cache';
 import {
   agentActivityRead, agentContextRead, agentDetailRead, agentRolesRead, agentRunFeedRead, agentTemplatesRead, allGroupsRead,
@@ -21,7 +21,7 @@ import { agentRulesOf, type AgentRulesDraft } from '@/lib/agent-rules';
 import { agentLimitsOf, budgetSpent } from '@/lib/agent-limits';
 import { groupTargetLabel } from '@/lib/groups';
 import { appLocale } from '@/lib/region';
-import { keyExpiry } from '@/lib/developers-settings';
+import { AGENT_KEYS_WHO, keyExpiry, keyPauseAction } from '@/lib/developers-settings';
 import { NO_RUN_FILTERS, backlogLine, needsForAgent, runTitle, type RunFeedFilters } from '@/lib/agents-tab';
 import {
   canAddAgentToProject, cleanSettings, presenceOf, projectsLine, roleError, roleLabel, roleSuggestions, rulesRequestFrom, settingsDefaults,
@@ -38,13 +38,15 @@ import {
 } from '@/lib/agent-workspace';
 import type { ApiKey } from '@/lib/types';
 import { useTaskUrlParam } from '@/lib/use-task-url';
-import { timeAgo } from '@/lib/task-times';
 import { Button } from '@/components/ui/Button';
 import { TextInput } from '@/components/ui/inputs/TextInput';
 import { Textarea } from '@/components/ui/inputs/Textarea';
 import { MultiSelect } from '@/components/ui/inputs/MultiSelect';
 import { Select } from '@/components/ui/inputs/Select';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { Pill } from '@/components/ui/Pill';
+import { RowActionsMenu, type RowAction } from '@/components/ui/RowActionsMenu';
+import { UndoLine } from '@/components/ui/UndoLine';
 import { AvatarUpload } from '@/components/ui/AvatarUpload';
 import { useDiscardGuard } from '@/components/ui/useDiscardGuard';
 import { ProjectTabs, projectPanelId, projectTabId, type ProjectTab } from '@/components/projects/ProjectTabs';
@@ -67,6 +69,7 @@ import { ActivityTimeline } from '@/components/agent/ActivityTimeline';
 import { RunFeed } from '@/components/agent/runs/RunFeed';
 import { RunDetailModal, RunStarted, RunStatusPill, runLengthLabel } from '@/components/agent/runs/RunParts';
 import { ContextBrief } from '@/components/projects/BriefTab';
+import { formatAgo } from '@/lib/time-format';
 
 /**
  * One agent's profile: who it is and what it is doing now, then its work in
@@ -110,7 +113,7 @@ export function AgentProfile({ agentId }: { agentId: string }) {
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { team, tasks, projects, deleteTask, updateTeamMember } = useApp();
+  const { team, tasks, projects, deleteTask, restoreRecord, updateTeamMember } = useApp();
   const { access, teamMemberId } = useAuth();
   const { isDemoMode } = useDemo();
   const detail = useRead(agentDetailRead(agentId, isDemoMode));
@@ -119,7 +122,6 @@ export function AgentProfile({ agentId }: { agentId: string }) {
   const needs = useAgentNeedsYou();
   const agentsPause = useAgentsPause();
   const { taskId: viewingTaskId, openTask, closeTask } = useTaskUrlParam();
-  const [deletingTaskId, setDeletingTaskId] = useState<string | null>(null);
   const [openRunId, setOpenRunId] = useState<string | null>(null);
   const [rulesDirty, setRulesDirty] = useState(false);
   const guard = useDiscardGuard(rulesDirty, () => router.push('/agent?tab=agents'), 'Your edits on Rules and powers are not saved. Leaving discards them.');
@@ -169,6 +171,8 @@ export function AgentProfile({ agentId }: { agentId: string }) {
     mint: !person && !suspended && (isDemoMode || (isWorkspaceOwner && manageAllKeys)),
     edit: !suspended && manageAllKeys,
     revoke: isDemoMode || isWorkspaceOwner || manageAllKeys,
+    // Pause and Resume: whoever may manage every key (lib/api/key-manage.ts, mayManageKey).
+    pause: manageAllKeys,
   };
   // Owners change only for a workspace Owner or an existing owner of this agent (the server's rule); a personal agent's stay as they are.
   const canEditOwners = !person && (isDemoMode || isWorkspaceOwner || isOwnerOfIt);
@@ -191,6 +195,12 @@ export function AgentProfile({ agentId }: { agentId: string }) {
     budgetPeriod: limits.budget_period,
   });
   const held = holds.some((hold) => hold.kind !== 'budget');
+  const pause = usePauseControl(agentId, name, pausedAt);
+
+  const trashTask = async (id: string) => {
+    closeTask();
+    if (await deleteTask(id)) toast('success', 'Moved to Trash', { action: { label: 'Undo', onClick: () => void restoreRecord('tasks', id) } });
+  };
 
   const reactivate = async () => {
     if (demoStops(isDemoMode)) return;
@@ -263,11 +273,13 @@ export function AgentProfile({ agentId }: { agentId: string }) {
             <p className="mt-1 text-sm text-zinc-500">
               {[role ? roleLabel(role) : null, templateLabel, data?.agent.title ?? member?.title].filter(Boolean).join(' · ') || 'No role yet'}
             </p>
-            {data && (
+            {data ? (
               <p className="mt-1 text-xs text-zinc-500">
                 {projectsLine(projectTotal, false, data.projects_total ?? data.projects.length)}
               </p>
-            )}
+            ) : detail.loading ? (
+              <Skeleton label="Loading its projects" className="mt-1 flex h-4 items-center"><Bone className="h-3 w-40" /></Skeleton>
+            ) : null}
             {person && (
               <p className="mt-1 text-xs text-zinc-400">
                 Works for <span className="font-medium text-zinc-200">{person.name || 'one person'}</span>. Their keys are made on their My Assistant page.
@@ -305,7 +317,10 @@ export function AgentProfile({ agentId }: { agentId: string }) {
             {live?.backlog && !suspended && <p className="mt-2 text-sm text-amber-300">{backlogLine(live.backlog)}: ready work assigned to {name} is not picked up.</p>}
           </div>
           <div className="flex flex-shrink-0 flex-col gap-3 sm:items-end">
-            {canManage && data && !suspended && <PauseButton agentId={agentId} agentName={name} pausedAt={pausedAt} />}
+            {/* The Pause slot is held while the profile loads, so Change never sits where Pause lands (nothing moves under the cursor). */}
+            {canManage && !suspended && (data ? (
+              <PauseButton paused={pause.paused} busy={pause.busy} onToggle={() => void pause.toggle()} />
+            ) : detail.loading ? <PauseButtonSkeleton /> : null)}
             <OwnersRow
               agentId={agentId}
               agentName={name}
@@ -317,6 +332,9 @@ export function AgentProfile({ agentId }: { agentId: string }) {
               viewerGroups={myGroups}
               viewerKeepsAccess={isWorkspaceOwner || hasPermission(access, 'team.manage')}
             />
+            {pause.notice && (
+              <UndoLine onUndo={() => void pause.undo()} busy={pause.busy}>Paused {pause.notice}.</UndoLine>
+            )}
           </div>
         </header>
 
@@ -383,16 +401,8 @@ export function AgentProfile({ agentId }: { agentId: string }) {
         taskTitle={openRun?.task_id ? tasks.find((t) => t.id === openRun.task_id)?.title ?? null : null}
         projectName={openRun?.project_id ? projects.find((p) => p.id === openRun.project_id)?.name ?? null : null}
       />
-      <TaskDetailPanel task={viewingTask} onClose={closeTask} onDelete={(id) => setDeletingTaskId(id)} />
-      <ConfirmDialog
-        isOpen={!!deletingTaskId}
-        onClose={() => setDeletingTaskId(null)}
-        onConfirm={() => { if (deletingTaskId) deleteTask(deletingTaskId); closeTask(); }}
-        title="Move task to Trash?"
-        message="The task goes to Trash with its subtasks and comments."
-        variant="danger"
-        trash
-      />
+      {/* Trash acts at once and offers Undo (DESIGN.md Rule 6); the panel closes, so the Undo rides on the toast. */}
+      <TaskDetailPanel task={viewingTask} onClose={closeTask} onDelete={(id) => void trashTask(id)} />
       {guard.dialog}
       {agentsPause.confirm}
     </div>
@@ -425,7 +435,7 @@ function HoldsList({ holds, name, canReactivate, onReactivate, canResumeAll, onR
   canEditLimits: boolean;
   onOpenLimits: () => void;
 }) {
-  const ago = (at: string | null) => (at ? `, ${timeAgo(at).toLowerCase()}` : '');
+  const ago = (at: string | null) => (at ? `, ${formatAgo(at, { midSentence: true })}` : '');
   const line = (hold: AgentHold): { text: string; action?: ReactNode; tone: 'red' | 'amber'; icon: ReactNode } => {
     switch (hold.kind) {
       case 'suspended':
@@ -512,24 +522,53 @@ async function patchAgent(agentId: string, body: Record<string, unknown>) {
 }
 
 /**
- * Pause or Resume one agent, in the header: one click, no confirmation, since
- * the same button undoes it. It flips at once and holds that until the
- * profile read catches up.
+ * Pause or Resume one agent from the header: one click, no confirmation.
+ * It flips at once and holds that until the profile read catches up; a pause
+ * leaves "Paused <name>. Undo" in the header (DESIGN.md Rule 6), and Undo or
+ * Resume takes it away.
  */
-function PauseButton({ agentId, agentName, pausedAt }: { agentId: string; agentName: string; pausedAt: string | null }) {
+function usePauseControl(agentId: string, agentName: string, pausedAt: string | null) {
   const { busy, setPaused } = useAgentPause(agentId, agentName);
   // What was set here, and the saved state it was set over: once the read changes, the read wins.
   const [flipped, setFlipped] = useState<{ paused: boolean; over: string | null } | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const paused = flipped && flipped.over === pausedAt ? flipped.paused : !!pausedAt;
+  const set = async (next: boolean, quiet: boolean) => {
+    setFlipped({ paused: next, over: pausedAt });
+    if (!(await setPaused(next, { quiet }))) {
+      setFlipped(null);
+      return false;
+    }
+    return true;
+  };
   const toggle = async () => {
     const next = !paused;
-    setFlipped({ paused: next, over: pausedAt });
-    if (!(await setPaused(next))) setFlipped(null);
+    setNotice(null);
+    if ((await set(next, next)) && next) setNotice(agentName);
   };
+  const undo = async () => {
+    if (await set(false, true)) setNotice(null);
+  };
+  return { paused, busy, toggle, undo, notice: paused ? notice : null };
+}
+
+function PauseButton({ paused, busy, onToggle }: { paused: boolean; busy: boolean; onToggle: () => void }) {
   return paused ? (
-    <Button variant="secondary" size="sm" className="self-start sm:self-end" icon={<PlayCircle size={14} aria-hidden="true" />} onClick={() => void toggle()} disabled={busy}>Resume</Button>
+    <Button variant="secondary" size="sm" className="self-start sm:self-end" icon={<PlayCircle size={14} aria-hidden="true" />} onClick={onToggle} disabled={busy}>Resume</Button>
   ) : (
-    <Button variant="secondary" size="sm" className="self-start sm:self-end" icon={<PauseCircle size={14} aria-hidden="true" />} onClick={() => void toggle()} disabled={busy}>Pause</Button>
+    <Button variant="secondary" size="sm" className="self-start sm:self-end" icon={<PauseCircle size={14} aria-hidden="true" />} onClick={onToggle} disabled={busy}>Pause</Button>
+  );
+}
+
+/** The Pause button's exact footprint while the profile loads: the real button, unseen, under a bone. */
+function PauseButtonSkeleton() {
+  return (
+    <Skeleton label="Loading actions" className="relative self-start sm:self-end">
+      <span aria-hidden="true" className="invisible block">
+        <Button variant="secondary" size="sm" icon={<PauseCircle size={14} aria-hidden="true" />} tabIndex={-1}>Pause</Button>
+      </span>
+      <Bone className="absolute inset-0 rounded-lg" />
+    </Skeleton>
   );
 }
 
@@ -952,12 +991,12 @@ function RulesAndPowers({ detail, canManage, canEditLimits, onDirtyChange }: {
               : 'What its working keys may do. Make, rotate or revoke keys on Connect.'}
           </p>
           {detail.keys === undefined ? (
-            <p className="mt-2 text-sm text-zinc-400">Only people who manage every API key see its keys.</p>
+            <p className="mt-2 text-sm text-zinc-400">Its powers show to an Owner, or someone who manages every API key.</p>
           ) : keyScopes.length === 0 ? (
             <p className="mt-2 text-sm text-zinc-400">No working key, so no powers yet.</p>
           ) : (
             <ul className="mt-2 flex flex-wrap gap-1.5">
-              {keyScopes.map((s) => <li key={s} className="rounded-full bg-white/[0.05] px-2 py-0.5 font-mono text-[11px] text-zinc-300">{s}</li>)}
+              {keyScopes.map((s) => <li key={s} className="rounded-full bg-white/[0.05] px-2 py-0.5 text-[11px] text-zinc-300">{permissionLabel(s)}</li>)}
             </ul>
           )}
         </div>
@@ -1050,6 +1089,7 @@ function asApiKey(key: AgentKeyView, agentId: string): ApiKey {
     scopes: key.scopes,
     expires_at: key.expires_at ?? null,
     disabled_at: key.disabled_at ?? null,
+    paused_at: key.paused_at ?? null,
     last_used_at: key.last_used_at ?? null,
     revoked_at: key.revoked_at ?? null,
     created_by: null,
@@ -1063,8 +1103,8 @@ const EXPIRY_TONES = { muted: 'text-zinc-500', warning: 'text-amber-300', danger
 
 function ConnectTab({ detail, powers, suspended, templateScopes }: {
   detail: AgentDetail;
-  /** mint: make and rotate keys; edit: change a key's name and powers; revoke: revoke them (the server's rules). */
-  powers: { mint: boolean; edit: boolean; revoke: boolean };
+  /** mint: make and rotate keys; edit: change a key's name and powers; revoke: revoke them; pause: pause and resume them (the server's rules). */
+  powers: { mint: boolean; edit: boolean; revoke: boolean; pause: boolean };
   suspended: boolean;
   templateScopes: string[] | null;
 }) {
@@ -1095,6 +1135,40 @@ function ConnectTab({ detail, powers, suspended, templateScopes }: {
       toast('error', error instanceof Error ? error.message : 'Could not revoke it');
     }
   };
+  // The key just paused here: its row shows "Paused <name>. Undo" (DESIGN.md Rule 6).
+  const [pausedHere, setPausedHere] = useState<{ id: string; name: string } | null>(null);
+  const [pausing, setPausing] = useState(false);
+  const setKeyPaused = async (key: AgentKeyView, paused: boolean, fromUndo = false) => {
+    if (demoStops(isDemoMode)) return;
+    setPausing(true);
+    try {
+      await workspaceApi(`/api/workspace/api-keys/${encodeURIComponent(key.id)}/${paused ? 'pause' : 'resume'}`, { method: 'POST' });
+      invalidateTables(['api_keys']);
+      if (paused) setPausedHere({ id: key.id, name: key.name });
+      else {
+        setPausedHere(null);
+        if (!fromUndo) toast('success', `${key.name} works again`);
+      }
+    } catch (error) {
+      toast('error', error instanceof Error ? error.message : 'Could not change the key');
+    } finally {
+      setPausing(false);
+    }
+  };
+  const actionsFor = (key: AgentKeyView, state: ReturnType<typeof keyState>): RowAction[] => {
+    const pauseAction = keyPauseAction(asApiKey(key, detail.agent.id), new Date(now));
+    return [
+      ...(powers.mint && state === 'active' && !key.paused_at
+        ? [{ label: 'Rotate', icon: <RotateCw size={14} aria-hidden="true" />, onClick: () => { if (!demoStops(isDemoMode)) setRotating(asApiKey(key, detail.agent.id)); } }]
+        : []),
+      ...(powers.edit && (state === 'active' || state === 'disabled')
+        ? [{ label: 'Edit name and powers', icon: <Pencil size={14} aria-hidden="true" />, onClick: () => { if (!demoStops(isDemoMode)) setEditing(asApiKey(key, detail.agent.id)); } }]
+        : []),
+      ...(powers.pause && pauseAction === 'pause' ? [{ label: 'Pause', icon: <PauseCircle size={14} aria-hidden="true" />, onClick: () => void setKeyPaused(key, true) }] : []),
+      ...(powers.pause && pauseAction === 'resume' ? [{ label: 'Resume', icon: <PlayCircle size={14} aria-hidden="true" />, onClick: () => void setKeyPaused(key, false) }] : []),
+      ...(powers.revoke ? [{ label: 'Revoke', icon: <Ban size={14} aria-hidden="true" />, onClick: () => setRevoking(key), variant: 'danger' as const, divider: true }] : []),
+    ];
+  };
 
   return (
     <div className="grid max-w-5xl gap-10 lg:grid-cols-2">
@@ -1112,7 +1186,7 @@ function ConnectTab({ detail, powers, suspended, templateScopes }: {
         )}
         {suspended && !person && <p className="rounded-xl bg-white/[0.03] px-4 py-3 text-sm text-zinc-400">Reactivate {name} to make or rotate a key.</p>}
         {detail.keys === undefined ? (
-          <p className="text-sm text-zinc-400">Only people who manage every API key see an agent&apos;s keys.</p>
+          <p className="text-sm text-zinc-400">{AGENT_KEYS_WHO} Ask one of them to make, rotate or pause {name}&apos;s keys.</p>
         ) : listed.length === 0 ? (
           <p className="rounded-xl bg-white/[0.02] px-4 py-3 text-sm text-zinc-400">
             No working key. {powers.mint ? 'Make one to connect it.' : person ? '' : 'A workspace Owner can make one.'}
@@ -1128,34 +1202,31 @@ function ConnectTab({ detail, powers, suspended, templateScopes }: {
               {listed.map((key) => {
                 const state = keyState(key, now);
                 const expiry = keyExpiry(key.expires_at ?? null, new Date(now), formatDate);
+                const actions = actionsFor(key, state);
                 return (
                   <li key={key.id} className={`flex items-start gap-3 px-4 py-3 ${state === 'active' ? '' : 'bg-white/[0.01]'}`}>
                     <KeyRound size={15} className={`mt-0.5 flex-shrink-0 ${state === 'active' ? 'text-zinc-400' : 'text-zinc-600'}`} aria-hidden="true" />
                     <div className="min-w-0 flex-1">
                       <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
                         <p className={`min-w-0 truncate text-sm font-medium ${state === 'active' ? 'text-white' : 'text-zinc-400'}`}>{key.name}</p>
-                        {state !== 'active' && (
-                          <span className="flex-shrink-0 rounded-full bg-white/[0.06] px-2 py-0.5 text-[11px] font-medium text-zinc-300">{state === 'disabled' ? 'Switched off' : 'Expired'}</span>
-                        )}
+                        {state !== 'active' && <Pill tone="neutral">{state === 'disabled' ? 'Switched off' : 'Expired'}</Pill>}
+                        {state === 'active' && key.paused_at && <Pill tone="waiting" dot>Paused</Pill>}
                       </div>
                       <p className="mt-0.5 flex flex-wrap gap-x-2 text-xs text-zinc-500">
                         <span className="font-mono">{key.prefix}</span>
                         <span>{key.scopes.length} {key.scopes.length === 1 ? 'power' : 'powers'}</span>
-                        <span>{key.last_used_at ? `Used ${timeAgo(key.last_used_at).toLowerCase()}` : 'Never used'}</span>
+                        <span>{key.last_used_at ? `Used ${formatAgo(key.last_used_at, { midSentence: true })}` : 'Never used'}</span>
                         {state === 'active' && <span className={EXPIRY_TONES[expiry.tone]}>{expiry.label === 'No expiry' ? 'No end date' : expiry.label}</span>}
                       </p>
-                    </div>
-                    <div className="flex flex-shrink-0 items-center gap-1">
-                      {powers.mint && state === 'active' && (
-                        <Button variant="secondary" size="sm" icon={<RotateCw size={13} aria-hidden="true" />} onClick={() => { if (!demoStops(isDemoMode)) setRotating(asApiKey(key, detail.agent.id)); }}>
-                          Rotate
-                        </Button>
+                      {pausedHere?.id === key.id && key.paused_at && (
+                        <UndoLine className="mt-2" busy={pausing} onUndo={() => void setKeyPaused(key, false, true)}>Paused {pausedHere.name}.</UndoLine>
                       )}
-                      {powers.edit && (state === 'active' || state === 'disabled') && (
-                        <Button variant="ghost" size="sm" onClick={() => { if (!demoStops(isDemoMode)) setEditing(asApiKey(key, detail.agent.id)); }}>Edit</Button>
-                      )}
-                      {powers.revoke && <Button variant="ghost" size="sm" onClick={() => setRevoking(key)}>Revoke</Button>}
                     </div>
+                    {actions.length > 0 && (
+                      <div className="flex flex-shrink-0 items-center">
+                        <RowActionsMenu actions={actions} label={`Actions for ${key.name}`} />
+                      </div>
+                    )}
                   </li>
                 );
               })}
@@ -1164,7 +1235,7 @@ function ConnectTab({ detail, powers, suspended, templateScopes }: {
               <p className="text-xs text-zinc-500">Rotate gives a new secret with the same powers; the old one keeps working for a while, so {name} never drops off.</p>
             )}
             {powers.edit && working.length > 0 && (
-              <p className="text-xs text-zinc-500">Edit changes a key&apos;s name or powers in place; the secret stays the same, so nothing on {name}&apos;s host changes.</p>
+              <p className="text-xs text-zinc-500">Edit changes a key&apos;s name or powers in place; the secret stays the same, so nothing on {name}&apos;s host changes. Pause stops a key until you resume it.</p>
             )}
           </>
         )}
@@ -1184,15 +1255,17 @@ function ConnectTab({ detail, powers, suspended, templateScopes }: {
         <NewApiKeyDialog isOpen={making} onClose={() => setMaking(false)} agent={{ id: detail.agent.id, name, scopes: held }} preset={preset} />
       )}
       <RotateApiKeyDialog apiKey={rotating} onClose={() => { setRotating(null); invalidateTables(['api_keys']); }} />
-      {powers.edit && <EditApiKeyModal apiKey={editing} memberName={name} onClose={() => setEditing(null)} />}
+      {/* A saved edit changes what AGENTS.md says about its keys: refresh the preview (and the keys) on close. */}
+      {powers.edit && <EditApiKeyModal apiKey={editing} memberName={name} onClose={() => { setEditing(null); invalidateTables(['api_keys']); }} />}
       <ConfirmDialog
         isOpen={!!revoking}
         onClose={() => setRevoking(null)}
         onConfirm={() => { if (revoking) void revoke(revoking); setRevoking(null); }}
         title={`Revoke ${revoking?.name ?? 'this key'}?`}
-        message="The agent's host stops working with it at once, along with any keys made from it. This cannot be undone; make a new key to reconnect."
+        message="The agent's host stops working with it at once. This cannot be undone; make a new key to reconnect."
         confirmLabel="Revoke"
         variant="danger"
+        doubleConfirm={false}
       />
     </div>
   );

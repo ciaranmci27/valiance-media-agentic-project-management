@@ -12,7 +12,7 @@ import { workspaceApi } from '@/lib/agent-workspace';
 import { canAccessProject, hasPermission } from '@/lib/access-control';
 import { INITIATIVE_LABEL } from '@/lib/initiatives';
 import {
-  isCalendarDate, keyDatesOf, mainKeyDate, missingValues, RUNNER, templateSizeLabel, type RunTaskTemplateInput, type TaskTemplateRunResult,
+  isCalendarDate, keyDateOrderWarnings, keyDatesOf, mainKeyDate, missingValues, RUNNER, templateSizeLabel, type RunTaskTemplateInput, type TaskTemplateRunResult,
   type TaskTemplateView,
 } from '@/lib/task-templates';
 import { localRunPreview, type ScreenIssue, type TemplateRunPreview } from '@/lib/template-ui';
@@ -26,7 +26,7 @@ import { StepFooter, Stepper, type FlowStep } from '@/components/ui/Stepper';
 import { toast } from '@/components/ui/Toast';
 import { TaskPanelShell } from '@/components/tasks/TaskPanelShell';
 import { PanelHeader } from '@/components/ui/PanelHeader';
-import { PastDueNotes, RunPreviewList, shortDate } from './RunPreviewList';
+import { DateWarnings, PastDueNotes, RunPreviewList, shortDate } from './RunPreviewList';
 
 type StepKey = 'dates' | 'roles' | 'fields' | 'preview';
 const STEP_LABELS: Record<StepKey, string> = { dates: 'Key dates', roles: 'Roles', fields: 'Fields', preview: 'Preview' };
@@ -300,6 +300,7 @@ function RunFlow({ template: t, presetProject, header, onClose, onDone }: {
                 error={showErrors ? dateProblems[keyDate.key] : undefined}
               />
             ))}
+            <DateWarnings items={keyDateOrderWarnings(keyDateList, dates)} />
           </section>
         )}
 
@@ -432,6 +433,7 @@ function RunFlow({ template: t, presetProject, header, onClose, onDone }: {
                   </ul>
                 )}
 
+                <DateWarnings items={shownPreview.date_warnings ?? []} />
                 <PastDueNotes items={shownPreview.past_due ?? []} />
 
                 <RunPreviewList tasks={shownPreview.tasks} roles={shownPreview.roles} pastDue={shownPreview.past_due ?? []} dimmed={!fresh} />

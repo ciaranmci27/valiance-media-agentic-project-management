@@ -39,6 +39,9 @@ import { Select } from '@/components/ui/inputs/Select';
 import { Checkbox } from '@/components/ui/inputs/Checkbox';
 import { Toggle } from '@/components/ui/inputs/Toggle';
 import { Tooltip } from '@/components/ui/Tooltip';
+import { ProviderLogo } from '@/components/ui/ProviderLogo';
+import { ProviderPicker } from '@/components/ui/ProviderPicker';
+import { AI_PROVIDER_CHOICES, LOGO_IDS, LOGOS, LOGO_BADGES, LOGO_BADGE_WORDS } from '@/lib/logos';
 import { formatAgo, formatDay, formatElapsed, formatFull } from '@/lib/time-format';
 
 /**
@@ -135,6 +138,7 @@ export default function DesignPatternsPage() {
           <SaveBlock />
           <ButtonsBlock />
           <AvatarBlock />
+          <LogoBlock />
           <PermissionBlock />
           <FlowBlock />
           <TimeBlock now={now} />
@@ -659,6 +663,49 @@ function AvatarBlock() {
           ))}
         </div>
         <p className="text-xs text-zinc-400">Left: Avatar, as on Team and Overview. Right: AgentAvatar, as on Agents. Same tone and initials for the same name.</p>
+      </div>
+    </Block>
+  );
+}
+
+/** The logo bank (Rule 20): every provider mark, the state badges, the initials fallback and the picker. */
+function LogoBlock() {
+  const [provider, setProvider] = useState('');
+  return (
+    <Block title="Provider logos" components="ProviderLogo, ProviderPicker" rule="Rule 20">
+      <div className="glass-card space-y-5 rounded-xl p-4 lg:p-5">
+        <ul aria-label="Logo bank" className="grid grid-cols-2 gap-2 min-[420px]:grid-cols-3 sm:grid-cols-4 lg:grid-cols-6">
+          {LOGO_IDS.map((id) => (
+            <li key={id} className="flex min-w-0 items-center gap-2.5 rounded-lg bg-white/[0.03] px-3 py-2.5">
+              <ProviderLogo provider={id} size="md" tile decorative />
+              <span className="min-w-0 truncate text-xs text-zinc-300">{LOGOS[id].label}</span>
+            </li>
+          ))}
+          <li className="flex min-w-0 items-center gap-2.5 rounded-lg bg-white/[0.03] px-3 py-2.5">
+            <ProviderLogo provider="custom.mattermost" size="md" tile decorative />
+            <span className="min-w-0 truncate text-xs text-zinc-300">Unknown (initials)</span>
+          </li>
+        </ul>
+        <div className="flex flex-wrap items-end gap-6">
+          {LOGO_BADGES.map((badge) => (
+            <div key={badge} className="flex flex-col items-center gap-2">
+              <ProviderLogo provider="telegram" size="xl" badge={badge} />
+              <span className="text-[11px] text-zinc-400">{LOGO_BADGE_WORDS[badge]}</span>
+            </div>
+          ))}
+          <div className="flex flex-col items-center gap-2">
+            <ProviderLogo provider="github" size="lg" tile badge="done" />
+            <span className="text-[11px] text-zinc-400">tile, connected</span>
+          </div>
+        </div>
+        <ProviderPicker
+          label="AI provider"
+          choices={AI_PROVIDER_CHOICES}
+          value={provider}
+          onChange={setProvider}
+          other={{ description: 'Any other provider', name: { label: 'Provider name', placeholder: 'Like mistral' } }}
+        />
+        <p className="text-xs text-zinc-400">The real mark, never a generic icon. Black or white marks sit on a quiet tile so they read in both themes; a provider the bank lacks gets its initials. A state is the small badge in the bottom right. Choosing a provider is ProviderPicker, never a text box.</p>
       </div>
     </Block>
   );

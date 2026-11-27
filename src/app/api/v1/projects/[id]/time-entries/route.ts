@@ -3,7 +3,7 @@ import { paginated, created } from '@/lib/api/response';
 import { createTimeEntrySchema, startTimerSchema } from '@/lib/schemas';
 import { notFound, badRequest, forbidden } from '@/lib/api/errors';
 import { logAudit } from '@/lib/api/audit';
-import { parsePagination } from '@/lib/api/pagination';
+import { parsePagination, readPage } from '@/lib/api/pagination';
 import { z } from 'zod';
 import { fetchMemberBillingMultiplier, resolveProjectHourlyRate, TIME_ENTRY_SELECT, mapTimeEntryRow } from '@/lib/supabase/queries';
 import { assertTasksInProject, withLiveTaskIds } from '@/lib/api/task-guards';
@@ -42,7 +42,7 @@ export const GET = withApi(async ({ supabase, params, searchParams, access, team
   if (running === 'false') query = query.not('end_time', 'is', null);
   if (taskId) query = query.eq('time_entry_tasks.task_id', taskId);
 
-  const { data, count, error } = await query.range(offset, offset + limit - 1);
+  const { data, count, error } = await readPage(query.order('id'), { offset, limit });
   if (error) throw error;
 
   // Links to tasks in Trash wait for their restore; they are not shown.

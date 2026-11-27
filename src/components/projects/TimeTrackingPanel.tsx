@@ -51,6 +51,8 @@ import {
   type PaymentBreakdown,
 } from '@/lib/invoice-utils';
 import { hasPermission } from '@/lib/access-control';
+import { formatInZone } from '@/lib/time-format';
+import { appTimeZone, profileTimeZone } from '@/lib/time-zone';
 
 /* ── Types ── */
 
@@ -83,11 +85,7 @@ function liveSegMs(startIso: string): number {
 }
 
 function formatTime(iso: string, timezone?: string): string {
-  return new Date(iso).toLocaleTimeString(appLocale(), {
-    hour: 'numeric',
-    minute: '2-digit',
-    ...(timezone ? { timeZone: timezone } : {}),
-  });
+  return formatInZone(iso, { hour: 'numeric', minute: '2-digit' }, timezone ?? appTimeZone());
 }
 
 function formatElapsed(seconds: number): string {
@@ -146,7 +144,7 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
   } = useApp();
   const { teamMemberId, access } = useAuth();
 
-  const tz = team.find((m) => m.id === teamMemberId)?.timezone;
+  const tz = profileTimeZone(team.find((m) => m.id === teamMemberId));
   const entries = getTimeEntriesByProject(projectId);
   const project = getProject(projectId);
   const projectMembers = team.filter((m) => project?.member_ids?.includes(m.id));

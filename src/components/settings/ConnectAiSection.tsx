@@ -14,14 +14,14 @@ import { useDemo } from '@/lib/demo-context';
 import { workspaceApi } from '@/lib/agent-workspace';
 import { invalidateTables, useRead } from '@/lib/query-cache';
 import { myConnectionsRead } from '@/lib/reads';
-import { timeAgo } from '@/lib/task-times';
 import { appLocale } from '@/lib/region';
 import { CONNECT_MEMORY_SCOPE, connectAbilities, connectKeyPreset, connectToolGuides, type ConnectionView, type ConnectToolGuide } from '@/lib/connect-ai';
 import type { AiSetupSessionView } from '@/lib/ai-setup';
+import { formatAgo, formatTime } from '@/lib/time-format';
 
 const LINK = 'rounded font-medium text-brand-300 underline underline-offset-2 hover:decoration-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500';
 
-const timeOf = (iso: string) => new Date(iso).toLocaleTimeString(appLocale(), { hour: 'numeric', minute: '2-digit' });
+const timeOf = (iso: string) => formatTime(iso);
 
 const connectedOn = (iso: string) => new Date(iso).toLocaleDateString(appLocale(), { month: 'short', day: 'numeric', year: 'numeric' });
 
@@ -191,7 +191,7 @@ export function ConnectAiSection({ canMakeKeys }: { canMakeKeys: boolean }) {
                       <p className="mt-0.5 truncate text-xs text-zinc-400">
                         Connected {connectedOn(connection.connected_at)}
                         <span aria-hidden="true"> · </span>
-                        {connection.last_used_at ? `Last used ${timeAgo(connection.last_used_at).toLowerCase()}` : 'Not used yet'}
+                        {connection.last_used_at ? `Last used ${formatAgo(connection.last_used_at, { midSentence: true })}` : 'Not used yet'}
                         <span aria-hidden="true"> · </span>
                         Signs in from {connection.redirect_host}
                       </p>

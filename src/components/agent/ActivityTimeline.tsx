@@ -13,6 +13,7 @@ import { AgentActivity, TeamActivity } from '@/lib/types';
 import { isTelemetryEvent } from '@/lib/agent-events';
 import { activityAfterName, teamActivityHref } from '@/lib/team-activity';
 import { appLocale } from '@/lib/region';
+import { formatInZone } from '@/lib/time-format';
 
 const MAX_VISIBLE = 15;
 
@@ -111,7 +112,7 @@ export function ActivityTimeline({
   };
 
   const formatFullTimestamp = (ts: string) =>
-    new Date(ts).toLocaleString(appLocale(), {
+    formatInZone(ts, {
       weekday: 'short',
       month: 'short',
       day: 'numeric',

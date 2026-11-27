@@ -47,10 +47,12 @@ function AttachmentRow({
   attachment,
   onPreview,
   onDownload,
+  onLinkExpired,
 }: {
   attachment: Attachment;
   onPreview: (file: PreviewFile) => void;
   onDownload: (file: PreviewFile & { id: string }) => void;
+  onLinkExpired?: () => void;
 }) {
   const isImage = attachment.mime_type.startsWith('image/');
   const isHtml = attachment.mime_type === 'text/html';
@@ -61,7 +63,7 @@ function AttachmentRow({
       {isImage ? (
         // User-uploaded content at an arbitrary URL; next/image has nothing to optimise here.
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={attachment.file_url} alt="" className="h-10 w-10 shrink-0 rounded-[10px] object-cover" />
+        <img src={attachment.file_url} alt="" onError={onLinkExpired} className="h-10 w-10 shrink-0 rounded-[10px] object-cover" />
       ) : (
         <span
           className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[10px] bg-white/[0.04] vm-soft"
@@ -94,11 +96,14 @@ export function UpdatesSection({
   updates,
   onPreview,
   onDownload,
+  onLinkExpired,
 }: {
   updates: PortalData['updates'];
   onPreview: (file: PreviewFile) => void;
   /** Fires when the client downloads an attachment; the page emits file_download. */
   onDownload: (file: PreviewFile & { id: string }) => void;
+  /** A picture's link ran out (they last an hour): the page fetches fresh ones. */
+  onLinkExpired?: () => void;
 }) {
   const [showAll, setShowAll] = useState(false);
   const { locale } = useRegion();
@@ -171,7 +176,7 @@ export function UpdatesSection({
                 {update.attachments && update.attachments.length > 0 && (
                   <ul className="mt-3.5 flex flex-col gap-2">
                     {update.attachments.map((a) => (
-                      <AttachmentRow key={a.id} attachment={a} onPreview={onPreview} onDownload={onDownload} />
+                      <AttachmentRow key={a.id} attachment={a} onPreview={onPreview} onDownload={onDownload} onLinkExpired={onLinkExpired} />
                     ))}
                   </ul>
                 )}

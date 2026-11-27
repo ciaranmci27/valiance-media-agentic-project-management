@@ -20,6 +20,7 @@ import Modal from '@/components/ui/Modal';
 import { FileInput } from '@/components/ui/inputs/FileInput';
 import { TextInput } from '@/components/ui/inputs/TextInput';
 import { FilePreviewModal } from '@/components/ui/FilePreviewModal';
+import { storedFileHref } from '@/lib/storage/stored-file-url';
 import { CardAction } from '@/components/projects/TabLayout';
 import { formatBytes, formatFullTime } from '@/components/inbox/inbox-badges';
 import { setTaskFileCount } from './task-file-counts';
@@ -450,7 +451,7 @@ function FileRow({ taskId, projectId, file, onPreview, onDownload, onRemove }: {
       <div className="min-w-0 flex-1">
         {file.url ? (
           <a
-            href={file.url}
+            href={storedFileHref(file.url)}
             target="_blank"
             rel="noopener noreferrer"
             aria-label={`Open ${file.name} in a new tab`}
@@ -593,7 +594,7 @@ function CandidatePicker({ kind, candidates, onClose, onAdd, onRemove }: {
                   // A second way in for the mouse; the eye button is the one keyboards and screen readers get.
                   <button type="button" tabIndex={-1} aria-hidden="true" onClick={open} className="flex-shrink-0 rounded-md">
                     {/* eslint-disable-next-line @next/next/no-img-element -- a signed storage link, not a static asset */}
-                    <img src={row.url} alt="" loading="lazy" className="h-12 w-12 sm:h-14 sm:w-14 rounded-lg border border-white/[0.08] object-cover transition-opacity hover:opacity-80" />
+                    <img src={storedFileHref(row.url)} alt="" loading="lazy" className="h-12 w-12 sm:h-14 sm:w-14 rounded-lg border border-white/[0.08] object-cover transition-opacity hover:opacity-80" />
                   </button>
                 ) : (
                   <span className="flex h-12 w-12 sm:h-14 sm:w-14 flex-shrink-0 items-center justify-center rounded-lg bg-white/[0.04]">

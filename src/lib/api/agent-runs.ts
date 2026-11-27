@@ -23,8 +23,10 @@ import { accessAllows, accessAllowsProject, apiKeyAllows, resolveMemberAccess } 
 import { requireAgentsEnabled } from './agents';
 import { afterResponse } from './after-response';
 import { checkBudgetAfterUsage, enforceRunStart } from './agent-limits';
+import { gateAgentWork } from './agent-access';
 import { assertProjectWritable } from './request-gate';
 import { ApiError, badRequest, forbidden, notFound } from './errors';
+import { readPage } from './pagination';
 
 /**
  * Agent runs for the API (v1, MCP): one run of an agent, started, updated
@@ -471,8 +473,23 @@ export async function startRun(ctx: RunsContext, input: StartAgentRunInput): Pro
   let placeCtx = ctx;
   if (parent) {
     // At most RUN_CHAIN_MAX_DEPTH hand-offs deep, and only where the chain's person reaches too.
-    if ((await runAncestors(ctx.db, parent)).length > RUN_CHAIN_MAX_DEPTH) throw chainTooDeep();
+    const above = await runAncestors(ctx.db, parent);
+    if (above.length > RUN_CHAIN_MAX_DEPTH) throw chainTooDeep();
     placeCtx = { ...ctx, access: await chainAccess(ctx.db, ctx.access, (parent.principal_id as string | null) ?? null) };
+    // The hop from the parent's agent: only from its orchestrator (when it has one), and for a person who
+    // may use this agent and every agent above it. Approvals were asked when the work was handed over.
+    // A run linked under a run that asked this agent a question (and handed it nothing) is an answer, not new work.
+    const answering = parent.agent_id !== agentId && !(await runDelegatedTo(ctx.db, parent.id, agentId)) && await runAskedOf(ctx.db, parent.id, agentId);
+    await gateAgentWork(ctx.db, {
+      answering,
+      agentId,
+      byAgentId: parent.agent_id as string,
+      personId: (parent.principal_id as string | null) ?? null,
+      chainAgentIds: above.map((r) => r.agent_id as string),
+      entry: 'run',
+      target: `run:${parent.id}`,
+      ask: false,
+    });
   }
   const place = await resolvePlace(placeCtx, input);
   assertProjectWritable(place.project_id);
@@ -664,10 +681,9 @@ export async function listRuns(ctx: RunsContext, filters: RunFilters): Promise<{
   if (trashedProjects.length) query = query.or(`project_id.is.null,project_id.not.in.${postgrestList(trashedProjects)}`);
   const trashedTasks = await trashedRunTasks(ctx.db);
   if (trashedTasks.length) query = query.or(`task_id.is.null,task_id.not.in.${postgrestList(trashedTasks)}`);
-  const { data, count, error } = await query
+  const { data, count, error } = await readPage(query
     .order('sort_at', { ascending: false })
-    .order('id', { ascending: false })
-    .range(filters.offset, filters.offset + filters.limit - 1);
+    .order('id', { ascending: false }), filters);
   if (error) throw error;
   return { rows: await present(ctx.db, (data ?? []) as Row[]), total: count ?? 0 };
 }
@@ -695,10 +711,9 @@ async function listRunsForPrincipal(ctx: RunsContext, filters: RunFilters): Prom
   if (trashedProjects.length) query = query.or(`project_id.is.null,project_id.not.in.${postgrestList(trashedProjects)}`);
   const trashedTasks = await trashedRunTasks(ctx.db);
   if (trashedTasks.length) query = query.or(`task_id.is.null,task_id.not.in.${postgrestList(trashedTasks)}`);
-  const { data, count, error } = await query
+  const { data, count, error } = await readPage(query
     .order('started_at', { ascending: false })
-    .order('id', { ascending: false })
-    .range(filters.offset, filters.offset + filters.limit - 1);
+    .order('id', { ascending: false }), filters);
   if (error) throw error;
   return { rows: await presentStoredRuns(ctx.db, (data ?? []) as Row[]), total: count ?? 0 };
 }

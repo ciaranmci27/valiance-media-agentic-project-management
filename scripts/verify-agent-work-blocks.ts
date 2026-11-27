@@ -179,6 +179,14 @@ async function main() {
     check('the holder extends its claim', extended.status === 200 && Math.abs(minutesFromNow(extended.body.data?.claim_expires_at) - 90) < 1, extended);
     const notYours = await extend(shared, s.keys.builder);
     check('someone else cannot extend it (409 with who holds it)', notYours.status === 409 && notYours.body.error?.details?.claimed_by === s.helper, notYours);
+    // A lapsed claim is no claim: extending it is 409, never a revival (20261127001300).
+    const lapsedAt = (await row(shared)).claim_expires_at;
+    await s.q("UPDATE pm.tasks SET claim_expires_at = now() - interval '4 seconds' WHERE id = $1", [shared]);
+    const revived = await extend(shared, s.keys.helper);
+    check('extending your own claim after it ran out is 409 claim_expired, not a fresh lease', revived.status === 409
+      && revived.body.error?.details?.reason === 'claim_expired' && !!revived.body.error?.details?.expired_at, revived);
+    check('the refused extend leaves the lapsed claim as it was', new Date(String((await row(shared)).claim_expires_at)).getTime() < Date.now(), lapsedAt);
+    await s.q("UPDATE pm.tasks SET claim_expires_at = now() + interval '30 minutes' WHERE id = $1", [shared]);
 
     const released = await release(shared, s.keys.helper);
     check('the holder releases it', released.status === 200 && released.body.data?.released === true && (await row(shared)).claimed_by === null, released);

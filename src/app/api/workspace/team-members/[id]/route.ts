@@ -6,6 +6,9 @@ import { AGENT_RULE_FIELDS, agentRulesUpdateSchema } from '@/lib/agent-rules';
 import { agentRulesColumns } from '@/lib/api/agent-rules';
 import { ApiError } from '@/lib/api/errors';
 import { provisionForPeople } from '@/lib/api/personal-agents';
+import { checkMemberName, isValidTimeZone } from '@/lib/member-profile';
+import { readJsonBody } from '@/lib/api/body-limit';
+import { profileFieldProblem } from '@/lib/schemas/profile';
 
 const PROFILE_FIELDS = ['name', 'title', 'avatar', 'timezone', 'notification_prefs', 'email_notifications_enabled', 'email_notification_prefs', 'theme_preference'] as const;
 const MANAGEMENT_FIELDS = [...PROFILE_FIELDS, 'status'] as const;
@@ -18,7 +21,15 @@ export async function PATCH(
   if (auth.error) return auth.error;
   const { id } = await params;
   const { access, memberId, service } = auth.data;
-  const body = await request.json() as Record<string, unknown>;
+  let body: Record<string, unknown>;
+  try {
+    const parsed = await readJsonBody(request);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new SyntaxError('not an object');
+    body = parsed as Record<string, unknown>;
+  } catch (error) {
+    if (error instanceof ApiError) return NextResponse.json({ error: error.message }, { status: error.statusCode });
+    return NextResponse.json({ error: 'The request body must be a JSON object' }, { status: 400 });
+  }
   const isOwner = access.role === 'owner';
   const isSelf = id === memberId;
   const canManage = accessAllows(access, 'team.manage', 'app');
@@ -32,6 +43,27 @@ export async function PATCH(
   if (!target) return NextResponse.json({ error: 'Team member not found' }, { status: 404 });
   if (target.role === 'owner' && !isSelf && !isOwner) {
     return NextResponse.json({ error: 'The Owner account cannot be modified by another member' }, { status: 403 });
+  }
+
+  // First sign-in: the browser's zone becomes the person's own, only while
+  // nobody has set one (TimeZoneSync). A zone already chosen is kept.
+  if (body.timezone_default === true) {
+    if (!isSelf) return NextResponse.json({ error: 'Only you can default your own time zone' }, { status: 403 });
+    if (!isValidTimeZone(body.timezone)) return NextResponse.json({ error: 'Pick a time zone from the list' }, { status: 422 });
+    const { data: defaulted, error: defaultError } = await service
+      .from('team_members')
+      .update({ timezone: body.timezone, timezone_set: true })
+      .eq('id', id)
+      .eq('timezone_set', false)
+      .select()
+      .maybeSingle();
+    // A database before 20261127001500 has no flag: nothing to default there.
+    if (defaultError && !['42703', 'PGRST204'].includes(defaultError.code ?? '')) {
+      return NextResponse.json({ error: defaultError.message }, { status: 500 });
+    }
+    if (defaulted) return NextResponse.json({ data: defaulted });
+    const { data: current } = await service.from('team_members').select().eq('id', id).maybeSingle();
+    return NextResponse.json({ data: current });
   }
 
   const allowed = isOwner ? [...MANAGEMENT_FIELDS, 'role'] : isSelf ? PROFILE_FIELDS : MANAGEMENT_FIELDS;
@@ -54,6 +86,18 @@ export async function PATCH(
       return NextResponse.json({ error: 'Only an Owner can assign roles, and an Owner cannot change their own role' }, { status: 403 });
     }
   }
+  // A name is required: an empty one left a nameless row on Team. Checked first for the plainest reason.
+  if ('name' in updates) {
+    const name = checkMemberName(updates.name);
+    if (!name.ok) return NextResponse.json({ error: name.error }, { status: 422 });
+    updates.name = name.name;
+  }
+  if ('timezone' in updates && !isValidTimeZone(updates.timezone)) {
+    return NextResponse.json({ error: 'Pick a time zone from the list' }, { status: 422 });
+  }
+  // Avatar, timezone, notification preferences and name: one set of checks for every place they are set.
+  const profileProblem = profileFieldProblem(updates);
+  if (profileProblem) return NextResponse.json({ error: profileProblem }, { status: 422 });
   if ('title' in updates) {
     if (updates.title !== null && typeof updates.title !== 'string') {
       return NextResponse.json({ error: 'Invalid title' }, { status: 422 });
@@ -127,12 +171,18 @@ export async function PATCH(
     updates.suspended_by = null;
   }
 
-  const { data, error } = await service
+  const write = (fields: Record<string, unknown>) => service
     .from('team_members')
-    .update(updates)
+    .update(fields)
     .eq('id', id)
     .select()
     .single();
+  // Choosing a zone (even the default UTC) makes it the person's own.
+  let { data, error } = await write('timezone' in updates ? { ...updates, timezone_set: true } : updates);
+  if ('timezone' in updates && error && ['42703', 'PGRST204'].includes(error.code ?? '')) {
+    // A database before 20261127001500 has no flag.
+    ({ data, error } = await write(updates));
+  }
   // The database keeps at least one active Owner; say so plainly instead of failing.
   if (error?.message?.includes('At least one active Owner')) {
     return NextResponse.json({ error: 'A workspace needs at least one active Owner. Make someone else an Owner first.' }, { status: 409 });

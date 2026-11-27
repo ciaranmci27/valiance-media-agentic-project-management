@@ -25,8 +25,10 @@ import { canRunTemplates, missingTemplatesSchema, runnerToday, templateErrors } 
  *   tasks.manage_assigned on their own tasks and the subtasks of those);
  *   others come back as kept (reason cannot_edit). Using it needs
  *   tasks.create on the run's project.
- * - The initiative's target date follows the main key date under the same
- *   rule: only while it still is the old main key date.
+ * - The initiative's dates follow under the same rule: its target the main
+ *   key date, its start the earliest key date, each only while it still is
+ *   the old date. While the initiative is in Trash nothing moves (409
+ *   initiative_in_trash, a dry run too): restore it first.
  * - A warning names every new date (a key date or a task's due date) that
  *   lands before today in the caller's time zone.
  * - Writing (pm.reflow_task_template_run) is one transaction: the moved tasks
@@ -93,8 +95,26 @@ export interface ReflowResult {
   ignored: { task_id: string; item_key: string; title: string; reason: 'done' | 'trashed' }[];
   /** Tasks whose planned date does not change. */
   unchanged: number;
-  initiative: { id: string; name: string; target_date: string | null; from: string | null; to: string | null; follows: boolean } | null;
+  initiative: ReflowInitiative | null;
   warnings: ReflowWarning[];
+}
+
+/**
+ * The run's initiative and its dates: the target follows the main key date
+ * (from, to, follows), the start the earliest key date (start_from,
+ * start_to, start_follows), each only while it still is the old date.
+ */
+export interface ReflowInitiative {
+  id: string;
+  name: string;
+  target_date: string | null;
+  from: string | null;
+  to: string | null;
+  follows: boolean;
+  start_date: string | null;
+  start_from: string | null;
+  start_to: string | null;
+  start_follows: boolean;
 }
 
 async function inChunks<T>(ids: string[], read: (chunk: string[]) => PromiseLike<{ data: unknown; error: { code?: string; message?: string } | null }>): Promise<T[]> {
@@ -183,10 +203,13 @@ export async function reflowTemplateRun(service: SupabaseClient, caller: AgentCa
     inChunks<Row>(ids, (chunk) => service.from('tasks').select('id, title, status, due_date, deleted_at, parent_task_id').in('id', chunk)),
     manageAll || !manageAssigned ? Promise.resolve([] as Row[])
       : inChunks<Row>(ids, (chunk) => service.from('task_assignees').select('task_id').eq('member_id', caller.memberId).in('task_id', chunk)),
-    service.from('initiatives').select('id, name, target_date, deleted_at').eq('id', run.initiative_id).maybeSingle(),
+    service.from('initiatives').select('id, name, start_date, target_date, deleted_at').eq('id', run.initiative_id).maybeSingle(),
     runnerToday(service, caller.memberId),
   ]);
   if (initiativeRow.error) throw initiativeRow.error;
+  // The run lives on its initiative: while that is in Trash, its dates stay
+  // as they are (a dry run says so too), so the two never drift apart.
+  if ((initiativeRow.data as Row | null)?.deleted_at) throw initiativeInTrash();
   const byId = new Map(tasks.map((task) => [task.id as string, task]));
   const assignedToMe = new Set(mine.map((row) => row.task_id as string));
   const mayEdit = (task: Row) => manageAll || (manageAssigned
@@ -243,9 +266,16 @@ export async function reflowTemplateRun(service: SupabaseClient, caller: AgentCa
   const oldMain = from[mainKey] ?? null;
   const newMain = to[mainKey] ?? null;
   const target = ini ? dayOf(ini.target_date) : null;
-  const initiative = ini && !ini.deleted_at ? {
+  // Its start follows the earliest key date (what the run set it to), under the same rule.
+  const earliest = (dates: Record<string, string>) => Object.values(dates).filter(Boolean).sort()[0] ?? null;
+  const oldStart = earliest(from);
+  const newStart = earliest(to);
+  const start = ini ? dayOf(ini.start_date) : null;
+  const initiative: ReflowInitiative | null = ini && !ini.deleted_at ? {
     id: ini.id as string, name: ini.name as string, target_date: target, from: oldMain, to: newMain,
     follows: oldMain !== newMain && target === oldMain,
+    start_date: start, start_from: oldStart, start_to: newStart,
+    start_follows: oldStart !== newStart && start === oldStart,
   } : null;
 
   const result: ReflowResult = {
@@ -274,9 +304,14 @@ export async function reflowTemplateRun(service: SupabaseClient, caller: AgentCa
     p_key_dates: to,
     p_start_date: to.start ?? to[keyDateList[0].key] ?? null,
     p_moves: moves,
-    p_initiative: initiative?.follows ? { id: initiative.id, from: oldMain, to: newMain } : null,
+    p_initiative: initiative && (initiative.follows || initiative.start_follows) ? {
+      id: initiative.id,
+      ...(initiative.follows ? { from: oldMain, to: newMain } : {}),
+      ...(initiative.start_follows ? { start_from: oldStart, start_to: newStart } : {}),
+    } : null,
   });
   if (error) {
+    if (/initiative_in_trash/.test(error.message ?? '')) throw initiativeInTrash();
     if (/run_changed/.test(error.message ?? '')) {
       throw new ApiError(409, 'CONFLICT', 'This run\'s key dates changed a moment ago. Read it again.', {
         reason: 'run_changed', hint: 'Run the reflow again with dry_run true to see the new plan.',
@@ -286,7 +321,7 @@ export async function reflowTemplateRun(service: SupabaseClient, caller: AgentCa
     if (missingTemplatesSchema(error)) throw reflowMigrationPending();
     throw error;
   }
-  const answer = (data ?? {}) as { moved?: string[]; initiative_moved?: boolean };
+  const answer = (data ?? {}) as { moved?: string[]; initiative_moved?: boolean; initiative_start_moved?: boolean };
   const done = new Set(answer.moved ?? []);
   // A task changed by hand between the read and the write stays where it is.
   for (const entry of moved.filter((task) => !done.has(task.task_id))) {
@@ -296,6 +331,14 @@ export async function reflowTemplateRun(service: SupabaseClient, caller: AgentCa
     ...result,
     moved: moved.filter((task) => done.has(task.task_id)),
     kept,
-    initiative: initiative ? { ...initiative, follows: answer.initiative_moved === true, target_date: answer.initiative_moved ? newMain : target } : null,
+    initiative: initiative ? {
+      ...initiative,
+      follows: answer.initiative_moved === true, target_date: answer.initiative_moved ? newMain : target,
+      start_follows: answer.initiative_start_moved === true, start_date: answer.initiative_start_moved ? newStart : start,
+    } : null,
   };
 }
+
+const initiativeInTrash = () => new ApiError(409, 'CONFLICT', 'This run\'s initiative is in Trash, so its dates cannot change. Restore the initiative first.', {
+  reason: 'initiative_in_trash', hint: 'Restore the initiative from Trash, then change the dates.',
+});

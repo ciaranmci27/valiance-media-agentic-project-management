@@ -1,11 +1,12 @@
 import { z } from 'zod';
+import { titleText } from './shared';
 
 export const createSubtaskSchema = z.object({
-  title: z.string().min(1, 'Title is required'),
+  title: titleText(),
 });
 
 export const updateSubtaskSchema = z.object({
-  title: z.string().min(1).optional(),
+  title: titleText().optional(),
   completed: z.boolean().optional(),
 });
 

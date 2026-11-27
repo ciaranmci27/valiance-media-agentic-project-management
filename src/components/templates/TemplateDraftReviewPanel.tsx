@@ -18,7 +18,7 @@ import { Button } from '@/components/ui/Button';
 import { Textarea } from '@/components/ui/inputs/Textarea';
 import { TaskPanelShell } from '@/components/tasks/TaskPanelShell';
 import { PanelHeader } from '@/components/ui/PanelHeader';
-import { PastDueNotes, RunPreviewList, shortDate } from './RunPreviewList';
+import { DateWarnings, PastDueNotes, RunPreviewList, shortDate } from './RunPreviewList';
 import { decideDraft, type DraftDecision } from './template-run-actions';
 
 const SECTION = 'space-y-3 border-t border-white/[0.06] px-5 py-5';
@@ -253,6 +253,7 @@ function Review({ draft, given, header, onClose }: {
                 {preview.notes.map((line) => <li key={line} className="flex gap-2"><Info size={13} className="mt-0.5 flex-shrink-0" aria-hidden="true" />{line}</li>)}
               </ul>
             )}
+            <DateWarnings items={preview.date_warnings ?? []} />
             <PastDueNotes items={preview.past_due ?? []} />
             <RunPreviewList tasks={preview.tasks} roles={preview.roles} pastDue={preview.past_due ?? []} addedBy={draft.proposed_by_name} />
           </section>

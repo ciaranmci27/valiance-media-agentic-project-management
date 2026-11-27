@@ -43,7 +43,7 @@ export async function reflowRun(request: ReflowRequest, demo: { isDemo: boolean;
   const from = Object.fromEntries(entry.run.key_dates.map((k) => [k.key, k.date]));
   const result = localReflow({
     runId: request.runId, templateId: template.id, projectId: entry.project_id,
-    initiative: initiative ? { id: initiative.id, name: initiative.name, target_date: initiative.target_date } : null,
+    initiative: initiative ? { id: initiative.id, name: initiative.name, target_date: initiative.target_date, start_date: initiative.start_date } : null,
     items: template.items, keyDates: template.key_dates ?? [], from, input: body, links: entry.tasks, tasks: demo.tasks, today: demo.today,
   });
   if (request.dryRun) return result;
@@ -54,6 +54,7 @@ export async function reflowRun(request: ReflowRequest, demo: { isDemo: boolean;
     if (link) link.planned_due_date = moved.to;
   }
   if (initiative && result.initiative?.follows) initiative.target_date = result.initiative.to;
+  if (initiative && result.initiative?.start_follows) initiative.start_date = result.initiative.start_to;
   invalidateTables([...INITIATIVE_TABLES, 'task_template_runs']);
   return { ...result, dry_run: false };
 }

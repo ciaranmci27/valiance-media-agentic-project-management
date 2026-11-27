@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { withApi } from '@/lib/api/middleware';
 import { created, success } from '@/lib/api/response';
-import { ApiError, forbidden, notFound } from '@/lib/api/errors';
+import { ApiError, notFound } from '@/lib/api/errors';
 import { logInboxAudit } from '@/lib/communications/inbox-audit';
 import { afterResponse } from '@/lib/api/after-response';
 import { accessAllowsProject } from '@/lib/api/access';
@@ -187,10 +187,8 @@ export const POST = withApi<TriageRequest, { id: string }>(async ({ supabase, pa
     const byId = new Map(((projects ?? []) as { id: string; status: string; archived_at: string | null }[]).map((p) => [p.id, p]));
     for (const projectId of named) {
       const project = byId.get(projectId);
-      if (!project) throw unprocessable('project_id does not name a project', { project_id: projectId });
-      if (!accessAllowsProject(access, projectId, 'api')) {
-        throw forbidden('Project scope denied', { reason: 'project_scope', grant_on: 'project_membership', project_id: projectId });
-      }
+      // A project this key cannot open answers as one that does not exist.
+      if (!project || !accessAllowsProject(access, projectId, 'api')) throw unprocessable('project_id does not name a project', { project_id: projectId });
       if (!filed.has(projectId) && (project.status !== 'active' || project.archived_at)) {
         throw unprocessable('This project is not active, so email cannot be filed to it. Choose an active project, or leave it out and flag it as needs_human.', {
           reason: 'project_inactive',
@@ -211,10 +209,8 @@ export const POST = withApi<TriageRequest, { id: string }>(async ({ supabase, pa
     const byId = new Map(((tasks ?? []) as { id: string; project_id: string }[]).map((task) => [task.id, task]));
     for (const link of links) {
       const task = byId.get(link.task_id);
-      if (!task) throw unprocessable('Each link must name an existing task', { task_id: link.task_id });
-      if (!accessAllowsProject(access, task.project_id, 'api')) {
-        throw forbidden('Project scope denied', { reason: 'project_scope', grant_on: 'project_membership', project_id: task.project_id });
-      }
+      // A task this key cannot open answers as one that does not exist: never its project.
+      if (!task || !accessAllowsProject(access, task.project_id, 'api')) throw unprocessable('Each link must name an existing task', { task_id: link.task_id });
     }
   }
 

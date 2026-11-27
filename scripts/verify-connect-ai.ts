@@ -105,7 +105,8 @@ async function headerChecks() {
   const denies = (source: string) => {
     const rule = rules.find((r) => r.source === source);
     const value = (key: string) => rule?.headers.find((h) => h.key.toLowerCase() === key.toLowerCase())?.value;
-    return value('Content-Security-Policy') === "frame-ancestors 'none'" && value('X-Frame-Options') === 'DENY';
+    // The page's policy carries the app-wide one too (frame-headers.ts), since Next sends only the last matching value.
+    return (value('Content-Security-Policy') ?? '').split(';').map((d) => d.trim()).includes("frame-ancestors 'none'") && value('X-Frame-Options') === 'DENY';
   };
   check('framing: the consent page cannot be framed (CSP frame-ancestors none and X-Frame-Options DENY)', denies('/oauth/:path*'), rules);
   check('framing: nor can sign-in', denies('/login') && denies('/login/:path*'), rules);

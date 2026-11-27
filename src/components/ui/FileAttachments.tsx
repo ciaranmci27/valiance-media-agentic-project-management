@@ -28,6 +28,8 @@ import { toast } from '@/components/ui/Toast';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { FilePreviewModal } from '@/components/ui/FilePreviewModal';
+import { storedFileHref } from '@/lib/storage/stored-file-url';
+import { useSignedFileUrls } from '@/lib/storage/use-signed-file-urls';
 import { NewNoteModal } from '@/components/ui/NewNoteModal';
 import type { EntityFileType, EntityFile } from '@/lib/types';
 import { hasPermission } from '@/lib/access-control';
@@ -94,6 +96,8 @@ export function FileAttachments({ entityType, entityId, layout = 'list' }: FileA
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   const files = getEntityFiles(entityType, entityId);
+  // Thumbnails: one signed batch for the whole list, not a request per picture.
+  const thumbnailUrl = useSignedFileUrls(files.filter((f) => f.mime_type.startsWith('image/')).map((f) => f.file_url));
   const isProject = entityType === 'project';
 
   const updateMenuPosition = useCallback(() => {
@@ -220,7 +224,7 @@ export function FileAttachments({ entityType, entityId, layout = 'list' }: FileA
   const handleDownload = async (fileUrl: string, fileName: string) => {
     setOpenMenuId(null);
     try {
-      const res = await fetch(fileUrl);
+      const res = await fetch(storedFileHref(fileUrl));
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -286,7 +290,7 @@ export function FileAttachments({ entityType, entityId, layout = 'list' }: FileA
     // Fetch content for editing
     if (file.file_url !== '#') {
       try {
-        const res = await fetch(file.file_url);
+        const res = await fetch(storedFileHref(file.file_url));
         const text = await res.text();
         const entityFile = files.find((f) => f.file_url === file.file_url);
         setNoteEditMode({
@@ -452,7 +456,7 @@ export function FileAttachments({ entityType, entityId, layout = 'list' }: FileA
                   {showThumb ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
-                      src={file.file_url}
+                      src={thumbnailUrl(file.file_url)}
                       alt=""
                       loading="lazy"
                       className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-[1.03] motion-reduce:transition-none"

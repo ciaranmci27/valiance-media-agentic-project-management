@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { calendarDate } from '@/lib/schemas/shared';
 
 /**
  * Task templates: one task, or a playbook (an ordered list of tasks, each
@@ -206,7 +207,7 @@ export const updateTaskTemplateSchema = templatePatchSchema
   .refine((body) => Object.values(body).some((value) => value !== undefined), 'Send at least one field to change');
 export type UpdateTaskTemplateInput = z.infer<typeof updateTaskTemplateSchema>;
 
-const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD');
+const date = calendarDate;
 
 /** The initiative a run makes: its name and owner (one at most). */
 export const runInitiativeSchema = z.object({
@@ -395,6 +396,69 @@ export function pastDueOf(tasks: readonly { key?: string | null; title: string; 
   return tasks.flatMap((task) => [task, ...(task.subtasks ?? [])])
     .filter((task) => !!task.due_date && task.due_date < today)
     .map((task) => ({ key: task.key ?? null, title: task.title, due_date: task.due_date as string }));
+}
+
+/**
+ * A run's dates that do not add up, said plainly before it runs:
+ * key_dates_out_of_order when a key date falls before one listed ahead of it
+ * ("Go-live, Nov 27, 2026, is before Kickoff, Nov 30, 2026"), and
+ * due_before_dependency when a task would be due before a task it waits on.
+ * Warnings only: the run still works, the dates are the person's call.
+ */
+export interface TemplateDateWarning {
+  code: 'key_dates_out_of_order' | 'due_before_dependency';
+  message: string;
+  /** The key dates (out of order) or task keys (the task, then what it waits on) it is about. */
+  keys: string[];
+}
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/** "Nov 27, 2026" from 2026-11-27, read as a calendar date (no time zone). */
+export function calendarDateLabel(date: string): string {
+  const [year, month, day] = date.split('-').map(Number);
+  return MONTHS[month - 1] ? `${MONTHS[month - 1]} ${day}, ${year}` : date;
+}
+
+/** Key dates set out of the order the template lists them (each against the latest one before it). */
+export function keyDateOrderWarnings(keyDateList: readonly TemplateKeyDate[], keyDates: Readonly<Record<string, string>>): TemplateDateWarning[] {
+  const out: TemplateDateWarning[] = [];
+  let latest: TemplateKeyDate | null = null;
+  for (const keyDate of keyDateList) {
+    const date = keyDates[keyDate.key];
+    if (!date || !isCalendarDate(date)) continue;
+    if (latest && date < keyDates[latest.key]) {
+      out.push({
+        code: 'key_dates_out_of_order',
+        message: `${keyDate.label}, ${calendarDateLabel(date)}, is before ${latest.label}, ${calendarDateLabel(keyDates[latest.key])}`,
+        keys: [keyDate.key, latest.key],
+      });
+    } else latest = keyDate;
+  }
+  return out;
+}
+
+/** Every date warning for a planned run (see TemplateDateWarning). */
+export function runDateWarnings(
+  tasks: readonly { key?: string | null; title: string; due_date: string | null; depends_on?: readonly string[] }[],
+  keyDateList: readonly TemplateKeyDate[],
+  keyDates: Readonly<Record<string, string>>,
+): TemplateDateWarning[] {
+  const byKey = new Map(tasks.filter((task) => task.key).map((task) => [task.key as string, task]));
+  const late: TemplateDateWarning[] = [];
+  for (const task of tasks) {
+    if (!task.due_date) continue;
+    for (const dependency of task.depends_on ?? []) {
+      const waitsOn = byKey.get(dependency);
+      if (!waitsOn?.due_date || waitsOn.due_date <= task.due_date) continue;
+      late.push({
+        code: 'due_before_dependency',
+        message: `${task.title} is due ${calendarDateLabel(task.due_date)} but waits on ${waitsOn.title}, due ${calendarDateLabel(waitsOn.due_date)}`,
+        keys: [task.key ?? '', dependency],
+      });
+    }
+  }
+  return [...keyDateOrderWarnings(keyDateList, keyDates), ...late];
 }
 
 /** The fill-ins a text uses, in order, each once. */
@@ -603,7 +667,7 @@ export type TemplateIssueCode =
   | 'required' | 'unknown_property' | 'invalid_value' | 'out_of_range' | 'offset_out_of_range'
   // Across fields
   | 'duplicate_key' | 'unknown_anchor' | 'unknown_role' | 'unknown_dependency' | 'dependency_not_top_level'
-  | 'dependency_cycle' | 'undeclared_field' | 'too_many_tasks' | 'main_key_date' | 'choice_needs_options' | 'options_need_choice'
+  | 'dependency_cycle' | 'dependency_due_before' | 'undeclared_field' | 'too_many_tasks' | 'main_key_date' | 'choice_needs_options' | 'options_need_choice'
   // Checked against the workspace
   | 'project_not_found' | 'assignee_not_active' | 'member_not_active'
   // A run
@@ -695,6 +759,41 @@ const text = (value: unknown): string | null => (typeof value === 'string' ? val
  * document defensively, so shape errors and these come back together.
  * Tasks without a key are read with the keys assignTemplateKeys gives them.
  */
+/**
+ * What a template's dates say that may not be meant, as warnings that never
+ * stop a save or a run (templateIssues are the errors):
+ * dependency_due_before when a task counts from the same key date as a task
+ * it waits on but is due before it ("Go-live checklist is due before a task
+ * it waits on: Moodboard"). The dates are the person's call.
+ */
+export function templateWarnings(document: Loose): TemplateIssue[] {
+  const warnings: TemplateIssue[] = [];
+  if (!document || typeof document !== 'object') return warnings;
+  const items: Loose[] = Array.isArray(document.items) ? document.items : [];
+  const keyDates: Loose[] = Array.isArray(document.key_dates) ? document.key_dates : [];
+  const anchorKeys = keyDates.map((keyDate) => text(keyDate?.key)).filter((key): key is string => !!key);
+  const keyOf = (raw: Loose) => text(raw?.key);
+  const anchorOf = (raw: Loose) => text(raw?.anchor) ?? anchorKeys[0] ?? null;
+  const title = (raw: Loose, fallback: string) => text(raw?.title)?.trim() || fallback;
+  items.forEach((item, i) => {
+    const own = keyOf(item) ?? `task ${i + 1}`;
+    (Array.isArray(item?.depends_on) ? item.depends_on : []).forEach((dependency: Loose, j: number) => {
+      const key = text(dependency);
+      const waitsOn = key ? items.find((other) => keyOf(other) === key) : undefined;
+      if (!key || !waitsOn || key === own) return;
+      const days = typeof item?.due_in_days === 'number' ? item.due_in_days : null;
+      const theirs = typeof waitsOn?.due_in_days === 'number' ? waitsOn.due_in_days : null;
+      if (days === null || theirs === null || anchorOf(item) !== anchorOf(waitsOn) || days >= theirs) return;
+      const anchorLabel = text(keyDates.find((keyDate) => text(keyDate?.key) === anchorOf(item))?.label) ?? 'the key date';
+      const when = (n: number) => (n === 0 ? `on ${anchorLabel}` : `${Math.abs(n)} ${Math.abs(n) === 1 ? 'day' : 'days'} ${n > 0 ? 'after' : 'before'} ${anchorLabel}`);
+      warnings.push(templateIssue(['items', i, 'depends_on', j], 'dependency_due_before',
+        `"${title(item, own)}" is due before a task it waits on: due ${when(days)}, while "${title(waitsOn, key)}" is due ${when(theirs)}`,
+        `If that is not meant, make "${title(item, own)}" due ${theirs - days} ${theirs - days === 1 ? 'day' : 'days'} later, move "${title(waitsOn, key)}" earlier, or remove the dependency.`));
+    });
+  });
+  return warnings;
+}
+
 export function templateIssues(document: Loose): TemplateIssue[] {
   const issues: TemplateIssue[] = [];
   if (!document || typeof document !== 'object') return issues;

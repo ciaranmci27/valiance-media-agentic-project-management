@@ -2,6 +2,7 @@ import { SupabaseClient } from '@supabase/supabase-js';
 import type { AiReadiness, Project, Task, TeamMember, AcceptanceCriterion, Comment, TeamActivity, Contact, ContactEmail, ProjectContact, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, PortalSettings, PortalUpdate, PortalUpdateAttachment, EntityFile, ApiKey, ProjectGoal, TaskSuggestion, AgentActivity, FleetAgentActivity, ApiAuditEntry, TimeEntry, ProjectCredential, ProjectCredentialListItem, ProjectInvoice, InvoicePayment, InvoicePaymentMethod, BusinessSettings, InvoiceTimeEntryAllocation, WebhookEndpoint, WebhookDelivery, ProjectRetainer, ProjectRetainerAmount, ProjectRetainerShare, ProjectRetainerPeriod, RetainerDuePeriod, InvoiceLineShare, ProjectBillingPlan, ProjectBillingRun, BillingForecastItem, Reminder, TaskUpdate, TrashItem } from '@/lib/types';
 import { fetchAllRows } from '@/lib/supabase/fetch-all';
 import { notFound } from '@/lib/api/errors';
+import { isAgentRefusal } from '@/lib/agent-refusal';
 import { DEFAULT_ITEM_COLOR } from '@/lib/brand';
 import { generatePortalSlug } from '@/lib/portal-slug';
 import { ensureLineItems } from '@/lib/invoice-utils';
@@ -1504,8 +1505,13 @@ export async function fetchApiKeys(supabase: SupabaseClient) {
     // Connected AI tools' keys are connections (Settings > Account), never listed as keys.
     .neq('permissions', 'connection')
     .order('created_at', { ascending: false });
-  let { data, error } = await read(`${API_KEY_COLUMNS}, rotated_from`);
-  if (error && (error.code === '42703' || error.code === 'PGRST204' || /rotated_from/.test(error.message ?? ''))) {
+  // paused_at says a key is paused (20261127000600); a database before it has none, so no key is paused there.
+  const missing = (e: { code?: string; message?: string } | null) => !!e && (e.code === '42703' || e.code === 'PGRST204');
+  let { data, error } = await read(`${API_KEY_COLUMNS}, rotated_from, paused_at`);
+  if (missing(error) && /paused_at/.test(error?.message ?? '')) {
+    ({ data, error } = await read(`${API_KEY_COLUMNS}, rotated_from`));
+  }
+  if (error && (missing(error) || /rotated_from/.test(error.message ?? ''))) {
     ({ data, error } = await read(API_KEY_COLUMNS));
   }
   if (error) throw error;
@@ -1856,11 +1862,34 @@ async function assertProjectLive(supabase: SupabaseClient, projectId: string | n
   if (!data) throw notFound('Project');
 }
 
+/**
+ * A task made from an approved suggestion, with its assignee in the same
+ * transaction (pm.save_task). The database refusing to give that agent work
+ * (agent_not_available, agent_ask_first) makes no task and is thrown. Any
+ * other failure to assign (a reviewer who may not assign others) saves the
+ * task unassigned, as it always was. Answers who ended up on it.
+ */
+async function saveApprovedTask(
+  supabase: SupabaseClient,
+  taskData: Record<string, unknown>,
+  assignee: string | null | undefined,
+): Promise<{ task: SavedTask['task']; assignedTo: string | null }> {
+  if (!assignee) return { task: (await saveTaskAtomically(supabase, null, taskData)).task, assignedTo: null };
+  try {
+    return { task: (await saveTaskAtomically(supabase, null, taskData, [assignee])).task, assignedTo: assignee };
+  } catch (error) {
+    if (isAgentRefusal(error)) throw error;
+    return { task: (await saveTaskAtomically(supabase, null, taskData)).task, assignedTo: null };
+  }
+}
+
 export async function approveTaskSuggestion(
   supabase: SupabaseClient,
   id: string,
   taskOverrides: { priority?: string; assigned_to?: string | null; due_date?: string | null; project_id?: string; task_type?: string | null; ai_readiness?: AiReadiness | null },
-  reviewedBy: string
+  reviewedBy: string,
+  /** unassigned: the task is made with nobody on it (a reviewer who may not assign others). */
+  options: { unassigned?: boolean } = {},
 ) {
   // Snapshot the pre-claim review state so a failed approval can restore it
   // exactly (a needs_info suggestion must not silently become pending).
@@ -1957,13 +1986,20 @@ export async function approveTaskSuggestion(
     }
   }
 
-  const { data: task, error: taskErr } = await supabase
-    .from('tasks')
-    .insert(taskData)
-    .select()
-    .single();
+  // The task and who does it (saveApprovedTask): a refusal to give an agent
+  // work makes no task and reaches the caller; any other trouble assigning
+  // leaves the task unassigned, as before.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the row as stored, as the insert answered it before
+  let task: any = null;
+  let assignedTo: string | null = null;
+  let taskErr: unknown = null;
+  try {
+    ({ task, assignedTo } = await saveApprovedTask(supabase, taskData, options.unassigned ? null : taskOverrides.assigned_to || suggestion.assigned_to));
+  } catch (error) {
+    taskErr = error;
+  }
 
-  if (taskErr) {
+  if (taskErr || !task) {
     // Release the claim, restoring the exact pre-claim review state
     await supabase
       .from('task_suggestions')
@@ -2023,15 +2059,6 @@ export async function approveTaskSuggestion(
       const { error: parentError } = await supabase.rpc('set_task_parent', { p_task_id: task.id, p_parent_id: parent.id });
       if (!parentError) parentTaskId = parent.id;
     }
-  }
-
-  // If assigned_to is set, create task_assignee
-  const assignedTo = taskOverrides.assigned_to || suggestion.assigned_to;
-  if (assignedTo) {
-    await supabase
-      .from('task_assignees')
-      .insert({ task_id: task.id, member_id: assignedTo })
-      .then(() => {}, () => {});
   }
 
   // Link the created task back to the suggestion
@@ -2156,8 +2183,17 @@ ${member.description}${fix}`);
   if (resolvedTaskType) taskData.task_type = resolvedTaskType;
   if (resolvedReadiness) taskData.ai_readiness = resolvedReadiness;
 
-  const { data: task, error: taskErr } = await supabase.from('tasks').insert(taskData).select().single();
-  if (taskErr) {
+  // The task and who does it in one transaction: a refused assignee makes no task, and the refusal surfaces.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the row as stored, as the insert answered it before
+  let task: any = null;
+  let assignedTo: string | null = null;
+  let taskErr: unknown = null;
+  try {
+    ({ task, assignedTo } = await saveApprovedTask(supabase, taskData, taskOverrides.assigned_to || first.assigned_to));
+  } catch (error) {
+    taskErr = error;
+  }
+  if (taskErr || !task) {
     for (const member of claimed) {
       await supabase
         .from('task_suggestions')
@@ -2178,10 +2214,6 @@ ${member.description}${fix}`);
     insertedCriteria = (criteriaRows || []) as AcceptanceCriterion[];
   }
 
-  const assignedTo = taskOverrides.assigned_to || first.assigned_to;
-  if (assignedTo) {
-    await supabase.from('task_assignees').insert({ task_id: task.id, member_id: assignedTo }).then(() => {}, () => {});
-  }
 
   const { data: updatedRows, error: linkErr } = await supabase
     .from('task_suggestions')
@@ -2371,6 +2403,7 @@ export async function fetchAgentActivityRange(
       if (types) query = query.in('activity_type', [...types]);
       const { data, error } = await query
         .order('created_at', { ascending: false })
+        .order('id', { ascending: false })
         .range(offset, offset + pageSize - 1);
       if (error) throw error;
       const page = (data || []) as (AgentActivity | FleetAgentActivity)[];

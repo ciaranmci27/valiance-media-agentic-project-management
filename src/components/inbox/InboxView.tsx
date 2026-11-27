@@ -12,7 +12,6 @@ import { TextInput } from '@/components/ui/inputs/TextInput';
 import { inboxClient } from '@/lib/communications/inbox-client';
 import { INBOX_FILTERS, INBOX_TAB_LABELS, INBOX_TABS, INBOX_VIEWS, inboxDisplayName, isAgentChoice, OWNERS_READ_PERSONAL_LINE, type InboxSummary, type InboxTab, type InboxTabCounts, type InboxThreadSummary } from '@/lib/communications/inbox-types';
 import { CODE_PIN_MINUTES, isInboxTab } from '@/lib/communications/inbox-view';
-import { timeAgo } from '@/lib/task-times';
 import { CopyValueButton } from '@/components/settings/EmailConnectChecklist';
 import { ThreadStateBadge, TrustBadge, formatDay, formatListTime, formatMeetingTime, projectSourceHint } from './inbox-badges';
 import { Tooltip } from '@/components/ui/Tooltip';
@@ -23,6 +22,7 @@ import { loadRead, peekRead, setReadData, warmRead, warmReads } from '@/lib/quer
 import { SenderRulesManager } from './SenderRulesManager';
 import { InboxEmptyState } from './InboxEmptyState';
 import { useInboxUpdates } from './use-inbox-updates';
+import { formatAgo } from '@/lib/time-format';
 
 const PAGE_SIZE = INBOX_PAGE_SIZE;
 /** The most a quiet refresh re-reads at once (the route's cap). */
@@ -679,7 +679,7 @@ function PinnedCode({ code, onOpen }: { code: InboxLatestCode; onOpen: () => voi
         onClick={onOpen}
         className="min-w-0 flex-1 rounded text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
       >
-        <span className="block truncate text-[11px] text-zinc-300">{from} code, {timeAgo(code.received_at, now).toLowerCase()}</span>
+        <span className="block truncate text-[11px] text-zinc-300">{from} code, {formatAgo(code.received_at, { now, midSentence: true })}</span>
         <span className="block font-mono text-sm tracking-wider text-white">{code.code ?? 'Open to see the code'}</span>
       </button>
       {code.code && <CopyValueButton value={code.code} label={`Copy the code from ${from}`} />}

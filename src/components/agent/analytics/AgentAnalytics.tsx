@@ -26,7 +26,7 @@ import { useAgentAnalyticsEvents, useTaskReopens } from '@/lib/use-agent-analyti
 import { useAnalyticsReads } from '@/lib/agent-analytics-reads';
 import {
   METRIC_FORMAT, MIXED_LABEL, SUBSCRIPTION_LABEL, arrangeTiles, buildAgentAnalytics, costLabel, dailyByAgent, groupOf, marginOf, median, profitCaveat,
-  rangeDays, resolveSelectedMetric, runsFromTurns, scopeNotes, successRate, topAgents, UNPRICED_LABEL,
+  rangeDays, resolveSelectedMetric, runOutcomeLine, runsFromTurns, scopeNotes, topAgents, UNPRICED_LABEL,
   type BreakdownLabels, type Dimension, type MetricKey,
 } from '@/lib/agent-analytics-model';
 import { StatStrip, type StatTone } from '@/components/ui/StatStrip';
@@ -37,6 +37,7 @@ import { AnalyticsFilters } from '@/components/agent/analytics/AnalyticsFilters'
 import { AnalyticsChart, formatMetric, type ChartBar, type ChartSeries } from '@/components/agent/analytics/AnalyticsChart';
 import { AnalyticsBreakdown } from '@/components/agent/analytics/AnalyticsBreakdown';
 import { QualityCard } from '@/components/agent/analytics/QualityCard';
+import { profileTimeZone } from '@/lib/time-zone';
 
 /**
  * The Agents page's Analytics tab: how the agents work, at a glance. Tiles
@@ -120,7 +121,7 @@ export function AgentAnalytics() {
   const { isDemoMode } = useDemo();
   const { access, teamMemberId } = useAuth();
   const me = team.find((m) => m.id === teamMemberId);
-  const timezone = me?.timezone && me.timezone !== 'UTC' ? me.timezone : undefined;
+  const timezone = profileTimeZone(me);
 
   // A static "now" per mount: analytics is a report, not a live ticker.
   const [now] = useState(() => Date.now());
@@ -246,10 +247,7 @@ export function AgentAnalytics() {
           ].filter(Boolean).join(' · '),
         };
       }
-      case 'runs': {
-        const rate = successRate(s);
-        return { value: formatNumber(s.run), tone: 'default', context: rate !== null ? `${fmtPct(rate)} succeeded` : 'None finished yet' };
-      }
+      case 'runs': return { value: formatNumber(s.run), tone: 'default', context: runOutcomeLine(s) };
       case 'busy': return { value: s.busyMs > 0 ? fmtDuration(s.busyMs) : '0', tone: 'info', context: 'Time on runs, overlaps once' };
       case 'tasks': return { value: formatNumber(s.taskDone), tone: 'default', context: scope.tasks ?? 'Completed by agents' };
       case 'prs': return {

@@ -9,7 +9,7 @@
  *   npm run -s test:developers-settings
  */
 import {
-  agentKeyRow, deliveryDetailLine, endpointHealth, eventSummary, firstWebhookProblem, groupApiKeys, groupEventsFor, keyEnded, keyExpiry, keyScopeGroups,
+  agentKeyRow, deliveryDetailLine, endpointHealth, eventSummary, firstWebhookProblem, groupApiKeys, groupEventsFor, keyEnded, keyExpiry, keyPauseAction, keyScopeGroups,
   parseAgentEventTypes, replacedKeyIds, rotateOverlapOptions, rotatedKeyExpiryLine, rotationLifetimeNote, webhookEventGroups, webhookFields,
   webhookSaveError, webhooksSectionState, webhookStepProblem, ENDPOINT_HEALTH_DELIVERIES, ROTATE_OVERLAP_DEFAULT_HOURS,
   WEBHOOK_EVENT_GROUPS, WEBHOOK_EVENT_LABELS, type WebhookDraft,
@@ -75,12 +75,19 @@ function key(id: string, fields: Partial<ApiKey> = {}): ApiKey {
   check('with no member id nothing counts as yours', signedOut.mine.length === 0 && signedOut.people.length === 1);
 }
 {
-  check('an agent key can always be revoked here, agents module on or off', agentKeyRow({ agentsOn: false, canManageAgents: false }).revoke
-    && agentKeyRow({ agentsOn: true, canManageAgents: true }).revoke);
-  check('Open Connect only with agents on and agents.manage held', agentKeyRow({ agentsOn: true, canManageAgents: true }).openConnect
-    && !agentKeyRow({ agentsOn: false, canManageAgents: true }).openConnect && !agentKeyRow({ agentsOn: true, canManageAgents: false }).openConnect);
+  check('an agent key can always be revoked here, agents module on or off', agentKeyRow({ agentsOn: false, canManageAgents: false, canManageAllKeys: false }).revoke
+    && agentKeyRow({ agentsOn: true, canManageAgents: true, canManageAllKeys: true }).revoke);
+  check('Open Connect only with agents on, agents.manage and api_keys.manage_all held', agentKeyRow({ agentsOn: true, canManageAgents: true, canManageAllKeys: true }).openConnect
+    && !agentKeyRow({ agentsOn: false, canManageAgents: true, canManageAllKeys: true }).openConnect && !agentKeyRow({ agentsOn: true, canManageAgents: false, canManageAllKeys: true }).openConnect);
+  check('an Admin with agents.manage but not api_keys.manage_all is not sent to a Connect tab that shows no keys',
+    !agentKeyRow({ agentsOn: true, canManageAgents: true, canManageAllKeys: false }).openConnect);
   const offGroups = groupApiKeys([key('nova-key', { team_member_id: 'nova' })], 'me', new Set(['nova']), NOW);
-  check('working agent keys are listed whether or not agents are on', offGroups.agents.length === 1 && agentKeyRow({ agentsOn: false, canManageAgents: false }).listed);
+  check('a working key offers Pause, a paused one Resume', keyPauseAction(key('w'), NOW) === 'pause'
+    && keyPauseAction(key('p', { paused_at: hoursFromNow(-1) }), NOW) === 'resume');
+  check('an ended key offers neither (ending wins over a pause)', keyPauseAction(key('r', { revoked_at: hoursFromNow(-1), paused_at: hoursFromNow(-2) }), NOW) === null
+    && keyPauseAction(key('e', { expires_at: hoursFromNow(-1) }), NOW) === null && keyPauseAction(key('d', { disabled_at: hoursFromNow(-1) }), NOW) === null);
+  check('a one-hour AI setup key is never paused or resumed', keyPauseAction(key('s', { key_prefix: 'pk_setup_ab12' }), NOW) === null);
+  check('working agent keys are listed whether or not agents are on', offGroups.agents.length === 1 && agentKeyRow({ agentsOn: false, canManageAgents: false, canManageAllKeys: false }).listed);
 }
 {
   check('no expiry says so quietly', keyExpiry(null, NOW).label === 'No expiry' && keyExpiry(null, NOW).tone === 'muted');

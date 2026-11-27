@@ -12,7 +12,7 @@ import { taskTemplateRead, taskTemplateRunsRead, TEMPLATE_TABLES } from '@/lib/r
 import { workspaceApi, WorkspaceApiError } from '@/lib/agent-workspace';
 import { timeAgo } from '@/lib/task-times';
 import {
-  DEFAULT_KEY_DATE, dueLabel, RUNNER, syncFields, taskCount, TEMPLATE_DESCRIPTION_MAX, TEMPLATE_GUIDANCE_MAX, TEMPLATE_ITEMS_MAX,
+  DEFAULT_KEY_DATE, dueLabel, RUNNER, templateWarnings, syncFields, taskCount, TEMPLATE_DESCRIPTION_MAX, TEMPLATE_GUIDANCE_MAX, TEMPLATE_ITEMS_MAX,
   TEMPLATE_KEY_DATES_MAX, TEMPLATE_LABEL_MAX, TEMPLATE_NAME_MAX, TEMPLATE_ROLES_MAX, TEMPLATE_SUBTASKS_MAX, TEMPLATE_TITLE_MAX,
   type TaskTemplateView, type TemplateField, type TemplateFieldType, type TemplateKeyDate, type TemplatePriority, type TemplateRole,
   type TemplateSubtask, type TemplateTask,
@@ -242,6 +242,12 @@ function ErrorLine({ message }: { message?: string | null }) {
   return <p role="alert" className="mt-1 text-xs text-red-300">{message}</p>;
 }
 
+/** Something that may not be meant: said where it is, never stopping Save. */
+function WarningLine({ message }: { message?: string | null }) {
+  if (!message) return null;
+  return <p role="status" className="mt-1 text-xs text-amber-300">{message}</p>;
+}
+
 function TemplateEditor({ template, starter, presetProject, onClose, onUse, onSchedule, onSaved }: {
   template: TaskTemplateView | null;
   starter: TemplateDraft | null;
@@ -284,6 +290,9 @@ function TemplateEditor({ template, starter, presetProject, onClose, onUse, onSc
   // Checked as you type: the rules here at once, the server's (the same
   // rules plus the workspace: projects, members) a moment later.
   const local = useMemo(() => localTemplateIssues(doc), [doc]);
+  // A task due before what it waits on: a warning at its Waits on, never a block.
+  const warnings = useMemo(() => templateWarnings(doc), [doc]);
+  const warningAt = (index: number) => warnings.find((w) => w.path.startsWith(`items[${index}].depends_on`))?.message;
   const [server, setServer] = useState<{ key: string; errors: ScreenIssue[]; canSave: boolean } | null>(null);
   useEffect(() => {
     if (!editable || isDemoMode) return;
@@ -649,7 +658,10 @@ function TemplateEditor({ template, starter, presetProject, onClose, onUse, onSc
                             options={draft.items.filter((t) => t.uid !== task.uid).map((t) => ({ value: t.key, label: t.title.trim() || 'Untitled task' }))}
                             searchable={draft.items.length > 8}
                           />
-                          <ErrorLine message={errorAt(`items[${index}].depends_on`) ?? task.depends_on.map((_, j) => errorAt(`items[${index}].depends_on[${j}]`)).find(Boolean)} />
+                          {(() => {
+                            const error = errorAt(`items[${index}].depends_on`) ?? task.depends_on.map((_, j) => errorAt(`items[${index}].depends_on[${j}]`)).find(Boolean);
+                            return error ? <ErrorLine message={error} /> : <WarningLine message={warningAt(index)} />;
+                          })()}
                         </div>
                       )}
                       <div className="grid grid-cols-2 gap-2">

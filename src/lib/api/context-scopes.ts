@@ -15,6 +15,7 @@ import { briefEntry } from './project-brief';
 import { BRIEF_CONTEXT_COLUMNS } from './project-context';
 import { ApiError, forbidden, notFound } from './errors';
 import { readAll } from './read-all';
+import { readPage } from './pagination';
 
 /**
  * Context at every level (lib/context-scopes.ts has the rules in words).
@@ -217,12 +218,12 @@ async function requireScope(service: SupabaseClient, caller: AgentCaller, ref: S
 
 async function sectionPage(service: SupabaseClient, ref: ScopeRef, section: BriefSectionKey, offset: number, limit: number): Promise<BriefSection> {
   const base = service.from('project_context').select(SCOPED_COLUMNS, { count: 'exact' }).eq('scope_type', ref.scope_type);
-  const { data, error, count } = await (ref.scope_id ? base.eq('scope_id', ref.scope_id) : base.is('scope_id', null))
+  const { data, error, count } = await readPage((ref.scope_id ? base.eq('scope_id', ref.scope_id) : base.is('scope_id', null))
     .eq('section', section)
     .eq('is_active', true)
     .order('pinned', { ascending: false })
     .order('updated_at', { ascending: false })
-    .range(offset, offset + limit - 1);
+    .order('id'), { offset, limit });
   if (missingScopeColumns(error)) throw pending();
   if (error) throw error;
   const label = BRIEF_SECTIONS.find((s) => s.key === section)?.label ?? section;

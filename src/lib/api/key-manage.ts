@@ -7,6 +7,7 @@ import type { ApiKey } from '@/lib/types';
 import { insertAuditRows } from './audit';
 import { ApiError, notFound } from './errors';
 import { readAll } from './read-all';
+import { readPage } from './pagination';
 
 /**
  * Managing API keys beyond create, rotate and revoke (20261127000600):
@@ -205,7 +206,7 @@ export async function listKeysPage(
     if (options.memberId) query = query.eq('team_member_id', options.memberId);
     if (options.state) query = filterKeysByState(query, options.state, now, pauseColumns);
     else if (!options.includeRevoked) query = query.is('revoked_at', null);
-    return query.order('created_at', { ascending: false }).range(options.offset, options.offset + options.limit - 1);
+    return readPage(query.order('created_at', { ascending: false }).order('id'), options);
   };
   const { data } = await readKeys<{ rows: ApiKey[]; count: number }>(async (columns) => {
     let answer = await page(columns);

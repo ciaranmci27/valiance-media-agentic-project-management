@@ -218,9 +218,11 @@ export function firstInvalidHireStep(draft: HireDraft, template: AgentTemplateVi
 }
 
 /** The body the hire call sends, from a draft that passed every step. */
-export function hireRequestFrom(draft: HireDraft) {
+export function hireRequestFrom(draft: HireDraft, requestId?: string) {
   const role = normalizeRole(draft.role);
   return {
+    // One id per hire attempt: the server makes one agent for it however many calls arrive.
+    ...(requestId ? { request_id: requestId } : {}),
     name: draft.name.trim(),
     ...(draft.title.trim() ? { title: draft.title.trim() } : {}),
     ...(draft.description.trim() ? { description: draft.description.trim() } : {}),
@@ -293,6 +295,20 @@ export function worksOutsideProjects(template: Pick<AgentTemplateView, 'scopes'>
 /** Powers that read an inbox: the agent needs a shared inbox granted before it has anything to sort. */
 export function readsInbox(scopes: readonly string[]): boolean {
   return scopes.some((s) => s.startsWith('inbound_email.'));
+}
+
+/** Names the hire screen suggests in its Name field: generic, never one install's own. */
+export const AGENT_NAME_SUGGESTIONS = ['Nova', 'Atlas', 'Iris', 'Orion', 'Sage', 'Juniper', 'Quill', 'Ember'] as const;
+
+/**
+ * The Name field's placeholder: the first suggestion no one on the team is
+ * called (any case, suspended people too, since a name is a name), so the
+ * example never reads as an agent that already exists. Empty when all are
+ * taken.
+ */
+export function freeAgentName(members: readonly { name: string }[]): string {
+  const taken = new Set(members.map((m) => m.name.trim().toLowerCase()));
+  return AGENT_NAME_SUGGESTIONS.find((name) => !taken.has(name.toLowerCase())) ?? '';
 }
 
 /** An active member already called this (any case), so mentions and name lookups would be ambiguous. */

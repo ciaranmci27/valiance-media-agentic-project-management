@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { withApi } from '@/lib/api/middleware';
 import { requireAssistantSwitch } from '@/lib/api/assistant';
 import { created, paginated } from '@/lib/api/response';
-import { parsePagination } from '@/lib/api/pagination';
+import { parsePagination, readPage } from '@/lib/api/pagination';
 import { badRequest } from '@/lib/api/errors';
 import { logAudit } from '@/lib/api/audit';
 import {
@@ -68,11 +68,11 @@ export const GET = withApi(async ({ supabase, searchParams, teamMemberId, access
   if (projectId) query = query.eq('project_id', projectId);
   if (dueBy) query = query.lte('remind_on', dueBy);
 
-  const { data, count, error } = await query
+  const { data, count, error } = await readPage(query
     .order('remind_on', { ascending: true, nullsFirst: false })
     .order('remind_at', { ascending: true, nullsFirst: true })
     .order('created_at', { ascending: true })
-    .range(offset, offset + limit - 1);
+    .order('id'), { offset, limit });
   if (error) throw error;
   return paginated(data || [], { page, limit, total: count || 0 });
 }, { permission: 'reminders.manage_own' });

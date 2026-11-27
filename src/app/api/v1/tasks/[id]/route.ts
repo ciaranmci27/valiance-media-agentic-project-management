@@ -14,6 +14,7 @@ import { readTaskInFull } from '@/lib/api/task-read';
 import { finishTaskMove, lostAccessError, movingIds, planTaskMove, prepareTaskMove, resolveLostAccess, type LostAccessChoice } from '@/lib/api/task-move';
 import { isModuleEnabled } from '@/lib/access-control';
 import { assertInitiativeInProject, assertSubtaskInitiative } from '@/lib/api/initiatives';
+import { agentIdsAmong, gateAgentsWork, workGiverOf } from '@/lib/api/agent-access';
 
 async function currentAssigneeIds(supabase: SupabaseClient, taskId: string): Promise<string[]> {
   const { data, error } = await supabase
@@ -24,8 +25,11 @@ async function currentAssigneeIds(supabase: SupabaseClient, taskId: string): Pro
   return (data || []).map((row: { member_id: string }) => row.member_id);
 }
 
-export const GET = withApi(async ({ supabase, params, access }) => {
-  return success(await readTaskInFull(supabase, params.id, { agentsOn: isModuleEnabled(access, 'agents') }));
+export const GET = withApi(async ({ supabase, params, access, teamMemberId }) => {
+  return success(await readTaskInFull(supabase, params.id, {
+    agentsOn: isModuleEnabled(access, 'agents'),
+    guestId: access.role === 'guest' ? teamMemberId : null,
+  }));
 }, { permission: 'tasks.read' });
 
 export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemberId, access, scopes }) => {
@@ -59,6 +63,21 @@ export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemb
         reason: 'self_assign_off',
         hint: 'An Owner or admin can turn on "Can pick up unassigned work" in the agent\'s rules (Team page, or set_agent_rules).',
       });
+    }
+  }
+  // Agents newly put on it: their orchestrator, who can use them, ask first (202 with the approval; nothing changes).
+  if (Array.isArray(assignee_ids)) {
+    const current = await currentAssigneeIds(supabase, id);
+    const added = (assignee_ids as string[]).filter((member) => !current.includes(member) && member !== teamMemberId);
+    const agents = await agentIdsAmong(supabase, added);
+    if (agents.length) {
+      const pending = await gateAgentsWork(supabase, agents, {
+        ...workGiverOf(access, teamMemberId),
+        entry: 'assign',
+        target: `task:${id}`,
+        ask: { summary: `Task "${String(before.title ?? '').slice(0, 200)}"`, taskId: id, projectId: before.project_id },
+      });
+      if (pending) return success(pending, 202);
     }
   }
   const blockedByIds: string[] | undefined = Array.isArray(blocked_by_ids) ? blocked_by_ids : undefined;

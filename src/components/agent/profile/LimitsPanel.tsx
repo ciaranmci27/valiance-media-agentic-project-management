@@ -16,11 +16,11 @@ import { workspaceApi } from '@/lib/agent-workspace';
 import { periodWords } from '@/lib/agent-profile';
 import { useDemo } from '@/lib/demo-context';
 import { invalidateTables } from '@/lib/query-cache';
-import { timeAgo } from '@/lib/task-times';
 import { Button } from '@/components/ui/Button';
 import { NumberInput } from '@/components/ui/inputs/NumberInput';
 import { Select } from '@/components/ui/inputs/Select';
 import { toast } from '@/components/ui/Toast';
+import { formatAgo } from '@/lib/time-format';
 
 /**
  * Rules and powers > Limits: how hard the agent may run (runs at once,
@@ -56,7 +56,8 @@ export const DEMO_NOTICE = 'Demo mode: changes are not saved.';
 export function useAgentPause(agentId: string, agentName: string) {
   const { isDemoMode } = useDemo();
   const [busy, setBusy] = useState(false);
-  const setPaused = async (paused: boolean): Promise<boolean> => {
+  /** quiet: the caller shows the result in place (an UndoLine), so no toast on success. */
+  const setPaused = async (paused: boolean, { quiet = false }: { quiet?: boolean } = {}): Promise<boolean> => {
     if (isDemoMode) {
       toast('info', DEMO_NOTICE);
       return false;
@@ -65,7 +66,7 @@ export function useAgentPause(agentId: string, agentName: string) {
     try {
       await workspaceApi(`/api/workspace/agents/${encodeURIComponent(agentId)}`, { method: 'PATCH', body: { paused } });
       invalidateTables(['team_members']);
-      toast('success', paused ? `${agentName} is paused` : `${agentName} is working again`);
+      if (!quiet) toast('success', paused ? `${agentName} is paused` : `${agentName} is working again`);
       return true;
     } catch (error) {
       toast('error', error instanceof Error ? error.message : 'Could not change it');
@@ -138,7 +139,7 @@ export function LimitsPanel({ agentId, agentName, limits, usage, pausedAt, canEd
 
       {pausedAt && (
         <p role="status" className="rounded-xl bg-amber-500/[0.08] px-4 py-3 text-sm text-zinc-200">
-          Paused {timeAgo(pausedAt).toLowerCase()}. It reads and reports only.
+          Paused {formatAgo(pausedAt, { midSentence: true })}. It reads and reports only.
         </p>
       )}
 

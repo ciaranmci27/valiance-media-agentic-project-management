@@ -36,6 +36,8 @@ import { ExtensionError } from './registry';
  *   with: max_concurrent_runs, rate_per_minute, budget_usd, budget_tokens,
  *   budget_period (lib/agent-limits.ts). Left out, it starts with none, and
  *   an Owner can change them on the agent afterwards.
+ * - audience: who can use an agent hired from it at first: managers (its
+ *   owners only) or everyone (the default, as before).
  */
 export interface AgentTemplateRules {
   agent_self_assign: boolean;
@@ -56,6 +58,12 @@ export interface AgentTemplate {
   role?: string;
   profile?: string;
   limits?: AgentLimitsPatch;
+  /**
+   * Who can use an agent hired from it, at first: managers (its owners
+   * only, for agents that touch code or money) or everyone (left out: anyone
+   * who may otherwise give it work, as before). Its managers change it later.
+   */
+  audience?: 'everyone' | 'managers';
 }
 
 export const AGENT_TEMPLATE_CONTEXT_MAX = 2000;
@@ -102,6 +110,9 @@ function checkTemplate(template: AgentTemplate) {
   if (template.limits !== undefined) {
     const limits = agentLimitsPatchSchema.safeParse(template.limits);
     if (!limits.success) fail(`${where}: limits ${limits.error.issues.map((issue) => `${issue.path.join('.') || 'value'} ${issue.message}`).join('; ')}.`);
+  }
+  if (template.audience !== undefined && template.audience !== 'everyone' && template.audience !== 'managers') {
+    fail(`${where}: audience is everyone or managers.`);
   }
 }
 

@@ -1,4 +1,13 @@
 import { z } from 'zod';
+import { safeNotificationLink } from '@/lib/notifications';
+
+/**
+ * A notification's link: kept only when it is a path in this app
+ * ("/projects/<id>"). Anything else (a URL to another site, "//host", too
+ * long) is dropped and the notification still goes out without a link, so
+ * an agent never loses a notice over its link.
+ */
+export const notificationLinkSchema = z.string().transform((link) => safeNotificationLink(link));
 
 export const updateNotificationSchema = z.object({
   is_read: z.boolean(),
@@ -8,7 +17,7 @@ export const updateNotificationSchema = z.object({
 export const createNotificationSchema = z.object({
   title: z.string().min(1, 'Title is required'),
   message: z.string().min(1, 'Message is required'),
-  link: z.string().nullable().optional(),
+  link: notificationLinkSchema.nullable().optional(),
   entity_type: z
     .enum(['task', 'project', 'lead', 'comment', 'member', 'contact', 'suggestion', 'goal', 'question'])
     .default('question'),

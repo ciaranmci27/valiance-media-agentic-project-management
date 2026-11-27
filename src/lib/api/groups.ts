@@ -8,6 +8,7 @@ import { sanitizeSearch } from './pagination';
 import { readAll } from './read-all';
 import { findAgentTemplate } from '@/lib/agent-templates';
 import { ApiError, forbidden, notFound } from './errors';
+import { readPage } from './pagination';
 
 /**
  * Groups for the API (v1, MCP) and the session routes. Routes run on the
@@ -176,7 +177,7 @@ export async function listGroups(service: SupabaseClient, caller: AgentCaller, f
   if (only) query = query.in('id', only);
   const search = filters.search ? sanitizeSearch(filters.search.trim()) : '';
   if (search) query = query.or(`name.ilike.%${search}%,slug.ilike.%${search}%`);
-  const { data, count, error } = await query.order('name').order('id').range(filters.offset, filters.offset + filters.limit - 1);
+  const { data, count, error } = await readPage(query.order('name').order('id'), filters);
   if (error) fail(error);
   const rows = (data ?? []) as Row[];
   const tally = await counts(service, rows.map((row) => row.id));
@@ -309,11 +310,10 @@ export async function listGroupMembers(service: SupabaseClient, caller: AgentCal
   if (filters.role) query = query.eq('role', filters.role);
   const search = filters.search ? sanitizeSearch(filters.search.trim()) : '';
   if (search) query = query.ilike('member.name', `%${search}%`);
-  const { data, count, error } = await query
+  const { data, count, error } = await readPage(query
     .order('role', { ascending: true })
     .order('created_at')
-    .order('member_id')
-    .range(filters.offset, filters.offset + filters.limit - 1);
+    .order('member_id'), filters);
   if (error) fail(error);
   const rows = ((data ?? []) as Row[]).map((row): GroupMemberView => ({
     member_id: row.member_id,
@@ -338,13 +338,19 @@ export async function addGroupMembers(service: SupabaseClient, caller: AgentCall
   const existing = await readAll<{ member_id: string; role: string }>((from, to) =>
     service.from('group_members').select('member_id, role').eq('group_id', groupId).in('member_id', ids).order('member_id').range(from, to));
   const have = new Map(existing.map((row) => [row.member_id, row.role]));
-  const added = ids.filter((id) => !have.has(id));
+  const adding = ids.filter((id) => !have.has(id));
   // only_new: who is in it already keeps their role (picking a lead as "Member" never demotes them).
   const updated = input.only_new ? [] : ids.filter((id) => have.has(id) && have.get(id) !== role);
-  if (added.length) {
-    const { error } = await service.from('group_members').insert(added.map((member_id) => ({ group_id: groupId, member_id, role, created_by: caller.memberId })));
+  let added: string[] = [];
+  if (adding.length) {
+    // Someone adding the same people at the same moment is not an error: a
+    // member already in stays as they are, and only who this call added counts.
+    const { data, error } = await service.from('group_members')
+      .upsert(adding.map((member_id) => ({ group_id: groupId, member_id, role, created_by: caller.memberId })), { onConflict: 'group_id,member_id', ignoreDuplicates: true })
+      .select('member_id');
     if (error) throw error;
-    await provisionGroupJoiners(service, added, caller.memberId);
+    added = ((data ?? []) as { member_id: string }[]).map((row) => row.member_id);
+    if (added.length) await provisionGroupJoiners(service, added, caller.memberId);
   }
   if (updated.length) {
     const { error } = await service.from('group_members').update({ role }).eq('group_id', groupId).in('member_id', updated);

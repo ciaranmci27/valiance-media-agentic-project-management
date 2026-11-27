@@ -45,6 +45,8 @@ const MEMBER_TABLES: Record<string, string> = {
   // the service role or SECURITY DEFINER functions.
   activities: 'SELECT', agent_health: 'SELECT', agent_health_history: 'SELECT',
   agent_owner_groups: 'SELECT', agent_owners: 'SELECT', agent_runs: 'SELECT',
+  // Who can use an agent (20261127001000): written by the server; team.read and the agent read it.
+  agent_audience: 'SELECT',
   analytics_tracking_starts: 'SELECT', answers: 'SELECT', api_audit_log: 'SELECT',
   api_keys: 'SELECT', attachments: 'SELECT', conversation_projects: 'SELECT',
   conversations: 'SELECT', group_members: 'SELECT', groups: 'SELECT',

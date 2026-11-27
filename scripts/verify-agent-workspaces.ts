@@ -446,6 +446,43 @@ async function main() {
     check('hire: the template sets role, profile and rules', jeff?.agent?.agent_role === 'builder' && jeff?.agent?.agent_profile === 'generic'
       && jeff?.rules?.agent_close_policy === 'review' && jeff?.rules?.agent_self_assign === false && jeff?.template_key === 'builder', jeff);
     check('hire: its owners are those named', JSON.stringify(jeff?.agent?.owners?.map((o: Loose) => o.id)) === JSON.stringify([s.owner, s.morgan]), jeff?.agent?.owners);
+    // One hire per request id: a double click (two calls in one tick) makes one agent and one key.
+    {
+      const requestId = randomUUID();
+      const twiceBody = { name: 'Twice', create_key: true, scopes: ['tasks.read'], request_id: requestId };
+      const [first, second] = await Promise.all([
+        session(hireRoute.POST, 'POST', '/api/workspace/agents', {}, twiceBody),
+        session(hireRoute.POST, 'POST', '/api/workspace/agents', {}, twiceBody),
+      ]);
+      const made = [first, second].filter((answer) => answer.status === 201);
+      const refused = [first, second].filter((answer) => answer.status === 409);
+      const twiceAgents = await count("SELECT count(*)::int AS n FROM pm.team_members WHERE name = 'Twice' AND role = 'agent'");
+      const twiceKeys = await count("SELECT count(*)::int AS n FROM pm.api_keys k JOIN pm.team_members m ON m.id = k.team_member_id WHERE m.name = 'Twice'");
+      check('hire: two calls with one request id make one agent and one key; the other is refused', made.length === 1 && refused.length === 1
+        && ['already_hired', 'hire_in_progress'].includes(reason(refused[0])) && twiceAgents === 1 && twiceKeys === 1,
+        { statuses: [first.status, second.status], reasons: refused.map(reason), twiceAgents, twiceKeys });
+      const retry = await session(hireRoute.POST, 'POST', '/api/workspace/agents', {}, twiceBody);
+      check('hire: a retry of a hire that went through is 409 already_hired with its agent, and makes nothing', retry.status === 409 && reason(retry) === 'already_hired'
+        && retry.body?.error?.details?.agent_id === made[0]?.body?.data?.agent?.id
+        && await count("SELECT count(*)::int AS n FROM pm.team_members WHERE name = 'Twice' AND role = 'agent'") === 1, retry.body);
+      // A hire killed half way: its unfinished claim holds the id for two minutes, then a retry takes it over.
+      const stuckId = randomUUID();
+      const freshId = randomUUID();
+      await s.q("INSERT INTO pm.agent_hire_requests (request_id, hired_by, created_at) VALUES ($1, $3, now() - interval '5 minutes'), ($2, $3, now())", [stuckId, freshId, s.owner]);
+      const revived = await session(hireRoute.POST, 'POST', '/api/workspace/agents', {}, { name: 'Revived', request_id: stuckId });
+      const stillRunning = await session(hireRoute.POST, 'POST', '/api/workspace/agents', {}, { name: 'Too Soon', request_id: freshId });
+      check('hire: an unfinished claim older than two minutes is free again; a fresh one still holds', revived.status === 201
+        && stillRunning.status === 409 && reason(stillRunning) === 'hire_in_progress'
+        && (await s.q<{ agent_id: string | null }>('SELECT agent_id FROM pm.agent_hire_requests WHERE request_id = $1', [stuckId]))[0]?.agent_id === revived.body?.data?.agent?.id,
+        { revived: revived.status, revivedBody: revived.body?.error, stillRunning: stillRunning.status });
+      // The API and MCP honour the same id: the second call hires nothing more.
+      const mcpId = randomUUID();
+      const mcpFirst = await runTool(s.keys.owner, s.owner, 'hire_agent', { name: 'Once Over MCP', request_id: mcpId });
+      const mcpSecond = await runTool(s.keys.owner, s.owner, 'hire_agent', { name: 'Once Over MCP', request_id: mcpId });
+      check('hire: over MCP a second hire_agent with the same request_id is already_hired', mcpFirst?.ok === true && mcpSecond?.ok === false
+        && mcpSecond?.error?.reason === 'already_hired' && await count("SELECT count(*)::int AS n FROM pm.team_members WHERE name = 'Once Over MCP'") === 1,
+        { mcpFirst: mcpFirst?.ok, mcpSecond });
+    }
     // Owners as sent: the hirer only when none are named.
     const handedOff = await session(hireRoute.POST, 'POST', '/api/workspace/agents', {}, { name: 'Handed Off', owner_ids: [s.mia] });
     check('hire: owners are honoured as sent, without the hirer', handedOff.status === 201

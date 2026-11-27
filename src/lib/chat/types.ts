@@ -376,6 +376,11 @@ export const CHAT_WORDS = {
   /** A company bot with nobody to answer here: no agent named, no channel mapping, no default. */
   noAgentHere: 'No AI is set up to answer here yet. Ask your admin.',
   agentsOff: 'AI agents are not turned on yet. Ask your admin.',
+  /** A company agent the person may not use (who can use it, or only through its orchestrator). */
+  agentNotAvailable: (name: string) => `${name} is not available to you. Ask one of its managers if you need it.`,
+  agentThroughOrchestrator: (name: string, orchestrator: string) => `${name} takes work through ${orchestrator}. Ask ${orchestrator} instead.`,
+  /** A company agent that asks its managers first: they were asked; the next message goes through once one approves. */
+  agentAskFirst: (name: string) => `${name} asks its managers before it helps here. I've asked them. Message again once one of them approves.`,
 } as const;
 
 /**

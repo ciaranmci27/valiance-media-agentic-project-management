@@ -4,7 +4,7 @@ import type { RunRole, TemplateRunPreview } from '@/lib/api/task-templates';
 import type { TemplateDraftDetail, TemplateDraftPreview, TemplateDraftView } from '@/lib/api/template-drafts';
 import type { ReflowKept, ReflowResult, ReflowTask, ReflowWarning } from '@/lib/api/template-reflow';
 import {
-  assignTemplateKeys, issuesFromZod, keyDatesOf, keyFromLabel, mainKeyDate, missingValues, pastDueOf, planRun, RUNNER, taskCount,
+  assignTemplateKeys, issuesFromZod, keyDatesOf, keyFromLabel, mainKeyDate, missingValues, pastDueOf, planRun, RUNNER, runDateWarnings, taskCount,
   templateDocumentSchema, templateIssues, type PlannedTask, type RunTaskTemplateInput, type TaskTemplateSummary, type TaskTemplateView,
   type TemplateKeyDate, type TemplateTask,
 } from '@/lib/task-templates';
@@ -181,6 +181,7 @@ export function localRunPreview(template: TaskTemplateView, input: RunTaskTempla
     task_count: taskCount(template.items),
     notes: [],
     past_due: pastDueOf(tasks, context.today),
+    date_warnings: runDateWarnings(tasks, keyDateList, keyDates),
   };
 }
 
@@ -205,7 +206,7 @@ export function localReflow(args: {
   runId: string;
   templateId: string;
   projectId: string;
-  initiative: { id: string; name: string; target_date: string | null } | null;
+  initiative: { id: string; name: string; target_date: string | null; start_date: string | null } | null;
   items: readonly TemplateTask[];
   keyDates: readonly TemplateKeyDate[];
   from: Readonly<Record<string, string>>;
@@ -269,7 +270,13 @@ export function localReflow(args: {
   if (args.initiative) {
     const oldMain = args.from[mainKey] ?? null;
     const newMain = to[mainKey] ?? null;
-    result.initiative = { ...args.initiative, from: oldMain, to: newMain, follows: oldMain !== newMain && args.initiative.target_date === oldMain };
+    const earliest = (dates: Readonly<Record<string, string>>) => Object.values(dates).filter(Boolean).sort()[0] ?? null;
+    const oldStart = earliest(args.from);
+    const newStart = earliest(to);
+    result.initiative = {
+      ...args.initiative, from: oldMain, to: newMain, follows: oldMain !== newMain && args.initiative.target_date === oldMain,
+      start_from: oldStart, start_to: newStart, start_follows: oldStart !== newStart && args.initiative.start_date === oldStart,
+    };
   }
   return result;
 }
