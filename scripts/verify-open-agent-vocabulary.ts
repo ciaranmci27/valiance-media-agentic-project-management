@@ -606,6 +606,8 @@ async function main() {
       if (tool.agentsOnly && caller.access.role !== 'agent') return false;
       // Chat tools (2.0.26) serve a person's own agent only.
       if (tool.personalOnly && !(caller.access.role === 'agent' && caller.access.principal_id)) return false;
+      // A person's own decisions (parity, 2026-11-27) are never an agent's.
+      if (tool.peopleOnly && caller.access.role === 'agent') return false;
       if (tool.module && !isModuleEnabled(caller.access, tool.module)) return false;
       if (tool.write && caller.readOnly) return false;
       if (tool.name === GUIDE_TOOL) return true;

@@ -3,6 +3,10 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { Ban, Bot, ChevronDown, KeyRound, PauseCircle, Pencil, PlayCircle, Plus, RefreshCw, ShieldOff } from 'lucide-react';
+import { SubNav } from '@/components/ui/Tabs';
+import { EmptyState } from '@/components/ui/EmptyState';
+import { RevokeUnusedKeysDialog } from '@/components/settings/RevokeUnusedKeysDialog';
+import { KEY_TABS, keyTabOf, type KeyTab } from '@/lib/agent-access-ui';
 import { appLocale } from '@/lib/region';
 import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
@@ -56,9 +60,13 @@ const LINK = 'rounded font-medium text-brand-300 underline underline-offset-2 ho
  * sees other people's keys. Agent keys are listed with Edit (an Owner may
  * give the agent a power its role lacks there) and Revoke (so one can be
  * stopped even with the Agents module off), and a link to their agent's
- * profile, where they are made and rotated. A key a rotation replaced says
- * so and is not rotated again; Revoke names every other key it takes down.
- * While workspace API access is off, a banner says every key is refused.
+ * profile, where they are made and replaced (its Access tab, where what it
+ * may do is one list, so Edit here changes an agent key's name only). A key
+ * a rotation replaced says so and is not rotated again; Revoke names every
+ * other key it takes down, with one confirm. Active, Paused and Revoked are
+ * tabs, and Revoke unused keys previews keys never used or unused for 90
+ * days before revoking them. While workspace API access is off, a banner
+ * says every key is refused.
  */
 export function ApiKeysSection() {
   const { team, apiKeys, revokeApiKey, setApiKeyPaused } = useApp();
@@ -72,13 +80,22 @@ export function ApiKeysSection() {
   const [revokeTarget, setRevokeTarget] = useState<ApiKey | null>(null);
   const [editTarget, setEditTarget] = useState<ApiKey | null>(null);
   const [rotateTarget, setRotateTarget] = useState<ApiKey | null>(null);
-  const [showEnded, setShowEnded] = useState(false);
+  const [tab, setTab] = useState<KeyTab>('active');
+  const [revokingUnused, setRevokingUnused] = useState(false);
+  const [now] = useState(() => Date.now());
   // The key just paused here: its row shows "Paused <name>. Undo" (DESIGN.md Rule 6).
   const [pausedHere, setPausedHere] = useState<{ id: string; name: string } | null>(null);
   const [undoing, setUndoing] = useState(false);
 
   const agentIds = useMemo(() => new Set(team.filter((m) => m.role === 'agent').map((m) => m.id)), [team]);
-  const { mine, people, agents, ended } = groupApiKeys(apiKeys, teamMemberId, agentIds);
+  const groups = groupApiKeys(apiKeys, teamMemberId, agentIds);
+  const counts = { active: 0, paused: 0, revoked: 0 } as Record<KeyTab, number>;
+  for (const key of apiKeys) if (key.permissions !== 'connection') counts[keyTabOf(key, now)]++;
+  const onTab = (key: ApiKey) => keyTabOf(key, now) === tab;
+  const mine = groups.mine.filter(onTab);
+  const people = groups.people.filter(onTab);
+  const agents = groups.agents.filter(onTab);
+  const ended = groups.ended;
   const replaced = useMemo(() => replacedKeyIds(apiKeys), [apiKeys]);
   const memberName = (id: string | null) => (id ? team.find((m) => m.id === id)?.name : null) ?? 'Unknown member';
 
@@ -148,7 +165,8 @@ export function ApiKeysSection() {
 
   const actionsFor = (key: ApiKey, own: boolean): RowAction[] => [
     ...(canEditApiKey(access, teamMemberId, key)
-      ? [{ label: 'Edit name and access', icon: <Pencil size={14} aria-hidden="true" />, onClick: () => setEditTarget(key) }]
+      // An agent key's powers are the agent's one list (its Access tab): here only its name.
+      ? [{ label: key.team_member_id && agentIds.has(key.team_member_id) ? 'Edit name' : 'Edit name and access', icon: <Pencil size={14} aria-hidden="true" />, onClick: () => setEditTarget(key) }]
       : []),
     // Rotating is for your own keys (an agent's rotate on its profile), and a key is replaced once: rotate its newest key.
     ...(own && !replaced.has(key.id) ? [{ label: 'Rotate', icon: <RefreshCw size={14} aria-hidden="true" />, onClick: () => setRotateTarget(key) }] : []),
@@ -167,11 +185,27 @@ export function ApiKeysSection() {
           headingId="api-keys-heading"
           description="Your own keys, for scripts and tools that use the API or MCP as you. Each key does only what you tick."
           action={(
-            <Button size="sm" onClick={() => setCreating(true)} icon={<Plus size={14} aria-hidden="true" />}>
-              New key
-            </Button>
+            <div className="flex flex-wrap items-center gap-2">
+              {counts.active + counts.paused > 0 && (
+                <Button size="sm" variant="secondary" onClick={() => setRevokingUnused(true)} icon={<Ban size={14} aria-hidden="true" />}>
+                  Revoke unused
+                </Button>
+              )}
+              <Button size="sm" onClick={() => setCreating(true)} icon={<Plus size={14} aria-hidden="true" />}>
+                New key
+              </Button>
+            </div>
           )}
         />
+
+        <div className="mb-4">
+          <SubNav
+            label="Keys by state"
+            items={KEY_TABS.map((item) => ({ key: item.key, label: item.label, count: counts[item.key] }))}
+            active={tab}
+            onChange={setTab}
+          />
+        </div>
 
         {apiSwitch && !apiSwitch.api_enabled && (
           <div role="status" className="mb-4 flex items-start gap-3 rounded-lg bg-amber-500/[0.14] px-3.5 py-3 text-sm text-amber-100">
@@ -185,18 +219,16 @@ export function ApiKeysSection() {
           </div>
         )}
 
-        {mine.length > 0 ? (
+        {tab === 'revoked' ? null : mine.length > 0 ? (
           <KeyList label="Your API keys">
             {mine.map((key) => (
               <KeyRow key={key.id} apiKey={key} replaced={replaced.has(key.id)} actions={actionsFor(key, true)} notice={pauseNotice(key)} />
             ))}
           </KeyList>
+        ) : tab === 'paused' ? (
+          <EmptyState compact icon={<PauseCircle />} title="No paused keys of yours" description="Pause a key from its menu to stop it for a while without losing it." />
         ) : (
-          <div className="rounded-lg bg-white/[0.03] px-4 py-6 text-center">
-            <KeyRound className="mx-auto mb-2 text-zinc-400" size={22} aria-hidden="true" />
-            <p className="text-sm font-medium text-zinc-200">No keys yet</p>
-            <p className="mt-1 text-xs text-zinc-400">Make one to connect a script, a tool or an AI client.</p>
-          </div>
+          <EmptyState compact icon={<KeyRound />} title="No keys yet" description="Make one to connect a script, a tool or an AI client." />
         )}
 
         {people.length > 0 && (
@@ -210,7 +242,7 @@ export function ApiKeysSection() {
           </div>
         )}
 
-        {(agents.length > 0 || agentsOn) && (
+        {tab !== 'revoked' && (agents.length > 0 || (agentsOn && tab === 'active')) && (
           <div className="mt-6 rounded-lg bg-white/[0.03] px-3.5 py-3">
             <div className="flex items-start gap-3">
               <Bot size={16} className="mt-0.5 flex-shrink-0 text-zinc-400" aria-hidden="true" />
@@ -218,7 +250,7 @@ export function ApiKeysSection() {
                 {agentsOn ? (
                   <>
                     {agentRow.openConnect ? (
-                      <>Agent keys are made and rotated on each agent&apos;s profile, under Connect.{' '}<Link href="/agent?tab=agents" className={LINK}>Open agents</Link></>
+                      <>Agent keys are made and replaced on each agent&apos;s page, under Access, beside what it may do.{' '}<Link href="/ai?tab=company" className={LINK}>Open agents</Link></>
                     ) : AGENT_KEYS_WHO}
                   </>
                 ) : (
@@ -239,8 +271,8 @@ export function ApiKeysSection() {
                       replaced={replaced.has(key.id)}
                       owner={memberName(key.team_member_id)}
                       trailing={agentRow.openConnect ? (
-                        <Button size="sm" variant="secondary" href={`/agent/${key.team_member_id}?tab=connect`}>
-                          Open Connect
+                        <Button size="sm" variant="secondary" href={`/ai/agents/${key.team_member_id}?tab=access`}>
+                          Open Access
                         </Button>
                       ) : undefined}
                       actions={actionsFor(key, false)}
@@ -253,43 +285,36 @@ export function ApiKeysSection() {
           </div>
         )}
 
-        {ended.length > 0 && (
-          <div className="mt-4">
-            <Button
-              size="sm"
-              variant="ghost"
-              className="-ml-2.5"
-              aria-expanded={showEnded}
-              onClick={() => setShowEnded((open) => !open)}
-              icon={<ChevronDown size={14} aria-hidden="true" className={`transition-transform duration-200 ${showEnded ? 'rotate-180' : ''}`} />}
-            >
-              {showEnded ? 'Hide' : 'Show'} {ended.length} revoked or expired
-            </Button>
-            {showEnded && (
-            <div
-              role="region"
-              tabIndex={0}
-              aria-label="Revoked and expired API keys"
-              className="mt-2 max-h-60 overflow-y-auto rounded-lg border border-white/[0.06] divide-y divide-white/[0.06] focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
-            >
-              {ended.map((key) => (
-                <div key={key.id} className="flex items-center gap-3 px-4 py-2.5">
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm text-zinc-400 line-through">{key.name}</p>
-                    <code className="font-mono text-xs text-zinc-500">{key.key_prefix}...</code>
-                  </div>
-                  <span className="flex-shrink-0 text-xs text-zinc-400">
-                    {key.revoked_at ? `Revoked ${formatDate(key.revoked_at)}` : key.disabled_at ? `Disabled ${formatDate(key.disabled_at)}` : `Expired ${formatDate(key.expires_at!)}`}
-                  </span>
+        {tab === 'revoked' && (ended.length > 0 ? (
+          <div
+            role="region"
+            tabIndex={0}
+            aria-label="Revoked and expired API keys"
+            className="max-h-[28rem] overflow-y-auto rounded-lg border border-white/[0.06] divide-y divide-white/[0.06] focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+          >
+            {ended.map((key) => (
+              <div key={key.id} className="flex items-center gap-3 px-4 py-2.5">
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm text-zinc-300">{key.name}</p>
+                  <p className="truncate text-xs text-zinc-500">
+                    <code className="font-mono">{key.key_prefix}...</code>
+                    {key.team_member_id && key.team_member_id !== teamMemberId ? ` · ${memberName(key.team_member_id)}` : ''}
+                  </p>
                 </div>
-              ))}
-            </div>
-            )}
+                <span className="flex-shrink-0 text-xs text-zinc-400">
+                  {key.revoked_at ? `Revoked ${formatDate(key.revoked_at)}` : key.disabled_at ? `Switched off ${formatDate(key.disabled_at)}` : `Expired ${formatDate(key.expires_at!)}`}
+                </span>
+              </div>
+            ))}
           </div>
-        )}
+        ) : (
+          <EmptyState compact icon={<Ban />} title="No revoked keys" description="Keys you revoke, and keys that expire, are kept here for the record." />
+        ))}
       </section>
 
       <NewApiKeyDialog isOpen={creating} onClose={() => setCreating(false)} />
+
+      <RevokeUnusedKeysDialog isOpen={revokingUnused} onClose={() => setRevokingUnused(false)} demoKeys={apiKeys} team={team} />
 
       <RotateApiKeyDialog apiKey={rotateTarget} onClose={() => setRotateTarget(null)} />
 
@@ -311,7 +336,6 @@ export function ApiKeysSection() {
         message={revokeMessage}
         confirmLabel="Revoke"
         variant="danger"
-        doubleConfirm={false}
       />
     </>
   );

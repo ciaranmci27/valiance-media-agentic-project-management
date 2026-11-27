@@ -14,6 +14,9 @@ import { z } from 'zod';
  * - budget_usd and budget_tokens per budget_period (day, week or month, UTC):
  *   once spent, new runs are refused (402 budget_exceeded) and the agent's
  *   owners are told once a period. Usage already happening is still recorded.
+ * - max_run_spend_cents: the most one run may spend, in US cents. A start
+ *   reporting more is refused, and a run reported past it (its own cost, or
+ *   the usage that names it) is stopped as cancelled (402 run_spend_exceeded).
  */
 
 /** Requests a minute per key when an agent has no rate_per_minute of its own. */
@@ -28,6 +31,7 @@ export interface AgentLimits {
   budget_usd: number | null;
   budget_tokens: number | null;
   budget_period: BudgetPeriod;
+  max_run_spend_cents: number | null;
 }
 
 export const NO_LIMITS: AgentLimits = {
@@ -36,9 +40,10 @@ export const NO_LIMITS: AgentLimits = {
   budget_usd: null,
   budget_tokens: null,
   budget_period: 'month',
+  max_run_spend_cents: null,
 };
 
-export const LIMIT_FIELDS = ['max_concurrent_runs', 'rate_per_minute', 'budget_usd', 'budget_tokens'] as const;
+export const LIMIT_FIELDS = ['max_concurrent_runs', 'rate_per_minute', 'budget_usd', 'budget_tokens', 'max_run_spend_cents'] as const;
 
 /** A change to an agent's limits: any field, null clears it. */
 export const agentLimitsPatchSchema = z.object({
@@ -47,6 +52,7 @@ export const agentLimitsPatchSchema = z.object({
   budget_usd: z.number().positive().max(10_000_000).nullable().optional(),
   budget_tokens: z.number().int().positive().max(1e15).nullable().optional(),
   budget_period: z.enum(BUDGET_PERIODS).optional(),
+  max_run_spend_cents: z.number().int().min(1).max(1_000_000_000).nullable().optional(),
 }).strict();
 export type AgentLimitsPatch = z.infer<typeof agentLimitsPatchSchema>;
 
@@ -65,6 +71,7 @@ export const LIMIT_LABELS = {
   budget_usd: 'Budget (USD)',
   budget_tokens: 'Budget (tokens)',
   budget_period: 'Budget resets',
+  max_run_spend_cents: 'Most one run may spend (cents)',
 } as const;
 
 export const PERIOD_LABELS: Record<BudgetPeriod, string> = { day: 'Every day', week: 'Every week', month: 'Every month' };
@@ -79,6 +86,7 @@ export function agentLimitsOf(row: Partial<Record<keyof AgentLimits, unknown>> |
     budget_usd: num(row?.budget_usd),
     budget_tokens: num(row?.budget_tokens),
     budget_period: (BUDGET_PERIODS as readonly string[]).includes(row?.budget_period as string) ? row!.budget_period as BudgetPeriod : 'month',
+    max_run_spend_cents: num(row?.max_run_spend_cents),
   };
 }
 
@@ -112,6 +120,9 @@ export function limitsInWords(limits: AgentLimits | null, usage: AgentUsage | nu
     lines.push(`Budget: ${caps.join(' or ')} ${PERIOD_LABELS[l.budget_period].toLowerCase()} (UTC).${spent} Once it is spent, new runs are refused (402 budget_exceeded) and your owners are told; finish what you are doing and report your usage as usual.`);
   } else {
     lines.push('No spending budget.');
+  }
+  if (l.max_run_spend_cents !== null) {
+    lines.push(`One run may spend at most ${formatUsd(l.max_run_spend_cents / 100)}: a run reported past it is stopped (402 run_spend_exceeded). Report cost_usd on the run as you go.`);
   }
   return lines;
 }

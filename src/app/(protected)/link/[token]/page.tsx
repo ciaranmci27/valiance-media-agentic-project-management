@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { AlertTriangle, Link2, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
+import { TextInput } from '@/components/ui/inputs/TextInput';
 import { ProviderLogo } from '@/components/ui/ProviderLogo';
 import type { LogoBadge } from '@/lib/logos';
 import { invalidateTables } from '@/lib/query-cache';
@@ -20,6 +21,10 @@ import { formatTime } from '@/lib/time-format';
  * someone else's link says so plainly, with what to do next: message the
  * bot again for a new one. Every state that knows the chat app leads with
  * its real logo and a state badge (DESIGN.md Rule 20).
+ *
+ * A link the person started in the chat asks for the short code the bot
+ * showed there, so a link forwarded to someone else cannot link the
+ * sender's account to them (security review finding 5).
  */
 
 type Loaded =
@@ -36,7 +41,7 @@ function demoLink(token: string): LinkRequestView {
   const provider = DEMO_APPS[token] ? token : 'telegram';
   return {
     provider, provider_label: DEMO_APPS[provider], external_id: '5551234', workspace_id: null, handle: '@sarahchen',
-    expires_at: new Date(Date.now() + 15 * 60_000).toISOString(), requested_by_name: null, from_chat: true, state: 'open', already_yours: false,
+    expires_at: new Date(Date.now() + 15 * 60_000).toISOString(), requested_by_name: null, from_chat: true, needs_code: true, state: 'open', already_yours: false,
   };
 }
 
@@ -51,6 +56,8 @@ export default function LinkAccountPage() {
   const [state, setState] = useState<Loaded>({ kind: 'loading' });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [code, setCode] = useState('');
+  const [codeError, setCodeError] = useState<string | null>(null);
   const { isDemoMode } = useDemo();
 
   const load = useCallback(async () => {
@@ -71,6 +78,10 @@ export default function LinkAccountPage() {
 
   const confirm = async () => {
     if (state.kind !== 'ready') return;
+    if (state.link.needs_code && code.trim().length < 4) {
+      setCodeError('Type the 4-character code from the chat');
+      return;
+    }
     if (isDemoMode) {
       const { link } = state;
       setState({ kind: 'linked', link, identity: {
@@ -82,11 +93,14 @@ export default function LinkAccountPage() {
     setBusy(true);
     setError(null);
     try {
-      const identity = await workspaceApi<IdentityView>(`/api/workspace/identities/link/${encodeURIComponent(token)}`, { method: 'POST' });
+      const identity = await workspaceApi<IdentityView>(`/api/workspace/identities/link/${encodeURIComponent(token)}`, { method: 'POST', body: state.link.needs_code ? { code: code.trim() } : {} });
       invalidateTables(['member_identities']);
       setState({ kind: 'linked', link: state.link, identity });
     } catch (failure) {
-      setError(failure instanceof Error ? failure.message : 'Could not link the account');
+      const reason = (failure as { details?: { reason?: string } }).details?.reason;
+      if (reason === 'code_wrong' || reason === 'code_required') setCodeError(failure instanceof Error ? failure.message : 'That code does not match');
+      else if (reason === 'link_used') void load();
+      else setError(failure instanceof Error ? failure.message : 'Could not link the account');
     } finally {
       setBusy(false);
     }
@@ -111,14 +125,14 @@ export default function LinkAccountPage() {
         {state.kind === 'linked' && (
           <Outcome provider={state.link.provider} badge="done" title={`${state.link.provider_label} account linked`}
             body={`${state.identity.handle ?? state.identity.external_id} is yours now. Message the bot in ${state.link.provider_label} and your assistant answers.`}
-            action={<Button href="/settings/account#chat-accounts">See chat accounts</Button>} />
+            action={<Button href="/ai?tab=assistant#chat-accounts">See chat accounts</Button>} />
         )}
         {state.kind === 'ready' && (() => {
           const { link } = state;
           if (link.already_yours) {
             return <Outcome provider={link.provider} badge="done" title="Already linked"
               body={`${link.handle ?? link.external_id} on ${link.provider_label} is already linked to you. Nothing else to do.`}
-              action={<Button variant="secondary" href="/settings/account#chat-accounts">See chat accounts</Button>} />;
+              action={<Button variant="secondary" href="/ai?tab=assistant#chat-accounts">See chat accounts</Button>} />;
           }
           if (link.state === 'used') {
             return <Outcome provider={link.provider} badge="waiting" title="This link was already used"
@@ -147,9 +161,26 @@ export default function LinkAccountPage() {
                 {link.workspace_id && <div className="flex justify-between gap-4 px-4 py-2.5"><dt className="text-zinc-500">Workspace</dt><dd className="min-w-0 truncate font-mono text-xs text-zinc-300">{link.workspace_id}</dd></div>}
                 <div className="flex justify-between gap-4 px-4 py-2.5"><dt className="text-zinc-500">Link</dt><dd className="text-zinc-300">{expiryLine(link.expires_at)}</dd></div>
               </dl>
+              {link.needs_code && (
+                <div className="mt-5">
+                  <TextInput
+                    label="Code from the chat"
+                    description="Sent with the link"
+                    value={code}
+                    onChange={(value) => { setCode(value.toUpperCase().slice(0, 8)); setCodeError(null); }}
+                    placeholder="4 characters"
+                    autoComplete="one-time-code"
+                    autoFocus
+                    error={codeError ?? undefined}
+                    inputClassName="font-mono"
+                  />
+                </div>
+              )}
               <div role="note" className="mt-4 flex items-start gap-2.5 rounded-lg bg-amber-500/[0.10] px-3.5 py-3 text-sm text-amber-100">
                 <AlertTriangle size={16} className="mt-0.5 flex-shrink-0 text-amber-300" aria-hidden="true" />
-                <p>Whoever controls this {link.provider_label} account will be able to ask agents to act as you. Only confirm if it is yours.</p>
+                <p>{link.from_chat
+                  ? `Only confirm if you just messaged the bot yourself from this ${link.provider_label} account. If someone sent you this link, close it.`
+                  : `Whoever controls this ${link.provider_label} account will be able to ask agents to act as you. Only confirm if it is yours.`}</p>
               </div>
               {error && <p role="alert" className="mt-3 text-sm text-red-300">{error}</p>}
               <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">

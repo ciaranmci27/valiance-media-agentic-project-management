@@ -10,11 +10,11 @@ import { agentProfileAccess, agentProfileIdFrom } from '@/lib/agents-ui';
 import { ModulePage, NoAccessState } from '@/components/modules/ModuleGate';
 
 /**
- * One gate for the whole /agent segment: the dashboard, analytics, and
- * the per-project agent views. A layout is the one place a new leaf under
- * /agent can't forget: the AI agents module must be on and the person must
- * manage agents. One exception: an agent's profile (/agent/<id>) also opens
- * for that agent's owners, in person or through a group (agentProfileAccess).
+ * One gate for every agent page under AI (/ai/agents/...): hiring and
+ * anything added here later. A layout is the one place a new leaf can't
+ * forget: the AI agents module must be on and the person must manage agents.
+ * One exception: an agent's page (/ai/agents/<id>) also opens for that
+ * agent's owners, in person or through a group (agentProfileAccess).
  */
 export default function AgentLayout({ children }: { children: React.ReactNode }) {
   const profileId = agentProfileIdFrom(usePathname());

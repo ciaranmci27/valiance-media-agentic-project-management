@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import nodemailer from 'nodemailer';
 import { requireAdmin } from '@/lib/api/require-admin';
 import { decrypt } from '@/lib/email/crypto';
+import { smtpFailureMessage, smtpTargetProblem } from '@/lib/email/smtp-target';
 
 export const dynamic = 'force-dynamic';
 
@@ -35,6 +36,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ online: false, reason: 'Failed to decrypt password' });
     }
 
+    const storedProblem = await smtpTargetProblem(account.host, account.port);
+    if (storedProblem) return NextResponse.json({ online: false, reason: storedProblem });
     try {
       const transport = nodemailer.createTransport({
         host: account.host,
@@ -47,8 +50,7 @@ export async function POST(request: Request) {
       await transport.verify();
       return NextResponse.json({ online: true });
     } catch (err) {
-      const reason = err instanceof Error ? err.message : 'Unknown error';
-      return NextResponse.json({ online: false, reason });
+      return NextResponse.json({ online: false, reason: smtpFailureMessage(err) });
     }
   }
 
@@ -56,6 +58,8 @@ export async function POST(request: Request) {
   if (!host || !username || !password) {
     return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
   }
+  const targetProblem = await smtpTargetProblem(host, port || 465);
+  if (targetProblem) return NextResponse.json({ online: false, reason: targetProblem });
 
   try {
     const transport = nodemailer.createTransport({
@@ -69,7 +73,6 @@ export async function POST(request: Request) {
     await transport.verify();
     return NextResponse.json({ online: true });
   } catch (err) {
-    const reason = err instanceof Error ? err.message : 'Unknown error';
-    return NextResponse.json({ online: false, reason });
+    return NextResponse.json({ online: false, reason: smtpFailureMessage(err) });
   }
 }

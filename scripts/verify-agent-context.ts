@@ -47,7 +47,9 @@ const OWNER_SCOPES = ['team.manage', 'project_members.manage', 'api_keys.manage_
   'tasks.manage_assigned', 'projects.read', 'project_context.read', 'notifications.send', 'agent_activity.write', 'files.read',
   'time.manage_own', 'goals.read', 'inbound_email.read', 'inbound_email.triage', 'reminders.manage_own', 'notifications.manage_own',
   // The External agent template's (20261125001400_external_agents.sql).
-  'questions.ask'];
+  'questions.ask',
+  // The Orchestrator template's: it sees its team.
+  'team.read'];
 const AGENT_KEY_SCOPES = ['tasks.read', 'tasks.manage_assigned', 'tasks.create', 'projects.read', 'agent_activity.write'];
 
 /** Supabase Auth's admin API, as much of it as creating a login needs. */
@@ -145,7 +147,7 @@ function templateChecks() {
     rules: { agent_self_assign: false, agent_close_policy: 'review', agent_create_policy: 'approval' },
     scopes: ['tasks.read', 'projects.read'], context: 'Each Friday, draft release notes.',
   };
-  check('templates: core ships the six generic ones', JSON.stringify(CORE_AGENT_TEMPLATES.map((t) => t.key)) === JSON.stringify(['data-health-watcher', 'inbox-triage', 'builder', 'weekly-reporter', 'personal-assistant', 'external-agent']));
+  check('templates: core ships the seven generic ones', JSON.stringify(CORE_AGENT_TEMPLATES.map((t) => t.key)) === JSON.stringify(['orchestrator', 'data-health-watcher', 'inbox-triage', 'builder', 'weekly-reporter', 'personal-assistant', 'external-agent']));
   check("templates: the install's file loads and is a list of templates", Array.isArray(customTemplates));
   check("templates: the registry is core's, then the install's", JSON.stringify(AGENT_TEMPLATES.map((t) => t.key)) === JSON.stringify([...CORE_AGENT_TEMPLATES, ...customTemplates].map((t) => t.key)));
   const merged = mergeAgentTemplates(CORE_AGENT_TEMPLATES, [sample, { ...sample, key: 'inbox-helper', module: 'inbox' }]);

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { instanceIdSchema } from '@/lib/agent-runs';
 
 /**
  * How often an agent may promise a heartbeat, in seconds: from every 30
@@ -36,6 +37,10 @@ export const agentHealthReportSchema = z.object({
         turn_started_at: z.string().datetime({ offset: true }).nullable().optional(),
         // How often this publisher beats for this agent; 60 when left out.
         expected_interval_seconds: expectedIntervalSeconds.optional(),
+        // One worker of the agent (a pool): reports with the same member_id
+        // and different instance_id are its workers; the agent reads up when
+        // any is, and working when any is.
+        instance_id: instanceIdSchema.optional(),
       })
     )
     .min(1)
@@ -57,5 +62,7 @@ export const agentHeartbeatSchema = z.object({
   expected_interval_seconds: expectedIntervalSeconds.optional(),
   // What it is doing, in a line. Each beat replaces it; left out clears it.
   status_note: z.string().trim().min(1).max(STATUS_NOTE_MAX).nullable().optional(),
+  // Which worker of the agent beats (a pool). The agent reads working while any live worker is.
+  instance_id: instanceIdSchema.optional(),
 });
 export type AgentHeartbeat = z.infer<typeof agentHeartbeatSchema>;

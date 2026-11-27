@@ -121,7 +121,11 @@ const errorOf = (db: PGlite, sql: string, params: unknown[] = []) => db.query(sq
 // ── Pure ─────────────────────────────────────────────────────────────────
 
 function pureChecks() {
-  check('words: no rows reads as today', JSON.stringify(audienceWords([])) === JSON.stringify({ limited: false, words: 'Everyone who can give it work' }));
+  check('words: no rows reads Everyone (a top-level agent)', JSON.stringify(audienceWords([])) === JSON.stringify({ limited: false, words: 'Everyone' }) && audienceWords([{ kind: 'member', effect: 'exclude', name: 'Ben' }]).words === 'Everyone, except Ben');
+  // Owner check of the org chart: under an orchestrator, "everyone" names whom it means.
+  check('words: an agent under an orchestrator reads "Everyone who can use Atlas"', audienceWords([], 'Atlas').words === 'Everyone who can use Atlas'
+    && audienceWords([{ kind: 'member', effect: 'exclude', name: 'Jake' }], 'Atlas').words === 'Everyone who can use Atlas, except Jake'
+    && audienceWords([{ kind: 'group', effect: 'include', name: 'Engineering' }], 'Atlas').words === 'Engineering only', audienceWords([], 'Atlas'));
   check('words: includes name who, excludes say except', audienceWords([
     { kind: 'group', effect: 'include', name: 'Engineering' }, { kind: 'role', effect: 'include', name: 'Admins' }, { kind: 'member', effect: 'exclude', name: 'Ben' },
   ]).words === 'Engineering, Admins, except Ben');

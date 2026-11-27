@@ -98,6 +98,20 @@ export const patchScopedEntrySchema = z.object({
 }).strict().refine((body) => Object.keys(body).length > 0, 'Send something to change');
 export type PatchScopedEntry = z.infer<typeof patchScopedEntrySchema>;
 
+/** POST /api/v1/context/clear: every note an agent wrote in its own notes, archived. */
+export const clearAgentNotesSchema = z.object({
+  scope_type: z.literal('agent'),
+  scope_id: uuid,
+  written_by: z.literal('agent'),
+}).strict();
+export type ClearAgentNotes = z.infer<typeof clearAgentNotesSchema>;
+
+/** POST /api/v1/context/restore: archived entries back (the Undo of Clear or Remove). */
+export const restoreEntriesSchema = z.object({
+  entry_ids: z.array(uuid).min(1).max(200),
+}).strict();
+export type RestoreEntries = z.infer<typeof restoreEntriesSchema>;
+
 /** The URL segment the screens use for a scope: workspace, or group/agent/member with ?scope_id=. */
 export function scopeQuery(ref: ScopeRef): string {
   return ref.scope_id ? `?scope_id=${encodeURIComponent(ref.scope_id)}` : '';

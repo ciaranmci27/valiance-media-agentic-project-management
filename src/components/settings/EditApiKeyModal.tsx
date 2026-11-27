@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useId, useMemo, useState } from 'react';
+import Link from 'next/link';
 import Modal from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { TextInput } from '@/components/ui/inputs/TextInput';
@@ -33,10 +34,9 @@ const sameSet = (a: readonly string[], b: readonly string[]) =>
  * from the server), and the secret never changes. A ticked scope the member
  * no longer holds is named above the picker, with one button to drop it.
  *
- * A workspace agent's key (the server says for_agent) takes the agent picker
- * New key for an agent uses: what the agent lacks is marked, and an Owner
- * ticking it gives it to this agent with the save (agent-scope-grants.ts);
- * for anyone else it stays greyed.
+ * A workspace agent's key (the server says for_agent) changes its name only:
+ * what an agent may do is one list on its Access tab, put on every key it
+ * has (lib/api/agent-powers.ts), so a key never drifts from its agent.
  */
 export function EditApiKeyModal({ apiKey, memberName, onClose }: EditApiKeyModalProps) {
   const { updateApiKey } = useApp();
@@ -130,7 +130,7 @@ export function EditApiKeyModal({ apiKey, memberName, onClose }: EditApiKeyModal
     if (!base || !available) return;
     const trimmed = name.trim();
     const noName = !trimmed ? 'Give the key a name.' : '';
-    const noScopes = scopes.filter((scope) => !parked(scope)).length === 0
+    const noScopes = forAgent ? '' : scopes.filter((scope) => !parked(scope)).length === 0
       ? 'Choose at least one thing this key can do.'
       : unheld.length > 0 ? 'Remove the access this key no longer allows first.' : '';
     setNameError(noName);
@@ -140,7 +140,7 @@ export function EditApiKeyModal({ apiKey, memberName, onClose }: EditApiKeyModal
 
     const changes: { name?: string; scopes?: string[] } = {};
     if (trimmed !== base.name) changes.name = trimmed;
-    if (!sameSet(scopes, base.scopes ?? [])) changes.scopes = scopes;
+    if (!forAgent && !sameSet(scopes, base.scopes ?? [])) changes.scopes = scopes;
     if (!changes.name && !changes.scopes) return onClose();
 
     setSaving(true);
@@ -166,7 +166,7 @@ export function EditApiKeyModal({ apiKey, memberName, onClose }: EditApiKeyModal
       : 'Tick only what this tool needs.';
 
   return (
-    <Modal isOpen={!!apiKey} onClose={close} title="Edit key" size="lg">
+    <Modal isOpen={!!apiKey} onClose={close} title={forAgent ? 'Edit key name' : 'Edit key'} size={forAgent ? 'md' : 'lg'}>
       <form onSubmit={save} noValidate className="space-y-4">
         {(loadError || error) && (
           <p id={topId} role="alert" className="rounded-lg bg-red-500/15 px-3 py-2 text-sm text-red-400">
@@ -186,7 +186,12 @@ export function EditApiKeyModal({ apiKey, memberName, onClose }: EditApiKeyModal
           disabled={saving}
         />
 
-        {available ? (
+        {available && forAgent ? (
+          <p className="rounded-lg bg-white/[0.03] px-3.5 py-3 text-sm text-zinc-300">
+            What {memberName ?? 'this agent'} may do is one list for all its keys, set on its{' '}
+            <Link href={`/agent/${base?.team_member_id ?? apiKey?.team_member_id ?? ''}?tab=access`} className="font-medium text-brand-300 underline-offset-2 hover:underline">Access tab</Link>.
+          </p>
+        ) : available ? (
           <fieldset id={scopesId} className="scroll-mt-4 space-y-2" aria-describedby={scopesError ? `${scopesId}-error` : undefined}>
             <legend className="mb-1.5 block text-sm font-medium text-zinc-300">What it can do</legend>
             <p className="text-xs text-zinc-400">{hint}</p>

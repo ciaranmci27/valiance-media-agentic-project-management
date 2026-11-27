@@ -7,15 +7,9 @@ import { PM_DB } from '@/lib/supabase/schema';
 import { pmStorage } from '@/lib/supabase/storage';
 import { BUCKETS } from '@/lib/supabase/schema';
 import { signStoredFileUrl } from '@/lib/storage/sign-stored-file';
+import { PORTAL_UPLOAD_MAX_BYTES, PORTAL_UPLOADS_PER_DAY, portalUploadProblem } from '@/lib/portal-uploads';
 
 export const dynamic = 'force-dynamic';
-
-const DANGEROUS_EXTENSIONS = new Set([
-  '.exe', '.bat', '.cmd', '.sh', '.msi', '.dll', '.scr',
-  '.com', '.vbs', '.js', '.ps1', '.wsf',
-]);
-
-const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 MB
 
 function getServiceClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
@@ -61,6 +55,11 @@ export async function POST(
   const pinCheck = await checkPortalPin({ supabase, request, token, settings });
   if (!pinCheck.ok) return pinFailureResponse(pinCheck);
 
+  // Too big to be a file the app keeps: refused before the body is read.
+  if (Number(request.headers.get('content-length') || 0) > PORTAL_UPLOAD_MAX_BYTES + 1024 * 1024) {
+    return NextResponse.json({ error: `File exceeds the ${Math.round(PORTAL_UPLOAD_MAX_BYTES / (1024 * 1024))} MB limit` }, { status: 413 });
+  }
+
   // Parse multipart form data
   let formData: FormData;
   try {
@@ -69,20 +68,32 @@ export async function POST(
     return NextResponse.json({ error: 'Invalid form data' }, { status: 400 });
   }
 
-  const file = formData.get('file') as File | null;
-  if (!file || file.size === 0) {
+  const file = formData.get('file');
+  if (!(file instanceof File) || file.size === 0) {
     return NextResponse.json({ error: 'No file provided' }, { status: 400 });
   }
 
-  if (file.size > MAX_FILE_SIZE) {
-    return NextResponse.json({ error: 'File exceeds 50 MB limit' }, { status: 400 });
+  // Programs, web pages, SVG and scripts are refused, and the app's file limit applies (portal-uploads.ts).
+  const problem = portalUploadProblem(file);
+  if (problem) {
+    return NextResponse.json({ error: problem }, { status: file.size > PORTAL_UPLOAD_MAX_BYTES ? 413 : 400 });
   }
 
-  // Block dangerous extensions (check all segments, not just last)
-  const nameParts = file.name.toLowerCase().split('.');
-  const allExtensions = nameParts.slice(1).map(p => '.' + p);
-  if (allExtensions.some(ext => DANGEROUS_EXTENSIONS.has(ext))) {
-    return NextResponse.json({ error: 'This file type is not allowed' }, { status: 400 });
+  // A portal takes so many visitor files a day: the link alone lets someone in.
+  const { count: today, error: countError } = await supabase
+    .from('entity_files')
+    .select('id', { count: 'exact', head: true })
+    .eq('entity_type', 'project')
+    .eq('entity_id', settings.project_id)
+    .is('uploaded_by', null)
+    .is('deleted_at', null)
+    .gte('created_at', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString());
+  if (countError) {
+    console.error('[portal-files] could not count today\'s uploads', countError);
+    return NextResponse.json({ error: 'Upload failed. Try again.' }, { status: 500 });
+  }
+  if ((today ?? 0) >= PORTAL_UPLOADS_PER_DAY) {
+    return NextResponse.json({ error: 'This portal has taken all the files it can today. Try again tomorrow.' }, { status: 429 });
   }
 
   // Sanitize filename for storage path to prevent traversal

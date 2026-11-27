@@ -4,15 +4,17 @@
  * a whole plan, resolve a reply owed. Each checks the person can triage the
  * conversation's inbox, like every other Inbox action.
  */
-import { assertId, InboxError, loadTriageableThread, type InboxContext } from './inbox-service';
+import { z } from 'zod';
+import { assertId, InboxError, inboxChannel, loadTriageableThread, type InboxContext } from './inbox-service';
 import { comms } from './db';
 import { acceptItem, dismissItem, inboxAgentName, loadPlanItem, PlanError, restoreItem, syncWaitingNotification, undoItem, undoPlan, type PlanActor } from './plans';
 import type { PlanItemRequest } from './plan-schemas';
 
 type Row = Record<string, unknown>;
 
+/** A person resolving the agent's work: in the app, or through their own key (its scopes then count too). */
 function actorOf(ctx: InboxContext): PlanActor {
-  return { db: ctx.service, memberId: ctx.memberId, access: ctx.access, channel: 'app', asPerson: true };
+  return { db: ctx.service, memberId: ctx.memberId, access: ctx.access, channel: inboxChannel(ctx), scopes: ctx.scopes, asPerson: true };
 }
 
 /** The plan's own errors as the Inbox's. */
@@ -30,6 +32,14 @@ async function readableItem(ctx: InboxContext, itemId: string) {
   await loadTriageableThread(ctx, message.thread_id);
   return { item, message };
 }
+
+/** What a person may change on a proposal as they accept it (the app and the API). */
+export const acceptPlanItemSchema = z.object({
+  project_id: z.uuid().optional(),
+  task_id: z.uuid().optional(),
+  title: z.string().trim().min(1).max(500).optional(),
+  due_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+}).strict();
 
 /** Fields a person may change on a proposal before accepting it. */
 export interface AcceptEdits {

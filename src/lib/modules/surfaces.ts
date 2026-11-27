@@ -29,7 +29,8 @@ export const MODULE_SURFACES: Record<ModuleId, ModuleSurface> = {
   time: {
     tables: ['project_time_entries', 'time_entry_tasks'],
     rpcs: ['review_time_entries', 'review_time_entries_api', 'get_accessible_time_entries', 'apply_agent_billing_conversion', 'time_entry_is_live'],
-    routes: ['api/v1/projects/[id]/time-entries', 'api/workspace/time-entries', '(protected)/time'],
+    // api/v1/time: the hour approvals switch (also needs Client invoicing or Team pay; the route checks).
+    routes: ['api/v1/projects/[id]/time-entries', 'api/workspace/time-entries', '(protected)/time', 'api/v1/time'],
   },
   billing: {
     tables: [
@@ -46,6 +47,7 @@ export const MODULE_SURFACES: Record<ModuleId, ModuleSurface> = {
     ],
     routes: [
       'api/v1/invoices', 'api/v1/billing', 'api/v1/projects/[id]/invoices', 'api/v1/projects/[id]/hourly-rates',
+      'api/v1/projects/[id]/retainers', 'api/v1/projects/[id]/billing-plan',
       'api/projects/[id]/invoices', 'api/projects/[id]/budget-change', 'api/projects/[id]/budget-history',
       // Budget emails also need the Client portal and Contacts; the route checks all three.
       'api/projects/[id]/budget-alerts',
@@ -83,8 +85,8 @@ export const MODULE_SURFACES: Record<ModuleId, ModuleSurface> = {
     routes: ['api/v1/leads', '(protected)/leads'],
   },
   portal: {
-    tables: ['portal_settings', 'portal_events', 'portal_updates', 'portal_update_attachments'],
-    rpcs: ['portal_update_is_live'],
+    tables: ['portal_settings', 'portal_events', 'portal_pin_misses', 'portal_updates', 'portal_update_attachments'],
+    rpcs: ['portal_update_is_live', 'check_portal_pin'],
     routes: ['api/portal', 'api/v1/projects/[id]/portal', 'api/projects/[id]/portal-analytics', 'portal'],
   },
   inbox: {
@@ -147,10 +149,14 @@ export const MODULE_SURFACES: Record<ModuleId, ModuleSurface> = {
       'task_delegations', 'mcp_profile_rows', 'agent_template_rows',
       // The event feed a harness long-polls, its retention mark and its open waits.
       'event_feed', 'event_feed_state', 'event_feed_waits',
+      // The workers behind an agent (a pool), and chat conversations its workers lease.
+      'agent_instances', 'chat_conversations',
     ],
     // The question sums for Agents > Analytics, and whether an open question
     // holds a waiting run (the run feed reads it as the caller).
-    rpcs: ['agent_question_stats', 'agent_run_has_open_question'],
+    rpcs: ['agent_question_stats', 'agent_run_has_open_question',
+      // The runs marked blocked that wait on the signed-in person (Needs you).
+      'my_blocked_runs'],
     routes: [
       // Every agent event and run, in order, for a data system.
       'api/v1/agent-events',
@@ -165,9 +171,12 @@ export const MODULE_SURFACES: Record<ModuleId, ModuleSurface> = {
       'api/v1/delegations', 'api/workspace/delegations',
       // People's personal agents, their setups and the harness collecting their keys.
       'api/v1/assistants', 'api/v1/assistant-setups', 'api/workspace/assistants',
-      '(protected)/agent',
-      // My Assistant, its chat (inbound from providers, replies and the poll), and chat connections.
+      // The AI home (your assistant, Company AI, Setup, agent pages) and the old /agent addresses that redirect there.
+      '(protected)/ai', '(protected)/agent',
+      // My Assistant (now a redirect into the AI home), its chat (inbound from providers, replies and the poll), and chat connections.
       'api/workspace/assistant', 'api/workspace/chat-connections', 'api/v1/assistant', 'api/v1/chat', 'api/chat', '(protected)/assistant',
+      // My Assistant and my personal agents over a person's own key or connected AI tool.
+      'api/v1/me/assistant', 'api/v1/me/personal-agents',
       // The kill switch for every agent.
       'api/workspace/agents-pause',
       // An Owner's hour of AI-guided agent setup.
@@ -211,6 +220,11 @@ export const CORE_ROUTES: string[] = [
   'api/workspace/data-retention',
   // Before a shorter keep period is saved (Keeping data, Keeping the log): about how many rows go (Owner only).
   'api/workspace/retention-preview',
+  // The same workspace switches over the API (Features, Brand, Region, Keeping data, the log's settings, key lifetimes,
+  // webhook retries): an Owner's key with settings.manage, with every module on or off.
+  'api/v1/workspace',
+  // Trash over the API: each record type follows its own module (TRASH_TABLE_MODULE), so the route is core.
+  'api/v1/trash',
   // Connect AI: people sign their own AI tools in (OAuth for the MCP server), its switch (Owner) and the tool catalog.
   'api/oauth', 'api/workspace/connect-ai', 'api/v1/mcp',
   // Signing in with Google: leaving for Google (sign-in, an invite, the first Owner, linking) and the sign-in methods switch (Owner).

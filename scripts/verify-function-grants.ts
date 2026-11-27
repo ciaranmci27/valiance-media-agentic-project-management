@@ -63,6 +63,8 @@ const MEMBER_FUNCTIONS = [
   // Called by the run feed (pm.agent_run_feed, security invoker) as the caller
   // (20261125001300): whether an open question holds a waiting run.
   'agent_run_has_open_question',
+  // Needs you (20261127002000): the runs marked blocked that wait on the caller.
+  'my_blocked_runs',
   // Read-only, scoped to the caller, kept for installs' own code.
   'is_admin', 'get_team_directory', 'get_my_access_context',
   'get_accessible_time_entries', 'get_accessible_credential_metadata', 'invoice_hours_draft',

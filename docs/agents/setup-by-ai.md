@@ -2,6 +2,8 @@
 
 Everything the agent setup screens do is also an MCP tool and a REST route. An Owner can connect their own AI tool to the MCP server and say "set up a triage agent for the Support project", and the AI does it through the same checks as the screens.
 
+Not sure what to hire? Start with [How to structure your agent team](structure-your-team.md): one assistant per person, one company orchestrator, specialists under it, people only for decisions.
+
 ## Who sees the setup tools
 
 A tool shows up only for a key that holds its permission, on both the key and its member, with its module on. Setup tools need Owner-level permissions (`team.manage`, `api_keys.manage_all`, `webhooks.manage`, `assistants.provision`), so in practice:
@@ -12,7 +14,7 @@ A tool shows up only for a key that holds its permission, on both the key and it
 
 ## Set up agents with AI (one hour)
 
-The first screen of Hire an agent (`/agent/new`) asks: **Set it up with AI** (recommended) or **Step by step**. With AI, an Owner lets their own AI tool do the setup for one hour:
+The first screen of Hire (`/ai/agents/new`) asks **Personal assistant or company agent?**; for a company agent, **Set it up with AI** is the other way in beside the step-by-step path. With AI, an Owner lets their own AI tool do the setup for one hour:
 
 - **A connected tool** (Connect AI): "Let Claude set up agents for the next hour", after a consent step that lists exactly what it allows. For that hour the connection also gets the agent setup tools below, with the Owner's own API powers. Its other tools stay what they were.
 - **No connected tool**: a one-hour setup key of the Owner's own (`pk_setup_...`, shown once), with copy-ready settings that carry it in a header, never the URL. It carries only `team.read`, `team.manage`, `project_members.manage`, `projects.read`, `api_keys.manage_all` and `webhooks.manage`, and works on the setup routes only (`403 ai_setup_only` anywhere else).
@@ -24,7 +26,7 @@ The rules:
 - **Setup tools only**: `pm_guide`, `list_agent_templates`, `list_agent_profiles`, `list_projects`, `list_team`, `list_groups`, `list_agents`, `get_agent_setup`, `get_agent_context`, `hire_agent`, `create_agent`, `apply_agent_template`, `update_agent`, `set_agent_projects`, `set_project_agent`, `remove_project_agent`, `create_api_key`, `list_webhook_endpoints`, `create_webhook_endpoint` (the list is `AI_SETUP_TOOLS` in `src/lib/ai-setup.ts`).
 - **Agents only**: a key or a webhook it makes names an agent (`member_id`), never a person or the Owner; every agent a call names must be an agent (`403 ai_setup_agents_only`).
 - **Never more than the Owner**: every call goes through the same routes and checks as the screens (`hireAgent`, the scope grants, the key rules), against the Owner's live access. Only an Owner starts one; someone who stops being one loses it at once.
-- **It ends on its own** after an hour. **End now** on the same page or in Settings > Account > Connect AI stops it at once (a setup key is disabled). The agents and keys it made stay.
+- **It ends on its own** after an hour. **End now** on the same page or in AI > Your assistant > Connect AI stops it at once (a setup key is disabled). The agents and keys it made stay.
 - **Audited**: starting and ending are recorded as the Owner (`entity_type: ai_setup_session`); each change it makes is recorded with the tool's key (`api_key_id`), the Owner as `team_member_id` and `principal_id`, and `via` `mcp_oauth` (a connected tool) or `mcp` / `rest` (a setup key).
 
 Session routes (signed in): `GET /api/workspace/ai-setup` (connected tools, live and recent sessions, the agents each made), `POST /api/workspace/ai-setup` (`{ kind: "connection", grant_id }` or `{ kind: "key" }`), `DELETE /api/workspace/ai-setup/{id}`.
@@ -137,7 +139,7 @@ Anyone can connect Claude, ChatGPT, Cursor, Claude Code or Codex to their own wo
 
 For a person:
 
-1. Open Settings > Account > Connect AI.
+1. Open AI > Your assistant > Connect AI.
 2. Copy the MCP address and paste it into the AI tool.
 3. Sign in to the app when the tool asks, and choose Allow.
 

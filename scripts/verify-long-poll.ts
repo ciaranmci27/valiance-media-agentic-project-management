@@ -35,7 +35,7 @@ import { NextRequest } from 'next/server';
 import { applyMigrationsFrom, createFullSchemaDatabase, SCHEMA_PATH } from './full-schema-db';
 import { startFakePostgrest } from './fake-postgrest';
 import { diffSnapshots, pmSnapshot } from './lib/pm-catalog';
-import { FEED_PERMISSIONS, FEED_TYPE_PERMISSIONS, LONG_POLL } from '../src/lib/event-feed-contract';
+import { FEED_HOST_PERMISSION, FEED_PERMISSIONS, FEED_TYPE_PERMISSIONS, LONG_POLL } from '../src/lib/event-feed-contract';
 
 const MIGRATION = '20261127001100_event_feed.sql';
 const MIGRATIONS_DIR = join(__dirname, '..', 'supabase', 'migrations');
@@ -208,8 +208,9 @@ async function main() {
     check('cost: every route that waits declares maxDuration, and the cap plus the lease grace stays inside it',
       durations.every((d) => d === LONG_POLL.routeMaxDurationSeconds) && LONG_POLL.maxWaitSeconds + LONG_POLL.leaseGraceSeconds <= LONG_POLL.routeMaxDurationSeconds
       && LONG_POLL.maxWaitSeconds === 25 && LONG_POLL.maxConcurrentWaitsPerKey === 2, { durations, LONG_POLL });
-    const union = [...new Set(Object.values(FEED_TYPE_PERMISSIONS).flat())].sort();
-    check('permissions: the route opens on exactly the permissions of its types', JSON.stringify([...FEED_PERMISSIONS].sort()) === JSON.stringify(union), { FEED_PERMISSIONS, union });
+    // Plus agents.host: a host key reads its agents' feed (20261127002000).
+    const union = [...new Set([...Object.values(FEED_TYPE_PERMISSIONS).flat(), FEED_HOST_PERMISSION])].sort();
+    check('permissions: the route opens on exactly the permissions of its types, plus the host key permission', JSON.stringify([...FEED_PERMISSIONS].sort()) === JSON.stringify(union), { FEED_PERMISSIONS, union });
     check('cost: a wait longer than the cap is cut to it', longPoll.parseWait(new URLSearchParams('wait=600')) === LONG_POLL.maxWaitSeconds);
     const badWait = await events(s.keys.builder, '?wait=-1');
     check('cost: a negative or fractional wait is 400 invalid_wait', badWait.status === 400 && reason(badWait) === 'invalid_wait', badWait.body);

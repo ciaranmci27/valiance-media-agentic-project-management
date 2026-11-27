@@ -2,8 +2,9 @@ import { NextResponse } from 'next/server';
 import { withApi } from '@/lib/api/middleware';
 import { requireAgentsEnabled } from '@/lib/api/agents';
 import {
-  encodeFeedCursor, FEED_PERMISSIONS, FeedMissing, feedListens, feedPendingError, parseFeedQuery, readFeed, resyncError, type FeedPage,
+  encodeFeedCursor, FEED_PERMISSIONS, FeedMissing, feedListens, feedPendingError, parseFeedQuery, readFeed, readHostFeed, resyncError, type FeedPage,
 } from '@/lib/api/event-feed';
+import { hostAgentsFor, isHostKey } from '@/lib/api/host-keys';
 import { LONG_POLL, parseWait, TooManyWaits, tooManyWaitsResponse, waitForEvents, type WaitOutcome } from '@/lib/api/long-poll';
 
 export const dynamic = 'force-dynamic';
@@ -22,13 +23,21 @@ export const maxDuration = 60;
  * older than retention, with the cursor to continue from; 429
  * too_many_waits (Retry-After) beyond 2 open waits per key.
  *
+ * A host key (agents.host, an Owner's, bound to agents) reads the feed of
+ * the agents it serves instead: agents (ids) narrows it to some of them
+ * (403 agent_not_bound for any other), left out every one; types as above,
+ * every member type by default. Each event names its agent_id. The same
+ * wait cap and limit of open waits per key.
+ *
  * Permission: per type, that of the read it extends (any one opens the
- * route), with the AI agents module on.
+ * route), or agents.host for a host key, with the AI agents module on.
  */
 export const GET = withApi(async ({ supabase, searchParams, access, scopes, teamMemberId, apiKeyId, signal }) => {
   requireAgentsEnabled(access);
-  const query = parseFeedQuery(searchParams, access, scopes);
+  const host = isHostKey(scopes);
+  const query = parseFeedQuery(searchParams, access, scopes, { host });
   const wait = parseWait(searchParams);
+  const hostAgents = host ? await hostAgentsFor(supabase, apiKeyId, query.agents) : null;
 
   // Chat held while this agent was paused is released when it polls, as GET /api/v1/chat/messages does.
   if (query.types.includes('chat.message') && access.role === 'agent') {
@@ -38,7 +47,7 @@ export const GET = withApi(async ({ supabase, searchParams, access, scopes, team
 
   const read = async (after: FeedPage['cursor'] | null) => {
     try {
-      const page = await readFeed(supabase, access, teamMemberId, query, after);
+      const page = hostAgents ? await readHostFeed(supabase, hostAgents, query, after) : await readFeed(supabase, access, teamMemberId, query, after);
       if (page.resync) throw resyncError(page.cursor);
       return page;
     } catch (error) {
@@ -49,7 +58,11 @@ export const GET = withApi(async ({ supabase, searchParams, access, scopes, team
 
   let page = await read(query.after);
   let outcome: WaitOutcome = { ended: 'timeout', waitedMs: 0 };
-  const listens = feedListens(access, query);
+  // A host wait wakes for anything routed to its agents, and, when it reads
+  // agent events, for any agent event (its re-read keeps only its agents').
+  const listens = hostAgents
+    ? { member: false, agentEvents: query.types.includes('agent_event.created'), projectIds: null }
+    : feedListens(access, query);
   // A wait that can hear nothing (agent events with no project to read) still
   // waits it out, so a harness loop never spins.
   if (page.events.length === 0 && wait > 0) {
@@ -58,6 +71,7 @@ export const GET = withApi(async ({ supabase, searchParams, access, scopes, team
         client: supabase,
         apiKeyId,
         memberId: listens.member ? teamMemberId : null,
+        memberIds: hostAgents ?? undefined,
         agentEvents: listens.agentEvents,
         agentEventProjects: listens.projectIds,
         seconds: wait,

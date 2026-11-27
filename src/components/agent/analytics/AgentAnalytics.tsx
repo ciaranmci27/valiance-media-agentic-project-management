@@ -361,10 +361,10 @@ export function AgentAnalytics() {
   const filterAgents = useMemo(() => roster.map((m) => ({ id: m.id, name: m.name, avatar: m.avatar || null })), [roster]);
   const filtered = selectedAgentIds.size > 0 || selectedProjectIds.size > 0 || selectedLabels.size > 0;
   const runsHref = useMemo(() => {
-    const params = new URLSearchParams({ tab: 'runs', from: range.startKey, to: range.endKey });
+    const params = new URLSearchParams({ tab: 'company', view: 'runs', from: range.startKey, to: range.endKey });
     if (selectedAgentIds.size === 1) params.set('agent', [...selectedAgentIds][0]);
     if (selectedProjectIds.size === 1) params.set('project', [...selectedProjectIds][0]);
-    return `/agent?${params.toString()}`;
+    return `/ai?${params.toString()}`;
   }, [range.startKey, range.endKey, selectedAgentIds, selectedProjectIds]);
 
   return (
@@ -375,6 +375,21 @@ export function AgentAnalytics() {
         earliestDateKey={earliestDateKey} todayKey={todayKey}
         projects={filterProjects} selectedProjectIds={selectedProjectIds} onProjects={setSelectedProjectIds}
         agents={filterAgents} selectedAgentIds={selectedAgentIds} onAgents={setSelectedAgentIds}
+        actions={!measuring && arranged.shown.length > 0 ? (
+          <>
+            {/* The same runs in the Runs list: this range, and the one agent or project picked. */}
+            {runsAvailable && s.run > 0 && (
+              <Link href={runsHref} className="rounded px-2 py-1 text-xs font-medium text-brand-300 hover:text-brand-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500">
+                See these runs
+              </Link>
+            )}
+            {(arranged.more > 0 || expanded) && (
+              <Button variant="ghost" size="sm" icon={<SlidersHorizontal size={14} aria-hidden="true" />} aria-expanded={expanded} onClick={() => setExpanded((v) => !v)}>
+                {expanded ? 'Fewer stats' : `More stats (${arranged.more})`}
+              </Button>
+            )}
+          </>
+        ) : undefined}
       />
 
       {focusedLabel && (
@@ -404,7 +419,7 @@ export function AgentAnalytics() {
 
       {/* ── Headline tiles: the ones with data; the picked one drives the chart ── */}
       {measuring || arranged.shown.length > 0 ? (
-        <div className="space-y-2">
+        <div>
           <StatStrip
             label="Headline numbers. Pick one to chart it."
             loading={measuring}
@@ -425,21 +440,6 @@ export function AgentAnalytics() {
               };
             })}
           />
-          {!measuring && (
-            <div className="flex flex-wrap items-center justify-end gap-2">
-              {/* The same runs in the Runs list: this range, and the one agent or project picked. */}
-              {runsAvailable && s.run > 0 && (
-                <Link href={runsHref} className="rounded px-2 py-1 text-xs font-medium text-brand-300 hover:text-brand-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500">
-                  See these runs
-                </Link>
-              )}
-              {(arranged.more > 0 || expanded) && (
-                <Button variant="ghost" size="sm" icon={<SlidersHorizontal size={14} aria-hidden="true" />} aria-expanded={expanded} onClick={() => setExpanded((v) => !v)}>
-                  {expanded ? 'Fewer stats' : `More stats (${arranged.more})`}
-                </Button>
-              )}
-            </div>
-          )}
         </div>
       ) : (
         <div className="glass-card rounded-xl px-6 py-10 text-center">

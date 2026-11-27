@@ -3,6 +3,8 @@ import nodemailer from 'nodemailer';
 import { requireAdmin } from '@/lib/api/require-admin';
 import { encrypt, isSmtpEncryptionConfigured } from '@/lib/email/crypto';
 import type { SmtpAccount, SmtpAccountSafe } from '@/lib/email/types';
+import { plainDbError } from '@/lib/api/plain-error';
+import { smtpFailureMessage, smtpTargetProblem } from '@/lib/email/smtp-target';
 
 export const dynamic = 'force-dynamic';
 
@@ -23,7 +25,7 @@ export async function GET() {
     .select('*')
     .order('created_at', { ascending: true });
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return plainDbError(error);
 
   return NextResponse.json({
     accounts: (accounts as SmtpAccount[]).map(toSafe),
@@ -54,6 +56,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
   }
 
+  // Only a mail server on the public internet, on a mail port (smtp-target.ts).
+  const targetProblem = await smtpTargetProblem(host, port || 465);
+  if (targetProblem) return NextResponse.json({ error: targetProblem }, { status: 400 });
+
   // Verify SMTP connection before saving
   try {
     const transport = nodemailer.createTransport({
@@ -66,8 +72,7 @@ export async function POST(request: Request) {
     });
     await transport.verify();
   } catch (err) {
-    const reason = err instanceof Error ? err.message : 'Unknown error';
-    return NextResponse.json({ error: `SMTP connection failed: ${reason}` }, { status: 400 });
+    return NextResponse.json({ error: smtpFailureMessage(err) }, { status: 400 });
   }
 
   const encrypted_password = encrypt(password);
@@ -105,7 +110,7 @@ export async function POST(request: Request) {
     .select()
     .single();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return plainDbError(error);
 
   return NextResponse.json({ account: toSafe(account as SmtpAccount) });
 }

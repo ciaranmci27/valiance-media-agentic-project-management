@@ -1,48 +1,83 @@
 'use client';
 
 import { useState } from 'react';
-import { ListChecks, Sparkles } from 'lucide-react';
+import Link from 'next/link';
+import { Building2, Sparkles, UserRound } from 'lucide-react';
+import type { HireKind } from '@/lib/agent-access-ui';
+import { useAuth } from '@/lib/auth-context';
+import { useRead } from '@/lib/query-cache';
+import { assistantSettingsReadFor } from '@/lib/reads';
+import { ASSISTANTS_SETUP_HREF } from '@/lib/assistant';
+import { Button } from '@/components/ui/Button';
 import { ChoiceCard, ChoiceGroup, FlowShell, StepFooter, StepPanel } from '@/components/ui/Stepper';
 
 export type HireMode = 'ai' | 'manual';
 
+/** How to lay out an agent team, for anyone unsure which to pick. */
+export const STRUCTURE_DOC_HREF = 'https://github.com/ciaranmci27/valiance-media-agentic-project-management/blob/main/docs/agents/structure-your-team.md';
+
 /**
- * The first screen of Hire an agent: set it up with your own AI tool
- * (recommended: describe it in a sentence and watch), or step by step.
+ * The first screen of Hire: "Personal assistant or company agent?". A
+ * company agent works for the company (it joins the agent team, under an
+ * orchestrator); a personal assistant works for one person. Set it up with
+ * AI stays the other way in, for a company agent. With assistants off for
+ * the workspace the personal choice stays in view, dimmed, saying so, with
+ * the way to turn them on for an Owner: never a path that ends in a refusal.
  */
-export function HireStart({ exitHref, onPick, isDemo }: { exitHref: string; onPick: (mode: HireMode) => void; isDemo: boolean }) {
-  const [mode, setMode] = useState<HireMode>('ai');
+export function HireStart({ exitHref, onPick, onAi, isDemo }: { exitHref: string; onPick: (kind: HireKind) => void; onAi: () => void; isDemo: boolean }) {
+  const [picked, setKind] = useState<HireKind>('company');
+  const { access } = useAuth();
+  const settings = useRead(assistantSettingsReadFor(isDemo)).data;
+  const assistantsOff = settings ? !settings.enabled : false;
+  const kind: HireKind = assistantsOff ? 'company' : picked;
   return (
     <FlowShell
-      title="Hire an agent"
-      subtitle={isDemo ? 'A teammate that works alongside you. In the demo, both ways work and nothing is saved.' : 'A teammate that works alongside you.'}
+      title="Hire"
+      subtitle={isDemo ? 'Every path works in the demo; nothing is saved.' : 'An agent that works alongside your team.'}
       exitHref={exitHref}
       stepper={null}
     >
-      <StepPanel stepKey="mode" title="How do you want to set it up?" description="Both end in the same place: an agent on the team with its own projects, rules and powers, which you can change any time.">
-        <ChoiceGroup label="How to set it up" className="grid gap-3 sm:grid-cols-2">
+      <StepPanel stepKey="kind" title="Personal assistant or company agent?" description="One assistant per person, and company agents for the work everyone shares.">
+        <ChoiceGroup label="What to hire" className="grid gap-3 sm:grid-cols-2">
           <ChoiceCard
-            id="mode-ai"
-            focusable={mode === 'ai'}
-            selected={mode === 'ai'}
-            onSelect={() => setMode('ai')}
-            icon={<Sparkles size={18} />}
-            title="Set it up with AI"
-            description="Describe the agent in a sentence. Your AI tool asks what it needs, then hires and sets it up here while you watch."
-            meta="Recommended · Claude, ChatGPT or any MCP tool"
+            id="kind-company"
+            focusable={kind === 'company'}
+            selected={kind === 'company'}
+            onSelect={() => setKind('company')}
+            icon={<Building2 size={18} />}
+            title="Company agent"
+            description="Works for the company: takes work, joins the agent team under an orchestrator, and asks people only for real decisions."
+            meta="A builder, a reviewer, an orchestrator"
           />
-          <ChoiceCard
-            id="mode-manual"
-            focusable={mode === 'manual'}
-            selected={mode === 'manual'}
-            onSelect={() => setMode('manual')}
-            icon={<ListChecks size={18} />}
-            title="Step by step"
-            description="Pick a template, name it, and choose its projects, rules and powers yourself, one screen at a time."
-            meta="About three minutes"
-          />
+          <div className="relative">
+            <ChoiceCard
+              id="kind-personal"
+              focusable={kind === 'personal'}
+              selected={kind === 'personal'}
+              onSelect={() => setKind('personal')}
+              icon={<UserRound size={18} />}
+              title="Personal assistant"
+              description="Works for one person, within what they can see: their tasks, reminders and inbox, from their own chat."
+              meta={assistantsOff ? 'Assistants are off.' : 'One per person'}
+              disabled={assistantsOff}
+            />
+            {/* Beside the card's meta line, outside its button (a link cannot sit in one). */}
+            {assistantsOff && access?.role === 'owner' && (
+              <Link href={ASSISTANTS_SETUP_HREF} className="absolute bottom-5 right-5 text-xs font-medium text-brand-300 underline-offset-2 hover:underline">
+                Turn on in Setup
+              </Link>
+            )}
+          </div>
         </ChoiceGroup>
-        <StepFooter onNext={() => onPick(mode)} nextLabel={mode === 'ai' ? 'Set it up with AI' : 'Start step by step'} />
+        <p className="mt-4 text-xs text-zinc-400">
+          Not sure how to lay out your agents?{' '}
+          <a href={STRUCTURE_DOC_HREF} target="_blank" rel="noopener noreferrer" className="font-medium text-brand-300 underline-offset-2 hover:underline">How to structure your agent team</a>
+        </p>
+        <StepFooter
+          onNext={() => onPick(kind)}
+          nextLabel={kind === 'company' ? 'Hire a company agent' : 'Give someone an assistant'}
+          extra={kind === 'company' ? <Button variant="ghost" icon={<Sparkles size={14} aria-hidden="true" />} onClick={onAi}>Set it up with AI</Button> : undefined}
+        />
       </StepPanel>
     </FlowShell>
   );

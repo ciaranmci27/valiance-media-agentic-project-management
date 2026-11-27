@@ -1,7 +1,7 @@
 'use client';
 
-import { useId, useState, type ReactNode } from 'react';
-import { Check, Eye, ExternalLink, MessageCircleQuestion, ShieldCheck } from 'lucide-react';
+import { useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { Check, Eye, ExternalLink, MessageCircleQuestion, ShieldCheck, Zap } from 'lucide-react';
 import { useAuth } from '@/lib/auth-context';
 import { Button } from '@/components/ui/Button';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
@@ -12,7 +12,8 @@ import { useNeedsYouActions, type ActionResult } from '@/lib/needs-you-actions';
 import { ANSWER_MAX, answerLine, approvalDetailRows, approvalTypeLabel, decisionLine, externalLinkHost, textAnswers, type QuestionView } from '@/lib/questions';
 import { timeAgo } from '@/lib/task-times';
 import { groupTargetLabel } from '@/lib/groups';
-import { formatTime, formatDay } from '@/lib/time-format';
+import { formatTime, formatDay, formatFull } from '@/lib/time-format';
+import { waitedWords } from '@/lib/ai-home';
 import { appTimeZone, dayKeyIn } from '@/lib/time-zone';
 
 /**
@@ -41,9 +42,20 @@ import { appTimeZone, dayKeyIn } from '@/lib/time-zone';
  * A question asked to a group reads "Asked to Finance (any member)", and is
  * yours to answer when you are in that group. One an agent asked for someone
  * names them quietly in the from line.
+ *
+ * An answer that does something (proposed_actions) shows the app's own
+ * sentence for it above the buttons in every variant ("Approving turns time
+ * tracking on for Acme Site."), never the agent's words. When the reader may
+ * answer but cannot do the action, the line says so and that choice (or
+ * Approve) is off for them; the server refuses it anyway.
  */
 
-type Variant = 'panel' | 'card' | 'band';
+/**
+ * - hub: a Needs you row in the AI home: the agent's face, the ask on one
+ *   line, who asked, how long it has waited and what it unblocks, then one
+ *   tap (a choice, Approve or Reject); everything else behind More.
+ */
+type Variant = 'panel' | 'card' | 'band' | 'hub';
 
 function expiresLabel(iso: string): string {
   const when = new Date(iso);
@@ -52,12 +64,14 @@ function expiresLabel(iso: string): string {
   return sameDay ? `Closes at ${formatTime(when)}` : `Closes ${formatDay(when)}`;
 }
 
-export function QuestionCard({ question, variant = 'panel', place, onOpenTask }: {
+export function QuestionCard({ question, variant = 'panel', place, onOpenTask, lead }: {
   question: QuestionView;
   variant?: Variant;
-  /** band: show where it hangs (task or project), opening the task on click. */
+  /** band and hub: show where it hangs (task or project), opening the task on click. */
   place?: boolean;
   onOpenTask?: (taskId: string) => void;
+  /** hub: who asked, as their avatar. */
+  lead?: ReactNode;
 }) {
   const { teamMemberId } = useAuth();
   const actions = useNeedsYouActions();
@@ -70,9 +84,25 @@ export function QuestionCard({ question, variant = 'panel', place, onOpenTask }:
   const [deciding, setDeciding] = useState<'approve' | 'reject' | null>(null);
   const [showAllDetails, setShowAllDetails] = useState(false);
   const [reviewing, setReviewing] = useState(false);
+  /** hub: the context, details and a written answer are open. */
+  const [more, setMore] = useState(false);
   /** The server's word when it refused because the question is no longer open. */
   const [closed, setClosed] = useState<string | null>(null);
   const detailsId = useId();
+  const actionLineId = useId();
+  /** hub: the ask is longer than its two lines, so it is read in full (More) before answering. */
+  const headlineRef = useRef<HTMLParagraphElement>(null);
+  const [clamped, setClamped] = useState(false);
+  useLayoutEffect(() => {
+    const el = headlineRef.current;
+    if (variant !== 'hub' || more || !el) return;
+    const measure = () => setClamped(el.scrollHeight > el.clientHeight + 1);
+    measure();
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [variant, more, question.question, question.action?.summary]);
 
   const forYou = question.asked_to === teamMemberId || question.asked_to_you === true;
   const group = question.asked_to_group ? groupTargetLabel(question.asked_to_group_name) : null;
@@ -86,6 +116,13 @@ export function QuestionCard({ question, variant = 'panel', place, onOpenTask }:
   // A template run an agent drafted: Review opens what approving would make.
   const draftId = approval && question.action?.type === 'template_run' && typeof question.action.details?.draft_id === 'string'
     ? question.action.details.draft_id : null;
+  // The answer that does something: the app's sentence, or why this reader cannot.
+  const act = question.status === 'open' ? question.proposed_actions?.[0] ?? null : null;
+  const actOff = !!act && question.can_answer && act.you_may_perform === false;
+  const actWords = act ? (actOff ? act.you_cannot ?? null : act.sentence ?? null) : null;
+  /** Whether this answer is the one that acts and is off for the reader. */
+  const offFor = (answerChoice: string) => actOff && !!act && act.on_choice.toLowerCase() === answerChoice.toLowerCase();
+  const actsOn = (answerChoice: string) => !!act && act.on_choice.toLowerCase() === answerChoice.toLowerCase() ? actionLineId : undefined;
 
   const label = group
     ? `Asked to ${group}`
@@ -135,7 +172,7 @@ export function QuestionCard({ question, variant = 'panel', place, onOpenTask }:
     : {};
 
   const surface = forYou ? 'bg-amber-500/[0.10]' : 'bg-white/[0.04]';
-  const wrapper = variant === 'band'
+  const wrapper = variant === 'hub' ? 'px-4 py-3 lg:px-5' : variant === 'band'
     ? 'px-4 py-3'
     : `${surface} ${compact ? 'mt-2 rounded-[10px] px-3 py-2.5' : 'rounded-xl p-3.5'}`;
 
@@ -276,6 +313,13 @@ export function QuestionCard({ question, variant = 'panel', place, onOpenTask }:
     </>
   );
 
+  const actionLine = actWords && (
+    <p id={actionLineId} className={`flex items-start gap-1.5 ${compact ? 'mt-2 text-[11px]' : 'mt-2 text-xs'} ${actOff ? 'text-zinc-400' : 'text-zinc-200'}`}>
+      <Zap size={compact ? 12 : 13} className={`mt-px flex-shrink-0 ${actOff ? 'text-zinc-500' : 'text-amber-300'}`} aria-hidden="true" />
+      <span className="min-w-0 break-words">{actWords}</span>
+    </p>
+  );
+
   const choiceButtons = choices.length > 0 && (
     <div className={`flex flex-wrap gap-1.5 ${compact ? 'mt-2' : 'mt-3'}`} role={question.can_answer ? 'group' : undefined} aria-label={question.can_answer ? 'Choices' : undefined}>
       {choices.map((option) => {
@@ -289,8 +333,10 @@ export function QuestionCard({ question, variant = 'panel', place, onOpenTask }:
             key={option}
             type="button"
             aria-pressed={picked}
+            aria-describedby={actsOn(option)}
+            disabled={offFor(option)}
             onClick={() => setChoice(picked ? null : option)}
-            className={`${base} focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 ${
+            className={`${base} focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 disabled:cursor-not-allowed disabled:opacity-50 ${
               picked
                 ? 'border-brand-500/50 bg-brand-500/20 text-brand-200'
                 : 'border-white/[0.08] bg-white/[0.04] text-zinc-200 hover:bg-white/[0.08] hover:text-white'
@@ -314,7 +360,8 @@ export function QuestionCard({ question, variant = 'panel', place, onOpenTask }:
     <TemplateDraftReviewPanel draftId={draftId} approval={question} onClose={() => { setReviewing(false); invalidateTables(['questions']); }} />
   );
 
-  const controls = (question.can_answer || question.can_cancel || draftId) && (
+  /** The answer box and buttons; `extra` joins the button row (the hub's Less), so it never takes a row of its own. */
+  const renderControls = (extra?: ReactNode) => (question.can_answer || question.can_cancel || draftId || extra) && (
     <>
       {question.can_answer && (words || approval) && (
         <Textarea
@@ -343,7 +390,7 @@ export function QuestionCard({ question, variant = 'panel', place, onOpenTask }:
         {question.can_answer && approval && (
           <>
             {!draftId && (
-              <Button type="button" size="sm" onClick={() => void answer('approve')} disabled={!!busy}>
+              <Button type="button" size="sm" onClick={() => void answer('approve')} disabled={!!busy || offFor('approve')} aria-describedby={actsOn('approve')}>
                 {deciding === 'approve' ? 'Approving' : 'Approve'}
               </Button>
             )}
@@ -353,7 +400,7 @@ export function QuestionCard({ question, variant = 'panel', place, onOpenTask }:
           </>
         )}
         {question.can_answer && !approval && (
-          <Button type="button" size="sm" onClick={() => void answer()} disabled={!canSend}>
+          <Button type="button" size="sm" onClick={() => void answer()} disabled={!canSend || (choice !== null && offFor(choice))}>
             {busy === 'answer' ? 'Sending answer' : 'Answer'}
           </Button>
         )}
@@ -362,12 +409,14 @@ export function QuestionCard({ question, variant = 'panel', place, onOpenTask }:
             {busy === 'cancel' ? 'Cancelling' : approval ? 'Cancel request' : 'Cancel question'}
           </Button>
         )}
+        {extra}
         {question.expires_at && (
           <span className="ml-auto text-[11px] text-zinc-500 tabular-nums">{expiresLabel(question.expires_at)}</span>
         )}
       </div>
     </>
   );
+  const controls = renderControls();
 
   const dialog = (
     <ConfirmDialog
@@ -380,6 +429,86 @@ export function QuestionCard({ question, variant = 'panel', place, onOpenTask }:
       variant="danger"
     />
   );
+
+  if (variant === 'hub') {
+    // One line to read, one tap to answer: a choice sends at once, an
+    // approval is Approve or Reject; the context, every detail, a written
+    // answer and Cancel wait behind More (owner critique A23).
+    const quickChoice = async (option: string) => {
+      setBusy('answer');
+      setError(null);
+      settle(await actions.answer(question, { choice: option }, { optimistic: false }));
+      setBusy(null);
+    };
+    const hasMore = !!context || !!actionText || words || question.can_cancel || !!question.expires_at;
+    const waited = waitedWords(question.created_at);
+    // A one-tap answer only once the whole ask is on screen: a longer one is read in full first.
+    const readFirst = clamped && question.can_answer;
+    return (
+      <div className="px-4 py-3 lg:px-5">
+        <div className="flex items-start gap-3">
+          {lead ?? (
+            <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-amber-500/[0.14] text-amber-300">
+              <Icon size={15} aria-hidden="true" />
+            </span>
+          )}
+          <div className="min-w-0 flex-1">
+            <p ref={headlineRef} className={`whitespace-pre-wrap break-words text-sm font-medium text-white ${more ? '' : 'line-clamp-2'}`} title={more ? undefined : headline}>{headline}</p>
+            <p className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-1.5 text-xs text-zinc-500">
+              <span className="flex-shrink-0 font-medium text-zinc-300">{question.asked_by_name ?? 'An agent'}</span>
+              <span className="text-zinc-600" aria-hidden="true">·</span>
+              <span className={`flex-shrink-0 ${forYou ? 'text-amber-300' : ''}`}>{label}</span>
+              <span className="text-zinc-600" aria-hidden="true">·</span>
+              <time dateTime={question.created_at} className="flex-shrink-0 tabular-nums" title={formatFull(question.created_at)}>{waited}</time>
+              {placeLine && <><span className="text-zinc-600" aria-hidden="true">·</span>{question.task_title && <span className="flex-shrink-0">Unblocks</span>}{placeLine}</>}
+            </p>
+            {more ? (
+              <>
+                {contextText}
+                {actionText}
+                {choiceButtons}
+                {actionLine}
+                {renderControls(<Button type="button" size="sm" variant="ghost" aria-expanded onClick={() => setMore(false)}>Less</Button>)}
+              </>
+            ) : (
+              <>
+                {actionLine}
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  {readFirst ? (
+                    <Button type="button" size="sm" variant="secondary" aria-expanded={false} onClick={() => setMore(true)}>Read and answer</Button>
+                  ) : (
+                    <>
+                      {reviewButton}
+                      {question.can_answer && approval && !draftId && (
+                        <Button type="button" size="sm" onClick={() => void answer('approve')} disabled={!!busy || offFor('approve')} aria-describedby={actsOn('approve')}>{deciding === 'approve' ? 'Approving' : 'Approve'}</Button>
+                      )}
+                      {question.can_answer && approval && (
+                        <Button type="button" size="sm" variant="secondary" onClick={() => void answer('reject')} disabled={!!busy}>{deciding === 'reject' ? 'Rejecting' : 'Reject'}</Button>
+                      )}
+                      {question.can_answer && !approval && choices.map((option) => (
+                        <Button key={option} type="button" size="sm" variant="secondary" onClick={() => void quickChoice(option)} disabled={!!busy || offFor(option)} aria-describedby={actsOn(option)} className="max-w-full">
+                          <span className="truncate">{option}</span>
+                        </Button>
+                      ))}
+                      {question.can_answer && !approval && choices.length === 0 && (
+                        <Button type="button" size="sm" variant="secondary" onClick={() => setMore(true)}>Reply</Button>
+                      )}
+                      {hasMore && (
+                        <Button type="button" size="sm" variant="ghost" aria-expanded={false} onClick={() => setMore(true)}>More</Button>
+                      )}
+                    </>
+                  )}
+                </div>
+              </>
+            )}
+            {!more && error && <p className="mt-2 text-xs text-red-300" role="alert">{error}</p>}
+          </div>
+        </div>
+        {dialog}
+        {reviewPanel}
+      </div>
+    );
+  }
 
   if (variant === 'band') {
     return (
@@ -404,6 +533,7 @@ export function QuestionCard({ question, variant = 'panel', place, onOpenTask }:
               )}
             </p>
             {choiceButtons}
+            {actionLine}
             {controls}
           </div>
         </div>
@@ -418,6 +548,7 @@ export function QuestionCard({ question, variant = 'panel', place, onOpenTask }:
       {header}
       {questionText}
       {choiceButtons}
+      {actionLine}
       {controls}
       {dialog}
       {reviewPanel}

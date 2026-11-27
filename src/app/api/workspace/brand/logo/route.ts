@@ -7,6 +7,7 @@ import { BRAND_BUCKET, DEFAULT_BRAND, LOGO_KINDS, resolveBrand, type LogoKind } 
 import { expireBrand, readStoredBrand } from '@/lib/brand/server';
 import { LOGO_MAX_BYTES, sniffImage } from '@/lib/brand/validate';
 import { pmStorage } from '@/lib/supabase/storage';
+import { plainDbError } from '@/lib/api/plain-error';
 
 /**
  * Settings > Workspace > Brand: upload (POST, multipart `file`) or remove
@@ -35,7 +36,7 @@ function megabytes(bytes: number): string {
 
 async function currentPath(service: SupabaseClient, kind: LogoKind): Promise<{ path: string | null; error: NextResponse | null }> {
   const { data, error } = await service.from('workspace_brand').select(COLUMN[kind]).eq('id', true).maybeSingle();
-  if (error) return { path: null, error: isSchemaMissing(error) ? migrationMissing() : NextResponse.json({ error: error.message }, { status: 500 }) };
+  if (error) return { path: null, error: isSchemaMissing(error) ? migrationMissing() : plainDbError(error) };
   return { path: ((data as Record<string, string | null> | null)?.[COLUMN[kind]]) ?? null, error: null };
 }
 
@@ -108,7 +109,7 @@ export async function POST(request: NextRequest) {
     .upsert({ id: true, [COLUMN[kind]]: path, updated_by: memberId }, { onConflict: 'id' });
   if (error) {
     await pmStorage(service).from(BRAND_BUCKET).remove([path]);
-    return isSchemaMissing(error) ? migrationMissing() : NextResponse.json({ error: error.message }, { status: 500 });
+    return isSchemaMissing(error) ? migrationMissing() : plainDbError(error);
   }
   if (before.path && before.path !== path) await pmStorage(service).from(BRAND_BUCKET).remove([before.path]);
 
@@ -126,7 +127,7 @@ export async function DELETE(request: NextRequest) {
   if (before.error) return before.error;
   if (before.path) {
     const { error } = await service.from('workspace_brand').update({ [COLUMN[kind]]: null, updated_by: memberId }).eq('id', true);
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    if (error) return plainDbError(error);
     await pmStorage(service).from(BRAND_BUCKET).remove([before.path]);
     expireBrand();
     audit(service, memberId, 'DELETE', kind, before.path, null);

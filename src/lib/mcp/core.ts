@@ -99,6 +99,13 @@ export interface PmTool {
    */
   chatAgentsOnly?: boolean;
   /**
+   * A person's own decision (marking an Inbox conversation handled, a plan
+   * item accepted): only a person's own key or connected AI tool acting as
+   * them. Agents, company or personal, never see it, and its route refuses
+   * them (403 people_only, lib/api/people-only.ts).
+   */
+  peopleOnly?: boolean;
+  /**
    * A module the tool needs beyond its permission's own, for a tool whose
    * permission is core but whose route belongs to a module. Switched off, the
    * tool is not listed.
@@ -137,6 +144,7 @@ export function routeTool<I extends z.ZodObject>(config: {
   agentsOnly?: boolean;
   personalOnly?: boolean;
   chatAgentsOnly?: boolean;
+  peopleOnly?: boolean;
   module?: ModuleId;
   deprecated?: ToolDeprecation;
   /**
@@ -164,6 +172,7 @@ export function routeTool<I extends z.ZodObject>(config: {
     agentsOnly: config.agentsOnly,
     personalOnly: config.personalOnly,
     chatAgentsOnly: config.chatAgentsOnly,
+    peopleOnly: config.peopleOnly,
     module: config.module,
     deprecated: config.deprecated,
     run: async (args, call, context) => {

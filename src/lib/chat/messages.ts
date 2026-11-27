@@ -5,6 +5,7 @@ import { assistantPending, missingAssistantSchema } from '@/lib/api/assistant';
 import { connectionKind, loadConnection, openCredentials, storeCredentials } from './connections';
 import { chatAdapter, ChatProviderError } from './providers';
 import { CHAT_ATTACHMENT_KINDS, type AssistantChatMessage, type ChatActFor, type ChatAttachmentView, type ChatChannelInfo, type ChatConnectionKind, type ChatReplyInput } from './types';
+import { assertChatLease, ensureConversation, messageLease } from './claims';
 
 /**
  * What an agent does with chat: reads the messages routed to it (the poll,
@@ -32,7 +33,9 @@ type Row = Record<string, any>;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const LEGACY_COLUMNS = 'id, connection_id, direction, status, conversation_id, thread_id, external_message_id, external_user_id, member_id, identity_id, agent_id, text, created_at';
 const COMPANY_COLUMNS = `${LEGACY_COLUMNS}, is_request, is_direct, route`;
-const MESSAGE_COLUMNS = `${COMPANY_COLUMNS}, attachments, reply_to_id`;
+const MEDIA_COLUMNS = `${COMPANY_COLUMNS}, attachments, reply_to_id`;
+/** With the conversation and the lease (20261127002000). */
+const MESSAGE_COLUMNS = `${MEDIA_COLUMNS}, chat_conversation_id, claim_instance, claimed_at, claim_expires_at`;
 /** Earlier messages in the conversation the webhook and the poll carry. */
 export const THREAD_CONTEXT = 10;
 
@@ -53,6 +56,7 @@ const missingColumn = (error: { code?: string } | null | undefined) => !!error &
  */
 async function selectMessages(build: (columns: string) => PromiseLike<{ data: unknown; error: { code?: string; message?: string } | null }>): Promise<Row[]> {
   let { data, error } = await build(MESSAGE_COLUMNS);
+  if (missingColumn(error)) ({ data, error } = await build(MEDIA_COLUMNS));
   if (missingColumn(error)) ({ data, error } = await build(COMPANY_COLUMNS));
   if (missingColumn(error)) ({ data, error } = await build(LEGACY_COLUMNS));
   if (error) fail(error);
@@ -165,7 +169,17 @@ function present(row: Row, found: Lookups): AssistantChatMessage {
     attachments: attachmentViews(row),
     // On an inbound message, reply_to_id names the started message it answers.
     in_reply_to: row.direction === 'inbound' ? row.reply_to_id ?? null : null,
+    chat_conversation_id: row.chat_conversation_id ?? null,
+    claim: messageLease(row),
   };
+}
+
+/** Rows recorded before the update get their conversation on first read (requests only). */
+async function withConversations(service: SupabaseClient, rows: Row[]): Promise<void> {
+  for (const row of rows) {
+    if (row.chat_conversation_id || row.is_request === false || !('chat_conversation_id' in row)) continue;
+    row.chat_conversation_id = await ensureConversation(service, row);
+  }
 }
 
 type ThreadItem = { id: string; direction: string; text: string; created_at: string; is_request?: boolean };
@@ -296,6 +310,7 @@ export async function listAssistantMessages(
     return query.order('created_at').order('id').limit(filters.limit);
   });
   if (rows.length === 0) return { messages: [] };
+  await withConversations(service, rows);
   const found = await lookups(service, rows);
   const presented = rows.map((row) => present(row, found));
   const threads = await Promise.all(rows.map((row, index) => threadBefore(service, row, presented[index].connection_kind)));
@@ -310,6 +325,7 @@ export async function getAssistantMessage(
 ): Promise<AssistantChatMessage & { thread: ThreadItem[] }> {
   await requireCaller(service, caller);
   const row = await loadOwn(service, caller.memberId, messageId);
+  await withConversations(service, [row]);
   const found = await lookups(service, [row]);
   const message = present(row, found);
   return { ...message, thread: await threadBefore(service, row, message.connection_kind) };
@@ -346,6 +362,8 @@ export async function replyToMessage(
   await requireCaller(service, caller);
   const message = await loadOwn(service, caller.memberId, messageId);
   if (message.is_request === false) throw notARequest();
+  // Leased by someone else (another agent, or another worker of this one): theirs to answer.
+  await assertChatLease(service, message, caller.memberId, input.instance_id ?? null);
   const connection = await loadConnection(service, message.connection_id);
   if (!connection || connection.enabled === false) throw new ApiError(409, 'CONFLICT', 'This chat connection is switched off or was removed', { reason: 'connection_off' });
   const kind = connectionKind(connection);
@@ -409,11 +427,12 @@ export async function replyToMessage(
 }
 
 /** Marks a message handled without a reply, so the poll stops listing it. Context is never a request, so never handled. */
-export async function markMessageHandled(service: SupabaseClient, caller: ChatCaller, messageId: string): Promise<{ id: string; status: string }> {
+export async function markMessageHandled(service: SupabaseClient, caller: ChatCaller, messageId: string, instanceId: string | null = null): Promise<{ id: string; status: string }> {
   await requireCaller(service, caller);
   const message = await loadOwn(service, caller.memberId, messageId);
   if (message.is_request === false) throw notARequest();
   if (message.status === 'replied' || message.status === 'handled') return { id: message.id, status: message.status };
+  await assertChatLease(service, message, caller.memberId, instanceId);
   const { error } = await service.from('chat_messages').update({ status: 'handled', handled_at: new Date().toISOString() }).eq('id', message.id);
   if (error) fail(error);
   return { id: message.id, status: 'handled' };

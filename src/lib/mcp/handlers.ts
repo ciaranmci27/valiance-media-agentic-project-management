@@ -93,6 +93,15 @@ import * as chatMessages from '@/app/api/v1/chat/messages/route';
 import * as chatMessage from '@/app/api/v1/chat/messages/[id]/route';
 import * as chatMessageReply from '@/app/api/v1/chat/messages/[id]/reply/route';
 import * as chatMessageHandled from '@/app/api/v1/chat/messages/[id]/handled/route';
+// Agent runtime: chat leases, conversations, host keys.
+import * as chatMessageClaim from '@/app/api/v1/chat/messages/[id]/claim/route';
+import * as chatMessageExtend from '@/app/api/v1/chat/messages/[id]/extend/route';
+import * as chatMessageRelease from '@/app/api/v1/chat/messages/[id]/release/route';
+import * as chatConversation from '@/app/api/v1/chat/conversations/[id]/route';
+import * as chatConversationClaim from '@/app/api/v1/chat/conversations/[id]/claim/route';
+import * as chatConversationExtend from '@/app/api/v1/chat/conversations/[id]/extend/route';
+import * as chatConversationRelease from '@/app/api/v1/chat/conversations/[id]/release/route';
+import * as apiKeyAgents from '@/app/api/v1/api-keys/[id]/agents/route';
 import * as events from '@/app/api/v1/events/route';
 import * as assistantSetups from '@/app/api/v1/assistant-setups/route';
 import * as webhookEndpoints from '@/app/api/v1/webhook-endpoints/route';
@@ -138,6 +147,7 @@ import * as taskRepeat from '@/app/api/v1/tasks/[id]/repeat/route';
 import * as identityResolve from '@/app/api/v1/identities/resolve/route';
 import * as identityLinkRequests from '@/app/api/v1/identities/link-requests/route';
 import * as memberIdentities from '@/app/api/v1/members/[id]/identities/route';
+import { PARITY_ROUTE_MODULES } from './parity/routes';
 
 export type RouteHandler = (
   request: NextRequest,
@@ -245,6 +255,15 @@ export const ROUTE_MODULES: Record<string, RouteModule> = {
   '/api/v1/chat/messages/{id}': chatMessage,
   '/api/v1/chat/messages/{id}/reply': chatMessageReply,
   '/api/v1/chat/messages/{id}/handled': chatMessageHandled,
+  // Agent runtime: chat leases, conversations, host keys.
+  '/api/v1/chat/messages/{id}/claim': chatMessageClaim,
+  '/api/v1/chat/messages/{id}/extend': chatMessageExtend,
+  '/api/v1/chat/messages/{id}/release': chatMessageRelease,
+  '/api/v1/chat/conversations/{id}': chatConversation,
+  '/api/v1/chat/conversations/{id}/claim': chatConversationClaim,
+  '/api/v1/chat/conversations/{id}/extend': chatConversationExtend,
+  '/api/v1/chat/conversations/{id}/release': chatConversationRelease,
+  '/api/v1/api-keys/{id}/agents': apiKeyAgents,
   '/api/v1/events': events,
   '/api/v1/assistant-setups': assistantSetups,
   '/api/v1/webhook-endpoints': webhookEndpoints,
@@ -290,6 +309,8 @@ export const ROUTE_MODULES: Record<string, RouteModule> = {
   '/api/v1/identities/resolve': identityResolve,
   '/api/v1/identities/link-requests': identityLinkRequests,
   '/api/v1/members/{id}/identities': memberIdentities,
+  // The API and MCP parity tools' routes (2026-11-27), by area: parity/routes.ts.
+  ...PARITY_ROUTE_MODULES,
 };
 
 export function routeHandler(path: string, method: HttpMethod): RouteHandler | null {

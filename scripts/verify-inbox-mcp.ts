@@ -222,8 +222,13 @@ async function main() {
     const deprecatedInbox = INBOX_TOOLS.filter((name) => PM_TOOLS.find((t) => t.name === name)?.deprecated);
     check('catalog: the older triage and its summary are the deprecated inbox tools',
       isDeepStrictEqual([...deprecatedInbox].sort(), ['list_unsummarized_triage', 'mark_triage_summarized', 'record_email_triage']), deprecatedInbox);
-    check('visible: a triage key sees every inbox tool but the deprecated ones', INBOX_TOOLS.every((name) => scoutTools.includes(name) !== deprecatedInbox.includes(name)),
-      INBOX_TOOLS.filter((name) => scoutTools.includes(name) === deprecatedInbox.includes(name)));
+    // A person's own decisions (people only) are never an agent's.
+    const peopleOnlyInbox = INBOX_TOOLS.filter((name) => PM_TOOLS.find((t) => t.name === name)?.peopleOnly);
+    const agentInbox = INBOX_TOOLS.filter((name) => !peopleOnlyInbox.includes(name));
+    check('visible: a triage key sees every inbox tool but the deprecated and people-only ones', agentInbox.every((name) => scoutTools.includes(name) !== deprecatedInbox.includes(name)),
+      agentInbox.filter((name) => scoutTools.includes(name) === deprecatedInbox.includes(name)));
+    check('hidden: the triage agent sees none of a person\'s own decisions', peopleOnlyInbox.length >= 20 && !peopleOnlyInbox.some((name) => scoutTools.includes(name)),
+      peopleOnlyInbox.filter((name) => scoutTools.includes(name)));
     const noEmailTools = await listTools(keys.noEmail);
     check('hidden: a key without inbox scopes sees none', noEmailTools.length > 3 && !noEmailTools.some((name) => INBOX_TOOLS.includes(name)), noEmailTools);
     const readTools = await listTools(keys.readOnlyEmail);

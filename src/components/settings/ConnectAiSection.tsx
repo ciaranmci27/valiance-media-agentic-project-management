@@ -277,7 +277,7 @@ function SetupLine({ session, busy, onEnd }: { session: AiSetupSessionView; busy
       <span className="flex min-w-0 items-center gap-1.5">
         <Bot size={12} aria-hidden="true" className="flex-shrink-0" />
         Can set up agents until {timeOf(session.expires_at)}.{' '}
-        <Link href="/agent/new?mode=ai" className={LINK}>See what it made</Link>
+        <Link href="/ai/agents/new?mode=ai" className={LINK}>See what it made</Link>
       </span>
       <button
         type="button"

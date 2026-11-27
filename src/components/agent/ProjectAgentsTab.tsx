@@ -174,7 +174,7 @@ export function ProjectAgentsTab({ projectId }: { projectId: string }) {
                 </p>
                 <div className="mt-5 flex flex-wrap justify-center gap-2">
                   {canAdd && candidates.length > 0 && <Button icon={<Plus size={15} aria-hidden="true" />} onClick={() => setAdding(true)}>Add agent to project</Button>}
-                  {canHire && <Button variant="secondary" href={`/agent/new?project=${projectId}`}>Hire a new agent</Button>}
+                  {canHire && <Button variant="secondary" href={`/ai/agents/new?project=${projectId}`}>Hire a new agent</Button>}
                 </div>
               </>
             ) : (
@@ -313,7 +313,7 @@ function AccessNotSetUp({ projectId, agents, templates, schemaOf, canSetUp, canO
             <li key={agent.id} className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3 sm:flex-nowrap sm:px-5">
               <AgentAvatar id={agent.id} name={agent.name} src={agent.avatar} size="sm" />
               {canOpen(agent.id)
-                ? <Link href={`/agent/${agent.id}`} className={`${nameClass} rounded hover:text-brand-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500`}>{name}</Link>
+                ? <Link href={`/ai/agents/${agent.id}`} className={`${nameClass} rounded hover:text-brand-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500`}>{name}</Link>
                 : <span className={nameClass}>{name}</span>}
               {suspended && <span className="rounded-full bg-red-500/[0.14] px-2 py-0.5 text-[11px] font-medium text-red-300">Suspended</span>}
               {canSetUp(agent.id) && (
@@ -379,7 +379,7 @@ function AddAgentToProject({ projectId, candidates, templates, schemaOf, onDone,
       {candidates.length === 0 ? (
         <>
           <p className="mt-2 text-sm text-zinc-400">
-            Every agent you can add is already here.{canHire && <> <a href={`/agent/new?project=${projectId}`} className="font-medium text-brand-300 hover:text-brand-200">Hire a new one</a>.</>}
+            Every agent you can add is already here.{canHire && <> <a href={`/ai/agents/new?project=${projectId}`} className="font-medium text-brand-300 hover:text-brand-200">Hire a new one</a>.</>}
           </p>
           <div className="mt-3 flex justify-end"><Button variant="ghost" size="sm" onClick={onDone}>Close</Button></div>
         </>

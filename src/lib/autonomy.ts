@@ -123,6 +123,23 @@ export interface NeedsYouItem {
   openQuestion?: QuestionView;
   /** merge only: the independent reviewer's current verdict, if any. */
   reviewerVerdict?: TaskReview | null;
+  /** blocked only: the run the agent marked blocked (structured, not read from comments), and its agent. */
+  runId?: string;
+  agentId?: string;
+}
+
+/**
+ * A run its agent marked blocked (PATCH /api/v1/agents/runs/{id} with
+ * blocked and blocked_reason), as pm.my_blocked_runs answers it for the
+ * signed-in person: only runs of agents they manage or on tasks they are on.
+ */
+export interface BlockedRunSignal {
+  run_id: string;
+  agent_id: string;
+  agent_name: string | null;
+  task_id: string | null;
+  blocked_reason: string | null;
+  blocked_at: string;
 }
 
 // The blocked signal: the agent logs a typed blocked event (activity_type
@@ -150,6 +167,26 @@ export function blockedReason(row: BlockSignal): string {
     : row.title.replace(TYPED_BLOCKED_PREFIX, '');
 }
 
+/**
+ * Questions and approvals whose task or project is still out of Trash. The
+ * server leaves out the ones already in Trash when it lists them; this
+ * catches a place moved to Trash since (the list is cached), and lets one
+ * back in when the place is restored. Only a place the viewer can open is
+ * judged (its name is shown to them): one they cannot open is never among
+ * their tasks or projects, so its absence says nothing.
+ */
+export function questionsOnLivePlaces(
+  questions: QuestionView[],
+  tasks: Pick<Task, 'id'>[],
+  projects: Pick<Project, 'id'>[],
+): QuestionView[] {
+  const taskIds = new Set(tasks.map((task) => task.id));
+  const projectIds = new Set(projects.map((project) => project.id));
+  return questions.filter((question) =>
+    !(question.task_id && question.task_title != null && !taskIds.has(question.task_id))
+    && !(question.project_id && question.project_name != null && !projectIds.has(question.project_id)));
+}
+
 export function computeNeedsYou(input: {
   tasks: Task[];
   suggestions: TaskSuggestion[];
@@ -166,8 +203,20 @@ export function computeNeedsYou(input: {
   agentActivity?: { activity_type?: string; reference_type: string | null; reference_id: string | null; title: string; description: string; metadata?: Record<string, unknown> | null; created_at: string }[];
   /** Open questions the viewer can see; the ones asked to them are theirs to answer. */
   questions?: QuestionView[];
+  /** Runs marked blocked that wait on the viewer (they manage the agent, or are on its task). */
+  blockedRuns?: BlockedRunSignal[];
+  /**
+   * tasks and projects are the whole live workspace the viewer reads (loaded,
+   * Trash left out), so a question naming a place they can open that is not
+   * among them went to Trash after the questions were read. Leave it false
+   * while they load or when they are a slice.
+   */
+  placesLoaded?: boolean;
 }): NeedsYouItem[] {
-  const { tasks, suggestions, projects, teamMemberId, includeSuggestions, oversight, agentActivity = [], questions = [] } = input;
+  const { tasks, suggestions, projects, teamMemberId, includeSuggestions, oversight, agentActivity = [], blockedRuns = [], placesLoaded = false } = input;
+  const questions = placesLoaded
+    ? questionsOnLivePlaces(input.questions ?? [], tasks, projects)
+    : input.questions ?? [];
   const suggestionById = new Map(suggestions.map(s => [s.id, s]));
   const projectById = new Map(projects.map(p => [p.id, p]));
   const laneOf = (task: Task) =>
@@ -213,6 +262,18 @@ export function computeNeedsYou(input: {
       question: blockedReason(latest),
       ...(questionId ? { questionId } : {}),
     });
+  }
+
+  // Runs their agents marked blocked (the structured state, never read from
+  // comments), until the run moves. One row per task: a task already listed
+  // as blocked is that same block. A run on no task shows under Runs.
+  const tasksById = new Map(tasks.map((task) => [task.id, task]));
+  const blockedTasks = new Set(items.flatMap((item) => (item.kind === 'blocked' && item.task ? [item.task.id] : [])));
+  for (const run of [...blockedRuns].sort((a, b) => (a.blocked_at < b.blocked_at ? 1 : -1))) {
+    const task = run.task_id ? tasksById.get(run.task_id) : undefined;
+    if (!teamMemberId || !task || task.status === 'done' || blockedTasks.has(task.id)) continue;
+    blockedTasks.add(task.id);
+    items.push({ kind: 'blocked', task, question: run.blocked_reason ?? '', runId: run.run_id, agentId: run.agent_id });
   }
 
   // Agent PRs sitting in review: the build is done and the only remaining

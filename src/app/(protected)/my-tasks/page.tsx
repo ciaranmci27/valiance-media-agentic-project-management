@@ -606,7 +606,7 @@ function RadarPageContent() {
                     icon: iconSquare(Inbox, 'bg-brand-500/15 text-brand-300'),
                     title: `${pendingSuggestions} suggestion${pendingSuggestions === 1 ? '' : 's'} awaiting your review`,
                     context: 'Approve or decline in the review queue',
-                    href: '/agent',
+                    href: '/ai?tab=company',
                     showChevron: true,
                   }),
                 })}

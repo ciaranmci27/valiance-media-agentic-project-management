@@ -15,11 +15,10 @@
  * Undo returns exactly what it changed. Restore takes that receipt and puts
  * back only what belongs to this conversation.
  */
-import { hasPermission } from '@/lib/access-control';
-import { accessAllowsProject } from '@/lib/api/access';
+import { z } from 'zod';
 import { moveToTrash, restoreFromTrash } from '@/lib/supabase/trash';
 import { comms } from './db';
-import { assertId, InboxError, loadTriageableThread, many, type InboxContext } from './inbox-service';
+import { assertId, InboxError, inboxAllows, inboxReaches, loadTriageableThread, many, type InboxContext } from './inbox-service';
 import { restorePlanItem, undoWholePlan } from './inbox-plans';
 import type { AgentWorkUndo } from './inbox-types';
 
@@ -31,6 +30,27 @@ export interface AgentWorkScope {
   /** Only the agent's links to this task (an older message's row action). */
   task_id: string | null;
 }
+
+/** Undo all: these emails (every one of the conversation when null), or only the agent's links to one task. */
+export const undoAgentWorkSchema = z.object({
+  message_ids: z.array(z.string()).max(200).nullable().default(null),
+  task_id: z.string().nullable().default(null),
+}).strict();
+
+/** Restore all: the receipt one Undo all answered. */
+export const restoreAgentWorkSchema = z.object({
+  plan_items: z.array(z.string()).max(500),
+  tasks: z.array(z.string()).max(500),
+  reminders: z.array(z.string()).max(500),
+  links: z.array(z.object({
+    message_id: z.string(),
+    task_id: z.string(),
+    relation: z.enum(['created', 'updated', 'related']),
+    triage_id: z.string().uuid().nullable(),
+    linked_by: z.string().uuid().nullable(),
+  })).max(500),
+  kept: z.array(z.unknown()).optional(),
+});
 
 async function threadMessages(ctx: InboxContext, threadId: string): Promise<Set<string>> {
   const rows = await many<{ id: string }>(comms(ctx.service).from('messages').select('id').eq('thread_id', threadId).neq('status', 'receiving'));
@@ -81,7 +101,7 @@ export async function undoAgentWork(ctx: InboxContext, threadId: string, scope: 
   if (!older.length) return undo;
   const agents = await agentIds(ctx);
   // Binning a task takes what the row's "Not a task" takes.
-  const canBinTasks = hasPermission(ctx.access, 'tasks.manage_all') || hasPermission(ctx.access, 'tasks.manage_assigned');
+  const canBinTasks = inboxAllows(ctx, 'tasks.manage_all') || inboxAllows(ctx, 'tasks.manage_assigned');
 
   let linkQuery = comms(ctx.service).from('task_links').select('message_id, task_id, relation, triage_id, linked_by')
     .in('message_id', older).not('triage_id', 'is', null);
@@ -97,7 +117,7 @@ export async function undoAgentWork(ctx: InboxContext, threadId: string, scope: 
     const task = tasks.get(link.task_id);
     // Already in Trash (waved off one by one, say): nothing left to take back.
     if (!task) continue;
-    if (!accessAllowsProject(ctx.access, task.project_id)) {
+    if (!inboxReaches(ctx, task.project_id)) {
       undo.kept.push({ label: 'A task in another project', reason: 'out of your reach, so it stays' });
       continue;
     }
@@ -174,7 +194,7 @@ export async function restoreAgentWork(ctx: InboxContext, threadId: string, undo
   }
   const reachable = (rows: { id: string; project_id: string }[], id: string) => {
     const row = rows.find((r) => r.id === id);
-    return !!row && accessAllowsProject(ctx.access, row.project_id);
+    return !!row && inboxReaches(ctx, row.project_id);
   };
 
   let restored = 0;

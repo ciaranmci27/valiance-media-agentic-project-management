@@ -1,4 +1,5 @@
 import { updateSession } from '@/lib/supabase/middleware';
+import { foreignOrigin, needsOriginCheck } from '@/lib/security/origin';
 import { type NextRequest, NextResponse } from 'next/server';
 
 /**
@@ -43,6 +44,12 @@ export async function proxy(request: NextRequest) {
   // Handle CORS preflight for API routes
   if (cors && request.method === 'OPTIONS') {
     return new NextResponse(null, { status: 204, headers: cors });
+  }
+
+  // A write with the session cookie from another site is refused here, for
+  // every session route at once (lib/security/origin.ts).
+  if (needsOriginCheck(request) && foreignOrigin(request)) {
+    return NextResponse.json({ error: 'Cross-site request refused' }, { status: 403 });
   }
 
   const response = await updateSession(request);

@@ -57,6 +57,8 @@ Agents (no sign-in; each has an API key in the env file as `LOCAL_AGENT_<NAME>_A
 
 `dev.mjs` starts Next with every setting from `scripts/local/.env.test.local` as real environment variables, every other setting the app reads set to empty, and Next's own `.env` loading switched off. `guard-env.cjs` is preloaded into every Node process of the server: `.env*` files read as missing (also when one changes while it runs), the process stops unless Supabase and the database are on 127.0.0.1, and `fetch` refuses hosted Supabase addresses. Each process logs `[local-guard] on in pid ...` with the Supabase URL it uses.
 
+`PORT=<port> npm run local:dev` runs a second server on another port, linking to itself. The end-to-end suite (`npm run test:e2e`, `scripts/e2e/README.md`) starts one that way with `PM_E2E=1`, which also keeps it from reaching any chat provider.
+
 The server builds into `.next-local`, apart from the usual `npm run dev` (port 3009), so both can run at once. Next prints that it updated `tsconfig.json` for that folder; the guard blocks that write, so `tsconfig.json` and `next-env.d.ts` stay as they are.
 
 ## What differs from a real install

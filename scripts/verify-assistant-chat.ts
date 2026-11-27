@@ -140,7 +140,7 @@ function pureChecks() {
   const lapsed = { state: 'broken', reason: 'key_lapsed' } as const;
   check('chat line: not working says why, and an admin was told only when one was',
     quietWords(lapsed, 'Nova', 'Assistant', 'https://x/assistant', 'admin') === "Nova can't answer right now: its key expired or was revoked. Your admin has been told."
-      && quietWords(lapsed, 'Nova', 'Assistant', 'https://x/assistant', 'settings') === "Nova can't answer right now: its key expired or was revoked. Fix it in Settings > Assistants.",
+      && quietWords(lapsed, 'Nova', 'Assistant', 'https://x/assistant', 'settings') === "Nova can't answer right now: its key expired or was revoked. Fix it in AI > Setup.",
     quietWords(lapsed, 'Nova', 'Assistant', 'https://x/assistant', 'settings'));
   check('chat line: an admin pause reads as a hold that ends, not as broken', quietWords({ state: 'on_hold', reason: 'paused_by_admin' }, 'Nova', 'Assistant', 'u') === 'Nova is paused by an admin. It gets what you send meanwhile when they resume it.');
   const conn = { enabled: true, kind: 'personal' as const, agents: [] };
@@ -532,7 +532,7 @@ async function main() {
     check('broken: Ben himself is not notified about his own assistant', await count('SELECT count(*)::int AS n FROM pm.team_member_notifications WHERE user_id = $1', [s.ben]) === 0);
     check('broken: his page reads not working, and that an admin was told (one was)', benBroken.body?.data?.assistant?.fixer === 'admin', benBroken.body?.data?.assistant);
     const toldLink = (await s.q<Loose>("SELECT title, link FROM pm.team_member_notifications WHERE user_id = $1 AND entity_id = $2", [s.owner, s.benAgent]))[0];
-    check('broken: the Owner\'s bell opens the agent service step, and says not working', toldLink?.link === '/settings/assistants#assistant-service' && /not working/.test(toldLink?.title ?? ''), toldLink);
+    check('broken: the Owner\'s bell opens the agent service step, and says not working', toldLink?.link === '/ai?tab=setup#assistant-service' && /not working/.test(toldLink?.title ?? ''), toldLink);
     const benKey = await s.key(s.benAgent, TEMPLATE_SCOPES);
 
     // ── Settings feed the context pack, and the guard ──────────────────
@@ -1113,8 +1113,17 @@ async function main() {
     const newbie = event('EvNewbie1', 'U_NEWBIE', 'hi', 'D_NEWBIE');
     await inbound(slackId, newbie, slackSigned(newbie, {}, NEW_SECRET));
     const newbieToken = /\/link\/(pl_[a-f0-9]{64})/.exec(slackLines()[0] ?? '')?.[1] ?? '';
+    // Security review finding 5: the link alone (forwarded to someone else) never links; the code from the DM does.
+    const newbieCode = /type this code: ([A-Z0-9]{4})/.exec(slackLines()[0] ?? '')?.[1] ?? '';
+    check('link code: the DM carries a 4-character code with the link', /^[A-HJ-NP-Z2-9]{4}$/.test(newbieCode), slackLines()[0]);
+    const linkPage = await session(linkRoute.GET, 'GET', `/api/workspace/identities/link/${newbieToken}`, { token: newbieToken });
+    check('link code: the confirm page knows to ask for it', linkPage.status === 200 && linkPage.body?.data?.needs_code === true && linkPage.body?.data?.from_chat === true, linkPage.body);
+    const forwarded = await session(linkRoute.POST, 'POST', `/api/workspace/identities/link/${newbieToken}`, { token: newbieToken });
+    check('link code: clicking a forwarded link without the code links nothing (422 code_required)', forwarded.status === 422 && reason(forwarded) === 'code_required', forwarded.body);
+    const wrongCode = await session(linkRoute.POST, 'POST', `/api/workspace/identities/link/${newbieToken}`, { token: newbieToken }, { code: newbieCode === 'AAAA' ? 'BBBB' : 'AAAA' });
+    check('link code: a wrong code links nothing (422 code_wrong)', wrongCode.status === 422 && reason(wrongCode) === 'code_wrong', wrongCode.body);
     providerCalls.length = 0;
-    const confirmed = await session(linkRoute.POST, 'POST', `/api/workspace/identities/link/${newbieToken}`, { token: newbieToken });
+    const confirmed = await session(linkRoute.POST, 'POST', `/api/workspace/identities/link/${newbieToken}`, { token: newbieToken }, { code: newbieCode.toLowerCase() });
     await settle();
     check('linked: confirming the link makes the bot say so in the chat they wrote from', confirmed.status === 200 && !!newbieToken
       && providerCalls.some((call) => call.body?.channel === 'D_NEWBIE' && /^Linked\./.test(call.body?.text ?? '')), { confirmed: confirmed.body, providerCalls });

@@ -16,6 +16,8 @@ export interface MultiSelectOption {
 /** Accessible, token-based MultiSelect configuration. */
 export interface MultiSelectProps {
   label?: string;
+  /** The accessible name when no visible label is shown (a card title already names it). */
+  ariaLabel?: string;
   description?: string;
   error?: string;
   options: MultiSelectOption[];
@@ -39,6 +41,7 @@ export interface MultiSelectProps {
 export const MultiSelect = forwardRef<HTMLButtonElement, MultiSelectProps>(function MultiSelect(
   {
     label,
+    ariaLabel,
     description,
     error,
     options,
@@ -324,6 +327,7 @@ export const MultiSelect = forwardRef<HTMLButtonElement, MultiSelectProps>(funct
         aria-invalid={error ? true : undefined}
         aria-describedby={describedBy}
         aria-labelledby={label ? `${inputId}-label` : undefined}
+        aria-label={label ? undefined : ariaLabel}
         onClick={() => (isOpen ? setIsOpen(false) : openPicker())}
         onKeyDown={handleTriggerKeyDown}
         onFocus={onFocus}
@@ -355,6 +359,7 @@ export const MultiSelect = forwardRef<HTMLButtonElement, MultiSelectProps>(funct
             role="listbox"
             aria-multiselectable="true"
             aria-labelledby={label ? `${inputId}-label` : undefined}
+            aria-label={label ? undefined : ariaLabel}
             onKeyDown={handleDropdownKeyDown}
             className={`${popupChrome} overflow-auto p-1`}
             style={{

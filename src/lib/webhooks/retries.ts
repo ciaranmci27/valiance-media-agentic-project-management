@@ -137,27 +137,37 @@ async function setUpInTwoWrites(service: SupabaseClient, memberId: string | null
   }
 }
 
-async function audit(service: SupabaseClient, method: 'POST' | 'DELETE', memberId: string | null, on: boolean, auto = false): Promise<void> {
+/** Where a switch came from, for its audit row: Settings (the default) or an Owner's key (/api/v1/workspace/webhook-retries). */
+export interface WebhookRetriesSource {
+  endpoint: string;
+  via: 'app' | 'rest' | 'mcp' | 'mcp_oauth';
+  apiKeyId?: string | null;
+}
+
+const FROM_SETTINGS: WebhookRetriesSource = { endpoint: '/api/workspace/webhook-retries', via: 'app' };
+
+async function audit(service: SupabaseClient, method: 'POST' | 'DELETE', memberId: string | null, on: boolean, auto = false, source: WebhookRetriesSource = FROM_SETTINGS): Promise<void> {
   const { error } = await insertAuditRows(service, {
-    method, endpoint: '/api/workspace/webhook-retries', entity_type: 'workspace_webhook_retries', team_member_id: memberId,
-    request_body: auto ? { automatic: true } : {}, before_snapshot: null, after_snapshot: { on }, status_code: 200, via: 'app',
+    method, endpoint: source.endpoint, entity_type: 'workspace_webhook_retries', team_member_id: memberId,
+    request_body: auto ? { automatic: true } : {}, before_snapshot: null, after_snapshot: { on }, status_code: 200, via: source.via,
+    ...(source.apiKeyId ? { api_key_id: source.apiKeyId } : {}),
   });
   if (error) console.error('[webhooks] could not audit retries', error);
 }
 
 /** An Owner turns retries on: clears their "off" and sets them up. */
-export async function turnOnWebhookRetries(service: SupabaseClient, memberId: string): Promise<WebhookRetriesState> {
+export async function turnOnWebhookRetries(service: SupabaseClient, memberId: string, source: WebhookRetriesSource = FROM_SETTINGS): Promise<WebhookRetriesState> {
   await setUp(service, memberId, true);
   if (await turnedOff(service)) await setTurnedOff(service, false);
-  await audit(service, 'POST', memberId, true);
+  await audit(service, 'POST', memberId, true, false, source);
   autoChecked = false;
   return webhookRetriesState(service);
 }
 
 /** An Owner turns retries off: the app stops turning them on and the database stops kicking. */
-export async function turnOffWebhookRetries(service: SupabaseClient, memberId: string): Promise<WebhookRetriesState> {
+export async function turnOffWebhookRetries(service: SupabaseClient, memberId: string, source: WebhookRetriesSource = FROM_SETTINGS): Promise<WebhookRetriesState> {
   await setTurnedOff(service, true);
-  await audit(service, 'DELETE', memberId, false);
+  await audit(service, 'DELETE', memberId, false, false, source);
   autoChecked = true;
   return webhookRetriesState(service);
 }

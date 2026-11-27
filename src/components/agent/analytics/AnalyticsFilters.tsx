@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState, type ReactNode } from 'react';
 import { BarChart3, Bot, CalendarRange, Check, ChevronDown, FolderKanban, Search, X } from 'lucide-react';
 import { Avatar } from '@/components/ui/Avatar';
 import { Popover } from '@/components/ui/Popover';
@@ -100,7 +100,7 @@ function MultiPicker({
 
 export function AnalyticsFilters({
   range, preset, onPreset, customStart, customEnd, onCustomStart, onCustomEnd, earliestDateKey, todayKey,
-  projects, selectedProjectIds, onProjects, agents, selectedAgentIds, onAgents,
+  projects, selectedProjectIds, onProjects, agents, selectedAgentIds, onAgents, actions,
 }: {
   range: DateRange;
   preset: RangePreset;
@@ -117,6 +117,8 @@ export function AnalyticsFilters({
   agents: Option[];
   selectedAgentIds: Set<string>;
   onAgents: (next: Set<string>) => void;
+  /** Actions on what the filters show (See these runs, More stats), in this header rather than a row of their own (Rule 17). */
+  actions?: ReactNode;
 }) {
   const rangeRef = useRef<HTMLDivElement>(null);
   const [rangeOpen, setRangeOpen] = useState(false);
@@ -140,6 +142,7 @@ export function AnalyticsFilters({
       </div>
 
       <div className="flex flex-wrap items-center gap-2.5 w-full sm:w-auto">
+        {actions}
         <span className="hidden sm:inline text-xs text-zinc-500 font-medium">{fmtDate(range.startKey)} - {fmtDate(range.endKey)}</span>
         <div ref={rangeRef} className="relative flex-1 sm:flex-none">
           <button type="button" onClick={() => setRangeOpen((o) => !o)} aria-expanded={rangeOpen} aria-haspopup="menu" className={TRIGGER}>

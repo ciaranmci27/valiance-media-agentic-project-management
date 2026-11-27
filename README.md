@@ -255,6 +255,12 @@ Updates are git merges. If your repository was started from copied files, the up
 
 ---
 
+## Backups and recovery
+
+Your data lives in your own Supabase project, so backups are yours to set up: a paid plan, point-in-time recovery, a copy of your Storage files and a safe copy of `APP_ENCRYPTION_KEY`. Trash undoes everyday deletes. See [Backups and recovery](docs/operating/backups-and-recovery.md) for the one-time setup, how to test a restore and what to do when something goes wrong.
+
+---
+
 ## Agents
 
 Plug your own AI agents into the app, on any harness (Claude Code, Codex, LangGraph, a custom loop), over REST, MCP and webhooks: claims, questions, approvals, runs, events and identity are built in, and every person can have their own assistant in Slack or Telegram. Start with [Bring your own agent](docs/agents/README.md).

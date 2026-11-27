@@ -53,6 +53,17 @@ export const askQuestionSchema = z.object({
   expires_at: z.iso.datetime({ offset: true, message: 'expires_at must be an ISO 8601 time' }).optional(),
   /** The asking agent's own unfinished run this question holds: while it is open, the run waits on a person. */
   run_id: z.uuid('run_id must be a run id').optional(),
+  /**
+   * An action from the app's whitelist (project.update) the answer performs,
+   * as whoever answers, when they pick on_choice (default the first choice).
+   * Needs choices. The one asked must be able to do it (422 asked_cannot_perform).
+   */
+  action: z.object({
+    type: z.string().trim().min(1).max(63),
+    summary: z.string().trim().min(1).max(300).optional(),
+    details: z.record(z.string(), z.unknown()).optional(),
+    on_choice: z.string().trim().min(1).max(CHOICE_MAX).optional(),
+  }).strict().optional(),
 }).strict();
 export type AskQuestionInput = z.infer<typeof askQuestionSchema>;
 
@@ -249,6 +260,33 @@ export interface QuestionView {
   run_id?: string;
   /** Set when it expired before its time: asked_member_suspended (the member asked was suspended; ask someone else). */
   expired_reason?: 'asked_member_suspended';
+  /**
+   * The action the answer performs (an approval's approve, or a question's
+   * on_choice), and whether whoever it is asked of may do it. Only on a
+   * question or approval that carries one from the app's whitelist.
+   */
+  proposed_actions?: {
+    type: string;
+    summary: string | null;
+    details: Record<string, unknown>;
+    on_choice: string;
+    asked_may_perform: boolean;
+    reason?: string;
+    /** What answering with on_choice does, in the app's words (never the agent's): shown on that choice. */
+    sentence?: string;
+    /** Whether the one reading may do it; when false, that choice is off for them and you_cannot says why. */
+    you_may_perform?: boolean;
+    you_cannot?: string;
+  }[];
+  /** What the answer did, once it did it. */
+  performed?: { type: string; status: 'done'; by: string; at: string; result: Record<string, unknown> } | null;
+  /**
+   * Set when an agent's question went to its orchestrator first: whom the
+   * agent asked (a member, or a group). The orchestrator answers, or brings
+   * it to them.
+   */
+  requested_to?: string | null;
+  requested_to_group?: string | null;
 }
 
 /** The status a reader sees: an open question past its expiry is expired. */

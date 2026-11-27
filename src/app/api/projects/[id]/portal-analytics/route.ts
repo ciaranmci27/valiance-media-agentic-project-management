@@ -9,6 +9,7 @@ import type {
   PortalEventType,
   PortalSessionSummary,
 } from '@/lib/types';
+import { plainDbError } from '@/lib/api/plain-error';
 
 export const dynamic = 'force-dynamic';
 
@@ -161,7 +162,7 @@ export async function GET(
       .eq('project_id', projectId)
       .eq('session_id', sessionDrilldown)
       .order('created_at', { ascending: true });
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    if (error) return plainDbError(error);
     return NextResponse.json({ events: data ?? [] });
   }
 

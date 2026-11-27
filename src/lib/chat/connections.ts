@@ -1,4 +1,5 @@
 import { insertAuditRows } from '@/lib/api/audit';
+import { auditDoorFields, type AuditDoor } from '@/lib/api/audit-door';
 import { randomUUID } from 'node:crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { AccessContext } from '@/lib/access-control';
@@ -9,8 +10,8 @@ import { assistantPending, missingAssistantSchema } from '@/lib/api/assistant';
 import { chatAdapter, ChatProviderError, type ChatCredentials } from './providers';
 import { newRelaySecret } from './providers/discord';
 import {
-  chatInboundUrl, chatProviderLabel, CHAT_TOKEN_SHAPES, SLACK_SIGNING_SECRET_SHAPE,
-  type ChatChannelRouteView, type ChatConnectionAgentsInput, type ChatConnectionAgentView, type ChatConnectionKind, type ChatConnectionView,
+  chatConnectionHealth, chatInboundUrl, chatProviderLabel, CHAT_TOKEN_SHAPES, SLACK_SIGNING_SECRET_SHAPE,
+  type ChatChannelRouteView, type ChatConnectionHealth, type ChatConnectionAgentsInput, type ChatConnectionAgentView, type ChatConnectionKind, type ChatConnectionView,
   type ChatListenMode, type ChatProvider, type CreateChatChannelInput, type CreateChatConnection, type UpdateChatChannelInput, type UpdateChatConnection,
 } from './types';
 
@@ -92,6 +93,18 @@ export function presentConnection(row: Row, appUrl: string, extras: {
     ...(extras.candidates ? { candidates: extras.candidates } : {}),
     ...(extras.recentChannels ? { recent_channels: extras.recentChannels } : {}),
   };
+}
+
+/**
+ * A connection as the API answers it: the Owner's view with its health
+ * (chatConnectionHealth, the word the screen shows), and never a secret. The
+ * view holds no credential; relay_secret, made only when connecting or
+ * rotating in the app, is dropped here all the same.
+ */
+export function apiConnectionView(view: ChatConnectionView): Omit<ChatConnectionView, 'relay_secret'> & { health: ChatConnectionHealth } {
+  const { relay_secret: _secret, ...rest } = view;
+  void _secret;
+  return { ...rest, health: chatConnectionHealth(rest) };
 }
 
 /** Each connection's last refused request (20261127000100); none on a database before it. */
@@ -337,6 +350,7 @@ export async function updateChatConnection(
   id: string,
   patch: UpdateChatConnection,
   appUrl: string,
+  door?: AuditDoor,
 ): Promise<ChatConnectionView> {
   requireOwner(access);
   const row = await loadConnection(service, id);
@@ -371,7 +385,7 @@ export async function updateChatConnection(
   }
   await audit(service, memberId, 'PATCH', id, {
     ...fields, ...(rotate ? { new_relay_secret: true } : {}), ...(botToken !== undefined ? { bot_token: 'replaced' } : {}), ...(signingSecret !== undefined ? { signing_secret: 'replaced' } : {}),
-  });
+  }, '', door);
   const view = await presentFull(service, (await loadConnection(service, id))!, appUrl);
   return relaySecret ? { ...view, relay_secret: relaySecret } : view;
 }
@@ -415,7 +429,7 @@ async function replacedCredentials(row: Row, current: ChatCredentials, input: { 
 }
 
 /** Removes a connection and its chat history; Telegram's webhook goes with it. */
-export async function deleteChatConnection(service: SupabaseClient, access: AccessContext, memberId: string, id: string): Promise<{ id: string; deleted: true }> {
+export async function deleteChatConnection(service: SupabaseClient, access: AccessContext, memberId: string, id: string, door?: AuditDoor): Promise<{ id: string; deleted: true }> {
   requireOwner(access);
   const row = await loadConnection(service, id);
   if (!row) throw notFound('Chat connection');
@@ -426,7 +440,7 @@ export async function deleteChatConnection(service: SupabaseClient, access: Acce
   }
   const { error } = await service.from('chat_connections').delete().eq('id', id);
   if (error) fail(error);
-  await audit(service, memberId, 'DELETE', id, { provider: row.provider });
+  await audit(service, memberId, 'DELETE', id, { provider: row.provider }, '', door);
   return { id, deleted: true };
 }
 
@@ -455,6 +469,7 @@ export async function setConnectionAgents(
   id: string,
   input: ChatConnectionAgentsInput,
   appUrl: string,
+  door?: AuditDoor,
 ): Promise<ChatConnectionView> {
   const row = await requireCompany(service, access, id);
   const ids = [...new Set(input.agent_ids)];
@@ -482,7 +497,7 @@ export async function setConnectionAgents(
     p_connection_id: id, p_agent_ids: ids, p_default: input.default_agent_id, p_actor: memberId,
   });
   if (!rpcError) {
-    await audit(service, memberId, 'PUT', id, { agent_ids: ids, default_agent_id: input.default_agent_id }, '/agents');
+    await audit(service, memberId, 'PUT', id, { agent_ids: ids, default_agent_id: input.default_agent_id }, '/agents', door);
     return presentFull(service, row, appUrl);
   }
   if (!(rpcError.code === 'PGRST202' || rpcError.code === '42883')) failCompany(rpcError);
@@ -506,7 +521,7 @@ export async function setConnectionAgents(
     const { error: defaultError } = await table().update({ is_default: true }).eq('connection_id', id).eq('agent_id', input.default_agent_id);
     if (defaultError) failCompany(defaultError);
   }
-  await audit(service, memberId, 'PUT', id, { agent_ids: ids, default_agent_id: input.default_agent_id }, '/agents');
+  await audit(service, memberId, 'PUT', id, { agent_ids: ids, default_agent_id: input.default_agent_id }, '/agents', door);
   return presentFull(service, row, appUrl);
 }
 
@@ -529,6 +544,7 @@ export async function addChatChannel(
   id: string,
   input: CreateChatChannelInput,
   appUrl: string,
+  door?: AuditDoor,
 ): Promise<ChatConnectionView> {
   const row = await requireCompany(service, access, id);
   await requireConnectionAgent(service, id, input.agent_id);
@@ -547,7 +563,7 @@ export async function addChatChannel(
   });
   if (error?.code === '23505') throw new ApiError(409, 'CONFLICT', 'That channel is already mapped. Change its agent or listening instead.', { reason: 'channel_exists' });
   if (error) failCompany(error);
-  await audit(service, memberId, 'POST', id, { channel_id: channel.id, agent_id: input.agent_id, listen }, '/channels');
+  await audit(service, memberId, 'POST', id, { channel_id: channel.id, agent_id: input.agent_id, listen }, '/channels', door);
   return presentFull(service, row, appUrl);
 }
 
@@ -559,6 +575,7 @@ export async function updateChatChannel(
   routeId: string,
   patch: UpdateChatChannelInput,
   appUrl: string,
+  door?: AuditDoor,
 ): Promise<ChatConnectionView> {
   const row = await requireCompany(service, access, id);
   if (!UUID.test(routeId)) throw notFound('Channel');
@@ -566,24 +583,24 @@ export async function updateChatChannel(
   const { data, error } = await service.from('chat_channel_routes').update(patch).eq('id', routeId).eq('connection_id', id).select('id').maybeSingle();
   if (error) failCompany(error);
   if (!data) throw notFound('Channel');
-  await audit(service, memberId, 'PATCH', id, { channel_route_id: routeId, ...patch }, `/channels/${routeId}`);
+  await audit(service, memberId, 'PATCH', id, { channel_route_id: routeId, ...patch }, `/channels/${routeId}`, door);
   return presentFull(service, row, appUrl);
 }
 
-export async function deleteChatChannel(service: SupabaseClient, access: AccessContext, memberId: string, id: string, routeId: string, appUrl: string): Promise<ChatConnectionView> {
+export async function deleteChatChannel(service: SupabaseClient, access: AccessContext, memberId: string, id: string, routeId: string, appUrl: string, door?: AuditDoor): Promise<ChatConnectionView> {
   const row = await requireCompany(service, access, id);
   if (!UUID.test(routeId)) throw notFound('Channel');
   const { data, error } = await service.from('chat_channel_routes').delete().eq('id', routeId).eq('connection_id', id).select('id').maybeSingle();
   if (error) failCompany(error);
   if (!data) throw notFound('Channel');
-  await audit(service, memberId, 'DELETE', id, { channel_route_id: routeId }, `/channels/${routeId}`);
+  await audit(service, memberId, 'DELETE', id, { channel_route_id: routeId }, `/channels/${routeId}`, door);
   return presentFull(service, row, appUrl);
 }
 
-async function audit(service: SupabaseClient, memberId: string, method: string, id: string, body: Row, subpath = '') {
+async function audit(service: SupabaseClient, memberId: string, method: string, id: string, body: Row, subpath = '', door?: AuditDoor) {
   const { error } = await insertAuditRows(service, {
-    method, endpoint: `/api/workspace/chat-connections${method === 'POST' && !subpath ? '' : `/${id}`}${subpath}`, entity_type: 'chat_connection', entity_id: id,
-    team_member_id: memberId, request_body: body, status_code: 200, via: 'app',
+    method, ...auditDoorFields(door, `/api/workspace/chat-connections${method === 'POST' && !subpath ? '' : `/${id}`}${subpath}`), entity_type: 'chat_connection', entity_id: id,
+    team_member_id: memberId, request_body: body, status_code: 200,
   });
   if (error) console.error('[chat] audit write failed', error.code);
 }

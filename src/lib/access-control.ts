@@ -81,6 +81,7 @@ export const PERMISSIONS = [
   'meetings.write',
   'agent_events.export',
   'assistants.provision',
+  'agents.host',
 ] as const;
 
 export type PermissionKey = typeof PERMISSIONS[number];
@@ -130,6 +131,15 @@ export const API_ENDPOINT_PERMISSIONS = [
   'assistants.provision',
   // Every audit row, in order, for a compliance or data system (GET /api/v1/audit/export). Owners only by default.
   'audit.export',
+  // A host key: the server that runs a set of agents' workers reads those agents' events
+  // (GET /api/v1/events?agents=) and holds task and chat leases in their names. Only an Owner's key
+  // carries it, bound to its agents (PUT /api/v1/api-keys/{id}/agents), and with it alone: such a key
+  // never replies, marks anything handled, reads content beyond the feed or acts for anyone.
+  'agents.host',
+  // Workspace switches over the API (/api/v1/workspace/*: Features, Brand, Region, Keeping data, the audit
+  // log's settings, key lifetimes, webhook retries; the pause on every agent). Owners by role: no role holds it
+  // on the api channel by default, an Owner's key can carry it, and each route also refuses anyone but an Owner.
+  'settings.manage',
 ] as const satisfies readonly PermissionKey[];
 
 export const API_ENDPOINT_PERMISSION_SET = new Set<PermissionKey>(API_ENDPOINT_PERMISSIONS);
@@ -436,6 +446,7 @@ export const PERMISSION_GROUPS: Array<{
       { key: 'agent_activity.write', label: 'Log agent activity', description: 'Let an AI agent record what it did.' },
       { key: 'assistants.provision', label: 'Provision personal agents', description: 'For the key of the service that runs people\'s personal assistants: list them and collect each one\'s key once, so nobody handles those keys by hand.' },
       { key: 'agent_events.export', label: 'Export agent events', description: 'Let a key copy every agent event and run, in order, into a reporting or data system. Read only.' },
+      { key: 'agents.host', label: 'Host agents\' workers', description: 'For the key of the server that runs some agents\' workers: hear those agents\' events and hand work to their workers. It never answers, reads messages or acts for anyone. Owners only.' },
       { key: 'fleet_alerts.write', label: 'Post fleet alerts', description: 'For the key of the server that runs your agents, often an agent\'s own key: post alerts about the whole server, such as an agent that stopped. With this alone a key posts nothing else.' },
       { key: 'meetings.write', label: 'Post meetings', description: 'Let a person\'s meeting script post each meeting\'s transcript or notes into an inbox they can read. Never for agents.' },
     ],
@@ -462,7 +473,7 @@ export function permissionLabels(keys: readonly string[]): string {
 export const KEY_ONLY_PERMISSIONS: ReadonlySet<PermissionKey> = new Set<PermissionKey>([
   'notifications.manage_own', 'reminders.manage_own', 'suggestions.create', 'agent_activity.write', 'fleet_alerts.write',
   'meetings.write', 'agent_events.export', 'audit.export', 'approvals.decide', 'questions.ask', 'chat.notify',
-  'context.memory', 'agents.act_for', 'assistants.provision', 'identities.link', 'identities.read', 'inbound_email.signal',
+  'context.memory', 'agents.act_for', 'assistants.provision', 'agents.host', 'identities.link', 'identities.read', 'inbound_email.signal',
   'notifications.send',
 ]);
 

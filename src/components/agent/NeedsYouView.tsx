@@ -1,27 +1,28 @@
 'use client';
 
 import { useMemo, useState, type ReactNode } from 'react';
-import Link from 'next/link';
-import { Check, CheckCircle2, ChevronDown, Eye, GitMerge, Lightbulb, MessageSquareWarning, X } from 'lucide-react';
+import { Check, CheckCircle2, Eye, GitMerge, Lightbulb, Mail, MessageSquareWarning, X, Zap } from 'lucide-react';
 import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
 import { useDemo } from '@/lib/demo-context';
 import { useRead } from '@/lib/query-cache';
-import { agentsListRead, decidedQuestionsRead, useTaskWarmer } from '@/lib/reads';
+import { decidedQuestionsRead, useTaskWarmer } from '@/lib/reads';
 import { useNeedsYou } from '@/lib/use-needs-you';
 import { useNeedsYouActions } from '@/lib/needs-you-actions';
-import { useRemembered } from '@/lib/use-remembered';
 import { suggestionsInReach } from '@/lib/suggestion-reach';
 import { answerLine, decisionLine } from '@/lib/questions';
 import { getReviewProfile } from '@/lib/autonomy';
-import type { AgentNeedsYou, AgentReviewItem } from '@/lib/agents-tab';
-import {
-  defaultNeedsYouGrouping, groupNeedsYou, windowOf, type NeedsYouEntry, type NeedsYouGrouping, showMoreLabel,
-} from '@/lib/agents-ui';
+import type { AgentNeedsYou } from '@/lib/agents-tab';
+import { windowOf, showMoreLabel } from '@/lib/agents-ui';
+import { companyHubItems, waitedWords, type BlockedCommentItem, type HubItem } from '@/lib/ai-home';
+import type { AssistantDraft } from '@/lib/assistant';
 import { timeAgo } from '@/lib/task-times';
-import type { Task, TaskSuggestion } from '@/lib/types';
-import type { QuestionView } from '@/lib/questions';
+import { formatFull } from '@/lib/time-format';
 import { Button } from '@/components/ui/Button';
+import { Card } from '@/components/ui/Card';
+import { EmptyState } from '@/components/ui/EmptyState';
+import { ShowMore } from '@/components/ui/ShowMore';
+import { SubNav } from '@/components/ui/Tabs';
 import { QuestionCard } from '@/components/questions/QuestionCard';
 import { ReviewQueue } from '@/components/agent/ReviewQueue';
 import { ApproveModal } from '@/components/agent/ApproveModal';
@@ -32,75 +33,112 @@ import { toast } from '@/components/ui/Toast';
 import { AgentAvatar } from '@/components/agent/AgentAvatar';
 
 /**
- * Everything agents are waiting on the signed-in person for, as one calm
- * inbox of decisions: questions and approvals, agents blocked on a task,
- * work ready to merge or review, and suggested tasks. Each reads as a
- * decision with its actions on the row (a suggestion: Approve and Decline,
- * on desktop and phone). Items from agents the person owns lead. At scale it
- * groups by agent and each group shows a few, with the rest a click away, so
- * the counts always add up to the tab's badge. The counts come from
- * useNeedsYou, the one hook My Tasks and the sidebar read too. Decided keeps what was
- * decided lately: who decided each, how, and when.
+ * Needs you: the one place where everything an agent waits on a person for
+ * lands and is answered (the AI home's hub; owner 2026-11-27, "a comment
+ * section on a task is never the place to unblock things"). Questions and
+ * approvals answer in one tap (a choice, Approve, Reject; the rest behind
+ * More), stuck work opens its task, finished work opens its review, a
+ * suggestion is Approve or Decline, a reply draft opens in the Inbox. Each
+ * row names the agent, how long it has waited and what it unblocks. Stuck
+ * work an agent only reported as a "[BLOCKED]" comment lands here too until
+ * agents report blocks themselves.
+ *
+ * The rows are exactly the items the AI home counts (companyHubItems or
+ * myHubItems in lib/ai-home), so the list, its badge and the sidebar agree.
+ * `compact` is one agent's slice on its page: no card, no Decided.
  */
 export function useAgentNeedsYou(): AgentNeedsYou {
   return useNeedsYou().agents;
 }
 
-type Item = NeedsYouEntry & (
-  | { kind: 'approval' | 'question'; question: QuestionView }
-  | { kind: 'blocked'; task: Task; text: string; questionId?: string }
-  | { kind: 'merge' | 'review'; review: AgentReviewItem }
-  | { kind: 'suggestion'; suggestion: TaskSuggestion }
+type Row = HubItem & (
+  | { kind: 'approval' | 'question'; payload: { question: AgentNeedsYou['questions'][number] } }
+  | { kind: 'blocked'; payload: { blocked: AgentNeedsYou['blocked'][number] } }
+  | { kind: 'blocked_comment'; payload: { comment: BlockedCommentItem } }
+  | { kind: 'merge' | 'review'; payload: { review: AgentNeedsYou['inReview'][number] } }
+  | { kind: 'suggestion'; payload: { suggestion: AgentNeedsYou['pendingSuggestions'][number] } }
+  | { kind: 'draft'; payload: { draft: AssistantDraft } }
 );
 
-/** How many of a group show before "Show more". */
-const GROUP_PAGE = 5;
-
-function entriesOf(needs: AgentNeedsYou): Item[] {
-  return [
-    ...needs.questions.map((q): Item => ({ id: q.id, kind: q.kind === 'approval' ? 'approval' : 'question', agentId: q.asked_by, at: q.created_at, question: q })),
-    ...needs.blocked.map(({ task, question, agentId, questionId }): Item => ({
-      id: task.id, kind: 'blocked', agentId, at: task.updated_at, task, text: question, questionId,
-    })),
-    ...needs.inReview.map((review): Item => ({
-      id: review.task.id, kind: review.reviewerVerdict !== undefined ? 'merge' : 'review', agentId: review.agentId || null, at: review.task.updated_at, review,
-    })),
-    ...needs.pendingSuggestions.map((s): Item => ({ id: s.id, kind: 'suggestion', agentId: s.proposed_by, at: s.created_at, suggestion: s })),
-  ];
+/** The rows behind the items, in the items' order; an item whose source is gone is left out. */
+function rowsOf(items: HubItem[], needs: AgentNeedsYou, comments: BlockedCommentItem[], drafts: AssistantDraft[]): Row[] {
+  const rest = (key: string) => key.slice(2);
+  return items.flatMap((item): Row[] => {
+    const id = rest(item.key);
+    switch (item.kind) {
+      case 'question':
+      case 'approval': {
+        const question = needs.questions.find((q) => q.id === id);
+        return question ? [{ ...item, kind: item.kind, payload: { question } }] : [];
+      }
+      case 'blocked': {
+        const blocked = needs.blocked.find((b) => b.task.id === id);
+        return blocked ? [{ ...item, kind: 'blocked', payload: { blocked } }] : [];
+      }
+      case 'blocked_comment': {
+        const comment = comments.find((c) => c.task.id === id);
+        return comment ? [{ ...item, kind: 'blocked_comment', payload: { comment } }] : [];
+      }
+      case 'merge':
+      case 'review': {
+        const review = needs.inReview.find((r) => r.task.id === id);
+        return review ? [{ ...item, kind: item.kind, payload: { review } }] : [];
+      }
+      case 'suggestion': {
+        const suggestion = needs.pendingSuggestions.find((s) => s.id === id);
+        return suggestion ? [{ ...item, kind: 'suggestion', payload: { suggestion } }] : [];
+      }
+      case 'draft': {
+        const draft = drafts.find((d) => d.id === id);
+        return draft ? [{ ...item, kind: 'draft', payload: { draft } }] : [];
+      }
+    }
+  });
 }
 
-const isGrouping = (value: unknown): value is NeedsYouGrouping | null => value === null || value === 'kind' || value === 'agent';
+/** How many rows show at first, and how many each "Show more" adds. */
+const FIRST = 5;
+const STEP = 10;
 
-export function NeedsYouView({ needs, onOpenTask, compact = false }: {
+export function NeedsYouView({ needs, onOpenTask, compact = false, items: givenItems, comments = [], drafts = [], scope = 'company', onSeeAgents }: {
   needs: AgentNeedsYou;
   onOpenTask: (taskId: string) => void;
-  /** Inside an agent's profile: no grouping switch, no full suggestion queue, a short empty line. */
+  /** One agent's slice on its page: rows only, a short empty line. */
   compact?: boolean;
+  /** The items to show (lib/ai-home); left out, everything in `needs`. */
+  items?: HubItem[];
+  /** Stuck work agents reported only as a "[BLOCKED]" comment. */
+  comments?: BlockedCommentItem[];
+  /** Reply drafts the person's assistant wrote. */
+  drafts?: AssistantDraft[];
+  /** company: a manager's view of every agent (with Decided and the full suggestion queue); mine: one person's own asks. */
+  scope?: 'company' | 'mine';
+  /** The empty state's way on, when there is one. */
+  onSeeAgents?: () => void;
 }) {
   const { tasks, taskSuggestions, projects, team, timeEntries, updateSuggestion } = useApp();
   const actions = useNeedsYouActions();
-  const { teamMemberId } = useAuth();
-  const { isDemoMode } = useDemo();
-  const agents = useRead(agentsListRead(isDemoMode));
   const warmTask = useTaskWarmer();
   const [approveModalId, setApproveModalId] = useState<string | null>(null);
   const [editModalId, setEditModalId] = useState<string | null>(null);
   const [declineModalId, setDeclineModalId] = useState<string | null>(null);
   const [reviewingTaskId, setReviewingTaskId] = useState<string | null>(null);
-  const [grouping, setGrouping] = useRemembered<NeedsYouGrouping | null>('pm:needs-you-grouping', null, isGrouping);
-  const [open, setOpen] = useState<Record<string, number>>({});
+  const [shown, setShown] = useState(FIRST);
   const [queueOpen, setQueueOpen] = useState(false);
   const [view, setView] = useState<'open' | 'decided'>('open');
+  /** Rows whose details are open (More). */
+  const [opened, setOpened] = useState<ReadonlySet<string>>(() => new Set());
+  const toggleOpened = (key: string) => setOpened((now) => {
+    const next = new Set(now);
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
+    return next;
+  });
 
   const projectById = useMemo(() => new Map(projects.map((p) => [p.id, p])), [projects]);
   const memberById = useMemo(() => new Map(team.map((m) => [m.id, m])), [team]);
-  const owned = useMemo(() => new Set((agents.data ?? []).filter((a) => a.owners.some((o) => o.id === teamMemberId)).map((a) => a.id)), [agents.data, teamMemberId]);
-  const items = useMemo(() => entriesOf(needs), [needs]);
-  const by = compact ? 'kind' : grouping ?? defaultNeedsYouGrouping(items);
-  const groups = useMemo(
-    () => groupNeedsYou(items, by, { ownedAgentIds: owned, agentNames: new Map(team.map((m) => [m.id, m.name])) }),
-    [items, by, owned, team],
-  );
+  const items = useMemo(() => givenItems ?? companyHubItems(needs, comments), [givenItems, needs, comments]);
+  const rows = useMemo(() => rowsOf(items, needs, comments, drafts), [items, needs, comments, drafts]);
 
   const approveTarget = approveModalId ? taskSuggestions.find((s) => s.id === approveModalId) : undefined;
   const editTarget = editModalId ? taskSuggestions.find((s) => s.id === editModalId) : undefined;
@@ -114,199 +152,163 @@ export function NeedsYouView({ needs, onOpenTask, compact = false }: {
       )
     : null;
 
-  const who = (agentId: string | null) => (agentId ? memberById.get(agentId) : undefined);
+  const avatarOf = (agentId: string | null, fallback: ReactNode) => {
+    const agent = agentId ? memberById.get(agentId) : undefined;
+    return agent ? <AgentAvatar id={agent.id} name={agent.name} src={agent.avatar || null} size="sm" /> : <span className="mt-1.5 flex w-8 flex-shrink-0 justify-center">{fallback}</span>;
+  };
 
-  /** One decision row: who asks, what, where, and the actions that answer it (under the text on phones). */
-  const decisionRow = (item: Item, opts: { icon: ReactNode; title: string; context: string; projectId?: string | null; action: ReactNode; onOpen?: () => void; warm?: object }) => {
-    const agent = who(item.agentId);
+  /**
+   * One row: the ask (up to two lines), then who asked, how long it has
+   * waited, and what it unblocks (its task, opened on click) in its project;
+   * the actions under the text at every width, as on a question row (one
+   * list, one place): primary first, More last. `details` opens under the
+   * text with More, which sits in the action group, never on a line of its own.
+   */
+  const decisionRow = (row: Row, opts: {
+    icon: ReactNode; title: string; context: string; taskId?: string | null; taskTitle?: string | null; unblocks?: boolean;
+    projectId?: string | null; action: ReactNode; details?: string | null;
+  }) => {
+    const agent = row.agentId ? memberById.get(row.agentId) : undefined;
     const project = opts.projectId ? projectById.get(opts.projectId) : undefined;
+    const open = opened.has(row.key);
+    const detailsId = `needs-you-details-${row.key}`;
+    const actions = (
+      <>
+        {opts.action}
+        {opts.details && (
+          <Button size="sm" variant="ghost" aria-expanded={open} aria-controls={detailsId} onClick={() => toggleOpened(row.key)}>{open ? 'Less' : 'More'}</Button>
+        )}
+      </>
+    );
     return (
-      <div className="flex items-start gap-3.5 px-4 py-4 sm:px-5">
-        {agent ? <AgentAvatar id={agent.id} name={agent.name} src={agent.avatar || null} size="sm" /> : <span className="mt-0.5">{opts.icon}</span>}
+      <div className="flex items-start gap-3 px-4 py-3 lg:px-5">
+        {avatarOf(row.agentId, opts.icon)}
         <div className="min-w-0 flex-1">
-          <p className="flex flex-wrap items-center gap-x-2 text-xs text-zinc-500">
-            <span className="font-medium text-zinc-300">{agent?.name ?? 'An agent'}</span>
-            <span aria-hidden="true">·</span>
-            <span>{opts.context}</span>
-            <time dateTime={item.at} className="tabular-nums">· {timeAgo(item.at)}</time>
+          <p className={`break-words text-sm font-medium text-white ${open ? 'whitespace-pre-wrap' : 'line-clamp-2'}`} title={open ? undefined : opts.title}>{opts.title}</p>
+          <p className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-1.5 text-xs text-zinc-500">
+            <span className="flex-shrink-0 font-medium text-zinc-300">{agent?.name ?? 'An agent'}</span>
+            <span className="text-zinc-600" aria-hidden="true">·</span>
+            <span className="flex-shrink-0">{opts.context}</span>
+            {row.at && <><span className="text-zinc-600" aria-hidden="true">·</span><time dateTime={row.at} title={formatFull(row.at)} className="flex-shrink-0 tabular-nums">{waitedWords(row.at)}</time></>}
+            {opts.taskId && opts.taskTitle && (
+              <>
+                <span className="text-zinc-600" aria-hidden="true">·</span>
+                {opts.unblocks && <span className="flex-shrink-0">Unblocks</span>}
+                <button type="button" onClick={() => onOpenTask(opts.taskId!)} {...warmTask(opts.taskId)}
+                  className="max-w-full truncate rounded text-left text-zinc-400 underline decoration-white/20 underline-offset-2 transition-colors hover:text-brand-300 hover:decoration-brand-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500">
+                  {opts.taskTitle}
+                </button>
+              </>
+            )}
+            {project && <><span className="text-zinc-600" aria-hidden="true">·</span><span className="truncate">{project.name}</span></>}
           </p>
-          {opts.onOpen ? (
-            <button type="button" onClick={opts.onOpen} {...opts.warm} className="mt-1 block max-w-full text-left text-[15px] font-medium leading-snug text-white hover:text-brand-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 rounded">
-              {opts.title}
-            </button>
-          ) : (
-            <p className="mt-1 text-[15px] font-medium leading-snug text-white">{opts.title}</p>
-          )}
-          {project && (
-            <p className="mt-1 flex items-center gap-1.5 text-xs text-zinc-500">
-              {project.color && <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: project.color }} aria-hidden="true" />}
-              {project.name}
-            </p>
-          )}
-          <div className="mt-3 flex flex-wrap items-center gap-2 sm:hidden">{opts.action}</div>
+          {opts.details && open && <p id={detailsId} className="mt-1 whitespace-pre-wrap break-words text-sm text-zinc-300">{opts.details}</p>}
+          <div className="mt-2 flex flex-wrap items-center gap-2">{actions}</div>
         </div>
-        <div className="hidden flex-shrink-0 items-center gap-2 self-center sm:flex">{opts.action}</div>
       </div>
     );
   };
 
-  const renderItem = (item: Item) => {
-    switch (item.kind) {
+  const renderRow = (row: Row) => {
+    switch (row.kind) {
       case 'approval':
-      case 'question':
-        // The question card is the decision itself: choices, approve and reject, answer in place.
-        return <QuestionCard question={item.question} variant="band" place onOpenTask={onOpenTask} />;
-      case 'blocked':
+      case 'question': {
+        const question = row.payload.question;
+        const agent = memberById.get(question.asked_by);
+        return (
+          <QuestionCard question={question} variant="hub" place onOpenTask={onOpenTask}
+            lead={agent ? <AgentAvatar id={agent.id} name={agent.name} src={agent.avatar || null} size="sm" /> : undefined} />
+        );
+      }
+      case 'blocked': {
         // The task panel shows the open question it raised (to answer there); an older block has none, so it just opens the task.
-        return decisionRow(item, {
+        const { task, question, questionId } = row.payload.blocked;
+        const [first, ...more] = (question || 'Waiting on a person').split('\n');
+        return decisionRow(row, {
           icon: <MessageSquareWarning size={16} className="text-red-300" aria-hidden="true" />,
-          title: item.text || 'Waiting on a person',
-          context: `Blocked on ${item.task.title}`,
-          projectId: item.task.project_id,
-          action: <Button size="sm" onClick={() => onOpenTask(item.task.id)} {...warmTask(item.task.id)}>{item.questionId ? 'See question' : 'Open task'}</Button>,
-        });
-      case 'merge': {
-        const verdict = item.review.reviewerVerdict;
-        const context = verdict?.verdict === 'approved' ? 'Reviewed, ready to merge'
-          : verdict?.verdict === 'changes_requested' ? `Changes requested, round ${verdict.round}` : 'Built, ready to merge';
-        return decisionRow(item, {
-          icon: <GitMerge size={16} className="text-emerald-300" aria-hidden="true" />,
-          title: item.review.task.title,
-          context,
-          projectId: item.review.task.project_id,
-          onOpen: () => setReviewingTaskId(item.review.task.id),
-          action: <Button size="sm" onClick={() => setReviewingTaskId(item.review.task.id)}>Review changes</Button>,
+          title: first,
+          details: more.join('\n').trim() || null,
+          context: 'Stuck',
+          taskId: task.id, taskTitle: task.title, unblocks: true,
+          projectId: task.project_id,
+          // Answer is the one primary step; Open task is the same quiet button as on a comment row.
+          action: <Button size="sm" variant={questionId ? 'primary' : 'secondary'} onClick={() => onOpenTask(task.id)} {...warmTask(task.id)}>{questionId ? 'Answer' : 'Open task'}</Button>,
         });
       }
-      case 'review':
-        return decisionRow(item, {
-          icon: <Eye size={16} className="text-brand-300" aria-hidden="true" />,
-          title: item.review.task.title,
-          context: 'Finished, waiting on review',
-          projectId: item.review.task.project_id,
-          onOpen: () => onOpenTask(item.review.task.id),
-          warm: warmTask(item.review.task.id),
-          action: <Button size="sm" variant="secondary" onClick={() => onOpenTask(item.review.task.id)} {...warmTask(item.review.task.id)}>Review</Button>,
+      case 'blocked_comment': {
+        // Read-only until agents send a blocked state: the task holds the conversation.
+        const { task, comment, text } = row.payload.comment;
+        const rest = comment.text.split('\n').slice(1).join('\n').trim();
+        return decisionRow(row, {
+          icon: <MessageSquareWarning size={16} className="text-red-300" aria-hidden="true" />,
+          title: text || 'Stuck, said in a comment',
+          details: rest || null,
+          context: 'Stuck, said in a comment',
+          taskId: task.id, taskTitle: task.title, unblocks: true,
+          projectId: task.project_id,
+          action: <Button size="sm" variant="secondary" onClick={() => onOpenTask(task.id)} {...warmTask(task.id)}>Open task</Button>,
         });
-      case 'suggestion':
-        return decisionRow(item, {
+      }
+      case 'merge': {
+        const { task, reviewerVerdict: verdict } = row.payload.review;
+        const context = verdict?.verdict === 'approved' ? 'Reviewed, ready to merge'
+          : verdict?.verdict === 'changes_requested' ? `Changes requested, round ${verdict.round}` : 'Built, ready to merge';
+        return decisionRow(row, {
+          icon: <GitMerge size={16} className="text-emerald-300" aria-hidden="true" />,
+          title: task.title,
+          context,
+          projectId: task.project_id,
+          action: <Button size="sm" onClick={() => setReviewingTaskId(task.id)}>Review changes</Button>,
+        });
+      }
+      case 'review': {
+        const { task } = row.payload.review;
+        return decisionRow(row, {
+          icon: <Eye size={16} className="text-brand-300" aria-hidden="true" />,
+          title: task.title,
+          context: 'Finished, waiting on review',
+          projectId: task.project_id,
+          action: <Button size="sm" variant="secondary" onClick={() => onOpenTask(task.id)} {...warmTask(task.id)}>Review</Button>,
+        });
+      }
+      case 'suggestion': {
+        const suggestion = row.payload.suggestion;
+        return decisionRow(row, {
           icon: <Lightbulb size={16} className="text-amber-300" aria-hidden="true" />,
-          title: item.suggestion.title,
+          title: suggestion.title,
           // An info request the agent answered is back with you to decide.
-          context: item.suggestion.status === 'needs_info' ? 'Answered your question about a task it suggests' : 'Suggests a task',
-          projectId: item.suggestion.project_id,
-          onOpen: () => setEditModalId(item.suggestion.id),
+          context: suggestion.status === 'needs_info' ? 'Answered your question about a task it suggests' : 'Suggests a task',
+          details: suggestion.description?.trim() || null,
+          projectId: suggestion.project_id,
           action: (
             <>
-              <Button size="sm" variant="ghost" onClick={() => setEditModalId(item.suggestion.id)} className="hidden sm:inline-flex">Edit</Button>
-              <Button size="sm" variant="secondary" onClick={() => setDeclineModalId(item.suggestion.id)}>Decline</Button>
-              <Button size="sm" onClick={() => setApproveModalId(item.suggestion.id)}>Approve</Button>
+              <Button size="sm" onClick={() => setApproveModalId(suggestion.id)}>Approve</Button>
+              <Button size="sm" variant="secondary" onClick={() => setDeclineModalId(suggestion.id)}>Decline</Button>
+              <Button size="sm" variant="ghost" onClick={() => setEditModalId(suggestion.id)}>Edit</Button>
             </>
           ),
         });
+      }
+      case 'draft': {
+        const draft = row.payload.draft;
+        return decisionRow(row, {
+          icon: <Mail size={16} className="text-sky-300" aria-hidden="true" />,
+          title: draft.subject ? `Reply draft: ${draft.subject}` : 'Reply draft ready',
+          context: 'Wrote a reply for you',
+          action: <Button size="sm" variant="secondary" href={`/inbox?thread=${encodeURIComponent(draft.thread_id)}`}>Open</Button>,
+        });
+      }
     }
   };
 
-  const viewSwitch = !compact && (
-    <div className="seg-track seg-sm" role="group" aria-label="Show">
-      <button type="button" className={`seg-item ${view === 'open' ? 'is-active' : ''}`} aria-pressed={view === 'open'} onClick={() => setView('open')}>
-        Waiting on you{items.length > 0 ? ` (${items.length})` : ''}
-      </button>
-      <button type="button" className={`seg-item ${view === 'decided' ? 'is-active' : ''}`} aria-pressed={view === 'decided'} onClick={() => setView('decided')}>
-        Decided
-      </button>
-    </div>
+  const list = (
+    <ul className="divide-y divide-white/[0.06]">
+      {rows.slice(0, compact ? rows.length : shown).map((row) => <li key={row.key}>{renderRow(row)}</li>)}
+    </ul>
   );
 
-  if (!compact && view === 'decided') {
-    return (
-      <div className="mx-auto max-w-4xl">
-        <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-          <p className="text-sm text-zinc-400">Decided in the last 30 days, newest first.</p>
-          {viewSwitch}
-        </div>
-        <DecidedList onOpenTask={onOpenTask} />
-      </div>
-    );
-  }
-
-  return (
-    <div className={compact ? '' : 'mx-auto max-w-4xl'}>
-      {!compact && items.length === 0 && <div className="mb-2 flex justify-end">{viewSwitch}</div>}
-      {items.length === 0 && compact ? (
-        <p className="flex items-center gap-2 text-sm text-zinc-400"><CheckCircle2 size={15} className="text-emerald-300" aria-hidden="true" />Nothing from this agent needs you.</p>
-      ) : items.length === 0 ? (
-        <div className="flex flex-col items-center px-6 py-20 text-center">
-          <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-500/[0.12] text-emerald-300" aria-hidden="true"><CheckCircle2 size={26} /></span>
-          <h2 className="mt-5 text-lg font-semibold tracking-tight text-white">Nothing needs you</h2>
-          <p className="mt-2 max-w-sm text-sm leading-relaxed text-zinc-400">
-            When an agent asks a question, wants an approval, gets stuck or finishes work for you to check, it lands here.
-          </p>
-          <Link href="/agent?tab=agents" className="mt-5 text-sm font-medium text-brand-300 hover:text-brand-200">See what your agents are doing</Link>
-        </div>
-      ) : (
-        <>
-          {!compact && <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-            {/* The count is the tab's badge and the page subtitle; this line only says how it is ordered. */}
-            {viewSwitch}
-            <div className="flex flex-wrap items-center gap-3">
-              <p className="text-sm text-zinc-400">
-                {owned.size > 0 && items.some((i) => i.agentId && owned.has(i.agentId)) ? 'Your agents first, then newest.' : 'Newest first.'}
-              </p>
-              <div className="seg-track seg-sm" role="group" aria-label="Group by">
-                {(['kind', 'agent'] as const).map((g) => (
-                  <button key={g} type="button" className={`seg-item ${by === g ? 'is-active' : ''}`} aria-pressed={by === g} onClick={() => setGrouping(g)}>
-                    {g === 'kind' ? 'By kind' : 'By agent'}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>}
-
-          <div className="space-y-6">
-            {groups.map((group) => {
-              const { shown, hidden } = windowOf(group.items, open[group.key] ?? 1, GROUP_PAGE);
-              const agent = by === 'agent' ? memberById.get(group.key) : undefined;
-              return (
-                <section key={group.key} aria-labelledby={`needs-${group.key}`}>
-                  <h3 id={`needs-${group.key}`} className="mb-2 flex items-center gap-2 px-1 text-sm font-semibold text-zinc-200">
-                    {agent && <AgentAvatar id={agent.id} name={agent.name} src={agent.avatar || null} size="xs" />}
-                    {group.label}
-                    <span className="text-xs font-normal tabular-nums text-zinc-500">{group.items.length}</span>
-                  </h3>
-                  <ul className="divide-y divide-white/[0.06] overflow-hidden rounded-2xl bg-white/[0.025] ring-1 ring-inset ring-white/[0.06]">
-                    {shown.map((item) => <li key={`${item.kind}:${item.id}`}>{renderItem(item)}</li>)}
-                  </ul>
-                  {hidden > 0 && (
-                    <Button variant="ghost" size="sm" className="mt-2" onClick={() => setOpen({ ...open, [group.key]: (open[group.key] ?? 1) + 1 })}>
-                      {showMoreLabel(hidden, GROUP_PAGE)}
-                    </Button>
-                  )}
-                </section>
-              );
-            })}
-          </div>
-        </>
-      )}
-
-      {/* The full suggestion queue: history, bundles and bulk actions, out of the way. */}
-      {!compact && <section className="mt-10 border-t border-white/[0.06] pt-5">
-        <button
-          type="button"
-          onClick={() => setQueueOpen(!queueOpen)}
-          aria-expanded={queueOpen}
-          className="flex w-full items-center justify-between gap-3 rounded-lg px-1 py-1 text-left text-sm text-zinc-400 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
-        >
-          <span>All suggestions: history, bundles and bulk actions</span>
-          <ChevronDown size={16} className={`transition-transform duration-200 ${queueOpen ? 'rotate-180' : ''}`} aria-hidden="true" />
-        </button>
-        {queueOpen && (
-          <div className="animate-slideDown mt-4">
-            <ReviewQueue onApprove={(id) => setApproveModalId(id)} onEdit={(id) => setEditModalId(id)} onDecline={(id) => setDeclineModalId(id)} />
-          </div>
-        )}
-      </section>}
-
+  const modals = (
+    <>
       {approveTarget && (
         <ApproveModal
           suggestion={approveTarget}
@@ -319,7 +321,6 @@ export function NeedsYouView({ needs, onOpenTask, compact = false }: {
           }}
         />
       )}
-
       {editTarget && (
         <EditSuggestionModal
           suggestion={editTarget}
@@ -332,9 +333,7 @@ export function NeedsYouView({ needs, onOpenTask, compact = false }: {
           }}
         />
       )}
-
       <DeclineSuggestionModal suggestion={declineTarget} onClose={() => setDeclineModalId(null)} />
-
       <MergeReviewModal
         task={reviewingTask}
         profile={reviewingProfile}
@@ -343,7 +342,71 @@ export function NeedsYouView({ needs, onOpenTask, compact = false }: {
         onClose={() => setReviewingTaskId(null)}
         onOpenTask={(task) => onOpenTask(task.id)}
       />
-    </div>
+    </>
+  );
+
+  if (compact) {
+    return (
+      <div>
+        {rows.length === 0 ? (
+          <p className="flex items-center gap-2 text-sm text-zinc-400"><CheckCircle2 size={15} className="text-emerald-300" aria-hidden="true" />Nothing from this agent needs you.</p>
+        ) : (
+          <div className="overflow-hidden rounded-xl bg-white/[0.025] ring-1 ring-inset ring-white/[0.06]">{list}</div>
+        )}
+        {modals}
+      </div>
+    );
+  }
+
+  const company = scope === 'company';
+  const headerAction = (
+    <>
+      {company && needs.suggestions > 0 && view === 'open' && (
+        <Button size="sm" variant="ghost" aria-expanded={queueOpen} onClick={() => setQueueOpen(!queueOpen)}>
+          {queueOpen ? 'Hide suggestions' : 'All suggestions'}
+        </Button>
+      )}
+      {company && (
+        <SubNav label="Show" active={view} onChange={setView}
+          items={[{ key: 'open', label: 'Waiting', count: rows.length }, { key: 'decided', label: 'Decided' }]} />
+      )}
+    </>
+  );
+
+  return (
+    <Card
+      title="Needs you"
+      icon={<Zap />}
+      id={`needs-you-${scope}`}
+      afterTitle={view === 'open' && rows.length > 0 ? <span className="text-xs font-normal tabular-nums text-zinc-500">{rows.length}</span> : undefined}
+      action={headerAction}
+      bodyClassName="pb-1"
+    >
+      {view === 'decided' ? (
+        <div className="px-4 pb-4 lg:px-5"><DecidedList onOpenTask={onOpenTask} /></div>
+      ) : rows.length === 0 ? (
+        <EmptyState
+          compact
+          icon={<CheckCircle2 />}
+          title="Nothing needs you"
+          description={company
+            ? 'When an agent asks a question, wants an approval, gets stuck or finishes work for you to check, it lands here.'
+            : 'When an agent asks you something or gets stuck on your work, it lands here.'}
+          action={onSeeAgents ? <Button size="sm" variant="secondary" onClick={onSeeAgents}>See your agents</Button> : undefined}
+        />
+      ) : (
+        <>
+          {list}
+          <ShowMore shown={Math.min(shown, rows.length)} total={rows.length} step={STEP} onMore={() => setShown(shown + STEP)} noun="things waiting" className="border-t border-white/[0.06]" />
+        </>
+      )}
+      {company && queueOpen && view === 'open' && (
+        <div className="animate-slideDown border-t border-white/[0.06] px-4 py-4 lg:px-5">
+          <ReviewQueue onApprove={(id) => setApproveModalId(id)} onEdit={(id) => setEditModalId(id)} onDecline={(id) => setDeclineModalId(id)} />
+        </div>
+      )}
+      {modals}
+    </Card>
   );
 }
 

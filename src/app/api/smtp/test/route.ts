@@ -4,6 +4,7 @@ import { requireAdmin } from '@/lib/api/require-admin';
 import { decrypt } from '@/lib/email/crypto';
 import { buildSmtpTestEmail } from '@/lib/email/templates/team/smtp-test';
 import { getBrand } from '@/lib/brand/server';
+import { smtpFailureMessage, smtpTargetProblem } from '@/lib/email/smtp-target';
 
 export const dynamic = 'force-dynamic';
 
@@ -39,6 +40,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Failed to decrypt password' }, { status: 500 });
   }
 
+  const targetProblem = await smtpTargetProblem(account.host, account.port);
+  if (targetProblem) return NextResponse.json({ error: targetProblem }, { status: 400 });
+
   try {
     const transport = nodemailer.createTransport({
       host: account.host,
@@ -69,7 +73,6 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ success: true });
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Unknown error sending email';
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: smtpFailureMessage(err) }, { status: 500 });
   }
 }

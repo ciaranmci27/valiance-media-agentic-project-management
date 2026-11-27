@@ -120,6 +120,7 @@ After a release with a `### Database` section in `CHANGELOG.md`, apply its migra
 | `npm run check:core` | No core file changed; custom migrations stay in schema `pm_custom` (files dated before 2.0: `custom`). In the source monorepo it says there is nothing to check. |
 | `npm run check:design` | Screens follow `DESIGN.md` Rules: no banned markup in core or `src/custom` |
 | `npm run test:core` | Core's test suite on an in-memory database: permissions, modules, plug-in points, upgrade, migrations, the agent guard. No network or database needed. |
+| `npm run test:e2e` | Real flows over HTTP on the local Docker stack (chat, agents, approvals, claims, runs, keys, files, guests); needs `npm run local:up` and `local:seed` first. See `scripts/e2e/README.md`. |
 
 ## Release rules (source monorepo only)
 

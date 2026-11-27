@@ -1,6 +1,8 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { agentPageHref } from '@/lib/ai-home';
 import { DollarSign, Edit, Link2, Loader2, Mail, SlidersHorizontal, UserCheck, UserX } from 'lucide-react';
 import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
@@ -31,7 +33,8 @@ type InviteDialog =
  * the Team page rows and the member profile so both follow one set of rules:
  *  - Edit: yourself, or anyone with team.manage (only an Owner changes roles,
  *    so only an Owner grants Owner or Admin; the form and the API both hold it).
- *  - Permissions: the Owner, for anyone but an Owner.
+ *  - Permissions: the Owner, for anyone but an Owner. For an agent, Access
+ *    opens its page's Access tab instead (agents.manage).
  *  - Compensation: compensation.manage, for anyone but an Owner.
  *  - Suspend and Reactivate: team.manage, never yourself, and an Owner only
  *    by an Owner. Reversible, so it acts at once; the API keeps one active Owner.
@@ -56,6 +59,8 @@ export function useMemberActions() {
   const canManageCompensation = hasPermission(access, 'compensation.manage');
   // Roles & permissions: Owners, and anyone an Owner gave Manage access (never for their own row).
   const canManageAccess = isOwner || hasPermission(access, 'access.manage');
+  const canManageAgents = hasPermission(access, 'agents.manage');
+  const router = useRouter();
   const pendingRead = useRead(canManageTeam && !isDemoMode ? pendingInvitesRead : null);
   const pending = new Set(pendingRead.data ?? []);
 
@@ -90,7 +95,10 @@ export function useMemberActions() {
     if (canEdit(member)) {
       actions.push({ label: 'Edit', icon: <Edit size={14} />, onClick: () => setEditing(member) });
     }
-    if (canManageAccess && member.role !== 'owner' && (isOwner || member.id !== teamMemberId)) {
+    if (member.role === 'agent') {
+      // Team does not manage what an agent may do: its page's Access tab does (who can use it, its powers and keys).
+      if (canManageAgents) actions.push({ label: 'Access', icon: <SlidersHorizontal size={14} />, onClick: () => router.push(agentPageHref(member.id, 'access')) });
+    } else if (canManageAccess && member.role !== 'owner' && (isOwner || member.id !== teamMemberId)) {
       actions.push({ label: 'Permissions', icon: <SlidersHorizontal size={14} />, onClick: () => openAccess(member.id) });
     }
     if (canManageCompensation && member.role !== 'owner') {

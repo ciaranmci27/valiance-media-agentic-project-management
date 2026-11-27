@@ -9,7 +9,8 @@ import { Button } from '@/components/ui/Button';
 import { PasswordInput } from '@/components/ui/inputs/PasswordInput';
 import { toast } from '@/components/ui/Toast';
 import { useDemo } from '@/lib/demo-context';
-import { workspaceApi } from '@/lib/agent-workspace';
+import { WorkspaceApiError, workspaceApi } from '@/lib/agent-workspace';
+import { useAuth } from '@/lib/auth-context';
 import { continueWithGoogle } from '@/lib/google-sign-in';
 import { setReadData, useRead } from '@/lib/query-cache';
 import { mySignInRead } from '@/lib/reads';
@@ -31,9 +32,13 @@ export function SignInSection() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [editing, setEditing] = useState(false);
+  const [current, setCurrent] = useState('');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
-  const [errors, setErrors] = useState<{ password?: string; confirm?: string }>({});
+  const [errors, setErrors] = useState<{ current?: string; password?: string; confirm?: string }>({});
+  // A Google-only account sets its first password only soon after signing in (account-security.ts).
+  const [signInAgain, setSignInAgain] = useState<string | null>(null);
+  const { signOut } = useAuth();
   const [busy, setBusy] = useState<'password' | 'link' | 'unlink' | null>(null);
 
   // Back from Google: say how it went once, then drop it from the address.
@@ -49,21 +54,28 @@ export function SignInSection() {
 
   const savePassword = async () => {
     const next: typeof errors = {};
-    if (password.length < MIN_PASSWORD) next.password = `Use at least ${MIN_PASSWORD} characters.`;
+    const hadPassword = view?.has_password;
+    if (hadPassword && !current) next.current = 'Enter your current password.';
+    else if (password.length < MIN_PASSWORD) next.password = `Use at least ${MIN_PASSWORD} characters.`;
     else if (password.length > MAX_PASSWORD) next.password = `Use at most ${MAX_PASSWORD} characters.`;
     else if (confirm !== password) next.confirm = 'The two passwords do not match.';
     setErrors(next);
+    setSignInAgain(null);
     if (Object.keys(next).length) return;
     setBusy('password');
     try {
-      const hadPassword = view?.has_password;
-      apply(await workspaceApi<AccountSignInView>('/api/workspace/me/sign-in/password', { method: 'PUT', body: { password } }));
+      apply(await workspaceApi<AccountSignInView>('/api/workspace/me/sign-in/password', { method: 'PUT', body: hadPassword ? { password, current_password: current } : { password } }));
+      setCurrent('');
       setPassword('');
       setConfirm('');
       setEditing(false);
-      toast('success', hadPassword ? 'Password changed' : 'Password set');
+      toast('success', hadPassword ? 'Password changed. Other devices were signed out.' : 'Password set');
     } catch (error) {
-      setErrors({ password: error instanceof Error ? error.message : 'Could not save the password. Try again.' });
+      const reason = error instanceof WorkspaceApiError ? (error.details as { reason?: string } | undefined)?.reason : undefined;
+      const message = error instanceof Error ? error.message : 'Could not save the password. Try again.';
+      if (reason === 'fresh_sign_in_required') setSignInAgain(message);
+      else if (reason === 'wrong_password' || reason === 'current_password_required') setErrors({ current: message });
+      else setErrors({ password: message });
     } finally {
       setBusy(null);
     }
@@ -93,6 +105,8 @@ export function SignInSection() {
 
   const cancel = () => {
     setEditing(false);
+    setSignInAgain(null);
+    setCurrent('');
     setPassword('');
     setConfirm('');
     setErrors({});
@@ -140,6 +154,21 @@ export function SignInSection() {
                 noValidate
                 onSubmit={(event) => { event.preventDefault(); void savePassword(); }}
               >
+                {view.has_password && (
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <PasswordInput
+                      label="Current password"
+                      value={current}
+                      onChange={setCurrent}
+                      placeholder="Your password now"
+                      autoComplete="current-password"
+                      autoFocus
+                      showIcon={false}
+                      error={errors.current}
+                      disabled={busy === 'password'}
+                    />
+                  </div>
+                )}
                 <div className="grid gap-4 md:grid-cols-2">
                   <PasswordInput
                     label="New password"
@@ -147,7 +176,7 @@ export function SignInSection() {
                     onChange={setPassword}
                     placeholder={`At least ${MIN_PASSWORD} characters`}
                     autoComplete="new-password"
-                    autoFocus
+                    autoFocus={!view.has_password}
                     showIcon={false}
                     error={errors.password}
                     disabled={busy === 'password'}
@@ -163,6 +192,12 @@ export function SignInSection() {
                     disabled={busy === 'password'}
                   />
                 </div>
+                {signInAgain && (
+                  <div role="alert" className="flex flex-col gap-2 rounded-lg bg-amber-500/[0.14] px-3 py-2.5 text-sm text-amber-300 sm:flex-row sm:items-center sm:justify-between">
+                    <span>{signInAgain}</span>
+                    <Button type="button" variant="secondary" size="sm" onClick={() => void signOut()} className="self-start sm:self-auto">Sign in again</Button>
+                  </div>
+                )}
                 <div className="flex justify-end gap-2">
                   <Button type="button" variant="ghost" onClick={cancel} disabled={busy === 'password'}>Cancel</Button>
                   <Button type="submit" disabled={busy === 'password'}>

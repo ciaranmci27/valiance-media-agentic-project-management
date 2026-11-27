@@ -6,7 +6,7 @@ Personal assistants use the other bot, the personal one: [Assistants](assistants
 
 ## Connect
 
-Settings > Assistants > **Chat** > **Add chat** > **Company AI (channels and DMs)**. Owners only. Bot tokens are stored encrypted.
+AI > Setup > **Chat** > **Add chat** > **Company AI (channels and DMs)**. Owners only. Bot tokens are stored encrypted.
 
 **Slack**
 

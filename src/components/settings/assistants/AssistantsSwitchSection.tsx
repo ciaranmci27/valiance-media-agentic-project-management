@@ -52,8 +52,10 @@ export function AssistantsSwitchSection({ agentsOn }: { agentsOn: boolean }) {
       <SettingsSectionHeader
         icon={Sparkles}
         headingId="assistants-heading"
-        title="Assistants"
-        description="The people you choose below each get their own assistant: it sorts their inbox, keeps their tasks and reminders moving, and answers them in chat. Each person sets theirs up on their own page."
+        title={settings && !settings.enabled ? 'Assistants are off' : 'Assistants'}
+        description={settings && !settings.enabled
+          ? 'Turn on to give everyone a personal assistant. It sorts their inbox, keeps their tasks and reminders moving, and answers them in chat.'
+          : 'The people you choose below each get their own assistant: it sorts their inbox, keeps their tasks and reminders moving, and answers them in chat. Each person sets theirs up in AI > Your assistant.'}
       />
       {!agentsOn ? (
         <p className="rounded-lg bg-white/[0.03] px-4 py-3 text-sm text-zinc-300">
@@ -70,10 +72,10 @@ export function AssistantsSwitchSection({ agentsOn }: { agentsOn: boolean }) {
             onChange={(enabled) => void save({ enabled }, enabled ? 'Assistants are on' : 'Assistants are off')}
             label="Turn on assistants"
             description={settings.enabled
-              ? 'People with an assistant see it in their sidebar. Off: every assistant stops and waits, and nobody new gets one.'
-              : 'Off: every assistant is on hold and does nothing. People still see theirs, with their controls, and chat messages get a short "assistants are off" answer.'}
+              ? 'People with an assistant find it in AI. Off: every assistant stops and waits, nobody new gets one, and nobody but Owners sees anything about assistants.'
+              : 'While off, nobody sees anything about assistants and chat messages to them get a short "assistants are off" answer.'}
           />
-          <form
+          {settings.enabled && <form
             className="max-w-md"
             onSubmit={(event) => {
               event.preventDefault();
@@ -94,7 +96,7 @@ export function AssistantsSwitchSection({ agentsOn }: { agentsOn: boolean }) {
                 <Button type="button" size="sm" variant="ghost" onClick={() => setLabel(settings.custom_label ?? '')}>Cancel</Button>
               </div>
             )}
-          </form>
+          </form>}
         </div>
       )}
     </section>

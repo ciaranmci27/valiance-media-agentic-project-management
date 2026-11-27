@@ -3,6 +3,8 @@ import nodemailer from 'nodemailer';
 import { requireAdmin } from '@/lib/api/require-admin';
 import { encrypt, decrypt, isSmtpEncryptionConfigured } from '@/lib/email/crypto';
 import type { SmtpAccount, SmtpAccountSafe } from '@/lib/email/types';
+import { plainDbError } from '@/lib/api/plain-error';
+import { smtpFailureMessage, smtpTargetProblem } from '@/lib/email/smtp-target';
 
 export const dynamic = 'force-dynamic';
 
@@ -64,6 +66,8 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
 
   // Re-verify SMTP if connection details changed
   if (connectionChanged) {
+    const targetProblem = await smtpTargetProblem(host ?? existing.host, port ?? existing.port);
+    if (targetProblem) return NextResponse.json({ error: targetProblem }, { status: 400 });
     try {
       const transport = nodemailer.createTransport({
         host: host ?? existing.host,
@@ -75,8 +79,7 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
       });
       await transport.verify();
     } catch (err) {
-      const reason = err instanceof Error ? err.message : 'Unknown error';
-      return NextResponse.json({ error: `SMTP connection failed: ${reason}` }, { status: 400 });
+      return NextResponse.json({ error: smtpFailureMessage(err) }, { status: 400 });
     }
   }
 
@@ -107,7 +110,7 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
     .select()
     .single();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return plainDbError(error);
 
   return NextResponse.json({ account: toSafe(updated as SmtpAccount) });
 }
@@ -136,7 +139,7 @@ export async function DELETE(_request: Request, { params }: { params: Promise<{ 
     .delete()
     .eq('id', id);
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return plainDbError(error);
 
   // If the deleted account was the default, assign a new default
   if (account?.is_default) {

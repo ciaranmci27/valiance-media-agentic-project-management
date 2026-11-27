@@ -17,6 +17,7 @@
  * Email is refused: an email thread settles suggestions one at a time and
  * has no meeting row to record a dismissal on.
  */
+import { z } from 'zod';
 import { comms } from '../db';
 import { assertId, InboxError, loadTriageableThread, many, markThreadHandled, one, type InboxContext } from '../inbox-service';
 import { acceptPlanItem } from '../inbox-plans';
@@ -24,6 +25,16 @@ import type { MeetingAddAllResult, MeetingDismissResult, MeetingDismissUndo, Mee
 import { inboxAgentName, syncWaitingNotification, type PlanMessage } from '../plans';
 
 type Row = Record<string, unknown>;
+
+/** The receipt "Nothing to do" answered, sent back to undo it (the app and the API). */
+export const meetingDismissUndoSchema = z.object({
+  skipped: z.array(z.string()).max(500),
+  handled: z.array(z.object({
+    id: z.string(),
+    status: z.enum(['new', 'needs_human', 'handled']),
+    unreviewed: z.boolean(),
+  })).max(500),
+});
 
 async function meetingThread(ctx: InboxContext, threadId: string) {
   const thread = await loadTriageableThread(ctx, threadId);

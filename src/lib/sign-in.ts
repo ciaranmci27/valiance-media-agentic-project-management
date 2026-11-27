@@ -198,6 +198,18 @@ export function resetPageOutcome(view: Pick<AccountSignInView, 'refusals'> | nul
   return view.refusals.set_password ? 'managed_elsewhere' : 'form';
 }
 
+/** What the reset page says when the link's short window passed before the person saved. */
+export const RESET_TIMED_OUT = 'This link has timed out. Ask for a new one.';
+
+/**
+ * A new password saved from the reset page is refused when the link no
+ * longer counts as proof. The person forgot their password, so the page never
+ * asks for it: it says the link timed out and offers a new one.
+ */
+export function resetSaveRefusal(reason: string | null | undefined): 'timed_out' | null {
+  return reason === 'current_password_required' || reason === 'fresh_sign_in_required' ? 'timed_out' : null;
+}
+
 // ── Google round trips ──────────────────────────────────────────────────
 
 /** What a Google round trip is for, said to the server before leaving for Google (POST /api/auth/google). */

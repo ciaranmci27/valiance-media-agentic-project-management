@@ -447,6 +447,16 @@ async function main() {
       && botMention.record.is_direct === false && botMention.record.text === 'any incidents today?', botMention.record);
     const named = await toCompany('U_ANA', '@Finance Bot what is our cash position?', 'C_GEN', 'channel');
     check('company: an agent named in a channel gets it', named.record?.agent_id === s.finance && named.record.route === 'mention' && named.record.is_request === true, named.record);
+    // A conversation claim (20261127002000): follow-ups in a held thread go to the agent holding it.
+    const v1ConvClaim = await import('../src/app/api/v1/chat/conversations/[id]/claim/route');
+    const heldConv = named.record?.chat_conversation_id as string;
+    const convLease = await v1(v1ConvClaim.POST, 'POST', `/api/v1/chat/conversations/${heldConv}/claim`, { id: heldConv }, s.keys.finance, { instance_id: 'fin-1' });
+    const followInThread = await toCompany('U_ANA', '<@UBOTC01> and next quarter?', 'C_GEN', 'channel', { thread_ts: named.body.event.ts });
+    check('claims: a follow-up in a held conversation goes to the agent holding it, not the default', convLease.status === 200
+      && followInThread.record?.agent_id === s.finance && followInThread.record.chat_conversation_id === heldConv, { lease: convLease.body, record: followInThread.record });
+    const namedInThread = await toCompany('U_ANA', '@Ops AI can you check too?', 'C_GEN', 'channel', { thread_ts: named.body.event.ts });
+    check('claims: naming another agent still reaches it', namedInThread.record?.agent_id === s.ops && namedInThread.record.route === 'mention', namedInThread.record);
+    await s.q('UPDATE pm.chat_conversations SET holder_agent_id = NULL, holder_instance = NULL, claim_expires_at = NULL WHERE id = $1', [heldConv]);
     const chatter = await toCompany('U_ANA', 'lunch at noon?', 'C_GEN', 'channel');
     check('company: chatter in an unmapped channel is not recorded', chatter.answer.body?.status === 'ignored' && chatter.record === null, chatter.answer.body);
 

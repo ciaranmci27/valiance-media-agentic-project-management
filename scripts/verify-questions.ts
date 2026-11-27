@@ -327,6 +327,14 @@ async function main() {
     const trashed = await get(onMoving.body.data?.id, s.keys.builder);
     const trashedList = await list(s.keys.owner, `?task_id=${moving}`);
     check('a task in Trash takes its questions out of reach', trashed.status === 404 && trashedList.body.data.length === 0, { get: trashed.status, list: ids(trashedList) });
+    const onLaunch = await ask(s.keys.morgan, { project_id: s.apex, question: 'Is the launch still on?' });
+    await s.q('UPDATE pm.projects SET deleted_at = now() WHERE id = $1', [s.apex]);
+    const launchTrashed = await list(s.keys.owner, `?status=open&project_id=${s.apex}`);
+    await s.q('UPDATE pm.projects SET deleted_at = NULL WHERE id = $1', [s.apex]);
+    const launchBack = await list(s.keys.owner, `?status=open&project_id=${s.apex}`);
+    check('a project in Trash takes its questions out of the open list, and restoring it brings them back',
+      onLaunch.status === 201 && !ids(launchTrashed).includes(onLaunch.body.data?.id) && ids(launchBack).includes(onLaunch.body.data?.id),
+      { asked: onLaunch.status, trashed: ids(launchTrashed), back: ids(launchBack) });
     const hardDelete = await s.q('DELETE FROM pm.questions WHERE id = $1', [q1]).then(() => 'deleted', (error: Error) => error.message);
     check('questions are never permanently deleted', /never permanently deleted/.test(hardDelete), hardDelete);
 

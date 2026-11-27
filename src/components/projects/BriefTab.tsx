@@ -37,6 +37,7 @@ import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { RowActionsMenu, type RowAction } from '@/components/ui/RowActionsMenu';
 import { Bone, Skeleton } from '@/components/projects/TabLayout';
 import { toast } from '@/components/ui/Toast';
+import { UndoLine } from '@/components/ui/UndoLine';
 
 /**
  * A project's brief: what every agent and person should know about it, in
@@ -660,6 +661,9 @@ export function ContextBrief({ scope, emptyText, label }: {
   const search = useRead(debounced.length >= 2 && !isDemoMode ? scopedBriefSearchRead(scope, debounced) : null);
   const [deleting, setDeleting] = useState<BriefEntry | null>(null);
   const [addingMemory, setAddingMemory] = useState(false);
+  // An agent's own notes: what it wrote itself can be cleared at once, with Undo (security review finding 10).
+  const [cleared, setCleared] = useState<string[] | null>(null);
+  const [clearBusy, setClearBusy] = useState<'clear' | 'undo' | null>(null);
   const words = SCOPE_ENTRY_WORDS[scope.scope_type];
   const memory = scope.scope_type === 'member';
   const name = label ?? SCOPE_WORDS[scope.scope_type].label.toLowerCase();
@@ -715,6 +719,34 @@ export function ContextBrief({ scope, emptyText, label }: {
   const shownSections = canEdit && !memory ? sections : sections.filter((s) => s.entries.length > 0);
   const rowProps: RowProps = { canEdit, actions, reach, onDelete: setDeleting, sections: sections.map((s) => ({ key: s.key, label: s.label })), words };
   const pinnedLine = memory ? (reach.pinned ? `${reach.pinned} pinned` : null) : pinnedReachLine(reach.pinned)?.replace('agents', words.reader ?? 'agents') ?? null;
+  const agentNotes = scope.scope_type === 'agent' && canEdit && !demoReady;
+  const agentWritten = agentNotes ? all.filter((e) => e.source === 'agent').length : 0;
+  const query = scope.scope_id ? `?scope_id=${encodeURIComponent(scope.scope_id)}` : '';
+  const clearAgentWritten = async () => {
+    setClearBusy('clear');
+    try {
+      const result = await workspaceApi<{ cleared: string[] }>(`/api/workspace/context/agent/clear${query}`, { method: 'POST' });
+      setCleared(result.cleared);
+      brief.reload();
+    } catch (error) {
+      toast('error', error instanceof Error ? error.message : 'Could not clear them. Try again.');
+    } finally {
+      setClearBusy(null);
+    }
+  };
+  const undoClear = async () => {
+    if (!cleared?.length) return;
+    setClearBusy('undo');
+    try {
+      await workspaceApi(`/api/workspace/context/agent/restore${query}`, { method: 'POST', body: { entry_ids: cleared } });
+      setCleared(null);
+      brief.reload();
+    } catch (error) {
+      toast('error', error instanceof Error ? error.message : 'Could not bring them back. Try again.');
+    } finally {
+      setClearBusy(null);
+    }
+  };
 
   return (
     <div className="min-w-0">
@@ -737,8 +769,19 @@ export function ContextBrief({ scope, emptyText, label }: {
           {memory && canEdit && !addingMemory && (
             <Button variant="secondary" size="sm" icon={<Plus size={13} aria-hidden="true" />} onClick={() => setAddingMemory(true)}>Add something to remember</Button>
           )}
+          {agentWritten > 0 && (
+            <Button variant="ghost" size="sm" icon={<Archive size={13} aria-hidden="true" />} onClick={() => void clearAgentWritten()} disabled={clearBusy !== null}>
+              {clearBusy === 'clear' ? 'Clearing' : 'Clear what it wrote'}
+            </Button>
+          )}
         </div>
       </div>
+      {cleared && cleared.length > 0 && (
+        <UndoLine className="mt-2" onUndo={() => void undoClear()} busy={clearBusy === 'undo'}>
+          Cleared {cleared.length} {cleared.length === 1 ? 'note' : 'notes'} it wrote.
+        </UndoLine>
+      )}
+      {cleared && cleared.length === 0 && <p className="mt-2 text-xs text-zinc-500">Nothing it wrote is left to clear.</p>}
       {!canEdit && <p className="mt-2 text-xs text-zinc-500">Read only for you. {WHO_EDITS[scope.scope_type]}</p>}
       {demoReady && canEdit && <p className="mt-1 text-xs text-zinc-500">Demo: changes here show at once and last until you reload.</p>}
       {memory && addingMemory && (

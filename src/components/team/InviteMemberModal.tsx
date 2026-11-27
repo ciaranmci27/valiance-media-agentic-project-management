@@ -148,7 +148,7 @@ export default function InviteMemberModal({
           {/* Agents are hired, not invited: their own guided setup (template, projects, powers, a key). */}
           {canAssignOwner && (
             <p className="text-xs text-zinc-400">
-              Adding an AI agent? <Link href="/agent/new" className="font-medium text-brand-300 hover:text-brand-200" onClick={handleClose}>Hire one</Link> instead.
+              Adding an AI agent? <Link href="/ai/agents/new" className="font-medium text-brand-300 hover:text-brand-200" onClick={handleClose}>Hire one</Link> instead.
             </p>
           )}
 

@@ -1,6 +1,8 @@
 import { runFeedQuery, type RunFeedFilters } from '@/lib/agents-tab';
 import { runDisplayStatus, type AgentRunNote, type AgentRunPlanStep, type AgentRunStatus, type AgentRunSummary } from '@/lib/agent-runs';
 import type { QuestionView } from '@/lib/questions';
+import { actionSentence } from '@/lib/question-actions-text';
+import type { AgentTreeNode } from '@/lib/api/agent-hierarchy';
 
 /**
  * The demo's Agents home: a few open questions and an approval, decided ones
@@ -96,6 +98,21 @@ export function demoOpenQuestions(): QuestionView[] {
       question: 'Should the pricing page show annual prices first, or monthly?',
       choices: ['Annual first', 'Monthly first'],
       created_at: hoursAgo(26),
+    }),
+    // An answer that does something: the app's own sentence shows on the choice that acts.
+    question({
+      id: 'qqqqqqqq-0004-4000-8000-000000000004',
+      asked_by: DEMO_QUILL,
+      asked_by_name: 'Quill',
+      project_id: NEOFORGE,
+      question: 'My work on NeoForge is billed by the hour, but time tracking is off there. Turn it on so I can start?',
+      choices: ['Turn it on', 'Not now'],
+      proposed_actions: [{
+        type: 'project.update', summary: null, details: { project_id: NEOFORGE, time_tracking_enabled: true }, on_choice: 'Turn it on', asked_may_perform: true, you_may_perform: true,
+        sentence: actionSentence({ type: 'project.update', details: { time_tracking_enabled: true }, on_choice: 'Turn it on' }, { approval: false, projectName: 'NeoForge Website' }),
+      }],
+      performed: null,
+      created_at: hoursAgo(1),
     }),
   ];
 }
@@ -205,6 +222,15 @@ function demoRunRows(): DemoRun[] {
         { title: 'Email the download link', status: 'pending' },
       ],
     }),
+    // Atlas runs several at once (a pool): its org chart node reads "3 working now".
+    run({
+      id: RUN(9), agent_id: DEMO_ATLAS, status: 'running', project_id: CREST, trigger: 'chat',
+      title: 'Sort this week\'s client requests', started_at: minutesAgo(12), updated_at: minutesAgo(1), tokens_in: 8_200, tokens_out: 1_100,
+    }),
+    run({
+      id: RUN(10), agent_id: DEMO_ATLAS, status: 'running', project_id: NEOFORGE, trigger: 'scheduled',
+      title: 'Plan the pricing page fix', started_at: minutesAgo(6), updated_at: minutesAgo(2), tokens_in: 5_400, tokens_out: 700,
+    }),
     run({
       id: RUN(3), agent_id: DEMO_ATLAS, status: 'failed', project_id: NEOFORGE, title: 'Build the pricing page',
       ...finished(190, 14), tokens_in: 33_000, tokens_out: 4_800, cost_usd: 0.22,
@@ -283,4 +309,30 @@ export function demoRunFamily(id: string) {
     ? members.map((r) => ({ ...brief(r), parent_run_id: r.parent_run_id ?? null, task_id: r.task_id, task_title: null, depth: r.id === rootId ? 0 : 1 }))
     : [];
   return { parent: parent ? brief(parent) : null, children: children.map(brief), chain };
+}
+
+const DEMO_QUILL = 'a1a1a1a1-0008-4000-8000-000000000008';
+const DEMO_LEDGER = 'a1a1a1a1-0009-4000-8000-000000000009';
+
+/**
+ * The demo's org chart (AI > Company AI): Atlas orchestrates Scout and Quill;
+ * Ledger works on its own, for Owners only, and is paused. Intake bot is
+ * suspended, so it waits in the chart's collapsed Suspended row. Personal
+ * assistants are never on it.
+ */
+export function demoAgentTree(): { agents: AgentTreeNode[]; max_levels: number } {
+  const node = (id: string, name: string, title: string, fields: Partial<AgentTreeNode>): AgentTreeNode => ({
+    id, name, title, avatar_url: null, status: 'active', orchestrator_id: null, depth: 0, reachable_directly: true, ask_first: false,
+    audience_summary: { limited: false, words: 'Everyone' }, report_ids: [], ...fields,
+  });
+  return {
+    agents: [
+      node(DEMO_ATLAS, 'Atlas', 'Plans work and hands it to the team', { report_ids: [DEMO_SCOUT, DEMO_QUILL], audience_summary: { limited: true, words: 'Everyone' } }),
+      node(DEMO_SCOUT, 'Scout', 'Designs and checks client work', { orchestrator_id: DEMO_ATLAS, depth: 1, reachable_directly: false, audience_summary: { limited: false, words: 'Everyone who can use Atlas' } }),
+      node(DEMO_QUILL, 'Quill', 'Writes copy and client updates', { orchestrator_id: DEMO_ATLAS, depth: 1, audience_summary: { limited: true, words: 'Sarah Chen, Marcus Johnson only' } }),
+      node(DEMO_LEDGER, 'Ledger', 'Keeps the books and drafts invoices', { audience_summary: { limited: true, words: 'Owners only' }, ask_first: true }),
+      node('a1a1a1a1-0010-4000-8000-000000000010', 'Intake bot', 'Sorted the old contact form', { status: 'suspended' }),
+    ],
+    max_levels: 4,
+  };
 }

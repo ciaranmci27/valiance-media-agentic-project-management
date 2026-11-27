@@ -175,7 +175,14 @@ Save the cursor only after the events are handled. A crash then replays them, wh
 - **After a database restore from a dump**, start again without a cursor (transaction ids restart in the new database). Point-in-time recovery keeps the ids, so cursors stay good.
 - **At least once.** An answer lost in transit comes again from the same cursor, with the same event ids. Deduplicate on `id`. Replying to a chat message is safe to retry with an `Idempotency-Key`; marking one handled twice changes nothing.
 - **Order** is by cursor: transaction id, then sequence. It is stable and has no gaps, but it is not exactly commit order: two changes to one subject made at almost the same moment can arrive swapped. Act on the state you read, not on the order events came in (`previous_status` on `run.updated` helps). Each event's own `cursor` resumes just after it.
-- **One key, two instances.** Each instance keeps its own cursor and gets every event. The feed does not split work between them: use claims (`claim_task`) for that, or run one instance per key.
+- **One key, two instances.** Each instance keeps its own cursor and gets every event. The feed does not split work between them: use claims for that (`claim_task`, `claim_chat_message`, `claim_chat_conversation`, each with your `instance_id`), or run one instance per key.
+
+### Pools of workers and host keys
+
+Many workers can run behind one agent (a pool: "100 people, 100 specialists"). Each names itself with `instance_id` (letters, digits, `.`, `_`, `-`, `:`, at most 100) on `start_run`, `heartbeat`, `usage.recorded` and fleet reports. The agent's detail answers `live_instances` (`count`, `working`): a worker is live while it has a running run or a fresh beat. That is the "3 working now" on its presence line.
+
+- **Chat leases.** `POST /api/v1/chat/messages/{id}/claim` (then `/extend`, `/release`) leases one message to a worker; `POST /api/v1/chat/conversations/{id}/claim` leases the whole conversation (every message carries `chat_conversation_id`), and follow-ups in it go to the agent holding it. While a lease lasts, nobody else replies or marks handled (`409 claimed_by_other`), another worker of the same agent included: send your `instance_id` on reply and handled. A lapsed lease is free. `GET /api/v1/chat/conversations/{id}` reads the conversation and the running summary its holders keep (`summary` on claim, extend or release).
+- **A host key** (scope `agents.host`, alone, on an Owner's key, bound to agents with `PUT /api/v1/api-keys/{id}/agents`) is for the server that runs those workers. It reads those agents' events (`GET /api/v1/events?agents=<ids>`, the same wait cap and 2 waits per key) and claims, extends and releases their tasks, chat messages and conversations, with `agent_id`: the lease is held in the agent's name and handed to a worker by `instance_id`. Each lease is checked as the agent itself (its reach, its rules, its pause). It never replies, marks anything handled, reads content beyond the feed or acts for anyone (`403 host_key_only`). Workers then answer with the agent's own key.
 
 ### Errors and limits
 

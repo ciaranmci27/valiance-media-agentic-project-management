@@ -8,12 +8,13 @@ import { createClient } from '@/lib/supabase/client';
 import { Logo } from '@/components/ui/Logo';
 import { PasswordInput } from '@/components/ui/inputs/PasswordInput';
 import { MAX_PASSWORD, MIN_PASSWORD } from '@/lib/setup/first-owner';
-import { RESET_MANAGED_ELSEWHERE, resetPageOutcome, SIGN_IN_ERRORS, type AccountSignInView } from '@/lib/sign-in';
+import { RESET_MANAGED_ELSEWHERE, RESET_TIMED_OUT, resetPageOutcome, resetSaveRefusal, SIGN_IN_ERRORS, type AccountSignInView } from '@/lib/sign-in';
 
 type View =
   | { kind: 'checking' }
   | { kind: 'form' }
   | { kind: 'expired' }
+  | { kind: 'timed_out' }
   | { kind: 'managed_elsewhere' }
   | { kind: 'no_access' };
 
@@ -25,7 +26,9 @@ const BUTTON = 'flex w-full items-center justify-center gap-2 rounded-lg bg-bran
  * the team with a login PM made chooses a new password here. A login another
  * app made is told to use Google or that app's reset, and signed out again:
  * the link proved the inbox is theirs, so saying so reveals nothing, and PM
- * never sets that login's password. An expired or used link says so.
+ * never sets that login's password. An expired or used link says so, and so
+ * does one whose window passed before the person saved (never "enter your
+ * current password": they forgot it).
  */
 export default function ResetPasswordPage() {
   const router = useRouter();
@@ -81,6 +84,11 @@ export default function ResetPasswordPage() {
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) {
         setSaving(false);
+        if (resetSaveRefusal(payload.error?.details?.reason) === 'timed_out') {
+          await createClient().auth.signOut({ scope: 'local' }).catch(() => undefined);
+          setView({ kind: 'timed_out' });
+          return;
+        }
         setErrors({ password: payload.error?.message || 'Could not save the password. Try again.' });
         return;
       }
@@ -95,10 +103,12 @@ export default function ResetPasswordPage() {
 
   const heading = view.kind === 'form' ? 'Choose a new password'
     : view.kind === 'expired' ? 'This link has expired'
+      : view.kind === 'timed_out' ? 'This link has timed out'
       : view.kind === 'managed_elsewhere' ? 'Your password is managed elsewhere'
         : view.kind === 'no_access' ? 'No access here' : '';
   const lead = view.kind === 'form' ? 'You will sign in with your email and this password.'
     : view.kind === 'expired' ? 'Reset links work once and only for a short time. Ask for a new one.'
+      : view.kind === 'timed_out' ? RESET_TIMED_OUT
       : view.kind === 'managed_elsewhere' ? RESET_MANAGED_ELSEWHERE
         : view.kind === 'no_access' ? SIGN_IN_ERRORS.no_access : '';
 
@@ -122,7 +132,7 @@ export default function ResetPasswordPage() {
         )}
       </div>
 
-      {view.kind === 'expired' && <Link href="/login/forgot" className={BUTTON}>Send a new link</Link>}
+      {(view.kind === 'expired' || view.kind === 'timed_out') && <Link href="/login/forgot" className={BUTTON}>Send a new link</Link>}
       {(view.kind === 'managed_elsewhere' || view.kind === 'no_access') && <Link href="/login" className={BUTTON}>Go to sign in</Link>}
 
       {view.kind === 'form' && (

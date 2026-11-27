@@ -444,6 +444,8 @@ async function main() {
     check('key: its hire is recorded as made by the setup key for the Owner', keyAudit?.api_key_id === setupRow.id && keyAudit.principal_id === s.owner && keyAudit.via === 'mcp', keyAudit);
     const restHire = await rest(v1Hire.POST as never, 'POST', '/api/v1/agents/hire', setupKey, {}, { name: 'Rex', create_key: true, scopes: ['tasks.read'] });
     check('key: hire works over REST too', restHire.status === 201 && restHire.body?.data?.agent?.name === 'Rex', restHire.body);
+    const restKeyRow = (await s.q<Loose>('SELECT created_by_key_id FROM pm.api_keys WHERE id = $1', [restHire.body?.data?.key?.id]))[0];
+    check('key: the key a hire makes over the API records the key that made it, so revoking that key takes it down too', restKeyRow?.created_by_key_id === setupRow.id, restKeyRow);
     const keyView = await session(setupRoute.GET as never, 'GET', '/api/workspace/ai-setup');
     const keySession = keyView.body?.data?.sessions?.find((x: Loose) => x.kind === 'key' && x.active);
     check('key: the page lists what the setup key made', keySession?.agents?.some((a: Loose) => a.name === 'Nova') && keySession.agents.some((a: Loose) => a.name === 'Rex'), keySession);

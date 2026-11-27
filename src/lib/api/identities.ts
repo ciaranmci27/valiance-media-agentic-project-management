@@ -34,6 +34,32 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const IDENTITY_COLUMNS = 'id, member_id, provider, external_id, workspace_id, handle, verified_at, verified_method, created_at';
 const LINK_TOKEN_PREFIX = 'pl_';
 
+/**
+ * A link a stranger started by messaging a bot names nobody, so on its own
+ * it could be forwarded to someone else ("connect your Telegram") and bind
+ * the sender's chat account to whoever clicks it (deep security review of
+ * 2.0.50, finding 5). Such a link comes with a short code shown only in that
+ * chat; the confirm page asks for it, so only the person holding the chat
+ * account can finish. A few wrong codes use the link up.
+ */
+export const LINK_CODE_LENGTH = 4;
+export const LINK_CODE_MAX_MISSES = 5;
+/** No 0/O, 1/I/L: easy to read off a phone. */
+const LINK_CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+
+export function newLinkCode(): string {
+  const bytes = randomBytes(LINK_CODE_LENGTH);
+  return Array.from(bytes, (byte) => LINK_CODE_ALPHABET[byte % LINK_CODE_ALPHABET.length]).join('');
+}
+
+/** What a person typed, as the code is stored: capitals, no spaces or dashes. */
+export function normalizeLinkCode(code: string): string {
+  return code.toUpperCase().replace(/[\s-]+/g, '');
+}
+
+/** Bound to the link's token (never stored), so the stored hash alone cannot be guessed back. */
+const codeHash = (token: string, code: string) => hashApiKey(`${token}:${normalizeLinkCode(code)}`);
+
 function fail(error: { code?: string; message?: string } | null | undefined): never {
   if (missingGroupsSchema(error)) throw groupsMigrationPending();
   throw error;
@@ -86,7 +112,8 @@ export async function createLinkRequest(
   requester: { memberId: string; keyId: string | null },
   input: LinkRequestInput,
   appUrl: string,
-): Promise<{ id: string; url: string; expires_at: string; provider: string; external_id: string; workspace_id: string | null }> {
+  options: { withCode?: boolean } = {},
+): Promise<{ id: string; url: string; expires_at: string; provider: string; external_id: string; workspace_id: string | null; code?: string }> {
   const key = identityKey(input);
   if (input.member_id) {
     const { data, error } = await service.from('team_members').select('id, status').eq('id', input.member_id).maybeSingle();
@@ -96,9 +123,11 @@ export async function createLinkRequest(
     }
   }
   const token = `${LINK_TOKEN_PREFIX}${randomBytes(32).toString('hex')}`;
+  const code = options.withCode ? newLinkCode() : undefined;
   const expiresAt = new Date(Date.now() + LINK_REQUEST_TTL_MINUTES * 60_000).toISOString();
   const { data, error } = await service.from('identity_link_requests').insert({
     token_hash: await hashApiKey(token),
+    ...(code ? { confirm_code_hash: await codeHash(token, code) } : {}),
     ...key,
     handle: input.handle ?? null,
     expected_member_id: input.member_id ?? null,
@@ -107,7 +136,7 @@ export async function createLinkRequest(
     expires_at: expiresAt,
   }).select('id').single();
   if (error) fail(error);
-  return { id: (data as Row).id, url: linkUrl(appUrl, token), expires_at: expiresAt, ...key };
+  return { id: (data as Row).id, url: linkUrl(appUrl, token), expires_at: expiresAt, ...key, ...(code ? { code } : {}) };
 }
 
 async function loadLinkRequest(service: SupabaseClient, token: string): Promise<Row> {
@@ -143,6 +172,7 @@ export async function readLinkRequest(service: SupabaseClient, token: string, me
     expires_at: row.expires_at,
     requested_by_name: requester,
     from_chat: !row.requested_by && !row.requested_by_key_id,
+    needs_code: !!row.confirm_code_hash,
     state: linkState(row, memberId),
     already_yours: !!existing && existing.member_id === memberId && !!existing.verified_at,
   };
@@ -154,13 +184,14 @@ export async function readLinkRequest(service: SupabaseClient, token: string, me
  * unused, when it names someone else or the identity is linked to someone
  * else; refused when used or expired.
  */
-export async function confirmLinkRequest(service: SupabaseClient, token: string, member: { id: string; role: string }): Promise<IdentityView> {
+export async function confirmLinkRequest(service: SupabaseClient, token: string, member: { id: string; role: string }, code?: string | null): Promise<IdentityView> {
   if (member.role === 'agent') throw forbidden('An agent has no chat accounts to link', { reason: 'agent_cannot_link' });
   const row = await loadLinkRequest(service, token);
   const state = linkState(row, member.id);
   if (state === 'used') throw new ApiError(409, 'CONFLICT', 'This link was already used. Ask for a new one.', { reason: 'link_used' });
   if (state === 'expired') throw new ApiError(410, 'GONE', 'This link expired. Ask for a new one.', { reason: 'link_expired' });
   if (state === 'wrong_member') throw forbidden('This link is for someone else. Sign in as the person it was sent to.', { reason: 'wrong_member' });
+  if (row.confirm_code_hash) await checkLinkCode(service, token, row, code);
   const key = { provider: row.provider as string, external_id: row.external_id as string, workspace_id: (row.workspace_id as string | null) ?? null };
   const existing = await findIdentity(service, key);
   if (existing && existing.member_id !== member.id) {
@@ -184,6 +215,24 @@ export async function confirmLinkRequest(service: SupabaseClient, token: string,
   const { data, error } = await write;
   if (error) throw error;
   return presentIdentity(data as Row);
+}
+
+/**
+ * The code a chat-started link needs. A wrong one is counted; at
+ * LINK_CODE_MAX_MISSES the link is used up, so it cannot be guessed.
+ */
+async function checkLinkCode(service: SupabaseClient, token: string, row: Row, code: string | null | undefined): Promise<void> {
+  if (!code || !normalizeLinkCode(code)) {
+    throw new ApiError(422, 'VALIDATION_ERROR', 'Type the code the bot sent you in the chat.', { reason: 'code_required', fields: { code: 'Type the code from the chat' } });
+  }
+  if (await codeHash(token, code) === row.confirm_code_hash) return;
+  const misses = Number(row.code_misses ?? 0) + 1;
+  const usedUp = misses >= LINK_CODE_MAX_MISSES;
+  await service.from('identity_link_requests')
+    .update({ code_misses: misses, ...(usedUp ? { consumed_at: new Date().toISOString() } : {}) })
+    .eq('id', row.id).is('consumed_at', null);
+  if (usedUp) throw new ApiError(409, 'CONFLICT', 'Too many wrong codes, so this link stopped working. Message the bot again for a new one.', { reason: 'link_used' });
+  throw new ApiError(422, 'VALIDATION_ERROR', 'That code does not match. Check the message from the bot.', { reason: 'code_wrong', fields: { code: 'That code does not match' } });
 }
 
 // ── Admin linking ───────────────────────────────────────────────────────

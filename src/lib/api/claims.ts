@@ -6,6 +6,7 @@ import { accessAllows } from './access';
 import { afterResponse } from './after-response';
 import { loadMemberRules } from './agent-rules';
 import { enforceClaimLimit } from './agent-limits';
+import { projectBlockers, workNeedsTimer } from './readiness';
 import { ApiError, badRequest, forbidden, notFound } from './errors';
 
 /**
@@ -285,11 +286,16 @@ export async function nextTask(actor: ClaimActor, projectId: string | null) {
     task_assignees?: { member_id: string }[] | null;
     criteria?: { sort_order: number }[] | null;
   };
+  // What in the app would stop this work, said before it starts (time tracking off and a timer needed).
+  const blockers = await projectBlockers(supabase, [row.project_id as string], workNeedsTimer(access, actor.scopes));
   return {
     ...row,
     assignee_ids: (task_assignees || []).map((a) => a.member_id),
     acceptance_criteria: (criteria || []).slice().sort((a, b) => a.sort_order - b.sort_order),
     claim: claimOf(row),
     pickup: pick.assigned ? 'assigned' : 'unassigned',
+    can_start_work: blockers.length === 0,
+    skip_reason: blockers[0]?.reason ?? null,
+    blockers,
   };
 }

@@ -1,4 +1,5 @@
-import { Bell, CircleArrowUp, Code2, Database, Globe, LayoutGrid, LayoutTemplate, Mail, Receipt, ShieldCheck, Sparkles, User, type LucideIcon } from 'lucide-react';
+import { Bell, CircleArrowUp, Code2, Database, Globe, LayoutGrid, LayoutTemplate, Mail, Receipt, ShieldCheck, User, type LucideIcon } from 'lucide-react';
+import { AI_SECTION_HREFS } from '@/lib/ai-home';
 import { hourApprovalsExist } from '@/lib/finance/finance-views';
 import { useAuth } from '@/lib/auth-context';
 import { useDemo } from '@/lib/demo-context';
@@ -14,7 +15,7 @@ import { webhooksSectionState } from '@/lib/developers-settings';
  */
 
 /** Core groups, then the install's own Settings sections (src/custom), keyed `custom:<key>`. */
-export type SettingsGroupKey = 'workspace' | 'templates' | 'updates' | 'account' | 'notifications' | 'billing' | 'portal' | 'email' | 'assistants' | 'developers' | 'security' | 'data' | `custom:${string}`;
+export type SettingsGroupKey = 'workspace' | 'templates' | 'updates' | 'account' | 'notifications' | 'billing' | 'portal' | 'email' | 'developers' | 'security' | 'data' | `custom:${string}`;
 
 export interface SettingsGroup {
   key: SettingsGroupKey;
@@ -41,7 +42,7 @@ export const EMAIL_PAGES = {
 
 export const SETTINGS_GROUPS: SettingsGroup[] = [
   // Your own account first: everyone has it, so it is also where /settings opens.
-  { key: 'account', href: '/settings/account', label: 'Account', icon: User, sectionIds: ['profile', 'timezone', 'sign-in', 'password', 'connect-ai', 'appearance'] },
+  { key: 'account', href: '/settings/account', label: 'Account', icon: User, sectionIds: ['profile', 'timezone', 'sign-in', 'password', 'appearance'] },
   // New versions of the app and how to install them (Owners only).
   { key: 'updates', href: '/settings/updates', label: 'Updates', icon: CircleArrowUp, sectionIds: ['updates'] },
   // Workspace-wide: the modules, the brand, how people sign in and the region (Owners only).
@@ -70,8 +71,7 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
       'mail-rules': EMAIL_PAGES.rules,
     },
   },
-  // People's personal assistants: the agent service that runs them, on or off, their name, who gets one, chat connections (Owners only).
-  { key: 'assistants', href: '/settings/assistants', label: 'Assistants', icon: Sparkles, sectionIds: ['assistant-service', 'assistants', 'assistant-setups', 'assistant-status', 'chat-connections'] },
+  // Assistants, chat apps and the agent service moved to AI > Setup; Connect AI and chat accounts to AI > Your assistant (AI_SECTION_HREFS).
   { key: 'developers', href: '/settings/developers', label: 'Developers', icon: Code2, sectionIds: ['api-keys', 'key-lifetimes', 'webhooks', 'webhook-retries', 'developer-docs'] },
   // The kill switch for every agent, whether people may connect AI tools, the audit log and how long it is kept (Owners only).
   { key: 'security', href: '/settings/security', label: 'Security', icon: ShieldCheck, sectionIds: ['agents-pause', 'connect-ai-setting', 'audit-log', 'audit-settings', 'data-retention'] },
@@ -84,6 +84,8 @@ export const DEFAULT_SETTINGS_HREF = '/settings/account';
 
 /** The page that holds an old /settings#<id> section, or null for an unknown id. */
 export function settingsHrefForSection(id: string): string | null {
+  // AI's sections moved out of Settings into the AI home.
+  if (Object.hasOwn(AI_SECTION_HREFS, id)) return AI_SECTION_HREFS[id];
   // Old SMTP anchors had suffixes (#smtp-accounts, say); they all mean Sending.
   const key = id.startsWith('smtp') ? 'smtp' : id;
   const group = SETTINGS_GROUPS.find((g) => g.sectionIds.includes(key));
@@ -163,8 +165,6 @@ export function useSettingsAccess() {
     templates: hasPermission(access, 'tasks.create') || hasPermission(access, 'templates.manage'),
     // Hidden when the environment forces demo mode on.
     demoMode: canManageSettings && !isEnvForcedDemo,
-    // People's assistants and the chat connections they answer through: Owners only. The demo shows samples, with changes off.
-    assistants: isOwner,
     // Pausing every agent at once: Owners only, whether or not AI agents are on
     // (agent keys and personal assistants keep working while the module is off).
     agentsPause: isOwner && !isDemoMode,
@@ -172,8 +172,6 @@ export function useSettingsAccess() {
     auditLog: isOwner && !isDemoMode,
     // How long data that grows on its own is kept: Owners only. The demo workspace shows the defaults, with nothing to change.
     dataRetention: isOwner,
-    // Your own AI tools (Connect AI): every person; agents never sign in.
-    connectAi: access?.role !== 'agent',
     // Email and password, Google or both: Owners only. The demo workspace shows it, with nothing to change.
     signInMethods: isOwner,
     // Whether people may connect AI tools at all: Owners only.
@@ -190,7 +188,6 @@ export function useSettingsAccess() {
     billing: show.invoiceDetails || show.hourApprovals,
     portal: show.analyticsExclusions,
     email: show.smtp || show.emailInboxes || show.myInbox || show.receiving,
-    assistants: show.assistants,
     developers: show.apiKeys || show.keyLifetimes || show.webhooks || show.webhookRetries || show.developerDocs,
     security: show.agentsPause || show.connectAiSetting || show.auditLog || show.dataRetention,
     data: !isGuest,

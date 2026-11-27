@@ -9,6 +9,43 @@ Each section starts with `## X.Y.Z (YYYY-MM-DD)` and uses these headings, leavin
 - `### Database`: the core migration files in the release, one per line. `npm run db:migrate` applies them.
 - `### Breaking`: what an install must do when it takes this release.
 
+## 2.0.51 (2026-11-27)
+
+### Added
+- **One AI area.** The sidebar's Assistant and Agents become one "AI" entry with three tabs: Your assistant (your own assistant, Connect AI and Chat accounts, moved out of Settings > Account), Company AI (the agents as an org chart with who each works for and who can use it, plus Runs and Analytics) and Setup (Owners: assistants, the agent service, chat apps, keys). With assistants off, nobody sees assistant screens; Owners get one card to turn them on. Old addresses (`/agent`, `/agent/<id>`, `/agent/new`, `/assistant`, `/settings/assistants`) redirect.
+- **Needs you hub.** Every question, approval, blocked run, review and suggestion from an agent lands in one list, answered in one tap, with who asked, how long it has waited and what it unblocks. An agent comment starting with "[BLOCKED]" shows there too until agents send a blocked run.
+- **An agent's Access tab.** Who it works for, who can use it, Ask first, Only through its orchestrator, Asks people directly, and what it may do as one list: its powers and its keys' scopes are one set, edited in the permission grid and saved to every live key (`GET`/`PUT /api/v1/agents/:id/powers`, MCP `get_agent_powers`, `set_agent_powers`). Keys live here: edit, pause, one-click Replace key (the old key works one more hour), revoke with one confirm.
+- **Revoke unused keys** in Settings > Developers (keys never used or unused for 90 days, previewed first, with the keys each revoke would also take down; a key tree still in use or holding your own key is kept), with Active, Paused and Revoked tabs. `POST /api/v1/api-keys/revoke-unused`, MCP `revoke_unused_keys`.
+- **Hiring starts with "Personal assistant or company agent?"** A new Orchestrator template (receives work, routes it to its team, settles their blockers, brings people one short question), a nudge to add one when hiring a second company agent, and docs/agents/structure-your-team.md. `POST /api/v1/assistants/for-person` (MCP `hire_personal_assistant`) gives one person their assistant.
+- **Worker pools.** Several workers can run one agent: `instance_id` on runs, heartbeats and usage, with live workers on the agent (`live_instances`). Chat messages and conversations can be claimed like tasks (`/api/v1/chat/messages/:id/claim|extend|release`, `/api/v1/chat/conversations/:id/claim|extend|release`, MCP `claim_chat_message` and the others); follow-ups in a held conversation go to its holder. `GET /api/v1/chat/conversations/:id` (MCP `get_chat_conversation`). `resume_notes` on runs. A host key (`agents.host`, an Owner's key bound to some agents) reads their events at `GET /api/v1/events?agents=` and holds leases in their names, nothing else.
+- **Answers that do the thing.** A question or approval can carry a whitelisted action (first: turning a project's time tracking on or off) that the app performs with the answerer's own permissions when they choose it. Every place a person answers shows one sentence the app writes from the action itself (never the agent's words), and says so when they cannot do it. Reads gain `proposed_actions[].sentence`, `you_may_perform` and `you_cannot`.
+- **Blocked runs.** `PATCH /api/v1/agents/runs/:id` with status `blocked` and a reason tells the agent's managers and shows in Needs you until the run moves.
+- `max_run_spend_cents` in agent limits stops a run that costs more. `next_task` and `get_my_status` say up front when work cannot start (`skip_reason: time_tracking_off`).
+- **Everything in the app over the API and MCP.** About 75 new `/api/v1` routes and 200 MCP tools: Trash list and restore, project edit and archive, goals, brief entries, portal settings (never the link or PIN), pausing every agent, workspace settings, assistants, chat connections (never a token), notifications (done, snooze, groups), webhook delivery history, requeue and secret rotation, inbox rules and filing, a person's inbox decisions (people and their connected AI tools only, never agents), contacts and leads, identities, template runs, billing. Money and team writes need scopes agents never hold by default; `settings.manage` is new and never for agents.
+- `POST /api/v1/context/clear` and `/restore` (MCP `clear_agent_notes`, `restore_context`): clear what an agent wrote in its own notes, with Undo.
+- docs/operating/backups-and-recovery.md: what Trash covers, point-in-time recovery, copying Storage files, the encryption key, testing a restore.
+- `npm run test:e2e`: real flows over HTTP on the local Docker stack (scripts/e2e/README.md).
+
+### Changed
+- **Specialists ask their orchestrator first.** A question from an agent that has an orchestrator, sent to a person, goes to its orchestrator unless "Asks people directly" is on (`ask_people_directly`); `requested_to` says who it was meant for. Approvals and questions that carry an action are not rerouted.
+- **Security**: a portal PIN check is one locked step per portal with limits per visitor, per portal and per day, and an unreadable visitor address still counts. A link the chat bot sends to someone it does not know carries a short code to type on the confirm page. Changing your own email or password needs your current password (a fresh sign-in for Google-only accounts), signs out other sessions and tells the old address. Signed-in writes from another site are refused. An agent cannot pin notes into its own context or a person's memory. Portal visitors cannot upload web pages, scripts or SVG files; uploads are capped at 50 MB and 50 a day per portal. Every response carries HSTS (one year, this host only), nosniff, Referrer-Policy and frame-ancestors. Database errors answer in plain words. SMTP tests only try mail ports on public hosts. Revealing a saved credential in the app is audited. A key made by hiring an agent over the API goes down with the key that made it.
+- A confirm dialog asks once (no second "Are you absolutely sure?").
+- An agent restoring its own archived notes gets pinned ones back unpinned. A password reset link used too late says it timed out. `GET /api/v1/trash` answers in a few queries per page.
+- The agent page's Rules and powers tab is called Rules.
+
+### Database
+- `20261127002000_agent_runtime.sql`: worker instances, chat conversations and claims, resume notes, host keys, run spend limit, blocked runs, actions on questions, orchestrator-first questions.
+- `20261127002400_security_fixes.sql`: the portal PIN limiter and chat link confirm codes.
+
+### Breaking
+- **Agents under an orchestrator now send questions to it first.** If an orchestrator's harness does not answer its team's questions, turn on "Asks people directly" on the specialist's Access tab (or `PUT /api/v1/agents/:id/access` with `ask_people_directly: true`).
+- **Signed-in writes need a same-site Origin.** A script that calls `/api/workspace/*` or other session routes with a browser cookie from another site is refused; use an API key and `/api/v1` instead.
+- **An agent answering an acting question for its person must show them the action first.** When an agent answers for the person it works for with the choice that performs an action, it must have sent that person the action's sentence in chat since the question was asked, or the answer is refused with 409 `action_not_shown` (which carries the sentence to send).
+- **Agents cannot pin their own notes.** An agent saving `pinned: true` into its own notes or its person's memory gets 403 `agent_cannot_pin`, and editing a pinned note there gets 403 `pinned_note_kept`. Save without `pinned` (a person pins what every run needs) and add a new note instead of editing a pinned one.
+- **Revoking a key takes down the agent keys it made by hiring over the API.** Keys made that way before this release are not linked and stay.
+- **Old AI addresses redirect.** `/agent`, `/agent/<id>`, `/agent/new`, `/assistant` and `/settings/assistants` redirect to `/ai`. Custom links keep working; update them when convenient.
+- Apply this release's migrations with or before the deploy. Until they run, chat claims, host keys and blocked runs do not work, and a portal with a PIN stays locked.
+
 ## 2.0.50 (2026-11-27)
 
 ### Added

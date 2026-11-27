@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { accessAllows, accessAllowsProject, requireSessionAccess } from '@/lib/api/access';
 import { postgrestList, trashedProjectIds } from '@/lib/supabase/trash';
+import { plainDbError } from '@/lib/api/plain-error';
 
 export async function GET(request: Request) {
   const auth = await requireSessionAccess();
@@ -32,7 +33,7 @@ export async function GET(request: Request) {
   }
 
   const { data, error } = await query;
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return plainDbError(error);
   let visible = (data || []).filter((credential) => accessAllowsProject(access, credential.project_id));
   if (accessAllows(access, 'credentials.manage', 'app') && visible.length > 0) {
     const { data: grants } = await service.from('project_credential_members').select('credential_id, member_id').in('credential_id', visible.map((credential) => credential.id));
@@ -47,6 +48,6 @@ export async function PUT(request: Request) {
   const body = await request.json() as { credential_id?: string; member_ids?: string[] };
   if (!body.credential_id || !Array.isArray(body.member_ids)) return NextResponse.json({ error: 'Credential and member list are required' }, { status: 422 });
   const { error } = await auth.data.client.rpc('set_credential_members', { p_credential_id: body.credential_id, p_member_ids: body.member_ids });
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return plainDbError(error);
   return NextResponse.json({ success: true });
 }

@@ -33,6 +33,7 @@ import { checkKeyGrant, createAgentMember, grantableScopes, insertApiKey, member
 import { AGENT_HIRE_ENDPOINT, appliedTemplateKey, appliedTemplateKeys, recordTemplateKey } from './agent-context';
 import { agentTemplateRegistry, assertKnownAgentProfile } from './agent-registries';
 import { addAgentScopeGrants, agentScopesBeyondRole, assertMayGiveAgentScopes, removeAgentScopeGrants } from './agent-scope-grants';
+import { liveInstances } from './agent-instances';
 import { revokeKeyTree } from './key-revoke';
 import { listWebhookEndpoints, type PublicWebhookEndpoint } from './webhook-endpoints';
 import {
@@ -462,6 +463,8 @@ export async function agentDetail(service: SupabaseClient, viewer: AgentCaller, 
     loadAgentAccess(service, [agentId]).then((map) => map.get(agentId) ?? null),
     audienceSummaries(service, [agentId]),
   ]);
+  // Its workers (a pool on one key): distinct live instances, and how many work now.
+  const pool = await liveInstances(service, agentId);
   return {
     agent: { ...agentView(row), delegate_of: delegateId },
     // A personal agent's person, and whether they paused it on My Assistant.
@@ -478,6 +481,7 @@ export async function agentDetail(service: SupabaseClient, viewer: AgentCaller, 
     limits: limitState?.limits ?? null,
     usage: limitState?.usage ?? null,
     health,
+    live_instances: pool,
     current_run: run && (await runsVisibleTo(service, viewer, [run], canManage ? new Set([agentId]) : undefined)).has(run.id) ? run : null,
     projects: assignments.rows,
     projects_total: assignments.total,
@@ -805,7 +809,8 @@ export async function hireAgent(
       const granted = await checkKeyGrant(service, granter, { memberId: agentId, scopes: keyScopes });
       const made = await insertApiKey(service, {
         name: input.key_name ?? `${input.name}${template ? ` (${template.label})` : ''}`,
-        memberId: agentId, createdBy: caller.memberId, createdByKeyId: null, scopes: granted.scopes, permissions: 'scoped',
+        // Hired over the API: the key records the calling key, so revoking that key revokes this one too.
+        memberId: agentId, createdBy: caller.memberId, createdByKeyId: apiKeyId, scopes: granted.scopes, permissions: 'scoped',
       });
       state.keyId = made.key.id;
       key = {

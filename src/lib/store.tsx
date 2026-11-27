@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/lib/auth-context';
 import { useDemo } from '@/lib/demo-context';
 import { generatePortalSlug } from '@/lib/portal-slug';
+import { cleanContactEmailDrafts, writeContactEmails } from '@/lib/contact-emails';
 import {
   demoTeam, demoContacts, demoContactEmails, demoProjects, demoProjectContacts, demoTasks,
   demoLeads, demoLeadInteractions, demoLeadProposals, demoLeadFields,
@@ -30,9 +31,6 @@ import {
   insertTeamMember,
   fetchContacts,
   fetchContactEmails,
-  insertContactEmail,
-  patchContactEmail,
-  removeContactEmail,
   insertContact,
   patchContact,
   removeContact,
@@ -1245,7 +1243,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
           const row = payload.new as { table_name?: string } | undefined;
           if (row?.table_name) {
             trashSlices(row.table_name).forEach(queue);
-            invalidateTables([row.table_name]);
+            // Reads that hang on a record's place (questions) list trash_events too.
+            invalidateTables([row.table_name, 'trash_events']);
           }
           return;
         }
@@ -2262,10 +2261,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     contactEmails.filter(row => row.contact_id === contactId).sort(byPrimaryThenAge);
 
   const saveContactEmails = async (contactId: string, drafts: ContactEmailDraft[]): Promise<boolean> => {
-    const cleaned = drafts
-      .map(draft => ({ ...draft, email: draft.email.trim().toLowerCase(), label: draft.label?.trim() || null }))
-      .filter(draft => draft.email);
-    const primary = cleaned.find(draft => draft.is_primary)?.email ?? cleaned[0]?.email ?? '';
+    const { cleaned, primary } = cleanContactEmailDrafts(drafts);
     const now = new Date().toISOString();
     // The database mirrors the primary address to contacts.email; mirror it locally too.
     const mirror = () => setContacts(prev => prev.map(c => (c.id === contactId ? { ...c, email: primary } : c)));
@@ -2288,57 +2284,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
 
     try {
-      // Diff against what the server holds now: a new contact gets its
-      // primary row from the database, so local state may not have it yet.
-      const current = await fetchContactEmails(supabase, contactId);
-      const keep = new Set(cleaned.map(draft => draft.id).filter(Boolean));
-      for (const row of current) {
-        if (!keep.has(row.id) && !cleaned.some(draft => !draft.id && draft.email === row.email)) {
-          await removeContactEmail(supabase, row.id);
-        }
-      }
-      // An address is unique per contact, so a write must never land on an
-      // address another row still holds: free addresses before taking them.
-      // Edits run once their new address is free; a swap (a cycle) parks one
-      // row by deleting it and adds it back last; new rows go in after edits.
-      const held = new Map(current.filter(row => keep.has(row.id) || cleaned.some(draft => !draft.id && draft.email === row.email)).map(row => [row.email, row.id]));
-      const edits: { id: string; email: string; label: string | null }[] = [];
-      const inserts: { email: string; label: string | null }[] = [];
-      for (const draft of cleaned) {
-        const existing = current.find(row => row.id === draft.id) ?? (!draft.id ? current.find(row => row.email === draft.email) : undefined);
-        if (existing) {
-          if (existing.email !== draft.email || (existing.label ?? null) !== draft.label) {
-            edits.push({ id: existing.id, email: draft.email, label: draft.label });
-          }
-        } else {
-          inserts.push({ email: draft.email, label: draft.label });
-        }
-      }
-      const emailOf = (id: string) => [...held].find(([, rowId]) => rowId === id)?.[0];
-      while (edits.length > 0) {
-        const ready = edits.findIndex(edit => !held.has(edit.email) || held.get(edit.email) === edit.id);
-        if (ready === -1) {
-          // Every remaining edit waits on another: park the first one.
-          const [parked] = edits.splice(0, 1);
-          await removeContactEmail(supabase, parked.id);
-          held.delete(emailOf(parked.id) ?? '');
-          inserts.push({ email: parked.email, label: parked.label });
-          continue;
-        }
-        const [edit] = edits.splice(ready, 1);
-        await patchContactEmail(supabase, edit.id, { email: edit.email, label: edit.label });
-        held.delete(emailOf(edit.id) ?? '');
-        held.set(edit.email, edit.id);
-      }
-      for (const insert of inserts) {
-        await insertContactEmail(supabase, { contact_id: contactId, email: insert.email, label: insert.label });
-      }
-      if (primary) {
-        const saved = await fetchContactEmails(supabase, contactId);
-        const target = saved.find(row => row.email === primary);
-        if (target && !target.is_primary) await patchContactEmail(supabase, target.id, { is_primary: true });
-      }
-      const rows = await fetchContactEmails(supabase, contactId);
+      // The same diff-and-write the API's PUT /contacts/{id}/emails runs (lib/contact-emails).
+      const rows = await writeContactEmails(supabase, contactId, drafts);
       setContactEmails(prev => [...prev.filter(row => row.contact_id !== contactId), ...rows]);
       mirror();
       return true;
@@ -4514,7 +4461,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       return false;
     }
     // Live sync would catch up on its own; refetch now so it shows at once.
-    invalidateTables([recordType]);
+    invalidateTables([recordType, 'trash_events']);
     await Promise.all(trashSlices(recordType).map(slice => refreshSlice(slice)));
     return true;
   };

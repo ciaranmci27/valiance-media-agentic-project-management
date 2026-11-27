@@ -1,13 +1,7 @@
-'use client';
+import { redirect } from 'next/navigation';
+import { legacyAssistantRedirect, searchParamsOf, type PageSearchParams } from '@/lib/ai-home';
 
-import { Suspense } from 'react';
-import { MyAssistantPage } from '@/components/assistant/MyAssistantPage';
-
-/** My Assistant: every person's own assistant, on one plain page. */
-export default function AssistantPage() {
-  return (
-    <Suspense fallback={null}>
-      <MyAssistantPage />
-    </Suspense>
-  );
+/** My Assistant is AI > Your assistant now. */
+export default async function AssistantRedirect({ searchParams }: { searchParams: Promise<PageSearchParams> }) {
+  redirect(legacyAssistantRedirect(searchParamsOf(await searchParams)));
 }

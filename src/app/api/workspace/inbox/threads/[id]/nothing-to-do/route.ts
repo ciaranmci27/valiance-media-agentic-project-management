@@ -1,6 +1,5 @@
-import { z } from 'zod';
 import { inboxRoute, readBody } from '@/lib/communications/inbox-route';
-import { dismissMeeting, undoMeetingDismissal } from '@/lib/communications/meeting/suggestions';
+import { dismissMeeting, meetingDismissUndoSchema, undoMeetingDismissal } from '@/lib/communications/meeting/suggestions';
 
 export const dynamic = 'force-dynamic';
 
@@ -10,17 +9,8 @@ export async function POST(_request: Request, { params }: { params: Promise<{ id
   return inboxRoute((ctx) => dismissMeeting(ctx, id));
 }
 
-const undoSchema = z.object({
-  skipped: z.array(z.string()).max(500),
-  handled: z.array(z.object({
-    id: z.string(),
-    status: z.enum(['new', 'needs_human', 'handled']),
-    unreviewed: z.boolean(),
-  })).max(500),
-});
-
 /** Undo: the suggestions and messages it changed go back as they were, and the mark clears. */
 export async function DELETE(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  return inboxRoute(async (ctx) => undoMeetingDismissal(ctx, id, await readBody(request, undoSchema)));
+  return inboxRoute(async (ctx) => undoMeetingDismissal(ctx, id, await readBody(request, meetingDismissUndoSchema)));
 }

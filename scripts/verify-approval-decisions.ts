@@ -153,6 +153,9 @@ async function seed(db: PGlite) {
     ownerConnection: await connection(owner, [...connectScopes, 'approvals.decide']),
     relayForMia: await pass(relay, mia),
     relayForMax: await pass(relay, max),
+    // An agent that may change projects and decide for a person, acting for the Owner (answers that do the thing).
+    relayManage: await key(relay, [...READ, 'agents.act_for', 'approvals.decide', 'projects.manage']),
+    relayForOwner: await pass(relay, owner),
   };
   return { q, owner, mia, max, nina, builder, reviewer, relay, apex, keys };
 }
@@ -349,8 +352,43 @@ async function main() {
     const toolAnswer = await mcp({ bearer: s.keys.miaConnection }, 'answer_question', { question_id: plain2.body.data.id, text: 'German' });
     check('question: a connected AI tool still answers a plain question', toolAnswer?.ok === true && toolAnswer.data.answer_text === 'German', toolAnswer);
 
+    // ── Answers that act say what they do (review of wave 3, finding 2) ──
+    const words = await import('../src/lib/question-actions-text');
+    const turnOn = { type: 'project.update', details: { project_id: s.apex, time_tracking_enabled: true }, on_choice: 'approve' };
+    check('words: an approval that acts says what approving does, in the app\'s words',
+      words.actionSentence(turnOn, { approval: true, projectName: 'Acme Site' }) === 'Approving turns time tracking on for Acme Site.');
+    check('words: a question names the choice that acts', words.actionSentence({ ...turnOn, details: { project_id: s.apex, time_tracking_enabled: false }, on_choice: 'Yes' }, { approval: false, projectName: 'Acme Site' })
+      === 'Choosing "Yes" turns time tracking off for Acme Site.');
+    check('words: someone who cannot do it is told so, in plain words',
+      words.actionCannotSentence(turnOn, { approval: true, projectName: 'Acme Site', reason: 'needs projects.manage' }) === 'You cannot turn time tracking on for Acme Site (you cannot manage projects), so approving is not open to you.');
+    check('words: a chat message shows the sentence despite quotes, case and punctuation', words.showsSentence('OK! *Approving turns time tracking ON for Acme Site* - reply yes to go ahead', 'Approving turns time tracking on for Acme Site.')
+      && !words.showsSentence('Shall I go ahead?', 'Approving turns time tracking on for Acme Site.'));
+    const acting = await call(approvalsRoute.POST, 'POST', '/api/v1/approvals', {}, s.keys.builder, {
+      project_id: s.apex, asked_to: s.owner, action: { type: 'project.update', summary: 'Shall I continue?', details: { project_id: s.apex, time_tracking_enabled: true } },
+    });
+    const actingId = acting.body.data?.id as string;
+    const ownerView = await getQuestion(await appCtx(s.owner), actingId);
+    const sentence = ownerView.proposed_actions?.[0]?.sentence;
+    check('acts: the approval carries the server\'s sentence, never the agent\'s summary', acting.status === 201 && sentence === 'Approving turns time tracking on for Apex.'
+      && ownerView.proposed_actions?.[0]?.you_may_perform === true && !ownerView.proposed_actions?.[0]?.you_cannot, ownerView.proposed_actions);
+    const miaView = await getQuestion(await appCtx(s.mia), actingId).catch(() => null);
+    if (miaView) {
+      check('acts: a reader who cannot do it is told so (you_may_perform false, you_cannot)', miaView.proposed_actions?.[0]?.you_may_perform === false
+        && /^You cannot turn time tracking on/.test(miaView.proposed_actions?.[0]?.you_cannot ?? ''), miaView.proposed_actions);
+    }
+    // Over chat, the agent answering for the person must have shown them the sentence first.
+    const unseen = await answer(s.keys.relayManage, actingId, { choice: 'approve' }, s.keys.relayForOwner);
+    check('acts: an agent answering for a person who was never shown the sentence in chat is refused (409 action_not_shown), with the sentence to show',
+      unseen.status === 409 && reason(unseen) === 'action_not_shown' && unseen.body.error?.details?.sentence === sentence && (await stored(actingId)).status === 'open', unseen.body);
+    const connection = (await s.q<{ id: string }>("INSERT INTO pm.chat_connections (provider, display_name, credentials) VALUES ('telegram', 'Bot', 'pm1:test-sealed') RETURNING id"))[0].id;
+    await s.q(`INSERT INTO pm.chat_messages (connection_id, direction, status, conversation_id, text, member_id, agent_id)
+      VALUES ($1, 'outbound', 'sent', 'c1', $2, $3, $4)`, [connection, `Before I go on: ${sentence} Reply yes to approve.`, s.owner, s.relay]);
+    const seen = await answer(s.keys.relayManage, actingId, { choice: 'approve' }, s.keys.relayForOwner);
+    const apexNow = (await s.q<Loose>('SELECT time_tracking_enabled FROM pm.projects WHERE id = $1', [s.apex]))[0];
+    check('acts: once the person was shown it in chat, the answer does the thing', seen.status === 200 && seen.body.data?.performed?.status === 'done' && apexNow.time_tracking_enabled === true, seen.body);
+
     // ── The database ────────────────────────────────────────────────────
-    const onPlain = await db.query("UPDATE pm.questions SET decided_via = 'app' WHERE id = $1", [plain.body.data.id]).then(() => 'stored', (e: Error) => e.message);
+    const onPlain =await db.query("UPDATE pm.questions SET decided_via = 'app' WHERE id = $1", [plain.body.data.id]).then(() => 'stored', (e: Error) => e.message);
     check('db: decided_via is refused on a plain question', onPlain !== 'stored', onPlain);
     const unknown = await db.query("UPDATE pm.questions SET decided_via = 'email' WHERE id = $1", [inApp]).then(() => 'stored', (e: Error) => e.message);
     check('db: an unknown decided_via is refused', unknown !== 'stored', unknown);

@@ -1,4 +1,5 @@
 import { insertAuditRows } from './audit';
+import { auditDoorFields, type AuditDoor } from './audit-door';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { apiScopesFor, type AccessContext } from '@/lib/access-control';
 import { findAgentTemplate } from '@/lib/agent-templates';
@@ -522,7 +523,7 @@ export async function myPersonalAgents(service: SupabaseClient, memberId: string
  * re-bind or unbind revokes every key and delegation token the agent holds,
  * so nothing made for one person ever reads another's.
  */
-export async function bindPersonalAgent(service: SupabaseClient, caller: AgentCaller, agentId: string, personId: string | null) {
+export async function bindPersonalAgent(service: SupabaseClient, caller: AgentCaller, agentId: string, personId: string | null, door?: AuditDoor) {
   requireAgentsEnabled(caller.access);
   requireOwner(caller.access, 'changes who an agent works for');
   const { data: agent, error } = await service.from('team_members').select('id, name, role, delegate_of').eq('id', agentId).maybeSingle();
@@ -540,8 +541,8 @@ export async function bindPersonalAgent(service: SupabaseClient, caller: AgentCa
   const row = (Array.isArray(data) ? data[0] : data) as Row | null;
   if (!row) throw notFound('Agent');
   const { error: auditError } = await insertAuditRows(service, {
-    method: 'POST', endpoint: '/api/workspace/assistants/bind', entity_type: 'team_member', entity_id: agentId, team_member_id: caller.memberId,
-    before_snapshot: { delegate_of: before }, after_snapshot: { delegate_of: row.delegate_of ?? null }, status_code: 200, via: 'app',
+    method: 'POST', ...auditDoorFields(door, '/api/workspace/assistants/bind'), entity_type: 'team_member', entity_id: agentId, team_member_id: caller.memberId,
+    before_snapshot: { delegate_of: before }, after_snapshot: { delegate_of: row.delegate_of ?? null }, status_code: 200,
   });
   if (auditError) console.error('[assistants] bind audit write failed', auditError);
   return { agent: { id: row.id as string, name: row.name as string, delegate_of: (row.delegate_of as string | null) ?? null } };

@@ -18,7 +18,8 @@ import { afterResponse } from './after-response';
 
 /** assistants_off: a personal agent while assistants are switched off for the workspace (on hold, like a pause). */
 export type PauseReason = 'agents_paused' | 'assistants_off' | 'agent_paused';
-export type SkipReason = PauseReason | 'budget_exceeded';
+/** time_tracking_off: the project asked about tracks no time and the agent's work needs a timer (lib/api/readiness.ts). */
+export type SkipReason = PauseReason | 'budget_exceeded' | 'time_tracking_off';
 
 export interface AgentBudgetStatus {
   period: BudgetPeriod;
@@ -54,6 +55,12 @@ export interface AgentStatus {
   /** The agent's limits; null when none are set. */
   limits: AgentLimits | null;
   checked_at: string;
+  /**
+   * What in the app would stop its work, before it starts: on the projects
+   * of its open work, or on the project asked about (project_id, task_id).
+   * Filled by the status route; empty when nothing would.
+   */
+  blockers?: import('./readiness').WorkBlocker[];
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- rows are read field by field

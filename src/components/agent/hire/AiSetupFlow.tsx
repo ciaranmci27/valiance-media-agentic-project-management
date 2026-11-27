@@ -425,7 +425,7 @@ function AgentList({ agents, live, toolName, isDemo }: { agents: AiSetupAgentVie
               </p>
             </div>
           </div>
-          <Button variant="secondary" size="sm" href={`/agent/${agent.id}`} icon={<ArrowRight size={13} aria-hidden="true" />} onClick={isDemo && agent.id.startsWith('demo-') ? (e: React.MouseEvent) => { e.preventDefault(); toast('info', 'This agent is pretend in the demo.'); } : undefined}>
+          <Button variant="secondary" size="sm" href={`/ai/agents/${agent.id}`} icon={<ArrowRight size={13} aria-hidden="true" />} onClick={isDemo && agent.id.startsWith('demo-') ? (e: React.MouseEvent) => { e.preventDefault(); toast('info', 'This agent is pretend in the demo.'); } : undefined}>
             Review
           </Button>
         </li>

@@ -340,8 +340,20 @@ export function withApi<TBody = unknown, TParams = Record<string, string>>(
       const requiredPermissions = [...new Set(configuredPermissions.flatMap(permissionAlternatives))];
       const keyScopes = Array.isArray(keyRow.scopes) ? keyRow.scopes : [];
       const scopes = setupGrant ? [...new Set([...keyScopes, ...setupGrant.scopes])] : keyScopes;
-      const grantedPermission = requiredPermissions.find((permission) =>
-        scopes.includes(permission) && accessAllows(access, permission, 'api'));
+      // A host key (agents.host) does only what agents.host opens: the host
+      // feed and leases in its agents' names. However else it is scoped, it
+      // never replies, marks anything handled, reads content or acts for
+      // anyone, and only an Owner's key is one.
+      const hostKey = keyScopes.includes('agents.host');
+      if (hostKey && !requiredPermissions.includes('agents.host')) {
+        throw forbidden('A host key only reads its agents\' events and holds leases for them', {
+          reason: 'host_key_only',
+          hint: 'Use the agent\'s own key for anything else: replying, reading messages, changing tasks.',
+        });
+      }
+      const grantedPermission = hostKey
+        ? (accessAllows(access, 'agents.host', 'api') ? 'agents.host' as PermissionKey : undefined)
+        : requiredPermissions.find((permission) => scopes.includes(permission) && accessAllows(access, permission, 'api'));
       if (!grantedPermission) {
         // A switched-off module is not a grant problem: no scope or role fixes
         // it, so say so before naming what to grant.
@@ -378,6 +390,15 @@ export function withApi<TBody = unknown, TParams = Record<string, string>>(
           missing_key_scopes: missingKeyScopes,
           missing_member_permissions: missingMemberPermissions,
         });
+      }
+
+      if (hostKey) {
+        if (access.role !== 'owner') {
+          throw forbidden('A host key must be an Owner\'s key', { reason: 'host_key_not_owner', hint: 'An Owner makes the host key and binds it to agents (PUT /api/v1/api-keys/{id}/agents).' });
+        }
+        if (actFor !== null) {
+          throw forbidden('This is not available while acting for someone', { reason: 'act_for_not_allowed', hint: 'A host key never acts for anyone. Send the request without X-Act-For.' });
+        }
       }
 
       // Acting for a person, routes that read what is the agent's own by

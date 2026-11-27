@@ -148,7 +148,8 @@ function authStandIn(db: PGlite, users: Map<string, AuthUser>, calls: AuthCalls)
 function signInAs(supabaseUrl: string, authUserId: string, email: string) {
   const exp = Math.floor(Date.now() / 1000) + 3600;
   const part = (value: object) => Buffer.from(JSON.stringify(value)).toString('base64url');
-  const accessToken = `${part({ alg: 'HS256', typ: 'JWT' })}.${part({ sub: authUserId, email, role: 'authenticated', aud: 'authenticated', exp })}.sig`;
+  const accessToken = `${part({ alg: 'HS256', typ: 'JWT' })}.${part({ sub: authUserId, email, role: 'authenticated', aud: 'authenticated', exp, amr: [{ method: 'oauth', timestamp: Math.floor(Date.now() / 1000) }] })}.sig`;
+  // amr: this session signed in with Google just now, so a first password may be set (account-security.ts).
   const session = {
     access_token: accessToken, refresh_token: 'fake-refresh', token_type: 'bearer', expires_in: 3600, expires_at: exp,
     user: { id: authUserId, email, aud: 'authenticated', role: 'authenticated', app_metadata: {}, user_metadata: {}, created_at: '2026-11-21T00:00:00Z' },
@@ -487,6 +488,11 @@ async function main() {
     check('reset: after the link, a login another app made is told to use Google or that app (never a new password here)', lib.resetPageOutcome(halAfterClick) === 'managed_elsewhere', halAfterClick.refusals);
     check('reset: a PM login gets the new password form', lib.resetPageOutcome(await signInServer.accountSignInView(service, { memberId: oliveRow!.id, authUserId: olive.id })) === 'form');
     check('reset: no member, no form', lib.resetPageOutcome(null) === 'no_access');
+    // Review of wave 3, finding 6: a link used after its window never asks for a current password the person forgot.
+    check('reset: a save refused for want of proof (the link timed out) says the link timed out and how to get a new one',
+      lib.resetSaveRefusal('current_password_required') === 'timed_out' && lib.resetSaveRefusal('fresh_sign_in_required') === 'timed_out'
+      && lib.resetSaveRefusal('wrong_password') === null && lib.resetSaveRefusal(undefined) === null
+      && lib.RESET_TIMED_OUT === 'This link has timed out. Ask for a new one.');
     signInAs(server.url, hiUser.id, hiUser.email);
     const halReset = await putPassword('reset-attempt-1');
     check('reset: setting a password on another app\'s login is refused even with a reset session (409)', halReset.status === 409 && !calls.passwordChanges.includes(hiUser.id), halReset.status);

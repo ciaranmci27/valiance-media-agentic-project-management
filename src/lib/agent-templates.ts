@@ -12,7 +12,11 @@ import customTemplates from '@/custom/agent-templates';
  * one goes through the agent setup API (POST /api/v1/agents/{id}/template),
  * so every scope still passes its escalation rules.
  *
- * Core's six, kept generic so they fit any install:
+ * Core's seven, kept generic so they fit any install:
+ * - orchestrator: the company's front door for work: hands each piece to
+ *   the agent directly under it that fits, settles their blockers and
+ *   brings people only real decisions as one short question
+ *   (docs/agents/structure-your-team.md).
  * - data-health-watcher: self-directed; opens one task per problem with a
  *   dedupe_key and closes its own work once the check passes.
  * - inbox-triage: sorts what arrives in the Inbox (only while it is on);
@@ -37,6 +41,23 @@ import customTemplates from '@/custom/agent-templates';
  * of their own as rows (lib/api/agent-registries.ts merges them).
  */
 export const CORE_AGENT_TEMPLATES: AgentTemplate[] = defineAgentTemplates([
+  {
+    key: 'orchestrator',
+    label: 'Orchestrator',
+    description: 'Receives the work, hands each piece to the right agent on its team, settles their blockers and brings people only real decisions, as one short question.',
+    role: 'orchestrator',
+    // It takes what it is given and hands it on; it never picks up unassigned work on its own.
+    rules: { agent_self_assign: false, agent_close_policy: 'close', agent_create_policy: 'live' },
+    scopes: ['tasks.read', 'tasks.create', 'tasks.manage_assigned', 'projects.read', 'project_context.read', 'team.read', 'questions.ask', 'notifications.send', 'agent_activity.write'],
+    context: [
+      'You are the orchestrator: work for the company reaches you first, and you route it. You do little of it yourself.',
+      'For each piece of work, pick the agent directly under you that fits (get_agent_access lists your reports) and hand it over with delegate_task, with a clear brief and how to check it is done. Never skip a level: to reach an agent further down, hand the work to the agent above it.',
+      'When one of your agents is blocked or asks a question, settle it yourself whenever the answer is in the task, the project brief or your rules. Their questions come to you first.',
+      'Bring a person only a real decision: something only they can choose (money, a client, anything that cannot be undone). Ask it as one short question with choices, never a wall of text, and say what it unblocks.',
+      'Keep the parent task up to date as your agents finish, and close it when every part is done.',
+    ].join('\n'),
+    webhook_events: ['task.created', 'task.updated', 'comment.created', 'question.asked', 'question.answered'],
+  },
   {
     key: 'data-health-watcher',
     label: 'Data health watcher',

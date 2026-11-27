@@ -287,15 +287,18 @@ export type AssistantFixer = 'admin' | 'settings';
 
 /** The line after why: an admin was told, or where the person fixes it themselves. */
 export const fixerWords = (fixer: AssistantFixer): string =>
-  fixer === 'admin' ? 'Your admin has been told.' : 'Fix it in Settings > Assistants.';
+  fixer === 'admin' ? 'Your admin has been told.' : 'Fix it in AI > Setup.';
 
 /** One plain line on why, for a row that has a reason. */
 export const reasonWords = (reason: AssistantReason): string =>
   reason in HOLD_WORDS ? HOLD_WORDS[reason as HoldReason].owner : BROKEN_WORDS[reason as BrokenReason];
 
+/** Where an Owner turns assistants on or off: AI > Setup. */
+export const ASSISTANTS_SETUP_HREF = '/ai?tab=setup';
+
 /** Where an admin fixes a broken assistant: its agent service, on Settings > Assistants. */
 export const ASSISTANT_SERVICE_ANCHOR = 'assistant-service';
-export const ASSISTANT_SERVICE_HREF = `/settings/assistants#${ASSISTANT_SERVICE_ANCHOR}`;
+export const ASSISTANT_SERVICE_HREF = `/ai?tab=setup#${ASSISTANT_SERVICE_ANCHOR}`;
 
 /** The published guide to assistants and their agent service. */
 export const ASSISTANTS_DOCS_URL = 'https://github.com/ciaranmci27/valiance-media-agentic-project-management/blob/main/docs/agents/assistants.md';

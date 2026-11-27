@@ -29,7 +29,7 @@ const WINDOW = 24;
  */
 function fixFor(row: AssistantStatusRow): { label: string; href: string } | null {
   if (row.state === 'broken' || row.host_down) return { label: 'Fix', href: `#${ASSISTANT_SERVICE_ANCHOR}` };
-  if (row.state === 'on_hold' && (row.reason === 'paused_by_admin' || row.reason === 'agent_paused')) return { label: 'Open', href: `/agent/${row.id}` };
+  if (row.state === 'on_hold' && (row.reason === 'paused_by_admin' || row.reason === 'agent_paused')) return { label: 'Open', href: `/ai/agents/${row.id}` };
   return null;
 }
 

@@ -352,7 +352,7 @@ function AssignmentItem({ row, mode, canEdit, templateLabel, templates, linked, 
   };
 
   const title = mode === 'project' ? row.agent_name : row.project_name ?? 'Project';
-  const href = mode === 'project' ? `/agent/${row.agent_id}` : `/projects/${row.project_id}?tab=agents`;
+  const href = mode === 'project' ? `/ai/agents/${row.agent_id}` : `/projects/${row.project_id}?tab=agents`;
   const titleClass = 'truncate text-sm font-semibold text-white';
 
   return (

@@ -8,6 +8,7 @@ import { recordPortalEvent, getOrCreateSessionId } from '@/lib/portal-analytics'
 import { checkPortalPin, pinFailureResponse } from '@/lib/portal-pin';
 import { enabledModuleSet } from '@/lib/modules/server';
 import { signStoredFileUrl } from '@/lib/storage/sign-stored-file';
+import { portalShownMime } from '@/lib/portal-uploads';
 
 function getServiceClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
@@ -78,7 +79,7 @@ export async function GET(
   // Fetch the file: must be an external entity file for this project
   const { data: file } = await supabase
     .from('entity_files')
-    .select('id, name, file_url, file_size, mime_type')
+    .select('id, name, file_url, file_size, mime_type, uploaded_by')
     .eq('id', fileId)
     .eq('entity_type', 'project')
     .eq('entity_id', settings.project_id)
@@ -103,7 +104,8 @@ export async function GET(
 
   // Portal files live in a private bucket: the visitor gets a link that lasts an hour.
   const fileUrl = (await signStoredFileUrl(supabase, file.file_url, 3600)) ?? file.file_url;
-  return NextResponse.json({ file_url: fileUrl, name: file.name, mime_type: file.mime_type });
+  // A web page opens as a page only when the team added it; a visitor's never does (portal-uploads.ts).
+  return NextResponse.json({ file_url: fileUrl, name: file.name, mime_type: portalShownMime(file) });
 }
 
 function handleDemoMode(token: string, fileId: string, request: NextRequest, brand: Brand) {

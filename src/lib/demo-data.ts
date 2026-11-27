@@ -39,6 +39,9 @@ export const demoTeam: TeamMember[] = [
   { id: 'a1a1a1a1-0005-4000-8000-000000000005', auth_user_id: null, name: 'Priya Patel',     email: 'priya@example.com',  avatar: '', role: 'guest',  timezone: 'Asia/Kolkata' },
   { id: 'a1a1a1a1-0006-4000-8000-000000000006', auth_user_id: null, name: 'Atlas',           email: 'atlas@agent.local',        avatar: '', role: 'agent',  timezone: 'UTC', billing_multiplier: 1.5 },
   { id: 'a1a1a1a1-0007-4000-8000-000000000007', auth_user_id: null, name: 'Scout',           email: 'scout@agent.local',        avatar: '', role: 'agent',  timezone: 'UTC', billing_multiplier: 1 },
+  // Two more company agents for the AI home's org chart: Quill works for Atlas, Ledger is paused.
+  { id: 'a1a1a1a1-0008-4000-8000-000000000008', auth_user_id: null, name: 'Quill',           email: 'quill@agent.local',        avatar: '', role: 'agent',  timezone: 'UTC', billing_multiplier: 1, title: 'Writer' },
+  { id: 'a1a1a1a1-0009-4000-8000-000000000009', auth_user_id: null, name: 'Ledger',          email: 'ledger@agent.local',       avatar: '', role: 'agent',  timezone: 'UTC', billing_multiplier: 1, title: 'Bookkeeper', agent_paused_at: daysAgo(2) },
 ];
 
 // ---------------------------------------------------------------------------
@@ -409,6 +412,13 @@ const demoTaskRows: DemoTask[] = [
 
   // === An agent's own work (Atlas is blocked on it: Agents > Needs you) ===
   { id: 'e5e5e5e5-0099-4000-8000-000000000099', project_id: 'c3c3c3c3-0002-4000-8000-000000000002', title: 'Add CSV export to reports', description: 'Stream report rows to a CSV file and email a download link.', status: 'in_progress', priority: 'medium', assignee_ids: ['a1a1a1a1-0006-4000-8000-000000000006'], claimed_by: 'a1a1a1a1-0006-4000-8000-000000000006', ai_readiness: 'ai_ready', due_date: null, tags: ['development'], comments: [], created_at: daysAgo(2), updated_at: hoursAgo(1) },
+  // === Quill says it is stuck only in a comment (AI > Needs you lists it until agents report blocks themselves) ===
+  { id: 'e5e5e5e5-0098-4000-8000-000000000098', project_id: 'c3c3c3c3-0001-4000-8000-000000000001', title: 'Write the launch announcement', description: 'A short post for the Crest rebrand launch, in the client\'s voice.', status: 'in_progress', priority: 'medium', assignee_ids: ['a1a1a1a1-0008-4000-8000-000000000008', TM1], claimed_by: 'a1a1a1a1-0008-4000-8000-000000000008', ai_readiness: 'ai_ready', due_date: null, tags: ['copy'],
+    comments: [
+      { id: 'aabbccdd-0098-4000-8000-000000000098', task_id: 'e5e5e5e5-0098-4000-8000-000000000098', user_id: 'a1a1a1a1-0008-4000-8000-000000000008', text: 'Drafted the outline from the brand guide.', created_at: hoursAgo(7) },
+      { id: 'aabbccdd-0099-4000-8000-000000000099', task_id: 'e5e5e5e5-0098-4000-8000-000000000098', user_id: 'a1a1a1a1-0008-4000-8000-000000000008', text: '[BLOCKED] Which launch date should the post use: May 12 or May 19?\nThe brief says May 12, the client email from Tuesday says May 19.', created_at: hoursAgo(6) },
+    ],
+    created_at: daysAgo(1), updated_at: hoursAgo(6) },
 ];
 
 // The demo initiatives (below) and the tasks on their boards.

@@ -89,7 +89,16 @@ export const AGENT_RUN_LIMITS = {
   model: 200,
   externalId: 300,
   externalUrl: 2000,
+  /** Where a worker picking the run up again starts (resume_notes). */
+  resumeNotes: 8000,
+  /** Why a blocked run cannot go on, in a line a person reads. */
+  blockedReason: 500,
 } as const;
+
+/** A worker's own id (instance_id): letters, digits, dots, dashes, underscores and colons, at most 100. */
+export const INSTANCE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,99}$/;
+export const instanceIdSchema = z.string().trim()
+  .regex(INSTANCE_ID_PATTERN, 'instance_id is letters, digits, dots, dashes, underscores and colons (at most 100), starting with a letter or digit');
 
 /** What started a run: open text, lower case. Common: assigned, scheduled, webhook, chat, manual. */
 export const AGENT_RUN_TRIGGERS = ['assigned', 'scheduled', 'webhook', 'chat', 'manual'] as const;
@@ -122,6 +131,8 @@ const runFields = {
   provider: z.string().trim().min(1).max(100).optional(),
   external_url: externalUrl.optional(),
   metadata: metadata.optional(),
+  /** Where to pick the run up again: replaces what was there (null clears it). get_run returns it. */
+  resume_notes: z.string().trim().min(1).max(AGENT_RUN_LIMITS.resumeNotes, `resume_notes is at most ${AGENT_RUN_LIMITS.resumeNotes} characters`).nullable().optional(),
 };
 
 export const startAgentRunSchema = z.object({
@@ -135,6 +146,8 @@ export const startAgentRunSchema = z.object({
   started_at: z.iso.datetime({ offset: true, message: 'started_at must be an ISO 8601 time' }).optional(),
   /** The run that handed this one its work (an orchestrator's): a run the key can see. Fixed once written. */
   parent_run_id: z.uuid('parent_run_id must be a run id').optional(),
+  /** Which worker of the agent runs it, when it runs several (a pool): counted in its live instances. */
+  instance_id: instanceIdSchema.optional(),
 }).strict();
 export type StartAgentRunInput = z.infer<typeof startAgentRunSchema>;
 
@@ -143,11 +156,22 @@ export const updateAgentRunSchema = z.object({
   /**
    * A finished status finishes the run, as POST .../finish does. waiting
    * says it waits on a person; running says it is back at work (any other
-   * update from the agent says so too).
+   * update from the agent says so too). blocked: as blocked true.
    */
-  status: z.enum(AGENT_RUN_STATUSES).optional(),
+  status: z.enum([...AGENT_RUN_STATUSES, 'blocked']).optional(),
   task_id: z.uuid('task_id must be a uuid').nullable().optional(),
-}).strict().refine((value) => Object.values(value).some((field) => field !== undefined), { message: 'Send at least one field to change' });
+  /**
+   * true (or status blocked) says the run cannot go on without a person, with
+   * blocked_reason: it waits, and shows on Needs you for its managers and the
+   * task's people until it moves. false clears it. For a decision, ask with
+   * ask_human or request_approval and run_id instead.
+   */
+  blocked: z.boolean().optional(),
+  blocked_reason: z.string().trim().min(1).max(AGENT_RUN_LIMITS.blockedReason, `blocked_reason is at most ${AGENT_RUN_LIMITS.blockedReason} characters`).optional(),
+}).strict()
+  .refine((value) => Object.values(value).some((field) => field !== undefined), { message: 'Send at least one field to change' })
+  .refine((value) => !(value.status === 'blocked' || value.blocked === true) || !!value.blocked_reason, { message: 'A blocked run says why: send blocked_reason', path: ['blocked_reason'] })
+  .refine((value) => !(value.status === 'blocked' && value.blocked === false), { message: 'status blocked and blocked false disagree', path: ['blocked'] });
 export type UpdateAgentRunInput = z.infer<typeof updateAgentRunSchema>;
 
 export const finishAgentRunSchema = z.object({
@@ -213,6 +237,14 @@ export interface AgentRunView extends AgentRunSummary {
   plan: AgentRunPlanStep[];
   notes: AgentRunNote[];
   metadata: Record<string, unknown>;
+  /** Where to pick it up again; null when none was written (or for a turn). */
+  resume_notes?: string | null;
+  /** The worker running it, when the agent runs several; null for the agent itself. */
+  instance_id?: string | null;
+  /** It cannot go on without a person (it waits); cleared when it moves. */
+  blocked?: boolean;
+  blocked_reason?: string | null;
+  blocked_at?: string | null;
 }
 
 /** A task's latest run, as task reads carry it: no trace link (that is the run's own readers'). */

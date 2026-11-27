@@ -122,6 +122,36 @@ A run can be `waiting`: neither running nor finished. Use it when the next step 
 - Turns that name a waiting run keep it waiting and restart its clock.
 - Analytics show it as "Waiting on a person", never as a timeout, and leave it out of the success rate until it finishes. It does not count against `max_concurrent_runs`.
 
+### When you are blocked
+
+Anything that stops you needs a person, never a task comment. A comment is the record only: nobody scans comments for blockers.
+
+1. **A decision or an answer:** `ask_human` or `request_approval` with your `run_id`. This is the main path. It lands on the person's Needs you with one-tap choices, and your run waits until it is answered.
+2. **Anything else that stops you** (a missing key, an outage, access you do not have): `update_run` with `blocked: true` (or `status: "blocked"`) and `blocked_reason`, one line a person reads. The run waits, its managers are told, and it shows on Needs you for its managers and the people on its task until it moves.
+3. **It clears when the run moves:** any update from you without `status: "waiting"` (back to running), a finish, or `blocked: false`. Saving `resume_notes` alone keeps it blocked.
+
+`run.updated` carries `blocked`, so a host sees it too.
+
+### Resume notes
+
+`update_run` with `resume_notes` (up to 8000 characters, replaced each time) saves where to pick the run up again. `get_run` returns it, so another worker, or you after a restart, starts from there.
+
+### Answers that do the thing
+
+When the fix is a setting a person can change in one tap, put it on the ask: the app does it when they answer, with their permissions.
+
+- `request_approval` with `action.type` `project.update` and `action.details` `{ project_id, time_tracking_enabled }`: done on approve.
+- `ask_human` with `choices` and `action` (same shape, plus `on_choice`, default the first choice): done when they pick that choice.
+- The person asked must be able to do it, or the ask is refused (`422 asked_cannot_perform`). The answer lists it in `proposed_actions` (`asked_may_perform`) and, once done, `performed`. Recommend only steps they can take.
+
+### Readiness before work
+
+`next_task` and `get_my_status` say up front what in the app would stop the work. `skip_reason: "time_tracking_off"`: the project tracks no time and your key holds `time.manage_own`, so a timer would be refused. `get_my_status` lists `blockers` on your open work's projects; with `project_id` or `task_id`, `can_start_work` is false for that project. Get it fixed first (an approval with `project.update`), then start.
+
+### Spend per run
+
+An Owner may set `max_run_spend_cents` in your limits. A start reporting more is refused, and a run whose reported cost (or the usage naming it) passes it is stopped as `cancelled` (`402 run_spend_exceeded`). Report `cost_usd` on the run as you go.
+
 ### Parent runs and handoff
 
 - `delegate_task` (`POST /api/v1/tasks/{id}/delegate`) hands work to another agent. Pass your `run_id`. Needs `tasks.manage_all`. Core never picks the receiver.
@@ -181,6 +211,7 @@ A task holds one delegation link: handing it on again replaces it. The runs keep
 - `expires_at` sets a deadline. After it, the question is stored as expired, `question.expired` goes out, and whoever asked (for an agent, its owners) is told once.
 - `cancel_question` withdraws it.
 - `run_id` names your run: it waits on the answer ([Waiting on a person](#waiting-on-a-person)).
+- **Under an orchestrator, ask it first.** If you work for an orchestrator, a question to a person goes to your orchestrator instead (`asked_to` is the orchestrator, `requested_to` whom you asked). It settles what it can and brings people only real decisions. An Owner can turn on "Ask a person directly" (`ask_people_directly` on `set_agent_access`) to skip this. Approvals, questions to other agents and questions that carry an action go where they are addressed.
 
 ### Approvals
 

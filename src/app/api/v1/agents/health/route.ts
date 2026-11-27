@@ -4,6 +4,7 @@ import { success } from '@/lib/api/response';
 import { agentHealthReportSchema, DEFAULT_HEARTBEAT_INTERVAL_SECONDS } from '@/lib/schemas';
 import { requireAgentsEnabled } from '@/lib/api/agents';
 import { badRequest } from '@/lib/api/errors';
+import { recordInstance } from '@/lib/api/agent-instances';
 
 /**
  * Infrastructure heartbeats from a fleet publisher. An agent reporting only
@@ -50,13 +51,36 @@ export const POST = withApi<z.infer<typeof agentHealthReportSchema>>(async ({ su
   }
 
   const now = new Date().toISOString();
+  // Workers of one agent (instance_id): each kept on its own, and the agent
+  // reported once, up when any is, working when any is (since the earliest).
+  for (const r of reports) {
+    if (r.instance_id) {
+      await recordInstance(supabase, r.member_id, {
+        instance_id: r.instance_id, working: r.turn_running, turn_started_at: r.turn_started_at ?? null,
+        expected_interval_seconds: r.expected_interval_seconds,
+      });
+    }
+  }
+  const merged = new Map<string, (typeof reports)[number]>();
+  for (const r of reports) {
+    const seen = merged.get(r.member_id);
+    if (!seen) { merged.set(r.member_id, { ...r }); continue; }
+    const starts = [seen.turn_running ? seen.turn_started_at : null, r.turn_running ? r.turn_started_at : null].filter((v): v is string => !!v).sort();
+    merged.set(r.member_id, {
+      ...seen,
+      container_running: seen.container_running || r.container_running,
+      turn_running: seen.turn_running || r.turn_running,
+      turn_started_at: starts[0] ?? null,
+      expected_interval_seconds: seen.expected_interval_seconds ?? r.expected_interval_seconds,
+    });
+  }
   // A batch that declares no interval writes exactly the columns it always
   // did, so each row keeps the interval it has. One that declares any sets
   // every row's (60 where left out): a batch upsert writes the same columns
   // for every row.
   const declaresInterval = reports.some((r) => r.expected_interval_seconds !== undefined);
   const { error } = await supabase.from('agent_health').upsert(
-    reports.map((r) => ({
+    [...merged.values()].map((r) => ({
       member_id: r.member_id,
       container: r.container ?? null,
       container_running: r.container_running,

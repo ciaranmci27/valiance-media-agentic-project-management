@@ -66,6 +66,12 @@ export const DEMO_CHAT_CONNECTIONS: ChatConnectionView[] = [
     candidates: [{ id: ATLAS, name: 'Atlas', can_act_for: true }, { id: SCOUT, name: 'Scout', can_act_for: true }],
     recent_channels: [{ id: '1180000000000000002', name: null, last_at: daysAgo(2) }],
   },
+  {
+    // Switched off: one compact row, its setup folded away.
+    ...base('a5a5a5a5-4004-4000-8000-000000000004', 'slack', 'Slack'), kind: 'company', display_name: 'Acme Studio', external_workspace_id: 'T0ACME', bot_handle: 'acme-agents',
+    enabled: false, last_inbound_at: daysAgo(30), last_refused_at: null, created_at: daysAgo(40),
+    agents: [], channels: [], candidates: [{ id: ATLAS, name: 'Atlas', can_act_for: true }, { id: SCOUT, name: 'Scout', can_act_for: true }],
+  },
 ];
 
 /**

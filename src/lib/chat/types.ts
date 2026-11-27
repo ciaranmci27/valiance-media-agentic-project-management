@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { instanceIdSchema } from '@/lib/agent-runs';
 
 /**
  * The chat switchboard's vocabulary: the providers a workspace connects, how
@@ -139,6 +140,17 @@ export const updateChatConnectionSchema = z.object({
 }).strict().refine((body) => Object.keys(body).length > 0, 'Send display_name, enabled, new_relay_secret, bot_token or signing_secret');
 export type UpdateChatConnection = z.infer<typeof updateChatConnectionSchema>;
 
+/**
+ * PATCH /api/v1/chat/connections/{id}: rename or switch on or off. A bot
+ * token, signing secret or relay secret is changed in the app only, by an
+ * Owner: a secret never passes through an agent, so those fields are refused.
+ */
+export const apiUpdateChatConnectionSchema = z.object({
+  display_name: z.string().trim().min(1, 'Give it a name').max(100).optional(),
+  enabled: z.boolean().optional(),
+}).strict().refine((body) => Object.keys(body).length > 0, 'Send display_name or enabled');
+export type ApiUpdateChatConnection = z.infer<typeof apiUpdateChatConnectionSchema>;
+
 /** The provider's own shape for a bot token or Slack signing secret, said in its words (shared by connect and replace). */
 export const CHAT_TOKEN_SHAPES: Record<ChatProvider, { bot_token: RegExp; message: string }> = {
   slack: { bot_token: /^xoxb-[A-Za-z0-9-]{10,250}$/, message: 'The bot token starts with xoxb-: copy it from OAuth & Permissions in your Slack app' },
@@ -264,8 +276,16 @@ export const chatReplySchema = z.object({
   also_send_to_channel: z.boolean().optional(),
   /** Send the reply to the sender by DM instead of where they wrote. */
   private: z.boolean().optional(),
+  /** The worker replying (a pool): needed while that worker holds the message or its conversation. */
+  instance_id: instanceIdSchema.optional(),
 }).strict();
 export type ChatReplyInput = z.infer<typeof chatReplySchema>;
+
+/** Marking a message handled: the worker doing it, while a worker holds it. */
+export const chatHandledSchema = z.object({
+  instance_id: instanceIdSchema.optional(),
+});
+export type ChatHandledInput = z.infer<typeof chatHandledSchema>;
 
 /** A link sent with a message, shown the provider's way: a Slack link, a Telegram button, a Discord masked link. */
 export const chatLinkSchema = z.object({
@@ -356,12 +376,16 @@ export interface AssistantChatMessage {
   attachments: ChatAttachmentView[];
   /** The message an agent started (POST /api/v1/chat/messages) that this one answers, or null. */
   in_reply_to: string | null;
+  /** The conversation it belongs to (a DM, or a thread in a channel): claim it whole, or read it with GET /api/v1/chat/conversations/{id}. Null before the database update. */
+  chat_conversation_id?: string | null;
+  /** The live lease on it (its agent, and the worker holding it), or null. */
+  claim?: { agent_id: string; instance_id: string | null; claimed_at: string | null; expires_at: string } | null;
 }
 
 /** The words the app sends on its own. Plain and short; the link is the one-time link. */
 export const CHAT_WORDS = {
-  linkPrompt: (workspace: string, url: string) =>
-    `Hi! I don't know who you are in ${workspace} yet. Open this link while signed in to connect this account: ${url}\nIt works once and expires in 15 minutes.`,
+  linkPrompt: (workspace: string, url: string, code?: string) =>
+    `Hi! I don't know who you are in ${workspace} yet. Open this link while signed in to connect this account: ${url}\n${code ? `When it asks, type this code: ${code}\nNever share the link or the code. ` : ''}It works once and expires in 15 minutes.`,
   linkAgain: 'I sent you a link to connect this account a moment ago. Open it while signed in. If it expires, message me again for a new one.',
   linkDirectly: 'Message me directly to connect your account.',
   inactive: 'This account is not active here. Ask your admin.',
@@ -395,10 +419,10 @@ export const QUIET_WORDS = {
   pausedByAdmin: (name: string) => `${name} is paused by an admin. It gets what you send meanwhile when they resume it.`,
   /** On hold, and its host stopped reporting. fixer: an admin was told, or the person fixes it in Settings. */
   hostDown: (name: string, fixer: 'admin' | 'settings') =>
-    `${name} is on hold and its host is not responding. ${fixer === 'admin' ? 'Your admin has been told.' : 'Fix it in Settings > Assistants.'}`,
+    `${name} is on hold and its host is not responding. ${fixer === 'admin' ? 'Your admin has been told.' : 'Fix it in AI > Setup.'}`,
   /** Not working: why ("its key expired or was revoked"), then who fixes it. */
   broken: (name: string, why: string, fixer: 'admin' | 'settings') =>
-    `${name} can't answer right now${why ? `: ${why}` : ''}. ${fixer === 'admin' ? 'Your admin has been told.' : 'Fix it in Settings > Assistants.'}`,
+    `${name} can't answer right now${why ? `: ${why}` : ''}. ${fixer === 'admin' ? 'Your admin has been told.' : 'Fix it in AI > Setup.'}`,
   /** A company agent that is paused, suspended, never connected, or whose host stopped reporting. */
   companyDown: (name: string) => `${name} can't answer right now. Try again later.`,
 } as const;

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useId, useRef, useState } from 'react';
+import { useEffect, useId, useRef } from 'react';
 import { AlertTriangle, Trash2 } from 'lucide-react';
 import { Button } from './Button';
 
@@ -12,13 +12,12 @@ interface ConfirmDialogProps {
   message: string;
   confirmLabel?: string;
   variant?: 'danger' | 'default';
+  /**
+   * @deprecated Ignored: a confirm asks once (DESIGN.md Rule 6, owner
+   * critique A24). Kept so older call sites still type-check; drop it when
+   * you touch one.
+   */
   doubleConfirm?: boolean;
-  /** Custom title for the second confirmation step (defaults to "Are you absolutely sure?") */
-  doubleConfirmTitle?: string;
-  /** Custom message for the second confirmation step */
-  doubleConfirmMessage?: string;
-  /** Custom button label for the second confirmation step */
-  doubleConfirmLabel?: string;
   /**
    * A delete that moves the record to Trash: nothing is lost, so one step is
    * enough, the button says so, and the dialog says where to restore it.
@@ -40,16 +39,11 @@ export function ConfirmDialog({
   trash = false,
   confirmLabel = trash ? 'Move to Trash' : 'Delete',
   variant = 'danger',
-  doubleConfirm = variant === 'danger' && !trash,
-  doubleConfirmTitle = 'Are you absolutely sure?',
-  doubleConfirmMessage = 'This action is permanent and cannot be undone.',
-  doubleConfirmLabel,
   returnFocus,
 }: ConfirmDialogProps) {
   const overlayRef = useRef<HTMLDivElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
-  const [step, setStep] = useState(1);
   const returnFocusRef = useRef(returnFocus);
   useEffect(() => {
     returnFocusRef.current = returnFocus;
@@ -102,22 +96,16 @@ export function ConfirmDialog({
   }, [isOpen, onClose]);
 
   const handleClose = () => {
-    setStep(1);
     onClose();
   };
 
+  // One clear question, one answer: the confirm acts at once (never a second "are you sure").
   const handleConfirmClick = () => {
-    if (doubleConfirm && step === 1) {
-      setStep(2);
-      return;
-    }
     onConfirm();
     handleClose();
   };
 
   if (!isOpen) return null;
-
-  const isStep2 = doubleConfirm && step === 2;
 
   return (
     <div
@@ -144,12 +132,12 @@ export function ConfirmDialog({
           </div>
 
           <h3 id={titleId} className="text-lg font-semibold text-white mb-2">
-            {isStep2 ? doubleConfirmTitle : title}
+            {title}
           </h3>
           <p className="text-sm text-zinc-400 leading-relaxed">
-            {isStep2 ? doubleConfirmMessage : message}
+            {message}
           </p>
-          {trash && !isStep2 && (
+          {trash && (
             <p className="mt-2 text-sm text-zinc-400 leading-relaxed">
               You can restore from Settings, Trash any time.
             </p>
@@ -165,7 +153,7 @@ export function ConfirmDialog({
             onClick={handleConfirmClick}
             className="flex-1"
           >
-            {isStep2 ? (doubleConfirmLabel ?? confirmLabel) : confirmLabel}
+            {confirmLabel}
           </Button>
         </div>
       </div>

@@ -366,7 +366,7 @@ function RosterCard({ entry, templateLabel, warm }: { entry: RosterEntry; templa
     : entry.statusNote ?? entry.lastLine ?? null;
   return (
     <Link
-      href={`/agent/${entry.id}`}
+      href={`/ai/agents/${entry.id}`}
       {...warm}
       className="group flex h-full flex-col rounded-2xl bg-white/[0.03] p-4 ring-1 ring-inset ring-white/[0.06] transition-all duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] hover:bg-white/[0.05] hover:ring-white/[0.1] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 sm:p-5"
     >

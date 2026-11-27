@@ -44,6 +44,8 @@ function parseEnv(text) {
 const local = parseEnv(readFileSync(ENV_FILE, 'utf8'));
 // Seeded logins stay out of the server's environment.
 for (const key of Object.keys(local)) if (key.startsWith('LOCAL_')) delete local[key];
+// A second server on another port (the end-to-end suite starts its own) links to itself.
+if (PORT !== '3010') local.NEXT_PUBLIC_APP_URL = `http://localhost:${PORT}`;
 
 const isLocal = (value) => {
   try {

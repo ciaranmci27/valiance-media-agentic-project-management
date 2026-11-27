@@ -15,8 +15,10 @@ import { useDemo } from '@/lib/demo-context';
 import InviteMemberModal from '@/components/team/InviteMemberModal';
 import { MemberStatusChip, RoleChip } from '@/components/team/member-chips';
 import { useMemberActions } from '@/components/team/member-actions';
+import { agentPageHref } from '@/lib/ai-home';
 
-const profileHref = (member: TeamMember) => `/team/${member.id}`;
+// An agent's row opens its own page in AI (who can use it, what it may do, its keys); a person's opens their profile.
+const profileHref = (member: TeamMember) => (member.role === 'agent' ? agentPageHref(member.id) : `/team/${member.id}`);
 
 export default function TeamPage() {
   const { team, upsertLocalTeamMember, tasks, filters, setFilters } = useApp();

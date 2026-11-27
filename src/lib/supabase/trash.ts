@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { fetchAllRows } from './fetch-all';
 import type { ModuleId } from '@/lib/modules/registry';
+import type { PermissionKey } from '@/lib/access-control';
 
 /**
  * Records are never permanently deleted: "delete" moves one to Trash and
@@ -149,3 +150,15 @@ export async function projectIsLive(supabase: SupabaseClient, projectId: string 
 export function postgrestList(ids: string[]): string {
   return `(${ids.join(',')})`;
 }
+
+/** The record types the API names (GET /api/v1/trash, its restore route): the Trash tables. */
+export const TRASH_TYPES = TRASH_TABLES;
+
+
+/** Every permission one of the per-type rules can rest on: the withApi gate, so a key with none of them is refused up front. */
+export const TRASH_PERMISSIONS: PermissionKey[] = [
+  'projects.manage', 'tasks.read', 'tasks.manage_assigned', 'tasks.manage_all', 'tasks.create', 'reminders.manage_own',
+  'credentials.manage', 'files.upload', 'files.manage', 'portal.manage', 'contacts.manage', 'leads.manage',
+  'time.manage_own', 'time.manage_all', 'invoices.manage', 'invoices.record_payments', 'billing.manage', 'templates.manage',
+];
+

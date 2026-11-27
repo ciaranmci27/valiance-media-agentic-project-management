@@ -9,6 +9,7 @@ import { provisionForPeople } from '@/lib/api/personal-agents';
 import { checkMemberName, isValidTimeZone } from '@/lib/member-profile';
 import { readJsonBody } from '@/lib/api/body-limit';
 import { profileFieldProblem } from '@/lib/schemas/profile';
+import { plainDbError } from '@/lib/api/plain-error';
 
 const PROFILE_FIELDS = ['name', 'title', 'avatar', 'timezone', 'notification_prefs', 'email_notifications_enabled', 'email_notification_prefs', 'theme_preference'] as const;
 const MANAGEMENT_FIELDS = [...PROFILE_FIELDS, 'status'] as const;
@@ -59,7 +60,7 @@ export async function PATCH(
       .maybeSingle();
     // A database before 20261127001500 has no flag: nothing to default there.
     if (defaultError && !['42703', 'PGRST204'].includes(defaultError.code ?? '')) {
-      return NextResponse.json({ error: defaultError.message }, { status: 500 });
+      return plainDbError(defaultError);
     }
     if (defaulted) return NextResponse.json({ data: defaulted });
     const { data: current } = await service.from('team_members').select().eq('id', id).maybeSingle();
@@ -187,7 +188,7 @@ export async function PATCH(
   if (error?.message?.includes('At least one active Owner')) {
     return NextResponse.json({ error: 'A workspace needs at least one active Owner. Make someone else an Owner first.' }, { status: 409 });
   }
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return plainDbError(error);
   // A new role (or a person back from suspension) may call for an assistant a setup gives.
   if (('role' in updates || updates.status === 'active') && data.role !== 'agent') await provisionForPeople(service, [id], memberId);
   return NextResponse.json({ data });

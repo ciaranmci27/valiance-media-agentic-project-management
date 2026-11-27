@@ -104,7 +104,8 @@ function hookSignals() {
 // ---------------------------------------------------------------------------
 interface Waiter {
   client: SupabaseClient;
-  memberId: string | null;
+  /** The members whose routed events wake it (a host key's agents: several). */
+  memberIds: string[];
   agentEvents: boolean;
   /** The projects whose agent events wake it; null: every project. */
   agentEventProjects: string[] | null;
@@ -129,7 +130,7 @@ async function probe() {
   probeTimer = null;
   if (waiters.size === 0) return;
   const open = [...waiters];
-  const members = [...new Set(open.map((w) => w.memberId).filter((id): id is string => !!id))];
+  const members = [...new Set(open.flatMap((w) => w.memberIds))];
   // A wait that reads every project hears any agent event; one that reads some, only theirs.
   const agentEvents = open.some((w) => w.agentEvents && w.agentEventProjects === null);
   const projects = [...new Set(open.flatMap((w) => (w.agentEvents && w.agentEventProjects ? w.agentEventProjects : [])))];
@@ -143,7 +144,7 @@ async function probe() {
       const agentHeads = !waiter.agentEvents ? []
         : waiter.agentEventProjects === null ? [at(heads.agent_events)]
           : waiter.agentEventProjects.map((project) => at(heads.projects?.[project]));
-      const candidates = [waiter.memberId ? at(heads.members?.[waiter.memberId]) : null, ...agentHeads]
+      const candidates = [...waiter.memberIds.map((member) => at(heads.members?.[member])), ...agentHeads]
         .filter((head): head is FeedPosition => !!head && comparePositions(head, waiter.seen) > 0);
       if (candidates.length > 0) {
         probeStats.wakes += 1;
@@ -251,6 +252,8 @@ export interface WaitOptions {
   apiKeyId: string;
   /** The member whose routed events wake this wait (null: none). */
   memberId: string | null;
+  /** More members whose routed events wake it too (a host key's agents). */
+  memberIds?: string[];
   /** Agent events wake it too. */
   agentEvents: boolean;
   /** Only agent events on these projects (the ones the caller reads); null or left out: every project. */
@@ -293,7 +296,8 @@ export async function waitForEvents(options: WaitOptions): Promise<WaitOutcome> 
       } else {
         const from = seen;
         slept = await sleepUntil(deadline, options.signal, (wake) => {
-          const waiter: Waiter = { client: options.client, memberId: options.memberId, agentEvents: options.agentEvents,
+          const memberIds = [...new Set([...(options.memberId ? [options.memberId] : []), ...(options.memberIds ?? [])])];
+          const waiter: Waiter = { client: options.client, memberIds, agentEvents: options.agentEvents,
             agentEventProjects: options.agentEventProjects ?? null, seen: from, wake };
           waiters.add(waiter);
           scheduleProbe();

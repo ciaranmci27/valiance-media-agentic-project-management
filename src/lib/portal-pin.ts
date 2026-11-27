@@ -1,7 +1,6 @@
 /**
  * The one PIN check every portal route runs. A 4-digit PIN is only 10,000
- * guesses, so wrong attempts are rate limited from the pin_attempt rows the
- * analytics table already keeps.
+ * guesses, so wrong attempts are rate limited.
  *
  * Two layers. A visitor (IP) who misses too often is locked out for a while,
  * which is the friendly limit a client mistyping will ever meet. The portal
@@ -10,11 +9,17 @@
  * write: rotating it must not buy an attacker unlimited guesses. At the daily
  * ceiling a 4-digit PIN takes weeks to brute force, and every miss is visible
  * in the portal's analytics.
+ *
+ * The check is one database function (pm.check_portal_pin,
+ * 20261127002400_security_fixes.sql): it locks the portal's row, applies the
+ * limits, compares and records the miss in one transaction, so parallel
+ * guesses never all read "under the limit". An address that is not one is
+ * stored as no address and still counted. When the limiter cannot answer,
+ * the visitor is locked (fail closed), never let through.
  */
-import { timingSafeEqual } from 'node:crypto';
 import { NextResponse, type NextRequest } from 'next/server';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { getClientIp, getOrCreateSessionId, recordPortalEvent, stripCidrHostPrefix } from '@/lib/portal-analytics';
+import { getClientIp, getOrCreateSessionId, recordPortalEvent } from '@/lib/portal-analytics';
 
 /** Misses one visitor (IP) may make inside the window before a lockout. */
 export const PIN_MAX_MISSES_PER_VISITOR = 5;
@@ -22,43 +27,8 @@ export const PIN_VISITOR_WINDOW_MS = 15 * 60_000;
 /** Misses across every visitor that lock the whole portal. */
 export const PIN_MAX_MISSES_PER_PORTAL_HOUR = 20;
 export const PIN_MAX_MISSES_PER_PORTAL_DAY = 100;
-const HOUR_MS = 60 * 60_000;
-const DAY_MS = 24 * HOUR_MS;
-
-export interface PinAttempt {
-  ip: string | null;
-  at: number;
-}
-
-/**
- * Seconds until fewer than `max` of `times` fall inside the window, or 0 when
- * they already do. The lock lifts when the max-th newest miss ages out.
- */
-function secondsUntilUnder(times: number[], max: number, windowMs: number, now: number): number {
-  const recent = times.filter(at => now - at < windowMs).sort((a, b) => b - a);
-  if (recent.length < max) return 0;
-  return Math.max(1, Math.ceil((recent[max - 1] + windowMs - now) / 1000));
-}
-
-/**
- * Pure lockout decision over recent misses for one portal. Returns the
- * seconds until the visitor may try again, or 0 when they are not locked.
- */
-export function pinLockoutSeconds(misses: PinAttempt[], visitorIp: string | null, now: number): number {
-  const all = misses.map(m => m.at);
-  const mine = misses.filter(m => m.ip === visitorIp).map(m => m.at);
-  return Math.max(
-    secondsUntilUnder(mine, PIN_MAX_MISSES_PER_VISITOR, PIN_VISITOR_WINDOW_MS, now),
-    secondsUntilUnder(all, PIN_MAX_MISSES_PER_PORTAL_HOUR, HOUR_MS, now),
-    secondsUntilUnder(all, PIN_MAX_MISSES_PER_PORTAL_DAY, DAY_MS, now),
-  );
-}
-
-function pinsMatch(submitted: string, expected: string): boolean {
-  const a = Buffer.from(submitted);
-  const b = Buffer.from(expected);
-  return a.length === b.length && timingSafeEqual(a, b);
-}
+/** How long a visitor waits when the limiter itself cannot answer. */
+export const PIN_LIMITER_DOWN_RETRY_SECONDS = 60;
 
 export type PortalPinResult =
   | { ok: true }
@@ -88,40 +58,44 @@ export async function checkPortalPin({
   // "No PIN yet" is the normal first load: nothing to count or log.
   if (!pin) return { ok: false, reason: 'required' };
 
-  const now = Date.now();
-  const ip = getClientIp(request);
-  const { data: recent } = await supabase
-    .from('portal_events')
-    .select('ip_address, created_at')
-    .eq('portal_settings_id', settings.id)
-    .eq('event_type', 'pin_attempt')
-    .gte('created_at', new Date(now - DAY_MS).toISOString())
-    .order('created_at', { ascending: false })
-    // Newest first, so a capped read still holds every row each rule counts.
-    .limit(PIN_MAX_MISSES_PER_PORTAL_DAY);
+  const locked = (seconds: number): PortalPinResult => ({ ok: false, reason: 'locked', retryAfterSeconds: Math.max(1, Math.ceil(seconds)) });
+  let answer = null as { result?: string; retry_after_seconds?: number } | null;
+  try {
+    const { data, error } = await supabase.rpc('check_portal_pin', {
+      p_portal_settings_id: settings.id,
+      p_pin: pin.slice(0, 64),
+      p_ip: getClientIp(request),
+    });
+    if (error) throw error;
+    answer = data as typeof answer;
+  } catch (error) {
+    console.error('[portal-pin] the limiter did not answer; locking', error);
+    return locked(PIN_LIMITER_DOWN_RETRY_SECONDS);
+  }
 
-  const misses: PinAttempt[] = (recent ?? []).map(row => ({
-    ip: row.ip_address ? stripCidrHostPrefix(String(row.ip_address)) : null,
-    at: Date.parse(row.created_at),
-  }));
-  // Checked before the comparison, so a locked visitor learns nothing even
-  // when the guess is right.
-  const retryAfterSeconds = pinLockoutSeconds(misses, ip, now);
-  if (retryAfterSeconds > 0) return { ok: false, reason: 'locked', retryAfterSeconds };
-
-  if (pinsMatch(pin, settings.pin)) return { ok: true };
-
-  await recordPortalEvent({
-    supabase,
-    request,
-    token,
-    portalSettingsId: settings.id,
-    projectId: settings.project_id,
-    sessionId: getOrCreateSessionId(request),
-    eventType: 'pin_attempt',
-    metadata: { success: false },
-  });
-  return { ok: false, reason: 'invalid' };
+  switch (answer?.result) {
+    case 'ok':
+      return { ok: true };
+    case 'required':
+      return { ok: false, reason: 'required' };
+    case 'locked':
+      return locked(Number(answer.retry_after_seconds) || PIN_LIMITER_DOWN_RETRY_SECONDS);
+    case 'invalid':
+      // The miss is already counted; this row is the portal's analytics only.
+      await recordPortalEvent({
+        supabase,
+        request,
+        token,
+        portalSettingsId: settings.id,
+        projectId: settings.project_id,
+        sessionId: getOrCreateSessionId(request),
+        eventType: 'pin_attempt',
+        metadata: { success: false },
+      });
+      return { ok: false, reason: 'invalid' };
+    default:
+      return locked(PIN_LIMITER_DOWN_RETRY_SECONDS);
+  }
 }
 
 /** Client-facing copy for a lockout, rounded up to whole minutes. */

@@ -112,8 +112,12 @@ async function headerChecks() {
   check('framing: nor can sign-in', denies('/login') && denies('/login/:path*'), rules);
   // The app frames its own email previews (/email-preview frames /api/email-preview), and an
   // install may frame the client portal, so the rule is not app-wide.
-  check('framing: the rule is not app-wide (email previews and the portal may be framed)', !rules.some((r) => /^\/(:path\*|\(\.\*\))?$/.test(r.source)
-    && r.headers.some((h) => /frame/i.test(h.key) || /frame-ancestors/.test(h.value))), rules.map((r) => r.source));
+  // Email previews frame the app's own pages and an install may frame the portal: app-wide is
+  // 'self' (security review finding 13), never 'none' or X-Frame-Options, and the portal is open.
+  check('framing: the deny rule is not app-wide (email previews and the portal may be framed)', !rules.some((r) => /^\/(:path\*|\(\.\*\))?$/.test(r.source)
+    && r.headers.some((h) => /x-frame-options/i.test(h.key) || /frame-ancestors 'none'/.test(h.value))), rules.map((r) => r.source));
+  const portalPolicy = rules.filter((r) => r.source === '/portal/:path*').flatMap((r) => r.headers).find((h) => h.key === 'Content-Security-Policy')?.value ?? '';
+  check('framing: the portal carries no frame-ancestors', !/frame-ancestors/.test(portalPolicy), portalPolicy);
 }
 
 function pureChecks() {
@@ -482,8 +486,13 @@ async function main() {
     const ownerConn = await getTokens(LOGINS.owner);
     const ownerTools = await toolsOf({ bearer: ownerConn.tokens.body.access_token });
     const ownerKeyTools = await toolsOf({ key: s.keys.owner });
+    // A person's own: their own assistant and personal agents (API parity, 2026-11-27: "for the person's own key or
+    // connected AI tool"), and whether every agent is paused, which any member but a guest reads.
+    const personOwn = ['list_project_agents', 'ask_human', 'list_my_projects', 'get_my_assistant', 'update_my_assistant', 'undo_assistant_action',
+      'list_my_assistant_activity', 'list_my_personal_agents', 'get_agents_pause'];
     check('mcp: an Owner\'s token has no admin tools (keys, team, agents, webhooks, access)', ownerTools.names.includes('create_task')
-      && !ownerTools.names.some((n) => /api_key|agent|team|group|webhook|identity|assistant|setup/.test(n) && n !== 'list_project_agents' && n !== 'ask_human' && n !== 'list_my_projects'), ownerTools.names);
+      && !ownerTools.names.some((n) => /api_key|agent|team|group|webhook|identity|assistant|setup/.test(n) && !personOwn.includes(n)),
+      ownerTools.names.filter((n) => /api_key|agent|team|group|webhook|identity|assistant|setup/.test(n) && !personOwn.includes(n)));
     check('mcp: while the Owner\'s own key with those scopes has them', ownerKeyTools.names.includes('create_api_key') && ownerKeyTools.names.includes('list_team'));
 
     // ── Tool catalog ──────────────────────────────────────────────────

@@ -82,7 +82,7 @@ export interface FeedQuery {
  * every member type the key may read. A type the key may not read is 403
  * type_not_allowed, naming what it needs; an unknown one is 400.
  */
-export function parseFeedQuery(searchParams: URLSearchParams, access: AccessContext, scopes: string[]): FeedQuery {
+export function parseFeedQuery(searchParams: URLSearchParams, access: AccessContext, scopes: string[], options: { host?: boolean } = {}): FeedQuery {
   const rawLimit = searchParams.get('limit');
   const limit = rawLimit === null ? FEED_LIMIT_DEFAULT : Number(rawLimit);
   if (!Number.isInteger(limit) || limit < 1 || limit > FEED_LIMIT_MAX) {
@@ -91,7 +91,8 @@ export function parseFeedQuery(searchParams: URLSearchParams, access: AccessCont
   const asked = list(searchParams.get('types'), 'types', TYPE, FEED_TYPES.length);
   const unknown = (asked ?? []).filter((type) => !(FEED_TYPES as readonly string[]).includes(type));
   if (unknown.length > 0) throw badRequest(`types are ${FEED_TYPES.join(', ')}; unknown: ${unknown.join(', ')}`, { reason: 'invalid_types' });
-  const allowed = (type: FeedType) => keyHoldsAny(access, scopes, FEED_TYPE_PERMISSIONS[type]);
+  // A host key reads every type for the agents it serves (agent events only when asked for).
+  const allowed = (type: FeedType) => options.host === true || keyHoldsAny(access, scopes, FEED_TYPE_PERMISSIONS[type]);
   let types: FeedType[];
   if (asked) {
     const refused = (asked as FeedType[]).filter((type) => !allowed(type));
@@ -208,6 +209,32 @@ export async function readFeed(service: SupabaseClient, access: AccessContext, m
   });
   if (error) {
     if (missingFeed(error)) throw new FeedMissing();
+    throw error;
+  }
+  const answer = (data ?? {}) as { resync?: boolean; events?: Row[]; has_more?: boolean; cursor?: [string, string] };
+  const cursor = { txid: String(answer.cursor?.[0] ?? '0'), seq: String(answer.cursor?.[1] ?? '0') };
+  if (answer.resync) return { resync: true, cursor };
+  return { resync: false, events: (answer.events ?? []).map(present), has_more: answer.has_more === true, cursor };
+}
+
+/**
+ * One page of the host feed (a host key, agents.host): events routed to any
+ * of the agents it serves (agentIds, already checked as bound), and their
+ * agent events when the query asks for them. Throws FeedMissing before the
+ * migration (20261127002000).
+ */
+export async function readHostFeed(service: SupabaseClient, agentIds: string[], query: FeedQuery, after: FeedPosition | null): Promise<FeedPage> {
+  const { data, error } = await service.rpc('event_feed_read_host', {
+    p_after_txid: after?.txid ?? null,
+    p_after_seq: after?.seq ?? null,
+    p_limit: query.limit,
+    p_member_ids: agentIds,
+    p_member_types: query.types.filter((type) => type !== 'agent_event.created'),
+    p_agent_events: query.types.includes('agent_event.created'),
+    p_agent_event_types: query.agentEventTypes,
+  });
+  if (error) {
+    if (missingFeed(error) || /event_feed_read_host/.test(error.message ?? '')) throw new FeedMissing();
     throw error;
   }
   const answer = (data ?? {}) as { resync?: boolean; events?: Row[]; has_more?: boolean; cursor?: [string, string] };

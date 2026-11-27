@@ -6,7 +6,7 @@ import { useAuth } from '@/lib/auth-context';
 import { useDemo } from '@/lib/demo-context';
 import { hasPermission } from '@/lib/access-control';
 import { useRead } from '@/lib/query-cache';
-import { mySnoozesRead, useOpenQuestions } from '@/lib/reads';
+import { mySnoozesRead, useBlockedRuns, useOpenQuestions } from '@/lib/reads';
 import { computeNeedsYou, type NeedsYouItem } from '@/lib/autonomy';
 import { buildAgentNeedsYou, type AgentNeedsYou } from '@/lib/agents-tab';
 import { activeSnoozes, agentNeedsYouWithoutSnoozed, needsYouWithoutSnoozed, nextSnoozeWake, type Snooze } from '@/lib/notifications';
@@ -35,10 +35,11 @@ const MAX_TIMER_MS = 2 ** 31 - 1;
  * own (no polling, no job).
  */
 export function useNeedsYou(): NeedsYou {
-  const { tasks, taskSuggestions, projects, team, agentActivity } = useApp();
+  const { tasks, taskSuggestions, projects, team, agentActivity, loading, loadErrors } = useApp();
   const { teamMemberId, access } = useAuth();
   const { isDemoMode } = useDemo();
   const questions = useOpenQuestions();
+  const blockedRuns = useBlockedRuns();
   const snoozes = useRead(teamMemberId ? mySnoozesRead(isDemoMode) : null).data ?? NO_SNOOZES;
   const oversight = hasPermission(access, 'agents.manage');
 
@@ -60,7 +61,12 @@ export function useNeedsYou(): NeedsYou {
     oversight,
     agentActivity,
     questions,
-  }), [tasks, taskSuggestions, projects, teamMemberId, oversight, agentActivity, questions]);
+    blockedRuns,
+    // Once the workspace has loaded, a question whose task or project is no
+    // longer in it went to Trash: it leaves every count at once.
+    // A failed tasks or projects read is not proof anything went to Trash.
+    placesLoaded: !loading && !loadErrors.includes('tasks') && !loadErrors.includes('projects'),
+  }), [tasks, taskSuggestions, projects, teamMemberId, oversight, agentActivity, questions, blockedRuns, loading, loadErrors]);
 
   return useMemo(() => {
     const hidden = activeSnoozes(snoozes, now);

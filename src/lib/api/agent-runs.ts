@@ -22,8 +22,8 @@ import { postgrestList, trashedProjectIds } from '@/lib/supabase/trash';
 import { accessAllows, accessAllowsProject, apiKeyAllows, resolveMemberAccess } from './access';
 import { requireAgentsEnabled } from './agents';
 import { afterResponse } from './after-response';
-import { checkBudgetAfterUsage, enforceRunStart } from './agent-limits';
-import { gateAgentWork } from './agent-access';
+import { checkBudgetAfterUsage, enforceRunSpend, enforceRunStart, runSpendCap, runSpendExceeded } from './agent-limits';
+import { gateAgentWork, notifyAgentManagers } from './agent-access';
 import { assertProjectWritable } from './request-gate';
 import { ApiError, badRequest, forbidden, notFound } from './errors';
 import { readPage } from './pagination';
@@ -187,6 +187,12 @@ async function presentRun(db: SupabaseClient, row: Row): Promise<AgentRunView> {
     plan: Array.isArray(row.plan) ? row.plan : [],
     notes: Array.isArray(row.notes) ? row.notes : [],
     metadata: row.metadata && typeof row.metadata === 'object' ? row.metadata : {},
+    // Read before 20261127002000 as none.
+    resume_notes: (row.resume_notes as string | null | undefined) ?? null,
+    instance_id: (row.instance_id as string | null | undefined) ?? null,
+    blocked: !!row.blocked_at && (row.status === 'waiting'),
+    blocked_reason: row.blocked_at && row.status === 'waiting' ? (row.blocked_reason as string | null) ?? null : null,
+    blocked_at: row.blocked_at && row.status === 'waiting' ? row.blocked_at as string : null,
   };
 }
 
@@ -439,12 +445,12 @@ async function resolveAgent(ctx: RunsContext, agentId: string | undefined): Prom
 }
 
 /** The run fields a start, update or finish writes, from its input. */
-type RunFieldsInput = Pick<StartAgentRunInput, 'title' | 'summary' | 'plan' | 'note' | 'tokens_in' | 'tokens_out' | 'cost_usd' | 'model' | 'provider' | 'external_url' | 'metadata'>;
+type RunFieldsInput = Pick<StartAgentRunInput, 'title' | 'summary' | 'plan' | 'note' | 'tokens_in' | 'tokens_out' | 'cost_usd' | 'model' | 'provider' | 'external_url' | 'metadata' | 'resume_notes'>;
 
 function fieldsFrom(input: RunFieldsInput, notes: AgentRunNote[] | null): Row {
   const out: Row = {};
-  // provider is written only when sent, so a run without one saves as before.
-  for (const key of ['title', 'summary', 'plan', 'tokens_in', 'tokens_out', 'cost_usd', 'model', 'provider', 'external_url', 'metadata'] as const) {
+  // provider and resume_notes are written only when sent, so a run without them saves as before.
+  for (const key of ['title', 'summary', 'plan', 'tokens_in', 'tokens_out', 'cost_usd', 'model', 'provider', 'external_url', 'metadata', 'resume_notes'] as const) {
     if (input[key] !== undefined) out[key] = input[key];
   }
   if (input.note !== undefined) {
@@ -503,6 +509,11 @@ export async function startRun(ctx: RunsContext, input: StartAgentRunInput): Pro
   }
   // A new run, past the agent's limits: 409 limit_concurrent_runs or 402 budget_exceeded.
   await enforceRunStart(ctx.db, agentId);
+  // A start already reporting more than one run may spend: 402 run_spend_exceeded, nothing made.
+  if (input.cost_usd !== undefined) {
+    const cap = await runSpendCap(ctx.db, agentId);
+    if (cap !== null && input.cost_usd * 100 > cap) throw runSpendExceeded('', input.cost_usd, cap, false);
+  }
 
   const row: Row = {
     ...fieldsFrom(input, null),
@@ -511,6 +522,8 @@ export async function startRun(ctx: RunsContext, input: StartAgentRunInput): Pro
     project_id: place.project_id,
     trigger: input.trigger ?? null,
     external_id: input.external_id ?? null,
+    // Only a run from a worker sends it, so the previous database takes the rest as before.
+    ...(input.instance_id ? { instance_id: input.instance_id } : {}),
     ...(input.started_at ? { started_at: input.started_at } : {}),
     // The database derives its root and carries the parent's person down.
     ...(parent ? { parent_run_id: parent.id } : {}),
@@ -544,6 +557,7 @@ async function updateExisting(ctx: RunsContext, existing: Row, input: StartAgent
   const changes: Row = { ...fieldsFrom(input, existing.notes) };
   if (input.task_id !== undefined || input.project_id !== undefined) Object.assign(changes, place);
   if (input.trigger !== undefined) changes.trigger = input.trigger;
+  if (input.instance_id !== undefined) changes.instance_id = input.instance_id;
   if (Object.keys(changes).length === 0) return presentRun(ctx.db, existing);
   if (existing.status === 'waiting' && existing.agent_id === ctx.memberId) changes.status = 'running';
   const { data, error } = await ctx.db.from('agent_runs').update(changes).eq('id', existing.id).select('*').single();
@@ -565,25 +579,45 @@ export async function updateRun(ctx: RunsContext, id: string, input: UpdateAgent
   const row = await loadRun(ctx, id);
   const changes = fieldsFrom(input, row.notes);
   if (input.task_id !== undefined) Object.assign(changes, await resolvePlace(ctx, { task_id: input.task_id }));
-  // A run waiting on a person is back at work when its own agent writes to
-  // it, unless the write says waiting (a progress note while it still
-  // waits). Someone else's note (agents.manage) leaves it waiting.
-  if (row.status === 'waiting' && input.status === undefined && row.agent_id === ctx.memberId && Object.keys(changes).length > 0) {
-    changes.status = 'running';
-  }
-  // Waiting again restarts its clock, even with nothing else sent.
-  if (row.status === 'waiting' && input.status === 'waiting') changes.status = 'waiting';
-  if (input.status !== undefined && input.status !== row.status) {
+  // Blocked (status blocked, or blocked true): the run waits on a person, with why.
+  const blocking = input.status === 'blocked' || input.blocked === true;
+  const status = blocking ? 'waiting' : input.status as AgentRunStatus | undefined;
+  if (blocking) {
     if (finished(row.status)) {
       throw new ApiError(409, 'CONFLICT', `This run already finished (${row.status}).`, { reason: 'run_finished', status: row.status });
     }
-    if (!(AGENT_RUN_STATUSES as readonly string[]).includes(input.status)) throw badRequest('Unknown status');
-    changes.status = input.status;
-    if (finished(input.status)) {
+    changes.blocked_at = row.blocked_at && row.status === 'waiting' ? row.blocked_at : new Date().toISOString();
+    changes.blocked_reason = input.blocked_reason;
+  } else if (input.blocked === false && row.blocked_at) {
+    changes.blocked_at = null;
+    changes.blocked_reason = null;
+  }
+  // A run waiting on a person is back at work when its own agent writes to
+  // it, unless the write says waiting (a progress note while it still
+  // waits). Someone else's note (agents.manage) leaves it waiting. Resume
+  // notes alone are the agent saving its place, not work.
+  const wakes = Object.keys(changes).some((key) => key !== 'resume_notes');
+  if (row.status === 'waiting' && status === undefined && row.agent_id === ctx.memberId && wakes && input.blocked !== false) {
+    changes.status = 'running';
+  }
+  // Waiting again restarts its clock, even with nothing else sent.
+  if (row.status === 'waiting' && status === 'waiting') changes.status = 'waiting';
+  if (status !== undefined && status !== row.status) {
+    if (finished(row.status)) {
+      throw new ApiError(409, 'CONFLICT', `This run already finished (${row.status}).`, { reason: 'run_finished', status: row.status });
+    }
+    if (!(AGENT_RUN_STATUSES as readonly string[]).includes(status)) throw badRequest('Unknown status');
+    changes.status = status;
+    if (finished(status)) {
       const at = input.finished_at ?? new Date().toISOString();
       if (input.finished_at) notBefore(row.started_at, at, 'finished_at');
       changes.finished_at = Date.parse(at) < Date.parse(row.started_at) ? row.started_at : at;
     }
+  }
+  // Moving on (running again, finished) ends a block.
+  if (changes.status !== undefined && changes.status !== 'waiting' && !blocking && row.blocked_at) {
+    changes.blocked_at = null;
+    changes.blocked_reason = null;
   }
   if (Object.keys(changes).length === 0) return presentRun(ctx.db, row);
   const { data, error } = await ctx.db.from('agent_runs').update(changes).eq('id', row.id).select('*').single();
@@ -592,6 +626,27 @@ export async function updateRun(ctx: RunsContext, id: string, input: UpdateAgent
   if (changes.cost_usd !== undefined || changes.tokens_in !== undefined || changes.tokens_out !== undefined) {
     const agentId = row.agent_id as string;
     afterResponse('run budget check', async () => { await checkBudgetAfterUsage(ctx.db, agentId); });
+  }
+  // Past what one run may spend: stopped (cancelled), and the caller is told so.
+  if (changes.cost_usd !== undefined) {
+    const over = await enforceRunSpend(ctx.db, data as Row);
+    if (over) throw over;
+  }
+  // Newly blocked: its managers hear, with a link to it (Needs you lists it until it moves).
+  if (blocking && !(row.blocked_at && row.status === 'waiting')) {
+    const agentId = row.agent_id as string;
+    const reason = String(input.blocked_reason ?? '');
+    afterResponse('blocked run notice', async () => {
+      const { data: agent } = await ctx.db.from('team_members').select('name').eq('id', agentId).maybeSingle();
+      const name = (agent as Row | null)?.name ?? 'An agent';
+      await notifyAgentManagers(ctx.db, agentId, {
+        title: `${name} is blocked`,
+        message: reason,
+        link: row.task_id && row.project_id ? `/projects/${row.project_id}?task=${row.task_id}` : `/agent/${agentId}`,
+        entityType: row.task_id ? 'task' : 'member',
+        entityId: (row.task_id ?? agentId) as string,
+      });
+    });
   }
   // Another write finished it between our read and this one: the database
   // kept the first finish (handle_agent_run_before_write), so this one lost.

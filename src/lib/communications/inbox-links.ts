@@ -1,9 +1,7 @@
 import { z } from 'zod';
-import { accessAllowsProject } from '@/lib/api/access';
-import { assertId, InboxError, loadTriageableThread, many, one, type InboxContext } from './inbox-service';
+import { assertId, InboxError, inboxActor, inboxChannel, inboxReaches, loadTriageableThread, many, one, type InboxContext } from './inbox-service';
 import { comms } from '@/lib/communications/db';
 import { ApiError } from '@/lib/api/errors';
-import { getActorClient } from '@/lib/api/supabase-service';
 import { moveTask, planTaskMove, type LosingMember } from '@/lib/api/task-move';
 
 /**
@@ -25,7 +23,7 @@ export type LinkTaskRequest = z.infer<typeof linkTaskSchema>;
 async function liveTask(ctx: InboxContext, taskId: string): Promise<{ id: string; project_id: string; title: string }> {
   const task = await one<{ id: string; project_id: string; title: string }>(ctx.service.from('tasks')
     .select('id, project_id, title, project:projects!inner(id)').eq('id', assertId(taskId, 'task_id')).is('deleted_at', null).is('project.deleted_at', null).maybeSingle());
-  if (!task || !accessAllowsProject(ctx.access, task.project_id)) throw new InboxError(404, 'Task not found');
+  if (!task || !inboxReaches(ctx, task.project_id)) throw new InboxError(404, 'Task not found');
   return task;
 }
 
@@ -53,7 +51,7 @@ export async function unlinkThreadTask(ctx: InboxContext, threadId: string, task
   const id = assertId(taskId, 'task_id');
   // Only a task the member can open; a link to one in another project is not theirs to cut.
   const task = await one<{ id: string; project_id: string }>(ctx.service.from('tasks').select('id, project_id').eq('id', id).is('deleted_at', null).maybeSingle());
-  if (!task || !accessAllowsProject(ctx.access, task.project_id)) throw new InboxError(404, 'Task not found');
+  if (!task || !inboxReaches(ctx, task.project_id)) throw new InboxError(404, 'Task not found');
   const messages = await many<{ id: string }>(comms(ctx.service).from('messages').select('id').eq('thread_id', thread.id));
   if (messages.length === 0) return { removed: 0 };
   const { data, error } = await comms(ctx.service).from('task_links')
@@ -103,7 +101,7 @@ export async function agentTasksOfThread(ctx: InboxContext, threadId: string): P
   const tasks = await many<{ id: string; title: string; project_id: string; parent_task_id: string | null; project: { name: string } | null }>(ctx.service.from('tasks')
     .select('id, title, project_id, parent_task_id, project:projects!inner(name)').in('id', ids).is('deleted_at', null).is('project.deleted_at', null));
   return tasks
-    .filter((task) => !task.parent_task_id && accessAllowsProject(ctx.access, task.project_id))
+    .filter((task) => !task.parent_task_id && inboxReaches(ctx, task.project_id))
     .map((task) => ({ task_id: task.id, title: task.title, project_id: task.project_id, project_name: task.project?.name ?? null }));
 }
 
@@ -116,14 +114,14 @@ export async function moveThreadTasks(ctx: InboxContext, threadId: string, reque
   const thread = await loadTriageableThread(ctx, threadId);
   const projectId = assertId(request.project_id, 'project_id');
   const project = await one<{ id: string; name: string }>(ctx.service.from('projects').select('id, name').eq('id', projectId).is('deleted_at', null).maybeSingle());
-  if (!project || !accessAllowsProject(ctx.access, project.id)) throw new InboxError(404, 'Project not found');
+  if (!project || !inboxReaches(ctx, project.id)) throw new InboxError(404, 'Project not found');
   const candidates = (await agentTasksOfThread(ctx, thread.id)).filter((task) => task.project_id !== project.id);
   const wanted = request.task_ids ? new Set(request.task_ids.map((id) => id.toLowerCase())) : null;
   if (wanted && [...wanted].some((id) => !candidates.some((task) => task.task_id === id))) {
     throw new InboxError(404, 'A task is not one the agent made from this conversation, or it is already on that project');
   }
   const tasks = wanted ? candidates.filter((task) => wanted.has(task.task_id)) : candidates;
-  const actor = { db: getActorClient(ctx.memberId, 'app'), access: ctx.access, memberId: ctx.memberId, channel: 'app' as const };
+  const actor = { db: inboxActor(ctx), access: ctx.access, memberId: ctx.memberId, channel: inboxChannel(ctx), scopes: ctx.scopes };
   if (request.dry_run) {
     const losing = new Map<string, LosingMember>();
     let canUnassign = false;

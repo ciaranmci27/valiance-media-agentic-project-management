@@ -13,6 +13,9 @@ import { currentConnection } from './request-context';
 import { escalationRecipient } from './agent-rules';
 import { activeGroupMembers, groupNames, groupsMigrationPending, liveGroup, missingGroupsSchema } from './groups';
 import { ApiError, badRequest, forbidden, notFound } from './errors';
+import {
+  askedMayPerform, assertActionShownInChat, cannotPerform, isPerformableType, mayPerform, performAction, proposedActions, validatePerforms, type Performs,
+} from './question-actions';
 import { postgrestList, trashedProjectIds } from '@/lib/supabase/trash';
 import { readPage } from './pagination';
 
@@ -92,6 +95,12 @@ interface QuestionRow {
   action?: ApprovalAction | null;
   /** How an approval was decided; missing on a database before 20261125000700 (none recorded). */
   decided_via?: string | null;
+  /** The whitelisted action the answer performs, and what it did (20261127002000). */
+  performs?: Performs | null;
+  performed?: QuestionView['performed'];
+  /** Whom the agent asked, when it went to its orchestrator first (20261127002000). */
+  requested_to?: string | null;
+  requested_to_group?: string | null;
   /** Filled by withPlaces: the live task and project it hangs on. */
   task?: { title: string } | null;
   project?: { name: string } | null;
@@ -443,12 +452,13 @@ async function withPlaces(ctx: QuestionsContext, rows: QuestionRow[]): Promise<Q
 }
 
 async function present(ctx: QuestionsContext, rows: QuestionRow[]): Promise<QuestionView[]> {
-  const [names, groupsById, principal] = await Promise.all([
+  const [names, groupsById, principal, proposals] = await Promise.all([
     memberNames(ctx.db, rows.flatMap((r) => [r.asked_by, r.asked_to, r.answered_by, r.principal_id ?? null])),
     groupNames(ctx.db, rows.map((r) => r.asked_to_group)),
     rows.some((r) => isApproval(r) && effectiveQuestionStatus(r) === 'open') ? actingFor(ctx) : Promise.resolve(null),
+    Promise.all(rows.map((r) => (r.performs ? proposedActions(ctx.db, r as unknown as Record<string, unknown>, ctx) : Promise.resolve([])))),
   ]);
-  return rows.map((row) => {
+  return rows.map((row, index) => {
     const status = effectiveQuestionStatus(row);
     return {
       id: row.id,
@@ -487,6 +497,9 @@ async function present(ctx: QuestionsContext, rows: QuestionRow[]): Promise<Ques
       ...(row.principal_id ? { principal_id: row.principal_id, principal_name: names.get(row.principal_id) ?? null } : {}),
       ...(row.run_id ? { run_id: row.run_id } : {}),
       ...(row.expired_reason === 'asked_member_suspended' ? { expired_reason: 'asked_member_suspended' as const } : {}),
+      // Only a question that carries an action, or went to an orchestrator first, says so.
+      ...(row.performs ? { proposed_actions: proposals[index], performed: row.performed ?? null } : {}),
+      ...(row.requested_to || row.requested_to_group ? { requested_to: row.requested_to ?? null, requested_to_group: row.requested_to_group ?? null } : {}),
     };
   });
 }
@@ -697,12 +710,70 @@ async function resolveQuestionRun(ctx: QuestionsContext, runId: string | undefin
   return data.id as string;
 }
 
+/**
+ * Specialists ask their orchestrator first: a question (never an approval,
+ * never one that carries an action) an agent with an orchestrator sends to
+ * a person or a group goes to its orchestrator instead, unless the agent's
+ * "ask a person directly" (ask_people_directly) is on. The orchestrator
+ * answers it, or brings it to whom the agent asked (requested_to). Null:
+ * it goes where it was addressed.
+ */
+async function orchestratorFirst(ctx: QuestionsContext, addressee: Addressee): Promise<{ to: Addressee; requested_to: string | null; requested_to_group: string | null } | null> {
+  if (ctx.access.role !== 'agent') return null;
+  const { data: me, error } = await ctx.db.from('team_members').select('orchestrator_id, ask_people_directly').eq('id', ctx.memberId).maybeSingle();
+  // A database before the hierarchy or this update: nothing routes.
+  if (error && (error.code === '42703' || error.code === 'PGRST204' || /orchestrator_id|ask_people_directly/.test(error.message ?? ''))) return null;
+  if (error) throw error;
+  const orchestratorId = (me as { orchestrator_id?: string | null } | null)?.orchestrator_id ?? null;
+  if (!orchestratorId || (me as { ask_people_directly?: boolean }).ask_people_directly === true) return null;
+  if (addressee.asked_to === orchestratorId) return null;
+  if (addressee.asked_to) {
+    const { data: target, error: targetError } = await ctx.db.from('team_members').select('role').eq('id', addressee.asked_to).maybeSingle();
+    if (targetError) throw targetError;
+    // Agents ask each other directly (a reviewer, a peer).
+    if ((target as { role?: string } | null)?.role === 'agent') return null;
+  }
+  const { data: orchestrator, error: orchestratorError } = await ctx.db.from('team_members').select('id, role, status').eq('id', orchestratorId).maybeSingle();
+  if (orchestratorError) throw orchestratorError;
+  const o = orchestrator as { role?: string; status?: string } | null;
+  // An orchestrator that is gone or suspended asks nobody: the question goes where it was addressed.
+  if (!o || o.role !== 'agent' || (o.status ?? 'active') !== 'active') return null;
+  return { to: { asked_to: orchestratorId, asked_to_group: null }, requested_to: addressee.asked_to, requested_to_group: addressee.asked_to_group };
+}
+
+/** The whitelisted action a new question or approval carries, checked; null for none. */
+async function performsOf(ctx: QuestionsContext, input: AskQuestionInput, kind: QuestionKind, action: ApprovalAction | null): Promise<Performs | null> {
+  if (kind === 'approval') {
+    if (!action || !isPerformableType(action.type)) return null;
+    return validatePerforms(ctx.db, { type: action.type, details: action.details, summary: action.summary }, 'approve');
+  }
+  if (!input.action) return null;
+  const choices = input.choices ?? [];
+  if (choices.length === 0) throw invalid('A question that performs an action needs choices: one of them does it (action.on_choice).', { reason: 'action_needs_choices' });
+  const onChoice = input.action.on_choice ?? choices[0];
+  const choice = choices.find((c) => c.toLowerCase() === onChoice.toLowerCase());
+  if (!choice) throw invalid('action.on_choice must be one of the choices', { reason: 'unknown_choice', choices });
+  return validatePerforms(ctx.db, input.action, choice);
+}
+
 async function createQuestion(ctx: QuestionsContext, input: AskQuestionInput, kind: QuestionKind, action: ApprovalAction | null): Promise<QuestionView> {
   const place = await resolvePlace(ctx, input);
-  const addressee = await resolveAddressee(ctx, input, kind);
+  let addressee = await resolveAddressee(ctx, input, kind);
   const runId = await resolveQuestionRun(ctx, input.run_id);
   if (input.expires_at && new Date(input.expires_at).getTime() <= Date.now()) {
     throw invalid('expires_at must be in the future', { reason: 'expires_in_past' });
+  }
+  const performs = await performsOf(ctx, input, kind, action);
+  const routed = kind === 'question' && !performs ? await orchestratorFirst(ctx, addressee) : null;
+  if (routed) addressee = routed.to;
+  if (performs) {
+    const verdict = await askedMayPerform(ctx.db, performs, addressee, ctx.memberId);
+    if (!verdict.allowed) {
+      throw invalid(`Whoever you ask cannot do what the answer would (${verdict.reason ?? 'not allowed'}). Ask someone who can.`, {
+        reason: 'asked_cannot_perform', why: verdict.reason ?? null, action_type: performs.type,
+        hint: 'Ask a person who holds projects.manage on that project (an Owner, or its manager), or leave action out.',
+      });
+    }
   }
   const choices = input.choices?.length ? input.choices : null;
   const { data, error } = await ctx.db
@@ -721,9 +792,16 @@ async function createQuestion(ctx: QuestionsContext, input: AskQuestionInput, ki
       ...(addressee.asked_to_group ? { asked_to_group: addressee.asked_to_group } : {}),
       // Only a question that holds a run sends it, so the previous database takes the rest as before.
       ...(runId ? { run_id: runId } : {}),
+      ...(performs ? { performs } : {}),
+      ...(routed ? { requested_to: routed.requested_to, requested_to_group: routed.requested_to_group } : {}),
     })
     .select(SELECT)
     .single();
+  if ((performs || routed) && error && (error.code === '42703' || error.code === 'PGRST204')) {
+    throw new ApiError(503, 'SERVICE_UNAVAILABLE', 'Questions that perform an action or go to an orchestrator first work once the database update 20261127002000_agent_runtime.sql is applied', {
+      reason: 'migration_pending',
+    });
+  }
   if (addressee.asked_to_group && missingGroupsSchema(error)) throw groupsMigrationPending();
   if (runId && error && (error.code === '42703' || error.code === 'PGRST204') && /run_id/.test(error.message ?? '')) {
     throw new ApiError(503, 'SERVICE_UNAVAILABLE', 'Questions that hold a run work once the database update 20261125001300_watchdog_retention.sql is applied', {
@@ -954,6 +1032,16 @@ export async function answerQuestion(ctx: QuestionsContext, id: string, input: A
   } else if (!textAnswers({ choices, allow_other: row.allow_other })) {
     throw invalid(isApproval(row) ? 'Send choice approve or reject; text is an optional note.' : 'Pick one of the choices.', { reason: 'choice_required', choices });
   }
+  // An answer that does the thing: whoever answers must be able to do it, before anything is recorded.
+  const performs = row.performs && isPerformableType(row.performs.type) && choice === row.performs.on_choice ? row.performs : null;
+  if (performs) {
+    const verdict = mayPerform(performs, ctx.access, ctx.channel, ctx.scopes);
+    if (!verdict.allowed) throw cannotPerform(performs, verdict.reason);
+    // Answering for a person in chat: they must have been shown what it does first.
+    if (ctx.access.role === 'agent' && ctx.access.principal_id) {
+      await assertActionShownInChat(ctx.db, { row: row as unknown as Record<string, unknown>, performs, agentId: ctx.memberId, personId: ctx.access.principal_id });
+    }
+  }
   const now = new Date().toISOString();
   const answered = { status: 'answered', answer_choice: choice, answer_text: input.text ?? null, answered_by: decider?.by ?? ctx.memberId, answered_at: now };
   const write = (fields: Record<string, unknown>) => ctx.db
@@ -997,6 +1085,20 @@ export async function answerQuestion(ctx: QuestionsContext, id: string, input: A
     if (outcome) hooks.onDraft?.(outcome);
   }
   if (!stored) await record();
+  if (performs) {
+    // Done as the answerer; if it fails, the answer is undone and the question stays open.
+    let result: Record<string, unknown>;
+    try {
+      result = await performAction(ctx.db, performs);
+    } catch (error) {
+      await reopen();
+      throw error;
+    }
+    const performed = { type: performs.type, status: 'done' as const, by: answered.answered_by, at: new Date().toISOString(), result };
+    const { data: after, error: performedError } = await ctx.db.from('questions').update({ performed }).eq('id', id).select(SELECT).single();
+    if (performedError) throw performedError;
+    stored = after as QuestionRow;
+  }
   return (await present(ctx, await withPlaces(ctx, [stored as unknown as QuestionRow])))[0];
 }
 

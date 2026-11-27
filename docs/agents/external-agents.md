@@ -9,7 +9,7 @@ Use it when the agent's work lives somewhere else (an accounting app, a CRM, a w
 ## Set it up
 
 1. An Owner turns on the **AI agents** module (Settings > Workspace > Features). For webhooks, turn on **Webhooks** too.
-2. **Agents**, then **Hire an agent** (`/agent/new`), and pick **External agent**. Or, from an Owner's MCP client, `create_agent` and `apply_agent_template` with `template: "external-agent"` and `create_key: true`.
+2. **AI** > **Company AI**, then **Hire an agent** (`/ai/agents/new`), and pick **External agent**. Or, from an Owner's MCP client, `create_agent` and `apply_agent_template` with `template: "external-agent"` and `create_key: true`.
 3. Leave projects empty. It needs none.
 4. Its key carries:
 

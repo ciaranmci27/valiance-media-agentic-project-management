@@ -128,7 +128,7 @@ export function LinkedAccountsSection() {
         </div>
       ) : identities.length === 0 ? (
         <p className="rounded-lg bg-white/[0.03] px-4 py-3 text-sm text-zinc-400">
-          No chat accounts yet. Message your workspace&apos;s assistant bot in Slack, Telegram or Discord and it sends you a one-time link: open it while signed in here. Your <Link href="/assistant#chat-accounts" className="text-brand-300 underline-offset-2 hover:underline">Assistant page</Link> shows which bot to message.
+          No chat accounts yet. Message your workspace&apos;s assistant bot in Slack, Telegram or Discord and it sends you a one-time link: open it while signed in here. Your assistant&apos;s chat card above shows which bot to message.
         </p>
       ) : (
         <ul className="divide-y divide-white/[0.06] overflow-hidden rounded-lg border border-white/[0.08]">

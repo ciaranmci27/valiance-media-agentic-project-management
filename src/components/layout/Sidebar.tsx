@@ -13,7 +13,6 @@ import {
   Target,
   UserCircle,
   ListTodo,
-  Bot,
   Bell,
   ChevronDown,
   DollarSign,
@@ -23,7 +22,8 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { useApp } from '@/lib/store';
-import { needsYouCountLabel } from '@/lib/agents-tab';
+import { AI_HOME, hubCountLabel } from '@/lib/ai-home';
+import { useAiHub } from '@/lib/use-ai-hub';
 import { useNeedsYou } from '@/lib/use-needs-you';
 import { useAuth } from '@/lib/auth-context';
 import { useDemo } from '@/lib/demo-context';
@@ -32,7 +32,7 @@ import { Logo } from '@/components/ui/Logo';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { LivePulse } from '@/components/ui/LivePulse';
 import { useUnreadByProject } from '@/components/tasks/TaskUnread';
-import { inboxAttentionRead, inboxLandingRead, myAssistantRead, unreadNotificationsRead, useIntent, useWarmActiveProjects, useWarmProject } from '@/lib/reads';
+import { inboxAttentionRead, inboxLandingRead, unreadNotificationsRead, useIntent, useWarmActiveProjects, useWarmProject } from '@/lib/reads';
 import { useRead, warmRead } from '@/lib/query-cache';
 import { CountBadge, type CountBadgeTone } from '@/components/ui/CountBadge';
 import { isRunning } from '@/lib/time-entry-utils';
@@ -120,24 +120,19 @@ export function Sidebar() {
   const displayName = currentMember?.name || user?.user_metadata?.display_name || user?.email?.split('@')[0] || 'User';
   const displayRole = access?.role || currentMember?.role || 'member';
 
-  const isAgentsEnabled = isModuleEnabled(access, 'agents');
-  const canManageAgents = hasPermission(access, 'agents.manage');
-  // The person's own assistant, under the name the workspace gives it: shown
-  // only while assistants are on and the person has one.
-  const myAssistant = useRead(isAgentsEnabled && teamMemberId && access?.role !== 'agent' ? myAssistantRead(isDemoMode) : null).data;
-  // Someone who has an assistant keeps its entry while assistants are off: it is on hold, and its controls stay theirs.
-  const assistantEntry: NavEntry | null = myAssistant?.assistant
-    ? { href: '/assistant', icon: Sparkles, label: myAssistant.label }
+  // One AI entry for everything AI (your assistant, Company AI, Setup), its
+  // badge the AI home's Needs you: what agents wait on this person for, each
+  // thing once (useAiHub, the same answer the page lists).
+  const aiHub = useAiHub();
+  const aiEntry: NavEntry | null = aiHub.access.entry
+    ? { href: AI_HOME, icon: Sparkles, label: 'AI', count: { value: aiHub.count, label: hubCountLabel(aiHub.count), tone: 'brand' } }
     : null;
   // Radar's badge answers "does anything need me?" before the click: the
   // same useNeedsYou My Tasks lists, so they cannot disagree. Suggestions are
-  // excluded on purpose: the Agent tab's own badge already counts them, and
+  // excluded on purpose: the AI entry's own badge already counts them, and
   // one signal per fact is the rule.
   const needsYou = useNeedsYou();
   const radarCount = needsYou.count;
-  // The Agents badge is the Agents page's Needs you count: the agents' slice
-  // of the same answer (questions, approvals, blocked work, reviews and suggestions).
-  const agentsNeedsYouCount = isAgentsEnabled && canManageAgents ? needsYou.agents.total : 0;
 
   // Your reminders that want you now (overdue or due today): rows in My
   // Tasks' Needs you now, so they count toward its badge.
@@ -155,7 +150,6 @@ export function Sidebar() {
     { href: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
     { href: '/my-tasks', icon: ListTodo, label: 'My Tasks',
       count: { value: myTasksCount, label: `${myTasksCount} ${myTasksCount === 1 ? 'thing needs' : 'things need'} you`, tone: 'brand' } },
-    ...(assistantEntry ? [assistantEntry] : []),
     ...(canReadInbox ? [{ href: '/inbox', icon: Inbox, label: 'Inbox', count: inboxCount(inboxAttention) }] : []),
     ...(hasPermission(access, 'projects.read') || hasPermission(access, 'projects.read_all')
       ? [{ href: '/projects', icon: FolderKanban, label: 'Projects',
@@ -170,8 +164,7 @@ export function Sidebar() {
     // Finances with a money view, My earnings for pay alone, Time for the
     // timesheet alone (its own page at /time when no money module is on).
     ...(financeEntry ? [{ href: financeEntry.href, icon: FINANCE_ENTRY_ICONS[financeEntry.kind], label: financeEntry.label }] : []),
-    ...(isAgentsEnabled && canManageAgents ? [{ href: '/agent', icon: Bot, label: 'Agents',
-      count: { value: agentsNeedsYouCount, label: needsYouCountLabel(agentsNeedsYouCount), tone: 'brand' as const } }] : []),
+    ...(aiEntry ? [aiEntry] : []),
     { href: '/notifications', icon: Bell, label: 'Notifications',
       count: { value: unreadNotifications, label: plural(unreadNotifications, 'unread notification'), tone: 'danger' } },
   ];

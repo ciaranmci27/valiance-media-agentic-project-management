@@ -56,8 +56,10 @@ function labels() {
   const fields = endpoints.flatMap((e) => (e.deprecatedFields ?? []).map((f) => ({ route: `${e.method} ${e.path}`, ...f })));
   check('docs: every deprecated field names its replacement and removal', fields.length > 0 && fields.every((f) => f.name && named(f)),
     fields.filter((f) => !f.name || !named(f)));
-  // The triage and email pieces wait for the plans cutover; other deprecations (the assistant chat alias) carry their own removal.
-  const legacy = deprecated.filter((e) => !e.path.startsWith('/api/v1/assistant/'));
+  // The triage and email pieces wait for the plans cutover; other deprecations (the assistant chat alias, the
+  // older raw project context PATCH) carry their own removal.
+  const ownRemoval = new Set(['PATCH /api/v1/projects/:id/context/:entryId']);
+  const legacy = deprecated.filter((e) => !e.path.startsWith('/api/v1/assistant/') && !ownRemoval.has(`${e.method} ${e.path}`));
   check('docs: the legacy pieces go after the triage plans cutover', legacy.length > 0 && [...legacy.map((e) => e.deprecated!.removal), ...fields.map((f) => f.removal)].every((r) => r === PLANS_CUTOVER_REMOVAL));
 
   const doc = (method: string, path: string) => endpoints.find((e) => e.method === method && e.path === path);

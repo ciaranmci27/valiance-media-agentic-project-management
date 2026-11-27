@@ -79,7 +79,7 @@ async function seed(db: PGlite) {
 
 const MEMBER_ID_TARGETS = ['list_time_entries', 'list_api_keys', 'list_webhook_endpoints', 'create_webhook_endpoint', 'update_webhook_endpoint',
   // Who leaves a group, whose accounts to read, and who alone may confirm a link.
-  'remove_group_member', 'get_member_identities', 'create_identity_link'];
+  'remove_group_member', 'set_group_member_role', 'get_member_identities', 'create_identity_link'];
 
 async function main() {
   // The catalog, before anything runs.

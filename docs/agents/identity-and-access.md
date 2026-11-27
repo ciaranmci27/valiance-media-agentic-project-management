@@ -114,7 +114,7 @@ A linked identity ties a chat account (Slack, Teams, Telegram, Discord, GitHub, 
 
 Three ways to link:
 
-1. **The person**, from Settings > Account, confirmed through a one-time link the assistant sends them.
+1. **The person**, from AI > Your assistant > Chat accounts, confirmed through a one-time link the assistant sends them.
 2. **The link handshake**, run by a chat harness (below).
 3. **An Owner** (`team.manage`), in bulk: `POST /api/v1/identities`.
 

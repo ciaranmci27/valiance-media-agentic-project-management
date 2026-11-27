@@ -3,10 +3,15 @@ import { z } from 'zod';
 import { accessAllows, requireSessionAccess } from '@/lib/api/access';
 import { canChangeSignInEmail } from '@/lib/team/invite-rules';
 import { NOT_OUR_LOGIN } from '@/lib/team/invite';
+import { ApiError } from '@/lib/api/errors';
+import { confirmItIsYou, sendAccountNotice, signOutOtherSessions } from '@/lib/api/account-security';
+import { loginFacts } from '@/lib/api/sign-in';
 
 const updateEmailSchema = z.object({
   team_member_id: z.string().uuid(),
-  new_email: z.string().email('Invalid email address'),
+  new_email: z.string().trim().toLowerCase().email('Invalid email address'),
+  /** Your current password, to change your own sign-in email (lib/api/account-security.ts). */
+  current_password: z.string().max(200).optional(),
 });
 
 export async function POST(req: NextRequest) {
@@ -24,7 +29,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
   }
 
-  const { access, memberId, service } = auth.data;
+  const { access, memberId, service, client: sessionClient } = auth.data;
   const isSelf = memberId === body.team_member_id;
   const canManageTeam = accessAllows(access, 'team.manage', 'app');
 
@@ -61,6 +66,19 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: NOT_OUR_LOGIN }, { status: 409 });
   }
 
+  // Your own sign-in email needs proof it is you, not just a borrowed session.
+  if (isSelf) {
+    try {
+      const login = await loginFacts(service, targetMember.auth_user_id);
+      await confirmItIsYou({ sessionClient, email: login.email, hasPassword: login.hasPassword, currentPassword: body.current_password });
+    } catch (error) {
+      if (error instanceof ApiError) {
+        return NextResponse.json({ error: error.message, code: error.code, details: error.details ?? null }, { status: error.statusCode });
+      }
+      throw error;
+    }
+  }
+
   // 6. Check for duplicate email
   const { data: existing } = await service
     .from('team_members')
@@ -84,7 +102,8 @@ export async function POST(req: NextRequest) {
         authUpdateError.message?.toLowerCase().includes('already exists')) {
       return NextResponse.json({ error: 'An auth account with this email already exists' }, { status: 409 });
     }
-    return NextResponse.json({ error: authUpdateError.message || 'Failed to update auth email' }, { status: 500 });
+    console.error('[update-email] auth update failed', authUpdateError);
+    return NextResponse.json({ error: 'Could not change the email. Try again.' }, { status: 500 });
   }
 
   // 8. Update team_members table
@@ -98,6 +117,11 @@ export async function POST(req: NextRequest) {
   if (updateError) {
     return NextResponse.json({ error: 'Auth email updated but team member record failed to update' }, { status: 500 });
   }
+
+  // The old address hears about it, so a takeover never goes unseen.
+  const { data: actor } = isSelf ? { data: null } : await service.from('team_members').select('name').eq('id', memberId).maybeSingle();
+  await sendAccountNotice({ to: targetMember.email, change: 'email', newEmail: body.new_email, byOther: isSelf ? null : ((actor as { name?: string } | null)?.name ?? 'An Owner') });
+  if (isSelf) await signOutOtherSessions(sessionClient);
 
   return NextResponse.json(updated);
 }

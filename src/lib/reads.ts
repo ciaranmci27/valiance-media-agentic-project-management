@@ -22,6 +22,7 @@ import {
 import { listTaskFiles, taskFileCandidates, type TaskFileCandidates, type TaskFileView } from '@/lib/task-files/client';
 import { invalidateTables, peekRead, useRead, warmReads, type Read } from '@/lib/query-cache';
 import type { QuestionView } from '@/lib/questions';
+import type { BlockedRunSignal } from '@/lib/autonomy';
 import type { NotificationFeedView, NotificationPage, Snooze } from '@/lib/notifications';
 import { demoNotificationPage, demoSnoozes, demoUnreadCount } from '@/lib/demo-notifications';
 import {
@@ -40,7 +41,8 @@ import {
   demoTaskTemplateRuns, demoTaskTemplates, demoTeam, demoTemplateDrafts, demoScheduleOccurrences, demoSchedules,
 } from '@/lib/demo-data';
 import { demoAgentActivityFor, demoAgentContext, demoAgentDetail } from '@/lib/demo-agent-profile';
-import { demoDecidedQuestions, demoOpenQuestions, demoRunDetail, demoRunFamily, demoRunFeedPage, demoRunRow } from '@/lib/demo-agents-home';
+import { demoAgentTree, demoDecidedQuestions, demoOpenQuestions, demoRunDetail, demoRunFamily, demoRunFeedPage, demoRunRow } from '@/lib/demo-agents-home';
+import type { AgentTreeNode } from '@/lib/api/agent-hierarchy';
 import type { ScheduleKind, ScheduleOccurrenceView, ScheduleView } from '@/lib/schedules';
 import { localDraftPreview, type TemplateDraftDetail, type TemplateDraftView } from '@/lib/template-ui';
 import { sortInitiatives, type InitiativeDetail, type InitiativeEntryView, type InitiativeView } from '@/lib/initiatives';
@@ -487,7 +489,8 @@ export function useTaskWarmer(): (taskId: string) => IntentHandlers {
 export function openQuestionsRead(isDemo: boolean): Read<QuestionView[]> {
   return {
     key: `open-questions${isDemo ? ':demo' : ''}`,
-    tables: ['questions'],
+    // A task or project moving into or out of Trash takes its questions with it.
+    tables: ['questions', 'trash_events'],
     ttlMs: 5 * 60_000,
     load: async () => {
       if (isDemo) return demoOpenQuestions();
@@ -509,13 +512,45 @@ export function useOpenQuestions(): QuestionView[] {
 const NO_QUESTIONS: QuestionView[] = [];
 
 /**
+ * Runs marked blocked that wait on the person (pm.my_blocked_runs: agents
+ * they manage, tasks they are on), newest first; what Needs you lists as
+ * blocked until the run moves. Empty in demo mode and before the update.
+ */
+export function blockedRunsRead(isDemo: boolean): Read<BlockedRunSignal[]> {
+  return {
+    key: `blocked-runs${isDemo ? ':demo' : ''}`,
+    tables: ['agent_runs'],
+    ttlMs: 5 * 60_000,
+    load: async () => {
+      if (isDemo) return [];
+      const { data, error } = await createClient().rpc('my_blocked_runs');
+      if (error) {
+        // A database before 20261127002000: nothing is marked blocked there.
+        if (['PGRST202', '42883'].includes(error.code ?? '')) return [];
+        throw error;
+      }
+      return (data ?? []) as BlockedRunSignal[];
+    },
+  };
+}
+
+const NO_BLOCKED_RUNS: BlockedRunSignal[] = [];
+
+/** The person's blocked runs; empty while loading or when the read fails. */
+export function useBlockedRuns(): BlockedRunSignal[] {
+  const { isDemoMode } = useDemo();
+  const { teamMemberId } = useAuth();
+  return useRead(teamMemberId ? blockedRunsRead(isDemoMode) : null).data ?? NO_BLOCKED_RUNS;
+}
+
+/**
  * Questions and approvals decided lately that the person can see, newest
  * first (Needs you's Decided view): who answered, how and when.
  */
 export function decidedQuestionsRead(isDemo: boolean): Read<QuestionView[]> {
   return {
     key: `decided-questions${isDemo ? ':demo' : ''}`,
-    tables: ['questions'],
+    tables: ['questions', 'trash_events'],
     ttlMs: 5 * 60_000,
     load: async () => {
       if (isDemo) return demoDecidedQuestions();
@@ -906,6 +941,19 @@ export function agentsListRead(isDemo: boolean): Read<AgentListItem[]> {
     key: `agents-list${isDemo ? ':demo' : ''}`,
     tables: ['team_members', 'agent_owners', 'project_agents'],
     load: async () => (isDemo ? [] : allPages<AgentListItem>('/api/workspace/agents', 'agents')),
+  };
+}
+
+/**
+ * The company agents as an org chart (GET /api/workspace/agents/tree):
+ * orchestrators first, each followed by its team, with who can use each in
+ * words. Personal assistants are left out. The demo has a small team.
+ */
+export function agentTreeRead(isDemo: boolean): Read<{ agents: AgentTreeNode[]; max_levels: number }> {
+  return {
+    key: `agent-tree${isDemo ? ':demo' : ''}`,
+    tables: ['team_members', 'agent_audience'],
+    load: async () => (isDemo ? demoAgentTree() : workspaceApi<{ agents: AgentTreeNode[]; max_levels: number }>('/api/workspace/agents/tree')),
   };
 }
 

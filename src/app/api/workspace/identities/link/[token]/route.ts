@@ -1,6 +1,7 @@
 import { afterResponse } from '@/lib/api/after-response';
 import { confirmLinkRequest, readLinkRequest } from '@/lib/api/identities';
-import { workspaceRoute } from '@/lib/api/workspace-route';
+import { readWorkspaceBody, workspaceRoute } from '@/lib/api/workspace-route';
+import { z } from 'zod';
 import { greetLinkedAccount } from '@/lib/chat/inbound';
 
 export const dynamic = 'force-dynamic';
@@ -21,7 +22,9 @@ export async function GET(request: Request, { params }: Params) {
  */
 export async function POST(request: Request, { params }: Params) {
   return workspaceRoute(request, async ({ service, memberId, access }) => {
-    const identity = await confirmLinkRequest(service, (await params).token, { id: memberId, role: access.role });
+    // A link a stranger started in a chat needs the code the bot showed there (identities.ts).
+    const body = await readWorkspaceBody(request, z.object({ code: z.string().max(20).optional() }).strict());
+    const identity = await confirmLinkRequest(service, (await params).token, { id: memberId, role: access.role }, body.code);
     afterResponse('chat linked greeting', () => greetLinkedAccount(service, { ...identity, member_id: memberId }));
     return identity;
   }, { noStore: true });

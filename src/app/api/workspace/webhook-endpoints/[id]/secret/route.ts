@@ -1,8 +1,8 @@
 import { accessAllows } from '@/lib/api/access';
 import { ApiError, forbidden, notFound } from '@/lib/api/errors';
 import { workspaceRoute } from '@/lib/api/workspace-route';
-import { openWebhookSecret, sealStoredWebhookSecret, sealWebhookSecret } from '@/lib/webhooks/secret';
-import { generateWebhookSecret } from '@/lib/webhooks/sign';
+import { rotateWebhookSecret } from '@/lib/api/webhook-endpoints';
+import { openWebhookSecret, sealStoredWebhookSecret } from '@/lib/webhooks/secret';
 
 export const dynamic = 'force-dynamic';
 
@@ -50,11 +50,6 @@ export async function POST(request: Request, { params }: Params) {
   const { id } = await params;
   return workspaceRoute(request, async ({ service, access }) => {
     if (!accessAllows(access, 'webhooks.manage', 'app')) throw forbidden('Webhook secrets need Manage webhooks', { reason: 'missing_permission' });
-    if (!UUID.test(id)) throw notFound('Webhook endpoint');
-    const secret = generateWebhookSecret();
-    const { data, error } = await service.from('webhook_endpoints').update({ secret: sealWebhookSecret(id, secret) }).eq('id', id).select('id');
-    if (error) throw error;
-    if (!data?.length) throw notFound('Webhook endpoint');
-    return { secret };
+    return { secret: await rotateWebhookSecret(service, id) };
   }, { noStore: true });
 }

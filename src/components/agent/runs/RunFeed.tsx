@@ -295,7 +295,7 @@ export function RunFeed({ filters, page, onChange, onOpenTask, lockAgent = false
               {!filtered && (
                 <span className="max-w-sm text-xs text-zinc-500">
                   An agent records a run each time it works. If none show, check that your agent is connected:{' '}
-                  <Link href="/agent?tab=agents" className="font-medium text-brand-300 hover:text-brand-200">open your agents</Link> and pick one to see its Connect step.
+                  <Link href="/ai?tab=company" className="font-medium text-brand-300 hover:text-brand-200">open your agents</Link> and pick one to see its Connect step.
                 </span>
               )}
             </span>

@@ -62,7 +62,8 @@ export function keyTreeOf(keys: readonly LineageKey[], keyId: string): LineageKe
   return found;
 }
 
-const missingLineage = (error: { code?: string; message?: string } | null) =>
+/** A database before key lineage (20261124000400): no created_by_key_id or rotated_from columns. */
+export const missingLineage = (error: { code?: string; message?: string } | null) =>
   !!error && (error.code === '42703' || error.code === 'PGRST204' || /created_by_key_id|rotated_from/.test(error.message ?? ''));
 
 /** The live keys revoking this one would also revoke, with their member's name. Empty on a database without lineage. */

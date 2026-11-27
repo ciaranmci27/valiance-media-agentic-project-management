@@ -124,7 +124,7 @@ export function demoAgentDetail(agentId: string): AgentDetail | null {
     },
     person: null,
     rules: { ...DEFAULT_AGENT_RULES, agent_escalate_to: spec.escalateTo, agent_escalate_to_group: null },
-    limits: { max_concurrent_runs: 2, rate_per_minute: null, budget_usd: spec.budget.usd, budget_tokens: null, budget_period: 'month' },
+    limits: { max_concurrent_runs: 2, rate_per_minute: null, budget_usd: spec.budget.usd, budget_tokens: null, budget_period: 'month', max_run_spend_cents: null },
     usage: { period_start: iso(new Date().getUTCDate() - 1), spent_usd: spec.budget.spent, spent_tokens: spec.budget.tokens, running_runs: 0, live_claims: 1 },
     health: null,
     current_run: null,

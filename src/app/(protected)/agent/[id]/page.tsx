@@ -1,15 +1,8 @@
-'use client';
+import { redirect } from 'next/navigation';
+import { legacyAgentProfileRedirect, searchParamsOf, type PageSearchParams } from '@/lib/ai-home';
 
-import { Suspense } from 'react';
-import { useParams } from 'next/navigation';
-import { AgentProfile } from '@/components/agent/profile/AgentProfile';
-
-/** One agent's profile. Its tab is the URL's ?tab=, which needs a Suspense boundary. */
-export default function AgentProfilePage() {
-  const params = useParams();
-  return (
-    <Suspense fallback={null}>
-      <AgentProfile key={params.id as string} agentId={params.id as string} />
-    </Suspense>
-  );
+/** An agent's page moved to /ai/agents/<id>; its tab and other params come along. */
+export default async function AgentProfileRedirect({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<PageSearchParams> }) {
+  const { id } = await params;
+  redirect(legacyAgentProfileRedirect(decodeURIComponent(id), searchParamsOf(await searchParams)));
 }

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { accessAllows, requireSessionAccess, resolveProjectAccessLevels } from '@/lib/api/access';
+import { plainDbError } from '@/lib/api/plain-error';
 
 export async function GET() {
   const auth = await requireSessionAccess();
@@ -16,7 +17,7 @@ export async function GET() {
 
   const management = accessAllows(access, 'team.manage', 'app');
   const { data: everyone, error } = await service.from('team_members').select('*').order('name');
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return plainDbError(error);
 
   // A guest (a client, a contractor) sees only the people they work with: members
   // of the projects they are on, plus themselves, with no email or timezone.

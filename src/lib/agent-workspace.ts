@@ -39,6 +39,8 @@ export interface AgentTemplateView {
   role?: string | null;
   /** The limits an agent hired from it starts with; null for none. */
   limits?: Partial<AgentLimits> | null;
+  /** Who can use an agent hired from it at first: its owners only (managers) or everyone. */
+  audience?: 'everyone' | 'managers';
 }
 
 // ── Agents ──────────────────────────────────────────────────────────────

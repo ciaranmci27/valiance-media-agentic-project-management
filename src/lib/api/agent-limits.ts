@@ -75,7 +75,7 @@ function budgetExceeded(state: LimitState): ApiError {
     period_start: state.usage.period_start,
     spent_usd: state.usage.spent_usd,
     spent_tokens: state.usage.spent_tokens,
-    hint: 'Finish what you are doing and keep reporting usage. An Owner raises the budget on the agent\'s Rules and powers.',
+    hint: 'Finish what you are doing and keep reporting usage. An Owner raises the budget on the agent\'s Rules tab.',
   });
 }
 
@@ -99,6 +99,57 @@ export async function enforceRunStart(db: SupabaseClient, agentId: string): Prom
     await notifyBudgetSpent(db, agentId, state);
     throw budgetExceeded(state);
   }
+}
+
+/** The 402 for a run past the agent's per-run spend limit. */
+export function runSpendExceeded(runId: string, spentUsd: number, capCents: number, stopped: boolean): ApiError {
+  return new ApiError(402, 'BUDGET_EXCEEDED', `This run has spent ${formatUsd(spentUsd)}, past the ${formatUsd(capCents / 100)} one run may spend.${stopped ? ' It was stopped.' : ''}`, {
+    reason: 'run_spend_exceeded',
+    run_id: runId,
+    spent_usd: spentUsd,
+    max_run_spend_cents: capCents,
+    stopped,
+    hint: 'Stop this work and report what you have. An Owner raises the limit on the agent\'s Rules and powers (max_run_spend_cents).',
+  });
+}
+
+/** The agent's per-run spend limit in cents, or null (none, or a database before it). */
+export async function runSpendCap(db: SupabaseClient, agentId: string): Promise<number | null> {
+  return (await agentLimitsRow(db, agentId))?.max_run_spend_cents ?? null;
+}
+
+/**
+ * What a run has spent: its own cost_usd when it reports one, else the
+ * usage.recorded rows that name it (the same rule as pm.agent_spend_facts).
+ */
+export async function runSpent(db: SupabaseClient, run: { id: string; cost_usd?: unknown }): Promise<number> {
+  if (run.cost_usd !== null && run.cost_usd !== undefined) return Number(run.cost_usd);
+  const { data, error } = await db.from('agent_activities').select('metadata').eq('activity_type', 'usage.recorded').eq('metadata->>run_id', run.id);
+  if (error) throw error;
+  return ((data ?? []) as Row[]).reduce((sum, row) => sum + (Number.isFinite(Number(row.metadata?.cost_usd)) ? Number(row.metadata.cost_usd) : 0), 0);
+}
+
+/**
+ * Stops a run past the agent's per-run spend limit: an unfinished run is
+ * cancelled with a note saying why. Answers the 402 to give the caller, or
+ * null when the run is within it (or there is no limit).
+ */
+export async function enforceRunSpend(db: SupabaseClient, run: Row): Promise<ApiError | null> {
+  const cap = await runSpendCap(db, run.agent_id as string);
+  if (cap === null) return null;
+  const spent = await runSpent(db, run as { id: string; cost_usd?: unknown });
+  if (spent * 100 <= cap) return null;
+  let stopped = false;
+  if (run.status === 'running' || run.status === 'waiting') {
+    const note = { at: new Date().toISOString(), text: `Stopped: spent ${formatUsd(spent)}, past the ${formatUsd(cap / 100)} one run may spend.` };
+    const notes = [...(Array.isArray(run.notes) ? run.notes : []), note].slice(-50);
+    const { data, error } = await db.from('agent_runs')
+      .update({ status: 'cancelled', finished_at: new Date().toISOString(), notes, blocked_at: null, blocked_reason: null })
+      .eq('id', run.id).in('status', ['running', 'waiting']).select('id');
+    if (error) throw error;
+    stopped = (data ?? []).length > 0;
+  }
+  return runSpendExceeded(run.id as string, spent, cap, stopped);
 }
 
 /**
@@ -170,7 +221,7 @@ export async function notifyBudgetSpent(db: SupabaseClient, agentId: string, sta
       user_id: id,
       title: `${name} spent its budget`,
       message: `${name} reached its ${cap} budget for the ${l.budget_period}. New runs are refused until it resets or you raise it; its usage is still recorded.`,
-      link: `/agent/${agentId}?tab=rules`,
+      link: `/ai/agents/${agentId}?tab=rules`,
       entity_type: 'member',
       entity_id: agentId,
     }));
@@ -200,7 +251,8 @@ export async function agentLimitsRow(db: SupabaseClient, agentId: string): Promi
 export async function setAgentLimits(db: SupabaseClient, agentId: string, patch: AgentLimitsPatch, actorId: string | null): Promise<AgentLimits | null> {
   const current = await agentLimitsRow(db, agentId);
   const next: AgentLimits = { ...(current ?? agentLimitsOf(null)), ...Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined)) } as AgentLimits;
-  const empty = next.max_concurrent_runs === null && next.rate_per_minute === null && next.budget_usd === null && next.budget_tokens === null;
+  const empty = next.max_concurrent_runs === null && next.rate_per_minute === null && next.budget_usd === null && next.budget_tokens === null
+    && next.max_run_spend_cents === null;
   if (empty) {
     if (current) {
       const { error } = await db.from('agent_limits').delete().eq('agent_id', agentId);

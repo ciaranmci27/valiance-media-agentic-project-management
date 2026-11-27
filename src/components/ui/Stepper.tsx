@@ -173,7 +173,8 @@ export function StepFooter({ onBack, onNext, nextLabel = 'Next', busy = false, b
             </Button>
           )}
         </div>
-        <div className="flex items-center gap-2">
+        {/* On a narrow screen the buttons keep their words on one line: the main one goes on top, the extra one under it. */}
+        <div className="flex min-w-0 flex-1 flex-wrap-reverse items-center justify-end gap-2 [&>*]:shrink-0 [&>*]:whitespace-nowrap">
           {extra}
           {onNext && (
             <Button

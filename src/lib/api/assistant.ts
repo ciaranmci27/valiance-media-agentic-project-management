@@ -1,4 +1,5 @@
 import { insertAuditRows } from './audit';
+import { auditDoorFields, type AuditDoor } from './audit-door';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { isModuleEnabled, API_ENDPOINT_PERMISSION_SET, type AccessContext, type PermissionKey } from '@/lib/access-control';
 import { findAgentTemplate } from '@/lib/agent-templates';
@@ -76,7 +77,7 @@ export async function readAssistantSettings(service: SupabaseClient): Promise<Wo
 }
 
 /** Turns assistants on or off and names them. Owner only. */
-export async function updateAssistantSettings(service: SupabaseClient, access: AccessContext, memberId: string, input: { enabled?: boolean; label?: string | null }): Promise<WorkspaceAssistantSettings> {
+export async function updateAssistantSettings(service: SupabaseClient, access: AccessContext, memberId: string, input: { enabled?: boolean; label?: string | null }, door?: AuditDoor): Promise<WorkspaceAssistantSettings> {
   requireOwner(access, 'turns assistants on or names them');
   const { data: settings, error } = await service.from('business_settings').select('id').limit(1).maybeSingle();
   if (error) fail(error);
@@ -87,8 +88,8 @@ export async function updateAssistantSettings(service: SupabaseClient, access: A
   const { error: writeError } = await service.from('business_settings').update(changes).eq('id', (settings as Row).id);
   if (writeError) fail(writeError);
   const { error: auditError } = await insertAuditRows(service, {
-    method: 'PATCH', endpoint: '/api/workspace/assistants/settings', entity_type: 'business_settings', entity_id: (settings as Row).id,
-    team_member_id: memberId, request_body: changes, status_code: 200, via: 'app',
+    method: 'PATCH', ...auditDoorFields(door, '/api/workspace/assistants/settings'), entity_type: 'business_settings', entity_id: (settings as Row).id,
+    team_member_id: memberId, request_body: changes, status_code: 200,
   });
   if (auditError) console.error('[assistant] settings audit write failed', auditError);
   return readAssistantSettings(service);
@@ -256,7 +257,7 @@ export async function notifyAssistantBroken(service: SupabaseClient, agent: { id
       ...(reason === 'host_down'
         ? { title: `${person.name}'s assistant is on hold, its host is not responding`, message: `${HOST_DOWN_WORDS} ${person.name} sees that too.` }
         : { title: `${person.name}'s assistant is not working`, message: `${BROKEN_WORDS[reason]} ${person.name} sees that it is not working and that you were told.` }),
-      link: admin.role === 'owner' ? ASSISTANT_SERVICE_HREF : `/agent/${agent.id}`,
+      link: admin.role === 'owner' ? ASSISTANT_SERVICE_HREF : `/ai/agents/${agent.id}`,
       entity_type: 'member',
       entity_id: agent.id,
     }));
@@ -406,7 +407,7 @@ export async function setSortInbox(service: SupabaseClient, agentId: string, per
  * switches, or pauses and resumes it. A pause by an admin is the admin's to
  * lift: resuming then is refused.
  */
-export async function updateMyAssistant(service: SupabaseClient, memberId: string, access: AccessContext, input: UpdateMyAssistant): Promise<MyAssistantView> {
+export async function updateMyAssistant(service: SupabaseClient, memberId: string, access: AccessContext, input: UpdateMyAssistant, door?: AuditDoor): Promise<MyAssistantView> {
   const agent = await requireMyAssistant(service, memberId, access);
   if (input.name !== undefined && input.name !== agent.name) {
     const { error } = await service.from('team_members').update({ name: input.name }).eq('id', agent.id);
@@ -445,8 +446,8 @@ export async function updateMyAssistant(service: SupabaseClient, memberId: strin
     }
   }
   const { error: auditError } = await insertAuditRows(service, {
-    method: 'PATCH', endpoint: '/api/workspace/assistant', entity_type: 'team_member', entity_id: agent.id, team_member_id: memberId,
-    request_body: input, status_code: 200, via: 'app',
+    method: 'PATCH', ...auditDoorFields(door, '/api/workspace/assistant'), entity_type: 'team_member', entity_id: agent.id, team_member_id: memberId,
+    request_body: input, status_code: 200,
   });
   if (auditError) console.error('[assistant] audit write failed', auditError);
   return myAssistantView(service, memberId, access);

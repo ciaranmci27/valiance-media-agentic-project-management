@@ -1,12 +1,13 @@
 'use client';
 
 import { useState } from 'react';
-import { MessagesSquare, Trash2 } from 'lucide-react';
+import { KeyRound, MessagesSquare, MoreHorizontal, RefreshCw, Settings2, Trash2 } from 'lucide-react';
 import { SettingsSectionHeader } from '@/components/settings/SettingsSectionHeader';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { ProviderLogo } from '@/components/ui/ProviderLogo';
+import { RowActionsMenu, type RowAction } from '@/components/ui/RowActionsMenu';
 import { connectionHealthBadge, type LogoBadge } from '@/lib/logos';
 import { Toggle } from '@/components/ui/inputs/Toggle';
 import { toast } from '@/components/ui/Toast';
@@ -30,13 +31,13 @@ function LogoTile({ provider, size = 'md', badge = null }: { provider: string; s
   return <ProviderLogo provider={provider} size={size === 'lg' ? 'lg' : 'md'} tile badge={badge} decorative />;
 }
 
-const PROVIDER_WAITING: Record<string, string> = { discord: 'Waiting for relay', slack: 'Waiting for Slack', telegram: 'Waiting for first message' };
+const PROVIDER_WAITING: Record<string, string> = { discord: 'Waiting for relay', slack: 'Waiting for Slack', telegram: 'One step left' };
 
 /**
  * One honest word for a connection (chatConnectionHealth decides): Off;
  * Not receiving when the provider's requests fail the check; Waiting until
  * anything verified arrives (Slack's URL check, a Discord relay's hello,
- * Telegram's first message); Needs agents (company); Connected while it
+ * Telegram's first message: "One step left"); Pick the agent (company); Connected while it
  * heard something in the last CHAT_CONNECTED_DAYS days; else Quiet.
  */
 export function connectionStatus(connection: ChatConnectionView): { health: ChatConnectionHealth; label: string; variant: 'default' | 'warning' | 'success' | 'danger' } {
@@ -44,25 +45,31 @@ export function connectionStatus(connection: ChatConnectionView): { health: Chat
   switch (health) {
     case 'off': return { health, label: 'Off', variant: 'default' };
     case 'not_receiving': return { health, label: 'Not receiving', variant: 'danger' };
-    case 'waiting': return { health, label: PROVIDER_WAITING[connection.provider] ?? 'Waiting for first message', variant: 'warning' };
-    case 'needs_agents': return { health, label: 'Needs agents', variant: 'warning' };
+    case 'waiting': return { health, label: PROVIDER_WAITING[connection.provider] ?? 'One step left', variant: 'warning' };
+    case 'needs_agents': return { health, label: 'Pick the agent', variant: 'warning' };
     case 'quiet': return { health, label: 'Quiet', variant: 'default' };
     default: return { health, label: 'Connected', variant: 'success' };
   }
+}
+
+/** The bot's chat in Telegram (t.me/<username>), for the waiting step's button; null without a handle. */
+export function telegramLink(handle: string | null | undefined): string | null {
+  const name = (handle ?? '').trim().replace(/^@/, '');
+  return /^[A-Za-z0-9_]{3,64}$/.test(name) ? `https://t.me/${name}` : null;
 }
 
 /** The line under a connection: what its status means and what to do about it. */
 function statusLine(connection: ChatConnectionView, health: ChatConnectionHealth): string {
   const heard = connection.last_inbound_at ? formatAgo(connection.last_inbound_at, { midSentence: true }) : null;
   if (health === 'not_receiving') {
-    if (connection.provider === 'slack') return "Slack's requests fail the signing check: the signing secret is wrong. Replace it below.";
-    if (connection.provider === 'discord') return "The relay's requests fail the check: give it the current relay secret (PM_RELAY_SECRET), or make a new one.";
-    return "Telegram's requests fail the check. Replace the token to set its webhook again.";
+    if (connection.provider === 'slack') return "Slack's requests fail the signing check: the signing secret is wrong. Replace it from the row menu.";
+    if (connection.provider === 'discord') return "The relay's requests fail the check: give it the current relay secret (PM_RELAY_SECRET), or make a new one from the row menu.";
+    return "Telegram's requests fail the check. Replace the token from the row menu to set its webhook again.";
   }
   if (health === 'waiting') {
     if (connection.provider === 'slack') return 'Next: paste the Request URL into Event Subscriptions. If Slack says it did not respond, the signing secret is wrong.';
     if (connection.provider === 'discord') return 'Run the relay with the current secret to start hearing Discord.';
-    return 'Message the bot once to finish: it starts answering from the first message.';
+    return `Send ${connection.bot_handle || 'the bot'} a message in Telegram to finish. Then tap the link it sends you to link your account.`;
   }
   if (health === 'quiet') return `No messages in ${CHAT_CONNECTED_DAYS} days${heard ? `: the last was ${heard}` : ''}.`;
   if (connection.provider === 'discord') return heard ? `Relay last heard ${heard}` : 'Run the relay to start hearing Discord';
@@ -83,7 +90,10 @@ function statusLine(connection: ChatConnectionView, health: ChatConnectionHealth
  * relay secret (shown once, in the row), which reads "Waiting for relay"
  * again until the relay says hello with it. A wrong or leaked token (or
  * Slack signing secret) is replaced in place, keeping the Request URL, the
- * history and everyone's links. The demo shows samples with changes off.
+ * history and everyone's links, from the row's menu (with a new relay
+ * secret and Disconnect). A switched-off connection is one compact row (logo
+ * with its state, name, bot, Off, its switch and menu); its setup shows when
+ * it is on, or opened from the menu. The demo shows samples with changes off.
  */
 export function ChatConnectionsSection() {
   const { isDemoMode } = useDemo();
@@ -99,6 +109,8 @@ export function ChatConnectionsSection() {
   /** A relay secret just renewed, shown in its row until Done. */
   const [renewed, setRenewed] = useState<{ connection: ChatConnectionView; secret: string } | null>(null);
   const [replacing, setReplacing] = useState<ChatConnectionView | null>(null);
+  /** Off connections whose setup someone opened from the row menu. */
+  const [opened, setOpened] = useState<Set<string>>(() => new Set());
 
   const startAdding = (provider: ChatProvider | null) => { if (demoBlocked(isDemoMode)) return; setAdding({ provider }); setMade(null); };
 
@@ -160,12 +172,12 @@ export function ChatConnectionsSection() {
 
       {made?.provider === 'slack' && (
         <div className="mb-5 space-y-3 rounded-lg bg-emerald-500/[0.08] p-4">
-          <p className="text-sm text-zinc-100">Last step: in your Slack app, open Event Subscriptions, turn it on, and paste this Request URL. Subscribe to the bot events {SLACK_EVENTS[made.kind]}. If Slack says the URL didn&apos;t respond, the signing secret is wrong: use Replace token or secret on the row below.</p>
+          <p className="text-sm text-zinc-100">Last step: in your Slack app, open Event Subscriptions, turn it on, and paste this Request URL. Subscribe to the bot events {SLACK_EVENTS[made.kind]}. If Slack says the URL didn&apos;t respond, the signing secret is wrong: use Replace token or secret in the row's menu below.</p>
           <CopyField label="Request URL" value={made.inbound_url} />
         </div>
       )}
-      {made?.kind === 'company' && (
-        <p className="mb-5 rounded-lg bg-white/[0.04] px-4 py-3 text-sm text-zinc-300">Next: choose the agents it reaches below, then map any channels.</p>
+      {made?.kind === 'company' && !connections.find((c) => c.id === made.id)?.agents.some((agent) => agent.is_default) && (
+        <p className="mb-5 rounded-lg bg-white/[0.04] px-4 py-3 text-sm text-zinc-300">Next: pick the agent that answers, on its row below.</p>
       )}
 
       {loading ? (
@@ -211,40 +223,69 @@ export function ChatConnectionsSection() {
           {connections.map((connection) => {
             const status = connectionStatus(connection);
             const name = `${connection.provider_label} ${connection.kind === 'company' ? 'Company' : 'Personal'}`;
+            // An off connection is one compact row; its setup shows when it is on, or opened from its menu.
+            const open = connection.enabled || opened.has(connection.id);
+            const blocked = () => demoBlocked(isDemoMode);
+            const actions: RowAction[] = [
+              ...(!connection.enabled ? [{
+                label: open ? 'Hide setup' : 'Show setup',
+                icon: <Settings2 size={14} aria-hidden="true" />,
+                onClick: () => setOpened((prev) => {
+                  const next = new Set(prev);
+                  if (next.has(connection.id)) next.delete(connection.id); else next.add(connection.id);
+                  return next;
+                }),
+              }] : []),
+              {
+                label: connection.provider === 'slack' ? 'Replace token or secret' : 'Replace token',
+                icon: <KeyRound size={14} aria-hidden="true" />,
+                onClick: () => { if (!blocked()) setReplacing(connection); },
+              },
+              ...(connection.provider === 'discord' ? [{
+                label: 'New relay secret',
+                icon: <RefreshCw size={14} aria-hidden="true" />,
+                onClick: () => { if (!blocked()) setRenewing(connection); },
+              }] : []),
+              {
+                label: 'Disconnect',
+                icon: <Trash2 size={14} aria-hidden="true" />,
+                variant: 'danger' as const,
+                divider: true,
+                onClick: () => { if (!blocked()) setRemoving(connection); },
+              },
+            ];
             return (
               <li key={connection.id} className="bg-surface-raised px-3 py-3 sm:px-4">
-                <div className="flex items-start gap-3">
+                <div className={`flex gap-3 ${open ? 'items-start' : 'items-center'}`}>
                   <LogoTile provider={connection.provider} badge={connectionHealthBadge(status.health)} />
                   <div className="min-w-0 flex-1">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-sm font-medium text-zinc-100">
-                          <span>{connection.provider_label}</span>
-                          <Badge variant={connection.kind === 'company' ? 'info' : 'default'}>{connection.kind === 'company' ? 'Company' : 'Personal'}</Badge>
-                          <Badge variant={status.variant} className="whitespace-nowrap">{status.label}</Badge>
-                        </p>
-                        <p className="mt-0.5 truncate text-xs text-zinc-400">
-                          {connection.display_name}{connection.bot_handle ? ` · ${connection.bot_handle}` : ''}
-                        </p>
-                        <p className={`text-[11px] ${status.health === 'not_receiving' ? 'text-red-300' : status.health === 'waiting' ? 'text-amber-300' : 'text-zinc-500'}`}>
-                          {statusLine(connection, status.health)}
-                        </p>
-                      </div>
-                      <div className="flex flex-shrink-0 items-center gap-1.5">
-                        <Toggle size="sm" checked={connection.enabled} disabled={busy === connection.id} onChange={(value) => void toggle(connection, value)} aria-label={`${name} on`} />
-                        <button
-                          type="button"
-                          onClick={() => { if (!demoBlocked(isDemoMode)) setRemoving(connection); }}
-                          className="rounded-md p-1.5 text-zinc-500 transition-colors hover:bg-rose-500/15 hover:text-rose-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-500"
-                          aria-label={`Disconnect ${name}`}
-                        >
-                          <Trash2 size={14} aria-hidden="true" />
-                        </button>
-                      </div>
-                    </div>
+                    <p className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-sm font-medium text-zinc-100">
+                      <span>{connection.provider_label}</span>
+                      <Badge variant={connection.kind === 'company' ? 'info' : 'default'}>{connection.kind === 'company' ? 'Company' : 'Personal'}</Badge>
+                      <Badge variant={status.variant} className="whitespace-nowrap">{status.label}</Badge>
+                    </p>
+                    <p className="mt-0.5 truncate text-xs text-zinc-400">
+                      {connection.display_name}{connection.bot_handle ? ` · ${connection.bot_handle}` : ''}
+                    </p>
+                    {open && (
+                      <p className={`text-[11px] ${status.health === 'not_receiving' ? 'text-red-300' : status.health === 'waiting' ? 'text-amber-300' : 'text-zinc-500'}`}>
+                        {statusLine(connection, status.health)}
+                      </p>
+                    )}
+                    {open && status.health === 'waiting' && connection.provider === 'telegram' && telegramLink(connection.bot_handle) && (
+                      <Button size="sm" variant="secondary" className="mt-2" href={telegramLink(connection.bot_handle)!} target="_blank" rel="noopener noreferrer"
+                        icon={<ProviderLogo provider="telegram" size="xs" badge="waiting" decorative />}>
+                        Open {connection.bot_handle} in Telegram
+                      </Button>
+                    )}
+                  </div>
+                  <div className="flex flex-shrink-0 items-center gap-1">
+                    <Toggle size="sm" checked={connection.enabled} disabled={busy === connection.id} onChange={(value) => void toggle(connection, value)} aria-label={`${name} on`} />
+                    <RowActionsMenu actions={actions} label={`Actions for ${name}`} icon={<MoreHorizontal size={16} aria-hidden="true" />} />
                   </div>
                 </div>
-                <div className="sm:pl-12">
+                {open && (
+                  <div className="sm:pl-12">
                     {connection.provider === 'slack' && (
                       <div className="mt-3"><CopyField label={`Request URL for Slack (events: ${SLACK_EVENTS[connection.kind]})`} value={connection.inbound_url} /></div>
                     )}
@@ -256,24 +297,12 @@ export function ChatConnectionsSection() {
                     ) : (
                       <div className="mt-3 space-y-2">
                         <CopyField label="Relay address (PM_INBOUND_URL)" value={connection.inbound_url} />
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <DiscordLinks connection={connection} />
-                          <div className="flex flex-wrap items-center gap-1">
-                            <Button size="sm" variant="ghost" disabled={busy === connection.id} onClick={() => { if (!demoBlocked(isDemoMode)) setRenewing(connection); }}>New relay secret</Button>
-                            <Button size="sm" variant="ghost" disabled={busy === connection.id} onClick={() => { if (!demoBlocked(isDemoMode)) setReplacing(connection); }}>Replace token</Button>
-                          </div>
-                        </div>
+                        <DiscordLinks connection={connection} />
                       </div>
                     ))}
-                    {connection.provider !== 'discord' && (
-                      <div className="mt-2 flex justify-end">
-                        <Button size="sm" variant="ghost" disabled={busy === connection.id} onClick={() => { if (!demoBlocked(isDemoMode)) setReplacing(connection); }}>
-                          {connection.provider === 'slack' ? 'Replace token or secret' : 'Replace token'}
-                        </Button>
-                      </div>
-                    )}
                     {connection.kind === 'company' && <CompanyChatPanel connection={connection} isDemo={isDemoMode} />}
-                </div>
+                  </div>
+                )}
               </li>
             );
           })}
@@ -310,7 +339,6 @@ export function ChatConnectionsSection() {
         title="Make a new relay secret?"
         message="The relay stops getting through until you give it the new secret (PM_RELAY_SECRET). The old one stops working at once, and the connection reads Waiting for relay until the relay says hello with the new one."
         confirmLabel="Make new secret"
-        doubleConfirm={false}
       />
 
       <ConfirmDialog
@@ -324,7 +352,6 @@ export function ChatConnectionsSection() {
             : `People stop reaching their assistants through ${removing.provider_label}, and its chat history here is deleted. Their chat accounts stay, so connecting it again picks up where it left off.`}${removing.provider === 'discord' ? ' Stop its relay too.' : ''}`
           : ''}
         confirmLabel="Disconnect"
-        doubleConfirm={false}
       />
     </section>
   );

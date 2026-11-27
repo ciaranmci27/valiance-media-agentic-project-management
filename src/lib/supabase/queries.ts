@@ -3039,12 +3039,16 @@ export async function scheduleRetainerAmount(
   amount: number,
   effectiveDate: string,
 ) {
-  const { error } = await supabase.rpc('schedule_retainer_amount', {
-    p_retainer_id: retainerId,
-    p_amount: amount,
-    p_effective_date: effectiveDate,
-  });
+  const { data, error } = await supabase
+    .rpc('schedule_retainer_amount', {
+      p_retainer_id: retainerId,
+      p_amount: amount,
+      p_effective_date: effectiveDate,
+    })
+    .single();
   if (error) throw error;
+  const saved = data as ProjectRetainerAmount;
+  return { ...saved, amount: Number(saved.amount) };
 }
 
 export async function removeRetainerAmount(supabase: SupabaseClient, amountId: string, actor?: string | null) {

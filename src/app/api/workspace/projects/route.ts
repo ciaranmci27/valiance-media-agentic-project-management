@@ -3,6 +3,7 @@ import { accessAllows, requireSessionAccess, sanitizeProjectForAccess } from '@/
 import { patchProject } from '@/lib/supabase/queries';
 import { createProjectFromSession, ProjectCreateError, restrictProjectFields, validateMemberIds } from '@/lib/api/project-create';
 import { moveToTrash, TRASH_ERROR_STATUS, TrashError } from '@/lib/supabase/trash';
+import { plainDbError } from '@/lib/api/plain-error';
 
 function errorResponse(message: string, status = 400) {
   return NextResponse.json({ error: message }, { status });
@@ -27,7 +28,7 @@ export async function GET() {
   }
 
   const { data, error } = await query;
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return plainDbError(error);
 
   const projects = (data || []).map((project) => {
     const normalized = {

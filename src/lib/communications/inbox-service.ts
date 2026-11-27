@@ -1,7 +1,7 @@
 import { inboxAgentName, syncWaitingNotification, type PlanMessage } from './plans';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import type { AccessContext } from '@/lib/access-control';
-import { accessAllows, accessAllowsProject } from '@/lib/api/access';
+import { API_ENDPOINT_PERMISSION_SET, type AccessChannel, type AccessContext, type PermissionKey } from '@/lib/access-control';
+import { accessAllows, accessAllowsProject, apiKeyAllows } from '@/lib/api/access';
 import { fetchAllRows } from '@/lib/supabase/fetch-all';
 import { getActorClient } from '@/lib/api/supabase-service';
 import { DEFAULT_ITEM_COLOR } from '@/lib/brand';
@@ -40,7 +40,8 @@ import { BUCKETS } from '@/lib/supabase/schema';
  */
 
 export class InboxError extends Error {
-  constructor(public status: number, message: string) {
+  /** reason: a stable word for the API's error details (lib/api/inbox-api.ts); the app shows the message. */
+  constructor(public status: number, message: string, public reason?: string) {
     super(message);
   }
 }
@@ -49,6 +50,42 @@ export interface InboxContext {
   service: SupabaseClient;
   access: AccessContext;
   memberId: string;
+  /**
+   * Through the API (lib/api/inbox-api.ts): the key's scopes. Left out in the
+   * app (session routes). With them every rule here is read on the api
+   * channel, as the other inbox API routes read it.
+   */
+  scopes?: string[];
+}
+
+/** The channel a request came in on: the app, or a key. */
+export function inboxChannel(ctx: InboxContext): AccessChannel {
+  return ctx.scopes ? 'api' : 'app';
+}
+
+/**
+ * Whether the member may do this. In the app: their app grant. Through the
+ * API: their api grant, and the key's scope when it is a permission a key
+ * carries (inbound_email.manage is not: as everywhere in the inbox API it is
+ * the member's alone).
+ */
+export function inboxAllows(ctx: InboxContext, permission: PermissionKey): boolean {
+  if (!ctx.scopes) return accessAllows(ctx.access, permission, 'app');
+  if (API_ENDPOINT_PERMISSION_SET.has(permission)) return apiKeyAllows(ctx.access, ctx.scopes, permission);
+  return accessAllows(ctx.access, permission, 'api');
+}
+
+/** Whether the member reaches a project, on the request's channel. */
+export function inboxReaches(ctx: InboxContext, projectId: string): boolean {
+  return accessAllowsProject(ctx.access, projectId, inboxChannel(ctx));
+}
+
+/**
+ * Who writes, for the team log: in the app the member's actor client;
+ * through the API the key's (already ctx.service, logged as the key's member).
+ */
+export function inboxActor(ctx: InboxContext): SupabaseClient {
+  return ctx.scopes ? ctx.service : getActorClient(ctx.memberId, 'app');
 }
 
 type Row = Record<string, unknown>;
@@ -87,28 +124,34 @@ export async function many<T extends Row>(query: PromiseLike<{ data: unknown; er
   return (data ?? []) as T[];
 }
 
-/** May open the Inbox at all: shared inbox reading or managing, or a personal inbox of their own. Which inboxes is readableInboxIds. */
-export function canReadInbox(access: AccessContext): boolean {
-  return accessAllows(access, 'inbound_email.read') || accessAllows(access, 'inbound_email.manage') || accessAllows(access, 'inbound_email.personal');
+/**
+ * May open the Inbox at all: shared inbox reading or managing, or a personal
+ * inbox of their own (inbound_email.personal is an app permission on either
+ * channel, as inbox-visibility reads it). Which inboxes is readableInboxIds.
+ */
+export function canReadInbox(ctx: InboxContext): boolean {
+  return inboxAllows(ctx, 'inbound_email.read') || inboxAllows(ctx, 'inbound_email.manage') || accessAllows(ctx.access, 'inbound_email.personal', 'app');
 }
 
 /**
  * Could act on some inbox at all: triage or manage (shared inboxes), or a
  * personal inbox of their own. Which threads is per inbox (loadTriageableThread).
  */
-export function canTriageInbox(access: AccessContext): boolean {
-  return accessAllows(access, 'inbound_email.triage') || accessAllows(access, 'inbound_email.manage') || accessAllows(access, 'inbound_email.personal');
+export function canTriageInbox(ctx: InboxContext): boolean {
+  // Through the API a key acts on no inbox without the triage scope, its member's own personal inbox included.
+  if (ctx.scopes && !ctx.scopes.includes('inbound_email.triage')) return false;
+  return inboxAllows(ctx, 'inbound_email.triage') || inboxAllows(ctx, 'inbound_email.manage') || accessAllows(ctx.access, 'inbound_email.personal', 'app');
 }
 
 const TRIAGE_DENIED = 'Viewing this inbox is read only. Acting on its email needs permission to triage inbox email, or it being your own inbox.';
 
-export function canManageInboxes(access: AccessContext): boolean {
-  return accessAllows(access, 'inbound_email.manage');
+export function canManageInboxes(ctx: InboxContext): boolean {
+  return inboxAllows(ctx, 'inbound_email.manage');
 }
 
 /** Sender rules apply to every inbox, so seeing and changing them takes managing inboxes. */
-export function assertCanManageInboxes(access: AccessContext) {
-  if (!canManageInboxes(access)) throw new InboxError(403, 'Sender rules apply to every inbox, so they need permission to manage inboxes.');
+export function assertCanManageInboxes(ctx: InboxContext) {
+  if (!canManageInboxes(ctx)) throw new InboxError(403, 'Sender rules apply to every inbox, so they need permission to manage inboxes.');
 }
 
 /** What a project the member cannot reach is called instead of its name. */
@@ -118,9 +161,9 @@ function isPerson(access: AccessContext): boolean {
   return access.role !== 'agent';
 }
 
-/** The inboxes this member reads in the app (mirrors communications.can_read_inbox). */
+/** The inboxes this member reads, in the app or through a key (mirrors communications.can_read_inbox). */
 export async function readableInboxIds(ctx: InboxContext): Promise<string[]> {
-  return readableInboxIdsFor(ctx.service, ctx.memberId, ctx.access, 'app');
+  return readableInboxIdsFor(ctx.service, ctx.memberId, ctx.access, inboxChannel(ctx));
 }
 
 async function memberNames(service: SupabaseClient, ids: (string | null | undefined)[]): Promise<Map<string, string>> {
@@ -132,7 +175,7 @@ async function memberNames(service: SupabaseClient, ids: (string | null | undefi
 
 /** Names of the given projects the member can reach; the rest are left out. */
 async function projectNames(ctx: InboxContext, ids: (string | null | undefined)[]): Promise<Map<string, string>> {
-  const unique = [...new Set(ids.filter((id): id is string => !!id && accessAllowsProject(ctx.access, id)))];
+  const unique = [...new Set(ids.filter((id): id is string => !!id && inboxReaches(ctx, id)))];
   if (unique.length === 0) return new Map();
   const found = await readIn<{ id: string; name: string }>(unique, (chunk, from, to, count) =>
     ctxSelect(ctx.service, 'projects', 'id, name', count).in('id', chunk).order('id').range(from, to));
@@ -141,7 +184,7 @@ async function projectNames(ctx: InboxContext, ids: (string | null | undefined)[
 
 /** The thread's project name, or a neutral label when the member cannot reach the project. */
 function projectLabel(ctx: InboxContext, names: Map<string, string>, id: string): string {
-  if (!accessAllowsProject(ctx.access, id)) return OTHER_PROJECT_LABEL;
+  if (!inboxReaches(ctx, id)) return OTHER_PROJECT_LABEL;
   return names.get(id) ?? 'Project';
 }
 
@@ -175,7 +218,7 @@ async function threadProjects(ctx: InboxContext, threadIds: string[]): Promise<M
       id: row.project_id,
       name: projectLabel(ctx, names, row.project_id),
       source: row.source,
-      address: endpoint && accessAllowsProject(ctx.access, row.project_id) ? endpoint.public_address ?? endpoint.routing_address : null,
+      address: endpoint && inboxReaches(ctx, row.project_id) ? endpoint.public_address ?? endpoint.routing_address : null,
     });
     byThread.set(row.conversation_id, list);
   }
@@ -445,7 +488,7 @@ async function emailReminders(ctx: InboxContext, messageIds: string[], openOnly:
     if (row.task_id && !taskLive.has(row.task_id)) return false;
     if (row.project_id && !projectLive.has(row.project_id)) return false;
     const mine = row.owner_id === ctx.memberId || row.created_by === ctx.memberId;
-    return row.project_id ? mine || accessAllowsProject(ctx.access, row.project_id) : mine;
+    return row.project_id ? mine || inboxReaches(ctx, row.project_id) : mine;
   });
 }
 
@@ -466,7 +509,7 @@ async function pageDetails(ctx: InboxContext, page: ThreadEntry[]) {
       const liveTasks = linkedTaskIds.length
         ? (await readIn<{ id: string; project_id: string }>(linkedTaskIds, (chunk, from, to, count) =>
             ctxSelect(ctx.service, 'tasks', 'id, project_id', count).in('id', chunk).is('deleted_at', null).order('id').range(from, to)))
-            .filter((task) => accessAllowsProject(ctx.access, task.project_id))
+            .filter((task) => inboxReaches(ctx, task.project_id))
         : [];
       return { links, liveTaskIds: new Set(liveTasks.map((task) => task.id)) };
     })(),
@@ -483,7 +526,7 @@ async function pageDetails(ctx: InboxContext, page: ThreadEntry[]) {
 }
 
 export async function listThreads(ctx: InboxContext, filters: ThreadListFilters): Promise<InboxThreadList> {
-  if (!canReadInbox(ctx.access)) throw new InboxError(403, 'Forbidden');
+  if (!canReadInbox(ctx)) throw new InboxError(403, 'Forbidden');
   const readable = await readableInboxIds(ctx);
   const inboxId = filters.inboxId ? assertId(filters.inboxId, 'inbox_id') : null;
   const projectId = filters.projectId ? assertId(filters.projectId, 'project_id') : null;
@@ -513,7 +556,7 @@ export async function listThreads(ctx: InboxContext, filters: ThreadListFilters)
     ? inTask.filter((entry) => matchesSearch(filters.search, [
         ...entry.messages.map((message) => message.subject),
         ...entry.senders.flatMap((sender) => [sender.name, sender.address]),
-        ...(searchFiled.get(entry.thread.id) ?? []).filter((project) => accessAllowsProject(ctx.access, project.id)).map((project) => project.name),
+        ...(searchFiled.get(entry.thread.id) ?? []).filter((project) => inboxReaches(ctx, project.id)).map((project) => project.name),
         searchInboxNames.get(entry.thread.inbox_id),
       ]))
     : inTask;
@@ -622,13 +665,13 @@ async function repeatPitchSenders(service: SupabaseClient, pitches: { id: string
 
 /** Threads waiting on a person, by how badly, across every inbox the member reads (the sidebar badge). */
 export async function attentionCount(ctx: InboxContext): Promise<InboxAttention> {
-  if (!canReadInbox(ctx.access)) return attentionCounts([]);
+  if (!canReadInbox(ctx)) return attentionCounts([]);
   const entries = await loadThreadEntries(ctx.service, await readableInboxIds(ctx), null);
   return attentionCounts(entries.map((entry) => entry.flags));
 }
 
 export async function loadReadableThread(ctx: InboxContext, threadId: string): Promise<ThreadRow> {
-  if (!canReadInbox(ctx.access)) throw new InboxError(403, 'Forbidden');
+  if (!canReadInbox(ctx)) throw new InboxError(403, 'Forbidden');
   const id = assertId(threadId, 'thread id');
   const thread = await one<ThreadRow & Row>(comms(ctx.service).from('conversations')
     .select('id, inbox_id, channel, subject_normalized, project_id, project_source, project_address_id, summary, last_message_at').eq('id', id).maybeSingle());
@@ -645,9 +688,9 @@ export async function loadReadableThread(ctx: InboxContext, threadId: string): P
  * is 404, as for reading; readable but not theirs to act on is 403.
  */
 export async function loadTriageableThread(ctx: InboxContext, threadId: string): Promise<ThreadRow> {
-  if (!canTriageInbox(ctx.access)) throw new InboxError(403, TRIAGE_DENIED);
+  if (!canTriageInbox(ctx)) throw new InboxError(403, TRIAGE_DENIED);
   const thread = await loadReadableThread(ctx, threadId);
-  if (!(await memberTriagesInbox(ctx.service, ctx.memberId, ctx.access, 'app', thread.inbox_id))) throw new InboxError(403, TRIAGE_DENIED);
+  if (!(await memberTriagesInbox(ctx.service, ctx.memberId, ctx.access, inboxChannel(ctx), thread.inbox_id))) throw new InboxError(403, TRIAGE_DENIED);
   return thread;
 }
 
@@ -871,7 +914,7 @@ export async function threadDetail(ctx: InboxContext, threadId: string): Promise
         .map((link): InboxLinkedTask => {
           const task = tasks.find((t) => t.id === link.task_id);
           // A task in a project the member cannot reach keeps its ids, never its title or status.
-          const visible = !!task && accessAllowsProject(ctx.access, task.project_id);
+          const visible = !!task && inboxReaches(ctx, task.project_id);
           return {
             task_id: link.task_id,
             relation: link.relation as TaskLinkRelation,
@@ -896,7 +939,7 @@ export async function threadDetail(ctx: InboxContext, threadId: string): Promise
         })),
       plan: plans.forMessage(id, (projectId) => projectLabel(ctx, names, projectId), (taskId) => {
         const task = tasks.find((t) => t.id === taskId);
-        return task && accessAllowsProject(ctx.access, task.project_id) ? task.title : null;
+        return task && inboxReaches(ctx, task.project_id) ? task.title : null;
       }, {
         task: (taskId) => tasks.some((t) => t.id === taskId && t.status === 'done'),
         reminder: (reminderId) => reminderRows.some((r) => r.id === reminderId && r.status === 'done'),
@@ -931,7 +974,7 @@ export async function threadDetail(ctx: InboxContext, threadId: string): Promise
     meeting = { ...meetingSummary(meetingRow, people, organizer ? seen.get(organizer) ?? '' : ''), attendees };
   }
   // The thread's actions show only where the viewer may act on this inbox (inbox-visibility.ts).
-  const canTriage = canTriageInbox(ctx.access) && await memberTriagesInbox(service, ctx.memberId, ctx.access, 'app', thread.inbox_id);
+  const canTriage = canTriageInbox(ctx) && await memberTriagesInbox(service, ctx.memberId, ctx.access, inboxChannel(ctx), thread.inbox_id);
   return {
     can_triage: canTriage,
     id: thread.id,
@@ -944,7 +987,7 @@ export async function threadDetail(ctx: InboxContext, threadId: string): Promise
           id: thread.project_id,
           name: projectLabel(ctx, names, thread.project_id),
           source: thread.project_source,
-          address: viaAddress && accessAllowsProject(ctx.access, thread.project_id) ? viaAddress.public_address ?? viaAddress.routing_address : null,
+          address: viaAddress && inboxReaches(ctx, thread.project_id) ? viaAddress.public_address ?? viaAddress.routing_address : null,
         }
       : null,
     projects: filed.get(thread.id) ?? [],
@@ -968,7 +1011,7 @@ export async function threadDetail(ctx: InboxContext, threadId: string): Promise
  */
 export async function attachmentDownloadUrl(ctx: InboxContext, attachmentId: string, options: { inline?: boolean } = {}): Promise<{ url: string; filename: string; expires_in: number }> {
   // Inline only for what the Inbox shows (images, PDFs, text): never a sender's HTML or SVG.
-  if (!canReadInbox(ctx.access)) throw new InboxError(403, 'Forbidden');
+  if (!canReadInbox(ctx)) throw new InboxError(403, 'Forbidden');
   const id = assertId(attachmentId, 'attachment id');
   const attachment = await one<{ id: string; message_id: string; filename: string; content_type: string; storage_path: string | null; uploaded_at: string | null; skipped_reason: string | null }>(
     comms(ctx.service).from('attachments').select('id, message_id, filename, content_type, storage_path, uploaded_at, skipped_reason').eq('id', id).maybeSingle());
@@ -1011,7 +1054,7 @@ export async function setThreadProject(
   const rememberDomain = request.remember_domain ?? null;
   const allProjectIds = [...new Set([projectId, ...(rememberSender?.project_ids ?? []), ...(rememberDomain?.project_ids ?? [])])].map((id) => assertId(id, 'project_id'));
   for (const id of allProjectIds) {
-    if (!accessAllowsProject(ctx.access, id)) throw new InboxError(403, 'You cannot assign email to that project');
+    if (!inboxReaches(ctx, id)) throw new InboxError(403, 'You cannot assign email to that project');
   }
   const projects = await many<{ id: string; name: string }>(ctx.service.from('projects').select('id, name').in('id', allProjectIds).is('deleted_at', null));
   if (projects.length !== allProjectIds.length) throw new InboxError(404, 'Project not found');
@@ -1033,13 +1076,13 @@ export async function setThreadProject(
       .filter((person): person is { name: string; address: string } => !!person);
     const senders = await rememberableSenders(ctx.service, shown);
     if (rememberSender) {
-      if (!accessAllows(ctx.access, 'contacts.manage')) throw new InboxError(403, 'Remembering a sender needs permission to manage contacts');
+      if (!inboxAllows(ctx, 'contacts.manage')) throw new InboxError(403, 'Remembering a sender needs permission to manage contacts');
       const address = normalizeAddress(rememberSender.address);
       sender = senders.find((candidate) => candidate.address === address) ?? null;
       if (!sender) throw new InboxError(422, 'That address did not send email in this thread');
     }
     if (rememberDomain) {
-      if (!accessAllows(ctx.access, 'contacts.manage') && !accessAllows(ctx.access, 'inbound_email.manage')) {
+      if (!inboxAllows(ctx, 'contacts.manage') && !inboxAllows(ctx, 'inbound_email.manage')) {
         throw new InboxError(403, 'Remembering a domain needs permission to manage contacts');
       }
       const valid = validateClientDomain(rememberDomain.domain);
@@ -1111,7 +1154,7 @@ export async function setThreadProject(
 export async function removeThreadProject(ctx: InboxContext, threadId: string, projectId: string): Promise<{ removed: boolean }> {
   const thread = await loadTriageableThread(ctx, threadId);
   const id = assertId(projectId, 'project_id');
-  if (!accessAllowsProject(ctx.access, id)) throw new InboxError(403, 'You cannot change email on that project');
+  if (!inboxReaches(ctx, id)) throw new InboxError(403, 'You cannot change email on that project');
   const { data, error } = await comms(ctx.service).rpc('remove_conversation_project', { p_conversation_id: thread.id, p_project_id: id });
   if (error) {
     if ((error.message ?? '').includes('EMAIL_PROJECT_HAS_TASKS')) {
@@ -1150,7 +1193,7 @@ export async function markThreadHandled(
     .filter((row) => row.owner_id === ctx.memberId && /^reply to /i.test(String(row.title)));
   let closed: { id: string; title: string }[] = [];
   if (replies.length) {
-    closed = await many<{ id: string; title: string }>(getActorClient(ctx.memberId, 'app').from('reminders')
+    closed = await many<{ id: string; title: string }>(inboxActor(ctx).from('reminders')
       .update({ status: 'done', completed_at: now, completed_by: ctx.memberId })
       .in('id', replies.map((row) => row.id)).eq('status', 'open').is('deleted_at', null).select('id, title'));
   }
@@ -1356,10 +1399,10 @@ async function threadPlans(ctx: InboxContext, threadId: string, messageIds: stri
 export async function taskSourceEmails(ctx: InboxContext, taskId: string): Promise<TaskSourceEmails> {
   const id = assertId(taskId, 'task id');
   const task = await one<{ id: string; project_id: string }>(ctx.service.from('tasks').select('id, project_id').eq('id', id).is('deleted_at', null).maybeSingle());
-  if (!task || !accessAllowsProject(ctx.access, task.project_id)) throw new InboxError(404, 'Task not found');
+  if (!task || !inboxReaches(ctx, task.project_id)) throw new InboxError(404, 'Task not found');
   const links = await many<{ message_id: string; relation: TaskLinkRelation; triage_id: string | null; linked_by: string | null; created_at: string }>(comms(ctx.service).from('task_links')
     .select('message_id, relation, triage_id, linked_by, created_at').eq('task_id', id).order('created_at'));
-  if (links.length === 0 || !canReadInbox(ctx.access)) return { link_count: links.length, emails: [] };
+  if (links.length === 0 || !canReadInbox(ctx)) return { link_count: links.length, emails: [] };
   const readable = new Set(await readableInboxIds(ctx));
   const messageIds = [...new Set(links.map((link) => link.message_id))];
   const messages = (await many<{ id: string; thread_id: string; inbox_id: string; channel: InboxChannel | null; subject: string; received_at: string; status: string }>(comms(ctx.service).from('messages')

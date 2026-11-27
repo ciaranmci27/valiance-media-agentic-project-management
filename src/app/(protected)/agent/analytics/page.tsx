@@ -1,9 +1,7 @@
 import { redirect } from 'next/navigation';
+import { legacyAgentsRedirect } from '@/lib/ai-home';
 
-/**
- * Agent analytics is the Agents page's Analytics tab. Old links and
- * bookmarks land there.
- */
+/** Agent analytics is AI > Company AI > Analytics. Old links and bookmarks land there. */
 export default function AgentAnalyticsPage() {
-  redirect('/agent?tab=analytics');
+  redirect(legacyAgentsRedirect(new URLSearchParams({ tab: 'analytics' })));
 }

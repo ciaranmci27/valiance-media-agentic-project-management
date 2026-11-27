@@ -1,11 +1,12 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { randomUUID } from 'node:crypto';
 import { isModuleEnabled, type AccessContext } from '@/lib/access-control';
-import { INVOICE_WEBHOOK_EVENT_TYPES, type WebhookEndpoint } from '@/lib/types';
-import { ApiError, forbidden } from './errors';
+import { INVOICE_WEBHOOK_EVENT_TYPES, type WebhookDelivery, type WebhookDeliveryStatus, type WebhookEndpoint } from '@/lib/types';
+import { ApiError, forbidden, notFound } from './errors';
 import { accessAllows, accessAllowsProject, apiKeyAllows } from './access';
 import { insertWebhookEndpoint, withEndpointColumns } from '@/lib/supabase/queries';
 import { sealWebhookSecret } from '@/lib/webhooks/secret';
+import { generateWebhookSecret } from '@/lib/webhooks/sign';
 
 /**
  * Webhook endpoints over the v1 API (/api/v1/webhook-endpoints), next to
@@ -169,4 +170,77 @@ export async function checkWebhookFields(
     if (error) throw error;
     if (!data) throw new ApiError(422, 'VALIDATION_ERROR', 'member_id is not a team member');
   }
+}
+
+const UUID_FORMAT = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** A 404 unless the endpoint exists (its secret is never read here). */
+async function requireEndpoint(service: SupabaseClient, endpointId: string): Promise<void> {
+  if (!UUID_FORMAT.test(endpointId)) throw notFound('Webhook endpoint');
+  const { data, error } = await service.from('webhook_endpoints').select('id').eq('id', endpointId).maybeSingle();
+  if (error) throw error;
+  if (!data) throw notFound('Webhook endpoint');
+}
+
+/** A delivery as the API shows it: the dispatcher's lease token stays on the server. */
+export type PublicWebhookDelivery = Omit<WebhookDelivery, 'attempt_token'>;
+
+const DELIVERY_COLUMNS =
+  'id, webhook_event_id, endpoint_id, status, attempts, last_attempt_at, last_status_code, last_error, last_response, delivered_at, next_attempt_at, lease_expires_at, created_at, updated_at, webhook_events(event_id, event_type, created_at)';
+
+/**
+ * One endpoint's deliveries, newest first, as Settings > Developers shows
+ * them under Recent deliveries: status, attempts, the receiver's last answer
+ * and the event each one carries. status narrows to one state; limit 1-100.
+ */
+export async function listWebhookDeliveries(
+  service: SupabaseClient,
+  endpointId: string,
+  options: { status?: WebhookDeliveryStatus | null; limit: number },
+): Promise<PublicWebhookDelivery[]> {
+  await requireEndpoint(service, endpointId);
+  let query = service.from('webhook_deliveries').select(DELIVERY_COLUMNS).eq('endpoint_id', endpointId);
+  if (options.status) query = query.eq('status', options.status);
+  const { data, error } = await query.order('created_at', { ascending: false }).order('id', { ascending: false }).limit(options.limit);
+  if (error) throw error;
+  return (data ?? []) as unknown as PublicWebhookDelivery[];
+}
+
+/**
+ * Resends a failed delivery (Settings > Developers, Resend): it goes back to
+ * pending with a fresh attempt budget, through pm.requeue_webhook_delivery.
+ * 404 when the delivery is not this endpoint's; 409 not_failed when it is
+ * waiting, sending or delivered. Answers the delivery as it is now.
+ */
+export async function requeueEndpointDelivery(service: SupabaseClient, endpointId: string, deliveryId: string): Promise<PublicWebhookDelivery> {
+  await requireEndpoint(service, endpointId);
+  const read = async () => {
+    if (!UUID_FORMAT.test(deliveryId)) return null;
+    const { data, error } = await service.from('webhook_deliveries').select(DELIVERY_COLUMNS)
+      .eq('id', deliveryId).eq('endpoint_id', endpointId).maybeSingle();
+    if (error) throw error;
+    return data as unknown as PublicWebhookDelivery | null;
+  };
+  const delivery = await read();
+  if (!delivery) throw notFound('Webhook delivery');
+  const { data: requeued, error } = await service.rpc('requeue_webhook_delivery', { p_delivery_id: deliveryId });
+  if (error) throw error;
+  if (!requeued) throw new ApiError(409, 'CONFLICT', 'Only a failed delivery can be resent', { reason: 'not_failed', status: delivery.status });
+  return (await read()) ?? delivery;
+}
+
+/**
+ * A new signing secret for the endpoint, for when the old one may have
+ * leaked: the endpoint keeps its id, filters and delivery history. Sealed at
+ * rest when the host has APP_ENCRYPTION_KEY. The old secret stops at once:
+ * deliveries from now on are signed with the new one. Answers the plaintext
+ * for the caller to show once; 404 when there is no such endpoint.
+ */
+export async function rotateWebhookSecret(service: SupabaseClient, endpointId: string): Promise<string> {
+  if (!UUID_FORMAT.test(endpointId)) throw notFound('Webhook endpoint');
+  const secret = generateWebhookSecret();
+  const { data, error } = await service.from('webhook_endpoints').update({ secret: sealWebhookSecret(endpointId, secret) }).eq('id', endpointId).select('id');
+  if (error) throw error;
+  if (!data?.length) throw notFound('Webhook endpoint');
+  return secret;
 }

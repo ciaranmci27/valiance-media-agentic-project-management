@@ -42,11 +42,16 @@ export const setAgentAccessSchema = z.object({
   orchestrator_id: z.uuid('orchestrator_id must be an agent id').nullable().optional(),
   reachable_directly: z.boolean().optional(),
   ask_first: z.boolean().optional(),
+  /**
+   * "Ask a person directly": true sends its questions to people as
+   * addressed; false (the default) sends them to its orchestrator first.
+   */
+  ask_people_directly: z.boolean().optional(),
   /** Replaces who can use it. An empty list: everyone who may otherwise give it work. */
   audience: z.array(audienceEntrySchema).max(AGENT_AUDIENCE_MAX).optional(),
 }).strict().refine(
-  (body) => ['orchestrator_id', 'reachable_directly', 'ask_first', 'audience'].some((key) => (body as Row)[key] !== undefined),
-  'Send at least one of orchestrator_id, reachable_directly, ask_first or audience',
+  (body) => ['orchestrator_id', 'reachable_directly', 'ask_first', 'ask_people_directly', 'audience'].some((key) => (body as Row)[key] !== undefined),
+  'Send at least one of orchestrator_id, reachable_directly, ask_first, ask_people_directly or audience',
 );
 export type SetAgentAccess = z.infer<typeof setAgentAccessSchema>;
 
@@ -64,15 +69,20 @@ export interface AudienceSummary {
   words: string;
 }
 
-const ANYONE = 'Everyone who can give it work';
-
-/** Who an audience lets in, in a few words. Pure. */
-export function audienceWords(entries: Pick<AudienceView, 'kind' | 'effect' | 'name'>[]): AudienceSummary {
-  if (entries.length === 0) return { limited: false, words: ANYONE };
+/**
+ * Who an audience lets in, in a few words: the one wording for every agent.
+ * Pure. With no limit an agent at the top reads "Everyone"; under an
+ * orchestrator, everyone means everyone who can use that orchestrator (a
+ * person reaches an agent only through every orchestrator above it), so it
+ * says so by name ("Everyone who can use Atlas").
+ */
+export function audienceWords(entries: Pick<AudienceView, 'kind' | 'effect' | 'name'>[], orchestratorName?: string | null): AudienceSummary {
+  const anyone = orchestratorName ? `Everyone who can use ${orchestratorName}` : 'Everyone';
+  if (entries.length === 0) return { limited: false, words: anyone };
   const includes = entries.filter((e) => e.effect === 'include');
   const excludes = entries.filter((e) => e.effect === 'exclude');
   if (excludes.some((e) => e.kind === 'everyone')) return { limited: true, words: 'No one' };
-  const base = includes.length === 0 ? ANYONE : includes.some((e) => e.kind === 'everyone') ? 'Everyone' : `${includes.map((e) => e.name).join(', ')} only`;
+  const base = includes.length === 0 || includes.some((e) => e.kind === 'everyone') ? anyone : `${includes.map((e) => e.name).join(', ')} only`;
   return { limited: true, words: excludes.length ? `${base.replace(/ only$/, '')}, except ${excludes.map((e) => e.name).join(', ')}` : base };
 }
 
@@ -108,8 +118,31 @@ export async function audiencesOf(db: SupabaseClient, agentIds: string[]): Promi
 
 /** The audience summary of many agents (the list and the tree). */
 export async function audienceSummaries(db: SupabaseClient, agentIds: string[]): Promise<Map<string, AudienceSummary>> {
-  const audiences = await audiencesOf(db, agentIds);
-  return new Map([...audiences].map(([id, entries]) => [id, audienceWords(entries)]));
+  const [audiences, orchestrators] = await Promise.all([audiencesOf(db, agentIds), orchestratorNames(db, agentIds)]);
+  return new Map([...audiences].map(([id, entries]) => [id, audienceWords(entries, orchestrators.get(id))]));
+}
+
+/** Each agent's orchestrator by name, for the ones that have one. Empty on a database before the update. */
+async function orchestratorNames(db: SupabaseClient, agentIds: string[]): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  const ids = [...new Set(agentIds)];
+  if (ids.length === 0) return out;
+  const { data, error } = await db.from('team_members').select('id, orchestrator_id').in('id', ids).not('orchestrator_id', 'is', null);
+  if (error) {
+    if (missingHierarchy(error)) return out;
+    throw error;
+  }
+  const rows = (data ?? []) as Row[];
+  const above = [...new Set(rows.map((r) => r.orchestrator_id as string))];
+  if (above.length === 0) return out;
+  const { data: named, error: nameError } = await db.from('team_members').select('id, name').in('id', above);
+  if (nameError) throw nameError;
+  const names = new Map(((named ?? []) as Row[]).map((r) => [r.id as string, r.name as string]));
+  for (const row of rows) {
+    const name = names.get(row.orchestrator_id);
+    if (name) out.set(row.id, name);
+  }
+  return out;
 }
 
 export interface AgentAccessView {
@@ -121,6 +154,8 @@ export interface AgentAccessView {
   orchestrator: { id: string; name: string } | null;
   reachable_directly: boolean;
   ask_first: boolean;
+  /** With an orchestrator: false (the default) sends its questions to the orchestrator first. */
+  ask_people_directly: boolean;
   audience: AudienceView[];
   audience_summary: AudienceSummary;
   /** Orchestrators above it whose own audience limits who can use it, nearest first. */
@@ -170,7 +205,7 @@ export async function getAgentAccess(db: SupabaseClient, caller: AgentCaller, ag
   const inherited = orchestrators
     .filter((orchestrator) => (audiences.get(orchestrator.id) ?? []).length > 0)
     .map((orchestrator) => ({ agent_id: orchestrator.id, name: orchestrator.name, summary: audienceWords(audiences.get(orchestrator.id) ?? []) }));
-  const [reports, count, canManage] = await Promise.all([
+  const [reports, count, canManage, askDirect] = await Promise.all([
     db.from('team_members').select('id, name, status').eq('orchestrator_id', agent.id).order('name')
       .then(({ data, error }) => {
         if (error && missingHierarchy(error)) return [] as Row[];
@@ -179,6 +214,8 @@ export async function getAgentAccess(db: SupabaseClient, caller: AgentCaller, ag
       }),
     peopleWhoMayUse(db, agent.id),
     canManageAgentAccess(db, caller, agent.id),
+    db.from('team_members').select('ask_people_directly').eq('id', agent.id).maybeSingle()
+      .then(({ data, error }) => (error ? false : (data as Row | null)?.ask_people_directly === true)),
   ]);
   return {
     agent_id: agent.id,
@@ -188,8 +225,9 @@ export async function getAgentAccess(db: SupabaseClient, caller: AgentCaller, ag
     orchestrator: orchestrators[0] ?? null,
     reachable_directly: agent.reachable_directly,
     ask_first: agent.ask_first,
+    ask_people_directly: askDirect,
     audience: own,
-    audience_summary: agent.delegate_of ? { limited: true, words: 'Only its person' } : audienceWords(own),
+    audience_summary: agent.delegate_of ? { limited: true, words: 'Only its person' } : audienceWords(own, orchestrators[0]?.name),
     inherited,
     inherited_words: inherited.length ? `${inherited.map((l) => `Limited by ${l.name}: ${l.summary.words}`).join('. ')}.` : null,
     people_count: count,
@@ -291,6 +329,7 @@ export async function setAgentAccess(db: SupabaseClient, caller: AgentCaller, ag
   if (body.orchestrator_id !== undefined) changes.orchestrator_id = body.orchestrator_id;
   if (body.reachable_directly !== undefined) changes.reachable_directly = body.reachable_directly;
   if (body.ask_first !== undefined) changes.ask_first = body.ask_first;
+  if (body.ask_people_directly !== undefined) changes.ask_people_directly = body.ask_people_directly;
   if (Object.keys(changes).length) {
     const { error } = await db.from('team_members').update(changes).eq('id', agentId);
     if (error) {

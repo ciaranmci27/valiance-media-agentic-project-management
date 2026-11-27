@@ -9,6 +9,7 @@ import {
   type RenderContext,
 } from '@/lib/email/client-notifications';
 import { CLIENT_COMM_TYPES, type ClientCommType } from '@/lib/types';
+import { plainDbError } from '@/lib/api/plain-error';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -65,7 +66,7 @@ export async function GET(
     query = query.eq('status', status);
   }
   const { data, error } = await query;
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return plainDbError(error);
   return NextResponse.json({ communications: data });
 }
 

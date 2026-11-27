@@ -6,14 +6,14 @@ For admins. Give every person their own AI assistant: it keeps their tasks and r
 
 - Each assistant is a **personal agent** bound to one person. It sees and does only what that person may, and everything it does records them. Details: [Identity and access](identity-and-access.md#personal-agents).
 - The app holds the assistant's identity, settings, switches, chat and audit trail.
-- **Your agent service runs the AI.** This is the harness that runs personal agents: it collects each assistant's key, receives its chat messages and work events, calls your model and answers. The app does not run a model itself. Until a service connects an assistant, it reads "Getting ready". Settings > Assistants opens with an **Agent service** step that makes the service's key and shows whether it is connected.
+- **Your agent service runs the AI.** This is the harness that runs personal agents: it collects each assistant's key, receives its chat messages and work events, calls your model and answers. The app does not run a model itself. Until a service connects an assistant, it reads "Getting ready". AI > Setup opens with an **Agent service** step that makes the service's key and shows whether it is connected.
 
 ## Set up
 
 ### 1. Turn it on
 
 1. Settings > Workspace > Features: turn on **AI agents**. Turn on **Webhooks** too, so chat messages reach the assistant at once.
-2. Settings > Assistants: switch on **Turn on assistants**.
+2. AI > Setup: switch on **Turn on assistants**.
 3. Optional: **What you call them**, such as "Helper". The sidebar and each person's page use this name.
 
 Turning assistants off puts every assistant on hold: its writes answer `423 assistants_off` (reads, heartbeats and telemetry still work), nobody new gets one, and chat gets "Assistants are off in this workspace right now." People still see theirs on their page, on hold, with Pause, Undo and the switches.
@@ -28,7 +28,7 @@ Removing a role or group later leaves the assistants it gave with their people. 
 
 ### 3. Connect your agent service
 
-Settings > Assistants > **Agent service** > **Make the service key** makes it for you and shows it once: `assistants.provision`, `webhooks.manage` and the scopes your assistants' templates carry (each key the service collects is narrowed to what this key carries). The step reads **Waiting for your service** until the service collects its first assistant's key, then **Connected**. Status rows that need the service link here.
+AI > Setup > **Agent service** > **Make the service key** makes it for you and shows it once: `assistants.provision`, `webhooks.manage` and the scopes your assistants' templates carry (each key the service collects is narrowed to what this key carries). The step reads **Waiting for your service** until the service collects its first assistant's key, then **Connected**. Status rows that need the service link here.
 
 The service needs that API key, made by an Owner, carrying `assistants.provision`. With it, it:
 
@@ -45,7 +45,7 @@ All of this can also be done from a chat: [Set up from a chat](setup-by-ai.md#as
 
 ### 4. Connect chat (optional)
 
-Settings > Assistants > **Chat** > **Add chat**, then choose **Personal assistants (DMs)**. This is the personal bot: people message it directly and their own assistant answers. It stays out of channels: anything said in a channel or group is ignored. Bot tokens are stored encrypted.
+AI > Setup > **Chat** > **Add chat**, then choose **Personal assistants (DMs)**. This is the personal bot: people message it directly and their own assistant answers. It stays out of channels: anything said in a channel or group is ignored. Bot tokens are stored encrypted.
 
 For AI that answers in channels (a company agent such as "Ops AI"), add a second bot of the other kind: [Company chat](company-chat.md). Each kind needs its own Slack app, Telegram bot or Discord application.
 
@@ -109,7 +109,7 @@ Who gets a plain one-line answer instead:
 
 | Sender | Answer |
 |---|---|
-| Not linked yet | A one-time link to connect their account. While that link is still open (unused, under 15 minutes), a reminder instead of a second one; once it is used or expired, a fresh one at once. |
+| Not linked yet | A one-time link to connect their account, with a 4-character code; the link page asks for the code, so a link forwarded to someone else links nothing (5 wrong codes use it up). While that link is still open (unused, under 15 minutes), a reminder instead of a second one; once it is used or expired, a fresh one at once. |
 | Suspended | "This account is not active here. Ask your admin." |
 | No assistant | "You don't have an assistant yet. Ask your admin to set one up." |
 | Assistants are off | "Assistants are off in this workspace right now. Ask your admin." |
@@ -121,11 +121,11 @@ When the person's assistant will not answer right now, the app says so itself, u
 | On hold | "Nova is on hold right now and will answer when it's back." | Recorded and sent to it; it answers once resumed |
 | Paused by them | "Nova is paused. Resume it from your Assistant page: it gets what you send meanwhile when you do." with a link | Held, then sent to it when resumed (the newest 20, oldest first; older ones are kept, not sent) |
 | Paused by an admin | "Nova is paused by an admin. It gets what you send meanwhile when they resume it." | Held, then sent when resumed, the same way |
-| Not connected, or its service stopped | "Nova can't answer right now: its key expired or was revoked. Your admin has been told." (the reason, then who fixes it: "Fix it in Settings > Assistants." for an Owner, or when nobody else could be told) | Recorded and sent to it |
+| Not connected, or its service stopped | "Nova can't answer right now: its key expired or was revoked. Your admin has been told." (the reason, then who fixes it: "Fix it in AI > Setup." for an Owner, or when nobody else could be told) | Recorded and sent to it |
 
 ## What employees see
 
-Their own page, `/assistant`, under the name you chose. It shows:
+Their own part of AI (`/ai`, Your assistant), under the name you chose. It shows:
 
 - **What needs them**: the assistant's questions, approvals and reply drafts.
 - **What it did**, with Undo for tasks it created or finished and inbox sorts.
@@ -155,16 +155,16 @@ The server enforces each one. The assistant is also told in words, so it does no
 
 ## Troubleshooting "paused"
 
-Settings > Assistants > **Status** lists every assistant. Each one that needs you says why; **Fix** opens the Agent service step at the top of the page. The person sees "Not working" with the reason and who fixes it ("Your admin has been told" only when someone was; an Owner, or someone nobody else could be told about, reads "Fix it in Settings > Assistants"). The admin gets a notification, at most once a day: an Owner's opens the Agent service step, another admin's opens the agent's page.
+AI > Setup > **Status** lists every assistant. Each one that needs you says why; **Fix** opens the Agent service step at the top of the page. The person sees "Not working" with the reason and who fixes it ("Your admin has been told" only when someone was; an Owner, or someone nobody else could be told about, reads "Fix it in AI > Setup"). The admin gets a notification, at most once a day: an Owner's opens the Agent service step, another admin's opens the agent's page.
 
 | Status | Why | Fix |
 |---|---|---|
 | Getting ready | Just made. The agent service has not collected its key yet (it has 15 minutes). | Check the service is running and polling `needs_key=true`. |
-| Needs you: "It was never connected to the service that runs it." | No key after 15 minutes. | Connect the agent service (Settings > Assistants > Agent service). |
+| Needs you: "It was never connected to the service that runs it." | No key after 15 minutes. | Connect the agent service (AI > Setup > Agent service). |
 | Needs you: "Its key expired or was revoked." | It had a key, and it ran out or was revoked (or its person was suspended and is back). | Have the service collect a new key (`POST /api/v1/assistants/{id}/key`). If one exists but is expiring, rotate it instead. |
 | Needs you: "The service that runs it stopped reporting." | Its last heartbeat is older than three of its promised intervals. | Restart the service. Check it beats for this assistant. |
 | Paused by them | The person pressed Pause. | Only they resume it, from their page. |
-| On hold: "Assistants are off." | An Owner switched assistants off. | Turn them on in Settings > Assistants. |
+| On hold: "Assistants are off." | An Owner switched assistants off. | Turn them on in AI > Setup. |
 | On hold: "Paused by an admin." | Someone other than the person suspended the assistant's account. Deliberate, so nobody is notified. | Reactivate it from the Team page or its agent page. |
 | On hold: "Every agent is paused." | An Owner paused every agent (Settings > Security). | Resume agents there. |
 | On hold: "Paused on its agent page." | Someone paused this agent from its profile or with `paused: true`. | Resume it on its agent page. |

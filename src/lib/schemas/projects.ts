@@ -49,4 +49,11 @@ export const updateProjectSchema = z.object({
   suggestions_per_cycle: z.number().int().min(1).optional(),
   repo_path: z.string().nullable().optional(),
   member_ids: z.array(z.string().uuid()).optional(),
+  // Billing, as the Edit project panel sets it; only with billing.manage on the key (else listed in meta.ignored_fields).
+  hourly_rate: z.number().min(0).max(99_999_999).nullable().optional(),
+  budget_type: z.enum(['hours', 'amount']).nullable().optional(),
+  budget_value: z.number().min(0).max(9_999_999_999).nullable().optional(),
+  billing_address: z.string().max(2000).nullable().optional(),
+  billing_email: z.string().max(320).nullable().optional(),
+  tax_rate: z.number().min(0).max(100).nullable().optional(),
 });

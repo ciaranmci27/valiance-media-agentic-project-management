@@ -4,6 +4,7 @@ import { agentHeartbeatSchema, type AgentHeartbeat } from '@/lib/schemas';
 import { requireAgentsEnabled } from '@/lib/api/agents';
 import { forbidden } from '@/lib/api/errors';
 import { heartbeatStaleAfterSeconds } from '@/lib/agent-status';
+import { liveInstances, recordInstance } from '@/lib/api/agent-instances';
 
 /**
  * An agent's own heartbeat, for any harness: a container fleet, a cron job,
@@ -20,6 +21,10 @@ import { heartbeatStaleAfterSeconds } from '@/lib/agent-status';
  * publisher's facts win and its beat stays the only proof of liveness: the
  * self-report writes only status_note (reported_at does not move) and
  * answers publisher_reports: true.
+ *
+ * A worker of a pool sends instance_id: its own beat is kept on its own
+ * (pm.agent_instances), and the agent reads working while any live worker
+ * is; the answer carries live_instances (count and working).
  *
  * Permission: any agent key that may log its activity or read tasks. It
  * reports only itself (another member_id is refused); agents.manage stays
@@ -51,11 +56,21 @@ export const POST = withApi<AgentHeartbeat>(async ({ supabase, body, access, tea
   // offline after its three minutes while the agent keeps beating, and a beat
   // never clears a turn the host sees running.
   const publisherRow = !!previous?.container;
+  // A worker's own beat is kept on its own; the agent works while any live worker does.
+  let pool: { count: number; working: number } | null = null;
+  if (body.instance_id) {
+    await recordInstance(supabase, teamMemberId, {
+      instance_id: body.instance_id, working: body.working ?? false, turn_started_at: body.turn_started_at ?? null,
+      status_note: body.status_note ?? null, expected_interval_seconds: body.expected_interval_seconds,
+    });
+    const live = await liveInstances(supabase, teamMemberId);
+    pool = { count: live.count, working: live.working };
+  }
   let row: Record<string, unknown>;
   if (publisherRow) {
     row = { member_id: teamMemberId, status_note: body.status_note ?? null };
   } else {
-    const working = body.working ?? false;
+    const working = (body.working ?? false) || (pool !== null && pool.working > 0);
     let turnStartedAt: string | null = null;
     if (working) {
       // A turn still running since the last beat keeps when it began.
@@ -94,5 +109,7 @@ export const POST = withApi<AgentHeartbeat>(async ({ supabase, body, access, tea
     // the interval and reported_at stay the publisher's; only the note
     // came from this beat.
     publisher_reports: publisherRow,
+    // A worker's beat: which one, and how many of the agent's workers are live and working.
+    ...(body.instance_id ? { instance_id: body.instance_id, live_instances: pool } : {}),
   });
 }, { schema: agentHeartbeatSchema, optionalBody: true, permission: ['agent_activity.write', 'tasks.read'] });

@@ -43,7 +43,13 @@ export const FEED_TYPE_PERMISSIONS: Record<FeedType, PermissionKey[]> = {
  * Written out (test:permission-scopes reads route permissions from source);
  * test:long-poll checks it is exactly every key above.
  */
-export const FEED_PERMISSIONS: PermissionKey[] = ['notifications.manage_own', 'tasks.read', 'questions.ask', 'agent_activity.write', 'agents.manage', 'audit.read'];
+export const FEED_PERMISSIONS: PermissionKey[] = ['notifications.manage_own', 'tasks.read', 'questions.ask', 'agent_activity.write', 'agents.manage', 'audit.read', 'agents.host'];
+
+/**
+ * A host key (agents.host) reads the feed of the agents it serves: every
+ * member type routed to them, and their agent events when asked for.
+ */
+export const FEED_HOST_PERMISSION: PermissionKey = 'agents.host';
 
 export const FEED_LIMIT_DEFAULT = 50;
 export const FEED_LIMIT_MAX = 200;

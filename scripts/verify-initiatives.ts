@@ -279,7 +279,9 @@ async function main() {
 
     check('mcp: the seven initiative tools, gated as their routes', TOOLS.every((name) => PM_TOOLS.some((t) => t.name === name))
       && PM_TOOLS.find((t) => t.name === 'create_initiative')?.permission === 'tasks.create' && PM_TOOLS.find((t) => t.name === 'add_initiative_entry')?.permission === 'tasks.read'
-      && !PM_TOOLS.some((t) => /delete_initiative|archive_initiative/.test(t.name)));
+      // Moves to Trash have tools since the API parity decision (2026-11-27), with their routes' gates.
+      && JSON.stringify(PM_TOOLS.find((t) => t.name === 'delete_initiative')?.permission) === JSON.stringify(['projects.manage', 'tasks.create'])
+      && PM_TOOLS.find((t) => t.name === 'delete_initiative_entry')?.permission === 'tasks.read');
 
     // ── Create: tasks.create in the project ──────────────────────────
     as(LOGINS.nina);

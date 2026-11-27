@@ -216,6 +216,21 @@ async function requireScope(service: SupabaseClient, caller: AgentCaller, ref: S
   return access;
 }
 
+/**
+ * Pinned entries in these scopes go into the calling agent's own context on
+ * every turn: its own notes, and (for a personal agent) its person's memory.
+ * An agent never pins them itself, so text it read in an email or a page
+ * cannot stick in every later run; a person who manages it pins them
+ * (deep security review of 2.0.50, finding 10).
+ */
+export function feedsOwnContext(caller: AgentCaller, ref: ScopeRef): boolean {
+  if (caller.access.role !== 'agent') return false;
+  return (ref.scope_type === 'agent' && ref.scope_id === caller.memberId) || ref.scope_type === 'member';
+}
+
+export const AGENT_CANNOT_PIN = 'Only a person can pin notes into your own context. Save it without pinned; a manager can pin it if every run needs it.';
+const PINNED_NOTE_KEPT = 'A pinned note stays as the person who pinned it wrote it. Add a new note instead.';
+
 async function sectionPage(service: SupabaseClient, ref: ScopeRef, section: BriefSectionKey, offset: number, limit: number): Promise<BriefSection> {
   const base = service.from('project_context').select(SCOPED_COLUMNS, { count: 'exact' }).eq('scope_type', ref.scope_type);
   const { data, error, count } = await readPage((ref.scope_id ? base.eq('scope_id', ref.scope_id) : base.is('scope_id', null))
@@ -266,6 +281,7 @@ async function scopePinnedCount(service: SupabaseClient, ref: ScopeRef): Promise
 export async function addScopedEntry(service: SupabaseClient, caller: AgentCaller, input: AddScopedEntry): Promise<ScopedEntry> {
   const ref: ScopeRef = { scope_type: input.scope_type, scope_id: input.scope_id ?? null };
   await requireScope(service, caller, ref, true);
+  if (input.pinned === true && feedsOwnContext(caller, ref)) throw forbidden(AGENT_CANNOT_PIN, { reason: 'agent_cannot_pin' });
   const section = input.section ?? 'overview';
   const row: Row = {
     scope_type: ref.scope_type,
@@ -307,6 +323,12 @@ export async function updateScopedEntry(service: SupabaseClient, caller: AgentCa
   const access = await scopeAccess(service, caller, refOf(before));
   if (!access.read || !before.is_active) throw notFound('Context entry');
   if (!access.write) throw denied(refOf(before), true);
+  if (feedsOwnContext(caller, refOf(before))) {
+    if (patch.pinned === true && before.pinned !== true) throw forbidden(AGENT_CANNOT_PIN, { reason: 'agent_cannot_pin' });
+    if (before.pinned === true && patch.content !== undefined && patch.content !== before.content) {
+      throw forbidden(PINNED_NOTE_KEPT, { reason: 'pinned_note_kept' });
+    }
+  }
   // A person who edits an entry, or marks it checked, takes it over: "Written by an agent" clears.
   const changes: Row = briefEntryChanges(before, patch, caller.access.role === 'agent');
   if (patch.section !== undefined && patch.section !== before.section) {
@@ -333,6 +355,61 @@ export async function removeScopedEntry(service: SupabaseClient, caller: AgentCa
   const { error } = await service.from('project_context').update({ is_active: false }).eq('id', entryId);
   if (error) throw error;
   return { before: scopedEntry(before), deleted: false };
+}
+
+/** At most this many entries come back in one restore. */
+export const RESTORE_MAX = 200;
+
+/**
+ * Clears every note an agent wrote in its own notes (scope agent, source
+ * agent): archived, so Undo brings them back (restoreScopedEntries). For
+ * whoever may write the agent's notes: the people who manage it, and the
+ * agent itself. Notes a person wrote or checked stay. Answers the ids.
+ */
+export async function clearAgentWrittenNotes(service: SupabaseClient, caller: AgentCaller, agentId: string): Promise<{ cleared: string[] }> {
+  await requireScope(service, caller, { scope_type: 'agent', scope_id: agentId }, true);
+  const { data, error } = await service.from('project_context').update({ is_active: false })
+    .eq('scope_type', 'agent').eq('scope_id', agentId).eq('source', 'agent').eq('is_active', true)
+    .select('id');
+  if (missingScopeColumns(error)) throw pending();
+  if (error) throw error;
+  return { cleared: ((data ?? []) as Row[]).map((row) => row.id as string) };
+}
+
+/**
+ * Brings archived entries back (the Undo of a removal or of Clear). Each one
+ * must be in a scope the caller may write; one out of reach, never archived,
+ * or from a person's memory (deleted, not archived) is skipped. Answers the
+ * ids brought back.
+ */
+export async function restoreScopedEntries(service: SupabaseClient, caller: AgentCaller, entryIds: string[]): Promise<{ restored: string[] }> {
+  const ids = [...new Set(entryIds.filter((id) => UUID.test(id)))].slice(0, RESTORE_MAX);
+  if (!ids.length) return { restored: [] };
+  const { data, error } = await service.from('project_context').select(SCOPED_COLUMNS).in('id', ids).eq('is_active', false);
+  if (missingScopeColumns(error)) throw pending();
+  if (error) throw error;
+  const rows = (data ?? []) as unknown as Row[];
+  const allowed: string[] = [];
+  const unpinned: string[] = [];
+  const decided = new Map<string, boolean>();
+  for (const row of rows) {
+    if (row.scope_type === 'member') continue;
+    const ref = refOf(row);
+    const key = `${ref.scope_type}:${ref.scope_id ?? ''}`;
+    if (!decided.has(key)) decided.set(key, (await scopeAccess(service, caller, ref)).write);
+    if (!decided.get(key)) continue;
+    // An agent restoring into its own context never brings a pin back: only a
+    // person pins there, so a pinned note a person removed returns unpinned.
+    if (row.pinned === true && feedsOwnContext(caller, ref)) unpinned.push(row.id as string);
+    else allowed.push(row.id as string);
+  }
+  const bring = async (ids: string[], changes: Row) => {
+    if (!ids.length) return [];
+    const { data: back, error: backError } = await service.from('project_context').update(changes).in('id', ids).eq('is_active', false).select('id');
+    if (backError) throw backError;
+    return ((back ?? []) as Row[]).map((row) => row.id as string);
+  };
+  return { restored: [...await bring(allowed, { is_active: true }), ...await bring(unpinned, { is_active: true, pinned: false })] };
 }
 
 // ── Search across scopes ─────────────────────────────────────────────────
@@ -439,7 +516,8 @@ export interface PinnedScope {
   scope_type: ContextScope;
   scope_id: string | null;
   name: string | null;
-  entries: { id: string; section: string; content: string; content_truncated?: boolean }[];
+  /** written_by: 'agent' marks a note an agent wrote, not instructions from a person. */
+  entries: { id: string; section: string; content: string; content_truncated?: boolean; written_by?: 'agent' }[];
   more?: number;
 }
 
@@ -487,7 +565,11 @@ export async function pinnedForAgent(service: SupabaseClient, agentId: string, o
       scope.more = (scope.more ?? 0) + 1;
     } else {
       const content = cut(String(entry.content ?? ''), SCOPED_PINNED_LIMITS.entry);
-      scope.entries.push({ id: entry.id, section: entry.section, content: content.text, ...(content.truncated ? { content_truncated: true } : {}) });
+      scope.entries.push({
+        id: entry.id, section: entry.section, content: content.text,
+        ...(content.truncated ? { content_truncated: true } : {}),
+        ...(entry.source === 'agent' ? { written_by: 'agent' as const } : {}),
+      });
       taken++;
     }
     out.set(key, scope);

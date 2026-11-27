@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { DATA_RETENTION_DEFAULTS, DATA_RETENTION_KEYS, type DataRetentionPatch, type DataRetentionSettings } from '@/lib/data-retention';
 import { ApiError } from './errors';
@@ -48,6 +49,12 @@ export async function setDataRetentionSettings(db: SupabaseClient, patch: DataRe
 
 /** A setting the retention preview counts: Keeping data's, or the audit log's (audit_retention_days). */
 export type RetentionPreviewKey = (typeof DATA_RETENTION_KEYS)[number] | 'audit_retention_days';
+
+const previewPeriod = z.number().int().min(1).max(3650).nullable().optional();
+/** The retention preview's body (Settings and the API): the periods being saved, in days (null: forever). */
+export const retentionPreviewSchema = z.object(Object.fromEntries(
+  [...DATA_RETENTION_KEYS, 'audit_retention_days'].map((key) => [key, previewPeriod]),
+) as Record<RetentionPreviewKey, typeof previewPeriod>).strict();
 
 /**
  * About how many rows each period would remove at the next daily cleanup

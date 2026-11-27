@@ -38,7 +38,7 @@ export function DeveloperDocsSection() {
       <p className="mt-4 flex items-start gap-2 text-sm text-zinc-400">
         <Sparkles size={15} className="mt-0.5 flex-shrink-0 text-zinc-400" aria-hidden="true" />
         <span>
-          Using Claude, ChatGPT or Cursor on your own work? <Link href="/settings/account#connect-ai" className="rounded font-medium text-brand-300 underline underline-offset-2 hover:decoration-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500">Connect AI</Link> signs them in as you, no key needed.
+          Using Claude, ChatGPT or Cursor on your own work? <Link href="/ai?tab=assistant#connect-ai" className="rounded font-medium text-brand-300 underline underline-offset-2 hover:decoration-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500">Connect AI</Link> signs them in as you, no key needed.
         </span>
       </p>
     </section>

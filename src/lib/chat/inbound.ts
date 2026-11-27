@@ -5,6 +5,7 @@ import { BROKEN_WORDS, type AssistantFixer, type AssistantStatus } from '@/lib/a
 import { createLinkRequest, findIdentity } from '@/lib/api/identities';
 import { afterResponse } from '@/lib/api/after-response';
 import { gateAgentWork } from '@/lib/api/agent-access';
+import { conversationHolder, threadKeyOf } from './claims';
 import { ApiError } from '@/lib/api/errors';
 import { readStoredBrand } from '@/lib/brand/server';
 import { enabledModuleSet } from '@/lib/modules/server';
@@ -283,10 +284,10 @@ async function strangerWords(service: SupabaseClient, ctx: Ctx, parsed: Message,
   if ((open ?? []).length) return CHAT_WORDS.linkAgain;
   const link = await createLinkRequest(service, { memberId: null, keyId: null } as unknown as { memberId: string; keyId: string | null }, {
     provider: adapter.identityProvider, external_id: parsed.userId, workspace_id: workspaceId, handle: parsed.userHandle,
-  }, appUrl);
+  }, appUrl, { withCode: true });
   let workspace = 'this workspace';
   try { workspace = (await readStoredBrand(service)).settings.name?.trim() || workspace; } catch { /* the default name */ }
-  return CHAT_WORDS.linkPrompt(workspace, link.url);
+  return CHAT_WORDS.linkPrompt(workspace, link.url, link.code);
 }
 
 /** The sender: a verified identity in this connection's workspace, and its member when that is an active person. */
@@ -478,10 +479,18 @@ async function handleCompany(service: SupabaseClient, ctx: Ctx, parsed: Message,
       .then(({ data, error }) => { if (error) throw error; return data as Row | null; }),
   ]);
   const started = await startedMessageAnswered(service, connection.id, parsed);
-  const decision = routeCompany({
+  let decision = routeCompany({
     direct: parsed.direct, botMentioned, text: parsed.text, agents, channel: channelRow as { agent_id: string; listen: string } | null, answering: started?.agentId ?? null,
   });
   if (decision.kind === 'ignore') return done({ status: 'ignored', reason: decision.reason });
+  // A follow-up in a conversation an agent holds goes to that agent (a claim on
+  // the conversation), unless the message names another agent or answers one.
+  if (decision.kind === 'request' && (decision.route === 'direct' || decision.route === 'channel' || decision.route === 'default')) {
+    const key = threadKeyOf({ thread_id: parsed.threadId ?? null, external_message_id: parsed.messageId ?? null, is_direct: parsed.direct }, true);
+    const holderId = await conversationHolder(service, connection.id, parsed.conversationId, key);
+    const holder = holderId ? agents.find((agent) => agent.id === holderId) ?? null : null;
+    if (holder) decision = { ...decision, agent: holder };
+  }
 
   const record = recorder(service, connection, parsed);
   // A channel answer starts a thread on the message; a DM answers in place.

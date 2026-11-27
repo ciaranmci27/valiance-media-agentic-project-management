@@ -449,9 +449,9 @@ export function canAddAgentToProject(
 /** Pages under /agent that are not an agent's profile. */
 const AGENT_SEGMENT_PAGES = new Set(['new', 'analytics', 'projects']);
 
-/** The agent whose profile a path opens (/agent/<id>), or null for every other page under /agent. */
+/** The agent whose page a path opens (/ai/agents/<id>, and the old /agent/<id>), or null for every other page. */
 export function agentProfileIdFrom(pathname: string | null | undefined): string | null {
-  const match = /^\/agent\/([^/?#]+)\/?$/.exec(pathname ?? '');
+  const match = /^\/(?:agent|ai\/agents)\/([^/?#]+)\/?$/.exec(pathname ?? '');
   if (!match || AGENT_SEGMENT_PAGES.has(match[1])) return null;
   return decodeURIComponent(match[1]);
 }
@@ -535,9 +535,10 @@ export function settingsSummary(schema: readonly SettingsField[], values: Settin
  * Scopes an agent key never carries: a host's alert key, a person's meeting
  * script, a data system's export key, a person's own memory, and the
  * assistant host's provisioning (collecting keys is an Owner's, so it does
- * nothing for an agent).
+ * nothing for an agent), and workspace settings (every settings route is an
+ * Owner's or a person's, so it does nothing for an agent either).
  */
-export const NEVER_AGENT_SCOPES: readonly PermissionKey[] = ['meetings.write', 'agent_events.export', 'audit.export', 'context.memory', 'assistants.provision'];
+export const NEVER_AGENT_SCOPES: readonly PermissionKey[] = ['meetings.write', 'agent_events.export', 'audit.export', 'context.memory', 'assistants.provision', 'agents.host', 'settings.manage'];
 /** Scopes that let a key set up other keys and webhooks: shown with a warning. */
 export const SENSITIVE_SCOPES: readonly PermissionKey[] = ['api_keys.manage_all', 'webhooks.manage', 'credentials.manage', 'credentials.reveal_shared', 'invoices.manage', 'invoices.record_payments'];
 

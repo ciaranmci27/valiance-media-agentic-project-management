@@ -7,7 +7,8 @@
  *    reads as missing, so the only settings are the ones dev.mjs passed in.
  * 2. The process stops at once unless the Supabase URL and the database URL are
  *    this machine's.
- * 3. fetch refuses any hosted Supabase address (*.supabase.co, *.supabase.com).
+ * 3. fetch refuses any hosted Supabase address (*.supabase.co, *.supabase.com),
+ *    and with PM_E2E=1 (the end-to-end suite's server) any chat provider.
  * 4. Next builds into .next-local, apart from the app's usual dev server.
  */
 'use strict';
@@ -158,8 +159,11 @@ fs.promises.writeFile = async function guardedWrite(target, ...rest) {
   return writeFile.call(this, target, ...rest);
 };
 
-// 3. No request to hosted Supabase from server code.
+// 3. No request to hosted Supabase from server code. The end-to-end suite's
+//    server (PM_E2E=1) also never reaches a chat provider: its test
+//    connections hold made-up tokens, and a send fails here, recorded as failed.
 const HOSTED = /(^|\.)supabase\.(co|com|in)$/i;
+const CHAT_PROVIDERS = /(^|\.)(telegram\.org|slack\.com|discord\.com|discordapp\.com)$/i;
 if (typeof globalThis.fetch === 'function') {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = function guardedFetch(input, init) {
@@ -167,6 +171,9 @@ if (typeof globalThis.fetch === 'function') {
     const host = url ? hostOf(url) : null;
     if (host && HOSTED.test(host)) {
       return Promise.reject(new Error(`[local-guard] refused a request to hosted Supabase (${host})`));
+    }
+    if (host && process.env.PM_E2E === '1' && CHAT_PROVIDERS.test(host)) {
+      return Promise.reject(new Error(`[local-guard] the end-to-end server never reaches a chat provider (${host})`));
     }
     return originalFetch.call(this, input, init);
   };

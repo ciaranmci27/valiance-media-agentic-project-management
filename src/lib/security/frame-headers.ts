@@ -1,11 +1,17 @@
 /**
- * Pages that must never load inside another site's frame: the Connect AI
- * consent screen (a framed Allow button could be clicked by trickery) and
- * sign-in. Not app-wide: the app frames its own email previews
- * (/email-preview loads /api/email-preview), and an install may frame its
- * client portal on its own site. Applied in core's next.config.ts headers.
+ * Pages that must never load inside any frame, even the app's own: the
+ * Connect AI consent screen (a framed Allow button could be clicked by
+ * trickery) and sign-in. Applied in core's next.config.ts headers.
  */
 export const NO_FRAMING_SOURCES = ['/oauth/:path*', '/login', '/login/:path*'] as const;
+
+/**
+ * Pages another site may frame: the client portal, which an install may
+ * embed on its own website. Every other page loads only inside the app
+ * itself (frame-ancestors 'self'): the app frames its own email previews
+ * (/email-preview loads /api/email-preview), and nothing else needs more.
+ */
+export const OPEN_FRAMING_SOURCES = ['/portal/:path*'] as const;
 
 /**
  * The Content-Security-Policy every page carries. Kept to what holds on
@@ -20,11 +26,34 @@ export const NO_FRAMING_SOURCES = ['/oauth/:path*', '/login', '/login/:path*'] a
  */
 export const BASE_CONTENT_SECURITY_POLICY = "object-src 'none'; base-uri 'self'";
 
+/** Every page but the portal and the no-framing pages: framed only by the app itself. */
+export const APP_CONTENT_SECURITY_POLICY = `frame-ancestors 'self'; ${BASE_CONTENT_SECURITY_POLICY}`;
+
+/**
+ * Headers every response carries (deep security review of 2.0.50, finding
+ * 13): HTTPS only from the first visit on (browsers ignore it over plain
+ * http, so a local dev server is unaffected), no guessing a file's type from
+ * its bytes, and only the origin in the Referer sent to other sites (a
+ * portal or reset link in the address never leaks to a site it links to).
+ */
+export const SECURITY_HEADERS = [
+  { key: 'Strict-Transport-Security', value: 'max-age=31536000' },
+  { key: 'X-Content-Type-Options', value: 'nosniff' },
+  { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+] as const;
+
 type HeaderRule = { source: string; headers: Array<{ key: string; value: string }> };
 
-/** The app-wide policy, first, so the no-framing rules below can replace it on their pages. */
+/**
+ * The app-wide policy and headers, first, so the rules below can replace the
+ * policy on their pages (Next sends only the last matching rule's value for
+ * a key): the portal drops frame-ancestors, the no-framing pages set 'none'.
+ */
 export function contentSecurityPolicyHeaders(): HeaderRule[] {
-  return [{ source: '/:path*', headers: [{ key: 'Content-Security-Policy', value: BASE_CONTENT_SECURITY_POLICY }] }];
+  return [
+    { source: '/:path*', headers: [{ key: 'Content-Security-Policy', value: APP_CONTENT_SECURITY_POLICY }, ...SECURITY_HEADERS.map((h) => ({ ...h }))] },
+    ...OPEN_FRAMING_SOURCES.map((source) => ({ source, headers: [{ key: 'Content-Security-Policy', value: BASE_CONTENT_SECURITY_POLICY }] })),
+  ];
 }
 
 export function noFramingHeaders(): HeaderRule[] {

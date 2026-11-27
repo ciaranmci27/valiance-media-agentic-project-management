@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { accessAllows, accessAllowsProject, deniedResponse, requireSessionAccess, sanitizeTimeEntryForAccess } from '@/lib/api/access';
 import { fetchAllRows } from '@/lib/supabase/fetch-all';
+import { plainDbError } from '@/lib/api/plain-error';
 
 /** fetchAllRows as a { data, error } result, to sit beside single queries. */
 function allRows<T>(page: Parameters<typeof fetchAllRows<T>>[0]) {
@@ -68,7 +69,7 @@ export async function GET() {
     shareEarningsQuery.order('earned_date', { ascending: false }),
   ]);
   const error = entries.error || rates.error || adjustments.error || payouts.error || shareEarnings.error;
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return plainDbError(error);
   // A manager sees every payout, so every allocation. Anyone else gets only
   // the allocations of their own payouts, filtered in the query rather than
   // after reading every allocation in the workspace.
@@ -105,7 +106,7 @@ export async function POST(request: Request) {
     const entryIds = Array.isArray(body.entry_ids) ? body.entry_ids.map(String) : [];
     if (entryIds.length === 0) return NextResponse.json({ error: 'Select at least one time entry' }, { status: 422 });
     const { data: reviewEntries, error: reviewError } = await service.from('project_time_entries').select('id, project_id, member_id').in('id', entryIds).is('deleted_at', null);
-    if (reviewError) return NextResponse.json({ error: reviewError.message }, { status: 500 });
+    if (reviewError) return plainDbError(reviewError);
     if ((reviewEntries || []).length !== entryIds.length) return NextResponse.json({ error: 'One or more time entries were not found' }, { status: 404 });
     if (reviewEntries?.some((entry) => entry.member_id === memberId)) return NextResponse.json({ error: 'You cannot approve your own time' }, { status: 409 });
     if (reviewEntries?.some((entry) => !accessAllowsProject(access, entry.project_id))) return NextResponse.json({ error: 'Project access denied' }, { status: 403 });
@@ -174,7 +175,7 @@ export async function POST(request: Request) {
       description: body.description || '',
       created_by: memberId,
     }).select().single();
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    if (error) return plainDbError(error);
     return NextResponse.json({ data }, { status: 201 });
   }
 
@@ -197,7 +198,7 @@ export async function POST(request: Request) {
       p_notes: body.notes || '',
       p_allocations: body.allocations || [],
     });
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    if (error) return plainDbError(error);
     return NextResponse.json({ data }, { status: 201 });
   }
 

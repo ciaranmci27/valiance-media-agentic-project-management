@@ -214,7 +214,15 @@ async function csp() {
   const all = directives(policy('/:path*'));
   check('csp: every page refuses plugin content', all.includes("object-src 'none'"), all);
   check('csp: every page refuses a <base> that re-points its links', all.includes("base-uri 'self'"), all);
-  check('csp: the app-wide policy does not stop the portal being framed', !all.some((d) => d.startsWith('frame-ancestors')), all);
+  // Security review finding 13: pages load only inside the app; the portal stays open to an install's own site.
+  check('csp: every page loads only inside the app itself (frame-ancestors self)', all.includes("frame-ancestors 'self'"), all);
+  const portal = directives(policy('/portal/:path*'));
+  check('csp: the client portal may still be framed by an install\'s site, keeping the rest of the policy', !portal.some((d) => d.startsWith('frame-ancestors')) && portal.includes("object-src 'none'") && portal.includes("base-uri 'self'"), portal);
+  const header = (key: string) => rules.filter((r) => r.source === '/:path*').flatMap((r) => r.headers).find((h) => h.key === key)?.value;
+  // A one-year HSTS without includeSubDomains: an install on an apex domain must not force HTTPS on every subdomain of it.
+  check('headers: HSTS is one year and leaves subdomains alone', header('Strict-Transport-Security') === 'max-age=31536000', header('Strict-Transport-Security'));
+  check('headers: HSTS, nosniff and a strict referrer policy on every response', /max-age=\d{7,}/.test(header('Strict-Transport-Security') ?? '')
+    && header('X-Content-Type-Options') === 'nosniff' && header('Referrer-Policy') === 'strict-origin-when-cross-origin', rules[0]);
   for (const source of ['/login', '/login/:path*', '/oauth/:path*']) {
     const own = directives(policy(source));
     check(`csp: ${source} keeps frame-ancestors none and the app-wide policy (the last value wins)`, own.includes("frame-ancestors 'none'") && own.includes("object-src 'none'") && own.includes("base-uri 'self'"), own);

@@ -23,7 +23,7 @@ Authentication is an API key in the `x-api-key` header. The MCP server also take
 
 Pick one:
 
-- **In the app**: Agents, then **Hire an agent** (`/agent/new`). Choose a template, name it, pick its projects and rules, then connect it. The last step shows a key once, ready-to-paste setup for Claude Code, Codex or any MCP client, and the agent's briefing as an `AGENTS.md`.
+- **In the app**: AI > Company AI, then **Hire an agent** (`/ai/agents/new`). Choose a template, name it, pick its projects and rules, then connect it. The last step shows a key once, ready-to-paste setup for Claude Code, Codex or any MCP client, and the agent's briefing as an `AGENTS.md`.
 - **From a chat** (an Owner's own MCP client): `create_agent`, then `apply_agent_template` with `create_key: true`. Or `create_agent`, `set_agent_projects`, `set_agent_rules` and `create_api_key`. See [Set up from a chat](setup-by-ai.md).
 - **Over REST**: `POST /api/v1/agents`, then `POST /api/v1/api-keys`. Both need an Owner's key.
 
@@ -94,6 +94,7 @@ New inboxes run triage plans (`triage_mode` defaults to `plans`); existing inbox
 
 | Page | For |
 |---|---|
+| [How to structure your agent team](structure-your-team.md) | One assistant per person, one company orchestrator, specialists under it, people only for decisions |
 | [The work loop](work-loop.md) | Claims, briefs, runs, questions, approvals, handoff, heartbeat, retries, limits and pause |
 | [Events and webhooks](events-and-webhooks.md) | Waking the harness, filters, signatures, long-poll with no public address, the event export, labels, a warehouse feed |
 | [What belongs where](what-belongs-where.md) | What the open-source core owns, what a harness or install owns, and how a harness consumes the core |

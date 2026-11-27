@@ -7,23 +7,38 @@
  * never break the surrounding portal request.
  */
 import { createHash } from 'node:crypto';
+import { isIP } from 'node:net';
 import type { NextRequest } from 'next/server';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { PortalEventClientContext, PortalEventType } from '@/lib/types';
 
+/** A real IPv4 or IPv6 address (brackets and a port stripped), or null. */
+export function validIp(value: string | null | undefined): string | null {
+  if (!value) return null;
+  let ip = value.trim();
+  // "[::1]:443" and "203.0.113.7:51234" are an address and a port.
+  const bracketed = /^\[([^\]]+)\](?::\d+)?$/.exec(ip);
+  if (bracketed) ip = bracketed[1];
+  else if (/^\d{1,3}(?:\.\d{1,3}){3}:\d+$/.test(ip)) ip = ip.slice(0, ip.lastIndexOf(':'));
+  return isIP(ip) ? ip : null;
+}
+
 /** Pull the originating client IP out of the request headers. Trusts the
  *  first hop in x-forwarded-for, falling back through the usual proxy
- *  headers. Returns null if nothing usable is present. */
+ *  headers. Returns null if nothing usable is present: a header that is
+ *  not an address (x-forwarded-for: x) reads as no address, never as text
+ *  that a database inet column would refuse (which used to drop the PIN
+ *  miss it was counting). */
 export function getClientIp(request: NextRequest): string | null {
   const xff = request.headers.get('x-forwarded-for');
   if (xff) {
     const first = xff.split(',')[0]?.trim();
-    if (first) return first;
+    if (first) return validIp(first);
   }
   const real = request.headers.get('x-real-ip');
-  if (real) return real.trim();
+  if (real) return validIp(real);
   const cf = request.headers.get('cf-connecting-ip');
-  if (cf) return cf.trim();
+  if (cf) return validIp(cf);
   return null;
 }
 

@@ -44,7 +44,8 @@ const EXPECTED: Record<string, string> = {
   'POST /api/v1/tasks/[id]/comments': 'tasks.read',
   'DELETE /api/v1/tasks/[id]/comments/[commentId]': 'tasks.read',
   'POST /api/v1/tasks/[id]/reviews': 'tasks.manage_all',
-  'POST /api/v1/tasks/[id]/claim': 'tasks.manage_assigned',
+  // A host key (agents.host, 20261127002000) also claims, for an agent it serves.
+  'POST /api/v1/tasks/[id]/claim': 'agents.host,tasks.manage_assigned',
   'PUT /api/v1/tasks/[id]/subtasks/reorder': 'tasks.manage_assigned',
   // context
   'GET /api/v1/projects/[id]/context': 'project_context.read',

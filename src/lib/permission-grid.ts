@@ -151,6 +151,7 @@ export const PERMISSION_PLACEMENT: Record<PermissionKey, GridPlacement> = {
   'identities.read': { power: 16 },
   'audit.export': { power: 17 },
   'agent_events.export': { power: 18 },
+  'agents.host': { power: 19 },
 };
 
 const DESCRIPTIONS = new Map<string, string>(PERMISSION_GROUPS.flatMap((group) => group.permissions.map((p) => [p.key, p.description] as const)));

@@ -1,4 +1,4 @@
-import { NextResponse, type NextRequest } from 'next/server';
+import { NextResponse } from 'next/server';
 import { requireSessionAccess, type SessionAccessResult } from '@/lib/api/access';
 
 /**
@@ -11,19 +11,8 @@ export function isDemoWorkspace(): boolean {
   return process.env.NEXT_PUBLIC_DEMO_MODE === 'true' || process.env.DEMO_MODE === 'true';
 }
 
-/** Browsers always send Origin on a write; one naming another site is refused. */
-export function foreignOrigin(request: NextRequest): boolean {
-  const origin = request.headers.get('origin');
-  if (!origin) return request.headers.get('sec-fetch-site') === 'cross-site';
-  let host: string;
-  try {
-    host = new URL(origin).host;
-  } catch {
-    return true;
-  }
-  const hosts = [request.nextUrl.host, request.headers.get('host'), request.headers.get('x-forwarded-host')];
-  return !hosts.includes(host);
-}
+/** Browsers always send Origin on a write; one naming another site is refused (the proxy checks every session write too). */
+export { foreignOrigin } from '@/lib/security/origin';
 
 /** A signed-in Owner, or the response that refuses everyone else. */
 export async function requireOwner(): Promise<{ data: SessionAccessResult; error: null } | { data: null; error: NextResponse }> {

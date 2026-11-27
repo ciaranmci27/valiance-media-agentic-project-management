@@ -165,6 +165,8 @@ export const AGENT_EVENT_SCHEMAS = {
     // names no run adds on top (pm.agent_spend_facts).
     run_id: looseId.optional(),
     run_external_id: looseId.optional(),
+    // Which worker of the agent spent it (a pool), as on its runs and beats.
+    instance_id: looseId.optional(),
   }),
 
   // How long an agent actually RAN. An internal capacity metric, never a
@@ -191,6 +193,8 @@ export const AGENT_EVENT_SCHEMAS = {
     ...turnLabel,
     run_id: looseId.optional(),
     run_external_id: looseId.optional(),
+    // Which worker of the agent ran it (a pool).
+    instance_id: looseId.optional(),
   }),
   // A late label for a turn.completed published before outcomes existed. It
   // carries no runtime: the API merges it onto the turn with the same

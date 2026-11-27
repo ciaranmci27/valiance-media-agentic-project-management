@@ -2,6 +2,7 @@ import 'server-only';
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { z } from 'zod';
+import { MAX_PASSWORD, MIN_PASSWORD } from '@/lib/setup/first-owner';
 import type { AccessContext } from '@/lib/access-control';
 import { canChangeSignInEmail, canHaveSignIn, canInviteRole, NOT_OUR_LOGIN, PERSONAL_AGENT_NO_SIGN_IN } from './invite-rules';
 
@@ -24,7 +25,8 @@ export const SET_PASSWORD_PATH = '/welcome/set-password';
 export const inviteSchema = z.object({
   name: z.string().trim().min(1, 'Name is required').max(100),
   email: z.string().trim().toLowerCase().email('Invalid email address'),
-  password: z.string().min(6, 'Password must be at least 6 characters').optional(),
+  // The same rule as every other password in the app (security review finding 13).
+  password: z.string().min(MIN_PASSWORD, `Password must be at least ${MIN_PASSWORD} characters`).max(MAX_PASSWORD).optional(),
   role: z.enum(['owner', 'admin', 'member', 'guest', 'agent']),
 });
 export type InviteInput = z.infer<typeof inviteSchema>;

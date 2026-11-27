@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { accessAllows, accessAllowsProject, requireSessionAccess } from '@/lib/api/access';
-import { handleBudgetChange } from '@/lib/email/client-notifications';
-import { budgetAlertsEnabled } from '@/lib/api/budget-alerts';
-import { logProjectBudgetChange, type BudgetType } from '@/lib/project-budget-history';
+import { recordBudgetChange } from '@/lib/api/budget-change';
+import type { BudgetType } from '@/lib/project-budget-history';
 
 export const dynamic = 'force-dynamic';
 
@@ -61,32 +60,18 @@ export async function POST(
     value: resolveValue(body.newValue, body.newBudget),
   };
 
-  // 1. Log history first so the era id is available to the notification layer.
-  //    `logProjectBudgetChange` returns null on identical snapshots or errors.
-  const newHistoryId = await logProjectBudgetChange({
+  // History, then the budget-email bookkeeping (lib/api/budget-change.ts):
+  // inline, so the answer comes back once any pending communication row is
+  // in the database (the UI refetches the log off it). Budget emails need
+  // the Client portal and Contacts as well as Billing; with them off only
+  // the history is kept.
+  const newHistoryId = await recordBudgetChange({
+    access: auth.data.access,
     projectId,
     oldSnapshot,
     newSnapshot,
     changedBy: auth.data.memberId,
-  }).catch(() => null);
-
-  // 2. Run notification orchestration inline so the response only comes back
-  //    once any pending communication row is in the database. The UI refetches
-  //    the communication log off the back of this response, so deferring to
-  //    after() would show a stale log until the next refresh. Latency cost is
-  //    one render + one insert (~200-500ms), acceptable for a form submit.
-  //    Errors are swallowed so a misconfigured project can't block the budget
-  //    history write that already succeeded above. Budget emails need the
-  //    Client portal as well as Billing; with it off only the history is kept.
-  if (budgetAlertsEnabled(auth.data.access)) await handleBudgetChange(
-    projectId,
-    oldSnapshot.type,
-    oldSnapshot.value,
-    newSnapshot.type,
-    newSnapshot.value,
-    auth.data.memberId,
-    newHistoryId,
-  ).catch(() => {});
+  });
 
   return NextResponse.json({ queued: true, historyId: newHistoryId });
 }

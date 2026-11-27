@@ -1,14 +1,7 @@
-'use client';
+import { redirect } from 'next/navigation';
+import { legacyHireRedirect, searchParamsOf, type PageSearchParams } from '@/lib/ai-home';
 
-import { Suspense } from 'react';
-import { HireFlow } from '@/components/agent/hire/HireFlow';
-
-/** Hire an agent: the guided setup (template, identity, projects, powers, connect). */
-export default function HireAgentPage() {
-  // The flow reads ?project= (hiring from a project's Agents tab), which needs a Suspense boundary.
-  return (
-    <Suspense fallback={null}>
-      <HireFlow />
-    </Suspense>
-  );
+/** Hiring moved to /ai/agents/new; ?project= and ?mode= come along. */
+export default async function HireRedirect({ searchParams }: { searchParams: Promise<PageSearchParams> }) {
+  redirect(legacyHireRedirect(searchParamsOf(await searchParams)));
 }

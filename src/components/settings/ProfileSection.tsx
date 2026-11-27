@@ -9,16 +9,19 @@ import { useDemo } from '@/lib/demo-context';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { AvatarUpload } from '@/components/ui/AvatarUpload';
-import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import Modal from '@/components/ui/Modal';
+import { PasswordInput } from '@/components/ui/inputs/PasswordInput';
 import { toast } from '@/components/ui/Toast';
 import { pmStorage } from '@/lib/supabase/storage';
 import { BUCKETS } from '@/lib/supabase/schema';
 import { checkMemberName } from '@/lib/member-profile';
+import { useRead } from '@/lib/query-cache';
+import { mySignInRead } from '@/lib/reads';
 
 /** Avatar, display name and login email (an email change asks first). */
 export function ProfileSection() {
   const { team, updateTeamMember } = useApp();
-  const { user, teamMemberId } = useAuth();
+  const { user, teamMemberId, signOut } = useAuth();
   const { isDemoMode } = useDemo();
   const supabase = createClient();
 
@@ -30,6 +33,11 @@ export function ProfileSection() {
   const [emailError, setEmailError] = useState('');
   const [nameError, setNameError] = useState('');
   const [showEmailConfirm, setShowEmailConfirm] = useState(false);
+  // Your own sign-in email needs your current password, or a recent sign-in without one (account-security.ts).
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [proofError, setProofError] = useState<{ message: string; signInAgain: boolean } | null>(null);
+  const signIn = useRead(mySignInRead(isDemoMode)).data;
+  const hasPassword = signIn?.has_password !== false;
   const [profileLoading, setProfileLoading] = useState(false);
   const [avatarUploading, setAvatarUploading] = useState(false);
   const [avatarSrc, setAvatarSrc] = useState<string | undefined>(undefined);
@@ -132,9 +140,13 @@ export function ProfileSection() {
       setNameError(checked.error);
       return;
     }
-    setShowEmailConfirm(false);
+    if (hasPassword && !currentPassword) {
+      setProofError({ message: 'Enter your current password.', signInAgain: false });
+      return;
+    }
     setProfileLoading(true);
     setEmailError('');
+    setProofError(null);
 
     try {
       const res = await fetch('/api/team-members/update-email', {
@@ -143,16 +155,28 @@ export function ProfileSection() {
         body: JSON.stringify({
           team_member_id: teamMemberId,
           new_email: userEmail.trim().toLowerCase(),
+          ...(hasPassword ? { current_password: currentPassword } : {}),
         }),
       });
 
       if (!res.ok) {
-        const data = await res.json();
+        const data = await res.json().catch(() => ({}));
+        const reason = data?.details?.reason as string | undefined;
+        if (reason === 'wrong_password' || reason === 'current_password_required' || reason === 'fresh_sign_in_required') {
+          // Stay in the dialog: the person fixes the password or signs in again.
+          setProofError({ message: data.error, signInAgain: reason === 'fresh_sign_in_required' });
+          setProfileLoading(false);
+          return;
+        }
+        setShowEmailConfirm(false);
+        setCurrentPassword('');
         setEmailError(data.error || 'Failed to update email');
         setProfileLoading(false);
         return;
       }
 
+      setShowEmailConfirm(false);
+      setCurrentPassword('');
       setOriginalEmail(userEmail.trim().toLowerCase());
       updateTeamMember(teamMemberId, { name: checked.name, email: userEmail.trim().toLowerCase() });
       toast('success', 'Profile and email updated');
@@ -226,16 +250,47 @@ export function ProfileSection() {
         </div>
       </section>
 
-      <ConfirmDialog
+      <Modal
         isOpen={showEmailConfirm}
-        onClose={() => setShowEmailConfirm(false)}
-        onConfirm={handleConfirmEmailChange}
+        onClose={() => { if (!profileLoading) { setShowEmailConfirm(false); setCurrentPassword(''); setProofError(null); } }}
         title="Change your email?"
-        message={`This will change your login email from "${originalEmail}" to "${userEmail.trim().toLowerCase()}". You'll need to use the new email to sign in.`}
-        confirmLabel="Change email"
-        variant="default"
-        doubleConfirm={false}
-      />
+        size="sm"
+      >
+        <form
+          className="space-y-4"
+          noValidate
+          onSubmit={(event) => { event.preventDefault(); void handleConfirmEmailChange(); }}
+        >
+          <p className="text-sm text-zinc-300">
+            You will sign in with <span className="break-all font-medium text-zinc-100">{userEmail.trim().toLowerCase()}</span>. We will let <span className="break-all">{originalEmail}</span> know.
+          </p>
+          {hasPassword ? (
+            <PasswordInput
+              label="Current password"
+              value={currentPassword}
+              onChange={(value) => { setCurrentPassword(value); setProofError(null); }}
+              placeholder="Your password now"
+              autoComplete="current-password"
+              autoFocus
+              showIcon={false}
+              error={proofError && !proofError.signInAgain ? proofError.message : undefined}
+              disabled={profileLoading}
+            />
+          ) : !proofError ? (
+            <p className="text-xs text-zinc-400">You signed in with Google, so this works for 10 minutes after you sign in.</p>
+          ) : null}
+          {proofError?.signInAgain && (
+            <div role="alert" className="flex flex-col gap-2 rounded-lg bg-amber-500/[0.14] px-3 py-2.5 text-sm text-amber-300">
+              <span>{proofError.message}</span>
+              <Button type="button" variant="secondary" size="sm" onClick={() => void signOut()} className="self-start">Sign in again</Button>
+            </div>
+          )}
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="ghost" onClick={() => { setShowEmailConfirm(false); setCurrentPassword(''); setProofError(null); }} disabled={profileLoading}>Cancel</Button>
+            <Button type="submit" disabled={profileLoading}>{profileLoading ? 'Changing' : 'Change email'}</Button>
+          </div>
+        </form>
+      </Modal>
     </>
   );
 }
