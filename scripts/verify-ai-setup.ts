@@ -361,14 +361,15 @@ async function main() {
       create_key: true, scopes: ['tasks.read', 'projects.read', 'agents.act_for'],
     });
     const alexa = hired?.data?.agent?.id as string | undefined;
-    check('hire: Claude hires Alexa through the same rules as the screen (project, key with act-for given beyond the role)', hired?.ok === true && !!alexa
-      && hired.data.assignments?.length === 1 && /^pk_live_/.test(hired.data.key?.secret ?? '') && hired.data.scopes_beyond_role?.includes('agents.act_for'), hired);
+    check('hire: Claude hires Alexa through the same rules as the screen (project, key); act-for waits for the Owner\'s Allow', hired?.ok === true && !!alexa
+      && hired.data.assignments?.length === 1 && /^pk_live_/.test(hired.data.key?.secret ?? '') && !hired.data.scopes_beyond_role?.includes('agents.act_for')
+      && hired.data.needs_owner_confirm?.scopes?.join() === 'agents.act_for', hired);
     await settle();
     const hireAudit = (await s.q<Loose>("SELECT * FROM pm.api_audit_log WHERE endpoint = $1 AND entity_id = $2", [AGENT_HIRE_ENDPOINT, alexa]))[0];
     check('audit: the hire is recorded as made by Claude (its key, via mcp_oauth) for Olivia', hireAudit?.api_key_id === owner.keyId && hireAudit.team_member_id === s.owner
       && hireAudit.principal_id === s.owner && hireAudit.via === 'mcp_oauth', hireAudit);
     const keyRow = (await s.q<Loose>('SELECT scopes, created_by_key_id FROM pm.api_keys WHERE team_member_id = $1 AND revoked_at IS NULL', [alexa]))[0];
-    check('hire: the agent\'s key carries exactly what was asked', JSON.stringify([...(keyRow?.scopes ?? [])].sort()) === JSON.stringify(['agents.act_for', 'projects.read', 'tasks.read']), keyRow);
+    check('hire: the agent\'s key carries what was asked, less the power that waits on the Owner', JSON.stringify([...(keyRow?.scopes ?? [])].sort()) === JSON.stringify(['projects.read', 'tasks.read']), keyRow);
 
     // Agents only: never the person, never another person.
     const selfKey = await callTool(claude, 'create_api_key', { agent_id: s.owner, name: 'Mine now', scopes: ['tasks.read'] });
@@ -395,7 +396,9 @@ async function main() {
     const view = await session(setupRoute.GET as never, 'GET', '/api/workspace/ai-setup');
     const liveView = view.body?.data?.sessions?.find((x: Loose) => x.active);
     const listed = liveView?.agents?.find((a: Loose) => a.id === alexa);
-    check('page: the live session lists Alexa with her role, powers and project', view.status === 200 && !!listed && listed.agent_role === 'orchestrator' && listed.powers === 3
+    check('page: the live session lists Alexa with her role, powers and project', view.status === 200 && !!listed && listed.agent_role === 'orchestrator' && listed.powers === 2
+      && liveView.confirms?.some((c: Loose) => c.agent_id === alexa && c.status === 'pending' && c.scopes.includes('agents.act_for'))
+      && liveView.keys?.some((k: Loose) => k.agent_id === alexa)
       && listed.projects?.[0]?.name === 'Site' && liveView.agents.some((a: Loose) => a.name === 'Tim'), liveView);
     check('page: the Owner\'s connected tools are offered', view.body?.data?.connections?.some((c: Loose) => c.id === owner.grantId) && view.body.data.may_start === true);
 

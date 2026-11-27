@@ -274,8 +274,13 @@ async function routeChecks() {
     await new Promise((resolve) => setTimeout(resolve, 300));
     check('budget: in a period nobody was told about, reading the status sends it once (three reads at once)', (await events('budget.exceeded')).length === 2);
 
+    // Over its budget, its other writes are held too (security review finding 3); then an Owner raises it.
+    const heldAsk = await call(questionsRoute.POST as Handler, 'POST', '/api/v1/questions', askKey, { question: 'May I go over budget?' });
+    check('budget: over budget, a question is held like any write (402 budget_exceeded)', heldAsk.status === 402 && heldAsk.body?.error?.details?.reason === 'budget_exceeded', heldAsk.body);
+    await run('UPDATE pm.agent_limits SET budget_usd = 1000 WHERE agent_id = $1', [ledger]);
+
     // questions.ask without tasks.read.
-    const plain = await call(questionsRoute.POST as Handler, 'POST', '/api/v1/questions', activityKey, { question: 'Which account?' });
+    const plain =await call(questionsRoute.POST as Handler, 'POST', '/api/v1/questions', activityKey, { question: 'Which account?' });
     check('ask: without tasks.read or questions.ask, asking is refused (403)', plain.status === 403, plain.body);
     const asked = await call(questionsRoute.POST as Handler, 'POST', '/api/v1/questions', askKey, { question: 'Is vendor Acme the same as Acme Ltd?', choices: ['Same', 'Different'] });
     check('ask: questions.ask alone asks a question that names nothing (201)', asked.status === 201 && asked.body?.data?.asked_to === owner, asked.body);

@@ -17,6 +17,16 @@ import { z } from 'zod';
  * - max_run_spend_cents: the most one run may spend, in US cents. A start
  *   reporting more is refused, and a run reported past it (its own cost, or
  *   the usage that names it) is stopped as cancelled (402 run_spend_exceeded).
+ * - write_rate_per_minute: writes a minute across all the agent's keys
+ *   (429 write_rate_limited), and send_rate_per_minute: sends a minute
+ *   (chat out, notifications, questions, approvals; 429 send_rate_limited).
+ *
+ * Over its budget, or holding an unfinished run past max_run_spend_cents, an
+ * agent is refused every write a paused agent is refused (402
+ * budget_exceeded, run_spend_exceeded): reads, heartbeats, telemetry and
+ * winding a run down still work. Spend is what the agent's harness reports,
+ * and only ever goes up for a run. New company agents start with the
+ * defaults in src/lib/agent-defaults.ts.
  */
 
 /** Requests a minute per key when an agent has no rate_per_minute of its own. */
@@ -32,6 +42,8 @@ export interface AgentLimits {
   budget_tokens: number | null;
   budget_period: BudgetPeriod;
   max_run_spend_cents: number | null;
+  write_rate_per_minute: number | null;
+  send_rate_per_minute: number | null;
 }
 
 export const NO_LIMITS: AgentLimits = {
@@ -41,9 +53,11 @@ export const NO_LIMITS: AgentLimits = {
   budget_tokens: null,
   budget_period: 'month',
   max_run_spend_cents: null,
+  write_rate_per_minute: null,
+  send_rate_per_minute: null,
 };
 
-export const LIMIT_FIELDS = ['max_concurrent_runs', 'rate_per_minute', 'budget_usd', 'budget_tokens', 'max_run_spend_cents'] as const;
+export const LIMIT_FIELDS = ['max_concurrent_runs', 'rate_per_minute', 'budget_usd', 'budget_tokens', 'max_run_spend_cents', 'write_rate_per_minute', 'send_rate_per_minute'] as const;
 
 /** A change to an agent's limits: any field, null clears it. */
 export const agentLimitsPatchSchema = z.object({
@@ -53,6 +67,8 @@ export const agentLimitsPatchSchema = z.object({
   budget_tokens: z.number().int().positive().max(1e15).nullable().optional(),
   budget_period: z.enum(BUDGET_PERIODS).optional(),
   max_run_spend_cents: z.number().int().min(1).max(1_000_000_000).nullable().optional(),
+  write_rate_per_minute: z.number().int().min(1).max(10000).nullable().optional(),
+  send_rate_per_minute: z.number().int().min(1).max(10000).nullable().optional(),
 }).strict();
 export type AgentLimitsPatch = z.infer<typeof agentLimitsPatchSchema>;
 
@@ -72,6 +88,8 @@ export const LIMIT_LABELS = {
   budget_tokens: 'Budget (tokens)',
   budget_period: 'Budget resets',
   max_run_spend_cents: 'Most one run may spend (cents)',
+  write_rate_per_minute: 'Writes a minute',
+  send_rate_per_minute: 'Messages a minute',
 } as const;
 
 export const PERIOD_LABELS: Record<BudgetPeriod, string> = { day: 'Every day', week: 'Every week', month: 'Every month' };
@@ -87,6 +105,8 @@ export function agentLimitsOf(row: Partial<Record<keyof AgentLimits, unknown>> |
     budget_tokens: num(row?.budget_tokens),
     budget_period: (BUDGET_PERIODS as readonly string[]).includes(row?.budget_period as string) ? row!.budget_period as BudgetPeriod : 'month',
     max_run_spend_cents: num(row?.max_run_spend_cents),
+    write_rate_per_minute: num(row?.write_rate_per_minute),
+    send_rate_per_minute: num(row?.send_rate_per_minute),
   };
 }
 
@@ -117,12 +137,14 @@ export function limitsInWords(limits: AgentLimits | null, usage: AgentUsage | nu
     const spent = usage
       ? ` Spent ${PERIOD_WORDS[l.budget_period]}: ${l.budget_usd !== null ? formatUsd(usage.spent_usd) : ''}${l.budget_usd !== null && l.budget_tokens !== null ? ' and ' : ''}${l.budget_tokens !== null ? `${usage.spent_tokens.toLocaleString('en-US')} tokens` : ''}.`
       : '';
-    lines.push(`Budget: ${caps.join(' or ')} ${PERIOD_LABELS[l.budget_period].toLowerCase()} (UTC).${spent} Once it is spent, new runs are refused (402 budget_exceeded) and your owners are told; finish what you are doing and report your usage as usual.`);
+    lines.push(`Budget: ${caps.join(' or ')} ${PERIOD_LABELS[l.budget_period].toLowerCase()} (UTC).${spent} Once it is spent, new runs and every other write are refused (402 budget_exceeded) and your owners are told; reads, heartbeats, usage and finishing a run still work.`);
   } else {
     lines.push('No spending budget.');
   }
   if (l.max_run_spend_cents !== null) {
-    lines.push(`One run may spend at most ${formatUsd(l.max_run_spend_cents / 100)}: a run reported past it is stopped (402 run_spend_exceeded). Report cost_usd on the run as you go.`);
+    lines.push(`One run may spend at most ${formatUsd(l.max_run_spend_cents / 100)}: a run reported past it is stopped (402 run_spend_exceeded). Report cost_usd on the run as you go; it only goes up.`);
   }
+  if (l.write_rate_per_minute !== null) lines.push(`Up to ${l.write_rate_per_minute} writes a minute across all your keys (429 write_rate_limited after that).`);
+  if (l.send_rate_per_minute !== null) lines.push(`Up to ${l.send_rate_per_minute} messages a minute: chat messages, notifications, questions and approvals (429 send_rate_limited after that).`);
   return lines;
 }

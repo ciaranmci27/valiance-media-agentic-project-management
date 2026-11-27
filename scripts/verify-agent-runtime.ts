@@ -439,7 +439,7 @@ async function main() {
 
     // ── 8. Answers that do the thing ─────────────────────────────────────
     const turnOn = { type: 'project.update', summary: 'Turn on time tracking for Gamma', details: { project_id: s.gamma, time_tracking_enabled: true } };
-    const toMorgan = await call(approvalsRoute.POST, 'POST', '/api/v1/approvals', {}, s.keys.scout, { action: turnOn, asked_to: s.morgan.id });
+    const toMorgan = await call(approvalsRoute.POST, 'POST', '/api/v1/approvals', {}, s.keys.scout, { action: turnOn, asked_to: s.morgan.id, project_id: s.gamma });
     check('actions: asking someone who cannot do it is refused when asked (422 asked_cannot_perform)', toMorgan.status === 422 && reason(toMorgan) === 'asked_cannot_perform', toMorgan.body);
     const badDetails = await call(approvalsRoute.POST, 'POST', '/api/v1/approvals', {}, s.keys.scout, { action: { ...turnOn, details: { project_id: s.gamma, name: 'x' } }, asked_to: s.owner.id });
     check('actions: only the safe fields (422 invalid_action_details)', badDetails.status === 422 && reason(badDetails) === 'invalid_action_details', badDetails.body);
@@ -457,6 +457,8 @@ async function main() {
     await s.q('UPDATE pm.projects SET time_tracking_enabled = false WHERE id = $1', [s.gamma]);
     const team = (await s.q<{ id: string }>("INSERT INTO pm.groups (name, slug) VALUES ('Leads', 'leads') RETURNING id"))[0].id;
     await s.q('INSERT INTO pm.group_members (group_id, member_id) VALUES ($1, $2), ($1, $3)', [team, s.owner.id, s.morgan.id]);
+    // A question whose answer acts goes only to whom Scout may ask: the Leads group manages it (security review finding 4).
+    await s.q('INSERT INTO pm.agent_owner_groups (agent_id, group_id) VALUES ($1, $2)', [s.scout.id, team]);
     const groupAsk = await call(questionsRoute.POST, 'POST', '/api/v1/questions', {}, s.keys.scout, {
       question: 'Turn on time tracking for Gamma?', choices: ['Turn it on', 'Leave it off'], asked_to_group: team, action: { type: 'project.update', details: { project_id: s.gamma, time_tracking_enabled: true } },
     });

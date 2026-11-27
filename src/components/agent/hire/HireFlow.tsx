@@ -17,7 +17,7 @@ import { buildConnectInfo } from '@/lib/agent-connect';
 import { invalidateTables, loadRead, useRead, type ReadState } from '@/lib/query-cache';
 import { agentContextRead, agentKeyLifetimeRead, agentNewScopesRead, agentRolesRead, agentTemplatesRead, allGroupsRead, assistantSettingsReadFor } from '@/lib/reads';
 import {
-  applyTemplate, emptyHireDraft, firstInvalidHireStep, hireRefusal, hireRequestFrom, hireTemplates, keyExpiryLine, limitsLine, listOf, normalizeRole,
+  applyTemplate, emptyHireDraft, firstInvalidHireStep, hireLimitsRequest, hireRefusal, hireRequestFrom, hireTemplates, keyExpiryLine, limitsLine, listOf, normalizeRole,
   ownerPickerValue, projectFromLink, readsInbox, roleLabel, roleSuggestions, freeAgentName, sameNameMember, scopeLabel, scopesBeyondRole, setDraftProjects,
   settingsSummary, showMoreLabel, splitOwnerPicker, validateHireStep, windowOf, worksOutsideProjects, HIRE_OWNERS_MAX,
   type HireDraft, type HireRefusal, type HireStep,
@@ -38,6 +38,7 @@ import { TextInput } from '@/components/ui/inputs/TextInput';
 import { Textarea } from '@/components/ui/inputs/Textarea';
 import { MultiSelect } from '@/components/ui/inputs/MultiSelect';
 import { Toggle } from '@/components/ui/inputs/Toggle';
+import { NumberInput } from '@/components/ui/inputs/NumberInput';
 import { AvatarUpload } from '@/components/ui/AvatarUpload';
 import { ChoiceCard, ChoiceGroup, FlowShell, StepFooter, StepPanel, Stepper } from '@/components/ui/Stepper';
 import { Bone, Skeleton } from '@/components/projects/TabLayout';
@@ -296,7 +297,7 @@ export function HireFlow() {
     setBusy(true);
     try {
       const key = isDemoMode
-        ? demoKey(draft.scopes, draft.name)
+        ? demoKey(draft.scopes, draft.name, draft.keyDays)
         : newKeyFrom(await workspaceApi<{ key: NewKey }>(`/api/workspace/agents/${hired.agent.id}/keys`, { method: 'POST', body: { name: `${draft.name.trim()} key`, scopes: draft.scopes } }));
       setSecret(key);
       setSecretSaved(false);
@@ -338,7 +339,9 @@ export function HireFlow() {
   const name = draft.name.trim() || 'your agent';
   const outside = worksOutsideProjects(template);
   const inbox = readsInbox(template?.scopes ?? draft.scopes);
-  const templateLimits = limitsLine(template?.limits);
+  const draftLimits = limitsLine(hireLimitsRequest(draft.limits));
+  const setLimit = (key: 'budget_usd' | 'write_rate_per_minute' | 'send_rate_per_minute', value: number | '') =>
+    setDraft({ ...draft, limits: { ...draft.limits, [key]: value } });
   const firstOwner = draft.ownerIds[0] ? memberName(draft.ownerIds[0]) : null;
   const escalateLabel = `Its owners (first: ${draft.ownerIds[0] === teamMemberId || !firstOwner ? 'you' : firstOwner})`;
   const beyondRole = scopesBeyondRole(draft.createKey ? draft.scopes : [], agentScopes.data);
@@ -561,12 +564,21 @@ export function HireFlow() {
                 {draft.createKey ? `${draft.scopes.length} ${draft.scopes.length === 1 ? 'power' : 'powers'} on. The key is shown once, after hiring.` : 'You can make its key on the next steps, or later from its profile.'}
               </p>
               {draft.createKey && <div className="mt-3">{scopePicker}</div>}
-              {templateLimits && (
-                <p className="mt-3 rounded-xl bg-white/[0.04] px-4 py-3 text-sm text-zinc-300">
-                  <span className="text-zinc-500">Limits from the template: </span>{templateLimits}. Change them on its profile after hiring.
-                </p>
-              )}
               {inbox && <InboxNote className="mt-3" />}
+            </section>
+            <section aria-labelledby="powers-limits">
+              <h3 id="powers-limits" className="text-sm font-semibold text-white">Its limits</h3>
+              <p className="mt-1 mb-3 text-xs text-zinc-500">
+                Safe limits to start with. Clear one for no limit, or change them any time on its profile. Spend is what its host reports, so set a limit with your AI provider too.
+              </p>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <NumberInput label="Budget a month" description="Its writes stop once it is spent." value={draft.limits.budget_usd} onChange={(v) => setLimit('budget_usd', v)} min={0.01} step={5} precision={2} prefix="$" placeholder="No budget" />
+                <NumberInput label="Writes a minute" description="Across all its keys." value={draft.limits.write_rate_per_minute} onChange={(v) => setLimit('write_rate_per_minute', v)} min={1} max={10000} step={1} placeholder="No limit" />
+                <NumberInput label="Messages a minute" description="Chat, notifications, questions and approvals." value={draft.limits.send_rate_per_minute} onChange={(v) => setLimit('send_rate_per_minute', v)} min={1} max={10000} step={1} placeholder="No limit" />
+                {draft.createKey && (
+                  <NumberInput label="Key lasts (days)" description="Replace it before then to keep it working." value={draft.keyDays} onChange={(keyDays) => setDraft({ ...draft, keyDays })} min={1} max={3650} step={1} placeholder="Until revoked" />
+                )}
+              </div>
             </section>
             <section aria-labelledby="powers-rules">
               <h3 id="powers-rules" className="text-sm font-semibold text-white">Its rules</h3>
@@ -600,7 +612,7 @@ export function HireFlow() {
               ? groupTargetLabel(groups.find((g) => g.id === draft.rules.agent_escalate_to_group)?.name ?? 'a group')
               : draft.rules.agent_escalate_to ? memberName(draft.rules.agent_escalate_to) ?? 'Someone' : escalateLabel}
             beyondRole={beyondRole}
-            limits={templateLimits}
+            limits={draftLimits}
             outside={outside}
             onEdit={(s) => go(STEP_INDEX[s])}
             teamWords={orchestratorName ? `${orchestratorName} (orchestrator)` : 'No one: it is at the top'}
@@ -693,13 +705,13 @@ function demoHire(draft: HireDraft): HireResponse {
   return {
     agent: { id: `demo-agent-${randomHex(4)}`, name: draft.name.trim() },
     assignments: draft.projectIds.map((id) => ({ project_id: id }) as unknown as ProjectAgentAssignment),
-    ...(draft.createKey ? { key: demoKey(draft.scopes, draft.name) } : {}),
+    ...(draft.createKey ? { key: demoKey(draft.scopes, draft.name, draft.keyDays) } : {}),
     connect: buildConnectInfo(window.location.origin),
   };
 }
 
-function demoKey(scopes: string[], name: string): NewKey {
-  return { id: `demo-key-${randomHex(4)}`, name: `${name.trim()} key`, prefix: 'pk_demo_', scopes, secret: `pk_demo_${randomHex(20)}`, expires_at: null };
+function demoKey(scopes: string[], name: string, days: number | '' = ''): NewKey {
+  return { id: `demo-key-${randomHex(4)}`, name: `${name.trim()} key`, prefix: 'pk_demo_', scopes, secret: `pk_demo_${randomHex(20)}`, expires_at: days === '' ? null : new Date(Date.now() + days * 86_400_000).toISOString() };
 }
 
 function InboxNote({ className = '' }: { className?: string }) {
@@ -1037,7 +1049,7 @@ function ReviewStep({ draft, template, pictureUrl, ownerNames, groupNames, proje
           ) : 'No key yet. You can make one on the next step.'}
         </ReviewRow>
         <ReviewRow label="Rules" onEdit={() => onEdit('powers')}>{rules.join(' · ')}</ReviewRow>
-        {limits && <ReviewRow label="Limits" onEdit={null}>{limits} (from the template)</ReviewRow>}
+        {limits && <ReviewRow label="Limits" onEdit={() => onEdit('powers')}>{limits}</ReviewRow>}
       </dl>
     </div>
   );

@@ -344,8 +344,13 @@ async function main() {
     check('expiry: an expiry in the past is refused', past.status === 422 && reason(past) === 'expires_in_past', past.body);
 
     // Who can be asked, and what a request must say.
+    // An agent approver only from the asker's orchestrator chain (security review finding 4).
+    const outside = await request(s.keys.builder, { action: { type: 'merge', summary: 'Merge PR #12' }, asked_to: s.reviewer });
+    check('ask: an agent outside its orchestrator chain is not an approver (422 approver_not_allowed)', outside.status === 422 && reason(outside) === 'approver_not_allowed', outside.body);
+    await s.q('UPDATE pm.team_members SET orchestrator_id = $1 WHERE id = $2', [s.reviewer, s.builder]);
     const toAgent = await request(s.keys.builder, { action: { type: 'merge', summary: 'Merge PR #12' }, asked_to: s.reviewer });
-    check('ask: an agent named in asked_to may be the approver (a reviewer agent)', toAgent.status === 201 && toAgent.body.data?.asked_to === s.reviewer
+    await s.q('UPDATE pm.team_members SET orchestrator_id = NULL WHERE id = $1', [s.builder]);
+    check('ask: its orchestrator, named in asked_to, may be the approver (a reviewer agent)', toAgent.status === 201 && toAgent.body.data?.asked_to === s.reviewer
       && toAgent.body.data?.kind === 'approval', toAgent.body);
     const toItself = await request(s.keys.builder, { action: { type: 'merge', summary: 'Merge PR #12' }, asked_to: s.builder });
     check('ask: an agent never asks itself to approve', toItself.status === 422 && reason(toItself) === 'asked_self', toItself.body);

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import Link from 'next/link';
-import { ArrowRight, Bot, Check, Clock, KeyRound, ListChecks, Plug, Power, ShieldCheck, Sparkles } from 'lucide-react';
+import { ArrowRight, Bot, Check, Clock, KeyRound, ListChecks, Plug, Power, ShieldAlert, ShieldCheck, Sparkles } from 'lucide-react';
 import { useApp } from '@/lib/store';
 import { useDemo } from '@/lib/demo-context';
 import { invalidateTables, useRead } from '@/lib/query-cache';
@@ -12,9 +12,13 @@ import { buildConnectInfo, type ConnectInfo } from '@/lib/agent-connect';
 import { roleLabel } from '@/lib/agents-ui';
 import {
   AI_SETUP_ABILITIES, AI_SETUP_EXAMPLES, AI_SETUP_KEY_NAME, AI_SETUP_MINUTES, aiSetupNever, aiSetupPrompt, minutesLeft,
-  type AiSetupAgentView, type AiSetupSessionView, type AiSetupView,
+  type AiSetupAgentView, type AiSetupConfirmView, type AiSetupKeyView, type AiSetupSessionView, type AiSetupView,
 } from '@/lib/ai-setup';
+import { permissionLabel } from '@/lib/access-control';
+import { keyExpiry } from '@/lib/developers-settings';
 import { Button } from '@/components/ui/Button';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { Pill } from '@/components/ui/Pill';
 import Modal from '@/components/ui/Modal';
 import { Textarea } from '@/components/ui/inputs/Textarea';
 import { FlowShell, Stepper } from '@/components/ui/Stepper';
@@ -22,7 +26,7 @@ import { Bone, Skeleton } from '@/components/projects/TabLayout';
 import { AgentAvatar } from '@/components/agent/AgentAvatar';
 import { ConnectSnippets, CopyButton, SecretOnce } from '@/components/agent/ConnectPanel';
 import { toast } from '@/components/ui/Toast';
-import { formatTime } from '@/lib/time-format';
+import { formatDay, formatTime } from '@/lib/time-format';
 
 /**
  * Hire an agent > Set it up with AI. Three parts on one page:
@@ -64,6 +68,11 @@ export function AiSetupFlow({ exitHref, onManual, projectName }: { exitHref: str
     const seen = new Set<string>();
     return (view?.sessions ?? []).flatMap((s) => s.agents).filter((a) => (seen.has(a.id) ? false : (seen.add(a.id), true)));
   }, [view]);
+  // Every key the sessions made, and what they asked for that waits on your Allow.
+  const keys = useMemo(() => (view?.sessions ?? []).flatMap((s) => s.keys ?? []), [view]);
+  const pending = useMemo(() => (view?.sessions ?? []).flatMap((s) => s.confirms ?? []).filter((c) => c.status === 'pending'), [view]);
+  const [deciding, setDeciding] = useState<string | null>(null);
+  const [revoking, setRevoking] = useState<AiSetupKeyView | null>(null);
   const connections = view?.connect_enabled ? view.connections : [];
   const chosen = connections.find((c) => c.id === picked) ?? connections[0] ?? null;
 
@@ -137,6 +146,38 @@ export function AiSetupFlow({ exitHref, onManual, projectName }: { exitHref: str
       toast('error', error instanceof Error ? error.message : 'Could not end it. Try again.');
     } finally {
       setBusy(null);
+    }
+  };
+
+  const decide = async (confirm: AiSetupConfirmView, allow: boolean) => {
+    setDeciding(confirm.id);
+    try {
+      if (isDemoMode) demo.decide(confirm.id, allow);
+      else {
+        await workspaceApi(`/api/workspace/ai-setup/confirms/${encodeURIComponent(confirm.id)}`, { method: 'POST', body: { allow } });
+        invalidateTables(['api_keys', 'webhook_endpoints']);
+        refresh();
+      }
+      toast('success', allow ? (confirm.kind === 'webhook' ? `Webhook to ${confirm.host} is on` : `${confirm.agent_name ?? 'The agent'} can now ${confirm.scopes.length === 1 ? 'use that power' : 'use those powers'}`) : 'Declined. Nothing was added.');
+    } catch (error) {
+      toast('error', error instanceof Error ? error.message : 'Could not save that. Try again.');
+    } finally {
+      setDeciding(null);
+    }
+  };
+
+  const revoke = async (key: AiSetupKeyView) => {
+    setRevoking(null);
+    try {
+      if (isDemoMode) demo.revoke(key.id);
+      else {
+        await workspaceApi(`/api/workspace/api-keys/${encodeURIComponent(key.id)}/revoke`, { method: 'POST' });
+        invalidateTables(['api_keys']);
+        refresh();
+      }
+      toast('success', `${key.name} revoked`);
+    } catch (error) {
+      toast('error', error instanceof Error ? error.message : 'Could not revoke it. Try again.');
     }
   };
 
@@ -221,6 +262,8 @@ export function AiSetupFlow({ exitHref, onManual, projectName }: { exitHref: str
 
         <Part n={3} done={false} title="Watch it work" description="Each agent it hires shows up here as it goes. Open one to check it, or change anything later on its profile.">
           <AgentList agents={agents} live={!!live} toolName={toolName} isDemo={isDemoMode} />
+          <SetupConfirms confirms={pending} busyId={deciding} onDecide={decide} />
+          <SetupKeys keys={keys} onRevoke={setRevoking} />
           {agents.length > 0 && live && (
             <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-white/[0.06] pt-4">
               <p className="text-sm text-zinc-400">All done? End its access now instead of waiting the hour out.</p>
@@ -233,6 +276,15 @@ export function AiSetupFlow({ exitHref, onManual, projectName }: { exitHref: str
       <Modal isOpen={!!consentFor} onClose={() => setConsentFor(null)} title={`Let ${consentFor?.client_name ?? 'it'} set up agents?`} size="lg">
         {consentFor && <Consent name={consentFor.client_name} now={now} busy={busy === 'start'} onAllow={() => start(consentFor)} onCancel={() => setConsentFor(null)} />}
       </Modal>
+      <ConfirmDialog
+        isOpen={!!revoking}
+        onClose={() => setRevoking(null)}
+        onConfirm={() => { if (revoking) void revoke(revoking); }}
+        title="Revoke this key?"
+        message={revoking ? `${revoking.name} stops working at once${revoking.agent_name ? `, so ${revoking.agent_name} cannot use it` : ''}. This cannot be undone; you can make a new key on the agent's Access.` : ''}
+        confirmLabel="Revoke key"
+        variant="danger"
+      />
     </FlowShell>
   );
 }
@@ -434,6 +486,77 @@ function AgentList({ agents, live, toolName, isDemo }: { agents: AiSetupAgentVie
   );
 }
 
+/**
+ * What the AI asked for that only you can allow: sensitive powers for a key
+ * it made (money, people, settings, acting for someone, keys, webhooks,
+ * credentials), or a webhook to a new web address (made switched off).
+ */
+function SetupConfirms({ confirms, busyId, onDecide }: { confirms: AiSetupConfirmView[]; busyId: string | null; onDecide: (c: AiSetupConfirmView, allow: boolean) => void }) {
+  if (confirms.length === 0) return null;
+  return (
+    <div className="mt-4 border-t border-white/[0.06] pt-4">
+      <h3 className="flex items-center gap-2 text-sm font-semibold text-white">
+        <ShieldAlert size={16} className="text-zinc-400" aria-hidden="true" />
+        Waiting for your Allow
+      </h3>
+      <p className="mt-0.5 text-xs text-zinc-400">Your AI asked for these. Nothing here works until you allow it.</p>
+      <ul className="mt-3 divide-y divide-white/[0.06]" aria-label="Waiting for your Allow">
+        {confirms.map((c) => (
+          <li key={c.id} className="flex flex-col gap-3 py-3 sm:flex-row sm:items-center">
+            <div className="min-w-0 flex-1">
+              <p className="text-sm text-white">
+                {c.kind === 'webhook'
+                  ? <>A webhook to <span className="font-medium">{c.host}</span>{c.agent_name ? ` for ${c.agent_name}` : ''}</>
+                  : <>{c.agent_name ?? 'An agent'}{c.key_name ? `'s key` : ''} asks to {c.scopes.length === 1 ? 'have one more power' : `have ${c.scopes.length} more powers`}</>}
+              </p>
+              <p className="mt-0.5 text-xs text-zinc-400">
+                {c.kind === 'webhook' ? 'It is switched off until you allow it. Allow only an address you know.' : c.scopes.map((scope) => permissionLabel(scope)).join(', ')}
+              </p>
+            </div>
+            <div className="flex flex-shrink-0 gap-2">
+              <Button variant="ghost" size="sm" onClick={() => onDecide(c, false)} disabled={busyId !== null}>Decline</Button>
+              <Button size="sm" onClick={() => onDecide(c, true)} disabled={busyId !== null}>{busyId === c.id ? 'Saving' : 'Allow'}</Button>
+            </div>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/** Every key the AI made, with when it ends and Revoke. */
+function SetupKeys({ keys, onRevoke }: { keys: AiSetupKeyView[]; onRevoke: (key: AiSetupKeyView) => void }) {
+  if (keys.length === 0) return null;
+  return (
+    <div className="mt-4 border-t border-white/[0.06] pt-4">
+      <h3 className="flex items-center gap-2 text-sm font-semibold text-white">
+        <KeyRound size={16} className="text-zinc-400" aria-hidden="true" />
+        Keys it made
+      </h3>
+      <p className="mt-0.5 text-xs text-zinc-400">Each one stays after the hour ends. Revoke any you did not expect.</p>
+      <ul className="mt-3 divide-y divide-white/[0.06]" aria-label="Keys it made">
+        {keys.map((key) => {
+          const ends = keyExpiry(key.expires_at, new Date(), formatDay);
+          return (
+            <li key={key.id} className="flex items-center gap-3 py-3">
+              <div className="min-w-0 flex-1">
+                <p className="flex flex-wrap items-center gap-2 text-sm font-medium text-white">
+                  <span className="min-w-0 truncate">{key.name}</span>
+                  {key.revoked_at && <Pill tone="neutral">Revoked</Pill>}
+                </p>
+                <p className="mt-0.5 text-xs text-zinc-400">
+                  {[key.agent_name, `${key.scopes.length} ${key.scopes.length === 1 ? 'power' : 'powers'}`, key.revoked_at ? null : ends.label].filter(Boolean).join(' · ')}
+                </p>
+              </div>
+              {!key.revoked_at && <Button variant="secondary" size="sm" onClick={() => onRevoke(key)}>Revoke</Button>}
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
 function Aside({ onManual }: { onManual: () => void }) {
   return (
     <div className="space-y-4">
@@ -498,16 +621,34 @@ function useDemoSetup(isDemo: boolean) {
     const session: AiSetupSessionView = {
       id: `demo-session-${randomHex(4)}`, kind, client_name: clientName, grant_id: kind === 'connection' ? 'demo-claude' : null,
       created_at: new Date(now).toISOString(), expires_at: new Date(now + AI_SETUP_MINUTES * 60_000).toISOString(), ended_at: null, active: true, agents: [],
+      keys: [], confirms: [],
     };
     setSessions((list) => [session, ...list.map((s) => (s.active ? { ...s, active: false, ended_at: new Date(now).toISOString() } : s))]);
-    // The pretend AI hires one agent, then another.
+    // The pretend AI hires one agent, then another, each with a key; the first asks to act for people.
     pool.forEach((agent, i) => {
       timers.current.push(window.setTimeout(() => {
-        setSessions((list) => list.map((s) => (s.id === session.id && s.active ? { ...s, agents: [{ ...agent, created_at: new Date().toISOString() }, ...s.agents] } : s)));
+        const at = new Date().toISOString();
+        const key: AiSetupKeyView = {
+          id: `demo-key-${randomHex(4)}`, name: `${agent.name} key`, key_prefix: 'pk_demo_', agent_id: agent.id, agent_name: agent.name,
+          scopes: Array.from({ length: agent.powers }, (_, n) => `scope.${n}`), created_at: at, expires_at: new Date(Date.now() + 90 * 86_400_000).toISOString(), revoked_at: null,
+        };
+        const asks: AiSetupConfirmView[] = i === 0
+          ? [{ id: `demo-confirm-${randomHex(4)}`, kind: 'key_scopes', agent_id: agent.id, agent_name: agent.name, key_name: key.name, scopes: ['agents.act_for', 'approvals.decide'], host: null, status: 'pending', created_at: at }]
+          : [{ id: `demo-confirm-${randomHex(4)}`, kind: 'webhook', agent_id: agent.id, agent_name: agent.name, key_name: null, scopes: [], host: 'hooks.example.com', status: 'pending', created_at: at }];
+        setSessions((list) => list.map((s) => (s.id === session.id && s.active
+          ? { ...s, agents: [{ ...agent, created_at: at }, ...s.agents], keys: [key, ...s.keys], confirms: [...s.confirms, ...asks] }
+          : s)));
       }, 3500 + i * 4500));
     });
     return session;
   };
+
+  const decide = (id: string, allow: boolean) => setSessions((list) => list.map((s) => ({
+    ...s, confirms: s.confirms.map((c) => (c.id === id ? { ...c, status: allow ? 'allowed' as const : 'declined' as const } : c)),
+  })));
+  const revoke = (id: string) => setSessions((list) => list.map((s) => ({
+    ...s, keys: s.keys.map((k) => (k.id === id ? { ...k, revoked_at: new Date().toISOString() } : k)),
+  })));
 
   const end = (id: string) => {
     timers.current.forEach((t) => window.clearTimeout(t));
@@ -515,5 +656,5 @@ function useDemoSetup(isDemo: boolean) {
     setSessions((list) => list.map((s) => (s.id === id ? { ...s, active: false, ended_at: new Date().toISOString() } : s)));
   };
 
-  return { view, start, end };
+  return { view, start, end, decide, revoke };
 }

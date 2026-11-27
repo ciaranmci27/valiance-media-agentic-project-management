@@ -1,6 +1,9 @@
 import { withApi } from '@/lib/api/middleware';
 import { success } from '@/lib/api/response';
-import { currentApiVia } from '@/lib/api/request-context';
+import { currentAiSetup, currentApiVia } from '@/lib/api/request-context';
+import { capSetupScopes } from '@/lib/api/ai-setup-guard';
+import { forbidden } from '@/lib/api/errors';
+import { permissionLabel } from '@/lib/access-control';
 import { getAgentPowers, setAgentPowers, setAgentPowersSchema, type SetAgentPowers } from '@/lib/api/agent-powers';
 
 /**
@@ -28,5 +31,25 @@ export const GET = withApi<unknown, { id: string }>(async ({ supabase, params, a
  */
 export const PUT = withApi<SetAgentPowers, { id: string }>(async ({ supabase, params, body, access, scopes, apiKeyId, teamMemberId }) => {
   const caller = { memberId: teamMemberId, access, scopes };
+  if (currentAiSetup()) {
+    // An AI setup session adds at most the agent's template powers, and never a
+    // sensitive one (deep security review finding 8): those are the Owner's to
+    // add on the agent's Access.
+    // A scope counts as kept only when every live key already carries it: the
+    // list is written onto each key, so one key's power must never spread to
+    // a key the session made without it (its pending Allow would be skipped).
+    const current = await getAgentPowers(supabase, caller, params.id);
+    const added = [...new Set(body.scopes)].filter((scope) => current.live_keys.length === 0
+      ? !current.scopes.includes(scope)
+      : current.live_keys.some((key) => !key.scopes.includes(scope)));
+    const cap = await capSetupScopes(supabase, added, { agentId: params.id });
+    if (cap.confirm.length) {
+      throw forbidden(`While setting up with AI, these powers are added by the Owner on the agent's Access: ${cap.confirm.map(permissionLabel).join(', ')}.`, {
+        reason: 'ai_setup_needs_owner',
+        needs_owner: cap.confirm,
+        hint: 'Leave them out. Tell the Owner to add them on the agent\'s Access after the session.',
+      });
+    }
+  }
   return success(await setAgentPowers(supabase, caller, params.id, body, { kind: 'api', scopes, apiKeyId, via: currentApiVia() }));
 }, { schema: setAgentPowersSchema, permission: 'api_keys.manage_all' });

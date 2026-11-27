@@ -3,10 +3,12 @@ import {
   agentLimitsOf,
   budgetSpent,
   formatUsd,
+  hasAnyLimit,
   type AgentLimits,
   type AgentLimitsPatch,
   type AgentUsage,
 } from '@/lib/agent-limits';
+import { NEW_AGENT_LIMITS } from '@/lib/agent-defaults';
 import { ApiError } from './errors';
 
 /**
@@ -119,14 +121,19 @@ export async function runSpendCap(db: SupabaseClient, agentId: string): Promise<
 }
 
 /**
- * What a run has spent: its own cost_usd when it reports one, else the
- * usage.recorded rows that name it (the same rule as pm.agent_spend_facts).
+ * What a run has spent: the larger of its own cost_usd and the cost of the
+ * usage.recorded rows that name it (the same rule as pm.agent_spend_facts),
+ * so a small cost on the run never hides the usage reported under it.
  */
 export async function runSpent(db: SupabaseClient, run: { id: string; cost_usd?: unknown }): Promise<number> {
-  if (run.cost_usd !== null && run.cost_usd !== undefined) return Number(run.cost_usd);
+  const own = run.cost_usd !== null && run.cost_usd !== undefined && Number.isFinite(Number(run.cost_usd)) ? Number(run.cost_usd) : 0;
   const { data, error } = await db.from('agent_activities').select('metadata').eq('activity_type', 'usage.recorded').eq('metadata->>run_id', run.id);
   if (error) throw error;
-  return ((data ?? []) as Row[]).reduce((sum, row) => sum + (Number.isFinite(Number(row.metadata?.cost_usd)) ? Number(row.metadata.cost_usd) : 0), 0);
+  const usage = ((data ?? []) as Row[]).reduce((sum, row) => {
+    const cost = Number(row.metadata?.cost_usd);
+    return sum + (Number.isFinite(cost) && cost > 0 ? cost : 0);
+  }, 0);
+  return Math.max(own, usage);
 }
 
 /**
@@ -220,7 +227,7 @@ export async function notifyBudgetSpent(db: SupabaseClient, agentId: string, sta
     const rows = recipients.map((id) => ({
       user_id: id,
       title: `${name} spent its budget`,
-      message: `${name} reached its ${cap} budget for the ${l.budget_period}. New runs are refused until it resets or you raise it; its usage is still recorded.`,
+      message: `${name} reached its ${cap} budget for the ${l.budget_period}. Its new runs and other writes are refused until it resets or you raise it; it still reads and its usage is still recorded.`,
       link: `/ai/agents/${agentId}?tab=rules`,
       entity_type: 'member',
       entity_id: agentId,
@@ -245,14 +252,47 @@ export async function agentLimitsRow(db: SupabaseClient, agentId: string): Promi
 }
 
 /**
+ * A new company agent's limits: what the hirer chose (null clears one), else
+ * the defaults (src/lib/agent-defaults.ts) with its template's own limits
+ * laid over them. On a database before the write and send rates, the rest
+ * is kept; before limits at all, none. Answers the limits as saved.
+ */
+export async function applyNewAgentLimits(
+  db: SupabaseClient, agentId: string, actorId: string | null,
+  chosen: AgentLimitsPatch | undefined, templateLimits?: AgentLimitsPatch | null,
+): Promise<AgentLimits | null> {
+  const patch: AgentLimitsPatch = chosen ?? { ...NEW_AGENT_LIMITS, ...(templateLimits ?? {}) };
+  try {
+    return await setAgentLimits(db, agentId, patch, actorId);
+  } catch (error) {
+    if (!(error instanceof ApiError) || error.statusCode !== 503) throw error;
+    const { write_rate_per_minute: _w, send_rate_per_minute: _s, ...older } = patch;
+    void _w; void _s;
+    try {
+      return await setAgentLimits(db, agentId, older, actorId);
+    } catch (again) {
+      if (again instanceof ApiError && again.statusCode === 503) return null;
+      throw again;
+    }
+  }
+}
+
+/** The limits to write, leaving out write and send rates that are not set now and were not before. */
+function withoutUnsetRates(limits: AgentLimits, current: AgentLimits | null): Partial<AgentLimits> {
+  const { write_rate_per_minute, send_rate_per_minute, ...rest } = limits;
+  const unset = write_rate_per_minute === null && send_rate_per_minute === null
+    && (current?.write_rate_per_minute ?? null) === null && (current?.send_rate_per_minute ?? null) === null;
+  return unset ? rest : limits;
+}
+
+/**
  * Writes the fields sent (null clears one), keeping the rest. A row left
  * with no limit at all is removed. Answers the limits as they now are.
  */
 export async function setAgentLimits(db: SupabaseClient, agentId: string, patch: AgentLimitsPatch, actorId: string | null): Promise<AgentLimits | null> {
   const current = await agentLimitsRow(db, agentId);
   const next: AgentLimits = { ...(current ?? agentLimitsOf(null)), ...Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined)) } as AgentLimits;
-  const empty = next.max_concurrent_runs === null && next.rate_per_minute === null && next.budget_usd === null && next.budget_tokens === null
-    && next.max_run_spend_cents === null;
+  const empty = !hasAnyLimit(next);
   if (empty) {
     if (current) {
       const { error } = await db.from('agent_limits').delete().eq('agent_id', agentId);
@@ -262,12 +302,14 @@ export async function setAgentLimits(db: SupabaseClient, agentId: string, patch:
   }
   const { data, error } = await db
     .from('agent_limits')
-    .upsert({ agent_id: agentId, ...next, updated_at: new Date().toISOString(), updated_by: actorId }, { onConflict: 'agent_id' })
+    // The write and send rates are sent only when one is set, so a database before them saves the rest as before.
+    .upsert({ agent_id: agentId, ...withoutUnsetRates(next, current), updated_at: new Date().toISOString(), updated_by: actorId }, { onConflict: 'agent_id' })
     .select('*')
     .single();
   if (error) {
     if (missingLimitsSchema(error)) {
-      throw new ApiError(503, 'SERVICE_UNAVAILABLE', 'Agent limits work once the database update 20261124001500_limits_audit.sql is applied', { reason: 'migration_pending' });
+      const newer = patch.write_rate_per_minute !== undefined || patch.send_rate_per_minute !== undefined;
+      throw new ApiError(503, 'SERVICE_UNAVAILABLE', `Agent limits work once the database update ${newer ? '20261127002500_agent_limits_security.sql' : '20261124001500_limits_audit.sql'} is applied`, { reason: 'migration_pending' });
     }
     throw error;
   }

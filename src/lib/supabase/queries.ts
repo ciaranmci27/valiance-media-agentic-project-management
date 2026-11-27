@@ -1582,6 +1582,8 @@ export async function insertWebhookEndpoint(
     name: string; url: string; secret: string; events: string[]; description?: string;
     amount_basis?: WebhookEndpoint['amount_basis']; project_ids?: string[] | null; member_id?: string | null;
     agent_event_types?: string[] | null; assistant_setup_id?: string | null; created_by: string | null;
+    /** Left out: on (the column default). */
+    is_active?: boolean;
     /** Chosen by the server when it seals the secret to the endpoint's id (lib/webhooks/secret.ts). */
     id?: string;
   },
@@ -1598,6 +1600,7 @@ export async function insertWebhookEndpoint(
       amount_basis: endpoint.amount_basis ?? 'gross',
       project_ids: endpoint.project_ids?.length ? endpoint.project_ids : null,
       member_id: endpoint.member_id ?? null,
+      ...(endpoint.is_active === false ? { is_active: false } : {}),
       ...(endpoint.agent_event_types?.length ? { agent_event_types: endpoint.agent_event_types } : {}),
       ...(endpoint.assistant_setup_id ? { assistant_setup_id: endpoint.assistant_setup_id } : {}),
       created_by: endpoint.created_by,

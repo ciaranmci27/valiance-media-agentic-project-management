@@ -21,7 +21,7 @@ import {
 import { checkKeyGrant, loadSetupTarget, type Granter } from './agent-setup';
 import { insertAuditRows } from './audit';
 import { ApiError, notFound } from './errors';
-import { KEY_PAUSE_COLUMNS, missingPauseColumns, setupKeyFixed, withKeyState } from './key-manage';
+import { KEY_PAUSE_COLUMNS, assertNotOwnerProtected, missingPauseColumns, setupKeyFixed, withKeyState } from './key-manage';
 
 /**
  * Editing a key's name and scopes in place: PATCH /api/workspace/api-keys/[id]
@@ -352,6 +352,8 @@ export async function editApiKeyOverApi(service: SupabaseClient, caller: ApiKeyE
   if (!key.team_member_id) {
     throw new ApiError(422, 'VALIDATION_ERROR', 'This key is not linked to a team member. Revoke it instead.', { reason: 'api_key_not_linked' });
   }
+  // Renaming or stripping an Owner's key, or an Owner's agent's key, takes an Owner's key.
+  await assertNotOwnerProtected(service, { memberId: caller.memberId, access: caller.access, apiKeyId: caller.apiKeyId }, key.id);
   const granter: Granter = { memberId: caller.memberId, access: caller.access, scopes: caller.scopes };
   // The key's member must be active (422 member_suspended otherwise).
   const target = await loadSetupTarget(service, granter, key.team_member_id);

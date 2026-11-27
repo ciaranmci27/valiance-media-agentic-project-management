@@ -690,6 +690,10 @@ async function routeChecks(db: PGlite) {
       check('act_for: the agent role itself is unchanged', (await s.q("SELECT 1 FROM pm.role_permissions WHERE role = 'agent' AND permission_key = 'agents.act_for'")).length === 0);
     }
     if (relayKey) {
+      // A pass needs a fresh chat message from that account to this agent (security review finding 6).
+      const connection = (await s.q<{ id: string }>("INSERT INTO pm.chat_connections (provider, display_name, credentials, kind) VALUES ('telegram', 'Proof', 'pm1:x', 'personal') RETURNING id"))[0].id;
+      await s.q(`INSERT INTO pm.chat_messages (connection_id, direction, status, conversation_id, external_user_id, identity_id, member_id, agent_id, text)
+        SELECT $1, 'inbound', 'pending', 'D1', i.external_id, i.id, i.member_id, $2, 'hi' FROM pm.member_identities i WHERE i.external_id = 'U_MIA'`, [connection, relayId]);
       const pass = await mint(relayKey, 'U_MIA');
       check('act_for: the hired agent\'s key mints a delegation for a verified person', pass.status === 201 && typeof pass.body?.data?.token === 'string', brief(pass));
       if (pass.body?.data?.token) {

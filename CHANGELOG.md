@@ -9,6 +9,30 @@ Each section starts with `## X.Y.Z (YYYY-MM-DD)` and uses these headings, leavin
 - `### Database`: the core migration files in the release, one per line. `npm run db:migrate` applies them.
 - `### Breaking`: what an install must do when it takes this release.
 
+## 2.0.52 (2026-11-27)
+
+### Changed
+- **Agent limits are enforced, not advisory.** An agent over its budget, or holding a run past `max_run_spend_cents`, is refused every write a paused agent is (402 `budget_exceeded`, `run_spend_exceeded`); a run's cost and tokens only go up (409 `spend_decrease`), and usage under a run counts even when the run reports less. New per-agent limits `write_rate_per_minute` and `send_rate_per_minute` count across all its keys, and MCP handshakes count against the key's rate.
+- **Safe defaults at hire.** A new company agent starts with 30 writes and 10 messages a minute and keys that end after 90 days, with no spend budget until an Owner sets one, pre-filled on the hire Access step and clearable (numbers in `src/lib/agent-defaults.ts`). Existing agents and keys keep what they had. A key list says when a key ends within two weeks.
+- **Who an agent may ask.** An agent's approval (and a question whose answer acts) goes only to its managers, escalation target, people on the project who are not guests, its orchestrator chain or an Owner (422 `approver_not_allowed` with who it may ask). No agent asks a guest anything.
+- **Act-for needs proof.** A pass for a chat account needs a message from it to that agent in the last 30 minutes (403 `act_for_no_recent_message`); a DM to someone who did not just write needs `chat.notify`, acting for them or not.
+- **AI setup is boxed in.** A key a setup session makes carries at most its template's powers; money, people, settings, act-for, keys, webhooks and credentials wait for the Owner's Allow on the setup screen, as does a webhook to a new address. The setup screen lists every key the session made, with Revoke. A setup session may now set an agent's powers (`set_agent_powers`), within the same limits.
+- A key with `api_keys.manage_all` that is not an Owner's never pauses, revokes, edits or strips an Owner's key or an Owner's agent's key (403 `owner_key_protected`).
+- docs/operating/security-model.md: what the app guarantees, what to set up once, and the known limits.
+
+### Database
+- `20261127002500_agent_limits_security.sql`: write and send rates per agent, the write gate, spend that only goes up, run spend counted with its usage, AI setup keys and the requests that wait on the Owner.
+
+### Breaking
+- **Harnesses that act for chat users mint the pass right after the message arrives** (within 30 minutes), and DMs to people who did not just write need `chat.notify`. An agent asking a reviewer agent to approve must have it as its orchestrator, or ask a person.
+- **An agent over its budget is held on every write, not only `start_run`**: 402 `budget_exceeded` (and `run_spend_exceeded` for an unfinished run past `max_run_spend_cents`) on anything a paused agent is refused. Heartbeats, telemetry, finishing a run and releasing claims still work. Only agents that already have a budget are affected.
+- **Run cost and tokens only go up**: sending a lower `cost_usd`, `tokens_in` or `tokens_out` on `update_run` or a retried start is 409 `spend_decrease`. Send running totals.
+- **New agent keys end after 90 days when no lifetime is sent**, including `create_api_key` for an existing agent and the successor of a never-ending agent key on rotate. A harness that mints keys without `expires_in_days` must renew them (the key list warns two weeks ahead).
+- **Agents made over the API start with 30 writes and 10 messages a minute** (429 `write_rate_limited`, `send_rate_limited`), and MCP `initialize` and `tools/list` now count against the key's rate.
+- **Approvals and questions whose answer acts go only to people the agent may ask** (422 `approver_not_allowed`), and a question to a guest is 422 `asked_guest`.
+- A key with `api_keys.manage_all` that is not an Owner's gets 403 `owner_key_protected` on an Owner's key or an Owner's agent's key.
+- **In an AI setup session**, keys come back without sensitive powers (`needs_owner_confirm` says which), a power outside the template is 403 `ai_setup_scope_outside_template`, a key with nothing left to grant is 422 `ai_setup_nothing_granted`, a webhook to a new address is made switched off, and `set_agent_powers` refuses sensitive powers (403 `ai_setup_needs_owner`).
+
 ## 2.0.51 (2026-11-27)
 
 ### Added

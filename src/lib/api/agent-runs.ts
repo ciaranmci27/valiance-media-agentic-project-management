@@ -460,6 +460,23 @@ function fieldsFrom(input: RunFieldsInput, notes: AgentRunNote[] | null): Row {
   return out;
 }
 
+/**
+ * Spend only goes up for a run: cost_usd, tokens_in and tokens_out are
+ * totals so far, so one below what the run already reported is refused
+ * (409 spend_decrease), never stored. The database keeps the larger too.
+ */
+function assertSpendOnlyUp(row: Row, changes: Row) {
+  const lower = (['cost_usd', 'tokens_in', 'tokens_out'] as const).filter((key) => changes[key] !== undefined
+    && row[key] !== null && row[key] !== undefined && (changes[key] === null || Number(changes[key]) < Number(row[key])));
+  if (lower.length === 0) return;
+  throw new ApiError(409, 'CONFLICT', `A run's spend only goes up: ${lower.map((key) => `${key} is already ${num(row[key])}`).join(', ')}. Send the total so far, never less.`, {
+    reason: 'spend_decrease',
+    fields: lower,
+    current: Object.fromEntries(lower.map((key) => [key, num(row[key])])),
+    hint: 'Report totals that only grow (a retry of the same total is fine). A run that spent less than you sent keeps what you sent.',
+  });
+}
+
 function notBefore(start: string, value: string, field: string) {
   if (Date.parse(value) < Date.parse(start)) throw invalid(`${field} cannot be before the run started`, { reason: 'before_start', started_at: start });
 }
@@ -555,6 +572,7 @@ async function runByExternalId(db: SupabaseClient, agentId: string, externalId: 
 async function updateExisting(ctx: RunsContext, existing: Row, input: StartAgentRunInput, place: { task_id: string | null; project_id: string | null }): Promise<AgentRunView> {
   if (!(await placeLive(ctx.db, existing))) throw notFound('Run');
   const changes: Row = { ...fieldsFrom(input, existing.notes) };
+  assertSpendOnlyUp(existing, changes);
   if (input.task_id !== undefined || input.project_id !== undefined) Object.assign(changes, place);
   if (input.trigger !== undefined) changes.trigger = input.trigger;
   if (input.instance_id !== undefined) changes.instance_id = input.instance_id;
@@ -578,6 +596,7 @@ export async function updateRun(ctx: RunsContext, id: string, input: UpdateAgent
   requireAgentsEnabled(ctx.access);
   const row = await loadRun(ctx, id);
   const changes = fieldsFrom(input, row.notes);
+  assertSpendOnlyUp(row, changes);
   if (input.task_id !== undefined) Object.assign(changes, await resolvePlace(ctx, { task_id: input.task_id }));
   // Blocked (status blocked, or blocked true): the run waits on a person, with why.
   const blocking = input.status === 'blocked' || input.blocked === true;

@@ -83,6 +83,14 @@ export const hireAgentSchema = z.object({
   create_key: z.boolean().optional(),
   key_name: z.string().trim().min(1).max(100).optional(),
   scopes: z.array(z.string().max(100)).max(100).optional(),
+  /** Days its key lasts (1 to 3650), or null for until revoked. Left out: the workspace's agent key lifetime, else 90 days. */
+  key_expires_in_days: z.number().int().min(1).max(3650).nullable().optional(),
+  /**
+   * Its limits (null clears one). Left out: the safe defaults (writes and
+   * messages a minute, no spend budget; src/lib/agent-defaults.ts) with
+   * the template's own limits laid over them.
+   */
+  limits: agentLimitsPatchSchema.optional(),
   /**
    * One id per hire attempt (a UUID the caller makes once and sends on every
    * retry of it): a second call with the same id hires nothing more and is

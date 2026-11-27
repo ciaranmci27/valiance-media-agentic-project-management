@@ -17,6 +17,7 @@ import type { AgentProfile } from '@/lib/mcp/profiles';
 import { ownersOf } from './agent-owners';
 import { assertKnownAgentProfile } from './agent-registries';
 import { agentKeyExpiry } from './key-lifetime';
+import { currentAiSetup } from './request-context';
 
 /**
  * Setting up an agent over the v1 API and MCP: the rules that keep a key
@@ -179,6 +180,8 @@ export async function insertApiKey(
 ): Promise<{ key: ApiKey & { created_by_key_id: string | null }; secret: string }> {
   const secret = generateApiKey();
   const expiresAt = input.expiresAt !== undefined ? input.expiresAt : await agentKeyExpiry(service, input.memberId);
+  // A key an AI setup session makes says so, so the setup screen lists it with Revoke.
+  const setupSessionId = currentAiSetup()?.sessionId ?? null;
   const { data, error } = await service
     .from('api_keys')
     .insert({
@@ -192,6 +195,7 @@ export async function insertApiKey(
       // A key made by a signed-in Owner (the hire flow) has no parent key, as one made in Settings.
       ...(input.createdByKeyId ? { created_by_key_id: input.createdByKeyId } : {}),
       ...(expiresAt ? { expires_at: expiresAt } : {}),
+      ...(setupSessionId ? { ai_setup_session_id: setupSessionId } : {}),
     })
     .select(API_KEY_COLUMNS)
     .single();

@@ -4,8 +4,9 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { apiScopesFor, type AccessContext } from '@/lib/access-control';
 import {
   AI_SETUP_KEY_NAME, AI_SETUP_KEY_PREFIX, AI_SETUP_MINUTES, aiSetupKeyScopes, aiSetupRoute, mayStartAiSetup,
-  type AiSetupAgentView, type AiSetupKind, type AiSetupSessionView, type AiSetupView,
+  type AiSetupAgentView, type AiSetupConfirmView, type AiSetupKeyView, type AiSetupKind, type AiSetupSessionView, type AiSetupView,
 } from '@/lib/ai-setup';
+import { editApiKey } from './key-edit';
 import { buildConnectInfo, type ConnectInfo } from '@/lib/agent-connect';
 import { API_KEY_COLUMNS } from '@/lib/supabase/queries';
 import { insertAuditRows } from './audit';
@@ -270,12 +271,54 @@ const RECENT_MS = 2 * 60 * 60_000;
 export const AI_SETUP_AGENT_ENDPOINTS = ['/api/workspace/agents', '/api/v1/agents'];
 const AGENT_ENDPOINTS = AI_SETUP_AGENT_ENDPOINTS;
 
-function sessionView(row: Row, agents: AiSetupAgentView[]): AiSetupSessionView {
+function sessionView(row: Row, agents: AiSetupAgentView[], keys: AiSetupKeyView[] = [], confirms: AiSetupConfirmView[] = []): AiSetupSessionView {
   const active = !row.ended_at && new Date(row.expires_at).getTime() > Date.now();
   return {
     id: row.id, kind: row.kind, client_name: row.client_name, grant_id: row.grant_id ?? null,
-    created_at: row.created_at, expires_at: row.expires_at, ended_at: row.ended_at ?? null, active, agents,
+    created_at: row.created_at, expires_at: row.expires_at, ended_at: row.ended_at ?? null, active, agents, keys, confirms,
   };
+}
+
+/**
+ * The keys each session made (api_keys.ai_setup_session_id) and what each
+ * asked for that waits on the Owner. Empty on a database before them.
+ */
+async function keysAndConfirms(service: SupabaseClient, sessionIds: string[]): Promise<{ keys: Map<string, AiSetupKeyView[]>; confirms: Map<string, AiSetupConfirmView[]> }> {
+  const keys = new Map<string, AiSetupKeyView[]>();
+  const confirms = new Map<string, AiSetupConfirmView[]>();
+  if (sessionIds.length === 0) return { keys, confirms };
+  const [keyRows, confirmRows] = await Promise.all([
+    service.from('api_keys').select('id, name, key_prefix, team_member_id, scopes, created_at, expires_at, revoked_at, ai_setup_session_id')
+      .in('ai_setup_session_id', sessionIds).order('created_at', { ascending: false }),
+    service.from('ai_setup_confirms').select('id, session_id, kind, agent_id, api_key_id, scopes, host, status, created_at')
+      .in('session_id', sessionIds).order('created_at'),
+  ]);
+  if (keyRows.error && !missingTable(keyRows.error)) throw keyRows.error;
+  if (confirmRows.error && !missingTable(confirmRows.error)) throw confirmRows.error;
+  const kRows = (keyRows.error ? [] : keyRows.data ?? []) as Row[];
+  const cRows = (confirmRows.error ? [] : confirmRows.data ?? []) as Row[];
+  const memberIds = [...new Set([...kRows.map((k) => k.team_member_id), ...cRows.map((c) => c.agent_id)].filter(Boolean))] as string[];
+  const { data: members, error } = memberIds.length ? await service.from('team_members').select('id, name').in('id', memberIds) : { data: [], error: null };
+  if (error) throw error;
+  const nameOf = new Map(((members ?? []) as Row[]).map((m) => [m.id as string, m.name as string]));
+  const keyNames = new Map(kRows.map((k) => [k.id as string, k.name as string]));
+  for (const k of kRows) {
+    const list = keys.get(k.ai_setup_session_id) ?? [];
+    list.push({
+      id: k.id, name: k.name, key_prefix: k.key_prefix, agent_id: k.team_member_id ?? null, agent_name: k.team_member_id ? nameOf.get(k.team_member_id) ?? null : null,
+      scopes: k.scopes ?? [], created_at: k.created_at, expires_at: k.expires_at ?? null, revoked_at: k.revoked_at ?? null,
+    });
+    keys.set(k.ai_setup_session_id, list);
+  }
+  for (const c of cRows) {
+    const list = confirms.get(c.session_id) ?? [];
+    list.push({
+      id: c.id, kind: c.kind, agent_id: c.agent_id ?? null, agent_name: c.agent_id ? nameOf.get(c.agent_id) ?? null : null,
+      key_name: c.api_key_id ? keyNames.get(c.api_key_id) ?? null : null, scopes: c.scopes ?? [], host: c.host ?? null, status: c.status, created_at: c.created_at,
+    });
+    confirms.set(c.session_id, list);
+  }
+  return { keys, confirms };
 }
 
 /** The agents each session made: audit rows of a hire or an added agent, by its key, while it lived. */
@@ -348,8 +391,59 @@ export async function mySetupSessions(service: SupabaseClient, memberId: string)
     const ended = new Date(row.ended_at ?? row.expires_at).getTime();
     return ended > Date.now() - RECENT_MS;
   });
-  const agents = await agentsBySession(service, rows);
-  return { ready: true, sessions: rows.map((row) => sessionView(row, agents.get(row.id) ?? [])) };
+  const [agents, made] = await Promise.all([agentsBySession(service, rows), keysAndConfirms(service, rows.map((row) => row.id as string))]);
+  return { ready: true, sessions: rows.map((row) => sessionView(row, agents.get(row.id) ?? [], made.keys.get(row.id) ?? [], made.confirms.get(row.id) ?? [])) };
+}
+
+/**
+ * The Owner says yes (allow) or no to what a session asked for. Only the
+ * person whose session it was, signed in, decides, and only once: a
+ * decided one is 409. Allowing adds the powers to the key through the same
+ * edit Settings uses (so every grant rule applies again, as that person
+ * now), or switches the webhook on. This never passes through an agent or
+ * an API key: its whole point is a person saying yes in the app.
+ */
+export async function decideSetupConfirm(
+  service: SupabaseClient, person: { memberId: string; access: AccessContext }, confirmId: string, allow: boolean,
+): Promise<AiSetupConfirmView> {
+  const { data, error } = await service.from('ai_setup_confirms').select('id, session_id, member_id, kind, agent_id, api_key_id, webhook_endpoint_id, scopes, host, status, created_at')
+    .eq('id', confirmId).maybeSingle();
+  if (error && !missingTable(error)) throw error;
+  const row = (error ? null : data) as Row | null;
+  if (!row || row.member_id !== person.memberId) throw new ApiError(404, 'NOT_FOUND', 'That request was not found.', { reason: 'not_found' });
+  if (row.status !== 'pending') throw new ApiError(409, 'CONFLICT', allow ? 'That was already decided.' : 'That was already decided.', { reason: 'already_decided', status: row.status });
+  if (allow) {
+    if (!mayStartAiSetup(person.access)) throw forbidden('Only an Owner allows what an AI setup asked for', { reason: 'owner_only' });
+    if (row.kind === 'key_scopes') {
+      const { data: key, error: keyError } = await service.from('api_keys').select('scopes').eq('id', row.api_key_id).maybeSingle();
+      if (keyError) throw keyError;
+      if (!key) throw new ApiError(404, 'NOT_FOUND', 'That key is gone.', { reason: 'key_gone' });
+      const result = await editApiKey(service, { memberId: person.memberId, access: person.access }, row.api_key_id, {
+        scopes: [...new Set([...((key as Row).scopes ?? []), ...(row.scopes ?? [])])],
+      });
+      if (result.status !== 200) throw new ApiError(result.status, result.status === 404 ? 'NOT_FOUND' : 'CONFLICT', result.body.error, { reason: 'key_not_changed' });
+    } else {
+      const { error: hookError } = await service.from('webhook_endpoints').update({ is_active: true }).eq('id', row.webhook_endpoint_id);
+      if (hookError) throw hookError;
+    }
+  }
+  const decidedAt = new Date().toISOString();
+  const { data: updated, error: updateError } = await service.from('ai_setup_confirms')
+    .update({ status: allow ? 'allowed' : 'declined', decided_at: decidedAt, decided_by: person.memberId })
+    .eq('id', confirmId).eq('status', 'pending').select('id').maybeSingle();
+  if (updateError) throw updateError;
+  if (!updated) throw new ApiError(409, 'CONFLICT', 'That was already decided.', { reason: 'already_decided' });
+  const { error: auditError } = await insertAuditRows(service, {
+    method: 'POST', endpoint: `/api/workspace/ai-setup/confirms/${confirmId}`, entity_type: 'ai_setup_confirm', entity_id: confirmId,
+    api_key_id: null, team_member_id: person.memberId,
+    request_body: { allow, kind: row.kind, scopes: row.scopes ?? [], host: row.host ?? null, api_key_id: row.api_key_id ?? null, webhook_endpoint_id: row.webhook_endpoint_id ?? null },
+    status_code: 200, via: 'app',
+  });
+  if (auditError) console.error('[ai-setup] confirm audit write failed:', auditError.message);
+  return {
+    id: row.id, kind: row.kind, agent_id: row.agent_id ?? null, agent_name: null, key_name: null, scopes: row.scopes ?? [], host: row.host ?? null,
+    status: allow ? 'allowed' : 'declined', created_at: row.created_at,
+  };
 }
 
 export async function aiSetupView(service: SupabaseClient, memberId: string, access: AccessContext, origin: string): Promise<AiSetupView> {

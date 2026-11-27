@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/Button';
 import { Select } from '@/components/ui/inputs/Select';
 import { toast } from '@/components/ui/Toast';
 import { workspaceApi } from '@/lib/agent-workspace';
-import { keyLifetimeChoice, keyLifetimeDays, keyLifetimeSettingOptions } from '@/lib/developers-settings';
+import { agentKeyLifetimeSettingOptions, keyLifetimeChoice, keyLifetimeDays, keyLifetimeSettingOptions } from '@/lib/developers-settings';
 import { invalidateTables, setReadData, useRead } from '@/lib/query-cache';
 import { agentKeyLifetimeRead, personalKeyLifetimeRead } from '@/lib/reads';
 
@@ -86,8 +86,8 @@ export function KeyLifetimeSection({ agentsOn }: { agentsOn: boolean }) {
               label="AI agent keys"
               value={agent!}
               onChange={setAgent}
-              options={keyLifetimeSettingOptions(agentDays ?? null)}
-              helperText="Every new agent key lasts this long, and so does each key a rotation makes. Rotate before it ends to keep the agent connected."
+              options={agentKeyLifetimeSettingOptions(agentDays ?? null)}
+              helperText="Every new company agent key lasts this long, and so does each key a rotation makes. Replace it before it ends to keep the agent connected."
             />
           )}
           <div className="flex justify-end gap-2 sm:col-span-2">

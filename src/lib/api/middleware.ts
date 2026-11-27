@@ -5,6 +5,7 @@ import { isModuleEnabled, PERMISSION_IMPLIED_BY, type AccessContext, type Permis
 import { getActorClient, getServiceClient } from './supabase-service';
 import { hashApiKey } from './crypto';
 import { passRequestGate, pausedRefusal, projectPausedRefusal, pauseExempt, type RequestGate } from './request-gate';
+import { writeGateRefusal } from './write-gate';
 import { ApiError, unauthorized, forbidden, tooManyRequests, badRequest, notFound, moduleOff } from './errors';
 import { errorResponse } from './response';
 import { JSON_BODY_LIMIT, assertDeclaredBodySize, readBodyText } from './body-limit';
@@ -315,6 +316,13 @@ export function withApi<TBody = unknown, TParams = Record<string, string>>(
       if (isWrite) {
         const paused = pausedRefusal(gate, request.nextUrl.pathname, method);
         if (paused) throw paused;
+        // Over its budget or holding a run past its cap, an agent is refused
+        // the same writes as a paused one; its writes and sends are counted
+        // per agent, across all its keys.
+        if (gate.agent && !pauseExempt(request.nextUrl.pathname, method)) {
+          const limited = await writeGateRefusal(supabase, keyRow.team_member_id, request.nextUrl.pathname, method);
+          if (limited) throw limited;
+        }
       }
       // An agent paused on a project writes nothing there (what is exempt above too stays open).
       const projectWriteRefusal = (id: string) => (isWrite && !pauseExempt(request.nextUrl.pathname, method) ? projectPausedRefusal(gate, id) : null);

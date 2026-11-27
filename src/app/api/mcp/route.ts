@@ -2,7 +2,9 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { createMcpHandler } from '@modelcontextprotocol/server';
 import { ApiError } from '@/lib/api/errors';
 import { MCP_BODY_LIMIT, assertDeclaredBodySize, readBodyText } from '@/lib/api/body-limit';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { resolveApiKey } from '@/lib/api/middleware';
+import { passRequestGate } from '@/lib/api/request-gate';
 import { resolveAgentProfile } from '@/lib/api/agent-registries';
 import { bearerChallenge } from '@/lib/api/connect-ai';
 import { isConnectAccessToken } from '@/lib/connect-ai';
@@ -50,6 +52,17 @@ function rpcError(status: number, message: string, data?: unknown, headers: Reco
   );
 }
 
+/** The body is JSON-RPC tool calls only (each counted by the route it runs); anything else, a handshake included, is not. */
+function onlyToolCalls(text: string): boolean {
+  try {
+    const parsed = JSON.parse(text) as unknown;
+    const messages = Array.isArray(parsed) ? parsed : [parsed];
+    return messages.length > 0 && messages.every((m) => !!m && typeof m === 'object' && (m as { method?: unknown }).method === 'tools/call');
+  } catch {
+    return false;
+  }
+}
+
 function readKey(request: NextRequest): string | null {
   const header = request.headers.get('x-api-key')?.trim();
   if (header) return header;
@@ -89,9 +102,13 @@ export async function POST(request: NextRequest) {
   }
 
   let caller: McpCaller;
+  let gateClient: SupabaseClient | null = null;
+  let gateKey: { id: string; memberId: string } | null = null;
   try {
     const actFor = request.headers.get(ACT_FOR_HEADER);
     const { supabase, keyRow, access, principal, connection, aiSetup } = await resolveApiKey(key, actFor, { connect: true });
+    gateClient = supabase;
+    gateKey = { id: keyRow.id, memberId: keyRow.team_member_id };
     const { data: member } = await supabase
       .from('team_members')
       .select('*')
@@ -127,6 +144,14 @@ export async function POST(request: NextRequest) {
   let bounded: Request;
   try {
     const text = await readBodyText(request, MCP_BODY_LIMIT);
+    // A handshake or tool list runs no route, so it counts against the key's
+    // rate limit here; a tool call is counted by the route it runs.
+    if (!onlyToolCalls(text)) {
+      const gate = await passRequestGate(gateClient!, gateKey!.id, gateKey!.memberId);
+      if (!gate.allowed) {
+        return rpcError(429, 'Rate limit exceeded', { reason: 'rate_limited' }, { 'Retry-After': String(Math.max(1, Math.ceil((gate.resetAt - Date.now()) / 1000))) });
+      }
+    }
     bounded = new Request(request.url, { method: request.method, headers: request.headers, body: text });
   } catch (caught) {
     if (caught instanceof ApiError) return rpcError(caught.statusCode, caught.message, caught.details);

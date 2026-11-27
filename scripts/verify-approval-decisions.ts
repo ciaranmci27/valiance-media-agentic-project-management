@@ -298,8 +298,12 @@ async function main() {
       && decideOverMcp?.ok === true && decideOverMcp.data.decided_via === 'api_key', [keyOverMcp, decideOverMcp]);
 
     // ── An agent asked by name ──────────────────────────────────────────
+    // An agent approver only from its orchestrator chain (security review finding 4).
+    const unrelated = await call(approvalsRoute.POST, 'POST', '/api/v1/approvals', {}, s.keys.builder, { project_id: s.apex, action: { type: 'merge', summary: 'Merge PR #12' }, asked_to: s.reviewer });
+    check('agent: an agent outside its orchestrator chain is not an approver (422 approver_not_allowed)', unrelated.status === 422 && reason(unrelated) === 'approver_not_allowed', unrelated.body);
+    await s.q('UPDATE pm.team_members SET orchestrator_id = $1 WHERE id = $2', [s.reviewer, s.builder]);
     const askedReviewer = await call(approvalsRoute.POST, 'POST', '/api/v1/approvals', {}, s.keys.builder, { project_id: s.apex, action: { type: 'merge', summary: 'Merge PR #12' }, asked_to: s.reviewer });
-    check('agent: an agent named in asked_to may be asked to approve', askedReviewer.status === 201 && askedReviewer.body.data?.asked_to === s.reviewer, askedReviewer.body);
+    check('agent: its orchestrator, named in asked_to, may be asked to approve', askedReviewer.status === 201 && askedReviewer.body.data?.asked_to === s.reviewer, askedReviewer.body);
     const toReviewer = askedReviewer.body.data?.id as string;
     const askItself = await call(approvalsRoute.POST, 'POST', '/api/v1/approvals', {}, s.keys.reviewer, { project_id: s.apex, action: APPROVAL, asked_to: s.reviewer });
     check('agent: an agent never asks itself to approve', askItself.status === 422 && reason(askItself) === 'asked_self', askItself.body);
@@ -319,6 +323,8 @@ async function main() {
     const byReviewer = await mcp({ key: s.keys.reviewer }, 'answer_question', { question_id: toReviewer, choice: 'approve', text: 'Tests pass' });
     check('agent: the agent asked decides it (MCP); decided_via agent', byReviewer?.ok === true && byReviewer.data.decided_by === s.reviewer
       && byReviewer.data.decided_via === 'agent' && (await stored(toReviewer)).decided_via === 'agent', byReviewer);
+    // Back to no orchestrator: its plain questions go where they are addressed again.
+    await s.q('UPDATE pm.team_members SET orchestrator_id = NULL WHERE id = $1', [s.builder]);
 
     // ── An agent acting for a person ────────────────────────────────────
     const actFor = await request({ asked_to: s.mia });

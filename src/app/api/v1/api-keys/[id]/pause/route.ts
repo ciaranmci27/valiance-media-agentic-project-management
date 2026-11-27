@@ -12,6 +12,10 @@ import { currentApiVia } from '@/lib/api/request-context';
  * (key_revoked, key_expired). Audited with the key before and after.
  * Answers the key with its state.
  *
+ * A key that is not an Owner's never touches an Owner's key or the key of
+ * an agent an Owner manages (403 owner_key_protected; revoke-unused leaves
+ * them out); its own keys and the keys it made stay its to manage.
+ *
  * Permission: api_keys.manage_all.
  */
 export const POST = withApi<unknown, { id: string }>(async ({ supabase, params, access, apiKeyId, teamMemberId }) => {

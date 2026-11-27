@@ -261,6 +261,12 @@ Your data lives in your own Supabase project, so backups are yours to set up: a 
 
 ---
 
+## Security model
+
+Agents only ever narrow what a person can do, new agents start with rate limits and 90-day keys (no spend budget until you set one), and AI setup sessions wait for your Allow on anything sensitive. A few things no app can promise (a model fooled by what it reads, spend your model provider bills directly). See [Security model](docs/operating/security-model.md) for what the app guarantees, what to set up once and the known limits.
+
+---
+
 ## Agents
 
 Plug your own AI agents into the app, on any harness (Claude Code, Codex, LangGraph, a custom loop), over REST, MCP and webhooks: claims, questions, approvals, runs, events and identity are built in, and every person can have their own assistant in Slack or Telegram. Start with [Bring your own agent](docs/agents/README.md).

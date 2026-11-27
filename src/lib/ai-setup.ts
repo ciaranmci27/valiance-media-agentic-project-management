@@ -40,6 +40,7 @@ export const AI_SETUP_TOOLS: readonly string[] = [
   'set_agent_projects', 'set_project_agent', 'remove_project_agent',
   'create_api_key', 'list_webhook_endpoints', 'create_webhook_endpoint',
   'get_agent_tree', 'get_agent_access', 'set_agent_access',
+  'get_agent_powers', 'set_agent_powers',
 ];
 
 type Method = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
@@ -71,6 +72,8 @@ export const AI_SETUP_ROUTES: ReadonlyArray<readonly [Method, string]> = [
   ['GET', '/api/v1/agents/tree'],
   ['GET', '/api/v1/agents/{id}/access'],
   ['PUT', '/api/v1/agents/{id}/access'],
+  ['GET', '/api/v1/agents/{id}/powers'],
+  ['PUT', '/api/v1/agents/{id}/powers'],
 ];
 
 const ROUTE_PATTERNS = AI_SETUP_ROUTES.map(([method, path]) => ({
@@ -102,6 +105,39 @@ export const AI_SETUP_KEY_SCOPES: readonly PermissionKey[] = [
   'webhooks.manage',
 ];
 
+/**
+ * Powers a key made in a session never carries on the AI's word (deep
+ * security review of 2.0.50, finding 8): money, people and access, settings,
+ * acting for someone or deciding for them, messaging people unasked, keys,
+ * webhooks and stored credentials. The key is made without them and each
+ * waits as one Allow on the setup screen for the Owner who started the
+ * session. Every other power a session gives a key must be in the agent's
+ * template (splitSetupScopes).
+ */
+export const AI_SETUP_CONFIRM_SCOPES: readonly PermissionKey[] = [
+  'billing.manage', 'invoices.manage', 'invoices.record_payments', 'payouts.manage', 'compensation.manage',
+  'team.manage', 'groups.manage', 'access.manage', 'project_members.manage',
+  'settings.manage', 'smtp.manage',
+  'agents.act_for', 'approvals.decide', 'chat.notify',
+  'api_keys.manage_all', 'webhooks.manage', 'credentials.manage', 'credentials.reveal_shared',
+];
+
+/**
+ * What a session may put on a key for an agent: granted (in its template
+ * and not a confirm power), confirm (waits on the Owner's Allow) and refused
+ * (neither: not in the template, so the call is refused). Pure.
+ */
+export function splitSetupScopes(requested: readonly string[], templateScopes: readonly string[]): { granted: string[]; confirm: string[]; refused: string[] } {
+  const confirmSet = new Set<string>(AI_SETUP_CONFIRM_SCOPES);
+  const template = new Set(templateScopes);
+  const unique = [...new Set(requested)];
+  return {
+    granted: unique.filter((scope) => !confirmSet.has(scope) && template.has(scope)),
+    confirm: unique.filter((scope) => confirmSet.has(scope)),
+    refused: unique.filter((scope) => !confirmSet.has(scope) && !template.has(scope)),
+  };
+}
+
 /** Who may start a session: whoever may hire an agent (an Owner with team.manage), like the hire flow. */
 export function mayStartAiSetup(access: AccessContext | null | undefined): boolean {
   return !!access && access.status === 'active' && access.role === 'owner' && hasPermission(access, 'team.manage', 'api');
@@ -117,8 +153,8 @@ export function aiSetupKeyScopes(access: AccessContext | null | undefined): Perm
 export const AI_SETUP_ABILITIES: readonly string[] = [
   'Hire agents and set their names, roles, rules, owners and limits',
   'Add agents to projects, with instructions for each',
-  'Make keys for those agents, only with powers you hold yourself',
-  'Add webhooks that wake those agents for their own work',
+  "Make keys for those agents with their template's powers; money, people, settings and similar powers wait for your Allow here",
+  'Add webhooks that wake those agents for their own work; a new web address waits for your Allow',
   'Read your projects, team and agent templates to do it',
 ];
 
@@ -144,6 +180,36 @@ export interface AiSetupSessionView {
   active: boolean;
   /** The agents it made, newest first. */
   agents: AiSetupAgentView[];
+  /** Every key it made, newest first, revoked ones included (so the list says so). */
+  keys: AiSetupKeyView[];
+  /** What it asked for that waits on (or was settled by) your Allow, oldest first. */
+  confirms: AiSetupConfirmView[];
+}
+
+export interface AiSetupKeyView {
+  id: string;
+  name: string;
+  key_prefix: string;
+  agent_id: string | null;
+  agent_name: string | null;
+  scopes: string[];
+  created_at: string;
+  expires_at: string | null;
+  revoked_at: string | null;
+}
+
+export interface AiSetupConfirmView {
+  id: string;
+  kind: 'key_scopes' | 'webhook';
+  agent_id: string | null;
+  agent_name: string | null;
+  /** key_scopes: the key the powers would go on. */
+  key_name: string | null;
+  scopes: string[];
+  /** webhook: the address's host. */
+  host: string | null;
+  status: 'pending' | 'allowed' | 'declined';
+  created_at: string;
 }
 
 export interface AiSetupAgentView {

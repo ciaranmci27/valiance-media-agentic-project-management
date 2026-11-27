@@ -15,6 +15,10 @@ import { updateApiKeySchema, type UpdateApiKey } from '@/lib/schemas/api-keys';
  * (422 scope_never_for_agents). A revoked or ended key is 409. Audited with
  * the key before and after. Answers the key with its state.
  *
+ * A key that is not an Owner's never touches an Owner's key or the key of
+ * an agent an Owner manages (403 owner_key_protected; revoke-unused leaves
+ * them out); its own keys and the keys it made stay its to manage.
+ *
  * Permission: api_keys.manage_all.
  */
 export const PATCH = withApi<UpdateApiKey, { id: string }>(async ({ supabase, params, body, access, scopes, apiKeyId, teamMemberId }) => {

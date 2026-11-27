@@ -9,7 +9,7 @@
  *   npm run -s test:developers-settings
  */
 import {
-  agentKeyRow, deliveryDetailLine, endpointHealth, eventSummary, firstWebhookProblem, groupApiKeys, groupEventsFor, keyEnded, keyExpiry, keyPauseAction, keyScopeGroups,
+  agentKeyLifetimeSettingOptions, agentKeyRow, deliveryDetailLine, endpointHealth, eventSummary, firstWebhookProblem, groupApiKeys, groupEventsFor, keyEnded, keyExpiry, keyPauseAction, keyScopeGroups,
   parseAgentEventTypes, replacedKeyIds, rotateOverlapOptions, rotatedKeyExpiryLine, rotationLifetimeNote, webhookEventGroups, webhookFields,
   webhookSaveError, webhooksSectionState, webhookStepProblem, ENDPOINT_HEALTH_DELIVERIES, ROTATE_OVERLAP_DEFAULT_HOURS,
   WEBHOOK_EVENT_GROUPS, WEBHOOK_EVENT_LABELS, type WebhookDraft,
@@ -329,6 +329,13 @@ const draft = (fields: Partial<WebhookDraft> = {}): WebhookDraft => ({
   check('part of a group says how much', eventSummary(['task.created', 'task.updated']).join() === 'Work: 2 of 13');
   check('groups read in order', eventSummary(['invoice.paid', 'run.started', 'run.updated', 'run.finished', 'agent.offline', 'agent.online', 'agent.paused', 'agent.resumed', 'budget.exceeded']).join('|') === 'Agents|Invoices: 1 of 5');
   check('an unknown event still shows by name', eventSummary(['task.created', 'custom.thing']).join('|') === 'Work: 1 of 13|custom.thing');
+}
+
+{
+  const unset = agentKeyLifetimeSettingOptions(null);
+  check('agent key lifetime: nothing set reads as the 90-day default, never "No expiry"', unset[0].label === '90 days (default)' && !unset.some((o) => /no expiry/i.test(o.label)), unset);
+  check('agent key lifetime: 90 days is not offered twice', unset.filter((o) => o.label.startsWith('90 days')).length === 1, unset);
+  check('agent key lifetime: a saved odd lifetime stays choosable', agentKeyLifetimeSettingOptions(45).some((o) => o.value === '45'));
 }
 
 if (failures.length) {

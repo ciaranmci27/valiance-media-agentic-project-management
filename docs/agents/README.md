@@ -104,5 +104,6 @@ New inboxes run triage plans (`triage_mode` defaults to `plans`); existing inbox
 | [Assistants](assistants.md) | For admins: a personal assistant for every person, Slack and Telegram, privacy, troubleshooting |
 | [External agents](external-agents.md) | An agent that works in another system (a bookkeeper in an accounting app): check before each turn, runs and usage for outside work, approvals with external links, health |
 | [Company chat](company-chat.md) | Company agents in Slack and Telegram channels: connecting, mentions, listening, threads, `chat.message`, replying for the person who asked |
+| [Security model](../operating/security-model.md) | What the app guarantees (budgets on writes, who an agent may ask to approve, act-for proof, safe defaults at hire, AI setup limits), what to set up once, and the known limits: prompt injection, links, provider spend, approvals as a record |
 
 Also: [WEBHOOKS.md](../../WEBHOOKS.md) for every payload, and `/api/docs` on your install for every endpoint.

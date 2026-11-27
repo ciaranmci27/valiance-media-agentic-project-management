@@ -135,7 +135,7 @@ A shared agent (a team bot in Slack, a support agent) can act for the person who
 
 1. The agent's key and the agent both hold `agents.act_for`.
 2. Resolve the person's verified account (above).
-3. Mint a pass: `POST /api/v1/delegations` with `provider`, `external_id` and `workspace_id`. The answer has `id`, `token` and `expires_at`.
+3. Mint a pass: `POST /api/v1/delegations` with `provider`, `external_id` and `workspace_id`. The answer has `id`, `token` and `expires_at`. It works only when a chat message from that account reached this agent in the last 30 minutes (`403 act_for_no_recent_message` otherwise): proof the person is asking now. The person can also allow it from the app while signed in.
 4. Send the token as the `X-Act-For` header, with the agent's own key, on each call made for them. It works on REST and on the MCP connection.
 
 While the header is present:

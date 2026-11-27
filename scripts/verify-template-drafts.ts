@@ -472,9 +472,12 @@ async function main() {
       && !run2.snapshot.items.some((i: Loose) => i.key === 'late') && await count("SELECT count(*)::int AS n FROM pm.tasks WHERE title = 'Partner email'") === 1, run2);
 
     // An agent named in the approval cannot approve; nor a personal agent for its person.
+    // (Atlas may name Rex as its approver only while Rex is its orchestrator: security review finding 4.)
+    await s.q('UPDATE pm.team_members SET orchestrator_id = $1 WHERE id = $2', [s.rex, s.atlas]);
     const draft3 = (await v1(v1Draft.POST, 'POST', `/api/v1/task-templates/${T}/drafts`, { id: T }, s.keys.atlas, {
       ...draftInput, idempotency_key: 'nova-draft-3', values: { product: 'Lyra' }, asked_to: s.rex,
     })).body?.data;
+    await s.q('UPDATE pm.team_members SET orchestrator_id = NULL WHERE id = $1', [s.atlas]);
     const rexApproves = await v1(v1Approve.POST, 'POST', `/api/v1/task-templates/drafts/${draft3?.id}/approve`, { draftId: draft3?.id }, s.keys.rex, {});
     check('approve: an agent never approves a draft, even one its approval names (403 draft_needs_person)', draft3?.status === 'pending' && rexApproves.status === 403
       && reason(rexApproves) === 'draft_needs_person' && (await s.q<Loose>('SELECT status FROM pm.task_template_run_drafts WHERE id = $1', [draft3?.id]))[0].status === 'pending', rexApproves.body);

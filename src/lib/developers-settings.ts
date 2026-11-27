@@ -1,6 +1,7 @@
 import { API_ENDPOINT_PERMISSIONS, PERMISSION_GROUPS, type PermissionKey } from '@/lib/access-control';
 import { SENSITIVE_SCOPES, type ScopeGroup } from '@/lib/agents-ui';
 import { isAiSetupKey } from '@/lib/ai-setup';
+import { NEW_AGENT_KEY_DAYS } from '@/lib/agent-defaults';
 import { webhookUrlError } from '@/lib/webhooks/endpoint-input';
 import {
   INVOICE_WEBHOOK_EVENT_TYPES,
@@ -116,11 +117,13 @@ export interface KeyExpiry {
 }
 
 const HOUR = 3_600_000;
+const DAY = 24 * HOUR;
 
 /**
  * When a key stops working, in plain words: "No expiry", "Expires Mar 3"
- * (from formatDate), "Ends in 5 hours" inside two days (a rotated key's
- * overlap), "Expired".
+ * (from formatDate), "Ends in 9 days. Replace it to keep it working" inside
+ * two weeks (new agent keys end after 90 days), "Ends in 5 hours" inside two
+ * days (a rotated key's overlap), "Expired".
  */
 export function keyExpiry(expiresAt: string | null | undefined, now: Date = new Date(), formatDate: (iso: string) => string = (iso) => iso.slice(0, 10)): KeyExpiry {
   if (!expiresAt) return { label: 'No expiry', tone: 'muted' };
@@ -133,6 +136,11 @@ export function keyExpiry(expiresAt: string | null | undefined, now: Date = new 
   if (left < 48 * HOUR) {
     const hours = Math.round(left / HOUR);
     return { label: `Ends in ${hours} ${hours === 1 ? 'hour' : 'hours'}`, tone: 'warning' };
+  }
+  // Two weeks out, say how soon, so a key is replaced before it stops working.
+  if (left < 14 * DAY) {
+    const days = Math.round(left / DAY);
+    return { label: `Ends in ${days} days. Replace it to keep it working`, tone: 'warning' };
   }
   return { label: `Expires ${formatDate(expiresAt)}`, tone: 'muted' };
 }
@@ -217,6 +225,17 @@ export function keyLifetimeChoices(
 export function keyLifetimeSettingOptions(current: number | null): { value: string; label: string }[] {
   const days = [...new Set([...KEY_LIFETIME_DAYS, ...(current === null ? [] : [current])])].sort((a, b) => a - b);
   return [...days.map((d) => ({ value: String(d), label: lifetimeLabel(d) })), { value: NO_KEY_EXPIRY, label: 'No expiry' }];
+}
+
+/**
+ * Settings > Developers, Key lifetimes, AI agent keys. Nothing set means a
+ * company agent's key ends after NEW_AGENT_KEY_DAYS (key-lifetime.ts), so
+ * that choice says so instead of "No expiry"; a key that never ends is
+ * picked per key by an Owner.
+ */
+export function agentKeyLifetimeSettingOptions(current: number | null): { value: string; label: string }[] {
+  const days = [...new Set([...KEY_LIFETIME_DAYS, ...(current === null ? [] : [current])])].filter((d) => d !== NEW_AGENT_KEY_DAYS || d === current).sort((a, b) => a - b);
+  return [{ value: NO_KEY_EXPIRY, label: `${lifetimeLabel(NEW_AGENT_KEY_DAYS)} (default)` }, ...days.map((d) => ({ value: String(d), label: lifetimeLabel(d) }))];
 }
 
 /** A lifetime as a choice: its days, or 'none' for no expiry. */

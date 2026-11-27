@@ -35,6 +35,62 @@ import { readPage } from './pagination';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/** The key calling over the API, as the Owner-key rule needs it. */
+export interface KeyCaller {
+  memberId: string;
+  access: AccessContext;
+  apiKeyId: string | null;
+}
+
+/**
+ * The keys among these that a non-Owner's key may not touch (deep security
+ * review of 2.0.50, finding 11): an Owner's own key, and the key of an
+ * Owner's agent (an agent with an active Owner among its owners, or an
+ * Owner's personal assistant). An Owner's key touches any key; any key may
+ * manage itself, its own member's keys and the keys it made.
+ */
+export async function ownerProtectedKeys(service: SupabaseClient, caller: KeyCaller, keyIds: string[]): Promise<Set<string>> {
+  const out = new Set<string>();
+  if (caller.access.role === 'owner' || keyIds.length === 0) return out;
+  const { data, error } = await service.from('api_keys').select('id, team_member_id, created_by_key_id').in('id', keyIds);
+  if (error) throw error;
+  const keys = ((data ?? []) as { id: string; team_member_id: string | null; created_by_key_id: string | null }[])
+    .filter((key) => key.id !== caller.apiKeyId && key.team_member_id !== caller.memberId && !(caller.apiKeyId && key.created_by_key_id === caller.apiKeyId));
+  const memberIds = [...new Set(keys.map((key) => key.team_member_id).filter((id): id is string => !!id))];
+  if (memberIds.length === 0) return out;
+  const { data: members, error: membersError } = await service.from('team_members').select('id, role, delegate_of').in('id', memberIds);
+  if (membersError) throw membersError;
+  const rows = (members ?? []) as { id: string; role: string; delegate_of?: string | null }[];
+  const agentIds = rows.filter((row) => row.role === 'agent').map((row) => row.id);
+  const people = new Set<string>(rows.filter((row) => row.role === 'agent' && row.delegate_of).map((row) => row.delegate_of as string));
+  const { data: owners, error: ownersError } = agentIds.length
+    ? await service.from('agent_owners').select('agent_id, member_id').in('agent_id', agentIds)
+    : { data: [], error: null };
+  if (ownersError) throw ownersError;
+  for (const row of (owners ?? []) as { member_id: string }[]) people.add(row.member_id);
+  const { data: workspaceOwners, error: workspaceError } = people.size
+    ? await service.from('team_members').select('id').in('id', [...people]).eq('role', 'owner').eq('status', 'active')
+    : { data: [], error: null };
+  if (workspaceError) throw workspaceError;
+  const ownerIds = new Set(((workspaceOwners ?? []) as { id: string }[]).map((row) => row.id));
+  const ownedAgents = new Set<string>([
+    ...((owners ?? []) as { agent_id: string; member_id: string }[]).filter((row) => ownerIds.has(row.member_id)).map((row) => row.agent_id),
+    ...rows.filter((row) => row.role === 'agent' && row.delegate_of && ownerIds.has(row.delegate_of)).map((row) => row.id),
+  ]);
+  const protectedMembers = new Set<string>([...rows.filter((row) => row.role === 'owner').map((row) => row.id), ...ownedAgents]);
+  for (const key of keys) if (key.team_member_id && protectedMembers.has(key.team_member_id)) out.add(key.id);
+  return out;
+}
+
+/** 403 owner_key_protected when a non-Owner's key reaches for an Owner's key or an Owner's agent's key. */
+export async function assertNotOwnerProtected(service: SupabaseClient, caller: KeyCaller, keyId: string): Promise<void> {
+  if (!(await ownerProtectedKeys(service, caller, [keyId])).has(keyId)) return;
+  throw new ApiError(403, 'FORBIDDEN', "Only an Owner's key changes an Owner's key or the key of an agent an Owner manages", {
+    reason: 'owner_key_protected',
+    hint: 'Ask an Owner to do it in Settings > Developers or on the agent\'s Access, or use an Owner\'s key.',
+  });
+}
+
 /** The pause columns, read beside API_KEY_COLUMNS where a key's state matters. */
 export const KEY_PAUSE_COLUMNS = 'paused_at, paused_by';
 
@@ -262,6 +318,8 @@ export async function setKeyPaused(
   const before = await read();
   if (!before || before.permissions === 'connection') throw notFound('API key');
   if (actor.checkManage && !mayManageKey(before, actor.memberId, actor.access)) throw notFound('API key');
+  // Over the API: an Owner's key, or an Owner's agent's key, is an Owner's key to pause or resume.
+  if (!actor.checkManage) await assertNotOwnerProtected(service, actor, keyId);
 
   const ended = (key: ApiKey) => {
     const state = apiKeyState(key);

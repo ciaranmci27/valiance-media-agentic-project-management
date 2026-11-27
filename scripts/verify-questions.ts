@@ -382,6 +382,8 @@ async function main() {
     const onTaskToHelper = await ask(s.keys.builder, { task_id: checkout, question: 'Ship the checkout fix today?', asked_to: s.helper, choices: ['Yes', 'No'] });
     const helperOnTask = await answer(onTaskToHelper.body.data?.id, s.keys.helperAskOnly, { choice: 'Yes' });
     check('a questions.ask-only key still cannot answer a question on a task it cannot read (404, never wider)', helperOnTask.status === 404, helperOnTask);
+    // Morgan manages Builder, so Builder may ask Morgan to approve (security review finding 4).
+    await s.q('INSERT INTO pm.agent_owners (agent_id, member_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [s.builder, s.morgan]);
     const approval = await call(approvalsRoute.POST, 'POST', '/api/v1/approvals', {}, s.keys.builder, {
       question: 'Merge the pricing PR?', asked_to: s.morgan, action: { type: 'merge', summary: 'Merge PR #40' },
     });

@@ -11,6 +11,7 @@ import { accessAllows, accessAllowsProject } from './access';
 import { afterResponse } from './after-response';
 import { currentConnection } from './request-context';
 import { escalationRecipient } from './agent-rules';
+import { assertAgentMayAsk } from './approver-reach';
 import { activeGroupMembers, groupNames, groupsMigrationPending, liveGroup, missingGroupsSchema } from './groups';
 import { ApiError, badRequest, forbidden, notFound } from './errors';
 import {
@@ -764,6 +765,9 @@ async function createQuestion(ctx: QuestionsContext, input: AskQuestionInput, ki
     throw invalid('expires_at must be in the future', { reason: 'expires_in_past' });
   }
   const performs = await performsOf(ctx, input, kind, action);
+  // An agent's approval (or a question whose answer acts) goes only to those
+  // who may answer for it; no agent's question goes to a guest.
+  if (ctx.access.role === 'agent') await assertAgentMayAsk(ctx.db, ctx.memberId, addressee, place.project_id, kind === 'approval' || !!performs);
   const routed = kind === 'question' && !performs ? await orchestratorFirst(ctx, addressee) : null;
   if (routed) addressee = routed.to;
   if (performs) {

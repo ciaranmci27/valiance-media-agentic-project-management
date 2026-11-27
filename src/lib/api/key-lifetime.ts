@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { NEW_AGENT_KEY_DAYS } from '@/lib/agent-defaults';
 
 /**
  * How long a new key lasts. An agent's: the workspace's agent key lifetime
@@ -6,11 +7,40 @@ import type { SupabaseClient } from '@supabase/supabase-js';
  * what they choose when they make it (expires_in_days), else the workspace's
  * personal key lifetime (business_settings.personal_key_lifetime_days, also
  * an Owner's). For anyone but an Owner, a lifetime that is set is also the
- * longest a new key may last. Null means until revoked, the default for
- * both, so nothing changes until an Owner sets one. Keys made before keep theirs.
+ * longest a new key may last. A company agent's new key with no workspace
+ * lifetime set ends after NEW_AGENT_KEY_DAYS (src/lib/agent-defaults.ts);
+ * an Owner may still make one that lasts until revoked (expires_in_days
+ * null). A person's and a personal assistant's: null means until revoked,
+ * so nothing changes for them until an Owner sets a lifetime. Keys made
+ * before keep theirs.
  */
 
 export const KEY_LIFETIME_MAX_DAYS = 3650;
+
+/**
+ * The lifetime a new key for this member gets when nothing is chosen: the
+ * workspace's agent key lifetime for an agent, else NEW_AGENT_KEY_DAYS for a
+ * company agent (a personal assistant's key, collected by its host, keeps
+ * no default); for a person, the personal key lifetime.
+ */
+async function defaultLifetime(service: SupabaseClient, member: { role?: string; delegate_of?: string | null } | null): Promise<number | null> {
+  if (member?.role !== 'agent') return personalKeyLifetimeDays(service);
+  const workspace = await agentKeyLifetimeDays(service);
+  if (workspace !== null) return workspace;
+  return member.delegate_of ? null : NEW_AGENT_KEY_DAYS;
+}
+
+/** The member a key is for: its role and, for an agent, whether it is someone's personal assistant. */
+async function keyMember(service: SupabaseClient, memberId: string): Promise<{ role?: string; delegate_of?: string | null } | null> {
+  const { data, error } = await service.from('team_members').select('role, delegate_of').eq('id', memberId).maybeSingle();
+  if (error && (error.code === '42703' || error.code === 'PGRST204')) {
+    const { data: older, error: olderError } = await service.from('team_members').select('role').eq('id', memberId).maybeSingle();
+    if (olderError) throw olderError;
+    return older as { role?: string } | null;
+  }
+  if (error) throw error;
+  return data as { role?: string; delegate_of?: string | null } | null;
+}
 
 const missingColumn = (error: { code?: string; message?: string } | null) =>
   !!error && (error.code === '42703' || error.code === 'PGRST204' || /agent_key_lifetime_days/.test(error.message ?? ''));
@@ -26,15 +56,12 @@ export async function agentKeyLifetimeDays(service: SupabaseClient): Promise<num
   return typeof days === 'number' && days > 0 ? days : null;
 }
 
-/** When a key made now for this member ends: the lifetime for an agent, null for a person. */
+/** When a key made now for this member ends: the default lifetime for an agent (defaultLifetime), null for a person. */
 export async function agentKeyExpiry(service: SupabaseClient, memberId: string, now = new Date()): Promise<string | null> {
-  const [{ data: member, error }, days] = await Promise.all([
-    service.from('team_members').select('role').eq('id', memberId).maybeSingle(),
-    agentKeyLifetimeDays(service),
-  ]);
-  if (error) throw error;
-  if ((member as { role?: string } | null)?.role !== 'agent' || days === null) return null;
-  return new Date(now.getTime() + days * 86_400_000).toISOString();
+  const member = await keyMember(service, memberId);
+  if (member?.role !== 'agent') return null;
+  const days = await defaultLifetime(service, member);
+  return days === null ? null : new Date(now.getTime() + days * 86_400_000).toISOString();
 }
 
 /** Sets the lifetime (null: until revoked) on the workspace's one settings row. */
@@ -72,7 +99,8 @@ export async function setPersonalKeyLifetimeDays(service: SupabaseClient, days: 
  * When a key made now for this member ends. The lifetime that applies is the
  * workspace's agent key lifetime for an agent's key, its personal key
  * lifetime for a person's. expiresInDays: what the request chose (days, or
- * null for no expiry); left out, that lifetime. An Owner's choice stands;
+ * null for no expiry); left out, that lifetime (for a company agent with
+ * none set, NEW_AGENT_KEY_DAYS). An Owner's choice stands;
  * for anyone else the lifetime, when set, is also the most they may choose:
  * no expiry, or a longer one, ends at the lifetime instead.
  */
@@ -83,10 +111,10 @@ export async function newKeyExpiry(
   granter: { role: string },
   now = new Date(),
 ): Promise<string | null> {
-  const { data: member, error } = await service.from('team_members').select('role').eq('id', memberId).maybeSingle();
-  if (error) throw error;
-  const lifetime = (member as { role?: string } | null)?.role === 'agent' ? await agentKeyLifetimeDays(service) : await personalKeyLifetimeDays(service);
-  const days = expiresInDays === undefined ? lifetime : capKeyLifetime(expiresInDays, lifetime, granter.role);
+  const member = await keyMember(service, memberId);
+  const days = expiresInDays === undefined
+    ? await defaultLifetime(service, member)
+    : capKeyLifetime(expiresInDays, member?.role === 'agent' ? await agentKeyLifetimeDays(service) : await personalKeyLifetimeDays(service), granter.role);
   return days === null ? null : new Date(now.getTime() + days * 86_400_000).toISOString();
 }
 
@@ -102,7 +130,8 @@ export function capKeyLifetime(chosen: number | null, lifetime: number | null, g
 
 /**
  * How long a rotated key's successor lasts, in days (null: until revoked).
- * An agent's: the workspace's agent key lifetime, as for any new agent key.
+ * An agent's: the default lifetime of any new agent key (the workspace's
+ * agent key lifetime, else NEW_AGENT_KEY_DAYS for a company agent).
  * A person's: as long as the old key was made to last (created to expiry),
  * held to the workspace's personal key lifetime for anyone but an Owner, so
  * a rotation never turns a capped key into one that never ends.
@@ -129,13 +158,12 @@ export async function rotatedKeyExpiry(
   granter: { role: string },
   now = new Date(),
 ): Promise<string | null> {
-  const { data: member, error } = await service.from('team_members').select('role').eq('id', old.team_member_id).maybeSingle();
-  if (error) throw error;
-  const agent = (member as { role?: string } | null)?.role === 'agent';
+  const member = await keyMember(service, old.team_member_id);
+  const agent = member?.role === 'agent';
   const days = rotatedKeyLifetimeDays({
     agent,
     old,
-    agentLifetimeDays: agent ? await agentKeyLifetimeDays(service) : null,
+    agentLifetimeDays: agent ? await defaultLifetime(service, member) : null,
     personalLifetimeDays: agent ? null : await personalKeyLifetimeDays(service),
     granterRole: granter.role,
   });

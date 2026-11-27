@@ -6,6 +6,16 @@ import { missingAssistantSchema, readAssistantSettings } from '@/lib/api/assista
 import { connectionKind, CONNECTION_COLUMNS, openCredentials, storeCredentials } from './connections';
 import { chatAdapter, ChatProviderError, type ChatAdapter } from './providers';
 import type { ChatConnectionKind, ChatSendInput } from './types';
+import { ACT_FOR_PROOF_MINUTES } from '@/lib/delegation';
+
+/** Whether this member wrote to this agent in chat in the last ACT_FOR_PROOF_MINUTES. */
+async function memberWroteLately(service: SupabaseClient, agentId: string, memberId: string): Promise<boolean> {
+  const since = new Date(Date.now() - ACT_FOR_PROOF_MINUTES * 60_000).toISOString();
+  const { data, error } = await service.from('chat_messages').select('id')
+    .eq('direction', 'inbound').eq('agent_id', agentId).eq('member_id', memberId).gte('created_at', since).limit(1);
+  if (error) throw error;
+  return (data ?? []).length > 0;
+}
 
 /**
  * An agent starts a chat conversation (POST /api/v1/chat/messages, MCP
@@ -24,9 +34,11 @@ import type { ChatConnectionKind, ChatSendInput } from './types';
  *     the default answers DMs, it does not post anywhere it likes. Map the
  *     channel to it.
  *   - A DM: only to an active member with a verified linked account on that
- *     connection, and only while acting for that member (X-Act-For naming
- *     them), or, unprompted, with chat.notify on both the agent and its key.
- *     No role holds chat.notify by default.
+ *     connection, and only when that member wrote to this agent in chat in
+ *     the last ACT_FOR_PROOF_MINUTES, or, unprompted, with chat.notify on
+ *     both the agent and its key. Acting for them (X-Act-For) never stands
+ *     in for either, and a pass for someone else is refused. No role holds
+ *     chat.notify by default.
  * - Rate limits, per connection: CHAT_SEND_AGENT_LIMIT messages an hour per
  *   agent, CHAT_SEND_RECIPIENT_LIMIT an hour per recipient (a person or a
  *   channel, whichever agents send). 429 chat_rate_limited past either.
@@ -170,9 +182,10 @@ async function companyTarget(service: SupabaseClient, caller: ChatSendCaller, in
   if (caller.principalId && caller.principalId !== personId) {
     throw notAllowed('X-Act-For names someone other than the person you are messaging', 'act_for_mismatch');
   }
-  if (!caller.principalId && !apiKeyAllows(caller.access, caller.scopes, 'chat.notify')) {
-    throw notAllowed('Message a person in chat while acting for them (X-Act-For naming them), or hold chat.notify to message them unasked', 'chat_notify_required',
-      'Mint a pass for them (POST /api/v1/delegations) when they asked you for this. For unprompted alerts an Owner grants chat.notify to you and to this key.');
+  // A DM to someone who did not just write to you needs chat.notify, acting for them or not.
+  if (!apiKeyAllows(caller.access, caller.scopes, 'chat.notify') && !(await memberWroteLately(service, caller.memberId, personId))) {
+    throw notAllowed(`Message a person in chat only when they wrote to you in the last ${ACT_FOR_PROOF_MINUTES} minutes, or hold chat.notify to message them unasked`, 'chat_notify_required',
+      'Reply to their message (POST /api/v1/chat/messages/{id}/reply) while it is fresh. For unprompted alerts an Owner grants chat.notify to you and to this key.');
   }
   const { data: person, error: personError } = await service.from('team_members').select('id, role, status').eq('id', personId).maybeSingle();
   if (personError) throw personError;

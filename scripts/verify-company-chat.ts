@@ -531,6 +531,10 @@ async function main() {
 
     const mint = async (key: string, externalId: string) => (await v1(v1Delegations.POST, 'POST', '/api/v1/delegations', {}, key, { provider: 'slack', external_id: externalId, workspace_id: 'T1' })).body?.data?.token as string;
     const anaPass = await mint(s.keys.finance, financeRead.body?.data?.act_for?.body?.external_id);
+    // Ben wrote to the bot too (a pass needs a fresh message from that account: security review finding 6).
+    await s.q(`INSERT INTO pm.chat_messages (connection_id, direction, status, conversation_id, external_user_id, identity_id, member_id, agent_id, text)
+      SELECT m.connection_id, 'inbound', 'handled', 'D_BEN', i.external_id, i.id, i.member_id, $1, 'hi'
+      FROM pm.member_identities i, (SELECT connection_id FROM pm.chat_messages WHERE agent_id = $1 LIMIT 1) m WHERE i.external_id = 'U_BEN'`, [s.finance]);
     const benPass = await mint(s.keys.finance, 'U_BEN');
     const ledgerAlone = await v1(v1Project.GET, 'GET', `/api/v1/projects/${s.secret}`, { id: s.secret }, s.keys.finance);
     const ledgerForAna = await v1(v1Project.GET, 'GET', `/api/v1/projects/${s.secret}`, { id: s.secret }, s.keys.finance, undefined, anaPass);

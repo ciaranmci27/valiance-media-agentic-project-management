@@ -13,6 +13,10 @@ import { revokeUnusedKeys, revokeUnusedSchema, type RevokeUnused } from '@/lib/a
  * revoke is final, takes the keys it made with it, and is audited.
  * Answers { dry_run, days, keys, revoked_ids, skipped_ids }.
  *
+ * A key that is not an Owner's never touches an Owner's key or the key of
+ * an agent an Owner manages (403 owner_key_protected; revoke-unused leaves
+ * them out); its own keys and the keys it made stay its to manage.
+ *
  * Permission: api_keys.manage_all.
  */
 export const POST = withApi<RevokeUnused>(async ({ supabase, body, access, apiKeyId, teamMemberId }) => {

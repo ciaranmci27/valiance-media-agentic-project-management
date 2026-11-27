@@ -2,7 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { z } from 'zod';
 import { hasPermission, type AccessContext } from '@/lib/access-control';
 import { UNUSED_KEY_DAYS, unusedKeys, unusedReason, type HygieneKey } from '@/lib/agent-access-ui';
-import { listVisibleKeys, mayManageKey } from './key-manage';
+import { listVisibleKeys, mayManageKey, ownerProtectedKeys } from './key-manage';
 import { keyTreeOf, missingLineage, revokeKeyTree, type LineageKey } from './key-revoke';
 import { readAll } from './read-all';
 
@@ -111,7 +111,9 @@ async function findUnused(service: SupabaseClient, actor: HygieneActor, now: num
   const { keys } = await listVisibleKeys(service, { memberId: actor.memberId, access: actor.access }, null, now);
   const manageable = keys.filter((key) => key.id !== actor.apiKeyId
     && (hasPermission(actor.access, 'api_keys.manage_all', 'app') || mayManageKey(key, actor.memberId, actor.access)));
-  const unused = unusedKeys(manageable, now, UNUSED_KEY_DAYS).slice(0, REVOKE_UNUSED_MAX);
+  // Over the API, a key that is not an Owner's leaves Owners' keys and their agents' keys alone.
+  const guarded = actor.apiKeyId ? await ownerProtectedKeys(service, actor, manageable.map((key) => key.id)) : new Set<string>();
+  const unused = unusedKeys(manageable.filter((key) => !guarded.has(key.id)), now, UNUSED_KEY_DAYS).slice(0, REVOKE_UNUSED_MAX);
   const lineage = unused.length ? await readLineage(service) : null;
   const trees = new Map(unused.map((key) => [key.id, lineage ? keyTreeOf(lineage, key.id) as LineageRow[] : []]));
   const memberIds = new Set<string>();

@@ -28,6 +28,7 @@ import {
   type Granter,
 } from './agent-setup';
 import { ApiError, forbidden } from './errors';
+import { capSetupScopes, recordSetupConfirm, unrecordedConfirm } from './ai-setup-guard';
 import { addOwners, canChangeOwners, checkOwnerIds } from './agent-owners';
 import { checkWebhookFields, insertServerWebhookEndpoint, listWebhookEndpoints, publicEndpoint, type PublicWebhookEndpoint } from './webhook-endpoints';
 
@@ -126,7 +127,9 @@ export async function applyAgentTemplate(
     throw forbidden('Making a key needs api_keys.manage_all', { reason: 'missing_key_scope', needs: 'api_keys.manage_all' });
   }
   // Checked before the rules change, so a refused key changes nothing.
-  const granted = input.create_key ? await checkKeyGrant(service, granter, { memberId: target.id, scopes: template.scopes }) : null;
+  // In an AI setup session, a template's sensitive powers wait on the Owner (left off the key).
+  const cap = input.create_key ? await capSetupScopes(service, template.scopes, { templateKey: template.key }) : null;
+  const granted = cap && cap.granted.length ? await checkKeyGrant(service, granter, { memberId: target.id, scopes: cap.granted }) : null;
 
   const columns = await agentRulesColumns(service, { id: target.id, role: target.role }, template.rules);
   const { data: member, error } = await service.from('team_members').update(columns).eq('id', target.id).select().single();
@@ -175,6 +178,11 @@ export async function applyAgentTemplate(
           : 'Send create_key: true, or make one with create_api_key and these scopes.',
       },
     webhook_events: template.webhook_events ?? [],
+    ...(cap?.confirm.length ? {
+      needs_owner_confirm: made
+        ? (await recordSetupConfirm(service, { kind: 'key_scopes', agentId: target.id, apiKeyId: made.key.id, scopes: cap.confirm })) ?? unrecordedConfirm(cap.confirm)
+        : unrecordedConfirm(cap.confirm),
+    } : {}),
   };
 }
 

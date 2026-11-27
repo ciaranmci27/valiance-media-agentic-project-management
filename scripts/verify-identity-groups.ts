@@ -475,7 +475,9 @@ async function main() {
     const myOnly = await v1(v1Questions.GET, 'GET', `/api/v1/questions?asked_to_group=${financeId}&status=all`, {}, s.keys.finn);
     check('group question: listed by asked_to_group', myOnly.status === 200 && myOnly.body.data.some((row: Loose) => row.id === qid), myOnly.body);
 
-    // Approvals to a group: decided by any person in it, never an agent in it.
+    // Approvals to a group: decided by any person in it, never an agent in it. An agent asks a group
+    // for an approval only when it may (here, the group manages Finn: security review finding 4).
+    await s.q('INSERT INTO pm.agent_owner_groups (agent_id, group_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [s.finn, financeId]);
     const approval = await v1(v1Approvals.POST, 'POST', '/api/v1/approvals', {}, s.keys.finn, { action: { type: 'refund', summary: 'Refund Acme $400' }, asked_to_group: financeId });
     const aid = approval.body?.data?.id as string;
     check('group approval: asked', approval.status === 201 && approval.body.data.kind === 'approval' && approval.body.data.asked_to_group === financeId, approval.body);
@@ -678,6 +680,12 @@ async function main() {
     check('mint: a suspended person is 403 principal_suspended, and resolves active false', suspendedMint.status === 403 && reason(suspendedMint) === 'principal_suspended'
       && suspendedResolve.status === 200 && suspendedResolve.body.data.member.active === false, [suspendedMint.body, suspendedResolve.body]);
     await s.q("UPDATE pm.team_members SET status = 'active' WHERE id = $1", [s.nina]);
+    // A pass needs proof Morgan is asking now: a chat message from that account to Finn in the last 30 minutes.
+    const cold = await v1(v1Delegations.POST, 'POST', '/api/v1/delegations', {}, s.keys.finn, morganSlack);
+    check('mint: a linked account that has not written to the agent lately is 403 act_for_no_recent_message', cold.status === 403 && reason(cold) === 'act_for_no_recent_message', cold.body);
+    const chatConnection = (await s.q<{ id: string }>("INSERT INTO pm.chat_connections (provider, display_name, credentials, kind) VALUES ('slack', 'Acme', 'pm1:x', 'company') RETURNING id"))[0].id;
+    await s.q(`INSERT INTO pm.chat_messages (connection_id, direction, status, conversation_id, external_user_id, identity_id, member_id, agent_id, text)
+      SELECT $1, 'inbound', 'pending', 'D1', i.external_id, i.id, i.member_id, $2, 'can you refund Acme?' FROM pm.member_identities i WHERE i.external_id = 'U0MORGAN'`, [chatConnection, s.finn]);
     const grant = await v1(v1Delegations.POST, 'POST', '/api/v1/delegations', {}, s.keys.finn, morganSlack);
     const actFor = grant.body?.data?.token as string;
     check('mint: a token for the verified person, bound to this agent, for about 15 minutes, never cached', grant.status === 201 && /^pd_[0-9a-f]{64}$/.test(actFor ?? '')
@@ -808,7 +816,10 @@ async function main() {
 
     // Admin unlink over v1 revokes the tokens minted for the account.
     const relink = await v1(v1Identities.POST, 'POST', '/api/v1/identities', {}, s.keys.owner, { identities: [{ member_id: s.morgan, provider: 'slack', external_id: 'U0MORGAN', workspace_id: 'T1' }] });
-    const fresh = await v1(v1Delegations.POST, 'POST', '/api/v1/delegations', {}, s.keys.finn, morganSlack);
+    // The relinked account writes to Finn again (the pass needs a fresh message from it).
+    await s.q(`INSERT INTO pm.chat_messages (connection_id, direction, status, conversation_id, external_user_id, identity_id, member_id, agent_id, text)
+      SELECT $1, 'inbound', 'pending', 'D1', i.external_id, i.id, i.member_id, $2, 'me again' FROM pm.member_identities i WHERE i.external_id = 'U0MORGAN'`, [chatConnection, s.finn]);
+    const fresh =await v1(v1Delegations.POST, 'POST', '/api/v1/delegations', {}, s.keys.finn, morganSlack);
     const freshOk = await v1(v1Project.GET, 'GET', `/api/v1/projects/${s.shared}`, { id: s.shared }, s.keys.finn, undefined, fresh.body?.data?.token);
     const relinkedId = relink.body?.data?.linked?.[0]?.id;
     const v1MoveRefused = await v1(v1IdentityMove.POST, 'POST', `/api/v1/identities/${relinkedId}/move`, { id: relinkedId }, s.keys.finn, { member_id: s.mia });

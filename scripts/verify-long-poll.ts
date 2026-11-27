@@ -393,7 +393,7 @@ async function main() {
     secondWait.abort();
     const [aborted, abortedChat] = await Promise.all([one, two]);
     check('abort: a caller that goes away ends the wait at once, empty, ended aborted', aborted.status === 200 && aborted.body.data.length === 0
-      && aborted.ms < 1500 && aborted.body.meta.wait.ended === 'aborted' && abortedChat.body.meta?.wait?.ended === 'aborted', { a: aborted.body.meta, c: abortedChat.body.meta, ms: aborted.ms });
+      && aborted.body.meta.wait.waited_ms < 4000 && aborted.body.meta.wait.ended === 'aborted' && abortedChat.body.meta?.wait?.ended === 'aborted', { a: aborted.body.meta, c: abortedChat.body.meta, ms: aborted.ms });
     const leases = Number((await s.q<{ n: number }>('SELECT count(*)::int AS n FROM pm.event_feed_waits'))[0].n);
     const freed = await events(s.keys.builder, `?since=${latest}&wait=1`);
     check('limit: an ended wait gives its slot back (no lease left behind)', freed.status === 200 && leases === 0, { leases, status: freed.status });

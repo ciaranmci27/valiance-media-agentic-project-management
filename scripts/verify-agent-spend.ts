@@ -72,7 +72,9 @@ function schemaWithoutSection(): string {
   return SCHEMA_SQL.slice(0, start) + tail;
 }
 
-const LATER_RUN_STATS = /\nCREATE OR REPLACE FUNCTION pm\.agent_run_stats\([\s\S]*?\nGRANT EXECUTE ON FUNCTION pm\.agent_run_stats\([^\n]*\n/g;
+// Later sections that replace a function this one makes or reads
+// (agent_run_stats, agent_spend_facts, agent_limit_state) are held back too.
+const LATER_RUN_STATS = /\nCREATE OR REPLACE FUNCTION pm\.(agent_run_stats|agent_spend_facts|agent_limit_state)\([\s\S]*?\nGRANT EXECUTE ON FUNCTION pm\.\1\([^\n]*\n/g;
 
 /** The later sections' replacements of pm.agent_run_stats that schemaWithoutSection held back. */
 function laterRunStats(): string {

@@ -144,7 +144,9 @@ export const MODULE_SURFACES: Record<ModuleId, ModuleSurface> = {
       // The company bot: the agents a company connection reaches, and channel mappings.
       'chat_connection_agents', 'chat_channel_routes',
       // Per-agent limits and the per-agent request windows.
-      'agent_limits', 'agent_rate_limit_windows',
+      'agent_limits', 'agent_rate_limit_windows', 'agent_write_windows',
+      // What an AI setup session asked for that waits on its Owner's yes.
+      'ai_setup_confirms',
       // A subtask an agent handed to another, and an Owner's own agent profiles and templates.
       'task_delegations', 'mcp_profile_rows', 'agent_template_rows',
       // The event feed a harness long-polls, its retention mark and its open waits.

@@ -147,7 +147,7 @@ Who it may reach:
 | Where | Rule |
 |---|---|
 | A channel | Only a channel mapped to the agent on a company connection that lists it. Being the default agent does not widen this: the default answers DMs, it does not post wherever it likes. Map the channel to it. Otherwise `403 channel_not_allowed`. |
-| A person's DM (`person_id`) | Only an active member with a verified linked account on that connection, and only while acting for them (`X-Act-For` naming them; `403 act_for_mismatch` for anyone else), or unasked with **Message people unasked** (`chat.notify`) on both the agent and its key (`403 chat_notify_required`). No role holds `chat.notify` by default: an Owner grants it to the agent under Team > Roles & permissions and adds it to the key. |
+| A person's DM (`person_id`) | Only an active member with a verified linked account on that connection, and only when they wrote to the agent in the last 30 minutes (a pass naming someone else is `403 act_for_mismatch`), or unasked with **Message people unasked** (`chat.notify`) on both the agent and its key (`403 chat_notify_required`). No role holds `chat.notify` by default: an Owner grants it to the agent under Team > Roles & permissions and adds it to the key. |
 
 - Each connection allows 60 started messages an hour per agent and 20 an hour per recipient, a person or a channel, whichever agents send (`429 chat_rate_limited`).
 - A paused or on-hold agent cannot send (`423`, like other writes).

@@ -1,5 +1,7 @@
 import { API_ENDPOINT_PERMISSIONS, PERMISSION_GROUPS, type PermissionKey } from '@/lib/access-control';
 import { DEFAULT_AGENT_RULES, type AgentRulesDraft } from '@/lib/agent-rules';
+import { NEW_AGENT_KEY_DAYS, NEW_AGENT_LIMITS } from '@/lib/agent-defaults';
+import type { AgentLimits } from '@/lib/agent-limits';
 import type { AgentMood } from '@/lib/agent-status';
 import { appLocale } from '@/lib/region/active';
 import {
@@ -97,6 +99,38 @@ export interface HireDraft {
   createKey: boolean;
   scopes: string[];
   rules: AgentRulesDraft;
+  /** Its limits, pre-filled with the safe defaults (and the template's own); '' is no limit. */
+  limits: HireLimitsDraft;
+  /** Days its key lasts; '' is until revoked. */
+  keyDays: number | '';
+}
+
+/** The limits a hire sets: three on the Access step, the template's others carried as they are. */
+export interface HireLimitsDraft {
+  budget_usd: number | '';
+  write_rate_per_minute: number | '';
+  send_rate_per_minute: number | '';
+  /** The template's other limits (runs at once, tokens, its period), sent unchanged. */
+  extra: Partial<AgentLimits>;
+}
+
+/** The safe defaults with a template's own limits laid over them (src/lib/agent-defaults.ts). */
+export function hireLimitsFor(template: Pick<AgentTemplateView, 'limits'> | null): HireLimitsDraft {
+  const merged: Partial<AgentLimits> = { ...NEW_AGENT_LIMITS, ...(template?.limits ?? {}) };
+  const { budget_usd, write_rate_per_minute, send_rate_per_minute, ...extra } = merged;
+  return { budget_usd: budget_usd ?? '', write_rate_per_minute: write_rate_per_minute ?? '', send_rate_per_minute: send_rate_per_minute ?? '', extra };
+}
+
+/** What the hire request sends as limits: every field, '' as null (no limit). */
+export function hireLimitsRequest(limits: HireLimitsDraft) {
+  const value = (v: number | '') => (v === '' ? null : v);
+  return {
+    ...limits.extra,
+    budget_usd: value(limits.budget_usd),
+    budget_period: limits.extra.budget_period ?? 'month',
+    write_rate_per_minute: value(limits.write_rate_per_minute),
+    send_rate_per_minute: value(limits.send_rate_per_minute),
+  };
 }
 
 /** The steps before the agent exists: Back and the stepper reach only these. */
@@ -125,6 +159,8 @@ export function emptyHireDraft(ownerId: string | null): HireDraft {
     createKey: true,
     scopes: [],
     rules: { ...BLANK_HIRE_RULES },
+    limits: hireLimitsFor(null),
+    keyDays: NEW_AGENT_KEY_DAYS,
   };
 }
 
@@ -157,6 +193,7 @@ export function applyTemplate(
     description: draft.description.trim() && draft.description !== was.description ? draft.description : next.description,
     role: typedRole && typedRole !== was.role ? draft.role : next.role,
     scopes: template ? template.scopes.filter((s) => allowed.has(s)) : [],
+    limits: hireLimitsFor(template),
     rules: {
       ...(template ? { ...DEFAULT_AGENT_RULES, ...template.rules } : BLANK_HIRE_RULES),
       agent_escalate_to: draft.rules.agent_escalate_to, agent_escalate_to_group: draft.rules.agent_escalate_to_group,
@@ -236,7 +273,9 @@ export function hireRequestFrom(draft: HireDraft, requestId?: string) {
       return [id, { settings: cleanSettings(entry?.settings ?? {}), instructions: entry?.instructions.trim() ?? '' }];
     })),
     create_key: draft.createKey,
-    ...(draft.createKey ? { scopes: draft.scopes, key_name: `${draft.name.trim()} key` } : {}),
+    ...(draft.createKey ? { scopes: draft.scopes, key_name: `${draft.name.trim()} key`, key_expires_in_days: draft.keyDays === '' ? null : draft.keyDays } : {}),
+    // The limits as left on the Access step (pre-filled with the safe defaults; a cleared one is no limit).
+    limits: hireLimitsRequest(draft.limits),
     // The rules as chosen on the Powers step (the template's are only where they start).
     rules: rulesRequestFrom(draft.rules),
   };
@@ -331,6 +370,7 @@ export function projectFromLink(fromProject: string | null, openProjectIds: read
 /** A template's limits as one line ("2 runs at once · $50 a month"), or null when it sets none. */
 export function limitsLine(limits: Partial<{
   max_concurrent_runs: number | null; rate_per_minute: number | null; budget_usd: number | null; budget_tokens: number | null; budget_period: string;
+  write_rate_per_minute: number | null; send_rate_per_minute: number | null;
 }> | null | undefined): string | null {
   if (!limits) return null;
   const period = limits.budget_period ? ` a ${limits.budget_period}` : '';
@@ -339,6 +379,8 @@ export function limitsLine(limits: Partial<{
     limits.rate_per_minute ? `${limits.rate_per_minute.toLocaleString('en-US')} requests a minute` : null,
     limits.budget_usd ? `$${limits.budget_usd.toLocaleString('en-US')}${period}` : null,
     limits.budget_tokens ? `${limits.budget_tokens.toLocaleString('en-US')} tokens${period}` : null,
+    limits.write_rate_per_minute ? `${limits.write_rate_per_minute.toLocaleString('en-US')} writes a minute` : null,
+    limits.send_rate_per_minute ? `${limits.send_rate_per_minute.toLocaleString('en-US')} messages a minute` : null,
   ].filter((p): p is string => !!p);
   return parts.length ? parts.join(' · ') : null;
 }

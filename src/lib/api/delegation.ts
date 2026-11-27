@@ -1,7 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { randomBytes } from 'node:crypto';
 import { intersectAccess, type AccessContext } from '@/lib/access-control';
-import { DELEGATION_TOKEN_PREFIX, DELEGATION_TTL_SECONDS, type DelegationGrant, type MintDelegationInput } from '@/lib/delegation';
+import { ACT_FOR_PROOF_MINUTES, DELEGATION_TOKEN_PREFIX, DELEGATION_TTL_SECONDS, type DelegationGrant, type MintDelegationInput } from '@/lib/delegation';
 import { accessAllows, resolveMemberAccess } from './access';
 import { requireAgentsEnabled } from './agents';
 import { afterResponse } from './after-response';
@@ -75,7 +75,23 @@ async function principalFor(service: SupabaseClient, memberId: string): Promise<
   return { id: row.id, name: row.name };
 }
 
-/** The agent's key mints a token for the verified identity of the person who asked it. */
+/**
+ * Whether a chat message from this linked account reached this agent in the
+ * last ACT_FOR_PROOF_MINUTES (pm.chat_messages, inbound, routed to it).
+ */
+export async function wroteLately(service: SupabaseClient, agentId: string, identityId: string): Promise<boolean> {
+  const since = new Date(Date.now() - ACT_FOR_PROOF_MINUTES * 60_000).toISOString();
+  const { data, error } = await service.from('chat_messages').select('id')
+    .eq('direction', 'inbound').eq('agent_id', agentId).eq('identity_id', identityId).gte('created_at', since).limit(1);
+  if (error) throw error;
+  return (data ?? []).length > 0;
+}
+
+/**
+ * The agent's key mints a token for the verified identity of the person who
+ * asked it, only when that account wrote to this agent in chat in the last
+ * ACT_FOR_PROOF_MINUTES (403 act_for_no_recent_message otherwise).
+ */
 export async function mintForIdentity(
   service: SupabaseClient,
   agent: { memberId: string; access: AccessContext; keyId: string },
@@ -96,6 +112,14 @@ export async function mintForIdentity(
   }
   if (identity.member_id === agent.memberId) throw forbidden('An agent cannot act for itself', { reason: 'principal_is_agent' });
   const principal = await principalFor(service, identity.member_id);
+  // Proof the person is asking now: a chat message from this account reached this agent lately.
+  if (!(await wroteLately(service, agent.memberId, identity.id as string))) {
+    throw forbidden(`This person has not written to you in chat in the last ${ACT_FOR_PROOF_MINUTES} minutes, so you cannot act for them`, {
+      reason: 'act_for_no_recent_message',
+      within_minutes: ACT_FOR_PROOF_MINUTES,
+      hint: 'Mint a pass right after their chat message reaches you (GET /api/v1/chat/messages), or they let you act for them from the app while signed in.',
+    });
+  }
   return insertToken(service, {
     agentId: agent.memberId, principal, identityId: identity.id, mintedVia: 'identity', createdBy: agent.memberId, createdByKeyId: agent.keyId,
   });

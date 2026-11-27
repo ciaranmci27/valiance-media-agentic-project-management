@@ -7,6 +7,7 @@ import { addOwners, checkOwnerIds, ownersOf } from '@/lib/api/agent-owners';
 import { agentFiltersFrom, listAgents } from '@/lib/api/agent-workspace';
 import { parsePagination } from '@/lib/api/pagination';
 import { logAudit } from '@/lib/api/audit';
+import { applyNewAgentLimits } from '@/lib/api/agent-limits';
 
 /**
  * Adds an agent to the team, the way the Team page invites one: a login with
@@ -15,7 +16,9 @@ import { logAudit } from '@/lib/api/audit';
  * Owner adds an agent. Over the API no sign-in link is made: the agent works
  * through keys (POST /api/v1/api-keys). The Owner adding it becomes its
  * owner, with any owner_ids named (people, never agents). Answers with the
- * member and its owners.
+ * member, its owners and its limits: a new agent starts with the safe
+ * defaults (writes and messages a minute, no spend budget; see
+ * src/lib/agent-defaults.ts), which an Owner changes with update_agent.
  *
  * Permission: team.manage, with the AI agents module on.
  */
@@ -26,7 +29,8 @@ export const POST = withApi<CreateAgent>(async ({ supabase, body, access, apiKey
   const owners = await checkOwnerIds(supabase, null, [...(access.role === 'agent' ? [] : [teamMemberId]), ...(ownerIds ?? [])]);
   const data = await createAgentMember(supabase, access, fields);
   await addOwners(supabase, data.id, owners, teamMemberId);
-  const result = { ...data, owners: (await ownersOf(supabase, [data.id])).get(data.id) ?? [] };
+  const limits = await applyNewAgentLimits(supabase, data.id, teamMemberId, undefined);
+  const result = { ...data, owners: (await ownersOf(supabase, [data.id])).get(data.id) ?? [], limits };
   logAudit(supabase, { method: 'POST', endpoint: '/api/v1/agents', entityType: 'team_member', entityId: data.id, apiKeyId, teamMemberId, requestBody: body, afterSnapshot: result, statusCode: 201 });
   return created(result);
 }, { schema: createAgentSchema, permission: 'team.manage' });

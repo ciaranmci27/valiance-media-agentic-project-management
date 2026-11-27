@@ -224,7 +224,7 @@ A task holds one delegation link: handing it on again replaces it. The runs keep
 }
 ```
 
-- Name a person, or a reviewer agent on purpose, in `asked_to`. A default (your escalation target) that lands on an agent is refused (`422 approver_not_person`). Never yourself (`422 asked_self`).
+- `asked_to` may name only your managers, your escalation target, a person on the task's project who is not a guest, your orchestrator (or theirs, up the chain) or an Owner. Anyone else is refused with the list of who you may ask (`422 approver_not_allowed`, `details.allowed`). The same holds for a question that carries an action. Leave it out to reach your escalation target; a default that lands on an agent is refused (`422 approver_not_person`). Never yourself (`422 asked_self`), and never a guest: an agent asks a guest nothing, not even a plain question (`422 asked_guest`).
 - Act only when `decision` is `approved`. `rejected`, expired or cancelled means no.
 - `run_id` holds your run while it waits, as on a question.
 - Whoever the approval names decides it, or the Owner. `decided_via` says how: `app`, `api_key`, `agent` or `act_for`.
@@ -303,11 +303,15 @@ Send `Idempotency-Key` on any POST to make retries safe. Use a fresh UUID per th
 
 ## Limits and pause
 
-No limit applies until an Owner sets one. An Owner sets them on the agent's profile (Rules and powers), or with `PATCH /api/v1/agents/{id}` (MCP `update_agent`) and a `limits` object: `max_concurrent_runs`, `rate_per_minute`, `budget_usd`, `budget_tokens`, `budget_period` (`day`, `week` or `month`, UTC; `null` clears a field). Templates can carry limits. How the budget counts spend: [How spend is counted](#how-spend-is-counted).
+A new company agent (hired, or added with create_agent) starts with safe defaults: 30 writes and 10 messages a minute, and keys that end after 90 days. It has no spend budget until an Owner sets one, because spend is what its host reports ([Security model](../operating/security-model.md)). Agents made before keep no limits until an Owner sets one. An Owner changes them on the agent's profile (Rules and powers), at hire, or with `PATCH /api/v1/agents/{id}` (MCP `update_agent`) and a `limits` object: `max_concurrent_runs`, `rate_per_minute`, `budget_usd`, `budget_tokens`, `budget_period` (`day`, `week` or `month`, UTC), `max_run_spend_cents`, `write_rate_per_minute` and `send_rate_per_minute` (`null` clears a field). Templates can carry limits. How the budget counts spend: [How spend is counted](#how-spend-is-counted).
 
 | Answer | Reason | Meaning | Do |
 |---|---|---|---|
-| `402 BUDGET_EXCEEDED` | `budget_exceeded` | The budget for this period is spent. New runs are refused; owners are told once a period. | Finish what you hold, keep reporting usage, wait for the reset or a raise. |
+| `402 BUDGET_EXCEEDED` | `budget_exceeded` | The budget for this period is spent. Every write a paused agent may not make is refused (new runs included); owners are told once a period. | Finish or update your run, keep reporting usage, wait for the reset or a raise. |
+| `402 BUDGET_EXCEEDED` | `run_spend_exceeded` | A run of yours is past `max_run_spend_cents`. It is stopped (cancelled) and this write refused; the next one goes through. | Report what you have; start a new run only if the work needs it. |
+| `409 CONFLICT` | `spend_decrease` | A run's `cost_usd`, `tokens_in` or `tokens_out` lower than it already reported. Spend only goes up. | Send totals so far, never less. |
+| `429 RATE_LIMIT_EXCEEDED` | `write_rate_limited` | Over `write_rate_per_minute` writes a minute, across all your keys. Reads are not counted. | Back off until `details.reset_at`. |
+| `429 RATE_LIMIT_EXCEEDED` | `send_rate_limited` | Over `send_rate_per_minute` messages a minute: chat out, notifications, questions and approvals. | Put several things in one message. |
 | `409 CONFLICT` | `limit_concurrent_runs` | Too many runs going at once. | Finish one first. |
 | `409 CONFLICT` | `limit_concurrent_claims` | Too many claimed tasks at once (same number as runs). | Finish or release one. |
 | `429 RATE_LIMIT_EXCEEDED` | | Over the requests-per-minute limit (120 per key unless the agent has its own, shared across its keys). | Back off. `Retry-After` says how many seconds (MCP: `retry_after_seconds`). |
@@ -324,7 +328,7 @@ While paused, an agent can still:
 - update or finish a run it started;
 - release a claim.
 
-Every other write answers 423. People are never paused.
+Every other write answers 423. People are never paused. An agent over its budget, or holding a run past its per-run limit, is held the same way (402).
 
 Pause and budget refuse calls into this app only. An agent that also works elsewhere checks `get_my_status` (`GET /api/v1/agents/me/status`) before each turn and skips the turn when `can_start_work` is false ([External agents](external-agents.md#check-before-each-turn)). Webhooks `agent.paused`, `agent.resumed` and `budget.exceeded` tell its host at once.
 
@@ -338,8 +342,8 @@ Who pauses:
 
 The budget and Analytics count spend the same way, once:
 
-- **Work under a run counts as the run's own totals.** Its `cost_usd`, `tokens_in` and `tokens_out` are the truth.
-- **Usage and turns that name a run never add again.** Send `run_id` (or `run_external_id`) on `usage.recorded` and `turn.completed` to say they belong to a run. They only stand in where the run reports no cost or tokens of its own.
+- **Work under a run counts once, at the larger of what the run reports and what its usage reports.** Its `cost_usd`, `tokens_in` and `tokens_out` only go up, and usage under it can raise them but never adds on top.
+- **Usage and turns that name a run never add again.** Send `run_id` (or `run_external_id`) on `usage.recorded` and `turn.completed` to say they belong to a run. Turns only stand in where the run reports no tokens of its own.
 - **Usage that names no run adds on top.** So a run reporting $60 plus $50 of `usage.recorded` with no run is $110.
 - **Turns that name no run add their own tokens** only for an agent that reports no `usage.recorded` that period. Otherwise the usage already counts that work.
 - **Spent tokens are input plus output.** Cached tokens show in Analytics but never count against `budget_tokens`.

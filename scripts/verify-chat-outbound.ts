@@ -490,11 +490,18 @@ async function main() {
     const chatterIn = await inbound(companySlack, chatter, slackSigned(COMPANY_SECRET));
     check('company: chatter outside that thread is still ignored', chatterIn.body?.status === 'ignored', chatterIn.body);
 
-    // DMs.
+    // DMs. Ben's thread reply above was a while ago now: a DM to him is unprompted.
+    const ageFinanceInbound = () => s.q("UPDATE pm.chat_messages SET created_at = now() - interval '2 hours' WHERE agent_id = $1 AND direction = 'inbound'", [s.finance]);
+    await ageFinanceInbound();
     const unasked = await send(s.keys.finance, { text: 'Your expense report bounced.', person_id: s.ben });
-    check('company: a DM without X-Act-For or chat.notify is refused', unasked.status === 403 && reason(unasked) === 'chat_notify_required', unasked.body);
+    check('company: a DM without a recent message from them or chat.notify is refused', unasked.status === 403 && reason(unasked) === 'chat_notify_required', unasked.body);
     const opsScopeOnly = await send(s.keys.opsNotify, { text: 'hi', person_id: s.ben });
     check('company: chat.notify on the key alone (not the agent) is refused', opsScopeOnly.status === 403 && reason(opsScopeOnly) === 'chat_notify_required', opsScopeOnly.body);
+    // Ben and Ana each just wrote to Finance Bot: it may act for them.
+    const wrote = (externalId: string) => s.q(`INSERT INTO pm.chat_messages (connection_id, direction, status, conversation_id, external_user_id, identity_id, member_id, agent_id, text)
+      SELECT $1, 'inbound', 'pending', 'D_' || i.external_id, i.external_id, i.id, i.member_id, $2, 'hello' FROM pm.member_identities i WHERE i.external_id = $3`, [companySlack, s.finance, externalId]);
+    await wrote('U_BEN');
+    await wrote('U_ANA');
     const benPass = await mint(s.keys.finance, 'U_BEN');
     const anaPass = await mint(s.keys.finance, 'U_ANA');
     const mismatch = await send(s.keys.finance, { text: 'hi', person_id: s.ben }, anaPass);
@@ -504,6 +511,9 @@ async function main() {
     const opened = providerCalls.find((call) => call.url.endsWith('/conversations.open'));
     check('company: acting for Ben, Finance Bot DMs Ben', !!benPass && forBen.status === 201 && opened?.body?.users === 'U_BEN' && posts()[0]?.body?.channel === 'D_PRIVATE_U_BEN'
       && posts()[0]?.body?.username === 'Finance Bot', { forBen: forBen.body, calls: providerCalls.map((c) => c.url) });
+    await ageFinanceInbound();
+    const staleForBen = await send(s.keys.finance, { text: 'One more thing.', person_id: s.ben }, benPass);
+    check('company: once his message is older than 30 minutes, even a pass for Ben needs chat.notify', staleForBen.status === 403 && reason(staleForBen) === 'chat_notify_required', staleForBen.body);
     const notify = await send(s.keys.financeNotify, { text: 'Payroll runs tomorrow.', person_id: s.ben });
     check('company: with chat.notify on the agent and the key, an unprompted DM goes', notify.status === 201 && notify.body.data.to.person_id === s.ben, notify.body);
     const stranger = await send(s.keys.financeNotify, { text: 'hi', person_id: s.owner });

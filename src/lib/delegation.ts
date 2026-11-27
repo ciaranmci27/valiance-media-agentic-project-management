@@ -17,6 +17,12 @@ import { providerSchema } from './identities';
 export const ACT_FOR_HEADER = 'x-act-for';
 /** How long a delegation token lasts. */
 export const DELEGATION_TTL_SECONDS = 15 * 60;
+/**
+ * An agent's key mints a pass for a chat account only when that account
+ * wrote to this agent in chat within this many minutes: proof the person is
+ * asking right now, not just that their account is linked.
+ */
+export const ACT_FOR_PROOF_MINUTES = 30;
 /** Every delegation token starts with this, so a leaked one is recognisable. */
 export const DELEGATION_TOKEN_PREFIX = 'pd_';
 

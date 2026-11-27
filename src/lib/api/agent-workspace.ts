@@ -1,4 +1,4 @@
-import { agentLimitsRow, loadLimitState, setAgentLimits } from './agent-limits';
+import { agentLimitsRow, applyNewAgentLimits, loadLimitState, setAgentLimits } from './agent-limits';
 import { insertAuditRows } from './audit';
 import { currentAuditVia } from './request-context';
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -52,6 +52,7 @@ import { loadAgentAccess } from './agent-access';
 import { audienceSummaries, audienceWords, writeManagersOnlyAudience, type AudienceSummary } from './agent-hierarchy';
 import { readAll } from './read-all';
 import { ApiError, forbidden, notFound } from './errors';
+import { capSetupScopes, recordSetupConfirm, unrecordedConfirm, type NeedsOwnerConfirm } from './ai-setup-guard';
 import { readPage } from './pagination';
 
 /**
@@ -667,6 +668,8 @@ export interface HireResult {
   /** Scopes the agent role lacks that this hire gave the agent (per-member allows on the API channel). */
   scopes_beyond_role: string[];
   key?: NewAgentKey;
+  /** Hired in an AI setup session: key powers that wait for the Owner's Allow on the setup screen. */
+  needs_owner_confirm?: NeedsOwnerConfirm;
   connect: ConnectInfo;
 }
 
@@ -717,6 +720,7 @@ export async function hireAgent(
   const rulesInput = { ...(template?.rules ?? {}), ...rulesColumnsFrom(input.rules) };
   await agentRulesColumns(service, { id: '00000000-0000-4000-8000-000000000000', role: 'agent' }, rulesInput);
   let keyScopes: string[] | null = null;
+  let setupConfirm: string[] = [];
   let beyondRole: string[] = [];
   if (input.create_key) {
     if (!callerHolds(caller, 'api_keys.manage_all')) {
@@ -730,6 +734,13 @@ export async function hireAgent(
     const beyond = keyScopes.filter((scope) => !grantable.has(scope));
     if (beyond.length) {
       throw forbidden(`A key can only carry scopes you hold yourself: ${beyond.join(', ')}`, { reason: 'scope_escalation', beyond_caller: beyond });
+    }
+    // In an AI setup session: the template's powers at most; the sensitive ones wait on the Owner.
+    const cap = await capSetupScopes(service, keyScopes, { templateKey: template?.key ?? null });
+    keyScopes = cap.granted;
+    setupConfirm = cap.confirm;
+    if (keyScopes.length === 0) {
+      throw new ApiError(422, 'VALIDATION_ERROR', 'Every power asked for waits on the Owner, so no key can be made. Ask for the template\'s powers.', { reason: 'ai_setup_nothing_granted', waits_on_owner: setupConfirm });
     }
     // Powers the agent role lacks are given to this agent alone (who manages access only), so the key can carry them.
     beyondRole = await agentScopesBeyondRole(service, granter, null, keyScopes);
@@ -765,10 +776,9 @@ export async function hireAgent(
       row = data as Row;
       state.done.push('rules set');
     }
-    if (template?.limits) {
-      await setAgentLimits(service, agentId, template.limits, caller.memberId);
-      state.done.push('limits set');
-    }
+    // What the hirer chose, else the safe defaults with the template's own limits over them.
+    const limits = await applyNewAgentLimits(service, agentId, caller.memberId, input.limits, template?.limits ?? null);
+    if (limits) state.done.push('limits set');
     if (beyondRole.length) {
       state.scopeGrants = await addAgentScopeGrants(service, agentId, beyondRole, caller.memberId);
       state.done.push('powers beyond its role given');
@@ -811,6 +821,10 @@ export async function hireAgent(
         name: input.key_name ?? `${input.name}${template ? ` (${template.label})` : ''}`,
         // Hired over the API: the key records the calling key, so revoking that key revokes this one too.
         memberId: agentId, createdBy: caller.memberId, createdByKeyId: apiKeyId, scopes: granted.scopes, permissions: 'scoped',
+        // Left out: the workspace's agent key lifetime, else 90 days. Hiring is an Owner's, so null (until revoked) stands.
+        ...(input.key_expires_in_days !== undefined
+          ? { expiresAt: input.key_expires_in_days === null ? null : new Date(Date.now() + input.key_expires_in_days * 86_400_000).toISOString() }
+          : {}),
       });
       state.keyId = made.key.id;
       key = {
@@ -819,6 +833,9 @@ export async function hireAgent(
       };
     }
     if (requestId) await finishHireRequest(service, requestId, agentId);
+    const waits = key && setupConfirm.length
+      ? (await recordSetupConfirm(service, { kind: 'key_scopes', agentId, apiKeyId: key.id, scopes: setupConfirm })) ?? unrecordedConfirm(setupConfirm)
+      : null;
 
     return {
       agent: {
@@ -832,6 +849,7 @@ export async function hireAgent(
       access_added: state.accessAdded,
       scopes_beyond_role: beyondRole,
       ...(key ? { key } : {}),
+      ...(waits ? { needs_owner_confirm: waits } : {}),
       connect: buildConnectInfo(appUrl),
     };
   } catch (failure) {

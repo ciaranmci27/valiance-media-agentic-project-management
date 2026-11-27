@@ -16,7 +16,7 @@ import { workspaceApi } from '@/lib/agent-workspace';
 import { periodWords } from '@/lib/agent-profile';
 import { useDemo } from '@/lib/demo-context';
 import { invalidateTables } from '@/lib/query-cache';
-import { Button } from '@/components/ui/Button';
+import { SaveBar } from '@/components/ui/SaveBar';
 import { NumberInput } from '@/components/ui/inputs/NumberInput';
 import { Select } from '@/components/ui/inputs/Select';
 import { toast } from '@/components/ui/Toast';
@@ -31,7 +31,7 @@ import { formatAgo } from '@/lib/time-format';
  * its usage; every other write is refused.
  */
 
-type Draft = Record<'max_concurrent_runs' | 'rate_per_minute' | 'budget_usd' | 'budget_tokens', number | ''> & { budget_period: BudgetPeriod };
+type Draft = Record<'max_concurrent_runs' | 'rate_per_minute' | 'budget_usd' | 'budget_tokens' | 'max_run_spend_usd' | 'write_rate_per_minute' | 'send_rate_per_minute', number | ''> & { budget_period: BudgetPeriod };
 
 const draftOf = (limits: AgentLimits | null | undefined): Draft => {
   const l = agentLimitsOf(limits ?? null);
@@ -41,6 +41,10 @@ const draftOf = (limits: AgentLimits | null | undefined): Draft => {
     budget_usd: l.budget_usd ?? '',
     budget_tokens: l.budget_tokens ?? '',
     budget_period: l.budget_period,
+    // Shown in dollars, stored in cents.
+    max_run_spend_usd: l.max_run_spend_cents === null ? '' : l.max_run_spend_cents / 100,
+    write_rate_per_minute: l.write_rate_per_minute ?? '',
+    send_rate_per_minute: l.send_rate_per_minute ?? '',
   };
 };
 
@@ -111,6 +115,9 @@ export function LimitsPanel({ agentId, agentName, limits, usage, pausedAt, canEd
             budget_usd: valueOf(draft.budget_usd),
             budget_tokens: valueOf(draft.budget_tokens),
             budget_period: draft.budget_period,
+            max_run_spend_cents: draft.max_run_spend_usd === '' ? null : Math.max(1, Math.round(draft.max_run_spend_usd * 100)),
+            write_rate_per_minute: valueOf(draft.write_rate_per_minute),
+            send_rate_per_minute: valueOf(draft.send_rate_per_minute),
           },
         },
       });
@@ -133,7 +140,7 @@ export function LimitsPanel({ agentId, agentName, limits, usage, pausedAt, canEd
           {dirty && <span className="rounded-full bg-amber-500/[0.14] px-2 py-0.5 text-[11px] font-medium text-amber-300">Unsaved</span>}
         </div>
         <p className="mt-1 max-w-xl text-xs text-zinc-500">
-          How hard {agentName} may run. Pause it from the top of this page: it still reads, reports its heartbeat and its usage; everything else it tries is refused until it is resumed.
+          How hard {agentName} may run. Over its budget, or with a run past its limit, it is refused writes as if paused: it still reads, reports its heartbeat and its usage. Spend is what its host reports, so set a limit with your AI provider too.
         </p>
       </div>
 
@@ -146,8 +153,13 @@ export function LimitsPanel({ agentId, agentName, limits, usage, pausedAt, canEd
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <NumberInput label={LIMIT_LABELS.max_concurrent_runs} description={hint('Runs and claimed tasks at once.')} value={draft.max_concurrent_runs} onChange={set('max_concurrent_runs')} min={1} max={1000} step={1} disabled={!canEditLimits} placeholder="No limit" />
         <NumberInput label={LIMIT_LABELS.rate_per_minute} description={hint('Across all its keys.', '120 a minute per key')} value={draft.rate_per_minute} onChange={set('rate_per_minute')} min={1} max={10000} step={1} disabled={!canEditLimits} placeholder="120 a minute per key" />
-        <NumberInput label={LIMIT_LABELS.budget_usd} description={hint('Spend before new runs stop.')} value={draft.budget_usd} onChange={set('budget_usd')} min={0.01} step={1} precision={2} prefix="$" disabled={!canEditLimits} placeholder="No budget" />
+        <NumberInput label={LIMIT_LABELS.budget_usd} description={hint('Spend before its writes stop.')} value={draft.budget_usd} onChange={set('budget_usd')} min={0.01} step={1} precision={2} prefix="$" disabled={!canEditLimits} placeholder="No budget" />
         <NumberInput label={LIMIT_LABELS.budget_tokens} description={hint('Input and output tokens.')} value={draft.budget_tokens} onChange={set('budget_tokens')} min={1} step={1000} disabled={!canEditLimits} placeholder="No budget" />
+      </div>
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <NumberInput label="Most one run may spend" description={hint('A run past it is stopped.')} value={draft.max_run_spend_usd} onChange={set('max_run_spend_usd')} min={0.01} step={1} precision={2} prefix="$" disabled={!canEditLimits} placeholder="No limit" />
+        <NumberInput label={LIMIT_LABELS.write_rate_per_minute} description={hint('Across all its keys. Reads are not counted.')} value={draft.write_rate_per_minute} onChange={set('write_rate_per_minute')} min={1} max={10000} step={1} disabled={!canEditLimits} placeholder="No limit" />
+        <NumberInput label={LIMIT_LABELS.send_rate_per_minute} description={hint('Chat, notifications, questions and approvals.')} value={draft.send_rate_per_minute} onChange={set('send_rate_per_minute')} min={1} max={10000} step={1} disabled={!canEditLimits} placeholder="No limit" />
       </div>
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Select
@@ -163,18 +175,14 @@ export function LimitsPanel({ agentId, agentName, limits, usage, pausedAt, canEd
             <p className="text-sm font-medium text-zinc-300">Now</p>
             <p className={`mt-1.5 text-sm ${spent ? 'text-amber-300' : 'text-zinc-400'}`}>
               {usage.running_runs} running, {usage.live_claims} claimed. Spent {formatUsd(usage.spent_usd)} and {usage.spent_tokens.toLocaleString('en-US')} tokens {periodWords(agentLimitsOf(limits ?? null).budget_period)}.
-              {spent ? ' Its budget is spent: new runs are refused.' : ''}
+              {spent ? ' Its budget is spent: its writes are refused until it resets.' : ''}
             </p>
           </div>
         )}
       </div>
       {!canEditLimits && <p className="text-xs text-zinc-500">Only a workspace Owner changes limits.</p>}
       {canEditLimits && (
-        <div className="flex items-center justify-end gap-2">
-          {dirty && <span className="mr-auto text-xs text-amber-300">Limits not saved yet</span>}
-          {dirty && <Button variant="ghost" onClick={() => setDraft(saved)}>Discard</Button>}
-          <Button onClick={save} disabled={!dirty || busy}>{busy ? 'Saving' : 'Save limits'}</Button>
-        </div>
+        <SaveBar dirty={dirty} saving={busy} onDiscard={() => setDraft(saved)} onSave={save} saveLabel="Save limits" message="Limits not saved yet" />
       )}
     </section>
   );
